@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title>Gibran vs Zombie 3D (DOOM FPS)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: Arial, sans-serif;
+            user-select: none;
+        }
+
+        #ui {
+            position: absolute;
+            top: 15px;
+            width: 100%;
+            padding: 0 40px;
+            box-sizing: border-box;
+            font-size: 26px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 3px 3px 5px black;
+            pointer-events: none;
+            z-index: 4;
+        }
+
+        #ui .row {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #waveText {
+            text-align: center;
+            color: #74b9ff;
+            margin-top: 8px;
+            font-size: 22px;
+            letter-spacing: 1px;
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 30px;
+            height: 30px;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 30px;
+            text-align: center;
+            line-height: 30px;
+            pointer-events: none;
+            z-index: 4;
+            transition: color 0.08s;
+        }
+
+        #crosshair.hit {
+            color: #ff4757;
+        }
+
+        /* Radar / minimap */
+        #radar {
+            position: absolute;
+            bottom: 18px;
+            right: 18px;
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: rgba(10, 20, 30, 0.45);
+            border: 2px solid rgba(116, 185, 255, 0.5);
+            z-index: 4;
+            pointer-events: none;
+        }
+
+        /* Damage vignette */
+        #damage {
+            position: absolute;
+            inset: 0;
+            z-index: 6;
+            pointer-events: none;
+            opacity: 0;
+            box-shadow: inset 0 0 200px 80px rgba(180, 0, 0, 0.9);
+            transition: opacity 0.12s ease-out;
+        }
+
+        #blocker {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            flex-direction: column;
+            cursor: pointer;
+            z-index: 5;
+        }
+
+        #instructions {
+            font-size: 40px;
+            text-align: center;
+            text-shadow: 2px 2px 5px black;
+        }
+
+        #instructions span.small {
+            font-size: 22px;
+            color: #ddd;
+        }
+
+        #gameOver {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(150, 0, 0, 0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            flex-direction: column;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        /* ----- Cutscene / slideshow pembuka ----- */
+        #cutscene {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at 50% 30%, #2a0d0d, #000 80%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 20;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #cutscene .slide {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            animation: fadeIn 0.6s ease;
+        }
+
+        #cutscene .slide.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Panggung adegan */
+        .scene {
+            position: relative;
+            width: 80vw;
+            max-width: 720px;
+            height: 46vh;
+            max-height: 380px;
+            background: linear-gradient(#1a0f0a 0%, #3a1f12 60%, #120a06 100%);
+            border: 3px solid #7a2b2b;
+            border-radius: 12px;
+            box-shadow: 0 0 40px rgba(255, 60, 0, 0.35), inset 0 -40px 60px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+
+        /* Tanah */
+        .scene::after {
+            content: "";
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 26%;
+            background: linear-gradient(#241712, #0c0705);
+            box-shadow: inset 0 6px 12px rgba(0,0,0,0.6);
+        }
+
+        .actor {
+            position: absolute;
+            bottom: 16%;
+            font-size: clamp(40px, 8vw, 80px);
+            filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7));
+            z-index: 2;
+        }
+
+        .actor.flip { transform: scaleX(-1); }
+
+        .run { animation: bob 0.4s ease-in-out infinite alternate; }
+        @keyframes bob {
+            from { transform: translateY(0); }
+            to   { transform: translateY(-10px); }
+        }
+        .run.flip { animation: bobFlip 0.4s ease-in-out infinite alternate; }
+        @keyframes bobFlip {
+            from { transform: scaleX(-1) translateY(0); }
+            to   { transform: scaleX(-1) translateY(-10px); }
+        }
+
+        .shamble { animation: shamble 0.9s ease-in-out infinite alternate; }
+        @keyframes shamble {
+            from { transform: rotate(-6deg); }
+            to   { transform: rotate(6deg); }
+        }
+
+        /* Monas (monumen) digambar dengan CSS */
+        .monas {
+            position: absolute;
+            bottom: 22%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 26px;
+            height: 55%;
+            background: linear-gradient(#d8c9a0, #8a7a55);
+            z-index: 1;
+        }
+        .monas::before {
+            content: "🔥";
+            position: absolute;
+            top: -34px; left: 50%;
+            transform: translateX(-50%);
+            font-size: 30px;
+        }
+        .monas::after {
+            content: "";
+            position: absolute;
+            bottom: 0; left: 50%;
+            transform: translateX(-50%);
+            width: 90px;
+            height: 22px;
+            background: linear-gradient(#b8a878, #6a5a3a);
+        }
+
+        .crowd {
+            position: absolute;
+            bottom: 16%;
+            display: flex;
+            gap: 4px;
+            font-size: clamp(34px, 6vw, 64px);
+            filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7));
+            z-index: 2;
+        }
+
+        /* Balon dialog */
+        .bubble {
+            position: absolute;
+            top: 12%;
+            left: 50%;
+            transform: translateX(-50%) scale(0);
+            background: #fff;
+            color: #c0392b;
+            font-weight: 900;
+            font-size: clamp(20px, 4vw, 38px);
+            letter-spacing: 1px;
+            padding: 14px 26px;
+            border-radius: 16px;
+            white-space: nowrap;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+            z-index: 3;
+        }
+        .slide.active .bubble { animation: pop 0.5s 0.4s ease forwards; }
+        @keyframes pop {
+            0%   { transform: translateX(-50%) scale(0); }
+            70%  { transform: translateX(-50%) scale(1.15); }
+            100% { transform: translateX(-50%) scale(1); }
+        }
+        .bubble::after {
+            content: "";
+            position: absolute;
+            bottom: -16px; left: 30%;
+            border: 10px solid transparent;
+            border-top-color: #fff;
+        }
+
+        #cutscene .caption {
+            margin-top: 22px;
+            font-size: clamp(16px, 2.4vw, 24px);
+            max-width: 720px;
+            line-height: 1.4;
+            text-shadow: 2px 2px 4px #000;
+            min-height: 2.4em;
+        }
+
+        #cutscene .controls {
+            margin-top: 18px;
+            display: flex;
+            gap: 14px;
+            align-items: center;
+        }
+
+        #cutscene .dots { display: flex; gap: 8px; }
+        #cutscene .dot {
+            width: 11px; height: 11px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.25);
+        }
+        #cutscene .dot.on { background: #ff6b3a; }
+
+        #cutscene button {
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+            background: #c0392b;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 22px;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #7a1f15;
+            transition: transform 0.08s, background 0.15s;
+        }
+        #cutscene button:hover { background: #e0503e; }
+        #cutscene button:active { transform: translateY(3px); box-shadow: 0 1px 0 #7a1f15; }
+        #cutscene #skipBtn {
+            background: transparent;
+            box-shadow: none;
+            color: #aaa;
+            font-weight: normal;
+            font-size: 15px;
+            text-decoration: underline;
+        }
+        #cutscene #skipBtn:hover { color: #fff; }
+    </style>
+    <!-- Library Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+
+<body>
+    <div id="ui">
+        <div class="row">
+            <div id="hpText" style="color: #ff4757;">HP: 5</div>
+            <div id="scoreText">Score: 0</div>
+        </div>
+        <div class="row" style="margin-top: 10px;">
+            <div id="grenadeText" style="color: #2ed573;">Grenades: 3</div>
+            <div id="ammoText" style="color: #f1c40f;">Ammo: 30 / 3 Mags</div>
+        </div>
+        <div id="waveText">Wave 1</div>
+    </div>
+
+    <div id="crosshair">+</div>
+    <canvas id="radar" width="150" height="150"></canvas>
+    <div id="damage"></div>
+
+    <div id="cutscene">
+        <!-- Slide 1: orang dikejar zombie -->
+        <div class="slide active">
+            <div class="scene">
+                <div class="actor run" style="left: 22%;">🏃</div>
+                <div class="actor shamble" style="left: 58%;">🧟</div>
+            </div>
+        </div>
+        <!-- Slide 2: kerumunan zombie -->
+        <div class="slide">
+            <div class="scene">
+                <div class="crowd" style="left: 50%; transform: translateX(-50%);">
+                    <span class="shamble">🧟</span><span class="shamble" style="animation-delay:.2s">🧟‍♂️</span><span class="shamble" style="animation-delay:.4s">🧟</span><span class="shamble" style="animation-delay:.1s">🧟‍♀️</span><span class="shamble" style="animation-delay:.3s">🧟</span>
+                </div>
+            </div>
+        </div>
+        <!-- Slide 3: orang berlari ke arah Monas dikejar zombie -->
+        <div class="slide">
+            <div class="scene">
+                <div class="monas"></div>
+                <div class="actor run flip" style="left: 30%;">🏃</div>
+                <div class="actor shamble" style="left: 64%;">🧟</div>
+                <div class="actor shamble" style="left: 76%; animation-delay:.3s">🧟‍♂️</div>
+            </div>
+        </div>
+        <!-- Slide 4: player menghadang zombie + balon dialog -->
+        <div class="slide">
+            <div class="scene">
+                <div class="bubble">SAYA AKAN LAWAN</div>
+                <div class="actor" style="left: 34%;">🧍</div>
+                <div class="crowd" style="left: 62%;">
+                    <span class="shamble">🧟</span><span class="shamble" style="animation-delay:.3s">🧟‍♂️</span><span class="shamble" style="animation-delay:.15s">🧟</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="caption" id="cutsceneCaption"></div>
+        <div class="controls">
+            <button id="skipBtn">Lewati ⏭</button>
+            <div class="dots" id="cutsceneDots"></div>
+            <button id="nextBtn">Lanjut ▶</button>
+        </div>
+    </div>
+
+    <div id="blocker">
+        <div id="instructions">
+            <b>Click here to Start the Action</b><br /><br />
+            <span class="small">WASD = Bergerak | MOUSE = Pandangan Kiri Kanan | KLIK KIRI = Menembak AK47 | KLIK KANAN
+                = Lempar Granat | R = Reload | SHIFT = Lari</span>
+        </div>
+    </div>
+
+    <div id="gameOver">
+        <h1 style="font-size: 70px; margin-bottom: 0;">GAME OVER</h1>
+        <p id="finalScore" style="font-size: 30px; margin: 6px 0;">Score: 0</p>
+        <p id="bestScore" style="font-size: 24px; color: #f1c40f; margin: 0 0 10px;">Best: 0</p>
+        <p style="font-size: 26px;">Tekan SPASI untuk mengulang dari awal</p>
+    </div>
+
+    <script>
+        // ----------- DOM Overlay ----------- //
+        const scoreText = document.getElementById("scoreText");
+        const ammoText = document.getElementById("ammoText");
+        const hpText = document.getElementById("hpText");
+        const grenadeText = document.getElementById("grenadeText");
+        const waveText = document.getElementById("waveText");
+        const blocker = document.getElementById("blocker");
+        const gameOverScreen = document.getElementById("gameOver");
+        const finalScoreEl = document.getElementById("finalScore");
+        const bestScoreEl = document.getElementById("bestScore");
+        const crosshair = document.getElementById("crosshair");
+        const damageEl = document.getElementById("damage");
+        const radar = document.getElementById("radar");
+        const radarCtx = radar.getContext("2d");
+
+        // ----------- WebGL Setup ----------- //
+        let scene, camera, renderer;
+        let isPaused = true;
+        const clock = new THREE.Clock();
+
+        // ----------- Status & Variabel Fisik Game ----------- //
+        let score = 0;
+        let isGameOver = false;
+        let highScore = +(localStorage.getItem("gibsHighScore") || 0);
+
+        // Catatan: konstanta kecepatan dikalibrasi pada 60 fps, lalu dikalikan `step`
+        // (delta-time ternormalisasi) agar gerak konsisten di monitor refresh tinggi.
+        const player = {
+            hp: 5, ammo: 30, mags: 3, grenades: 3,
+            isReloading: false, lastShot: 0, speed: 1.5, radius: 5
+        };
+        const keys = { w: false, a: false, s: false, d: false, shift: false };
+        const mouse = { isDown: false };
+        let gunMesh, muzzleFlash, embers;
+        let gunRecoil = 0;      // kickback senjata (visual, tak mengganggu mouse-look)
+
+        // Difficulty / wave
+        const wave = { num: 1, time: 0, spawnTimer: 0, spawnInterval: 4, maxZombies: 10 };
+
+        // ----------- SFX ----------- //
+        const sfxShoot = new Audio('gun-shoot.mp3');
+        const sfxSpawn = new Audio('zombie-spawn.mp3');
+        const sfxExplode = new Audio('grenade-explode.mp3');
+        const sfxReload = new Audio('reload.mp3');
+        const sfxHit = new Audio('jokowi-kaget.mp3');
+
+        function playSFX(sfx) {
+            const node = sfx.cloneNode(true);
+            node.volume = 0.7;
+            node.play().catch(() => { });
+        }
+
+        // ----------- Geometry & Material bersama (hemat alokasi/GC) ----------- //
+        const GEO = {
+            bullet: new THREE.SphereGeometry(0.8, 6, 6),
+            zombie: new THREE.CylinderGeometry(3.5, 3.5, 12, 10),
+            grenade: new THREE.SphereGeometry(1.5, 8, 8),
+            explosion: new THREE.SphereGeometry(1, 16, 16),
+            mag: new THREE.BoxGeometry(1.5, 0.5, 2.5),
+            dropNade: new THREE.SphereGeometry(1, 8, 8),
+        };
+        const MAT = {
+            bullet: new THREE.MeshBasicMaterial({ color: 0xffff66 }),
+            grenade: new THREE.MeshLambertMaterial({ color: 0x2ecc71 }),
+            mag: new THREE.MeshLambertMaterial({ color: 0xf1c40f }),
+            dropNade: new THREE.MeshLambertMaterial({ color: 0x2ecc71 }),
+        };
+
+        // ----------- Container Entitas ----------- //
+        const bullets = [];
+        const zombies = [];
+        const grenades = [];
+        const explosions = [];
+        const drops = [];
+
+        // Vektor scratch yang dipakai ulang tiap frame (hindari alokasi di loop)
+        const _dir = new THREE.Vector3();
+        const _right = new THREE.Vector3();
+        const _tip = new THREE.Vector3();
+        const _v3 = new THREE.Vector3();
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(0x3a241a, 120, 650);    // Kabut asap apokaliptik (warna = horizon)
+
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2400);
+            camera.position.set(0, 10, 120);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // batasi beban GPU
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Ambient bernuansa hangat-kusam + cahaya bulan kemerahan dari horizon
+            scene.add(new THREE.AmbientLight(0xffd9b3, 0.35));
+            scene.add(new THREE.HemisphereLight(0x4a2c1a, 0x0a0a12, 0.45)); // langit oranye / tanah gelap
+            const dirLight = new THREE.DirectionalLight(0xff7b3a, 0.7);     // sinar oranye matahari/bulan apokaliptik
+            dirLight.position.set(-200, 120, -250);
+            scene.add(dirLight);
+
+            createSky();
+
+            // Lapangan: aspal gosong
+            const floor = new THREE.Mesh(
+                new THREE.PlaneGeometry(2000, 2000),
+                new THREE.MeshLambertMaterial({ color: 0x1c1a18 })
+            );
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            createMonas();
+            createCity();
+            createEmbers();
+
+            // ----- Senjata AK47 (parented ke kamera) -----
+            gunMesh = new THREE.Group();
+            const bodyGun = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 1, 6),
+                new THREE.MeshLambertMaterial({ color: 0x8B4513 })
+            );
+            const barrel = new THREE.Mesh(
+                new THREE.BoxGeometry(0.4, 0.4, 5),
+                new THREE.MeshLambertMaterial({ color: 0x111111 })
+            );
+            barrel.position.z = -4.5;
+            gunMesh.add(bodyGun);
+            gunMesh.add(barrel);
+
+            // Muzzle flash: PointLight + sprite kuning di ujung laras
+            muzzleFlash = new THREE.PointLight(0xffaa33, 0, 60, 2);
+            muzzleFlash.position.set(0, 0, -7);
+            gunMesh.add(muzzleFlash);
+
+            gunMesh.position.set(3, -2.5, -6);
+            camera.add(gunMesh);
+            scene.add(camera);
+
+            // ----- PointerLock -----
+            blocker.addEventListener('click', () => document.body.requestPointerLock());
+            document.addEventListener('pointerlockchange', () => {
+                if (document.pointerLockElement === document.body) {
+                    blocker.style.display = 'none';
+                    isPaused = false;
+                } else {
+                    if (!isGameOver) blocker.style.display = 'flex';
+                    isPaused = true;
+                }
+            });
+
+            // ----- Mouse look -----
+            const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+            document.addEventListener('mousemove', (e) => {
+                if (isPaused || isGameOver) return;
+                euler.setFromQuaternion(camera.quaternion);
+                euler.y -= e.movementX * 0.002;
+                euler.x -= e.movementY * 0.002;
+                euler.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, euler.x));
+                camera.quaternion.setFromEuler(euler);
+            });
+
+            // ----- Klik tembak / granat -----
+            document.addEventListener("mousedown", (e) => {
+                if (isPaused || isGameOver) return;
+                if (e.button === 0) mouse.isDown = true;
+                if (e.button === 2) handleThrowGrenade();
+            });
+            document.addEventListener("mouseup", (e) => { if (e.button === 0) mouse.isDown = false; });
+            document.addEventListener("contextmenu", e => e.preventDefault());
+
+            // ----- Keyboard -----
+            window.addEventListener("keydown", (e) => {
+                const key = e.key.toLowerCase();
+                if (keys.hasOwnProperty(key)) keys[key] = true;
+                if (e.key === 'Shift') keys.shift = true;
+                if (key === 'r') startReload();
+                if (e.code === 'Space' && isGameOver) resetGame();
+            });
+            window.addEventListener("keyup", (e) => {
+                const key = e.key.toLowerCase();
+                if (keys.hasOwnProperty(key)) keys[key] = false;
+                if (e.key === 'Shift') keys.shift = false;
+            });
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }, false);
+
+            bestScoreEl.innerText = `Best: ${highScore}`;
+            updateUI();
+        }
+
+        function createMonas() {
+            const monas = new THREE.Group();
+            const add = (geo, color, y, extra) => {
+                const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
+                m.position.y = y;
+                if (extra) extra(m);
+                monas.add(m);
+            };
+            add(new THREE.BoxGeometry(40, 5, 40), 0x777777, 2.5);
+            add(new THREE.BoxGeometry(30, 3, 30), 0xaaaaaa, 6.5);
+            add(new THREE.BoxGeometry(8, 55, 8), 0xdddddd, 35.5);
+            add(new THREE.CylinderGeometry(10, 4, 6, 8, 1, false), 0xbbbbbb, 66, m => m.rotation.y = Math.PI / 8);
+            add(new THREE.ConeGeometry(4, 15, 8), 0xffd700, 76.5);
+            scene.add(monas);
+        }
+
+        // ----------- Lingkungan: langit, kota, bara ----------- //
+
+        function createSky() {
+            // Langit kubah dengan gradien apokaliptik (zenith gelap -> horizon merah-oranye berasap)
+            const c = document.createElement('canvas');
+            c.width = 16; c.height = 256;
+            const g = c.getContext('2d');
+            const grad = g.createLinearGradient(0, 0, 0, 256);
+            grad.addColorStop(0.00, '#05060f'); // puncak: gelap pekat
+            grad.addColorStop(0.45, '#1a1320');
+            grad.addColorStop(0.68, '#5a2a16'); // smog merah-coklat
+            grad.addColorStop(0.82, '#a8431a'); // pijar horizon oranye
+            grad.addColorStop(0.92, '#3a241a'); // menyatu dgn warna fog
+            grad.addColorStop(1.00, '#1a1108');
+            g.fillStyle = grad;
+            g.fillRect(0, 0, 16, 256);
+
+            const tex = new THREE.CanvasTexture(c);
+            const sky = new THREE.Mesh(
+                new THREE.SphereGeometry(1500, 24, 16),
+                new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false })
+            );
+            scene.add(sky);
+
+            // Bulan/matahari redup yang terselubung asap
+            const moon = new THREE.Mesh(
+                new THREE.SphereGeometry(60, 24, 24),
+                new THREE.MeshBasicMaterial({ color: 0xff8c42, fog: false })
+            );
+            moon.position.set(-700, 320, -1100);
+            scene.add(moon);
+            const halo = new THREE.Mesh(
+                new THREE.SphereGeometry(110, 24, 24),
+                new THREE.MeshBasicMaterial({ color: 0xff5a1e, transparent: true, opacity: 0.22, fog: false, depthWrite: false })
+            );
+            halo.position.copy(moon.position);
+            scene.add(halo);
+        }
+
+        function createCity() {
+            // Siluet kota Jakarta yang runtuh: cincin gedung di luar arena (radius > 450 = backdrop).
+            const city = new THREE.Group();
+            const palette = [
+                new THREE.MeshLambertMaterial({ color: 0x26262b }),
+                new THREE.MeshLambertMaterial({ color: 0x2e2a26 }),
+                new THREE.MeshLambertMaterial({ color: 0x202428 }),
+                new THREE.MeshLambertMaterial({ color: 0x35302a }),
+                new THREE.MeshLambertMaterial({ color: 0x1c1d22 }),
+            ];
+            const burning = new THREE.MeshLambertMaterial({ color: 0x2a1a12, emissive: 0x6e2606, emissiveIntensity: 1 });
+
+            const RINGS = [
+                { r0: 470, r1: 600, hMin: 30, hMax: 120, count: 60 },
+                { r0: 600, r1: 760, hMin: 60, hMax: 240, count: 70 }, // skyline menara tinggi
+            ];
+
+            for (const ring of RINGS) {
+                for (let i = 0; i < ring.count; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const rad = ring.r0 + Math.random() * (ring.r1 - ring.r0);
+                    const x = Math.cos(angle) * rad;
+                    const z = Math.sin(angle) * rad;
+
+                    const w = 18 + Math.random() * 36;
+                    const d = 18 + Math.random() * 36;
+                    const h = ring.hMin + Math.random() * (ring.hMax - ring.hMin);
+
+                    const isBurning = Math.random() < 0.06;
+                    const mat = isBurning ? burning : palette[(Math.random() * palette.length) | 0];
+                    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+                    b.position.set(x, h / 2, z);
+                    // Sebagian gedung miring/runtuh
+                    if (Math.random() < 0.25) b.rotation.z = (Math.random() - 0.5) * 0.18;
+                    b.rotation.y = Math.random() * 0.4;
+                    city.add(b);
+
+                    // Puing tumpukan di kaki gedung
+                    if (Math.random() < 0.4) {
+                        const rw = w * (0.5 + Math.random() * 0.6);
+                        const rub = new THREE.Mesh(
+                            new THREE.BoxGeometry(rw, 4 + Math.random() * 8, rw),
+                            palette[(Math.random() * palette.length) | 0]
+                        );
+                        rub.position.set(x + (Math.random() - 0.5) * w, 3, z + (Math.random() - 0.5) * d);
+                        rub.rotation.y = Math.random();
+                        city.add(rub);
+                    }
+                }
+            }
+
+            // Beberapa puing/bangkai di dalam arena agar terasa kota mati (kosmetik, tanpa collision)
+            for (let i = 0; i < 26; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const rad = 70 + Math.random() * 340;
+                const x = Math.cos(angle) * rad;
+                const z = Math.sin(angle) * rad;
+                if (Math.abs(x) < 30 && Math.abs(z) < 30) continue; // jangan di atas Monas
+                const s = 4 + Math.random() * 10;
+                const rub = new THREE.Mesh(
+                    new THREE.BoxGeometry(s, 2 + Math.random() * 4, s * (0.6 + Math.random())),
+                    palette[(Math.random() * palette.length) | 0]
+                );
+                rub.position.set(x, 1.5, z);
+                rub.rotation.y = Math.random() * Math.PI;
+                rub.rotation.z = (Math.random() - 0.5) * 0.3;
+                city.add(rub);
+            }
+
+            scene.add(city);
+        }
+
+        function createEmbers() {
+            // Bara/abu beterbangan
+            const N = 380;
+            const pos = new Float32Array(N * 3);
+            for (let i = 0; i < N; i++) {
+                pos[i * 3] = (Math.random() - 0.5) * 700;
+                pos[i * 3 + 1] = Math.random() * 220;
+                pos[i * 3 + 2] = (Math.random() - 0.5) * 700;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const mat = new THREE.PointsMaterial({
+                color: 0xff7b2e, size: 1.6, transparent: true, opacity: 0.7,
+                fog: true, depthWrite: false, blending: THREE.AdditiveBlending
+            });
+            embers = new THREE.Points(geo, mat);
+            embers.frustumCulled = false;
+            scene.add(embers);
+        }
+
+        function updateEmbers(dt) {
+            if (!embers) return;
+            const p = embers.geometry.attributes.position.array;
+            for (let i = 1; i < p.length; i += 3) {
+                p[i] += dt * 8;               // melayang naik
+                if (p[i] > 220) p[i] = 0;     // wrap
+            }
+            // ikuti player agar bara selalu menyelimuti area sekitar
+            embers.position.x = camera.position.x;
+            embers.position.z = camera.position.z;
+            embers.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // ----------- Logika Mekanik ----------- //
+
+        function updateUI() {
+            scoreText.innerText = `Score: ${score}`;
+            ammoText.innerText = player.isReloading ? "Reloading..." : `Ammo: ${player.ammo} / ${player.mags} Mags`;
+            hpText.innerText = `HP: ${player.hp}`;
+            grenadeText.innerText = `Grenades: ${player.grenades}`;
+            waveText.innerText = `Wave ${wave.num}`;
+        }
+
+        function flashDamage() {
+            damageEl.style.opacity = 0.85;
+            setTimeout(() => damageEl.style.opacity = 0, 120);
+        }
+
+        function startReload() {
+            if (player.isReloading || player.mags <= 0 || player.ammo === 30) return;
+            player.isReloading = true;
+            playSFX(sfxReload);
+            updateUI();
+            gunMesh.rotation.x = -Math.PI / 4;
+            setTimeout(() => {
+                player.mags--;
+                player.ammo = 30;
+                player.isReloading = false;
+                gunMesh.rotation.x = 0;
+                updateUI();
+            }, 3000);
+        }
+
+        function spawnZombie() {
+            if (isGameOver || isPaused || zombies.length >= wave.maxZombies) return;
+
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 100 + Math.random() * 80;
+            const spawnX = camera.position.x + Math.cos(angle) * distance;
+            const spawnZ = camera.position.z + Math.sin(angle) * distance;
+
+            // Material di-clone per-zombie agar perubahan warna luka tidak menular
+            const zMesh = new THREE.Mesh(GEO.zombie, new THREE.MeshLambertMaterial({ color: 0x27ae60 }));
+            zMesh.position.set(spawnX, 6, spawnZ);
+            scene.add(zMesh);
+
+            const hp = 3 + Math.floor((wave.num - 1) / 2);              // makin lama makin tebal
+            const speed = 0.6 + Math.random() * 0.4 + (wave.num - 1) * 0.08;
+            zombies.push({ mesh: zMesh, hp, maxHp: hp, speed });
+            playSFX(sfxSpawn);
+        }
+
+        function handleThrowGrenade() {
+            if (player.grenades <= 0) return;
+            player.grenades--;
+            updateUI();
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const dir = raycaster.ray.direction;
+            let target;
+            if (dir.y < 0) {
+                const t = -camera.position.y / dir.y;
+                target = camera.position.clone().add(dir.multiplyScalar(t));
+            } else {
+                target = camera.position.clone().add(dir.multiplyScalar(150));
+                target.y = 0;
+            }
+
+            const gMesh = new THREE.Mesh(GEO.grenade, MAT.grenade);
+            gMesh.position.copy(camera.position);
+            scene.add(gMesh);
+            grenades.push({ mesh: gMesh, target, speed: 6 });
+        }
+
+        function explodeAt(pos) {
+            const expMesh = new THREE.Mesh(
+                GEO.explosion,
+                new THREE.MeshBasicMaterial({ color: 0xff4500, transparent: true, opacity: 0.85 })
+            );
+            expMesh.position.copy(pos);
+            expMesh.scale.setScalar(1);
+            scene.add(expMesh);
+            explosions.push({ mesh: expMesh, life: 1, scale: 40 });   // life 0..1
+            playSFX(sfxExplode);
+
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                const z = zombies[i];
+                if (z.mesh.position.distanceTo(pos) < 40 + 3.5) {
+                    spawnDrop(z.mesh.position);
+                    killZombie(i);
+                }
+            }
+            updateUI();
+        }
+
+        function killZombie(i) {
+            const z = zombies[i];
+            z.mesh.material.dispose();
+            scene.remove(z.mesh);
+            zombies.splice(i, 1);
+            score += 100;
+        }
+
+        function spawnDrop(pos) {
+            if (Math.random() < 0.5) {
+                const magMesh = new THREE.Mesh(GEO.mag, MAT.mag);
+                magMesh.position.set(pos.x, 1, pos.z);
+                scene.add(magMesh);
+                drops.push({ mesh: magMesh, type: 'mag', timer: 40 });   // detik
+            }
+            if (Math.random() < 0.2) {
+                const nadeMesh = new THREE.Mesh(GEO.dropNade, MAT.dropNade);
+                nadeMesh.position.set(pos.x + 1.5, 1, pos.z + 1.5);
+                scene.add(nadeMesh);
+                drops.push({ mesh: nadeMesh, type: 'grenade', timer: 40 });
+            }
+        }
+
+        function clearArray(arr) {
+            arr.forEach(o => {
+                if (o.mesh.material && o.mesh.material.dispose && o.mesh.material !== MAT.bullet
+                    && o.mesh.material !== MAT.grenade && o.mesh.material !== MAT.mag
+                    && o.mesh.material !== MAT.dropNade) o.mesh.material.dispose();
+                scene.remove(o.mesh);
+            });
+            arr.length = 0;
+        }
+
+        function resetGame() {
+            score = 0;
+            player.hp = 5; player.ammo = 30; player.mags = 3; player.grenades = 3;
+            player.isReloading = false;
+            gunMesh.rotation.x = 0;
+
+            wave.num = 1; wave.time = 0; wave.spawnTimer = 0;
+            wave.spawnInterval = 4; wave.maxZombies = 10;
+
+            isGameOver = false;
+            gameOverScreen.style.display = 'none';
+
+            camera.position.set(0, 10, 120);
+            camera.quaternion.set(0, 0, 0, 1);
+
+            clearArray(zombies);
+            clearArray(bullets);
+            clearArray(grenades);
+            clearArray(explosions);
+            clearArray(drops);
+
+            updateUI();
+            document.body.requestPointerLock();
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            document.exitPointerLock();
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem("gibsHighScore", highScore);
+            }
+            finalScoreEl.innerText = `Score: ${score}`;
+            bestScoreEl.innerText = `Best: ${highScore}`;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // ----------- Frame Loop ----------- //
+
+        function update(dt, step) {
+            if (isGameOver || isPaused) return;
+
+            // --- Wave / difficulty scaling ---
+            wave.time += dt;
+            const targetWave = 1 + Math.floor(wave.time / 25);   // naik tiap 25 detik
+            if (targetWave !== wave.num) {
+                wave.num = targetWave;
+                wave.spawnInterval = Math.max(1.2, 4 - (wave.num - 1) * 0.35);
+                wave.maxZombies = Math.min(28, 10 + (wave.num - 1) * 2);
+                updateUI();
+            }
+            wave.spawnTimer += dt;
+            if (wave.spawnTimer >= wave.spawnInterval) {
+                wave.spawnTimer = 0;
+                spawnZombie();
+            }
+
+            // --- 1. Gerak player (WASD relatif kamera) ---
+            camera.getWorldDirection(_dir);
+            _dir.y = 0; _dir.normalize();
+            _right.crossVectors(camera.up, _dir).normalize();
+
+            const oldX = camera.position.x, oldZ = camera.position.z;
+            const moveSpeed = player.speed * (keys.shift ? 1.7 : 1) * step;
+            if (keys.w) camera.position.addScaledVector(_dir, moveSpeed);
+            if (keys.s) camera.position.addScaledVector(_dir, -moveSpeed);
+            if (keys.a) camera.position.addScaledVector(_right, moveSpeed);
+            if (keys.d) camera.position.addScaledVector(_right, -moveSpeed);
+
+            const limit = 450;
+            camera.position.x = Math.max(-limit, Math.min(limit, camera.position.x));
+            camera.position.z = Math.max(-limit, Math.min(limit, camera.position.z));
+            if (Math.abs(camera.position.x) < 25 && Math.abs(camera.position.z) < 25) {
+                camera.position.x = oldX; camera.position.z = oldZ;
+            }
+
+            // --- Recoil & muzzle flash decay (visual, terpisah dari mouse-look) ---
+            gunRecoil = Math.max(0, gunRecoil - dt * 6);
+            gunMesh.position.z = -6 + gunRecoil * 2.5;
+            if (muzzleFlash.intensity > 0) muzzleFlash.intensity = Math.max(0, muzzleFlash.intensity - dt * 30);
+
+            // --- 2. Tembak (kiri klik), fire-rate berbasis waktu nyata ---
+            if (mouse.isDown && !player.isReloading && Date.now() - player.lastShot > 130 && player.ammo > 0) {
+                gunMesh.children[1].getWorldPosition(_tip);
+                const bMesh = new THREE.Mesh(GEO.bullet, MAT.bullet);
+                bMesh.position.copy(_tip);
+
+                camera.getWorldDirection(_v3);
+                // sedikit spread agar tembakan terasa hidup
+                _v3.x += (Math.random() - 0.5) * 0.01;
+                _v3.y += (Math.random() - 0.5) * 0.01;
+                _v3.normalize();
+
+                scene.add(bMesh);
+                bullets.push({ mesh: bMesh, dir: _v3.clone(), speed: 6, life: 100 });
+                playSFX(sfxShoot);
+
+                player.ammo--;
+                player.lastShot = Date.now();
+                gunRecoil = 1;
+                muzzleFlash.intensity = 4;
+                updateUI();
+
+                if (player.ammo === 0 && player.mags > 0) startReload();
+            }
+
+            // --- 3. Granat melayang ---
+            for (let i = grenades.length - 1; i >= 0; i--) {
+                const g = grenades[i];
+                _v3.subVectors(g.target, g.mesh.position);
+                const dist = _v3.length();
+                const stepDist = g.speed * step;
+                if (dist < stepDist) {
+                    explodeAt(g.target);
+                    scene.remove(g.mesh);
+                    grenades.splice(i, 1);
+                } else {
+                    _v3.normalize();
+                    g.mesh.position.addScaledVector(_v3, stepDist);
+                }
+            }
+
+            // --- 4. Animasi ledakan (membesar + memudar) ---
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const e = explosions[i];
+                e.life -= dt * 3;
+                const s = e.scale * (1 - e.life * 0.5);
+                e.mesh.scale.setScalar(Math.max(0.1, s));
+                e.mesh.material.opacity = Math.max(0, e.life * 0.85);
+                if (e.life <= 0) {
+                    e.mesh.material.dispose();
+                    scene.remove(e.mesh);
+                    explosions.splice(i, 1);
+                }
+            }
+
+            // --- Item drop ---
+            for (let i = drops.length - 1; i >= 0; i--) {
+                const d = drops[i];
+                d.timer -= dt;
+                d.mesh.rotation.y += 3 * dt;
+                d.mesh.position.y = 1.2 + Math.sin(wave.time * 3 + i) * 0.3;
+
+                const dist = Math.hypot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z);
+                if (dist < player.radius + 2) {
+                    if (d.type === 'mag') player.mags++;
+                    else player.grenades++;
+                    updateUI();
+                    scene.remove(d.mesh);
+                    drops.splice(i, 1);
+                    continue;
+                }
+                if (d.timer <= 0) { scene.remove(d.mesh); drops.splice(i, 1); }
+            }
+
+            // --- 5. Peluru maju ---
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.mesh.position.addScaledVector(b.dir, b.speed * step);
+                b.life -= step;
+                const hitMonas = (Math.abs(b.mesh.position.x) < 22 && Math.abs(b.mesh.position.z) < 22 && b.mesh.position.y < 35);
+                if (b.life <= 0 || hitMonas) { scene.remove(b.mesh); bullets.splice(i, 1); }
+            }
+
+            // --- 6. AI Zombie ---
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                const z = zombies[i];
+                const dx = camera.position.x - z.mesh.position.x;
+                const dz = camera.position.z - z.mesh.position.z;
+                const angleToPlayer = Math.atan2(dz, dx);
+                const oldZX = z.mesh.position.x, oldZZ = z.mesh.position.z;
+
+                z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
+                z.mesh.position.x += Math.cos(angleToPlayer) * z.speed * step;
+                z.mesh.position.z += Math.sin(angleToPlayer) * z.speed * step;
+
+                if (Math.abs(z.mesh.position.x) < 24 && Math.abs(z.mesh.position.z) < 24) {
+                    z.mesh.position.x = oldZX; z.mesh.position.z = oldZZ;
+                }
+
+                const distToEye = Math.hypot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z);
+                if (distToEye < player.radius + 3.5) {
+                    player.hp--;
+                    z.mesh.material.dispose();
+                    scene.remove(z.mesh);
+                    zombies.splice(i, 1);
+                    updateUI();
+                    flashDamage();
+                    playSFX(sfxHit);
+                    if (player.hp <= 0) { gameOver(); return; }
+                    continue;
+                }
+
+                // Tabrakan peluru
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const b = bullets[j];
+                    if (b.mesh.position.distanceTo(z.mesh.position) < 4.5) {
+                        z.hp--;
+                        scene.remove(b.mesh);
+                        bullets.splice(j, 1);
+                        crosshair.classList.add('hit');
+                        setTimeout(() => crosshair.classList.remove('hit'), 80);
+
+                        // gradasi warna luka berdasar rasio hp
+                        const t = z.hp / z.maxHp;
+                        z.mesh.material.color.setHex(t > 0.5 ? 0x27ae60 : t > 0.25 ? 0xd35400 : 0xc0392b);
+
+                        if (z.hp <= 0) { spawnDrop(z.mesh.position); killZombie(i); updateUI(); break; }
+                    }
+                }
+            }
+        }
+
+        // ----------- Radar / minimap ----------- //
+        function drawRadar() {
+            const W = 150, R = 70, range = 220;
+            radarCtx.clearRect(0, 0, W, W);
+
+            // arah hadap player
+            camera.getWorldDirection(_dir);
+            const heading = Math.atan2(_dir.x, _dir.z);
+            const cos = Math.cos(-heading), sin = Math.sin(-heading);
+
+            radarCtx.save();
+            radarCtx.translate(W / 2, W / 2);
+
+            // Monas (titik abu di pusat dunia)
+            plotRadar(-camera.position.x, -camera.position.z, cos, sin, R, range, "#bbbbbb", 4);
+            // Zombie
+            for (const z of zombies)
+                plotRadar(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z, cos, sin, R, range, "#ff4757", 3);
+            // Drops
+            for (const d of drops)
+                plotRadar(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z, cos, sin, R, range, d.type === 'mag' ? "#f1c40f" : "#2ecc71", 2.5);
+
+            // player di pusat
+            radarCtx.fillStyle = "#74b9ff";
+            radarCtx.beginPath();
+            radarCtx.moveTo(0, -6); radarCtx.lineTo(4, 5); radarCtx.lineTo(-4, 5);
+            radarCtx.closePath(); radarCtx.fill();
+            radarCtx.restore();
+        }
+        function plotRadar(dx, dz, cos, sin, R, range, color, size) {
+            // rotasikan agar arah hadap selalu ke atas
+            const rx = dx * cos - dz * sin;
+            const rz = dx * sin + dz * cos;
+            const px = (rx / range) * R;
+            const py = (rz / range) * R;
+            if (px * px + py * py > R * R) return; // di luar jangkauan
+            radarCtx.fillStyle = color;
+            radarCtx.beginPath();
+            radarCtx.arc(px, py, size, 0, Math.PI * 2);
+            radarCtx.fill();
+        }
+
+        let radarTick = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.05);   // clamp anti-spike
+            const step = dt * 60;                           // normalisasi ke baseline 60fps
+            update(dt, step);
+
+            if (!isPaused && !isGameOver) {
+                updateEmbers(dt);
+                if (radarTick++ & 1) drawRadar();
+            }
+            renderer.render(scene, camera);
+        }
+
+        // ----------- Cutscene / slideshow pembuka ----------- //
+        (function initCutscene() {
+            const cutscene = document.getElementById("cutscene");
+            const slides = cutscene.querySelectorAll(".slide");
+            const caption = document.getElementById("cutsceneCaption");
+            const nextBtn = document.getElementById("nextBtn");
+            const skipBtn = document.getElementById("skipBtn");
+            const dotsWrap = document.getElementById("cutsceneDots");
+
+            const captions = [
+                "Jakarta runtuh... seorang warga kabur dari kejaran zombie.",
+                "Tapi mereka tak sendiri — segerombolan zombie ikut bangkit.",
+                "Dia berlari menuju Monas, satu-satunya tempat berlindung.",
+                "Di depan gerombolan, ia berhenti dan berbalik..."
+            ];
+
+            slides.forEach(() => {
+                const d = document.createElement("div");
+                d.className = "dot";
+                dotsWrap.appendChild(d);
+            });
+            const dots = dotsWrap.querySelectorAll(".dot");
+
+            let idx = 0;
+            function show(i) {
+                slides.forEach((s, n) => s.classList.toggle("active", n === i));
+                dots.forEach((d, n) => d.classList.toggle("on", n === i));
+                caption.textContent = captions[i];
+                nextBtn.textContent = (i === slides.length - 1) ? "MULAI ⚔️" : "Lanjut ▶";
+            }
+
+            function finish() {
+                cutscene.style.display = "none";  // blocker di bawahnya muncul -> klik untuk pointerlock
+            }
+
+            nextBtn.addEventListener("click", () => {
+                if (idx < slides.length - 1) show(++idx);
+                else finish();
+            });
+            skipBtn.addEventListener("click", finish);
+
+            show(0);
+        })();
+    </script>
+</body>
+
+</html>
