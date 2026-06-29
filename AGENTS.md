@@ -6,7 +6,7 @@ This repository is a single-page browser game titled "Gibran vs Zombie 3D (DOOM 
 
 - Main code is in `index.html`.
 - The page includes inline CSS and JavaScript and loads `three.js` from a CDN.
-- Game assets include simple sound files: `gun-shoot.mp3`, `zombie-spawn.mp3`, `grenade-explode.mp3`, and `reload.mp3`.
+- Game assets live under `assets/`: sound files in `assets/sounds/` (`gun-shoot.mp3`, `zombie-spawn.mp3`, `grenade-explode.mp3`, `reload.mp3`, `jokowi-kaget.mp3`) and visible assets (3D models/textures/images) in `assets/visuals/` (e.g. `zombie.glb`).
 
 ## What agents should know
 
@@ -30,4 +30,5 @@ This repository is a single-page browser game titled "Gibran vs Zombie 3D (DOOM 
 ## Useful files
 
 - `index.html` — entire game implementation and UI.
-- `*.mp3` — sound effects used by the game.
+- `assets/sounds/*.mp3` — sound effects used by the game.
+- `assets/visuals/` — 3D models / textures / images (e.g. `zombie.glb`).

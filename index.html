@@ -326,6 +326,9 @@
     </style>
     <!-- Library Three.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Loader model 3D + util clone karakter ber-skeleton (versi global, cocok r128) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 </head>
 
 <body>
@@ -441,15 +444,40 @@
         let gunMesh, muzzleFlash, embers;
         let gunRecoil = 0;      // kickback senjata (visual, tak mengganggu mouse-look)
 
+        // ----------- Model 3D Zombie (opsional) ----------- //
+        // Bentuk zombie diambil dari `assets/visuals/zombie.glb`.
+        // Jika gagal dimuat / belum ada, otomatis fallback ke silinder default.
+        let zombieModel = null;        // template hasil load (di-clone per-spawn)
+        let zombieClip = null;         // AnimationClip pertama dari file (animasi "Take 01")
+        // Dikalibrasi utk zombie.glb (Sketchfab, tinggi lokal ~7.1 unit):
+        const ZOMBIE_SCALE = 5.0;   // skala model zombie (besar/kecil)
+        // Koreksi orientasi model dalam DERAJAT (utak-atik bila pose salah):
+        //  - ZOMBIE_ROT_X: 90 atau -90 untuk MENEGAKKAN model yang rebah/terlentang
+        //  - ZOMBIE_ROT_Y: yaw, putar menghadap (90 / 180 / -90)
+        //  - ZOMBIE_ROT_Z: miringkan kiri/kanan
+        const ZOMBIE_ROT_X = 0;
+        const ZOMBIE_ROT_Y = 0;
+        const ZOMBIE_ROT_Z = 0;
+
+        // ----------- Tata letak arena (mengikuti Taman Monas) ----------- //
+        // Area dalam (rumput) = [-PARK.hx..PARK.hx] x [-PARK.hz..PARK.hz].
+        // Pagar tepat di tepi area; di luarnya Jalan Medan Merdeka, lalu kota.
+        const PARK = { hx: 620, hz: 340 };   // setengah ukuran taman (di dalam pagar)
+        const FENCE_H = 16;                  // tinggi pagar keliling
+        const ROAD_W = 90;                   // lebar Jalan Medan Merdeka (di luar pagar)
+
+        const rand = (a, b) => a + Math.random() * (b - a);
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
         // Difficulty / wave
         const wave = { num: 1, time: 0, spawnTimer: 0, spawnInterval: 4, maxZombies: 10 };
 
         // ----------- SFX ----------- //
-        const sfxShoot = new Audio('gun-shoot.mp3');
-        const sfxSpawn = new Audio('zombie-spawn.mp3');
-        const sfxExplode = new Audio('grenade-explode.mp3');
-        const sfxReload = new Audio('reload.mp3');
-        const sfxHit = new Audio('jokowi-kaget.mp3');
+        const sfxShoot = new Audio('assets/sounds/gun-shoot.mp3');
+        const sfxSpawn = new Audio('assets/sounds/zombie-spawn.mp3');
+        const sfxExplode = new Audio('assets/sounds/grenade-explode.mp3');
+        const sfxReload = new Audio('assets/sounds/reload.mp3');
+        const sfxHit = new Audio('assets/sounds/jokowi-kaget.mp3');
 
         function playSFX(sfx) {
             const node = sfx.cloneNode(true);
@@ -485,15 +513,21 @@
         const _right = new THREE.Vector3();
         const _tip = new THREE.Vector3();
         const _v3 = new THREE.Vector3();
+        // Scratch utk animasi rangka zombie (prosedural)
+        const _wq = new THREE.Quaternion();
+        const _pq = new THREE.Quaternion();
+        const _dq = new THREE.Quaternion();
+        const _ld = new THREE.Quaternion();
+        const _axis = new THREE.Vector3();
 
         init();
         animate();
 
         function init() {
             scene = new THREE.Scene();
-            scene.fog = new THREE.Fog(0x3a241a, 120, 650);    // Kabut asap apokaliptik (warna = horizon)
+            scene.fog = new THREE.Fog(0x3a241a, 220, 1700);   // Kabut asap apokaliptik (warna = horizon)
 
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2400);
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 4000);
             camera.position.set(0, 10, 120);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -510,17 +544,14 @@
 
             createSky();
 
-            // Lapangan: aspal gosong
-            const floor = new THREE.Mesh(
-                new THREE.PlaneGeometry(2000, 2000),
-                new THREE.MeshLambertMaterial({ color: 0x1c1a18 })
-            );
-            floor.rotation.x = -Math.PI / 2;
-            scene.add(floor);
-
+            createGround();      // tanah, rumput taman, Jalan Medan Merdeka
+            createParkRoads();    // pelataran tengah + Jalan Silang Monas (diagonal)
+            createFence();        // pagar keliling (tembok batas player)
+            createParkProps();    // air mancur, kolam, pohon (kosmetik)
             createMonas();
             createCity();
             createEmbers();
+            loadZombieModel();
 
             // ----- Senjata AK47 (parented ke kamera) -----
             gunMesh = new THREE.Group();
@@ -617,6 +648,157 @@
             scene.add(monas);
         }
 
+        // ----------- Arena: tanah, jalan, pagar, properti taman ----------- //
+
+        function createGround() {
+            // Tanah dasar luas (aspal gelap) menutupi sampai ke kaki kota
+            const base = new THREE.Mesh(
+                new THREE.PlaneGeometry(5000, 5000),
+                new THREE.MeshLambertMaterial({ color: 0x141310 })
+            );
+            base.rotation.x = -Math.PI / 2;
+            base.position.y = -0.5;
+            scene.add(base);
+
+            // Rumput taman di dalam pagar
+            const grass = new THREE.Mesh(
+                new THREE.PlaneGeometry(PARK.hx * 2, PARK.hz * 2),
+                new THREE.MeshLambertMaterial({ color: 0x2c5f22 })
+            );
+            grass.rotation.x = -Math.PI / 2;
+            scene.add(grass);
+
+            // Jalan Medan Merdeka: pita aspal mengelilingi tepat di luar pagar
+            const roadMat = new THREE.MeshLambertMaterial({ color: 0x26262a });
+            const ox = PARK.hx + ROAD_W / 2, oz = PARK.hz + ROAD_W / 2;
+            const lenX = PARK.hx * 2 + ROAD_W * 2, lenZ = PARK.hz * 2 + ROAD_W * 2;
+            const mkRoad = (w, d, x, z) => {
+                const r = new THREE.Mesh(new THREE.PlaneGeometry(w, d), roadMat);
+                r.rotation.x = -Math.PI / 2;
+                r.position.set(x, 0.02, z);
+                scene.add(r);
+            };
+            mkRoad(lenX, ROAD_W, 0, -oz);   // utara
+            mkRoad(lenX, ROAD_W, 0, oz);    // selatan
+            mkRoad(ROAD_W, lenZ, -ox, 0);   // barat
+            mkRoad(ROAD_W, lenZ, ox, 0);    // timur
+        }
+
+        function createParkRoads() {
+            // Pelataran tengah (cawan Monas)
+            const plaza = new THREE.Mesh(
+                new THREE.CircleGeometry(95, 40),
+                new THREE.MeshLambertMaterial({ color: 0x8a7a4a })
+            );
+            plaza.rotation.x = -Math.PI / 2;
+            plaza.position.y = 0.05;
+            scene.add(plaza);
+
+            // Jalan Silang Monas: dua pita diagonal menyilang membentuk X dari sudut ke pusat
+            const roadMat = new THREE.MeshLambertMaterial({ color: 0x35353a });
+            const diagLen = 2 * Math.hypot(PARK.hx, PARK.hz);
+            const ang = Math.atan2(PARK.hz, PARK.hx);
+            for (const a of [ang, -ang]) {
+                const grp = new THREE.Group();
+                grp.rotation.y = a;                 // putar di sumbu tegak -> diagonal di tanah
+                const road = new THREE.Mesh(new THREE.PlaneGeometry(diagLen, 40), roadMat);
+                road.rotation.x = -Math.PI / 2;
+                road.position.y = 0.03;
+                grp.add(road);
+                scene.add(grp);
+            }
+        }
+
+        function createFence() {
+            // Pagar keliling: batas keras player; zombie melompatinya saat masuk.
+            const grp = new THREE.Group();
+            const hx = PARK.hx, hz = PARK.hz, H = FENCE_H;
+            const postMat = new THREE.MeshLambertMaterial({ color: 0x5a3326 });
+            const railMat = new THREE.MeshLambertMaterial({ color: 0x6e3f2c });
+            const postGeo = new THREE.BoxGeometry(3, H, 3);   // dibagikan antar tiang
+            const addPost = (x, z) => {
+                const p = new THREE.Mesh(postGeo, postMat);
+                p.position.set(x, H / 2, z);
+                grp.add(p);
+            };
+            const addRail = (w, d, x, z, y) => {
+                const r = new THREE.Mesh(new THREE.BoxGeometry(w, 1.6, d), railMat);
+                r.position.set(x, y, z);
+                grp.add(r);
+            };
+            // Dua batang horizontal tiap sisi
+            for (const z of [-hz, hz]) { addRail(hx * 2, 2, 0, z, H * 0.72); addRail(hx * 2, 2, 0, z, H * 0.36); }
+            for (const x of [-hx, hx]) { addRail(2, hz * 2, x, 0, H * 0.72); addRail(2, hz * 2, x, 0, H * 0.36); }
+            // Tiang tiap ~38 unit
+            const step = 38;
+            for (let x = -hx; x <= hx; x += step) { addPost(x, -hz); addPost(x, hz); }
+            for (let z = -hz; z <= hz; z += step) { addPost(-hx, z); addPost(hx, z); }
+            scene.add(grp);
+        }
+
+        function createParkProps() {
+            // Semua kosmetik (tanpa collision), sekadar mengisi taman.
+            // Air Mancur Menari (barat)
+            const water = new THREE.MeshLambertMaterial({ color: 0x274d6b });
+            const fountainX = -PARK.hx * 0.55;
+            const fountain = new THREE.Mesh(new THREE.CylinderGeometry(42, 46, 3, 28), water);
+            fountain.position.set(fountainX, 1.5, 0);
+            scene.add(fountain);
+            const jet = new THREE.Mesh(new THREE.ConeGeometry(4, 22, 12), new THREE.MeshLambertMaterial({ color: 0x6fb3d6 }));
+            jet.position.set(fountainX, 12, 0);
+            scene.add(jet);
+
+            // Kolam Pantul (utara)
+            const pool = new THREE.Mesh(new THREE.BoxGeometry(150, 1.5, 60), water);
+            pool.position.set(0, 0.8, -PARK.hz * 0.55);
+            scene.add(pool);
+
+            // Pohon-pohon tersebar di rumput
+            const trunkMat = new THREE.MeshLambertMaterial({ color: 0x4a3322 });
+            const leafMat = new THREE.MeshLambertMaterial({ color: 0x1f4d18 });
+            const trunkGeo = new THREE.CylinderGeometry(2, 2.5, 16, 6);
+            const leafGeo = new THREE.ConeGeometry(12, 26, 7);
+            for (let i = 0; i < 40; i++) {
+                const x = rand(-PARK.hx + 30, PARK.hx - 30);
+                const z = rand(-PARK.hz + 30, PARK.hz - 30);
+                if (Math.abs(x) < 120 && Math.abs(z) < 120) continue;   // jangan di pelataran tengah
+                const t = new THREE.Mesh(trunkGeo, trunkMat); t.position.set(x, 8, z);
+                const l = new THREE.Mesh(leafGeo, leafMat); l.position.set(x, 26, z);
+                scene.add(t); scene.add(l);
+            }
+        }
+
+        function loadZombieModel() {
+            // Penyebab umum gagal muat -> beri pesan jelas di console.
+            const url = new URL('assets/visuals/zombie.glb', location.href).href;
+            console.log('[zombie.glb] halaman:', location.href, '| memuat:', url);
+            if (location.protocol === 'file:') {
+                console.warn('[zombie.glb] Halaman dibuka via file:// — browser memblokir pemuatan .glb. ' +
+                    'Jalankan lewat HTTP server, mis: python -m http.server 8000  lalu buka http://localhost:8000');
+            }
+            if (typeof THREE.GLTFLoader !== 'function') {
+                console.warn('[zombie.glb] THREE.GLTFLoader tidak tersedia (script CDN gagal dimuat?). Pakai silinder.');
+                return;
+            }
+            const loader = new THREE.GLTFLoader();
+            loader.load(
+                'assets/visuals/zombie.glb',
+                (gltf) => {
+                    zombieModel = gltf.scene;
+                    zombieClip = (gltf.animations && gltf.animations[0]) || null;
+                    const found = Object.keys(collectBones(gltf.scene).map);
+                    console.log('[zombie.glb] dimuat ✓  tulang animasi cocok:', found.length, found);
+                    if (found.length < 6) {
+                        const all = [];
+                        gltf.scene.traverse(o => { if (o.isBone || o.type === 'Bone') all.push(o.name); });
+                        console.warn('[zombie.glb] tulang tak cukup cocok — animasi jalan tak aktif. Nama tulang asli:', all);
+                    }
+                },
+                undefined,
+                (err) => console.warn('[zombie.glb] gagal dimuat — pakai silinder. Detail:', err)
+            );
+        }
+
         // ----------- Lingkungan: langit, kota, bara ----------- //
 
         function createSky() {
@@ -636,7 +818,7 @@
 
             const tex = new THREE.CanvasTexture(c);
             const sky = new THREE.Mesh(
-                new THREE.SphereGeometry(1500, 24, 16),
+                new THREE.SphereGeometry(3000, 24, 16),
                 new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false })
             );
             scene.add(sky);
@@ -657,7 +839,7 @@
         }
 
         function createCity() {
-            // Siluet kota Jakarta yang runtuh: cincin gedung di luar arena (radius > 450 = backdrop).
+            // Siluet kota Jakarta yang runtuh: cincin gedung jauh di luar taman & jalan (backdrop).
             const city = new THREE.Group();
             const palette = [
                 new THREE.MeshLambertMaterial({ color: 0x26262b }),
@@ -669,8 +851,8 @@
             const burning = new THREE.MeshLambertMaterial({ color: 0x2a1a12, emissive: 0x6e2606, emissiveIntensity: 1 });
 
             const RINGS = [
-                { r0: 470, r1: 600, hMin: 30, hMax: 120, count: 60 },
-                { r0: 600, r1: 760, hMin: 60, hMax: 240, count: 70 }, // skyline menara tinggi
+                { r0: 820, r1: 1050, hMin: 40, hMax: 160, count: 90 },
+                { r0: 1050, r1: 1380, hMin: 80, hMax: 320, count: 110 }, // skyline menara tinggi
             ];
 
             for (const ring of RINGS) {
@@ -705,24 +887,6 @@
                         city.add(rub);
                     }
                 }
-            }
-
-            // Beberapa puing/bangkai di dalam arena agar terasa kota mati (kosmetik, tanpa collision)
-            for (let i = 0; i < 26; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const rad = 70 + Math.random() * 340;
-                const x = Math.cos(angle) * rad;
-                const z = Math.sin(angle) * rad;
-                if (Math.abs(x) < 30 && Math.abs(z) < 30) continue; // jangan di atas Monas
-                const s = 4 + Math.random() * 10;
-                const rub = new THREE.Mesh(
-                    new THREE.BoxGeometry(s, 2 + Math.random() * 4, s * (0.6 + Math.random())),
-                    palette[(Math.random() * palette.length) | 0]
-                );
-                rub.position.set(x, 1.5, z);
-                rub.rotation.y = Math.random() * Math.PI;
-                rub.rotation.z = (Math.random() - 0.5) * 0.3;
-                city.add(rub);
             }
 
             scene.add(city);
@@ -794,20 +958,144 @@
         function spawnZombie() {
             if (isGameOver || isPaused || zombies.length >= wave.maxZombies) return;
 
-            const angle = Math.random() * Math.PI * 2;
-            const distance = 100 + Math.random() * 80;
-            const spawnX = camera.position.x + Math.cos(angle) * distance;
-            const spawnZ = camera.position.z + Math.sin(angle) * distance;
+            // Titik di pagar, dekat posisi player. Sebagian besar dari sisi terdekat
+            // (biar cepat masuk), sisanya acak agar serangan datang dari segala arah.
+            const spread = 150;
+            const cx = camera.position.x, cz = camera.position.z;
+            let side;
+            if (Math.random() < 0.7) {
+                const dN = cz + PARK.hz, dS = PARK.hz - cz, dW = cx + PARK.hx, dE = PARK.hx - cx;
+                const m = Math.min(dN, dS, dW, dE);
+                side = m === dN ? 0 : m === dS ? 1 : m === dW ? 2 : 3;
+            } else {
+                side = Math.floor(Math.random() * 4);
+            }
+            let fx, fz, inX = 0, inZ = 0;            // (fx,fz)=titik pagar, (inX,inZ)=arah masuk
+            if (side === 0) { fz = -PARK.hz; inZ = 1; fx = clamp(cx + rand(-spread, spread), -PARK.hx, PARK.hx); }
+            else if (side === 1) { fz = PARK.hz; inZ = -1; fx = clamp(cx + rand(-spread, spread), -PARK.hx, PARK.hx); }
+            else if (side === 2) { fx = -PARK.hx; inX = 1; fz = clamp(cz + rand(-spread, spread), -PARK.hz, PARK.hz); }
+            else { fx = PARK.hx; inX = -1; fz = clamp(cz + rand(-spread, spread), -PARK.hz, PARK.hz); }
 
-            // Material di-clone per-zombie agar perubahan warna luka tidak menular
-            const zMesh = new THREE.Mesh(GEO.zombie, new THREE.MeshLambertMaterial({ color: 0x27ae60 }));
-            zMesh.position.set(spawnX, 6, spawnZ);
-            scene.add(zMesh);
+            const OUT = 45, IN = 55;                  // mulai di luar pagar, mendarat di dalam
+            const startX = fx - inX * OUT, startZ = fz - inZ * OUT;
+            const landX = fx + inX * IN, landZ = fz + inZ * IN;
 
             const hp = 3 + Math.floor((wave.num - 1) / 2);              // makin lama makin tebal
-            const speed = 0.6 + Math.random() * 0.4 + (wave.num - 1) * 0.08;
-            zombies.push({ mesh: zMesh, hp, maxHp: hp, speed });
+            // -30% dari kalibrasi awal (0.6 + rand*0.4 + (wave-1)*0.08)
+            const speed = (0.6 + Math.random() * 0.4 + (wave.num - 1) * 0.08) * 0.3;
+
+            let zMesh, bones = null, mixer = null, isModel = false;
+            if (zombieModel) {
+                // Clone karakter ber-skeleton (mesh.clone biasa tak menyalin skeleton dgn benar).
+                const model = THREE.SkeletonUtils.clone(zombieModel);
+                // Material di-clone per-instance agar efek "terluka" (emissive) tak menular.
+                model.traverse(o => { if (o.isMesh && o.material) o.material = o.material.clone(); });
+
+                // Grup-dalam meng-koreksi orientasi & skala; grup-luar (zMesh) yang di-lookAt ke player.
+                // Urutan rotasi: Z(roll) -> X(tegak) -> Y(yaw) agar yaw selalu di sumbu vertikal dunia.
+                const d2r = Math.PI / 180;
+                const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), ZOMBIE_ROT_X * d2r);
+                const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ZOMBIE_ROT_Y * d2r);
+                const qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), ZOMBIE_ROT_Z * d2r);
+                const inner = new THREE.Group();
+                inner.quaternion.copy(qy).multiply(qx).multiply(qz);
+                inner.scale.setScalar(ZOMBIE_SCALE);
+                inner.add(model);
+
+                zMesh = new THREE.Group();
+                zMesh.add(inner);
+                // Klip "Take 01" = idle yang MENEGAKKAN badan (memutar tulang root/master)
+                // & menggoyangkan kepala. Tetap diputar agar zombie berdiri; kaki/lengan
+                // ditimpa animasi jalan prosedural di animateZombieRig.
+                if (zombieClip) {
+                    mixer = new THREE.AnimationMixer(model);
+                    mixer.clipAction(zombieClip).play();
+                    mixer.update(0);                 // pasang pose berdiri sebelum tangkap rest
+                }
+                bones = collectBones(model);
+                isModel = true;
+            } else {
+                // Fallback silinder. Material di-clone agar warna luka tak menular antar instance.
+                zMesh = new THREE.Mesh(GEO.zombie, new THREE.MeshLambertMaterial({ color: 0x27ae60 }));
+            }
+            const baseY = isModel ? 0 : 6;             // y saat menapak tanah
+            zMesh.position.set(startX, baseY, startZ);
+            scene.add(zMesh);
+
+            // state 'jumping' -> melompati pagar; lalu 'chasing' -> kejar player seperti biasa
+            zombies.push({
+                mesh: zMesh, hp, maxHp: hp, speed, bones, mixer, isModel, baseY, phase: Math.random() * 6.28,
+                state: 'jumping', jumpT: 0, jumpDur: 1.1,
+                sx: startX, sz: startZ, lx: landX, lz: landZ
+            });
             playSFX(sfxSpawn);
+        }
+
+        // Kumpulkan tulang yang dianimasikan + simpan pose istirahatnya (rest).
+        // GLTFLoader membersihkan nama (titik dihapus), jadi cocokkan via normalisasi:
+        // buang semua non-alfanumerik -> "thigh.L_Armature" == "thighL_Armature" == "thighlarmature".
+        function collectBones(model) {
+            const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const targets = {
+                thighL: 'thighlarmature', thighR: 'thighrarmature',
+                shinL: 'shinlarmature', shinR: 'shinrarmature',
+                armL: 'upperarmlarmature', armR: 'upperarmrarmature',
+                root: 'rootarmature', master: 'masterarmature',
+            };
+            const map = {}, rest = {};
+            model.traverse(o => {
+                const nn = norm(o.name);
+                for (const k in targets) {
+                    if (!map[k] && (nn === targets[k] || nn.includes(targets[k]))) map[k] = o;
+                }
+            });
+            for (const k in map) rest[k] = { q: map[k].quaternion.clone(), p: map[k].position.clone() };
+            return { map, rest };
+        }
+
+        // Animasi jalan/lompat prosedural: ayun tulang relatif rest, mengelilingi sumbu
+        // lateral tubuh di world-space (jadi arah ayunan benar apa pun orientasi rig).
+        function animateZombieRig(z, dt) {
+            if (z.isModel && z.bones && z.bones.map.thighL && z.bones.map.thighR) {
+                const b = z.bones.map, r = z.bones.rest;
+                // sumbu kiri-kanan tubuh = up × arah-hadap(ke player); bebas dari orientasi/yaw rig
+                _dir.set(camera.position.x - z.mesh.position.x, 0, camera.position.z - z.mesh.position.z);
+                if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, 1);
+                _dir.normalize();
+                _axis.set(0, 1, 0).cross(_dir).normalize();
+                const inner = z.mesh.children[0];
+
+                const swing = (key, angle) => {
+                    const bone = b[key];
+                    if (!bone) return;
+                    bone.parent.getWorldQuaternion(_pq);
+                    _dq.setFromAxisAngle(_axis, angle);
+                    _ld.copy(_pq).invert().multiply(_dq).multiply(_pq);   // delta world -> ruang parent
+                    bone.quaternion.copy(r[key].q).premultiply(_ld);
+                };
+
+                if (z.state === 'jumping') {
+                    // Pose melompat: paha terangkat, lutut menekuk, lengan naik.
+                    swing('thighL', 1.1); swing('thighR', 1.1);
+                    swing('shinL', -1.3); swing('shinR', -1.3);
+                    swing('armL', -1.0); swing('armR', -1.0);
+                    if (inner) inner.position.y = 0;
+                    return;
+                }
+
+                // Berjalan: ayun kaki & lengan bergantian + bob badan.
+                z.phase += dt * (5 + z.speed * 6);
+                const s = Math.sin(z.phase);
+                const SW = 0.55, KN = 0.7, AR = 0.4;   // amplitudo paha / lutut / lengan
+                swing('thighL', s * SW); swing('thighR', -s * SW);
+                swing('shinL', Math.max(0, -s) * KN); swing('shinR', Math.max(0, s) * KN);
+                swing('armL', -s * AR); swing('armR', s * AR);
+                if (inner) inner.position.y = Math.abs(Math.sin(z.phase)) * 1.2;
+            } else if (!z.isModel && z.state === 'chasing') {
+                // Silinder: bob kecil agar tak terasa meluncur.
+                z.phase += dt * 9;
+                z.mesh.position.y = z.baseY + Math.abs(Math.sin(z.phase)) * 1.2;
+            }
         }
 
         function handleThrowGrenade() {
@@ -854,9 +1142,29 @@
             updateUI();
         }
 
+        // Buang material milik 1 zombie. Untuk model: material di-clone per-instance
+        // jadi aman di-dispose; geometri/skeleton dibagi dgn template -> JANGAN di-dispose.
+        function disposeZombie(z) {
+            if (z.isModel) {
+                z.mesh.traverse(o => { if (o.isMesh && o.material && o.material.dispose) o.material.dispose(); });
+            } else if (z.mesh.material) {
+                z.mesh.material.dispose();
+            }
+        }
+
+        // Umpan-balik "terluka" berdasar rasio hp. Silinder: ganti warna; model: emissive merah.
+        function tintZombie(z, t) {
+            if (z.isModel) {
+                const hex = t > 0.5 ? 0x000000 : t > 0.25 ? 0x5a2600 : 0x6e0000;
+                z.mesh.traverse(o => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setHex(hex); });
+            } else if (z.mesh.material) {
+                z.mesh.material.color.setHex(t > 0.5 ? 0x27ae60 : t > 0.25 ? 0xd35400 : 0xc0392b);
+            }
+        }
+
         function killZombie(i) {
             const z = zombies[i];
-            z.mesh.material.dispose();
+            disposeZombie(z);
             scene.remove(z.mesh);
             zombies.splice(i, 1);
             score += 100;
@@ -902,7 +1210,8 @@
             camera.position.set(0, 10, 120);
             camera.quaternion.set(0, 0, 0, 1);
 
-            clearArray(zombies);
+            zombies.forEach(z => { disposeZombie(z); scene.remove(z.mesh); });
+            zombies.length = 0;
             clearArray(bullets);
             clearArray(grenades);
             clearArray(explosions);
@@ -956,9 +1265,10 @@
             if (keys.a) camera.position.addScaledVector(_right, moveSpeed);
             if (keys.d) camera.position.addScaledVector(_right, -moveSpeed);
 
-            const limit = 450;
-            camera.position.x = Math.max(-limit, Math.min(limit, camera.position.x));
-            camera.position.z = Math.max(-limit, Math.min(limit, camera.position.z));
+            // Pagar = batas keras: player tertahan di dalam taman.
+            const bx = PARK.hx - player.radius - 2, bz = PARK.hz - player.radius - 2;
+            camera.position.x = clamp(camera.position.x, -bx, bx);
+            camera.position.z = clamp(camera.position.z, -bz, bz);
             if (Math.abs(camera.position.x) < 25 && Math.abs(camera.position.z) < 25) {
                 camera.position.x = oldX; camera.position.z = oldZ;
             }
@@ -1054,45 +1364,66 @@
             // --- 6. AI Zombie ---
             for (let i = zombies.length - 1; i >= 0; i--) {
                 const z = zombies[i];
-                const dx = camera.position.x - z.mesh.position.x;
-                const dz = camera.position.z - z.mesh.position.z;
-                const angleToPlayer = Math.atan2(dz, dx);
+                if (z.mixer) z.mixer.update(dt);   // idle: jaga badan tegak + goyang kepala
                 const oldZX = z.mesh.position.x, oldZZ = z.mesh.position.z;
 
-                z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
-                z.mesh.position.x += Math.cos(angleToPlayer) * z.speed * step;
-                z.mesh.position.z += Math.sin(angleToPlayer) * z.speed * step;
+                if (z.state === 'jumping') {
+                    // Busur melompati pagar: lerp horizontal start->mendarat, y = busur sinus.
+                    z.jumpT += dt / z.jumpDur;
+                    const t = Math.min(1, z.jumpT);
+                    z.mesh.position.x = z.sx + (z.lx - z.sx) * t;
+                    z.mesh.position.z = z.sz + (z.lz - z.sz) * t;
+                    z.mesh.position.y = z.baseY + Math.sin(Math.PI * t) * (FENCE_H + 14);
+                    z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
+                    if (t >= 1) { z.state = 'chasing'; z.mesh.position.y = z.baseY; }
+                } else {
+                    // Kejar player (grounded)
+                    const dx = camera.position.x - z.mesh.position.x;
+                    const dz = camera.position.z - z.mesh.position.z;
+                    const angleToPlayer = Math.atan2(dz, dx);
+                    z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
+                    z.mesh.position.x += Math.cos(angleToPlayer) * z.speed * step;
+                    z.mesh.position.z += Math.sin(angleToPlayer) * z.speed * step;
 
-                if (Math.abs(z.mesh.position.x) < 24 && Math.abs(z.mesh.position.z) < 24) {
-                    z.mesh.position.x = oldZX; z.mesh.position.z = oldZZ;
+                    // Tabrakan dgn Monas -> mundur
+                    if (Math.abs(z.mesh.position.x) < 24 && Math.abs(z.mesh.position.z) < 24) {
+                        z.mesh.position.x = oldZX; z.mesh.position.z = oldZZ;
+                    }
+
+                    const distToEye = Math.hypot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z);
+                    if (distToEye < player.radius + 3.5) {
+                        player.hp--;
+                        disposeZombie(z);
+                        scene.remove(z.mesh);
+                        zombies.splice(i, 1);
+                        updateUI();
+                        flashDamage();
+                        playSFX(sfxHit);
+                        if (player.hp <= 0) { gameOver(); return; }
+                        continue;
+                    }
                 }
 
-                const distToEye = Math.hypot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z);
-                if (distToEye < player.radius + 3.5) {
-                    player.hp--;
-                    z.mesh.material.dispose();
-                    scene.remove(z.mesh);
-                    zombies.splice(i, 1);
-                    updateUI();
-                    flashDamage();
-                    playSFX(sfxHit);
-                    if (player.hp <= 0) { gameOver(); return; }
-                    continue;
-                }
+                animateZombieRig(z, dt);   // jalan/lompat prosedural
 
-                // Tabrakan peluru
+                // Tabrakan peluru (berlaku saat melompat maupun mengejar).
+                // Titik dada relatif posisi kini (model: origin di kaki; silinder: di pusat).
+                const hitR = z.isModel ? 6 : 4.5;
+                const hitY = z.mesh.position.y + (z.isModel ? 6 : 0);
                 for (let j = bullets.length - 1; j >= 0; j--) {
                     const b = bullets[j];
-                    if (b.mesh.position.distanceTo(z.mesh.position) < 4.5) {
+                    const bdx = b.mesh.position.x - z.mesh.position.x;
+                    const bdy = b.mesh.position.y - hitY;
+                    const bdz = b.mesh.position.z - z.mesh.position.z;
+                    if (bdx * bdx + bdy * bdy + bdz * bdz < hitR * hitR) {
                         z.hp--;
                         scene.remove(b.mesh);
                         bullets.splice(j, 1);
                         crosshair.classList.add('hit');
                         setTimeout(() => crosshair.classList.remove('hit'), 80);
 
-                        // gradasi warna luka berdasar rasio hp
-                        const t = z.hp / z.maxHp;
-                        z.mesh.material.color.setHex(t > 0.5 ? 0x27ae60 : t > 0.25 ? 0xd35400 : 0xc0392b);
+                        // gradasi luka berdasar rasio hp
+                        tintZombie(z, z.hp / z.maxHp);
 
                         if (z.hp <= 0) { spawnDrop(z.mesh.position); killZombie(i); updateUI(); break; }
                     }
@@ -1102,7 +1433,7 @@
 
         // ----------- Radar / minimap ----------- //
         function drawRadar() {
-            const W = 150, R = 70, range = 220;
+            const W = 150, R = 70, range = 420;
             radarCtx.clearRect(0, 0, W, W);
 
             // arah hadap player
