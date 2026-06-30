@@ -20,7 +20,7 @@ Three.js r128 is loaded from a CDN, so an internet connection is required.
 
 Everything lives in [index.html](index.html) — inline CSS, DOM overlay, and the full game in one `<script>`. There are no modules; all functions and state are top-level globals. Assets live under `assets/`: SFX in `assets/sounds/` (`*.mp3`), and visible assets (3D models, textures, images) in `assets/visuals/` (e.g. `zombie.glb`). Reference them by relative path from the repo root.
 
-- **Entry point:** `init()` builds the scene then `animate()` starts the render loop. Both are called immediately after global state declarations (~line 489).
+- **Entry point:** `init()` builds the scene then `animate()` starts the render loop. Both are called immediately after global state declarations (~line 523).
 - **Opening cutscene:** a self-invoking `initCutscene()` IIFE (bottom of the script) runs a pure-DOM/CSS 4-slide slideshow (`#cutscene` overlay) before play. It's independent of the Three.js loop — `finish()` just hides the overlay to reveal `#blocker`, whose click requests PointerLock. No game state is touched here.
 - **Environment is decorative:** `createSky` (canvas-gradient sky dome + moon/halo), `createCity` (two building rings beyond the ±450 arena plus in-arena rubble), and `createEmbers` (a `THREE.Points` ash field) build the apocalyptic backdrop. Only `embers` animates (`updateEmbers` drifts particles upward and recenters them on the player each frame); none of it has collision.
 - **Game loop:** `animate()` → `requestAnimationFrame` → `update(dt, step)` → `renderer.render`. `update()` early-returns when `isPaused` or `isGameOver`, so all gameplay (movement, shooting, AI, collisions) only advances while pointer-locked and alive.
