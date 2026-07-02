@@ -87,6 +87,28 @@
             background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.42) 100%);
         }
 
+        /* Film grain halus (tekstur noise dibuat runtime, digeser per langkah) */
+        #grain {
+            position: absolute;
+            inset: -100px;
+            z-index: 3;
+            pointer-events: none;
+            opacity: 0.05;
+            animation: grainShift 0.9s steps(8) infinite;
+        }
+
+        @keyframes grainShift {
+            0%    { transform: translate(0, 0); }
+            12.5% { transform: translate(-25px, 10px); }
+            25%   { transform: translate(15px, -20px); }
+            37.5% { transform: translate(-10px, 25px); }
+            50%   { transform: translate(20px, 5px); }
+            62.5% { transform: translate(-20px, -15px); }
+            75%   { transform: translate(10px, 20px); }
+            87.5% { transform: translate(-15px, -5px); }
+            100%  { transform: translate(0, 0); }
+        }
+
         /* Damage vignette */
         #damage {
             position: absolute;
@@ -341,6 +363,15 @@
     <!-- Loader model 3D + util clone karakter ber-skeleton (versi global, cocok r128) -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+    <!-- Post-processing: bloom sinematik + FXAA + koreksi gamma (fallback aman bila gagal dimuat) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/FXAAShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 </head>
 
 <body>
@@ -360,6 +391,7 @@
     <canvas id="radar" width="150" height="150"></canvas>
     <div id="damage"></div>
     <div id="vignette"></div>
+    <div id="grain"></div>
 
     <div id="cutscene">
         <!-- Slide 1: orang dikejar zombie -->
@@ -409,7 +441,7 @@
         <div id="instructions">
             <b>Click here to Start the Action</b><br /><br />
             <span class="small">WASD = Bergerak | MOUSE = Pandangan Kiri Kanan | KLIK KIRI = Menembak AK47 | KLIK KANAN
-                = Lempar Granat | R = Reload | SHIFT = Lari</span>
+                = Bidik (Iron Sight) | G = Lempar Granat | R = Reload | SHIFT = Lari | SPASI = Lompat</span>
         </div>
     </div>
 
@@ -455,17 +487,26 @@
         // (delta-time ternormalisasi) agar gerak konsisten di monitor refresh tinggi.
         const player = {
             hp: 5, ammo: 30, mags: 3, grenades: 3,
-            isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5
+            isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
+            vy: 0, onGround: true            // vertikal: lompat (SPASI) & gravitasi
         };
         const keys = { w: false, a: false, s: false, d: false, shift: false };
         const mouse = { isDown: false };
-        let gunMesh, muzzleFlash, muzzlePoint, muzzleSprite, embers;
+        let gunMesh, muzzleFlash, muzzlePoint, muzzleSprite;
         let gunRecoil = 0;      // kickback senjata (visual, tak mengganggu mouse-look)
+        let gunBobT = 0;        // fase goyangan senjata saat berjalan (visual)
+        // Bidik iron sight (ADS, klik kanan): zoom FOV + senjata ke tengah, transisi halus
+        let isAiming = false, aimT = 0;   // aimT 0..1
+        const BASE_FOV = 70, AIM_ZOOM = 1.2;   // zoom 20% saat membidik
         // Referensi utk animasi dekoratif & bayangan yang mengikuti player (updateDecor)
-        let dirLight, flameLight, burningMat;
+        let dirLight, flameLight, flameGlow, burningMat, waterTex;
         const waterJets = [];              // kerucut air mancur (denyut pelan)
+        const fireSprites = [];            // pijar api gedung terbakar (billboard aditif)
+        const emberLayers = [];            // lapisan partikel bara & abu
         const explosionLights = [];        // pool lampu ledakan (jumlah lampu konstan -> tak recompile shader)
         let nextExplosionLight = 0;
+        // Post-processing (bloom + FXAA); null bila script CDN gagal -> fallback render langsung
+        let composer = null, fxaaPass = null;
 
         // ----------- Model 3D Zombie (opsional) ----------- //
         // Bentuk zombie diambil dari `assets/visuals/zombie.glb`.
@@ -488,6 +529,12 @@
         const PARK = { hx: 620, hz: 340 };   // setengah ukuran taman (di dalam pagar)
         const FENCE_H = 16;                  // tinggi pagar keliling
         const ROAD_W = 90;                   // lebar Jalan Medan Merdeka (di luar pagar)
+        // Penghalang pejal di taman: bak air mancur (bisa dinaiki dari atas) & pohon
+        const FOUNTAIN = { x: -620 * 0.55, z: 0, r: 47, topY: 3.2 };   // x = -PARK.hx*0.55
+        const treeColliders = [];            // silinder tabrakan batang pohon {x,z,r}
+        // Lompat player (SPASI): kalibrasi detik nyata
+        const JUMP_V = 28;                   // kecepatan awal lompat (unit/dtk) -> puncak ~5.6 unit
+        const GRAVITY = 70;                  // gravitasi (unit/dtk^2)
 
         const rand = (a, b) => a + Math.random() * (b - a);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -543,6 +590,49 @@
             g.globalAlpha = 1;
         }
 
+        // Normal map prosedural dari heightmap canvas (kanal merah = tinggi, dgn wrap).
+        // Catatan r128: transform UV (repeat/offset) diambil dari material.map, jadi
+        // normal map otomatis mengikuti repeat milik map diffuse — tekstur bisa dishare.
+        function makeNormalMap(w, h, drawHeight, strength = 2) {
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const g = c.getContext('2d');
+            drawHeight(g, w, h);
+            const src = g.getImageData(0, 0, w, h);
+            const out = g.createImageData(w, h);
+            const hgt = (x, y) => src.data[(((y + h) % h) * w + ((x + w) % w)) * 4];
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const dx = (hgt(x - 1, y) - hgt(x + 1, y)) / 255 * strength;
+                    const dy = (hgt(x, y - 1) - hgt(x, y + 1)) / 255 * strength;
+                    const inv = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+                    const i = (y * w + x) * 4;
+                    out.data[i] = (dx * inv * 0.5 + 0.5) * 255;
+                    out.data[i + 1] = (dy * inv * 0.5 + 0.5) * 255;
+                    out.data[i + 2] = inv * 255;
+                    out.data[i + 3] = 255;
+                }
+            }
+            g.putImageData(out, 0, 0);
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;   // TANPA sRGB — normal map wajib linear
+        }
+
+        // Heightmap noise abu-abu generik utk makeNormalMap
+        function noiseHeight(base, jitter, n, sMin, sMax) {
+            return (g, w, h) => {
+                g.fillStyle = `rgb(${base},${base},${base})`;
+                g.fillRect(0, 0, w, h);
+                for (let i = 0; i < n; i++) {
+                    const v = base + (Math.random() - 0.5) * 2 * jitter | 0;
+                    g.fillStyle = `rgb(${v},${v},${v})`;
+                    const s = sMin + Math.random() * (sMax - sMin);
+                    g.fillRect(Math.random() * w, Math.random() * h, s, s);
+                }
+            };
+        }
+
         // ----------- Geometry & Material bersama (hemat alokasi/GC) ----------- //
         const GEO = {
             bullet: new THREE.SphereGeometry(0.8, 6, 6),
@@ -551,9 +641,10 @@
             explosion: new THREE.SphereGeometry(1, 16, 16),
             mag: new THREE.BoxGeometry(1.5, 0.5, 2.5),
             dropNade: new THREE.SphereGeometry(1, 8, 8),
+            ring: new THREE.RingGeometry(0.75, 1, 32),   // gelombang kejut / cincin debu
         };
         const MAT = {
-            bullet: new THREE.MeshBasicMaterial({ color: 0xffe27a }),                          // tracer terang
+            bullet: new THREE.MeshBasicMaterial({ color: 0xffe27a, toneMapped: false }),       // tracer terang (ikut bloom)
             grenade: new THREE.MeshLambertMaterial({ color: 0x2ecc71, emissive: 0x0a3d1e }),
             mag: new THREE.MeshLambertMaterial({ color: 0xf1c40f, emissive: 0x5c4703 }),       // sedikit glow agar drop mudah terlihat
             dropNade: new THREE.MeshLambertMaterial({ color: 0x2ecc71, emissive: 0x0e4d24 }),
@@ -597,6 +688,24 @@
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.body.appendChild(renderer.domElement);
 
+            // ----- Post-processing: RenderPass -> UnrealBloom -> GammaCorrection -> FXAA -----
+            // Bila salah satu script CDN gagal dimuat, composer tetap null -> render langsung.
+            if (THREE.EffectComposer && THREE.RenderPass && THREE.ShaderPass &&
+                THREE.UnrealBloomPass && THREE.GammaCorrectionShader && THREE.FXAAShader) {
+                composer = new THREE.EffectComposer(renderer);
+                composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                composer.setSize(window.innerWidth, window.innerHeight);
+                composer.addPass(new THREE.RenderPass(scene, camera));
+                composer.addPass(new THREE.UnrealBloomPass(
+                    new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.4, 0.72));
+                composer.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader)); // RT linear -> sRGB
+                fxaaPass = new THREE.ShaderPass(THREE.FXAAShader);
+                composer.addPass(fxaaPass);
+                setFxaaRes();
+            } else {
+                console.warn('[postfx] Script post-processing CDN tidak termuat — render tanpa bloom.');
+            }
+
             // Ambient bernuansa hangat-kusam + cahaya bulan kemerahan dari horizon
             scene.add(new THREE.AmbientLight(0xffd9b3, 0.3));
             scene.add(new THREE.HemisphereLight(0x4a2c1a, 0x0a0a12, 0.4)); // langit oranye / tanah gelap
@@ -611,6 +720,10 @@
             dirLight.shadow.normalBias = 1.5;
             scene.add(dirLight);
             scene.add(dirLight.target);   // target ikut scene agar bayangan bisa mengikuti player (updateDecor)
+            // Rim biru dingin dari arah berlawanan: memisahkan siluet zombie dari tanah
+            const rimLight = new THREE.DirectionalLight(0x5a76c8, 0.22);
+            rimLight.position.set(300, 200, 350);
+            scene.add(rimLight);
 
             // Pool 3 lampu ledakan, selalu di scene dengan intensity 0:
             // jumlah lampu konstan -> Three.js tidak compile ulang shader saat granat meledak.
@@ -633,8 +746,24 @@
 
             // ----- Senjata AK47 (parented ke kamera; detail visual, posisi & mekanik tetap) -----
             gunMesh = new THREE.Group();
-            const wood = new THREE.MeshPhongMaterial({ color: 0x7a4a21, shininess: 22, specular: 0x3a2a18 });
-            const steel = new THREE.MeshPhongMaterial({ color: 0x23262b, shininess: 60, specular: 0x555a66 });
+            // Serat kayu & logam tergores prosedural
+            const gunWoodTex = makeTexture(64, 128, (g, w, h) => {
+                g.fillStyle = '#7a4a21'; g.fillRect(0, 0, w, h);
+                for (let i = 0; i < 26; i++) {
+                    g.strokeStyle = `rgba(${40 + Math.random() * 30 | 0},${22 + Math.random() * 16 | 0},8,${0.25 + Math.random() * 0.35})`;
+                    g.lineWidth = 1 + Math.random() * 1.5;
+                    const y = Math.random() * h;
+                    g.beginPath(); g.moveTo(0, y);
+                    g.bezierCurveTo(w * 0.3, y + rand(-4, 4), w * 0.7, y + rand(-4, 4), w, y + rand(-3, 3));
+                    g.stroke();
+                }
+            }, 1, 2);
+            const gunSteelTex = makeTexture(64, 64, (g, w, h) => {
+                g.fillStyle = '#23262b'; g.fillRect(0, 0, w, h);
+                speckle(g, w, h, ['#1b1e22', '#2b2f35', '#202329'], 90, 1, 3);
+            });
+            const wood = new THREE.MeshPhongMaterial({ map: gunWoodTex, shininess: 26, specular: 0x3a2a18 });
+            const steel = new THREE.MeshPhongMaterial({ map: gunSteelTex, shininess: 60, specular: 0x555a66 });
             const steelDark = new THREE.MeshPhongMaterial({ color: 0x121417, shininess: 40, specular: 0x33363c });
             const mkPart = (geo, mat, x, y, z, rx = 0, rz = 0) => {
                 const m = new THREE.Mesh(geo, mat);
@@ -648,10 +777,15 @@
             mkPart(new THREE.CylinderGeometry(0.16, 0.16, 3.4, 8), steelDark, 0, 0.1, -5.6, Math.PI / 2); // laras
             mkPart(new THREE.CylinderGeometry(0.24, 0.24, 0.7, 8), steelDark, 0, 0.1, -7.0, Math.PI / 2); // muzzle brake
             mkPart(new THREE.BoxGeometry(0.12, 0.5, 0.12), steelDark, 0, 0.55, -6.6);                    // pisir depan
-            mkPart(new THREE.BoxGeometry(0.3, 0.4, 0.7), steelDark, 0, 0.62, -1.4);                      // pisir belakang
+            // Pisir belakang: dua sayap dgn CELAH bidik di tengah (sight picture saat ADS)
+            mkPart(new THREE.BoxGeometry(0.09, 0.4, 0.7), steelDark, -0.14, 0.62, -1.4);
+            mkPart(new THREE.BoxGeometry(0.09, 0.4, 0.7), steelDark, 0.14, 0.62, -1.4);
             mkPart(new THREE.BoxGeometry(0.7, 1.5, 0.9), steel, 0, -1.1, -1.1, 0.45);                    // magazen melengkung
             mkPart(new THREE.BoxGeometry(0.55, 1.1, 0.6), wood, 0, -0.95, 0.7, 0.25);                    // grip
             mkPart(new THREE.BoxGeometry(0.7, 0.9, 2.4), wood, 0, -0.25, 2.4, 0.06);                     // popor kayu
+            mkPart(new THREE.CylinderGeometry(0.12, 0.12, 2.0, 6), steelDark, 0, 0.38, -3.0, Math.PI / 2); // tabung gas
+            mkPart(new THREE.BoxGeometry(0.16, 0.5, 1.1), steelDark, 0, -0.62, 1.35);                    // pelindung pelatuk
+            mkPart(new THREE.BoxGeometry(0.5, 0.18, 0.5), steel, 0.45, 0.12, 0.4);                       // tuas kokang
 
             // Titik ujung laras: referensi eksplisit utk spawn peluru (jangan andalkan indeks children)
             muzzlePoint = new THREE.Object3D();
@@ -670,6 +804,15 @@
                 grad.addColorStop(1, 'rgba(255,120,20,0)');
                 g.fillStyle = grad;
                 g.fillRect(0, 0, 64, 64);
+                // empat lidah api memanjang (bentuk bintang khas muzzle flash)
+                g.translate(32, 32);
+                g.fillStyle = 'rgba(255,210,120,0.9)';
+                for (let i = 0; i < 4; i++) {
+                    g.rotate(Math.PI / 2);
+                    g.beginPath();
+                    g.moveTo(0, -2.5); g.lineTo(30, 0); g.lineTo(0, 2.5);
+                    g.closePath(); g.fill();
+                }
             });
             muzzleSprite = new THREE.Mesh(
                 new THREE.PlaneGeometry(3.2, 3.2),
@@ -710,13 +853,16 @@
                 camera.quaternion.setFromEuler(euler);
             });
 
-            // ----- Klik tembak / granat -----
+            // ----- Klik kiri = tembak; klik kanan (tahan) = bidik iron sight (ADS) -----
             document.addEventListener("mousedown", (e) => {
                 if (isPaused || isGameOver) return;
                 if (e.button === 0) mouse.isDown = true;
-                if (e.button === 2) handleThrowGrenade();
+                if (e.button === 2) isAiming = true;
             });
-            document.addEventListener("mouseup", (e) => { if (e.button === 0) mouse.isDown = false; });
+            document.addEventListener("mouseup", (e) => {
+                if (e.button === 0) mouse.isDown = false;
+                if (e.button === 2) isAiming = false;
+            });
             document.addEventListener("contextmenu", e => e.preventDefault());
 
             // ----- Keyboard -----
@@ -725,7 +871,14 @@
                 if (keys.hasOwnProperty(key)) keys[key] = true;
                 if (e.key === 'Shift') keys.shift = true;
                 if (key === 'r' && !isPaused && !isGameOver) startReload();
-                if (e.code === 'Space' && isGameOver) resetGame();
+                if (key === 'g' && !isPaused && !isGameOver) handleThrowGrenade();   // lempar granat
+                if (e.code === 'Space') {
+                    if (isGameOver) resetGame();                                   // restart
+                    else if (!isPaused && player.onGround) {                       // lompat
+                        player.vy = JUMP_V;
+                        player.onGround = false;
+                    }
+                }
             });
             window.addEventListener("keyup", (e) => {
                 const key = e.key.toLowerCase();
@@ -738,7 +891,22 @@
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
+                if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+                setFxaaRes();
             }, false);
+
+            // Film grain halus: tekstur noise dibuat sekali, digeser via CSS keyframes
+            const gcv = document.createElement('canvas');
+            gcv.width = 128; gcv.height = 128;
+            const gg = gcv.getContext('2d');
+            const gid = gg.createImageData(128, 128);
+            for (let i = 0; i < gid.data.length; i += 4) {
+                const v = 110 + Math.random() * 90 | 0;
+                gid.data[i] = gid.data[i + 1] = gid.data[i + 2] = v;
+                gid.data[i + 3] = 255;
+            }
+            gg.putImageData(gid, 0, 0);
+            document.getElementById('grain').style.backgroundImage = `url(${gcv.toDataURL()})`;
 
             bestScoreEl.innerText = `Best: ${highScore}`;
             updateUI();
@@ -758,7 +926,19 @@
                     g.stroke();
                 }
             }, 2, 2);
-            const marble = new THREE.MeshPhongMaterial({ map: marbleTex, shininess: 18, specular: 0x2f2b26 });
+            // Relief halus marmer via normal map (heightmap garis vertikal + noise)
+            const marbleNrm = makeNormalMap(128, 256, (g, w, h) => {
+                g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, w, h);
+                for (let i = 0; i < 40; i++) {
+                    const v = 110 + Math.random() * 40 | 0;
+                    g.strokeStyle = `rgb(${v},${v},${v})`;
+                    g.lineWidth = 1 + Math.random() * 2.5;
+                    const x = Math.random() * w;
+                    g.beginPath(); g.moveTo(x, 0); g.lineTo(x + rand(-10, 10), h); g.stroke();
+                }
+                noiseHeight(128, 26, 160, 1, 4)(g, w, h);
+            }, 1.1);
+            const marble = new THREE.MeshPhongMaterial({ map: marbleTex, normalMap: marbleNrm, shininess: 18, specular: 0x2f2b26 });
             const stone = new THREE.MeshPhongMaterial({ color: 0x8f8a80, shininess: 8, specular: 0x1c1a17 });
 
             const add = (geo, mat, y, extra) => {
@@ -774,16 +954,31 @@
             add(new THREE.CylinderGeometry(5.6, 7.4, 6, 4, 1), marble, 11, m => m.rotation.y = Math.PI / 4);      // kaki obelisk
             add(new THREE.CylinderGeometry(3.4, 5.6, 50, 4, 1), marble, 39, m => m.rotation.y = Math.PI / 4);     // obelisk meruncing
             add(new THREE.CylinderGeometry(10, 4, 6, 8, 1, false), marble, 66, m => m.rotation.y = Math.PI / 8);  // cawan
-            // Lidah api emas: emissive + cahaya hangat yang menerangi pelataran (berkedip di updateDecor)
+            // Lidah api emas: emissive kuat (ditangkap bloom) + cahaya hangat yang menerangi
+            // pelataran + sprite glow yang berdenyut (updateDecor)
             const flame = new THREE.Mesh(
                 new THREE.ConeGeometry(4, 15, 8),
-                new THREE.MeshPhongMaterial({ color: 0xffd700, emissive: 0xffa028, emissiveIntensity: 0.85, shininess: 90, specular: 0xfff2c0 })
+                new THREE.MeshPhongMaterial({ color: 0xffd700, emissive: 0xffa028, emissiveIntensity: 1.35, shininess: 90, specular: 0xfff2c0 })
             );
             flame.position.y = 76.5;
             monas.add(flame);
             flameLight = new THREE.PointLight(0xffc36b, 1.1, 420, 2);
             flameLight.position.set(0, 80, 0);
             monas.add(flameLight);
+            const glowTex = makeTexture(64, 64, (g) => {
+                const rg = g.createRadialGradient(32, 32, 2, 32, 32, 31);
+                rg.addColorStop(0, 'rgba(255,190,90,0.9)');
+                rg.addColorStop(0.4, 'rgba(255,140,40,0.35)');
+                rg.addColorStop(1, 'rgba(255,120,30,0)');
+                g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+            });
+            flameGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: glowTex, transparent: true, blending: THREE.AdditiveBlending,
+                depthWrite: false, toneMapped: false
+            }));
+            flameGlow.position.set(0, 78, 0);
+            flameGlow.scale.set(30, 30, 1);
+            monas.add(flameGlow);
             scene.add(monas);
         }
 
@@ -804,24 +999,71 @@
             base.receiveShadow = true;
             scene.add(base);
 
-            // Rumput taman di dalam pagar (noise dedaunan)
+            // Rumput taman: gumpalan besar lembut (anti-tiling) + goresan helai rumput
             const grassTex = makeTexture(256, 256, (g, w, h) => {
                 g.fillStyle = '#2c5f22'; g.fillRect(0, 0, w, h);
-                speckle(g, w, h, ['#234d1b', '#357029', '#1d3f16', '#3f7a2e', '#2a5a20'], 420, 2, 7);
+                for (let i = 0; i < 14; i++) {
+                    const x = Math.random() * w, y = Math.random() * h, r = 30 + Math.random() * 60;
+                    const rg = g.createRadialGradient(x, y, 2, x, y, r);
+                    const col = Math.random() < 0.5 ? '43,77,27' : '58,110,40';
+                    rg.addColorStop(0, `rgba(${col},0.35)`);
+                    rg.addColorStop(1, `rgba(${col},0)`);
+                    g.fillStyle = rg;
+                    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+                }
+                const blades = ['#234d1b', '#357029', '#1d3f16', '#3f7a2e', '#2a5a20', '#4a8a36'];
+                for (let i = 0; i < 900; i++) {
+                    g.strokeStyle = blades[(Math.random() * blades.length) | 0];
+                    g.globalAlpha = 0.3 + Math.random() * 0.45;
+                    g.lineWidth = 1;
+                    const x = Math.random() * w, y = Math.random() * h, a = (Math.random() - 0.5) * 0.9;
+                    g.beginPath(); g.moveTo(x, y);
+                    g.lineTo(x + Math.sin(a) * 4, y - 3 - Math.random() * 3);
+                    g.stroke();
+                }
+                g.globalAlpha = 1;
             }, PARK.hx / 32, PARK.hz / 32);
+            const grassNrm = makeNormalMap(128, 128, noiseHeight(128, 46, 700, 1, 4), 1.3);
             const grass = new THREE.Mesh(
                 new THREE.PlaneGeometry(PARK.hx * 2, PARK.hz * 2),
-                new THREE.MeshPhongMaterial({ map: grassTex, shininess: 2, specular: 0x0a0f08 })
+                new THREE.MeshPhongMaterial({ map: grassTex, normalMap: grassNrm, shininess: 2, specular: 0x0a0f08 })
             );
             grass.rotation.x = -Math.PI / 2;
             grass.receiveShadow = true;
             scene.add(grass);
 
-            // Jalan Medan Merdeka: aspal bertekstur + marka putus-putus di sumbu panjang
+            // Jalan Medan Merdeka: aspal retak + noda oli + marka putus-putus + relief normal map
+            const asphaltNrm = makeNormalMap(128, 128, (g, w, h) => {
+                noiseHeight(128, 34, 420, 1, 4)(g, w, h);
+                g.strokeStyle = 'rgb(70,70,70)';   // retakan = alur dalam
+                for (let i = 0; i < 5; i++) {
+                    g.lineWidth = 1 + Math.random();
+                    let x = Math.random() * w, y = Math.random() * h;
+                    g.beginPath(); g.moveTo(x, y);
+                    for (let s = 0; s < 4; s++) { x += rand(-16, 16); y += rand(-16, 16); g.lineTo(x, y); }
+                    g.stroke();
+                }
+            }, 1.6);
             const asphaltDraw = (vertical) => (g, w, h) => {
                 g.fillStyle = '#26262a'; g.fillRect(0, 0, w, h);
                 speckle(g, w, h, ['#1e1e22', '#2e2e33', '#232327', '#333338'], 300, 1, 5);
-                g.fillStyle = 'rgba(206,200,180,0.55)';                     // marka jalan
+                for (let i = 0; i < 6; i++) {                                // noda oli
+                    g.globalAlpha = 0.12 + Math.random() * 0.12;
+                    g.fillStyle = '#0c0c0e';
+                    g.beginPath();
+                    g.ellipse(Math.random() * w, Math.random() * h, 8 + Math.random() * 22, 5 + Math.random() * 12, Math.random() * 3, 0, Math.PI * 2);
+                    g.fill();
+                }
+                g.globalAlpha = 1;
+                g.strokeStyle = 'rgba(10,10,12,0.65)';                       // retakan
+                for (let i = 0; i < 5; i++) {
+                    g.lineWidth = 0.8 + Math.random();
+                    let x = Math.random() * w, y = Math.random() * h;
+                    g.beginPath(); g.moveTo(x, y);
+                    for (let s = 0; s < 4; s++) { x += rand(-18, 18); y += rand(-18, 18); g.lineTo(x, y); }
+                    g.stroke();
+                }
+                g.fillStyle = 'rgba(206,200,180,0.55)';                      // marka jalan
                 if (vertical) { for (let y = 0; y < h; y += 64) g.fillRect(w / 2 - 2, y, 4, 34); }
                 else { for (let x = 0; x < w; x += 64) g.fillRect(x, h / 2 - 2, 34, 4); }
             };
@@ -831,7 +1073,7 @@
                 const along = w > d;   // marka mengikuti sisi panjang
                 const tex = makeTexture(256, 256, asphaltDraw(!along), along ? w / 128 : 1, along ? 1 : d / 128);
                 const r = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
-                    new THREE.MeshPhongMaterial({ map: tex, shininess: 6, specular: 0x101014 }));
+                    new THREE.MeshPhongMaterial({ map: tex, normalMap: asphaltNrm, shininess: 6, specular: 0x101014 }));
                 r.rotation.x = -Math.PI / 2;
                 r.position.set(x, 0.02, z);
                 r.receiveShadow = true;
@@ -841,19 +1083,40 @@
             mkRoad(lenX, ROAD_W, 0, oz);    // selatan
             mkRoad(ROAD_W, lenZ, -ox, 0);   // barat
             mkRoad(ROAD_W, lenZ, ox, 0);    // timur
+
+            // Trotoar/curb batu di tepi luar ring road (kosmetik, di luar pagar)
+            const curbMat = new THREE.MeshPhongMaterial({ color: 0x55534e, shininess: 6 });
+            const mkCurb = (w, d, x, z) => {
+                const cB = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, d), curbMat);
+                cB.position.set(x, 0.7, z);
+                cB.receiveShadow = true;
+                scene.add(cB);
+            };
+            const co = ROAD_W + 1.5;
+            mkCurb(lenX + 6, 3, 0, -(PARK.hz + co)); mkCurb(lenX + 6, 3, 0, PARK.hz + co);
+            mkCurb(3, lenZ + 6, -(PARK.hx + co), 0); mkCurb(3, lenZ + 6, PARK.hx + co, 0);
         }
 
         function createParkRoads() {
-            // Pelataran tengah (cawan Monas): ubin paving
-            const pavingTex = makeTexture(128, 128, (g, w, h) => {
+            // Pelataran tengah: pola radial (cincin konsentris + jari-jari) khas pelataran Monas
+            const pavingTex = makeTexture(512, 512, (g, w, h) => {
                 g.fillStyle = '#8a7a4a'; g.fillRect(0, 0, w, h);
-                speckle(g, w, h, ['#7d6f43', '#968551', '#6f6340', '#a08e57'], 140, 2, 6);
-                g.strokeStyle = 'rgba(50,44,26,0.5)'; g.lineWidth = 2;
-                for (let i = 0; i <= w; i += 32) {
-                    g.beginPath(); g.moveTo(i, 0); g.lineTo(i, h); g.stroke();
-                    g.beginPath(); g.moveTo(0, i); g.lineTo(w, i); g.stroke();
+                speckle(g, w, h, ['#7d6f43', '#968551', '#6f6340', '#a08e57'], 500, 2, 6);
+                const cx = w / 2, cy = h / 2;
+                g.strokeStyle = 'rgba(52,45,26,0.6)';
+                for (let r = 28; r < w / 2; r += 28) {                      // cincin konsentris
+                    g.lineWidth = r % 84 < 28 ? 3 : 1.6;
+                    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
                 }
-            }, 12, 12);
+                g.lineWidth = 1.6;
+                for (let i = 0; i < 36; i++) {                              // jari-jari radial
+                    const a = i / 36 * Math.PI * 2;
+                    g.beginPath(); g.moveTo(cx + Math.cos(a) * 20, cy + Math.sin(a) * 20);
+                    g.lineTo(cx + Math.cos(a) * w / 2, cy + Math.sin(a) * w / 2); g.stroke();
+                }
+                g.strokeStyle = 'rgba(160,130,60,0.8)'; g.lineWidth = 5;    // aksen emas pusat
+                g.beginPath(); g.arc(cx, cy, 56, 0, Math.PI * 2); g.stroke();
+            }, 1, 1);   // repeat 1: pola sejajar pusat lingkaran
             const plaza = new THREE.Mesh(
                 new THREE.CircleGeometry(95, 48),
                 new THREE.MeshPhongMaterial({ map: pavingTex, shininess: 10, specular: 0x14120c })
@@ -870,6 +1133,14 @@
                 const tex = makeTexture(256, 256, (g, w, h) => {
                     g.fillStyle = '#35353a'; g.fillRect(0, 0, w, h);
                     speckle(g, w, h, ['#2c2c31', '#3e3e44', '#303036'], 260, 1, 5);
+                    g.strokeStyle = 'rgba(12,12,14,0.6)';                   // retakan
+                    for (let i = 0; i < 4; i++) {
+                        g.lineWidth = 0.8 + Math.random();
+                        let x = Math.random() * w, y = Math.random() * h;
+                        g.beginPath(); g.moveTo(x, y);
+                        for (let s = 0; s < 4; s++) { x += rand(-16, 16); y += rand(-16, 16); g.lineTo(x, y); }
+                        g.stroke();
+                    }
                     g.fillStyle = 'rgba(206,200,180,0.5)';
                     for (let x = 0; x < w; x += 64) g.fillRect(x, h / 2 - 2, 34, 4);
                 }, diagLen / 128, 1);
@@ -886,46 +1157,98 @@
         }
 
         function createFence() {
-            // Pagar keliling: batas keras player; zombie melompatinya saat masuk.
+            // Pagar BETON keliling: dinding panel + pilar + coping. Tetap batas keras
+            // player (clamp di update) & tetap dilompati zombie saat masuk (FENCE_H tetap).
             const grp = new THREE.Group();
             const hx = PARK.hx, hz = PARK.hz, H = FENCE_H;
-            const postMat = new THREE.MeshLambertMaterial({ color: 0x5a3326 });
-            const railMat = new THREE.MeshLambertMaterial({ color: 0x6e3f2c });
-            const addRail = (w, d, x, z, y) => {
-                const r = new THREE.Mesh(new THREE.BoxGeometry(w, 1.6, d), railMat);
-                r.position.set(x, y, z);
-                r.castShadow = true;
-                grp.add(r);
+            const WH = H * 0.78;   // tinggi dinding panel (pilar sedikit lebih tinggi)
+
+            // Tekstur beton kusam: noise + rembesan air dari atas + garis sambungan panel
+            const concreteDraw = (g, w, h) => {
+                g.fillStyle = '#8d8a83'; g.fillRect(0, 0, w, h);
+                speckle(g, w, h, ['#7e7b74', '#98958d', '#6f6c66', '#a3a098'], 380, 1, 5);
+                for (let i = 0; i < 12; i++) {
+                    const x = Math.random() * w, len = 30 + Math.random() * 70, sw = 2 + Math.random() * 5;
+                    const grd = g.createLinearGradient(0, 0, 0, len);
+                    grd.addColorStop(0, 'rgba(45,42,38,0.35)');
+                    grd.addColorStop(1, 'rgba(45,42,38,0)');
+                    g.fillStyle = grd;
+                    g.fillRect(x - sw / 2, 0, sw, len);
+                }
+                g.strokeStyle = 'rgba(50,48,44,0.55)'; g.lineWidth = 2;
+                for (let x = 0; x <= w; x += 64) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
             };
-            // Dua batang horizontal tiap sisi
-            for (const z of [-hz, hz]) { addRail(hx * 2, 2, 0, z, H * 0.72); addRail(hx * 2, 2, 0, z, H * 0.36); }
-            for (const x of [-hx, hx]) { addRail(2, hz * 2, x, 0, H * 0.72); addRail(2, hz * 2, x, 0, H * 0.36); }
-            // Tiang tiap ~38 unit — satu InstancedMesh (1 draw call, sebelumnya ~120 mesh)
+            const concreteNrm = makeNormalMap(128, 128, noiseHeight(128, 22, 300, 1, 4), 1.2);
+            const mkConcrete = (repX) => new THREE.MeshPhongMaterial({
+                map: makeTexture(256, 128, concreteDraw, repX, 1),
+                normalMap: concreteNrm, shininess: 6, specular: 0x151412
+            });
+            const wallMatX = mkConcrete(hx * 2 / 38);   // sambungan panel segaris dgn pilar (~38 unit)
+            const wallMatZ = mkConcrete(hz * 2 / 38);
+            const capMat = new THREE.MeshPhongMaterial({ color: 0x96938b, shininess: 8, specular: 0x161513 });
+
+            // Dinding panel per sisi + coping (ambang atas)
+            const mkWall = (w, d, x, z, mat) => {
+                const m = new THREE.Mesh(new THREE.BoxGeometry(w, WH, d), mat);
+                m.position.set(x, WH / 2, z);
+                m.castShadow = true; m.receiveShadow = true;
+                grp.add(m);
+                const cop = new THREE.Mesh(new THREE.BoxGeometry(w + 1.2, 0.9, d + 1.2), capMat);
+                cop.position.set(x, WH + 0.45, z);
+                cop.castShadow = true;
+                grp.add(cop);
+            };
+            mkWall(hx * 2, 2.4, 0, -hz, wallMatX);
+            mkWall(hx * 2, 2.4, 0, hz, wallMatX);
+            mkWall(2.4, hz * 2, -hx, 0, wallMatZ);
+            mkWall(2.4, hz * 2, hx, 0, wallMatZ);
+
+            // Pilar beton tiap ~38 unit + topi pilar — dua InstancedMesh (2 draw call)
             const step = 38;
             const posts = [];
             for (let x = -hx; x <= hx; x += step) { posts.push([x, -hz]); posts.push([x, hz]); }
             for (let z = -hz; z <= hz; z += step) { posts.push([-hx, z]); posts.push([hx, z]); }
-            const postMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(3, H, 3), postMat, posts.length);
+            const pillarMat = new THREE.MeshPhongMaterial({
+                map: makeTexture(64, 128, concreteDraw),
+                normalMap: concreteNrm, shininess: 6, specular: 0x151412
+            });
+            const pillarMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(4, H, 4), pillarMat, posts.length);
+            const capMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(5.2, 1.1, 5.2), capMat, posts.length);
             const _m = new THREE.Matrix4();
             posts.forEach(([x, z], i) => {
                 _m.setPosition(x, H / 2, z);
-                postMesh.setMatrixAt(i, _m);
+                pillarMesh.setMatrixAt(i, _m);
+                _m.setPosition(x, H + 0.55, z);
+                capMesh.setMatrixAt(i, _m);
             });
-            postMesh.castShadow = true;
-            postMesh.frustumCulled = false;   // r128 tidak menghitung bounds gabungan instance
-            grp.add(postMesh);
+            pillarMesh.castShadow = capMesh.castShadow = true;
+            pillarMesh.frustumCulled = capMesh.frustumCulled = false;   // bounds instance tak dihitung r128
+            grp.add(pillarMesh); grp.add(capMesh);
             scene.add(grp);
         }
 
         function createParkProps() {
             // Semua kosmetik (tanpa collision), sekadar mengisi taman.
             const stoneRim = new THREE.MeshPhongMaterial({ color: 0x6f6a5e, shininess: 10, specular: 0x1a1815 });
+            // Air dengan riak bergaris yang mengalir (offset tekstur dianimasikan di updateDecor)
+            waterTex = makeTexture(128, 128, (g, w, h) => {
+                g.fillStyle = '#27506b'; g.fillRect(0, 0, w, h);
+                for (let i = 0; i < 40; i++) {
+                    g.strokeStyle = `rgba(159,198,224,${0.08 + Math.random() * 0.14})`;
+                    g.lineWidth = 1 + Math.random() * 2;
+                    const y = Math.random() * h;
+                    g.beginPath(); g.moveTo(0, y);
+                    g.bezierCurveTo(w * 0.33, y + rand(-6, 6), w * 0.66, y + rand(-6, 6), w, y);
+                    g.stroke();
+                }
+            }, 3, 3);
             const water = new THREE.MeshPhongMaterial({
-                color: 0x27506b, shininess: 140, specular: 0x9fc6e0,
-                transparent: true, opacity: 0.92
+                map: waterTex, shininess: 150, specular: 0xbfe2f5,
+                transparent: true, opacity: 0.9
             });
-            // Air Mancur Menari (barat): bak batu + air + semburan berdenyut (updateDecor)
-            const fountainX = -PARK.hx * 0.55;
+            // Air Mancur Menari (barat): bak batu + air + semburan berdenyut (updateDecor).
+            // Bak = penghalang pejal (resolveObstacles) dan puncaknya bisa dinaiki (groundHeightAt).
+            const fountainX = FOUNTAIN.x;
             const basin = new THREE.Mesh(new THREE.CylinderGeometry(46, 48, 3, 28), stoneRim);
             basin.position.set(fountainX, 1.5, 0);
             basin.castShadow = true; basin.receiveShadow = true;
@@ -955,39 +1278,64 @@
             pool.position.set(0, 1.4, -PARK.hz * 0.55);
             scene.add(pool);
 
-            // Pohon-pohon: InstancedMesh (batang + 2 lapis tajuk) dgn variasi warna & ukuran
-            // -> 2 draw call, sebelumnya ~80 mesh terpisah.
+            // Pohon-pohon: InstancedMesh batang lancip + 3 gerombol tajuk icosahedron faceted
+            // (organik-stilistik) dgn variasi warna, ukuran, dan kemiringan -> tetap 2 draw call.
             const N_TREE = 40;
+            const leafGeo = new THREE.IcosahedronGeometry(11, 1);
+            leafGeo.computeVertexNormals();   // normal per-muka -> tampilan faceted
             const trunkMesh = new THREE.InstancedMesh(
-                new THREE.CylinderGeometry(2, 2.5, 16, 6),
+                new THREE.CylinderGeometry(1.6, 2.6, 16, 7),
                 new THREE.MeshLambertMaterial({ color: 0xffffff }), N_TREE);
             const leafMesh = new THREE.InstancedMesh(
-                new THREE.ConeGeometry(12, 26, 7),
-                new THREE.MeshLambertMaterial({ color: 0xffffff }), N_TREE * 2);
-            const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(),
+                leafGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), N_TREE * 3);
+            const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _qt = new THREE.Quaternion(),
                 _p = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
             const up = new THREE.Vector3(0, 1, 0);
+            const tiltAxis = new THREE.Vector3(1, 0, 0);
+            // Titik valid = RUMPUT saja: tolak pelataran tengah, Jalan Silang (diagonal),
+            // bak air mancur, dan kolam pantul.
+            const diagA = Math.atan2(PARK.hz, PARK.hx);
+            const isOnGrass = (x, z) => {
+                if (Math.abs(x) < 120 && Math.abs(z) < 120) return false;                       // pelataran + Monas
+                if (Math.abs(x * Math.sin(diagA) - z * Math.cos(diagA)) < 30) return false;     // diagonal 1 (lebar 40/2 + margin)
+                if (Math.abs(x * Math.sin(diagA) + z * Math.cos(diagA)) < 30) return false;     // diagonal 2
+                if (Math.hypot(x - FOUNTAIN.x, z - FOUNTAIN.z) < FOUNTAIN.r + 12) return false; // air mancur
+                if (Math.abs(x) < 88 && Math.abs(z + PARK.hz * 0.55) < 43) return false;        // kolam pantul
+                return true;
+            };
             let ti = 0, li = 0;
             for (let i = 0; i < N_TREE; i++) {
-                const x = rand(-PARK.hx + 30, PARK.hx - 30);
-                const z = rand(-PARK.hz + 30, PARK.hz - 30);
-                if (Math.abs(x) < 120 && Math.abs(z) < 120) continue;   // jangan di pelataran tengah
+                // rejection sampling: coba beberapa kali sampai dapat titik rumput
+                let x = 0, z = 0, ok = false;
+                for (let attempt = 0; attempt < 24 && !ok; attempt++) {
+                    x = rand(-PARK.hx + 30, PARK.hx - 30);
+                    z = rand(-PARK.hz + 30, PARK.hz - 30);
+                    ok = isOnGrass(x, z);
+                }
+                if (!ok) continue;
                 const sc = rand(0.8, 1.3);
+                treeColliders.push({ x, z, r: 3.4 * sc });   // batang pejal (player & zombie)
                 _q.setFromAxisAngle(up, Math.random() * Math.PI);
+                _qt.setFromAxisAngle(tiltAxis, rand(-0.07, 0.07));      // sedikit doyong
+                _q.multiply(_qt);
 
                 _m.compose(_p.set(x, 8 * sc, z), _q, _s.set(sc, sc, sc));
                 trunkMesh.setMatrixAt(ti, _m);
                 trunkMesh.setColorAt(ti, _c.setHex(0x4a3322).offsetHSL(0, 0, rand(-0.03, 0.03)));
                 ti++;
 
-                _m.compose(_p.set(x, 24 * sc, z), _q, _s.set(sc, sc, sc));
-                leafMesh.setMatrixAt(li, _m);
-                leafMesh.setColorAt(li, _c.setHex(0x1f4d18).offsetHSL(rand(-0.02, 0.02), rand(-0.05, 0.05), rand(-0.03, 0.03)));
-                li++;
-                _m.compose(_p.set(x, 36 * sc, z), _q, _s.set(sc * 0.55, sc * 0.6, sc * 0.55));
-                leafMesh.setMatrixAt(li, _m);
-                leafMesh.setColorAt(li, _c.setHex(0x275c1e).offsetHSL(0, 0, rand(-0.04, 0.04)));
-                li++;
+                // 3 gerombol tajuk: besar bawah, samping, kecil atas
+                const blobs = [
+                    [x, 22 * sc, z, sc],
+                    [x + rand(-7, 7), 20 * sc, z + rand(-7, 7), sc * 0.66],
+                    [x + rand(-4, 4), 30 * sc, z + rand(-4, 4), sc * 0.52],
+                ];
+                for (const [bx, by, bz, bs] of blobs) {
+                    _m.compose(_p.set(bx, by, bz), _q, _s.set(bs, bs * rand(0.85, 1.1), bs));
+                    leafMesh.setMatrixAt(li, _m);
+                    leafMesh.setColorAt(li, _c.setHex(0x2a5c20).offsetHSL(rand(-0.02, 0.02), rand(-0.06, 0.06), rand(-0.05, 0.03)));
+                    li++;
+                }
             }
             trunkMesh.count = ti; leafMesh.count = li;   // sebagian slot batal (area tengah)
             if (trunkMesh.instanceColor) trunkMesh.instanceColor.needsUpdate = true;
@@ -1032,9 +1380,9 @@
         // ----------- Lingkungan: langit, kota, bara ----------- //
 
         function createSky() {
-            // Langit kubah: gradien apokaliptik + bintang samar di zenith + arsir asap horizon
+            // Langit kubah: gradien apokaliptik + bintang + asap berlapis + pijar kebakaran kota
             const c = document.createElement('canvas');
-            c.width = 512; c.height = 512;
+            c.width = 1024; c.height = 512;
             const g = c.getContext('2d');
             const grad = g.createLinearGradient(0, 0, 0, 512);
             grad.addColorStop(0.00, '#05060f'); // puncak: gelap pekat
@@ -1044,21 +1392,33 @@
             grad.addColorStop(0.92, '#3a241a'); // menyatu dgn warna fog
             grad.addColorStop(1.00, '#1a1108');
             g.fillStyle = grad;
-            g.fillRect(0, 0, 512, 512);
+            g.fillRect(0, 0, 1024, 512);
             // bintang redup, memudar mendekati horizon
             g.fillStyle = '#cfd6ff';
-            for (let i = 0; i < 140; i++) {
+            for (let i = 0; i < 260; i++) {
                 const y = Math.random() * 200;
                 g.globalAlpha = Math.max(0, 0.7 - y / 200) * (0.3 + Math.random() * 0.7);
-                g.fillRect(Math.random() * 512, y, 1.5, 1.5);
+                g.fillRect(Math.random() * 1024, y, 1.5, 1.5);
             }
-            // gumpalan asap melintang dekat horizon
-            for (let i = 0; i < 60; i++) {
-                const y = 240 + Math.random() * 200;
+            // pijar kebakaran kota: kubah cahaya hangat di garis horizon
+            for (let i = 0; i < 7; i++) {
+                const x = Math.random() * 1024, y = 400 + Math.random() * 40;
+                const r = 70 + Math.random() * 150;
+                const rg = g.createRadialGradient(x, y, 4, x, y, r);
+                rg.addColorStop(0, 'rgba(255,120,30,0.4)');
+                rg.addColorStop(0.5, 'rgba(220,80,20,0.16)');
+                rg.addColorStop(1, 'rgba(220,80,20,0)');
+                g.globalAlpha = 1;
+                g.fillStyle = rg;
+                g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+            }
+            // gumpalan asap melintang berlapis
+            for (let i = 0; i < 90; i++) {
+                const y = 220 + Math.random() * 230;
                 g.globalAlpha = 0.05 + Math.random() * 0.08;
                 g.fillStyle = Math.random() < 0.5 ? '#000000' : '#7a3a1a';
                 g.beginPath();
-                g.ellipse(Math.random() * 512, y, 60 + Math.random() * 220, 6 + Math.random() * 14, 0, 0, Math.PI * 2);
+                g.ellipse(Math.random() * 1024, y, 60 + Math.random() * 260, 6 + Math.random() * 16, 0, 0, Math.PI * 2);
                 g.fill();
             }
             g.globalAlpha = 1;
@@ -1071,10 +1431,22 @@
             );
             scene.add(sky);
 
-            // Bulan/matahari redup yang terselubung asap + halo gradien radial aditif
+            // Bulan berkawah yang terselubung asap + halo gradien radial aditif
+            const moonTex = makeTexture(128, 128, (g2, w, h) => {
+                g2.fillStyle = '#ffb066'; g2.fillRect(0, 0, w, h);
+                for (let i = 0; i < 26; i++) {
+                    const r = 3 + Math.random() * 10, x = Math.random() * w, y = Math.random() * h;
+                    const rg = g2.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+                    rg.addColorStop(0, 'rgba(150,80,40,0.35)');
+                    rg.addColorStop(0.8, 'rgba(120,60,30,0.25)');
+                    rg.addColorStop(1, 'rgba(120,60,30,0)');
+                    g2.fillStyle = rg;
+                    g2.beginPath(); g2.arc(x, y, r, 0, Math.PI * 2); g2.fill();
+                }
+            });
             const moon = new THREE.Mesh(
                 new THREE.SphereGeometry(60, 24, 24),
-                new THREE.MeshBasicMaterial({ color: 0xffa35e, fog: false, toneMapped: false })
+                new THREE.MeshBasicMaterial({ map: moonTex, fog: false, toneMapped: false })
             );
             moon.position.set(-700, 320, -1100);
             scene.add(moon);
@@ -1103,23 +1475,26 @@
             // (sebelumnya ratusan mesh terpisah). Distribusi/ukuran/kemiringan tetap sama.
             const palette = [0x26262b, 0x2e2a26, 0x202428, 0x35302a, 0x1c1d22];
 
-            // Fasad: grid jendela gelap (map, di-tint warna instance) + sebagian menyala (emissiveMap)
-            const facadeTex = makeTexture(128, 256, (g, w, h) => {
+            // Fasad: grid jendela gelap (map, di-tint warna instance) + sebagian menyala (emissiveMap).
+            // Beberapa "lantai hancur" digelapkan total — kesan gedung rusak perang.
+            const facadeTex = makeTexture(256, 512, (g, w, h) => {
                 g.fillStyle = '#c9ccd4'; g.fillRect(0, 0, w, h);   // terang: dikalikan warna gelap instance
-                for (let y = 8; y < h - 6; y += 14) {
-                    for (let x = 6; x < w - 6; x += 12) {
-                        g.fillStyle = Math.random() < 0.12 ? '#1a1a20' : '#3c3c46';
-                        g.fillRect(x, y, 8, 9);
+                for (let y = 8; y < h - 8; y += 16) {
+                    const destroyed = Math.random() < 0.08;
+                    if (destroyed) { g.fillStyle = 'rgba(10,10,12,0.55)'; g.fillRect(0, y - 3, w, 16); }
+                    for (let x = 6; x < w - 6; x += 13) {
+                        g.fillStyle = destroyed ? '#0e0e12' : (Math.random() < 0.12 ? '#1a1a20' : '#3c3c46');
+                        g.fillRect(x, y, 9, 10);
                     }
                 }
             });
-            const litTex = makeTexture(128, 256, (g, w, h) => {
+            const litTex = makeTexture(256, 512, (g, w, h) => {
                 g.fillStyle = '#000000'; g.fillRect(0, 0, w, h);
-                for (let y = 8; y < h - 6; y += 14) {
-                    for (let x = 6; x < w - 6; x += 12) {
+                for (let y = 8; y < h - 8; y += 16) {
+                    for (let x = 6; x < w - 6; x += 13) {
                         if (Math.random() < 0.07) {
                             g.fillStyle = Math.random() < 0.5 ? '#ffb45e' : '#ff7b30';
-                            g.fillRect(x, y, 8, 9);
+                            g.fillRect(x, y, 9, 10);
                         }
                     }
                 }
@@ -1128,6 +1503,7 @@
             const RINGS = [
                 { r0: 820, r1: 1050, hMin: 40, hMax: 160, count: 90 },
                 { r0: 1050, r1: 1380, hMin: 80, hMax: 320, count: 110 }, // skyline menara tinggi
+                { r0: 1380, r1: 1750, hMin: 60, hMax: 380, count: 70 },  // siluet terjauh dalam kabut
             ];
 
             // Kumpulkan data dulu supaya jumlah tiap instance pasti
@@ -1189,59 +1565,117 @@
             });
             fill(burn, burningMat);
             fill(rubble, new THREE.MeshLambertMaterial({ color: 0xffffff }));
+
+            // Pijar api billboard di tiap gedung terbakar (berkedip di updateDecor).
+            // fog:false agar nyala menembus kabut — sumber cahaya dramatis di skyline.
+            const fireTex = makeTexture(64, 64, (g) => {
+                const rg = g.createRadialGradient(32, 40, 2, 32, 36, 30);
+                rg.addColorStop(0, 'rgba(255,200,90,0.95)');
+                rg.addColorStop(0.45, 'rgba(255,110,30,0.5)');
+                rg.addColorStop(1, 'rgba(255,80,20,0)');
+                g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+            });
+            for (const b of burn) {
+                const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+                    map: fireTex, transparent: true, opacity: 0.6, fog: false,
+                    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+                }));
+                sp.position.set(b.x, b.h * 0.6, b.z);
+                sp.scale.set(b.w * 2.4, b.h * 0.9, 1);
+                scene.add(sp);
+                fireSprites.push({ sprite: sp, phase: Math.random() * 6.28 });
+            }
         }
 
         function createEmbers() {
-            // Bara/abu beterbangan
-            const N = 380;
-            const pos = new Float32Array(N * 3);
-            for (let i = 0; i < N; i++) {
-                pos[i * 3] = (Math.random() - 0.5) * 700;
-                pos[i * 3 + 1] = Math.random() * 220;
-                pos[i * 3 + 2] = (Math.random() - 0.5) * 700;
-            }
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-            const mat = new THREE.PointsMaterial({
-                color: 0xff7b2e, size: 1.6, transparent: true, opacity: 0.7,
-                fog: true, depthWrite: false, blending: THREE.AdditiveBlending
+            // Dua lapis partikel: bara terang (aditif) + abu redup — titik bundar bertekstur radial
+            const dotTex = makeTexture(32, 32, (g) => {
+                const rg = g.createRadialGradient(16, 16, 1, 16, 16, 15);
+                rg.addColorStop(0, 'rgba(255,255,255,1)');
+                rg.addColorStop(0.5, 'rgba(255,255,255,0.4)');
+                rg.addColorStop(1, 'rgba(255,255,255,0)');
+                g.fillStyle = rg; g.fillRect(0, 0, 32, 32);
             });
-            embers = new THREE.Points(geo, mat);
-            embers.frustumCulled = false;
-            scene.add(embers);
+            const mkLayer = (N, size, color, opacity, blending, rise, sway) => {
+                const pos = new Float32Array(N * 3);
+                for (let i = 0; i < N; i++) {
+                    pos[i * 3] = (Math.random() - 0.5) * 700;
+                    pos[i * 3 + 1] = Math.random() * 220;
+                    pos[i * 3 + 2] = (Math.random() - 0.5) * 700;
+                }
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+                    color, size, map: dotTex, transparent: true, opacity,
+                    fog: true, depthWrite: false, blending
+                }));
+                pts.frustumCulled = false;
+                scene.add(pts);
+                emberLayers.push({ pts, rise, sway });
+            };
+            mkLayer(240, 2.4, 0xff7b2e, 0.8, THREE.AdditiveBlending, 9, 3);   // bara menyala
+            mkLayer(200, 1.6, 0x8a7566, 0.32, THREE.NormalBlending, 5, 5);    // abu melayang
         }
 
         function updateEmbers(dt) {
-            if (!embers) return;
-            const p = embers.geometry.attributes.position.array;
             const T = clock.elapsedTime;
-            for (let i = 0; i < p.length; i += 3) {
-                p[i] += Math.sin(T * 0.6 + i * 0.35) * dt * 3;   // goyangan angin
-                p[i + 1] += dt * 8;                              // melayang naik
-                if (p[i + 1] > 220) p[i + 1] = 0;                // wrap vertikal
-                if (p[i] > 350) p[i] = -350; else if (p[i] < -350) p[i] = 350;
+            for (const L of emberLayers) {
+                const p = L.pts.geometry.attributes.position.array;
+                for (let i = 0; i < p.length; i += 3) {
+                    p[i] += Math.sin(T * 0.6 + i * 0.35) * dt * L.sway;   // goyangan angin
+                    p[i + 1] += dt * L.rise;                              // melayang naik
+                    if (p[i + 1] > 220) p[i + 1] = 0;                     // wrap vertikal
+                    if (p[i] > 350) p[i] = -350; else if (p[i] < -350) p[i] = 350;
+                }
+                // ikuti player agar partikel selalu menyelimuti area sekitar
+                L.pts.position.x = camera.position.x;
+                L.pts.position.z = camera.position.z;
+                L.pts.geometry.attributes.position.needsUpdate = true;
             }
-            // ikuti player agar bara selalu menyelimuti area sekitar
-            embers.position.x = camera.position.x;
-            embers.position.z = camera.position.z;
-            embers.geometry.attributes.position.needsUpdate = true;
         }
 
         // Animasi dekoratif murah — TIDAK menyentuh gameplay: bayangan mengikuti player,
-        // api Monas/gedung berkedip, air mancur berdenyut, sprite muzzle flash memudar.
+        // api Monas/gedung berkedip, air mengalir, goyangan senjata, sprite muzzle memudar.
         function updateDecor(dt) {
             const T = clock.elapsedTime;
             // Kamera bayangan (ortho 640x640) digeser mengikuti player
             dirLight.position.set(camera.position.x - 220, 260, camera.position.z - 280);
             dirLight.target.position.set(camera.position.x, 0, camera.position.z);
             if (flameLight) flameLight.intensity = 1.1 + Math.sin(T * 6.1) * 0.12 + Math.sin(T * 17) * 0.06;
+            if (flameGlow) {
+                const s = 30 + Math.sin(T * 5.2) * 2.4 + Math.sin(T * 13) * 1.2;
+                flameGlow.scale.set(s, s, 1);
+            }
             if (burningMat) burningMat.emissiveIntensity = 1.1 + Math.sin(T * 5.3) * 0.35 + Math.sin(T * 13) * 0.15;
+            for (let i = 0; i < fireSprites.length; i++) {
+                const f = fireSprites[i];
+                f.sprite.material.opacity = 0.42 + Math.abs(Math.sin(T * 3.7 + f.phase)) * 0.3
+                    + Math.sin(T * 11 + f.phase * 3) * 0.08;
+            }
             for (let i = 0; i < waterJets.length; i++) {
                 const j = waterJets[i];
                 j.scale.y = 1 + Math.sin(T * 2.2 + i * 2.1) * 0.12;
                 j.scale.x = j.scale.z = 1 + Math.sin(T * 3.1 + i) * 0.05;
             }
+            if (waterTex) { waterTex.offset.x = T * 0.018; waterTex.offset.y = T * 0.011; }
             if (muzzleSprite) muzzleSprite.material.opacity = Math.min(1, muzzleFlash.intensity / 3);
+            // Bidik iron sight (ADS): transisi halus posisi senjata ke tengah + zoom FOV 20%.
+            // Arah tembak/granat tetap dari pusat kamera -> tidak mengubah mekanik.
+            aimT += ((isAiming ? 1 : 0) - aimT) * Math.min(1, dt * 12);
+            const fov = BASE_FOV / (1 + (AIM_ZOOM - 1) * aimT);
+            if (Math.abs(camera.fov - fov) > 0.01) {
+                camera.fov = fov;
+                camera.updateProjectionMatrix();
+            }
+            crosshair.style.opacity = 1 - aimT * 0.85;   // crosshair memudar, ganti sight picture
+            // Goyangan senjata halus (posisi x/y saja; z milik recoil) — diredam saat membidik
+            const moving = (keys.w || keys.a || keys.s || keys.d) && !isPaused && !isGameOver;
+            gunBobT += dt * (moving ? (keys.shift ? 11 : 7.5) : 2.2);
+            const bobA = (moving ? 0.09 : 0.03) * (1 - aimT * 0.8);
+            const baseX = 3 * (1 - aimT);                       // pinggul 3 -> tengah 0
+            const baseY = -2.5 + (-0.78 + 2.5) * aimT;          // -2.5 -> -0.78 (garis pisir = pusat layar)
+            gunMesh.position.x = baseX + Math.sin(gunBobT) * bobA;
+            gunMesh.position.y = baseY + Math.abs(Math.cos(gunBobT)) * bobA * 1.4;
         }
 
         // ----------- Logika Mekanik ----------- //
@@ -1271,7 +1705,65 @@
         // Lepas semua input yang sedang ditekan (dipanggil saat unlock / blur / reset).
         function releaseInputs() {
             mouse.isDown = false;
+            isAiming = false;
             for (const k in keys) keys[k] = false;
+        }
+
+        // Resolusi FXAA harus di-update tiap ganti ukuran (uniform 1/pixel)
+        function setFxaaRes() {
+            if (!fxaaPass) return;
+            const pr = renderer.getPixelRatio();
+            fxaaPass.material.uniforms['resolution'].value.set(
+                1 / (window.innerWidth * pr), 1 / (window.innerHeight * pr));
+        }
+
+        // Dorong keluar dari penghalang silinder pejal: pohon selalu; bak air mancur
+        // hanya bila kaki masih di bawah bibirnya (di atas -> bebas berjalan/mendarat).
+        // Murni horizontal; dipakai player (radius 5) dan zombie (radius 3.5).
+        // Return true bila DINDING BAK yang menghalangi (pemicu vault zombie).
+        function resolveObstacles(pos, radius, feetY) {
+            for (let i = 0; i < treeColliders.length; i++) {
+                const t = treeColliders[i];
+                const dx = pos.x - t.x, dz = pos.z - t.z;
+                const minD = t.r + radius;
+                const d2 = dx * dx + dz * dz;
+                if (d2 < minD * minD && d2 > 1e-6) {
+                    const d = Math.sqrt(d2);
+                    pos.x = t.x + dx / d * minD;
+                    pos.z = t.z + dz / d * minD;
+                }
+            }
+            let fountainBlocked = false;
+            if (feetY < FOUNTAIN.topY - 0.4) {
+                const dx = pos.x - FOUNTAIN.x, dz = pos.z - FOUNTAIN.z;
+                const minD = FOUNTAIN.r + radius;
+                const d2 = dx * dx + dz * dz;
+                if (d2 < minD * minD && d2 > 1e-6) {
+                    const d = Math.sqrt(d2);
+                    pos.x = FOUNTAIN.x + dx / d * minD;
+                    pos.z = FOUNTAIN.z + dz / d * minD;
+                    fountainBlocked = true;
+                }
+            }
+            return fountainBlocked;
+        }
+
+        // Apakah ruas garis (x1,z1)->(x2,z2) melintasi lingkaran bak air mancur?
+        // Dipakai zombie: vault hanya bila jalur ke player memang lewat bak.
+        function segmentHitsFountain(x1, z1, x2, z2) {
+            const dx = x2 - x1, dz = z2 - z1;
+            const len2 = dx * dx + dz * dz || 1;
+            const t = clamp(((FOUNTAIN.x - x1) * dx + (FOUNTAIN.z - z1) * dz) / len2, 0, 1);
+            const px = x1 + dx * t - FOUNTAIN.x, pz = z1 + dz * t - FOUNTAIN.z;
+            return px * px + pz * pz < FOUNTAIN.r * FOUNTAIN.r;
+        }
+
+        // Ketinggian "lantai" di (x,z): puncak bak air mancur bisa dipijak bila
+        // player datang dari atas; selain itu tanah datar y=0.
+        function groundHeightAt(x, z, feetY) {
+            if (feetY >= FOUNTAIN.topY - 0.6 &&
+                Math.hypot(x - FOUNTAIN.x, z - FOUNTAIN.z) < FOUNTAIN.r + 2) return FOUNTAIN.topY;
+            return 0;
         }
 
         function startReload() {
@@ -1359,11 +1851,14 @@
             zMesh.position.set(startX, baseY, startZ);
             scene.add(zMesh);
 
-            // state 'jumping' -> melompati pagar; lalu 'chasing' -> kejar player seperti biasa
+            // state 'jumping' -> melompati pagar; lalu 'chasing' -> kejar player seperti biasa.
+            // Busur lompat digeneralisasi (jumpY0->jumpY1 + arcH) agar bisa dipakai ulang
+            // untuk vault dinding bak air mancur; groundY = lantai pijakan saat ini.
             zombies.push({
                 mesh: zMesh, hp, maxHp: hp, speed, bones, mixer, isModel, baseY, phase: Math.random() * 6.28,
                 state: 'jumping', jumpT: 0, jumpDur: 1.1,
-                sx: startX, sz: startZ, lx: landX, lz: landZ
+                sx: startX, sz: startZ, lx: landX, lz: landZ,
+                jumpY0: 0, jumpY1: 0, arcH: FENCE_H + 14, groundY: 0, vaultCd: 0
             });
             playSFX(sfxSpawn);
         }
@@ -1429,9 +1924,9 @@
                 swing('armL', -s * AR); swing('armR', s * AR);
                 if (inner) inner.position.y = Math.abs(Math.sin(z.phase)) * 1.2;
             } else if (!z.isModel && z.state === 'chasing') {
-                // Silinder: bob kecil agar tak terasa meluncur.
+                // Silinder: bob kecil agar tak terasa meluncur (relatif lantai pijakan).
                 z.phase += dt * 9;
-                z.mesh.position.y = z.baseY + Math.abs(Math.sin(z.phase)) * 1.2;
+                z.mesh.position.y = z.baseY + z.groundY + Math.abs(Math.sin(z.phase)) * 1.2;
             }
         }
 
@@ -1471,6 +1966,21 @@
             flash.position.set(pos.x, 14, pos.z);
             flash.intensity = 7;
             explosions.push({ mesh: expMesh, light: flash, life: 1, scale: 40 });   // life 0..1
+            // Inti putih menyilaukan (ditangkap bloom) + gelombang kejut cincin di tanah
+            const core = new THREE.Mesh(GEO.explosion, new THREE.MeshBasicMaterial({
+                color: 0xfff2c0, transparent: true, opacity: 0.95, toneMapped: false
+            }));
+            core.position.copy(pos);
+            scene.add(core);
+            explosions.push({ mesh: core, life: 1, scale: 20 });
+            const shock = new THREE.Mesh(GEO.ring, new THREE.MeshBasicMaterial({
+                color: 0xffa040, transparent: true, opacity: 0.9, side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+            }));
+            shock.rotation.x = -Math.PI / 2;
+            shock.position.set(pos.x, 0.8, pos.z);
+            scene.add(shock);
+            explosions.push({ mesh: shock, life: 1, scale: 95 });
             playSFX(sfxExplode);
 
             for (let i = zombies.length - 1; i >= 0; i--) {
@@ -1505,10 +2015,23 @@
 
         function killZombie(i) {
             const z = zombies[i];
+            spawnGroundPuff(z.mesh.position.x, z.mesh.position.z, 0x5a1616, 13, z.groundY + 0.6);   // percikan (visual)
             disposeZombie(z);
             scene.remove(z.mesh);
             zombies.splice(i, 1);
             score += 100;
+        }
+
+        // Cincin debu/percikan di ketinggian y — visual murni; menumpang daur hidup array
+        // explosions (loop ledakan menangani skala, pudar opasitas, dispose, dan splice).
+        function spawnGroundPuff(x, z, color, scale, y = 0.6) {
+            const m = new THREE.Mesh(GEO.ring, new THREE.MeshBasicMaterial({
+                color, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false
+            }));
+            m.rotation.x = -Math.PI / 2;
+            m.position.set(x, y, z);
+            scene.add(m);
+            explosions.push({ mesh: m, life: 1, scale });
         }
 
         function spawnDrop(pos) {
@@ -1555,6 +2078,7 @@
             isGameOver = false;
             gameOverScreen.style.display = 'none';
 
+            player.vy = 0; player.onGround = true;
             camera.position.set(0, 10, 120);
             camera.quaternion.set(0, 0, 0, 1);
 
@@ -1620,10 +2144,27 @@
             if (Math.abs(camera.position.x) < 25 && Math.abs(camera.position.z) < 25) {
                 camera.position.x = oldX; camera.position.z = oldZ;
             }
+            // Penghalang pejal: pohon & dinding bak air mancur (dorong keluar horizontal)
+            resolveObstacles(camera.position, player.radius, camera.position.y - 10);
+
+            // --- Lompat & gravitasi (SPASI). Pagar & Monas TETAP tak terlompati:
+            // clamp pagar dan AABB Monas di atas bekerja horizontal, apa pun ketinggiannya.
+            const feetY = camera.position.y - 10;
+            const gH = groundHeightAt(camera.position.x, camera.position.z, feetY);
+            player.vy -= GRAVITY * dt;
+            let newFeet = feetY + player.vy * dt;
+            if (newFeet <= gH && player.vy <= 0) {        // mendarat / menempel lantai
+                newFeet = gH;
+                player.vy = 0;
+                player.onGround = true;
+            } else {
+                player.onGround = false;
+            }
+            camera.position.y = newFeet + 10;
 
             // --- Recoil & muzzle flash decay (visual, terpisah dari mouse-look) ---
             gunRecoil = Math.max(0, gunRecoil - dt * 6);
-            gunMesh.position.z = -6 + gunRecoil * 2.5;
+            gunMesh.position.z = -6 + aimT * 0.8 + gunRecoil * 2.5;   // ADS sedikit lebih dekat
             if (muzzleFlash.intensity > 0) muzzleFlash.intensity = Math.max(0, muzzleFlash.intensity - dt * 30);
 
             // --- 2. Tembak (kiri klik), fire-rate berbasis waktu nyata ---
@@ -1723,14 +2264,22 @@
                 const oldZX = z.mesh.position.x, oldZZ = z.mesh.position.z;
 
                 if (z.state === 'jumping') {
-                    // Busur melompati pagar: lerp horizontal start->mendarat, y = busur sinus.
+                    // Busur lompat (pagar / vault bak): lerp horizontal + lerp lantai + busur sinus.
                     z.jumpT += dt / z.jumpDur;
                     const t = Math.min(1, z.jumpT);
                     z.mesh.position.x = z.sx + (z.lx - z.sx) * t;
                     z.mesh.position.z = z.sz + (z.lz - z.sz) * t;
-                    z.mesh.position.y = z.baseY + Math.sin(Math.PI * t) * (FENCE_H + 14);
+                    z.mesh.position.y = z.baseY + z.jumpY0 + (z.jumpY1 - z.jumpY0) * t
+                        + Math.sin(Math.PI * t) * z.arcH;
                     z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
-                    if (t >= 1) { z.state = 'chasing'; z.mesh.position.y = z.baseY; }
+                    if (t >= 1) {
+                        z.state = 'chasing';
+                        z.groundY = z.jumpY1;
+                        z.mesh.position.y = z.baseY + z.groundY;
+                        // debu di tanah / percikan air bila mendarat di atas bak
+                        spawnGroundPuff(z.mesh.position.x, z.mesh.position.z,
+                            z.jumpY1 > 0 ? 0x7fb3d1 : 0x8a7a5e, z.jumpY1 > 0 ? 12 : 16, z.jumpY1 + 0.6);
+                    }
                 } else {
                     // Kejar player (grounded)
                     const dx = camera.position.x - z.mesh.position.x;
@@ -1743,6 +2292,36 @@
                     // Tabrakan dgn Monas -> mundur
                     if (Math.abs(z.mesh.position.x) < 24 && Math.abs(z.mesh.position.z) < 24) {
                         z.mesh.position.x = oldZX; z.mesh.position.z = oldZZ;
+                    }
+                    // Pohon selalu pejal; dinding bak hanya saat kaki di bawah bibirnya
+                    if (z.vaultCd > 0) z.vaultCd -= dt;
+                    const fBlocked = resolveObstacles(z.mesh.position, 3.5, z.groundY);
+                    if (fBlocked && z.vaultCd <= 0 &&
+                        segmentHitsFountain(z.mesh.position.x, z.mesh.position.z, camera.position.x, camera.position.z)) {
+                        // Terhalang dinding bak & jalur ke player melintasinya -> lompati (vault).
+                        // Mendarat di ATAS bak, maju ke arah player, dijepit ke dalam lingkaran.
+                        const dp = Math.hypot(dx, dz) || 1;
+                        const fwd = Math.max(10, Math.min(dp - 4, 26));
+                        let lx = z.mesh.position.x + dx / dp * fwd;
+                        let lz = z.mesh.position.z + dz / dp * fwd;
+                        const fdx = lx - FOUNTAIN.x, fdz = lz - FOUNTAIN.z;
+                        const fd = Math.hypot(fdx, fdz), rIn = FOUNTAIN.r - 6;
+                        if (fd > rIn) { lx = FOUNTAIN.x + fdx / fd * rIn; lz = FOUNTAIN.z + fdz / fd * rIn; }
+                        z.state = 'jumping';
+                        z.jumpT = 0; z.jumpDur = 0.7;                    // vault lebih gesit dari lompat pagar
+                        z.sx = z.mesh.position.x; z.sz = z.mesh.position.z;
+                        z.lx = lx; z.lz = lz;
+                        z.jumpY0 = z.groundY; z.jumpY1 = FOUNTAIN.topY;
+                        z.arcH = 12;
+                        z.vaultCd = 1.5;                                 // cegah loop vault bolak-balik
+                    } else {
+                        // Turun dari bak bila sudah keluar dari lingkarannya
+                        if (z.groundY > 0 &&
+                            Math.hypot(z.mesh.position.x - FOUNTAIN.x, z.mesh.position.z - FOUNTAIN.z) > FOUNTAIN.r + 2) {
+                            z.groundY = 0;
+                            spawnGroundPuff(z.mesh.position.x, z.mesh.position.z, 0x8a7a5e, 10);
+                        }
+                        if (z.isModel) z.mesh.position.y = z.baseY + z.groundY;
                     }
 
                     const distToEye = Math.hypot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z);
@@ -1840,7 +2419,8 @@
                 updateEmbers(dt);
                 if (radarTick++ & 1) drawRadar();
             }
-            renderer.render(scene, camera);
+            if (composer) composer.render();          // bloom + gamma + FXAA
+            else renderer.render(scene, camera);      // fallback bila CDN post-fx gagal
         }
 
         // ----------- Cutscene / slideshow pembuka ----------- //
