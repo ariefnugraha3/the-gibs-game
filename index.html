@@ -438,7 +438,7 @@
         <div id="instructions">
             <b>Click here to Start the Action</b><br /><br />
             <span class="small">WASD = Bergerak | MOUSE = Pandangan | KLIK KIRI = Tembak | KLIK KANAN = Bidik On/Off |
-                1 / 2 / Q = Ganti Senjata | F = Pukul | G = Granat | R = Reload | SHIFT = Lari | SPASI = Lompat</span>
+                1 / 2 / Q = Ganti Senjata | F = Pukul | G = Granat | R = Reload | SHIFT = Lari | C / CTRL = Jongkok | SPASI = Lompat</span>
         </div>
     </div>
 
@@ -493,10 +493,15 @@
         const mouse = { isDown: false };
         let gunMesh, muzzleFlash, muzzlePoint, muzzleSprite;
         let gunRecoil = 0;      // kickback senjata (visual, tak mengganggu mouse-look)
+        let gunHeat = 0;        // "panas laras" 0..1: naik tiap tembakan, dingin saat jeda —
+                                // memperbesar spread saat menembak beruntun (bloom recoil)
         let gunBobT = 0;        // fase goyangan senjata saat berjalan (visual)
         // Bidik iron sight (ADS, klik kanan = toggle): zoom FOV + senjata ke tengah
         let isAiming = false, aimT = 0;   // aimT 0..1
         const BASE_FOV = 70, AIM_ZOOM = 1.2;   // zoom 20% saat membidik
+        // Akurasi tembakan: sudut sebar kerucut (radian). Hip-fire dasar + bloom panas laras;
+        // pengali akurasi: ADS x0.75 (25% lebih akurat), jongkok x0.75 lagi (bisa ditumpuk).
+        const SPREAD_BASE = 0.035, SPREAD_BLOOM = 0.05;
         // Rig tangan karakter & animasi reload (visual; timing mekanik reload tetap)
         let leftHand, leftForearm, rightArm, gunMagMesh, boltHandle;
         let reloadStartTime = 0;          // waktu nyata -> sinkron dgn setTimeout reload
@@ -520,6 +525,8 @@
         const fireSprites = [];            // pijar api gedung terbakar (billboard aditif)
         const emberLayers = [];            // lapisan partikel bara & abu
         const explosionLights = [];        // pool lampu ledakan (jumlah lampu konstan -> tak recompile shader)
+        const bloodPool = [];              // pool sprite percikan darah (jumlah tetap, dipakai bergilir)
+        let nextBlood = 0;
         let nextExplosionLight = 0;
         // Post-processing (bloom + FXAA); null bila script CDN gagal -> fallback render langsung
         let composer = null, fxaaPass = null;
@@ -559,6 +566,12 @@
         // Headshot: bola tabrakan kepala zombie (pusat = kaki + 11.5; kotak kepala 2.4).
         // Kena kepala = mati seketika, berapa pun hp-nya.
         const HEAD_Y = 11.5, HEAD_R = 2.4;
+        // Jongkok (tombol C, toggle): mata turun CROUCH_DROP, tembakan 25% lebih akurat,
+        // gerak -50% (mendominasi ADS -30%, TIDAK ditumpuk jadi -80%).
+        const CROUCH_DROP = 3.6;
+        let isCrouching = false, crouchT = 0;   // crouchT 0..1 (transisi dihaluskan)
+        let crouchHold = false;                 // jongkok versi TAHAN (Ctrl kiri); C tetap toggle
+        let eyeHCur = EYE_H;                    // tinggi mata efektif frame ini (turun saat jongkok)
 
         const rand = (a, b) => a + Math.random() * (b - a);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -715,6 +728,8 @@
         const _right = new THREE.Vector3();
         const _tip = new THREE.Vector3();
         const _v3 = new THREE.Vector3();
+        const _sRight = new THREE.Vector3(), _sUp = new THREE.Vector3();   // basis sebar peluru
+        const _kickEuler = new THREE.Euler(0, 0, 0, 'YXZ');                // tendangan recoil kamera
 
         init();
         animate();
@@ -779,6 +794,34 @@
                 const l = new THREE.PointLight(0xff8a3d, 0, 260, 2);
                 scene.add(l);
                 explosionLights.push(l);
+            }
+
+            // Pool sprite percikan darah: JUMLAH TETAP — 14 sprite dibuat SEKALI di sini
+            // (visible=false saat idle) lalu dipakai bergilir oleh spawnBlood(). Nol
+            // alokasi geometri/material/dispose per tembakan agar performa tidak turun.
+            const bloodTex = makeTexture(64, 64, (g) => {
+                // splat: blob pusat + tetesan acak di sekitarnya (latar transparan)
+                const blob = (x, y, r, a) => {
+                    const rg = g.createRadialGradient(x, y, 0, x, y, r);
+                    rg.addColorStop(0, `rgba(130,16,14,${a})`);
+                    rg.addColorStop(0.65, `rgba(92,10,10,${a * 0.85})`);
+                    rg.addColorStop(1, 'rgba(70,8,8,0)');
+                    g.fillStyle = rg;
+                    g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill();
+                };
+                blob(32, 32, 15, 0.95);
+                for (let i = 0; i < 12; i++) {
+                    const a = Math.random() * 6.283, d = 12 + Math.random() * 16;
+                    blob(32 + Math.cos(a) * d, 32 + Math.sin(a) * d, 1.5 + Math.random() * 3.5, 0.9);
+                }
+            });
+            for (let i = 0; i < 14; i++) {
+                const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+                    map: bloodTex, transparent: true, opacity: 0, depthWrite: false
+                }));
+                spr.visible = false;
+                scene.add(spr);
+                bloodPool.push({ spr, life: 0, s0: 3 });
             }
 
             createSky();
@@ -1060,6 +1103,12 @@
                 if (keys.hasOwnProperty(key)) keys[key] = true;
                 if (e.key === 'Shift') keys.shift = true;
                 if (key === 'r' && !isPaused && !isGameOver) startReload();
+                // C = toggle jongkok (akurasi naik, gerak melambat; lihat konstanta CROUCH_DROP)
+                if (key === 'c' && !isPaused && !isGameOver) isCrouching = !isCrouching;
+                // Ctrl kiri = jongkok TAHAN (lepas tombol = berdiri; C tetap toggle).
+                // preventDefault meredam shortcut browser sebisanya — Ctrl+W tetap bisa
+                // ditelan browser (tutup tab), jalur amannya toggle C.
+                if (e.code === 'ControlLeft') { crouchHold = true; e.preventDefault(); }
                 if (key === 'g' && !isPaused && !isGameOver && switchAnim < 0) handleThrowGrenade();   // granat
                 // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie)
                 if (key === 'f' && !isPaused && !isGameOver && meleeCd <= 0 && switchAnim < 0 && !player.isReloading) {
@@ -1086,6 +1135,7 @@
                 const key = e.key.toLowerCase();
                 if (keys.hasOwnProperty(key)) keys[key] = false;
                 if (e.key === 'Shift') keys.shift = false;
+                if (e.code === 'ControlLeft') crouchHold = false;
             });
             window.addEventListener('blur', releaseInputs);   // bug fix: Alt-Tab meninggalkan tombol tertekan
 
@@ -2105,6 +2155,8 @@
         function releaseInputs() {
             mouse.isDown = false;
             isAiming = false;
+            isCrouching = false;   // toggle jongkok ikut dilepas (konsisten dgn toggle bidik)
+            crouchHold = false;
             for (const k in keys) keys[k] = false;
         }
 
@@ -2441,6 +2493,22 @@
             explosions.push({ mesh: m, life: 1, scale });
         }
 
+        // Percikan darah di titik peluru mengenai zombie — ambil sprite dari pool tetap
+        // (round-robin). Sprite menghadap kamera dan digeser ~1.5 unit ke arah kamera
+        // supaya tidak terbenam di dalam badan zombie. Dipudarkan di update().
+        function spawnBlood(x, y, z) {
+            const bl = bloodPool[nextBlood++ % bloodPool.length];
+            const dx = camera.position.x - x, dy = camera.position.y - y, dz = camera.position.z - z;
+            const dl = Math.hypot(dx, dy, dz) || 1;
+            bl.spr.position.set(x + dx / dl * 1.5, y + dy / dl * 1.5, z + dz / dl * 1.5);
+            bl.spr.material.rotation = Math.random() * 6.283;   // roll acak tiap percikan
+            bl.s0 = 2.2 + Math.random() * 1.2;
+            bl.spr.scale.setScalar(bl.s0);
+            bl.spr.material.opacity = 0.95;
+            bl.life = 1;
+            bl.spr.visible = true;
+        }
+
         function spawnDrop(pos) {
             // Jepit ke dalam pagar (bug fix): zombie yang mati saat masih melompat berada
             // di luar area jangkauan player — drop di sana mustahil diambil.
@@ -2496,11 +2564,14 @@
             gameOverScreen.style.display = 'none';
 
             player.vy = 0; player.onGround = true;
+            crouchT = 0; eyeHCur = EYE_H;   // isCrouching sudah dilepas releaseInputs()
+            gunHeat = 0;
             camera.position.set(0, EYE_H, 120);
             camera.quaternion.set(0, 0, 0, 1);
 
             zombies.forEach(z => { disposeZombie(z); scene.remove(z.mesh); });
             zombies.length = 0;
+            bloodPool.forEach(bl => { bl.life = 0; bl.spr.visible = false; });   // pool tetap, cukup disembunyikan
             clearArray(bullets);
             clearArray(grenades);
             clearArray(explosions);
@@ -2570,7 +2641,12 @@
             _right.crossVectors(camera.up, _dir).normalize();
 
             const oldX = camera.position.x, oldZ = camera.position.z;
-            const moveSpeed = player.speed * (keys.shift ? 1.7 : 1) * step;
+            // Jongkok efektif = toggle C ATAU tahan Ctrl kiri
+            const crouched = isCrouching || crouchHold;
+            // Pengali kecepatan: jongkok -50% (mendominasi, TIDAK ditumpuk dgn ADS);
+            // ADS saja -30%. Sprint dimatikan selama jongkok.
+            const moveMult = crouched ? 0.5 : (isAiming ? 0.7 : 1);
+            const moveSpeed = player.speed * (keys.shift && !crouched ? 1.7 : 1) * moveMult * step;
             if (keys.w) camera.position.addScaledVector(_dir, moveSpeed);
             if (keys.s) camera.position.addScaledVector(_dir, -moveSpeed);
             if (keys.a) camera.position.addScaledVector(_right, moveSpeed);
@@ -2584,11 +2660,14 @@
                 camera.position.x = oldX; camera.position.z = oldZ;
             }
             // Penghalang pejal: pohon & dinding bak air mancur (dorong keluar horizontal)
-            resolveObstacles(camera.position, player.radius, camera.position.y - EYE_H);
+            resolveObstacles(camera.position, player.radius, camera.position.y - eyeHCur);
 
             // --- Lompat & gravitasi (SPASI). Pagar & Monas TETAP tak terlompati:
             // clamp pagar dan AABB Monas di atas bekerja horizontal, apa pun ketinggiannya.
-            const feetY = camera.position.y - EYE_H;
+            // PENTING: kaki dihitung dgn eyeHCur frame LALU; crouchT baru diperbarui
+            // setelahnya — kaki tetap menempel tanah selama transisi jongkok (tanpa
+            // "jatuh" semu yang memicu bunyi mendarat).
+            const feetY = camera.position.y - eyeHCur;
             const gH = groundHeightAt(camera.position.x, camera.position.z, feetY);
             const wasAirborne = !player.onGround;
             player.vy -= GRAVITY * dt;
@@ -2601,14 +2680,17 @@
             } else {
                 player.onGround = false;
             }
-            camera.position.y = newFeet + EYE_H;
+            // Transisi jongkok mulus: mata turun CROUCH_DROP saat crouchT -> 1
+            crouchT += ((crouched ? 1 : 0) - crouchT) * Math.min(1, dt * 10);
+            eyeHCur = EYE_H - CROUCH_DROP * crouchT;
+            camera.position.y = newFeet + eyeHCur;
 
-            // Langkah kaki berirama saat berjalan/berlari di tanah
+            // Langkah kaki berirama saat berjalan/berlari di tanah (jongkok = pelan & senyap)
             if (player.onGround && (keys.w || keys.a || keys.s || keys.d)) {
                 footT -= dt;
                 if (footT <= 0) {
-                    playSFX(sfxFootstep, 0.4);
-                    footT = keys.shift ? 0.28 : 0.42;   // lari = irama lebih rapat
+                    playSFX(sfxFootstep, crouched ? 0.22 : 0.4);
+                    footT = crouched ? 0.6 : keys.shift ? 0.28 : 0.42;   // lari = irama lebih rapat
                 }
             } else {
                 footT = 0.12;   // langkah pertama cepat terdengar saat mulai bergerak
@@ -2632,6 +2714,7 @@
 
             // --- Recoil & muzzle flash decay (visual, terpisah dari mouse-look) ---
             gunRecoil = Math.max(0, gunRecoil - dt * 6);
+            gunHeat = Math.max(0, gunHeat - dt * 1.4);   // laras mendingin saat jeda menembak
             const wGrp = currentWeapon === 'rifle' ? gunMesh : pistolMesh;
             const wBaseZ = currentWeapon === 'rifle' ? -6 : -5;
             const wKick = currentWeapon === 'rifle' ? 2.5 : 1.6;
@@ -2650,10 +2733,25 @@
                 bMesh.position.copy(_tip);
 
                 camera.getWorldDirection(_v3);
-                // sedikit spread agar tembakan terasa hidup
-                _v3.x += (Math.random() - 0.5) * 0.01;
-                _v3.y += (Math.random() - 0.5) * 0.01;
-                _v3.normalize();
+                // Sebar peluru: kerucut acak di ruang kamera (bukan sumbu dunia).
+                // Radius = dasar + bloom panas laras; ADS/jongkok mempersempitnya.
+                const acc = (isAiming ? 0.75 : 1) * (crouched ? 0.75 : 1);
+                const spread = (SPREAD_BASE + gunHeat * SPREAD_BLOOM) * acc;
+                const sAng = Math.random() * Math.PI * 2;
+                const sRad = Math.random() * spread;   // bias ke pusat
+                _sRight.setFromMatrixColumn(camera.matrixWorld, 0);
+                _sUp.setFromMatrixColumn(camera.matrixWorld, 1);
+                _v3.addScaledVector(_sRight, Math.cos(sAng) * sRad)
+                    .addScaledVector(_sUp, Math.sin(sAng) * sRad).normalize();
+                gunHeat = Math.min(1, gunHeat + 0.22);
+
+                // Recoil menendang kamera: naik + geser acak (lewat euler YXZ yang sama
+                // dgn mouse-look, jadi aman — player mengompensasi dgn menarik mouse turun).
+                _kickEuler.setFromQuaternion(camera.quaternion);
+                _kickEuler.x += (currentWeapon === 'rifle' ? 0.012 : 0.016) * acc * (0.8 + Math.random() * 0.4);
+                _kickEuler.y += (Math.random() - 0.5) * 0.008 * acc;
+                _kickEuler.x = Math.min(Math.PI / 2 - 0.1, _kickEuler.x);
+                camera.quaternion.setFromEuler(_kickEuler);
 
                 // Tracer: bola diregangkan searah laju (visual; hit test tetap titik pusat)
                 bMesh.lookAt(_tip.x + _v3.x, _tip.y + _v3.y, _tip.z + _v3.z);
@@ -2665,7 +2763,7 @@
                 // di depan mata, jadi zombie dalam jarak cakar lahirnya SUDAH terlewati
                 // dan mustahil tertembak tanpa segmen mata->laras ini).
                 bullets.push({
-                    mesh: bMesh, dir: _v3.clone(), speed: 6, life: 100, first: true,
+                    mesh: bMesh, dir: _v3.clone(), speed: 9, life: 100, first: true,
                     px: camera.position.x, py: camera.position.y, pz: camera.position.z
                 });
                 playSFX(currentWeapon === 'rifle' ? sfxShoot : sfxPistol);
@@ -2710,6 +2808,17 @@
                     if (e.light) e.light.intensity = 0;   // lampu pool tetap di scene
                     explosions.splice(i, 1);
                 }
+            }
+
+            // --- Percikan darah (pool tetap): membesar sedikit + memudar cepat.
+            // Loop selalu 14 iterasi ringan; yang idle (life<=0) langsung dilewati. ---
+            for (let i = 0; i < bloodPool.length; i++) {
+                const bl = bloodPool[i];
+                if (bl.life <= 0) continue;
+                bl.life -= dt * 3.2;   // umur ~0.31 dtk
+                bl.spr.scale.setScalar(bl.s0 * (1 + (1 - Math.max(0, bl.life)) * 0.9));
+                bl.spr.material.opacity = Math.max(0, bl.life) * 0.95;
+                if (bl.life <= 0) bl.spr.visible = false;
             }
 
             // --- Item drop ---
@@ -2848,6 +2957,14 @@
                         segPointDist2(b.px, b.py, b.pz, bx, by, bz,
                             z.mesh.position.x, hitY, z.mesh.position.z) < hitR * hitR) {
                         z.hp = isHead ? 0 : z.hp - 1;   // headshot = kill instan
+                        // Percikan darah di titik tumbuk = titik terdekat lintasan
+                        // peluru ke pusat bola yang kena (kepala/dada).
+                        const cy = isHead ? headY : hitY;
+                        const abx = bx - b.px, aby = by - b.py, abz = bz - b.pz;
+                        const al2 = abx * abx + aby * aby + abz * abz;
+                        const at = al2 > 0 ? clamp(((z.mesh.position.x - b.px) * abx
+                            + (cy - b.py) * aby + (z.mesh.position.z - b.pz) * abz) / al2, 0, 1) : 0;
+                        spawnBlood(b.px + abx * at, b.py + aby * at, b.pz + abz * at);
                         scene.remove(b.mesh);
                         bullets.splice(j, 1);
                         crosshair.classList.add('hit');
