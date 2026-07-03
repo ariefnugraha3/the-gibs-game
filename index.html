@@ -499,9 +499,10 @@
         let isAiming = false, aimT = 0;   // aimT 0..1
         const BASE_FOV = 70, AIM_ZOOM = 1.2;   // zoom 20% saat membidik
         // Rig tangan karakter & animasi reload (visual; timing mekanik reload tetap 3 dtk)
-        let leftHand, rightArm, gunMagMesh, boltHandle;
+        let leftHand, leftForearm, rightArm, gunMagMesh, boltHandle;
         let reloadStartTime = 0;          // waktu nyata -> sinkron dgn setTimeout reload
         const LEFT_HAND_REST = new THREE.Vector3(0, -0.35, -3.0);   // menopang handguard
+        const _axisZ = new THREE.Vector3(0, 0, 1);   // sumbu limb (placeLimb)
         // Referensi utk animasi dekoratif & bayangan yang mengikuti player (updateDecor)
         let dirLight, flameLight, flameGlow, burningMat, waterTex;
         const waterJets = [];              // kerucut air mancur (denyut pelan)
@@ -791,29 +792,64 @@
             mkPart(new THREE.BoxGeometry(0.16, 0.5, 1.1), steelDark, 0, -0.62, 1.35);                    // pelindung pelatuk
             boltHandle = mkPart(new THREE.BoxGeometry(0.5, 0.18, 0.5), steel, 0.45, 0.12, 0.4);          // tuas kokang (ditarik saat reload)
 
-            // ----- Tangan karakter (stilistik kotak, mengikuti senjata/bob/ADS) -----
-            const skin = new THREE.MeshPhongMaterial({ color: 0xd9a066, shininess: 14, specular: 0x442f1e });
-            const sleeve = new THREE.MeshPhongMaterial({ color: 0x33402f, shininess: 8, specular: 0x141712 });
-            // Tangan kanan: menggenggam grip, statis (tetap pegang saat reload)
+            // ----- Tangan & lengan karakter (gaya CS: lengan penuh dari sudut layar ke senjata,
+            // sarung tangan taktis + jari mencengkeram; ikut bob/ADS/recoil via gunMesh) -----
+            const glove = new THREE.MeshPhongMaterial({ color: 0x3a3d42, shininess: 16, specular: 0x22242a });
+            const sleeve = new THREE.MeshPhongMaterial({ color: 0x4a4d3c, shininess: 8, specular: 0x181a14 });
+
+            // --- Tangan kanan: menggenggam pistol grip (statis; tetap pegang saat reload)
             rightArm = new THREE.Group();
-            const rHand = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.75, 0.6), skin);
-            rHand.position.set(0, -0.95, 0.75);
-            rightArm.add(rHand);
-            const rFore = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 2.6), sleeve);
-            rFore.position.set(0.55, -1.7, 1.95);
-            rFore.rotation.x = 0.55; rFore.rotation.z = -0.35;
-            rightArm.add(rFore);
+            const gripHand = new THREE.Group();               // mengikuti kemiringan grip
+            gripHand.position.set(0, -0.95, 0.72);
+            gripHand.rotation.z = 0.25;
+            const palmR = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.85, 0.62), glove);
+            palmR.position.set(0.32, -0.05, 0);               // telapak di sisi kanan grip
+            gripHand.add(palmR);
+            for (let i = 0; i < 3; i++) {                     // tiga jari melingkari grip
+                const f = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.17, 0.5), glove);
+                f.position.set(-0.02, 0.28 - i * 0.24, -0.04);
+                gripHand.add(f);
+            }
+            const trigF = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.55), glove);
+            trigF.position.set(0.1, 0.55, -0.3);              // telunjuk ke arah pelatuk
+            trigF.rotation.x = 0.35;
+            gripHand.add(trigF);
+            const thumbR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.18), glove);
+            thumbR.position.set(0.26, 0.42, 0.06);            // ibu jari di sisi atas
+            gripHand.add(thumbR);
+            rightArm.add(gripHand);
+            // manset + lengan bawah kanan: pergelangan -> siku di sudut kanan-bawah layar
+            const cuffR = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.5), sleeve);
+            cuffR.position.set(0.45, -1.32, 1.0);
+            rightArm.add(cuffR);
+            const foreR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 1), sleeve);
+            placeLimb(foreR, 0.45, -1.4, 1.05, 1.7, -3.8, 3.2);   // diagonal khas CS
+            rightArm.add(foreR);
             gunMesh.add(rightArm);
-            // Tangan kiri: menopang handguard; group ini yang dianimasikan penuh saat reload
+
+            // --- Tangan kiri: telapak menopang handguard dari bawah, jari mencengkeram sisi,
+            // ibu jari di sisi dalam. Group ini yang dianimasikan penuh saat reload.
             leftHand = new THREE.Group();
-            const lHand = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.95), skin);
-            leftHand.add(lHand);
-            const lFore = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 2.4), sleeve);
-            lFore.position.set(-0.5, -0.75, 1.15);
-            lFore.rotation.x = 0.55; lFore.rotation.z = 0.35;
-            leftHand.add(lFore);
+            const palmL = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.3, 1.05), glove);
+            palmL.position.set(0, -0.28, 0);
+            leftHand.add(palmL);
+            for (let i = 0; i < 4; i++) {                     // empat jari ke sisi kanan handguard
+                const f = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.55, 0.2), glove);
+                f.position.set(0.37, -0.02, -0.36 + i * 0.24);
+                leftHand.add(f);
+            }
+            const thumbL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.45, 0.5), glove);
+            thumbL.position.set(-0.36, -0.08, 0.12);
+            leftHand.add(thumbL);
+            const cuffL = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.5, 0.45), sleeve);
+            cuffL.position.set(-0.05, -0.2, 0.6);             // manset bergerak bersama tangan
+            leftHand.add(cuffL);
             leftHand.position.copy(LEFT_HAND_REST);
             gunMesh.add(leftHand);
+            // Lengan bawah kiri DINAMIS: direntangkan siku->pergelangan tiap frame (updateDecor),
+            // jadi lengan tetap tersambung saat tangan bergerak reload.
+            leftForearm = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.75, 1), sleeve);
+            gunMesh.add(leftForearm);
 
             // Titik ujung laras: referensi eksplisit utk spawn peluru (jangan andalkan indeks children)
             muzzlePoint = new THREE.Object3D();
@@ -1677,6 +1713,16 @@
             [3.00, 0.0, -0.35, -3.0],   // kembali menopang handguard
         ];
         const smooth01 = (u) => u * u * (3 - 2 * u);   // smoothstep
+
+        // Rentangkan mesh "limb" (geometri panjang 1 di sumbu z) dari titik A ke B —
+        // posisi = titik tengah, scale.z = jarak, orientasi = arah A->B.
+        function placeLimb(mesh, ax, ay, az, bx, by, bz) {
+            _dir.set(bx - ax, by - ay, bz - az);
+            const len = _dir.length();
+            mesh.position.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+            mesh.scale.z = len;
+            mesh.quaternion.setFromUnitVectors(_axisZ, _dir.normalize());
+        }
         function reloadHandPos(t, out) {
             if (t <= RELOAD_KF[0][0]) { const k = RELOAD_KF[0]; out.set(k[1], k[2], k[3]); return; }
             for (let i = 0; i < RELOAD_KF.length - 1; i++) {
@@ -1761,6 +1807,10 @@
                 gunMagMesh.rotation.set(0, 0, 0.45);
                 boltHandle.position.z = 0.4;
             }
+            // Lengan bawah kiri: rentangkan dari siku (anchor kiri-bawah layar) ke
+            // pergelangan tangan kiri yang sedang bergerak -> lengan selalu tersambung.
+            placeLimb(leftForearm, -1.8, -3.4, -0.5,
+                leftHand.position.x - 0.05, leftHand.position.y - 0.15, leftHand.position.z + 0.55);
         }
 
         // ----------- Logika Mekanik ----------- //
