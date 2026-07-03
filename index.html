@@ -441,7 +441,7 @@
         <div id="instructions">
             <b>Click here to Start the Action</b><br /><br />
             <span class="small">WASD = Bergerak | MOUSE = Pandangan Kiri Kanan | KLIK KIRI = Menembak AK47 | KLIK KANAN
-                = Bidik (Iron Sight) | G = Lempar Granat | R = Reload | SHIFT = Lari | SPASI = Lompat</span>
+                = Bidik On/Off (Iron Sight) | G = Lempar Granat | R = Reload | SHIFT = Lari | SPASI = Lompat</span>
         </div>
     </div>
 
@@ -495,9 +495,13 @@
         let gunMesh, muzzleFlash, muzzlePoint, muzzleSprite;
         let gunRecoil = 0;      // kickback senjata (visual, tak mengganggu mouse-look)
         let gunBobT = 0;        // fase goyangan senjata saat berjalan (visual)
-        // Bidik iron sight (ADS, klik kanan): zoom FOV + senjata ke tengah, transisi halus
+        // Bidik iron sight (ADS, klik kanan = toggle): zoom FOV + senjata ke tengah
         let isAiming = false, aimT = 0;   // aimT 0..1
         const BASE_FOV = 70, AIM_ZOOM = 1.2;   // zoom 20% saat membidik
+        // Rig tangan karakter & animasi reload (visual; timing mekanik reload tetap 3 dtk)
+        let leftHand, rightArm, gunMagMesh, boltHandle;
+        let reloadStartTime = 0;          // waktu nyata -> sinkron dgn setTimeout reload
+        const LEFT_HAND_REST = new THREE.Vector3(0, -0.35, -3.0);   // menopang handguard
         // Referensi utk animasi dekoratif & bayangan yang mengikuti player (updateDecor)
         let dirLight, flameLight, flameGlow, burningMat, waterTex;
         const waterJets = [];              // kerucut air mancur (denyut pelan)
@@ -780,12 +784,36 @@
             // Pisir belakang: dua sayap dgn CELAH bidik di tengah (sight picture saat ADS)
             mkPart(new THREE.BoxGeometry(0.09, 0.4, 0.7), steelDark, -0.14, 0.62, -1.4);
             mkPart(new THREE.BoxGeometry(0.09, 0.4, 0.7), steelDark, 0.14, 0.62, -1.4);
-            mkPart(new THREE.BoxGeometry(0.7, 1.5, 0.9), steel, 0, -1.1, -1.1, 0.45);                    // magazen melengkung
+            gunMagMesh = mkPart(new THREE.BoxGeometry(0.7, 1.5, 0.9), steel, 0, -1.1, -1.1, 0.45);       // magazen (dianimasikan saat reload)
             mkPart(new THREE.BoxGeometry(0.55, 1.1, 0.6), wood, 0, -0.95, 0.7, 0.25);                    // grip
             mkPart(new THREE.BoxGeometry(0.7, 0.9, 2.4), wood, 0, -0.25, 2.4, 0.06);                     // popor kayu
             mkPart(new THREE.CylinderGeometry(0.12, 0.12, 2.0, 6), steelDark, 0, 0.38, -3.0, Math.PI / 2); // tabung gas
             mkPart(new THREE.BoxGeometry(0.16, 0.5, 1.1), steelDark, 0, -0.62, 1.35);                    // pelindung pelatuk
-            mkPart(new THREE.BoxGeometry(0.5, 0.18, 0.5), steel, 0.45, 0.12, 0.4);                       // tuas kokang
+            boltHandle = mkPart(new THREE.BoxGeometry(0.5, 0.18, 0.5), steel, 0.45, 0.12, 0.4);          // tuas kokang (ditarik saat reload)
+
+            // ----- Tangan karakter (stilistik kotak, mengikuti senjata/bob/ADS) -----
+            const skin = new THREE.MeshPhongMaterial({ color: 0xd9a066, shininess: 14, specular: 0x442f1e });
+            const sleeve = new THREE.MeshPhongMaterial({ color: 0x33402f, shininess: 8, specular: 0x141712 });
+            // Tangan kanan: menggenggam grip, statis (tetap pegang saat reload)
+            rightArm = new THREE.Group();
+            const rHand = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.75, 0.6), skin);
+            rHand.position.set(0, -0.95, 0.75);
+            rightArm.add(rHand);
+            const rFore = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 2.6), sleeve);
+            rFore.position.set(0.55, -1.7, 1.95);
+            rFore.rotation.x = 0.55; rFore.rotation.z = -0.35;
+            rightArm.add(rFore);
+            gunMesh.add(rightArm);
+            // Tangan kiri: menopang handguard; group ini yang dianimasikan penuh saat reload
+            leftHand = new THREE.Group();
+            const lHand = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.95), skin);
+            leftHand.add(lHand);
+            const lFore = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 2.4), sleeve);
+            lFore.position.set(-0.5, -0.75, 1.15);
+            lFore.rotation.x = 0.55; lFore.rotation.z = 0.35;
+            leftHand.add(lFore);
+            leftHand.position.copy(LEFT_HAND_REST);
+            gunMesh.add(leftHand);
 
             // Titik ujung laras: referensi eksplisit utk spawn peluru (jangan andalkan indeks children)
             muzzlePoint = new THREE.Object3D();
@@ -853,15 +881,14 @@
                 camera.quaternion.setFromEuler(euler);
             });
 
-            // ----- Klik kiri = tembak; klik kanan (tahan) = bidik iron sight (ADS) -----
+            // ----- Klik kiri = tembak; klik kanan = TOGGLE bidik iron sight (ADS) -----
             document.addEventListener("mousedown", (e) => {
                 if (isPaused || isGameOver) return;
                 if (e.button === 0) mouse.isDown = true;
-                if (e.button === 2) isAiming = true;
+                if (e.button === 2) isAiming = !isAiming;
             });
             document.addEventListener("mouseup", (e) => {
                 if (e.button === 0) mouse.isDown = false;
-                if (e.button === 2) isAiming = false;
             });
             document.addEventListener("contextmenu", e => e.preventDefault());
 
@@ -1634,6 +1661,36 @@
             }
         }
 
+        // ----- Rig reload tangan kiri: keyframe posisi (gun-local), waktu nyata 0..3 dtk -----
+        // Urutan: lepas magazen -> buang/ambil baru di bawah -> pasang -> tarik kokang -> kembali.
+        // Total 3.0 dtk = persis durasi setTimeout reload (mekanik tak berubah).
+        const RELOAD_KF = [
+            [0.00, 0.0, -0.35, -3.0],   // menopang handguard
+            [0.35, 0.0, -1.35, -1.1],   // genggam magazen
+            [0.80, 0.5, -3.6, -0.1],    // cabut & turun (magazen lama dibuang)
+            [1.30, 0.5, -3.6, -0.1],    // ambil magazen baru (di bawah layar)
+            [1.75, 0.0, -1.45, -1.1],   // bawa naik ke lubang magazen
+            [2.05, 0.0, -1.15, -1.1],   // dorong masuk (klik)
+            [2.30, 0.5, 0.12, 0.4],     // pindah ke tuas kokang
+            [2.55, 0.5, 0.12, 1.15],    // tarik kokang ke belakang
+            [2.68, 0.5, 0.12, 0.45],    // lepaskan (snap ke depan)
+            [3.00, 0.0, -0.35, -3.0],   // kembali menopang handguard
+        ];
+        const smooth01 = (u) => u * u * (3 - 2 * u);   // smoothstep
+        function reloadHandPos(t, out) {
+            if (t <= RELOAD_KF[0][0]) { const k = RELOAD_KF[0]; out.set(k[1], k[2], k[3]); return; }
+            for (let i = 0; i < RELOAD_KF.length - 1; i++) {
+                const a = RELOAD_KF[i], b = RELOAD_KF[i + 1];
+                if (t <= b[0]) {
+                    const u = smooth01((t - a[0]) / (b[0] - a[0]));
+                    out.set(a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u);
+                    return;
+                }
+            }
+            const k = RELOAD_KF[RELOAD_KF.length - 1];
+            out.set(k[1], k[2], k[3]);
+        }
+
         // Animasi dekoratif murah — TIDAK menyentuh gameplay: bayangan mengikuti player,
         // api Monas/gedung berkedip, air mengalir, goyangan senjata, sprite muzzle memudar.
         function updateDecor(dt) {
@@ -1676,6 +1733,34 @@
             const baseY = -2.5 + (-0.78 + 2.5) * aimT;          // -2.5 -> -0.78 (garis pisir = pusat layar)
             gunMesh.position.x = baseX + Math.sin(gunBobT) * bobA;
             gunMesh.position.y = baseY + Math.abs(Math.cos(gunBobT)) * bobA * 1.4;
+
+            // Rig reload: tangan kiri lepas magazen -> ambil baru -> pasang -> kokang -> kembali
+            if (player.isReloading) {
+                const rt = (Date.now() - reloadStartTime) / 1000;   // waktu nyata = sinkron setTimeout
+                reloadHandPos(rt, leftHand.position);
+                // senjata dimiringkan sedikit agar area magazen terlihat (envelope naik-turun)
+                const env = Math.min(1, rt / 0.25) * clamp((3 - rt) / 0.3, 0, 1);
+                gunMesh.rotation.x = -0.30 * env;
+                gunMesh.rotation.z = 0.10 * env;
+                if (rt >= 0.35 && rt < 2.05) {                      // magazen menempel di tangan kiri
+                    gunMagMesh.position.set(leftHand.position.x, leftHand.position.y - 0.35, leftHand.position.z);
+                    gunMagMesh.rotation.set(-0.35, 0, 0.45);
+                } else {                                            // terpasang di senjata
+                    gunMagMesh.position.set(0, -1.1, -1.1);
+                    gunMagMesh.rotation.set(0, 0, 0.45);
+                }
+                if (rt >= 2.30 && rt < 2.55) boltHandle.position.z = 0.4 + smooth01((rt - 2.30) / 0.25) * 0.72;
+                else if (rt >= 2.55 && rt < 2.68) boltHandle.position.z = 1.12 - smooth01((rt - 2.55) / 0.13) * 0.72;
+                else boltHandle.position.z = 0.4;
+            } else {
+                // istirahat: tangan kiri kembali menopang handguard, semua part di posisi rest
+                leftHand.position.lerp(LEFT_HAND_REST, Math.min(1, dt * 10));
+                gunMesh.rotation.x += (0 - gunMesh.rotation.x) * Math.min(1, dt * 10);
+                gunMesh.rotation.z += (0 - gunMesh.rotation.z) * Math.min(1, dt * 10);
+                gunMagMesh.position.set(0, -1.1, -1.1);
+                gunMagMesh.rotation.set(0, 0, 0.45);
+                boltHandle.position.z = 0.4;
+            }
         }
 
         // ----------- Logika Mekanik ----------- //
@@ -1769,16 +1854,15 @@
         function startReload() {
             if (player.isReloading || player.mags <= 0 || player.ammo === 30) return;
             player.isReloading = true;
+            reloadStartTime = Date.now();   // rig tangan reload (updateDecor) sinkron dgn timer nyata ini
             playSFX(sfxReload);
             updateUI();
-            gunMesh.rotation.x = -Math.PI / 4;
             // Simpan id timer: harus dibatalkan di resetGame (bug: reload lama bisa
             // selesai SETELAH restart dan mencuri 1 magazen dari game baru).
             player.reloadTimer = setTimeout(() => {
                 player.mags--;
                 player.ammo = 30;
                 player.isReloading = false;
-                gunMesh.rotation.x = 0;
                 updateUI();
             }, 3000);
         }
@@ -2070,7 +2154,7 @@
             clearTimeout(player.reloadTimer);   // bug fix: reload lama jangan selesai di game baru
             player.isReloading = false;
             releaseInputs();
-            gunMesh.rotation.x = 0;
+            gunMesh.rotation.set(0, 0, 0);
 
             wave.num = 1; wave.time = 0; wave.spawnTimer = 0;
             wave.spawnInterval = 4; wave.maxZombies = 10;
