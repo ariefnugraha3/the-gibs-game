@@ -500,7 +500,8 @@
         let isAiming = false, aimT = 0;   // aimT 0..1
         const BASE_FOV = 70, AIM_ZOOM = 1.2;   // zoom 20% saat membidik
         // Akurasi tembakan: sudut sebar kerucut (radian). Hip-fire dasar + bloom panas laras;
-        // pengali akurasi: ADS x0.75 (25% lebih akurat), jongkok x0.75 lagi (bisa ditumpuk).
+        // pengali akurasi: ADS x0.75 (25% lebih akurat), jongkok x0.75 lagi (bisa ditumpuk);
+        // penalti bergerak: jalan x1.25, lari x1.5 (lihat movePen di blok tembak).
         const SPREAD_BASE = 0.035, SPREAD_BLOOM = 0.05;
         // Rig tangan karakter & animasi reload (visual; timing mekanik reload tetap)
         let leftHand, leftForearm, rightArm, gunMagMesh, boltHandle;
@@ -547,6 +548,9 @@
         let zombieFaceTex = null;   // tekstur wajah bersama (dibuat sekali, saat spawn pertama)
         // Serangan zombie: mencakar (damage 1, jeda 3 dtk per zombie), tidak lagi kamikaze
         const CLAW_CD = 3, CLAW_TIME = 0.4;   // jeda antar cakaran & durasi animasi sabetan
+        const ZBODY_R = 7.5;   // radius blok badan zombie thd player — SENGAJA < jarak
+                               // berhenti cakar (8.0) agar zombie yang berdiri menyerang
+                               // tidak ikut menyorong player tiap frame
 
         // ----------- Tata letak arena (mengikuti Taman Monas) ----------- //
         // Area dalam (rumput) = [-PARK.hx..PARK.hx] x [-PARK.hz..PARK.hz].
@@ -563,6 +567,10 @@
         // Tinggi mata player: dikalibrasi agar ujung laras (mata - 2.5 + 0.1) sejajar
         // DADA zombie (~9.0; torso 5.6–10.2, pusat 7.9) — di bawah leher, di atas perut.
         const EYE_H = 11.4;
+        // Granat: balistik nyata — meledak oleh SUMBU 3 dtk (bukan on-impact),
+        // memantul di lantai lalu menggelinding dengan gesekan sampai sumbunya habis.
+        const NADE_FUSE = 3, NADE_V = 110, NADE_UP = 18;
+        const NADE_R = 1.5;   // radius fisik = radius GEO.grenade
         // Headshot: bola tabrakan kepala zombie (pusat = kaki + 11.5; kotak kepala 2.4).
         // Kena kepala = mati seketika, berapa pun hp-nya.
         const HEAD_Y = 11.5, HEAD_R = 2.4;
@@ -588,6 +596,7 @@
         const sfxPickup = new Audio('assets/sounds/pick-up-item.mp3');
         const sfxMelee = new Audio('assets/sounds/smash-melee-attack.mp3');
         const sfxThrow = new Audio('assets/sounds/throwing-grenade.mp3');
+        const sfxNadeRoll = new Audio('assets/sounds/grenade-rolling.mp3');   // granat kontak lantai (digerbang jarak)
         const sfxZombieBite = new Audio('assets/sounds/zombie-attack-melee.mp3');
         const sfxFootstep = new Audio('assets/sounds/player-footstep.mp3');
         const sfxZombieStep = new Audio('assets/sounds/zombie-step.mp3');
@@ -724,6 +733,48 @@
         const drops = [];
 
         // Vektor scratch yang dipakai ulang tiap frame (hindari alokasi di loop)
+        // ----- Model granat (lemparan & item drop): gaya Mk2 "nanas" -----
+        // Geometri & material DIBAGI antar semua granat (dibuat sekali di sini);
+        // buildGrenadeMesh hanya merakit Group — jangan pernah dispose bahan ini.
+        const NADE_GEO = {
+            body: new THREE.SphereGeometry(1.5, 12, 10),
+            ringEq: new THREE.TorusGeometry(1.48, 0.1, 6, 18),    // sabuk khatulistiwa / alur vertikal
+            ringSm: new THREE.TorusGeometry(1.3, 0.09, 6, 16),    // alur atas & bawah
+            neck: new THREE.CylinderGeometry(0.42, 0.54, 0.5, 8),
+            head: new THREE.CylinderGeometry(0.52, 0.52, 0.55, 8),
+            lever: new THREE.BoxGeometry(0.3, 1.55, 0.34),
+            pin: new THREE.TorusGeometry(0.3, 0.07, 6, 12)
+        };
+        const NADE_MAT = {
+            body: new THREE.MeshLambertMaterial({ color: 0x4a5c2e, emissive: 0x121a0a }),   // hijau zaitun
+            groove: new THREE.MeshLambertMaterial({ color: 0x33421e, emissive: 0x0c1208 }),
+            steel: new THREE.MeshLambertMaterial({ color: 0x9aa1a8, emissive: 0x14161a }),
+            lever: new THREE.MeshLambertMaterial({ color: 0x707a3c, emissive: 0x10120a }),
+            pin: new THREE.MeshLambertMaterial({ color: 0xd8b03a, emissive: 0x241a06 })
+        };
+        function buildGrenadeMesh(scale = 1) {
+            const grp = new THREE.Group();
+            const add = (geo, mat, x, y, z, rx = 0, rz = 0) => {
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(x, y, z);
+                m.rotation.x = rx; m.rotation.z = rz;
+                m.castShadow = true;
+                grp.add(m);
+                return m;
+            };
+            add(NADE_GEO.body, NADE_MAT.body, 0, 0, 0);
+            add(NADE_GEO.ringEq, NADE_MAT.groove, 0, 0, 0, Math.PI / 2);     // sabuk tengah
+            add(NADE_GEO.ringSm, NADE_MAT.groove, 0, 0.66, 0, Math.PI / 2);  // alur atas
+            add(NADE_GEO.ringSm, NADE_MAT.groove, 0, -0.66, 0, Math.PI / 2); // alur bawah
+            add(NADE_GEO.ringEq, NADE_MAT.groove, 0, 0, 0);                  // alur vertikal
+            add(NADE_GEO.neck, NADE_MAT.steel, 0, 1.62, 0);                  // leher fuse
+            add(NADE_GEO.head, NADE_MAT.steel, 0, 2.02, 0);                  // kepala fuse
+            add(NADE_GEO.lever, NADE_MAT.lever, 0.66, 1.28, 0, 0, -0.42);    // tuas (spoon)
+            add(NADE_GEO.pin, NADE_MAT.pin, 0, 2.05, 0.56);                  // cincin pin
+            grp.scale.setScalar(scale);
+            return grp;
+        }
+
         const _dir = new THREE.Vector3();
         const _right = new THREE.Vector3();
         const _tip = new THREE.Vector3();
@@ -2400,22 +2451,18 @@
             playSFX(sfxThrow);
             updateUI();
 
-            const raycaster = new THREE.Raycaster();
-            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-            const dir = raycaster.ray.direction;
-            let target;
-            if (dir.y < 0) {
-                const t = -camera.position.y / dir.y;
-                target = camera.position.clone().add(dir.multiplyScalar(t));
-            } else {
-                target = camera.position.clone().add(dir.multiplyScalar(150));
-                target.y = 0;
-            }
-
-            const gMesh = new THREE.Mesh(GEO.grenade, MAT.grenade);
-            gMesh.position.copy(camera.position);
+            // Lemparan balistik: kecepatan awal searah pandang + dorongan ke atas.
+            // Granat TIDAK meledak saat menyentuh apa pun — hanya saat sumbunya habis
+            // (loop granat di update()); membidik ke atas = lemparan lebih jauh.
+            camera.getWorldDirection(_v3);
+            const gMesh = buildGrenadeMesh();
+            gMesh.rotation.y = Math.random() * 6.283;   // orientasi awal acak
+            gMesh.position.copy(camera.position).addScaledVector(_v3, 3);
             scene.add(gMesh);
-            grenades.push({ mesh: gMesh, target, speed: 6 });
+            grenades.push({
+                mesh: gMesh, fuse: NADE_FUSE, rolled: false,
+                vx: _v3.x * NADE_V, vy: _v3.y * NADE_V + NADE_UP, vz: _v3.z * NADE_V
+            });
         }
 
         function explodeAt(pos) {
@@ -2521,7 +2568,7 @@
                 drops.push({ mesh: magMesh, type: 'mag', timer: 40 });   // detik
             }
             if (Math.random() < 0.2) {
-                const nadeMesh = new THREE.Mesh(GEO.dropNade, MAT.dropNade);
+                const nadeMesh = buildGrenadeMesh(0.8);   // model granat yang sama, skala item
                 nadeMesh.position.set(px + 1.5, 1, pz + 1.5);
                 scene.add(nadeMesh);
                 drops.push({ mesh: nadeMesh, type: 'grenade', timer: 40 });
@@ -2647,10 +2694,37 @@
             // ADS saja -30%. Sprint dimatikan selama jongkok.
             const moveMult = crouched ? 0.5 : (isAiming ? 0.7 : 1);
             const moveSpeed = player.speed * (keys.shift && !crouched ? 1.7 : 1) * moveMult * step;
-            if (keys.w) camera.position.addScaledVector(_dir, moveSpeed);
-            if (keys.s) camera.position.addScaledVector(_dir, -moveSpeed);
-            if (keys.a) camera.position.addScaledVector(_right, moveSpeed);
-            if (keys.d) camera.position.addScaledVector(_right, -moveSpeed);
+            // Input WASD digabung jadi SATU vektor lalu dinormalisasi terhadap panjang
+            // input mentah — diagonal (mis. W+A) tidak lagi ~1.41x lebih cepat (bug fix).
+            // Bobot arah: komponen mundur x0.7 (-30%), komponen samping x0.8 (-20%);
+            // gerak diagonal mendapat interpolasi di antara bobot-bobot itu.
+            const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
+            const side = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);
+            if (fwd !== 0 || side !== 0) {
+                const wz = fwd * (fwd < 0 ? 0.7 : 1);   // mundur lebih lambat
+                const wx = side * 0.8;                  // menyamping lebih lambat
+                const k = moveSpeed / Math.hypot(fwd, side);
+                camera.position.addScaledVector(_dir, wz * k);
+                camera.position.addScaledVector(_right, wx * k);
+            }
+
+            // Badan zombie pejal bagi player: dorong keluar horizontal (2D, konsisten
+            // dgn filosofi tabrakan 2D game ini) — player tak bisa menembus kerumunan.
+            // Hanya PLAYER yang didorong; gerak/AI zombie tidak tersentuh. Zombie yang
+            // masih melayang (lompat pagar / vault bak) dilewati. Pagar/Monas/pohon
+            // di bawah tetap membersihkan posisi akhir setelah dorongan ini.
+            for (let zi = 0; zi < zombies.length; zi++) {
+                const zb = zombies[zi];
+                if (zb.state !== 'chasing') continue;
+                const zdx = camera.position.x - zb.mesh.position.x;
+                const zdz = camera.position.z - zb.mesh.position.z;
+                const zd = Math.hypot(zdx, zdz);
+                if (zd < ZBODY_R && zd > 0.001) {
+                    const push = (ZBODY_R - zd) / zd;
+                    camera.position.x += zdx * push;
+                    camera.position.z += zdz * push;
+                }
+            }
 
             // Pagar = batas keras: player tertahan di dalam taman.
             const bx = PARK.hx - player.radius - 2, bz = PARK.hz - player.radius - 2;
@@ -2736,7 +2810,11 @@
                 // Sebar peluru: kerucut acak di ruang kamera (bukan sumbu dunia).
                 // Radius = dasar + bloom panas laras; ADS/jongkok mempersempitnya.
                 const acc = (isAiming ? 0.75 : 1) * (crouched ? 0.75 : 1);
-                const spread = (SPREAD_BASE + gunHeat * SPREAD_BLOOM) * acc;
+                // Penalti bergerak (hanya spread, bukan tendangan kamera):
+                // jalan = x1.25 (-25% akurat), lari/sprint = x1.5 (-50% akurat)
+                const movePen = (keys.w || keys.a || keys.s || keys.d)
+                    ? (keys.shift && !crouched ? 1.5 : 1.25) : 1;
+                const spread = (SPREAD_BASE + gunHeat * SPREAD_BLOOM) * acc * movePen;
                 const sAng = Math.random() * Math.PI * 2;
                 const sRad = Math.random() * spread;   // bias ke pusat
                 _sRight.setFromMatrixColumn(camera.matrixWorld, 0);
@@ -2778,19 +2856,72 @@
                 if (wpn.ammo === 0 && wpn.mags > 0) startReload();
             }
 
-            // --- 3. Granat melayang ---
+            // --- 3. Granat: balistik + sumbu (fuse) 3 dtk, BUKAN on-impact ---
             for (let i = grenades.length - 1; i >= 0; i--) {
                 const g = grenades[i];
-                _v3.subVectors(g.target, g.mesh.position);
-                const dist = _v3.length();
-                const stepDist = g.speed * step;
-                if (dist < stepDist) {
-                    explodeAt(g.target);
+                g.fuse -= dt;
+                if (g.fuse <= 0) {   // meledak di mana pun ia berada saat sumbu habis
+                    explodeAt(g.mesh.position);
                     scene.remove(g.mesh);
                     grenades.splice(i, 1);
-                } else {
-                    _v3.normalize();
-                    g.mesh.position.addScaledVector(_v3, stepDist);
+                    continue;
+                }
+
+                // Integrasi gerak (detik nyata, gravitasi sama dgn player)
+                const oldGX = g.mesh.position.x, oldGZ = g.mesh.position.z;
+                g.vy -= GRAVITY * dt;
+                g.mesh.position.x += g.vx * dt;
+                g.mesh.position.y += g.vy * dt;
+                g.mesh.position.z += g.vz * dt;
+
+                // Pantulan pagar & Monas: posisi dikembalikan, kecepatan dibalik + diredam
+                const nbx = PARK.hx - 3, nbz = PARK.hz - 3;
+                if (Math.abs(g.mesh.position.x) > nbx) {
+                    g.mesh.position.x = clamp(g.mesh.position.x, -nbx, nbx);
+                    g.vx = -g.vx * 0.45;
+                }
+                if (Math.abs(g.mesh.position.z) > nbz) {
+                    g.mesh.position.z = clamp(g.mesh.position.z, -nbz, nbz);
+                    g.vz = -g.vz * 0.45;
+                }
+                if (Math.abs(g.mesh.position.x) < 23 && Math.abs(g.mesh.position.z) < 23
+                    && g.mesh.position.y < 35) {
+                    g.mesh.position.x = oldGX; g.mesh.position.z = oldGZ;
+                    g.vx = -g.vx * 0.45; g.vz = -g.vz * 0.45;
+                }
+                // Pohon & dinding bak pejal juga untuk granat — supaya gelindingnya
+                // wajar (tidak menembus batang/bak; peluru TETAP menembus pohon).
+                resolveObstacles(g.mesh.position, NADE_R, g.mesh.position.y - NADE_R);
+
+                // Lantai (tanah / puncak bak): memantul beberapa kali, lalu menggelinding
+                const gFloor = groundHeightAt(g.mesh.position.x, g.mesh.position.z,
+                    g.mesh.position.y - NADE_R) + NADE_R;
+                if (g.mesh.position.y <= gFloor) {
+                    g.mesh.position.y = gFloor;
+                    // Bunyi menggelinding SEKALI di kontak lantai pertama — dan HANYA
+                    // bila player cukup dekat (radius dengar 90 unit); lemparan jauh
+                    // tidak terdengar. Volume mengecil dgn jarak.
+                    if (!g.rolled) {
+                        g.rolled = true;
+                        const dN = Math.hypot(g.mesh.position.x - camera.position.x,
+                            g.mesh.position.z - camera.position.z);
+                        if (dN < 90) playSFX(sfxNadeRoll, Math.max(0.08, 0.6 * (1 - dN / 90)));
+                    }
+                    if (g.vy < -9) {                       // masih laju -> pantul (redam energi)
+                        g.vy = -g.vy * 0.42;
+                        g.vx *= 0.72; g.vz *= 0.72;
+                    } else {                               // menggelinding: gesekan memperlambat
+                        g.vy = 0;
+                        const fr = Math.max(0, 1 - 2.0 * dt);
+                        g.vx *= fr; g.vz *= fr;
+                    }
+                }
+
+                // Rotasi menggelinding: sumbu tegak lurus arah gerak, sudut = jarak / radius
+                const ghv = Math.hypot(g.vx, g.vz);
+                if (ghv > 0.4) {
+                    _v3.set(g.vz / ghv, 0, -g.vx / ghv);
+                    g.mesh.rotateOnWorldAxis(_v3, ghv * dt / NADE_R);
                 }
             }
 
