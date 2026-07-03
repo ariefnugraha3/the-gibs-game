@@ -360,9 +360,6 @@
     </style>
     <!-- Library Three.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Loader model 3D + util clone karakter ber-skeleton (versi global, cocok r128) -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
     <!-- Post-processing: bloom sinematik + FXAA + koreksi gamma (fallback aman bila gagal dimuat) -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
@@ -440,8 +437,8 @@
     <div id="blocker">
         <div id="instructions">
             <b>Click here to Start the Action</b><br /><br />
-            <span class="small">WASD = Bergerak | MOUSE = Pandangan Kiri Kanan | KLIK KIRI = Menembak AK47 | KLIK KANAN
-                = Bidik On/Off (Iron Sight) | G = Lempar Granat | R = Reload | SHIFT = Lari | SPASI = Lompat</span>
+            <span class="small">WASD = Bergerak | MOUSE = Pandangan | KLIK KIRI = Tembak | KLIK KANAN = Bidik On/Off |
+                1 / 2 / Q = Ganti Senjata | F = Pukul | G = Granat | R = Reload | SHIFT = Lari | SPASI = Lompat</span>
         </div>
     </div>
 
@@ -486,7 +483,9 @@
         // Catatan: konstanta kecepatan dikalibrasi pada 60 fps, lalu dikalikan `step`
         // (delta-time ternormalisasi) agar gerak konsisten di monitor refresh tinggi.
         const player = {
-            hp: 5, ammo: 30, mags: 3, grenades: 3,
+            hp: 5, grenades: 3,
+            rifle: { ammo: 30, mags: 3, magSize: 30 },    // AK47 (utama)
+            pistol: { ammo: 15, mags: 3, magSize: 15 },   // secondary; damage peluru sama
             isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
             vy: 0, onGround: true            // vertikal: lompat (SPASI) & gravitasi
         };
@@ -498,11 +497,23 @@
         // Bidik iron sight (ADS, klik kanan = toggle): zoom FOV + senjata ke tengah
         let isAiming = false, aimT = 0;   // aimT 0..1
         const BASE_FOV = 70, AIM_ZOOM = 1.2;   // zoom 20% saat membidik
-        // Rig tangan karakter & animasi reload (visual; timing mekanik reload tetap 3 dtk)
+        // Rig tangan karakter & animasi reload (visual; timing mekanik reload tetap)
         let leftHand, leftForearm, rightArm, gunMagMesh, boltHandle;
         let reloadStartTime = 0;          // waktu nyata -> sinkron dgn setTimeout reload
-        const LEFT_HAND_REST = new THREE.Vector3(0, -0.35, -3.0);   // menopang handguard
+        const LEFT_HAND_REST = new THREE.Vector3(0, -0.35, -3.0);   // menopang handguard AK
         const _axisZ = new THREE.Vector3(0, 0, 1);   // sumbu limb (placeLimb)
+        // ----- Sistem senjata: rifle (AK47, utama) & pistol (secondary) -----
+        let currentWeapon = 'rifle';                 // 'rifle' | 'pistol'
+        let pistolMesh, pistolSlide, pistolMagMesh, pistolMuzzle, rifleMuzzle;
+        let pLeftHand, pLeftForearm;
+        const P_LEFT_REST = new THREE.Vector3(-0.12, -0.72, -0.5);  // tangan kiri menopang pistol
+        // Animasi ganti senjata: turun -> tukar model di tengah -> naik (timer di update)
+        let switchAnim = -1, switchTarget = null;    // -1 = tidak sedang ganti
+        const SWITCH_TIME = 0.5;
+        // Melee (F): pukul dgn popor senjata aktif; 1x pukul membunuh zombie
+        let meleeT = 0, meleeCd = 0, meleeS = 0, meleeHitDone = false;
+        const MELEE_TIME = 0.45, MELEE_CD = 0.8, MELEE_RANGE = 16;
+        let gunRotX = 0, gunRotZ = 0;                // rotasi dasar senjata (rig reload)
         // Referensi utk animasi dekoratif & bayangan yang mengikuti player (updateDecor)
         let dirLight, flameLight, flameGlow, burningMat, waterTex;
         const waterJets = [];              // kerucut air mancur (denyut pelan)
@@ -513,20 +524,22 @@
         // Post-processing (bloom + FXAA); null bila script CDN gagal -> fallback render langsung
         let composer = null, fxaaPass = null;
 
-        // ----------- Model 3D Zombie (opsional) ----------- //
-        // Bentuk zombie diambil dari `assets/visuals/zombie.glb`.
-        // Jika gagal dimuat / belum ada, otomatis fallback ke silinder default.
-        let zombieModel = null;        // template hasil load (di-clone per-spawn)
-        let zombieClip = null;         // AnimationClip pertama dari file (animasi "Take 01")
-        // Dikalibrasi utk zombie.glb (Sketchfab, tinggi lokal ~7.1 unit):
-        const ZOMBIE_SCALE = 5.0;   // skala model zombie (besar/kecil)
-        // Koreksi orientasi model dalam DERAJAT (utak-atik bila pose salah):
-        //  - ZOMBIE_ROT_X: 90 atau -90 untuk MENEGAKKAN model yang rebah/terlentang
-        //  - ZOMBIE_ROT_Y: yaw, putar menghadap (90 / 180 / -90)
-        //  - ZOMBIE_ROT_Z: miringkan kiri/kanan
-        const ZOMBIE_ROT_X = 0;
-        const ZOMBIE_ROT_Y = 0;
-        const ZOMBIE_ROT_Z = 0;
+        // ----------- Zombie manusia prosedural ----------- //
+        // Ceritanya: warga biasa yang diubah alien. Dibangun dari balok (tanpa file model),
+        // dengan varian penampilan: warga, pekerja proyek, polisi, pedagang, penjaga toko,
+        // pekerja kantoran. Mekanik zombie TIDAK berubah — hanya bentuk & skin.
+        const ZOMBIE_VARIANTS = [
+            { shirts: [0x8f3f3f, 0x3f5f8f, 0x7c7c40, 0x8f6f3f], pants: 0x2f3a52, shoes: 0x26221e, acc: 'none' },   // warga (kaos warna-warni)
+            { shirts: [0x6b7078], pants: 0x414652, shoes: 0x3d2f22, acc: 'worker' },   // pekerja proyek
+            { shirts: [0x8a7752], pants: 0x4d422e, shoes: 0x1d1a16, acc: 'police' },   // polisi
+            { shirts: [0x7c5a3a, 0x5a7c4a], pants: 0x3f3f3f, shoes: 0x54452f, acc: 'vendor' },   // pedagang
+            { shirts: [0xd8d4c8], pants: 0x33465e, shoes: 0x23262b, acc: 'clerk' },    // penjaga toko
+            { shirts: [0xd8d8dc], pants: 0x23262e, shoes: 0x1a1a1a, acc: 'office' },   // kantoran
+        ];
+        const ZOMBIE_SKIN_TONES = [0x7fa05a, 0x8aa66b, 0x74975a, 0x93a06a];   // kulit membusuk kehijauan
+        let zombieFaceTex = null;   // tekstur wajah bersama (dibuat sekali, saat spawn pertama)
+        // Serangan zombie: mencakar (damage 1, jeda 3 dtk per zombie), tidak lagi kamikaze
+        const CLAW_CD = 3, CLAW_TIME = 0.4;   // jeda antar cakaran & durasi animasi sabetan
 
         // ----------- Tata letak arena (mengikuti Taman Monas) ----------- //
         // Area dalam (rumput) = [-PARK.hx..PARK.hx] x [-PARK.hz..PARK.hz].
@@ -538,8 +551,14 @@
         const FOUNTAIN = { x: -620 * 0.55, z: 0, r: 47, topY: 3.2 };   // x = -PARK.hx*0.55
         const treeColliders = [];            // silinder tabrakan batang pohon {x,z,r}
         // Lompat player (SPASI): kalibrasi detik nyata
-        const JUMP_V = 28;                   // kecepatan awal lompat (unit/dtk) -> puncak ~5.6 unit
-        const GRAVITY = 70;                  // gravitasi (unit/dtk^2)
+        const JUMP_V = 33;                   // kecepatan awal lompat -> puncak ~7.8 unit (lebih terasa;
+        const GRAVITY = 70;                  // masih di bawah dinding pagar 12.5 & clamp pagar/Monas/pohon tetap bekerja)
+        // Tinggi mata player: dikalibrasi agar ujung laras (mata - 2.5 + 0.1) sejajar
+        // DADA zombie (~9.0; torso 5.6–10.2, pusat 7.9) — di bawah leher, di atas perut.
+        const EYE_H = 11.4;
+        // Headshot: bola tabrakan kepala zombie (pusat = kaki + 11.5; kotak kepala 2.4).
+        // Kena kepala = mati seketika, berapa pun hp-nya.
+        const HEAD_Y = 11.5, HEAD_R = 2.4;
 
         const rand = (a, b) => a + Math.random() * (b - a);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -549,14 +568,22 @@
 
         // ----------- SFX ----------- //
         const sfxShoot = new Audio('assets/sounds/gun-shoot.mp3');
-        const sfxSpawn = new Audio('assets/sounds/zombie-spawn.mp3');
         const sfxExplode = new Audio('assets/sounds/grenade-explode.mp3');
         const sfxReload = new Audio('assets/sounds/reload.mp3');
         const sfxHit = new Audio('assets/sounds/jokowi-kaget.mp3');
+        const sfxPistol = new Audio('assets/sounds/pistol-shoot.mp3');
+        const sfxPickup = new Audio('assets/sounds/pick-up-item.mp3');
+        const sfxMelee = new Audio('assets/sounds/smash-melee-attack.mp3');
+        const sfxThrow = new Audio('assets/sounds/throwing-grenade.mp3');
+        const sfxZombieBite = new Audio('assets/sounds/zombie-attack-melee.mp3');
+        const sfxFootstep = new Audio('assets/sounds/player-footstep.mp3');
+        const sfxZombieStep = new Audio('assets/sounds/zombie-step.mp3');
+        let footT = 0;    // irama langkah kaki player (detik antar langkah)
+        let zStepT = 0;   // irama langkah zombie (satu suara global, bukan per zombie)
 
         // Pool kecil per-klip: hindari cloneNode (alokasi + GC) di tiap tembakan.
         const sfxPool = new Map();
-        function playSFX(sfx) {
+        function playSFX(sfx, vol = 0.7) {
             let pool = sfxPool.get(sfx);
             if (!pool) { pool = { nodes: [], next: 0 }; sfxPool.set(sfx, pool); }
             let node;
@@ -567,7 +594,7 @@
                 node = pool.nodes[pool.next++ % pool.nodes.length];
                 node.currentTime = 0;
             }
-            node.volume = 0.7;
+            node.volume = vol;
             node.play().catch(() => { });
         }
 
@@ -641,7 +668,6 @@
         // ----------- Geometry & Material bersama (hemat alokasi/GC) ----------- //
         const GEO = {
             bullet: new THREE.SphereGeometry(0.8, 6, 6),
-            zombie: new THREE.CylinderGeometry(3.5, 3.5, 12, 10),
             grenade: new THREE.SphereGeometry(1.5, 8, 8),
             explosion: new THREE.SphereGeometry(1, 16, 16),
             mag: new THREE.BoxGeometry(1.5, 0.5, 2.5),
@@ -653,6 +679,28 @@
             grenade: new THREE.MeshLambertMaterial({ color: 0x2ecc71, emissive: 0x0a3d1e }),
             mag: new THREE.MeshLambertMaterial({ color: 0xf1c40f, emissive: 0x5c4703 }),       // sedikit glow agar drop mudah terlihat
             dropNade: new THREE.MeshLambertMaterial({ color: 0x2ecc71, emissive: 0x0e4d24 }),
+        };
+
+        // Geometri bersama bagian tubuh zombie manusia (dipakai ulang antar instance;
+        // JANGAN di-dispose saat zombie mati — hanya materialnya yang per-instance).
+        const ZG = {
+            torso: new THREE.BoxGeometry(3.8, 4.6, 2.0),
+            head: new THREE.BoxGeometry(2.4, 2.4, 2.4),
+            thigh: new THREE.BoxGeometry(1.5, 3.0, 1.6),
+            shin: new THREE.BoxGeometry(1.3, 2.6, 1.4),
+            foot: new THREE.BoxGeometry(1.4, 0.7, 2.3),
+            arm: new THREE.BoxGeometry(1.1, 4.0, 1.2),
+            hand: new THREE.BoxGeometry(1.0, 1.0, 1.0),
+            vest: new THREE.BoxGeometry(4.15, 3.3, 2.35),     // rompi (pekerja/penjaga toko)
+            stripe: new THREE.BoxGeometry(4.25, 0.4, 2.45),   // strip reflektif rompi
+            apron: new THREE.BoxGeometry(3.4, 4.2, 0.3),      // celemek pedagang
+            capTop: new THREE.BoxGeometry(2.6, 0.9, 2.6),     // topi dinas polisi
+            capBrim: new THREE.BoxGeometry(2.4, 0.25, 1.1),
+            helmet: new THREE.CylinderGeometry(1.5, 1.75, 1.3, 10),   // helm proyek
+            caping: new THREE.ConeGeometry(2.8, 1.5, 10),     // caping pedagang
+            tie: new THREE.BoxGeometry(0.55, 2.2, 0.15),      // dasi kantoran
+            badge: new THREE.BoxGeometry(0.55, 0.65, 0.15),   // lencana polisi
+            tag: new THREE.BoxGeometry(0.75, 0.4, 0.12),      // papan nama penjaga toko
         };
 
         // ----------- Container Entitas ----------- //
@@ -667,11 +715,6 @@
         const _right = new THREE.Vector3();
         const _tip = new THREE.Vector3();
         const _v3 = new THREE.Vector3();
-        // Scratch utk animasi rangka zombie (prosedural)
-        const _pq = new THREE.Quaternion();
-        const _dq = new THREE.Quaternion();
-        const _ld = new THREE.Quaternion();
-        const _axis = new THREE.Vector3();
 
         init();
         animate();
@@ -681,7 +724,7 @@
             scene.fog = new THREE.Fog(0x3a241a, 220, 1700);   // Kabut asap apokaliptik (warna = horizon)
 
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 4000);
-            camera.position.set(0, 10, 120);
+            camera.position.set(0, EYE_H, 120);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // batasi beban GPU
@@ -747,7 +790,6 @@
             createMonas();
             createCity();
             createEmbers();
-            loadZombieModel();
 
             // ----- Senjata AK47 (parented ke kamera; detail visual, posisi & mekanik tetap) -----
             gunMesh = new THREE.Group();
@@ -851,10 +893,94 @@
             leftForearm = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.75, 1), sleeve);
             gunMesh.add(leftForearm);
 
+            // ----- Pistol (secondary; parented ke kamera, tersembunyi sampai dipilih) -----
+            pistolMesh = new THREE.Group();
+            pistolSlide = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 2.6), steel);   // slide (ditarik saat reload, kick saat nembak)
+            pistolSlide.position.set(0, 0.42, -1.2);
+            pistolMesh.add(pistolSlide);
+            const pFrame = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.34, 2.2), steelDark);
+            pFrame.position.set(0, 0.08, -1.0);
+            pistolMesh.add(pFrame);
+            const pGrip = new THREE.Mesh(new THREE.BoxGeometry(0.44, 1.15, 0.6), steelDark);
+            pGrip.position.set(0, -0.5, -0.2);
+            pGrip.rotation.x = 0.12;
+            pistolMesh.add(pGrip);
+            const pGuard = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.6), steelDark);
+            pGuard.position.set(0, -0.12, -0.85);   // pelindung pelatuk
+            pistolMesh.add(pGuard);
+            // pisir pistol: bilah depan + dua takik belakang (sight picture ADS)
+            const pFront = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.1), steelDark);
+            pFront.position.set(0, 0.7, -2.3);
+            pistolMesh.add(pFront);
+            for (const sx of [-0.1, 0.1]) {
+                const tab = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.14, 0.12), steelDark);
+                tab.position.set(sx, 0.7, -0.05);
+                pistolMesh.add(tab);
+            }
+            // magazen pistol: keluar-masuk dari dalam grip saat reload
+            pistolMagMesh = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.95, 0.42), steel);
+            pistolMagMesh.position.set(0, -0.72, -0.26);
+            pistolMagMesh.rotation.x = 0.12;
+            pistolMesh.add(pistolMagMesh);
+            pistolMuzzle = new THREE.Object3D();
+            pistolMuzzle.position.set(0, 0.42, -2.7);
+            pistolMesh.add(pistolMuzzle);
+
+            // Tangan kanan pistol: menggenggam grip (statis) + lengan ke kanan-bawah
+            const pGripHand = new THREE.Group();
+            pGripHand.position.set(0, -0.5, -0.2);
+            pGripHand.rotation.x = 0.12;
+            const pPalm = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.8, 0.5), glove);
+            pPalm.position.set(0.28, -0.05, 0.02);
+            pGripHand.add(pPalm);
+            for (let i = 0; i < 3; i++) {
+                const f = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.15, 0.42), glove);
+                f.position.set(-0.02, 0.2 - i * 0.2, -0.05);
+                pGripHand.add(f);
+            }
+            const pThumb = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.35, 0.16), glove);
+            pThumb.position.set(0.24, 0.32, 0.1);
+            pGripHand.add(pThumb);
+            const pTrig = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.45), glove);
+            pTrig.position.set(0.09, 0.42, -0.5);
+            pTrig.rotation.x = 0.25;
+            pGripHand.add(pTrig);
+            pistolMesh.add(pGripHand);
+            const pCuffR = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.45), sleeve);
+            pCuffR.position.set(0.32, -1.28, 0.5);
+            pistolMesh.add(pCuffR);
+            const pForeR = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.75, 1), sleeve);
+            placeLimb(pForeR, 0.32, -1.3, 0.55, 1.6, -3.7, 2.8);
+            pistolMesh.add(pForeR);
+            // Tangan kiri pendukung (stance dua tangan); dianimasikan saat reload pistol
+            pLeftHand = new THREE.Group();
+            const pPalmL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.7, 0.6), glove);
+            pPalmL.position.set(-0.08, 0.05, 0);
+            pLeftHand.add(pPalmL);
+            for (let i = 0; i < 3; i++) {
+                const f = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.14, 0.4), glove);
+                f.position.set(0.12, 0.24 - i * 0.2, -0.08);
+                pLeftHand.add(f);
+            }
+            const pCuffL = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.4), sleeve);
+            pCuffL.position.set(-0.2, -0.35, 0.4);
+            pLeftHand.add(pCuffL);
+            pLeftHand.position.copy(P_LEFT_REST);
+            pistolMesh.add(pLeftHand);
+            pLeftForearm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 1), sleeve);
+            pistolMesh.add(pLeftForearm);
+
+            pistolMesh.position.set(2.6, -2.3, -5);
+            pistolMesh.visible = false;
+            camera.add(pistolMesh);
+
             // Titik ujung laras: referensi eksplisit utk spawn peluru (jangan andalkan indeks children)
             muzzlePoint = new THREE.Object3D();
             muzzlePoint.position.set(0, 0.1, -7.4);
             gunMesh.add(muzzlePoint);
+            // PENTING: simpan referensi muzzle AK SETELAH objeknya dibuat — attachMuzzle
+            // memakai ini saat ganti senjata (bug: sebelumnya tercatat undefined).
+            rifleMuzzle = muzzlePoint;
 
             // Muzzle flash: PointLight + sprite radial aditif di ujung laras
             muzzleFlash = new THREE.PointLight(0xffaa33, 0, 60, 2);
@@ -934,7 +1060,20 @@
                 if (keys.hasOwnProperty(key)) keys[key] = true;
                 if (e.key === 'Shift') keys.shift = true;
                 if (key === 'r' && !isPaused && !isGameOver) startReload();
-                if (key === 'g' && !isPaused && !isGameOver) handleThrowGrenade();   // lempar granat
+                if (key === 'g' && !isPaused && !isGameOver && switchAnim < 0) handleThrowGrenade();   // granat
+                // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie)
+                if (key === 'f' && !isPaused && !isGameOver && meleeCd <= 0 && switchAnim < 0 && !player.isReloading) {
+                    meleeT = MELEE_TIME; meleeCd = MELEE_CD; meleeHitDone = false;
+                    playSFX(sfxMelee);   // suara ayunan — berbunyi meski tidak kena zombie
+                }
+                // 1 = AK47, 2 = pistol, Q = tukar cepat (membatalkan reload, ala CS)
+                if ((key === '1' || key === '2' || key === 'q') && !isPaused && !isGameOver
+                    && switchAnim < 0 && meleeT <= 0) {
+                    const target = key === '1' ? 'rifle'
+                        : key === '2' ? 'pistol'
+                            : (currentWeapon === 'rifle' ? 'pistol' : 'rifle');
+                    if (target !== currentWeapon) startSwitch(target);
+                }
                 if (e.code === 'Space') {
                     if (isGameOver) resetGame();                                   // restart
                     else if (!isPaused && player.onGround) {                       // lompat
@@ -1408,36 +1547,101 @@
             scene.add(trunkMesh); scene.add(leafMesh);
         }
 
-        function loadZombieModel() {
-            // Penyebab umum gagal muat -> beri pesan jelas di console.
-            const url = new URL('assets/visuals/zombie.glb', location.href).href;
-            console.log('[zombie.glb] halaman:', location.href, '| memuat:', url);
-            if (location.protocol === 'file:') {
-                console.warn('[zombie.glb] Halaman dibuka via file:// — browser memblokir pemuatan .glb. ' +
-                    'Jalankan lewat HTTP server, mis: python -m http.server 8000  lalu buka http://localhost:8000');
+        // Wajah zombie (tekstur bersama; di-tint warna kulit lewat material.color)
+        function drawZombieFace(g, w, h) {
+            g.fillStyle = '#cfd6c2'; g.fillRect(0, 0, w, h);
+            speckle(g, w, h, ['#8a9377', '#a75b4a', '#6d7a5e'], 40, 2, 6);   // luka & noda busuk
+            g.fillStyle = '#161a12';                                          // rongga mata cekung
+            g.fillRect(12, 22, 14, 12); g.fillRect(38, 22, 14, 12);
+            g.fillStyle = '#dfe8cd';                                          // pupil pucat kosong
+            g.fillRect(16, 26, 5, 5); g.fillRect(43, 26, 5, 5);
+            g.fillStyle = '#221010';                                          // mulut menganga
+            g.fillRect(20, 44, 24, 8);
+            g.fillStyle = '#7c3a34';
+            g.fillRect(22, 46, 20, 4);
+            g.fillStyle = 'rgba(110,28,24,0.85)';                             // darah menetes
+            g.fillRect(28, 52, 5, 10);
+        }
+
+        // Bangun 1 zombie manusia (varian profesi acak). Material dibuat per-instance
+        // agar jitter grime (offsetHSL) tiap zombie unik & dispose aman; geometri dibagi (ZG).
+        // Rig pivot pinggul/lutut/bahu/kepala digerakkan animateZombieRig; menghadap +Z
+        // (di-lookAt ke player oleh AI), kaki di y=0.
+        function buildHumanZombie() {
+            if (!zombieFaceTex) zombieFaceTex = makeTexture(64, 64, drawZombieFace);
+            const V = ZOMBIE_VARIANTS[(Math.random() * ZOMBIE_VARIANTS.length) | 0];
+            const skinTone = ZOMBIE_SKIN_TONES[(Math.random() * ZOMBIE_SKIN_TONES.length) | 0];
+            const mat = (hex) => new THREE.MeshLambertMaterial({
+                color: new THREE.Color(hex).offsetHSL(0, 0, rand(-0.05, 0.03))   // kumal, tiap zombie beda
+            });
+            const skin = mat(skinTone);
+            const shirt = mat(V.shirts[(Math.random() * V.shirts.length) | 0]);
+            const pants = mat(V.pants), shoes = mat(V.shoes);
+
+            const group = new THREE.Group();   // outer: di-lookAt AI
+            const inner = new THREE.Group();   // bob badan naik-turun
+            group.add(inner);
+            const mk = (geo, m, x, y, z, parent) => {
+                const b = new THREE.Mesh(geo, m);
+                b.position.set(x, y, z);
+                b.castShadow = true;
+                parent.add(b);
+                return b;
+            };
+
+            mk(ZG.torso, shirt, 0, 7.9, 0, inner);
+            // Kepala: wajah bertekstur di sisi depan (+Z, indeks material 4)
+            const headG = new THREE.Group();
+            headG.position.set(0, 10.3, 0);
+            inner.add(headG);
+            const faceMat = new THREE.MeshLambertMaterial({ color: skinTone, map: zombieFaceTex });
+            const head = new THREE.Mesh(ZG.head, [skin, skin, skin, skin, faceMat, skin]);
+            head.position.y = 1.2;
+            head.castShadow = true;
+            headG.add(head);
+
+            // Kaki: pivot pinggul -> paha; pivot lutut -> betis + sepatu
+            const mkLeg = (sx) => {
+                const hip = new THREE.Group(); hip.position.set(sx, 5.7, 0); inner.add(hip);
+                mk(ZG.thigh, pants, 0, -1.5, 0, hip);
+                const knee = new THREE.Group(); knee.position.set(0, -3.0, 0); hip.add(knee);
+                mk(ZG.shin, pants, 0, -1.3, 0, knee);
+                mk(ZG.foot, shoes, 0, -2.45, 0.45, knee);
+                return { hip, knee };
+            };
+            const legL = mkLeg(-1.0), legR = mkLeg(1.0);
+            // Lengan: pivot bahu (pose dasar menjulur ke depan khas zombie, di animateZombieRig)
+            const mkArm = (sx) => {
+                const sh = new THREE.Group(); sh.position.set(sx, 9.7, 0); inner.add(sh);
+                mk(ZG.arm, shirt, 0, -1.9, 0, sh);
+                mk(ZG.hand, skin, 0, -4.2, 0, sh);
+                return sh;
+            };
+            const armL = mkArm(-2.45), armR = mkArm(2.45);
+
+            // Aksesori pembeda profesi
+            if (V.acc === 'worker') {
+                mk(ZG.vest, mat(0xd97b1f), 0, 8.4, 0, inner);          // rompi keselamatan oranye
+                mk(ZG.stripe, mat(0xd8d8ca), 0, 7.7, 0, inner);        // strip reflektif
+                mk(ZG.helmet, mat(0xe8c11c), 0, 2.5, 0, headG);        // helm proyek kuning
+            } else if (V.acc === 'police') {
+                mk(ZG.capTop, mat(0x4a3a28), 0, 2.55, 0, headG);       // topi dinas
+                mk(ZG.capBrim, mat(0x38291c), 0, 2.25, 1.55, headG);
+                mk(ZG.badge, mat(0xd8b03a), -1.1, 8.9, 1.06, inner);   // lencana emas
+            } else if (V.acc === 'vendor') {
+                mk(ZG.apron, mat(0x4f3a28), 0, 7.3, 1.0, inner);       // celemek
+                mk(ZG.caping, mat(0xb99a55), 0, 2.75, 0, headG);       // caping anyaman
+            } else if (V.acc === 'clerk') {
+                mk(ZG.vest, mat(0x2f5f9f), 0, 8.4, 0, inner);          // rompi biru minimarket
+                mk(ZG.tag, mat(0xe8e8e8), 1.05, 8.95, 1.2, inner);     // papan nama
+            } else if (V.acc === 'office') {
+                mk(ZG.tie, mat(0x7c2430), 0, 8.6, 1.05, inner);        // dasi
             }
-            if (typeof THREE.GLTFLoader !== 'function') {
-                console.warn('[zombie.glb] THREE.GLTFLoader tidak tersedia (script CDN gagal dimuat?). Pakai silinder.');
-                return;
-            }
-            const loader = new THREE.GLTFLoader();
-            loader.load(
-                'assets/visuals/zombie.glb',
-                (gltf) => {
-                    zombieModel = gltf.scene;
-                    zombieModel.traverse(o => { if (o.isMesh) o.castShadow = true; });   // ikut sistem bayangan
-                    zombieClip = (gltf.animations && gltf.animations[0]) || null;
-                    const found = Object.keys(collectBones(gltf.scene).map);
-                    console.log('[zombie.glb] dimuat ✓  tulang animasi cocok:', found.length, found);
-                    if (found.length < 6) {
-                        const all = [];
-                        gltf.scene.traverse(o => { if (o.isBone || o.type === 'Bone') all.push(o.name); });
-                        console.warn('[zombie.glb] tulang tak cukup cocok — animasi jalan tak aktif. Nama tulang asli:', all);
-                    }
-                },
-                undefined,
-                (err) => console.warn('[zombie.glb] gagal dimuat — pakai silinder. Detail:', err)
-            );
+
+            return {
+                group,
+                rig: { inner, thighL: legL.hip, thighR: legR.hip, shinL: legL.knee, shinR: legR.knee, armL, armR, head: headG }
+            };
         }
 
         // ----------- Lingkungan: langit, kota, bara ----------- //
@@ -1712,6 +1916,20 @@
             [2.68, 0.5, 0.12, 0.45],    // lepaskan (snap ke depan)
             [3.00, 0.0, -0.35, -3.0],   // kembali menopang handguard
         ];
+        // Reload pistol (2.2 dtk = durasi setTimeout pistol): mag keluar dari grip ->
+        // buang/ambil baru di bawah -> masukkan -> tarik slide -> kembali menopang.
+        const PISTOL_KF = [
+            [0.00, -0.12, -0.72, -0.5], // menopang dua-tangan
+            [0.25, 0.0, -1.0, -0.2],    // genggam magazen di pangkal grip
+            [0.60, 0.35, -3.0, 0.3],    // cabut & buang ke bawah
+            [0.95, 0.35, -3.0, 0.3],    // ambil magazen baru
+            [1.30, 0.0, -1.15, -0.25],  // masukkan ke grip
+            [1.55, 0.0, -0.9, -0.22],   // dorong klik
+            [1.75, 0.0, 0.5, -0.7],     // pegang slide
+            [1.95, 0.0, 0.5, 0.0],      // tarik slide ke belakang
+            [2.05, 0.0, 0.5, -0.55],    // lepas (slide snap ke depan)
+            [2.20, -0.12, -0.72, -0.5], // kembali menopang
+        ];
         const smooth01 = (u) => u * u * (3 - 2 * u);   // smoothstep
 
         // Rentangkan mesh "limb" (geometri panjang 1 di sumbu z) dari titik A ke B —
@@ -1723,17 +1941,17 @@
             mesh.scale.z = len;
             mesh.quaternion.setFromUnitVectors(_axisZ, _dir.normalize());
         }
-        function reloadHandPos(t, out) {
-            if (t <= RELOAD_KF[0][0]) { const k = RELOAD_KF[0]; out.set(k[1], k[2], k[3]); return; }
-            for (let i = 0; i < RELOAD_KF.length - 1; i++) {
-                const a = RELOAD_KF[i], b = RELOAD_KF[i + 1];
+        function reloadHandPos(KF, t, out) {
+            if (t <= KF[0][0]) { const k = KF[0]; out.set(k[1], k[2], k[3]); return; }
+            for (let i = 0; i < KF.length - 1; i++) {
+                const a = KF[i], b = KF[i + 1];
                 if (t <= b[0]) {
                     const u = smooth01((t - a[0]) / (b[0] - a[0]));
                     out.set(a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u);
                     return;
                 }
             }
-            const k = RELOAD_KF[RELOAD_KF.length - 1];
+            const k = KF[KF.length - 1];
             out.set(k[1], k[2], k[3]);
         }
 
@@ -1762,7 +1980,8 @@
             }
             if (waterTex) { waterTex.offset.x = T * 0.018; waterTex.offset.y = T * 0.011; }
             if (muzzleSprite) muzzleSprite.material.opacity = Math.min(1, muzzleFlash.intensity / 3);
-            // Bidik iron sight (ADS): transisi halus posisi senjata ke tengah + zoom FOV 20%.
+
+            // ----- Senjata aktif: ADS, bob, ganti senjata, melee, rig reload (semua visual) -----
             // Arah tembak/granat tetap dari pusat kamera -> tidak mengubah mekanik.
             aimT += ((isAiming ? 1 : 0) - aimT) * Math.min(1, dt * 12);
             const fov = BASE_FOV / (1 + (AIM_ZOOM - 1) * aimT);
@@ -1771,23 +1990,34 @@
                 camera.updateProjectionMatrix();
             }
             crosshair.style.opacity = 1 - aimT * 0.85;   // crosshair memudar, ganti sight picture
-            // Goyangan senjata halus (posisi x/y saja; z milik recoil) — diredam saat membidik
+
+            const isRifle = currentWeapon === 'rifle';
+            const grp = isRifle ? gunMesh : pistolMesh;
+            // Goyangan senjata halus (x/y; z milik recoil di update) — diredam saat membidik
             const moving = (keys.w || keys.a || keys.s || keys.d) && !isPaused && !isGameOver;
             gunBobT += dt * (moving ? (keys.shift ? 11 : 7.5) : 2.2);
             const bobA = (moving ? 0.09 : 0.03) * (1 - aimT * 0.8);
-            const baseX = 3 * (1 - aimT);                       // pinggul 3 -> tengah 0
-            const baseY = -2.5 + (-0.78 + 2.5) * aimT;          // -2.5 -> -0.78 (garis pisir = pusat layar)
-            gunMesh.position.x = baseX + Math.sin(gunBobT) * bobA;
-            gunMesh.position.y = baseY + Math.abs(Math.cos(gunBobT)) * bobA * 1.4;
+            // Animasi ganti senjata: turun lalu naik (model ditukar di tengah, oleh update())
+            let swOff = 0, swRot = 0;
+            if (switchAnim >= 0) {
+                const h = SWITCH_TIME / 2;
+                const p = switchAnim < h ? switchAnim / h : Math.max(0, 1 - (switchAnim - h) / h);
+                swOff = -3.4 * p;
+                swRot = 1.0 * p;
+            }
+            const hipX = isRifle ? 3 : 2.6, hipY = isRifle ? -2.5 : -2.3;
+            const adsY = isRifle ? -0.78 : -0.7;   // garis pisir masing2 = pusat layar
+            grp.position.x = hipX * (1 - aimT) + Math.sin(gunBobT) * bobA;
+            grp.position.y = hipY + (adsY - hipY) * aimT + Math.abs(Math.cos(gunBobT)) * bobA * 1.4 + swOff;
 
-            // Rig reload: tangan kiri lepas magazen -> ambil baru -> pasang -> kokang -> kembali
-            if (player.isReloading) {
+            // Rig reload per senjata -> gunRotX/gunRotZ + gerak tangan kiri/mag/bolt/slide
+            if (player.isReloading && isRifle) {
                 const rt = (Date.now() - reloadStartTime) / 1000;   // waktu nyata = sinkron setTimeout
-                reloadHandPos(rt, leftHand.position);
+                reloadHandPos(RELOAD_KF, rt, leftHand.position);
                 // senjata dimiringkan sedikit agar area magazen terlihat (envelope naik-turun)
                 const env = Math.min(1, rt / 0.25) * clamp((3 - rt) / 0.3, 0, 1);
-                gunMesh.rotation.x = -0.30 * env;
-                gunMesh.rotation.z = 0.10 * env;
+                gunRotX = -0.30 * env;
+                gunRotZ = 0.10 * env;
                 if (rt >= 0.35 && rt < 2.05) {                      // magazen menempel di tangan kiri
                     gunMagMesh.position.set(leftHand.position.x, leftHand.position.y - 0.35, leftHand.position.z);
                     gunMagMesh.rotation.set(-0.35, 0, 0.45);
@@ -1798,26 +2028,60 @@
                 if (rt >= 2.30 && rt < 2.55) boltHandle.position.z = 0.4 + smooth01((rt - 2.30) / 0.25) * 0.72;
                 else if (rt >= 2.55 && rt < 2.68) boltHandle.position.z = 1.12 - smooth01((rt - 2.55) / 0.13) * 0.72;
                 else boltHandle.position.z = 0.4;
+            } else if (player.isReloading && !isRifle) {
+                const rt = (Date.now() - reloadStartTime) / 1000;
+                reloadHandPos(PISTOL_KF, rt, pLeftHand.position);
+                const env = Math.min(1, rt / 0.2) * clamp((2.2 - rt) / 0.25, 0, 1);
+                gunRotX = -0.22 * env;
+                gunRotZ = 0.14 * env;
+                if (rt >= 0.28 && rt < 1.5) {                       // magazen pistol di tangan kiri
+                    pistolMagMesh.position.set(pLeftHand.position.x, pLeftHand.position.y - 0.45, pLeftHand.position.z);
+                    pistolMagMesh.rotation.set(0.12, 0, 0);
+                } else {                                            // terpasang di grip
+                    pistolMagMesh.position.set(0, -0.72, -0.26);
+                    pistolMagMesh.rotation.set(0.12, 0, 0);
+                }
+                if (rt >= 1.75 && rt < 1.95) pistolSlide.position.z = -1.2 + smooth01((rt - 1.75) / 0.2) * 0.55;
+                else if (rt >= 1.95 && rt < 2.05) pistolSlide.position.z = -0.65 - smooth01((rt - 1.95) / 0.1) * 0.55;
+                else pistolSlide.position.z = -1.2;
             } else {
-                // istirahat: tangan kiri kembali menopang handguard, semua part di posisi rest
+                // istirahat: kedua rig kembali menopang; slide pistol kick kecil saat menembak
                 leftHand.position.lerp(LEFT_HAND_REST, Math.min(1, dt * 10));
-                gunMesh.rotation.x += (0 - gunMesh.rotation.x) * Math.min(1, dt * 10);
-                gunMesh.rotation.z += (0 - gunMesh.rotation.z) * Math.min(1, dt * 10);
+                pLeftHand.position.lerp(P_LEFT_REST, Math.min(1, dt * 10));
+                gunRotX += (0 - gunRotX) * Math.min(1, dt * 10);
+                gunRotZ += (0 - gunRotZ) * Math.min(1, dt * 10);
                 gunMagMesh.position.set(0, -1.1, -1.1);
                 gunMagMesh.rotation.set(0, 0, 0.45);
                 boltHandle.position.z = 0.4;
+                pistolMagMesh.position.set(0, -0.72, -0.26);
+                pistolMagMesh.rotation.set(0.12, 0, 0);
+                pistolSlide.position.z = -1.2 + (isRifle ? 0 : Math.min(0.5, gunRecoil * 0.5));
             }
-            // Lengan bawah kiri: rentangkan dari siku (anchor kiri-bawah layar) ke
-            // pergelangan tangan kiri yang sedang bergerak -> lengan selalu tersambung.
+
+            // Melee: ayunan popor AK (sabet menyamping) / pistol-whip (hantam ke bawah)
+            let mRotX = 0, mRotY = 0;
+            if (meleeS > 0) {
+                if (isRifle) { mRotY = 1.15 * meleeS; mRotX = 0.35 * meleeS; }
+                else mRotX = -1.2 * meleeS;
+            }
+            grp.rotation.x = gunRotX - swRot + mRotX;
+            grp.rotation.y = mRotY;
+            grp.rotation.z = gunRotZ;
+
+            // Lengan bawah kiri: rentangkan siku (anchor) -> pergelangan (per senjata)
             placeLimb(leftForearm, -1.8, -3.4, -0.5,
                 leftHand.position.x - 0.05, leftHand.position.y - 0.15, leftHand.position.z + 0.55);
+            placeLimb(pLeftForearm, -1.7, -3.5, 0.3,
+                pLeftHand.position.x - 0.15, pLeftHand.position.y - 0.3, pLeftHand.position.z + 0.35);
         }
 
         // ----------- Logika Mekanik ----------- //
 
         function updateUI() {
+            const w = player[currentWeapon];
+            const wName = currentWeapon === 'rifle' ? 'AK47' : 'Pistol';
             scoreText.innerText = `Score: ${score}`;
-            ammoText.innerText = player.isReloading ? "Reloading..." : `Ammo: ${player.ammo} / ${player.mags} Mags`;
+            ammoText.innerText = player.isReloading ? `${wName}: Reloading...` : `${wName}: ${w.ammo} / ${w.mags} Mags`;
             hpText.innerText = `HP: ${player.hp}`;
             grenadeText.innerText = `Grenades: ${player.grenades}`;
             waveText.innerText = `Wave ${wave.num}`;
@@ -1842,6 +2106,50 @@
             mouse.isDown = false;
             isAiming = false;
             for (const k in keys) keys[k] = false;
+        }
+
+        // Pindahkan muzzle flash/sprite ke senjata aktif & arahkan muzzlePoint ke sana
+        function attachMuzzle(wpn) {
+            const grp = wpn === 'rifle' ? gunMesh : pistolMesh;
+            const px = 0, py = wpn === 'rifle' ? 0.1 : 0.42, pz = wpn === 'rifle' ? -7.4 : -2.7;
+            grp.add(muzzleFlash);
+            muzzleFlash.position.set(px, py, pz);
+            grp.add(muzzleSprite);
+            muzzleSprite.position.set(px, py, pz - 0.1);
+            muzzleSprite.scale.setScalar(wpn === 'rifle' ? 1 : 0.75);
+            muzzlePoint = wpn === 'rifle' ? rifleMuzzle : pistolMuzzle;
+        }
+
+        // Mulai animasi ganti senjata; model ditukar di tengah animasi (update()).
+        function startSwitch(target) {
+            switchTarget = target;
+            switchAnim = 0;
+            clearTimeout(player.reloadTimer);   // ganti senjata membatalkan reload (ala CS)
+            player.isReloading = false;
+            updateUI();
+        }
+
+        // Pukulan melee: bunuh 1 zombie terdekat di kerucut depan (jangkauan pendek).
+        function doMeleeHit() {
+            camera.getWorldDirection(_dir);
+            _dir.y = 0; _dir.normalize();
+            let best = -1, bestD = 1e9;
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                const z = zombies[i];
+                const dx = z.mesh.position.x - camera.position.x;
+                const dz = z.mesh.position.z - camera.position.z;
+                const d = Math.hypot(dx, dz);
+                if (d > MELEE_RANGE) continue;
+                if ((dx * _dir.x + dz * _dir.z) / (d || 1) < 0.35) continue;   // ~±70° di depan
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            if (best >= 0) {
+                crosshair.classList.add('hit');
+                setTimeout(() => crosshair.classList.remove('hit'), 80);
+                spawnDrop(zombies[best].mesh.position);
+                killZombie(best);
+                updateUI();
+            }
         }
 
         // Resolusi FXAA harus di-update tiap ganti ukuran (uniform 1/pixel)
@@ -1893,6 +2201,18 @@
             return px * px + pz * pz < FOUNTAIN.r * FOUNTAIN.r;
         }
 
+        // Kuadrat jarak titik P ke ruas garis A->B (3D). Dipakai hit test peluru:
+        // sweep segmen posisi-lalu -> posisi-kini agar peluru tak menembus target
+        // di jarak dekat (point-blank) maupun saat fps rendah (langkah per frame besar).
+        function segPointDist2(ax, ay, az, bx, by, bz, px, py, pz) {
+            const abx = bx - ax, aby = by - ay, abz = bz - az;
+            const apx = px - ax, apy = py - ay, apz = pz - az;
+            const len2 = abx * abx + aby * aby + abz * abz;
+            const t = len2 > 0 ? clamp((apx * abx + apy * aby + apz * abz) / len2, 0, 1) : 0;
+            const dx = apx - abx * t, dy = apy - aby * t, dz = apz - abz * t;
+            return dx * dx + dy * dy + dz * dz;
+        }
+
         // Ketinggian "lantai" di (x,z): puncak bak air mancur bisa dipijak bila
         // player datang dari atas; selain itu tanah datar y=0.
         function groundHeightAt(x, z, feetY) {
@@ -1902,19 +2222,21 @@
         }
 
         function startReload() {
-            if (player.isReloading || player.mags <= 0 || player.ammo === 30) return;
+            const w = player[currentWeapon];
+            if (player.isReloading || w.mags <= 0 || w.ammo === w.magSize) return;
+            if (switchAnim >= 0 || meleeT > 0) return;   // jangan reload saat ganti senjata / memukul
             player.isReloading = true;
             reloadStartTime = Date.now();   // rig tangan reload (updateDecor) sinkron dgn timer nyata ini
             playSFX(sfxReload);
             updateUI();
-            // Simpan id timer: harus dibatalkan di resetGame (bug: reload lama bisa
-            // selesai SETELAH restart dan mencuri 1 magazen dari game baru).
+            // Simpan id timer: dibatalkan di resetGame & saat ganti senjata (startSwitch).
+            const dur = currentWeapon === 'rifle' ? 3000 : 2200;   // pistol lebih cepat (KF 2.2 dtk)
             player.reloadTimer = setTimeout(() => {
-                player.mags--;
-                player.ammo = 30;
+                w.mags--;
+                w.ammo = w.magSize;
                 player.isReloading = false;
                 updateUI();
-            }, 3000);
+            }, dur);
         }
 
         function spawnZombie() {
@@ -1946,42 +2268,10 @@
             // -30% dari kalibrasi awal (0.6 + rand*0.4 + (wave-1)*0.08)
             const speed = (0.6 + Math.random() * 0.4 + (wave.num - 1) * 0.08) * 0.3;
 
-            let zMesh, bones = null, mixer = null, isModel = false;
-            if (zombieModel) {
-                // Clone karakter ber-skeleton (mesh.clone biasa tak menyalin skeleton dgn benar).
-                const model = THREE.SkeletonUtils.clone(zombieModel);
-                // Material di-clone per-instance agar efek "terluka" (emissive) tak menular.
-                model.traverse(o => { if (o.isMesh && o.material) o.material = o.material.clone(); });
-
-                // Grup-dalam meng-koreksi orientasi & skala; grup-luar (zMesh) yang di-lookAt ke player.
-                // Urutan rotasi: Z(roll) -> X(tegak) -> Y(yaw) agar yaw selalu di sumbu vertikal dunia.
-                const d2r = Math.PI / 180;
-                const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), ZOMBIE_ROT_X * d2r);
-                const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ZOMBIE_ROT_Y * d2r);
-                const qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), ZOMBIE_ROT_Z * d2r);
-                const inner = new THREE.Group();
-                inner.quaternion.copy(qy).multiply(qx).multiply(qz);
-                inner.scale.setScalar(ZOMBIE_SCALE);
-                inner.add(model);
-
-                zMesh = new THREE.Group();
-                zMesh.add(inner);
-                // Klip "Take 01" = idle yang MENEGAKKAN badan (memutar tulang root/master)
-                // & menggoyangkan kepala. Tetap diputar agar zombie berdiri; kaki/lengan
-                // ditimpa animasi jalan prosedural di animateZombieRig.
-                if (zombieClip) {
-                    mixer = new THREE.AnimationMixer(model);
-                    mixer.clipAction(zombieClip).play();
-                    mixer.update(0);                 // pasang pose berdiri sebelum tangkap rest
-                }
-                bones = collectBones(model);
-                isModel = true;
-            } else {
-                // Fallback silinder. Material di-clone agar warna luka tak menular antar instance.
-                zMesh = new THREE.Mesh(GEO.zombie, new THREE.MeshLambertMaterial({ color: 0x27ae60 }));
-                zMesh.castShadow = true;
-            }
-            const baseY = isModel ? 0 : 6;             // y saat menapak tanah
+            // Zombie manusia prosedural (warga korban alien) — varian skin acak per spawn.
+            const built = buildHumanZombie();
+            const zMesh = built.group;
+            const baseY = 0;                           // origin grup di kaki (y saat menapak tanah)
             zMesh.position.set(startX, baseY, startZ);
             scene.add(zMesh);
 
@@ -1989,84 +2279,73 @@
             // Busur lompat digeneralisasi (jumpY0->jumpY1 + arcH) agar bisa dipakai ulang
             // untuk vault dinding bak air mancur; groundY = lantai pijakan saat ini.
             zombies.push({
-                mesh: zMesh, hp, maxHp: hp, speed, bones, mixer, isModel, baseY, phase: Math.random() * 6.28,
+                mesh: zMesh, hp, maxHp: hp, speed, rig: built.rig, isModel: true, baseY, phase: Math.random() * 6.28,
                 state: 'jumping', jumpT: 0, jumpDur: 1.1,
                 sx: startX, sz: startZ, lx: landX, lz: landZ,
-                jumpY0: 0, jumpY1: 0, arcH: FENCE_H + 14, groundY: 0, vaultCd: 0
+                jumpY0: 0, jumpY1: 0, arcH: FENCE_H + 14, groundY: 0, vaultCd: 0,
+                attackCd: 0, clawT: 0, clawSide: 1, moving: true   // sistem serangan cakar
             });
-            playSFX(sfxSpawn);
         }
 
-        // Kumpulkan tulang yang dianimasikan + simpan pose istirahatnya (rest).
-        // GLTFLoader membersihkan nama (titik dihapus), jadi cocokkan via normalisasi:
-        // buang semua non-alfanumerik -> "thigh.L_Armature" == "thighL_Armature" == "thighlarmature".
-        function collectBones(model) {
-            const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const targets = {
-                thighL: 'thighlarmature', thighR: 'thighrarmature',
-                shinL: 'shinlarmature', shinR: 'shinrarmature',
-                armL: 'upperarmlarmature', armR: 'upperarmrarmature',
-                root: 'rootarmature', master: 'masterarmature',
-            };
-            const map = {}, rest = {};
-            model.traverse(o => {
-                const nn = norm(o.name);
-                for (const k in targets) {
-                    if (!map[k] && (nn === targets[k] || nn.includes(targets[k]))) map[k] = o;
-                }
-            });
-            for (const k in map) rest[k] = { q: map[k].quaternion.clone(), p: map[k].position.clone() };
-            return { map, rest };
-        }
-
-        // Animasi jalan/lompat prosedural: ayun tulang relatif rest, mengelilingi sumbu
-        // lateral tubuh di world-space (jadi arah ayunan benar apa pun orientasi rig).
+        // Animasi jalan/lompat prosedural pada pivot rig zombie manusia.
+        // Rig dibangun menghadap +Z dan grup di-lookAt ke player, jadi sumbu lateral
+        // tubuh = sumbu X lokal tiap pivot — cukup putar rotation.x (tanpa quaternion).
         function animateZombieRig(z, dt) {
-            if (z.isModel && z.bones && z.bones.map.thighL && z.bones.map.thighR) {
-                const b = z.bones.map, r = z.bones.rest;
-                // sumbu kiri-kanan tubuh = up × arah-hadap(ke player); bebas dari orientasi/yaw rig
-                _dir.set(camera.position.x - z.mesh.position.x, 0, camera.position.z - z.mesh.position.z);
-                if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, 1);
-                _dir.normalize();
-                _axis.set(0, 1, 0).cross(_dir).normalize();
-                const inner = z.mesh.children[0];
-
-                const swing = (key, angle) => {
-                    const bone = b[key];
-                    if (!bone) return;
-                    bone.parent.getWorldQuaternion(_pq);
-                    _dq.setFromAxisAngle(_axis, angle);
-                    _ld.copy(_pq).invert().multiply(_dq).multiply(_pq);   // delta world -> ruang parent
-                    bone.quaternion.copy(r[key].q).premultiply(_ld);
-                };
-
-                if (z.state === 'jumping') {
-                    // Pose melompat: paha terangkat, lutut menekuk, lengan naik.
-                    swing('thighL', 1.1); swing('thighR', 1.1);
-                    swing('shinL', -1.3); swing('shinR', -1.3);
-                    swing('armL', -1.0); swing('armR', -1.0);
-                    if (inner) inner.position.y = 0;
-                    return;
-                }
-
-                // Berjalan: ayun kaki & lengan bergantian + bob badan.
+            const r = z.rig;
+            if (!r) return;
+            if (z.state === 'jumping') {
+                // Pose melompat: paha terangkat, lutut menekuk, lengan terangkat tinggi.
+                r.thighL.rotation.x = -1.1; r.thighR.rotation.x = -1.1;
+                r.shinL.rotation.x = 1.3; r.shinR.rotation.x = 1.3;
+                r.armL.rotation.x = -1.7; r.armR.rotation.x = -1.7;
+                r.inner.position.y = 0;
+                return;
+            }
+            if (z.moving === false) {
+                // BERDIRI di jangkauan cakar: kaki lurus & bob hilang (mulus via damping),
+                // hanya sisa sway napas kecil di lengan/kepala.
+                const damp = Math.min(1, dt * 8);
+                r.thighL.rotation.x += (0 - r.thighL.rotation.x) * damp;
+                r.thighR.rotation.x += (0 - r.thighR.rotation.x) * damp;
+                r.shinL.rotation.x += (0 - r.shinL.rotation.x) * damp;
+                r.shinR.rotation.x += (0 - r.shinR.rotation.x) * damp;
+                r.inner.position.y += (0 - r.inner.position.y) * damp;
+                z.phase += dt * 1.5;
+                const s2 = Math.sin(z.phase);
+                r.armL.rotation.x = -1.15 + s2 * 0.06;
+                r.armR.rotation.x = -1.15 - s2 * 0.06;
+                r.head.rotation.z = s2 * 0.04;
+            } else {
+                // Berjalan: kaki & lengan berayun bergantian + bob badan + kepala oleng.
                 z.phase += dt * (5 + z.speed * 6);
                 const s = Math.sin(z.phase);
-                const SW = 0.55, KN = 0.7, AR = 0.4;   // amplitudo paha / lutut / lengan
-                swing('thighL', s * SW); swing('thighR', -s * SW);
-                swing('shinL', Math.max(0, -s) * KN); swing('shinR', Math.max(0, s) * KN);
-                swing('armL', -s * AR); swing('armR', s * AR);
-                if (inner) inner.position.y = Math.abs(Math.sin(z.phase)) * 1.2;
-            } else if (!z.isModel && z.state === 'chasing') {
-                // Silinder: bob kecil agar tak terasa meluncur (relatif lantai pijakan).
-                z.phase += dt * 9;
-                z.mesh.position.y = z.baseY + z.groundY + Math.abs(Math.sin(z.phase)) * 1.2;
+                const SW = 0.55, KN = 0.7, AR = 0.35;   // amplitudo paha / lutut / lengan
+                r.thighL.rotation.x = -s * SW;
+                r.thighR.rotation.x = s * SW;
+                r.shinL.rotation.x = Math.max(0, -s) * KN;   // lutut menekuk saat kaki mengayun balik
+                r.shinR.rotation.x = Math.max(0, s) * KN;
+                r.armL.rotation.x = -1.15 + s * AR;          // pose dasar: lengan menjulur ke depan
+                r.armR.rotation.x = -1.15 - s * AR;
+                r.head.rotation.z = Math.sin(z.phase * 0.5) * 0.08;
+                r.inner.position.y = Math.abs(s) * 1.2;
+            }
+
+            // Sabetan mencakar: satu lengan terangkat lalu menyabet ke bawah-keluar
+            // (menimpa pose jalan; rotation.z kembali 0 di akhir sabetan).
+            if (z.clawT > 0) {
+                z.clawT -= dt;
+                const k = 1 - Math.max(0, z.clawT) / CLAW_TIME;
+                const sw = Math.sin(Math.PI * k);
+                const arm = z.clawSide > 0 ? r.armR : r.armL;
+                arm.rotation.x = -1.6 + sw * 1.5;
+                arm.rotation.z = (z.clawSide > 0 ? -0.5 : 0.5) * sw;
             }
         }
 
         function handleThrowGrenade() {
             if (player.grenades <= 0) return;
             player.grenades--;
+            playSFX(sfxThrow);
             updateUI();
 
             const raycaster = new THREE.Raycaster();
@@ -2127,25 +2406,19 @@
             updateUI();
         }
 
-        // Buang material milik 1 zombie. Untuk model: material di-clone per-instance
-        // jadi aman di-dispose; geometri/skeleton dibagi dgn template -> JANGAN di-dispose.
+        // Buang material milik 1 zombie (semua dibuat per-instance -> aman di-dispose;
+        // geometri ZG & tekstur wajah dibagi antar zombie -> JANGAN di-dispose).
+        // Kepala memakai ARRAY material (wajah di sisi depan) — tangani keduanya.
         function disposeZombie(z) {
-            if (z.isModel) {
-                z.mesh.traverse(o => { if (o.isMesh && o.material && o.material.dispose) o.material.dispose(); });
-            } else if (z.mesh.material) {
-                z.mesh.material.dispose();
-            }
+            z.mesh.traverse(o => {
+                if (!o.isMesh || !o.material) return;
+                if (Array.isArray(o.material)) o.material.forEach(m => m.dispose && m.dispose());
+                else if (o.material.dispose) o.material.dispose();
+            });
         }
 
-        // Umpan-balik "terluka" berdasar rasio hp. Silinder: ganti warna; model: emissive merah.
-        function tintZombie(z, t) {
-            if (z.isModel) {
-                const hex = t > 0.5 ? 0x000000 : t > 0.25 ? 0x5a2600 : 0x6e0000;
-                z.mesh.traverse(o => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setHex(hex); });
-            } else if (z.mesh.material) {
-                z.mesh.material.color.setHex(t > 0.5 ? 0x27ae60 : t > 0.25 ? 0xd35400 : 0xc0392b);
-            }
-        }
+        // Sengaja TIDAK ada umpan-balik warna luka pada zombie: player tidak boleh
+        // tahu zombie sudah tertembak / hampir mati — warna asli dipertahankan.
 
         function killZombie(i) {
             const z = zombies[i];
@@ -2200,11 +2473,21 @@
 
         function resetGame() {
             score = 0;
-            player.hp = 5; player.ammo = 30; player.mags = 3; player.grenades = 3;
+            player.hp = 5; player.grenades = 3;
+            player.rifle.ammo = 30; player.rifle.mags = 3;
+            player.pistol.ammo = 15; player.pistol.mags = 3;
             clearTimeout(player.reloadTimer);   // bug fix: reload lama jangan selesai di game baru
             player.isReloading = false;
             releaseInputs();
+            // kembali ke senjata utama, batalkan animasi ganti/melee
+            currentWeapon = 'rifle';
+            switchAnim = -1; switchTarget = null;
+            meleeT = 0; meleeCd = 0; meleeS = 0;
+            gunMesh.visible = true; pistolMesh.visible = false;
+            attachMuzzle('rifle');
             gunMesh.rotation.set(0, 0, 0);
+            pistolMesh.rotation.set(0, 0, 0);
+            gunRotX = 0; gunRotZ = 0;
 
             wave.num = 1; wave.time = 0; wave.spawnTimer = 0;
             wave.spawnInterval = 4; wave.maxZombies = 10;
@@ -2213,7 +2496,7 @@
             gameOverScreen.style.display = 'none';
 
             player.vy = 0; player.onGround = true;
-            camera.position.set(0, 10, 120);
+            camera.position.set(0, EYE_H, 120);
             camera.quaternion.set(0, 0, 0, 1);
 
             zombies.forEach(z => { disposeZombie(z); scene.remove(z.mesh); });
@@ -2259,6 +2542,28 @@
                 spawnZombie();
             }
 
+            // --- Timer senjata: animasi ganti (tukar model di tengah) & melee ---
+            if (switchAnim >= 0) {
+                const prev = switchAnim;
+                switchAnim += dt;
+                if (prev < SWITCH_TIME / 2 && switchAnim >= SWITCH_TIME / 2 && switchTarget) {
+                    currentWeapon = switchTarget;
+                    switchTarget = null;
+                    gunMesh.visible = currentWeapon === 'rifle';
+                    pistolMesh.visible = currentWeapon === 'pistol';
+                    attachMuzzle(currentWeapon);
+                    updateUI();
+                }
+                if (switchAnim >= SWITCH_TIME) switchAnim = -1;
+            }
+            if (meleeCd > 0) meleeCd -= dt;
+            if (meleeT > 0) {
+                meleeT -= dt;
+                const k = 1 - Math.max(0, meleeT) / MELEE_TIME;
+                meleeS = Math.sin(Math.PI * Math.min(1, k));   // profil ayunan 0..1..0
+                if (!meleeHitDone && k >= 0.45) { meleeHitDone = true; doMeleeHit(); }
+            } else meleeS = 0;
+
             // --- 1. Gerak player (WASD relatif kamera) ---
             camera.getWorldDirection(_dir);
             _dir.y = 0; _dir.normalize();
@@ -2279,31 +2584,68 @@
                 camera.position.x = oldX; camera.position.z = oldZ;
             }
             // Penghalang pejal: pohon & dinding bak air mancur (dorong keluar horizontal)
-            resolveObstacles(camera.position, player.radius, camera.position.y - 10);
+            resolveObstacles(camera.position, player.radius, camera.position.y - EYE_H);
 
             // --- Lompat & gravitasi (SPASI). Pagar & Monas TETAP tak terlompati:
             // clamp pagar dan AABB Monas di atas bekerja horizontal, apa pun ketinggiannya.
-            const feetY = camera.position.y - 10;
+            const feetY = camera.position.y - EYE_H;
             const gH = groundHeightAt(camera.position.x, camera.position.z, feetY);
+            const wasAirborne = !player.onGround;
             player.vy -= GRAVITY * dt;
             let newFeet = feetY + player.vy * dt;
             if (newFeet <= gH && player.vy <= 0) {        // mendarat / menempel lantai
                 newFeet = gH;
                 player.vy = 0;
                 player.onGround = true;
+                if (wasAirborne) playSFX(sfxFootstep, 0.55);   // bunyi mendarat setelah lompat
             } else {
                 player.onGround = false;
             }
-            camera.position.y = newFeet + 10;
+            camera.position.y = newFeet + EYE_H;
+
+            // Langkah kaki berirama saat berjalan/berlari di tanah
+            if (player.onGround && (keys.w || keys.a || keys.s || keys.d)) {
+                footT -= dt;
+                if (footT <= 0) {
+                    playSFX(sfxFootstep, 0.4);
+                    footT = keys.shift ? 0.28 : 0.42;   // lari = irama lebih rapat
+                }
+            } else {
+                footT = 0.12;   // langkah pertama cepat terdengar saat mulai bergerak
+            }
+
+            // Langkah zombie: HEMAT PERFORMA — cuma SATU playSFX tiap ~0.55 dtk dari
+            // zombie bergerak terdekat, volume mengecil dgn jarak. Cukup sebagai
+            // penanda "ada yang mendekat" tanpa membebani audio/CPU per zombie.
+            zStepT -= dt;
+            if (zStepT <= 0) {
+                zStepT = 0.55;
+                let nd = 120;   // radius dengar
+                for (let zi = 0; zi < zombies.length; zi++) {
+                    const zz = zombies[zi];
+                    if (zz.state !== 'chasing' || zz.moving === false) continue;
+                    const d = Math.hypot(zz.mesh.position.x - camera.position.x, zz.mesh.position.z - camera.position.z);
+                    if (d < nd) nd = d;
+                }
+                if (nd < 120) playSFX(sfxZombieStep, Math.max(0.08, 0.5 * (1 - nd / 120)));
+            }
 
             // --- Recoil & muzzle flash decay (visual, terpisah dari mouse-look) ---
             gunRecoil = Math.max(0, gunRecoil - dt * 6);
-            gunMesh.position.z = -6 + aimT * 0.8 + gunRecoil * 2.5;   // ADS sedikit lebih dekat
+            const wGrp = currentWeapon === 'rifle' ? gunMesh : pistolMesh;
+            const wBaseZ = currentWeapon === 'rifle' ? -6 : -5;
+            const wKick = currentWeapon === 'rifle' ? 2.5 : 1.6;
+            // ADS sedikit lebih dekat; melee mendorong senjata ke depan (ayunan)
+            wGrp.position.z = wBaseZ + aimT * 0.8 + gunRecoil * wKick - 1.9 * meleeS;
             if (muzzleFlash.intensity > 0) muzzleFlash.intensity = Math.max(0, muzzleFlash.intensity - dt * 30);
 
-            // --- 2. Tembak (kiri klik), fire-rate berbasis waktu nyata ---
-            if (mouse.isDown && !player.isReloading && Date.now() - player.lastShot > 130 && player.ammo > 0) {
-                muzzlePoint.getWorldPosition(_tip);   // referensi eksplisit ujung laras
+            // --- 2. Tembak (kiri klik), fire-rate berbasis waktu nyata, per senjata.
+            // Peluru & damage identik utk kedua senjata; pistol semi-cepat (260 ms).
+            const wpn = player[currentWeapon];
+            const fireDelay = currentWeapon === 'rifle' ? 130 : 260;
+            if (mouse.isDown && !player.isReloading && switchAnim < 0 && meleeT <= 0
+                && Date.now() - player.lastShot > fireDelay && wpn.ammo > 0) {
+                muzzlePoint.getWorldPosition(_tip);   // muzzle senjata aktif
                 const bMesh = new THREE.Mesh(GEO.bullet, MAT.bullet);
                 bMesh.position.copy(_tip);
 
@@ -2318,17 +2660,24 @@
                 bMesh.scale.set(1, 1, 3.5);
 
                 scene.add(bMesh);
-                bullets.push({ mesh: bMesh, dir: _v3.clone(), speed: 6, life: 100 });
-                playSFX(sfxShoot);
+                // px/py/pz = titik awal segmen sweep hit test. Frame pertama mulai dari
+                // MATA player (bug fix point-blank: peluru lahir di ujung laras ~13 unit
+                // di depan mata, jadi zombie dalam jarak cakar lahirnya SUDAH terlewati
+                // dan mustahil tertembak tanpa segmen mata->laras ini).
+                bullets.push({
+                    mesh: bMesh, dir: _v3.clone(), speed: 6, life: 100, first: true,
+                    px: camera.position.x, py: camera.position.y, pz: camera.position.z
+                });
+                playSFX(currentWeapon === 'rifle' ? sfxShoot : sfxPistol);
 
-                player.ammo--;
+                wpn.ammo--;
                 player.lastShot = Date.now();
                 gunRecoil = 1;
                 muzzleFlash.intensity = 4;
                 muzzleSprite.rotation.z = Math.random() * 6.28;   // roll acak tiap tembakan
                 updateUI();
 
-                if (player.ammo === 0 && player.mags > 0) startReload();
+                if (wpn.ammo === 0 && wpn.mags > 0) startReload();
             }
 
             // --- 3. Granat melayang ---
@@ -2372,8 +2721,9 @@
 
                 const dist = Math.hypot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z);
                 if (dist < player.radius + 2) {
-                    if (d.type === 'mag') player.mags++;
+                    if (d.type === 'mag') { player.rifle.mags++; player.pistol.mags++; }   // isi kedua senjata
                     else player.grenades++;
+                    playSFX(sfxPickup);
                     updateUI();
                     scene.remove(d.mesh);
                     drops.splice(i, 1);
@@ -2385,6 +2735,9 @@
             // --- 5. Peluru maju ---
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
+                // Titik awal segmen sweep frame ini (frame pertama tetap di mata player)
+                if (b.first) b.first = false;
+                else { b.px = b.mesh.position.x; b.py = b.mesh.position.y; b.pz = b.mesh.position.z; }
                 b.mesh.position.addScaledVector(b.dir, b.speed * step);
                 b.life -= step;
                 const hitMonas = (Math.abs(b.mesh.position.x) < 22 && Math.abs(b.mesh.position.z) < 22 && b.mesh.position.y < 35);
@@ -2394,7 +2747,6 @@
             // --- 6. AI Zombie ---
             for (let i = zombies.length - 1; i >= 0; i--) {
                 const z = zombies[i];
-                if (z.mixer) z.mixer.update(dt);   // idle: jaga badan tegak + goyang kepala
                 const oldZX = z.mesh.position.x, oldZZ = z.mesh.position.z;
 
                 if (z.state === 'jumping') {
@@ -2415,13 +2767,17 @@
                             z.jumpY1 > 0 ? 0x7fb3d1 : 0x8a7a5e, z.jumpY1 > 0 ? 12 : 16, z.jumpY1 + 0.6);
                     }
                 } else {
-                    // Kejar player (grounded)
+                    // Kejar player (grounded); berhenti tepat di jangkauan cakar
                     const dx = camera.position.x - z.mesh.position.x;
                     const dz = camera.position.z - z.mesh.position.z;
-                    const angleToPlayer = Math.atan2(dz, dx);
+                    const distToEye = Math.hypot(dx, dz);
                     z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
-                    z.mesh.position.x += Math.cos(angleToPlayer) * z.speed * step;
-                    z.mesh.position.z += Math.sin(angleToPlayer) * z.speed * step;
+                    z.moving = distToEye > player.radius + 3.0;
+                    if (z.moving) {
+                        const angleToPlayer = Math.atan2(dz, dx);
+                        z.mesh.position.x += Math.cos(angleToPlayer) * z.speed * step;
+                        z.mesh.position.z += Math.sin(angleToPlayer) * z.speed * step;
+                    }
 
                     // Tabrakan dgn Monas -> mundur
                     if (Math.abs(z.mesh.position.x) < 24 && Math.abs(z.mesh.position.z) < 24) {
@@ -2458,40 +2814,44 @@
                         if (z.isModel) z.mesh.position.y = z.baseY + z.groundY;
                     }
 
-                    const distToEye = Math.hypot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z);
-                    if (distToEye < player.radius + 3.5) {
+                    // Serangan MENCAKAR: damage 1 per sabetan, jeda 3 dtk per zombie.
+                    // Zombie bertahan hidup (tidak lagi hilang setelah menyentuh player).
+                    if (z.attackCd > 0) z.attackCd -= dt;
+                    if (distToEye < player.radius + 3.5 && z.attackCd <= 0) {
+                        z.attackCd = CLAW_CD;
+                        z.clawT = CLAW_TIME;           // animasi sabetan (animateZombieRig)
+                        z.clawSide = -z.clawSide;      // lengan bergantian kiri/kanan
                         player.hp--;
-                        disposeZombie(z);
-                        scene.remove(z.mesh);
-                        zombies.splice(i, 1);
                         updateUI();
                         flashDamage();
-                        playSFX(sfxHit);
+                        playSFX(sfxZombieBite);   // sabetan cakar...
+                        playSFX(sfxHit);          // ...plus jeritan player (jokowi-kaget)
                         if (player.hp <= 0) { gameOver(); return; }
-                        continue;
                     }
                 }
 
                 animateZombieRig(z, dt);   // jalan/lompat prosedural
 
-                // Tabrakan peluru (berlaku saat melompat maupun mengejar).
-                // Titik dada relatif posisi kini (model: origin di kaki; silinder: di pusat).
+                // Tabrakan peluru (berlaku saat melompat maupun mengejar): sweep SEGMEN
+                // posisi-lalu -> posisi-kini (anti tembus point-blank / fps rendah).
+                // KEPALA dicek lebih dulu — headshot = mati seketika; badan = hp--.
                 const hitR = z.isModel ? 6 : 4.5;
                 const hitY = z.mesh.position.y + (z.isModel ? 6 : 0);
+                const headY = z.mesh.position.y + HEAD_Y;
                 for (let j = bullets.length - 1; j >= 0; j--) {
                     const b = bullets[j];
-                    const bdx = b.mesh.position.x - z.mesh.position.x;
-                    const bdy = b.mesh.position.y - hitY;
-                    const bdz = b.mesh.position.z - z.mesh.position.z;
-                    if (bdx * bdx + bdy * bdy + bdz * bdz < hitR * hitR) {
-                        z.hp--;
+                    const bx = b.mesh.position.x, by = b.mesh.position.y, bz = b.mesh.position.z;
+                    const isHead = z.isModel &&
+                        segPointDist2(b.px, b.py, b.pz, bx, by, bz,
+                            z.mesh.position.x, headY, z.mesh.position.z) < HEAD_R * HEAD_R;
+                    if (isHead ||
+                        segPointDist2(b.px, b.py, b.pz, bx, by, bz,
+                            z.mesh.position.x, hitY, z.mesh.position.z) < hitR * hitR) {
+                        z.hp = isHead ? 0 : z.hp - 1;   // headshot = kill instan
                         scene.remove(b.mesh);
                         bullets.splice(j, 1);
                         crosshair.classList.add('hit');
                         setTimeout(() => crosshair.classList.remove('hit'), 80);
-
-                        // gradasi luka berdasar rasio hp
-                        tintZombie(z, z.hp / z.maxHp);
 
                         if (z.hp <= 0) { spawnDrop(z.mesh.position); killZombie(i); updateUI(); break; }
                     }
