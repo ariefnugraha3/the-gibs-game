@@ -524,7 +524,8 @@
 
     <div id="blocker">
         <div id="instructions">
-            <b>Click here to Start the Action</b><br /><br />
+            <b>Click here to Start the Action</b><br />
+            <span class="small" style="color:#ffb84d;">(masuk mode layar penuh — agar Ctrl+W dll tidak menutup tab)</span><br /><br />
             <span class="small">WASD = Bergerak | MOUSE = Pandangan | KLIK KIRI = Tembak | KLIK KANAN = Bidik On/Off |
                 1 / 2 / Q = Ganti Senjata | F = Pukul | G = Granat | R = Reload | SHIFT = Lari | C / CTRL = Jongkok | SPASI = Lompat</span>
             <div id="qualityRow">
@@ -686,6 +687,11 @@
         // memantul di lantai lalu menggelinding dengan gesekan sampai sumbunya habis.
         const NADE_FUSE = 3, NADE_V = 110, NADE_UP = 18;
         const NADE_R = 1.5;   // radius fisik = radius GEO.grenade
+        // Granat yang sudah mendarat bersifat pejal: player/zombie yang menabraknya
+        // MENDORONG (bukan menembus). Dorongan dibatasi kecil (unit/dtk) supaya
+        // menggelinding wajar sesaat lalu berhenti oleh gesekan — bukan melesat
+        // seperti bola ditendang.
+        const NADE_PUSH_SPEED = 22;
         // Headshot: bola tabrakan kepala zombie (pusat = kaki + 11.5; kotak kepala 2.4).
         // Kena kepala = mati seketika, berapa pun hp-nya.
         const HEAD_Y = 11.5, HEAD_R = 2.4;
@@ -1362,6 +1368,14 @@
                 if (e.code === 'ControlLeft') crouchHold = false;
             });
             window.addEventListener('blur', releaseInputs);   // bug fix: Alt-Tab meninggalkan tombol tertekan
+
+            // Jaring pengaman lintas-browser: bila Keyboard Lock tak tersedia (Firefox/
+            // Safari) dan Ctrl+W/Ctrl+R lolos, minta konfirmasi sebelum tab tertutup/
+            // reload saat sedang bermain — mencegah kehilangan progres tak sengaja.
+            // (Tidak mengganggu saat di menu / sudah game over.)
+            window.addEventListener('beforeunload', (e) => {
+                if (GAME_MODE && !isGameOver && !isPaused) { e.preventDefault(); e.returnValue = ''; }
+            });
 
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
@@ -2897,6 +2911,32 @@
                 const p = document.body.requestPointerLock();
                 if (p && p.catch) p.catch(() => { });
             } catch (e) { /* player cukup klik lagi */ }
+            enterImmersive();
+        }
+
+        // ----- Fullscreen + Keyboard Lock: cegah shortcut browser saat main -----
+        // Ctrl+W (tutup tab), Ctrl+R (reload), Ctrl+T/N, dsb TIDAK bisa dicegah
+        // dengan preventDefault biasa — itu shortcut level browser/OS. Satu-satunya
+        // cara andal adalah Keyboard Lock API, yang HANYA menangkap tombol sistem
+        // saat dokumen fullscreen (Chromium; Firefox/Safari tak punya API-nya — di
+        // sana jaring pengaman 'beforeunload' di bawah yang bekerja). Kita kunci
+        // HANYA tombol gameplay + shortcut berbahaya, SENGAJA tanpa Escape, agar
+        // Esc tetap keluar pointer-lock (pause) seperti biasa.
+        const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyF', 'KeyG',
+            'KeyQ', 'KeyC', 'KeyT', 'KeyN', 'KeyP', 'Digit1', 'Digit2'];
+        function enterImmersive() {
+            // Fullscreen wajib agar Keyboard Lock menangkap tombol sistem (Ctrl+W dkk).
+            // Dipanggil dari gesture pengguna (klik blocker / tekan SPASI restart) -> valid.
+            const el = document.documentElement;
+            if (el && !document.fullscreenElement && el.requestFullscreen) {
+                const fp = el.requestFullscreen();
+                if (fp && fp.catch) fp.catch(() => { });
+            }
+            // Selalu lock ulang (idempotent): kalau player sempat keluar fullscreen,
+            // browser otomatis melepas lock — panggilan ini memasangnya lagi saat resume.
+            if (navigator.keyboard && navigator.keyboard.lock) {
+                navigator.keyboard.lock(LOCK_KEYS).catch(() => { });
+            }
         }
 
         // Lepas semua input yang sedang ditekan (dipanggil saat unlock / blur / reset).
@@ -3228,6 +3268,25 @@
                 mesh: gMesh, fuse: NADE_FUSE, rolled: false,
                 vx: _v3.x * NADE_V, vy: _v3.y * NADE_V + NADE_UP, vz: _v3.z * NADE_V
             });
+        }
+
+        // Dorong granat pejal (yang sudah di tanah) keluar dari pendorong (player/zombie).
+        // Koreksi posisi (granat tak tembus badan) + dorongan KECIL yang DICAP di
+        // NADE_PUSH_SPEED searah dorong: menggelinding wajar sesaat lalu berhenti oleh
+        // gesekan di loop granat. Cap (bukan impuls ∝ kecepatan pendorong) yang menjaga
+        // agar lari kencang menabrak granat TIDAK menendangnya jauh.
+        function nudgeGrenade(g, px, pz, radius) {
+            const dx = g.mesh.position.x - px, dz = g.mesh.position.z - pz;
+            const d = Math.hypot(dx, dz), minD = radius + NADE_R;
+            if (d >= minD || d < 1e-4) return;
+            const nx = dx / d, nz = dz / d;
+            g.mesh.position.x = px + nx * minD;   // geser tepat ke tepi pendorong (pejal)
+            g.mesh.position.z = pz + nz * minD;
+            const cur = g.vx * nx + g.vz * nz;    // laju granat yang sudah searah dorong
+            if (cur < NADE_PUSH_SPEED) {          // naikkan sampai cap saja; jangan menendang/menahan
+                const add = NADE_PUSH_SPEED - cur;
+                g.vx += nx * add; g.vz += nz * add;
+            }
         }
 
         function explodeAt(pos) {
@@ -3666,6 +3725,19 @@
                 g.mesh.position.x += g.vx * dt;
                 g.mesh.position.y += g.vy * dt;
                 g.mesh.position.z += g.vz * dt;
+
+                // Granat PEJAL setelah menyentuh tanah: player & zombie (yang tak melayang)
+                // yang menabraknya mendorongnya keluar + nudge kecil. Diproses SEBELUM
+                // resolve tembok/lantai di bawah agar hasil dorongan langsung dibersihkan
+                // dari tembok/pohon/median (granat tak terdorong menembus dinding).
+                if (g.rolled && g.mesh.position.y < NADE_R + 5) {
+                    nudgeGrenade(g, camera.position.x, camera.position.z, player.radius);
+                    for (let zi = 0; zi < zombies.length; zi++) {
+                        const zb = zombies[zi];
+                        if (zb.state === 'jumping') continue;   // zombie melayang tak mendorong
+                        nudgeGrenade(g, zb.mesh.position.x, zb.mesh.position.z, 3.5);
+                    }
+                }
 
                 if (isCamp) {
                     // Pantulan tepi jalan campaign (gedung) + penghalang pejal
