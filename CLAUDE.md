@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Single-page browser game: "Gibran vs Zombie 3D (DOOM FPS)". A first-person Three.js shooter. UI text is in Indonesian; code comments are in Indonesian. **Two game modes** picked on the `#modeSelect` screen at load (before the cutscene): **Survival** (defend Monas against endless zombie waves — the original mode) and **Campaign** (a linear ruined-Jakarta highway map where zombies lurk motionless until the player gets close).
 
+> **Desktop/Steam port:** a full plan to wrap this into a Windows `.exe` (Electron) and ship on Steam/itch lives in [STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md) — consult it if the user asks about desktop builds, `.exe`, or Steam publishing.
+
 ## Running
 
 No build system, package manager, or tests. Open `index.html` directly in a browser, or serve the folder with a static HTTP server (preferred — required for the `.mp3` SFX to load reliably and for PointerLock):
