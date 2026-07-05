@@ -1,8 +1,10 @@
 // Pathfinding zombie: nav-grid biner per scene + A* 8-arah + penghalusan
 // string-pulling. Pemakaian: scene membangun grid dunianya SEKALI
 // (makeNavGrid), lalu AI kejar memanggil navAim() tiap frame —
-//   null  = garis lurus ke player bebas -> kejar lurus (perilaku lama, murah);
-//   {x,z} = garis lurus terhalang (tembok/pohon/median) -> menuju waypoint A*.
+//   aim.direct=true  = garis lurus ke player bebas -> kejar lurus (murah);
+//   aim.direct=false = terhalang (tembok/pohon/median) -> (x,z) waypoint A* —
+// dan menggerakkan zombie sepanjang heading hasil turnToward() (laju putar
+// terbatas -> menikung mulus).
 // Semua status per-zombie hidup di objek zombie (z.nav*); scratch A* dipakai
 // BERSAMA antar grid (pencarian selalu sinkron, tidak pernah paralel).
 // Gagal mencari jalan (target terputus / budget habis) = fallback kejar lurus,
@@ -184,13 +186,19 @@ function smooth(g, sx, sz, pts) {
 }
 
 // ----------- Steering per-zombie ----------- //
-// Dipanggil tiap frame di cabang kejar scene. Return titik tuju frame ini:
-//   null  -> kejar player lurus (identik perilaku sebelum pathfinder);
-//   {x,z} -> menuju waypoint path.
-// Repath tiap CFG.zombie.repathSec (di-stagger antar zombie) atau saat macet
-// (berniat jalan tapi perpindahan aktual << kecepatan selama stuckSec).
+const _aim = { x: 0, z: 0, direct: true };   // objek bersama — baca langsung, jangan disimpan
+
+// Titik tuju frame ini utk zombie z yang mengejar (tx,tz). Return _aim:
+//   direct=true  -> garis lurus ke target bebas (atau pathfinder nonaktif/gagal);
+//   direct=false -> (x,z) = waypoint path.
+// LOS grid dicek TIAP frame (murah): zombie langsung berbelok begitu jalurnya
+// tertutup dan langsung lurus lagi begitu player terlihat — tanpa menunggu
+// timer. Hanya findPath (mahal) yang di-rate-limit repathSec per zombie;
+// macet (berniat jalan tapi perpindahan << kecepatan selama stuckSec) memaksa
+// pencarian ulang walau target dekat/terlihat.
 export function navAim(z, grid, tx, tz, dt, step) {
-    if (!grid) return null;
+    _aim.x = tx; _aim.z = tz; _aim.direct = true;
+    if (!grid) return _aim;
     const zx = z.mesh.position.x, zz = z.mesh.position.z;
 
     // Deteksi macet: bandingkan posisi dgn frame lalu (sudah kena collision)
@@ -199,28 +207,54 @@ export function navAim(z, grid, tx, tz, dt, step) {
         z.navStuck = moved < z.speed * step * 0.25 ? (z.navStuck || 0) + dt : 0;
     }
     z.navHasP = true; z.navPX = zx; z.navPZ = zz;
-
-    if (z.navT === undefined) z.navT = Math.random() * CFG.zombie.repathSec;
+    if (z.navT === undefined) z.navT = 0;
     z.navT -= dt;
+
     const stuck = (z.navStuck || 0) >= CFG.zombie.stuckSec;
-    if (z.navT <= 0 || stuck) {
-        z.navT = CFG.zombie.repathSec * (0.75 + Math.random() * 0.5);
-        if (stuck) z.navStuck = 0;
-        // Dekat / terlihat lurus -> tanpa path. Saat macet TETAP cari path
-        // (macet bisa terjadi walau LOS grid bersih, mis. sudut penghalang).
-        if (!stuck && (Math.hypot(tx - zx, tz - zz) < grid.cell * 1.6
-            || gridLOS(grid, zx, zz, tx, tz))) {
-            z.navPath = null;
-        } else {
-            z.navPath = findPath(grid, zx, zz, tx, tz);
-            z.navI = 0;
-        }
+    if (!stuck) {
+        // Sangat dekat dgn target: selalu lurus (jangkauan berhenti/cakar)
+        if (Math.hypot(tx - zx, tz - zz) < grid.cell * 1.6) { z.navPath = null; return _aim; }
+        // Terlihat lurus: buang path, kejar langsung
+        if (gridLOS(grid, zx, zz, tx, tz)) { z.navPath = null; return _aim; }
     }
 
+    // Terhalang: pastikan punya path segar (findPath di-rate-limit navT)
+    const needNew = !z.navPath || stuck ||
+        Math.hypot(tx - z.navGX, tz - z.navGZ) > grid.cell * 2.5;   // target menjauhi ujung path
+    if (needNew && z.navT <= 0) {
+        z.navPath = findPath(grid, zx, zz, tx, tz);
+        z.navI = 0;
+        z.navGX = tx; z.navGZ = tz;
+        z.navT = CFG.zombie.repathSec * (0.75 + Math.random() * 0.5);
+        if (stuck) z.navStuck = 0;
+    }
     const p = z.navPath;
-    if (!p) return null;
+    if (!p) return _aim;   // gagal / menunggu jatah repath: lurus (fallback lama)
+
+    // Maju waypoint bila tercapai, ATAU bila waypoint BERIKUTNYA sudah
+    // terlihat (string-pull runtime: belok dini hanya saat aman -> menikung
+    // mulus, tidak mampir ke tiap pusat sel).
     while (z.navI < p.length &&
         Math.hypot(p[z.navI].x - zx, p[z.navI].z - zz) < grid.cell * 0.75) z.navI++;
-    if (z.navI >= p.length) { z.navPath = null; return null; }
-    return p[z.navI];
+    while (z.navI < p.length - 1 &&
+        gridLOS(grid, zx, zz, p[z.navI + 1].x, p[z.navI + 1].z)) z.navI++;
+    if (z.navI >= p.length) { z.navPath = null; return _aim; }
+    _aim.x = p[z.navI].x; _aim.z = p[z.navI].z; _aim.direct = false;
+    return _aim;
+}
+
+// Belokkan heading zombie ke sudut `desired` dgn laju putar terbatas
+// (CFG.zombie.turnRadPerSec). Zombie BERGERAK sepanjang heading ini, jadi
+// perpindahan antar waypoint jadi lengkungan alami, bukan patahan. Status
+// tersimpan di z.navHead (radian, dinormalisasi [-PI..PI]).
+export function turnToward(z, desired, dt) {
+    if (z.navHead === undefined) { z.navHead = desired; return desired; }
+    let d = desired - z.navHead;
+    d = ((d + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    const max = CFG.zombie.turnRadPerSec * dt;
+    if (d > max) d = max; else if (d < -max) d = -max;
+    z.navHead += d;
+    if (z.navHead > Math.PI) z.navHead -= Math.PI * 2;
+    else if (z.navHead < -Math.PI) z.navHead += Math.PI * 2;
+    return z.navHead;
 }

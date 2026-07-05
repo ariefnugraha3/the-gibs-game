@@ -15,7 +15,7 @@ import {
     PARK, FENCE_H, FOUNTAIN, buildSurvivalWorld, buildSurvivalNav,
     resolveObstacles, segmentHitsFountain, groundHeightAt
 } from './world.js';
-import { navAim } from '../../utils/pathfind.js';
+import { navAim, turnToward } from '../../utils/pathfind.js';
 
 // Difficulty / wave
 const wave = { num: 1, time: 0, spawnTimer: 0, spawnInterval: 4, maxZombies: 10 };
@@ -175,21 +175,24 @@ export const survivalScene = {
         }
 
         // Kejar player (grounded); berhenti tepat di jangkauan cakar.
-        // Pathfinder: null = garis lurus bebas (kejar langsung — termasuk
+        // Pathfinder: direct = garis lurus bebas (kejar langsung — termasuk
         // melintasi bak air mancur, yang memicu vault); waypoint = memutari
-        // Monas/pohon alih-alih macet mendorongnya.
+        // Monas/pohon. Gerak memakai heading berlaju-putar-terbatas
+        // (turnToward) -> belokan melengkung alami, tidak patah-patah.
         const dx = camera.position.x - z.mesh.position.x;
         const dz = camera.position.z - z.mesh.position.z;
         const distToEye = Math.hypot(dx, dz);
         const aim = navAim(z, navGrid, camera.position.x, camera.position.z, dt, step);
-        const ax = aim ? aim.x : camera.position.x;
-        const az = aim ? aim.z : camera.position.z;
-        z.mesh.lookAt(ax, z.mesh.position.y, az);
-        z.moving = aim ? true : distToEye > player.radius + CFG.zombie.stopRange;
+        z.moving = !aim.direct || distToEye > player.radius + CFG.zombie.stopRange;
         if (z.moving) {
-            const ang = Math.atan2(az - z.mesh.position.z, ax - z.mesh.position.x);
+            const ang = turnToward(z,
+                Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);
             z.mesh.position.x += Math.cos(ang) * z.speed * step;
             z.mesh.position.z += Math.sin(ang) * z.speed * step;
+            z.mesh.lookAt(z.mesh.position.x + Math.cos(ang) * 10, z.mesh.position.y,
+                z.mesh.position.z + Math.sin(ang) * 10);
+        } else {
+            z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
         }
 
         // Tabrakan dgn Monas -> mundur

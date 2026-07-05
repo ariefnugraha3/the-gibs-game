@@ -6,7 +6,7 @@ import { CFG, CAMP_M } from '../../core/config.js';
 import { player, zombies } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { buildHumanZombie } from '../../entities/zombies.js';
-import { navAim } from '../../utils/pathfind.js';
+import { navAim, turnToward } from '../../utils/pathfind.js';
 
 // Catatan arsitektur: KEDUA dunia stage dibangun sekali di awal campaign dan
 // hidup berdampingan di satu THREE.Scene, dipisah jarak ~26 km (gedung stage 1
@@ -70,17 +70,20 @@ export function campaignZombieAI(z, dt, step, stage) {
     const dx = camera.position.x - z.mesh.position.x;
     const dz = camera.position.z - z.mesh.position.z;
     const distToEye = Math.hypot(dx, dz);
-    // Pathfinder: null = garis lurus bebas (kejar player langsung); waypoint =
-    // memutar lewati tembok/median alih-alih macet mendorongnya.
+    // Pathfinder: direct = garis lurus bebas (kejar player langsung);
+    // selain itu menuju waypoint agar memutari tembok/median. Gerak memakai
+    // heading berlaju-putar-terbatas (turnToward) -> belokan melengkung alami.
     const aim = navAim(z, stage.nav, camera.position.x, camera.position.z, dt, step);
-    const ax = aim ? aim.x : camera.position.x;
-    const az = aim ? aim.z : camera.position.z;
-    z.mesh.lookAt(ax, z.mesh.position.y, az);
-    z.moving = aim ? true : distToEye > player.radius + CFG.zombie.stopRange;
+    z.moving = !aim.direct || distToEye > player.radius + CFG.zombie.stopRange;
     if (z.moving) {
-        const ang = Math.atan2(az - z.mesh.position.z, ax - z.mesh.position.x);
+        const ang = turnToward(z,
+            Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);
         z.mesh.position.x += Math.cos(ang) * z.speed * step;
         z.mesh.position.z += Math.sin(ang) * z.speed * step;
+        z.mesh.lookAt(z.mesh.position.x + Math.cos(ang) * 10, z.mesh.position.y,
+            z.mesh.position.z + Math.sin(ang) * 10);
+    } else {
+        z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
     }
 
     // Penghalang pejal stage, lalu jepit ke area boleh-jalan per-sumbu
