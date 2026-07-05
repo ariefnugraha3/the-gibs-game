@@ -28,11 +28,6 @@
             z-index: 4;
         }
 
-        #ui .row {
-            display: flex;
-            justify-content: space-between;
-        }
-
         #waveText {
             text-align: center;
             color: #74b9ff;
@@ -41,7 +36,68 @@
             letter-spacing: 1px;
         }
 
+        /* Bar HEALTH & STAMINA di pojok kiri-bawah */
+        #barsHud {
+            position: absolute;
+            left: 26px;
+            bottom: 22px;
+            z-index: 4;
+            pointer-events: none;
+            font-weight: bold;
+        }
+
+        .barRow {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+            font-size: 14px;
+            letter-spacing: 2px;
+            color: #ddd;
+            text-shadow: 2px 2px 3px #000;
+        }
+
+        .barRow .blabel { width: 88px; }
+
+        .barShell {
+            width: 230px;
+            height: 13px;
+            border: 2px solid rgba(255, 255, 255, 0.55);
+            border-radius: 7px;
+            background: rgba(0, 0, 0, 0.45);
+            overflow: hidden;
+        }
+
+        #healthFill, #staminaFill {
+            height: 100%;
+            width: 100%;
+            background: #3ddc6a;
+            border-radius: 5px;
+            transition: background 0.2s;
+        }
+
+        #healthFill { background: #e74c3c; }
+
+        /* Skor/amunisi/granat di kanan-bawah, ditumpuk di atas radar */
+        #statsHud {
+            position: absolute;
+            right: 26px;
+            bottom: 190px;
+            z-index: 4;
+            pointer-events: none;
+            text-align: right;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 3px 3px 5px black;
+            line-height: 1.45;
+        }
+
+        /* Crosshair DISEMBUNYIKAN permanen (permintaan user) — elemen & seluruh JS
+           yang menulisnya (opacity ADS, kelas .hit) dibiarkan utuh agar mekanik
+           menembak/recoil tidak berubah sedikit pun. */
         #crosshair {
+            display: none;
             position: absolute;
             top: 50%;
             left: 50%;
@@ -56,6 +112,30 @@
             z-index: 4;
             text-shadow: 0 0 6px rgba(255, 255, 255, 0.45), 0 0 2px #000;
             transition: color 0.08s, text-shadow 0.08s;
+        }
+
+        /* Feed info item yang diambil (kiri layar): muncul, diam sebentar, memudar */
+        #pickupFeed {
+            position: absolute;
+            left: 26px;
+            top: 42%;
+            z-index: 4;
+            pointer-events: none;
+            font-weight: bold;
+        }
+
+        .pickupMsg {
+            font-size: 20px;
+            margin: 5px 0;
+            text-shadow: 2px 2px 4px #000;
+            animation: pickupIn 0.22s ease forwards;
+        }
+
+        .pickupMsg.fade { opacity: 0; transition: opacity 0.6s; }
+
+        @keyframes pickupIn {
+            from { opacity: 0; transform: translateX(-18px); }
+            to   { opacity: 1; transform: none; }
         }
 
         #crosshair.hit {
@@ -208,6 +288,23 @@
         .modeCard .emoji { font-size: 54px; filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7)); }
         .modeCard h2 { color: #ff6b3a; font-size: 24px; margin: 14px 0 8px; letter-spacing: 1px; }
         .modeCard p { font-size: 14px; color: #ccc; line-height: 1.55; margin: 0; }
+
+        /* Pesan stage (muncul sebentar saat pindah stage campaign) */
+        #stageMsg {
+            position: absolute;
+            top: 26%;
+            width: 100%;
+            text-align: center;
+            font-size: clamp(20px, 3vw, 34px);
+            font-weight: bold;
+            color: #ffd27a;
+            letter-spacing: 2px;
+            text-shadow: 2px 2px 8px #000, 0 0 22px rgba(255, 150, 40, 0.35);
+            opacity: 0;
+            transition: opacity 0.6s;
+            pointer-events: none;
+            z-index: 7;
+        }
 
         /* ----- Cutscene / slideshow pembuka ----- */
         #cutscene {
@@ -444,36 +541,49 @@
 
 <body>
     <div id="ui">
-        <div class="row">
-            <div id="hpText" style="color: #ff4757;">HP: 5</div>
-            <div id="scoreText">Score: 0</div>
-        </div>
-        <div class="row" style="margin-top: 10px;">
-            <div id="grenadeText" style="color: #2ed573;">Grenades: 3</div>
-            <div id="ammoText" style="color: #f1c40f;">Ammo: 30 / 3 Mags</div>
-        </div>
         <div id="waveText">Wave 1</div>
     </div>
 
+    <!-- Bar HEALTH & STAMINA: pojok kiri-bawah -->
+    <div id="barsHud">
+        <div class="barRow">
+            <span class="blabel">HEALTH</span>
+            <div class="barShell"><div id="healthFill"></div></div>
+        </div>
+        <div class="barRow">
+            <span class="blabel">STAMINA</span>
+            <div class="barShell"><div id="staminaFill"></div></div>
+        </div>
+    </div>
+
+    <!-- Skor + amunisi + granat: kanan-bawah (di atas radar) -->
+    <div id="statsHud">
+        <div id="scoreText">Score: 0</div>
+        <div id="ammoText" style="color: #f1c40f;">Assault Rifle: 30 / 3 Mags</div>
+        <div id="grenadeText" style="color: #2ed573;">Grenades: 3</div>
+    </div>
+
     <div id="crosshair">+</div>
+    <div id="pickupFeed"></div>
     <canvas id="radar" width="150" height="150"></canvas>
+    <div id="stageMsg"></div>
     <div id="damage"></div>
     <div id="vignette"></div>
     <div id="grain"></div>
 
     <div id="modeSelect">
         <h1>GIBRAN vs ZOMBIE</h1>
-        <div class="subtitle">PILIH MODE PERMAINAN</div>
+        <div class="subtitle">SELECT GAME MODE</div>
         <div class="modeCards">
             <div class="modeCard" data-mode="survival">
                 <div class="emoji">🏛️</div>
                 <h2>Survival Mode</h2>
-                <p>Pertahankan Monas dari gelombang zombie tanpa henti. Bertahanlah selama mungkin — makin lama makin ganas.</p>
+                <p>Defend Monas from endless zombie waves. Survive as long as you can — it only gets harder.</p>
             </div>
             <div class="modeCard" data-mode="campaign">
                 <div class="emoji">🌆</div>
                 <h2>Campaign Mode</h2>
-                <p>Susuri jalan raya Jakarta yang runtuh: 1 km dari air mancur ke air mancur. Zombie mengintai diam di jalanan — jangan terlalu dekat.</p>
+                <p>Escape the abandoned building (Floor 3), then fight down 1 km of ruined Jakarta highway. Zombies lie in wait — keep your distance.</p>
             </div>
         </div>
     </div>
@@ -506,7 +616,7 @@
         <!-- Slide 4: player menghadang zombie + balon dialog -->
         <div class="slide">
             <div class="scene">
-                <div class="bubble">SAYA AKAN LAWAN</div>
+                <div class="bubble">I WILL FIGHT</div>
                 <div class="actor" style="left: 34%;">🧍</div>
                 <div class="crowd" style="left: 62%;">
                     <span class="shamble">🧟</span><span class="shamble" style="animation-delay:.3s">🧟‍♂️</span><span class="shamble" style="animation-delay:.15s">🧟</span>
@@ -516,25 +626,25 @@
 
         <div class="caption" id="cutsceneCaption"></div>
         <div class="controls">
-            <button id="skipBtn">Lewati ⏭</button>
+            <button id="skipBtn">Skip ⏭</button>
             <div class="dots" id="cutsceneDots"></div>
-            <button id="nextBtn">Lanjut ▶</button>
+            <button id="nextBtn">Next ▶</button>
         </div>
     </div>
 
     <div id="blocker">
         <div id="instructions">
             <b>Click here to Start the Action</b><br />
-            <span class="small" style="color:#ffb84d;">(masuk mode layar penuh — agar Ctrl+W dll tidak menutup tab)</span><br /><br />
-            <span class="small">WASD = Bergerak | MOUSE = Pandangan | KLIK KIRI = Tembak | KLIK KANAN = Bidik On/Off |
-                1 / 2 / Q = Ganti Senjata | F = Pukul | G = Granat | R = Reload | SHIFT = Lari | C / CTRL = Jongkok | SPASI = Lompat</span>
+            <span class="small" style="color:#ffb84d;">(enters fullscreen — so Ctrl+W etc. won't close the tab)</span><br /><br />
+            <span class="small">WASD = Move | MOUSE = Look | LEFT CLICK = Shoot | RIGHT CLICK = Aim On/Off |
+                1 / 2 / Q = Switch Weapon | F = Melee | G = Grenade | R = Reload | SHIFT = Sprint | C / CTRL = Crouch | SPACE = Jump</span>
             <div id="qualityRow">
-                <span class="qlabel">KUALITAS GRAFIS</span><br />
-                <button class="qbtn" data-q="0">Penuh</button>
-                <button class="qbtn" data-q="1">Tinggi</button>
-                <button class="qbtn" data-q="2">Sedang</button>
-                <button class="qbtn" data-q="3">Rendah</button>
-                <button class="qbtn" data-q="4">Sangat Rendah</button>
+                <span class="qlabel">GRAPHICS QUALITY</span><br />
+                <button class="qbtn" data-q="0">Ultra</button>
+                <button class="qbtn" data-q="1">High</button>
+                <button class="qbtn" data-q="2">Medium</button>
+                <button class="qbtn" data-q="3">Low</button>
+                <button class="qbtn" data-q="4">Very Low</button>
             </div>
         </div>
     </div>
@@ -543,14 +653,14 @@
         <h1 id="gameOverTitle" style="font-size: 70px; margin-bottom: 0;">GAME OVER</h1>
         <p id="finalScore" style="font-size: 30px; margin: 6px 0;">Score: 0</p>
         <p id="bestScore" style="font-size: 24px; color: #f1c40f; margin: 0 0 10px;">Best: 0</p>
-        <p style="font-size: 26px;">Tekan SPASI untuk mengulang dari awal</p>
+        <p style="font-size: 26px;">Press SPACE to restart</p>
     </div>
 
     <script>
         // ----------- DOM Overlay ----------- //
         const scoreText = document.getElementById("scoreText");
         const ammoText = document.getElementById("ammoText");
-        const hpText = document.getElementById("hpText");
+        const healthFill = document.getElementById("healthFill");
         const grenadeText = document.getElementById("grenadeText");
         const waveText = document.getElementById("waveText");
         const blocker = document.getElementById("blocker");
@@ -560,6 +670,7 @@
         const gameOverTitle = document.getElementById("gameOverTitle");
         const crosshair = document.getElementById("crosshair");
         const damageEl = document.getElementById("damage");
+        const staminaFill = document.getElementById("staminaFill");
         const radar = document.getElementById("radar");
         const radarCtx = radar.getContext("2d");
         // Radar tajam di layar HiDPI: backing store diskalakan devicePixelRatio (ukuran CSS tetap 150px)
@@ -581,7 +692,7 @@
         // Catatan: konstanta kecepatan dikalibrasi pada 60 fps, lalu dikalikan `step`
         // (delta-time ternormalisasi) agar gerak konsisten di monitor refresh tinggi.
         const player = {
-            hp: 5, grenades: 3,
+            hp: 10, grenades: 3,   // hp maks = PLAYER_MAX_HP (10)
             rifle: { ammo: 30, mags: 3, magSize: 30 },    // AK47 (utama)
             pistol: { ammo: 15, mags: 3, magSize: 15 },   // secondary; damage peluru sama
             isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
@@ -663,7 +774,7 @@
         const ZOMBIE_SKIN_TONES = [0x7fa05a, 0x8aa66b, 0x74975a, 0x93a06a];   // kulit membusuk kehijauan
         let zombieFaceTex = null;   // tekstur wajah bersama (dibuat sekali, saat spawn pertama)
         // Serangan zombie: mencakar (damage 1, jeda 3 dtk per zombie), tidak lagi kamikaze
-        const CLAW_CD = 3, CLAW_TIME = 0.4;   // jeda antar cakaran & durasi animasi sabetan
+        const CLAW_CD = 2, CLAW_TIME = 0.4;   // jeda antar cakaran & durasi animasi sabetan
         const ZBODY_R = 7.5;   // radius blok badan zombie thd player — SENGAJA < jarak
                                // berhenti cakar (8.0) agar zombie yang berdiri menyerang
                                // tidak ikut menyorong player tiap frame
@@ -695,6 +806,19 @@
         // Headshot: bola tabrakan kepala zombie (pusat = kaki + 11.5; kotak kepala 2.4).
         // Kena kepala = mati seketika, berapa pun hp-nya.
         const HEAD_Y = 11.5, HEAD_R = 2.4;
+        // ----- Stamina -----
+        // Maks 100. Lari (sprint sambil bergerak) -10/dtk, membidik (ADS) -3/dtk,
+        // melee -15 per ayunan. Regen +12/dtk saat tidak lari & tidak membidik.
+        // Habis (0) = "exhausted": sprint & ADS terkunci sampai pulih >= 20 —
+        // histeresis mencegah sprint kedip-kedip di sekitar nol.
+        const STAMINA_MAX = 100, STA_SPRINT = 10, STA_ADS = 3, STA_MELEE = 15,
+            STA_REGEN = 12, STA_RECOVER = 20;
+        let stamina = STAMINA_MAX, staExhausted = false;
+        let sprintingNow = false;   // sprint EFEKTIF frame ini (shift + bergerak + stamina ada)
+        // Batas magazen cadangan per senjata & granat (pickup di-cap, tak menumpuk)
+        const MAX_MAGS = 5, MAX_NADES = 5;
+        const PLAYER_MAX_HP = 10;
+        let fullInfoCd = 0;   // jeda pesan "already full" agar tidak spam tiap frame
         // Jongkok (tombol C, toggle): mata turun CROUCH_DROP, tembakan 25% lebih akurat,
         // gerak -50% (mendominasi ADS -30%, TIDAK ditumpuk jadi -80%).
         const CROUCH_DROP = 3.6;
@@ -925,9 +1049,27 @@
         // Arah jalan serong (dari pusat air mancur atas, menyerong kanan-atas) + tegak lurusnya
         const CAMP_DIR = { x: Math.sin(CAMP.diagAng), z: -Math.cos(CAMP.diagAng) };
         const CAMP_PERP = { x: -CAMP_DIR.z, z: CAMP_DIR.x };
-        // Spawn player: di koridor tepat utara cincin air mancur bawah, menghadap -z
-        // (koridor 1 km terbentang di depan menuju air mancur atas / persimpangan).
+        // Titik masuk STAGE 2 (jalan raya): koridor tepat utara cincin air mancur
+        // bawah, menghadap -z (1 km jalan terbentang menuju air mancur atas).
         const CAMP_START = { x: 0, z: -(CAMP.low.r + CAMP.low.ring + 30) };
+        // ----- Campaign STAGE 1: "Gedung Terbengkalai (Lantai 3)" — indoor 60x60 m -----
+        // Peta grid sel 2 m (30x30): dinding & area jalan diturunkan dari grid yang
+        // SAMA (visual = collision). Gedung ditaruh jauh dari jalan raya (stage 2);
+        // kedua stage hidup berdampingan di satu scene, dipisah CAMP_STAGE.
+        let CAMP_STAGE = 1;                       // 1 = gedung, 2 = jalan raya
+        const S1 = {
+            G: 30, CELL: 2 * CAMP_M, H: 22,       // 30 sel x 2 m; tinggi plafon ~3.1 m
+            x0: 30000 - 15 * 2 * CAMP_M,          // pojok barat-laut grid (kiri-atas denah)
+            z0: -15 * 2 * CAMP_M
+        };
+        let s1grid = null;                        // [row][col] 1=dinding, 0=lantai (dibangun createStage1World)
+        const s1Cell = (c, r) => ({ x: S1.x0 + (c + 0.5) * S1.CELL, z: S1.z0 + (r + 0.5) * S1.CELL });
+        const S1_START = { c: 3, r: 4 };          // di ruang tangga masuk (kiri-atas)
+        // Trigger tangga keluar (kanan-bawah) -> pindah ke stage 2 (jalan raya)
+        const S1_EXIT = { c0: 24, r0: 25, c1: 28, r1: 27 };
+        let ambLight = null, hemiLight = null;    // ref utk preset pencahayaan per stage
+        let s1FlickerLight = null;                // lampu koridor berkedip (updateDecor)
+        let stageMsgTimer = 0;
         const CAMP_ACTIVATE = 15 * CAMP_M;   // zombie diam sampai player < 15 m
         const CAMP_VIS = 1500;               // lebih jauh dari ini zombie disembunyikan (tertutup kabut)
         const campBlockers = [];             // balok pejal {x,z,hx,hz,ax*,az*,top,standable}
@@ -956,8 +1098,14 @@
             scene.fog = new THREE.Fog(0x3a241a, 220, 1700);   // Kabut asap apokaliptik (warna = horizon)
 
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 4000);
-            if (GAME_MODE === 'campaign') camera.position.set(CAMP_START.x, EYE_H, CAMP_START.z);
-            else camera.position.set(0, EYE_H, 120);
+            if (GAME_MODE === 'campaign') {
+                // Mulai di stage 1: ruang tangga gedung, menghadap selatan (pintu lobby)
+                const sp = s1Cell(S1_START.c, S1_START.r);
+                camera.position.set(sp.x, EYE_H, sp.z);
+                camera.quaternion.set(0, 1, 0, 0);   // yaw 180° (grid utara = -z)
+            } else {
+                camera.position.set(0, EYE_H, 120);
+            }
 
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // batasi beban GPU
@@ -989,8 +1137,11 @@
             }
 
             // Ambient bernuansa hangat-kusam + cahaya bulan kemerahan dari horizon
-            scene.add(new THREE.AmbientLight(0xffd9b3, 0.3));
-            scene.add(new THREE.HemisphereLight(0x4a2c1a, 0x0a0a12, 0.4)); // langit oranye / tanah gelap
+            // (ref disimpan: preset intensitas per stage campaign — setStageLighting)
+            ambLight = new THREE.AmbientLight(0xffd9b3, 0.3);
+            scene.add(ambLight);
+            hemiLight = new THREE.HemisphereLight(0x4a2c1a, 0x0a0a12, 0.4); // langit oranye / tanah gelap
+            scene.add(hemiLight);
             dirLight = new THREE.DirectionalLight(0xff7b3a, 0.7);          // sinar oranye matahari/bulan apokaliptik
             dirLight.position.set(-220, 260, -280);
             dirLight.castShadow = true;
@@ -1049,8 +1200,13 @@
             createSky();
 
             if (GAME_MODE === 'campaign') {
-                createCampaignWorld();    // jalan raya + air mancur + gedung + median + blokade mobil
-                placeCampaignZombies();   // zombie statis tersebar di area jalan
+                createCampaignWorld();    // STAGE 2: jalan raya + air mancur + median + blokade mobil
+                createStage1World();      // STAGE 1: gedung terbengkalai (jauh dari jalan raya)
+                placeCampaignZombies();   // zombie statis jalan raya (stage 2)
+                placeStage1Zombies();     // zombie gedung sesuai denah (stage 1)
+                placeStage1Supplies();    // ruang persediaan: ammo/granat/medkit
+                CAMP_STAGE = 1;
+                setStageLighting(1);      // interior gelap + kabut rapat
             } else {
                 createGround();      // tanah, rumput taman, Jalan Medan Merdeka
                 createParkRoads();    // pelataran tengah + Jalan Silang Monas (diagonal)
@@ -1320,7 +1476,8 @@
             document.addEventListener("mousedown", (e) => {
                 if (isPaused || isGameOver) return;
                 if (e.button === 0) mouse.isDown = true;
-                if (e.button === 2) isAiming = !isAiming;
+                // ADS butuh stamina: saat exhausted, toggle ON diabaikan (OFF selalu boleh)
+                if (e.button === 2) isAiming = isAiming ? false : !staExhausted;
             });
             document.addEventListener("mouseup", (e) => {
                 if (e.button === 0) mouse.isDown = false;
@@ -1340,8 +1497,11 @@
                 // ditelan browser (tutup tab), jalur amannya toggle C.
                 if (e.code === 'ControlLeft') { crouchHold = true; e.preventDefault(); }
                 if (key === 'g' && !isPaused && !isGameOver && switchAnim < 0) handleThrowGrenade();   // granat
-                // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie)
-                if (key === 'f' && !isPaused && !isGameOver && meleeCd <= 0 && switchAnim < 0 && !player.isReloading) {
+                // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie).
+                // Butuh stamina >= STA_MELEE; tiap ayunan menguras 15 stamina.
+                if (key === 'f' && !isPaused && !isGameOver && meleeCd <= 0 && switchAnim < 0
+                    && !player.isReloading && stamina >= STA_MELEE) {
+                    stamina -= STA_MELEE;
                     meleeT = MELEE_TIME; meleeCd = MELEE_CD; meleeHitDone = false;
                     playSFX(sfxMelee);   // suara ayunan — berbunyi meski tidak kena zombie
                 }
@@ -2156,8 +2316,25 @@
         // Area yang bisa dilalui = UNION jalan + cincin air mancur (inCampWalkable);
         // gedung membentuk dinding koridor (dekoratif — dinding kerasnya union itu).
 
-        // Titik (x,z) dgn radius r masih di dalam area jalan/trotoar?
+        // Dispatcher area-jalan campaign per stage: stage 1 = grid gedung,
+        // stage 2 = union jalan raya. Player, granat, dan zombie aktif selalu
+        // berada di stage yang sama, jadi satu saklar global aman.
         function inCampWalkable(x, z, r) {
+            return CAMP_STAGE === 1 ? stage1Walk(x, z, r) : highwayWalk(x, z, r);
+        }
+
+        // Geser MENYUSUR dinding (bukan berhenti menempel): bila posisi baru tidak
+        // walkable, pertahankan komponen sumbu yang masih sah — mentok tembok miring
+        // tetap meluncur di sepanjang tembok. Fallback terakhir: kembali ke posisi lama.
+        function campSlideWalk(pos, oldX, oldZ, r) {
+            if (inCampWalkable(pos.x, pos.z, r)) return;
+            if (inCampWalkable(pos.x, oldZ, r)) { pos.z = oldZ; return; }
+            if (inCampWalkable(oldX, pos.z, r)) { pos.x = oldX; return; }
+            pos.x = oldX; pos.z = oldZ;
+        }
+
+        // Titik (x,z) dgn radius r masih di dalam area jalan/trotoar? (STAGE 2)
+        function highwayWalk(x, z, r) {
             const w = CAMP.halfWalk - r;
             // jalan utara-selatan antar air mancur
             if (Math.abs(x) <= w && z >= CAMP.up.z && z <= CAMP.low.z) return true;
@@ -2603,16 +2780,17 @@
         // Zombie campaign: DIAM di tempat (state 'idle') sampai player mendekat
         // < CAMP_ACTIVATE (12 m) / tertembak / terkena ledakan dekat. HP tetap 3
         // (3x tembak badan / 1x headshot); kecepatan = kalibrasi wave-1 survival.
-        function spawnCampaignZombie(x, z) {
+        function spawnCampaignZombie(x, z, stage = 2) {
             const built = buildHumanZombie();
             const zMesh = built.group;
             zMesh.position.set(x, 0, z);
             zMesh.rotation.y = Math.random() * 6.283;   // arah hadap acak saat diam
             scene.add(zMesh);
             zombies.push({
-                mesh: zMesh, hp: 3, maxHp: 3, speed: (0.6 + Math.random() * 0.4) * 0.3,
+                // Campaign lebih gesit dari survival wave-1: x0.5 (survival tetap x0.3)
+                mesh: zMesh, hp: 3, maxHp: 3, speed: (0.6 + Math.random() * 0.4) * 0.5,
                 rig: built.rig, isModel: true, baseY: 0, phase: Math.random() * 6.28,
-                state: 'idle', jumpT: 0, jumpDur: 0.55,
+                state: 'idle', stage, jumpT: 0, jumpDur: 0.55,
                 sx: x, sz: z, lx: x, lz: z,
                 jumpY0: 0, jumpY1: 0, arcH: 0, groundY: 0, vaultCd: 0,
                 attackCd: 0, clawT: 0, clawSide: 1, moving: false
@@ -2634,13 +2812,14 @@
                 _v3.set(x, 0, z);
                 campResolve(_v3, 4, 0);   // geser keluar bila kebetulan di median/mobil
                 x = _v3.x; z = _v3.z;
-                if (!inCampWalkable(x, z, 4)) return false;
-                if (Math.hypot(x - L.x, z - L.z) < START_CLEAR) return false;              // area start
-                if (Math.hypot(x - CAMP_START.x, z - CAMP_START.z) < 220) return false;    // dekat player
+                // pakai highwayWalk langsung — penempatan berjalan saat CAMP_STAGE masih 1
+                if (!highwayWalk(x, z, 4)) return false;
+                if (Math.hypot(x - L.x, z - L.z) < START_CLEAR) return false;              // area titik-masuk stage 2
+                if (Math.hypot(x - CAMP_START.x, z - CAMP_START.z) < 220) return false;    // dekat titik-masuk player
                 for (let i = 0; i < pts.length; i++)
                     if (Math.hypot(x - pts[i].x, z - pts[i].z) < 42) return false;
                 pts.push({ x, z });
-                spawnCampaignZombie(x, z);
+                spawnCampaignZombie(x, z, 2);
                 return true;
             };
             let placed = 0, tries = 0;
@@ -2660,6 +2839,403 @@
                 const a = Math.random() * 6.283, d = U.r + rand(14, U.ring - 8);
                 if (put(U.x + Math.cos(a) * d, U.z + Math.sin(a) * d)) placed++;
             }
+        }
+
+        // ================= Campaign STAGE 1: Gedung Terbengkalai (Lantai 3) =================
+        // Denah 60x60 m: tangga masuk (kiri-atas) -> lobby -> Kantor 1/2 -> Ruang
+        // Persediaan (kanan-atas: ammo/granat/medkit) -> koridor tengah -> toilet/
+        // utilitas -> area pemuatan -> ruang pendingin -> tangga keluar (kanan-bawah,
+        // trigger pindah ke stage 2 jalan raya). Grid sel 2 m: 1=dinding, 0=lantai —
+        // dinding visual, collision, dan line-of-sight semua dari grid yang sama.
+
+        function buildS1Grid() {
+            const g = Array.from({ length: S1.G }, () => Array(S1.G).fill(1));
+            const carve = (c0, r0, c1, r1) => {
+                for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g[r][c] = 0;
+            };
+            // --- Ruangan ---
+            carve(1, 1, 5, 6);      // tangga masuk (start)
+            carve(1, 8, 5, 16);     // lobby awal + lounge
+            carve(7, 1, 13, 6);     // kantor 1
+            carve(15, 1, 20, 6);    // kantor 2
+            carve(22, 1, 28, 6);    // ruang persediaan (supplies)
+            carve(6, 8, 27, 9);     // koridor tengah (menyatu dgn lobby di barat)
+            carve(7, 11, 10, 16);   // toilet
+            carve(12, 11, 15, 16);  // ruang utilitas
+            carve(17, 11, 21, 21);  // area pemuatan (memanjang ke selatan)
+            carve(23, 11, 28, 16);  // ruang pendingin
+            carve(23, 18, 28, 27);  // vestibula + ruang tangga keluar
+            // --- Pintu (bukaan 2 sel = 4 m; beberapa 1 sel utk kesan sempit) ---
+            carve(2, 7, 3, 7);      // start -> lobby
+            carve(6, 2, 6, 3);      // start -> kantor 1 ("cek pintu samping")
+            carve(9, 7, 10, 7);     // kantor 1 -> koridor
+            carve(16, 7, 17, 7);    // kantor 2 -> koridor
+            carve(21, 2, 21, 3);    // kantor 2 -> persediaan
+            carve(24, 7, 25, 7);    // persediaan -> koridor
+            carve(8, 10, 9, 10);    // koridor -> toilet
+            carve(13, 10, 14, 10);  // koridor -> utilitas
+            carve(18, 10, 19, 10);  // koridor -> pemuatan
+            carve(25, 10, 26, 10);  // koridor -> pendingin
+            carve(22, 13, 22, 14);  // pemuatan -> pendingin
+            carve(22, 19, 22, 20);  // pemuatan -> vestibula (rute bawah)
+            carve(25, 17, 26, 17);  // pendingin -> vestibula/tangga keluar
+            s1grid = g;
+        }
+
+        // Sel dinding? (di luar grid = dinding)
+        function s1Wall(c, r) {
+            return c < 0 || r < 0 || c >= S1.G || r >= S1.G || s1grid[r][c] === 1;
+        }
+
+        // Lingkaran (x,z,r) sepenuhnya di lantai gedung? (pengganti walkable stage 1)
+        function stage1Walk(x, z, r) {
+            if (!s1grid) return false;
+            const c0 = Math.floor((x - r - S1.x0) / S1.CELL), c1 = Math.floor((x + r - S1.x0) / S1.CELL);
+            const r0 = Math.floor((z - r - S1.z0) / S1.CELL), r1 = Math.floor((z + r - S1.z0) / S1.CELL);
+            for (let rr = r0; rr <= r1; rr++)
+                for (let cc = c0; cc <= c1; cc++)
+                    if (s1Wall(cc, rr)) return false;
+            return true;
+        }
+
+        // Garis pandang bebas dinding? (sampling grid tiap ~setengah sel).
+        // Dipakai aktivasi zombie stage 1: bangun hanya bila MELIHAT player
+        // (atau sangat dekat menembus dinding tipis / tertembak / ledakan).
+        function s1LOS(x1, z1, x2, z2) {
+            if (!s1grid) return true;
+            const dx = x2 - x1, dz = z2 - z1;
+            const dist = Math.hypot(dx, dz);
+            const steps = Math.max(1, Math.ceil(dist / (S1.CELL * 0.5)));
+            for (let i = 1; i < steps; i++) {
+                const t = i / steps;
+                const c = Math.floor((x1 + dx * t - S1.x0) / S1.CELL);
+                const r = Math.floor((z1 + dz * t - S1.z0) / S1.CELL);
+                if (s1Wall(c, r)) return false;
+            }
+            return true;
+        }
+
+        // Ruas peluru menabrak dinding? (sampling tiap ~7 unit; peluru cepat = 2 sel/frame)
+        function s1SegHitsWall(x1, z1, x2, z2) {
+            const dist = Math.hypot(x2 - x1, z2 - z1);
+            const steps = Math.max(1, Math.ceil(dist / 7));
+            for (let i = 1; i <= steps; i++) {
+                const t = i / steps;
+                const c = Math.floor((x1 + (x2 - x1) * t - S1.x0) / S1.CELL);
+                const r = Math.floor((z1 + (z2 - z1) * t - S1.z0) / S1.CELL);
+                if (s1Wall(c, r)) return true;
+            }
+            return false;
+        }
+
+        function createStage1World() {
+            buildS1Grid();
+            const size = S1.G * S1.CELL;                      // 420 unit = 60 m
+            const cx = S1.x0 + size / 2, cz = S1.z0 + size / 2;
+
+            // --- Lantai: ubin kusam bernoda ---
+            const floorTex = makeTexture(128, 128, (g, w, h) => {
+                g.fillStyle = '#4a463e'; g.fillRect(0, 0, w, h);
+                speckle(g, w, h, ['#403c35', '#524d44', '#37342e', '#5a554b'], 240, 1, 5);
+                g.strokeStyle = 'rgba(24,22,19,0.6)'; g.lineWidth = 2;
+                g.beginPath(); g.moveTo(0, 0); g.lineTo(w, 0); g.moveTo(0, 0); g.lineTo(0, h); g.stroke();
+                for (let i = 0; i < 3; i++) {                  // noda gelap
+                    g.globalAlpha = 0.10 + Math.random() * 0.12;
+                    g.fillStyle = '#14110d';
+                    g.beginPath();
+                    g.ellipse(Math.random() * w, Math.random() * h, 10 + Math.random() * 24, 6 + Math.random() * 14, Math.random() * 3, 0, 6.283);
+                    g.fill();
+                }
+                g.globalAlpha = 1;
+            }, S1.G, S1.G);   // 1 ubin per sel (2 m)
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
+                new THREE.MeshPhongMaterial({ map: floorTex, shininess: 8, specular: 0x121110 }));
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.set(cx, 0.01, cz);
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // --- Plafon: panel akustik gelap (menghadap ke bawah) ---
+            const ceilTex = makeTexture(128, 128, (g, w, h) => {
+                g.fillStyle = '#2a2723'; g.fillRect(0, 0, w, h);
+                speckle(g, w, h, ['#24211c', '#312d27', '#1d1b17'], 120, 1, 4);
+                g.strokeStyle = 'rgba(12,11,9,0.7)'; g.lineWidth = 2;
+                g.beginPath(); g.moveTo(0, 0); g.lineTo(w, 0); g.moveTo(0, 0); g.lineTo(0, h); g.stroke();
+            }, S1.G, S1.G);
+            const ceil = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
+                new THREE.MeshLambertMaterial({ map: ceilTex }));
+            ceil.rotation.x = Math.PI / 2;
+            ceil.position.set(cx, S1.H, cz);
+            scene.add(ceil);
+
+            // --- Dinding: satu InstancedMesh (hanya sel dinding yang bertetangga lantai) ---
+            const wallTex = makeTexture(64, 64, (g, w, h) => {
+                g.fillStyle = '#6b675f'; g.fillRect(0, 0, w, h);
+                speckle(g, w, h, ['#605c54', '#767168', '#575349'], 140, 1, 4);
+                for (let i = 0; i < 5; i++) {                  // rembesan/retak
+                    g.strokeStyle = 'rgba(40,37,32,0.5)';
+                    g.lineWidth = 1 + Math.random();
+                    let x = Math.random() * w, y = 0;
+                    g.beginPath(); g.moveTo(x, y);
+                    for (let s = 0; s < 3; s++) { x += rand(-6, 6); y += h / 3; g.lineTo(x, y); }
+                    g.stroke();
+                }
+            });
+            const wallCells = [];
+            for (let r = 0; r < S1.G; r++) {
+                for (let c = 0; c < S1.G; c++) {
+                    if (s1grid[r][c] !== 1) continue;
+                    let nearFloor = false;                     // dinding terkubur di-skip (hemat)
+                    for (let dr = -1; dr <= 1 && !nearFloor; dr++)
+                        for (let dc = -1; dc <= 1 && !nearFloor; dc++)
+                            if (!s1Wall(c + dc, r + dr)) nearFloor = true;
+                    if (nearFloor) wallCells.push([c, r]);
+                }
+            }
+            const wallMesh = new THREE.InstancedMesh(
+                new THREE.BoxGeometry(S1.CELL, S1.H, S1.CELL),
+                new THREE.MeshPhongMaterial({ map: wallTex, shininess: 5, specular: 0x14130f }),
+                wallCells.length);
+            {
+                const _m = new THREE.Matrix4(), _c = new THREE.Color();
+                wallCells.forEach(([c, r], i) => {
+                    const p = s1Cell(c, r);
+                    _m.setPosition(p.x, S1.H / 2, p.z);
+                    wallMesh.setMatrixAt(i, _m);
+                    _c.setHex(0xffffff).offsetHSL(0, 0, rand(-0.06, 0.04));   // jitter kusam per panel
+                    wallMesh.setColorAt(i, _c);
+                });
+                if (wallMesh.instanceColor) wallMesh.instanceColor.needsUpdate = true;
+            }
+            wallMesh.receiveShadow = true;
+            wallMesh.frustumCulled = false;   // bounds instance tak dihitung r128
+            scene.add(wallMesh);
+
+            // --- Furnitur: satu InstancedMesh box + blocker pejal (campBlockers) ---
+            const fur = [];   // {x,y,z,sx,sy,sz,ry,color}
+            const furBox = (c, r, sx, sy, sz, color, ry = 0, dx = 0, dz = 0) => {
+                const p = s1Cell(c, r);
+                fur.push({ x: p.x + dx, y: sy / 2, z: p.z + dz, sx, sy, sz, ry, color });
+                return { x: p.x + dx, z: p.z + dz };
+            };
+            // blocker pejal axis-aligned (standable -> bisa dipanjat/dipijak)
+            const furBlock = (c, r, sx, sy, sz, color, dx = 0, dz = 0, standable = true) => {
+                const p = furBox(c, r, sx, sy, sz, color, 0, dx, dz);
+                campBlockers.push({
+                    x: p.x, z: p.z, hx: sx / 2, hz: sz / 2,
+                    axx: 1, axz: 0, azx: 0, azz: 1,
+                    rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
+                });
+            };
+            const WOOD = 0x6b4a2f, SHELF = 0x55606a, CRATE = 0x7a5c33, FRZ = 0xbfc9cc,
+                MACH = 0x3d5040, SOFA = 0x5a3f3f, STALL = 0x88817a, DARK = 0x23211d;
+            // Kantor 1: dua gugus meja + monitor
+            furBlock(9, 3, 26, 7, 14, WOOD);
+            furBlock(11, 5, 26, 7, 14, WOOD, 7, 0);
+            furBox(9, 3, 6, 4.5, 1.5, DARK, 0.3, -4, -3, 0); fur[fur.length - 1].y = 7 + 2.2;
+            furBox(11, 5, 6, 4.5, 1.5, DARK, -0.2, 5, 3, 0); fur[fur.length - 1].y = 7 + 2.2;
+            // Kantor 2: meja + kabinet arsip
+            furBlock(17, 3, 24, 7, 13, WOOD);
+            furBlock(19, 5, 8, 16, 6, SHELF, 10, 8);
+            // Ruang persediaan: rak logam di dinding utara & selatan
+            furBlock(25, 1, 70, 15, 8, SHELF, 0, 2);
+            furBlock(23, 6, 28, 15, 8, SHELF, -2, -2);   // menjauhi pintu selatan (sel 24-25)
+            // Toilet: bilik & wastafel
+            furBlock(8, 12, 2, 15, 26, STALL, 6, 6);
+            furBlock(8, 16, 18, 8, 4, 0xd8d4c8, 0, -2);
+            // Utilitas: mesin/panel
+            furBlock(13, 12, 16, 17, 10, MACH);
+            furBlock(14, 15, 10, 12, 8, DARK, 4, 4);
+            // Area pemuatan: palet & krat (sebagian bisa dipanjat)
+            furBlock(18, 13, 16, 8, 16, CRATE);
+            furBlock(20, 16, 14, 16, 14, CRATE, 2, 0);
+            furBlock(18, 19, 16, 8, 16, CRATE, -4, 4);
+            // Ruang pendingin: unit pembeku dua baris
+            furBlock(24, 12, 10, 18, 8, FRZ, 0, 2);
+            furBlock(26, 12, 10, 18, 8, FRZ, 4, 2);
+            furBlock(24, 15, 10, 18, 8, FRZ, 0, 4);
+            // Lobby: sofa + meja
+            furBlock(3, 13, 26, 6, 10, SOFA);
+            furBlock(3, 11, 10, 5, 10, WOOD);
+            // Vestibula: krat kecil
+            furBlock(24, 20, 12, 9, 12, CRATE);
+            {   // render semua furnitur sebagai satu instanced mesh
+                const unit = new THREE.BoxGeometry(1, 1, 1);
+                const fMesh = new THREE.InstancedMesh(unit,
+                    new THREE.MeshLambertMaterial({ color: 0xffffff }), fur.length);
+                const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(),
+                    _p = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
+                fur.forEach((f, i) => {
+                    _e.set(0, f.ry, 0);
+                    _m.compose(_p.set(f.x, f.y, f.z), _q.setFromEuler(_e), _s.set(f.sx, f.sy, f.sz));
+                    fMesh.setMatrixAt(i, _m);
+                    _c.setHex(f.color).offsetHSL(0, rand(-0.04, 0.02), rand(-0.05, 0.03));
+                    fMesh.setColorAt(i, _c);
+                });
+                if (fMesh.instanceColor) fMesh.instanceColor.needsUpdate = true;
+                fMesh.castShadow = true;
+                fMesh.frustumCulled = false;
+                scene.add(fMesh);
+            }
+
+            // --- Tangga masuk & keluar: undakan + portal gelap (kesan lantai bawah) ---
+            const stepMat = new THREE.MeshPhongMaterial({ color: 0x57534b, shininess: 6 });
+            const holeMat = new THREE.MeshBasicMaterial({ color: 0x020202 });
+            const mkStairs = (c, r, dirZ) => {   // dirZ: -1 = naik ke utara, +1 = ke selatan
+                const p = s1Cell(c, r);
+                for (let i = 0; i < 5; i++) {
+                    const st = new THREE.Mesh(new THREE.BoxGeometry(26, 2 + i * 2, 8), stepMat);
+                    st.position.set(p.x, (2 + i * 2) / 2, p.z + dirZ * (i * 8 - 14));
+                    st.castShadow = true; st.receiveShadow = true;
+                    scene.add(st);
+                }
+                const portal = new THREE.Mesh(new THREE.PlaneGeometry(26, S1.H - 10), holeMat);
+                // tepat di DEPAN muka dinding (bukan terkubur di dalam sel dinding)
+                portal.position.set(p.x, (S1.H - 10) / 2 + 9, p.z + dirZ * 20);
+                portal.rotation.y = dirZ > 0 ? Math.PI : 0;
+                scene.add(portal);
+                campBlockers.push({   // undakan pejal (bisa dipijak)
+                    x: p.x, z: p.z + dirZ * 4, hx: 13, hz: 20,
+                    axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(13, 20), top: 10, standable: true
+                });
+            };
+            mkStairs(3, 2, -1);    // tangga masuk (utara ruang start)
+            mkStairs(26, 26, 1);   // tangga keluar (selatan ruang exit)
+
+            // Papan EXIT hijau menyala di atas tangga keluar
+            const exitP = s1Cell(26, 25);
+            const exitSign = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 1.2),
+                new THREE.MeshBasicMaterial({ color: 0x2eff6a, toneMapped: false }));
+            exitSign.position.set(exitP.x, S1.H - 4, exitP.z + 6);
+            scene.add(exitSign);
+
+            // --- Pencahayaan interior: 6 titik lampu TETAP (dibuat saat init, sebelum
+            // render pertama -> shader compile sekali; hanya intensity yang dianimasikan).
+            const lampFix = new THREE.MeshBasicMaterial({ color: 0xfff2cc, toneMapped: false });
+            const addLamp = (c, r, color, inten, dist) => {
+                const p = s1Cell(c, r);
+                const L = new THREE.PointLight(color, inten, dist, 2);
+                L.position.set(p.x, S1.H - 3, p.z);
+                scene.add(L);
+                const fix = new THREE.Mesh(new THREE.BoxGeometry(8, 0.6, 8), lampFix);
+                fix.position.set(p.x, S1.H - 0.4, p.z);
+                scene.add(fix);
+                return L;
+            };
+            addLamp(3, 10, 0xffd9a0, 0.9, 240);            // lobby
+            s1FlickerLight = addLamp(14, 8, 0xffe2b8, 0.85, 260);   // koridor tengah (berkedip)
+            addLamp(25, 3, 0xffd9a0, 0.9, 240);            // ruang persediaan
+            addLamp(19, 15, 0xffc890, 0.8, 260);           // area pemuatan
+            addLamp(25, 13, 0xbfe4ff, 0.7, 220);           // pendingin (dingin kebiruan)
+            const exitLight = new THREE.PointLight(0x39ff7a, 0.8, 200, 2);
+            exitLight.position.set(exitP.x, S1.H - 6, exitP.z);
+            scene.add(exitLight);
+        }
+
+        // Zombie stage 1: titik tengkorak pada denah (sel grid) + jitter kecil.
+        const S1_ZOMBIES = [
+            [10, 3],    // kantor 1
+            [17, 4],    // kantor 2
+            [12, 8],    // koridor tengah (barat)
+            [21, 9],    // koridor tengah (timur)
+            [9, 14],    // toilet
+            [13, 14],   // ruang utilitas
+            [19, 13],   // area pemuatan utara
+            [19, 20],   // area pemuatan selatan
+            [26, 2],    // ruang persediaan ("awas langit-langit")
+            [25, 14],   // ruang pendingin
+            [26, 21],   // vestibula menuju exit ("cek pintu langit-langit")
+        ];
+        function placeStage1Zombies() {
+            for (const [c, r] of S1_ZOMBIES) {
+                const p = s1Cell(c, r);
+                _v3.set(p.x + rand(-4, 4), 0, p.z + rand(-4, 4));
+                campResolve(_v3, 4, 0);                         // geser keluar furnitur
+                if (!stage1Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
+                spawnCampaignZombie(_v3.x, _v3.z, 1);
+            }
+        }
+
+        // ----- Medkit (item baru; hanya ditaruh manual, bukan drop zombie) -----
+        const MEDKIT_MAT = {
+            box: new THREE.MeshLambertMaterial({ color: 0xe8e8e8, emissive: 0x1c1c1c }),
+            cross: new THREE.MeshLambertMaterial({ color: 0xd23c3c, emissive: 0x3d0f0f })
+        };
+        function buildMedkitMesh() {
+            const grp = new THREE.Group();
+            const base = new THREE.Mesh(new THREE.BoxGeometry(5, 2.6, 5), MEDKIT_MAT.box);
+            base.position.y = 0;
+            grp.add(base);
+            const c1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.5, 1.2), MEDKIT_MAT.cross);
+            c1.position.y = 1.55;
+            grp.add(c1);
+            const c2 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 3.6), MEDKIT_MAT.cross);
+            c2.position.y = 1.55;
+            grp.add(c2);
+            return grp;
+        }
+
+        // Persediaan stage 1 (tak kedaluwarsa): Ruang Persediaan berisi ammo + granat
+        // + medkit sesuai denah; bonus kecil di toilet & area pemuatan.
+        function placeStage1Supplies() {
+            const put = (type, c, r, dx = 0, dz = 0) => {
+                const p = s1Cell(c, r);
+                let mesh;
+                if (type === 'mag') mesh = new THREE.Mesh(GEO.mag, MAT.mag);
+                else if (type === 'grenade') mesh = buildGrenadeMesh(0.8);
+                else mesh = buildMedkitMesh();
+                mesh.position.set(p.x + dx, 1, p.z + dz);
+                scene.add(mesh);
+                drops.push({ mesh, type, timer: 1e9 });
+            };
+            put('mag', 23, 3); put('mag', 24, 3, 8); put('mag', 26, 4, 0, 6);
+            put('grenade', 27, 3); put('grenade', 27, 4, 0, 8);
+            put('medkit', 23, 5); put('medkit', 25, 5, 6, 0);
+            put('medkit', 9, 15, 0, 6);    // toilet
+            put('mag', 20, 18);            // area pemuatan
+        }
+
+        // Preset kabut + intensitas cahaya per stage (uniform saja — tanpa recompile)
+        function setStageLighting(stage) {
+            if (stage === 1) {
+                scene.fog.near = 50; scene.fog.far = 700;      // interior gelap mencekam
+                if (ambLight) ambLight.intensity = 0.16;
+                if (hemiLight) hemiLight.intensity = 0.22;
+                if (dirLight) dirLight.intensity = 0.35;
+            } else {
+                scene.fog.near = 220; scene.fog.far = 1700;    // luar ruangan (nilai awal)
+                if (ambLight) ambLight.intensity = 0.3;
+                if (hemiLight) hemiLight.intensity = 0.4;
+                if (dirLight) dirLight.intensity = 0.7;
+            }
+        }
+
+        function showStageMsg(text, dur = 4200) {
+            const el = document.getElementById('stageMsg');
+            el.innerText = text;
+            el.style.opacity = 1;
+            clearTimeout(stageMsgTimer);
+            stageMsgTimer = setTimeout(() => { el.style.opacity = 0; }, dur);
+        }
+
+        // Pindah dari gedung (stage 1) ke jalan raya (stage 2) — dipicu trigger
+        // tangga keluar. Zombie gedung yang tersisa dibersihkan diam-diam (tanpa
+        // skor/drop) supaya hitungan UI & kondisi menang stage 2 tetap sederhana.
+        function enterStage2() {
+            CAMP_STAGE = 2;
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                if (zombies[i].stage === 1) {
+                    disposeZombie(zombies[i]);
+                    scene.remove(zombies[i].mesh);
+                    zombies.splice(i, 1);
+                }
+            }
+            setStageLighting(2);
+            camera.position.set(CAMP_START.x, EYE_H, CAMP_START.z);
+            camera.quaternion.set(0, 0, 0, 1);   // hadap utara (koridor 1 km)
+            player.vy = 0; player.onGround = true;
+            showStageMsg('FLOOR 3 CLEARED — FOLLOW THE HIGHWAY TO THE FOUNTAIN');
+            updateUI();
         }
 
         function createEmbers() {
@@ -2773,6 +3349,10 @@
             // Kubah langit selalu berpusat di player (peta campaign membentang jauh)
             if (skyDome) { skyDome.position.x = camera.position.x; skyDome.position.z = camera.position.z; }
             if (flameLight) flameLight.intensity = 1.1 + Math.sin(T * 6.1) * 0.12 + Math.sin(T * 17) * 0.06;
+            if (s1FlickerLight) {   // lampu koridor gedung berkedip-kedip (campaign stage 1)
+                const fl = Math.sin(T * 13) * Math.sin(T * 7.3) > 0.55 ? 0.12 : 0.85;
+                s1FlickerLight.intensity += (fl - s1FlickerLight.intensity) * Math.min(1, dt * 22);
+            }
             if (flameGlow) {
                 const s = 30 + Math.sin(T * 5.2) * 2.4 + Math.sin(T * 13) * 1.2;
                 flameGlow.scale.set(s, s, 1);
@@ -2805,7 +3385,7 @@
             const grp = isRifle ? gunMesh : pistolMesh;
             // Goyangan senjata halus (x/y; z milik recoil di update) — diredam saat membidik
             const moving = (keys.w || keys.a || keys.s || keys.d) && !isPaused && !isGameOver;
-            gunBobT += dt * (moving ? (keys.shift ? 11 : 7.5) : 2.2);
+            gunBobT += dt * (moving ? (sprintingNow ? 11 : 7.5) : 2.2);
             const bobA = (moving ? 0.09 : 0.03) * (1 - aimT * 0.8);
             // Animasi ganti senjata: turun lalu naik (model ditukar di tengah, oleh update())
             let swOff = 0, swRot = 0;
@@ -2889,19 +3469,41 @@
 
         function updateUI() {
             const w = player[currentWeapon];
-            const wName = currentWeapon === 'rifle' ? 'AK47' : 'Pistol';
+            const wName = currentWeapon === 'rifle' ? 'Assault Rifle' : 'Pistol';
             scoreText.innerText = `Score: ${score}`;
             ammoText.innerText = player.isReloading ? `${wName}: Reloading...` : `${wName}: ${w.ammo} / ${w.mags} Mags`;
-            hpText.innerText = `HP: ${player.hp}`;
+            // Health bar (maks PLAYER_MAX_HP): hijau -> oranye -> merah
+            healthFill.style.width = (player.hp / PLAYER_MAX_HP * 100) + '%';
             grenadeText.innerText = `Grenades: ${player.grenades}`;
-            // Survival: nomor wave. Campaign: sisa zombie di peta.
-            waveText.innerText = GAME_MODE === 'campaign'
-                ? `Zombie tersisa: ${zombies.length}` : `Wave ${wave.num}`;
+            // Survival: nomor wave. Campaign: sisa zombie di stage aktif.
+            if (GAME_MODE === 'campaign') {
+                let n = 0;
+                for (let i = 0; i < zombies.length; i++) if (zombies[i].stage === CAMP_STAGE) n++;
+                waveText.innerText = CAMP_STAGE === 1
+                    ? `FLOOR 3 — Zombies: ${n} | Find the exit stairs`
+                    : `Zombies left: ${n}`;
+            } else {
+                waveText.innerText = `Wave ${wave.num}`;
+            }
         }
 
         function flashDamage() {
             damageEl.style.opacity = 0.85;
             setTimeout(() => damageEl.style.opacity = 0, 120);
+        }
+
+        // Info item yang diambil — feed di kiri layar (muncul -> diam -> memudar).
+        // Maks 5 baris; baris tertua dibuang agar tidak menumpuk saat memborong drop.
+        function showPickup(text, color) {
+            const feed = document.getElementById('pickupFeed');
+            const el = document.createElement('div');
+            el.className = 'pickupMsg';
+            el.style.color = color;
+            el.innerText = text;
+            feed.appendChild(el);
+            while (feed.children.length > 5) feed.removeChild(feed.firstChild);
+            setTimeout(() => el.classList.add('fade'), 2000);
+            setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 2700);
         }
 
         // Minta pointer-lock dengan aman: Chrome melempar NotAllowedError bila diminta
@@ -3412,7 +4014,7 @@
 
         function resetGame() {
             score = 0;
-            player.hp = 5; player.grenades = 3;
+            player.hp = PLAYER_MAX_HP; player.grenades = 3;
             player.rifle.ammo = 30; player.rifle.mags = 3;
             player.pistol.ammo = 15; player.pistol.mags = 3;
             clearTimeout(player.reloadTimer);   // bug fix: reload lama jangan selesai di game baru
@@ -3437,9 +4039,21 @@
             player.vy = 0; player.onGround = true;
             crouchT = 0; eyeHCur = EYE_H;   // isCrouching sudah dilepas releaseInputs()
             gunHeat = 0;
-            if (GAME_MODE === 'campaign') camera.position.set(CAMP_START.x, EYE_H, CAMP_START.z);
-            else camera.position.set(0, EYE_H, 120);
-            camera.quaternion.set(0, 0, 0, 1);
+            stamina = STAMINA_MAX; staExhausted = false; sprintingNow = false;
+            staminaFill.style.width = '100%';
+            staminaFill.style.background = '#3ddc6a';
+            if (GAME_MODE === 'campaign') {
+                // Campaign selalu mengulang dari STAGE 1 (ruang tangga gedung)
+                CAMP_STAGE = 1;
+                const sp = s1Cell(S1_START.c, S1_START.r);
+                camera.position.set(sp.x, EYE_H, sp.z);
+                camera.quaternion.set(0, 1, 0, 0);   // hadap selatan (pintu lobby)
+                setStageLighting(1);
+                document.getElementById('stageMsg').style.opacity = 0;
+            } else {
+                camera.position.set(0, EYE_H, 120);
+                camera.quaternion.set(0, 0, 0, 1);
+            }
 
             zombies.forEach(z => { disposeZombie(z); scene.remove(z.mesh); });
             zombies.length = 0;
@@ -3448,8 +4062,13 @@
             clearArray(grenades);
             clearArray(explosions);
             clearArray(drops);
-            // Campaign: sebar ulang zombie statis (survival menspawn lewat wave sendiri)
-            if (GAME_MODE === 'campaign') placeCampaignZombies();
+            // Campaign: sebar ulang zombie kedua stage + isi ulang ruang persediaan
+            // (supplies ikut terhapus clearArray(drops) di atas)
+            if (GAME_MODE === 'campaign') {
+                placeCampaignZombies();
+                placeStage1Zombies();
+                placeStage1Supplies();
+            }
 
             updateUI();
             requestLock();
@@ -3463,7 +4082,7 @@
                 localStorage.setItem("gibsHighScore", highScore);
             }
             // Campaign selesai = menang; selain itu (HP habis) = kalah.
-            gameOverTitle.innerText = won ? 'MISI SELESAI' : 'GAME OVER';
+            gameOverTitle.innerText = won ? 'MISSION COMPLETE' : 'GAME OVER';
             gameOverScreen.style.background = won ? 'rgba(0, 90, 30, 0.82)' : 'rgba(150, 0, 0, 0.8)';
             finalScoreEl.innerText = `Score: ${score}`;
             bestScoreEl.innerText = `Best: ${highScore}`;
@@ -3523,16 +4142,36 @@
             const oldX = camera.position.x, oldZ = camera.position.z;
             // Jongkok efektif = toggle C ATAU tahan Ctrl kiri
             const crouched = isCrouching || crouchHold;
-            // Pengali kecepatan: jongkok -50% (mendominasi, TIDAK ditumpuk dgn ADS);
-            // ADS saja -30%. Sprint dimatikan selama jongkok.
-            const moveMult = crouched ? 0.5 : (isAiming ? 0.7 : 1);
-            const moveSpeed = player.speed * (keys.shift && !crouched ? 1.7 : 1) * moveMult * step;
             // Input WASD digabung jadi SATU vektor lalu dinormalisasi terhadap panjang
             // input mentah — diagonal (mis. W+A) tidak lagi ~1.41x lebih cepat (bug fix).
             // Bobot arah: komponen mundur x0.7 (-30%), komponen samping x0.8 (-20%);
             // gerak diagonal mendapat interpolasi di antara bobot-bobot itu.
             const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
             const side = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);
+
+            // --- Stamina: kuras (lari/ADS) -> exhausted -> pulih (regen) ---
+            // Sprint efektif butuh: shift + tidak jongkok + benar-benar BERGERAK +
+            // stamina tersedia & tidak sedang exhausted.
+            sprintingNow = keys.shift && !crouched && !staExhausted && stamina > 0
+                && (fwd !== 0 || side !== 0);
+            if (sprintingNow) stamina -= STA_SPRINT * dt;
+            if (isAiming) stamina -= STA_ADS * dt;
+            if (stamina <= 0) {
+                stamina = 0;
+                staExhausted = true;
+                sprintingNow = false;
+                isAiming = false;        // terlalu lelah membidik — senjata turun sendiri
+            }
+            if (!sprintingNow && !isAiming) stamina = Math.min(STAMINA_MAX, stamina + STA_REGEN * dt);
+            if (staExhausted && stamina >= STA_RECOVER) staExhausted = false;
+            // Bar HUD: hijau -> oranye -> merah (merah juga penanda exhausted)
+            staminaFill.style.width = stamina + '%';
+            staminaFill.style.background = staExhausted ? '#e74c3c' : stamina > 45 ? '#3ddc6a' : '#e0a53e';
+
+            // Pengali kecepatan: jongkok -50% (mendominasi, TIDAK ditumpuk dgn ADS);
+            // ADS saja -30%. Sprint dimatikan selama jongkok / stamina habis.
+            const moveMult = crouched ? 0.5 : (isAiming ? 0.7 : 1);
+            const moveSpeed = player.speed * (sprintingNow ? 1.7 : 1) * moveMult * step;
             if (fwd !== 0 || side !== 0) {
                 const wz = fwd * (fwd < 0 ? 0.7 : 1);   // mundur lebih lambat
                 const wx = side * 0.8;                  // menyamping lebih lambat
@@ -3548,7 +4187,9 @@
             // di bawah tetap membersihkan posisi akhir setelah dorongan ini.
             for (let zi = 0; zi < zombies.length; zi++) {
                 const zb = zombies[zi];
-                if (zb.state !== 'chasing') continue;
+                // idle (campaign) ikut pejal — tak bisa ditembus sambil mereka diam;
+                // aman dari dorongan tiap-frame karena zombie idle tidak mencakar.
+                if (zb.state !== 'chasing' && zb.state !== 'idle') continue;
                 const zdx = camera.position.x - zb.mesh.position.x;
                 const zdz = camera.position.z - zb.mesh.position.z;
                 const zd = Math.hypot(zdx, zdz);
@@ -3561,16 +4202,20 @@
 
             const feetNow = camera.position.y - eyeHCur;
             if (isCamp) {
-                // Campaign: dinding keras = tepi koridor jalan/trotoar. Bila posisi baru
-                // keluar dari area walkable, kembalikan ke posisi lama (gedung = blocker).
-                if (!inCampWalkable(camera.position.x, camera.position.z, player.radius)) {
-                    camera.position.x = oldX; camera.position.z = oldZ;
-                }
-                // Penghalang pejal: dinding bak air mancur + median + tumpukan mobil
+                // Dinding keras (gedung stage 1 / tepi jalan stage 2): geser per-sumbu
+                // agar player MELUNCUR menyusuri tembok, tidak menempel berhenti.
+                campSlideWalk(camera.position, oldX, oldZ, player.radius);
+                // Penghalang pejal: bak air mancur + median + mobil + furnitur
                 campResolve(camera.position, player.radius, feetNow);
-                // jaring pengaman: bila dorongan sempat menaruh player keluar jalan lagi
-                if (!inCampWalkable(camera.position.x, camera.position.z, player.radius)) {
-                    camera.position.x = oldX; camera.position.z = oldZ;
+                // jaring pengaman: bila dorongan menaruh player ke dinding, slide lagi
+                campSlideWalk(camera.position, oldX, oldZ, player.radius);
+                // Trigger tangga keluar stage 1 -> turun ke jalan raya (stage 2)
+                if (CAMP_STAGE === 1
+                    && camera.position.x >= S1.x0 + S1_EXIT.c0 * S1.CELL
+                    && camera.position.x <= S1.x0 + (S1_EXIT.c1 + 1) * S1.CELL
+                    && camera.position.z >= S1.z0 + S1_EXIT.r0 * S1.CELL
+                    && camera.position.z <= S1.z0 + (S1_EXIT.r1 + 1) * S1.CELL) {
+                    enterStage2();
                 }
             } else {
                 // Pagar = batas keras: player tertahan di dalam taman.
@@ -3614,7 +4259,7 @@
                 footT -= dt;
                 if (footT <= 0) {
                     playSFX(sfxFootstep, crouched ? 0.22 : 0.4);
-                    footT = crouched ? 0.6 : keys.shift ? 0.28 : 0.42;   // lari = irama lebih rapat
+                    footT = crouched ? 0.6 : sprintingNow ? 0.28 : 0.42;   // lari EFEKTIF = irama rapat
                 }
             } else {
                 footT = 0.12;   // langkah pertama cepat terdengar saat mulai bergerak
@@ -3661,9 +4306,10 @@
                 // Radius = dasar + bloom panas laras; ADS/jongkok mempersempitnya.
                 const acc = (isAiming ? 0.75 : 1) * (crouched ? 0.75 : 1);
                 // Penalti bergerak (hanya spread, bukan tendangan kamera):
-                // jalan = x1.25 (-25% akurat), lari/sprint = x1.5 (-50% akurat)
+                // jalan = x1.25 (-25% akurat), lari EFEKTIF = x1.5 (stamina habis
+                // berarti tidak benar-benar berlari -> penalti jalan biasa)
                 const movePen = (keys.w || keys.a || keys.s || keys.d)
-                    ? (keys.shift && !crouched ? 1.5 : 1.25) : 1;
+                    ? (sprintingNow ? 1.5 : 1.25) : 1;
                 const spread = (SPREAD_BASE + gunHeat * SPREAD_BLOOM) * acc * movePen;
                 const sAng = Math.random() * Math.PI * 2;
                 const sRad = Math.random() * spread;   // bias ke pusat
@@ -3740,12 +4386,17 @@
                 }
 
                 if (isCamp) {
-                    // Pantulan tepi jalan campaign (gedung) + penghalang pejal
+                    // Pantulan tepi area jalan/dinding gedung + penghalang pejal
                     if (!inCampWalkable(g.mesh.position.x, g.mesh.position.z, NADE_R)) {
                         g.mesh.position.x = oldGX; g.mesh.position.z = oldGZ;
                         g.vx = -g.vx * 0.45; g.vz = -g.vz * 0.45;
                     }
                     campResolve(g.mesh.position, NADE_R, g.mesh.position.y - NADE_R);
+                    // Plafon gedung (stage 1): granat memantul turun, tidak lolos ke atas
+                    if (CAMP_STAGE === 1 && g.mesh.position.y > S1.H - NADE_R) {
+                        g.mesh.position.y = S1.H - NADE_R;
+                        if (g.vy > 0) g.vy = -g.vy * 0.3;
+                    }
                 } else {
                     // Pantulan pagar & Monas: posisi dikembalikan, kecepatan dibalik + diredam
                     const nbx = PARK.hx - 3, nbz = PARK.hz - 3;
@@ -3829,6 +4480,7 @@
             }
 
             // --- Item drop ---
+            if (fullInfoCd > 0) fullInfoCd -= dt;
             for (let i = drops.length - 1; i >= 0; i--) {
                 const d = drops[i];
                 d.timer -= dt;
@@ -3837,13 +4489,38 @@
 
                 const dist = Math.hypot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z);
                 if (dist < player.radius + 2) {
-                    if (d.type === 'mag') { player.rifle.mags++; player.pistol.mags++; }   // isi kedua senjata
-                    else player.grenades++;
-                    playSFX(sfxPickup);
-                    updateUI();
-                    scene.remove(d.mesh);
-                    drops.splice(i, 1);
-                    continue;
+                    // Item PENUH tidak diambil (ditinggal untuk nanti) — beri info
+                    // "already full" di feed, dgn jeda 1.2 dtk agar tidak spam saat
+                    // player berdiri di atas item.
+                    const isFull =
+                        (d.type === 'mag' && player.rifle.mags >= MAX_MAGS && player.pistol.mags >= MAX_MAGS) ||
+                        (d.type === 'grenade' && player.grenades >= MAX_NADES) ||
+                        (d.type === 'medkit' && player.hp >= PLAYER_MAX_HP);
+                    if (isFull) {
+                        if (fullInfoCd <= 0) {
+                            fullInfoCd = 1.2;
+                            showPickup(d.type === 'mag' ? 'Mags already full'
+                                : d.type === 'grenade' ? 'Grenades already full'
+                                    : 'Health already full', '#b8b8b8');
+                        }
+                    } else {
+                        if (d.type === 'mag') {          // isi kedua senjata (di-cap MAX_MAGS)
+                            player.rifle.mags = Math.min(MAX_MAGS, player.rifle.mags + 1);
+                            player.pistol.mags = Math.min(MAX_MAGS, player.pistol.mags + 1);
+                            showPickup('+1 Mag (Assault Rifle & Pistol)', '#f1c40f');
+                        } else if (d.type === 'medkit') {
+                            player.hp = Math.min(PLAYER_MAX_HP, player.hp + 2);
+                            showPickup('+2 HP (Medkit)', '#ff6b81');
+                        } else {
+                            player.grenades = Math.min(MAX_NADES, player.grenades + 1);
+                            showPickup('+1 Grenade', '#2ed573');
+                        }
+                        playSFX(sfxPickup);
+                        updateUI();
+                        scene.remove(d.mesh);
+                        drops.splice(i, 1);
+                        continue;
+                    }
                 }
                 if (d.timer <= 0) { scene.remove(d.mesh); drops.splice(i, 1); }
             }
@@ -3856,11 +4533,15 @@
                 else { b.px = b.mesh.position.x; b.py = b.mesh.position.y; b.pz = b.mesh.position.z; }
                 b.mesh.position.addScaledVector(b.dir, b.speed * step);
                 b.life -= step;
-                // Survival: peluru mati di badan Monas. Campaign: tak ada Monas
-                // (peluru habis oleh umur; menembus gedung dekoratif secara visual).
+                // Survival: peluru mati di badan Monas. Campaign stage 2: habis oleh
+                // umur (menembus gedung dekoratif secara visual — tak ada interior).
                 const hitMonas = !isCamp
                     && Math.abs(b.mesh.position.x) < 22 && Math.abs(b.mesh.position.z) < 22 && b.mesh.position.y < 35;
-                if (b.life <= 0 || hitMonas) { scene.remove(b.mesh); bullets.splice(i, 1); }
+                // Stage 1 (gedung): peluru MATI di dinding — mencegah membunuh zombie
+                // diam di ruangan lain menembus tembok (sweep ruas posisi-lalu -> kini).
+                const hitWall = isCamp && CAMP_STAGE === 1 && b.mesh.position.y < S1.H
+                    && s1SegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z);
+                if (b.life <= 0 || hitMonas || hitWall) { scene.remove(b.mesh); bullets.splice(i, 1); }
             }
 
             // --- 6. AI Zombie ---
@@ -3876,7 +4557,12 @@
                     z.mesh.visible = dCull < CAMP_VIS;
                     if (z.state === 'idle') {
                         z.moving = false;
-                        if (dCull < CAMP_ACTIVATE) { z.state = 'chasing'; z.groundY = 0; }
+                        // Stage 1 (indoor): bangun hanya bila MELIHAT player (LOS grid)
+                        // atau sangat dekat menembus dinding tipis; stage 2 cukup jarak.
+                        if (dCull < CAMP_ACTIVATE && (CAMP_STAGE === 2 || dCull < 30 ||
+                            s1LOS(z.mesh.position.x, z.mesh.position.z, camera.position.x, camera.position.z))) {
+                            z.state = 'chasing'; z.groundY = 0;
+                        }
                         else if (dCull > CAMP_VIS) continue;   // jauh & diam: lewati animasi/hit test
                     }
                 }
@@ -3915,10 +4601,15 @@
                     }
 
                     if (isCamp) {
-                        // Campaign: penghalang pejal = dinding bak air mancur, median,
-                        // tumpukan mobil. Dorong keluar horizontal (zombie berputar
-                        // lewat celah median). Tetap di tanah (tak memanjat median).
+                        // Campaign: penghalang pejal = bak air mancur/median/mobil (stage 2)
+                        // atau furnitur (stage 1). Lalu jepit ke area jalan/lantai per-sumbu
+                        // (menyusur dinding gedung, tidak menembus tembok ruangan).
                         campResolve(z.mesh.position, 3.5, 0);
+                        if (!inCampWalkable(z.mesh.position.x, z.mesh.position.z, 3)) {
+                            if (inCampWalkable(z.mesh.position.x, oldZZ, 3)) z.mesh.position.z = oldZZ;
+                            else if (inCampWalkable(oldZX, z.mesh.position.z, 3)) z.mesh.position.x = oldZX;
+                            else { z.mesh.position.x = oldZX; z.mesh.position.z = oldZZ; }
+                        }
                         z.mesh.position.y = z.baseY;
                     } else {
                         // Tabrakan dgn Monas -> mundur
@@ -4010,8 +4701,9 @@
                 }
             }
 
-            // Campaign: semua zombie dibersihkan -> misi selesai (menang).
-            if (isCamp && zombies.length === 0) { gameOver(true); return; }
+            // Campaign: seluruh zombie jalan raya (stage 2) bersih -> misi selesai.
+            // (Zombie stage 1 sudah dibuang saat enterStage2, jadi cek length aman.)
+            if (isCamp && CAMP_STAGE === 2 && zombies.length === 0) { gameOver(true); return; }
         }
 
         // ----------- Radar / minimap ----------- //
@@ -4028,11 +4720,18 @@
             radarCtx.translate(W / 2, W / 2);
 
             if (GAME_MODE === 'campaign') {
-                // Landmark campaign: air mancur (cyan) + blokade mobil (merah)
-                for (const f of [CAMP.low, CAMP.up])
-                    plotRadar(f.x - camera.position.x, f.z - camera.position.z, cos, sin, R, range, "#00e5ff", 5);
-                for (const wpile of campWreckPiles)
-                    plotRadar(wpile.x - camera.position.x, wpile.z - camera.position.z, cos, sin, R, range, "#ff2d2d", 4);
+                if (CAMP_STAGE === 1) {
+                    // Landmark gedung: tangga keluar (hijau menyala)
+                    const ex = S1.x0 + (S1_EXIT.c0 + S1_EXIT.c1 + 1) / 2 * S1.CELL;
+                    const ez = S1.z0 + (S1_EXIT.r0 + S1_EXIT.r1 + 1) / 2 * S1.CELL;
+                    plotRadar(ex - camera.position.x, ez - camera.position.z, cos, sin, R, range, "#2eff6a", 5);
+                } else {
+                    // Landmark jalan raya: air mancur (cyan) + blokade mobil (merah)
+                    for (const f of [CAMP.low, CAMP.up])
+                        plotRadar(f.x - camera.position.x, f.z - camera.position.z, cos, sin, R, range, "#00e5ff", 5);
+                    for (const wpile of campWreckPiles)
+                        plotRadar(wpile.x - camera.position.x, wpile.z - camera.position.z, cos, sin, R, range, "#ff2d2d", 4);
+                }
             } else {
                 // Monas (titik abu di pusat dunia)
                 plotRadar(-camera.position.x, -camera.position.z, cos, sin, R, range, "#bbbbbb", 4);
@@ -4040,9 +4739,10 @@
             // Zombie
             for (const z of zombies)
                 plotRadar(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z, cos, sin, R, range, "#ff4757", 3);
-            // Drops
+            // Drops (mag kuning, granat hijau, medkit merah muda)
             for (const d of drops)
-                plotRadar(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z, cos, sin, R, range, d.type === 'mag' ? "#f1c40f" : "#2ecc71", 2.5);
+                plotRadar(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z, cos, sin, R, range,
+                    d.type === 'mag' ? "#f1c40f" : d.type === 'medkit' ? "#ff6b81" : "#2ecc71", 2.5);
 
             // player di pusat
             radarCtx.fillStyle = "#74b9ff";
@@ -4091,10 +4791,10 @@
             const dotsWrap = document.getElementById("cutsceneDots");
 
             const captions = [
-                "Jakarta runtuh... seorang warga kabur dari kejaran zombie.",
-                "Tapi mereka tak sendiri — segerombolan zombie ikut bangkit.",
-                "Dia berlari menuju Monas, satu-satunya tempat berlindung.",
-                "Di depan gerombolan, ia berhenti dan berbalik..."
+                "Jakarta has fallen... a citizen flees from the zombies.",
+                "But they are not alone — a whole horde has risen.",
+                "He runs toward Monas, the last place of refuge.",
+                "Facing the horde, he stops and turns around..."
             ];
 
             slides.forEach(() => {
@@ -4109,7 +4809,7 @@
                 slides.forEach((s, n) => s.classList.toggle("active", n === i));
                 dots.forEach((d, n) => d.classList.toggle("on", n === i));
                 caption.textContent = captions[i];
-                nextBtn.textContent = (i === slides.length - 1) ? "MULAI ⚔️" : "Lanjut ▶";
+                nextBtn.textContent = (i === slides.length - 1) ? "START ⚔️" : "Next ▶";
             }
 
             function finish() {
