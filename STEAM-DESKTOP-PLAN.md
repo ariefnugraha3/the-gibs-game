@@ -1,11 +1,20 @@
 # Rencana: Konversi ke Desktop Windows (.exe) & Publikasi ke Steam
 
-> Dokumen rencana untuk mengubah **Gibran vs Zombie 3D** (game browser single-page,
+> Dokumen rencana untuk mengubah **Gibran vs Zombie 3D** (game browser statis,
 > lihat [CLAUDE.md](CLAUDE.md)) menjadi aplikasi desktop Windows yang bisa dijual di
 > **Steam** (dan itch.io versi desktop), tanpa menulis ulang game.
 >
 > Status: **rencana/belum dieksekusi.** Dibuat 2026-07-04. Perbarui bagian "Status
 > eksekusi" di bawah saat langkah dikerjakan.
+>
+> **Catatan sinkronisasi (2026-07-05):** kode sudah direfactor dari satu `index.html`
+> menjadi ES modules di `src/` + `css/` + `config/gameplay.json` (katalog: MODULES.md),
+> dan `package.json` metadata (`"type": "module"`) kini SUDAH ada — Electron init
+> tinggal menambah field `main`/dependensi, jangan menimpanya. Rencana ini tetap
+> berlaku; penyebutan "seluruh game di index.html" di bawah adalah kondisi lama.
+> Perhatian ekstra utk Fase 1: game kini dimuat via ES modules + `fetch` config, jadi
+> jendela Electron perlu `loadFile` yang mendukung module/fetch (Electron modern OK)
+> atau server statis internal — uji ini bersamaan dgn vendoring CDN.
 
 ---
 

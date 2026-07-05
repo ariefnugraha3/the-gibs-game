@@ -1,0 +1,538 @@
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #000;
+    font-family: Arial, sans-serif;
+    user-select: none;
+}
+
+#ui {
+    position: absolute;
+    top: 15px;
+    width: 100%;
+    padding: 0 40px;
+    box-sizing: border-box;
+    font-size: 26px;
+    font-weight: bold;
+    color: white;
+    text-shadow: 3px 3px 5px black;
+    pointer-events: none;
+    z-index: 4;
+}
+
+#waveText {
+    text-align: center;
+    color: #74b9ff;
+    margin-top: 8px;
+    font-size: 22px;
+    letter-spacing: 1px;
+}
+
+/* Bar HEALTH & STAMINA di pojok kiri-bawah */
+#barsHud {
+    position: absolute;
+    left: 26px;
+    bottom: 22px;
+    z-index: 4;
+    pointer-events: none;
+    font-weight: bold;
+}
+
+.barRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 14px;
+    letter-spacing: 2px;
+    color: #ddd;
+    text-shadow: 2px 2px 3px #000;
+}
+
+.barRow .blabel { width: 88px; }
+
+.barShell {
+    width: 230px;
+    height: 13px;
+    border: 2px solid rgba(255, 255, 255, 0.55);
+    border-radius: 7px;
+    background: rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+}
+
+#healthFill, #staminaFill {
+    height: 100%;
+    width: 100%;
+    background: #3ddc6a;
+    border-radius: 5px;
+    transition: background 0.2s;
+}
+
+#healthFill { background: #e74c3c; }
+
+/* Skor/amunisi/granat di pojok kanan-bawah (radar kini di kiri-atas) */
+#statsHud {
+    position: absolute;
+    right: 26px;
+    bottom: 22px;
+    z-index: 4;
+    pointer-events: none;
+    text-align: right;
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    text-shadow: 3px 3px 5px black;
+    line-height: 1.45;
+}
+
+/* Crosshair DISEMBUNYIKAN permanen (permintaan user) — elemen & seluruh JS
+   yang menulisnya (opacity ADS, kelas .hit) dibiarkan utuh agar mekanik
+   menembak/recoil tidak berubah sedikit pun. */
+#crosshair {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px;
+    height: 30px;
+    transform: translate(-50%, -50%);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 30px;
+    text-align: center;
+    line-height: 30px;
+    pointer-events: none;
+    z-index: 4;
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.45), 0 0 2px #000;
+    transition: color 0.08s, text-shadow 0.08s;
+}
+
+/* Feed info item yang diambil (kiri layar): muncul, diam sebentar, memudar */
+#pickupFeed {
+    position: absolute;
+    left: 26px;
+    top: 42%;
+    z-index: 4;
+    pointer-events: none;
+    font-weight: bold;
+}
+
+.pickupMsg {
+    font-size: 20px;
+    margin: 5px 0;
+    text-shadow: 2px 2px 4px #000;
+    animation: pickupIn 0.22s ease forwards;
+}
+
+.pickupMsg.fade { opacity: 0; transition: opacity 0.6s; }
+
+@keyframes pickupIn {
+    from { opacity: 0; transform: translateX(-18px); }
+    to   { opacity: 1; transform: none; }
+}
+
+#crosshair.hit {
+    color: #ff4757;
+    text-shadow: 0 0 12px rgba(255, 71, 87, 0.9), 0 0 2px #000;
+}
+
+/* Radar / minimap (kiri-atas; isi digambar canvas di drawRadar) */
+#radar {
+    position: absolute;
+    top: 18px;
+    left: 18px;
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    background: rgba(6, 14, 22, 0.35);
+    border: 2px solid rgba(116, 185, 255, 0.55);
+    box-shadow:
+        0 0 18px rgba(40, 130, 220, 0.35),
+        0 2px 10px rgba(0, 0, 0, 0.7),
+        inset 0 0 26px rgba(0, 0, 0, 0.55);
+    z-index: 4;
+    pointer-events: none;
+}
+
+/* Vignette atmosfer permanen (di bawah overlay damage) */
+#vignette {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.42) 100%);
+}
+
+/* Film grain halus (tekstur noise dibuat runtime, digeser per langkah) */
+#grain {
+    position: absolute;
+    inset: -100px;
+    z-index: 3;
+    pointer-events: none;
+    opacity: 0.05;
+    animation: grainShift 0.9s steps(8) infinite;
+}
+
+@keyframes grainShift {
+    0%    { transform: translate(0, 0); }
+    12.5% { transform: translate(-25px, 10px); }
+    25%   { transform: translate(15px, -20px); }
+    37.5% { transform: translate(-10px, 25px); }
+    50%   { transform: translate(20px, 5px); }
+    62.5% { transform: translate(-20px, -15px); }
+    75%   { transform: translate(10px, 20px); }
+    87.5% { transform: translate(-15px, -5px); }
+    100%  { transform: translate(0, 0); }
+}
+
+/* Damage vignette */
+#damage {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    pointer-events: none;
+    opacity: 0;
+    box-shadow: inset 0 0 200px 80px rgba(180, 0, 0, 0.9);
+    transition: opacity 0.12s ease-out;
+}
+
+#blocker {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-direction: column;
+    cursor: pointer;
+    z-index: 5;
+}
+
+#instructions {
+    font-size: 40px;
+    text-align: center;
+    text-shadow: 2px 2px 5px black;
+}
+
+#instructions span.small {
+    font-size: 22px;
+    color: #ddd;
+}
+
+#gameOver {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(150, 0, 0, 0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-direction: column;
+    z-index: 10;
+    cursor: pointer;
+}
+
+/* ----- Layar pilih mode (paling awal, di atas cutscene) ----- */
+#modeSelect {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 30%, #2a0d0d, #000 80%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 30;
+    color: #fff;
+    font-family: Arial, sans-serif;
+}
+
+#modeSelect h1 {
+    font-size: clamp(30px, 5vw, 52px);
+    margin: 0 0 6px;
+    letter-spacing: 3px;
+    text-shadow: 0 0 24px rgba(255, 60, 0, 0.55), 3px 3px 4px #000;
+}
+
+#modeSelect .subtitle {
+    color: #ffb84d;
+    letter-spacing: 4px;
+    font-size: 15px;
+    margin-bottom: 34px;
+}
+
+.modeCards { display: flex; gap: 26px; flex-wrap: wrap; justify-content: center; padding: 0 20px; }
+
+.modeCard {
+    width: 300px;
+    padding: 28px 22px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid #7a2b2b;
+    border-radius: 14px;
+    cursor: pointer;
+    text-align: center;
+    transition: transform 0.12s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.modeCard:hover {
+    transform: translateY(-5px);
+    border-color: #e0503e;
+    background: rgba(224, 80, 62, 0.12);
+    box-shadow: 0 8px 30px rgba(224, 80, 62, 0.25);
+}
+
+.modeCard .emoji { font-size: 54px; filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7)); }
+.modeCard h2 { color: #ff6b3a; font-size: 24px; margin: 14px 0 8px; letter-spacing: 1px; }
+.modeCard p { font-size: 14px; color: #ccc; line-height: 1.55; margin: 0; }
+
+/* Pesan stage (muncul sebentar saat pindah stage campaign) */
+#stageMsg {
+    position: absolute;
+    top: 26%;
+    width: 100%;
+    text-align: center;
+    font-size: clamp(20px, 3vw, 34px);
+    font-weight: bold;
+    color: #ffd27a;
+    letter-spacing: 2px;
+    text-shadow: 2px 2px 8px #000, 0 0 22px rgba(255, 150, 40, 0.35);
+    opacity: 0;
+    transition: opacity 0.6s;
+    pointer-events: none;
+    z-index: 7;
+}
+
+/* Pesan error fatal (config gagal dimuat / dibuka via file://) */
+#fatalMsg {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 40px;
+    background: #1a0505;
+    color: #ffb3a7;
+    font-size: 20px;
+    line-height: 1.6;
+    z-index: 99;
+}
+
+/* ----- Cutscene / slideshow pembuka ----- */
+#cutscene {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 30%, #2a0d0d, #000 80%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 20;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+}
+
+#cutscene .slide {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    animation: fadeIn 0.6s ease;
+}
+
+#cutscene .slide.active {
+    display: flex;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Panggung adegan */
+.scene {
+    position: relative;
+    width: 80vw;
+    max-width: 720px;
+    height: 46vh;
+    max-height: 380px;
+    background: linear-gradient(#1a0f0a 0%, #3a1f12 60%, #120a06 100%);
+    border: 3px solid #7a2b2b;
+    border-radius: 12px;
+    box-shadow: 0 0 40px rgba(255, 60, 0, 0.35), inset 0 -40px 60px rgba(0,0,0,0.6);
+    overflow: hidden;
+}
+
+/* Tanah */
+.scene::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 26%;
+    background: linear-gradient(#241712, #0c0705);
+    box-shadow: inset 0 6px 12px rgba(0,0,0,0.6);
+}
+
+.actor {
+    position: absolute;
+    bottom: 16%;
+    font-size: clamp(40px, 8vw, 80px);
+    filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7));
+    z-index: 2;
+}
+
+.actor.flip { transform: scaleX(-1); }
+
+.run { animation: bob 0.4s ease-in-out infinite alternate; }
+@keyframes bob {
+    from { transform: translateY(0); }
+    to   { transform: translateY(-10px); }
+}
+.run.flip { animation: bobFlip 0.4s ease-in-out infinite alternate; }
+@keyframes bobFlip {
+    from { transform: scaleX(-1) translateY(0); }
+    to   { transform: scaleX(-1) translateY(-10px); }
+}
+
+.shamble { animation: shamble 0.9s ease-in-out infinite alternate; }
+@keyframes shamble {
+    from { transform: rotate(-6deg); }
+    to   { transform: rotate(6deg); }
+}
+
+/* Monas (monumen) digambar dengan CSS */
+.monas {
+    position: absolute;
+    bottom: 22%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 26px;
+    height: 55%;
+    background: linear-gradient(#d8c9a0, #8a7a55);
+    z-index: 1;
+}
+.monas::before {
+    content: "🔥";
+    position: absolute;
+    top: -34px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 30px;
+}
+.monas::after {
+    content: "";
+    position: absolute;
+    bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 90px;
+    height: 22px;
+    background: linear-gradient(#b8a878, #6a5a3a);
+}
+
+.crowd {
+    position: absolute;
+    bottom: 16%;
+    display: flex;
+    gap: 4px;
+    font-size: clamp(34px, 6vw, 64px);
+    filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7));
+    z-index: 2;
+}
+
+/* Balon dialog */
+.bubble {
+    position: absolute;
+    top: 12%;
+    left: 50%;
+    transform: translateX(-50%) scale(0);
+    background: #fff;
+    color: #c0392b;
+    font-weight: 900;
+    font-size: clamp(20px, 4vw, 38px);
+    letter-spacing: 1px;
+    padding: 14px 26px;
+    border-radius: 16px;
+    white-space: nowrap;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+    z-index: 3;
+}
+.slide.active .bubble { animation: pop 0.5s 0.4s ease forwards; }
+@keyframes pop {
+    0%   { transform: translateX(-50%) scale(0); }
+    70%  { transform: translateX(-50%) scale(1.15); }
+    100% { transform: translateX(-50%) scale(1); }
+}
+.bubble::after {
+    content: "";
+    position: absolute;
+    bottom: -16px; left: 30%;
+    border: 10px solid transparent;
+    border-top-color: #fff;
+}
+
+#cutscene .caption {
+    margin-top: 22px;
+    font-size: clamp(16px, 2.4vw, 24px);
+    max-width: 720px;
+    line-height: 1.4;
+    text-shadow: 2px 2px 4px #000;
+    min-height: 2.4em;
+}
+
+#cutscene .controls {
+    margin-top: 18px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+}
+
+#cutscene .dots { display: flex; gap: 8px; }
+#cutscene .dot {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.25);
+}
+#cutscene .dot.on { background: #ff6b3a; }
+
+#cutscene button {
+    font-family: Arial, sans-serif;
+    font-size: 18px;
+    font-weight: bold;
+    color: #fff;
+    background: #c0392b;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 22px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #7a1f15;
+    transition: transform 0.08s, background 0.15s;
+}
+#cutscene button:hover { background: #e0503e; }
+#cutscene button:active { transform: translateY(3px); box-shadow: 0 1px 0 #7a1f15; }
+#cutscene #skipBtn {
+    background: transparent;
+    box-shadow: none;
+    color: #aaa;
+    font-weight: normal;
+    font-size: 15px;
+    text-decoration: underline;
+}
+#cutscene #skipBtn:hover { color: #fff; }
+
+/* Pilihan kualitas grafis di layar mulai (hilang setelah game pertama dimulai) */
+#qualityRow { margin-top: 24px; }
+#qualityRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; }
+.qbtn {
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    color: #ccc;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 7px 16px;
+    margin: 10px 4px 0;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.qbtn:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
+.qbtn.active { background: #c0392b; border-color: #e0503e; color: #fff; box-shadow: 0 0 10px rgba(224, 80, 62, 0.5); }
