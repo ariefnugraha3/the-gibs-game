@@ -93,7 +93,7 @@
     },
     "campaign": {
         "zombieHp": 3,
-        "zombieSpeedScale": 0.5,
+        "zombieSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500
     },

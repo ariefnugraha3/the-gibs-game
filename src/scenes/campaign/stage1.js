@@ -122,15 +122,15 @@ export function resolve(pos, radius, feetY) {
     return resolveBlockers(pos, radius, feetY, blockers);
 }
 
-// Nav-grid pathfinder = grid ruangan itu juga (1 sel nav per sel denah).
-// Furnitur tidak di-bake: kecil, tidak pernah menutup pintu (aturan denah),
-// dan sudah ditangani resolve saat mengikuti waypoint.
+// Nav-grid pathfinder stage 1: resolusi SETENGAH sel denah (7 unit = 1 m)
+// agar furnitur ikut ter-bake tanpa menutup jalur yang sebenarnya lebar.
+// Dinding dari grid denah; furnitur/undakan via resolve (sel yang tergeser =
+// penghalang) -> zombie MEMUTARI meja/krat, bukan menabrak/mendorongnya.
+// Di-bake di AKHIR buildWorld (butuh blockers sudah terisi semua).
 export let s1Nav = null;
 
 export function buildWorld() {
     buildS1Grid();
-    s1Nav = makeNavGrid(S1.x0, S1.z0, S1.CELL, S1.G, S1.G,
-        (x, z) => stage1Walk(x, z, 0.5));
     const size = S1.G * S1.CELL;                      // 420 unit = 60 m
     const cx = S1.x0 + size / 2, cz = S1.z0 + size / 2;
 
@@ -331,6 +331,17 @@ export function buildWorld() {
     const exitLight = new THREE.PointLight(0x39ff7a, 0.8, 200, 2);
     exitLight.position.set(exitP.x, S1.H - 6, exitP.z);
     scene.add(exitLight);
+
+    // Bake nav-grid TERAKHIR (semua blockers sudah terisi): dinding dari grid
+    // denah, furnitur/undakan dari resolve. Radius sampel 3 (< badan 3.5)
+    // agar celah sempit tapi lewat-able tidak tertutup di grid.
+    const half = S1.CELL / 2;
+    s1Nav = makeNavGrid(S1.x0, S1.z0, half, S1.G * 2, S1.G * 2, (x, z) => {
+        if (!stage1Walk(x, z, 3)) return false;
+        _v3.set(x, 0, z);
+        resolve(_v3, 3, 0);
+        return Math.abs(_v3.x - x) + Math.abs(_v3.z - z) < 0.01;
+    });
 }
 
 // Zombie stage 1: titik tengkorak pada denah (sel grid) + jitter kecil.
