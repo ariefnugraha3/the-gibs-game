@@ -4,6 +4,7 @@
 import { keys, mouse, isPaused, isGameOver, setPaused, mode } from './state.js';
 import { camera } from './renderer.js';
 import { blocker } from './dom.js';
+import { activeScene } from './sceneManager.js';
 import { resetGame } from './game.js';
 import {
     startReload, tryMelee, trySwitchKey, toggleAim, setAiming, switchAnim
@@ -20,7 +21,8 @@ import { handleThrowGrenade } from '../entities/grenades.js';
 // HANYA tombol gameplay + shortcut berbahaya, SENGAJA tanpa Escape, agar
 // Esc tetap keluar pointer-lock (pause) seperti biasa.
 const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyF', 'KeyG',
-    'KeyQ', 'KeyC', 'KeyT', 'KeyN', 'KeyP', 'Digit1', 'Digit2'];
+    'KeyQ', 'KeyC', 'KeyT', 'KeyN', 'KeyP', 'KeyB',
+    'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
 
 export function enterImmersive() {
     // Fullscreen wajib agar Keyboard Lock menangkap tombol sistem (Ctrl+W dkk).
@@ -53,6 +55,8 @@ export function releaseInputs() {
     setAiming(false);
     clearCrouch();   // toggle jongkok ikut dilepas (konsisten dgn toggle bidik)
     for (const k in keys) keys[k] = false;
+    // Overlay shop (survival) ikut ditutup saat unlock/blur/reset/game over
+    if (activeScene && activeScene.shopClose) activeScene.shopClose();
 }
 
 export function initInput() {
@@ -111,8 +115,14 @@ export function initInput() {
         // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie).
         // Gate stamina/cooldown/reload di dalam tryMelee.
         if (key === 'f' && !isPaused && !isGameOver) tryMelee();
-        // 1 = rifle, 2 = pistol, Q = tukar cepat (membatalkan reload, ala CS)
-        if ((key === '1' || key === '2' || key === 'q') && !isPaused && !isGameOver) trySwitchKey(key);
+        // Shop survival (hook opsional scene): B buka/tutup; angka 1-5 membeli
+        // SELAGI overlay terbuka (return true = tombol dikonsumsi shop, tidak
+        // bocor jadi ganti senjata). Scene tanpa hook (campaign) tak terpengaruh.
+        const shopUsed = !isPaused && !isGameOver && activeScene && activeScene.shopKey
+            ? activeScene.shopKey(key) : false;
+        // 1 = rifle, 2 = pistol, 3 = shotgun, Q = tukar cepat (membatalkan reload)
+        if (!shopUsed && (key === '1' || key === '2' || key === '3' || key === 'q')
+            && !isPaused && !isGameOver) trySwitchKey(key);
         if (e.code === 'Space') {
             if (isGameOver) resetGame();   // restart
             else tryJump();                // lompat

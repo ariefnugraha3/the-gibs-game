@@ -122,7 +122,9 @@ export function updateGrenades(dt) {
             nudgeGrenade(g, camera.position.x, camera.position.z, player.radius);
             for (let zi = 0; zi < zombies.length; zi++) {
                 const zb = zombies[zi];
-                if (zb.state === 'jumping') continue;   // zombie melayang tak mendorong
+                // Zombie melayang tak mendorong; boss dikecualikan agar tidak
+                // bisa "di-bully" memantul-mantulkan granat dgn badan besarnya.
+                if (zb.state === 'jumping' || zb.kind === 'boss') continue;
                 nudgeGrenade(g, zb.mesh.position.x, zb.mesh.position.z, 3.5);
             }
         }

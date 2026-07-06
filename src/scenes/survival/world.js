@@ -540,20 +540,41 @@ export function resolveObstacles(pos, radius, feetY) {
 }
 
 // Nav-grid pathfinder zombie: taman di dalam pagar; Monas & pohon = penghalang.
-// Bak air mancur SENGAJA walkable — jalur lurus yang melintasinya membentur
-// dinding bak lalu memicu perilaku vault (tetap hidup, tidak diputari).
+// fountainWalkable=true (survival): bak air mancur SENGAJA walkable — jalur
+// lurus yang melintasinya membentur dinding bak lalu memicu perilaku vault.
+// fountainWalkable=false (campaign stage 3): campaignZombieAI TIDAK punya
+// vault, jadi bak harus jadi penghalang agar zombie memutarinya (bukan macet).
 // Panggil SETELAH buildSurvivalWorld (treeColliders sudah terisi).
-export function buildSurvivalNav() {
+export function buildSurvivalNav(fountainWalkable = true) {
     const cell = 14, m = 6;   // margin tepi pagar
     return makeNavGrid(-PARK.hx, -PARK.hz, cell,
         Math.ceil(PARK.hx * 2 / cell), Math.ceil(PARK.hz * 2 / cell),
         (x, z) => {
             if (Math.abs(x) > PARK.hx - m || Math.abs(z) > PARK.hz - m) return false;
             if (Math.abs(x) < 28 && Math.abs(z) < 28) return false;   // Monas (AABB 24 + badan zombie)
+            if (!fountainWalkable
+                && Math.hypot(x - FOUNTAIN.x, z - FOUNTAIN.z) < FOUNTAIN.r + 4) return false;
             for (const t of treeColliders)
                 if (Math.hypot(x - t.x, z - t.z) < t.r + 4) return false;
             return true;
         });
+}
+
+// --- Dunia taman DIBAGI dua scene: survivalScene & campaign stage3Scene ---
+// (satu kali bangun; tiap scene mengambil nav-grid versinya sendiri).
+let parkBuilt = false;
+let navVault = null;    // bak walkable (survival — vault hidup)
+let navSolid = null;    // bak pejal (stage 3 — tanpa vault)
+export function ensureParkWorld() {
+    if (!parkBuilt) { buildSurvivalWorld(); parkBuilt = true; }
+}
+export function getSurvivalNav() {
+    if (!navVault) navVault = buildSurvivalNav(true);
+    return navVault;
+}
+export function getParkNavSolidFountain() {
+    if (!navSolid) navSolid = buildSurvivalNav(false);
+    return navSolid;
 }
 
 // Apakah ruas garis (x1,z1)->(x2,z2) melintasi lingkaran bak air mancur?

@@ -1,14 +1,34 @@
 // SCENE menu (DOM murni, sebelum dunia 3D dibangun): layar pilih mode
-// (#modeSelect, z-index 30) + cutscene pembuka (z-index 20, khusus Survival).
-// Dunia baru dibangun SETELAH mode dipilih — onPick(mode) memanggil startGame.
+// (#modeSelect, z-index 30) + baris difficulty + cutscene pembuka (z-index 20,
+// khusus Survival). Dunia baru dibangun SETELAH mode dipilih — onPick(mode)
+// memanggil startGame; difficulty diterapkan ke CFG TEPAT sebelum itu.
+
+import { applyDifficulty } from '../core/config.js';
+import { setDifficulty } from '../core/state.js';
 
 export function initMenu(onPick) {
+    // --- Pilihan difficulty (localStorage; default normal). applyDifficulty
+    // idempoten (selalu dihitung dari CFG_BASE) — aman diklik berkali-kali. ---
+    let diff = localStorage.getItem('gibsDifficulty') || 'normal';
+    const dbtns = document.querySelectorAll('#diffRow .dbtn');
+    const paintDiff = () => dbtns.forEach(b => b.classList.toggle('selected', b.dataset.d === diff));
+    dbtns.forEach(b => b.addEventListener('click', () => {
+        diff = b.dataset.d;
+        localStorage.setItem('gibsDifficulty', diff);
+        paintDiff();
+    }));
+    paintDiff();
+
     let picked = false;
     document.querySelectorAll('#modeSelect .modeCard').forEach(card => {
         card.addEventListener('click', () => {
             if (picked) return;   // jaga-jaga klik ganda
             picked = true;
             const mode = card.dataset.mode;
+            // Terapkan difficulty SEBELUM dunia/entitas dibangun: CFG dimutasi
+            // dari CFG_BASE + high score dimuat per-difficulty.
+            applyDifficulty(diff);
+            setDifficulty(diff);
             document.getElementById('modeSelect').style.display = 'none';
             // Cutscene pembuka bertema Monas -> hanya untuk Survival; Campaign
             // langsung ke layar mulai (blocker) di bawahnya.

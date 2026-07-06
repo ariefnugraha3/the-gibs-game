@@ -5,15 +5,15 @@
 // semua scene: cakaran, animasi rig, dan hit test peluru.
 
 import { CFG } from '../core/config.js';
-import { player, zombies, bullets, addScore } from '../core/state.js';
-import { scene } from '../core/renderer.js';
+import { player, zombies, bullets, addScore, stats, _dir } from '../core/state.js';
+import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, segPointDist2 } from '../utils/math.js';
 import { playSFX, sfxZombieBite, sfxHit } from '../utils/sfx.js';
-import { crosshair, flashDamage } from '../core/dom.js';
+import { crosshair, flashDamage, showHitDir } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
-import { spawnGroundPuff, spawnBlood } from './effects.js';
+import { spawnGroundPuff, spawnBlood, explodeAt } from './effects.js';
 import { spawnDrop } from './drops.js';
 import { gameOver } from '../core/game.js';
 
@@ -30,7 +30,41 @@ export const ZOMBIE_VARIANTS = [
 ];
 export const ZOMBIE_SKIN_TONES = [0x7fa05a, 0x8aa66b, 0x74975a, 0x93a06a];   // kulit membusuk kehijauan
 
-const CLAW_TIME = 0.4;   // durasi animasi sabetan (mekanik jeda cakar dari CFG)
+export const CLAW_TIME = 0.4;   // durasi animasi sabetan (mekanik jeda cakar dari CFG)
+
+// Sudut penyerang relatif hadap kamera (0 = depan, + = searah jarum jam di
+// layar) — dipakai indikator arah serangan (showHitDir). Diekspor utk dipakai
+// juga oleh serangan non-cakar (ledakan exploder).
+export function attackerAngle(ax, az) {
+    camera.getWorldDirection(_dir);
+    const dx = ax - camera.position.x, dz = az - camera.position.z;
+    return Math.atan2(_dir.x * dz - _dir.z * dx, _dir.x * dx + _dir.z * dz);
+}
+
+// reachMul utk zombie berskala: badan pejal (bodyBlockRadius x scl) MENDORONG
+// player — tanpa ini brute/boss mendorong player keluar dari jangkauan
+// cakarnya sendiri dan tak pernah bisa menyerang. Invarian dasar game
+// (body 7.5 < stop 8.0 < claw 8.5) dipertahankan pada skala berapa pun:
+// stop = player.radius + stopRange*reachMul harus >= body + 0.5.
+// scl 1 menghasilkan tepat 1.0 (perilaku lama byte-identik).
+export function reachForScale(scl, base = 1) {
+    const need = (CFG.zombie.bodyBlockRadius * scl + 0.5 - CFG.player.radius)
+        / CFG.zombie.stopRange;
+    return Math.max(base, need);
+}
+
+// Warnai ulang seluruh material 1 zombie (per-instance, aman) — pembeda
+// visual varian: exploder kehijauan menyala, brute/boss lebih gelap.
+export function tintZombie(group, dh, ds, dl, emissiveHex = 0) {
+    group.traverse(o => {
+        if (!o.isMesh || !o.material) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+            if (m.color) m.color.offsetHSL(dh, ds, dl);
+            if (emissiveHex && m.emissive) m.emissive.setHex(emissiveHex);
+        }
+    });
+}
 
 // Geometri bersama bagian tubuh (dipakai ulang antar instance; JANGAN
 // di-dispose saat zombie mati — hanya materialnya yang per-instance).
@@ -225,13 +259,42 @@ export function disposeZombie(z) {
 // Sengaja TIDAK ada umpan-balik warna luka pada zombie: player tidak boleh
 // tahu zombie sudah tertembak / hampir mati — warna asli dipertahankan.
 
+// Antrean ledakan exploder. JANGAN memanggil explodeAt langsung dari
+// killZombie: explodeAt mengiterasi & men-splice array zombies yang sama —
+// ledakan berantai di tengah iterasi = bug indeks. Antrean diproses SETELAH
+// loop utama (processPendingBooms); ledakan berantai berjalan iteratif di sana.
+const pendingBooms = [];
+export function resetZombiesFx() { pendingBooms.length = 0; }   // dipanggil resetGame
+
 export function killZombie(i) {
     const z = zombies[i];
     spawnGroundPuff(z.mesh.position.x, z.mesh.position.z, 0x5a1616, 13, z.groundY + 0.6);   // percikan (visual)
+    if (z.kind === 'exploder') pendingBooms.push(z.mesh.position.clone());
     disposeZombie(z);
     scene.remove(z.mesh);
     zombies.splice(i, 1);
-    addScore(100);
+    stats.kills++;
+    addScore(z.kind === 'boss' ? CFG.campaign.boss.score : 100);
+}
+
+// Proses ledakan exploder yang antre: visual+kill zombie sekitar (explodeAt,
+// radius kecil) + MELUKAI player bila dekat (beda dgn granat player yang
+// bersahabat). killZombie di dalam explodeAt bisa menambah antrean lagi
+// (ledakan berantai) — loop while menuntaskannya.
+function processPendingBooms() {
+    while (pendingBooms.length) {
+        const p = pendingBooms.shift();
+        const V = CFG.zombie.variants.exploder;
+        explodeAt(p, V.boomRadius);
+        const d = Math.hypot(p.x - camera.position.x, p.z - camera.position.z);
+        if (d < V.boomRadius) {
+            player.hp -= V.boomDamage;
+            updateUI();
+            flashDamage();
+            showHitDir(attackerAngle(p.x, p.z));
+            if (player.hp <= 0) { gameOver(false); return; }
+        }
+    }
 }
 
 // --- Loop zombie bersama: AI gerak per scene -> cakar -> rig -> hit peluru ---
@@ -245,17 +308,19 @@ export function updateZombies(dt, step) {
         const res = activeScene.zombieAI(z, dt, step) || {};
         if (res.skip) continue;
 
-        // Serangan MENCAKAR: damage & jeda per CFG.zombie, per zombie.
-        // Zombie bertahan hidup (tidak lagi hilang setelah menyentuh player).
+        // Serangan MENCAKAR: damage & jangkauan per zombie (varian/boss lewat
+        // z.clawDmg & z.reachMul; default nilai CFG.zombie).
         if (res.chaseDist !== undefined && res.chaseDist !== null) {
             if (z.attackCd > 0) z.attackCd -= dt;
-            if (res.chaseDist < player.radius + CFG.zombie.clawRange && z.attackCd <= 0) {
+            if (res.chaseDist < player.radius + CFG.zombie.clawRange * (z.reachMul || 1)
+                && z.attackCd <= 0) {
                 z.attackCd = CFG.zombie.clawCooldownSec;
                 z.clawT = CLAW_TIME;           // animasi sabetan (animateZombieRig)
                 z.clawSide = -z.clawSide;      // lengan bergantian kiri/kanan
-                player.hp -= CFG.zombie.clawDamage;
+                player.hp -= (z.clawDmg != null ? z.clawDmg : CFG.zombie.clawDamage);
                 updateUI();
                 flashDamage();
+                showHitDir(attackerAngle(z.mesh.position.x, z.mesh.position.z));
                 playSFX(sfxZombieBite);   // sabetan cakar...
                 playSFX(sfxHit);          // ...plus jeritan player (jokowi-kaget)
                 if (player.hp <= 0) { gameOver(false); return; }
@@ -266,11 +331,14 @@ export function updateZombies(dt, step) {
 
         // Tabrakan peluru (berlaku saat melompat, idle, maupun mengejar): sweep
         // SEGMEN posisi-lalu -> posisi-kini (anti tembus point-blank / fps rendah).
-        // KEPALA dicek lebih dulu — headshot = mati seketika; badan = hp turun.
-        const hitR = z.isModel ? 6 : 4.5;
-        const hitY = z.mesh.position.y + (z.isModel ? 6 : 0);
-        const headY = z.mesh.position.y + CFG.zombie.headHeight;
-        const HEAD_R = CFG.zombie.headshotRadius;
+        // KEPALA dicek lebih dulu — headshot = mati seketika (KECUALI boss:
+        // z.noInstakill -> damage x headshotDamageMul); badan = hp turun.
+        // Semua radius/tinggi diskalakan z.scl (runner kecil / brute / boss).
+        const scl = z.scl || 1;
+        const hitR = (z.isModel ? 6 : 4.5) * scl;
+        const hitY = z.mesh.position.y + (z.isModel ? 6 : 0) * scl;
+        const headY = z.mesh.position.y + CFG.zombie.headHeight * scl;
+        const HEAD_R = CFG.zombie.headshotRadius * scl;
         for (let j = bullets.length - 1; j >= 0; j--) {
             const b = bullets[j];
             const bx = b.mesh.position.x, by = b.mesh.position.y, bz = b.mesh.position.z;
@@ -280,7 +348,12 @@ export function updateZombies(dt, step) {
             if (isHead ||
                 segPointDist2(b.px, b.py, b.pz, bx, by, bz,
                     z.mesh.position.x, hitY, z.mesh.position.z) < hitR * hitR) {
-                z.hp = isHead ? 0 : z.hp - CFG.weapons.bulletDamage;   // headshot = kill instan
+                const dmg = CFG.weapons.bulletDamage * (player.dmgMul || 1);   // upgrade shop
+                stats.hits++;
+                if (isHead) stats.headshots++;
+                z.hp = isHead
+                    ? (z.noInstakill ? z.hp - dmg * CFG.campaign.boss.headshotDamageMul : 0)
+                    : z.hp - dmg;
                 // Percikan darah di titik tumbuk = titik terdekat lintasan
                 // peluru ke pusat bola yang kena (kepala/dada).
                 const cy = isHead ? headY : hitY;
@@ -299,4 +372,8 @@ export function updateZombies(dt, step) {
             }
         }
     }
+
+    // Ledakan exploder yang antre (dari killZombie mana pun frame ini) —
+    // diproses DI LUAR loop utama; lihat komentar pendingBooms.
+    processPendingBooms();
 }

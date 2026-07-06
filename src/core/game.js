@@ -4,7 +4,8 @@
 
 import {
     isPaused, isGameOver, setGameOver, setScore, score, highScore, setHighScore,
-    zombies, bullets, grenades, explosions, drops, clearArray, configurePlayer
+    zombies, bullets, grenades, explosions, drops, clearArray, configurePlayer,
+    stats, resetStats
 } from './state.js';
 import { scene } from './renderer.js';
 import { activeScene, setScene } from './sceneManager.js';
@@ -16,7 +17,7 @@ import { updateGrenades } from '../entities/grenades.js';
 import { updateExplosions, updateBloodPool, resetBloodPool } from '../entities/effects.js';
 import { updateDrops } from '../entities/drops.js';
 import { updateBullets } from '../entities/bullets.js';
-import { updateZombies, disposeZombie } from '../entities/zombies.js';
+import { updateZombies, disposeZombie, resetZombiesFx } from '../entities/zombies.js';
 import { releaseInputs, requestLock } from './input.js';
 
 // Urutan blok = urutan update() lama — JANGAN diubah tanpa alasan kuat:
@@ -42,21 +43,29 @@ export function updateGame(dt, step, T) {
     if (activeScene.checkWin) activeScene.checkWin();   // campaign stage akhir
 }
 
-export function gameOver(won) {
+// title opsional: judul khusus scene (mis. survival 'THE MONUMENT HAS FALLEN');
+// default tetap MISSION COMPLETE / GAME OVER.
+export function gameOver(won, title) {
     setGameOver(true);
     document.exitPointerLock();
     if (score > highScore) setHighScore(score);
     // Campaign selesai = menang; selain itu (HP habis) = kalah.
-    gameOverTitle.innerText = won ? 'MISSION COMPLETE' : 'GAME OVER';
+    gameOverTitle.innerText = title || (won ? 'MISSION COMPLETE' : 'GAME OVER');
     gameOverScreen.style.background = won ? 'rgba(0, 90, 30, 0.82)' : 'rgba(150, 0, 0, 0.8)';
     finalScoreEl.innerText = `Score: ${score}`;
     bestScoreEl.innerText = `Best: ${highScore}`;
+    // Statistik run (IMPROVEMENT-PLAN #10): akurasi & headshot % dihitung per peluru
+    const acc = stats.shots > 0 ? Math.round(stats.hits / stats.shots * 100) : 0;
+    const hs = stats.hits > 0 ? Math.round(stats.headshots / stats.hits * 100) : 0;
+    document.getElementById('goStats').innerText =
+        `Kills ${stats.kills} · Headshots ${stats.headshots} (${hs}%) · Accuracy ${acc}%`;
     gameOverScreen.style.display = 'flex';
 }
 
 export function resetGame() {
     setScore(0);
-    configurePlayer();     // hp/granat/amunisi/magazen kembali ke nilai CFG
+    resetStats();          // statistik run baru
+    configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG
     releaseInputs();
     resetWeapons();        // batalkan reload/ganti/melee; kembali ke rifle
     resetPlayerState();    // vy/onGround/crouch/stamina + bar stamina
@@ -67,6 +76,7 @@ export function resetGame() {
     // Bersihkan seluruh entitas (material per-instance di-dispose)
     zombies.forEach(z => { disposeZombie(z); scene.remove(z.mesh); });
     zombies.length = 0;
+    resetZombiesFx();   // antrean ledakan exploder yang belum terproses
     resetBloodPool();   // pool tetap, cukup disembunyikan
     clearArray(bullets, scene);
     clearArray(grenades, scene);

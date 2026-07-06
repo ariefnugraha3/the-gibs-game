@@ -106,8 +106,9 @@ export function updatePlayerMovement(dt, step) {
         const zdx = camera.position.x - zb.mesh.position.x;
         const zdz = camera.position.z - zb.mesh.position.z;
         const zd = Math.hypot(zdx, zdz);
-        if (zd < ZBODY_R && zd > 0.001) {
-            const push = (ZBODY_R - zd) / zd;
+        const br = ZBODY_R * (zb.scl || 1);   // varian besar (brute/boss) = badan lebih lebar
+        if (zd < br && zd > 0.001) {
+            const push = (br - zd) / zd;
             camera.position.x += zdx * push;
             camera.position.z += zdz * push;
         }

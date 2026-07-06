@@ -536,3 +536,85 @@ body {
 }
 .qbtn:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
 .qbtn.active { background: #c0392b; border-color: #e0503e; color: #fff; box-shadow: 0 0 10px rgba(224, 80, 62, 0.5); }
+
+/* ---------- Indikator arah serangan (baji merah di tepi layar, diputar
+   showHitDir ke sudut penyerang; mask menyisakan cincin luar saja) ---------- */
+#hitDir {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s ease-out;
+    background: conic-gradient(from -24deg at 50% 50%,
+            rgba(255, 46, 46, 0.55) 0deg 48deg, transparent 48deg);
+    -webkit-mask-image: radial-gradient(ellipse at center, transparent 52%, #000 80%);
+    mask-image: radial-gradient(ellipse at center, transparent 52%, #000 80%);
+}
+
+/* ---------- Shop lapangan Survival (overlay keyboard-only, tombol B) ---------- */
+#shopOverlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 12;
+    display: none;
+    flex-direction: column;
+    min-width: 420px;
+    padding: 18px 26px 14px;
+    background: rgba(8, 14, 20, 0.88);
+    border: 2px solid rgba(241, 196, 15, 0.55);
+    border-radius: 10px;
+    box-shadow: 0 0 26px rgba(0, 0, 0, 0.75);
+    font-family: Arial, sans-serif;
+    color: #e8eef4;
+    pointer-events: none;
+}
+#shopOverlay .shopTitle {
+    font-size: 22px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    color: #f1c40f;
+    text-align: center;
+    margin-bottom: 2px;
+}
+#shopOverlay .shopScore {
+    text-align: center;
+    font-size: 15px;
+    color: #9fd8a2;
+    margin-bottom: 10px;
+}
+#shopOverlay .shopLine {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 16px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+#shopOverlay .shopKey { color: #f1c40f; font-weight: bold; }
+#shopOverlay .shopLabel { flex: 1; }
+#shopOverlay .shopCost { color: #9fd8a2; font-weight: bold; }
+#shopOverlay .shopNote { color: #8fa3b8; font-size: 13px; min-width: 64px; text-align: right; }
+#shopOverlay .shopErr { text-align: center; color: #ff6b6b; font-size: 14px; margin-top: 8px; }
+#shopOverlay .shopHint { text-align: center; color: #8fa3b8; font-size: 13px; margin-top: 10px; }
+
+/* ---------- Baris difficulty di layar pilih mode ---------- */
+#diffRow { margin: 2px 0 18px; }
+#diffRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; }
+.dbtn {
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    color: #ccc;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 7px 18px;
+    margin: 10px 4px 0;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.dbtn:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
+.dbtn.selected { background: #c0392b; border-color: #e0503e; color: #fff; box-shadow: 0 0 10px rgba(224, 80, 62, 0.5); }

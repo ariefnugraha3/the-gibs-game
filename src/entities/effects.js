@@ -54,7 +54,9 @@ export function initEffects(sc) {
     }
 }
 
-export function explodeAt(pos) {
+// radius opsional: default blast granat; ledakan exploder memakai radius
+// lebih kecil (CFG.zombie.variants.exploder.boomRadius) lewat parameter ini.
+export function explodeAt(pos, radius) {
     const expMesh = new THREE.Mesh(
         GEO.explosion,
         new THREE.MeshBasicMaterial({ color: 0xff4500, transparent: true, opacity: 0.85 })
@@ -84,9 +86,16 @@ export function explodeAt(pos) {
     explosions.push({ mesh: shock, life: 1, scale: 95 });
     playSFX(sfxExplode);
 
+    const R = radius != null ? radius : CFG.grenade.killRadius + 3.5;
     for (let i = zombies.length - 1; i >= 0; i--) {
         const z = zombies[i];
-        if (z.mesh.position.distanceTo(pos) < CFG.grenade.killRadius + 3.5) {
+        if (z.mesh.position.distanceTo(pos) < R) {
+            // Boss tidak instakill oleh ledakan — menerima damage granat tetap
+            // (kalau tidak, satu granat menamatkan boss ber-HP 60).
+            if (z.noInstakill) {
+                z.hp -= CFG.campaign.boss.grenadeDamage;
+                if (z.hp > 0) continue;
+            }
             spawnDrop(z.mesh.position);
             killZombie(i);
         }

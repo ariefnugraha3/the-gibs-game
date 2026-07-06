@@ -9,14 +9,28 @@ export let isPaused = true;
 export let isGameOver = false;
 export let score = 0;
 export let mode = null;   // 'survival' | 'campaign' — di-set layar pilih mode
-export let highScore = +(localStorage.getItem('gibsHighScore') || 0);
+// High score disimpan PER difficulty (kunci lama 'gibsHighScore' = fallback
+// normal, agar skor pemain lama tidak hilang).
+export let difficulty = 'normal';
+const hsKey = () => 'gibsHighScore_' + difficulty;
+export let highScore = +(localStorage.getItem('gibsHighScore_normal')
+    || localStorage.getItem('gibsHighScore') || 0);
 
 export const setPaused = (v) => { isPaused = v; };
 export const setGameOver = (v) => { isGameOver = v; };
 export const setScore = (v) => { score = v; };
 export const addScore = (n) => { score += n; };
 export const setMode = (m) => { mode = m; };
-export const setHighScore = (v) => { highScore = v; localStorage.setItem('gibsHighScore', v); };
+export const setHighScore = (v) => { highScore = v; localStorage.setItem(hsKey(), v); };
+export const setDifficulty = (name) => {   // dipanggil menu sebelum startGame
+    difficulty = name;
+    highScore = +(localStorage.getItem(hsKey())
+        || (name === 'normal' ? localStorage.getItem('gibsHighScore') : 0) || 0);
+};
+
+// ----------- Statistik satu run (layar game over) ----------- //
+export const stats = { kills: 0, headshots: 0, shots: 0, hits: 0 };
+export function resetStats() { stats.kills = 0; stats.headshots = 0; stats.shots = 0; stats.hits = 0; }
 
 // ----------- Player & input yang sedang ditekan ----------- //
 // Catatan: konstanta kecepatan dikalibrasi pada 60 fps, lalu dikalikan `step`
@@ -25,8 +39,12 @@ export const player = {
     hp: 10, grenades: 3,
     rifle: { ammo: 30, mags: 3, magSize: 30 },    // utama ("Assault Rifle")
     pistol: { ammo: 15, mags: 3, magSize: 15 },   // secondary; damage peluru sama
+    shotgun: { ammo: 6, mags: 2, magSize: 6 },    // senjata ke-3 (multi-pelet)
     isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
-    vy: 0, onGround: true            // vertikal: lompat (SPASI) & gravitasi
+    vy: 0, onGround: true,           // vertikal: lompat (SPASI) & gravitasi
+    // Upgrade shop survival (per-run; kembali 1/0 di configurePlayer):
+    dmgMul: 1, reloadMul: 1, upDmg: 0, upReload: 0,
+    reloadDurMs: 3000                // durasi reload EFEKTIF terakhir (rig KF membacanya)
 };
 
 // Stempel nilai CFG ke player (dipanggil saat boot & resetGame)
@@ -35,12 +53,13 @@ export function configurePlayer() {
     player.speed = CFG.player.speed;
     player.radius = CFG.player.radius;
     player.grenades = CFG.grenade.start;
-    player.rifle.magSize = CFG.weapons.rifle.magSize;
-    player.rifle.ammo = CFG.weapons.rifle.magSize;
-    player.rifle.mags = CFG.weapons.rifle.startMags;
-    player.pistol.magSize = CFG.weapons.pistol.magSize;
-    player.pistol.ammo = CFG.weapons.pistol.magSize;
-    player.pistol.mags = CFG.weapons.pistol.startMags;
+    for (const w of ['rifle', 'pistol', 'shotgun']) {
+        player[w].magSize = CFG.weapons[w].magSize;
+        player[w].ammo = CFG.weapons[w].magSize;
+        player[w].mags = CFG.weapons[w].startMags;
+    }
+    player.dmgMul = 1; player.reloadMul = 1;
+    player.upDmg = 0; player.upReload = 0;
 }
 
 export const keys = { w: false, a: false, s: false, d: false, shift: false };

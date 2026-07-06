@@ -110,7 +110,8 @@ export function updateDrops(dt, T) {
             // "already full" di feed, dgn jeda 1.2 dtk agar tidak spam saat
             // player berdiri di atas item.
             const isFull =
-                (d.type === 'mag' && player.rifle.mags >= CFG.weapons.maxMags && player.pistol.mags >= CFG.weapons.maxMags) ||
+                (d.type === 'mag' && ['rifle', 'pistol', 'shotgun']
+                    .every(w => player[w].mags >= CFG.weapons.maxMags)) ||
                 (d.type === 'grenade' && player.grenades >= CFG.grenade.max) ||
                 (d.type === 'medkit' && player.hp >= CFG.player.maxHp);
             if (isFull) {
@@ -121,10 +122,10 @@ export function updateDrops(dt, T) {
                             : 'Health already full', '#b8b8b8');
                 }
             } else {
-                if (d.type === 'mag') {          // isi kedua senjata (di-cap maxMags)
-                    player.rifle.mags = Math.min(CFG.weapons.maxMags, player.rifle.mags + 1);
-                    player.pistol.mags = Math.min(CFG.weapons.maxMags, player.pistol.mags + 1);
-                    showPickup('+1 Mag (Assault Rifle & Pistol)', '#f1c40f');
+                if (d.type === 'mag') {          // isi SEMUA senjata (di-cap maxMags)
+                    for (const w of ['rifle', 'pistol', 'shotgun'])
+                        player[w].mags = Math.min(CFG.weapons.maxMags, player[w].mags + 1);
+                    showPickup('+1 Mag (All Weapons)', '#f1c40f');
                 } else if (d.type === 'medkit') {
                     player.hp = Math.min(CFG.player.maxHp, player.hp + CFG.drops.medkitHeal);
                     showPickup(`+${CFG.drops.medkitHeal} HP (Medkit)`, '#ff6b81');

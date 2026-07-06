@@ -29,6 +29,19 @@ export function flashDamage() {
     setTimeout(() => damageEl.style.opacity = 0, 120);
 }
 
+// Indikator ARAH serangan (IMPROVEMENT-PLAN #8): baji merah di tepi layar,
+// diputar ke sudut penyerang relatif hadap kamera (0 = depan, + = searah
+// jarum jam; hitung dgn attackerAngle di entities/zombies.js). SATU elemen
+// di-reuse — jangan membuat elemen per serangan.
+let hitDirT = 0;
+export function showHitDir(relAngle) {
+    const el = document.getElementById('hitDir');
+    el.style.transform = `rotate(${relAngle}rad)`;
+    el.style.opacity = 0.9;
+    clearTimeout(hitDirT);
+    hitDirT = setTimeout(() => { el.style.opacity = 0; }, 500);
+}
+
 // Info item yang diambil — feed di kiri layar (muncul -> diam -> memudar).
 // Maks 5 baris; baris tertua dibuang agar tidak menumpuk saat memborong drop.
 export function showPickup(text, color) {

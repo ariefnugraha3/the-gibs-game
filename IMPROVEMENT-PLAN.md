@@ -33,21 +33,22 @@
 
 | # | Item | Prioritas | Perkiraan usaha | Status |
 |---|------|-----------|-----------------|--------|
-| 1 | Varian perilaku zombie (runner/brute/exploder) | P1 | Sedang | TODO |
-| 2 | Boss di akhir campaign stage 2 | P1 | Sedang | TODO |
-| 3 | Shop antar-wave (survival) | P2 | Sedang-besar | TODO |
-| 4 | Musik + ambience | P3 | Kecil (butuh aset dari user) | TODO |
-| 5 | Shotgun (senjata ke-3) | P4 | Besar (refactor weapons) | TODO |
-| 6 | Monas ber-HP (objektif survival) | P4 | Sedang | TODO |
-| 7 | Campaign Stage 3 (Monas malam hari) | P5 | Sedang | TODO |
-| 8 | Indikator arah serangan | P5 | Kecil | TODO |
-| 9 | Event wave (kabut / listrik padam) | P6 | Kecil-sedang | TODO |
-| 10 | Layar statistik akhir | P6 | Kecil | TODO |
-| 11 | Pilihan difficulty di start screen | P6 | Kecil | TODO |
-| 12 | Dukungan gamepad | P7 (fase Steam) | Sedang | TODO |
+| 1 | Varian perilaku zombie (runner/brute/exploder) | P1 | Sedang | **SELESAI 2026-07-07** |
+| 2 | Boss di akhir campaign stage 2 | P1 | Sedang | **SELESAI 2026-07-07** |
+| 3 | Shop antar-wave (survival) | P2 | Sedang-besar | **SELESAI 2026-07-07** |
+| 4 | Musik + ambience | P3 | Kecil (butuh aset dari user) | TODO (dikecualikan user) |
+| 5 | Shotgun (senjata ke-3) | P4 | Besar (refactor weapons) | **SELESAI 2026-07-07** |
+| 6 | Monas ber-HP (objektif survival) | P4 | Sedang | **SELESAI 2026-07-07** |
+| 7 | Campaign Stage 3 (Monas malam hari) | P5 | Sedang | **SELESAI 2026-07-07** |
+| 8 | Indikator arah serangan | P5 | Kecil | **SELESAI 2026-07-07** |
+| 9 | Event wave (kabut / listrik padam) | P6 | Kecil-sedang | **SELESAI 2026-07-07** |
+| 10 | Layar statistik akhir | P6 | Kecil | **SELESAI 2026-07-07** |
+| 11 | Pilihan difficulty di start screen | P6 | Kecil | **SELESAI 2026-07-07** |
+| 12 | Dukungan gamepad | P7 (fase Steam) | Sedang | TODO (dikecualikan user) |
 
-Rekomendasi urutan pengerjaan: 1 → 2 → 3 → 4. Item 5 dikerjakan SETELAH refactor
-tabel senjata (lihat detailnya) agar tidak menumpuk utang.
+Rekomendasi urutan pengerjaan sisa: item 4 (musik — minta aset ke user dulu) lalu
+item 12 (gamepad, bersamaan fase Steam). Detail per-item di bawah TETAP berlaku
+sebagai dokumentasi desain fitur yang sudah jadi.
 
 ---
 
@@ -337,4 +338,4 @@ Ikuti **resep tambah stage di MODULES.md** + catatan khusus:
 
 | Tanggal | Item | Hasil / catatan |
 |---------|------|-----------------|
-| — | — | belum ada |
+| 2026-07-07 | #1,2,3,5,6,7,8,9,10,11 (semua kecuali musik & gamepad) | Selesai satu gelombang; 106 check headless hijau (survival 57, campaign 38, config 11). Deviasi/catatan dari rencana: (a) **BUG DITEMUKAN & DIPERBAIKI**: badan pejal zombie berskala (`bodyBlockRadius×scl`) mendorong player keluar jangkauan cakar brute/boss — solusi `reachForScale(scl)` di zombies.js (invarian body<stop<claw dipertahankan di skala apa pun; scl 1 = 1.0 persis, perilaku lama utuh); (b) brute TETAP mati 1 headshot (default rencana; hanya boss `noInstakill`); (c) Q = tukar ke senjata SEBELUMNYA (`lastWeapon`), bukan siklus; (d) transisi menang stage 2 kini ke stage 3 (`checkWin` → setScene), MISSION COMPLETE pindah ke stage 3; (e) `explodeAt` diberi parameter radius opsional utk ledakan exploder; (f) reload upgrade memakai `player.reloadDurMs` agar rig KF & timer sinkron; (g) stub harness Material kini mengonversi hex→Color + emissive default (meniru THREE asli — dibutuhkan tintZombie). |

@@ -10,7 +10,11 @@ export const CFG = {};
 export const CAMP_M = 7;
 
 const SECTIONS = ['player', 'stamina', 'movement', 'weapons', 'melee',
-    'grenade', 'zombie', 'survival', 'campaign', 'drops'];
+    'grenade', 'zombie', 'survival', 'campaign', 'drops', 'shop', 'difficulty'];
+
+// Salinan MURNI hasil muat (tak pernah dimutasi) — applyDifficulty selalu
+// menghitung ulang CFG dari sini agar pengali tidak terkali berulang.
+export let CFG_BASE = null;
 
 export async function loadConfig() {
     let data;
@@ -24,6 +28,32 @@ export async function loadConfig() {
     for (const k of SECTIONS) {
         if (!data[k]) throw new Error('gameplay.json missing section: "' + k + '"');
     }
+    CFG_BASE = JSON.parse(JSON.stringify(data));
     Object.assign(CFG, data);
     return CFG;
+}
+
+// Terapkan preset difficulty (dipanggil layar menu SEBELUM startGame; boleh
+// dipanggil ulang — idempoten karena selalu mulai dari CFG_BASE). Hanya kunci
+// yang tercantum di bawah yang terpengaruh; sisanya tetap nilai JSON.
+export function applyDifficulty(name) {
+    if (!CFG_BASE) return;
+    Object.assign(CFG, JSON.parse(JSON.stringify(CFG_BASE)));
+    const d = CFG.difficulty && CFG.difficulty[name];
+    if (!d) return;
+    const hp = d.zombieHpMul, dmg = d.zombieDamageMul, spawn = d.spawnIntervalMul;
+    // HP dibulatkan (peluru berdamage 1 — pecahan hp tak terasa bedanya)
+    CFG.survival.zombieHpBase = Math.max(1, Math.round(CFG.survival.zombieHpBase * hp));
+    CFG.campaign.zombieHp = Math.max(1, Math.round(CFG.campaign.zombieHp * hp));
+    CFG.campaign.boss.hp = Math.max(1, Math.round(CFG.campaign.boss.hp * hp));
+    CFG.zombie.clawDamage *= dmg;
+    CFG.campaign.boss.clawDamage *= dmg;
+    CFG.survival.monasClawDamage *= dmg;
+    for (const k in CFG.zombie.variants) {
+        const v = CFG.zombie.variants[k];
+        v.clawDamage *= dmg;
+        if (v.boomDamage) v.boomDamage *= dmg;
+    }
+    CFG.survival.spawnIntervalBase *= spawn;
+    CFG.survival.spawnIntervalMin *= spawn;
 }

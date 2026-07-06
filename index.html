@@ -48,6 +48,8 @@
     <canvas id="radar" width="150" height="150"></canvas>
     <div id="stageMsg"></div>
     <div id="damage"></div>
+    <div id="hitDir"></div>
+    <div id="shopOverlay"></div>
     <div id="vignette"></div>
     <div id="grain"></div>
     <div id="fatalMsg"></div>
@@ -55,6 +57,12 @@
     <div id="modeSelect">
         <h1>GIBRAN vs ZOMBIE</h1>
         <div class="subtitle">SELECT GAME MODE</div>
+        <div id="diffRow">
+            <span class="qlabel">DIFFICULTY</span><br />
+            <button class="dbtn" data-d="easy">Easy</button>
+            <button class="dbtn selected" data-d="normal">Normal</button>
+            <button class="dbtn" data-d="hard">Hard</button>
+        </div>
         <div class="modeCards">
             <div class="modeCard" data-mode="survival">
                 <div class="emoji">🏛️</div>
@@ -118,7 +126,7 @@
             <b>Click here to Start the Action</b><br />
             <span class="small" style="color:#ffb84d;">(enters fullscreen — so Ctrl+W etc. won't close the tab)</span><br /><br />
             <span class="small">WASD = Move | MOUSE = Look | LEFT CLICK = Shoot | RIGHT CLICK = Aim On/Off |
-                1 / 2 / Q = Switch Weapon | F = Melee | G = Grenade | R = Reload | SHIFT = Sprint | C / CTRL = Crouch | SPACE = Jump</span>
+                1 / 2 / 3 / Q = Switch Weapon | F = Melee | G = Grenade | R = Reload | SHIFT = Sprint | C / CTRL = Crouch | SPACE = Jump | B = Shop (Survival)</span>
             <div id="qualityRow">
                 <span class="qlabel">GRAPHICS QUALITY</span><br />
                 <button class="qbtn" data-q="0">Ultra</button>
@@ -134,6 +142,7 @@
         <h1 id="gameOverTitle" style="font-size: 70px; margin-bottom: 0;">GAME OVER</h1>
         <p id="finalScore" style="font-size: 30px; margin: 6px 0;">Score: 0</p>
         <p id="bestScore" style="font-size: 24px; color: #f1c40f; margin: 0 0 10px;">Best: 0</p>
+        <p id="goStats" style="font-size: 18px; color: #cfd8e3; margin: 0 0 14px;"></p>
         <p style="font-size: 26px;">Press SPACE to restart</p>
     </div>
 

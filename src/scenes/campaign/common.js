@@ -5,7 +5,7 @@
 import { CFG, CAMP_M } from '../../core/config.js';
 import { player, zombies } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
-import { buildHumanZombie } from '../../entities/zombies.js';
+import { buildHumanZombie, tintZombie, reachForScale } from '../../entities/zombies.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
 
 // Catatan arsitektur: KEDUA dunia stage dibangun sekali di awal campaign dan
@@ -16,21 +16,42 @@ import { navAim, turnToward } from '../../utils/pathfind.js';
 // Zombie campaign: DIAM di tempat (state 'idle') sampai player mendekat /
 // tertembak. HP & kecepatan dari CFG.campaign; tag z.stage utk hitungan HUD
 // dan pembersihan saat pindah stage.
-export function spawnCampaignZombie(x, z, stage) {
+// kind: 'walker' (default) | 'runner' | 'brute' | 'exploder' (CFG.zombie.
+// variants) | 'boss' (CFG.campaign.boss — langsung 'chasing', headshot &
+// ledakan TIDAK instakill, skor & jangkauan khusus).
+export function spawnCampaignZombie(x, z, stage, kind = 'walker') {
     const built2 = buildHumanZombie();
     const zMesh = built2.group;
     zMesh.position.set(x, 0, z);
     zMesh.rotation.y = Math.random() * 6.283;   // arah hadap acak saat diam
     scene.add(zMesh);
+
+    const V = kind !== 'walker' && kind !== 'boss' ? CFG.zombie.variants[kind] : null;
+    const B = kind === 'boss' ? CFG.campaign.boss : null;
+    // HP dibulatkan minimal 1 (runner hpMul kecil harus tetap mati 1 peluru, bukan 0)
+    const hp = B ? B.hp : Math.max(1, Math.round(CFG.campaign.zombieHp * (V ? V.hpMul : 1)));
+    const speed = B ? B.speed
+        : (0.6 + Math.random() * 0.4) * CFG.campaign.zombieSpeedScale * (V ? V.speedMul : 1);
+    const scl = B ? B.scale : (V ? V.scale : 1);
+    if (scl !== 1) zMesh.scale.setScalar(scl);
+    // Pembeda visual varian (material per-instance — aman di-tint)
+    if (kind === 'exploder') tintZombie(zMesh, 0.06, 0.15, -0.02, 0x143206);
+    else if (kind === 'brute') tintZombie(zMesh, 0, -0.05, -0.09);
+    else if (kind === 'boss') tintZombie(zMesh, -0.02, -0.1, -0.12);
+
     zombies.push({
-        // Campaign lebih gesit dari survival wave-1 (zombieSpeedScale 0.5 vs 0.3)
-        mesh: zMesh, hp: CFG.campaign.zombieHp, maxHp: CFG.campaign.zombieHp,
-        speed: (0.6 + Math.random() * 0.4) * CFG.campaign.zombieSpeedScale,
+        mesh: zMesh, hp, maxHp: hp, speed,
         rig: built2.rig, isModel: true, baseY: 0, phase: Math.random() * 6.28,
-        state: 'idle', stage, jumpT: 0, jumpDur: 0.55,
+        state: B ? 'chasing' : 'idle', stage, jumpT: 0, jumpDur: 0.55,
         sx: x, sz: z, lx: x, lz: z,
         jumpY0: 0, jumpY1: 0, arcH: 0, groundY: 0, vaultCd: 0,
-        attackCd: 0, clawT: 0, clawSide: 1, moving: false
+        attackCd: 0, clawT: 0, clawSide: 1, moving: false,
+        kind, scl,
+        clawDmg: B ? B.clawDamage : (V ? V.clawDamage : CFG.zombie.clawDamage),
+        // reach mengikuti skala badan (lihat reachForScale) — badan besar tidak
+        // boleh mendorong player keluar dari jangkauan cakarnya sendiri
+        reachMul: reachForScale(scl, B ? B.reachMul : 1),
+        noInstakill: !!B
     });
 }
 
@@ -74,7 +95,8 @@ export function campaignZombieAI(z, dt, step, stage) {
     // selain itu menuju waypoint agar memutari tembok/median. Gerak memakai
     // heading berlaju-putar-terbatas (turnToward) -> belokan melengkung alami.
     const aim = navAim(z, stage.nav, camera.position.x, camera.position.z, dt, step);
-    z.moving = !aim.direct || distToEye > player.radius + CFG.zombie.stopRange;
+    z.moving = !aim.direct
+        || distToEye > player.radius + CFG.zombie.stopRange * (z.reachMul || 1);
     if (z.moving) {
         const ang = turnToward(z,
             Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);

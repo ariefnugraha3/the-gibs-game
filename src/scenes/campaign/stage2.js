@@ -21,9 +21,10 @@ import { showStageMsg } from '../../core/dom.js';
 import { updateUI } from '../../core/hud.js';
 import { disposeZombie } from '../../entities/zombies.js';
 import { NADE_R } from '../../entities/grenades.js';
-import { gameOver } from '../../core/game.js';
+import { setScene } from '../../core/sceneManager.js';
 import { spawnCampaignZombie, campaignZombieAI, countStageZombies } from './common.js';
 import { stage1Scene } from './stage1.js';
+import { stage3Scene } from './stage3.js';
 
 // Tata letak jalan raya. Skala 1 m ≈ 7 unit (CAMP_M).
 export const CAMP = {
@@ -472,6 +473,20 @@ export function placeZombies() {
     }
 }
 
+// --- Boss stage 2: muncul saat sisa zombie <= CFG.campaign.boss.spawnWhenRemaining ---
+let bossSpawned = false;
+let bossRef = null;      // objek zombie boss (utk HP bar HUD); null setelah mati
+let bossUiT = 0;         // throttle refresh HUD bar boss (updateUI event-driven)
+
+function spawnBoss() {
+    bossSpawned = true;
+    // Lahir di jalan dekat air mancur atas (di luar bak — resolve aman)
+    spawnCampaignZombie(0, CAMP.up.z + CAMP.up.r + CAMP.up.ring + 60, 2, 'boss');
+    bossRef = zombies[zombies.length - 1];
+    showStageMsg('SOMETHING BIG IS COMING...');
+    updateUI();
+}
+
 export const stage2Scene = {
     id: 'campaign-2',
 
@@ -486,6 +501,7 @@ export const stage2Scene = {
                 zombies.splice(i, 1);
             }
         }
+        bossSpawned = false; bossRef = null; bossUiT = 0;
         applyLightPreset(scene, 'outdoor');
         camera.position.set(CAMP_START.x, CFG.player.eyeHeight, CAMP_START.z);
         camera.quaternion.set(0, 0, 0, 1);   // hadap utara (koridor 1 km)
@@ -496,6 +512,15 @@ export const stage2Scene = {
 
     // Mati di stage 2 -> campaign SELALU mengulang dari stage 1
     restartScene: () => stage1Scene,
+
+    // HP bar boss di HUD berubah tiap peluru — updateUI() event-driven tidak
+    // menangkap hit yang tak membunuh, jadi di-refresh berkala selama boss hidup.
+    updateMode(dt) {
+        if (!bossRef) return;
+        if (zombies.indexOf(bossRef) === -1) { bossRef = null; updateUI(); return; }
+        bossUiT -= dt;
+        if (bossUiT <= 0) { bossUiT = 0.2; updateUI(); }
+    },
 
     // Dinding keras tepi jalan: geser per-sumbu agar player MELUNCUR menyusuri
     // tembok; lalu penghalang pejal (bak/median/mobil); lalu slide lagi
@@ -527,7 +552,15 @@ export const stage2Scene = {
 
     clampDropPos(x, z) { return [x, z]; },   // zombie mati di jalan — pakai apa adanya
 
-    hudStatus() { return `Zombies left: ${countStageZombies(2)}`; },
+    hudStatus() {
+        let s = `Zombies left: ${countStageZombies(2)}`;
+        if (bossRef && zombies.indexOf(bossRef) !== -1) {
+            const frac = Math.max(0, bossRef.hp / bossRef.maxHp);
+            const blocks = Math.ceil(frac * 10);
+            s += ` — BOSS ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
+        }
+        return s;
+    },
 
     // Landmark jalan raya: air mancur (cyan, dijepit ke tepi saat jauh —
     // penunjuk arah tujuan) + blokade mobil (merah, hanya saat dekat)
@@ -538,9 +571,12 @@ export const stage2Scene = {
             plot(wpile.x - camera.position.x, wpile.z - camera.position.z, "#ff2d2d", 4);
     },
 
-    // Seluruh zombie jalan raya bersih -> misi selesai. (Zombie stage 1 sudah
-    // dibuang saat transisi, jadi cek panjang array aman.)
+    // Boss muncul saat sisa zombie menipis (JUGA saat lompat langsung ke 0,
+    // mis. granat membunuh 5 terakhir sekaligus — menang tanpa boss dilarang).
+    // Semua bersih SETELAH boss spawn -> lanjut ke stage 3 (Taman Monas malam).
     checkWin() {
-        if (zombies.length === 0) gameOver(true);
+        const n = countStageZombies(2);
+        if (!bossSpawned && n <= CFG.campaign.boss.spawnWhenRemaining) { spawnBoss(); return; }
+        if (bossSpawned && n === 0) setScene(stage3Scene, { transition: true });
     },
 };

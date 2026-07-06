@@ -35,6 +35,7 @@ export function createBaseLights(scene) {
 export const LIGHT_PRESETS = {
     outdoor: { fogNear: 220, fogFar: 1700, amb: 0.3, hemi: 0.4, dir: 0.7 },   // taman / jalan raya
     indoor: { fogNear: 50, fogFar: 700, amb: 0.16, hemi: 0.22, dir: 0.35 },  // interior gelap mencekam
+    night: { fogNear: 160, fogFar: 1150, amb: 0.15, hemi: 0.2, dir: 0.32 },  // taman malam (campaign stage 3)
 };
 
 export function applyLightPreset(scene, name) {

@@ -7,11 +7,11 @@ import { player, score, zombies, drops, _dir } from './state.js';
 import { camera } from './renderer.js';
 import { activeScene } from './sceneManager.js';
 import { scoreText, ammoText, healthFill, grenadeText, waveText, radarCtx } from './dom.js';
-import { currentWeapon } from '../entities/weapons.js';
+import { currentWeapon, WEAPON_DEF } from '../entities/weapons.js';
 
 export function updateUI() {
     const w = player[currentWeapon];
-    const wName = currentWeapon === 'rifle' ? 'Assault Rifle' : 'Pistol';
+    const wName = WEAPON_DEF[currentWeapon].name;
     scoreText.innerText = `Score: ${score}`;
     ammoText.innerText = player.isReloading ? `${wName}: Reloading...` : `${wName}: ${w.ammo} / ${w.mags} Mags`;
     // Health bar (maks CFG.player.maxHp): warna merah tetap (CSS)
