@@ -1,4 +1,4 @@
-// Sistem senjata: rifle ("Assault Rifle", internal 'rifle'/AK47) & pistol.
+// Sistem senjata: rifle ("Assault Rifle", model Pindad SS2-V2) & pistol.
 // Meliputi: model + rig tangan CS-style, ganti senjata, reload (mekanik timer
 // nyata + animasi keyframe), melee, dan blok MENEMBAK (spread/recoil/heat).
 // Peluru identik utk kedua senjata; hit test-nya di zombies.js.
@@ -44,7 +44,9 @@ let muzzleFlash = null, muzzlePoint = null, muzzleSprite = null;
 let leftHand, leftForearm, rightArm, gunMagMesh, boltHandle;
 let pistolSlide, pistolMagMesh, pistolMuzzle, rifleMuzzle;
 let pLeftHand, pLeftForearm;
-const LEFT_HAND_REST = new THREE.Vector3(0, -0.35, -3.0);   // menopang handguard AK
+const LEFT_HAND_REST = new THREE.Vector3(0, -0.35, -3.0);   // menopang handguard rifle
+// Pose istirahat magazen rifle (satu sumber utk init + rig reload + idle)
+const MAG_REST = { x: 0, y: -1.35, z: -1.15, rx: 0.16 };
 const P_LEFT_REST = new THREE.Vector3(-0.12, -0.72, -0.5);  // tangan kiri menopang pistol
 const _axisZ = new THREE.Vector3(0, 0, 1);   // sumbu limb (placeLimb)
 
@@ -104,27 +106,20 @@ function reloadHandPos(KF, t, out) {
 
 // ----- Perakitan model senjata + tangan (parented ke kamera) -----
 export function initWeapons() {
-    // ----- Senjata AK47 (detail visual; posisi & mekanik dari kalibrasi lama) -----
+    // ----- Assault Rifle: Pindad SS2-V2, serba hitam (posisi, panjang laras,
+    // titik muzzle, & seluruh mekanik dari kalibrasi lama — hanya visual) -----
     gunMesh = new THREE.Group();
-    // Serat kayu & logam tergores prosedural
-    const gunWoodTex = makeTexture(64, 128, (g, w, h) => {
-        g.fillStyle = '#7a4a21'; g.fillRect(0, 0, w, h);
-        for (let i = 0; i < 26; i++) {
-            g.strokeStyle = `rgba(${40 + Math.random() * 30 | 0},${22 + Math.random() * 16 | 0},8,${0.25 + Math.random() * 0.35})`;
-            g.lineWidth = 1 + Math.random() * 1.5;
-            const y = Math.random() * h;
-            g.beginPath(); g.moveTo(0, y);
-            g.bezierCurveTo(w * 0.3, y + rand(-4, 4), w * 0.7, y + rand(-4, 4), w, y + rand(-3, 3));
-            g.stroke();
-        }
-    }, 1, 2);
     const gunSteelTex = makeTexture(64, 64, (g, w, h) => {
         g.fillStyle = '#23262b'; g.fillRect(0, 0, w, h);
         speckle(g, w, h, ['#1b1e22', '#2b2f35', '#202329'], 90, 1, 3);
     });
-    const wood = new THREE.MeshPhongMaterial({ map: gunWoodTex, shininess: 26, specular: 0x3a2a18 });
+    const polyTex = makeTexture(64, 64, (g, w, h) => {   // polymer hitam kasar
+        g.fillStyle = '#15171a'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#0e1013', '#1c1f24', '#111318'], 80, 1, 3);
+    });
     const steel = new THREE.MeshPhongMaterial({ map: gunSteelTex, shininess: 60, specular: 0x555a66 });
     const steelDark = new THREE.MeshPhongMaterial({ color: 0x121417, shininess: 40, specular: 0x33363c });
+    const polymer = new THREE.MeshPhongMaterial({ map: polyTex, shininess: 14, specular: 0x24262b });
     const mkPart = (geo, mat, x, y, z, rx = 0, rz = 0) => {
         const m = new THREE.Mesh(geo, mat);
         m.position.set(x, y, z);
@@ -132,20 +127,50 @@ export function initWeapons() {
         gunMesh.add(m);
         return m;
     };
-    mkPart(new THREE.BoxGeometry(0.8, 1.0, 3.4), steel, 0, 0, -0.3);                             // receiver
-    mkPart(new THREE.BoxGeometry(0.7, 0.9, 2.2), wood, 0, -0.02, -3.0);                          // handguard kayu
-    mkPart(new THREE.CylinderGeometry(0.16, 0.16, 3.4, 8), steelDark, 0, 0.1, -5.6, Math.PI / 2); // laras
-    mkPart(new THREE.CylinderGeometry(0.24, 0.24, 0.7, 8), steelDark, 0, 0.1, -7.0, Math.PI / 2); // muzzle brake
-    mkPart(new THREE.BoxGeometry(0.12, 0.5, 0.12), steelDark, 0, 0.55, -6.6);                    // pisir depan
-    // Pisir belakang: dua sayap dgn CELAH bidik di tengah (sight picture saat ADS)
-    mkPart(new THREE.BoxGeometry(0.09, 0.4, 0.7), steelDark, -0.14, 0.62, -1.4);
-    mkPart(new THREE.BoxGeometry(0.09, 0.4, 0.7), steelDark, 0.14, 0.62, -1.4);
-    gunMagMesh = mkPart(new THREE.BoxGeometry(0.7, 1.5, 0.9), steel, 0, -1.1, -1.1, 0.45);       // magazen (dianimasikan saat reload)
-    mkPart(new THREE.BoxGeometry(0.55, 1.1, 0.6), wood, 0, -0.95, 0.7, 0.25);                    // grip
-    mkPart(new THREE.BoxGeometry(0.7, 0.9, 2.4), wood, 0, -0.25, 2.4, 0.06);                     // popor kayu
-    mkPart(new THREE.CylinderGeometry(0.12, 0.12, 2.0, 6), steelDark, 0, 0.38, -3.0, Math.PI / 2); // tabung gas
-    mkPart(new THREE.BoxGeometry(0.16, 0.5, 1.1), steelDark, 0, -0.62, 1.35);                    // pelindung pelatuk
-    boltHandle = mkPart(new THREE.BoxGeometry(0.5, 0.18, 0.5), steel, 0.45, 0.12, 0.4);          // tuas kokang (ditarik saat reload)
+    mkPart(new THREE.BoxGeometry(0.8, 0.95, 3.3), steel, 0, 0, -0.25);                            // receiver
+    mkPart(new THREE.BoxGeometry(0.72, 0.55, 1.1), steel, 0, -0.6, -1.1);                         // magwell
+    // Carry handle khas SS2 (ala M16): dua dinding samping + palang atas —
+    // kanal di antaranya = jalur pandang ADS, dgn takik peep di belakang
+    for (const sx of [-0.2, 0.2]) {
+        mkPart(new THREE.BoxGeometry(0.1, 0.5, 0.5), steelDark, sx, 0.66, 0.5);
+        mkPart(new THREE.BoxGeometry(0.1, 0.5, 0.5), steelDark, sx, 0.66, -1.3);
+    }
+    mkPart(new THREE.BoxGeometry(0.5, 0.2, 2.6), steelDark, 0, 0.98, -0.4);                       // palang atas handle
+    mkPart(new THREE.BoxGeometry(0.07, 0.2, 0.24), steelDark, -0.11, 0.72, 0.42);                 // peep belakang
+    mkPart(new THREE.BoxGeometry(0.07, 0.2, 0.24), steelDark, 0.11, 0.72, 0.42);
+    // Handguard polymer dgn rusuk melintang (ciri SS2)
+    mkPart(new THREE.BoxGeometry(0.78, 0.84, 2.4), polymer, 0, 0, -3.1);
+    for (let i = 0; i < 6; i++)
+        mkPart(new THREE.BoxGeometry(0.86, 0.92, 0.13), polymer, 0, 0, -2.15 - i * 0.4);
+    mkPart(new THREE.CylinderGeometry(0.14, 0.14, 2.9, 8), steelDark, 0, 0.1, -5.5, Math.PI / 2); // laras terbuka
+    mkPart(new THREE.CylinderGeometry(0.09, 0.09, 1.3, 6), steelDark, 0, 0.34, -4.9, Math.PI / 2);// tabung gas
+    mkPart(new THREE.CylinderGeometry(0.21, 0.23, 0.9, 8), steelDark, 0, 0.1, -7.0, Math.PI / 2); // flash hider birdcage
+    mkPart(new THREE.CylinderGeometry(0.24, 0.24, 0.16, 8), steelDark, 0, 0.1, -6.5, Math.PI / 2);// cincin pangkalnya
+    // Pisir depan bersayap dekat muzzle + swivel sling kecil di bawahnya
+    mkPart(new THREE.BoxGeometry(0.1, 0.55, 0.1), steelDark, 0, 0.5, -6.25);
+    mkPart(new THREE.BoxGeometry(0.08, 0.5, 0.3), steelDark, -0.17, 0.5, -6.25);
+    mkPart(new THREE.BoxGeometry(0.08, 0.5, 0.3), steelDark, 0.17, 0.5, -6.25);
+    mkPart(new THREE.BoxGeometry(0.06, 0.2, 0.12), steelDark, 0, -0.12, -6.25);
+    // Magazen STANAG (Group: badan + pelat alas; dianimasikan saat reload)
+    gunMagMesh = new THREE.Group();
+    const magBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.6, 0.88), steel);
+    gunMagMesh.add(magBody);
+    const magBase = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.98), steelDark);
+    magBase.position.set(0, -0.85, 0.06);
+    gunMagMesh.add(magBase);
+    gunMagMesh.position.set(MAG_REST.x, MAG_REST.y, MAG_REST.z);
+    gunMagMesh.rotation.x = MAG_REST.rx;
+    gunMesh.add(gunMagMesh);
+    mkPart(new THREE.BoxGeometry(0.5, 1.05, 0.6), polymer, 0, -0.95, 0.7, 0.28);                  // grip pistol polymer
+    mkPart(new THREE.BoxGeometry(0.14, 0.45, 1.05), steelDark, 0, -0.62, 1.3);                    // pelindung pelatuk
+    // Popor lipat rangka (skeleton stock): tabung atas + pelat popor +
+    // strut diagonal -> jendela segitiga khas SS2-V2
+    mkPart(new THREE.BoxGeometry(0.26, 0.26, 2.2), polymer, 0, 0.1, 2.5);
+    mkPart(new THREE.BoxGeometry(0.34, 1.5, 0.34), polymer, 0, -0.42, 3.5);
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 1), polymer);
+    placeLimb(strut, 0, -0.5, 1.4, 0, -1.05, 3.42);
+    gunMesh.add(strut);
+    boltHandle = mkPart(new THREE.BoxGeometry(0.5, 0.18, 0.5), steel, 0.45, 0.15, 0.4);           // tuas kokang (ditarik saat reload)
 
     // ----- Tangan & lengan karakter (gaya CS: lengan penuh dari sudut layar ke senjata,
     // sarung tangan taktis + jari mencengkeram; ikut bob/ADS/recoil via gunMesh) -----
@@ -565,10 +590,10 @@ export function updateWeaponVisuals(dt) {
         gunRotZ = 0.10 * env;
         if (rt >= 0.35 && rt < 2.05) {                      // magazen menempel di tangan kiri
             gunMagMesh.position.set(leftHand.position.x, leftHand.position.y - 0.35, leftHand.position.z);
-            gunMagMesh.rotation.set(-0.35, 0, 0.45);
-        } else {                                            // terpasang di senjata
-            gunMagMesh.position.set(0, -1.1, -1.1);
-            gunMagMesh.rotation.set(0, 0, 0.45);
+            gunMagMesh.rotation.set(-0.25, 0, 0.35);
+        } else {                                            // terpasang di magwell
+            gunMagMesh.position.set(MAG_REST.x, MAG_REST.y, MAG_REST.z);
+            gunMagMesh.rotation.set(MAG_REST.rx, 0, 0);
         }
         if (rt >= 2.30 && rt < 2.55) boltHandle.position.z = 0.4 + smooth01((rt - 2.30) / 0.25) * 0.72;
         else if (rt >= 2.55 && rt < 2.68) boltHandle.position.z = 1.12 - smooth01((rt - 2.55) / 0.13) * 0.72;
@@ -595,15 +620,15 @@ export function updateWeaponVisuals(dt) {
         pLeftHand.position.lerp(P_LEFT_REST, Math.min(1, dt * 10));
         gunRotX += (0 - gunRotX) * Math.min(1, dt * 10);
         gunRotZ += (0 - gunRotZ) * Math.min(1, dt * 10);
-        gunMagMesh.position.set(0, -1.1, -1.1);
-        gunMagMesh.rotation.set(0, 0, 0.45);
+        gunMagMesh.position.set(MAG_REST.x, MAG_REST.y, MAG_REST.z);
+        gunMagMesh.rotation.set(MAG_REST.rx, 0, 0);
         boltHandle.position.z = 0.4;
         pistolMagMesh.position.set(0, -0.72, -0.26);
         pistolMagMesh.rotation.set(0.12, 0, 0);
         pistolSlide.position.z = -1.2 + (isRifle ? 0 : Math.min(0.5, gunRecoil * 0.5));
     }
 
-    // Melee: ayunan popor AK (sabet menyamping) / pistol-whip (hantam ke bawah)
+    // Melee: ayunan popor rifle (sabet menyamping) / pistol-whip (hantam ke bawah)
     let mRotX = 0, mRotY = 0;
     if (meleeS > 0) {
         if (isRifle) { mRotY = 1.15 * meleeS; mRotX = 0.35 * meleeS; }

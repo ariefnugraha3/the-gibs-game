@@ -18,4 +18,4 @@ Edit `config/gameplay.json` — max HP, ammo, movement speed, stamina, grenade p
 
 ## Code layout
 
-Everything is documented in [MODULES.md](MODULES.md) (module catalog + scene interface + config keys). Architecture notes for AI assistants: [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md). Desktop/Steam port plan: [STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md).
+Everything is documented in [MODULES.md](MODULES.md) (module catalog + scene interface + config keys). Architecture notes for AI assistants: [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md). Desktop/Steam port plan: [STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md). Gameplay feature roadmap: [IMPROVEMENT-PLAN.md](IMPROVEMENT-PLAN.md).
