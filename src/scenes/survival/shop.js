@@ -1,8 +1,9 @@
-// Shop lapangan Survival (IMPROVEMENT-PLAN #3): overlay KEYBOARD-ONLY —
-// pointer lock TETAP terkunci; B buka/tutup, angka 1-5 membeli. Game TIDAK
-// di-pause selagi shop terbuka (trade-off desain ala horde-mode). Mata uang =
-// skor. Terhubung ke game lewat hook opsional scene: shopKey(key) & shopClose.
-// Upgrade bersifat PER-RUN (dmgMul/reloadMul di-reset configurePlayer).
+// Shop antar-gelombang Survival (overhaul rounds 2026-07-07): overlay
+// KEYBOARD-ONLY — pointer TETAP terkunci. Terbuka OTOMATIS saat sebuah wave
+// selesai (scene memanggil openShop() setelah hitung mundur 3 detik). Item:
+// isi ulang Ammo/Grenade/Health + BELI senjata Shotgun / Assault Rifle
+// (Survival mulai hanya berpistol). Tombol "Start Next Wave" (SPACE) dimiliki
+// scene (survival/index.js) yang memanggil startNextWave. Mata uang = skor.
 // Semua teks UI English (aturan permanen).
 
 import { CFG } from '../../core/config.js';
@@ -35,20 +36,26 @@ function line(key, label, cost, note) {
         `<span class="shopCost">${cost}</span><span class="shopNote">${note || ''}</span></div>`;
 }
 
+// Baris beli senjata: tampilkan "Owned" (tanpa harga) bila sudah dimiliki.
+function weaponLine(key, label, cost, owned) {
+    return owned
+        ? `<div class="shopLine"><span class="shopKey">[${key}]</span><span class="shopLabel">${label}</span>` +
+        `<span class="shopCost">—</span><span class="shopNote">Owned</span></div>`
+        : line(key, `Buy ${label}`, cost);
+}
+
 function render() {
-    const S = CFG.shop;
+    const S = CFG.shop, o = player.owned || {};
     overlay().innerHTML =
         `<div class="shopTitle">FIELD SHOP</div>` +
         `<div class="shopScore">Score: ${score}</div>` +
-        line(1, 'Full Ammo Restock (all weapons)', S.ammoCost) +
-        line(2, `Medkit +${S.medkitHeal} HP`, S.medkitCost) +
-        line(3, '+1 Grenade', S.grenadeCost) +
-        line(4, `+${Math.round(S.damagePerLevel * 100)}% Damage`, S.damageCost,
-            player.upDmg >= S.damageMaxLevel ? 'MAXED' : `Lv ${player.upDmg}/${S.damageMaxLevel}`) +
-        line(5, `Faster Reload −${Math.round(S.reloadPerLevel * 100)}%`, S.reloadCost,
-            player.upReload >= S.reloadMaxLevel ? 'MAXED' : `Lv ${player.upReload}/${S.reloadMaxLevel}`) +
+        line(1, 'Replenish All Ammo', S.ammoCost) +
+        line(2, 'Replenish Grenades', S.grenadeCost) +
+        line(3, 'Replenish Health', S.healthCost) +
+        weaponLine(4, 'Shotgun', S.shotgunCost, o.shotgun) +
+        weaponLine(5, 'Assault Rifle', S.rifleCost, o.rifle) +
         (notice ? `<div class="shopErr">${notice}</div>` : '') +
-        `<div class="shopHint">Press B to close</div>`;
+        `<div class="shopNext">[SPACE] START NEXT WAVE &#9654;</div>`;
 }
 
 function setNotice(text) {
@@ -59,7 +66,7 @@ function setNotice(text) {
 }
 
 // Beli: skor cukup + efek valid -> potong skor. apply() mengembalikan pesan
-// penolakan (penuh/maxed) atau null bila berhasil — skor TIDAK dipotong saat ditolak.
+// penolakan (penuh/dimiliki) atau null bila berhasil — skor TIDAK dipotong saat ditolak.
 function buy(cost, apply) {
     if (score < cost) { setNotice('Not enough score'); return; }
     const rejected = apply();
@@ -70,42 +77,44 @@ function buy(cost, apply) {
     setNotice('Purchased!');
 }
 
-// Handler tombol dari core/input.js (via activeScene.shopKey). Return true =
-// tombol DIKONSUMSI shop (angka 1-3 tidak boleh bocor jadi ganti senjata).
-export function shopKey(key) {
-    if (key === 'b') { open ? closeShop() : openShop(); return true; }
+// Beli senjata: tandai dimiliki + berikan loadout penuh (mag awal terisi).
+function buyWeapon(w, label) {
+    if (player.owned[w]) return `${label} already owned`;
+    player.owned[w] = true;
+    player[w].mags = CFG.weapons[w].startMags;
+    player[w].ammo = player[w].magSize;
+}
+
+// Handler tombol beli dari scene (dipanggil oleh survival/index.js.shopKey saat
+// overlay terbuka). Return true = tombol DIKONSUMSI (angka tak bocor jadi ganti
+// senjata). Senjata yang dimiliki di-replenish lewat item [1] Ammo.
+export function shopBuyKey(key) {
     if (!open) return false;
-    const S = CFG.shop, W = ['rifle', 'pistol', 'shotgun'];
+    const S = CFG.shop;
     if (key === '1') {
         buy(S.ammoCost, () => {
-            if (W.every(w => player[w].mags >= CFG.weapons.maxMags
-                && player[w].ammo >= player[w].magSize)) return 'Ammo already full';
+            // Hanya senjata yang DIMILIKI yang diisi ulang (penuh mag + peluru)
+            const W = ['rifle', 'pistol', 'shotgun'].filter(w => player.owned[w]);
+            if (W.every(w => player[w].mags >= CFG.weapons.maxMags && player[w].ammo >= player[w].magSize))
+                return 'Ammo already full';
             for (const w of W) { player[w].mags = CFG.weapons.maxMags; player[w].ammo = player[w].magSize; }
         });
     } else if (key === '2') {
-        buy(S.medkitCost, () => {
-            if (player.hp >= CFG.player.maxHp) return 'Health already full';
-            player.hp = Math.min(CFG.player.maxHp, player.hp + S.medkitHeal);
-        });
-    } else if (key === '3') {
         buy(S.grenadeCost, () => {
             if (player.grenades >= CFG.grenade.max) return 'Grenades already full';
-            player.grenades++;
+            player.grenades = CFG.grenade.max;   // isi penuh
+        });
+    } else if (key === '3') {
+        buy(S.healthCost, () => {
+            if (player.hp >= CFG.player.maxHp) return 'Health already full';
+            player.hp = CFG.player.maxHp;         // isi penuh
         });
     } else if (key === '4') {
-        buy(S.damageCost, () => {
-            if (player.upDmg >= S.damageMaxLevel) return 'Damage already maxed';
-            player.upDmg++;
-            player.dmgMul = 1 + player.upDmg * S.damagePerLevel;
-        });
+        buy(S.shotgunCost, () => buyWeapon('shotgun', 'Shotgun'));
     } else if (key === '5') {
-        buy(S.reloadCost, () => {
-            if (player.upReload >= S.reloadMaxLevel) return 'Reload already maxed';
-            player.upReload++;
-            player.reloadMul = Math.max(0.4, 1 - player.upReload * S.reloadPerLevel);
-        });
+        buy(S.rifleCost, () => buyWeapon('rifle', 'Assault Rifle'));
     } else {
-        return false;   // tombol lain tak disentuh shop
+        return false;   // tombol lain (mis. SPACE next-wave) ditangani scene
     }
     return true;
 }

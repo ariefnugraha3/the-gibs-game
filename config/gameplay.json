@@ -91,10 +91,12 @@
         }
     },
     "survival": {
-        "waveSeconds": 25,
-        "spawnIntervalBase": 4,
-        "spawnIntervalStep": 0.35,
-        "spawnIntervalMin": 1.2,
+        "zombiesPerWaveBase": 15,
+        "zombiesPerWaveStep": 5,
+        "shopCountdownSec": 3,
+        "spawnIntervalBase": 2.5,
+        "spawnIntervalStep": 0.2,
+        "spawnIntervalMin": 1,
         "maxZombiesBase": 10,
         "maxZombiesStep": 2,
         "maxZombiesCap": 28,
@@ -143,16 +145,11 @@
         "medkitHeal": 2
     },
     "shop": {
-        "ammoCost": 500,
-        "medkitCost": 300,
-        "medkitHeal": 2,
+        "ammoCost": 400,
         "grenadeCost": 250,
-        "damageCost": 800,
-        "damagePerLevel": 0.15,
-        "damageMaxLevel": 4,
-        "reloadCost": 700,
-        "reloadPerLevel": 0.15,
-        "reloadMaxLevel": 3
+        "healthCost": 350,
+        "shotgunCost": 900,
+        "rifleCost": 1200
     },
     "difficulty": {
         "easy": { "zombieHpMul": 0.75, "zombieDamageMul": 0.5, "spawnIntervalMul": 1.3 },

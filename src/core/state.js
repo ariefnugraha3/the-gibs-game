@@ -40,6 +40,9 @@ export const player = {
     rifle: { ammo: 30, mags: 3, magSize: 30 },    // utama ("Assault Rifle")
     pistol: { ammo: 15, mags: 3, magSize: 15 },   // secondary; damage peluru sama
     shotgun: { ammo: 6, mags: 2, magSize: 6 },    // senjata ke-3 (multi-pelet)
+    // Kepemilikan senjata: Survival mulai HANYA pistol (rifle & shotgun dibeli
+    // di shop antar-gelombang); mode lain memiliki semua. Di-set configurePlayer.
+    owned: { pistol: true, rifle: true, shotgun: true },
     isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
     vy: 0, onGround: true,           // vertikal: lompat (SPASI) & gravitasi
     // Upgrade shop survival (per-run; kembali 1/0 di configurePlayer):
@@ -58,6 +61,10 @@ export function configurePlayer() {
         player[w].ammo = CFG.weapons[w].magSize;
         player[w].mags = CFG.weapons[w].startMags;
     }
+    // Survival: hanya pistol yang dimiliki di awal run (senjata lain dibeli di
+    // shop); campaign & mode lain memiliki semua senjata sejak awal.
+    const survivalStart = mode === 'survival';
+    player.owned = { pistol: true, rifle: !survivalStart, shotgun: !survivalStart };
     player.dmgMul = 1; player.reloadMul = 1;
     player.upDmg = 0; player.upReload = 0;
 }

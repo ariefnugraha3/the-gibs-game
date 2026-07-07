@@ -552,7 +552,7 @@ body {
     mask-image: radial-gradient(ellipse at center, transparent 52%, #000 80%);
 }
 
-/* ---------- Shop lapangan Survival (overlay keyboard-only, tombol B) ---------- */
+/* ---------- Shop antar-gelombang Survival (overlay keyboard-only, buka otomatis) ---------- */
 #shopOverlay {
     position: absolute;
     top: 50%;
@@ -598,7 +598,19 @@ body {
 #shopOverlay .shopCost { color: #9fd8a2; font-weight: bold; }
 #shopOverlay .shopNote { color: #8fa3b8; font-size: 13px; min-width: 64px; text-align: right; }
 #shopOverlay .shopErr { text-align: center; color: #ff6b6b; font-size: 14px; margin-top: 8px; }
-#shopOverlay .shopHint { text-align: center; color: #8fa3b8; font-size: 13px; margin-top: 10px; }
+/* Baris "Start Next Wave": tombol hijau menonjol (ditekan lewat SPACE) */
+#shopOverlay .shopNext {
+    text-align: center;
+    margin-top: 14px;
+    padding: 9px 0;
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #0b0f14;
+    background: linear-gradient(180deg, #2ecc71, #27ae60);
+    border-radius: 7px;
+    box-shadow: 0 0 14px rgba(46, 204, 113, 0.45);
+}
 
 /* ---------- Baris difficulty di layar pilih mode ---------- */
 #diffRow { margin: 2px 0 18px; }

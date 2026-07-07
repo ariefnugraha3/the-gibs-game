@@ -108,10 +108,11 @@ export function updateDrops(dt, T) {
         if (dist < player.radius + 2) {
             // Item PENUH tidak diambil (ditinggal untuk nanti) — beri info
             // "already full" di feed, dgn jeda 1.2 dtk agar tidak spam saat
-            // player berdiri di atas item.
+            // player berdiri di atas item. Mag hanya menghitung senjata yang
+            // DIMILIKI (Survival mulai pistol saja).
+            const ownedW = ['rifle', 'pistol', 'shotgun'].filter(w => player.owned[w]);
             const isFull =
-                (d.type === 'mag' && ['rifle', 'pistol', 'shotgun']
-                    .every(w => player[w].mags >= CFG.weapons.maxMags)) ||
+                (d.type === 'mag' && ownedW.every(w => player[w].mags >= CFG.weapons.maxMags)) ||
                 (d.type === 'grenade' && player.grenades >= CFG.grenade.max) ||
                 (d.type === 'medkit' && player.hp >= CFG.player.maxHp);
             if (isFull) {
@@ -122,8 +123,8 @@ export function updateDrops(dt, T) {
                             : 'Health already full', '#b8b8b8');
                 }
             } else {
-                if (d.type === 'mag') {          // isi SEMUA senjata (di-cap maxMags)
-                    for (const w of ['rifle', 'pistol', 'shotgun'])
+                if (d.type === 'mag') {          // isi senjata yang DIMILIKI (di-cap maxMags)
+                    for (const w of ownedW)
                         player[w].mags = Math.min(CFG.weapons.maxMags, player[w].mags + 1);
                     showPickup('+1 Mag (All Weapons)', '#f1c40f');
                 } else if (d.type === 'medkit') {

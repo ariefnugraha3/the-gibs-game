@@ -476,6 +476,10 @@ export function initWeapons() {
     gunMesh.position.set(3, -2.5, -6);
     camera.add(gunMesh);
     scene.add(camera);
+
+    // Senjata aktif awal sesuai kepemilikan (Survival: pistol; lainnya: rifle).
+    // Dijalankan setelah semua mesh + WEAPON_DEF terisi.
+    applyStartLoadout();
 }
 
 // Pindahkan muzzle flash/sprite ke senjata aktif & arahkan muzzlePoint ke sana
@@ -499,8 +503,24 @@ export function startSwitch(target) {
     updateUI();
 }
 
+// Senjata awal run sesuai kepemilikan (Survival mulai pistol; lainnya rifle).
+// Dipakai initWeapons (boot) & resetWeapons (restart) supaya jalur boot dan
+// restart konsisten. Prioritas: rifle -> pistol -> shotgun (yang dimiliki).
+function pickStartWeapon() {
+    const o = player.owned || {};
+    return o.rifle !== false ? 'rifle' : o.pistol !== false ? 'pistol' : 'shotgun';
+}
+
+// Terapkan senjata aktif awal: set currentWeapon + visibilitas mesh + muzzle.
+function applyStartLoadout() {
+    currentWeapon = pickStartWeapon();
+    lastWeapon = 'pistol';   // target fallback Q (di-gate kepemilikan di trySwitchKey)
+    for (const k in WEAPON_DEF) WEAPON_DEF[k].mesh.visible = (k === currentWeapon);
+    attachMuzzle(currentWeapon);
+}
+
 // 1 = rifle, 2 = pistol, 3 = shotgun, Q = tukar cepat ke senjata SEBELUMNYA
-// (dipanggil handler keyboard)
+// (dipanggil handler keyboard). Senjata yang belum dimiliki (Survival) diabaikan.
 export function trySwitchKey(key) {
     if (switchAnim >= 0 || meleeT > 0) return;
     const target = key === '1' ? 'rifle'
@@ -508,6 +528,7 @@ export function trySwitchKey(key) {
             : key === '3' ? 'shotgun'
                 : (lastWeapon !== currentWeapon ? lastWeapon
                     : (currentWeapon === 'rifle' ? 'pistol' : 'rifle'));
+    if (player.owned && !player.owned[target]) return;   // belum dibeli di shop
     if (target !== currentWeapon) startSwitch(target);
 }
 
@@ -804,19 +825,15 @@ export function updateWeaponVisuals(dt) {
         sgLeftHand.position.x - 0.05, sgLeftHand.position.y - 0.15, sgLeftHand.position.z + 0.55);
 }
 
-// Bagian senjata dari resetGame: kembali ke rifle, batalkan animasi & reload
+// Bagian senjata dari resetGame: senjata awal sesuai kepemilikan (configurePlayer
+// sudah menyetel player.owned untuk mode aktif), batalkan animasi & reload.
 export function resetWeapons() {
     clearTimeout(player.reloadTimer);   // bug fix: reload lama jangan selesai di game baru
     player.isReloading = false;
-    currentWeapon = 'rifle';
-    lastWeapon = 'pistol';
     switchAnim = -1; switchTarget = null;
     meleeT = 0; meleeCd = 0; meleeS = 0;
-    for (const k in WEAPON_DEF) {
-        WEAPON_DEF[k].mesh.visible = k === 'rifle';
-        WEAPON_DEF[k].mesh.rotation.set(0, 0, 0);
-    }
-    attachMuzzle('rifle');
+    for (const k in WEAPON_DEF) WEAPON_DEF[k].mesh.rotation.set(0, 0, 0);
+    applyStartLoadout();   // currentWeapon + visibilitas + muzzle sesuai owned
     gunRotX = 0; gunRotZ = 0;
     gunHeat = 0;
 }

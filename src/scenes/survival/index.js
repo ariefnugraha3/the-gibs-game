@@ -4,7 +4,7 @@
 // antarmuka scene (lihat MODULES.md).
 
 import { CFG } from '../../core/config.js';
-import { player, zombies, isPaused, isGameOver, _v3 } from '../../core/state.js';
+import { player, zombies, isGameOver, _v3 } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
 import { updateUI } from '../../core/hud.js';
@@ -12,17 +12,25 @@ import { buildHumanZombie, tintZombie, CLAW_TIME, reachForScale } from '../../en
 import { spawnGroundPuff } from '../../entities/effects.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
-import { showPickup } from '../../core/dom.js';
+import { showPickup, showStageMsg } from '../../core/dom.js';
 import { applyLightPreset, LIGHT_PRESETS, ambLight, hemiLight, dirLight } from '../../world/lighting.js';
 import {
     PARK, FENCE_H, FOUNTAIN, ensureParkWorld, getSurvivalNav,
     resolveObstacles, segmentHitsFountain, groundHeightAt
 } from './world.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
-import { shopKey, closeShop } from './shop.js';
+import { openShop, closeShop, isShopOpen, shopBuyKey } from './shop.js';
 
-// Difficulty / wave
-const wave = { num: 1, time: 0, spawnTimer: 0, spawnInterval: 4, maxZombies: 10 };
+// Wave berbasis "clear" (overhaul 2026-07-07): tiap wave punya jatah zombie
+// TETAP (toSpawn) yang harus dihabisi. Wave bersih saat semua sudah di-spawn
+// DAN lapangan kosong -> fase 'cleared' (hitung mundur 3 dtk) -> 'shopping'
+// (shop antar-gelombang) -> tekan Next Wave -> 'fighting' wave berikutnya.
+const wave = {
+    num: 1, phase: 'fighting',   // 'fighting' | 'cleared' | 'shopping'
+    toSpawn: 0,                  // sisa zombie yang belum di-spawn wave ini
+    spawnTimer: 0, spawnInterval: 2.5, maxConcurrent: 10,
+    clearTimer: 0                // hitung mundur sebelum shop terbuka
+};
 let navGrid = null;   // nav-grid pathfinder (Monas & pohon = penghalang; bak walkable = vault)
 
 // Objektif Monas (IMPROVEMENT-PLAN #6): sebagian zombie menggerogoti Monas;
@@ -61,7 +69,8 @@ function endEvent() {
 }
 
 function spawnZombie() {
-    if (isGameOver || isPaused || zombies.length >= wave.maxZombies) return;
+    // Dipanggil hanya oleh updateMode saat fase 'fighting' (jatah & cap sudah
+    // dicek di sana) — tak perlu guard pause/gameover/cap di sini.
     const SV = CFG.survival;
 
     // Titik di pagar, dekat posisi player. Sebagian besar dari sisi terdekat
@@ -133,50 +142,92 @@ function spawnZombie() {
     });
 }
 
+// Mulai wave ke-n: set jatah zombie (naik per wave) + cadence spawn + cap
+// lapangan, picu event lingkungan bila kelipatan eventEveryWaves, umumkan wave.
+function startWave(n) {
+    const SV = CFG.survival;
+    wave.num = n;
+    wave.phase = 'fighting';
+    wave.toSpawn = SV.zombiesPerWaveBase + (n - 1) * SV.zombiesPerWaveStep;
+    wave.spawnTimer = 0;
+    wave.spawnInterval = Math.max(SV.spawnIntervalMin,
+        SV.spawnIntervalBase - (n - 1) * SV.spawnIntervalStep);
+    wave.maxConcurrent = Math.min(SV.maxZombiesCap,
+        SV.maxZombiesBase + (n - 1) * SV.maxZombiesStep);
+    if (SV.eventEveryWaves > 0 && n % SV.eventEveryWaves === 0 && !EVT.type) startEvent();
+    showStageMsg(`WAVE ${n}`, 1800);
+    updateUI();
+}
+
+// Tombol "Start Next Wave" di shop: tutup shop lalu mulai gelombang berikutnya.
+function startNextWave() {
+    closeShop();
+    startWave(wave.num + 1);
+}
+
+// Hook tombol shop (core/input.js men-delegasi tiap keydown ke sini lebih dulu
+// saat overlay terbuka). SPACE/Enter = mulai wave berikutnya (tombol Next Wave);
+// sisanya diserahkan ke handler beli item shop.js.
+function shopKey(key) {
+    if (!isShopOpen()) return false;
+    if (key === ' ' || key === 'enter') { startNextWave(); return true; }
+    return shopBuyKey(key);
+}
+
 export const survivalScene = {
     id: 'survival',
 
     enter() {
         ensureParkWorld();
         navGrid = getSurvivalNav();
-        // Reset wave + objektif Monas + event + shop + posisi awal
-        wave.num = 1; wave.time = 0; wave.spawnTimer = 0;
-        wave.spawnInterval = CFG.survival.spawnIntervalBase;
-        wave.maxZombies = CFG.survival.maxZombiesBase;
+        // Reset objektif Monas + event + shop + posisi awal, lalu mulai wave 1
         monasHp = CFG.survival.monasMaxHp;
         monasWarnCd = 0;
         endEvent();          // pulihkan fog/cahaya bila mati di tengah event
         closeShop();
         camera.position.set(0, CFG.player.eyeHeight, 120);
         camera.quaternion.set(0, 0, 0, 1);
+        startWave(1);
     },
 
-    // Hook shop (core/input.js men-delegasi tombol B & angka saat overlay terbuka)
+    // Hook shop: SPACE = Next Wave, angka = beli (core/input.js men-delegasinya)
     shopKey,
     shopClose: closeShop,
 
-    // --- Wave / difficulty scaling + spawner (akumulator dt, hormat pause) ---
+    // --- Mesin fase wave (fighting -> cleared -> shopping) + spawner + event ---
     updateMode(dt) {
-        const SV = CFG.survival;
-        wave.time += dt;
-        const targetWave = 1 + Math.floor(wave.time / SV.waveSeconds);   // naik tiap waveSeconds
-        if (targetWave !== wave.num) {
-            wave.num = targetWave;
-            wave.spawnInterval = Math.max(SV.spawnIntervalMin,
-                SV.spawnIntervalBase - (wave.num - 1) * SV.spawnIntervalStep);
-            wave.maxZombies = Math.min(SV.maxZombiesCap,
-                SV.maxZombiesBase + (wave.num - 1) * SV.maxZombiesStep);
-            // Event lingkungan tiap kelipatan eventEveryWaves (kabut/blackout)
-            if (SV.eventEveryWaves > 0 && wave.num % SV.eventEveryWaves === 0
-                && !EVT.type) startEvent();
-            updateUI();
-        }
-        wave.spawnTimer += dt;
-        if (wave.spawnTimer >= wave.spawnInterval) {
-            wave.spawnTimer = 0;
-            spawnZombie();
-        }
         if (monasWarnCd > 0) monasWarnCd -= dt;
+
+        if (wave.phase === 'fighting') {
+            // Spawn sampai jatah wave habis, dibatasi cap zombie di lapangan
+            wave.spawnTimer += dt;
+            if (wave.toSpawn > 0 && wave.spawnTimer >= wave.spawnInterval
+                && zombies.length < wave.maxConcurrent) {
+                wave.spawnTimer = 0;
+                spawnZombie();
+                wave.toSpawn--;
+                updateUI();   // penghitung "N left" ikut segar
+            }
+            // Wave bersih: semua sudah di-spawn DAN tak ada zombie tersisa
+            if (wave.toSpawn === 0 && zombies.length === 0) {
+                wave.phase = 'cleared';
+                wave.clearTimer = CFG.survival.shopCountdownSec;
+                showStageMsg('WAVE CLEARED!', 3200);
+                updateUI();
+            }
+        } else if (wave.phase === 'cleared') {
+            // Jeda "Wave Cleared" -> buka shop setelah hitung mundur habis
+            wave.clearTimer -= dt;
+            updateUI();   // hudStatus menampilkan hitung mundur
+            if (wave.clearTimer <= 0) {
+                wave.phase = 'shopping';
+                openShop();
+            }
+        } else {   // 'shopping': tunggu tombol Next Wave (shopKey -> startNextWave)
+            // Safety: bila overlay sempat tertutup (Esc/blur -> shopClose), buka
+            // lagi begitu player melanjutkan agar tidak terjebak tanpa shop.
+            if (!isShopOpen()) openShop();
+        }
 
         // Animasi event aktif: envelope naik-turun 2 dtk di kedua ujung —
         // nilai dihitung dari preset outdoor (bukan akumulasi) = tanpa drift.
@@ -358,7 +409,12 @@ export const survivalScene = {
 
     hudStatus() {
         const pct = Math.max(0, Math.ceil(monasHp / CFG.survival.monasMaxHp * 100));
-        return `Wave ${wave.num} — Monas ${pct}%`;
+        if (wave.phase === 'cleared')
+            return `WAVE ${wave.num} CLEARED — Next wave in ${Math.max(1, Math.ceil(wave.clearTimer))}...`;
+        if (wave.phase === 'shopping')
+            return `WAVE ${wave.num} CLEARED — Field Shop open`;
+        const left = wave.toSpawn + zombies.length;   // sisa zombie wave ini
+        return `Wave ${wave.num} — ${left} left · Monas ${pct}%`;
     },
 
     // Monas = penanda pusat (dijepit ke tepi saat jauh — kompas); warnanya

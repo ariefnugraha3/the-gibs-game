@@ -115,17 +115,18 @@ export function initInput() {
         // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie).
         // Gate stamina/cooldown/reload di dalam tryMelee.
         if (key === 'f' && !isPaused && !isGameOver) tryMelee();
-        // Shop survival (hook opsional scene): B buka/tutup; angka 1-5 membeli
-        // SELAGI overlay terbuka (return true = tombol dikonsumsi shop, tidak
-        // bocor jadi ganti senjata). Scene tanpa hook (campaign) tak terpengaruh.
+        // Shop survival (hook opsional scene): angka 1-5 membeli & SPACE/Enter
+        // memulai wave berikutnya SELAGI overlay terbuka (return true = tombol
+        // dikonsumsi shop, tidak bocor jadi ganti senjata / lompat). Scene tanpa
+        // hook (campaign) tak terpengaruh.
         const shopUsed = !isPaused && !isGameOver && activeScene && activeScene.shopKey
             ? activeScene.shopKey(key) : false;
         // 1 = rifle, 2 = pistol, 3 = shotgun, Q = tukar cepat (membatalkan reload)
         if (!shopUsed && (key === '1' || key === '2' || key === '3' || key === 'q')
             && !isPaused && !isGameOver) trySwitchKey(key);
         if (e.code === 'Space') {
-            if (isGameOver) resetGame();   // restart
-            else tryJump();                // lompat
+            if (isGameOver) resetGame();       // restart
+            else if (!shopUsed) tryJump();     // lompat (kecuali SPACE = Next Wave di shop)
         }
     });
     window.addEventListener('keyup', (e) => {
