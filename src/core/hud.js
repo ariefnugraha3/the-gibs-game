@@ -6,7 +6,7 @@ import { CFG } from './config.js';
 import { player, score, zombies, drops, _dir } from './state.js';
 import { camera } from './renderer.js';
 import { activeScene } from './sceneManager.js';
-import { scoreText, ammoText, healthFill, grenadeText, waveText, radarCtx } from './dom.js';
+import { scoreText, ammoText, healthFill, grenadeText, waveText, radar, radarCtx } from './dom.js';
 import { currentWeapon, WEAPON_DEF } from '../entities/weapons.js';
 
 export function updateUI() {
@@ -17,6 +17,8 @@ export function updateUI() {
     // Health bar (maks CFG.player.maxHp): warna merah tetap (CSS)
     healthFill.style.width = (player.hp / CFG.player.maxHp * 100) + '%';
     grenadeText.innerText = `Grenades: ${player.grenades}`;
+    // Radar minimap disembunyikan sampai dimiliki (Survival: dibeli di shop).
+    radar.style.display = player.hasRadar ? '' : 'none';
     // Survival: nomor wave. Campaign: sisa zombie di stage aktif.
     if (activeScene && activeScene.hudStatus) waveText.innerText = activeScene.hudStatus();
 }
@@ -35,6 +37,7 @@ export function radarProject(dx, dz, fx, fz, R, range) {
 }
 
 export function drawRadar() {
+    if (!player.hasRadar) return;   // radar belum dimiliki (Survival: belum dibeli) -> jangan gambar
     const W = 150, R = 70, range = 420;
     radarCtx.clearRect(0, 0, W, W);
 

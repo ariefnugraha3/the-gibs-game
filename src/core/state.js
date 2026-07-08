@@ -43,6 +43,7 @@ export const player = {
     // Kepemilikan senjata: Survival mulai HANYA pistol (rifle & shotgun dibeli
     // di shop antar-gelombang); mode lain memiliki semua. Di-set configurePlayer.
     owned: { pistol: true, rifle: true, shotgun: true },
+    hasRadar: true,   // radar minimap: Survival mulai TANPA (dibeli di shop); mode lain punya
     isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
     vy: 0, onGround: true,           // vertikal: lompat (SPASI) & gravitasi
     // Upgrade shop survival (per-run; kembali 1/0 di configurePlayer):
@@ -65,6 +66,8 @@ export function configurePlayer() {
     // shop); campaign & mode lain memiliki semua senjata sejak awal.
     const survivalStart = mode === 'survival';
     player.owned = { pistol: true, rifle: !survivalStart, shotgun: !survivalStart };
+    // Radar: Survival mulai TANPA radar (dibeli di shop, item "Radar"); mode lain langsung ada.
+    player.hasRadar = !survivalStart;
     player.dmgMul = 1; player.reloadMul = 1;
     player.upDmg = 0; player.upReload = 0;
 }

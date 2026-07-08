@@ -84,7 +84,7 @@
         "headshotDamageMul": 2,
         "bodyHitRadius": 5,
         "bodyBlockRadius": 7.5,
-        "clawDamage": 20,
+        "clawDamage": 5,
         "clawCooldownSec": 1,
         "clawRange": 3.5,
         "stopRange": 3.0,
@@ -108,7 +108,7 @@
         "maxZombiesBase": 10,
         "maxZombiesStep": 2,
         "maxZombiesCap": 28,
-        "zombieHpBase": 100,
+        "zombieHpBase": 60,
         "zombieHpPerTwoWaves": 5,
         "zombieHpMaxMul": 1.5,
         "zombieSpeedBase": 0.6,
@@ -132,7 +132,7 @@
         "eventDurationSec": 22
     },
     "campaign": {
-        "zombieHp": 100,
+        "zombieHp": 60,
         "zombieSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,
@@ -161,6 +161,7 @@
         "healthCost": 350,
         "healMonasCost": 300,
         "strengthenMonasCost": 500,
+        "radarCost": 1500,
         "shotgunCost": 900,
         "rifleCost": 1200
     },

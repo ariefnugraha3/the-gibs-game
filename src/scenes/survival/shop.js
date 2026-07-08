@@ -86,6 +86,16 @@ function catalog() {
             apply() { return strengthenMonas(); }
         },
         {
+            // Radar minimap: Survival mulai TANPA (player.hasRadar false); beli utk
+            // mengaktifkannya. updateUI (dipanggil shopPurchase) menampilkan kanvasnya.
+            id: 'radar', name: 'Radar', cost: S.radarCost,
+            desc: 'Deploy a tactical radar (top-left minimap) that reveals nearby zombies, supply drops, and the Monument.',
+            apply() {
+                if (player.hasRadar) return 'Radar already owned';
+                player.hasRadar = true;
+            }
+        },
+        {
             id: 'shotgun', name: 'Shotgun', cost: S.shotgunCost, weapon: 'shotgun',
             desc: 'Pump-action shotgun. Fires 7 pellets per shot — devastating up close, 4x damage per pellet on a headshot.',
             apply() { return buyWeapon('shotgun', 'Shotgun'); }
@@ -110,6 +120,7 @@ function buyWeapon(w, label) {
 // tingkat tertinggi -> 'Maxed' (tak bisa dibeli lagi, tombol Buy dimatikan).
 function ownedNote(it) {
     if (it.weapon && player.owned[it.weapon]) return 'Owned';
+    if (it.id === 'radar' && player.hasRadar) return 'Owned';
     if (it.id === 'strengthenMonas' && isMonasFullyStrengthened()) return 'Maxed';
     return null;
 }
