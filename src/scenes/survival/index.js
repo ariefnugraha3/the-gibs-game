@@ -16,10 +16,10 @@ import { showPickup, showStageMsg } from '../../core/dom.js';
 import { applyLightPreset, LIGHT_PRESETS, ambLight, hemiLight, dirLight } from '../../world/lighting.js';
 import {
     PARK, FENCE_H, FOUNTAIN, ensureParkWorld, getSurvivalNav,
-    resolveObstacles, segmentHitsFountain, groundHeightAt
+    resolveObstacles, resolveMonas, segmentHitsFountain, groundHeightAt
 } from './world.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
-import { openShop, closeShop, isShopOpen } from './shop.js';
+import { openShop, closeShop, isShopOpen, requestNextWave } from './shop.js';
 import { requestLock } from '../../core/input.js';
 
 // Wave berbasis "clear" (overhaul 2026-07-07): tiap wave punya jatah zombie
@@ -213,7 +213,9 @@ export function startNextWave() {
 // kini lewat KLIK (shop.js). Return true = dikonsumsi.
 function shopKey(key) {
     if (!isShopOpen()) return false;
-    if (key === ' ' || key === 'enter') { startNextWave(); return true; }
+    // SPACE/Enter = Start Next Wave -> tampilkan prompt "Are you ready?"; tekan
+    // lagi = konfirmasi Yes (requestNextWave menangani dua-langkah itu).
+    if (key === ' ' || key === 'enter') { requestNextWave(); return true; }
     return false;
 }
 
@@ -304,19 +306,24 @@ export const survivalScene = {
         const bx = PARK.hx - player.radius - 2, bz = PARK.hz - player.radius - 2;
         pos.x = clamp(pos.x, -bx, bx);
         pos.z = clamp(pos.z, -bz, bz);
-        if (Math.abs(pos.x) < 25 && Math.abs(pos.z) < 25) {
-            pos.x = oldX; pos.z = oldZ;
-        }
+        // Monas pejal: dorong keluar PER-SUMBU supaya player MENYUSUR sisinya
+        // (tidak menempel/macet — sama seperti perbaikan dinding campaign).
+        resolveMonas(pos, oldX, oldZ, player.radius);
         // Penghalang pejal: pohon & dinding bak air mancur (dorong keluar horizontal)
         resolveObstacles(pos, player.radius, feetY);
     },
 
     groundHeight: groundHeightAt,
 
-    // Peluru mati di badan Monas (AABB + batas tinggi)
+    // Peluru mati HANYA di badan Monas yang sebenarnya — silhouette bertingkat:
+    // dasar lebar (44) di bawah, menyempit ke obelisk tipis (~15) di ketinggian
+    // mata. Jadi peluru LEWAT di ruang kosong samping obelisk & mengenai zombie
+    // di baliknya (dulu terhalang tembok tak terlihat selebar dasar).
     bulletBlocked(b) {
-        return Math.abs(b.mesh.position.x) < 22 && Math.abs(b.mesh.position.z) < 22
-            && b.mesh.position.y < 35;
+        const y = b.mesh.position.y;
+        if (y < 0 || y > 64) return false;                   // di atas obelisk -> lewat
+        const h = y < 2 ? 22 : y < 5 ? 20 : y < 8 ? 15 : 8;  // undakan/teras/pelataran/obelisk
+        return Math.abs(b.mesh.position.x) < h && Math.abs(b.mesh.position.z) < h;
     },
 
     // Pantulan granat: pagar & Monas (posisi dikembalikan, kecepatan dibalik +

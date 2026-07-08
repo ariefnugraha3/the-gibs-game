@@ -4,8 +4,13 @@
 export const scoreText = document.getElementById('scoreText');
 export const ammoText = document.getElementById('ammoText');
 export const healthFill = document.getElementById('healthFill');
-export const grenadeText = document.getElementById('grenadeText');
 export const waveText = document.getElementById('waveText');
+// Inventori (sisi kanan): 4 slot (1/2 senjata, 3 granat, 4 medkit). Tiap slot =
+// { row, name }; hud.updateUI menulis nama + kelas 'active'/'dim'.
+export const invSlots = [1, 2, 3, 4].map(i => ({
+    row: document.getElementById('invSlot' + i),
+    name: document.getElementById('invName' + i),
+}));
 export const blocker = document.getElementById('blocker');
 export const gameOverScreen = document.getElementById('gameOver');
 export const finalScoreEl = document.getElementById('finalScore');

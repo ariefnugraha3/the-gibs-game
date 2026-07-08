@@ -45,6 +45,7 @@
 | 10 | Layar statistik akhir | P6 | Kecil | **SELESAI 2026-07-07** |
 | 11 | Pilihan difficulty di start screen | P6 | Kecil | **SELESAI 2026-07-07** |
 | 12 | Dukungan gamepad | P7 (fase Steam) | Sedang | TODO (dikecualikan user) |
+| 13 | Overhaul inventori (2 slot senjata + granat-di-tangan tombol 3 + medkit item tombol 4 + panel inventori kanan + shop ganti-senjata) | — (permintaan user) | Sedang-besar | **SELESAI 2026-07-08** |
 
 Rekomendasi urutan pengerjaan sisa: item 4 (musik — minta aset ke user dulu) lalu
 item 12 (gamepad, bersamaan fase Steam). Detail per-item di bawah TETAP berlaku

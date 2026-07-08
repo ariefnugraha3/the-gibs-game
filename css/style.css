@@ -70,7 +70,7 @@ body {
 
 #healthFill { background: #e74c3c; }
 
-/* Skor/amunisi/granat di pojok kanan-bawah (radar kini di kiri-atas) */
+/* Skor/amunisi di pojok kanan-bawah (radar kini di kiri-atas) */
 #statsHud {
     position: absolute;
     right: 26px;
@@ -84,6 +84,60 @@ body {
     text-shadow: 3px 3px 5px black;
     line-height: 1.45;
 }
+
+/* Inventori pemain: sisi kanan, vertikal (1/2 = senjata, 3 = granat, 4 = medkit).
+   Slot aktif (senjata terpegang / mode granat) disorot emas; kosong/0 diredupkan. */
+#inventoryHud {
+    position: absolute;
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 4;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.invSlot {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 172px;
+    padding: 7px 12px;
+    background: rgba(6, 12, 20, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-left: 3px solid rgba(255, 255, 255, 0.22);
+    border-radius: 7px;
+    color: #e8eef4;
+    font-weight: bold;
+    text-shadow: 1px 1px 3px #000;
+    transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+
+.invKey {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.14);
+    color: #cfd8e3;
+    font-size: 13px;
+}
+
+.invName { font-size: 15px; letter-spacing: 0.4px; }
+.invSlot.dim { opacity: 0.42; }
+
+.invSlot.active {
+    background: rgba(241, 196, 15, 0.2);
+    border-color: rgba(241, 196, 15, 0.7);
+    border-left-color: #f1c40f;
+    box-shadow: 0 0 12px rgba(241, 196, 15, 0.28);
+}
+
+.invSlot.active .invKey { background: #f1c40f; color: #101010; }
 
 /* Crosshair DISEMBUNYIKAN permanen (permintaan user) — elemen & seluruh JS
    yang menulisnya (opacity ADS, kelas .hit) dibiarkan utuh agar mekanik
@@ -673,6 +727,79 @@ body {
 }
 .shopNext:hover { filter: brightness(1.08); }
 .shopNext:active { transform: translateY(2px); }
+
+/* Pemilih ganti senjata (beli senjata ke-3 saat sudah bawa 2): tombol per
+   senjata yang dimiliki + Batal. */
+.shopReplaceMsg {
+    font-size: 15px;
+    color: #cfd8e3;
+    line-height: 1.5;
+    margin: 10px 0 16px;
+    text-align: center;
+}
+.shopReplaceMsg b { color: #ffd27a; }
+.shopReplaceBtns { display: flex; flex-direction: column; gap: 10px; }
+.shopReplaceBtn {
+    font-family: Arial, sans-serif;
+    font-size: 15px;
+    font-weight: bold;
+    color: #0b0f14;
+    background: linear-gradient(180deg, #f7d354, #f1c40f);
+    border: none;
+    border-radius: 8px;
+    padding: 12px 0;
+    cursor: pointer;
+    transition: filter 0.12s, transform 0.06s;
+}
+.shopReplaceBtn:hover { filter: brightness(1.08); }
+.shopReplaceBtn:active { transform: translateY(2px); }
+.shopReplaceCancel {
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    color: #cfd8e3;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 10px 0;
+    margin-top: 4px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.shopReplaceCancel:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* Prompt konfirmasi "Are you ready?" sebelum mulai wave (Yes hijau / No abu) */
+.shopConfirmBtns { display: flex; gap: 14px; justify-content: center; margin-top: 6px; }
+.shopConfirmYes {
+    font-family: Arial, sans-serif;
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #0b0f14;
+    background: linear-gradient(180deg, #2ecc71, #27ae60);
+    border: none;
+    border-radius: 8px;
+    padding: 12px 34px;
+    cursor: pointer;
+    box-shadow: 0 0 16px rgba(46, 204, 113, 0.4);
+    transition: filter 0.12s, transform 0.06s;
+}
+.shopConfirmYes:hover { filter: brightness(1.08); }
+.shopConfirmYes:active { transform: translateY(2px); }
+.shopConfirmNo {
+    font-family: Arial, sans-serif;
+    font-size: 16px;
+    font-weight: bold;
+    color: #e8eef4;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 8px;
+    padding: 12px 34px;
+    cursor: pointer;
+    transition: background 0.12s, transform 0.06s;
+}
+.shopConfirmNo:hover { background: rgba(255, 255, 255, 0.18); }
+.shopConfirmNo:active { transform: translateY(2px); }
 
 /* ---------- Baris difficulty di layar pilih mode ---------- */
 #diffRow { margin: 2px 0 18px; }

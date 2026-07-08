@@ -7,10 +7,10 @@ import { blocker } from './dom.js';
 import { activeScene } from './sceneManager.js';
 import { resetGame } from './game.js';
 import {
-    startReload, tryMelee, trySwitchKey, toggleAim, setAiming, switchAnim
+    startReload, tryMelee, trySwitchKey, toggleAim, setAiming,
+    grenadeMode, throwEquippedGrenade
 } from '../entities/weapons.js';
-import { toggleCrouch, setCrouchHold, clearCrouch, tryJump } from '../entities/player.js';
-import { handleThrowGrenade } from '../entities/grenades.js';
+import { toggleCrouch, setCrouchHold, clearCrouch, tryJump, useMedkit } from '../entities/player.js';
 
 // ----- Fullscreen + Keyboard Lock: cegah shortcut browser saat main -----
 // Ctrl+W (tutup tab), Ctrl+R (reload), Ctrl+T/N, dsb TIDAK bisa dicegah
@@ -95,6 +95,13 @@ export function initInput() {
     // ----- Klik kiri = tembak; klik kanan = TOGGLE bidik iron sight (ADS) -----
     document.addEventListener('mousedown', (e) => {
         if (isPaused || isGameOver) return;
+        // Mode granat (tombol 3): klik kiri = lempar JAUH, klik kanan = lempar
+        // DEKAT (bukan tembak/ADS). Ditangani sebelum jalur senjata biasa.
+        if (grenadeMode) {
+            if (e.button === 0) throwEquippedGrenade('far');
+            else if (e.button === 2) throwEquippedGrenade('near');
+            return;
+        }
         if (e.button === 0) mouse.isDown = true;
         // ADS butuh stamina: saat exhausted, toggle ON diabaikan (OFF selalu boleh)
         if (e.button === 2) toggleAim();
@@ -125,14 +132,15 @@ export function initInput() {
         // preventDefault meredam shortcut browser sebisanya — Ctrl+W tetap bisa
         // ditelan browser (tutup tab); perangkap andalnya Keyboard Lock di atas.
         if (e.code === 'ControlLeft') { setCrouchHold(true); e.preventDefault(); }
-        if (key === 'g' && !isPaused && !isGameOver && switchAnim < 0) handleThrowGrenade();   // granat
         // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie).
         // Gate stamina/cooldown/reload di dalam tryMelee.
         if (key === 'f' && !isPaused && !isGameOver) tryMelee();
-        // 1 = rifle, 2 = pistol, 3 = shotgun, Q = tukar cepat (membatalkan reload).
-        // (Shop modal sudah dicegat di atas -> di sini hanya berlaku saat main.)
+        // 1/2 = slot senjata, 3 = GRANAT (equip -> klik lempar), Q = tukar antar
+        // slot senjata. (Shop modal sudah dicegat di atas.)
         if ((key === '1' || key === '2' || key === '3' || key === 'q')
             && !isPaused && !isGameOver) trySwitchKey(key);
+        // 4 = pakai Medkit (pulihkan 70% HP; hanya bisa punya 1).
+        if (key === '4' && !isPaused && !isGameOver) useMedkit();
         if (e.code === 'Space') {
             if (isGameOver) resetGame();       // restart
             else tryJump();                    // lompat

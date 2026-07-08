@@ -114,13 +114,13 @@ export function updateDrops(dt, T) {
             const isFull =
                 (d.type === 'mag' && ownedW.every(w => player[w].mags >= CFG.weapons.maxMags)) ||
                 (d.type === 'grenade' && player.grenades >= CFG.grenade.max) ||
-                (d.type === 'medkit' && player.hp >= CFG.player.maxHp);
+                (d.type === 'medkit' && player.medkits >= CFG.player.maxMedkits);
             if (isFull) {
                 if (fullInfoCd <= 0) {
                     fullInfoCd = 1.2;
                     showPickup(d.type === 'mag' ? 'Mags already full'
                         : d.type === 'grenade' ? 'Grenades already full'
-                            : 'Health already full', '#b8b8b8');
+                            : 'Medkit already carried', '#b8b8b8');
                 }
             } else {
                 if (d.type === 'mag') {          // isi senjata yang DIMILIKI (di-cap maxMags)
@@ -128,8 +128,10 @@ export function updateDrops(dt, T) {
                         player[w].mags = Math.min(CFG.weapons.maxMags, player[w].mags + 1);
                     showPickup('+1 Mag (All Weapons)', '#f1c40f');
                 } else if (d.type === 'medkit') {
-                    player.hp = Math.min(CFG.player.maxHp, player.hp + CFG.drops.medkitHeal);
-                    showPickup(`+${CFG.drops.medkitHeal} HP (Medkit)`, '#ff6b81');
+                    // Medkit = item genggam (maks 1). Diambil ke inventori; PAKAI
+                    // dgn tombol 4 untuk memulihkan HP (bukan sembuh saat diambil).
+                    player.medkits = Math.min(CFG.player.maxMedkits, player.medkits + 1);
+                    showPickup('+1 Medkit (press 4 to use)', '#ff6b81');
                 } else {
                     player.grenades = Math.min(CFG.grenade.max, player.grenades + 1);
                     showPickup('+1 Grenade', '#2ed573');

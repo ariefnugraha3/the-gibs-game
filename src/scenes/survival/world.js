@@ -522,6 +522,22 @@ function createCity() {
 // hanya bila kaki masih di bawah bibirnya (di atas -> bebas berjalan/mendarat).
 // Murni horizontal; dipakai player (radius 5) dan zombie (radius 3.5).
 // Return true bila DINDING BAK yang menghalangi (pemicu vault zombie).
+// Setengah lebar dasar Monas (undakan bawah 44×44 -> half 22) = kolisi pejal.
+export const MONAS_HALF = 22;
+
+// Monas = AABB pejal. Dorong entitas keluar PER-SUMBU (bukan revert total)
+// supaya player MENYUSUR sisi Monas, tidak menempel/macet — sama seperti
+// perbaikan dinding campaign (slideWalk). oldX/oldZ = posisi awal frame:
+// sumbu yang tadinya di luar box dibiarkan bergerak (menyusur), sumbu penembus
+// dikembalikan. Sudut / sudah-di-dalam = berhenti penuh (jaring pengaman).
+export function resolveMonas(pos, oldX, oldZ, radius) {
+    const h = MONAS_HALF + radius;
+    if (Math.abs(pos.x) >= h || Math.abs(pos.z) >= h) return;   // di luar box
+    if (Math.abs(oldZ) >= h) pos.z = oldZ;        // sebelumnya di luar via Z -> susur X, blok Z
+    else if (Math.abs(oldX) >= h) pos.x = oldX;   // sebelumnya di luar via X -> susur Z, blok X
+    else { pos.x = oldX; pos.z = oldZ; }          // sudut / sudah di dalam -> berhenti
+}
+
 export function resolveObstacles(pos, radius, feetY) {
     resolveCylinders(pos, radius, treeColliders);
     let fountainBlocked = false;

@@ -54,15 +54,20 @@ export function buildGrenadeMesh(scale = 1) {
     return grp;
 }
 
-export function handleThrowGrenade() {
-    if (player.grenades <= 0) return;
+// Lepaskan granat (dipanggil dari animasi lempar di weapons.js saat titik
+// rilis). range: 'far' (klik kiri) = throwSpeed/throwUpward penuh; 'near'
+// (klik kanan) = throwNearSpeed/throwNearUpward -> lemparan pendek. Granat TIDAK
+// meledak saat menyentuh apa pun — hanya saat sumbunya habis (updateGrenades);
+// membidik ke atas = lemparan lebih jauh. Return true bila terlempar.
+export function spawnGrenade(range = 'far') {
+    if (player.grenades <= 0) return false;
     player.grenades--;
     playSFX(sfxThrow);
     updateUI();
 
-    // Lemparan balistik: kecepatan awal searah pandang + dorongan ke atas.
-    // Granat TIDAK meledak saat menyentuh apa pun — hanya saat sumbunya habis
-    // (updateGrenades); membidik ke atas = lemparan lebih jauh.
+    const near = range === 'near';
+    const speed = near ? CFG.grenade.throwNearSpeed : CFG.grenade.throwSpeed;
+    const up = near ? CFG.grenade.throwNearUpward : CFG.grenade.throwUpward;
     camera.getWorldDirection(_v3);
     const gMesh = buildGrenadeMesh();
     gMesh.rotation.y = Math.random() * 6.283;   // orientasi awal acak
@@ -70,10 +75,11 @@ export function handleThrowGrenade() {
     scene.add(gMesh);
     grenades.push({
         mesh: gMesh, fuse: CFG.grenade.fuseSec, rolled: false,
-        vx: _v3.x * CFG.grenade.throwSpeed,
-        vy: _v3.y * CFG.grenade.throwSpeed + CFG.grenade.throwUpward,
-        vz: _v3.z * CFG.grenade.throwSpeed
+        vx: _v3.x * speed,
+        vy: _v3.y * speed + up,
+        vz: _v3.z * speed
     });
+    return true;
 }
 
 // Dorong granat pejal (yang sudah di tanah) keluar dari pendorong (player/zombie).

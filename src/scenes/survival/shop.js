@@ -3,20 +3,24 @@
 // shopActive()). Terbuka OTOMATIS saat sebuah wave selesai (scene memanggil
 // openShop() setelah hitung mundur). Tata letak: kiri = daftar item (hover ->
 // detail), kanan = deskripsi + harga + tombol Buy, bawah-kiri = skor, bawah-
-// kanan = tombol Start Next Wave. Item: isi ulang Ammo/Grenade/Health, Heal &
-// Strengthen Monas, dan BELI Shotgun / Assault Rifle. Mata uang = skor.
+// kanan = tombol Start Next Wave. Item: isi ulang Ammo/Grenade, Medkit, Heal &
+// Strengthen Monas, Radar, dan BELI Shotgun / Assault Rifle. Mata uang = skor.
+// Membeli senjata ke-3 (sudah bawa 2 = maks) -> tampilkan pemilih GANTI senjata.
 // Semua teks UI English (aturan permanen). Impor Monas/Next-Wave dari scene
 // (index.js) — circular, hanya dipakai DI DALAM fungsi (pola arsitektur).
 
 import { CFG } from '../../core/config.js';
-import { player, score, addScore } from '../../core/state.js';
+import { player, score, addScore, syncOwnedFromWeapons } from '../../core/state.js';
 import { updateUI } from '../../core/hud.js';
 import { playSFX, sfxPickup } from '../../utils/sfx.js';
+import { WEAPON_DEF, refreshOwnedWeapon } from '../../entities/weapons.js';
 import { healMonas, strengthenMonas, startNextWave, isMonasFullyStrengthened } from './index.js';
 
 let open = false;
 let selectedId = null;
 let notice = '', noticeErr = false, noticeT = 0;
+let pendingWeapon = null;   // senjata yang menunggu konfirmasi GANTI (slot penuh)
+let confirmNext = false;    // prompt "Are you ready?" sebelum mulai wave berikutnya
 const overlay = () => document.getElementById('shopOverlay');
 
 export function isShopOpen() { return open; }
@@ -25,6 +29,8 @@ export function closeShop() {
     if (!open) return;
     open = false;
     notice = '';
+    pendingWeapon = null;
+    confirmNext = false;
     const o = overlay();
     o.style.display = 'none';
     o.innerHTML = '';
@@ -33,6 +39,8 @@ export function closeShop() {
 export function openShop() {
     open = true;
     notice = '';
+    pendingWeapon = null;
+    confirmNext = false;
     selectedId = catalog()[0].id;
     render();
     overlay().style.display = 'flex';
@@ -66,11 +74,22 @@ function catalog() {
             }
         },
         {
+            // Sembuh instan (HP -> 100%). Beda dari Medkit (genggam, dipakai nanti).
             id: 'health', name: 'Replenish Health', cost: S.healthCost,
-            desc: 'Patch yourself up and restore your health to full.',
+            desc: 'Instantly restore your health to full (100%).',
             apply() {
                 if (player.hp >= CFG.player.maxHp) return 'Health already full';
                 player.hp = CFG.player.maxHp;
+            }
+        },
+        {
+            // Medkit = item genggam (maks 1). Dibeli di sini; PAKAI dgn tombol 4
+            // di lapangan untuk memulihkan 70% HP (bukan sembuh saat beli).
+            id: 'medkit', name: 'Medkit', cost: S.medkitCost,
+            desc: 'A field medkit. Carry one and press 4 in the field to instantly restore 70% of your health. You can only hold one at a time.',
+            apply() {
+                if (player.medkits >= CFG.player.maxMedkits) return 'You already have a medkit';
+                player.medkits = CFG.player.maxMedkits;
             }
         },
         {
@@ -108,39 +127,91 @@ function catalog() {
     ];
 }
 
-// Beli senjata: tandai dimiliki + loadout penuh (mag awal terisi).
+// Beli senjata ke SLOT kosong (dipanggil apply hanya saat slot < maxWeapons;
+// kasus slot penuh ditangani shopPurchase -> pemilih ganti). Tandai dimiliki +
+// loadout penuh (mag awal terisi).
 function buyWeapon(w, label) {
     if (player.owned[w]) return `${label} already owned`;
-    player.owned[w] = true;
+    player.weapons.push(w);
+    syncOwnedFromWeapons();
     player[w].mags = CFG.weapons[w].startMags;
     player[w].ammo = player[w].magSize;
+    refreshOwnedWeapon();
 }
 
-// Status tampilan non-harga: senjata dimiliki -> 'Owned'; Strengthen Monas di
-// tingkat tertinggi -> 'Maxed' (tak bisa dibeli lagi, tombol Buy dimatikan).
+// Status tampilan non-harga: senjata dimiliki -> 'Owned'; Medkit sudah dibawa ->
+// 'Held'; Strengthen Monas di tingkat tertinggi -> 'Maxed' (Buy dimatikan).
 function ownedNote(it) {
     if (it.weapon && player.owned[it.weapon]) return 'Owned';
     if (it.id === 'radar' && player.hasRadar) return 'Owned';
+    if (it.id === 'medkit' && player.medkits >= CFG.player.maxMedkits) return 'Held';
     if (it.id === 'strengthenMonas' && isMonasFullyStrengthened()) return 'Maxed';
     return null;
 }
 
 // Beli by id — dipakai handler klik DOM DAN test headless. Return null = sukses,
-// string = alasan gagal (skor kurang / penuh / dimiliki). Menyegarkan HUD.
+// string = alasan gagal (skor kurang / penuh / dimiliki), atau 'choose-replace'
+// bila senjata baru butuh mengganti salah satu (slot penuh). Menyegarkan HUD.
 export function shopPurchase(id) {
     if (!open) return 'Shop closed';
     const it = catalog().find(x => x.id === id);
     if (!it) return 'Unknown item';
     const note = ownedNote(it);
     if (note === 'Owned') return `${it.name} already owned`;
+    if (note === 'Held') return 'You already have a medkit';
     if (note === 'Maxed') return 'The Monument is already fully reinforced';
     if (score < it.cost) return 'Not enough score';
+    // Beli senjata tipe baru sementara slot sudah penuh (maks) -> minta pilih
+    // yang diganti; skor dipotong saat konfirmasi (shopReplaceWeapon).
+    if (it.weapon && !player.owned[it.weapon]
+        && player.weapons.length >= CFG.weapons.maxWeapons) {
+        pendingWeapon = it;
+        return 'choose-replace';
+    }
     const rejected = it.apply();
     if (rejected) return rejected;
     addScore(-it.cost);
     playSFX(sfxPickup);
     updateUI();
     return null;
+}
+
+// --- Ganti senjata (slot penuh) --------------------------------------------
+export function isReplacePending() { return pendingWeapon !== null; }
+export function pendingWeaponName() { return pendingWeapon ? pendingWeapon.name : null; }
+export function shopCancelReplace() { pendingWeapon = null; }
+
+// Konfirmasi ganti: buang oldW dari slot, pasang senjata pending di slot yang
+// sama, loadout penuh, potong skor, segarkan. Return null / string alasan.
+export function shopReplaceWeapon(oldW) {
+    if (!pendingWeapon) return 'No weapon to replace';
+    const it = pendingWeapon;
+    const idx = player.weapons.indexOf(oldW);
+    if (idx < 0) return 'You do not carry that weapon';
+    if (score < it.cost) { pendingWeapon = null; return 'Not enough score'; }
+    const w = it.weapon;
+    player.weapons[idx] = w;             // ganti di posisi slot yang sama
+    syncOwnedFromWeapons();
+    player[w].mags = CFG.weapons[w].startMags;
+    player[w].ammo = player[w].magSize;
+    addScore(-it.cost);
+    playSFX(sfxPickup);
+    pendingWeapon = null;
+    refreshOwnedWeapon();                // senjata aktif tetap valid bila yang aktif diganti
+    updateUI();
+    return null;
+}
+
+// --- Konfirmasi mulai wave -------------------------------------------------
+export function isConfirmOpen() { return confirmNext; }
+// Tombol/tekan "Start Next Wave": tampilkan prompt "Are you ready?" dulu.
+// Panggil lagi (klik Yes atau SPACE lagi) = benar-benar mulai wave berikutnya.
+export function requestNextWave() {
+    if (!open) return;
+    if (confirmNext) { confirmNext = false; startNextWave(); return; }
+    confirmNext = true;
+    notice = '';
+    render();
 }
 
 // --- Render DOM (createElement -> handler klik/hover nyata di browser) ------
@@ -157,11 +228,20 @@ function setNotice(text, isErr) {
     noticeT = setTimeout(() => { notice = ''; if (open) render(); }, 1500);
 }
 
-// Klik item / tombol Buy: beli lalu segarkan menu (skor + status + detail).
+// Klik item / tombol Buy: beli lalu segarkan menu. 'choose-replace' -> tampilkan
+// pemilih ganti (tanpa notifikasi "Purchased!").
 function doPurchase(id) {
     selectedId = id;
     const msg = shopPurchase(id);
+    if (msg === 'choose-replace') { notice = ''; render(); return; }
     setNotice(msg == null ? 'Purchased!' : msg, msg != null);
+    render();
+}
+
+function doReplace(oldW) {
+    const label = pendingWeaponName();
+    const msg = shopReplaceWeapon(oldW);
+    setNotice(msg == null ? `${label} equipped!` : msg, msg != null);
     render();
 }
 
@@ -174,45 +254,93 @@ function showDetail(detail, it) {
     if (note) price.classList.add('owned');
     else if (score < it.cost) price.classList.add('poor');
     detail.appendChild(price);
-    const buy = el('button', 'shopBuy', note ? 'Owned' : 'Buy');
+    const buy = el('button', 'shopBuy', note ? note : 'Buy');
     if (note || score < it.cost) buy.classList.add('disabled');
     else buy.addEventListener('click', () => doPurchase(it.id));
     detail.appendChild(buy);
+}
+
+// Panel pemilih ganti senjata (menggantikan daftar saat pendingWeapon aktif).
+function renderReplace(panel) {
+    const body = el('div');
+    const msg = el('div', 'shopReplaceMsg');
+    msg.innerHTML = `You can only carry ${CFG.weapons.maxWeapons} weapons. Choose one to replace with <b>${pendingWeapon.name}</b>:`;
+    body.appendChild(msg);
+    const btns = el('div', 'shopReplaceBtns');
+    for (const w of player.weapons.slice()) {
+        const name = WEAPON_DEF[w] ? WEAPON_DEF[w].name : w;
+        const b = el('button', 'shopReplaceBtn', `Replace ${name}`);
+        b.addEventListener('click', () => doReplace(w));
+        btns.appendChild(b);
+    }
+    const cancel = el('button', 'shopReplaceCancel', 'Cancel');
+    cancel.addEventListener('click', () => { shopCancelReplace(); notice = ''; render(); });
+    btns.appendChild(cancel);
+    body.appendChild(btns);
+    panel.appendChild(body);
+}
+
+// Prompt konfirmasi "Are you ready?" sebelum mulai wave (Yes = mulai, No = batal).
+function renderConfirm(panel) {
+    const body = el('div');
+    body.appendChild(el('div', 'shopReplaceMsg', 'Are you ready to start the next wave?'));
+    const btns = el('div', 'shopConfirmBtns');
+    const yes = el('button', 'shopConfirmYes', 'Yes ▶');
+    yes.addEventListener('click', () => { confirmNext = false; startNextWave(); });
+    const no = el('button', 'shopConfirmNo', 'No');
+    no.addEventListener('click', () => { confirmNext = false; render(); });
+    btns.appendChild(yes);
+    btns.appendChild(no);
+    body.appendChild(btns);
+    panel.appendChild(body);
 }
 
 function render() {
     const root = overlay();
     root.innerHTML = '';
     const panel = el('div', 'shopPanel');
-    panel.appendChild(el('div', 'shopHead', 'FIELD SHOP'));
-    panel.appendChild(el('div', 'shopMsg' + (noticeErr ? ' err' : ''), notice || ' '));
-
-    const body = el('div', 'shopBody');
-    const list = el('div', 'shopList');
-    const detail = el('div', 'shopDetail');
-    const items = catalog();
-    for (const it of items) {
-        const row = el('div', 'shopItem');
-        row.appendChild(el('span', 'shopItemName', it.name));
-        const note = ownedNote(it);
-        row.appendChild(el('span', 'shopItemCost', note || String(it.cost)));
-        if (note) row.classList.add('owned');
-        row.addEventListener('mouseenter', () => { selectedId = it.id; showDetail(detail, it); });
-        row.addEventListener('click', () => doPurchase(it.id));
-        list.appendChild(row);
+    // Prompt konfirmasi mulai wave menutupi seluruh menu (Yes/No).
+    if (confirmNext) {
+        panel.appendChild(el('div', 'shopHead', 'START NEXT WAVE?'));
+        renderConfirm(panel);
+        root.appendChild(panel);
+        return;
     }
-    body.appendChild(list);
-    body.appendChild(detail);
-    panel.appendChild(body);
+    panel.appendChild(el('div', 'shopHead', pendingWeapon ? 'REPLACE A WEAPON' : 'FIELD SHOP'));
+    panel.appendChild(el('div', 'shopMsg' + (noticeErr ? ' err' : ''), notice || ' '));
+
+    if (pendingWeapon) {
+        renderReplace(panel);
+    } else {
+        const body = el('div', 'shopBody');
+        const list = el('div', 'shopList');
+        const detail = el('div', 'shopDetail');
+        const items = catalog();
+        for (const it of items) {
+            const row = el('div', 'shopItem');
+            row.appendChild(el('span', 'shopItemName', it.name));
+            const note = ownedNote(it);
+            row.appendChild(el('span', 'shopItemCost', note || String(it.cost)));
+            if (note) row.classList.add('owned');
+            // Klik/hover di daftar HANYA memilih & menampilkan detail — TIDAK
+            // membeli. Pembelian hanya lewat tombol Buy di panel detail (kanan).
+            row.addEventListener('mouseenter', () => { selectedId = it.id; showDetail(detail, it); });
+            row.addEventListener('click', () => { selectedId = it.id; showDetail(detail, it); });
+            list.appendChild(row);
+        }
+        body.appendChild(list);
+        body.appendChild(detail);
+        panel.appendChild(body);
+        // Detail awal = item terpilih (terakhir di-hover / pertama saat buka)
+        showDetail(detail, items.find(x => x.id === selectedId) || items[0]);
+    }
 
     const foot = el('div', 'shopFoot');
     foot.appendChild(el('div', 'shopScore', `Score: ${score}`));
     const next = el('button', 'shopNext', 'Start Next Wave ▶');
-    next.addEventListener('click', () => startNextWave());
+    next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"
     foot.appendChild(next);
     panel.appendChild(foot);
 
     root.appendChild(panel);
-    // Detail awal = item terpilih (terakhir di-hover / pertama saat buka)
-    showDetail(detail, items.find(x => x.id === selectedId) || items[0]);
 }

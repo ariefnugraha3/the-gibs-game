@@ -6,7 +6,9 @@
         "eyeHeight": 11.4,
         "crouchDrop": 3.6,
         "jumpVelocity": 33,
-        "gravity": 70
+        "gravity": 70,
+        "medkitHealPct": 0.7,
+        "maxMedkits": 1
     },
     "stamina": {
         "max": 100,
@@ -27,6 +29,7 @@
     },
     "weapons": {
         "maxMags": 5,
+        "maxWeapons": 2,
         "bulletSpeed": 27,
         "bulletLife": 120,
         "bulletDamage": 20,
@@ -74,6 +77,8 @@
         "fuseSec": 2,
         "throwSpeed": 110,
         "throwUpward": 18,
+        "throwNearSpeed": 45,
+        "throwNearUpward": 22,
         "killRadius": 40,
         "pushSpeed": 22,
         "damage": 100
@@ -152,13 +157,13 @@
     "drops": {
         "magChance": 0.05,
         "grenadeChance": 0.02,
-        "lifetimeSec": 20,
-        "medkitHeal": 2
+        "lifetimeSec": 20
     },
     "shop": {
         "ammoCost": 400,
         "grenadeCost": 250,
-        "healthCost": 350,
+        "healthCost": 300,
+        "medkitCost": 350,
         "healMonasCost": 300,
         "strengthenMonasCost": 500,
         "radarCost": 1500,

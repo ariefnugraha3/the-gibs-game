@@ -36,11 +36,18 @@
         </div>
     </div>
 
-    <!-- Skor + amunisi + granat: kanan-bawah (di atas radar) -->
+    <!-- Skor + amunisi: kanan-bawah (granat/medkit kini di panel inventori) -->
     <div id="statsHud">
         <div id="scoreText">Score: 0</div>
         <div id="ammoText" style="color: #f1c40f;">Assault Rifle: 30 / 3 Mags</div>
-        <div id="grenadeText" style="color: #2ed573;">Grenades: 3</div>
+    </div>
+
+    <!-- Inventori pemain (sisi kanan, vertikal): 1/2 = senjata, 3 = granat, 4 = medkit -->
+    <div id="inventoryHud">
+        <div class="invSlot" id="invSlot1"><span class="invKey">1</span><span class="invName" id="invName1"></span></div>
+        <div class="invSlot" id="invSlot2"><span class="invKey">2</span><span class="invName" id="invName2"></span></div>
+        <div class="invSlot" id="invSlot3"><span class="invKey">3</span><span class="invName" id="invName3"></span></div>
+        <div class="invSlot" id="invSlot4"><span class="invKey">4</span><span class="invName" id="invName4"></span></div>
     </div>
 
     <div id="crosshair">+</div>
@@ -126,7 +133,8 @@
             <b>Click here to Start the Action</b><br />
             <span class="small" style="color:#ffb84d;">(enters fullscreen — so Ctrl+W etc. won't close the tab)</span><br /><br />
             <span class="small">WASD = Move | MOUSE = Look | LEFT CLICK = Shoot | RIGHT CLICK = Aim On/Off |
-                1 / 2 / 3 / Q = Switch Weapon | F = Melee | G = Grenade | R = Reload | SHIFT = Sprint | C / CTRL = Crouch | SPACE = Jump<br />
+                1 / 2 = Weapon | Q = Swap Weapon | 3 = Grenade (LEFT CLICK far / RIGHT CLICK near) | 4 = Medkit |
+                F = Melee | R = Reload | SHIFT = Sprint | C / CTRL = Crouch | SPACE = Jump<br />
                 <span style="color:#ffb84d;">Survival: clear each wave, then the Field Shop opens — buy gear and press SPACE to start the next wave.</span></span>
             <div id="qualityRow">
                 <span class="qlabel">GRAPHICS QUALITY</span><br />

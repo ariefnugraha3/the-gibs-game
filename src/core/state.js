@@ -36,12 +36,16 @@ export function resetStats() { stats.kills = 0; stats.headshots = 0; stats.shots
 // Catatan: konstanta kecepatan dikalibrasi pada 60 fps, lalu dikalikan `step`
 // (delta-time ternormalisasi) agar gerak konsisten di monitor refresh tinggi.
 export const player = {
-    hp: 10, grenades: 3,
+    hp: 10, grenades: 3, medkits: 0,
     rifle: { ammo: 30, mags: 3, magSize: 30 },    // utama ("Assault Rifle")
     pistol: { ammo: 15, mags: 3, magSize: 15 },   // secondary; damage peluru sama
     shotgun: { ammo: 6, mags: 2, magSize: 6 },    // senjata ke-3 (multi-pelet)
-    // Kepemilikan senjata: Survival mulai HANYA pistol (rifle & shotgun dibeli
-    // di shop antar-gelombang); mode lain memiliki semua. Di-set configurePlayer.
+    // SLOT senjata BERURUTAN (maks CFG.weapons.maxWeapons = 2): weapons[0] =
+    // tombol 1, weapons[1] = tombol 2. Survival mulai HANYA pistol (senjata ke-2
+    // dibeli di shop; ke-3 minta ganti salah satu); Campaign mulai rifle+pistol.
+    // owned = turunan dari weapons (dipakai drops/shop) — sinkron via
+    // syncOwnedFromWeapons. Di-set configurePlayer per mode.
+    weapons: ['pistol'],
     owned: { pistol: true, rifle: true, shotgun: true },
     hasRadar: true,   // radar minimap: Survival mulai TANPA (dibeli di shop); mode lain punya
     isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
@@ -51,21 +55,31 @@ export const player = {
     reloadDurMs: 3000                // durasi reload EFEKTIF terakhir (rig KF membacanya)
 };
 
+// Rebuild owned dari slot weapons (satu sumber kebenaran). Dipanggil tiap kali
+// slot berubah (configurePlayer, beli/ganti senjata di shop).
+export function syncOwnedFromWeapons() {
+    player.owned = { rifle: false, pistol: false, shotgun: false };
+    for (const w of player.weapons) player.owned[w] = true;
+}
+
 // Stempel nilai CFG ke player (dipanggil saat boot & resetGame)
 export function configurePlayer() {
     player.hp = CFG.player.maxHp;
     player.speed = CFG.player.speed;
     player.radius = CFG.player.radius;
     player.grenades = CFG.grenade.start;
+    player.medkits = 0;
     for (const w of ['rifle', 'pistol', 'shotgun']) {
         player[w].magSize = CFG.weapons[w].magSize;
         player[w].ammo = CFG.weapons[w].magSize;
         player[w].mags = CFG.weapons[w].startMags;
     }
-    // Survival: hanya pistol yang dimiliki di awal run (senjata lain dibeli di
-    // shop); campaign & mode lain memiliki semua senjata sejak awal.
+    // Slot senjata awal per mode (maks 2): Survival mulai pistol saja (beli
+    // senjata lain di shop); Campaign & mode lain mulai rifle + pistol
+    // (shotgun hanya dari shop Survival). owned diturunkan dari slot ini.
     const survivalStart = mode === 'survival';
-    player.owned = { pistol: true, rifle: !survivalStart, shotgun: !survivalStart };
+    player.weapons = survivalStart ? ['pistol'] : ['rifle', 'pistol'];
+    syncOwnedFromWeapons();
     // Radar: Survival mulai TANPA radar (dibeli di shop, item "Radar"); mode lain langsung ada.
     player.hasRadar = !survivalStart;
     player.dmgMul = 1; player.reloadMul = 1;

@@ -7,8 +7,9 @@ import { CFG } from '../core/config.js';
 import { player, keys, zombies, isPaused, isGameOver, _dir, _right } from '../core/state.js';
 import { camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
-import { playSFX, sfxFootstep, sfxZombieStep } from '../utils/sfx.js';
-import { staminaFill } from '../core/dom.js';
+import { playSFX, sfxFootstep, sfxZombieStep, sfxPickup } from '../utils/sfx.js';
+import { staminaFill, showPickup } from '../core/dom.js';
+import { updateUI } from '../core/hud.js';
 import { isAiming, setAiming } from './weapons.js';
 
 // ----- Status milik player (live export; reassign hanya di modul ini) -----
@@ -34,6 +35,20 @@ export function tryJump() {
         player.vy = CFG.player.jumpVelocity;
         player.onGround = false;
     }
+}
+
+// Tombol 4 = pakai Medkit (item slot 4): pulihkan medkitHealPct dari maxHp
+// (dijepit), pakai 1 (maks maxMedkits 1). Ditolak bila tak punya medkit atau HP
+// sudah penuh. Di-gate !pause/!gameover oleh input.js.
+export function useMedkit() {
+    if (player.medkits <= 0) { showPickup('No medkit', '#b8b8b8'); return; }
+    if (player.hp >= CFG.player.maxHp) { showPickup('Health already full', '#b8b8b8'); return; }
+    player.medkits--;
+    player.hp = Math.min(CFG.player.maxHp,
+        player.hp + Math.round(CFG.player.maxHp * CFG.player.medkitHealPct));
+    playSFX(sfxPickup);
+    showPickup('Medkit used', '#ff6b81');
+    updateUI();
 }
 
 // Dipanggil saat boot & resetGame: stempel nilai awal dari CFG

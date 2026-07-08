@@ -12,17 +12,22 @@ import { scene, camera } from '../core/renderer.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
 import { playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxMelee, sfxSwitch, sfxEmpty } from '../utils/sfx.js';
-import { crosshair } from '../core/dom.js';
+import { crosshair, showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 import { stamina, staExhausted, drainStamina, sprintingNow, crouchedNow } from './player.js';
 import { killZombie } from './zombies.js';
 import { spawnDrop } from './drops.js';
+import { buildGrenadeMesh, spawnGrenade } from './grenades.js';
 
 // ----- Status senjata (live export; reassign hanya di modul ini) -----
-export let currentWeapon = 'rifle';                 // 'rifle' | 'pistol'
+export let currentWeapon = 'rifle';                 // 'rifle' | 'pistol' | 'shotgun'
 export let isAiming = false;                        // ADS (klik kanan = toggle)
 export let switchAnim = -1;                         // -1 = tidak sedang ganti
 export let meleeT = 0;
+// Mode granat (tombol 3): granat DIPEGANG di tangan, senjata di-holster. Klik
+// kiri = lempar jauh, klik kanan = lempar dekat (input.js merutekan). currentWeapon
+// tetap = senjata yang di-holster (dikembalikan saat holster/granat habis).
+export let grenadeMode = false;
 
 let aimT = 0;   // aimT 0..1 (transisi ADS dihaluskan)
 const BASE_FOV = 70, AIM_ZOOM = 1.2;   // zoom 20% saat membidik
@@ -38,9 +43,16 @@ let gunBobT = 0;        // fase goyangan senjata saat berjalan (visual)
 let gunRotX = 0, gunRotZ = 0;                // rotasi dasar senjata (rig reload)
 let reloadStartTime = 0;          // waktu nyata -> sinkron dgn setTimeout reload
 let emptyReady = true;            // boleh bunyi klik kosong (di-arm ulang saat pelatuk dilepas)
+// Animasi granat: throwT hitung mundur satu lemparan (0 = idle memegang),
+// throwReleased = granat sudah dilepas frame ini, throwRange 'near'/'far';
+// holdRaiseT = animasi "mengangkat" granat saat baru di-equip.
+let throwT = 0, throwRange = 'far', throwReleased = false, holdRaiseT = 0;
+const THROW_TIME = 0.55, THROW_RELEASE = 0.30;   // rilis granat di ~0.30 dtk (windup->follow-through)
+const HOLD_RAISE = 0.28;
 
 // Rig & bagian yang dianimasikan
 export let gunMesh = null, pistolMesh = null, shotgunMesh = null;
+let grenadeHandMesh = null, grenadeHeldMesh = null;   // tangan+granat (tombol 3); granat disembunyikan saat rilis
 let muzzleFlash = null, muzzlePoint = null, muzzleSprite = null;
 let leftHand, leftForearm, rightArm, gunMagMesh, boltHandle;
 let pistolSlide, pistolMagMesh, pistolMuzzle, rifleMuzzle;
@@ -478,6 +490,37 @@ export function initWeapons() {
     camera.add(gunMesh);
     scene.add(camera);
 
+    // ----- Tangan granat (tombol 3): telapak + jari menggenggam granat Mk2,
+    // lengan ke kanan-bawah layar (pola sama dgn tangan senjata). grenadeHeldMesh
+    // = granat di genggaman (disembunyikan saat rilis lemparan). Seluruh grup
+    // dianimasikan penuh di updateWeaponVisuals; tersembunyi sampai grenadeMode.
+    grenadeHandMesh = new THREE.Group();
+    const ghPalm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.42, 0.95), glove);
+    ghPalm.position.set(0, -0.55, 0);
+    grenadeHandMesh.add(ghPalm);
+    for (let i = 0; i < 4; i++) {                     // empat jari melengkung menutup granat
+        const f = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.52, 0.22), glove);
+        f.position.set(-0.28 + i * 0.19, -0.18, 0.36);
+        f.rotation.x = -0.55;
+        grenadeHandMesh.add(f);
+    }
+    const ghThumb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.46, 0.22), glove);
+    ghThumb.position.set(0.37, -0.18, -0.18);
+    ghThumb.rotation.x = 0.4;
+    grenadeHandMesh.add(ghThumb);
+    const ghCuff = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.66, 0.5), sleeve);
+    ghCuff.position.set(0.22, -1.15, 0.78);
+    grenadeHandMesh.add(ghCuff);
+    const ghFore = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 1), sleeve);
+    placeLimb(ghFore, 0.28, -1.2, 0.82, 1.7, -3.6, 3.0);
+    grenadeHandMesh.add(ghFore);
+    grenadeHeldMesh = buildGrenadeMesh(0.9);          // granat Mk2 di genggaman
+    grenadeHeldMesh.position.set(0, 0.02, 0.12);
+    grenadeHandMesh.add(grenadeHeldMesh);
+    grenadeHandMesh.position.set(2.7, -2.6, -4.6);
+    grenadeHandMesh.visible = false;
+    camera.add(grenadeHandMesh);
+
     // Senjata aktif awal sesuai kepemilikan (Survival: pistol; lainnya: rifle).
     // Dijalankan setelah semua mesh + WEAPON_DEF terisi.
     applyStartLoadout();
@@ -505,36 +548,101 @@ export function startSwitch(target) {
     updateUI();
 }
 
-// Senjata awal run sesuai kepemilikan (Survival mulai pistol; lainnya rifle).
-// Dipakai initWeapons (boot) & resetWeapons (restart) supaya jalur boot dan
-// restart konsisten. Prioritas: rifle -> pistol -> shotgun (yang dimiliki).
+// Senjata awal run = slot pertama (player.weapons[0]; Survival pistol, Campaign
+// rifle). Dipakai initWeapons (boot) & resetWeapons (restart) supaya jalur boot
+// dan restart konsisten.
 function pickStartWeapon() {
-    const o = player.owned || {};
-    return o.rifle !== false ? 'rifle' : o.pistol !== false ? 'pistol' : 'shotgun';
+    const W = player.weapons || [];
+    return W[0] || 'pistol';
 }
 
-// Terapkan senjata aktif awal: set currentWeapon + visibilitas mesh + muzzle.
+// Terapkan senjata aktif awal: reset mode granat, set currentWeapon (slot 0) +
+// visibilitas mesh + muzzle; lastWeapon = slot lain (target Q).
 function applyStartLoadout() {
+    grenadeMode = false;
+    throwT = 0; throwReleased = false; holdRaiseT = 0;
+    if (grenadeHandMesh) grenadeHandMesh.visible = false;
     currentWeapon = pickStartWeapon();
-    lastWeapon = 'pistol';   // target fallback Q (di-gate kepemilikan di trySwitchKey)
+    lastWeapon = (player.weapons && player.weapons[1]) || currentWeapon;   // slot lain (fallback Q)
     for (const k in WEAPON_DEF) WEAPON_DEF[k].mesh.visible = (k === currentWeapon);
     attachMuzzle(currentWeapon);
 }
 
-// 1 = rifle, 2 = pistol, 3 = shotgun, Q = tukar cepat ke senjata SEBELUMNYA
-// (dipanggil handler keyboard). Senjata yang belum dimiliki (Survival) diabaikan.
+// 1 = slot senjata 1, 2 = slot senjata 2, 3 = GRANAT (equip), Q = tukar antar
+// dua slot senjata (dipanggil handler keyboard). Slot kosong (Survival slot 2)
+// diabaikan. Tombol 4 (Medkit) ditangani terpisah (player.useMedkit).
 export function trySwitchKey(key) {
-    if (switchAnim >= 0 || meleeT > 0) return;
-    const target = key === '1' ? 'rifle'
-        : key === '2' ? 'pistol'
-            : key === '3' ? 'shotgun'
-                : (lastWeapon !== currentWeapon ? lastWeapon
-                    : (currentWeapon === 'rifle' ? 'pistol' : 'rifle'));
-    if (player.owned && !player.owned[target]) return;   // belum dibeli di shop
+    if (switchAnim >= 0 || meleeT > 0 || throwT > 0) return;
+    if (key === '3') { equipGrenade(); return; }
+    // Slot senjata berurutan (player.weapons, maks 2)
+    const W = player.weapons || [];
+    let target;
+    if (key === '1') target = W[0];
+    else if (key === '2') target = W[1];
+    else target = (currentWeapon === W[0] ? W[1] : W[0]) || W[0];   // Q = slot lain
+    if (!target) return;                          // slot kosong
+    if (grenadeMode) {
+        // Dari granat -> pilih senjata: sembunyikan tangan granat, tampilkan
+        // senjata (langsung bila slot sama; via animasi ganti bila beda).
+        grenadeMode = false; throwT = 0; throwReleased = false;
+        grenadeHandMesh.visible = false;
+        if (target === currentWeapon) { WEAPON_DEF[currentWeapon].mesh.visible = true; updateUI(); }
+        else startSwitch(target);                 // mid-swap menampilkan target
+        return;
+    }
     if (target !== currentWeapon) startSwitch(target);
 }
 
+// ----- Mode granat (tombol 3): pegang granat, lempar klik kiri (jauh)/kanan
+// (dekat). currentWeapon tetap = senjata yang di-holster (dikembalikan saat
+// holster atau granat habis). -----
+export function equipGrenade() {
+    if (grenadeMode || switchAnim >= 0 || meleeT > 0) return;
+    if (player.grenades <= 0) { showPickup('No grenades', '#b8b8b8'); return; }
+    grenadeMode = true;
+    throwT = 0; throwReleased = false; holdRaiseT = HOLD_RAISE;
+    isAiming = false;
+    clearTimeout(player.reloadTimer); player.isReloading = false;   // batalkan reload
+    WEAPON_DEF[currentWeapon].mesh.visible = false;
+    grenadeHandMesh.visible = true;
+    if (grenadeHeldMesh) grenadeHeldMesh.visible = true;
+    playSFX(sfxSwitch);
+    updateUI();
+}
+
+// Holster granat -> kembali ke senjata `currentWeapon` (dipakai auto-return saat
+// granat habis; tombol senjata ditangani inline di trySwitchKey).
+function holsterGrenade() {
+    grenadeMode = false;
+    throwT = 0; throwReleased = false;
+    if (grenadeHandMesh) grenadeHandMesh.visible = false;
+    WEAPON_DEF[currentWeapon].mesh.visible = true;
+    updateUI();
+}
+
+// Lempar granat yang dipegang: mulai animasi; granat benar-benar dilepas di
+// titik rilis (updateWeaponTimers -> spawnGrenade). range 'far'/'near'.
+export function throwEquippedGrenade(range) {
+    if (!grenadeMode || throwT > 0) return;
+    if (player.grenades <= 0) return;
+    throwT = THROW_TIME; throwRange = range; throwReleased = false; holdRaiseT = 0;
+}
+
+// Setelah beli/ganti senjata di shop: pastikan senjata aktif & lastWeapon masih
+// dimiliki (bila senjata aktif barusan diganti, pindah ke slot 0).
+export function refreshOwnedWeapon() {
+    const W = player.weapons || [];
+    if (!player.owned[currentWeapon]) {
+        currentWeapon = W[0] || 'pistol';
+        if (!grenadeMode) for (const k in WEAPON_DEF) WEAPON_DEF[k].mesh.visible = (k === currentWeapon);
+        attachMuzzle(currentWeapon);
+    }
+    if (!player.owned[lastWeapon]) lastWeapon = W.find(w => w !== currentWeapon) || currentWeapon;
+    updateUI();
+}
+
 export function startReload() {
+    if (grenadeMode) return;                     // memegang granat: tak bisa reload
     const w = player[currentWeapon];
     if (player.isReloading || w.mags <= 0 || w.ammo === w.magSize) return;
     if (switchAnim >= 0 || meleeT > 0) return;   // jangan reload saat ganti senjata / memukul
@@ -557,6 +665,7 @@ export function startReload() {
 
 // F = melee. Butuh stamina >= biaya melee; tiap ayunan menguras stamina.
 export function tryMelee() {
+    if (grenadeMode) return;                     // memegang granat: tak bisa melee
     if (meleeCd > 0 || switchAnim >= 0 || player.isReloading) return;
     if (stamina < CFG.stamina.meleeCost) return;
     drainStamina(CFG.stamina.meleeCost);
@@ -566,6 +675,7 @@ export function tryMelee() {
 
 // ADS butuh stamina: saat exhausted, toggle ON diabaikan (OFF selalu boleh)
 export function toggleAim() {
+    if (grenadeMode) return;                     // memegang granat: tak ada ADS
     isAiming = isAiming ? false : !staExhausted;
 }
 export function setAiming(v) { isAiming = v; }
@@ -615,6 +725,22 @@ export function updateWeaponTimers(dt) {
         meleeS = Math.sin(Math.PI * Math.min(1, k));   // profil ayunan 0..1..0
         if (!meleeHitDone && k >= 0.45) { meleeHitDone = true; doMeleeHit(); }
     } else meleeS = 0;
+
+    // Animasi lempar granat (tombol 3): granat dilepas di titik rilis; saat
+    // selesai, holster otomatis bila granat habis, atau siapkan granat berikutnya.
+    if (holdRaiseT > 0) holdRaiseT = Math.max(0, holdRaiseT - dt);
+    if (throwT > 0) {
+        throwT -= dt;
+        if (!throwReleased && THROW_TIME - throwT >= THROW_RELEASE) {
+            throwReleased = true;
+            spawnGrenade(throwRange);   // fisika granat + kurangi count (grenades.js)
+        }
+        if (throwT <= 0) {
+            throwT = 0;
+            if (player.grenades <= 0) holsterGrenade();   // granat habis -> kembali ke senjata
+            else { throwReleased = false; if (grenadeHeldMesh) grenadeHeldMesh.visible = true; }
+        }
+    }
 }
 
 // --- Recoil & muzzle flash decay + posisi z senjata (visual) ---
@@ -630,6 +756,7 @@ export function updateWeaponState(dt) {
 // --- Tembak (kiri klik), fire-rate berbasis waktu nyata, per senjata ---
 // Peluru & damage identik utk kedua senjata; pistol semi-cepat.
 export function updateShooting() {
+    if (grenadeMode) return;   // memegang granat: klik = lempar (input.js), bukan tembak
     const wpn = player[currentWeapon];
     const wcfg = CFG.weapons[currentWeapon];
     if (mouse.isDown && !player.isReloading && switchAnim < 0 && meleeT <= 0
@@ -840,6 +967,33 @@ export function updateWeaponVisuals(dt) {
         pLeftHand.position.x - 0.15, pLeftHand.position.y - 0.3, pLeftHand.position.z + 0.35);
     placeLimb(sgLeftForearm, -1.8, -3.4, -0.4,
         sgLeftHand.position.x - 0.05, sgLeftHand.position.y - 0.15, sgLeftHand.position.z + 0.55);
+
+    // --- Tangan granat (tombol 3): angkat saat equip -> idle memegang -> windup
+    // (tarik ke bahu) -> follow-through (ayun ke depan; granat hilang saat rilis).
+    // Hanya terlihat saat grenadeMode; dijalankan tiap frame (murah).
+    if (grenadeHandMesh) {
+        let gx = 2.7, gy = -2.6, gz = -4.6, grx = 0;
+        if (holdRaiseT > 0) {                          // baru di-equip: naik dari bawah
+            const p = holdRaiseT / HOLD_RAISE;         // 1 -> 0
+            gy -= 3.6 * p; grx += 0.55 * p;
+        }
+        if (throwT > 0) {
+            const elapsed = THROW_TIME - throwT;
+            if (elapsed < THROW_RELEASE) {             // windup: tarik ke belakang-atas (bahu)
+                const p = elapsed / THROW_RELEASE;     // 0 -> 1
+                gx += 0.7 * p; gy += 2.0 * p; gz += 2.4 * p; grx -= 1.1 * p;
+            } else {                                   // follow-through: ayun ke depan-bawah
+                const s = Math.sin(((elapsed - THROW_RELEASE) / (THROW_TIME - THROW_RELEASE)) * Math.PI * 0.5);
+                gx -= 0.5 * s; gy -= 1.3 * s; gz -= 2.6 * s; grx += 0.9 * s;
+            }
+            if (grenadeHeldMesh) grenadeHeldMesh.visible = !throwReleased;   // granat lepas dari tangan
+        } else if (holdRaiseT <= 0) {                  // idle: goyangan halus mengikuti langkah
+            gx += Math.sin(gunBobT) * 0.06;
+            gy += Math.abs(Math.cos(gunBobT)) * 0.05;
+        }
+        grenadeHandMesh.position.set(gx, gy, gz);
+        grenadeHandMesh.rotation.set(grx, 0, 0);
+    }
 }
 
 // Bagian senjata dari resetGame: senjata awal sesuai kepemilikan (configurePlayer

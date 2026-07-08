@@ -6,21 +6,44 @@ import { CFG } from './config.js';
 import { player, score, zombies, drops, _dir } from './state.js';
 import { camera } from './renderer.js';
 import { activeScene } from './sceneManager.js';
-import { scoreText, ammoText, healthFill, grenadeText, waveText, radar, radarCtx } from './dom.js';
-import { currentWeapon, WEAPON_DEF } from '../entities/weapons.js';
+import { scoreText, ammoText, healthFill, waveText, radar, radarCtx, invSlots } from './dom.js';
+import { currentWeapon, WEAPON_DEF, grenadeMode } from '../entities/weapons.js';
 
 export function updateUI() {
     const w = player[currentWeapon];
     const wName = WEAPON_DEF[currentWeapon].name;
     scoreText.innerText = `Score: ${score}`;
-    ammoText.innerText = player.isReloading ? `${wName}: Reloading...` : `${wName}: ${w.ammo} / ${w.mags} Mags`;
+    // Amunisi: senjata aktif; saat memegang granat -> petunjuk lempar.
+    ammoText.innerText = grenadeMode ? 'Grenade — LMB Far / RMB Near'
+        : player.isReloading ? `${wName}: Reloading...` : `${wName}: ${w.ammo} / ${w.mags} Mags`;
     // Health bar (maks CFG.player.maxHp): warna merah tetap (CSS)
     healthFill.style.width = (player.hp / CFG.player.maxHp * 100) + '%';
-    grenadeText.innerText = `Grenades: ${player.grenades}`;
     // Radar minimap disembunyikan sampai dimiliki (Survival: dibeli di shop).
     radar.style.display = player.hasRadar ? '' : 'none';
+    updateInventory();
     // Survival: nomor wave. Campaign: sisa zombie di stage aktif.
     if (activeScene && activeScene.hudStatus) waveText.innerText = activeScene.hudStatus();
+}
+
+// Panel inventori sisi kanan: slot 1/2 = senjata (player.weapons, maks 2),
+// 3 = granat (jumlah), 4 = medkit (jumlah). Slot aktif (senjata terpegang atau
+// mode granat) disorot; slot kosong / hitungan 0 diredupkan.
+function updateInventory() {
+    const W = player.weapons || [];
+    const setSlot = (i, name, active, dim) => {
+        const s = invSlots[i];
+        if (!s || !s.name) return;
+        s.name.innerText = name;
+        s.row.classList.toggle('active', !!active);
+        s.row.classList.toggle('dim', !!dim);
+    };
+    for (let i = 0; i < 2; i++) {
+        const wk = W[i];
+        setSlot(i, wk ? WEAPON_DEF[wk].name : '—',
+            wk && !grenadeMode && currentWeapon === wk, !wk);
+    }
+    setSlot(2, `Grenade ×${player.grenades}`, grenadeMode, player.grenades <= 0);
+    setSlot(3, `Medkit ×${player.medkits}`, false, player.medkits <= 0);
 }
 
 // ----------- Radar / minimap ----------- //
