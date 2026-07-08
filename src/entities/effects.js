@@ -90,12 +90,11 @@ export function explodeAt(pos, radius) {
     for (let i = zombies.length - 1; i >= 0; i--) {
         const z = zombies[i];
         if (z.mesh.position.distanceTo(pos) < R) {
-            // Boss tidak instakill oleh ledakan — menerima damage granat tetap
-            // (kalau tidak, satu granat menamatkan boss ber-HP 60).
-            if (z.noInstakill) {
-                z.hp -= CFG.campaign.boss.grenadeDamage;
-                if (z.hp > 0) continue;
-            }
+            // Model damage (bukan instakill): boss tahan (grenadeDamage khusus),
+            // zombie lain kena CFG.grenade.damage penuh — brute ber-HP tinggi
+            // bisa selamat dari ledakan di pinggir radius.
+            z.hp -= z.noInstakill ? CFG.campaign.boss.grenadeDamage : CFG.grenade.damage;
+            if (z.hp > 0) continue;
             spawnDrop(z.mesh.position);
             killZombie(i);
         }

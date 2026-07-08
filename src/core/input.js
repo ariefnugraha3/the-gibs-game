@@ -55,8 +55,9 @@ export function releaseInputs() {
     setAiming(false);
     clearCrouch();   // toggle jongkok ikut dilepas (konsisten dgn toggle bidik)
     for (const k in keys) keys[k] = false;
-    // Overlay shop (survival) ikut ditutup saat unlock/blur/reset/game over
-    if (activeScene && activeScene.shopClose) activeScene.shopClose();
+    // Catatan: shop survival TIDAK ditutup di sini — ia MODAL (game di-pause,
+    // pointer sengaja dilepas untuk kursor). Ditutup hanya oleh Start Next Wave
+    // atau saat scene di-enter ulang (reset). Blur/unlock membiarkannya terbuka.
 }
 
 export function initInput() {
@@ -70,9 +71,13 @@ export function initInput() {
             document.getElementById('qualityRow').style.display = 'none';
             setPaused(false);
         } else {
-            if (!isGameOver) blocker.style.display = 'flex';
             setPaused(true);
             releaseInputs();   // bug fix: tombol/tembakan jangan "nyangkut" saat unlock
+            // Shop survival membuka -> pointer dilepas DISENGAJA agar kursor bisa
+            // memakai menu klik: JANGAN tampilkan blocker pause (game tetap
+            // di-pause & shop tetap terbuka). Selain kasus itu: blocker normal.
+            const shopModal = activeScene && activeScene.shopActive && activeScene.shopActive();
+            if (!shopModal && !isGameOver) blocker.style.display = 'flex';
         }
     });
 
@@ -102,6 +107,15 @@ export function initInput() {
     // ----- Keyboard -----
     window.addEventListener('keydown', (e) => {
         const key = e.key.toLowerCase();
+        // Shop survival = MODAL (game di-pause): telan semua tombol gameplay;
+        // hanya SPACE/Enter (Start Next Wave, via scene.shopKey) yang bertindak.
+        // Ditangani lebih dulu & TANPA gate !isPaused (shop mem-pause game).
+        // Pembelian item lewat KLIK mouse (shop.js), bukan keyboard.
+        if (activeScene && activeScene.shopActive && activeScene.shopActive()) {
+            if (activeScene.shopKey) activeScene.shopKey(key);
+            e.preventDefault();
+            return;
+        }
         if (keys.hasOwnProperty(key)) keys[key] = true;
         if (e.key === 'Shift') keys.shift = true;
         if (key === 'r' && !isPaused && !isGameOver) startReload();
@@ -115,18 +129,13 @@ export function initInput() {
         // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie).
         // Gate stamina/cooldown/reload di dalam tryMelee.
         if (key === 'f' && !isPaused && !isGameOver) tryMelee();
-        // Shop survival (hook opsional scene): angka 1-5 membeli & SPACE/Enter
-        // memulai wave berikutnya SELAGI overlay terbuka (return true = tombol
-        // dikonsumsi shop, tidak bocor jadi ganti senjata / lompat). Scene tanpa
-        // hook (campaign) tak terpengaruh.
-        const shopUsed = !isPaused && !isGameOver && activeScene && activeScene.shopKey
-            ? activeScene.shopKey(key) : false;
-        // 1 = rifle, 2 = pistol, 3 = shotgun, Q = tukar cepat (membatalkan reload)
-        if (!shopUsed && (key === '1' || key === '2' || key === '3' || key === 'q')
+        // 1 = rifle, 2 = pistol, 3 = shotgun, Q = tukar cepat (membatalkan reload).
+        // (Shop modal sudah dicegat di atas -> di sini hanya berlaku saat main.)
+        if ((key === '1' || key === '2' || key === '3' || key === 'q')
             && !isPaused && !isGameOver) trySwitchKey(key);
         if (e.code === 'Space') {
             if (isGameOver) resetGame();       // restart
-            else if (!shopUsed) tryJump();     // lompat (kecuali SPACE = Next Wave di shop)
+            else tryJump();                    // lompat
         }
     });
     window.addEventListener('keyup', (e) => {

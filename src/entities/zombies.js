@@ -69,8 +69,11 @@ export function tintZombie(group, dh, ds, dl, emissiveHex = 0) {
 // Geometri bersama bagian tubuh (dipakai ulang antar instance; JANGAN
 // di-dispose saat zombie mati — hanya materialnya yang per-instance).
 const ZG = {
-    torso: new THREE.BoxGeometry(3.8, 4.6, 2.0),
-    head: new THREE.BoxGeometry(2.4, 2.4, 2.4),
+    // Badan & kepala sengaja lebih RAMPING (lebar/kedalaman dikecilkan, TINGGI
+    // dipertahankan) agar zombie lebih sulit ditembak — terutama kepala (target
+    // headshot). Radius hit-test menyusul: CFG.zombie.bodyHitRadius & headshotRadius.
+    torso: new THREE.BoxGeometry(3.4, 4.6, 2.0),
+    head: new THREE.BoxGeometry(1.8, 2.4, 1.8),
     thigh: new THREE.BoxGeometry(1.5, 3.0, 1.6),
     shin: new THREE.BoxGeometry(1.3, 2.6, 1.4),
     foot: new THREE.BoxGeometry(1.4, 0.7, 2.3),
@@ -163,7 +166,7 @@ export function buildHumanZombie() {
         mk(ZG.hand, skin, 0, -4.2, 0, sh, false);
         return sh;
     };
-    const armL = mkArm(-2.45), armR = mkArm(2.45);
+    const armL = mkArm(-2.3), armR = mkArm(2.3);   // bahu ikut merapat (badan lebih ramping)
 
     // Aksesori pembeda profesi
     if (V.acc === 'worker') {
@@ -266,7 +269,21 @@ export function disposeZombie(z) {
 const pendingBooms = [];
 export function resetZombiesFx() { pendingBooms.length = 0; }   // dipanggil resetGame
 
-export function killZombie(i) {
+// Skor per kematian: boss = `CFG.campaign.boss.score`; selain itu dari
+// `CFG.zombie.score` — special = varian (runner/brute/exploder), headshot lebih
+// tinggi (normal 100/150, special 150/200 body/headshot).
+function zombieScore(z, headshot) {
+    if (z.kind === 'boss') return CFG.campaign.boss.score;
+    const S = CFG.zombie.score;
+    const special = z.kind === 'runner' || z.kind === 'brute' || z.kind === 'exploder';
+    return special
+        ? (headshot ? S.specialHeadshot : S.specialKill)
+        : (headshot ? S.normalHeadshot : S.normalKill);
+}
+
+// headshot = tembakan mematikan mengenai kepala (skor lebih tinggi). Melee &
+// granat memanggil tanpa arg (= false, bukan headshot).
+export function killZombie(i, headshot = false) {
     const z = zombies[i];
     spawnGroundPuff(z.mesh.position.x, z.mesh.position.z, 0x5a1616, 13, z.groundY + 0.6);   // percikan (visual)
     if (z.kind === 'exploder') pendingBooms.push(z.mesh.position.clone());
@@ -274,7 +291,7 @@ export function killZombie(i) {
     scene.remove(z.mesh);
     zombies.splice(i, 1);
     stats.kills++;
-    addScore(z.kind === 'boss' ? CFG.campaign.boss.score : 100);
+    addScore(zombieScore(z, headshot));
 }
 
 // Proses ledakan exploder yang antre: visual+kill zombie sekitar (explodeAt,
@@ -331,11 +348,12 @@ export function updateZombies(dt, step) {
 
         // Tabrakan peluru (berlaku saat melompat, idle, maupun mengejar): sweep
         // SEGMEN posisi-lalu -> posisi-kini (anti tembus point-blank / fps rendah).
-        // KEPALA dicek lebih dulu — headshot = mati seketika (KECUALI boss:
-        // z.noInstakill -> damage x headshotDamageMul); badan = hp turun.
-        // Semua radius/tinggi diskalakan z.scl (runner kecil / brute / boss).
+        // KEPALA dicek lebih dulu — headshot = damage x headshotDamageMul (bukan
+        // lagi mati seketika); boss memakai pengali sendiri (boss.headshotDamageMul).
+        // Damage per peluru dibawa b.damage (rifle/pistol/shotgun beda). Semua
+        // radius/tinggi diskalakan z.scl (runner kecil / brute / boss).
         const scl = z.scl || 1;
-        const hitR = (z.isModel ? 6 : 4.5) * scl;
+        const hitR = (z.isModel ? CFG.zombie.bodyHitRadius : 4.5) * scl;
         const hitY = z.mesh.position.y + (z.isModel ? 6 : 0) * scl;
         const headY = z.mesh.position.y + CFG.zombie.headHeight * scl;
         const HEAD_R = CFG.zombie.headshotRadius * scl;
@@ -348,12 +366,14 @@ export function updateZombies(dt, step) {
             if (isHead ||
                 segPointDist2(b.px, b.py, b.pz, bx, by, bz,
                     z.mesh.position.x, hitY, z.mesh.position.z) < hitR * hitR) {
-                const dmg = CFG.weapons.bulletDamage * (player.dmgMul || 1);   // upgrade shop
+                const base = (b.damage != null ? b.damage : CFG.weapons.bulletDamage) * (player.dmgMul || 1);
+                // Pengali headshot: khusus senjata (mis. shotgun 4x per pelet) bila
+                // peluru membawanya; jika tidak, default zombie (2) / boss (3).
+                const hsMul = b.headshotMul != null ? b.headshotMul
+                    : (z.noInstakill ? CFG.campaign.boss.headshotDamageMul : CFG.zombie.headshotDamageMul);
                 stats.hits++;
                 if (isHead) stats.headshots++;
-                z.hp = isHead
-                    ? (z.noInstakill ? z.hp - dmg * CFG.campaign.boss.headshotDamageMul : 0)
-                    : z.hp - dmg;
+                z.hp -= isHead ? base * hsMul : base;
                 // Percikan darah di titik tumbuk = titik terdekat lintasan
                 // peluru ke pusat bola yang kena (kepala/dada).
                 const cy = isHead ? headY : hitY;
@@ -368,7 +388,7 @@ export function updateZombies(dt, step) {
                 setTimeout(() => crosshair.classList.remove('hit'), 80);
                 if (z.state === 'idle') { z.state = 'chasing'; z.groundY = 0; }   // tertembak = terbangun
 
-                if (z.hp <= 0) { spawnDrop(z.mesh.position); killZombie(i); updateUI(); break; }
+                if (z.hp <= 0) { spawnDrop(z.mesh.position); killZombie(i, isHead); updateUI(); break; }
             }
         }
     }

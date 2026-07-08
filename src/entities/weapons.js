@@ -11,7 +11,7 @@ import {
 import { scene, camera } from '../core/renderer.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
-import { playSFX, sfxShoot, sfxPistol, sfxReload, sfxMelee } from '../utils/sfx.js';
+import { playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxMelee, sfxSwitch, sfxEmpty } from '../utils/sfx.js';
 import { crosshair } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 import { stamina, staExhausted, drainStamina, sprintingNow, crouchedNow } from './player.js';
@@ -37,6 +37,7 @@ let gunHeat = 0;        // "panas laras" 0..1: naik tiap tembakan, dingin saat j
 let gunBobT = 0;        // fase goyangan senjata saat berjalan (visual)
 let gunRotX = 0, gunRotZ = 0;                // rotasi dasar senjata (rig reload)
 let reloadStartTime = 0;          // waktu nyata -> sinkron dgn setTimeout reload
+let emptyReady = true;            // boleh bunyi klik kosong (di-arm ulang saat pelatuk dilepas)
 
 // Rig & bagian yang dianimasikan
 export let gunMesh = null, pistolMesh = null, shotgunMesh = null;
@@ -500,6 +501,7 @@ export function startSwitch(target) {
     switchAnim = 0;
     clearTimeout(player.reloadTimer);   // ganti senjata membatalkan reload (ala CS)
     player.isReloading = false;
+    playSFX(sfxSwitch);                 // suara handling saat mulai berganti senjata
     updateUI();
 }
 
@@ -674,6 +676,13 @@ export function updateShooting() {
             bullets.push({
                 mesh: bMesh, dir: _v3.clone(), speed: CFG.weapons.bulletSpeed,
                 life: CFG.weapons.bulletLife, first: true,
+                // Damage dibawa PELURU (senjata bisa berganti sebelum peluru
+                // mengenai). Per-senjata (rifle 30/pistol 20/shotgun 5 per pelet);
+                // fallback bulletDamage bila senjata tak punya `damage`.
+                damage: wcfg.damage != null ? wcfg.damage : CFG.weapons.bulletDamage,
+                // Pengali headshot khusus senjata (shotgun 4x); undefined = pakai
+                // default zombie (headshotDamageMul 2 / boss 3) di zombies.js.
+                headshotMul: wcfg.headshotMul,
                 px: camera.position.x, py: camera.position.y, pz: camera.position.z
             });
             stats.shots++;   // akurasi dihitung per PELURU (shotgun adil)
@@ -688,7 +697,8 @@ export function updateShooting() {
         _kickEuler.x = Math.min(Math.PI / 2 - 0.1, _kickEuler.x);
         camera.quaternion.setFromEuler(_kickEuler);
 
-        playSFX(currentWeapon === 'pistol' ? sfxPistol : sfxShoot);
+        playSFX(currentWeapon === 'pistol' ? sfxPistol
+            : currentWeapon === 'shotgun' ? sfxShotgun : sfxShoot);
 
         wpn.ammo--;
         player.lastShot = Date.now();
@@ -698,7 +708,14 @@ export function updateShooting() {
         updateUI();
 
         if (wpn.ammo === 0 && wpn.mags > 0) startReload();
+    } else if (mouse.isDown && emptyReady && !player.isReloading && switchAnim < 0
+        && meleeT <= 0 && wpn.ammo === 0 && wpn.mags === 0) {
+        // Pelatuk ditarik saat peluru & magazen benar-benar habis -> bunyi
+        // "cekrek" kosong SEKALI per tarikan (di-arm ulang saat pelatuk dilepas).
+        playSFX(sfxEmpty, 0.6);
+        emptyReady = false;
     }
+    if (!mouse.isDown) emptyReady = true;
 }
 
 // ----- Visual senjata per frame: ADS, bob, ganti, melee, rig reload -----
@@ -836,4 +853,5 @@ export function resetWeapons() {
     applyStartLoadout();   // currentWeapon + visibilitas + muzzle sesuai owned
     gunRotX = 0; gunRotZ = 0;
     gunHeat = 0;
+    emptyReady = true;
 }

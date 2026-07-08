@@ -1,6 +1,6 @@
 {
     "player": {
-        "maxHp": 10,
+        "maxHp": 100,
         "speed": 1.5,
         "radius": 5,
         "eyeHeight": 11.4,
@@ -29,7 +29,7 @@
         "maxMags": 5,
         "bulletSpeed": 27,
         "bulletLife": 120,
-        "bulletDamage": 1,
+        "bulletDamage": 20,
         "spreadBase": 0.035,
         "spreadBloom": 0.05,
         "heatPerShot": 0.22,
@@ -41,14 +41,16 @@
             "startMags": 3,
             "fireDelayMs": 130,
             "reloadMs": 3000,
-            "cameraKick": 0.012
+            "cameraKick": 0.012,
+            "damage": 30
         },
         "pistol": {
             "magSize": 15,
             "startMags": 3,
             "fireDelayMs": 260,
             "reloadMs": 2200,
-            "cameraKick": 0.016
+            "cameraKick": 0.016,
+            "damage": 20
         },
         "shotgun": {
             "magSize": 6,
@@ -57,7 +59,9 @@
             "reloadMs": 2600,
             "cameraKick": 0.03,
             "pellets": 7,
-            "pelletSpread": 0.09
+            "pelletSpread": 0.09,
+            "damage": 5,
+            "headshotMul": 4
         }
     },
     "melee": {
@@ -67,27 +71,31 @@
     "grenade": {
         "max": 5,
         "start": 3,
-        "fuseSec": 3,
+        "fuseSec": 2,
         "throwSpeed": 110,
         "throwUpward": 18,
         "killRadius": 40,
-        "pushSpeed": 22
+        "pushSpeed": 22,
+        "damage": 100
     },
     "zombie": {
         "headHeight": 11.5,
-        "headshotRadius": 2.4,
+        "headshotRadius": 1.6,
+        "headshotDamageMul": 2,
+        "bodyHitRadius": 5,
         "bodyBlockRadius": 7.5,
-        "clawDamage": 1,
-        "clawCooldownSec": 2,
+        "clawDamage": 20,
+        "clawCooldownSec": 1,
         "clawRange": 3.5,
         "stopRange": 3.0,
         "repathSec": 0.5,
         "stuckSec": 0.4,
         "turnRadPerSec": 9,
+        "score": { "normalKill": 100, "normalHeadshot": 150, "specialKill": 150, "specialHeadshot": 200 },
         "variants": {
-            "runner": { "hpMul": 0.34, "speedMul": 1.8, "scale": 0.92, "clawDamage": 1 },
-            "brute": { "hpMul": 4, "speedMul": 0.6, "scale": 1.25, "clawDamage": 2 },
-            "exploder": { "hpMul": 0.67, "speedMul": 1.1, "scale": 1.0, "clawDamage": 1, "boomRadius": 28, "boomDamage": 2 }
+            "runner": { "hpMul": 0.34, "speedMul": 1.8, "scale": 0.92, "clawDamage": 20 },
+            "brute": { "hpMul": 4, "speedMul": 0.6, "scale": 1.25, "clawDamage": 40 },
+            "exploder": { "hpMul": 0.67, "speedMul": 1.1, "scale": 1.0, "clawDamage": 20, "boomRadius": 28, "boomDamage": 40 }
         }
     },
     "survival": {
@@ -100,12 +108,15 @@
         "maxZombiesBase": 10,
         "maxZombiesStep": 2,
         "maxZombiesCap": 28,
-        "zombieHpBase": 3,
-        "zombieHpPerTwoWaves": 1,
+        "zombieHpBase": 100,
+        "zombieHpPerTwoWaves": 5,
+        "zombieHpMaxMul": 1.5,
         "zombieSpeedBase": 0.6,
         "zombieSpeedRand": 0.4,
-        "zombieSpeedPerWave": 0.08,
-        "zombieSpeedScale": 0.3,
+        "zombieSpeedScale": 1,
+        "zombieSpeedWaveMin": 0.6,
+        "zombieSpeedWaveStep": 0.02,
+        "zombieSpeedWaveMax": 1.0,
         "runnerChanceBase": 0.05,
         "runnerChancePerWave": 0.02,
         "runnerChanceMax": 0.35,
@@ -113,41 +124,43 @@
         "bruteChance": 0.12,
         "exploderFromWave": 6,
         "exploderChance": 0.1,
-        "monasMaxHp": 50,
-        "monasAttackerChance": 0.3,
-        "monasDefendRadius": 60,
-        "monasClawDamage": 1,
+        "monasMaxHp": 1500,
+        "strengthenMonasStages": [3000, 4500, 6000],
+        "playerAggroMeters": 20,
+        "monasClawDamage": 20,
         "eventEveryWaves": 5,
         "eventDurationSec": 22
     },
     "campaign": {
-        "zombieHp": 3,
+        "zombieHp": 100,
         "zombieSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,
         "boss": {
-            "hp": 60,
+            "hp": 1800,
             "speed": 0.35,
             "scale": 2.4,
-            "clawDamage": 3,
+            "clawDamage": 60,
             "reachMul": 1.8,
             "spawnWhenRemaining": 5,
             "score": 1000,
-            "grenadeDamage": 10,
+            "grenadeDamage": 300,
             "headshotDamageMul": 3
         },
         "stage3Zombies": 26
     },
     "drops": {
-        "magChance": 0.5,
-        "grenadeChance": 0.2,
-        "lifetimeSec": 40,
+        "magChance": 0.05,
+        "grenadeChance": 0.02,
+        "lifetimeSec": 20,
         "medkitHeal": 2
     },
     "shop": {
         "ammoCost": 400,
         "grenadeCost": 250,
         "healthCost": 350,
+        "healMonasCost": 300,
+        "strengthenMonasCost": 500,
         "shotgunCost": 900,
         "rifleCost": 1200
     },

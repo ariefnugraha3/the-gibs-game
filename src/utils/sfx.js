@@ -1,6 +1,9 @@
 // SFX: definisi klip + pool pemutaran. SELALU putar lewat playSFX().
 
 export const sfxShoot = new Audio('assets/sounds/gun-shoot.mp3');
+export const sfxShotgun = new Audio('assets/sounds/shotgun-shot.mp3');   // tembakan shotgun
+export const sfxEmpty = new Audio('assets/sounds/empty-gun.mp3');        // klik kosong (peluru & magazen habis)
+export const sfxSwitch = new Audio('assets/sounds/switch-weapon.mp3');   // ganti senjata
 export const sfxExplode = new Audio('assets/sounds/grenade-explode.mp3');
 export const sfxReload = new Audio('assets/sounds/reload.mp3');
 export const sfxHit = new Audio('assets/sounds/jokowi-kaget.mp3');

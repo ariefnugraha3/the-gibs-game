@@ -3,7 +3,7 @@
 // (zombie melompati pagar), AI kejar + vault bak air mancur, dan seluruh hook
 // antarmuka scene (lihat MODULES.md).
 
-import { CFG } from '../../core/config.js';
+import { CFG, CAMP_M } from '../../core/config.js';
 import { player, zombies, isGameOver, _v3 } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
@@ -19,7 +19,8 @@ import {
     resolveObstacles, segmentHitsFountain, groundHeightAt
 } from './world.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
-import { openShop, closeShop, isShopOpen, shopBuyKey } from './shop.js';
+import { openShop, closeShop, isShopOpen } from './shop.js';
+import { requestLock } from '../../core/input.js';
 
 // Wave berbasis "clear" (overhaul 2026-07-07): tiap wave punya jatah zombie
 // TETAP (toSpawn) yang harus dihabisi. Wave bersih saat semua sudah di-spawn
@@ -34,8 +35,12 @@ const wave = {
 let navGrid = null;   // nav-grid pathfinder (Monas & pohon = penghalang; bak walkable = vault)
 
 // Objektif Monas (IMPROVEMENT-PLAN #6): sebagian zombie menggerogoti Monas;
-// monasHp 0 = kalah ("THE MONUMENT HAS FALLEN").
+// monasHp 0 = kalah ("THE MONUMENT HAS FALLEN"). monasMaxHp scene-local (bukan
+// CFG langsung) supaya item shop 'Strengthen Monas' bisa menaikkannya per-run
+// tanpa memutasi CFG (dipulihkan dari CFG saat enter()).
 let monasHp = 50;
+let monasMaxHp = 50;
+let monasStage = 0;    // tingkat "Strengthen Monas" (0 = base; naik per pembelian, plafon = jml tier)
 let monasWarnCd = 0;   // jeda peringatan feed agar tidak spam tiap gigitan
 
 function damageMonas(n) {
@@ -43,12 +48,39 @@ function damageMonas(n) {
     updateUI();
     if (monasWarnCd <= 0) {
         monasWarnCd = 6;
-        const crit = monasHp <= CFG.survival.monasMaxHp * 0.3;
+        const crit = monasHp <= monasMaxHp * 0.3;
         showPickup(crit ? 'THE MONUMENT IS CRITICAL!' : 'The Monument is under attack!',
             crit ? '#ff4757' : '#ffb84d');
     }
     if (monasHp <= 0) gameOver(false, 'THE MONUMENT HAS FALLEN');
 }
+
+// --- Item shop Monas (dipanggil shop.js.shopPurchase) ---
+// Heal Monas: pulihkan 25% dari MAX HP (dijepit ke max). Return alasan bila
+// sudah penuh (skor tak dipotong), null bila berhasil.
+export function healMonas() {
+    if (monasHp >= monasMaxHp) return 'The Monument is already at full HP';
+    monasHp = Math.min(monasMaxHp, monasHp + Math.round(monasMaxHp * 0.25));
+    updateUI();
+    return null;
+}
+// Strengthen Monas: naikkan MAX HP ke TINGKAT berikutnya (tangga tetap
+// CFG.survival.strengthenMonasStages, mis. 3000 -> 4500 -> 6000 = plafon).
+// Menaikkan HP sekarang sebesar kenaikan max (memperkuat = menambah HP juga).
+// Ditolak (skor tak dipotong) bila sudah di tingkat tertinggi.
+export function strengthenMonas() {
+    const tiers = CFG.survival.strengthenMonasStages;
+    if (monasStage >= tiers.length) return 'The Monument is already fully reinforced';
+    const newMax = tiers[monasStage];
+    monasHp += newMax - monasMaxHp;
+    monasMaxHp = newMax;
+    monasStage++;
+    updateUI();
+    return null;
+}
+export const getMonasHp = () => monasHp;
+export const getMonasMaxHp = () => monasMaxHp;
+export const isMonasFullyStrengthened = () => monasStage >= CFG.survival.strengthenMonasStages.length;
 
 // Event wave (IMPROVEMENT-PLAN #9): kabut turun ATAU listrik kota padam —
 // hanya menganimasikan fog.near/far & intensitas cahaya (uniform-only, tanpa
@@ -95,10 +127,16 @@ function spawnZombie() {
     const startX = fx - inX * OUT, startZ = fz - inZ * OUT;
     const landX = fx + inX * IN, landZ = fz + inZ * IN;
 
-    // Makin lama makin tebal & cepat (rumus difficulty dari CFG.survival)
-    const hp = SV.zombieHpBase + Math.floor((wave.num - 1) / 2) * SV.zombieHpPerTwoWaves;
-    const speed = (SV.zombieSpeedBase + Math.random() * SV.zombieSpeedRand
-        + (wave.num - 1) * SV.zombieSpeedPerWave) * SV.zombieSpeedScale;
+    // HP naik pelan per wave TAPI dijepit maksimal zombieHpMaxMul × base (+50%).
+    const hp = Math.min(SV.zombieHpBase * SV.zombieHpMaxMul,
+        SV.zombieHpBase + Math.floor((wave.num - 1) / 2) * SV.zombieHpPerTwoWaves);
+    // Speed penuh = base × scale (scale 1 = kecepatan penuh, seperti campaign),
+    // DIKALI faktor wave: mulai zombieSpeedWaveMin (60%) di wave 1, +Step (2%)
+    // tiap wave, dijepit zombieSpeedWaveMax (100%). Wave awal lebih lambat, mentok
+    // di kecepatan penuh (~wave 21). Variasi acak & speedMul varian tetap dikali.
+    const waveMul = Math.min(SV.zombieSpeedWaveMax,
+        SV.zombieSpeedWaveMin + (wave.num - 1) * SV.zombieSpeedWaveStep);
+    const speed = (SV.zombieSpeedBase + Math.random() * SV.zombieSpeedRand) * SV.zombieSpeedScale * waveMul;
 
     // --- Varian perilaku (IMPROVEMENT-PLAN #1): peluang naik seiring wave ---
     let kind = 'walker';
@@ -137,8 +175,9 @@ function spawnZombie() {
         jumpY0: 0, jumpY1: 0, arcH: FENCE_H + 14, groundY: 0, vaultCd: 0,
         attackCd: 0, clawT: 0, clawSide: 1, moving: true,   // sistem serangan cakar
         kind, scl, reachMul: reachForScale(scl),   // badan besar = reach ikut membesar
-        clawDmg: V ? V.clawDamage : CFG.zombie.clawDamage,
-        target: Math.random() < SV.monasAttackerChance ? 'monas' : 'player'
+        clawDmg: V ? V.clawDamage : CFG.zombie.clawDamage
+        // Target ditentukan per-frame di zombieAI (Monas default / kejar player
+        // bila dalam radius aggro) — tidak lagi diundi saat spawn.
     });
 }
 
@@ -159,19 +198,23 @@ function startWave(n) {
     updateUI();
 }
 
-// Tombol "Start Next Wave" di shop: tutup shop lalu mulai gelombang berikutnya.
-function startNextWave() {
+// Tombol "Start Next Wave" (klik DOM di shop.js atau SPACE): tutup shop, mulai
+// gelombang berikutnya, lalu KUNCI ULANG pointer -> resume gameplay
+// (setPaused(false) lewat pointerlockchange di input.js). Dipanggil dari gesture
+// pengguna (klik / keydown) sehingga requestPointerLock valid.
+export function startNextWave() {
     closeShop();
     startWave(wave.num + 1);
+    requestLock();
 }
 
-// Hook tombol shop (core/input.js men-delegasi tiap keydown ke sini lebih dulu
-// saat overlay terbuka). SPACE/Enter = mulai wave berikutnya (tombol Next Wave);
-// sisanya diserahkan ke handler beli item shop.js.
+// Hook tombol shop (core/input.js men-delegasi keydown ke sini saat shop modal
+// terbuka). Hanya SPACE/Enter yang bertindak (Start Next Wave); PEMBELIAN item
+// kini lewat KLIK (shop.js). Return true = dikonsumsi.
 function shopKey(key) {
     if (!isShopOpen()) return false;
     if (key === ' ' || key === 'enter') { startNextWave(); return true; }
-    return shopBuyKey(key);
+    return false;
 }
 
 export const survivalScene = {
@@ -180,8 +223,11 @@ export const survivalScene = {
     enter() {
         ensureParkWorld();
         navGrid = getSurvivalNav();
-        // Reset objektif Monas + event + shop + posisi awal, lalu mulai wave 1
-        monasHp = CFG.survival.monasMaxHp;
+        // Reset objektif Monas (max & hp dari CFG — batalkan Strengthen run lalu)
+        // + event + shop + posisi awal, lalu mulai wave 1
+        monasMaxHp = CFG.survival.monasMaxHp;
+        monasHp = monasMaxHp;
+        monasStage = 0;      // batalkan tingkat Strengthen run sebelumnya
         monasWarnCd = 0;
         endEvent();          // pulihkan fog/cahaya bila mati di tengah event
         closeShop();
@@ -190,9 +236,12 @@ export const survivalScene = {
         startWave(1);
     },
 
-    // Hook shop: SPACE = Next Wave, angka = beli (core/input.js men-delegasinya)
+    // Hook shop modal: SPACE/Enter = Next Wave (input.js men-delegasi keydown ke
+    // shopKey); shopActive = predikat "shop terbuka" yang dipakai input.js untuk
+    // unlock->pause-tanpa-blocker & menelan tombol gameplay. Pembelian item lewat
+    // KLIK di shop.js.
     shopKey,
-    shopClose: closeShop,
+    shopActive: isShopOpen,
 
     // --- Mesin fase wave (fighting -> cleared -> shopping) + spawner + event ---
     updateMode(dt) {
@@ -223,9 +272,11 @@ export const survivalScene = {
                 wave.phase = 'shopping';
                 openShop();
             }
-        } else {   // 'shopping': tunggu tombol Next Wave (shopKey -> startNextWave)
-            // Safety: bila overlay sempat tertutup (Esc/blur -> shopClose), buka
-            // lagi begitu player melanjutkan agar tidak terjebak tanpa shop.
+        } else {
+            // 'shopping': shop = MODAL & game DI-PAUSE, jadi updateMode normalnya
+            // tak berjalan lagi sampai Start Next Wave (klik/SPACE ->
+            // startNextWave -> requestLock -> resume). Guard defensif: bila entah
+            // bagaimana kita di fase ini tanpa shop terbuka, buka lagi.
             if (!isShopOpen()) openShop();
         }
 
@@ -316,8 +367,10 @@ export const survivalScene = {
             return {};
         }
 
-        // Kejar TARGET (grounded): player, atau Monas bagi zombie penggerogot
-        // (z.target 'monas') selama player di luar radius bela monasDefendRadius.
+        // Kejar TARGET (grounded): player, atau Monas. PRIORITAS MONAS — SEMUA
+        // zombie menyerang Monas secara default; hanya beralih mengejar player
+        // bila player berada dalam radius aggro (playerAggroMeters × 7 unit) dari
+        // zombie; begitu player > radius, zombie kembali menyerang Monas.
         // Pathfinder: direct = garis lurus bebas (kejar langsung — termasuk
         // melintasi bak air mancur, yang memicu vault); waypoint = memutari
         // Monas/pohon. Gerak memakai heading berlaju-putar-terbatas
@@ -325,8 +378,8 @@ export const survivalScene = {
         const dx = camera.position.x - z.mesh.position.x;
         const dz = camera.position.z - z.mesh.position.z;
         const distToEye = Math.hypot(dx, dz);
-        const atkMonas = z.target === 'monas' && monasHp > 0
-            && distToEye > CFG.survival.monasDefendRadius;
+        const atkMonas = monasHp > 0
+            && distToEye > CFG.survival.playerAggroMeters * CAMP_M;
         // Titik tuju: player, atau titik terdekat di tepi AABB Monas (24)
         const tx = atkMonas ? clamp(z.mesh.position.x, -24, 24) : camera.position.x;
         const tz = atkMonas ? clamp(z.mesh.position.z, -24, 24) : camera.position.z;
@@ -408,7 +461,7 @@ export const survivalScene = {
     },
 
     hudStatus() {
-        const pct = Math.max(0, Math.ceil(monasHp / CFG.survival.monasMaxHp * 100));
+        const pct = Math.max(0, Math.ceil(monasHp / monasMaxHp * 100));
         if (wave.phase === 'cleared')
             return `WAVE ${wave.num} CLEARED — Next wave in ${Math.max(1, Math.ceil(wave.clearTimer))}...`;
         if (wave.phase === 'shopping')
@@ -420,7 +473,7 @@ export const survivalScene = {
     // Monas = penanda pusat (dijepit ke tepi saat jauh — kompas); warnanya
     // mengikuti sisa HP Monas: putih -> kuning -> merah.
     radarLandmarks(plot) {
-        const r = monasHp / CFG.survival.monasMaxHp;
+        const r = monasHp / monasMaxHp;
         plot(-camera.position.x, -camera.position.z,
             r > 0.6 ? "#bbbbbb" : r > 0.3 ? "#f1c40f" : "#ff4757", 4, true);
     },

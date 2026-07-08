@@ -552,65 +552,127 @@ body {
     mask-image: radial-gradient(ellipse at center, transparent 52%, #000 80%);
 }
 
-/* ---------- Shop antar-gelombang Survival (overlay keyboard-only, buka otomatis) ---------- */
+/* ---------- Shop antar-gelombang Survival (MENU KLIK modal; game di-pause,
+   pointer dilepas). Terbuka otomatis setelah "wave cleared". Tata letak:
+   kiri = daftar item (hover -> detail), kanan = deskripsi + harga + Buy,
+   bawah-kiri = skor, bawah-kanan = Start Next Wave. ---------- */
 #shopOverlay {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    inset: 0;
     z-index: 12;
-    display: none;
-    flex-direction: column;
-    min-width: 420px;
-    padding: 18px 26px 14px;
-    background: rgba(8, 14, 20, 0.88);
-    border: 2px solid rgba(241, 196, 15, 0.55);
-    border-radius: 10px;
-    box-shadow: 0 0 26px rgba(0, 0, 0, 0.75);
+    display: none;                 /* -> flex saat openShop */
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
     font-family: Arial, sans-serif;
     color: #e8eef4;
-    pointer-events: none;
 }
-#shopOverlay .shopTitle {
-    font-size: 22px;
+.shopPanel {
+    width: min(760px, 92vw);
+    background: rgba(8, 14, 20, 0.94);
+    border: 2px solid rgba(241, 196, 15, 0.55);
+    border-radius: 12px;
+    box-shadow: 0 0 42px rgba(0, 0, 0, 0.8);
+    padding: 18px 22px 16px;
+    display: flex;
+    flex-direction: column;
+}
+.shopHead {
+    font-size: 24px;
     font-weight: bold;
-    letter-spacing: 3px;
+    letter-spacing: 4px;
     color: #f1c40f;
     text-align: center;
-    margin-bottom: 2px;
+    text-shadow: 0 0 14px rgba(241, 196, 15, 0.35);
 }
-#shopOverlay .shopScore {
+.shopMsg {
     text-align: center;
-    font-size: 15px;
+    font-size: 14px;
+    min-height: 18px;
+    margin: 2px 0 8px;
     color: #9fd8a2;
-    margin-bottom: 10px;
 }
-#shopOverlay .shopLine {
+.shopMsg.err { color: #ff6b6b; }
+.shopBody { display: flex; gap: 16px; align-items: stretch; }
+.shopList { flex: 1 1 46%; display: flex; flex-direction: column; gap: 5px; }
+.shopItem {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
-    font-size: 16px;
-    padding: 4px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
 }
-#shopOverlay .shopKey { color: #f1c40f; font-weight: bold; }
-#shopOverlay .shopLabel { flex: 1; }
-#shopOverlay .shopCost { color: #9fd8a2; font-weight: bold; }
-#shopOverlay .shopNote { color: #8fa3b8; font-size: 13px; min-width: 64px; text-align: right; }
-#shopOverlay .shopErr { text-align: center; color: #ff6b6b; font-size: 14px; margin-top: 8px; }
-/* Baris "Start Next Wave": tombol hijau menonjol (ditekan lewat SPACE) */
-#shopOverlay .shopNext {
-    text-align: center;
-    margin-top: 14px;
+.shopItem:hover { background: rgba(241, 196, 15, 0.14); border-color: rgba(241, 196, 15, 0.55); }
+.shopItem.owned { opacity: 0.55; cursor: default; }
+.shopItem.owned:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.08); }
+.shopItemName { font-size: 15px; }
+.shopItemCost { font-size: 14px; font-weight: bold; color: #f1c40f; }
+.shopItem.owned .shopItemCost { color: #8fa3b8; }
+.shopDetail {
+    flex: 1 1 54%;
+    display: flex;
+    flex-direction: column;
+    padding: 14px 16px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    min-height: 168px;
+}
+.shopDetailName { font-size: 18px; font-weight: bold; color: #ffd27a; margin-bottom: 8px; }
+.shopDetailDesc { font-size: 14px; line-height: 1.5; color: #cfd8e3; flex: 1; }
+.shopDetailPrice { font-size: 15px; font-weight: bold; color: #9fd8a2; margin: 10px 0; }
+.shopDetailPrice.poor { color: #ff6b6b; }
+.shopDetailPrice.owned { color: #8fa3b8; }
+.shopBuy {
+    font-family: Arial, sans-serif;
+    font-size: 15px;
+    font-weight: bold;
+    color: #0b0f14;
+    background: linear-gradient(180deg, #f7d354, #f1c40f);
+    border: none;
+    border-radius: 7px;
     padding: 9px 0;
+    cursor: pointer;
+    transition: filter 0.12s, transform 0.06s;
+}
+.shopBuy:hover { filter: brightness(1.08); }
+.shopBuy:active { transform: translateY(2px); }
+.shopBuy.disabled {
+    background: rgba(255, 255, 255, 0.12);
+    color: #8fa3b8;
+    cursor: default;
+    pointer-events: none;
+}
+.shopFoot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.shopScore { font-size: 18px; font-weight: bold; color: #9fd8a2; }
+.shopNext {
+    font-family: Arial, sans-serif;
     font-size: 16px;
     font-weight: bold;
     letter-spacing: 1px;
     color: #0b0f14;
     background: linear-gradient(180deg, #2ecc71, #27ae60);
-    border-radius: 7px;
-    box-shadow: 0 0 14px rgba(46, 204, 113, 0.45);
+    border: none;
+    border-radius: 8px;
+    padding: 11px 26px;
+    cursor: pointer;
+    box-shadow: 0 0 16px rgba(46, 204, 113, 0.4);
+    transition: filter 0.12s, transform 0.06s;
 }
+.shopNext:hover { filter: brightness(1.08); }
+.shopNext:active { transform: translateY(2px); }
 
 /* ---------- Baris difficulty di layar pilih mode ---------- */
 #diffRow { margin: 2px 0 18px; }
