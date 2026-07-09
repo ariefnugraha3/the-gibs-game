@@ -7,15 +7,16 @@ import { player, score, zombies, drops, _dir } from './state.js';
 import { camera } from './renderer.js';
 import { activeScene } from './sceneManager.js';
 import { scoreText, ammoText, healthFill, waveText, radar, radarCtx, invSlots } from './dom.js';
-import { currentWeapon, WEAPON_DEF, grenadeMode } from '../entities/weapons.js';
+import { currentWeapon, WEAPON_DEF, grenadeMode, medkitMode } from '../entities/weapons.js';
 
 export function updateUI() {
     const w = player[currentWeapon];
     const wName = WEAPON_DEF[currentWeapon].name;
     scoreText.innerText = `Score: ${score}`;
-    // Amunisi: senjata aktif; saat memegang granat -> petunjuk lempar.
-    ammoText.innerText = grenadeMode ? 'Grenade — LMB Far / RMB Near'
-        : player.isReloading ? `${wName}: Reloading...` : `${wName}: ${w.ammo} / ${w.mags} Mags`;
+    // Amunisi: senjata aktif; memegang granat -> petunjuk lempar; medkit -> petunjuk tahan.
+    ammoText.innerText = medkitMode ? 'Medkit — Hold LEFT CLICK to use'
+        : grenadeMode ? 'Grenade — LMB Far / RMB Near'
+            : player.isReloading ? `${wName}: Reloading...` : `${wName}: ${w.ammo} / ${w.mags} Mags`;
     // Health bar (maks CFG.player.maxHp): warna merah tetap (CSS)
     healthFill.style.width = (player.hp / CFG.player.maxHp * 100) + '%';
     // Radar minimap disembunyikan sampai dimiliki (Survival: dibeli di shop).
@@ -43,7 +44,7 @@ function updateInventory() {
             wk && !grenadeMode && currentWeapon === wk, !wk);
     }
     setSlot(2, `Grenade ×${player.grenades}`, grenadeMode, player.grenades <= 0);
-    setSlot(3, `Medkit ×${player.medkits}`, false, player.medkits <= 0);
+    setSlot(3, `Medkit ×${player.medkits}`, medkitMode, player.medkits <= 0);
 }
 
 // ----------- Radar / minimap ----------- //

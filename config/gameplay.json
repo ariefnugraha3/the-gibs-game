@@ -8,7 +8,9 @@
         "jumpVelocity": 33,
         "gravity": 70,
         "medkitHealPct": 0.7,
-        "maxMedkits": 1
+        "maxMedkits": 2,
+        "medkitUseSec": 2,
+        "medkitSlowMul": 0.75
     },
     "stamina": {
         "max": 100,

@@ -7,10 +7,9 @@ import { CFG } from '../core/config.js';
 import { player, keys, zombies, isPaused, isGameOver, _dir, _right } from '../core/state.js';
 import { camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
-import { playSFX, sfxFootstep, sfxZombieStep, sfxPickup } from '../utils/sfx.js';
-import { staminaFill, showPickup } from '../core/dom.js';
-import { updateUI } from '../core/hud.js';
-import { isAiming, setAiming } from './weapons.js';
+import { playSFX, sfxFootstep, sfxZombieStep } from '../utils/sfx.js';
+import { staminaFill } from '../core/dom.js';
+import { isAiming, setAiming, medkitMode } from './weapons.js';
 
 // ----- Status milik player (live export; reassign hanya di modul ini) -----
 export let stamina = 100;
@@ -37,20 +36,6 @@ export function tryJump() {
     }
 }
 
-// Tombol 4 = pakai Medkit (item slot 4): pulihkan medkitHealPct dari maxHp
-// (dijepit), pakai 1 (maks maxMedkits 1). Ditolak bila tak punya medkit atau HP
-// sudah penuh. Di-gate !pause/!gameover oleh input.js.
-export function useMedkit() {
-    if (player.medkits <= 0) { showPickup('No medkit', '#b8b8b8'); return; }
-    if (player.hp >= CFG.player.maxHp) { showPickup('Health already full', '#b8b8b8'); return; }
-    player.medkits--;
-    player.hp = Math.min(CFG.player.maxHp,
-        player.hp + Math.round(CFG.player.maxHp * CFG.player.medkitHealPct));
-    playSFX(sfxPickup);
-    showPickup('Medkit used', '#ff6b81');
-    updateUI();
-}
-
 // Dipanggil saat boot & resetGame: stempel nilai awal dari CFG
 export function resetPlayerState() {
     player.vy = 0; player.onGround = true;
@@ -67,8 +52,9 @@ export function updatePlayerMovement(dt, step) {
     _right.crossVectors(camera.up, _dir).normalize();
 
     const oldX = camera.position.x, oldZ = camera.position.z;
-    // Jongkok efektif = toggle C ATAU tahan Ctrl kiri
-    crouchedNow = isCrouching || crouchHold;
+    // Jongkok efektif = toggle C ATAU tahan Ctrl kiri — TAPI dinonaktifkan selagi
+    // memakai medkit (tak boleh jongkok saat menyembuhkan diri).
+    crouchedNow = (isCrouching || crouchHold) && !medkitMode;
     // Input WASD digabung jadi SATU vektor lalu dinormalisasi terhadap panjang
     // input mentah — diagonal (mis. W+A) tidak lagi ~1.41x lebih cepat (bug fix).
     // Bobot arah: komponen mundur & samping diperlambat (CFG.movement);
@@ -80,7 +66,7 @@ export function updatePlayerMovement(dt, step) {
     // Sprint efektif butuh: shift + tidak jongkok + benar-benar BERGERAK +
     // stamina tersedia & tidak sedang exhausted.
     sprintingNow = keys.shift && !crouchedNow && !staExhausted && stamina > 0
-        && (fwd !== 0 || side !== 0);
+        && (fwd !== 0 || side !== 0) && !medkitMode;   // tak boleh lari saat memakai medkit
     if (sprintingNow) stamina -= CFG.stamina.sprintDrainPerSec * dt;
     if (isAiming) stamina -= CFG.stamina.adsDrainPerSec * dt;
     if (stamina <= 0) {
@@ -98,7 +84,9 @@ export function updatePlayerMovement(dt, step) {
     // Pengali kecepatan: jongkok (mendominasi, TIDAK ditumpuk dgn ADS);
     // ADS saja lebih lambat. Sprint dimatikan selama jongkok / stamina habis.
     const moveMult = crouchedNow ? CFG.movement.crouchMultiplier : (isAiming ? CFG.movement.adsMultiplier : 1);
-    const moveSpeed = player.speed * (sprintingNow ? CFG.movement.sprintMultiplier : 1) * moveMult * step;
+    // Memakai medkit memperlambat gerak (medkitSlowMul, mis. -25%).
+    const medkitMul = medkitMode ? CFG.player.medkitSlowMul : 1;
+    const moveSpeed = player.speed * (sprintingNow ? CFG.movement.sprintMultiplier : 1) * moveMult * medkitMul * step;
     if (fwd !== 0 || side !== 0) {
         const wz = fwd * (fwd < 0 ? CFG.movement.backpedalWeight : 1);   // mundur lebih lambat
         const wx = side * CFG.movement.strafeWeight;                     // menyamping lebih lambat

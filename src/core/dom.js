@@ -22,6 +22,9 @@ export const staminaFill = document.getElementById('staminaFill');
 export const stageMsgEl = document.getElementById('stageMsg');
 export const radar = document.getElementById('radar');
 export const radarCtx = radar.getContext('2d');
+// Bar channel Medkit (tombol 4): tampil saat memegang medkit; fill = progress tahan klik.
+export const medkitBar = document.getElementById('medkitBar');
+export const medkitBarFill = document.getElementById('medkitBarFill');
 
 // Radar tajam di layar HiDPI: backing store diskalakan devicePixelRatio (ukuran CSS tetap 150px)
 const RADAR_DPR = Math.min(window.devicePixelRatio || 1, 2);

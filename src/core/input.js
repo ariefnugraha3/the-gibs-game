@@ -8,9 +8,9 @@ import { activeScene } from './sceneManager.js';
 import { resetGame } from './game.js';
 import {
     startReload, tryMelee, trySwitchKey, toggleAim, setAiming,
-    grenadeMode, throwEquippedGrenade
+    grenadeMode, throwEquippedGrenade, equipMedkit
 } from '../entities/weapons.js';
-import { toggleCrouch, setCrouchHold, clearCrouch, tryJump, useMedkit } from '../entities/player.js';
+import { toggleCrouch, setCrouchHold, clearCrouch, tryJump } from '../entities/player.js';
 
 // ----- Fullscreen + Keyboard Lock: cegah shortcut browser saat main -----
 // Ctrl+W (tutup tab), Ctrl+R (reload), Ctrl+T/N, dsb TIDAK bisa dicegah
@@ -139,8 +139,9 @@ export function initInput() {
         // slot senjata. (Shop modal sudah dicegat di atas.)
         if ((key === '1' || key === '2' || key === '3' || key === 'q')
             && !isPaused && !isGameOver) trySwitchKey(key);
-        // 4 = pakai Medkit (pulihkan 70% HP; hanya bisa punya 1).
-        if (key === '4' && !isPaused && !isGameOver) useMedkit();
+        // 4 = pegang Medkit di tangan (tekan lagi = holster); lalu TAHAN klik kiri
+        // medkitUseSec detik untuk memakainya (pulihkan 70% HP; hanya bisa punya 1).
+        if (key === '4' && !isPaused && !isGameOver) equipMedkit();
         if (e.code === 'Space') {
             if (isGameOver) resetGame();       // restart
             else tryJump();                    // lompat

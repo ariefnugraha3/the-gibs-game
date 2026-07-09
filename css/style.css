@@ -70,6 +70,47 @@ body {
 
 #healthFill { background: #e74c3c; }
 
+/* Bar channel Medkit (tombol 4): tahan klik kiri untuk memakainya. weapons.js
+   men-set display flex + lebar fill (progress) saat memegang medkit. */
+#medkitBar {
+    position: absolute;
+    left: 50%;
+    top: 62%;
+    transform: translateX(-50%);
+    z-index: 5;
+    display: none;              /* -> flex saat memegang medkit */
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+}
+
+#medkitBarLabel {
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    color: #ff9db0;
+    text-shadow: 1px 1px 3px #000;
+}
+
+#medkitBarShell {
+    width: 240px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+
+#medkitBarFill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #e05a6e, #ff8fa3);
+    border-radius: 6px;
+    transition: width 0.05s linear;
+}
+
 /* Skor/amunisi di pojok kanan-bawah (radar kini di kiri-atas) */
 #statsHud {
     position: absolute;
@@ -607,9 +648,10 @@ body {
 }
 
 /* ---------- Shop antar-gelombang Survival (MENU KLIK modal; game di-pause,
-   pointer dilepas). Terbuka otomatis setelah "wave cleared". Tata letak:
-   kiri = daftar item (hover -> detail), kanan = deskripsi + harga + Buy,
-   bawah-kiri = skor, bawah-kanan = Start Next Wave. ---------- */
+   pointer dilepas). Terbuka otomatis setelah "wave cleared". Tata letak
+   (redesign 2026-07-09): GRID kartu item (tiap kartu = nama + tombol Buy),
+   panel deskripsi + harga LEBAR PENUH di bawah grid, lalu bawah-kiri = skor,
+   bawah-kanan = Start Next Wave. ---------- */
 #shopOverlay {
     position: absolute;
     inset: 0;
@@ -622,7 +664,7 @@ body {
     color: #e8eef4;
 }
 .shopPanel {
-    width: min(760px, 92vw);
+    width: min(840px, 94vw);
     background: rgba(8, 14, 20, 0.94);
     border: 2px solid rgba(241, 196, 15, 0.55);
     border-radius: 12px;
@@ -647,61 +689,71 @@ body {
     color: #9fd8a2;
 }
 .shopMsg.err { color: #ff6b6b; }
-.shopBody { display: flex; gap: 16px; align-items: stretch; }
-.shopList { flex: 1 1 46%; display: flex; flex-direction: column; gap: 5px; }
-.shopItem {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+/* Grid kartu item: 4 kolom, tiap kartu = nama (tengah) + tombol Buy (kiri-bawah) */
+.shopGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
     gap: 10px;
+}
+.shopCard {
+    display: flex;
+    flex-direction: column;
+    min-height: 96px;
     padding: 10px 12px;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 7px;
+    border-radius: 8px;
     cursor: pointer;
     transition: background 0.12s, border-color 0.12s;
 }
-.shopItem:hover { background: rgba(241, 196, 15, 0.14); border-color: rgba(241, 196, 15, 0.55); }
-.shopItem.owned { opacity: 0.55; cursor: default; }
-.shopItem.owned:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.08); }
-.shopItemName { font-size: 15px; }
-.shopItemCost { font-size: 14px; font-weight: bold; color: #f1c40f; }
-.shopItem.owned .shopItemCost { color: #8fa3b8; }
-.shopDetail {
-    flex: 1 1 54%;
+.shopCard:hover { background: rgba(241, 196, 15, 0.14); border-color: rgba(241, 196, 15, 0.55); }
+.shopCard.owned { opacity: 0.55; }
+.shopCard.owned:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.08); }
+.shopCardName {
+    flex: 1;
     display: flex;
-    flex-direction: column;
-    padding: 14px 16px;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    min-height: 168px;
-}
-.shopDetailName { font-size: 18px; font-weight: bold; color: #ffd27a; margin-bottom: 8px; }
-.shopDetailDesc { font-size: 14px; line-height: 1.5; color: #cfd8e3; flex: 1; }
-.shopDetailPrice { font-size: 15px; font-weight: bold; color: #9fd8a2; margin: 10px 0; }
-.shopDetailPrice.poor { color: #ff6b6b; }
-.shopDetailPrice.owned { color: #8fa3b8; }
-.shopBuy {
-    font-family: Arial, sans-serif;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
     font-size: 15px;
+    font-weight: bold;
+    padding: 2px 0 8px;
+}
+.shopCardBuy {
+    align-self: flex-start;               /* Buy di kiri-bawah kartu (sesuai desain) */
+    font-family: Arial, sans-serif;
+    font-size: 13px;
     font-weight: bold;
     color: #0b0f14;
     background: linear-gradient(180deg, #f7d354, #f1c40f);
     border: none;
-    border-radius: 7px;
-    padding: 9px 0;
+    border-radius: 6px;
+    padding: 6px 18px;
     cursor: pointer;
     transition: filter 0.12s, transform 0.06s;
 }
-.shopBuy:hover { filter: brightness(1.08); }
-.shopBuy:active { transform: translateY(2px); }
-.shopBuy.disabled {
+.shopCardBuy:hover { filter: brightness(1.08); }
+.shopCardBuy:active { transform: translateY(1px); }
+.shopCardBuy.disabled {
     background: rgba(255, 255, 255, 0.12);
     color: #8fa3b8;
     cursor: default;
     pointer-events: none;
 }
+/* Panel deskripsi + harga lebar penuh di bawah grid */
+.shopDesc {
+    margin-top: 12px;
+    padding: 13px 16px;
+    min-height: 78px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+.shopDescName { font-size: 17px; font-weight: bold; color: #ffd27a; margin-bottom: 6px; }
+.shopDescText { font-size: 14px; line-height: 1.5; color: #cfd8e3; }
+.shopDescPrice { font-size: 15px; font-weight: bold; color: #9fd8a2; margin-top: 8px; }
+.shopDescPrice.poor { color: #ff6b6b; }
+.shopDescPrice.owned { color: #8fa3b8; }
 .shopFoot {
     display: flex;
     align-items: center;

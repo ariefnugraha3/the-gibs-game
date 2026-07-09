@@ -1,11 +1,13 @@
 // Shop antar-gelombang Survival (overhaul MENU KLIK 2026-07-08): overlay modal
 // berbasis mouse (game DI-PAUSE + pointer dilepas oleh input.js selama
 // shopActive()). Terbuka OTOMATIS saat sebuah wave selesai (scene memanggil
-// openShop() setelah hitung mundur). Tata letak: kiri = daftar item (hover ->
-// detail), kanan = deskripsi + harga + tombol Buy, bawah-kiri = skor, bawah-
-// kanan = tombol Start Next Wave. Item: isi ulang Ammo/Grenade, Medkit, Heal &
-// Strengthen Monas, Radar, dan BELI Shotgun / Assault Rifle. Mata uang = skor.
-// Membeli senjata ke-3 (sudah bawa 2 = maks) -> tampilkan pemilih GANTI senjata.
+// openShop() setelah hitung mundur). Tata letak (redesign 2026-07-09): GRID
+// kartu item — tiap kartu punya nama + tombol Buy SENDIRI (kiri-bawah kartu);
+// panel deskripsi + harga LEBAR PENUH di bawah grid (diperbarui saat hover/pilih
+// kartu, TIDAK membeli); bawah-kiri = skor, bawah-kanan = Start Next Wave. Item:
+// isi ulang Ammo/Grenade, Replenish Health, Medkit, Heal & Strengthen Monas,
+// Radar, dan BELI Shotgun / Assault Rifle. Mata uang = skor. Membeli senjata ke-3
+// (sudah bawa 2 = maks) -> tampilkan pemilih GANTI senjata.
 // Semua teks UI English (aturan permanen). Impor Monas/Next-Wave dari scene
 // (index.js) — circular, hanya dipakai DI DALAM fungsi (pola arsitektur).
 
@@ -86,10 +88,10 @@ function catalog() {
             // Medkit = item genggam (maks 1). Dibeli di sini; PAKAI dgn tombol 4
             // di lapangan untuk memulihkan 70% HP (bukan sembuh saat beli).
             id: 'medkit', name: 'Medkit', cost: S.medkitCost,
-            desc: 'A field medkit. Carry one and press 4 in the field to instantly restore 70% of your health. You can only hold one at a time.',
+            desc: 'A field medkit. Equip it with 4, then hold left-click for 2 seconds to restore 70% of your health. You can carry up to 2.',
             apply() {
-                if (player.medkits >= CFG.player.maxMedkits) return 'You already have a medkit';
-                player.medkits = CFG.player.maxMedkits;
+                if (player.medkits >= CFG.player.maxMedkits) return 'Medkit stock is full';
+                player.medkits = Math.min(CFG.player.maxMedkits, player.medkits + 1);
             }
         },
         {
@@ -144,7 +146,7 @@ function buyWeapon(w, label) {
 function ownedNote(it) {
     if (it.weapon && player.owned[it.weapon]) return 'Owned';
     if (it.id === 'radar' && player.hasRadar) return 'Owned';
-    if (it.id === 'medkit' && player.medkits >= CFG.player.maxMedkits) return 'Held';
+    if (it.id === 'medkit' && player.medkits >= CFG.player.maxMedkits) return 'Full';
     if (it.id === 'strengthenMonas' && isMonasFullyStrengthened()) return 'Maxed';
     return null;
 }
@@ -158,7 +160,7 @@ export function shopPurchase(id) {
     if (!it) return 'Unknown item';
     const note = ownedNote(it);
     if (note === 'Owned') return `${it.name} already owned`;
-    if (note === 'Held') return 'You already have a medkit';
+    if (note === 'Full') return 'Medkit stock is full';
     if (note === 'Maxed') return 'The Monument is already fully reinforced';
     if (score < it.cost) return 'Not enough score';
     // Beli senjata tipe baru sementara slot sudah penuh (maks) -> minta pilih
@@ -245,19 +247,17 @@ function doReplace(oldW) {
     render();
 }
 
-function showDetail(detail, it) {
-    detail.innerHTML = '';
-    detail.appendChild(el('div', 'shopDetailName', it.name));
-    detail.appendChild(el('div', 'shopDetailDesc', it.desc));
+// Panel deskripsi + harga LEBAR PENUH di bawah grid. Diperbarui saat hover/pilih
+// kartu; TIDAK ada tombol Buy di sini (Buy ada di tiap kartu).
+function showDesc(desc, it) {
+    desc.innerHTML = '';
+    desc.appendChild(el('div', 'shopDescName', it.name));
+    desc.appendChild(el('div', 'shopDescText', it.desc));
     const note = ownedNote(it);
-    const price = el('div', 'shopDetailPrice', note ? note : `Price: ${it.cost}`);
+    const price = el('div', 'shopDescPrice', note ? note : `Price: ${it.cost}`);
     if (note) price.classList.add('owned');
     else if (score < it.cost) price.classList.add('poor');
-    detail.appendChild(price);
-    const buy = el('button', 'shopBuy', note ? note : 'Buy');
-    if (note || score < it.cost) buy.classList.add('disabled');
-    else buy.addEventListener('click', () => doPurchase(it.id));
-    detail.appendChild(buy);
+    desc.appendChild(price);
 }
 
 // Panel pemilih ganti senjata (menggantikan daftar saat pendingWeapon aktif).
@@ -312,27 +312,30 @@ function render() {
     if (pendingWeapon) {
         renderReplace(panel);
     } else {
-        const body = el('div', 'shopBody');
-        const list = el('div', 'shopList');
-        const detail = el('div', 'shopDetail');
+        // Grid kartu item + panel deskripsi lebar penuh di bawahnya.
+        const grid = el('div', 'shopGrid');
+        const desc = el('div', 'shopDesc');
         const items = catalog();
         for (const it of items) {
-            const row = el('div', 'shopItem');
-            row.appendChild(el('span', 'shopItemName', it.name));
+            const card = el('div', 'shopCard');
+            card.appendChild(el('div', 'shopCardName', it.name));
             const note = ownedNote(it);
-            row.appendChild(el('span', 'shopItemCost', note || String(it.cost)));
-            if (note) row.classList.add('owned');
-            // Klik/hover di daftar HANYA memilih & menampilkan detail — TIDAK
-            // membeli. Pembelian hanya lewat tombol Buy di panel detail (kanan).
-            row.addEventListener('mouseenter', () => { selectedId = it.id; showDetail(detail, it); });
-            row.addEventListener('click', () => { selectedId = it.id; showDetail(detail, it); });
-            list.appendChild(row);
+            // Tombol Buy per-kartu = SATU-SATUNYA jalur beli (klik kartu hanya
+            // memilih/preview). stopPropagation supaya klik Buy tak ikut memicu
+            // handler pilih kartu.
+            const buy = el('button', 'shopCardBuy', note ? note : 'Buy');
+            if (note || score < it.cost) buy.classList.add('disabled');
+            else buy.addEventListener('click', (e) => { e.stopPropagation(); doPurchase(it.id); });
+            card.appendChild(buy);
+            if (note) card.classList.add('owned');
+            card.addEventListener('mouseenter', () => { selectedId = it.id; showDesc(desc, it); });
+            card.addEventListener('click', () => { selectedId = it.id; showDesc(desc, it); });
+            grid.appendChild(card);
         }
-        body.appendChild(list);
-        body.appendChild(detail);
-        panel.appendChild(body);
-        // Detail awal = item terpilih (terakhir di-hover / pertama saat buka)
-        showDetail(detail, items.find(x => x.id === selectedId) || items[0]);
+        panel.appendChild(grid);
+        panel.appendChild(desc);
+        // Deskripsi awal = item terpilih (terakhir di-hover / pertama saat buka)
+        showDesc(desc, items.find(x => x.id === selectedId) || items[0]);
     }
 
     const foot = el('div', 'shopFoot');
