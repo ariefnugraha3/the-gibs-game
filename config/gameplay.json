@@ -131,8 +131,8 @@
         "bruteChance": 0.12,
         "exploderFromWave": 6,
         "exploderChance": 0.1,
-        "monasMaxHp": 1500,
-        "strengthenMonasStages": [3000, 4500, 6000],
+        "monasMaxHp": 5000,
+        "strengthenMonasStages": [7500, 10000, 12500],
         "playerAggroMeters": 20,
         "monasClawDamage": 20,
         "eventEveryWaves": 5,
@@ -163,14 +163,14 @@
     },
     "shop": {
         "ammoCost": 400,
-        "grenadeCost": 250,
+        "grenadeCost": 400,
         "healthCost": 300,
-        "medkitCost": 350,
+        "medkitCost": 400,
         "healMonasCost": 300,
-        "strengthenMonasCost": 500,
+        "strengthenMonasCost": 800,
         "radarCost": 1500,
-        "shotgunCost": 900,
-        "rifleCost": 1200
+        "shotgunCost": 1000,
+        "rifleCost": 1300
     },
     "difficulty": {
         "easy": { "zombieHpMul": 0.75, "zombieDamageMul": 0.5, "spawnIntervalMul": 1.3 },
