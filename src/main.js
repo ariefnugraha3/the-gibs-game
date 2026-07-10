@@ -6,7 +6,8 @@
 import { loadConfig } from './core/config.js';
 import { setMode, configurePlayer, isPaused, isGameOver, highScore } from './core/state.js';
 import {
-    initRenderer, initQualityUI, scene, camera, renderer, composer, postFxOn
+    initRenderer, initQualityUI, scene, camera, renderer, composer, postFxOn,
+    renderViewmodelPass, enableViewmodelLights
 } from './core/renderer.js';
 import { initGrain, bestScoreEl, showFatal } from './core/dom.js';
 import { setScene } from './core/sceneManager.js';
@@ -64,6 +65,7 @@ export async function startGame(mode) {
         initInput();               // pointer lock, mouse, keyboard, jaring pengaman
         resetPlayerState();        // stamina/eyeH awal dari CFG
         initGrain();               // film grain overlay
+        enableViewmodelLights();   // semua lampu ikut menerangi pass viewmodel (layer 1)
         await loadingStep(75, 'Loading sounds…');
 
         preloadAllSFX();           // fetch + decode semua klip SFX sekarang
@@ -106,8 +108,11 @@ function animate() {
         if (radarTick++ & 1) drawRadar();
     }
 
-    if (composer && postFxOn) composer.render();   // bloom + gamma + FXAA
-    else renderer.render(scene, camera);           // tier rendah / CDN post-fx gagal
+    if (composer && postFxOn) composer.render();   // bloom + gamma + FXAA (pass viewmodel sudah di rantainya)
+    else {
+        renderer.render(scene, camera);            // tier rendah / CDN post-fx gagal
+        renderViewmodelPass(null);                 // senjata/item di atas dunia (depth di-clear)
+    }
 }
 
 // Auto-boot di browser; harness test meng-import modul ini tanpa boot.

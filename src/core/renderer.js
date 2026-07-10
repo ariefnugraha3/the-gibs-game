@@ -29,6 +29,35 @@ export const QUALITY = [
 let dirLightRef = null;
 export function setQualityLightRef(l) { dirLightRef = l; }
 
+// ----- Layer viewmodel (2026-07-10): item yang DIPEGANG player (senjata/
+// granat/medkit — rig anak kamera) ada di layer 1 dan dirender di PASS KEDUA
+// dgn depth buffer dibersihkan dulu: tidak pernah menembus tembok/objek saat
+// player menempel, dan selalu tergambar di atas dunia. Depth di-clear per pass,
+// jadi sesama bagian viewmodel tetap saling menutupi dgn benar. -----
+export const VIEWMODEL_LAYER = 1;
+
+// Pass kedua: bersihkan depth lalu render HANYA layer viewmodel ke target yang
+// sama. Dipakai pass composer (di bawah) & jalur fallback tanpa composer
+// (main.js animate + frame pemanasan preload.js).
+export function renderViewmodelPass(target) {
+    const oldAuto = renderer.autoClear;
+    renderer.autoClear = false;
+    renderer.setRenderTarget(target || null);
+    renderer.clearDepth();
+    camera.layers.set(VIEWMODEL_LAYER);
+    renderer.render(scene, camera);
+    camera.layers.set(0);
+    renderer.autoClear = oldAuto;
+}
+
+// Semua LAMPU juga harus terlihat oleh pass viewmodel (layers.enable(1)):
+// jumlah lampu kedua pass jadi identik -> hash program shader sama (tanpa
+// recompile) & pencahayaan senjata konsisten dgn dunia. Dipanggil startGame
+// SETELAH seluruh dunia + senjata dibangun (semua lampu dibuat saat init).
+export function enableViewmodelLights() {
+    scene.traverse(o => { if (o.isLight) o.layers.enable(VIEWMODEL_LAYER); });
+}
+
 export function initRenderer() {
     scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x3a241a, 220, 1700);   // Kabut asap apokaliptik (warna = horizon)
@@ -53,6 +82,17 @@ export function initRenderer() {
         composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         composer.setSize(window.innerWidth, window.innerHeight);
         composer.addPass(new THREE.RenderPass(scene, camera));
+        // Pass viewmodel: SETELAH RenderPass (hasil dunia ada di readBuffer),
+        // SEBELUM bloom — senjata/tangan ikut diproses bloom/gamma/FXAA seperti
+        // biasa (kilat muzzle tetap ber-bloom). Objek pass polos (duck-typed):
+        // composer hanya butuh enabled/needsSwap/setSize/render.
+        composer.addPass({
+            enabled: true, needsSwap: false, clear: false, renderToScreen: false,
+            setSize() { },
+            render(r, writeBuffer, readBuffer) {
+                renderViewmodelPass(this.renderToScreen ? null : readBuffer);
+            }
+        });
         bloomPass = new THREE.UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.4, 0.72);
         composer.addPass(bloomPass);

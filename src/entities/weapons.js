@@ -8,7 +8,7 @@ import {
     player, keys, mouse, bullets, zombies, isPaused, isGameOver, stats,
     GEO, MAT, _dir, _tip, _v3, _sRight, _sUp, _kickEuler
 } from '../core/state.js';
-import { scene, camera } from '../core/renderer.js';
+import { scene, camera, VIEWMODEL_LAYER } from '../core/renderer.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
 import { playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxMelee, sfxSwitch, sfxEmpty, sfxPickup } from '../utils/sfx.js';
@@ -767,6 +767,15 @@ export function initWeapons() {
     medkitHandMesh.position.set(2.6, -2.9, -4.8);
     medkitHandMesh.visible = false;
     camera.add(medkitHandMesh);
+
+    // ----- Layer viewmodel (2026-07-10): SEMUA rig item yang dipegang pindah
+    // ke layer 1 — dirender pass kedua dgn depth dibersihkan (renderer.js),
+    // jadi tak pernah menembus tembok/objek & selalu terlihat. layers TIDAK
+    // diwariskan ke anak -> traverse. muzzleFlash (lampu) di-enable juga di
+    // layer 0 agar kilat tembakan tetap menerangi DUNIA di pass pertama. -----
+    for (const rig of [gunMesh, pistolMesh, shotgunMesh, grenadeHandMesh, medkitHandMesh])
+        rig.traverse(o => o.layers.set(VIEWMODEL_LAYER));
+    muzzleFlash.layers.enable(0);
 
     // Senjata aktif awal sesuai kepemilikan (Survival: pistol; lainnya: rifle).
     // Dijalankan setelah semua mesh + WEAPON_DEF terisi.

@@ -8,7 +8,7 @@
 // semuanya dikembalikan persis seperti semula. Teks UI English (aturan permanen).
 
 import { GEO, MAT } from './state.js';
-import { scene, camera, renderer, composer, postFxOn } from './renderer.js';
+import { scene, camera, renderer, composer, postFxOn, renderViewmodelPass } from './renderer.js';
 import { setAllRigsVisible } from '../entities/weapons.js';
 import { buildGrenadeMesh } from '../entities/grenades.js';
 import { buildMagMesh, buildMedkitMesh } from '../entities/drops.js';
@@ -99,9 +99,15 @@ export async function warmupAll() {
     renderer.compile(scene, camera);
     await loadingStep(88, 'Warming up the renderer…');
 
+    // Jalur render sama persis dgn animate(): composer sudah berisi pass
+    // viewmodel; fallback tanpa composer merender pass viewmodel manual —
+    // program shader kedua pass ikut terkompilasi di sini.
     for (let i = 0; i < 3; i++) {
         if (composer && postFxOn) composer.render();
-        else renderer.render(scene, camera);
+        else {
+            renderer.render(scene, camera);
+            renderViewmodelPass(null);
+        }
         await loadingStep(90 + i * 3, 'Warming up the renderer…');
     }
 
