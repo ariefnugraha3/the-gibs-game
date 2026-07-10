@@ -8,6 +8,8 @@
 > **WAJIB dibaca sebelum menyentuh kode: [MODULES.md](MODULES.md) (katalog modul +
 > kontrak scene + resep tambah stage) dan [CLAUDE.md](CLAUDE.md) (aturan arsitektur).**
 > Rencana port desktop/Steam terpisah di [STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md).
+> Rencana multiplayer co-op LAN (survival, 4 pemain, host-authoritative) terpisah
+> di [IMPROVEMENT-MULTIPLAYER-PLAN.md](IMPROVEMENT-MULTIPLAYER-PLAN.md).
 
 ## Aturan besi (pelanggaran = PR ditolak)
 
