@@ -6,69 +6,111 @@ body {
     user-select: none;
 }
 
+/* ============ HUD dalam-game (redesign 2026-07-10): panel gelap ber-sudut
+   pangkas (chamfer/skew), garis aksen amber, label mikro ber-jarak lebar.
+   Kontrak JS TIDAK berubah: healthFill = width (+angka+kelas 'low'),
+   staminaFill = width+background dari player.js, slot .active/.dim. ============ */
+
 #ui {
     position: absolute;
     top: 15px;
     width: 100%;
     padding: 0 40px;
     box-sizing: border-box;
-    font-size: 26px;
+    text-align: center;
     font-weight: bold;
     color: white;
-    text-shadow: 3px 3px 5px black;
     pointer-events: none;
     z-index: 4;
 }
 
+/* Banner status wave: trapesium gelap + garis bawah amber */
 #waveText {
-    text-align: center;
-    color: #74b9ff;
-    margin-top: 8px;
-    font-size: 22px;
-    letter-spacing: 1px;
+    display: inline-block;
+    margin-top: 4px;
+    padding: 8px 34px 9px;
+    font-size: 16px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #ffd28a;
+    text-shadow: 0 2px 4px #000;
+    background: linear-gradient(180deg, rgba(10, 14, 20, 0.78), rgba(10, 14, 20, 0.34));
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+    box-shadow: inset 0 -2px 0 rgba(255, 184, 77, 0.45);
 }
 
-/* Bar HEALTH & STAMINA di pojok kiri-bawah */
+/* Bar HEALTH & STAMINA di pojok kiri-bawah: label + angka DI ATAS bar,
+   shell miring (skew) bersekat tick — sekat & kilap adalah overlay ::after,
+   jadi warna fill dari JS (stamina) tetap bebas. */
 #barsHud {
     position: absolute;
-    left: 26px;
-    bottom: 22px;
+    left: 30px;
+    bottom: 24px;
+    width: 260px;
     z-index: 4;
     pointer-events: none;
     font-weight: bold;
 }
 
-.barRow {
+.barRow { margin-top: 11px; }
+
+.barTop {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 8px;
-    font-size: 14px;
-    letter-spacing: 2px;
-    color: #ddd;
-    text-shadow: 2px 2px 3px #000;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0 2px 4px 6px;
 }
 
-.barRow .blabel { width: 88px; }
+.blabel {
+    font-size: 11px;
+    letter-spacing: 3.5px;
+    color: #c9d3dc;
+    text-shadow: 1px 1px 2px #000;
+}
 
-.barShell {
-    width: 230px;
-    height: 13px;
-    border: 2px solid rgba(255, 255, 255, 0.55);
-    border-radius: 7px;
-    background: rgba(0, 0, 0, 0.45);
+.barNum {
+    font-size: 14px;
+    color: #f2f6fa;
+    text-shadow: 1px 1px 2px #000;
+}
+
+.barShell, #medkitBarShell {
+    position: relative;
+    height: 12px;
+    background: rgba(4, 8, 12, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-left: 3px solid rgba(255, 255, 255, 0.4);
+    transform: skewX(-16deg);
     overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* Overlay di ATAS fill: kilap atas + sekat tick gelap tiap ~24px */
+.barShell::after, #medkitBarShell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 46%),
+        repeating-linear-gradient(90deg, transparent 0 23px, rgba(0, 0, 0, 0.42) 23px 24px);
 }
 
 #healthFill, #staminaFill {
     height: 100%;
     width: 100%;
     background: #3ddc6a;
-    border-radius: 5px;
     transition: background 0.2s;
 }
 
-#healthFill { background: #e74c3c; }
+#healthFill { background: linear-gradient(180deg, #ff6d58, #c72f1e); }
+
+/* HP <= 25% (kelas 'low' dari hud.js): denyut peringatan — warna tetap merah */
+#healthFill.low { animation: hpPulse 0.9s ease-in-out infinite; }
+
+@keyframes hpPulse {
+    50% { filter: brightness(1.55); }
+}
 
 /* Bar channel Medkit (tombol 4): tahan klik kiri untuk memakainya. weapons.js
    men-set display flex + lebar fill (progress) saat memegang medkit. */
@@ -87,43 +129,122 @@ body {
 
 #medkitBarLabel {
     font-family: Arial, sans-serif;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: bold;
-    letter-spacing: 2px;
+    letter-spacing: 3px;
     color: #ff9db0;
     text-shadow: 1px 1px 3px #000;
 }
 
-#medkitBarShell {
-    width: 240px;
-    height: 14px;
-    border: 2px solid rgba(255, 255, 255, 0.6);
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.5);
-    overflow: hidden;
-}
+/* Shell mengikuti gaya .barShell (selector gabungan di atas); di sini hanya lebar */
+#medkitBarShell { width: 240px; }
 
 #medkitBarFill {
     height: 100%;
     width: 0%;
     background: linear-gradient(90deg, #e05a6e, #ff8fa3);
-    border-radius: 6px;
     transition: width 0.05s linear;
 }
 
-/* Skor/amunisi di pojok kanan-bawah (radar kini di kiri-atas) */
+/* Skor + modul amunisi di pojok kanan-bawah (radar kini di kiri-atas):
+   panel chamfer kiri-atas + garis aksen amber di sisi tepi layar */
 #statsHud {
     position: absolute;
     right: 26px;
     bottom: 22px;
     z-index: 4;
     pointer-events: none;
-    text-align: right;
-    font-size: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
     font-weight: bold;
     color: white;
-    text-shadow: 3px 3px 5px black;
-    line-height: 1.45;
+}
+
+#scoreBox {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    padding-right: 4px;
+}
+
+#scoreLabel {
+    font-size: 11px;
+    letter-spacing: 3.5px;
+    color: #9fb0bf;
+    text-shadow: 1px 1px 2px #000;
+}
+
+#scoreText {
+    font-size: 23px;
+    color: #ffd964;
+    text-shadow: 0 0 12px rgba(241, 196, 15, 0.25), 2px 2px 3px #000;
+}
+
+#ammoBox {
+    min-width: 212px;
+    padding: 9px 16px 9px 20px;
+    text-align: right;
+    background: linear-gradient(200deg, rgba(10, 14, 20, 0.78), rgba(10, 14, 20, 0.38));
+    border-right: 3px solid rgba(255, 184, 77, 0.8);
+    clip-path: polygon(0 14px, 14px 0, 100% 0, 100% 100%, 0 100%);
+    box-sizing: border-box;
+}
+
+#ammoWeapon {
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #9fb0bf;
+    text-shadow: 1px 1px 2px #000;
+}
+
+#ammoMain {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 2px;
+}
+
+#ammoCount {
+    font-size: 38px;
+    line-height: 1;
+    color: #ffd964;
+    text-shadow: 0 0 16px rgba(241, 196, 15, 0.3), 2px 2px 3px #000;
+}
+
+#ammoMags {
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #c4ad68;
+    text-shadow: 1px 1px 2px #000;
+}
+
+/* Baris petunjuk: Reloading… / cara lempar granat / cara pakai medkit */
+#ammoHint {
+    min-height: 15px;
+    margin-top: 3px;
+    font-size: 11.5px;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    color: #8fa0b0;
+    text-shadow: 1px 1px 2px #000;
+}
+
+/* Sedang reload: hitungan diredupkan + berkedip pelan */
+#ammoBox.reloading #ammoCount {
+    color: #93a3b2;
+    text-shadow: 2px 2px 3px #000;
+    animation: reloadBlink 0.8s linear infinite;
+}
+
+#ammoBox.reloading #ammoHint { color: #ffb84d; }
+
+@keyframes reloadBlink {
+    50% { opacity: 0.4; }
 }
 
 /* Inventori pemain: sisi kanan, vertikal (1/2 = senjata, 3 = granat, 4 = medkit).
@@ -143,17 +264,17 @@ body {
 .invSlot {
     display: flex;
     align-items: center;
-    gap: 9px;
-    min-width: 172px;
-    padding: 7px 12px;
-    background: rgba(6, 12, 20, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-left: 3px solid rgba(255, 255, 255, 0.22);
-    border-radius: 7px;
+    gap: 10px;
+    min-width: 176px;
+    padding: 8px 12px;
+    background: linear-gradient(200deg, rgba(8, 12, 18, 0.68), rgba(8, 12, 18, 0.36));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-right: 3px solid rgba(255, 255, 255, 0.28);
+    clip-path: polygon(11px 0, 100% 0, 100% 100%, 0 100%, 0 11px);
     color: #e8eef4;
     font-weight: bold;
     text-shadow: 1px 1px 3px #000;
-    transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+    transition: background 0.12s, border-color 0.12s, opacity 0.12s, transform 0.12s;
 }
 
 .invKey {
@@ -162,23 +283,36 @@ body {
     justify-content: center;
     width: 20px;
     height: 20px;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.14);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.28);
     color: #cfd8e3;
-    font-size: 13px;
+    font-size: 12px;
 }
 
-.invName { font-size: 15px; letter-spacing: 0.4px; }
+.invName {
+    font-size: 14px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
 .invSlot.dim { opacity: 0.42; }
 
+/* Slot aktif: menonjol sedikit ke kiri (menjauh dari tepi layar) + emas */
 .invSlot.active {
-    background: rgba(241, 196, 15, 0.2);
-    border-color: rgba(241, 196, 15, 0.7);
-    border-left-color: #f1c40f;
-    box-shadow: 0 0 12px rgba(241, 196, 15, 0.28);
+    transform: translateX(-7px);
+    background: linear-gradient(200deg, rgba(241, 196, 15, 0.26), rgba(241, 196, 15, 0.07));
+    border-color: rgba(241, 196, 15, 0.6);
+    border-right-color: #f1c40f;
+    box-shadow: 0 0 14px rgba(241, 196, 15, 0.22);
 }
 
-.invSlot.active .invKey { background: #f1c40f; color: #101010; }
+.invSlot.active .invKey {
+    background: #f1c40f;
+    border-color: #f1c40f;
+    color: #14120a;
+    box-shadow: 0 0 8px rgba(241, 196, 15, 0.5);
+}
 
 /* Crosshair DISEMBUNYIKAN permanen (permintaan user) — elemen & seluruh JS
    yang menulisnya (opacity ADS, kelas .hit) dibiarkan utuh agar mekanik
@@ -211,10 +345,18 @@ body {
     font-weight: bold;
 }
 
+/* Chip pesan pickup: latar gelap + strip kiri mengikuti warna teks dari JS
+   (currentColor) + ujung kanan terpangkas miring */
 .pickupMsg {
-    font-size: 20px;
-    margin: 5px 0;
-    text-shadow: 2px 2px 4px #000;
+    display: table;
+    font-size: 16px;
+    letter-spacing: 0.5px;
+    margin: 6px 0;
+    padding: 5px 14px 5px 10px;
+    background: linear-gradient(160deg, rgba(8, 12, 16, 0.72), rgba(8, 12, 16, 0.4));
+    border-left: 3px solid currentColor;
+    clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 100%, 0 100%);
+    text-shadow: 1px 1px 2px #000;
     animation: pickupIn 0.22s ease forwards;
 }
 
@@ -239,10 +381,11 @@ body {
     height: 150px;
     border-radius: 50%;
     background: rgba(6, 14, 22, 0.35);
-    border: 2px solid rgba(116, 185, 255, 0.55);
+    border: 1px solid rgba(116, 185, 255, 0.45);
     box-shadow:
-        0 0 18px rgba(40, 130, 220, 0.35),
-        0 2px 10px rgba(0, 0, 0, 0.7),
+        0 0 0 4px rgba(6, 12, 18, 0.55),
+        0 0 0 5px rgba(116, 185, 255, 0.18),
+        0 4px 14px rgba(0, 0, 0, 0.6),
         inset 0 0 26px rgba(0, 0, 0, 0.55);
     z-index: 4;
     pointer-events: none;
@@ -429,6 +572,54 @@ body {
     flex-direction: column;
     z-index: 10;
     cursor: pointer;
+}
+
+/* ---------- Layar loading pra-game: overlay OPAK di atas menu/cutscene
+   (z 40 > modeSelect 30 > cutscene 20) selama dunia dibangun + shader
+   dipanaskan (core/preload.js) — menutupi frame-frame pemanasan renderer ---------- */
+#loadingScreen {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: #05060a;
+    z-index: 40;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    font-family: Arial, sans-serif;
+    cursor: wait;
+}
+
+.loadingTitle {
+    font-size: 44px;
+    font-weight: bold;
+    letter-spacing: 6px;
+    color: #ffb84d;
+    text-shadow: 2px 2px 6px black;
+}
+
+#loadingBarShell {
+    width: min(420px, 70vw);
+    height: 14px;
+    border: 1px solid rgba(255, 184, 77, 0.45);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+}
+
+#loadingBarFill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #b45a1e, #ffb84d);
+    border-radius: 7px;
+    transition: width 0.15s ease-out;
+}
+
+#loadingText {
+    font-size: 16px;
+    color: #8fa0b0;
+    letter-spacing: 1px;
 }
 
 /* ----- Layar pilih mode (paling awal, di atas cutscene) ----- */

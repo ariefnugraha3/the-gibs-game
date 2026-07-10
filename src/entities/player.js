@@ -63,10 +63,11 @@ export function updatePlayerMovement(dt, step) {
     const side = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);
 
     // --- Stamina: kuras (lari/ADS) -> exhausted -> pulih (regen) ---
-    // Sprint efektif butuh: shift + tidak jongkok + benar-benar BERGERAK +
+    // Sprint efektif butuh: shift + tidak jongkok + bergerak MAJU (fwd > 0 —
+    // mundur/menyamping murni tidak bisa lari; diagonal maju tetap boleh) +
     // stamina tersedia & tidak sedang exhausted.
     sprintingNow = keys.shift && !crouchedNow && !staExhausted && stamina > 0
-        && (fwd !== 0 || side !== 0) && !medkitMode;   // tak boleh lari saat memakai medkit
+        && fwd > 0 && !medkitMode;   // tak boleh lari saat memakai medkit
     if (sprintingNow) stamina -= CFG.stamina.sprintDrainPerSec * dt;
     if (isAiming) stamina -= CFG.stamina.adsDrainPerSec * dt;
     if (stamina <= 0) {

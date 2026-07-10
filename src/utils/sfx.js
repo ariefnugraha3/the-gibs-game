@@ -17,6 +17,29 @@ export const sfxZombieBite = new Audio('assets/sounds/zombie-attack-melee.mp3');
 export const sfxFootstep = new Audio('assets/sounds/player-footstep.mp3');
 export const sfxZombieStep = new Audio('assets/sounds/zombie-step.mp3');
 
+// Pramuat semua klip (dipanggil layar loading pra-game, core/preload.js).
+// Dua tahap — load() saja TIDAK cukup (hanya fetch, decode tetap terjadi di
+// play pertama, dan pipa audio OS baru hidup saat SESUATU benar-benar diputar;
+// itulah sisa "jeda" saat equip granat pertama = play perdana sfxSwitch):
+// 1) load() elemen asli -> fetch file ke cache;
+// 2) PRIME: putar tiap klip sekali dgn volume 0 lewat pool playSFX yang asli
+//    (klik pilih mode = sticky user activation, play() diizinkan) -> node pool
+//    pertama terbentuk, decoder terinisialisasi, dan perangkat audio menyala —
+//    semua saat layar loading, bukan di tengah aksi. Node dihentikan sesaat
+//    kemudian; klip panjang tidak sempat terdengar (volume 0).
+export function preloadAllSFX() {
+    const all = [sfxShoot, sfxShotgun, sfxEmpty, sfxSwitch, sfxExplode, sfxReload, sfxHit,
+        sfxPistol, sfxPickup, sfxPurchase, sfxMelee, sfxThrow, sfxNadeRoll,
+        sfxZombieBite, sfxFootstep, sfxZombieStep];
+    all.forEach(a => { try { a.load(); } catch (e) { /* klip hilang: abaikan */ } });
+    all.forEach(a => {
+        try {
+            const n = playSFX(a, 0);
+            setTimeout(() => { try { n.pause(); n.currentTime = 0; } catch (e) { } }, 400);
+        } catch (e) { /* autoplay ditolak: prime dilewati, game tetap jalan */ }
+    });
+}
+
 // Pool kecil per-klip: hindari cloneNode (alokasi + GC) di tiap tembakan.
 const sfxPool = new Map();
 export function playSFX(sfx, vol = 0.7) {

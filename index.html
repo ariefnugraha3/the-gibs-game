@@ -24,22 +24,27 @@
         <div id="waveText">Wave 1</div>
     </div>
 
-    <!-- Bar HEALTH & STAMINA: pojok kiri-bawah -->
+    <!-- Bar HEALTH & STAMINA: pojok kiri-bawah (label + angka di atas bar) -->
     <div id="barsHud">
         <div class="barRow">
-            <span class="blabel">HEALTH</span>
+            <div class="barTop"><span class="blabel">HEALTH</span><span class="barNum" id="healthNum">100</span></div>
             <div class="barShell"><div id="healthFill"></div></div>
         </div>
         <div class="barRow">
-            <span class="blabel">STAMINA</span>
+            <div class="barTop"><span class="blabel">STAMINA</span></div>
             <div class="barShell"><div id="staminaFill"></div></div>
         </div>
     </div>
 
-    <!-- Skor + amunisi: kanan-bawah (granat/medkit kini di panel inventori) -->
+    <!-- Skor + modul amunisi: kanan-bawah. hud.js menulis angka skor, nama
+         senjata/item, hitungan besar, magazen, dan baris petunjuk terpisah. -->
     <div id="statsHud">
-        <div id="scoreText">Score: 0</div>
-        <div id="ammoText" style="color: #f1c40f;">Assault Rifle: 30 / 3 Mags</div>
+        <div id="scoreBox"><span id="scoreLabel">SCORE</span><span id="scoreText">0</span></div>
+        <div id="ammoBox">
+            <div id="ammoWeapon">Assault Rifle</div>
+            <div id="ammoMain"><span id="ammoCount">30</span><span id="ammoMags">/ 3 mags</span></div>
+            <div id="ammoHint"></div>
+        </div>
     </div>
 
     <!-- Inventori pemain (sisi kanan, vertikal): 1/2 = senjata, 3 = granat, 4 = medkit -->
@@ -162,9 +167,9 @@
         <div id="pauseMenu">
             <div id="pauseMain">
                 <div class="pauseTitle">PAUSED</div>
+                <button id="pauseResume" class="pauseBtn">RESUME</button>
                 <button id="pauseRestart" class="pauseBtn">RESTART GAME</button>
                 <button id="pauseExit" class="pauseBtn">EXIT GAME</button>
-                <div class="pauseHint">Click anywhere else to resume</div>
             </div>
             <div id="pauseConfirm">
                 <div class="pauseConfirmText" id="pauseConfirmText"></div>
@@ -174,6 +179,14 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Layar loading pra-game: tampil setelah mode dipilih, selama dunia
+         dibangun + shader/tekstur dipanaskan (main.js + core/preload.js) -->
+    <div id="loadingScreen">
+        <div class="loadingTitle">LOADING</div>
+        <div id="loadingBarShell"><div id="loadingBarFill"></div></div>
+        <div id="loadingText">Preparing…</div>
     </div>
 
     <div id="gameOver">

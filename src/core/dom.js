@@ -1,9 +1,17 @@
 // Referensi elemen DOM overlay + helper UI kecil yang menulis DOM langsung.
 // Module script dieksekusi setelah DOM siap (defer), jadi query aman di sini.
 
-export const scoreText = document.getElementById('scoreText');
-export const ammoText = document.getElementById('ammoText');
+export const scoreText = document.getElementById('scoreText');   // ANGKA skor saja (label "SCORE" statis di HTML)
+// Modul amunisi kanan-bawah (redesign HUD 2026-07-10): nama senjata/item,
+// hitungan besar, "/ N mags", baris petunjuk (reload/lempar/medkit), dan
+// kontainernya (kelas 'reloading' meredupkan + mengedipkan hitungan via CSS).
+export const ammoWeapon = document.getElementById('ammoWeapon');
+export const ammoCount = document.getElementById('ammoCount');
+export const ammoMags = document.getElementById('ammoMags');
+export const ammoHint = document.getElementById('ammoHint');
+export const ammoBox = document.getElementById('ammoBox');
 export const healthFill = document.getElementById('healthFill');
+export const healthNum = document.getElementById('healthNum');   // angka HP di atas bar
 export const waveText = document.getElementById('waveText');
 // Inventori (sisi kanan): 4 slot (1/2 senjata, 3 granat, 4 medkit). Tiap slot =
 // { row, name }; hud.updateUI menulis nama + kelas 'active'/'dim'.

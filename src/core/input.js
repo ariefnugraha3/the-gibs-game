@@ -6,7 +6,7 @@ import { camera } from './renderer.js';
 import { blocker } from './dom.js';
 import { activeScene } from './sceneManager.js';
 import { resetGame } from './game.js';
-import { showPauseMenu, hidePauseMenu } from './pauseMenu.js';
+import { showPauseMenu, hidePauseMenu, isPauseMenuOpen } from './pauseMenu.js';
 import { openCheatConsole, closeCheatConsole, forceHideCheatConsole, isCheatConsoleOpen, handleKey } from './cheatConsole.js';
 import {
     startReload, tryMelee, trySwitchKey, toggleAim, setAiming,
@@ -69,7 +69,9 @@ export function releaseInputs() {
 
 export function initInput() {
     // ----- PointerLock -----
-    blocker.addEventListener('click', requestLock);
+    // Klik latar blocker = mulai/lanjut — KECUALI saat menu jeda terbuka:
+    // resume hanya lewat tombol RESUME (klik-di-mana-saja dihapus 2026-07-10).
+    blocker.addEventListener('click', () => { if (!isPauseMenuOpen()) requestLock(); });
     document.addEventListener('pointerlockchange', () => {
         if (document.pointerLockElement === document.body) {
             hasStarted = true;         // game berjalan -> unlock (Esc) berikutnya = PAUSE

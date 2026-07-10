@@ -1,5 +1,7 @@
-// Entry point: muat config -> menu pilih mode -> bangun engine + scene mode
-// terpilih -> loop render. Urutan startGame mengikuti init() lama.
+// Entry point: muat config -> menu pilih mode -> LAYAR LOADING (bangun engine
+// + scene mode terpilih + pemanasan shader/tekstur di core/preload.js) -> loop
+// render. Urutan init di dalam startGame tetap mengikuti init() lama — hanya
+// dipenggal dgn await loadingStep() agar overlay & bar sempat dilukis browser.
 
 import { loadConfig } from './core/config.js';
 import { setMode, configurePlayer, isPaused, isGameOver, highScore } from './core/state.js';
@@ -20,6 +22,8 @@ import { resetPlayerState } from './entities/player.js';
 import { initMenu } from './scenes/menu.js';
 import { survivalScene } from './scenes/survival/index.js';
 import { stage1Scene } from './scenes/campaign/stage1.js';
+import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
+import { preloadAllSFX } from './utils/sfx.js';
 
 export async function boot() {
     try {
@@ -36,28 +40,48 @@ export async function boot() {
     initMenu(startGame);
 }
 
-export function startGame(mode) {
-    setMode(mode);
-    configurePlayer();
+export async function startGame(mode) {
+    try {
+        setMode(mode);
+        configurePlayer();
 
-    initRenderer();            // scene + fog + kamera + renderer + composer
-    createBaseLights(scene);   // ambient/hemi/dir(bayangan)/rim — dipakai semua scene
-    initQualityUI();           // baris tombol kualitas (butuh dirLight sudah ada)
-    initEffects(scene);        // pool lampu ledakan + pool sprite darah
-    createSky(scene);          // kubah langit + bulan (ikut player)
+        showLoading();
+        await loadingStep(5, 'Starting the engine…');
 
-    // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal
-    setScene(mode === 'campaign' ? stage1Scene : survivalScene);
+        initRenderer();            // scene + fog + kamera + renderer + composer
+        createBaseLights(scene);   // ambient/hemi/dir(bayangan)/rim — dipakai semua scene
+        initQualityUI();           // baris tombol kualitas (butuh dirLight sudah ada)
+        initEffects(scene);        // pool lampu ledakan + pool sprite darah
+        createSky(scene);          // kubah langit + bulan (ikut player)
+        await loadingStep(30, 'Building the world…');
 
-    createEmbers(scene);       // partikel bara/abu ambien (kedua mode)
-    initWeapons();             // senjata + tangan (parented kamera) + kamera ke scene
-    initInput();               // pointer lock, mouse, keyboard, jaring pengaman
-    resetPlayerState();        // stamina/eyeH awal dari CFG
-    initGrain();               // film grain overlay
+        // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal
+        setScene(mode === 'campaign' ? stage1Scene : survivalScene);
+        await loadingStep(60, 'Preparing weapons…');
 
-    bestScoreEl.innerText = `Best: ${highScore}`;
-    updateUI();
-    animate();
+        createEmbers(scene);       // partikel bara/abu ambien (kedua mode)
+        initWeapons();             // senjata + tangan (parented kamera) + kamera ke scene
+        initInput();               // pointer lock, mouse, keyboard, jaring pengaman
+        resetPlayerState();        // stamina/eyeH awal dari CFG
+        initGrain();               // film grain overlay
+        await loadingStep(75, 'Loading sounds…');
+
+        preloadAllSFX();           // fetch + decode semua klip SFX sekarang
+        await loadingStep(85, 'Warming up the renderer…');
+        await warmupAll();         // kompilasi shader + unggah tekstur (lihat preload.js)
+
+        hideLoading();
+        bestScoreEl.innerText = `Best: ${highScore}`;
+        updateUI();
+        animate();
+    } catch (e) {
+        // startGame kini async: tanpa catch, error init cuma jadi unhandled
+        // rejection sunyi — tampilkan layar fatal seperti kegagalan config.
+        hideLoading();
+        showFatal('<b>Failed to start the game.</b><br><small>' +
+            (e && e.message ? e.message : e) + '</small>');
+        throw e;
+    }
 }
 
 // ----------- Frame Loop ----------- //

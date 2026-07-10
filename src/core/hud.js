@@ -6,19 +6,38 @@ import { CFG } from './config.js';
 import { player, score, zombies, drops, _dir } from './state.js';
 import { camera } from './renderer.js';
 import { activeScene } from './sceneManager.js';
-import { scoreText, ammoText, healthFill, waveText, radar, radarCtx, invSlots } from './dom.js';
+import {
+    scoreText, ammoWeapon, ammoCount, ammoMags, ammoHint, ammoBox,
+    healthFill, healthNum, waveText, radar, radarCtx, invSlots
+} from './dom.js';
 import { currentWeapon, WEAPON_DEF, grenadeMode, medkitMode } from '../entities/weapons.js';
 
 export function updateUI() {
     const w = player[currentWeapon];
     const wName = WEAPON_DEF[currentWeapon].name;
-    scoreText.innerText = `Score: ${score}`;
-    // Amunisi: senjata aktif; memegang granat -> petunjuk lempar; medkit -> petunjuk tahan.
-    ammoText.innerText = medkitMode ? 'Medkit — Hold LEFT CLICK to use'
-        : grenadeMode ? 'Grenade — LMB Far / RMB Near'
-            : player.isReloading ? `${wName}: Reloading...` : `${wName}: ${w.ammo} / ${w.mags} Mags`;
-    // Health bar (maks CFG.player.maxHp): warna merah tetap (CSS)
+    scoreText.innerText = score;   // label "SCORE" statis di HTML
+    // Modul amunisi (redesign 2026-07-10): nama senjata/item + hitungan besar
+    // + magazen + baris petunjuk. Memegang granat/medkit -> hitungan item itu;
+    // reload -> kelas 'reloading' (CSS meredupkan & mengedipkan hitungan).
+    let itemName, count, mags = '', hint = '';
+    if (medkitMode) {
+        itemName = 'Medkit'; count = player.medkits; hint = 'Hold LEFT CLICK to use';
+    } else if (grenadeMode) {
+        itemName = 'Grenade'; count = player.grenades; hint = 'LMB far throw · RMB near throw';
+    } else {
+        itemName = wName; count = w.ammo; mags = `/ ${w.mags} mags`;
+        if (player.isReloading) hint = 'Reloading…';
+    }
+    ammoWeapon.innerText = itemName;
+    ammoCount.innerText = count;
+    ammoMags.innerText = mags;
+    ammoHint.innerText = hint;
+    ammoBox.classList.toggle('reloading', !!player.isReloading && !grenadeMode && !medkitMode);
+    // Health bar (maks CFG.player.maxHp): warna merah tetap (CSS) — JS hanya
+    // menulis LEBAR + angka HP + kelas 'low' (pulse CSS saat HP <= 25%).
     healthFill.style.width = (player.hp / CFG.player.maxHp * 100) + '%';
+    healthNum.innerText = Math.max(0, Math.ceil(player.hp));
+    healthFill.classList.toggle('low', player.hp <= CFG.player.maxHp * 0.25);
     // Radar minimap disembunyikan sampai dimiliki (Survival: dibeli di shop).
     radar.style.display = player.hasRadar ? '' : 'none';
     updateInventory();

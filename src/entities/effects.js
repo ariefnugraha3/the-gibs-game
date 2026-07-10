@@ -54,6 +54,14 @@ export function initEffects(sc) {
     }
 }
 
+// Pemanasan pra-game (core/preload.js): pinjam 1 sprite darah dari pool supaya
+// program sprite + teksturnya ikut terkompilasi/terunggah di frame pemanasan.
+// Pemanggil wajib mengembalikan visibilitas/opasitasnya dan menaruhnya lagi
+// ke scene (reparent ke grup warmup otomatis melepasnya dari scene).
+export function borrowBloodSprite() {
+    return bloodPool.length ? bloodPool[0].spr : null;
+}
+
 // radius opsional: default blast granat; ledakan exploder memakai radius
 // lebih kecil (CFG.zombie.variants.exploder.boomRadius) lewat parameter ini.
 export function explodeAt(pos, radius) {
