@@ -53,8 +53,8 @@ export function reachForScale(scl, base = 1) {
     return Math.max(base, need);
 }
 
-// Warnai ulang seluruh material 1 zombie (per-instance, aman) — pembeda
-// visual varian: exploder kehijauan menyala, brute/boss lebih gelap.
+// Warnai ulang seluruh material 1 zombie (per-instance, aman) — primitif yang
+// dipakai applyVariantTint (di bawah) & tint boss campaign. dh/ds/dl = offset HSL.
 export function tintZombie(group, dh, ds, dl, emissiveHex = 0) {
     group.traverse(o => {
         if (!o.isMesh || !o.material) return;
@@ -64,6 +64,16 @@ export function tintZombie(group, dh, ds, dl, emissiveHex = 0) {
             if (emissiveHex && m.emissive) m.emissive.setHex(emissiveHex);
         }
     });
+}
+
+// Skin pembeda per-varian (SATU sumber utk survival & campaign supaya konsisten
+// antar-mode). Visual-only -> nilai tetap di kode (aturan arsitektur). Basis kulit
+// zombie = hijau kusam (~88° hue). Boss dikecualikan: punya tint sendiri (badan
+// raksasa) di campaign/common.js.
+export function applyVariantTint(group, kind) {
+    if (kind === 'runner') tintZombie(group, -0.09, 0.1, 0.1);                    // kekuningan pucat
+    else if (kind === 'brute') tintZombie(group, 0, -0.2, -0.22);                 // kehitaman/arang
+    else if (kind === 'exploder') tintZombie(group, -0.22, 0.1, -0.02, 0x3a0a06); // kemerahan + pijar merah samar
 }
 
 // Geometri bersama bagian tubuh (dipakai ulang antar instance; JANGAN

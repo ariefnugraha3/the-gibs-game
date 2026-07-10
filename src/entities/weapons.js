@@ -46,6 +46,7 @@ let gunHeat = 0;        // "panas laras" 0..1: naik tiap tembakan, dingin saat j
 let gunBobT = 0;        // fase goyangan senjata saat berjalan (visual)
 let gunRotX = 0, gunRotZ = 0;                // rotasi dasar senjata (rig reload)
 let reloadStartTime = 0;          // waktu nyata -> sinkron dgn setTimeout reload
+export let reloadSfxNode = null;  // node audio reload yang sedang diputar (utk dihentikan bila reload dibatalkan)
 let emptyReady = true;            // boleh bunyi klik kosong (di-arm ulang saat pelatuk dilepas)
 // Animasi granat: throwT hitung mundur satu lemparan (0 = idle memegang),
 // throwReleased = granat sudah dilepas frame ini, throwRange 'near'/'far';
@@ -576,8 +577,7 @@ export function attachMuzzle(wpn) {
 export function startSwitch(target) {
     switchTarget = target;
     switchAnim = 0;
-    clearTimeout(player.reloadTimer);   // ganti senjata membatalkan reload (ala CS)
-    player.isReloading = false;
+    cancelReload();   // ganti senjata membatalkan reload + SUARANYA (ala CS)
     playSFX(sfxSwitch);                 // suara handling saat mulai berganti senjata
     updateUI();
 }
@@ -618,14 +618,15 @@ export function trySwitchKey(key) {
     else target = (currentWeapon === W[0] ? W[1] : W[0]) || W[0];   // Q = slot lain
     if (!target) return;                          // slot kosong
     if (grenadeMode || medkitMode) {
-        // Dari granat/medkit -> pilih senjata: sembunyikan tangan item, tampilkan
-        // senjata (langsung bila slot sama; via animasi ganti bila beda).
+        // Dari granat/medkit -> pilih senjata: sembunyikan tangan item lalu SELALU
+        // mainkan animasi angkat senjata (startSwitch) — termasuk saat target =
+        // senjata yang sedang di-holster. (Dulu jalur target===currentWeapon
+        // memunculkan senjata SEKETIKA tanpa animasi — bug.)
         grenadeMode = false; throwT = 0; throwReleased = false;
         medkitMode = false; medkitChannel = 0;
         if (grenadeHandMesh) grenadeHandMesh.visible = false;
         if (medkitHandMesh) medkitHandMesh.visible = false;
-        if (target === currentWeapon) { WEAPON_DEF[currentWeapon].mesh.visible = true; updateUI(); }
-        else startSwitch(target);                 // mid-swap menampilkan target
+        startSwitch(target);
         return;
     }
     if (target !== currentWeapon) startSwitch(target);
@@ -641,7 +642,7 @@ export function equipGrenade() {
     grenadeMode = true;
     throwT = 0; throwReleased = false; holdRaiseT = HOLD_RAISE;
     isAiming = false;
-    clearTimeout(player.reloadTimer); player.isReloading = false;   // batalkan reload
+    cancelReload();   // batalkan reload + suaranya
     WEAPON_DEF[currentWeapon].mesh.visible = false;
     grenadeHandMesh.visible = true;
     if (grenadeHeldMesh) grenadeHeldMesh.visible = true;
@@ -691,20 +692,22 @@ export function equipMedkit() {
     medkitMode = true;
     medkitChannel = 0;
     isAiming = false;
-    clearTimeout(player.reloadTimer); player.isReloading = false;   // batalkan reload
+    cancelReload();   // batalkan reload + suaranya
     WEAPON_DEF[currentWeapon].mesh.visible = false;
     medkitHandMesh.visible = true;
     playSFX(sfxSwitch);
     updateUI();
 }
 
-// Simpan kembali medkit -> tampilkan senjata (dipakai toggle/switch/selesai).
+// Simpan kembali medkit -> ANGKAT senjata dgn animasi (dipakai toggle tombol 4 &
+// finishMedkit). Beda dari dulu (memunculkan senjata seketika): startSwitch memberi
+// jeda + memblok tembak sampai animasi angkat beres (bug fix).
 function holsterMedkit() {
     medkitMode = false;
     medkitChannel = 0;
     if (medkitHandMesh) medkitHandMesh.visible = false;
-    WEAPON_DEF[currentWeapon].mesh.visible = true;
-    updateUI();
+    if (medkitBar) medkitBar.style.display = 'none';
+    startSwitch(currentWeapon);
 }
 
 // Channel selesai: pakai 1 medkit, sembuh, lalu holster.
@@ -717,6 +720,20 @@ function finishMedkit() {
     holsterMedkit();
 }
 
+// Batalkan reload yang sedang berjalan: hentikan timer, status, DAN suaranya.
+// (Bug fix: dulu suara reload terus berjalan sampai habis saat pindah senjata/
+// item — clearTimeout hanya membatalkan callback setTimeout, bukan Audio yang
+// SUDAH diputar. Kini node reload disimpan lalu di-pause di sini.)
+function cancelReload() {
+    clearTimeout(player.reloadTimer);
+    player.isReloading = false;
+    if (reloadSfxNode) {
+        try { reloadSfxNode.pause(); reloadSfxNode.currentTime = 0; } catch (e) { }
+        reloadSfxNode = null;
+    }
+    updateUI();   // segarkan HUD: teks amunisi kembali dari 'Reloading...' ke sisa peluru/magazen
+}
+
 export function startReload() {
     if (grenadeMode || medkitMode) return;       // memegang granat/medkit: tak bisa reload
     const w = player[currentWeapon];
@@ -724,7 +741,7 @@ export function startReload() {
     if (switchAnim >= 0 || meleeT > 0) return;   // jangan reload saat ganti senjata / memukul
     player.isReloading = true;
     reloadStartTime = Date.now();   // rig tangan reload (updateWeaponVisuals) sinkron dgn timer nyata ini
-    playSFX(sfxReload);
+    reloadSfxNode = playSFX(sfxReload);   // simpan node -> bisa dihentikan bila reload dibatalkan
     updateUI();
     // Simpan id timer: dibatalkan di resetGame & saat ganti senjata (startSwitch).
     // Durasi EFEKTIF = reloadMs x reloadMul (upgrade shop); rig keyframe membaca
@@ -735,6 +752,7 @@ export function startReload() {
         w.mags--;
         w.ammo = w.magSize;
         player.isReloading = false;
+        reloadSfxNode = null;   // reload selesai wajar: suara sudah habis sendiri, lepas ref
         updateUI();
     }, dur);
 }
@@ -742,8 +760,9 @@ export function startReload() {
 // F = melee. Butuh stamina >= biaya melee; tiap ayunan menguras stamina.
 export function tryMelee() {
     if (grenadeMode || medkitMode) return;       // memegang granat/medkit: tak bisa melee
-    if (meleeCd > 0 || switchAnim >= 0 || player.isReloading) return;
+    if (meleeCd > 0 || switchAnim >= 0) return;
     if (stamina < CFG.stamina.meleeCost) return;
+    if (player.isReloading) cancelReload();       // F membatalkan reload (+ suaranya) lalu memukul
     drainStamina(CFG.stamina.meleeCost);
     meleeT = MELEE_TIME; meleeCd = CFG.melee.cooldownSec; meleeHitDone = false;
     playSFX(sfxMelee);   // suara ayunan — berbunyi meski tidak kena zombie
@@ -785,7 +804,10 @@ export function updateWeaponTimers(dt) {
         const prev = switchAnim;
         switchAnim += dt;
         if (prev < SWITCH_TIME / 2 && switchAnim >= SWITCH_TIME / 2 && switchTarget) {
-            lastWeapon = currentWeapon;   // Q kembali ke senjata ini
+            // Q kembali ke senjata ini — TAPI bila ini cuma "angkat" senjata yang
+            // sama (mis. keluar dari medkit ke senjata yang di-holster), jangan
+            // timpa lastWeapon (target Q tetap slot lain).
+            if (switchTarget !== currentWeapon) lastWeapon = currentWeapon;
             currentWeapon = switchTarget;
             switchTarget = null;
             for (const k in WEAPON_DEF) WEAPON_DEF[k].mesh.visible = k === currentWeapon;
@@ -920,6 +942,13 @@ export function updateShooting() {
         updateUI();
 
         if (wpn.ammo === 0 && wpn.mags > 0) startReload();
+    } else if (mouse.isDown && !player.isReloading && switchAnim < 0 && meleeT <= 0
+        && wpn.ammo === 0 && wpn.mags > 0) {
+        // Peluru habis TAPI masih ada magazen -> klik kiri MEMICU reload (mis.
+        // senjata ditinggalkan kosong lalu dipilih lagi sehingga auto-reload
+        // pasca-tembakan-terakhir tak sempat jalan). startReload sendiri menjaga
+        // agar tak dobel saat sedang reload.
+        startReload();
     } else if (mouse.isDown && emptyReady && !player.isReloading && switchAnim < 0
         && meleeT <= 0 && wpn.ammo === 0 && wpn.mags === 0) {
         // Pelatuk ditarik saat peluru & magazen benar-benar habis -> bunyi
@@ -1103,8 +1132,7 @@ export function updateWeaponVisuals(dt) {
 // Bagian senjata dari resetGame: senjata awal sesuai kepemilikan (configurePlayer
 // sudah menyetel player.owned untuk mode aktif), batalkan animasi & reload.
 export function resetWeapons() {
-    clearTimeout(player.reloadTimer);   // bug fix: reload lama jangan selesai di game baru
-    player.isReloading = false;
+    cancelReload();   // bug fix: reload lama jangan selesai di game baru + hentikan suaranya
     switchAnim = -1; switchTarget = null;
     meleeT = 0; meleeCd = 0; meleeS = 0;
     for (const k in WEAPON_DEF) WEAPON_DEF[k].mesh.rotation.set(0, 0, 0);

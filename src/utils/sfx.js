@@ -9,6 +9,7 @@ export const sfxReload = new Audio('assets/sounds/reload.mp3');
 export const sfxHit = new Audio('assets/sounds/jokowi-kaget.mp3');
 export const sfxPistol = new Audio('assets/sounds/pistol-shoot.mp3');
 export const sfxPickup = new Audio('assets/sounds/pick-up-item.mp3');
+export const sfxPurchase = new Audio('assets/sounds/success-purchase.mp3');   // sukses beli item di shop
 export const sfxMelee = new Audio('assets/sounds/smash-melee-attack.mp3');
 export const sfxThrow = new Audio('assets/sounds/throwing-grenade.mp3');
 export const sfxNadeRoll = new Audio('assets/sounds/grenade-rolling.mp3');   // granat kontak lantai (digerbang jarak)
@@ -31,4 +32,5 @@ export function playSFX(sfx, vol = 0.7) {
     }
     node.volume = vol;
     node.play().catch(() => { });
+    return node;   // dikembalikan agar pemanggil bisa menghentikannya (mis. reload dibatalkan)
 }

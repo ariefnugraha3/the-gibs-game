@@ -5,7 +5,7 @@
 import { CFG, CAMP_M } from '../../core/config.js';
 import { player, zombies } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
-import { buildHumanZombie, tintZombie, reachForScale } from '../../entities/zombies.js';
+import { buildHumanZombie, tintZombie, applyVariantTint, reachForScale } from '../../entities/zombies.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
 
 // Catatan arsitektur: KEDUA dunia stage dibangun sekali di awal campaign dan
@@ -34,10 +34,10 @@ export function spawnCampaignZombie(x, z, stage, kind = 'walker') {
         : (0.6 + Math.random() * 0.4) * CFG.campaign.zombieSpeedScale * (V ? V.speedMul : 1);
     const scl = B ? B.scale : (V ? V.scale : 1);
     if (scl !== 1) zMesh.scale.setScalar(scl);
-    // Pembeda visual varian (material per-instance — aman di-tint)
-    if (kind === 'exploder') tintZombie(zMesh, 0.06, 0.15, -0.02, 0x143206);
-    else if (kind === 'brute') tintZombie(zMesh, 0, -0.05, -0.09);
-    else if (kind === 'boss') tintZombie(zMesh, -0.02, -0.1, -0.12);
+    // Pembeda skin varian (helper bersama survival+campaign supaya konsisten).
+    // Boss punya tint sendiri (badan raksasa) — di luar helper.
+    applyVariantTint(zMesh, kind);
+    if (kind === 'boss') tintZombie(zMesh, -0.02, -0.1, -0.12);
 
     zombies.push({
         mesh: zMesh, hp, maxHp: hp, speed,

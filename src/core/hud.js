@@ -41,7 +41,7 @@ function updateInventory() {
     for (let i = 0; i < 2; i++) {
         const wk = W[i];
         setSlot(i, wk ? WEAPON_DEF[wk].name : '—',
-            wk && !grenadeMode && currentWeapon === wk, !wk);
+            wk && !grenadeMode && !medkitMode && currentWeapon === wk, !wk);
     }
     setSlot(2, `Grenade ×${player.grenades}`, grenadeMode, player.grenades <= 0);
     setSlot(3, `Medkit ×${player.medkits}`, medkitMode, player.medkits <= 0);

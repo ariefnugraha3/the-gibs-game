@@ -6,6 +6,7 @@ import { camera } from './renderer.js';
 import { blocker } from './dom.js';
 import { activeScene } from './sceneManager.js';
 import { resetGame } from './game.js';
+import { showPauseMenu, hidePauseMenu } from './pauseMenu.js';
 import {
     startReload, tryMelee, trySwitchKey, toggleAim, setAiming,
     grenadeMode, throwEquippedGrenade, equipMedkit
@@ -23,6 +24,11 @@ import { toggleCrouch, setCrouchHold, clearCrouch, tryJump } from '../entities/p
 const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyF', 'KeyG',
     'KeyQ', 'KeyC', 'KeyT', 'KeyN', 'KeyP', 'KeyB',
     'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
+
+// Apakah game sudah pernah dimulai (pointer pernah ter-lock). Sebelum ini
+// #blocker = layar mulai (klik untuk lanjut); sesudahnya, unlock via Esc =
+// PAUSE -> tampilkan menu jeda (Restart/Exit).
+let hasStarted = false;
 
 export function enterImmersive() {
     // Fullscreen wajib agar Keyboard Lock menangkap tombol sistem (Ctrl+W dkk).
@@ -65,6 +71,8 @@ export function initInput() {
     blocker.addEventListener('click', requestLock);
     document.addEventListener('pointerlockchange', () => {
         if (document.pointerLockElement === document.body) {
+            hasStarted = true;         // game berjalan -> unlock (Esc) berikutnya = PAUSE
+            hidePauseMenu();           // resume: tutup menu jeda bila sedang terbuka
             blocker.style.display = 'none';
             // Pilihan kualitas hanya di layar mulai — sembunyikan permanen
             // begitu game pertama dimulai (blocker pause tak menampilkannya).
@@ -77,7 +85,12 @@ export function initInput() {
             // memakai menu klik: JANGAN tampilkan blocker pause (game tetap
             // di-pause & shop tetap terbuka). Selain kasus itu: blocker normal.
             const shopModal = activeScene && activeScene.shopActive && activeScene.shopActive();
-            if (!shopModal && !isGameOver) blocker.style.display = 'flex';
+            if (!shopModal && !isGameOver) {
+                blocker.style.display = 'flex';
+                // Pause di tengah permainan (bukan layar mulai) -> menu jeda
+                // (RESTART GAME / EXIT GAME dgn konfirmasi).
+                if (hasStarted) showPauseMenu();
+            }
         }
     });
 

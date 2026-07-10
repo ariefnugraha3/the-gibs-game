@@ -314,6 +314,70 @@ body {
     color: #ddd;
 }
 
+/* ---------- Menu jeda (ESC): overlay di dalam #blocker saat pause di tengah
+   permainan — RESTART GAME / EXIT GAME dengan konfirmasi Yes/No ---------- */
+#pauseMenu {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    background: rgba(10, 14, 20, 0.92);
+    border: 1px solid rgba(255, 184, 77, 0.35);
+    border-radius: 14px;
+    padding: 34px 46px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+#pauseMain,
+#pauseConfirm {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+#pauseConfirm { display: none; }
+
+.pauseTitle {
+    font-size: 40px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    color: #ffb84d;
+    text-shadow: 2px 2px 6px black;
+    margin-bottom: 4px;
+}
+
+.pauseBtn {
+    font-family: Arial, sans-serif;
+    font-size: 20px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #e8eef4;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 10px;
+    padding: 14px 40px;
+    min-width: 260px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, transform 0.05s;
+}
+
+.pauseBtn:hover { background: rgba(255, 184, 77, 0.18); border-color: #ffb84d; color: #fff; }
+.pauseBtn:active { transform: translateY(2px); }
+.pauseHint { font-size: 15px; color: #8fa0b0; margin-top: 2px; }
+
+.pauseConfirmText {
+    font-size: 24px;
+    color: #e8eef4;
+    text-align: center;
+    max-width: 380px;
+    text-shadow: 1px 1px 4px black;
+}
+
+/* Tombol Yes/No memakai kelas confirm shop (.shopConfirmYes/.shopConfirmNo) —
+   identik dengan prompt "Are you ready?" antar-wave (permintaan user). */
+.pauseConfirmBtns { display: flex; gap: 14px; justify-content: center; }
+
 #gameOver {
     position: absolute;
     inset: 0;

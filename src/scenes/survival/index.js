@@ -8,7 +8,7 @@ import { player, zombies, isGameOver, _v3 } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
 import { updateUI } from '../../core/hud.js';
-import { buildHumanZombie, tintZombie, CLAW_TIME, reachForScale } from '../../entities/zombies.js';
+import { buildHumanZombie, applyVariantTint, CLAW_TIME, reachForScale } from '../../entities/zombies.js';
 import { spawnGroundPuff } from '../../entities/effects.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
@@ -141,8 +141,13 @@ function spawnZombie() {
     // --- Varian perilaku (IMPROVEMENT-PLAN #1): peluang naik seiring wave ---
     let kind = 'walker';
     const roll = Math.random();
-    const eC = wave.num >= SV.exploderFromWave ? SV.exploderChance : 0;
-    const bC = wave.num >= SV.bruteFromWave ? SV.bruteChance : 0;
+    // Peluang varian NAIK per wave (dulu brute/exploder DATAR) supaya komposisi
+    // musuh berevolusi: walker awal -> runner-heavy tengah -> brute/exploder akhir.
+    // Sama pola dgn runner (base + perWave, dijepit Max), dihitung dari FromWave.
+    const eC = wave.num >= SV.exploderFromWave ? Math.min(SV.exploderChanceMax,
+        SV.exploderChance + (wave.num - SV.exploderFromWave) * SV.exploderChancePerWave) : 0;
+    const bC = wave.num >= SV.bruteFromWave ? Math.min(SV.bruteChanceMax,
+        SV.bruteChance + (wave.num - SV.bruteFromWave) * SV.bruteChancePerWave) : 0;
     const runnerC = Math.min(SV.runnerChanceMax,
         SV.runnerChanceBase + (wave.num - 1) * SV.runnerChancePerWave);
     if (roll < eC) kind = 'exploder';
@@ -159,8 +164,7 @@ function spawnZombie() {
     const baseY = 0;                           // origin grup di kaki (y saat menapak tanah)
     zMesh.position.set(startX, baseY, startZ);
     if (scl !== 1) zMesh.scale.setScalar(scl);
-    if (kind === 'exploder') tintZombie(zMesh, 0.06, 0.15, -0.02, 0x143206);
-    else if (kind === 'brute') tintZombie(zMesh, 0, -0.05, -0.09);
+    applyVariantTint(zMesh, kind);   // pembeda skin varian (helper bersama survival+campaign)
     scene.add(zMesh);
 
     // state 'jumping' -> melompati pagar; lalu 'chasing' -> kejar target.
@@ -175,7 +179,8 @@ function spawnZombie() {
         jumpY0: 0, jumpY1: 0, arcH: FENCE_H + 14, groundY: 0, vaultCd: 0,
         attackCd: 0, clawT: 0, clawSide: 1, moving: true,   // sistem serangan cakar
         kind, scl, reachMul: reachForScale(scl),   // badan besar = reach ikut membesar
-        clawDmg: V ? V.clawDamage : CFG.zombie.clawDamage
+        clawDmg: V ? V.clawDamage : CFG.zombie.clawDamage,
+        monasCommitted: false, monasLocked: false   // komit Monas: aggro 5 m / terkunci setelah gigitan pertama
         // Target ditentukan per-frame di zombieAI (Monas default / kejar player
         // bila dalam radius aggro) — tidak lagi diundi saat spawn.
     });
@@ -385,8 +390,15 @@ export const survivalScene = {
         const dx = camera.position.x - z.mesh.position.x;
         const dz = camera.position.z - z.mesh.position.z;
         const distToEye = Math.hypot(dx, dz);
-        const atkMonas = monasHp > 0
-            && distToEye > CFG.survival.playerAggroMeters * CAMP_M;
+        // Radius aggro efektif (meter -> unit). Zombie yang sudah BERKOMITMEN ke
+        // Monas (pernah memukulnya) lebih sulit dialihkan: radiusnya menyusut ke
+        // monasLockAggroMeters (5 m). Sebagian (monasLockChance) malah TERKUNCI
+        // penuh (radius 0) -> tak pernah mengejar player. Zombie biasa memakai
+        // playerAggroMeters (15 m).
+        const aggroM = z.monasLocked ? 0
+            : z.monasCommitted ? CFG.survival.monasLockAggroMeters
+                : CFG.survival.playerAggroMeters;
+        const atkMonas = monasHp > 0 && distToEye > aggroM * CAMP_M;
         // Titik tuju: player, atau titik terdekat di tepi AABB Monas (24)
         const tx = atkMonas ? clamp(z.mesh.position.x, -24, 24) : camera.position.x;
         const tz = atkMonas ? clamp(z.mesh.position.z, -24, 24) : camera.position.z;
@@ -415,6 +427,13 @@ export const survivalScene = {
                 z.attackCd = CFG.zombie.clawCooldownSec;
                 z.clawT = CLAW_TIME;
                 z.clawSide = -z.clawSide;
+                // Gigitan PERTAMA ke Monas -> zombie "berkomitmen": radius aggro
+                // menyusut (5 m) dan sekali roll monasLockChance ia TERKUNCI penuh
+                // (tak akan mengejar player lagi). Diundi hanya sekali.
+                if (!z.monasCommitted) {
+                    z.monasCommitted = true;
+                    z.monasLocked = Math.random() < CFG.survival.monasLockChance;
+                }
                 damageMonas(CFG.survival.monasClawDamage);
                 if (isGameOver) return {};
             }
