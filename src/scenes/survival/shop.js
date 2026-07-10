@@ -14,7 +14,7 @@
 import { CFG } from '../../core/config.js';
 import { player, score, addScore, syncOwnedFromWeapons } from '../../core/state.js';
 import { updateUI } from '../../core/hud.js';
-import { playSFX, sfxPickup } from '../../utils/sfx.js';
+import { playSFX, sfxPurchase } from '../../utils/sfx.js';
 import { WEAPON_DEF, refreshOwnedWeapon } from '../../entities/weapons.js';
 import { healMonas, strengthenMonas, startNextWave, isMonasFullyStrengthened } from './index.js';
 
@@ -173,7 +173,7 @@ export function shopPurchase(id) {
     const rejected = it.apply();
     if (rejected) return rejected;
     addScore(-it.cost);
-    playSFX(sfxPickup);
+    playSFX(sfxPurchase);
     updateUI();
     return null;
 }
@@ -197,7 +197,7 @@ export function shopReplaceWeapon(oldW) {
     player[w].mags = CFG.weapons[w].startMags;
     player[w].ammo = player[w].magSize;
     addScore(-it.cost);
-    playSFX(sfxPickup);
+    playSFX(sfxPurchase);
     pendingWeapon = null;
     refreshOwnedWeapon();                // senjata aktif tetap valid bila yang aktif diganti
     updateUI();
