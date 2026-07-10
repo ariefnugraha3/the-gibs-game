@@ -9,6 +9,7 @@ import { playSFX, sfxExplode } from '../utils/sfx.js';
 import { spawnDrop } from './drops.js';
 import { killZombie } from './zombies.js';
 import { updateUI } from '../core/hud.js';
+import { hostOnExplode } from '../net/host.js';   // seam co-op: broadcast boom (no-op selain host)
 
 // Pool 3 lampu ledakan, selalu di scene dengan intensity 0:
 // jumlah lampu konstan -> Three.js tidak compile ulang shader saat granat meledak.
@@ -56,7 +57,31 @@ export function initEffects(sc) {
 
 // radius opsional: default blast granat; ledakan exploder memakai radius
 // lebih kecil (CFG.zombie.variants.exploder.boomRadius) lewat parameter ini.
-export function explodeAt(pos, radius) {
+// byId (co-op host): id pemain pemilik granat — kill dikredit ke pelempar
+// (killZombie -> creditKill); SP/undefined = jalur lama.
+export function explodeAt(pos, radius, byId) {
+    explodeVisualAt(pos);
+    hostOnExplode(pos);   // co-op host: client memutar visual+SFX yang sama dari event boom
+
+    const R = radius != null ? radius : CFG.grenade.killRadius + 3.5;
+    for (let i = zombies.length - 1; i >= 0; i--) {
+        const z = zombies[i];
+        if (z.mesh.position.distanceTo(pos) < R) {
+            // Model damage (bukan instakill): boss tahan (grenadeDamage khusus),
+            // zombie lain kena CFG.grenade.damage penuh — brute ber-HP tinggi
+            // bisa selamat dari ledakan di pinggir radius.
+            z.hp -= z.noInstakill ? CFG.campaign.boss.grenadeDamage : CFG.grenade.damage;
+            if (z.hp > 0) continue;
+            spawnDrop(z.mesh.position);
+            killZombie(i, false, byId);
+        }
+    }
+    updateUI();
+}
+
+// Bagian VISUAL + SFX ledakan saja (tanpa damage). Dipakai explodeAt (semua
+// mode) dan client co-op saat menerima event `boom` dari host.
+export function explodeVisualAt(pos) {
     const expMesh = new THREE.Mesh(
         GEO.explosion,
         new THREE.MeshBasicMaterial({ color: 0xff4500, transparent: true, opacity: 0.85 })
@@ -85,21 +110,6 @@ export function explodeAt(pos, radius) {
     scene.add(shock);
     explosions.push({ mesh: shock, life: 1, scale: 95 });
     playSFX(sfxExplode);
-
-    const R = radius != null ? radius : CFG.grenade.killRadius + 3.5;
-    for (let i = zombies.length - 1; i >= 0; i--) {
-        const z = zombies[i];
-        if (z.mesh.position.distanceTo(pos) < R) {
-            // Model damage (bukan instakill): boss tahan (grenadeDamage khusus),
-            // zombie lain kena CFG.grenade.damage penuh — brute ber-HP tinggi
-            // bisa selamat dari ledakan di pinggir radius.
-            z.hp -= z.noInstakill ? CFG.campaign.boss.grenadeDamage : CFG.grenade.damage;
-            if (z.hp > 0) continue;
-            spawnDrop(z.mesh.position);
-            killZombie(i);
-        }
-    }
-    updateUI();
 }
 
 // Cincin debu/percikan di ketinggian y — visual murni; menumpang daur hidup array

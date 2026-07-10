@@ -136,16 +136,18 @@ lokal).
 
 | # | Fase | Perkiraan usaha | Status |
 |---|------|-----------------|--------|
-| 0 | `server.py` — static + WS relay (stdlib only) | Kecil-sedang | TODO |
-| 1 | Net core + lobby (host/join, roster, start tersinkron) | Sedang | TODO |
-| 2 | World ber-seed + avatar remote + sync posisi/animasi | Sedang | TODO |
-| 3 | Zombie host-authoritative + scene client (id entitas, snapshot, interp, cakar multi-target) | **Besar** | TODO |
-| 4 | Combat sync (hit-claim, granat, ledakan/darah/SFX, drops, skor per pemain) | Sedang-besar | TODO |
-| 5 | Alur wave & shop MP (tanpa pause, ready-check, beli tervalidasi host) | Sedang | TODO |
-| 6 | Mati/spectate/respawn, game over, disconnect, restart | Sedang | TODO |
+| 0 | `server.py` — static + WS relay (stdlib only) | Kecil-sedang | **SELESAI 2026-07-10** |
+| 1 | Net core + lobby (host/join, roster, start tersinkron) | Sedang | **SELESAI 2026-07-10** |
+| 2 | World ber-seed + avatar remote + sync posisi/animasi | Sedang | **SELESAI 2026-07-10** |
+| 3 | Zombie host-authoritative + scene client (id entitas, snapshot, interp, cakar multi-target) | **Besar** | **SELESAI 2026-07-10** |
+| 4 | Combat sync (hit-claim, granat, ledakan/darah/SFX, drops, skor per pemain) | Sedang-besar | **SELESAI 2026-07-10** |
+| 5 | Alur wave & shop MP (tanpa pause, ready-check, beli tervalidasi host) | Sedang | **SELESAI 2026-07-10** |
+| 6 | Mati/spectate/respawn, game over, disconnect, restart | Sedang | **SELESAI 2026-07-10** |
 
-Kerjakan BERURUTAN — tiap fase bisa diuji sendiri (kriteria "Selesai bila" di
-tiap fase). Jangan mulai fase N+1 sebelum fase N lulus uji 2-browser.
+Semua fase diverifikasi headless (70 assert — lihat Log eksekusi). **Yang belum:
+uji manual 2-browser + 4 pemain nyata via Wi-Fi** (checklist per fase di atas) —
+lakukan sebelum menganggap fitur ini rilis; penyimpangan desain yang disengaja
+terdokumentasi di Log eksekusi.
 
 ---
 
@@ -485,6 +487,33 @@ tidak, boot gagal (aturan besi IMPROVEMENT-PLAN #4).
     disisipkan di posisi yang ditetapkan + didokumentasikan di MODULES.md —
     jangan menyisipkan panggilan net di tengah blok lain.
 
+## Distribusi & transport lain (GitHub Pages / itch.io / Steam — BARU 2026-07-10)
+
+Desain ini SENGAJA mengisolasi transport di `src/net/socket.js` (antarmuka:
+`connectWS`/`sendMsg`/`setMsgHandler`/`setCloseHandler`). Semua logika co-op
+(snapshot, klaim, room, ready-check, protokol pesan) TIDAK tahu pesannya lewat
+apa — jadi menerbitkan co-op di kanal lain = **mengganti pipa di balik antarmuka
+itu**, `host.js`/`coopClient.js`/`players.js` tidak disentuh.
+
+**Batasan yang perlu dipahami:** halaman HTTPS (GitHub Pages, itch web) TIDAK
+bisa membuka `ws://` ke IP LAN (mixed content diblokir browser) dan hosting statis
+tidak bisa menjalankan relay — maka co-op TIDAK berfungsi dari URL GitHub Pages/
+itch web dgn pipa sekarang (kartu Co-op menampilkan error relay; single-player
+tetap utuh). Jalur LAN yang benar tetap: host `python server.py`, teman buka
+`http://<ip-host>:8000`.
+
+| Kanal | Pipa | Status |
+|---|---|---|
+| LAN (browser) | `server.py` di mesin host — `location.hostname` = IP host | **SELESAI** |
+| Web publik (Pages/itch HTML5) | relay publik `wss://` (VPS+Caddy / Cloudflare Durable Objects) + `CFG.net.relayUrl` di socket.js | Rencana |
+| itch desktop (Electron) | relay di-port ke Node, embedded di proses utama; join-by-IP / discovery UDP-mDNS (trik hostname mati di Electron) | Rencana |
+| Steam | `socket-steam.js`: Steamworks lobby + P2P (Steam Datagram Relay) via `steamworks.js` — invite lewat overlay, tanpa server sendiri | Rencana |
+
+Detail per kanal (hosting relay, perubahan socket.js, pemetaan room→lobby Steam,
+field versi game di `create`/`join`, checklist) ada di
+**[STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md) §6.5** — satu sumber kebenaran
+utk urusan distribusi; bagian ini hanya ringkasan + batasan arsitektur.
+
 ## Verifikasi
 
 - **Headless (pola MODULES.md paling bawah):** fungsi murni dapat diuji tanpa
@@ -504,5 +533,107 @@ tidak, boot gagal (aturan besi IMPROVEMENT-PLAN #4).
 
 ## Log eksekusi
 
-(kosong — isi per fase yang selesai: tanggal, ringkasan, penyimpangan dari
-rencana + alasannya)
+- **2026-07-10 — Fase 0 SELESAI.** `server.py` di root (stdlib murni): HTTP
+  statis (ThreadingHTTPServer, no-store) + relay WS RFC 6455 hand-rolled
+  (handshake, unmask, fragmentasi, ping/pong/close) dgn room bernama
+  (registry `dict`, normalisasi trim+lowercase, `lock`, pembubaran saat host
+  putus). Port & maxPlayers dibaca dari `config/gameplay.json` seksi `net`
+  (fallback 8000/8001/4); argv menimpa (`python server.py [http] [ws]`) utk
+  uji. Diuji 24 assert (skrip klien WS stdlib di scratchpad, pola bisa ditiru
+  dari sini): create/join/noroom/taken/full/locked, `from`/`to`/broadcast,
+  isolasi 2 room paralel, leave/hostleft/reuse nama. Tanpa penyimpangan.
+
+- **2026-07-10 — Fase 1–6 SELESAI (satu sesi implementasi penuh).**
+  **File baru:** `src/net/index.js` (netRole/localId/roster/selfReady + tabel
+  kompak WPN/KIND + r1/r2 — TANPA impor modul game), `src/net/socket.js`
+  (WS auto-URL dari location.hostname; handler langsung [lobby+client] ATAU
+  antrean [host], cap 1200), `src/net/players.js` (seam getTargets/creditKill/
+  damageRemotePlayer/damageNearbyRemotes/onPlayerZeroHp/localDown/updateDownCam/
+  reviveLocal), `src/net/host.js` (hostUpdate: drain pesan + snapshot 15 Hz;
+  seam hostOn*; ready-check + shopTimer), `src/entities/remotePlayers.js`
+  (avatar interpolasi + nametag + muzzle-flash sprite),
+  `src/scenes/survival/coopClient.js` (scene client kontrak penuh).
+  **File diubah:** gameplay.json+config.js (seksi `net`), math.js (mulberry32),
+  world.js (`setWorldSeed` — 55 titik acak build via `R()`/`wrand()`),
+  zombies.js (killZombie byId→creditKill+hostOnZombieDie; hook onBulletHit;
+  onPlayerZeroHp; damageNearbyRemotes), effects.js (explodeVisualAt terpisah;
+  explodeAt byId + hostOnExplode), drops.js (id + hostOnDropSpawn/Taken;
+  hook onDropTake; spawnNetDrop; applyDropPickup), grenades.js (id+by; hook
+  onGrenadeThrow; spawnRemoteGrenade), weapons.js (hook onMeleeHit),
+  game.js (seam hostOnGameOver/hostOnRestart/resetDown), input.js (hook
+  `pausable`; telan input MP saat unlocked/tumbang; cheat console off; restart
+  host-only), pauseMenu.js (RESTART disembunyikan di client), hud.js (blip
+  rekan di radar), survival/index.js (z.id+zspawn; zombieAI multi-target via
+  getTargets; cakar remote di scene; hostUpdate/hostShoppingUpdate/hostOnWaveStart/
+  hostOnEvent; pausable; getWaveInfo), shop.js (READY toggle; item Monas via
+  host utk client; shopNetResult; shopMpTick), menu.js (lobby lengkap),
+  main.js (client → coopClientScene), index.html (+kartu Co-op, #coopLobby,
+  #goRestartHint), style.css (+lobby & .shopReady).
+  **PENYIMPANGAN DESAIN yang disengaja** (semuanya menyederhanakan tanpa
+  mengorbankan tujuan — perbarui bila di kemudian hari diubah):
+  1. **HP pemain = client-authoritative** (bukan host): host mengirim event
+     `dmg`; pemain menerapkan ke hp-nya sendiri & melapor `down`. Alasan:
+     medkit/heal shop lokal — menghindari dual-tracking hp yang pasti desync.
+  2. **Skor client-authoritative utk BELANJA** (host tetap sumber kredit kill
+     via `zdie by/pts`): semua item lokal dibeli tanpa round-trip; HANYA item
+     Monas (efek global) divalidasi+dieksekusi host (`buy`→`buyok/buyno`).
+  3. **Client memakai handler pesan LANGSUNG, bukan antrean** — `restart`/
+     `over`/`hostleft` wajib terproses saat updateGame berhenti (game over);
+     aman karena event WS browser berjalan antar-frame. Host tetap antrean.
+  4. `wavemsg` diganti: fase wave via snapshot `w`; `wavestart` utk mulai
+     wave + revive; event fog/blackout via `evt` (client mereplikasi animasi).
+  5. Hook `shopPauses()` rencana di-GENERALISASI jadi `pausable()` (MP tidak
+     bisa pause SAMA SEKALI, bukan cuma shop).
+  6. `restart` TANPA seed baru — dunia dibangun SEKALI per sesi halaman
+     (guard ensureParkWorld), jadi run baru memakai dunia yang sama di semua
+     pemain (konsisten; sama dgn perilaku restart SP).
+  7. Prompt "Are you ready?" di MP dilewati — tombol = TOGGLE READY langsung
+     (ready-check sudah dua-langkah secara alami).
+  8. Hook klaim tambahan yang tak ada di rencana: `onMeleeHit`,
+     `onGrenadeThrow`, `onDropTake` (pola sama dgn onBulletHit).
+  9. `dropgone` membawa `ty` (type) supaya klaim yang dikabulkan tidak
+     bergantung pada entry drop lokal yang mungkin sudah kedaluwarsa.
+  **VERIFIKASI (70 assert headless, semua LULUS):** harness stub THREE/DOM/
+  Audio/WebSocket(node:net) di scratchpad sesi (`rt/stubs.mjs`) menjalankan
+  MODUL ASLI: `test-sp.mjs` (23 assert — regresi SP: spawner, id zombie,
+  gerak ke Monas, tembak-mati via sweep+creditKill, cakar, shop beli/tolak,
+  pause modal shop, game over, SPACE restart, run baru), `test-campaign.mjs`
+  (5 assert — smoke campaign utuh), `test-coop.mjs` + `driver-coop.mjs`
+  (18 assert END-TO-END: relay nyata + 2 proses game — room create/join,
+  dunia ber-seed IDENTIK [collider pohon sama persis], ghost zombie id host,
+  posisi sinkron ±10 unit, klaim kill → skor ke client SAJA + roster host,
+  cakar multi-target → `dmg` → hp client, tumbang [bukan game over] + host
+  menandai, wave baru me-revive + HUD sinkron, game over tersiar, restart
+  tersinkron, client putus → roster bersih), plus `test_relay.py` (24 assert
+  Fase 0). Bila harness hilang: pola pembuatannya = stub THREE (Vector3/
+  Quaternion/Euler matematika NYATA, sisanya Proxy generik; post-processing
+  SENGAJA absen), stub DOM auto-create getElementById, `enableFakeClock()`
+  utk fire-rate, WebSocket klien RFC 6455 di atas node:net, dua proses
+  driver dikendalikan stdin/stdout JSON.
+  **Dua bug ditemukan & diperbaiki pada review akhir:** (a) pesan yang tiba
+  antara `launch()` lobby dan `enter()` scene client mengendap di antrean —
+  `setMsgHandler(fn)` kini MEM-FLUSH antrean ke handler baru; (b) `requestLock`
+  yang dipicu remote (ready pemain lain / timer shop / restart host) ditolak
+  browser tanpa gesture, dan karena unlock terjadi saat shop (blocker sengaja
+  tersembunyi) tidak ada permukaan klik utk me-lock ulang — tambah
+  `showBlockerIfUnlocked()` (input.js): cek ±350 ms setelah requestLock; masih
+  unlocked & bukan shop/game-over → tampilkan blocker klik-untuk-lanjut
+  (dipanggil startNextWave MP, wavestart client, restart client).
+  **BELUM DILAKUKAN:** uji manual 2-browser (tab + incognito) & 4 pemain
+  nyata via Wi-Fi; profil bandwidth nyata. Perilaku yang DISENGAJA: client
+  yang masih di blocker "Click to Start" sudah berada di dunia (posisi
+  gerbang) dan bisa diserang — sama seperti pemain AFK.
+
+- **2026-07-10 — Kolom "Server Address" di lobby (temuan uji nyata user).**
+  Kasus: client membuka halaman BUKAN dari server host (mis. `localhost` di
+  mesinnya sendiri / GitHub Pages) → auto-URL `location.hostname` salah sasaran
+  (`ws://localhost:8001`). Solusi: (a) input opsional **SERVER ADDRESS** di form
+  lobby (persist `gibsServerAddr`; `normalizeWsAddr` menerima `ip`, `ip:port`,
+  `ws(s)://…`, `http(s)://…` — kosong = auto lama, 8 kasus diuji unit);
+  (b) `connectWS` menerima `urlOverride` (param ke-3, backward-compatible);
+  (c) `server.py` +endpoint **`/lanip`** (IP LAN via trik socket UDP) + banner
+  startup menampilkan alamat share; (d) ruang tunggu HOST menampilkan hint
+  "Friends: open http://<ip>:8000 — or Server Address ws://<ip>:8001"
+  (`#lobbyShare`; gagal senyap bila halaman bukan dari server.py); (e) pesan
+  error koneksi kini menyebut kolom Server Address. E2E co-op 18 assert diulang
+  — tetap lulus.

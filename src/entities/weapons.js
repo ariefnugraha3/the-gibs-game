@@ -9,6 +9,7 @@ import {
     GEO, MAT, _dir, _tip, _v3, _sRight, _sUp, _kickEuler
 } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
+import { activeScene } from '../core/sceneManager.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
 import { playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxMelee, sfxSwitch, sfxEmpty, sfxPickup } from '../utils/sfx.js';
@@ -792,6 +793,9 @@ export function doMeleeHit() {
     if (best >= 0) {
         crosshair.classList.add('hit');
         setTimeout(() => crosshair.classList.remove('hit'), 80);
+        // Hook scene opsional onMeleeHit (co-op CLIENT): kirim klaim ke host
+        // (host yang membunuh + menjatuhkan drop). Tanpa hook = jalur lama.
+        if (activeScene.onMeleeHit) { activeScene.onMeleeHit(zombies[best]); return; }
         spawnDrop(zombies[best].mesh.position);
         killZombie(best);
         updateUI();

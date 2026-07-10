@@ -4,7 +4,7 @@
 
 import { scene } from '../../core/renderer.js';
 import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../utils/textures.js';
-import { rand, clamp } from '../../utils/math.js';
+import { clamp, mulberry32 } from '../../utils/math.js';
 import { resolveCylinders } from '../../utils/collision.js';
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { waterJets, setWaterTex, setFlameLight, setFlameGlow } from '../../world/decor.js';
@@ -12,6 +12,16 @@ import {
     CITY_PALETTE, makeFacadeTex, makeLitTex, makeCityMat, makeBurningCityMat,
     fillBuildingInstances, addFireSprites
 } from '../../world/facades.js';
+
+// ----- Sumber acak jalur BUILD dunia (co-op LAN: WAJIB seeded) -----
+// Posisi pohon dkk adalah COLLIDER GAMEPLAY (tabrakan player, nav-grid zombie,
+// clamp drop): tanpa seed bersama tiap pemain membangun dunia tabrakan yang
+// BERBEDA. setWorldSeed(seed) dipanggil SEBELUM ensureParkWorld di jalur MP;
+// SP & campaign stage 3 tidak memanggilnya -> R tetap Math.random (perilaku
+// lama byte-identik). Animasi decor (api/air) di decor.js sengaja TIDAK seeded.
+let R = Math.random;
+const wrand = (a, b) => a + R() * (b - a);
+export function setWorldSeed(seed) { R = mulberry32(seed >>> 0); }
 
 // ----------- Tata letak arena (mengikuti Taman Monas) ----------- //
 // Area dalam (rumput) = [-PARK.hx..PARK.hx] x [-PARK.hz..PARK.hz].
@@ -38,11 +48,11 @@ function createMonas() {
     const marbleTex = makeTexture(128, 256, (g, w, h) => {
         g.fillStyle = '#cfc9bd'; g.fillRect(0, 0, w, h);
         for (let i = 0; i < 60; i++) {
-            g.strokeStyle = `rgba(${150 + Math.random() * 60 | 0},${145 + Math.random() * 55 | 0},${135 + Math.random() * 50 | 0},${0.25 + Math.random() * 0.3})`;
-            g.lineWidth = 1 + Math.random() * 2;
-            const x = Math.random() * w;
+            g.strokeStyle = `rgba(${150 + R() * 60 | 0},${145 + R() * 55 | 0},${135 + R() * 50 | 0},${0.25 + R() * 0.3})`;
+            g.lineWidth = 1 + R() * 2;
+            const x = R() * w;
             g.beginPath(); g.moveTo(x, 0);
-            g.bezierCurveTo(x + rand(-8, 8), h * 0.33, x + rand(-8, 8), h * 0.66, x + rand(-10, 10), h);
+            g.bezierCurveTo(x + wrand(-8, 8), h * 0.33, x + wrand(-8, 8), h * 0.66, x + wrand(-10, 10), h);
             g.stroke();
         }
     }, 2, 2);
@@ -50,11 +60,11 @@ function createMonas() {
     const marbleNrm = makeNormalMap(128, 256, (g, w, h) => {
         g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, w, h);
         for (let i = 0; i < 40; i++) {
-            const v = 110 + Math.random() * 40 | 0;
+            const v = 110 + R() * 40 | 0;
             g.strokeStyle = `rgb(${v},${v},${v})`;
-            g.lineWidth = 1 + Math.random() * 2.5;
-            const x = Math.random() * w;
-            g.beginPath(); g.moveTo(x, 0); g.lineTo(x + rand(-10, 10), h); g.stroke();
+            g.lineWidth = 1 + R() * 2.5;
+            const x = R() * w;
+            g.beginPath(); g.moveTo(x, 0); g.lineTo(x + wrand(-10, 10), h); g.stroke();
         }
         noiseHeight(128, 26, 160, 1, 4)(g, w, h);
     }, 1.1);
@@ -123,9 +133,9 @@ function createGround() {
     const grassTex = makeTexture(256, 256, (g, w, h) => {
         g.fillStyle = '#2c5f22'; g.fillRect(0, 0, w, h);
         for (let i = 0; i < 14; i++) {
-            const x = Math.random() * w, y = Math.random() * h, r = 30 + Math.random() * 60;
+            const x = R() * w, y = R() * h, r = 30 + R() * 60;
             const rg = g.createRadialGradient(x, y, 2, x, y, r);
-            const col = Math.random() < 0.5 ? '43,77,27' : '58,110,40';
+            const col = R() < 0.5 ? '43,77,27' : '58,110,40';
             rg.addColorStop(0, `rgba(${col},0.35)`);
             rg.addColorStop(1, `rgba(${col},0)`);
             g.fillStyle = rg;
@@ -133,12 +143,12 @@ function createGround() {
         }
         const blades = ['#234d1b', '#357029', '#1d3f16', '#3f7a2e', '#2a5a20', '#4a8a36'];
         for (let i = 0; i < 900; i++) {
-            g.strokeStyle = blades[(Math.random() * blades.length) | 0];
-            g.globalAlpha = 0.3 + Math.random() * 0.45;
+            g.strokeStyle = blades[(R() * blades.length) | 0];
+            g.globalAlpha = 0.3 + R() * 0.45;
             g.lineWidth = 1;
-            const x = Math.random() * w, y = Math.random() * h, a = (Math.random() - 0.5) * 0.9;
+            const x = R() * w, y = R() * h, a = (R() - 0.5) * 0.9;
             g.beginPath(); g.moveTo(x, y);
-            g.lineTo(x + Math.sin(a) * 4, y - 3 - Math.random() * 3);
+            g.lineTo(x + Math.sin(a) * 4, y - 3 - R() * 3);
             g.stroke();
         }
         g.globalAlpha = 1;
@@ -157,10 +167,10 @@ function createGround() {
         noiseHeight(128, 34, 420, 1, 4)(g, w, h);
         g.strokeStyle = 'rgb(70,70,70)';   // retakan = alur dalam
         for (let i = 0; i < 5; i++) {
-            g.lineWidth = 1 + Math.random();
-            let x = Math.random() * w, y = Math.random() * h;
+            g.lineWidth = 1 + R();
+            let x = R() * w, y = R() * h;
             g.beginPath(); g.moveTo(x, y);
-            for (let s = 0; s < 4; s++) { x += rand(-16, 16); y += rand(-16, 16); g.lineTo(x, y); }
+            for (let s = 0; s < 4; s++) { x += wrand(-16, 16); y += wrand(-16, 16); g.lineTo(x, y); }
             g.stroke();
         }
     }, 1.6);
@@ -168,19 +178,19 @@ function createGround() {
         g.fillStyle = '#26262a'; g.fillRect(0, 0, w, h);
         speckle(g, w, h, ['#1e1e22', '#2e2e33', '#232327', '#333338'], 300, 1, 5);
         for (let i = 0; i < 6; i++) {                                // noda oli
-            g.globalAlpha = 0.12 + Math.random() * 0.12;
+            g.globalAlpha = 0.12 + R() * 0.12;
             g.fillStyle = '#0c0c0e';
             g.beginPath();
-            g.ellipse(Math.random() * w, Math.random() * h, 8 + Math.random() * 22, 5 + Math.random() * 12, Math.random() * 3, 0, Math.PI * 2);
+            g.ellipse(R() * w, R() * h, 8 + R() * 22, 5 + R() * 12, R() * 3, 0, Math.PI * 2);
             g.fill();
         }
         g.globalAlpha = 1;
         g.strokeStyle = 'rgba(10,10,12,0.65)';                       // retakan
         for (let i = 0; i < 5; i++) {
-            g.lineWidth = 0.8 + Math.random();
-            let x = Math.random() * w, y = Math.random() * h;
+            g.lineWidth = 0.8 + R();
+            let x = R() * w, y = R() * h;
             g.beginPath(); g.moveTo(x, y);
-            for (let s = 0; s < 4; s++) { x += rand(-18, 18); y += rand(-18, 18); g.lineTo(x, y); }
+            for (let s = 0; s < 4; s++) { x += wrand(-18, 18); y += wrand(-18, 18); g.lineTo(x, y); }
             g.stroke();
         }
         g.fillStyle = 'rgba(206,200,180,0.55)';                      // marka jalan
@@ -255,10 +265,10 @@ function createParkRoads() {
             speckle(g, w, h, ['#2c2c31', '#3e3e44', '#303036'], 260, 1, 5);
             g.strokeStyle = 'rgba(12,12,14,0.6)';                   // retakan
             for (let i = 0; i < 4; i++) {
-                g.lineWidth = 0.8 + Math.random();
-                let x = Math.random() * w, y = Math.random() * h;
+                g.lineWidth = 0.8 + R();
+                let x = R() * w, y = R() * h;
                 g.beginPath(); g.moveTo(x, y);
-                for (let s = 0; s < 4; s++) { x += rand(-16, 16); y += rand(-16, 16); g.lineTo(x, y); }
+                for (let s = 0; s < 4; s++) { x += wrand(-16, 16); y += wrand(-16, 16); g.lineTo(x, y); }
                 g.stroke();
             }
             g.fillStyle = 'rgba(206,200,180,0.5)';
@@ -288,7 +298,7 @@ function createFence() {
         g.fillStyle = '#8d8a83'; g.fillRect(0, 0, w, h);
         speckle(g, w, h, ['#7e7b74', '#98958d', '#6f6c66', '#a3a098'], 380, 1, 5);
         for (let i = 0; i < 12; i++) {
-            const x = Math.random() * w, len = 30 + Math.random() * 70, sw = 2 + Math.random() * 5;
+            const x = R() * w, len = 30 + R() * 70, sw = 2 + R() * 5;
             const grd = g.createLinearGradient(0, 0, 0, len);
             grd.addColorStop(0, 'rgba(45,42,38,0.35)');
             grd.addColorStop(1, 'rgba(45,42,38,0)');
@@ -354,11 +364,11 @@ function createParkProps() {
     const waterTex = makeTexture(128, 128, (g, w, h) => {
         g.fillStyle = '#27506b'; g.fillRect(0, 0, w, h);
         for (let i = 0; i < 40; i++) {
-            g.strokeStyle = `rgba(159,198,224,${0.08 + Math.random() * 0.14})`;
-            g.lineWidth = 1 + Math.random() * 2;
-            const y = Math.random() * h;
+            g.strokeStyle = `rgba(159,198,224,${0.08 + R() * 0.14})`;
+            g.lineWidth = 1 + R() * 2;
+            const y = R() * h;
             g.beginPath(); g.moveTo(0, y);
-            g.bezierCurveTo(w * 0.33, y + rand(-6, 6), w * 0.66, y + rand(-6, 6), w, y);
+            g.bezierCurveTo(w * 0.33, y + wrand(-6, 6), w * 0.66, y + wrand(-6, 6), w, y);
             g.stroke();
         }
     }, 3, 3);
@@ -429,32 +439,32 @@ function createParkProps() {
         // rejection sampling: coba beberapa kali sampai dapat titik rumput
         let x = 0, z = 0, ok = false;
         for (let attempt = 0; attempt < 24 && !ok; attempt++) {
-            x = rand(-PARK.hx + 30, PARK.hx - 30);
-            z = rand(-PARK.hz + 30, PARK.hz - 30);
+            x = wrand(-PARK.hx + 30, PARK.hx - 30);
+            z = wrand(-PARK.hz + 30, PARK.hz - 30);
             ok = isOnGrass(x, z);
         }
         if (!ok) continue;
-        const sc = rand(0.8, 1.3);
+        const sc = wrand(0.8, 1.3);
         treeColliders.push({ x, z, r: 3.4 * sc });   // batang pejal (player & zombie)
-        _q.setFromAxisAngle(up, Math.random() * Math.PI);
-        _qt.setFromAxisAngle(tiltAxis, rand(-0.07, 0.07));      // sedikit doyong
+        _q.setFromAxisAngle(up, R() * Math.PI);
+        _qt.setFromAxisAngle(tiltAxis, wrand(-0.07, 0.07));      // sedikit doyong
         _q.multiply(_qt);
 
         _m.compose(_p.set(x, 8 * sc, z), _q, _s.set(sc, sc, sc));
         trunkMesh.setMatrixAt(ti, _m);
-        trunkMesh.setColorAt(ti, _c.setHex(0x4a3322).offsetHSL(0, 0, rand(-0.03, 0.03)));
+        trunkMesh.setColorAt(ti, _c.setHex(0x4a3322).offsetHSL(0, 0, wrand(-0.03, 0.03)));
         ti++;
 
         // 3 gerombol tajuk: besar bawah, samping, kecil atas
         const blobs = [
             [x, 22 * sc, z, sc],
-            [x + rand(-7, 7), 20 * sc, z + rand(-7, 7), sc * 0.66],
-            [x + rand(-4, 4), 30 * sc, z + rand(-4, 4), sc * 0.52],
+            [x + wrand(-7, 7), 20 * sc, z + wrand(-7, 7), sc * 0.66],
+            [x + wrand(-4, 4), 30 * sc, z + wrand(-4, 4), sc * 0.52],
         ];
         for (const [bx, by, bz, bs] of blobs) {
-            _m.compose(_p.set(bx, by, bz), _q, _s.set(bs, bs * rand(0.85, 1.1), bs));
+            _m.compose(_p.set(bx, by, bz), _q, _s.set(bs, bs * wrand(0.85, 1.1), bs));
             leafMesh.setMatrixAt(li, _m);
-            leafMesh.setColorAt(li, _c.setHex(0x2a5c20).offsetHSL(rand(-0.02, 0.02), rand(-0.06, 0.06), rand(-0.05, 0.03)));
+            leafMesh.setColorAt(li, _c.setHex(0x2a5c20).offsetHSL(wrand(-0.02, 0.02), wrand(-0.06, 0.06), wrand(-0.05, 0.03)));
             li++;
         }
     }
@@ -483,28 +493,28 @@ function createCity() {
     const normal = [], burn = [], rubble = [];
     for (const ring of RINGS) {
         for (let i = 0; i < ring.count; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const rad = ring.r0 + Math.random() * (ring.r1 - ring.r0);
+            const angle = R() * Math.PI * 2;
+            const rad = ring.r0 + R() * (ring.r1 - ring.r0);
             const x = Math.cos(angle) * rad;
             const z = Math.sin(angle) * rad;
-            const w = 18 + Math.random() * 36;
-            const d = 18 + Math.random() * 36;
-            const h = ring.hMin + Math.random() * (ring.hMax - ring.hMin);
+            const w = 18 + R() * 36;
+            const d = 18 + R() * 36;
+            const h = ring.hMin + R() * (ring.hMax - ring.hMin);
             const b = {
                 x, z, w, d, h,
-                ry: Math.random() * 0.4,
-                rz: Math.random() < 0.25 ? (Math.random() - 0.5) * 0.18 : 0,   // sebagian miring/runtuh
-                color: CITY_PALETTE[(Math.random() * CITY_PALETTE.length) | 0]
+                ry: R() * 0.4,
+                rz: R() < 0.25 ? (R() - 0.5) * 0.18 : 0,   // sebagian miring/runtuh
+                color: CITY_PALETTE[(R() * CITY_PALETTE.length) | 0]
             };
-            (Math.random() < 0.06 ? burn : normal).push(b);
+            (R() < 0.06 ? burn : normal).push(b);
             // Puing tumpukan di kaki gedung
-            if (Math.random() < 0.4) {
-                const rw = w * (0.5 + Math.random() * 0.6);
+            if (R() < 0.4) {
+                const rw = w * (0.5 + R() * 0.6);
                 rubble.push({
-                    x: x + (Math.random() - 0.5) * w, z: z + (Math.random() - 0.5) * d,
-                    w: rw, d: rw, h: 4 + Math.random() * 8,
-                    ry: Math.random(), rz: 0,
-                    color: CITY_PALETTE[(Math.random() * CITY_PALETTE.length) | 0]
+                    x: x + (R() - 0.5) * w, z: z + (R() - 0.5) * d,
+                    w: rw, d: rw, h: 4 + R() * 8,
+                    ry: R(), rz: 0,
+                    color: CITY_PALETTE[(R() * CITY_PALETTE.length) | 0]
                 });
             }
         }

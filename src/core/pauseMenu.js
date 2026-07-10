@@ -9,6 +9,7 @@
 // LATAR blocker yang me-resume game.
 
 import { resetGame } from './game.js';
+import { netRole } from '../net/index.js';   // co-op: RESTART hanya milik host
 
 let instr = null, menu = null, mainP = null, confP = null, confText = null;
 let onYes = null, wired = false;
@@ -54,6 +55,10 @@ export function showPauseMenu() {
     wire();
     if (instr) instr.style.display = 'none';
     if (menu) menu.style.display = 'flex';
+    // Co-op: hanya HOST yang boleh me-restart run (client menyembunyikan
+    // tombolnya; EXIT = meninggalkan sesi — tetap ada di keduanya).
+    const rst = document.getElementById('pauseRestart');
+    if (rst) rst.style.display = netRole === 'client' ? 'none' : '';
     showMain();
 }
 

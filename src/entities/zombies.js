@@ -5,7 +5,7 @@
 // semua scene: cakaran, animasi rig, dan hit test peluru.
 
 import { CFG } from '../core/config.js';
-import { player, zombies, bullets, addScore, stats, _dir, godMode } from '../core/state.js';
+import { player, zombies, bullets, stats, _dir, godMode } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { makeTexture, speckle } from '../utils/textures.js';
@@ -15,7 +15,12 @@ import { crosshair, flashDamage, showHitDir } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 import { spawnGroundPuff, spawnBlood, explodeAt } from './effects.js';
 import { spawnDrop } from './drops.js';
-import { gameOver } from '../core/game.js';
+// Seam co-op LAN (no-op murni saat netRole 'off' — SP byte-identik):
+// creditKill = kredit skor per pemain; onPlayerZeroHp = mati (SP) / tumbang (MP);
+// damageNearbyRemotes = ledakan exploder melukai pemain remote; hostOnZombieDie
+// = broadcast kematian zombie ke client.
+import { creditKill, onPlayerZeroHp, damageNearbyRemotes } from '../net/players.js';
+import { hostOnZombieDie } from '../net/host.js';
 
 // Ceritanya: warga biasa yang diubah alien. Dibangun dari balok (tanpa file
 // model), dengan varian penampilan: warga, pekerja proyek, polisi, pedagang,
@@ -292,16 +297,19 @@ function zombieScore(z, headshot) {
 }
 
 // headshot = tembakan mematikan mengenai kepala (skor lebih tinggi). Melee &
-// granat memanggil tanpa arg (= false, bukan headshot).
-export function killZombie(i, headshot = false) {
+// granat memanggil tanpa arg (= false, bukan headshot). byId (co-op host) =
+// id pemain pembunuh (klaim client) — skor dikredit lewat creditKill; null/
+// pemain lokal = jalur lama (stats.kills + addScore, SP identik).
+export function killZombie(i, headshot = false, byId = null) {
     const z = zombies[i];
     spawnGroundPuff(z.mesh.position.x, z.mesh.position.z, 0x5a1616, 13, z.groundY + 0.6);   // percikan (visual)
     if (z.kind === 'exploder') pendingBooms.push(z.mesh.position.clone());
     disposeZombie(z);
     scene.remove(z.mesh);
     zombies.splice(i, 1);
-    stats.kills++;
-    addScore(zombieScore(z, headshot));
+    const pts = zombieScore(z, headshot);
+    creditKill(pts, byId);
+    hostOnZombieDie(z, headshot, byId, pts);   // co-op host: broadcast zdie (no-op selain host)
 }
 
 // Proses ledakan exploder yang antre: visual+kill zombie sekitar (explodeAt,
@@ -313,13 +321,16 @@ function processPendingBooms() {
         const p = pendingBooms.shift();
         const V = CFG.zombie.variants.exploder;
         explodeAt(p, V.boomRadius);
+        // Co-op host: pemain REMOTE dalam radius ikut terluka (event dmg;
+        // no-op selain host). Pemain lokal tetap jalur di bawah.
+        damageNearbyRemotes(p, V.boomRadius, V.boomDamage);
         const d = Math.hypot(p.x - camera.position.x, p.z - camera.position.z);
         if (d < V.boomRadius) {
             if (!godMode) player.hp -= V.boomDamage;   // cheat: kebal
             updateUI();
             flashDamage();
             showHitDir(attackerAngle(p.x, p.z));
-            if (player.hp <= 0) { gameOver(false); return; }
+            if (player.hp <= 0) { onPlayerZeroHp(); return; }   // SP: game over; MP: tumbang
         }
     }
 }
@@ -350,7 +361,7 @@ export function updateZombies(dt, step) {
                 showHitDir(attackerAngle(z.mesh.position.x, z.mesh.position.z));
                 playSFX(sfxZombieBite);   // sabetan cakar...
                 playSFX(sfxHit);          // ...plus jeritan player (jokowi-kaget)
-                if (player.hp <= 0) { gameOver(false); return; }
+                if (player.hp <= 0) { onPlayerZeroHp(); return; }   // SP: game over; MP: tumbang
             }
         }
 
@@ -383,7 +394,7 @@ export function updateZombies(dt, step) {
                     : (z.noInstakill ? CFG.campaign.boss.headshotDamageMul : CFG.zombie.headshotDamageMul);
                 stats.hits++;
                 if (isHead) stats.headshots++;
-                z.hp -= isHead ? base * hsMul : base;
+                const dmg = isHead ? base * hsMul : base;
                 // Percikan darah di titik tumbuk = titik terdekat lintasan
                 // peluru ke pusat bola yang kena (kepala/dada).
                 const cy = isHead ? headY : hitY;
@@ -396,6 +407,15 @@ export function updateZombies(dt, step) {
                 bullets.splice(j, 1);
                 crosshair.classList.add('hit');
                 setTimeout(() => crosshair.classList.remove('hit'), 80);
+
+                // Hook scene opsional onBulletHit (co-op CLIENT): kirim KLAIM ke
+                // host, JANGAN sentuh z.hp lokal (host authoritative; feedback
+                // darah/SFX di atas tetap). Tanpa hook = jalur lama byte-identik.
+                if (activeScene.onBulletHit) {
+                    activeScene.onBulletHit(z, dmg, isHead);
+                    continue;   // lanjut peluru berikutnya; zombie menunggu putusan host
+                }
+                z.hp -= dmg;
                 if (z.state === 'idle') { z.state = 'chasing'; z.groundY = 0; }   // tertembak = terbangun
 
                 if (z.hp <= 0) { spawnDrop(z.mesh.position); killZombie(i, isHead); updateUI(); break; }

@@ -17,13 +17,29 @@ import { updateUI } from '../../core/hud.js';
 import { playSFX, sfxPurchase } from '../../utils/sfx.js';
 import { WEAPON_DEF, refreshOwnedWeapon } from '../../entities/weapons.js';
 import { healMonas, strengthenMonas, startNextWave, isMonasFullyStrengthened } from './index.js';
+// Co-op LAN: skor per-pemain -> semua item berefek LOKAL dibeli langsung;
+// HANYA item Monas (efek global) yang divalidasi+dieksekusi host (client kirim
+// `buy`, potong skor saat `buyok`). "Start Next Wave" menjadi toggle READY.
+import { netRole, selfReady, setSelfReady } from '../../net/index.js';
+import { sendMsg } from '../../net/socket.js';
+import { hostRecheckReady, getReadyInfo } from '../../net/host.js';
+import { getClientReadyInfo } from './coopClient.js';
 
 let open = false;
 let selectedId = null;
 let notice = '', noticeErr = false, noticeT = 0;
 let pendingWeapon = null;   // senjata yang menunggu konfirmasi GANTI (slot penuh)
 let confirmNext = false;    // prompt "Are you ready?" sebelum mulai wave berikutnya
+let readyEl = null;         // co-op: elemen teks ready-check (di-refresh shopMpTick tanpa rebuild)
 const overlay = () => document.getElementById('shopOverlay');
+
+// Segarkan angka ready/timer co-op TANPA rebuild DOM (dipanggil per frame oleh
+// host.js/coopClient.js selama fase shopping; no-op SP / shop tertutup).
+export function shopMpTick() {
+    if (!open || netRole === 'off' || !readyEl) return;
+    const ri = netRole === 'host' ? getReadyInfo() : getClientReadyInfo();
+    readyEl.textContent = `Ready ${ri.ready}/${ri.total} — auto-start in ${ri.timeLeft}s`;
+}
 
 export function isShopOpen() { return open; }
 
@@ -33,6 +49,7 @@ export function closeShop() {
     notice = '';
     pendingWeapon = null;
     confirmNext = false;
+    readyEl = null;
     const o = overlay();
     o.style.display = 'none';
     o.innerHTML = '';
@@ -163,6 +180,13 @@ export function shopPurchase(id) {
     if (note === 'Full') return 'Medkit stock is full';
     if (note === 'Maxed') return 'The Monument is already fully reinforced';
     if (score < it.cost) return 'Not enough score';
+    // Co-op CLIENT: item Monas berefek GLOBAL -> host yang memvalidasi &
+    // mengeksekusi (keadaan Monas milik host). Skor dipotong saat `buyok`
+    // (shopNetResult); `buyno` menampilkan alasan host. Item lain tetap lokal.
+    if (netRole === 'client' && (id === 'healMonas' || id === 'strengthenMonas')) {
+        sendMsg({ t: 'buy', item: id });
+        return 'pending';
+    }
     // Beli senjata tipe baru sementara slot sudah penuh (maks) -> minta pilih
     // yang diganti; skor dipotong saat konfirmasi (shopReplaceWeapon).
     if (it.weapon && !player.owned[it.weapon]
@@ -210,6 +234,16 @@ export function isConfirmOpen() { return confirmNext; }
 // Panggil lagi (klik Yes atau SPACE lagi) = benar-benar mulai wave berikutnya.
 export function requestNextWave() {
     if (!open) return;
+    // Co-op: "Start Next Wave" = TOGGLE READY (ready-check menggantikan pause
+    // — dunia terus berjalan). Host memulai wave saat semua pemain hidup ready
+    // atau batas waktu shop habis (net/host.js); prompt konfirmasi SP dilewati.
+    if (netRole !== 'off') {
+        setSelfReady(!selfReady);
+        if (netRole === 'host') hostRecheckReady();
+        else sendMsg({ t: 'ready', v: selfReady ? 1 : 0 });
+        if (open) render();   // hostRecheckReady bisa langsung menutup shop
+        return;
+    }
     if (confirmNext) { confirmNext = false; startNextWave(); return; }
     confirmNext = true;
     notice = '';
@@ -236,8 +270,23 @@ function doPurchase(id) {
     selectedId = id;
     const msg = shopPurchase(id);
     if (msg === 'choose-replace') { notice = ''; render(); return; }
+    if (msg === 'pending') { setNotice('Requesting...', false); render(); return; }   // co-op: menunggu host
     setNotice(msg == null ? 'Purchased!' : msg, msg != null);
     render();
+}
+
+// Hasil pembelian item Monas dari HOST (client co-op; dipanggil coopClient.js
+// saat `buyok`/`buyno`). Sukses -> potong skor + SFX; gagal -> tampilkan alasan.
+export function shopNetResult(reason, cost) {
+    if (reason == null) {
+        addScore(-(cost || 0));
+        playSFX(sfxPurchase);
+        updateUI();
+        if (open) { setNotice('Purchased!', false); render(); }
+    } else if (open) {
+        setNotice(reason, true);
+        render();
+    }
 }
 
 function doReplace(oldW) {
@@ -340,9 +389,20 @@ function render() {
 
     const foot = el('div', 'shopFoot');
     foot.appendChild(el('div', 'shopScore', `Score: ${score}`));
-    const next = el('button', 'shopNext', 'Start Next Wave ▶');
-    next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"
-    foot.appendChild(next);
+    if (netRole !== 'off') {
+        // Co-op: status ready-check (r/t + sisa batas waktu) + tombol READY.
+        const ri = netRole === 'host' ? getReadyInfo() : getClientReadyInfo();
+        readyEl = el('div', 'shopReady',
+            `Ready ${ri.ready}/${ri.total} — auto-start in ${ri.timeLeft}s`);
+        foot.appendChild(readyEl);
+        const next = el('button', 'shopNext', selfReady ? 'Cancel Ready ✕' : 'READY ▶');
+        next.addEventListener('click', () => requestNextWave());   // toggle ready
+        foot.appendChild(next);
+    } else {
+        const next = el('button', 'shopNext', 'Start Next Wave ▶');
+        next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"
+        foot.appendChild(next);
+    }
     panel.appendChild(foot);
 
     root.appendChild(panel);

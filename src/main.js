@@ -19,7 +19,9 @@ import { initWeapons, updateWeaponVisuals } from './entities/weapons.js';
 import { resetPlayerState } from './entities/player.js';
 import { initMenu } from './scenes/menu.js';
 import { survivalScene } from './scenes/survival/index.js';
+import { survivalCoopClientScene } from './scenes/survival/coopClient.js';
 import { stage1Scene } from './scenes/campaign/stage1.js';
+import { netRole } from './net/index.js';   // co-op: client memakai scene khususnya
 
 export async function boot() {
     try {
@@ -46,8 +48,12 @@ export function startGame(mode) {
     initEffects(scene);        // pool lampu ledakan + pool sprite darah
     createSky(scene);          // kubah langit + bulan (ikut player)
 
-    // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal
-    setScene(mode === 'campaign' ? stage1Scene : survivalScene);
+    // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal.
+    // Co-op LAN: host menjalankan survivalScene biasa (+ lapisan broadcast);
+    // CLIENT menjalankan scene interpolasi khususnya (netRole di-set lobby
+    // SEBELUM startGame — 'off' = SP, jalur lama persis).
+    setScene(mode === 'campaign' ? stage1Scene
+        : netRole === 'client' ? survivalCoopClientScene : survivalScene);
 
     createEmbers(scene);       // partikel bara/abu ambien (kedua mode)
     initWeapons();             // senjata + tangan (parented kamera) + kamera ke scene

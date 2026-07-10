@@ -10,7 +10,7 @@ export const CFG = {};
 export const CAMP_M = 7;
 
 const SECTIONS = ['player', 'stamina', 'movement', 'weapons', 'melee',
-    'grenade', 'zombie', 'survival', 'campaign', 'drops', 'shop', 'difficulty'];
+    'grenade', 'zombie', 'survival', 'campaign', 'drops', 'shop', 'difficulty', 'net'];
 
 // Salinan MURNI hasil muat (tak pernah dimutasi) — applyDifficulty selalu
 // menghitung ulang CFG dari sini agar pengali tidak terkali berulang.

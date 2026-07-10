@@ -975,3 +975,112 @@ body {
 }
 .dbtn:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
 .dbtn.selected { background: #c0392b; border-color: #e0503e; color: #fff; box-shadow: 0 0 10px rgba(224, 80, 62, 0.5); }
+
+/* ---------- Lobby Co-op LAN (#coopLobby — di atas #modeSelect) ---------- */
+#coopLobby {
+    position: absolute;
+    inset: 0;
+    display: none;              /* flex saat kartu Co-op diklik */
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.78);
+    z-index: 32;
+    font-family: Arial, sans-serif;
+    color: #fff;
+}
+.lobbyPanel {
+    width: min(430px, 92vw);
+    background: rgba(20, 12, 10, 0.96);
+    border: 2px solid #7a2b2b;
+    border-radius: 14px;
+    padding: 26px 30px;
+    text-align: center;
+    box-shadow: 0 12px 50px rgba(0, 0, 0, 0.7);
+}
+.lobbyHead {
+    font-size: 20px;
+    font-weight: bold;
+    color: #ff6b3a;
+    letter-spacing: 2px;
+    margin-bottom: 18px;
+}
+.lobbyLabel {
+    font-size: 12px;
+    color: #ffb84d;
+    letter-spacing: 2px;
+    margin: 12px 0 5px;
+    text-align: left;
+}
+#coopLobby input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 16px;
+    padding: 9px 12px;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid #555;
+    border-radius: 6px;
+    outline: none;
+}
+#coopLobby input:focus { border-color: #e0503e; }
+.lobbyBtns { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
+.lobbyBtn {
+    font-family: Arial, sans-serif;
+    font-size: 15px;
+    font-weight: bold;
+    color: #fff;
+    background: #c0392b;
+    border: 1px solid #e0503e;
+    border-radius: 8px;
+    padding: 10px 20px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: filter 0.12s, transform 0.08s;
+}
+.lobbyBtn:hover { filter: brightness(1.12); }
+.lobbyBtn:active { transform: translateY(2px); }
+.lobbyBtn:disabled { opacity: 0.45; cursor: default; filter: none; }
+.lobbyCancel {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    color: #ccc;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 7px 16px;
+    margin-top: 16px;
+    cursor: pointer;
+}
+.lobbyCancel:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
+#lobbyStatus { min-height: 20px; margin-top: 12px; font-size: 13px; color: #ff8a7a; }
+.lobbySub { font-size: 13px; color: #ffb84d; letter-spacing: 1px; margin: 8px 0; }
+#lobbyPlayers {
+    margin: 12px auto;
+    min-height: 96px;
+    width: 85%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 8px 0;
+}
+.lobbyPlayer { font-size: 15px; color: #e8e8e8; padding: 4px 14px; text-align: left; }
+#lobbyHint { color: #9be8a8; min-height: 18px; }
+
+/* Baris status ready-check co-op di kaki shop */
+.shopReady {
+    font-size: 14px;
+    color: #ffb84d;
+    letter-spacing: 1px;
+    align-self: center;
+    margin: 0 12px;
+}
+
+/* Kolom Server Address (opsional) + hint alamat share di ruang tunggu lobby */
+.lobbyOpt { color: #8a8a8a; font-size: 11px; letter-spacing: 0; text-transform: none; }
+#lobbyShare {
+    min-height: 16px;
+    margin: 4px 0 2px;
+    font-size: 12px;
+    color: #9be8a8;
+    word-break: break-all;
+}

@@ -10,7 +10,7 @@ Browser FPS: "Gibran vs Zombie 3D (DOOM FPS)", Three.js r128. **All user-facing 
 >
 > **Gameplay roadmap:** the agreed feature backlog (zombie behavior variants, stage-2 boss, survival shop, music, shotgun, etc.) with per-item implementation notes, pitfalls, and status lives in [IMPROVEMENT-PLAN.md](IMPROVEMENT-PLAN.md) — read it before starting any new gameplay feature, and update its status table when you finish one.
 >
-> **Multiplayer plan:** the agreed design for 4-player LAN co-op survival (one player hosts — listen server; WebSocket relay via `server.py`; phased execution plan, protocol, and pitfalls) lives in [IMPROVEMENT-MULTIPLAYER-PLAN.md](IMPROVEMENT-MULTIPLAYER-PLAN.md) — read it before touching any networking code. Not started yet; single-player behavior must stay unchanged while `netRole === 'off'`.
+> **Multiplayer (IMPLEMENTED 2026-07-10):** 4-player LAN co-op survival — one player hosts (listen server: the host browser runs the full simulation; clients interpolate snapshots and send claims). Design doc, message protocol, and per-phase notes live in [IMPROVEMENT-MULTIPLAYER-PLAN.md](IMPROVEMENT-MULTIPLAYER-PLAN.md) — **read it before touching any networking code.** Load-bearing rules: `python server.py` = static HTTP :8000 + dumb WebSocket relay :8001 (stdlib-only, named rooms, `create`/`join`/`lock` are the ONLY relay-parsed messages); the WS URL derives from `location.hostname`, with an optional **Server Address** lobby field (`ws://<host-ip>:8001`) for pages not served from the host machine (localhost/GitHub Pages) — the host's waiting room shows the address to share via the relay's `/lanip` endpoint; `netRole` in `src/net/index.js` is `'off' | 'host' | 'client'` and **every MP path is a pure no-op at `'off'` — SP behavior must stay byte-identical**; the host runs the normal `survivalScene` (+`src/net/host.js` broadcast layer), clients run `survivalCoopClientScene` (same scene contract, `zombieAI` = snapshot interpolation); shared systems reach MP ONLY through seams (`creditKill`/`onPlayerZeroHp`/`damageNearbyRemotes`/`hostOn*` in `src/net/`) and optional scene hooks (`pausable`, `onBulletHit`, `onMeleeHit`, `onGrenadeThrow`, `onDropTake`) — never inline netRole checks in zombies/bullets/game; authority: each player owns their own position/HP/inventory/score (kills credited via `zdie by`), the host owns zombies/waves/Monas/grenades/drops; the park world is SEEDED (`setWorldSeed` before `ensureParkWorld` — tree colliders must match across peers); MP has NO pause (ESC = local menu over a running world; the shop is a READY-check intermission with a `CFG.net.shopMaxSec` cap), no cheat console, host-only restart, dead players spectate and respawn at the next wave; Monas shop items are the only host-validated purchases.
 
 ## Architecture (refactored 2026-07-05 into ES modules)
 
@@ -32,10 +32,11 @@ Load-bearing rules (details in MODULES.md):
 **A static HTTP server is now mandatory** (ES modules + `fetch` of the JSON config are blocked on `file://`; the page shows an English error explaining this if opened directly):
 
 ```
-python -m http.server 8000      # then open http://localhost:8000
+python -m http.server 8000      # single-player — then open http://localhost:8000
+python server.py                # co-op LAN — static HTTP :8000 + WebSocket relay :8001 (stdlib-only)
 ```
 
-Internet required for the Three.js CDN scripts. No build, no install. For syntax checking: `node --check src/<file>.js` (works thanks to `"type": "module"`). A headless test harness pattern (Node + stubbed THREE/DOM driving the real modules) is described at the end of MODULES.md.
+For co-op, other players on the same network open `http://<host-ip>:8000` → Co-op LAN card → JOIN ROOM with the host's room name. Internet required for the Three.js CDN scripts. No build, no install. For syntax checking: `node --check src/<file>.js` (works thanks to `"type": "module"`). A headless test harness pattern (Node + stubbed THREE/DOM/WebSocket driving the real modules — including a two-process co-op end-to-end test through the real relay) is described at the end of MODULES.md and in the execution log of IMPROVEMENT-MULTIPLAYER-PLAN.md.
 
 ## Key mechanics and conventions
 

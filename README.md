@@ -1,16 +1,19 @@
 # Gibran vs Zombie 3D (DOOM FPS)
 
-A Three.js browser FPS. Two modes: **Survival** (defend Monas from endless waves) and **Campaign** (a 3-stage story: escape the abandoned building, clear 1 km of ruined Jakarta highway, then survive the night in Monas park).
+A Three.js browser FPS. Three modes: **Survival** (defend Monas from endless waves), **Campaign** (a 3-stage story: escape the abandoned building, clear 1 km of ruined Jakarta highway, then survive the night in Monas park), and **Co-op LAN** (survival with up to 4 players on the same network — one player hosts a named room, the others join it).
 
 ## Run
 
 No build, no install — but a static HTTP server is required (ES modules):
 
 ```
-python -m http.server 8000
+python -m http.server 8000      # single-player
+python server.py                # co-op LAN (static HTTP :8000 + WebSocket relay :8001)
 ```
 
 then open <http://localhost:8000>. Internet connection needed (Three.js from CDN).
+
+**Co-op:** the host runs `python server.py` and shares `http://<host-ip>:8000` with friends on the same Wi-Fi/LAN. Everyone picks the **Co-op LAN** card — the host creates a room by name, the others join it by typing the same name. No IP entry needed.
 
 ## Tweak the gameplay
 

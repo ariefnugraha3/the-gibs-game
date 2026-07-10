@@ -54,11 +54,18 @@ export function buildGrenadeMesh(scale = 1) {
     return grp;
 }
 
+// Id granat berurutan (co-op: identitas jaringan utk ghost di client; SP:
+// stempel tak terpakai).
+let nextNadeId = 1;
+
 // Lepaskan granat (dipanggil dari animasi lempar di weapons.js saat titik
 // rilis). range: 'far' (klik kiri) = throwSpeed/throwUpward penuh; 'near'
 // (klik kanan) = throwNearSpeed/throwNearUpward -> lemparan pendek. Granat TIDAK
 // meledak saat menyentuh apa pun — hanya saat sumbunya habis (updateGrenades);
 // membidik ke atas = lemparan lebih jauh. Return true bila terlempar.
+// Co-op CLIENT: scene menyediakan hook onGrenadeThrow — titik & kecepatan rilis
+// DIKIRIM ke host yang mensimulasikan granatnya (ghost dirender dari snapshot);
+// count/SFX/HUD tetap jalur lokal yang sama.
 export function spawnGrenade(range = 'far') {
     if (player.grenades <= 0) return false;
     player.grenades--;
@@ -69,17 +76,38 @@ export function spawnGrenade(range = 'far') {
     const speed = near ? CFG.grenade.throwNearSpeed : CFG.grenade.throwSpeed;
     const up = near ? CFG.grenade.throwNearUpward : CFG.grenade.throwUpward;
     camera.getWorldDirection(_v3);
+    const sx = camera.position.x + _v3.x * 3;
+    const sy = camera.position.y + _v3.y * 3;
+    const sz = camera.position.z + _v3.z * 3;
+    const vx = _v3.x * speed, vy = _v3.y * speed + up, vz = _v3.z * speed;
+    if (activeScene.onGrenadeThrow) {
+        activeScene.onGrenadeThrow(sx, sy, sz, vx, vy, vz);
+        return true;
+    }
     const gMesh = buildGrenadeMesh();
     gMesh.rotation.y = Math.random() * 6.283;   // orientasi awal acak
-    gMesh.position.copy(camera.position).addScaledVector(_v3, 3);
+    gMesh.position.set(sx, sy, sz);
     scene.add(gMesh);
     grenades.push({
+        id: nextNadeId++, by: 0,   // by 0 = pemain lokal (host/SP)
         mesh: gMesh, fuse: CFG.grenade.fuseSec, rolled: false,
-        vx: _v3.x * speed,
-        vy: _v3.y * speed + up,
-        vz: _v3.z * speed
+        vx, vy, vz
     });
     return true;
+}
+
+// Granat kiriman CLIENT (co-op host): host mensimulasikannya penuh; `by` = id
+// pelempar (kill ledakannya dikredit ke dia lewat explodeAt -> creditKill).
+export function spawnRemoteGrenade(m, by) {
+    const gMesh = buildGrenadeMesh();
+    gMesh.rotation.y = Math.random() * 6.283;
+    gMesh.position.set(+m.x, +m.y, +m.z);
+    scene.add(gMesh);
+    grenades.push({
+        id: nextNadeId++, by,
+        mesh: gMesh, fuse: CFG.grenade.fuseSec, rolled: false,
+        vx: +m.vx, vy: +m.vy, vz: +m.vz
+    });
 }
 
 // Dorong granat pejal (yang sudah di tanah) keluar dari pendorong (player/zombie).
@@ -107,7 +135,7 @@ export function updateGrenades(dt) {
         const g = grenades[i];
         g.fuse -= dt;
         if (g.fuse <= 0) {   // meledak di mana pun ia berada saat sumbu habis
-            explodeAt(g.mesh.position);
+            explodeAt(g.mesh.position, undefined, g.by);   // by: kredit kill ke pelempar (co-op)
             scene.remove(g.mesh);
             grenades.splice(i, 1);
             continue;

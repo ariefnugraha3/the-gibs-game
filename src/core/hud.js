@@ -8,6 +8,7 @@ import { camera } from './renderer.js';
 import { activeScene } from './sceneManager.js';
 import { scoreText, ammoText, healthFill, waveText, radar, radarCtx, invSlots } from './dom.js';
 import { currentWeapon, WEAPON_DEF, grenadeMode, medkitMode } from '../entities/weapons.js';
+import { roster } from '../net/index.js';   // co-op: blip rekan tim di radar (kosong di SP)
 
 export function updateUI() {
     const w = player[currentWeapon];
@@ -125,6 +126,11 @@ export function drawRadar() {
 
     // Landmark per scene: Monas (survival) / tangga exit / air mancur + blokade
     if (activeScene && activeScene.radarLandmarks) activeScene.radarLandmarks(plot);
+
+    // Rekan tim co-op (biru; dijepit ke tepi sbg penunjuk arah saat jauh).
+    // roster kosong di SP -> loop no-op.
+    for (const p of roster)
+        if (p.alive) plot(p.x - camera.position.x, p.z - camera.position.z, "#74b9ff", 3.5, true);
 
     // Zombie
     for (const z of zombies)

@@ -10,6 +10,8 @@ import { playSFX, sfxPickup } from '../utils/sfx.js';
 import { showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 import { buildGrenadeMesh } from './grenades.js';
+// Seam co-op (no-op selain host): broadcast drop lahir / diambil.
+import { hostOnDropSpawn, hostOnDropTaken } from '../net/host.js';
 
 // ----- Medkit (hanya ditaruh manual oleh stage, bukan drop zombie) -----
 // Material BERSAMA: Group tidak ditelusuri clearArray, jadi bahan bersama
@@ -76,22 +78,61 @@ export function buildMagMesh() {
     return grp;
 }
 
+// Id drop berurutan (co-op: identitas jaringan — indeks array tidak stabil
+// karena splice; SP: hanya stempel tak terpakai, tanpa efek).
+let nextDropId = 1;
+
 // Drop acak saat zombie mati. Posisi dijepit oleh scene aktif (survival:
-// ke dalam pagar; campaign: apa adanya) lewat hook clampDropPos.
+// ke dalam pagar; campaign: apa adanya) lewat hook clampDropPos. Co-op host:
+// tiap drop yang lahir disiarkan ke client (hostOnDropSpawn — no-op selain host).
 export function spawnDrop(pos) {
     const [px, pz] = activeScene.clampDropPos(pos.x, pos.z);
     if (Math.random() < CFG.drops.magChance) {
         const magMesh = buildMagMesh();
         magMesh.position.set(px, 1, pz);
         scene.add(magMesh);
-        drops.push({ mesh: magMesh, type: 'mag', timer: CFG.drops.lifetimeSec });   // detik
+        drops.push({ id: nextDropId++, mesh: magMesh, type: 'mag', timer: CFG.drops.lifetimeSec });   // detik
+        hostOnDropSpawn(drops[drops.length - 1]);
     }
     if (Math.random() < CFG.drops.grenadeChance) {
         const nadeMesh = buildGrenadeMesh(0.8);   // model granat yang sama, skala item
         nadeMesh.position.set(px + 1.5, 1, pz + 1.5);
         scene.add(nadeMesh);
-        drops.push({ mesh: nadeMesh, type: 'grenade', timer: CFG.drops.lifetimeSec });
+        drops.push({ id: nextDropId++, mesh: nadeMesh, type: 'grenade', timer: CFG.drops.lifetimeSec });
+        hostOnDropSpawn(drops[drops.length - 1]);
     }
+}
+
+// Drop GHOST di client co-op: lahir dari event `drop` host (id milik host,
+// TANPA broadcast). Mesh dibangun per type; timer lifetime berjalan lokal.
+export function spawnNetDrop(id, type, x, z) {
+    const mesh = type === 'mag' ? buildMagMesh()
+        : type === 'medkit' ? buildMedkitMesh() : buildGrenadeMesh(0.8);
+    mesh.position.set(x, 1, z);
+    scene.add(mesh);
+    drops.push({ id, mesh, type, timer: CFG.drops.lifetimeSec });
+}
+
+// Terapkan EFEK pickup satu item ke pemain lokal (+SFX+feed+HUD). Dipakai
+// jalur pickup normal di bawah DAN client co-op saat host mengabulkan klaim
+// `take` miliknya (event dropgone by=localId).
+export function applyDropPickup(type) {
+    if (type === 'mag') {          // isi senjata yang DIMILIKI (di-cap maxMags)
+        const ownedW = ['rifle', 'pistol', 'shotgun'].filter(w => player.owned[w]);
+        for (const w of ownedW)
+            player[w].mags = Math.min(CFG.weapons.maxMags, player[w].mags + 1);
+        showPickup('+1 Mag (All Weapons)', '#f1c40f');
+    } else if (type === 'medkit') {
+        // Medkit = item genggam (maks CFG.player.maxMedkits). Diambil ke
+        // inventori; PAKAI dgn tombol 4 (bukan sembuh saat diambil).
+        player.medkits = Math.min(CFG.player.maxMedkits, player.medkits + 1);
+        showPickup('+1 Medkit (press 4 to use)', '#ff6b81');
+    } else {
+        player.grenades = Math.min(CFG.grenade.max, player.grenades + 1);
+        showPickup('+1 Grenade', '#2ed573');
+    }
+    playSFX(sfxPickup);
+    updateUI();
 }
 
 let fullInfoCd = 0;   // jeda pesan "already full" agar tidak spam tiap frame
@@ -122,22 +163,14 @@ export function updateDrops(dt, T) {
                         : d.type === 'grenade' ? 'Grenades already full'
                             : 'Medkit already carried', '#b8b8b8');
                 }
+            } else if (activeScene.onDropTake) {
+                // Hook co-op CLIENT: kirim KLAIM ambil ke host (sekali per drop)
+                // — item TIDAK dikonsumsi lokal; efeknya diterapkan saat host
+                // mengabulkan (event dropgone by=aku -> applyDropPickup).
+                if (!d.claimed) { d.claimed = true; activeScene.onDropTake(d); }
             } else {
-                if (d.type === 'mag') {          // isi senjata yang DIMILIKI (di-cap maxMags)
-                    for (const w of ownedW)
-                        player[w].mags = Math.min(CFG.weapons.maxMags, player[w].mags + 1);
-                    showPickup('+1 Mag (All Weapons)', '#f1c40f');
-                } else if (d.type === 'medkit') {
-                    // Medkit = item genggam (maks 1). Diambil ke inventori; PAKAI
-                    // dgn tombol 4 untuk memulihkan HP (bukan sembuh saat diambil).
-                    player.medkits = Math.min(CFG.player.maxMedkits, player.medkits + 1);
-                    showPickup('+1 Medkit (press 4 to use)', '#ff6b81');
-                } else {
-                    player.grenades = Math.min(CFG.grenade.max, player.grenades + 1);
-                    showPickup('+1 Grenade', '#2ed573');
-                }
-                playSFX(sfxPickup);
-                updateUI();
+                applyDropPickup(d.type);
+                hostOnDropTaken(d.id, 0, d.type);   // co-op host: umumkan drop diambil host (no-op SP)
                 scene.remove(d.mesh);
                 drops.splice(i, 1);
                 continue;

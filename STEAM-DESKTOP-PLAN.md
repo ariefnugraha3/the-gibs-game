@@ -15,6 +15,15 @@
 > Perhatian ekstra utk Fase 1: game kini dimuat via ES modules + `fetch` config, jadi
 > jendela Electron perlu `loadFile` yang mendukung module/fetch (Electron modern OK)
 > atau server statis internal — uji ini bersamaan dgn vendoring CDN.
+>
+> **Catatan sinkronisasi (2026-07-10):** game kini punya **co-op LAN 4 pemain**
+> (host-authoritative, relay WebSocket `server.py`, lihat
+> [IMPROVEMENT-MULTIPLAYER-PLAN.md](IMPROVEMENT-MULTIPLAYER-PLAN.md)). Konsekuensi
+> untuk distribusi dibahas di **§6.5** — ringkasnya: logika co-op tidak berubah
+> antar kanal, hanya **transport**-nya yang diganti (relay publik `wss` utk web,
+> relay embedded + join-by-IP/discovery utk Electron, Steamworks lobby+P2P utk
+> Steam). Fase 1 Electron di bawah TIDAK terblokir oleh ini — co-op desktop bisa
+> menyusul sebagai fase terpisah.
 
 ---
 
@@ -175,10 +184,102 @@ Bisa dikerjakan sekarang; hasilnya langsung diuji & bisa dijual di itch.io deskt
 ## 6. Distribusi ganda: Steam + itch.io
 
 Satu basis kode, dua target — **jangan buang build web**:
-- **itch.io (web)**: zip `index.html` + `assets/` + `vendor/` → "HTML5 game, play in
-  browser". (Setelah §3, versi web pun tak lagi butuh CDN → lebih tahan.)
+- **itch.io (web)**: zip `index.html` + `assets/` + `vendor/` + `src/` + `css/` +
+  `config/` → "HTML5 game, play in browser". (Setelah §3, versi web pun tak lagi
+  butuh CDN → lebih tahan.)
 - **itch.io (desktop)** & **Steam**: folder Electron terpaket dari Fase 1.
 - Perbedaan Steam: tambah integrasi Steamworks (Fase 2) + upload via SteamPipe.
+- **Co-op** berbeda pipa per kanal (web = relay publik wss; desktop = relay
+  embedded; Steam = lobby+P2P) — lihat **§6.5**. Tanpa pipa tambahan, kartu Co-op
+  di versi web hanya menampilkan error "Could not reach the co-op relay".
+
+---
+
+## 6.5. Co-op multiplayer per kanal distribusi (BARU 2026-07-10)
+
+Co-op LAN sudah diimplementasikan (lihat IMPROVEMENT-MULTIPLAYER-PLAN.md). Prinsip
+yang membuat bagian ini murah: **seluruh logika co-op (snapshot, klaim, room,
+ready-check) tidak tahu pesannya lewat apa** — transport terisolasi di
+`src/net/socket.js` dgn antarmuka kecil (`connectWS`/`sendMsg`/`setMsgHandler`/
+`setCloseHandler`). Mem-publish co-op ke kanal lain = mengganti PIPA di balik
+antarmuka itu, bukan menulis ulang netcode. `host.js`/`coopClient.js`/
+`players.js`/protokol pesan TIDAK disentuh sama sekali.
+
+| Kanal | Pipa transport | Cara join | Usaha |
+|---|---|---|---|
+| LAN (sekarang) | `server.py` di mesin host | buka `http://<ip-host>:8000`, room bernama | **SELESAI** |
+| GitHub Pages / itch **web** | **relay publik `wss://`** | room bernama (relay bersama) | Kecil |
+| itch **desktop** (Electron) | relay **embedded** di app host | join-by-IP ATAU discovery LAN | Sedang |
+| **Steam** | **Steamworks lobby + P2P (SDR)** | invite teman via overlay | Sedang |
+
+### A. Web (GitHub Pages / itch HTML5) — relay publik `wss://`
+
+Halaman HTTPS **tidak bisa** konek ke `ws://` LAN (mixed content diblokir browser)
+dan GitHub Pages/itch tidak bisa menjalankan proses relay — maka co-op versi web
+= relay PUBLIK ber-TLS. Bonus: otomatis jadi co-op lintas INTERNET, bukan cuma LAN.
+
+- **Hosting relay** (pilih satu):
+  - VPS murah (~US$4–5/bln) + Caddy/nginx (TLS otomatis Let's Encrypt) di depan
+    `server.py` apa adanya; atau
+  - **Cloudflare Workers + Durable Objects** — model room bernama kita nyaris 1:1
+    dgn Durable Objects (satu object per room); free tier cukup utk game hobi,
+    TLS & skala otomatis. Port logika relay (~150 baris JS).
+- **Perubahan game (kecil):** `socket.js` diberi URL relay konfigurasi — mis. kunci
+  `CFG.net.relayUrl`; aturan: kosong → perilaku sekarang (`ws://location.hostname:
+  port`, jalur LAN); terisi ATAU halaman dimuat via `https:` → pakai `relayUrl`
+  (`wss://...`). Kartu Co-op web memakai relay publik tanpa pemain sadar bedanya.
+- **Catatan:** (1) relay publik dipakai SEMUA pemainmu — sarankan nama room yang
+  tak mudah ketebak (atau tambahkan sufiks acak 4 digit yang di-share bersama nama);
+  (2) latensi internet 20–100 ms — interp 120 ms kita menoleransinya, tapi uji rasa
+  cakar/klaim; (3) tambahkan field **versi game** di pesan `create`/`join` dan tolak
+  bila beda (`{t:'badver'}`) — pemain web bisa memegang cache versi lama.
+
+### B. itch desktop (Electron) — relay embedded + discovery
+
+Electron membawa Node.js, jadi langkah `python server.py` HILANG:
+
+- **Relay dibundel**: port logika `server.py` ke modul Node (~150 baris,
+  `node:http` + WS manual yang sama) yang dijalankan **proses utama Electron**
+  saat pemain menekan CREATE ROOM (tutup saat keluar). Pemain host tidak
+  menjalankan apa pun secara manual.
+- **`location.hostname` mati** di Electron (tiap pemain menjalankan salinan
+  lokal, bukan memuat halaman dari mesin host). Gantinya, di lobby:
+  - **Join by IP** (kolom input alamat host) — paling sederhana, kerjakan dulu; dan/atau
+  - **Discovery LAN**: proses utama Electron broadcast UDP/mDNS (`gibs-room`
+    beacon berisi nama room + jumlah pemain) → lobby client menampilkan daftar
+    room di jaringan ("warkop — 2/4") utk diklik. UX terbaik utk LAN.
+- Bagian lobby yang desktop-only digating flag `window.__ELECTRON__` (preload) —
+  build web tetap bersih (prinsip §2).
+- Versi desktop juga boleh menawarkan **relay publik** (jalur A) sebagai opsi
+  "Online" di samping "LAN".
+
+### C. Steam — Steamworks lobbies + P2P (pipa terbaik utk Steam)
+
+Ekspektasi pemain Steam: **invite lewat overlay**, tanpa IP/nama room. Steamworks
+menyediakan semuanya gratis via `steamworks.js` (sudah direncanakan di Fase 2 §4):
+
+- **`src/net/socket-steam.js`** (baru): implementasi antarmuka socket yang sama —
+  `create room` → `createLobby` (lobby owner = host, id 0); `join` → join lobby
+  (dari invite/friend list); `sendMsg` → Steam P2P messages (`ISteamNetworking
+  Messages`) yang dirutekan **Steam Datagram Relay**: NAT traversal ditangani
+  Valve, main lintas internet TANPA server sendiri sama sekali.
+- Renderer tidak boleh menyentuh Steamworks langsung (contextIsolation) →
+  jembatan `preload.js`: `window.steamNet = { createLobby, join, send, onMessage,
+  onPeerLeave, invite }`; `socket-steam.js` hanya memanggil jembatan ini.
+- Pemetaan konsep: room bernama → lobby Steam; `joined/leave` → member lobby
+  masuk/keluar; `lock` → `setLobbyJoinable(false)`; `hostleft` → owner keluar
+  (bubarkan sesi — TANPA host migration, konsisten desain v1).
+- Nilai jual: kolom **"Online Co-op"** di halaman toko Steam.
+- Urutan: kerjakan SETELAH Fase 2 dasar (steamworks.js init + achievement) beres.
+
+### Checklist co-op distribusi
+
+- [ ] `CFG.net.relayUrl` + logika pemilihan pipa di `socket.js` (halaman https → wss)
+- [ ] Field versi game di `create`/`join` + penolakan `badver` (relay & lobby)
+- [ ] Relay publik: pilih VPS+Caddy ATAU Cloudflare Durable Objects; deploy; uji 2 jaringan berbeda
+- [ ] Electron: port relay ke Node di proses utama + tombol CREATE menjalankannya
+- [ ] Electron: lobby join-by-IP (lalu discovery UDP/mDNS bila sempat)
+- [ ] Steam: `preload.js` jembatan steamNet + `socket-steam.js` + uji invite overlay 2 akun
 
 ---
 

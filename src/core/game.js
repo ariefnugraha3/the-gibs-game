@@ -19,6 +19,10 @@ import { updateDrops } from '../entities/drops.js';
 import { updateBullets } from '../entities/bullets.js';
 import { updateZombies, disposeZombie, resetZombiesFx } from '../entities/zombies.js';
 import { releaseInputs, requestLock } from './input.js';
+// Seam co-op LAN (no-op murni saat netRole 'off'): host menyiarkan game over &
+// restart ke client; resetDown melepas status tumbang pemain lokal.
+import { hostOnGameOver, hostOnRestart } from '../net/host.js';
+import { resetDown } from '../net/players.js';
 
 // Urutan blok = urutan update() lama — JANGAN diubah tanpa alasan kuat:
 // mis. peluru harus maju SEBELUM hit test zombie memakai segmen sweep-nya.
@@ -60,9 +64,12 @@ export function gameOver(won, title) {
     document.getElementById('goStats').innerText =
         `Kills ${stats.kills} · Headshots ${stats.headshots} (${hs}%) · Accuracy ${acc}%`;
     gameOverScreen.style.display = 'flex';
+    hostOnGameOver(won, gameOverTitle.innerText);   // co-op host: siarkan `over` (no-op selain host)
 }
 
 export function resetGame() {
+    hostOnRestart();       // co-op host: siarkan `restart` + reset roster (no-op selain host)
+    resetDown();           // co-op: lepas status tumbang pemain lokal (no-op SP)
     setScore(0);
     resetStats();          // statistik run baru
     configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG

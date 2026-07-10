@@ -20,7 +20,17 @@ import {
 } from './world.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
 import { openShop, closeShop, isShopOpen, requestNextWave } from './shop.js';
-import { requestLock } from '../../core/input.js';
+import { requestLock, showBlockerIfUnlocked } from '../../core/input.js';
+// Co-op LAN (IMPROVEMENT-MULTIPLAYER-PLAN.md): scene ini juga menjadi sisi
+// HOST — semua tambahan MP di bawah dijaga `netRole !== 'off'` sehingga jalur
+// SP tetap byte-identik. Client memakai scene terpisah (coopClient.js).
+import { netRole } from '../../net/index.js';
+import { getTargets, damageRemotePlayer, updateDownCam, resetDown } from '../../net/players.js';
+import {
+    hostInitRound, hostUpdate, hostOnZombieSpawn, hostOnWaveStart,
+    hostEnterShopping, hostShoppingUpdate, getReadyInfo, hostOnEvent
+} from '../../net/host.js';
+import { initRemoteAvatars, updateRemotePlayers } from '../../entities/remotePlayers.js';
 
 // Wave berbasis "clear" (overhaul 2026-07-07): tiap wave punya jatah zombie
 // TETAP (toSpawn) yang harus dihabisi. Wave bersih saat semua sudah di-spawn
@@ -33,6 +43,7 @@ const wave = {
     clearTimer: 0                // hitung mundur sebelum shop terbuka
 };
 let navGrid = null;   // nav-grid pathfinder (Monas & pohon = penghalang; bak walkable = vault)
+let nextZid = 1;      // id zombie berurutan (identitas jaringan co-op; SP: stempel tak terpakai)
 
 // Objektif Monas (IMPROVEMENT-PLAN #6): sebagian zombie menggerogoti Monas;
 // monasHp 0 = kalah ("THE MONUMENT HAS FALLEN"). monasMaxHp scene-local (bukan
@@ -83,6 +94,14 @@ export const getMonasHp = () => monasHp;
 export const getMonasMaxHp = () => monasMaxHp;
 export const isMonasFullyStrengthened = () => monasStage >= CFG.survival.strengthenMonasStages.length;
 
+// Info wave utk snapshot host co-op (net/host.js). left = sisa zombie wave ini.
+export function getWaveInfo() {
+    return {
+        num: wave.num, phase: wave.phase,
+        left: wave.toSpawn + zombies.length, timer: wave.clearTimer
+    };
+}
+
 // Event wave (IMPROVEMENT-PLAN #9): kabut turun ATAU listrik kota padam —
 // hanya menganimasikan fog.near/far & intensitas cahaya (uniform-only, tanpa
 // recompile; scene.fog sudah dibuat sejak initRenderer).
@@ -94,11 +113,13 @@ function startEvent() {
     EVT.left = EVT.dur;
     showPickup(EVT.type === 'fog' ? 'The fog is rolling in...' : 'The city lights went out!',
         EVT.type === 'fog' ? '#9fb6c9' : '#c9b89f');
+    hostOnEvent(EVT.type, EVT.dur);   // co-op host: client memutar efek yang sama (no-op SP)
 }
 
 function endEvent() {
     EVT.type = null;
     applyLightPreset(scene, 'outdoor');   // pulihkan fog + cahaya persis preset
+    hostOnEvent(null, 0);                 // co-op host: hentikan efek di client (no-op SP/selain host)
 }
 
 function spawnZombie() {
@@ -173,6 +194,7 @@ function spawnZombie() {
     // untuk vault dinding bak air mancur; groundY = lantai pijakan saat ini.
     // target 'monas' (peluang CFG) = menggerogoti Monas kecuali player mendekat.
     zombies.push({
+        id: nextZid++,   // identitas jaringan co-op (indeks array tidak stabil)
         mesh: zMesh, hp: vHp, maxHp: vHp, speed: vSpeed, rig: built2.rig, isModel: true,
         baseY, phase: Math.random() * 6.28,
         state: 'jumping', jumpT: 0, jumpDur: 1.1,
@@ -185,6 +207,7 @@ function spawnZombie() {
         // Target ditentukan per-frame di zombieAI (Monas default / kejar player
         // bila dalam radius aggro) — tidak lagi diundi saat spawn.
     });
+    hostOnZombieSpawn(zombies[zombies.length - 1]);   // co-op host: siarkan zspawn (no-op SP)
 }
 
 // Mulai wave ke-n: set jatah zombie (naik per wave) + cadence spawn + cap
@@ -201,6 +224,7 @@ function startWave(n) {
         SV.maxZombiesBase + (n - 1) * SV.maxZombiesStep);
     if (SV.eventEveryWaves > 0 && n % SV.eventEveryWaves === 0 && !EVT.type) startEvent();
     showStageMsg(`WAVE ${n}`, 1800);
+    hostOnWaveStart(n);   // co-op host: hidupkan kembali semua pemain + siarkan wavestart (no-op SP)
     updateUI();
 }
 
@@ -212,6 +236,9 @@ export function startNextWave() {
     closeShop();
     startWave(wave.num + 1);
     requestLock();
+    // Co-op: lock yang dipicu remote (ready pemain lain / timer) bisa ditolak
+    // browser -> beri blocker klik-untuk-lanjut (no-op bila lock berhasil).
+    if (netRole !== 'off') showBlockerIfUnlocked();
 }
 
 // Hook tombol shop (core/input.js men-delegasi keydown ke sini saat shop modal
@@ -237,12 +264,24 @@ export const survivalScene = {
         monasHp = monasMaxHp;
         monasStage = 0;      // batalkan tingkat Strengthen run sebelumnya
         monasWarnCd = 0;
+        nextZid = 1;
         endEvent();          // pulihkan fog/cahaya bila mati di tengah event
         closeShop();
+        // Co-op host: avatar rekan + reset ready/cadence/status tumbang
+        if (netRole !== 'off') {
+            initRemoteAvatars();
+            resetDown();
+            hostInitRound();
+        }
         camera.position.set(0, CFG.player.eyeHeight, 120);
         camera.quaternion.set(0, 0, 0, 1);
         startWave(1);
     },
+
+    // Co-op: dunia bersama TIDAK bisa di-pause (ESC = menu lokal di atas dunia
+    // berjalan; shop = intermission ready-check). SP (netRole 'off') -> true =
+    // perilaku pause lama persis. (input.js membaca hook ini.)
+    pausable: () => netRole === 'off',
 
     // Hook shop modal: SPACE/Enter = Next Wave (input.js men-delegasi keydown ke
     // shopKey); shopActive = predikat "shop terbuka" yang dipakai input.js untuk
@@ -254,6 +293,15 @@ export const survivalScene = {
     // --- Mesin fase wave (fighting -> cleared -> shopping) + spawner + event ---
     updateMode(dt) {
         if (monasWarnCd > 0) monasWarnCd -= dt;
+
+        // Co-op host: konsumsi pesan client + snapshot 15 Hz + avatar rekan +
+        // kamera spectator saat tumbang. Diletakkan di updateMode (bukan
+        // updateGame) supaya kontrak urutan blok bersama tidak berubah.
+        if (netRole !== 'off') {
+            hostUpdate(dt);
+            updateRemotePlayers(dt);
+            updateDownCam(dt);
+        }
 
         if (wave.phase === 'fighting') {
             // Spawn sampai jatah wave habis, dibatasi cap zombie di lapangan
@@ -279,9 +327,15 @@ export const survivalScene = {
             if (wave.clearTimer <= 0) {
                 wave.phase = 'shopping';
                 openShop();
+                hostEnterShopping();   // co-op host: mulai timer batas + reset ready (no-op SP)
             }
+        } else if (netRole === 'host') {
+            // 'shopping' co-op: dunia TIDAK di-pause — hitung mundur batas
+            // shop + ready-check berjalan live (host.js); habis/semua ready ->
+            // startNextWave.
+            hostShoppingUpdate(dt);
         } else {
-            // 'shopping': shop = MODAL & game DI-PAUSE, jadi updateMode normalnya
+            // 'shopping' SP: shop = MODAL & game DI-PAUSE, jadi updateMode normalnya
             // tak berjalan lagi sampai Start Next Wave (klik/SPACE ->
             // startNextWave -> requestLock -> resume). Guard defensif: bila entah
             // bagaimana kita di fase ini tanpa shop terbuka, buka lagi.
@@ -360,6 +414,17 @@ export const survivalScene = {
     zombieAI(z, dt, step) {
         const oldZX = z.mesh.position.x, oldZZ = z.mesh.position.z;
 
+        // Target terdekat yang HIDUP: SP = kamera saja (getTargets satu elemen,
+        // perilaku lama byte-identik); co-op host = kamera + pemain roster hidup.
+        const targets = getTargets();
+        let tgt = null, distToEye = Infinity;
+        for (let ti = 0; ti < targets.length; ti++) {
+            const t = targets[ti];
+            if (!t.alive) continue;
+            const d = Math.hypot(t.x - z.mesh.position.x, t.z - z.mesh.position.z);
+            if (d < distToEye) { distToEye = d; tgt = t; }
+        }
+
         if (z.state === 'jumping') {
             // Busur lompat (pagar / vault bak): lerp horizontal + lerp lantai + busur sinus.
             z.jumpT += dt / z.jumpDur;
@@ -368,7 +433,8 @@ export const survivalScene = {
             z.mesh.position.z = z.sz + (z.lz - z.sz) * t;
             z.mesh.position.y = z.baseY + z.jumpY0 + (z.jumpY1 - z.jumpY0) * t
                 + Math.sin(Math.PI * t) * z.arcH;
-            z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
+            z.mesh.lookAt(tgt ? tgt.x : camera.position.x, z.mesh.position.y,
+                tgt ? tgt.z : camera.position.z);
             if (t >= 1) {
                 z.state = 'chasing';
                 z.groundY = z.jumpY1;
@@ -380,29 +446,27 @@ export const survivalScene = {
             return {};
         }
 
-        // Kejar TARGET (grounded): player, atau Monas. PRIORITAS MONAS — SEMUA
-        // zombie menyerang Monas secara default; hanya beralih mengejar player
-        // bila player berada dalam radius aggro (playerAggroMeters × 7 unit) dari
-        // zombie; begitu player > radius, zombie kembali menyerang Monas.
+        // Kejar TARGET (grounded): pemain terdekat, atau Monas. PRIORITAS MONAS —
+        // SEMUA zombie menyerang Monas secara default; hanya beralih mengejar
+        // pemain bila pemain TERDEKAT berada dalam radius aggro (playerAggroMeters
+        // × 7 unit) dari zombie; begitu pemain > radius, kembali menyerang Monas.
         // Pathfinder: direct = garis lurus bebas (kejar langsung — termasuk
         // melintasi bak air mancur, yang memicu vault); waypoint = memutari
         // Monas/pohon. Gerak memakai heading berlaju-putar-terbatas
         // (turnToward) -> belokan melengkung alami, tidak patah-patah.
-        const dx = camera.position.x - z.mesh.position.x;
-        const dz = camera.position.z - z.mesh.position.z;
-        const distToEye = Math.hypot(dx, dz);
         // Radius aggro efektif (meter -> unit). Zombie yang sudah BERKOMITMEN ke
         // Monas (pernah memukulnya) lebih sulit dialihkan: radiusnya menyusut ke
         // monasLockAggroMeters (5 m). Sebagian (monasLockChance) malah TERKUNCI
-        // penuh (radius 0) -> tak pernah mengejar player. Zombie biasa memakai
+        // penuh (radius 0) -> tak pernah mengejar pemain. Zombie biasa memakai
         // playerAggroMeters (15 m).
         const aggroM = z.monasLocked ? 0
             : z.monasCommitted ? CFG.survival.monasLockAggroMeters
                 : CFG.survival.playerAggroMeters;
+        // Semua pemain tumbang (co-op) -> distToEye Infinity -> serang Monas.
         const atkMonas = monasHp > 0 && distToEye > aggroM * CAMP_M;
-        // Titik tuju: player, atau titik terdekat di tepi AABB Monas (24)
-        const tx = atkMonas ? clamp(z.mesh.position.x, -24, 24) : camera.position.x;
-        const tz = atkMonas ? clamp(z.mesh.position.z, -24, 24) : camera.position.z;
+        // Titik tuju: pemain terdekat, atau titik terdekat di tepi AABB Monas (24)
+        const tx = atkMonas ? clamp(z.mesh.position.x, -24, 24) : tgt.x;
+        const tz = atkMonas ? clamp(z.mesh.position.z, -24, 24) : tgt.z;
         const distT = atkMonas
             ? Math.hypot(tx - z.mesh.position.x, tz - z.mesh.position.z) : distToEye;
         const aim = navAim(z, navGrid, tx, tz, dt, step);
@@ -479,7 +543,26 @@ export const survivalScene = {
         }
 
         // Penggerogot Monas TIDAK mencakar player frame ini (kontrak zombies.js)
-        return atkMonas ? {} : { chaseDist: distToEye };
+        if (atkMonas) return {};
+
+        // Target = pemain REMOTE (co-op host): cakar ditangani DI SINI (pola
+        // penggerogot Monas — return {} menjaga zombies.js tidak melukai pemain
+        // lokal). Jangkauan & cooldown sama persis dgn blok cakar zombies.js;
+        // damage dikirim sbg event `dmg` (hp pemain client-authoritative).
+        if (tgt && !tgt.local) {
+            if (z.attackCd > 0) z.attackCd -= dt;
+            if (distToEye < player.radius + CFG.zombie.clawRange * (z.reachMul || 1)
+                && z.attackCd <= 0) {
+                z.attackCd = CFG.zombie.clawCooldownSec;
+                z.clawT = CLAW_TIME;
+                z.clawSide = -z.clawSide;
+                damageRemotePlayer(tgt.id,
+                    z.clawDmg != null ? z.clawDmg : CFG.zombie.clawDamage,
+                    z.mesh.position.x, z.mesh.position.z);
+            }
+            return {};
+        }
+        return { chaseDist: distToEye };
     },
 
     // Drop dijepit ke dalam pagar (zombie yang mati saat melompat ada di luar)
@@ -491,8 +574,13 @@ export const survivalScene = {
         const pct = Math.max(0, Math.ceil(monasHp / monasMaxHp * 100));
         if (wave.phase === 'cleared')
             return `WAVE ${wave.num} CLEARED — Next wave in ${Math.max(1, Math.ceil(wave.clearTimer))}...`;
-        if (wave.phase === 'shopping')
+        if (wave.phase === 'shopping') {
+            if (netRole === 'host') {
+                const ri = getReadyInfo();
+                return `WAVE ${wave.num} CLEARED — Ready ${ri.ready}/${ri.total} · starts in ${ri.timeLeft}s`;
+            }
             return `WAVE ${wave.num} CLEARED — Field Shop open`;
+        }
         const left = wave.toSpawn + zombies.length;   // sisa zombie wave ini
         return `Wave ${wave.num} — ${left} left · Monas ${pct}%`;
     },

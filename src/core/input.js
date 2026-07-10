@@ -13,6 +13,15 @@ import {
     grenadeMode, throwEquippedGrenade, equipMedkit
 } from '../entities/weapons.js';
 import { toggleCrouch, setCrouchHold, clearCrouch, tryJump } from '../entities/player.js';
+// Co-op LAN: netRole utk gate kecil (cheat console off, restart milik host);
+// localDown = pemain lokal tumbang (input gameplay ditelan sampai respawn).
+import { netRole } from '../net/index.js';
+import { localDown } from '../net/players.js';
+
+// Dunia MP tidak bisa di-pause: scene MP memasang hook pausable() -> false.
+// Scene tanpa hook (semua scene SP) = true -> perilaku lama persis.
+const scenePausable = () =>
+    !activeScene || !activeScene.pausable || activeScene.pausable();
 
 // ----- Fullscreen + Keyboard Lock: cegah shortcut browser saat main -----
 // Ctrl+W (tutup tab), Ctrl+R (reload), Ctrl+T/N, dsb TIDAK bisa dicegah
@@ -56,6 +65,22 @@ export function requestLock() {
     enterImmersive();
 }
 
+// Co-op: requestLock TANPA gesture pengguna (wavestart dari ready pemain lain /
+// timer shop habis / restart host) bisa DITOLAK browser — dan unlock-nya
+// terjadi saat shop terbuka (blocker sengaja tidak ditampilkan), jadi tanpa
+// bantuan ini tidak ada permukaan klik utk me-lock ulang. Cek sesaat kemudian:
+// masih unlocked & bukan shop/game-over -> tampilkan blocker (klik = resume).
+export function showBlockerIfUnlocked(delayMs = 350) {
+    setTimeout(() => {
+        if (document.pointerLockElement === document.body) return;
+        if (isGameOver) return;
+        const shopModal = activeScene && activeScene.shopActive && activeScene.shopActive();
+        if (shopModal) return;
+        hidePauseMenu();   // tampilkan instruksi klik-untuk-lanjut, bukan menu jeda
+        blocker.style.display = 'flex';
+    }, delayMs);
+}
+
 // Lepas semua input yang sedang ditekan (dipanggil saat unlock / blur / reset).
 export function releaseInputs() {
     mouse.isDown = false;
@@ -81,7 +106,10 @@ export function initInput() {
             setPaused(false);
         } else {
             forceHideCheatConsole();   // ESC saat konsol cheat terbuka -> tutup (menu jeda ambil alih)
-            setPaused(true);
+            // MP (pausable() false): dunia TERUS berjalan saat unlock — menu ESC
+            // lokal / shop tanpa menghentikan pemain lain. Input gameplay saat
+            // unlocked ditelan oleh gate di handler bawah.
+            if (scenePausable()) setPaused(true);
             releaseInputs();   // bug fix: tombol/tembakan jangan "nyangkut" saat unlock
             // Shop survival membuka -> pointer dilepas DISENGAJA agar kursor bisa
             // memakai menu klik: JANGAN tampilkan blocker pause (game tetap
@@ -100,6 +128,10 @@ export function initInput() {
     const euler = new THREE.Euler(0, 0, 0, 'YXZ');
     document.addEventListener('mousemove', (e) => {
         if (isPaused || isGameOver) return;
+        // MP: tanpa pointer lock (menu ESC lokal di atas dunia berjalan) /
+        // tumbang -> kamera tidak boleh ikut gerakan mouse.
+        if (!scenePausable() &&
+            (document.pointerLockElement !== document.body || localDown)) return;
         euler.setFromQuaternion(camera.quaternion);
         euler.y -= e.movementX * 0.002;
         euler.x -= e.movementY * 0.002;
@@ -110,6 +142,10 @@ export function initInput() {
     // ----- Klik kiri = tembak; klik kanan = TOGGLE bidik iron sight (ADS) -----
     document.addEventListener('mousedown', (e) => {
         if (isPaused || isGameOver) return;
+        // MP: klik saat pointer tak ter-lock = klik menu (blocker/pause/shop),
+        // bukan tembakan; saat tumbang semua klik gameplay ditelan.
+        if (!scenePausable() &&
+            (document.pointerLockElement !== document.body || localDown)) return;
         // Mode granat (tombol 3): klik kiri = lempar JAUH, klik kanan = lempar
         // DEKAT (bukan tembak/ADS). Ditangani sebelum jalur senjata biasa.
         if (grenadeMode) {
@@ -134,6 +170,7 @@ export function initInput() {
         // Enter ditangani oleh input konsol, backtick di sini utk menutup.
         if (e.code === 'Backquote') {
             e.preventDefault();
+            if (netRole !== 'off') return;   // cheat console NONAKTIF saat co-op (god-mode = desync)
             if (isCheatConsoleOpen()) closeCheatConsole();
             else if (document.pointerLockElement === document.body) openCheatConsole();
             return;
@@ -146,6 +183,14 @@ export function initInput() {
         if (activeScene && activeScene.shopActive && activeScene.shopActive()) {
             if (activeScene.shopKey) activeScene.shopKey(key);
             e.preventDefault();
+            return;
+        }
+        // MP: pointer tak ter-lock (menu ESC lokal — dunia jalan terus) atau
+        // pemain tumbang -> telan SEMUA tombol gameplay; hanya SPACE restart
+        // game-over yang tetap hidup (host saja — client menunggu host).
+        if (!scenePausable() &&
+            (document.pointerLockElement !== document.body || localDown)) {
+            if (e.code === 'Space' && isGameOver && netRole !== 'client') resetGame();
             return;
         }
         if (keys.hasOwnProperty(key)) keys[key] = true;
@@ -168,7 +213,9 @@ export function initInput() {
         // medkitUseSec detik untuk memakainya (pulihkan 70% HP; hanya bisa punya 1).
         if (key === '4' && !isPaused && !isGameOver) equipMedkit();
         if (e.code === 'Space') {
-            if (isGameOver) resetGame();       // restart
+            // Restart game-over: di co-op hanya HOST (client menunggu pesan
+            // `restart` dari host — layarnya menampilkan "Waiting for the host").
+            if (isGameOver) { if (netRole !== 'client') resetGame(); }
             else tryJump();                    // lompat
         }
     });

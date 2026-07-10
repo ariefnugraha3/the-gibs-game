@@ -182,5 +182,13 @@
         "easy": { "zombieHpMul": 0.75, "zombieDamageMul": 0.5, "spawnIntervalMul": 1.3 },
         "normal": { "zombieHpMul": 1, "zombieDamageMul": 1, "spawnIntervalMul": 1 },
         "hard": { "zombieHpMul": 1.4, "zombieDamageMul": 2, "spawnIntervalMul": 0.8 }
+    },
+    "net": {
+        "port": 8001,
+        "maxPlayers": 4,
+        "snapshotHz": 15,
+        "inputHz": 20,
+        "interpDelayMs": 120,
+        "shopMaxSec": 60
     }
 }
