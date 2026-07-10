@@ -264,18 +264,23 @@ export function initWeapons() {
     // sarung tangan taktis + jari mencengkeram; ikut bob/ADS/recoil via gunMesh) -----
     const glove = new THREE.MeshPhongMaterial({ color: 0x3a3d42, shininess: 16, specular: 0x22242a });
     const sleeve = new THREE.MeshPhongMaterial({ color: 0x4a4d3c, shininess: 8, specular: 0x181a14 });
+    // Kulit (sarung tangan TANPA JARI ala referensi CS: ruas ujung jari &
+    // pergelangan telanjang). Phong polos = program shader sama dgn glove.
+    const skin = new THREE.MeshPhongMaterial({ color: 0xd09a66, shininess: 10, specular: 0x241a12 });
 
     // Jari yang MELINGKAR (overhaul 2026-07-10): rangkaian ruas kotak kecil
     // tangensial pada busur — jari benar-benar membungkus handguard/pump/grip,
     // bukan balok lurus menempel. wrapZ=true: busur di bidang X-Y (benda
     // horizontal spt handguard); false: busur di bidang X-Z (grip vertikal).
-    const wrapFinger = (parent, mat, cx, cy, cz, r, a0, a1, seg, thick, wrapZ) => {
+    // tipMat (opsional): material 2 ruas TERAKHIR (ujung jari kulit).
+    const wrapFinger = (parent, mat, cx, cy, cz, r, a0, a1, seg, thick, wrapZ, tipMat) => {
         const L = Math.abs(a1 - a0) * r / (seg - 1) * 1.3;   // ruas menutup celah busur
         for (let k = 0; k < seg; k++) {
             const a = a0 + (a1 - a0) * (k / (seg - 1));
+            const m = tipMat && k >= seg - 2 ? tipMat : mat;
             const b = new THREE.Mesh(
                 wrapZ ? new THREE.BoxGeometry(thick, L, thick) : new THREE.BoxGeometry(L, thick, thick),
-                mat);
+                m);
             if (wrapZ) {
                 b.position.set(cx + Math.cos(a) * r, cy + Math.sin(a) * r, cz);
                 b.rotation.z = a;
@@ -295,9 +300,9 @@ export function initWeapons() {
     const palmR = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.85, 0.6), glove);
     palmR.position.set(0.3, -0.05, 0);                // telapak di sisi kanan grip
     gripHand.add(palmR);
-    // Tiga jari membungkus depan grip (busur X-Z), bertingkat ke bawah
+    // Tiga jari membungkus depan grip (busur X-Z), bertingkat ke bawah; ujung kulit
     for (let i = 0; i < 3; i++)
-        wrapFinger(gripHand, glove, 0, 0.24 - i * 0.24, 0.02, 0.34, -0.15, -2.85, 4, 0.16, false);
+        wrapFinger(gripHand, glove, 0, 0.24 - i * 0.24, 0.02, 0.34, -0.15, -2.85, 4, 0.16, false, skin);
     const trigF = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.5), glove);
     trigF.position.set(0.08, 0.55, -0.32);            // telunjuk lurus ke pelatuk (trigger discipline)
     trigF.rotation.x = 0.35;
@@ -316,23 +321,43 @@ export function initWeapons() {
     rightArm.add(foreR);
     gunMesh.add(rightArm);
 
-    // --- Tangan kiri (paling terlihat): telapak menampung handguard dari bawah,
-    // EMPAT jari membungkus sisi jauh sampai ujungnya menyembul di punggung
-    // handguard, ibu jari mengait sisi dekat (terlihat kamera). Group ini yang
-    // dianimasikan penuh saat reload. Pusat busur = penampang handguard
-    // (leftHand-lokal (0, 0.33, ·), radius 0.5).
+    // --- Tangan kiri OVERHAND (revisi 2026-07-10, mengikuti referensi user ala
+    // viewmodel CS): PUNGGUNG TANGAN menghadap kamera di sisi dekat handguard,
+    // empat jari MENYAMPIR DI ATAS handguard dari sisi dekat ke sisi jauh
+    // (2 ruas ujung berkulit = sarung tangan tanpa jari), ibu jari menyelip di
+    // sisi dekat-bawah mengarah muzzle, pergelangan kulit + manset turun ke
+    // kiri-bawah. Group ini yang dianimasikan penuh saat reload. Pusat busur =
+    // penampang handguard (leftHand-lokal (0, 0.33, ·), radius 0.5).
     leftHand = new THREE.Group();
-    const palmL = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.32, 1.1), glove);
-    palmL.position.set(0.04, -0.14, 0);
-    leftHand.add(palmL);
-    const heelL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.9), glove);
-    heelL.position.set(-0.24, -0.06, 0.1);            // bantalan pangkal ibu jari
-    leftHand.add(heelL);
-    for (let i = 0; i < 4; i++)                       // jari membungkus dari bawah-kanan ke atas
-        wrapFinger(leftHand, glove, 0, 0.33, -0.42 + i * 0.26, 0.5, -1.2, 1.9, 4, 0.16, true);
-    wrapFinger(leftHand, glove, 0, 0.33, 0.16, 0.48, -1.85, -2.85, 3, 0.19, true);   // ibu jari sisi dekat
-    const cuffL = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.5, 0.45), sleeve);
-    cuffL.position.set(-0.05, -0.2, 0.6);             // manset bergerak bersama tangan
+    const backL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, 1.05), glove);
+    backL.position.set(-0.44, 0.22, -0.05);           // punggung tangan (sisi kamera)
+    backL.rotation.z = 0.3;
+    leftHand.add(backL);
+    const knuckL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 1.05), glove);
+    knuckL.position.set(-0.3, 0.6, -0.05);            // gugusan buku jari di tepi atas
+    knuckL.rotation.z = 0.62;
+    leftHand.add(knuckL);
+    for (let i = 0; i < 4; i++)                       // jari menyampir dekat -> atas -> jauh
+        wrapFinger(leftHand, glove, 0, 0.33, -0.44 + i * 0.26, 0.5, 2.5, 0.15, 4, 0.16, true, skin);
+    const thumbL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.24, 0.62), glove);
+    thumbL.position.set(-0.48, -0.1, -0.5);           // ibu jari menyelip ke arah muzzle
+    thumbL.rotation.set(-0.25, 0, 0.35);
+    leftHand.add(thumbL);
+    const thumbTipL = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.2, 0.3), skin);
+    thumbTipL.position.set(-0.44, -0.2, -0.9);        // ujung ibu jari berkulit
+    thumbTipL.rotation.set(-0.35, 0, 0.3);
+    leftHand.add(thumbTipL);
+    const palmHeel = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.95), glove);
+    palmHeel.position.set(-0.42, -0.28, 0.05);        // pangkal telapak menutup bawah-dekat
+    palmHeel.rotation.z = 0.15;
+    leftHand.add(palmHeel);
+    const wristL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.5), skin);
+    wristL.position.set(-0.42, -0.55, 0.42);          // pergelangan telanjang (ala referensi)
+    wristL.rotation.z = 0.2;
+    leftHand.add(wristL);
+    const cuffL = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.55, 0.5), sleeve);
+    cuffL.position.set(-0.45, -0.8, 0.72);            // manset lengan di bawah pergelangan
+    cuffL.rotation.z = 0.25;
     leftHand.add(cuffL);
     leftHand.position.copy(LEFT_HAND_REST);
     gunMesh.add(leftHand);
@@ -413,7 +438,7 @@ export function initWeapons() {
     pPalm.position.set(0.27, -0.05, 0.02);
     pGripHand.add(pPalm);
     for (let i = 0; i < 3; i++)
-        wrapFinger(pGripHand, glove, 0, 0.2 - i * 0.22, -0.02, 0.3, -0.2, -2.8, 4, 0.15, false);
+        wrapFinger(pGripHand, glove, 0, 0.2 - i * 0.22, -0.02, 0.3, -0.2, -2.8, 4, 0.15, false, skin);
     const pThumb = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.38, 0.18), glove);
     pThumb.position.set(0.22, 0.3, 0.12);
     pThumb.rotation.x = -0.15;
@@ -437,7 +462,7 @@ export function initWeapons() {
     pPalmL.position.set(-0.12, 0.0, 0.02);
     pLeftHand.add(pPalmL);
     for (let i = 0; i < 3; i++)
-        wrapFinger(pLeftHand, glove, 0.1, 0.24 - i * 0.22, -0.08, 0.36, -0.35, -2.9, 4, 0.15, false);
+        wrapFinger(pLeftHand, glove, 0.1, 0.24 - i * 0.22, -0.08, 0.36, -0.35, -2.9, 4, 0.15, false, skin);
     const pThumbL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.14, 0.55), glove);
     pThumbL.position.set(-0.28, 0.55, -0.55);         // ruas pangkal menyusuri rangka
     pLeftHand.add(pThumbL);
@@ -522,7 +547,7 @@ export function initWeapons() {
     sgPalm.position.set(0.29, -0.05, 0);
     sgGripHand.add(sgPalm);
     for (let i = 0; i < 3; i++)
-        wrapFinger(sgGripHand, glove, 0, 0.24 - i * 0.23, 0.0, 0.33, -0.15, -2.85, 4, 0.16, false);
+        wrapFinger(sgGripHand, glove, 0, 0.24 - i * 0.23, 0.0, 0.33, -0.15, -2.85, 4, 0.16, false, skin);
     const sgThumbR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.2), glove);
     sgThumbR.position.set(0.23, 0.38, 0.1);
     sgThumbR.rotation.x = -0.2;
@@ -534,21 +559,39 @@ export function initWeapons() {
     const sgForeR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 1), sleeve);
     placeLimb(sgForeR, 0.45, -1.38, 1.3, 1.7, -3.8, 3.3);
     shotgunMesh.add(sgForeR);
-    // Tangan kiri di pump: telapak menampung dari bawah, empat jari membungkus
-    // pump sampai punggungnya, ibu jari sisi dekat (dianimasikan reload + rack).
+    // Tangan kiri di pump: OVERHAND sama dgn rifle (punggung tangan sisi kamera,
+    // jari menyampir di atas pump, ujung berkulit; dianimasikan reload + rack).
     // Pusat busur = penampang pump (sgLeftHand-lokal (0, 0.45, ·), radius 0.52).
     sgLeftHand = new THREE.Group();
-    const sgPalmL = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.32, 1.05), glove);
-    sgPalmL.position.set(0.04, -0.12, 0);
-    sgLeftHand.add(sgPalmL);
-    const sgHeelL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.85), glove);
-    sgHeelL.position.set(-0.24, -0.04, 0.08);
-    sgLeftHand.add(sgHeelL);
+    const sgBackL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.88, 1.0), glove);
+    sgBackL.position.set(-0.46, 0.34, -0.02);
+    sgBackL.rotation.z = 0.3;
+    sgLeftHand.add(sgBackL);
+    const sgKnuckL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.32, 1.0), glove);
+    sgKnuckL.position.set(-0.31, 0.72, -0.02);
+    sgKnuckL.rotation.z = 0.62;
+    sgLeftHand.add(sgKnuckL);
     for (let i = 0; i < 4; i++)
-        wrapFinger(sgLeftHand, glove, 0, 0.45, -0.36 + i * 0.24, 0.52, -1.2, 1.85, 4, 0.16, true);
-    wrapFinger(sgLeftHand, glove, 0, 0.45, 0.14, 0.5, -1.85, -2.8, 3, 0.19, true);   // ibu jari
-    const sgCuffL = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.5, 0.45), sleeve);
-    sgCuffL.position.set(-0.05, -0.2, 0.6);
+        wrapFinger(sgLeftHand, glove, 0, 0.45, -0.4 + i * 0.24, 0.52, 2.5, 0.15, 4, 0.16, true, skin);
+    const sgThumbL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.24, 0.6), glove);
+    sgThumbL.position.set(-0.5, 0.02, -0.45);
+    sgThumbL.rotation.set(-0.25, 0, 0.35);
+    sgLeftHand.add(sgThumbL);
+    const sgThumbTip = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.2, 0.3), skin);
+    sgThumbTip.position.set(-0.46, -0.08, -0.82);
+    sgThumbTip.rotation.set(-0.35, 0, 0.3);
+    sgLeftHand.add(sgThumbTip);
+    const sgPalmHeel = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.9), glove);
+    sgPalmHeel.position.set(-0.44, -0.16, 0.08);
+    sgPalmHeel.rotation.z = 0.15;
+    sgLeftHand.add(sgPalmHeel);
+    const sgWristL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.5), skin);
+    sgWristL.position.set(-0.44, -0.45, 0.44);
+    sgWristL.rotation.z = 0.2;
+    sgLeftHand.add(sgWristL);
+    const sgCuffL = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.55, 0.5), sleeve);
+    sgCuffL.position.set(-0.47, -0.7, 0.74);
+    sgCuffL.rotation.z = 0.25;
     sgLeftHand.add(sgCuffL);
     sgLeftHand.position.copy(SG_LEFT_REST);
     shotgunMesh.add(sgLeftHand);
@@ -1262,13 +1305,15 @@ export function updateWeaponVisuals(dt) {
     grp.rotation.y = mRotY;
     grp.rotation.z = gunRotZ;
 
-    // Lengan bawah kiri: rentangkan siku (anchor) -> pergelangan (per senjata)
+    // Lengan bawah kiri: rentangkan siku (anchor) -> pergelangan (per senjata).
+    // Rifle/shotgun: pergelangan grip overhand ada di sisi dekat-bawah tangan
+    // (revisi 2026-07-10) — ujung lengan mengikuti ofset itu.
     placeLimb(leftForearm, -1.8, -3.4, -0.5,
-        leftHand.position.x - 0.05, leftHand.position.y - 0.15, leftHand.position.z + 0.55);
+        leftHand.position.x - 0.45, leftHand.position.y - 0.75, leftHand.position.z + 0.8);
     placeLimb(pLeftForearm, -1.7, -3.5, 0.3,
         pLeftHand.position.x - 0.15, pLeftHand.position.y - 0.3, pLeftHand.position.z + 0.35);
     placeLimb(sgLeftForearm, -1.8, -3.4, -0.4,
-        sgLeftHand.position.x - 0.05, sgLeftHand.position.y - 0.15, sgLeftHand.position.z + 0.55);
+        sgLeftHand.position.x - 0.45, sgLeftHand.position.y - 0.65, sgLeftHand.position.z + 0.8);
 
     // --- Tangan granat (tombol 3): angkat saat equip -> idle memegang -> windup
     // (tarik ke bahu) -> follow-through (ayun ke depan; granat hilang saat rilis).
