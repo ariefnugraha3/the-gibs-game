@@ -378,6 +378,46 @@ body {
    identik dengan prompt "Are you ready?" antar-wave (permintaan user). */
 .pauseConfirmBtns { display: flex; gap: 14px; justify-content: center; }
 
+/* ---------- Konsol cheat (tombol `): kotak input perintah di atas layar ---------- */
+#cheatConsole {
+    display: none;
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 45;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(8, 10, 14, 0.95);
+    border: 1px solid rgba(255, 184, 77, 0.45);
+    border-radius: 8px;
+    padding: 12px 14px;
+    width: min(560px, 92vw);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+
+#cheatInput {
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+    color: #eaf2ff;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 5px;
+    padding: 9px 12px;
+    outline: none;
+}
+
+#cheatInput::placeholder { color: #6b7a89; }
+#cheatInput:focus { border-color: #ffb84d; }
+
+#cheatFeedback {
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    color: #7fe0a0;
+    min-height: 16px;
+    padding-left: 2px;
+}
+
 #gameOver {
     position: absolute;
     inset: 0;

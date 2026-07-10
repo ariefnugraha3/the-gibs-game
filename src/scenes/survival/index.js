@@ -4,7 +4,7 @@
 // antarmuka scene (lihat MODULES.md).
 
 import { CFG, CAMP_M } from '../../core/config.js';
-import { player, zombies, isGameOver, _v3 } from '../../core/state.js';
+import { player, zombies, isGameOver, _v3, godMode } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
 import { updateUI } from '../../core/hud.js';
@@ -44,6 +44,7 @@ let monasStage = 0;    // tingkat "Strengthen Monas" (0 = base; naik per pembeli
 let monasWarnCd = 0;   // jeda peringatan feed agar tidak spam tiap gigitan
 
 function damageMonas(n) {
+    if (godMode) return;   // cheat: Monas kebal (HP tak berkurang, tak ada peringatan/kalah)
     monasHp -= n;
     updateUI();
     if (monasWarnCd <= 0) {

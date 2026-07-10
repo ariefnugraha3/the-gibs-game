@@ -58,7 +58,7 @@
             "damage": 20
         },
         "shotgun": {
-            "magSize": 6,
+            "magSize": 8,
             "startMags": 2,
             "fireDelayMs": 900,
             "reloadMs": 2600,

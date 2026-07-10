@@ -7,6 +7,7 @@ import { blocker } from './dom.js';
 import { activeScene } from './sceneManager.js';
 import { resetGame } from './game.js';
 import { showPauseMenu, hidePauseMenu } from './pauseMenu.js';
+import { openCheatConsole, closeCheatConsole, forceHideCheatConsole, isCheatConsoleOpen, handleKey } from './cheatConsole.js';
 import {
     startReload, tryMelee, trySwitchKey, toggleAim, setAiming,
     grenadeMode, throwEquippedGrenade, equipMedkit
@@ -79,6 +80,7 @@ export function initInput() {
             document.getElementById('qualityRow').style.display = 'none';
             setPaused(false);
         } else {
+            forceHideCheatConsole();   // ESC saat konsol cheat terbuka -> tutup (menu jeda ambil alih)
             setPaused(true);
             releaseInputs();   // bug fix: tombol/tembakan jangan "nyangkut" saat unlock
             // Shop survival membuka -> pointer dilepas DISENGAJA agar kursor bisa
@@ -127,6 +129,16 @@ export function initInput() {
     // ----- Keyboard -----
     window.addEventListener('keydown', (e) => {
         const key = e.key.toLowerCase();
+        // Konsol cheat (tombol `): toggle. Buka HANYA saat main aktif (pointer
+        // ter-lock). Saat terbuka, telan semua tombol gameplay (ketikan -> <input>);
+        // Enter ditangani oleh input konsol, backtick di sini utk menutup.
+        if (e.code === 'Backquote') {
+            e.preventDefault();
+            if (isCheatConsoleOpen()) closeCheatConsole();
+            else if (document.pointerLockElement === document.body) openCheatConsole();
+            return;
+        }
+        if (isCheatConsoleOpen()) { handleKey(e); return; }   // ketikan -> perintah konsol
         // Shop survival = MODAL (game di-pause): telan semua tombol gameplay;
         // hanya SPACE/Enter (Start Next Wave, via scene.shopKey) yang bertindak.
         // Ditangani lebih dulu & TANPA gate !isPaused (shop mem-pause game).

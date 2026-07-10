@@ -5,7 +5,7 @@
 // semua scene: cakaran, animasi rig, dan hit test peluru.
 
 import { CFG } from '../core/config.js';
-import { player, zombies, bullets, addScore, stats, _dir } from '../core/state.js';
+import { player, zombies, bullets, addScore, stats, _dir, godMode } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { makeTexture, speckle } from '../utils/textures.js';
@@ -315,7 +315,7 @@ function processPendingBooms() {
         explodeAt(p, V.boomRadius);
         const d = Math.hypot(p.x - camera.position.x, p.z - camera.position.z);
         if (d < V.boomRadius) {
-            player.hp -= V.boomDamage;
+            if (!godMode) player.hp -= V.boomDamage;   // cheat: kebal
             updateUI();
             flashDamage();
             showHitDir(attackerAngle(p.x, p.z));
@@ -344,7 +344,7 @@ export function updateZombies(dt, step) {
                 z.attackCd = CFG.zombie.clawCooldownSec;
                 z.clawT = CLAW_TIME;           // animasi sabetan (animateZombieRig)
                 z.clawSide = -z.clawSide;      // lengan bergantian kiri/kanan
-                player.hp -= (z.clawDmg != null ? z.clawDmg : CFG.zombie.clawDamage);
+                if (!godMode) player.hp -= (z.clawDmg != null ? z.clawDmg : CFG.zombie.clawDamage);   // cheat: kebal
                 updateUI();
                 flashDamage();
                 showHitDir(attackerAngle(z.mesh.position.x, z.mesh.position.z));

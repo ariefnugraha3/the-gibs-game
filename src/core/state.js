@@ -21,6 +21,11 @@ export const setGameOver = (v) => { isGameOver = v; };
 export const setScore = (v) => { score = v; };
 export const addScore = (n) => { score += n; };
 export const setMode = (m) => { mode = m; };
+
+// Cheat: god mode (player & Monas KEBAL — HP tak berkurang). Di-toggle lewat
+// konsol cheat (tombol `). Dibaca di zombies.js (damage player) & survival damageMonas.
+export let godMode = false;
+export const setGodMode = (v) => { godMode = v; };
 export const setHighScore = (v) => { highScore = v; localStorage.setItem(hsKey(), v); };
 export const setDifficulty = (name) => {   // dipanggil menu sebelum startGame
     difficulty = name;
