@@ -23,6 +23,10 @@
 4. **Single-player TIDAK BOLEH berubah perilaku sedikit pun** saat fitur MP
    nonaktif (`netRole === 'off'`). Semua jalur SP harus tetap byte-identik
    secara perilaku.
+5. **Host membuat NAMA ROOM saat hosting; client wajib memasukkan nama room
+   yang sama untuk join** (keputusan user 2026-07-10). Konsekuensi enak: satu
+   relay bisa menampung BEBERAPA room sekaligus (masing-masing 1 host + maks
+   3 client), dan salah ketik nama = ditolak rapi, bukan nyasar ke sesi orang.
 
 ## Kenapa BUKAN "P2P murni di browser"
 
@@ -57,8 +61,10 @@ mesin HOST                                   mesin client ×3
 └──────────────────────────────┘
 ```
 
-- **Relay bodoh** (`server.py`): tidak tahu aturan game apa pun; hanya memberi
-  id koneksi dan meneruskan pesan `client → host` dan `host → satu/semua client`.
+- **Relay bodoh** (`server.py`): tidak tahu aturan game apa pun. Ia HANYA
+  mem-parse pesan kontrol lobby (`create`/`join`/`lock`) untuk mengelola
+  registry room bernama; semua pesan lain diteruskan apa adanya di DALAM room:
+  `client → host` dan `host → satu/semua client` room itu.
 - **Host** menjalankan `survivalScene` yang ada + lapisan broadcast
   (`src/net/host.js`): snapshot 15 Hz + event reliable (spawn/mati/ledak/dst).
 - **Client** menjalankan scene BARU `survivalCoopClientScene` yang
@@ -93,9 +99,18 @@ mesin HOST                                   mesin client ×3
 
 Relay menambahkan `from` (id koneksi). `to` opsional dari host (`id` | `'all'`).
 
-**Lobby:** `hello {name}` (C→H) · `lobby {players:[{id,name}]}` (H→all) ·
-`start {cfg, seed, roster}` (H→all — `cfg` = CFG host SETELAH `applyDifficulty`;
-client memakai apa adanya, JANGAN jalankan applyDifficulty lokal).
+**Kontrol lobby (SATU-SATUNYA pesan yang di-parse relay):**
+`create {room, name}` (H→relay — buat room + jadi host) · `join {room, name}`
+(C→relay — masuk room bernama itu) · balasan relay: `role {role, id, room}`
+(sukses) / `taken` (nama room sudah dipakai) / `noroom` (room tidak ditemukan)
+/ `full` (room penuh) / `locked` (game sudah mulai) · `joined {id, name}`
+(relay→H saat client sukses masuk) · `lock` (H→relay saat START — room menolak
+join baru) · `leave {id}` (relay→H) / `hostleft` (relay→semua anggota room).
+
+**Lobby level game (pass-through biasa):** `lobby {players:[{id,name}]}`
+(H→all) · `start {cfg, seed, roster}` (H→all — `cfg` = CFG host SETELAH
+`applyDifficulty`; client memakai apa adanya, JANGAN jalankan applyDifficulty
+lokal).
 
 **Client → Host (gameplay):**
 - `p {x,y,z,yaw,pitch,anim,wpn}` — posisi+animasi diri, 20 Hz (`anim` = bitmask
@@ -152,19 +167,32 @@ keduanya di README/CLAUDE.md.)
   manual (`Sec-WebSocket-Accept` = base64(SHA1(key + GUID)), parsing frame
   masked client→server, kirim frame unmasked, text frame saja, tanpa extension,
   balas ping/pong + close frame). ±200 baris, komentar bahasa Indonesia.
-- **Model room:** koneksi WS pertama = **host** (relay kirim `{t:'role',
-  role:'host', id:0}`); berikutnya = client (`role:'client', id:N`), maks
-  `maxPlayers` (tolak sisanya dengan `{t:'full'}`). Routing: pesan dari client
-  → diteruskan ke host (ditambah `from`); pesan dari host dgn `to` → satu
-  client itu; tanpa `to` → broadcast semua client. Disconnect → beri tahu host
-  (`{t:'leave', id}`); host putus → tutup semua koneksi (`{t:'hostleft'}`) dan
-  reset room (sesi baru bisa dimulai tanpa restart proses).
-- Relay TIDAK memvalidasi/parse payload game — hanya `to`/`from`. Kirim string
-  apa adanya (JSON pass-through) supaya murah.
+- **Model room BERNAMA** (keputusan user 2026-07-10): koneksi baru belum jadi
+  apa-apa sampai pesan pertamanya —
+  `create {room, name}` → pengirim jadi **host** room itu (balasan
+  `role {role:'host', id:0, room}`; nama sudah dipakai → `taken`);
+  `join {room, name}` → masuk sebagai client (`role {role:'client', id:N,
+  room}` + relay memberi tahu host `joined {id, name}`; room tidak ada →
+  `noroom`; penuh [`maxPlayers`] → `full`; sudah dikunci → `locked`).
+  Nama room dinormalisasi (trim + lowercase) sebelum dibandingkan. Registry
+  `dict nama → room` — satu proses relay menampung BEBERAPA room sekaligus.
+- **Routing HANYA di dalam room:** pesan client → host room-nya (ditambah
+  `from`); pesan host dgn `to` → client itu; tanpa `to` → broadcast semua
+  client room. Pesan lintas room mustahil secara konstruksi.
+- **Lifecycle:** host kirim `lock` saat START → relay menolak join baru ke
+  room itu (`locked`). Client putus → host dapat `{t:'leave', id}`. Host putus
+  → semua anggota dapat `{t:'hostleft'}`, koneksi ditutup, room DIHAPUS dari
+  registry (nama bisa langsung dipakai lagi tanpa restart proses).
+- Relay TIDAK memvalidasi/parse payload game — HANYA pesan kontrol lobby
+  (`create`/`join`/`lock`). Sisanya dikirim string apa adanya (JSON
+  pass-through) supaya murah.
 
-**Selesai bila:** dua tab browser + `wscat`/skrip uji Python bisa: connect →
-terima role → client kirim, host terima dgn `from` benar → host broadcast →
-semua client terima → client putus → host dapat `leave`.
+**Selesai bila:** skrip uji Python/`wscat` membuktikan: create → role host;
+join nama benar → role client + host dapat `joined`; join nama salah →
+`noroom`; create nama kembar → `taken`; pemain ke-5 → `full`; join setelah
+`lock` → `locked`; routing pesan dua room PARALEL tidak saling bocor; client
+putus → host dapat `leave`; host putus → anggota dapat `hostleft` + nama room
+bisa dipakai ulang.
 
 ## Fase 1 — Net core + lobby
 
@@ -179,19 +207,32 @@ semua client terima → client putus → host dapat `leave`.
   Default `'off'` — SEMUA jalur SP membaca `'off'` dan tidak berubah.
 
 **Lobby (menu):** kartu mode baru **"CO-OP LAN (SURVIVAL)"** di `#modeSelect`
-(`scenes/menu.js` + `index.html`). Klik → panel lobby: input nama (localStorage
-`gibsPlayerName`), tombol **HOST GAME** / **JOIN GAME** (join otomatis ke
-`location.hostname` — tanpa form IP), daftar pemain live dari pesan `lobby`,
-baris difficulty hanya aktif utk host, tombol **START** (host, min 2 pemain).
-Start: host kirim `start {cfg: CFG, seed, roster}` → semua memanggil
-`startGame('survival')` dgn `netRole` masing-masing. Client menimpa `CFG`
-dengan `cfg` kiriman host SEBELUM startGame (satu assign objek penuh — CFG
-sudah selesai dipakai `applyDifficulty` di host). **Semua teks lobby English**
-(aturan besi #1).
+(`scenes/menu.js` + `index.html`). Klik → panel lobby dua langkah:
 
-**Selesai bila:** 2 browser (1 mesin cukup: tab biasa + incognito) melihat
-roster yang sama, START host membawa keduanya masuk dunia survival, dan mode
-SP lain tetap berjalan normal.
+1. **Form:** input **Your Name** (localStorage `gibsPlayerName`) + input
+   **Room Name** (localStorage `gibsRoomName`) + dua tombol:
+   **CREATE ROOM** (kirim `create` → jadi host) dan **JOIN ROOM** (kirim
+   `join` → jadi client). Koneksi otomatis ke `location.hostname` — tetap
+   tanpa form IP. Nama room wajib diisi (tombol disabled bila kosong).
+   Balasan error relay ditampilkan di panel (English): `noroom` → "Room not
+   found — check the room name", `taken` → "Room name already taken",
+   `full` → "Room is full", `locked` → "Game already started".
+2. **Ruang tunggu:** judul = nama room, daftar pemain live dari pesan `lobby`
+   (host menyiarkannya ulang tiap `joined`/`leave`), baris difficulty hanya
+   aktif utk host, tombol **START** (hanya host, min 2 pemain), tombol
+   **LEAVE** (tutup WS → kembali ke form).
+
+Start: host kirim `lock` (relay mengunci room) lalu `start {cfg: CFG, seed,
+roster}` → semua memanggil `startGame('survival')` dgn `netRole` masing-masing.
+Client menimpa `CFG` dengan `cfg` kiriman host SEBELUM startGame (satu assign
+objek penuh — CFG sudah selesai dipakai `applyDifficulty` di host). **Semua
+teks lobby English** (aturan besi #1).
+
+**Selesai bila:** 2 browser (1 mesin cukup: tab biasa + incognito): host
+membuat room bernama, client dgn nama room SALAH ditolak dgn pesan "Room not
+found", nama BENAR masuk & kedua roster sama, START host membawa keduanya
+masuk dunia survival, join ketiga setelah START ditolak "Game already
+started", dan mode SP lain tetap berjalan normal.
 
 ## Fase 2 — World ber-seed + avatar remote + sync posisi
 
@@ -450,7 +491,8 @@ tidak, boot gagal (aturan besi IMPROVEMENT-PLAN #4).
   browser — codec pesan (round-trip), `buildSnapshot` dari array zombie stub,
   `applySnapshot`/interpolasi (posisi di antara dua snapshot), validasi
   pembelian host (skor kurang/Monas penuh/radar dobel), relay `server.py`
-  (skrip Python: 3 socket palsu, cek routing host↔client).
+  (skrip Python: create/join/nama salah/`taken`/`full`/`lock`, routing
+  host↔client, isolasi DUA room paralel).
 - **Manual 2-browser (1 mesin):** `python server.py` → tab normal (host) + tab
   incognito (client) → checklist per fase di atas. Uji 4 pemain nyata via
   Wi-Fi minimal sekali sebelum menandai Fase 6 selesai.
