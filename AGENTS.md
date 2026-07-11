@@ -2,13 +2,13 @@
 
 ## Repository overview
 
-This repository is a browser game titled "Gibran vs Zombie 3D (DOOM FPS)".
+This repository is a browser game titled "Gibran vs Robot 3D (DOOM FPS)".
 
 - `index.html` — DOM overlay + CDN `<script>` tags (Three.js r128 global) + module entry.
 - `src/` — the whole game as ES modules (core/, utils/, world/, entities/, scenes/). **The module catalog and interface contracts are documented in `MODULES.md` — read it first.**
 - `css/style.css` — all styling.
 - `config/gameplay.json` — every tunable gameplay constant (max ammo/hp, speeds, stamina, wave difficulty, ...). Loaded at boot into `CFG`.
-- `assets/sounds/*.mp3` — sound effects. (`assets/visuals/zombie.glb` exists but is unused — zombies are procedural.)
+- `assets/sounds/*.mp3` — sound effects. (`assets/visuals/robot.glb` exists but is unused — robots are procedural.)
 - `package.json` — metadata only (`"type": "module"` for Node tooling). No dependencies, no build system.
 
 ## What agents should know

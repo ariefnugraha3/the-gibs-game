@@ -3,7 +3,7 @@
 // aktif lewat hook hudStatus() dan radarLandmarks(plot).
 
 import { CFG } from './config.js';
-import { player, score, zombies, drops, _dir } from './state.js';
+import { player, score, robots, drops, _dir } from './state.js';
 import { camera } from './renderer.js';
 import { activeScene } from './sceneManager.js';
 import {
@@ -37,7 +37,7 @@ export function updateUI() {
     // Radar minimap disembunyikan sampai dimiliki (Survival: dibeli di shop).
     radar.style.display = player.hasRadar ? '' : 'none';
     updateInventory();
-    // Survival: nomor wave. Campaign: sisa zombie di stage aktif.
+    // Survival: nomor wave. Campaign: sisa robot di stage aktif.
     if (activeScene && activeScene.hudStatus) waveText.innerText = activeScene.hudStatus();
 }
 
@@ -186,8 +186,8 @@ export function drawRadar() {
     // Landmark per scene: Monas (survival) / tangga exit / air mancur + blokade
     if (activeScene && activeScene.radarLandmarks) activeScene.radarLandmarks(plot);
 
-    // Zombie
-    for (const z of zombies)
+    // Robot
+    for (const z of robots)
         plot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z, "#ff4757", 3);
     // Drops (mag kuning, granat hijau, medkit merah muda)
     for (const d of drops)

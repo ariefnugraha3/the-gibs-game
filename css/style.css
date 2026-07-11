@@ -820,8 +820,8 @@ body {
     to   { transform: scaleX(-1) translateY(-10px); }
 }
 
-.shamble { animation: shamble 0.9s ease-in-out infinite alternate; }
-@keyframes shamble {
+.march { animation: march 0.9s ease-in-out infinite alternate; }
+@keyframes march {
     from { transform: rotate(-6deg); }
     to   { transform: rotate(6deg); }
 }

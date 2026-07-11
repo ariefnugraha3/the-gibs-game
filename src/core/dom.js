@@ -49,7 +49,7 @@ export function flashDamage() {
 
 // Indikator ARAH serangan (IMPROVEMENT-PLAN #8): baji merah di tepi layar,
 // diputar ke sudut penyerang relatif hadap kamera (0 = depan, + = searah
-// jarum jam; hitung dgn attackerAngle di entities/zombies.js). SATU elemen
+// jarum jam; hitung dgn attackerAngle di entities/robots.js). SATU elemen
 // di-reuse — jangan membuat elemen per serangan.
 let hitDirT = 0;
 export function showHitDir(relAngle) {

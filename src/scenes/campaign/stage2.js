@@ -2,10 +2,10 @@
 // bawah (start) --1 km--> air mancur atas (persimpangan; lengan barat/timur
 // diblokir tumpukan mobil) --serong 500 m. Area boleh-jalan = UNION jalan +
 // cincin air mancur (highwayWalk); gedung membentuk dinding koridor
-// (dekoratif — dinding kerasnya union itu). Menang = semua zombie stage 2 mati.
+// (dekoratif — dinding kerasnya union itu). Menang = semua robot stage 2 mati.
 
 import { CFG, CAMP_M } from '../../core/config.js';
-import { player, zombies, _v3 } from '../../core/state.js';
+import { player, robots, _v3 } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../utils/textures.js';
 import { rand } from '../../utils/math.js';
@@ -19,10 +19,10 @@ import {
 } from '../../world/facades.js';
 import { showStageMsg } from '../../core/dom.js';
 import { updateUI } from '../../core/hud.js';
-import { disposeZombie } from '../../entities/zombies.js';
+import { disposeRobot } from '../../entities/robots.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { setScene } from '../../core/sceneManager.js';
-import { spawnCampaignZombie, campaignZombieAI, countStageZombies } from './common.js';
+import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { stage1Scene } from './stage1.js';
 import { stage3Scene } from './stage3.js';
 
@@ -49,7 +49,7 @@ export const CAMP_START = { x: 0, z: -(CAMP.low.r + CAMP.low.ring + 30) };
 
 const blockers = [];      // balok pejal stage 2: median jalan + blokade mobil
 const wreckPiles = [];    // titik blokade mobil (radar)
-let navGrid = null;       // nav-grid pathfinder zombie (dibangun di buildWorld)
+let navGrid = null;       // nav-grid pathfinder robot (dibangun di buildWorld)
 
 // Titik (x,z) dgn radius r masih di dalam area jalan/trotoar?
 export function highwayWalk(x, z, r) {
@@ -347,7 +347,7 @@ export function buildWorld() {
 
     // Nav-grid pathfinder: koridor gameplay saja (jalan utama + kedua cincin
     // air mancur + serong). Lengan barat/timur di balik blokade TIDAK dipetakan
-    // (di luar grid = fallback kejar lurus; tak ada zombie di sana). Median
+    // (di luar grid = fallback kejar lurus; tak ada robot di sana). Median
     // putus-putus & mobil rongsok di-bake lewat resolve: sel yang tergeser =
     // penghalang, jadi path lewat CELAH antar median, bukan menabraknya.
     const nx0 = -(CAMP.low.r + CAMP.low.ring + 40);
@@ -430,14 +430,14 @@ function createCampaignBuildings() {
     addFireSprites(scene, burn);
 }
 
-// Sebar zombie di area yang bisa dilalui: mayoritas di jalan 1 km, sebagian
+// Sebar robot di area yang bisa dilalui: mayoritas di jalan 1 km, sebagian
 // di jalan serong & cincin air mancur. Kepadatan dijaga longgar (rata-rata
-// ~1 per 25-35 m jalan, min. jarak antar zombie 42 unit ≈ 6 m, dan tidak
+// ~1 per 25-35 m jalan, min. jarak antar robot 42 unit ≈ 6 m, dan tidak
 // ada yang lahir dekat titik spawn player).
-export function placeZombies() {
+export function placeRobots() {
     const L = CAMP.low, U = CAMP.up;
-    // Zona bersih di sekitar AIR MANCUR START (bawah): tak ada zombie di dalam
-    // radius ini dari pusat bak bawah — player baru bertemu zombie setelah
+    // Zona bersih di sekitar AIR MANCUR START (bawah): tak ada robot di dalam
+    // radius ini dari pusat bak bawah — player baru bertemu robot setelah
     // benar-benar melangkah ke jalan raya (bukan di area start / cincin bawah).
     const START_CLEAR = L.r + L.ring + 200;   // ~90 m dari pusat bak start
     const pts = [];
@@ -451,7 +451,7 @@ export function placeZombies() {
         for (let i = 0; i < pts.length; i++)
             if (Math.hypot(x - pts[i].x, z - pts[i].z) < 42) return false;
         pts.push({ x, z });
-        spawnCampaignZombie(x, z, 2);
+        spawnCampaignRobot(x, z, 2);
         return true;
     };
     let placed = 0, tries = 0;
@@ -473,16 +473,16 @@ export function placeZombies() {
     }
 }
 
-// --- Boss stage 2: muncul saat sisa zombie <= CFG.campaign.boss.spawnWhenRemaining ---
+// --- Boss stage 2: muncul saat sisa robot <= CFG.campaign.boss.spawnWhenRemaining ---
 let bossSpawned = false;
-let bossRef = null;      // objek zombie boss (utk HP bar HUD); null setelah mati
+let bossRef = null;      // objek robot boss (utk HP bar HUD); null setelah mati
 let bossUiT = 0;         // throttle refresh HUD bar boss (updateUI event-driven)
 
 function spawnBoss() {
     bossSpawned = true;
     // Lahir di jalan dekat air mancur atas (di luar bak — resolve aman)
-    spawnCampaignZombie(0, CAMP.up.z + CAMP.up.r + CAMP.up.ring + 60, 2, 'boss');
-    bossRef = zombies[zombies.length - 1];
+    spawnCampaignRobot(0, CAMP.up.z + CAMP.up.r + CAMP.up.ring + 60, 2, 'boss');
+    bossRef = robots[robots.length - 1];
     showStageMsg('SOMETHING BIG IS COMING...');
     updateUI();
 }
@@ -490,15 +490,15 @@ function spawnBoss() {
 export const stage2Scene = {
     id: 'campaign-2',
 
-    // Masuk dari tangga keluar gedung (transisi stage 1 -> 2). Zombie gedung
+    // Masuk dari tangga keluar gedung (transisi stage 1 -> 2). Robot gedung
     // yang tersisa dibersihkan diam-diam (tanpa skor/drop) supaya hitungan UI
     // & kondisi menang stage 2 tetap sederhana.
     enter() {
-        for (let i = zombies.length - 1; i >= 0; i--) {
-            if (zombies[i].stage === 1) {
-                disposeZombie(zombies[i]);
-                scene.remove(zombies[i].mesh);
-                zombies.splice(i, 1);
+        for (let i = robots.length - 1; i >= 0; i--) {
+            if (robots[i].stage === 1) {
+                disposeRobot(robots[i]);
+                scene.remove(robots[i].mesh);
+                robots.splice(i, 1);
             }
         }
         bossSpawned = false; bossRef = null; bossUiT = 0;
@@ -517,7 +517,7 @@ export const stage2Scene = {
     // menangkap hit yang tak membunuh, jadi di-refresh berkala selama boss hidup.
     updateMode(dt) {
         if (!bossRef) return;
-        if (zombies.indexOf(bossRef) === -1) { bossRef = null; updateUI(); return; }
+        if (robots.indexOf(bossRef) === -1) { bossRef = null; updateUI(); return; }
         bossUiT -= dt;
         if (bossUiT <= 0) { bossUiT = 0.2; updateUI(); }
     },
@@ -545,16 +545,16 @@ export const stage2Scene = {
         resolve(g.mesh.position, NADE_R, g.mesh.position.y - NADE_R);
     },
 
-    zombieAI(z, dt, step) {
+    robotAI(z, dt, step) {
         // Aktivasi murni jarak (tanpa LOS — jalan terbuka)
-        return campaignZombieAI(z, dt, step, { walkable: highwayWalk, resolve, nav: navGrid });
+        return campaignRobotAI(z, dt, step, { walkable: highwayWalk, resolve, nav: navGrid });
     },
 
-    clampDropPos(x, z) { return [x, z]; },   // zombie mati di jalan — pakai apa adanya
+    clampDropPos(x, z) { return [x, z]; },   // robot mati di jalan — pakai apa adanya
 
     hudStatus() {
-        let s = `Zombies left: ${countStageZombies(2)}`;
-        if (bossRef && zombies.indexOf(bossRef) !== -1) {
+        let s = `Robots left: ${countStageRobots(2)}`;
+        if (bossRef && robots.indexOf(bossRef) !== -1) {
             const frac = Math.max(0, bossRef.hp / bossRef.maxHp);
             const blocks = Math.ceil(frac * 10);
             s += ` — BOSS ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
@@ -571,11 +571,11 @@ export const stage2Scene = {
             plot(wpile.x - camera.position.x, wpile.z - camera.position.z, "#ff2d2d", 4);
     },
 
-    // Boss muncul saat sisa zombie menipis (JUGA saat lompat langsung ke 0,
+    // Boss muncul saat sisa robot menipis (JUGA saat lompat langsung ke 0,
     // mis. granat membunuh 5 terakhir sekaligus — menang tanpa boss dilarang).
     // Semua bersih SETELAH boss spawn -> lanjut ke stage 3 (Taman Monas malam).
     checkWin() {
-        const n = countStageZombies(2);
+        const n = countStageRobots(2);
         if (!bossSpawned && n <= CFG.campaign.boss.spawnWhenRemaining) { spawnBoss(); return; }
         if (bossSpawned && n === 0) setScene(stage3Scene, { transition: true });
     },

@@ -4,7 +4,7 @@
 
 import {
     isPaused, isGameOver, setGameOver, setScore, score, highScore, setHighScore,
-    zombies, bullets, grenades, explosions, drops, clearArray, configurePlayer,
+    robots, bullets, grenades, explosions, drops, clearArray, configurePlayer,
     stats, resetStats
 } from './state.js';
 import { scene } from './renderer.js';
@@ -18,11 +18,11 @@ import { updateExplosions, updateBloodPool, resetBloodPool } from '../entities/e
 import { updateGore, resetGore } from '../entities/gore.js';
 import { updateDrops } from '../entities/drops.js';
 import { updateBullets } from '../entities/bullets.js';
-import { updateZombies, disposeZombie, resetZombiesFx } from '../entities/zombies.js';
+import { updateRobots, disposeRobot, resetRobotsFx } from '../entities/robots.js';
 import { releaseInputs, requestLock } from './input.js';
 
 // Urutan blok = urutan update() lama — JANGAN diubah tanpa alasan kuat:
-// mis. peluru harus maju SEBELUM hit test zombie memakai segmen sweep-nya.
+// mis. peluru harus maju SEBELUM hit test robot memakai segmen sweep-nya.
 export function updateGame(dt, step, T) {
     if (isGameOver || isPaused) return;
 
@@ -38,7 +38,7 @@ export function updateGame(dt, step, T) {
     updateBloodPool(dt);           // pudarkan percikan darah
     updateDrops(dt, T);            // bob item + pickup + kedaluwarsa
     updateBullets(step);           // maju + mati di dinding scene
-    updateZombies(dt, step);       // AI scene + cakar + rig + hit peluru (+ spawn mayat/gib saat mati)
+    updateRobots(dt, step);       // AI scene + cakar + rig + hit peluru (+ spawn mayat/gib saat mati)
     if (isGameOver) return;        // cakar bisa mengakhiri game di tengah loop
     updateGore(dt);                // mayat terjatuh/memudar + gib balistik + genangan darah
 
@@ -75,9 +75,9 @@ export function resetGame() {
     gameOverScreen.style.display = 'none';
 
     // Bersihkan seluruh entitas (material per-instance di-dispose)
-    zombies.forEach(z => { disposeZombie(z); scene.remove(z.mesh); });
-    zombies.length = 0;
-    resetZombiesFx();   // antrean ledakan exploder yang belum terproses
+    robots.forEach(z => { disposeRobot(z); scene.remove(z.mesh); });
+    robots.length = 0;
+    resetRobotsFx();   // antrean ledakan exploder yang belum terproses
     resetBloodPool();   // pool tetap, cukup disembunyikan
     resetGore();        // buang mayat + sembunyikan pool gib/genangan darah
     clearArray(bullets, scene);

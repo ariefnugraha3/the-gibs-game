@@ -16,7 +16,7 @@
 2. **Tanpa build step / npm dependency / framework.** Situs statis; `package.json`
    tetap metadata-only. Harus jalan dari `python -m http.server 8000`.
 3. **Perilaku per-mode lewat hook `activeScene.*`** — dilarang menambah if-else
-   mode di sistem bersama (game.js, zombies.js, dst).
+   mode di sistem bersama (game.js, robots.js, dst).
 4. **Angka mekanik baru masuk `config/gameplay.json`** (lalu dibaca `CFG.x.y` DI
    DALAM fungsi). Menambah SEKSI baru di JSON? Daftarkan juga di array `SECTIONS`
    di `src/core/config.js`, kalau tidak boot akan gagal.
@@ -33,7 +33,7 @@
 
 | # | Item | Prioritas | Perkiraan usaha | Status |
 |---|------|-----------|-----------------|--------|
-| 1 | Varian perilaku zombie (runner/brute/exploder) | P1 | Sedang | **SELESAI 2026-07-07** |
+| 1 | Varian perilaku robot (runner/brute/exploder) | P1 | Sedang | **SELESAI 2026-07-07** |
 | 2 | Boss di akhir campaign stage 2 | P1 | Sedang | **SELESAI 2026-07-07** |
 | 3 | Shop antar-wave (survival) | P2 | Sedang-besar | **SELESAI 2026-07-07** |
 | 4 | Musik + ambience | P3 | Kecil (butuh aset dari user) | TODO (dikecualikan user) |
@@ -53,37 +53,37 @@ sebagai dokumentasi desain fitur yang sudah jadi.
 
 ---
 
-## 1. Varian perilaku zombie
+## 1. Varian perilaku robot
 
-**Tujuan:** 6 varian zombie sekarang hanya beda tampilan; perilakunya identik.
+**Tujuan:** 6 varian robot sekarang hanya beda tampilan; perilakunya identik.
 Varian perilaku memaksa pemain memprioritaskan target.
 
 **Desain:**
 - Field baru saat spawn: `z.kind` = `'walker'` (default) | `'runner'` | `'brute'`
-  | `'exploder'`, plus `z.clawDmg` (default `CFG.zombie.clawDamage`).
+  | `'exploder'`, plus `z.clawDmg` (default `CFG.robot.clawDamage`).
 - Runner: HP 1, speed ×1.8, badan diperkecil (`mesh.scale.setScalar(0.92)`).
 - Brute: HP ×4, speed ×0.6, `z.clawDmg` 2, badan ×1.25 (ingat: kepala ikut skala —
-  hit test headshot pakai `CFG.zombie.headHeight`; untuk brute simpan
-  `z.headH = headHeight * 1.25` dan pakai `z.headH || CFG.zombie.headHeight`
-  di sweep peluru `zombies.js`).
-- Exploder: HP 2, kulit kehijauan (tint material per-instance — `disposeZombie`
+  hit test headshot pakai `CFG.robot.headHeight`; untuk brute simpan
+  `z.headH = headHeight * 1.25` dan pakai `z.headH || CFG.robot.headHeight`
+  di sweep peluru `robots.js`).
+- Exploder: HP 2, kulit kehijauan (tint material per-instance — `disposeRobot`
   sudah menangani material per-instance), MELEDAK saat mati.
 
 **Peringatan reentrancy exploder:** JANGAN panggil `explodeAt()` di dalam
-`killZombie()`/loop iterasi zombie (explodeAt mengiterasi & men-splice array
-zombie yang sama → chain reaction di tengah iterasi = bug indeks). Pola aman:
+`killRobot()`/loop iterasi robot (explodeAt mengiterasi & men-splice array
+robot yang sama → chain reaction di tengah iterasi = bug indeks). Pola aman:
 tampung ke antrean modul (mis. `pendingBooms.push({x,y,z})`) lalu proses antrean
-di `updateZombies` SETELAH loop utama, atau di blok explosions `updateGame`.
+di `updateRobots` SETELAH loop utama, atau di blok explosions `updateGame`.
 
 **Spawn:**
-- Survival (`src/scenes/survival/index.js` → `spawnZombie`): peluang per kind naik
+- Survival (`src/scenes/survival/index.js` → `spawnRobot`): peluang per kind naik
   per wave dari CFG, mis. `survival.runnerChanceBase 0.05 + runnerChancePerWave
   0.02` (cap 0.35), brute mulai wave 4, exploder mulai wave 6.
-- Campaign (`src/scenes/campaign/common.js` → `spawnCampaignZombie`): tambah
+- Campaign (`src/scenes/campaign/common.js` → `spawnCampaignRobot`): tambah
   parameter opsional `kind`; penempatan eksplisit di daftar spawn stage (mis. 2
   brute menjaga ruang persediaan stage 1, beberapa runner di jalan raya stage 2).
 
-**Config baru (seksi `zombie`, tambah sub-objek):**
+**Config baru (seksi `robot`, tambah sub-objek):**
 ```json
 "variants": {
   "runner":  { "hpMul": 0.34, "speedMul": 1.8, "scale": 0.92, "clawDamage": 1 },
@@ -102,29 +102,29 @@ bersamaan (test chain).
 
 ## 2. Boss campaign stage 2
 
-**Tujuan:** kemenangan campaign sekarang datar (zombie habis = menang). Boss =
+**Tujuan:** kemenangan campaign sekarang datar (robot habis = menang). Boss =
 klimaks.
 
 **Desain:**
-- Trigger: saat sisa zombie stage 2 < 5, spawn boss di air mancur atas + panggil
+- Trigger: saat sisa robot stage 2 < 5, spawn boss di air mancur atas + panggil
   `showStageMsg('SOMETHING BIG IS COMING...')` (Inggris!). `checkWin` yang ada
   (array kosong → menang) otomatis mencakup boss — tidak perlu diubah.
-- Boss = zombie `kind:'boss'`: scale ~2.4, HP dari CFG (mis. 60), speed rendah,
+- Boss = robot `kind:'boss'`: scale ~2.4, HP dari CFG (mis. 60), speed rendah,
   `z.clawDmg` 3, `z.clawRangeMul` 1.8.
 - **Headshot TIDAK instan utk boss** (kalau instan, boss mati 1 peluru): tambah
-  flag `z.noInstakill = true`; di sweep peluru `zombies.js`, cabang headshot jadi
+  flag `z.noInstakill = true`; di sweep peluru `robots.js`, cabang headshot jadi
   `if (headshot) z.noInstakill ? (z.hp -= dmg * 3) : (z.hp = 0)`. Ini SATU-SATUNYA
   pengecualian aturan "headshot = instant kill" — dokumentasikan di CLAUDE.md.
 - HP bar boss: JANGAN elemen DOM baru per-frame; pakai `#waveText` via
-  `hudStatus()` stage 2: `Zombies Left: N — BOSS ██████░░`.
-- Boss tidak kena pathfinder-budget masalah apa pun (dia zombie biasa dgn field
+  `hudStatus()` stage 2: `Robots Left: N — BOSS ██████░░`.
+- Boss tidak kena pathfinder-budget masalah apa pun (dia robot biasa dgn field
   beda). Nudge granat: kecualikan boss dari dorongan (`if (z.kind==='boss') skip`)
   supaya tidak bisa di-bully granat.
 
 **Config:** seksi `campaign` tambah `boss: { hp, speed, scale, clawDamage,
 spawnWhenRemaining }`.
 
-**Selesai bila:** test campaign — bersihkan zombie sampai sisa 4 → boss muncul;
+**Selesai bila:** test campaign — bersihkan robot sampai sisa 4 → boss muncul;
 kill boss + sisa → `MISSION COMPLETE`.
 
 ## 3. Shop antar-wave (survival)
@@ -152,7 +152,7 @@ kill boss + sisa → `MISSION COMPLETE`.
 
 **Upgrade damage/reload — titik sambung:**
 - Damage: `player.dmgMul` (baru, default 1, reset di `resetGame`). Terapkan di
-  hit-test peluru `zombies.js`: `z.hp -= CFG.weapons.bulletDamage * (player.dmgMul||1)`.
+  hit-test peluru `robots.js`: `z.hp -= CFG.weapons.bulletDamage * (player.dmgMul||1)`.
 - Reload: `player.reloadMul` diterapkan di `startReload` (`dur = reloadMs *
   player.reloadMul`) — **rig animasi otomatis ikut** karena keyframe di-skala ke
   durasi (lihat `updateWeaponVisuals`; pakai durasi efektif yang sama di kedua
@@ -182,9 +182,9 @@ wajar). Jangan mengunduh aset sendiri tanpa persetujuan.
   `startMusic()` dipanggil pertama kali dari gesture user yang sudah ada
   (`requestLock()` di `core/input.js` — kebijakan autoplay browser butuh gesture).
 - Crossfade per-frame kecil di `updateWorldDecor` ATAU blok baru di `animate`
-  (main.js): ambient default; layer combat menguat bila ada zombie `chasing`
-  berjarak < ~200 unit — titik data ini SUDAH dihitung utk SFX langkah zombie
-  global di `entities/player.js` (cari blok "langkah zombie global"); ekspor
+  (main.js): ambient default; layer combat menguat bila ada robot `chasing`
+  berjarak < ~200 unit — titik data ini SUDAH dihitung utk SFX langkah robot
+  global di `entities/player.js` (cari blok "langkah robot global"); ekspor
   jarak terdekat itu daripada menghitung ulang.
 - Volume master di CFG (`sfx`/seksi baru `audio`) + hormati mute bila nanti ada.
 - Matikan/fade saat game over; reset di `resetGame`.
@@ -220,7 +220,7 @@ kick 2.5/1.6, skala muzzle sprite 1/0.75).
 - SFX: butuh `shotgun-shoot.mp3` dari user (fallback sementara: sfxShoot).
 
 **Selesai bila:** test — 1 tembakan mengurangi 1 ammo & memunculkan 7 bullet;
-switch 1/2/3/Q; reload; zombie dekat mati 1 tembakan (multi-pelet mengenai).
+switch 1/2/3/Q; reload; robot dekat mati 1 tembakan (multi-pelet mengenai).
 
 ## 6. Monas ber-HP (survival)
 
@@ -228,11 +228,11 @@ switch 1/2/3/Q; reload; zombie dekat mati 1 tembakan (multi-pelet mengenai).
 - `monasHp` (maks dari CFG, mis. 50) state di `survival/index.js`; reset di
   `enter()`.
 - Sebagian spawn (`CFG.survival.monasAttackerChance` ~0.3) diberi `z.target =
-  'monas'`: `zombieAI` mengejar titik tepi AABB Monas terdekat (bukan player);
+  'monas'`: `robotAI` mengejar titik tepi AABB Monas terdekat (bukan player);
   `navAim` menerima target (tx,tz) apa pun — SUDAH kompatibel. Sampai di tepi →
   pakai `attackCd` yang sama utk "menggerogoti" (`monasHp--`), animasi cakar tetap
   jalan (`z.clawT`). Return `{}` (bukan `{chaseDist}`) supaya tidak mencakar player.
-- Zombie target-monas beralih ke player bila player < ~60 unit (biar tetap bisa
+- Robot target-monas beralih ke player bila player < ~60 unit (biar tetap bisa
   dibela dgn badan).
 - HUD: baris kecil di `hudStatus()`: `Wave 5 — Monas 78%` (paling murah, tanpa
   elemen baru). Di bawah 30% tambah peringatan `showPickup('The Monument is
@@ -243,8 +243,8 @@ switch 1/2/3/Q; reload; zombie dekat mati 1 tembakan (multi-pelet mengenai).
   perilaku lama).
 - Radar: blip Monas berubah warna sesuai hp (putih→merah).
 
-**Selesai bila:** test — zombie target-monas mengurangi monasHp dan memicu game
-over pada 0; zombie beralih ke player saat didekati.
+**Selesai bila:** test — robot target-monas mengurangi monasHp dan memicu game
+over pada 0; robot beralih ke player saat didekati.
 
 ## 7. Campaign Stage 3 — "Taman Monas, malam hari"
 
@@ -265,14 +265,14 @@ Ikuti **resep tambah stage di MODULES.md** + catatan khusus:
   stage 3 (`setScene(stage3Scene, {transition:true})`), dan stage 3-lah yang
   `gameOver(true)`. Restart chain: `stage3.restartScene → stage1Scene` (campaign
   selalu restart dari stage 1 — kontrak lama).
-- Zombie: `spawnCampaignZombie(x, z, 3)` tersebar di taman (rejection sampling
+- Robot: `spawnCampaignRobot(x, z, 3)` tersebar di taman (rejection sampling
   seperti stage 2), campur varian item #1 bila sudah ada.
 - Update test transisi ("stage 2 bersih → MISSION COMPLETE" akan berubah jadi
   "→ campaign-3") — SENGAJA breaking, perbarui testnya.
 
 ## 8. Indikator arah serangan
 
-- Saat zombie mencakar player (blok cakar di `entities/zombies.js`, tempat
+- Saat robot mencakar player (blok cakar di `entities/robots.js`, tempat
   `player.hp -=`), hitung sudut penyerang relatif hadap kamera:
   `rel = atan2(dx, dz) - yawKamera` → panggil `showHitDir(rel)` baru di
   `core/dom.js`.
@@ -295,7 +295,7 @@ Ikuti **resep tambah stage di MODULES.md** + catatan khusus:
 ## 10. Layar statistik akhir
 
 - Counter di `core/state.js`: `stats = { kills, headshots, shots, hits }` +
-  `resetStats()`. Increment: `killZombie` (kills), cabang headshot zombies.js
+  `resetStats()`. Increment: `killRobot` (kills), cabang headshot robots.js
   (headshots), `updateShooting` (shots), hit peluru (hits).
 - Tampilkan di overlay game over (`gameOver()` core/game.js) — tambah elemen
   `#goStats` di index.html: `Kills 87 · Headshots 31 (36%) · Accuracy 42%`.
@@ -309,7 +309,7 @@ Ikuti **resep tambah stage di MODULES.md** + catatan khusus:
 - **Cara aman menerapkan:** `loadConfig()` menyimpan hasil fetch mentah ke
   `CFG_BASE` (deep copy). Saat mode dipilih (sebelum `startGame`), terapkan
   preset pengali ke salinan → `Object.assign(CFG, hasil)`. Pengali contoh:
-  EASY zombie hp/claw ×0.75, spawn interval ×1.25; HARD kebalikannya. JANGAN
+  EASY robot hp/claw ×0.75, spawn interval ×1.25; HARD kebalikannya. JANGAN
   mengalikan CFG berulang (idempoten: selalu dari CFG_BASE).
 - Difficulty MENGUNCI leaderboard lokal? Simpan highscore per difficulty
   (`gibsHighScore_easy` dst) supaya adil.
@@ -347,14 +347,14 @@ Ikuti **resep tambah stage di MODULES.md** + catatan khusus:
 | Tanggal | Item | Hasil / catatan |
 |---------|------|-----------------|
 | 2026-07-08 | Survival: radar jadi item shop 1500 (permintaan user) | Radar TIDAK lagi ada sejak awal di Survival — jadi item shop seharga `shop.radarCost`(1500). Flag baru `player.hasRadar` (state.js: literal true; `configurePlayer` set `!survivalStart` → Survival false, mode lain true). `hud.js`: `drawRadar` skip bila `!hasRadar`, `updateUI` sembunyikan/tampilkan kanvas `#radar` per flag. Item shop `radar` (shop.js catalog) set `player.hasRadar=true`; `ownedNote`→'Owned' setelah dibeli; visibilitas nyala lewat `updateUI` yang dipanggil `shopPurchase`. Campaign/mode lain tak berubah (radar tetap ada). Verifikasi: 152 check hijau (survival 103 [+mulai tanpa radar, +beli Radar → hasRadar & Owned; drawRadar-test diberi hasRadar=true], campaign 38, config 11). Belum di-commit. |
-| 2026-07-08 | Base attack zombie 5 & base health 60 (permintaan user) | `CFG.zombie.clawDamage` 20→**5** (base/walker; SHARED survival+campaign) dan base HP **100→60** di `survival.zombieHpBase` + `campaign.zombieHp` (disamakan spt rebalance). Varian HP ikut turun otomatis (via `hpMul`: runner 60×0.34≈20, brute 240, exploder 40); **claw varian ABSOLUT tak ikut turun** (runner 20 / brute 40 / exploder 20 / monasClawDamage 20 / boss 60 tetap — kini jauh di atas base 5) — DITANDAI ke user bila mau diskalakan. Verifikasi: 149 check hijau (survival 100 [test cakar & HP dibuat config-driven → adaptif], campaign 38, config 11). Belum di-commit. |
-| 2026-07-08 | Survival: speed zombie jadi ramp per-wave 60%→100% (perubahan rencana user) | Mengganti "speed = base penuh (seperti campaign)" (baris di bawah) dgn **ramp faktor wave**: wave 1 = 60% kecepatan penuh, +2% tiap wave, dijepit 100% (mentok ~wave 21). `spawnZombie` (index.js): `waveMul = min(zombieSpeedWaveMax, zombieSpeedWaveMin + (wave−1)×zombieSpeedWaveStep)`; `speed = (zombieSpeedBase + rand×zombieSpeedRand) × zombieSpeedScale × waveMul` (variasi acak & speedMul varian tetap dikali). Config baru `survival.zombieSpeedWaveMin`(0.6)/`zombieSpeedWaveStep`(0.02)/`zombieSpeedWaveMax`(1.0). "Kecepatan penuh" = base×scale (scale tetap 1). Verifikasi: 149 check hijau (survival 100 [test speed wave 1=60%, wave 11=80%, wave 30=cap 100% + HP cap tetap teruji di wave 1/11/30], campaign 38, config 11). Belum di-commit. |
+| 2026-07-08 | Base attack robot 5 & base health 60 (permintaan user) | `CFG.robot.clawDamage` 20→**5** (base/walker; SHARED survival+campaign) dan base HP **100→60** di `survival.robotHpBase` + `campaign.robotHp` (disamakan spt rebalance). Varian HP ikut turun otomatis (via `hpMul`: runner 60×0.34≈20, brute 240, exploder 40); **claw varian ABSOLUT tak ikut turun** (runner 20 / brute 40 / exploder 20 / monasClawDamage 20 / boss 60 tetap — kini jauh di atas base 5) — DITANDAI ke user bila mau diskalakan. Verifikasi: 149 check hijau (survival 100 [test cakar & HP dibuat config-driven → adaptif], campaign 38, config 11). Belum di-commit. |
+| 2026-07-08 | Survival: speed robot jadi ramp per-wave 60%→100% (perubahan rencana user) | Mengganti "speed = base penuh (seperti campaign)" (baris di bawah) dgn **ramp faktor wave**: wave 1 = 60% kecepatan penuh, +2% tiap wave, dijepit 100% (mentok ~wave 21). `spawnRobot` (index.js): `waveMul = min(robotSpeedWaveMax, robotSpeedWaveMin + (wave−1)×robotSpeedWaveStep)`; `speed = (robotSpeedBase + rand×robotSpeedRand) × robotSpeedScale × waveMul` (variasi acak & speedMul varian tetap dikali). Config baru `survival.robotSpeedWaveMin`(0.6)/`robotSpeedWaveStep`(0.02)/`robotSpeedWaveMax`(1.0). "Kecepatan penuh" = base×scale (scale tetap 1). Verifikasi: 149 check hijau (survival 100 [test speed wave 1=60%, wave 11=80%, wave 30=cap 100% + HP cap tetap teruji di wave 1/11/30], campaign 38, config 11). Belum di-commit. |
 | 2026-07-08 | Survival: Strengthen Monas jadi BERTINGKAT (permintaan user) | Item shop "Strengthen Monas" diubah dari "+20% max tiap beli" menjadi **tangga tetap**: base 1500 → 3000 → 4500 → 6000 (plafon) via config baru `survival.strengthenMonasStages`[3000,4500,6000]. `strengthenMonas()` (index.js) kini pakai `monasStage` scene-local (reset di `enter()`): set max ke `tiers[monasStage]`, +HP sebesar kenaikan max, `monasStage++`; di plafon → tolak ("already fully reinforced"). Export baru `isMonasFullyStrengthened()` → shop `ownedNote`→'Maxed' (tombol Buy mati) + pesan reject di `shopPurchase`. **Deskripsi item SENGAJA tanpa angka max HP** (permintaan user) — hanya info "reinforce the Monument ... up to its structural limit". Verifikasi: 146 check hijau (survival 97 [test strengthen bertingkat 3000/4500/6000 + reject plafon; heal test claw dinaikkan 500→2000 agar tak ter-cap di max 6000], campaign 38, config 11). Belum di-commit. |
-| 2026-07-07 | #1,2,3,5,6,7,8,9,10,11 (semua kecuali musik & gamepad) | Selesai satu gelombang; 106 check headless hijau (survival 57, campaign 38, config 11). Deviasi/catatan dari rencana: (a) **BUG DITEMUKAN & DIPERBAIKI**: badan pejal zombie berskala (`bodyBlockRadius×scl`) mendorong player keluar jangkauan cakar brute/boss — solusi `reachForScale(scl)` di zombies.js (invarian body<stop<claw dipertahankan di skala apa pun; scl 1 = 1.0 persis, perilaku lama utuh); (b) brute TETAP mati 1 headshot (default rencana; hanya boss `noInstakill`); (c) Q = tukar ke senjata SEBELUMNYA (`lastWeapon`), bukan siklus; (d) transisi menang stage 2 kini ke stage 3 (`checkWin` → setScene), MISSION COMPLETE pindah ke stage 3; (e) `explodeAt` diberi parameter radius opsional utk ledakan exploder; (f) reload upgrade memakai `player.reloadDurMs` agar rig KF & timer sinkron; (g) stub harness Material kini mengonversi hex→Color + emissive default (meniru THREE asli — dibutuhkan tintZombie). |
-| 2026-07-07 | **OVERHAUL Survival Mode (permintaan user)** | Survival diubah dari horde tanpa akhir (advance berbasis WAKTU) menjadi **round-based**: (1) mulai HANYA pistol + 3 mag (`player.owned` di state.js, di-set `configurePlayer` per `mode`); (2) wave 1 = 15 zombie (`zombiesPerWaveBase`+`Step`); (3) wave bersih → "WAVE CLEARED" + hitung mundur `shopCountdownSec` (3 dtk); (4) shop antar-gelombang auto-buka — item: Replenish All Ammo / Grenades / Health + Buy Shotgun / Buy Assault Rifle; (5) tombol Start Next Wave = SPACE. Implementasi: `wave.phase` state machine + `startWave/startNextWave` di `survival/index.js`; shop.js ditulis ulang (`shopBuyKey` + `buyWeapon`, item lama damage/reload-upgrade DIHAPUS — field `player.dmgMul/reloadMul` dibiarkan dorman = 1); `trySwitchKey` + `pickStartWeapon/applyStartLoadout` menghormati `player.owned`; mag drop hanya isi senjata dimiliki; input.js jaga SPACE (Next Wave) tak bocor jadi lompat; shop self-healing bila overlay tertutup Esc/blur (`updateMode` buka lagi di fase 'shopping'). Config: `survival` +`zombiesPerWaveBase/Step`+`shopCountdownSec` −`waveSeconds`, `spawnIntervalBase` 4→2.5; `shop` diganti `ammoCost/grenadeCost/healthCost/shotgunCost/rifleCost` (400/250/350/900/1200). Harga dikalibrasi thd ~1500 skor/wave-1 (kill = 100). Verifikasi: 125 check headless hijau (survival 76, campaign 38, config 11); campaign TAK tersentuh (semua senjata dimiliki). Belum ada yang di-commit (user commit sendiri). |
-| 2026-07-07 | **REBALANCE damage/HP (permintaan user)** | Model "1 damage + headshot instan" → **model damage numerik**. Permintaan eksplisit: (1) zombie base HP 100 (variant `hpMul` TETAP → runner 34/brute 400/exploder 67); (2) **headshot = damage senjata × 2 (BUKAN instant-kill lagi)** via `zombie.headshotDamageMul`; (3) damage pistol 20 / shotgun 5-per-pelet / rifle 30 / granat 100; (4) player HP 100; (5) base claw zombie 20, cooldown 1 dtk; (6) kepala & badan zombie diperkecil lebarnya (tinggi tetap) agar sulit ditembak. Implementasi: per-senjata `CFG.weapons.<w>.damage` dibawa peluru (`b.damage` — senjata bisa berganti sebelum peluru kena; fallback `bulletDamage`); zombies.js hit-test pakai `b.damage` + `hsMul = z.noInstakill ? boss.headshotDamageMul(3) : zombie.headshotDamageMul(2)`, radius badan `CFG.zombie.bodyHitRadius`(6→5) & `headshotRadius`(2.4→1.6); geometri `ZG.head` 2.4→1.8 & `ZG.torso` 3.8→3.4 (tinggi 4.6 tetap), bahu ±2.45→±2.3; `grenade.damage`(100) di effects.js (boss tetap pakai `boss.grenadeDamage`). **Nilai TURUNAN diskala proporsional** (user tak sebut, tapi wajib agar balance tak pecah — DITANDAI ke user): campaign `zombieHp` 3→100, `boss.hp` 60→1800 (×30 = jumlah tembakan sama), `boss.clawDamage` 3→60, `boss.grenadeDamage` 10→300; claw varian ×20 (brute 40, runner/exploder/monas 20), `exploder.boomDamage` 2→40. Melee TETAP instant-kill (di luar cakupan — ditandai). Verifikasi: 127 check headless hijau (survival 78 [+2 test headshot ×2 deterministik dgn sebar dimatikan], campaign 38, config 11). Belum di-commit (user commit sendiri). |
-| 2026-07-07 | Shotgun headshot ×4 (permintaan user) | Pengali headshot **per-senjata**: `CFG.weapons.<w>.headshotMul` (shotgun 4) di-stempel ke peluru (`b.headshotMul`); zombies.js: `hsMul = b.headshotMul != null ? b.headshotMul : (boss ? boss.headshotDamageMul : zombie.headshotDamageMul)` — nilai senjata MENANG bila ada (shotgun 4× per pelet, termasuk vs boss), rifle/pistol tetap pakai default zombie 2× (boss 3×). Verifikasi: 128 check hijau (survival 79 [+1 test shotgun 7 pelet ×5 ×4 = 140, sebar & pelletSpread dimatikan utk determinisme], campaign 38, config 11). Belum di-commit. |
-| 2026-07-07 | Survival: prioritas Monas + aggro 20 m + skor per jenis (permintaan user) | (1)+(2) **Prioritas Monas + aggro jarak**: semua zombie survival serang Monas secara default; `atkMonas = monasHp>0 && distToEye > CFG.survival.playerAggroMeters(20)·CAMP_M(7)` = 140 unit — kejar player hanya bila player ≤20 m dari zombie, kembali ke Monas bila lewat. Menghapus `z.target` statis + `monasAttackerChance` + `monasDefendRadius`(60); tambah `survival.playerAggroMeters`(20). (3) **Skor per jenis + headshot**: `killZombie(i, headshot)` + `zombieScore()` baca `CFG.zombie.score` {normalKill 100, normalHeadshot 150, specialKill 150, specialHeadshot 200} (special = varian runner/brute/exploder; boss tetap `boss.score`); hit-test peluru meneruskan `isHead`, melee/granat = false. Verifikasi: 134 check hijau (survival 85 [+test aggro via `zombieAI` return {} vs {chaseDist}, +4 test skor via `killZombie(i,hs)`], campaign 38, config 11). Perbaikan test lama: pathfinder-around-Monas dipindah player ke ≤140 unit agar zombie ter-aggro; test shotgun diberi reset kamera eksplisit (dulu diam-diam mengandalkan kamera (0,120) — di (0,40) peluru masuk AABB Monas → bulletBlocked). Belum di-commit. |
-| 2026-07-08 | Survival: cap HP wave +50% & speed = base (seperti campaign) (permintaan user) | (1) **HP dijepit +50% base**: `spawnZombie` HP kini `Math.min(zombieHpBase × zombieHpMaxMul, zombieHpBase + floor((wave−1)/2)×zombieHpPerTwoWaves)` — config baru `survival.zombieHpMaxMul`(1.5). Varian `hpMul` tetap dikali DARI base yang sudah di-cap (brute maks = round(150×4)=600). (2) **Speed normal = base (seperti campaign)**: hapus term ramp `+(wave−1)×zombieSpeedPerWave` & set `zombieSpeedScale` 0.3→1 → formula survival kini identik campaign `(zombieSpeedBase + rand×zombieSpeedRand) × zombieSpeedScale` (0.6–1.0; walker tak lagi dilambatkan 0.3× & tak dipercepat per-wave). Hapus kunci `survival.zombieSpeedPerWave`. Varian `speedMul` tetap. Verifikasi: 143 check hijau (survival 94 [+test spawner wave-3: hp = round(base×1.5), speed = base×scale — varian dimatikan & rand=0 utk determinisme], campaign 38, config 11). Catatan: dgn ramp `zombieHpPerTwoWaves`=1, cap +50% baru tercapai ~wave 101 (cap = plafon keras, bukan target cepat). Belum di-commit. |
+| 2026-07-07 | #1,2,3,5,6,7,8,9,10,11 (semua kecuali musik & gamepad) | Selesai satu gelombang; 106 check headless hijau (survival 57, campaign 38, config 11). Deviasi/catatan dari rencana: (a) **BUG DITEMUKAN & DIPERBAIKI**: badan pejal robot berskala (`bodyBlockRadius×scl`) mendorong player keluar jangkauan cakar brute/boss — solusi `reachForScale(scl)` di robots.js (invarian body<stop<claw dipertahankan di skala apa pun; scl 1 = 1.0 persis, perilaku lama utuh); (b) brute TETAP mati 1 headshot (default rencana; hanya boss `noInstakill`); (c) Q = tukar ke senjata SEBELUMNYA (`lastWeapon`), bukan siklus; (d) transisi menang stage 2 kini ke stage 3 (`checkWin` → setScene), MISSION COMPLETE pindah ke stage 3; (e) `explodeAt` diberi parameter radius opsional utk ledakan exploder; (f) reload upgrade memakai `player.reloadDurMs` agar rig KF & timer sinkron; (g) stub harness Material kini mengonversi hex→Color + emissive default (meniru THREE asli — dibutuhkan tintRobot). |
+| 2026-07-07 | **OVERHAUL Survival Mode (permintaan user)** | Survival diubah dari horde tanpa akhir (advance berbasis WAKTU) menjadi **round-based**: (1) mulai HANYA pistol + 3 mag (`player.owned` di state.js, di-set `configurePlayer` per `mode`); (2) wave 1 = 15 robot (`robotsPerWaveBase`+`Step`); (3) wave bersih → "WAVE CLEARED" + hitung mundur `shopCountdownSec` (3 dtk); (4) shop antar-gelombang auto-buka — item: Replenish All Ammo / Grenades / Health + Buy Shotgun / Buy Assault Rifle; (5) tombol Start Next Wave = SPACE. Implementasi: `wave.phase` state machine + `startWave/startNextWave` di `survival/index.js`; shop.js ditulis ulang (`shopBuyKey` + `buyWeapon`, item lama damage/reload-upgrade DIHAPUS — field `player.dmgMul/reloadMul` dibiarkan dorman = 1); `trySwitchKey` + `pickStartWeapon/applyStartLoadout` menghormati `player.owned`; mag drop hanya isi senjata dimiliki; input.js jaga SPACE (Next Wave) tak bocor jadi lompat; shop self-healing bila overlay tertutup Esc/blur (`updateMode` buka lagi di fase 'shopping'). Config: `survival` +`robotsPerWaveBase/Step`+`shopCountdownSec` −`waveSeconds`, `spawnIntervalBase` 4→2.5; `shop` diganti `ammoCost/grenadeCost/healthCost/shotgunCost/rifleCost` (400/250/350/900/1200). Harga dikalibrasi thd ~1500 skor/wave-1 (kill = 100). Verifikasi: 125 check headless hijau (survival 76, campaign 38, config 11); campaign TAK tersentuh (semua senjata dimiliki). Belum ada yang di-commit (user commit sendiri). |
+| 2026-07-07 | **REBALANCE damage/HP (permintaan user)** | Model "1 damage + headshot instan" → **model damage numerik**. Permintaan eksplisit: (1) robot base HP 100 (variant `hpMul` TETAP → runner 34/brute 400/exploder 67); (2) **headshot = damage senjata × 2 (BUKAN instant-kill lagi)** via `robot.headshotDamageMul`; (3) damage pistol 20 / shotgun 5-per-pelet / rifle 30 / granat 100; (4) player HP 100; (5) base claw robot 20, cooldown 1 dtk; (6) kepala & badan robot diperkecil lebarnya (tinggi tetap) agar sulit ditembak. Implementasi: per-senjata `CFG.weapons.<w>.damage` dibawa peluru (`b.damage` — senjata bisa berganti sebelum peluru kena; fallback `bulletDamage`); robots.js hit-test pakai `b.damage` + `hsMul = z.noInstakill ? boss.headshotDamageMul(3) : robot.headshotDamageMul(2)`, radius badan `CFG.robot.bodyHitRadius`(6→5) & `headshotRadius`(2.4→1.6); geometri `ZG.head` 2.4→1.8 & `ZG.torso` 3.8→3.4 (tinggi 4.6 tetap), bahu ±2.45→±2.3; `grenade.damage`(100) di effects.js (boss tetap pakai `boss.grenadeDamage`). **Nilai TURUNAN diskala proporsional** (user tak sebut, tapi wajib agar balance tak pecah — DITANDAI ke user): campaign `robotHp` 3→100, `boss.hp` 60→1800 (×30 = jumlah tembakan sama), `boss.clawDamage` 3→60, `boss.grenadeDamage` 10→300; claw varian ×20 (brute 40, runner/exploder/monas 20), `exploder.boomDamage` 2→40. Melee TETAP instant-kill (di luar cakupan — ditandai). Verifikasi: 127 check headless hijau (survival 78 [+2 test headshot ×2 deterministik dgn sebar dimatikan], campaign 38, config 11). Belum di-commit (user commit sendiri). |
+| 2026-07-07 | Shotgun headshot ×4 (permintaan user) | Pengali headshot **per-senjata**: `CFG.weapons.<w>.headshotMul` (shotgun 4) di-stempel ke peluru (`b.headshotMul`); robots.js: `hsMul = b.headshotMul != null ? b.headshotMul : (boss ? boss.headshotDamageMul : robot.headshotDamageMul)` — nilai senjata MENANG bila ada (shotgun 4× per pelet, termasuk vs boss), rifle/pistol tetap pakai default robot 2× (boss 3×). Verifikasi: 128 check hijau (survival 79 [+1 test shotgun 7 pelet ×5 ×4 = 140, sebar & pelletSpread dimatikan utk determinisme], campaign 38, config 11). Belum di-commit. |
+| 2026-07-07 | Survival: prioritas Monas + aggro 20 m + skor per jenis (permintaan user) | (1)+(2) **Prioritas Monas + aggro jarak**: semua robot survival serang Monas secara default; `atkMonas = monasHp>0 && distToEye > CFG.survival.playerAggroMeters(20)·CAMP_M(7)` = 140 unit — kejar player hanya bila player ≤20 m dari robot, kembali ke Monas bila lewat. Menghapus `z.target` statis + `monasAttackerChance` + `monasDefendRadius`(60); tambah `survival.playerAggroMeters`(20). (3) **Skor per jenis + headshot**: `killRobot(i, headshot)` + `robotScore()` baca `CFG.robot.score` {normalKill 100, normalHeadshot 150, specialKill 150, specialHeadshot 200} (special = varian runner/brute/exploder; boss tetap `boss.score`); hit-test peluru meneruskan `isHead`, melee/granat = false. Verifikasi: 134 check hijau (survival 85 [+test aggro via `robotAI` return {} vs {chaseDist}, +4 test skor via `killRobot(i,hs)`], campaign 38, config 11). Perbaikan test lama: pathfinder-around-Monas dipindah player ke ≤140 unit agar robot ter-aggro; test shotgun diberi reset kamera eksplisit (dulu diam-diam mengandalkan kamera (0,120) — di (0,40) peluru masuk AABB Monas → bulletBlocked). Belum di-commit. |
+| 2026-07-08 | Survival: cap HP wave +50% & speed = base (seperti campaign) (permintaan user) | (1) **HP dijepit +50% base**: `spawnRobot` HP kini `Math.min(robotHpBase × robotHpMaxMul, robotHpBase + floor((wave−1)/2)×robotHpPerTwoWaves)` — config baru `survival.robotHpMaxMul`(1.5). Varian `hpMul` tetap dikali DARI base yang sudah di-cap (brute maks = round(150×4)=600). (2) **Speed normal = base (seperti campaign)**: hapus term ramp `+(wave−1)×robotSpeedPerWave` & set `robotSpeedScale` 0.3→1 → formula survival kini identik campaign `(robotSpeedBase + rand×robotSpeedRand) × robotSpeedScale` (0.6–1.0; walker tak lagi dilambatkan 0.3× & tak dipercepat per-wave). Hapus kunci `survival.robotSpeedPerWave`. Varian `speedMul` tetap. Verifikasi: 143 check hijau (survival 94 [+test spawner wave-3: hp = round(base×1.5), speed = base×scale — varian dimatikan & rand=0 utk determinisme], campaign 38, config 11). Catatan: dgn ramp `robotHpPerTwoWaves`=1, cap +50% baru tercapai ~wave 101 (cap = plafon keras, bukan target cepat). Belum di-commit. |
 | 2026-07-08 | SFX senjata: shotgun / klik kosong / ganti senjata (permintaan user) | Tiga klip baru di `utils/sfx.js` (`sfxShotgun`/`sfxEmpty`/`sfxSwitch`) diwiring di `weapons.js`: (1) `updateShooting` memilih `sfxShotgun` untuk shotgun (rifle `sfxShoot`/pistol `sfxPistol` tetap); (2) `sfxEmpty` "cekrek" saat pelatuk ditarik tapi `ammo===0 && mags===0` — SEKALI per tarikan via flag modul `emptyReady` (di-arm ulang saat mouse dilepas; cabang `else if` jadi tak dobel dgn tembakan terakhir); (3) `sfxSwitch` di `startSwitch` (ganti senjata, bukan saat spawn/reset). Aset `assets/sounds/{shotgun-shot,empty-gun,switch-weapon}.mp3` (untracked — user `git add`). Verifikasi: 140 check hijau (survival 91 [+test klik-kosong: tak ada peluru saat habis], campaign 38, config 11). Belum di-commit. |
 | 2026-07-08 | Survival: shop → MENU KLIK modal + item Monas (permintaan user) | **Shop keyboard-only → menu KLIK modal**: game DI-PAUSE + pointer dilepas selama shop terbuka (dunia tetap dirender di belakang). `shop.js` ditulis ulang data-driven: `catalog()` {id,name,desc,cost,apply()} + `shopPurchase(id)` (dipakai handler klik DOM & test); `render()` pakai `createElement` — kiri daftar item (hover→detail), kanan nama/deskripsi/harga+tombol Buy, bawah-kiri Score, bawah-kanan Start Next Wave. **2 item BARU**: Heal Monas (+25% max HP, tolak bila penuh) & Strengthen Monas (+20% max HP permanen/run + heal sebesar itu) — `monasHp`/`monasMaxHp` dijadikan scene-local (max di-reset dari CFG di `enter()`), fungsi `healMonas`/`strengthenMonas`/`getMonasHp`/`getMonasMaxHp` diexport, shop.js impor `healMonas`/`strengthenMonas`/`startNextWave` dari index.js (circular, dalam fungsi). **input.js**: hook baru `activeScene.shopActive()` → keydown menelan semua tombol gameplay (hanya SPACE/Enter = Next Wave) & `pointerlockchange` unlock mem-pause TANPA blocker; `releaseInputs` TIDAK lagi menutup shop; `startNextWave` menutup shop lalu `requestLock()` untuk resume (dari gesture klik/SPACE). Hapus `shopBuyKey` + hook `shopClose`. Config `shop` +`healMonasCost`(300)+`strengthenMonasCost`(500). CSS `#shopOverlay` ditulis ulang (backdrop full-screen + panel 2 kolom + footer). Verifikasi: **139 check hijau** (survival 90 [shop via `shopPurchase`, +test Strengthen/Heal Monas via getter], campaign 38, config 11). Belum di-commit (user commit sendiri). |

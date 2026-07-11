@@ -1,4 +1,4 @@
-// Item drop: magazen / granat / medkit. Drop acak dari zombie mati +
+// Item drop: magazen / granat / medkit. Drop acak dari robot mati +
 // persediaan tetap (ditaruh manual oleh stage). Pickup dgn aturan "full-item":
 // item yang player-nya sudah penuh TIDAK dikonsumsi — ditinggal di lantai.
 
@@ -10,7 +10,7 @@ import { playSFX, sfxPickup } from '../utils/sfx.js';
 import { showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 
-// ----- Medkit (hanya ditaruh manual oleh stage, bukan drop zombie) -----
+// ----- Medkit (hanya ditaruh manual oleh stage, bukan drop robot) -----
 // Material BERSAMA: Group tidak ditelusuri clearArray, jadi bahan bersama
 // wajib dipakai agar tidak bocor saat reset. JANGAN dispose MEDKIT_MAT.
 export const MEDKIT_MAT = {
@@ -75,7 +75,7 @@ export function buildMagMesh() {
     return grp;
 }
 
-// Drop acak saat zombie mati. Posisi dijepit oleh scene aktif (survival:
+// Drop acak saat robot mati. Posisi dijepit oleh scene aktif (survival:
 // ke dalam pagar; campaign: apa adanya) lewat hook clampDropPos.
 export function spawnDrop(pos) {
     const [px, pz] = activeScene.clampDropPos(pos.x, pos.z);

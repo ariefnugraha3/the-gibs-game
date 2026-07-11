@@ -2,6 +2,6 @@
     "name": "the-gibs-game",
     "private": true,
     "version": "1.0.0",
-    "description": "Gibran vs Zombie 3D (DOOM FPS) - static browser game, no dependencies",
+    "description": "Gibran vs Robot 3D (DOOM FPS) - static browser game, no dependencies",
     "type": "module"
 }

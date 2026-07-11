@@ -1,45 +1,45 @@
 // Campaign bersama: pembangunan kedua dunia stage (sekali), penempatan ulang
-// entitas (restart), pabrik zombie campaign, dan AI zombie campaign generik
+// entitas (restart), pabrik robot campaign, dan AI robot campaign generik
 // (idle -> aktif -> kejar) yang diparametrikan hook milik stage.
 
 import { CFG, CAMP_M } from '../../core/config.js';
-import { player, zombies } from '../../core/state.js';
+import { player, robots } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
-import { buildHumanZombie, tintZombie, applyVariantTint, reachForScale } from '../../entities/zombies.js';
+import { buildHumanRobot, tintRobot, applyVariantTint, reachForScale } from '../../entities/robots.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
 
 // Catatan arsitektur: KEDUA dunia stage dibangun sekali di awal campaign dan
 // hidup berdampingan di satu THREE.Scene, dipisah jarak ~26 km (gedung stage 1
-// di x≈30000). camera.far 4000 + culling zombie menyembunyikan stage yang
+// di x≈30000). camera.far 4000 + culling robot menyembunyikan stage yang
 // jauh. Orkestrasi build/penempatan ada di stage1.js (scene masuk campaign).
 
-// Zombie campaign: DIAM di tempat (state 'idle') sampai player mendekat /
+// Robot campaign: DIAM di tempat (state 'idle') sampai player mendekat /
 // tertembak. HP & kecepatan dari CFG.campaign; tag z.stage utk hitungan HUD
 // dan pembersihan saat pindah stage.
-// kind: 'walker' (default) | 'runner' | 'brute' | 'exploder' (CFG.zombie.
+// kind: 'walker' (default) | 'runner' | 'brute' | 'exploder' (CFG.robot.
 // variants) | 'boss' (CFG.campaign.boss — langsung 'chasing', granat luka
 // berkurang [boss.grenadeDamage], skor & jangkauan khusus).
-export function spawnCampaignZombie(x, z, stage, kind = 'walker') {
-    const built2 = buildHumanZombie();
+export function spawnCampaignRobot(x, z, stage, kind = 'walker') {
+    const built2 = buildHumanRobot();
     const zMesh = built2.group;
     zMesh.position.set(x, 0, z);
     zMesh.rotation.y = Math.random() * 6.283;   // arah hadap acak saat diam
     scene.add(zMesh);
 
-    const V = kind !== 'walker' && kind !== 'boss' ? CFG.zombie.variants[kind] : null;
+    const V = kind !== 'walker' && kind !== 'boss' ? CFG.robot.variants[kind] : null;
     const B = kind === 'boss' ? CFG.campaign.boss : null;
     // HP dibulatkan minimal 1 (runner hpMul kecil harus tetap mati 1 peluru, bukan 0)
-    const hp = B ? B.hp : Math.max(1, Math.round(CFG.campaign.zombieHp * (V ? V.hpMul : 1)));
+    const hp = B ? B.hp : Math.max(1, Math.round(CFG.campaign.robotHp * (V ? V.hpMul : 1)));
     const speed = B ? B.speed
-        : (0.6 + Math.random() * 0.4) * CFG.campaign.zombieSpeedScale * (V ? V.speedMul : 1);
+        : (0.6 + Math.random() * 0.4) * CFG.campaign.robotSpeedScale * (V ? V.speedMul : 1);
     const scl = B ? B.scale : (V ? V.scale : 1);
     if (scl !== 1) zMesh.scale.setScalar(scl);
     // Pembeda skin varian (helper bersama survival+campaign supaya konsisten).
     // Boss punya tint sendiri (badan raksasa) — di luar helper.
     applyVariantTint(zMesh, kind);
-    if (kind === 'boss') tintZombie(zMesh, -0.02, -0.1, -0.12);
+    if (kind === 'boss') tintRobot(zMesh, -0.02, -0.1, -0.12);
 
-    zombies.push({
+    robots.push({
         mesh: zMesh, hp, maxHp: hp, speed,
         rig: built2.rig, isModel: true, baseY: 0, phase: Math.random() * 6.28,
         state: B ? 'chasing' : 'idle', stage, jumpT: 0, jumpDur: 0.55,
@@ -47,24 +47,24 @@ export function spawnCampaignZombie(x, z, stage, kind = 'walker') {
         jumpY0: 0, jumpY1: 0, arcH: 0, groundY: 0, vaultCd: 0,
         attackCd: 0, clawT: 0, clawSide: 1, moving: false,
         kind, scl,
-        clawDmg: B ? B.clawDamage : (V ? V.clawDamage : CFG.zombie.clawDamage),
+        clawDmg: B ? B.clawDamage : (V ? V.clawDamage : CFG.robot.clawDamage),
         // reach mengikuti skala badan (lihat reachForScale) — badan besar tidak
         // boleh mendorong player keluar dari jangkauan cakarnya sendiri
         reachMul: reachForScale(scl, B ? B.reachMul : 1)
     });
 }
 
-// AI zombie campaign generik. `stage` menyuplai:
+// AI robot campaign generik. `stage` menyuplai:
 //   walkable(x,z,r)  — area boleh-jalan stage (grid gedung / union jalan raya)
 //   resolve(pos,r,f) — penghalang pejal stage (furnitur / median+mobil+bak)
 //   los(x1,z1,x2,z2) — OPSIONAL garis-pandang (stage 1 indoor); tanpa los =
 //                      aktivasi murni jarak (stage 2)
 //   nav              — OPSIONAL nav-grid pathfinder (utils/pathfind.js);
 //                      tanpa nav = selalu kejar lurus (perilaku lama)
-// Return kontrak zombies.js: {skip} utk idle jauh; {chaseDist} saat mengejar.
-export function campaignZombieAI(z, dt, step, stage) {
-    // Culling jarak jauh (peta besar, banyak zombie statis) — ini juga yang
-    // menyembunyikan zombie milik stage satunya (≈26 km jauhnya).
+// Return kontrak robots.js: {skip} utk idle jauh; {chaseDist} saat mengejar.
+export function campaignRobotAI(z, dt, step, stage) {
+    // Culling jarak jauh (peta besar, banyak robot statis) — ini juga yang
+    // menyembunyikan robot milik stage satunya (≈26 km jauhnya).
     const dCull = Math.hypot(z.mesh.position.x - camera.position.x,
         z.mesh.position.z - camera.position.z);
     z.mesh.visible = dCull < CFG.campaign.cullDistance;
@@ -80,11 +80,11 @@ export function campaignZombieAI(z, dt, step, stage) {
     }
     if (z.state === 'idle') {
         // Diam di tempat: hanya animasi napas (moving=false) + tetap bisa
-        // ditembak (hit test peluru di zombies.js). Tak bergerak/mencakar.
+        // ditembak (hit test peluru di robots.js). Tak bergerak/mencakar.
         return {};
     }
 
-    // Kejar player; berhenti tepat di jangkauan cakar. Zombie yang BARU
+    // Kejar player; berhenti tepat di jangkauan cakar. Robot yang BARU
     // teraktivasi frame ini langsung masuk cabang kejar (perilaku lama).
     const oldZX = z.mesh.position.x, oldZZ = z.mesh.position.z;
     const dx = camera.position.x - z.mesh.position.x;
@@ -95,7 +95,7 @@ export function campaignZombieAI(z, dt, step, stage) {
     // heading berlaju-putar-terbatas (turnToward) -> belokan melengkung alami.
     const aim = navAim(z, stage.nav, camera.position.x, camera.position.z, dt, step);
     z.moving = !aim.direct
-        || distToEye > player.radius + CFG.zombie.stopRange * (z.reachMul || 1);
+        || distToEye > player.radius + CFG.robot.stopRange * (z.reachMul || 1);
     if (z.moving) {
         const ang = turnToward(z,
             Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);
@@ -120,9 +120,9 @@ export function campaignZombieAI(z, dt, step, stage) {
     return { chaseDist: distToEye };
 }
 
-// Hitung sisa zombie milik satu stage (teks status HUD)
-export function countStageZombies(stage) {
+// Hitung sisa robot milik satu stage (teks status HUD)
+export function countStageRobots(stage) {
     let n = 0;
-    for (let i = 0; i < zombies.length; i++) if (zombies[i].stage === stage) n++;
+    for (let i = 0; i < robots.length; i++) if (robots[i].stage === stage) n++;
     return n;
 }

@@ -1,19 +1,19 @@
-// Zombie manusia prosedural: pabrik mesh (varian profesi), animasi rig, daur
+// Robot manusia prosedural: pabrik mesh (varian profesi), animasi rig, daur
 // hidup (kill/dispose), dan loop update bersama. Logika GERAK per mode
 // (kejar+vault survival / idle+aktivasi campaign) milik scene aktif lewat
-// hook scene.zombieAI(z, dt, step) — modul ini menangani bagian yang sama di
+// hook scene.robotAI(z, dt, step) — modul ini menangani bagian yang sama di
 // semua scene: cakaran, animasi rig, dan hit test peluru.
 
 import { CFG } from '../core/config.js';
-import { player, zombies, bullets, addScore, stats, _dir, godMode } from '../core/state.js';
+import { player, robots, bullets, addScore, stats, _dir, godMode, dodgeInvuln } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { rand, clamp, segPointDist2 } from '../utils/math.js';
-import { playSFX, sfxZombieBite, sfxHit } from '../utils/sfx.js';
+import { playSFX, sfxRobotBite, sfxHit } from '../utils/sfx.js';
 import { crosshair, flashDamage, showHitDir } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 import { spawnBloodBurst, explodeAt } from './effects.js';
-import { spawnCorpse, gibZombie, spawnGibs, spawnBloodDecal } from './gore.js';
+import { spawnCorpse, gibRobot, spawnGibs, spawnBloodDecal } from './gore.js';
 import { spawnDrop } from './drops.js';
 import { gameOver } from '../core/game.js';
 
@@ -21,7 +21,7 @@ import { gameOver } from '../core/game.js';
 // membulat/stylized (silinder meruncing + elipsoid, tanpa file model), dengan
 // varian penampilan: warga, pekerja proyek, polisi, pedagang, penjaga toko,
 // pekerja kantoran.
-export const ZOMBIE_VARIANTS = [
+export const ROBOT_VARIANTS = [
     { shirts: [0x8f3f3f, 0x3f5f8f, 0x7c7c40, 0x8f6f3f], pants: 0x2f3a52, shoes: 0x26221e, acc: 'none' },   // warga (kaos warna-warni)
     { shirts: [0x6b7078], pants: 0x414652, shoes: 0x3d2f22, acc: 'worker' },   // pekerja proyek
     { shirts: [0x8a7752], pants: 0x4d422e, shoes: 0x1d1a16, acc: 'police' },   // polisi
@@ -29,7 +29,7 @@ export const ZOMBIE_VARIANTS = [
     { shirts: [0xd8d4c8], pants: 0x33465e, shoes: 0x23262b, acc: 'clerk' },    // penjaga toko
     { shirts: [0xd8d8dc], pants: 0x23262e, shoes: 0x1a1a1a, acc: 'office' },   // kantoran
 ];
-export const ZOMBIE_SKIN_TONES = [0x7fa05a, 0x8aa66b, 0x74975a, 0x93a06a];   // kulit membusuk kehijauan
+export const ROBOT_SKIN_TONES = [0x7fa05a, 0x8aa66b, 0x74975a, 0x93a06a];   // kulit membusuk kehijauan
 
 export const CLAW_TIME = 0.4;   // durasi animasi sabetan (mekanik jeda cakar dari CFG)
 
@@ -43,21 +43,21 @@ export function attackerAngle(ax, az) {
     return Math.atan2(dx, -dz);
 }
 
-// reachMul utk zombie berskala: badan pejal (bodyBlockRadius x scl) MENDORONG
+// reachMul utk robot berskala: badan pejal (bodyBlockRadius x scl) MENDORONG
 // player — tanpa ini brute/boss mendorong player keluar dari jangkauan
 // cakarnya sendiri dan tak pernah bisa menyerang. Invarian dasar game
 // (body 7.5 < stop 8.0 < claw 8.5) dipertahankan pada skala berapa pun:
 // stop = player.radius + stopRange*reachMul harus >= body + 0.5.
 // scl 1 menghasilkan tepat 1.0 (perilaku lama byte-identik).
 export function reachForScale(scl, base = 1) {
-    const need = (CFG.zombie.bodyBlockRadius * scl + 0.5 - CFG.player.radius)
-        / CFG.zombie.stopRange;
+    const need = (CFG.robot.bodyBlockRadius * scl + 0.5 - CFG.player.radius)
+        / CFG.robot.stopRange;
     return Math.max(base, need);
 }
 
-// Warnai ulang seluruh material 1 zombie (per-instance, aman) — primitif yang
+// Warnai ulang seluruh material 1 robot (per-instance, aman) — primitif yang
 // dipakai applyVariantTint (di bawah) & tint boss campaign. dh/ds/dl = offset HSL.
-export function tintZombie(group, dh, ds, dl, emissiveHex = 0) {
+export function tintRobot(group, dh, ds, dl, emissiveHex = 0) {
     group.traverse(o => {
         if (!o.isMesh || !o.material) return;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -70,12 +70,12 @@ export function tintZombie(group, dh, ds, dl, emissiveHex = 0) {
 
 // Skin pembeda per-varian (SATU sumber utk survival & campaign supaya konsisten
 // antar-mode). Visual-only -> nilai tetap di kode (aturan arsitektur). Basis kulit
-// zombie = hijau kusam (~88° hue). Boss dikecualikan: punya tint sendiri (badan
+// robot = hijau kusam (~88° hue). Boss dikecualikan: punya tint sendiri (badan
 // raksasa) di campaign/common.js.
 export function applyVariantTint(group, kind) {
-    if (kind === 'runner') tintZombie(group, -0.09, 0.1, 0.1);                    // kekuningan pucat
-    else if (kind === 'brute') tintZombie(group, 0, -0.2, -0.22);                 // kehitaman/arang
-    else if (kind === 'exploder') tintZombie(group, -0.22, 0.1, -0.02, 0x3a0a06); // kemerahan + pijar merah samar
+    if (kind === 'runner') tintRobot(group, -0.09, 0.1, 0.1);                    // kekuningan pucat
+    else if (kind === 'brute') tintRobot(group, 0, -0.2, -0.22);                 // kehitaman/arang
+    else if (kind === 'exploder') tintRobot(group, -0.22, 0.1, -0.02, 0x3a0a06); // kemerahan + pijar merah samar
 }
 
 // Elipsoid (sphere di-skala) — bentuk membulat murah untuk kepala/sendi/telapak.
@@ -86,11 +86,11 @@ function ellipGeo(r, sx, sy, sz, ws = 8, hs = 6) {
     return g;
 }
 // Geometri bersama bagian tubuh (dipakai ulang antar instance; JANGAN
-// di-dispose saat zombie mati — hanya materialnya yang per-instance).
+// di-dispose saat robot mati — hanya materialnya yang per-instance).
 // OVERHAUL 2026-07-11: bentuk membulat/stylized low-poly (silinder meruncing +
 // elipsoid) menggantikan balok Minecraft/Roblox. Rig pivot & tinggi TIDAK
-// berubah (animateZombieRig sama). Hit-test tetap horizontal CFG.bodyHitRadius.
-const ZG = {
+// berubah (animateRobotRig sama). Hit-test tetap horizontal CFG.bodyHitRadius.
+const RG = {
     // Badan: silinder meruncing (dada > pinggang) & DIPIPIHKAN depan-belakang (×0.64)
     torso: (() => { const g = new THREE.CylinderGeometry(1.5, 1.02, 4.6, 12, 1); g.scale(1, 1, 0.64); return g; })(),
     // Yoke bahu: elipsoid lebar pipih menjembatani dada->pangkal lengan (kunci
@@ -119,15 +119,15 @@ const ZG = {
     tag: new THREE.BoxGeometry(0.72, 0.4, 0.12),                             // papan nama penjaga toko
 };
 
-// Bangun 1 zombie manusia (varian profesi acak). Material dibuat per-instance
-// agar jitter grime (offsetHSL) tiap zombie unik & dispose aman; geometri dibagi (ZG).
-// Rig pivot pinggul/lutut/bahu/kepala digerakkan animateZombieRig; menghadap +Z
+// Bangun 1 robot manusia (varian profesi acak). Material dibuat per-instance
+// agar jitter grime (offsetHSL) tiap robot unik & dispose aman; geometri dibagi (RG).
+// Rig pivot pinggul/lutut/bahu/kepala digerakkan animateRobotRig; menghadap +Z
 // (di-lookAt ke player oleh AI), kaki di y=0.
-export function buildHumanZombie() {
-    const V = ZOMBIE_VARIANTS[(Math.random() * ZOMBIE_VARIANTS.length) | 0];
-    const skinTone = ZOMBIE_SKIN_TONES[(Math.random() * ZOMBIE_SKIN_TONES.length) | 0];
+export function buildHumanRobot() {
+    const V = ROBOT_VARIANTS[(Math.random() * ROBOT_VARIANTS.length) | 0];
+    const skinTone = ROBOT_SKIN_TONES[(Math.random() * ROBOT_SKIN_TONES.length) | 0];
     const mat = (hex) => new THREE.MeshLambertMaterial({
-        color: new THREE.Color(hex).offsetHSL(0, 0, rand(-0.05, 0.03))   // kumal, tiap zombie beda
+        color: new THREE.Color(hex).offsetHSL(0, 0, rand(-0.05, 0.03))   // kumal, tiap robot beda
     });
     const skin = mat(skinTone);
     const shirt = mat(V.shirts[(Math.random() * V.shirts.length) | 0]);
@@ -149,54 +149,54 @@ export function buildHumanZombie() {
     };
 
     // Torso meruncing + yoke bahu + leher (siluet manusia membulat)
-    mk(ZG.torso, shirt, 0, 7.9, 0, inner);
-    mk(ZG.shoulders, shirt, 0, 9.75, 0, inner, false);
-    mk(ZG.neck, skin, 0, 10.0, 0, inner, false);
+    mk(RG.torso, shirt, 0, 7.9, 0, inner);
+    mk(RG.shoulders, shirt, 0, 9.75, 0, inner, false);
+    mk(RG.neck, skin, 0, 10.0, 0, inner, false);
 
     // Kepala membulat + rongga mata cekung gelap (wajah tersirat; top-down jarang terlihat)
     const headG = new THREE.Group();
     headG.position.set(0, 10.3, 0);
     inner.add(headG);
-    mk(ZG.head, skin, 0, 1.25, 0, headG);
-    mk(ZG.eye, dark, -0.42, 1.42, 1.02, headG, false);
-    mk(ZG.eye, dark, 0.42, 1.42, 1.02, headG, false);
+    mk(RG.head, skin, 0, 1.25, 0, headG);
+    mk(RG.eye, dark, -0.42, 1.42, 1.02, headG, false);
+    mk(RG.eye, dark, 0.42, 1.42, 1.02, headG, false);
 
     // Kaki: pivot pinggul -> paha; pivot lutut -> betis + telapak
     const mkLeg = (sx) => {
         const hip = new THREE.Group(); hip.position.set(sx, 5.7, 0); inner.add(hip);
-        mk(ZG.thigh, pants, 0, -1.5, 0, hip);
+        mk(RG.thigh, pants, 0, -1.5, 0, hip);
         const knee = new THREE.Group(); knee.position.set(0, -3.0, 0); hip.add(knee);
-        mk(ZG.shin, pants, 0, -1.35, 0, knee);
-        mk(ZG.foot, shoes, 0, -2.5, 0.5, knee, false);
+        mk(RG.shin, pants, 0, -1.35, 0, knee);
+        mk(RG.foot, shoes, 0, -2.5, 0.5, knee, false);
         return { hip, knee };
     };
     const legL = mkLeg(-1.0), legR = mkLeg(1.0);
-    // Lengan: pivot bahu (pose dasar menjulur ke depan khas zombie, di animateZombieRig)
+    // Lengan: pivot bahu (pose dasar menjulur ke depan khas robot, di animateRobotRig)
     const mkArm = (sx) => {
         const sh = new THREE.Group(); sh.position.set(sx, 9.6, 0); inner.add(sh);
-        mk(ZG.arm, shirt, 0, -1.95, 0, sh);
-        mk(ZG.hand, skin, 0, -4.25, 0, sh, false);
+        mk(RG.arm, shirt, 0, -1.95, 0, sh);
+        mk(RG.hand, skin, 0, -4.25, 0, sh, false);
         return sh;
     };
     const armL = mkArm(-2.05), armR = mkArm(2.05);
 
     // Aksesori pembeda profesi (bentuk menyesuaikan tubuh membulat)
     if (V.acc === 'worker') {
-        mk(ZG.vestShell, mat(0xd97b1f), 0, 8.0, 0, inner, false);     // rompi keselamatan oranye
-        mk(ZG.band, mat(0xd8d8ca), 0, 7.5, 0, inner, false);          // strip reflektif
-        mk(ZG.helmet, mat(0xe8c11c), 0, 1.55, 0, headG, false);       // helm proyek kuning (kubah)
+        mk(RG.vestShell, mat(0xd97b1f), 0, 8.0, 0, inner, false);     // rompi keselamatan oranye
+        mk(RG.band, mat(0xd8d8ca), 0, 7.5, 0, inner, false);          // strip reflektif
+        mk(RG.helmet, mat(0xe8c11c), 0, 1.55, 0, headG, false);       // helm proyek kuning (kubah)
     } else if (V.acc === 'police') {
-        mk(ZG.capCrown, mat(0x28324a), 0, 2.25, 0, headG, false);     // topi dinas
-        mk(ZG.capBrim, mat(0x1e2636), 0, 2.0, 1.0, headG, false);
-        mk(ZG.badge, mat(0xd8b03a), -0.95, 8.8, 1.02, inner, false);  // lencana emas
+        mk(RG.capCrown, mat(0x28324a), 0, 2.25, 0, headG, false);     // topi dinas
+        mk(RG.capBrim, mat(0x1e2636), 0, 2.0, 1.0, headG, false);
+        mk(RG.badge, mat(0xd8b03a), -0.95, 8.8, 1.02, inner, false);  // lencana emas
     } else if (V.acc === 'vendor') {
-        mk(ZG.apron, mat(0x4f3a28), 0, 7.1, 0.95, inner, false);      // celemek
-        mk(ZG.caping, mat(0xb99a55), 0, 2.2, 0, headG, false);        // caping anyaman
+        mk(RG.apron, mat(0x4f3a28), 0, 7.1, 0.95, inner, false);      // celemek
+        mk(RG.caping, mat(0xb99a55), 0, 2.2, 0, headG, false);        // caping anyaman
     } else if (V.acc === 'clerk') {
-        mk(ZG.vestShell, mat(0x2f5f9f), 0, 8.0, 0, inner, false);     // rompi biru minimarket
-        mk(ZG.tag, mat(0xe8e8e8), 0.95, 8.7, 1.05, inner, false);     // papan nama
+        mk(RG.vestShell, mat(0x2f5f9f), 0, 8.0, 0, inner, false);     // rompi biru minimarket
+        mk(RG.tag, mat(0xe8e8e8), 0.95, 8.7, 1.05, inner, false);     // papan nama
     } else if (V.acc === 'office') {
-        mk(ZG.tie, mat(0x7c2430), 0, 8.5, 0.95, inner, false);        // dasi
+        mk(RG.tie, mat(0x7c2430), 0, 8.5, 0.95, inner, false);        // dasi
     }
 
     return {
@@ -205,10 +205,10 @@ export function buildHumanZombie() {
     };
 }
 
-// Animasi jalan/lompat prosedural pada pivot rig zombie manusia.
+// Animasi jalan/lompat prosedural pada pivot rig robot manusia.
 // Rig dibangun menghadap +Z dan grup di-lookAt ke player, jadi sumbu lateral
 // tubuh = sumbu X lokal tiap pivot — cukup putar rotation.x (tanpa quaternion).
-export function animateZombieRig(z, dt) {
+export function animateRobotRig(z, dt) {
     const r = z.rig;
     if (!r) return;
     if (z.state === 'jumping') {
@@ -260,10 +260,10 @@ export function animateZombieRig(z, dt) {
     }
 }
 
-// Buang material milik 1 zombie (semua dibuat per-instance -> aman di-dispose;
-// geometri ZG dibagi antar zombie -> JANGAN di-dispose). Tetap tangani material
+// Buang material milik 1 robot (semua dibuat per-instance -> aman di-dispose;
+// geometri RG dibagi antar robot -> JANGAN di-dispose). Tetap tangani material
 // ARRAY (jaga-jaga bila ada bagian multi-material di masa depan).
-export function disposeZombie(z) {
+export function disposeRobot(z) {
     z.mesh.traverse(o => {
         if (!o.isMesh || !o.material) return;
         if (Array.isArray(o.material)) o.material.forEach(m => m.dispose && m.dispose());
@@ -271,42 +271,42 @@ export function disposeZombie(z) {
     });
 }
 
-// Sengaja TIDAK ada umpan-balik warna luka pada zombie: player tidak boleh
-// tahu zombie sudah tertembak / hampir mati — warna asli dipertahankan.
+// Sengaja TIDAK ada umpan-balik warna luka pada robot: player tidak boleh
+// tahu robot sudah tertembak / hampir mati — warna asli dipertahankan.
 
-// Antrean ledakan. JANGAN memanggil explodeAt langsung dari killZombie / loop
-// hit peluru: explodeAt mengiterasi & men-splice array zombies yang sama —
+// Antrean ledakan. JANGAN memanggil explodeAt langsung dari killRobot / loop
+// hit peluru: explodeAt mengiterasi & men-splice array robots yang sama —
 // ledakan berantai di tengah iterasi = bug indeks. Antrean diproses SETELAH
 // loop utama (processPendingBooms); ledakan berantai berjalan iteratif di sana.
-// Dipakai exploder (hurtPlayer) DAN peluru Grenade Launcher (bullets.js/zombies.js,
+// Dipakai exploder (hurtPlayer) DAN peluru Grenade Launcher (bullets.js/robots.js,
 // friendly = tak melukai player). Entri: { pos, r, hurtPlayer, playerDmg }.
 const pendingBooms = [];
 export function queueBoom(x, y, z, r, hurtPlayer = false, playerDmg = 0) {
     pendingBooms.push({ pos: new THREE.Vector3(x, y, z), r, hurtPlayer, playerDmg });
 }
-export function resetZombiesFx() { pendingBooms.length = 0; }   // dipanggil resetGame
+export function resetRobotsFx() { pendingBooms.length = 0; }   // dipanggil resetGame
 
 // Skor per kematian: boss = `CFG.campaign.boss.score`; selain itu dari
-// `CFG.zombie.score` — special = varian (runner/brute/exploder) 150, normal 100.
-function zombieScore(z) {
+// `CFG.robot.score` — special = varian (runner/brute/exploder) 150, normal 100.
+function robotScore(z) {
     if (z.kind === 'boss') return CFG.campaign.boss.score;
-    const S = CFG.zombie.score;
+    const S = CFG.robot.score;
     const special = z.kind === 'runner' || z.kind === 'brute' || z.kind === 'exploder';
     return special ? S.specialKill : S.normalKill;
 }
 
-// Kematian zombie (GORE 2026-07-11): TIDAK lenyap seketika — zombie dikeluarkan
+// Kematian robot (GORE 2026-07-11): TIDAK lenyap seketika — robot dikeluarkan
 // dari daftar HIDUP lalu diserahkan ke sistem gore (mesh-nya di-reuse jadi MAYAT
 // yang terjatuh + memudar). Darah MUNCRAT & anggota tubuh TERLEPAS; ledakan
 // (opts.cause==='explosion') MENGHANCURKAN tubuh (dismember penuh). opts.dirx/dirz
 // = arah damage (peluru/melee/keluar-ledakan) → arah semburan & lemparan gib.
-export function killZombie(i, opts = {}) {
-    const z = zombies[i];
-    zombies.splice(i, 1);          // keluar dari daftar HIDUP DULU (mayat jadi inert: tak ber-AI/pejal/kena tembak)
+export function killRobot(i, opts = {}) {
+    const z = robots[i];
+    robots.splice(i, 1);          // keluar dari daftar HIDUP DULU (mayat jadi inert: tak ber-AI/pejal/kena tembak)
     stats.kills++;
-    addScore(zombieScore(z));
+    addScore(robotScore(z));
     if (z.kind === 'exploder') {
-        const V = CFG.zombie.variants.exploder;
+        const V = CFG.robot.variants.exploder;
         queueBoom(z.mesh.position.x, z.mesh.position.y, z.mesh.position.z, V.boomRadius, true, V.boomDamage);
     }
 
@@ -321,7 +321,7 @@ export function killZombie(i, opts = {}) {
         // TERBANG, bongkah daging ekstra berhamburan, genangan TERCECER di sekitar.
         spawnBloodBurst(p.x, bodyY, p.z, dirx, dirz, 34, 2.0, 6.283);       // 360° deras
         spawnBloodBurst(p.x, p.y + 3 * scl, p.z, dirx, dirz, 18, 1.2, 6.283); // lapisan rendah menyebar
-        gibZombie(z.rig, z.mesh, 'heavy', dirx, dirz, restY);              // anggota tubuh lepas
+        gibRobot(z.rig, z.mesh, 'heavy', dirx, dirz, restY);              // anggota tubuh lepas
         spawnGibs(p.x, bodyY, p.z, 10, dirx, dirz, 1.8, 0x6a0f0c, restY);  // + bongkah daging ekstra
         spawnCorpse(z.mesh, z.rig, { dirx, dirz, dur: 1.2, fast: true });
         // genangan darah TERCECER di sekitar titik ledak (bukan cuma satu di tengah)
@@ -332,24 +332,24 @@ export function killZombie(i, opts = {}) {
         }
     } else {
         spawnBloodBurst(p.x, bodyY, p.z, dirx, dirz, 9, 1.0);          // muncratan
-        gibZombie(z.rig, z.mesh, 'light', dirx, dirz, restY);          // kadang satu anggota lepas
+        gibRobot(z.rig, z.mesh, 'light', dirx, dirz, restY);          // kadang satu anggota lepas
         spawnCorpse(z.mesh, z.rig, { dirx, dirz });
         spawnBloodDecal(p.x, p.z, 3 + Math.random() * 2);             // genangan di titik mati
     }
 }
 
-// Proses ledakan yang antre: visual+kill zombie sekitar (explodeAt). Exploder
+// Proses ledakan yang antre: visual+kill robot sekitar (explodeAt). Exploder
 // (hurtPlayer) MELUKAI player bila dekat; peluru Grenade Launcher friendly
-// (hurtPlayer=false). killZombie di dalam explodeAt bisa menambah antrean lagi
+// (hurtPlayer=false). killRobot di dalam explodeAt bisa menambah antrean lagi
 // (ledakan berantai) — loop while menuntaskannya.
 function processPendingBooms() {
     while (pendingBooms.length) {
         const b = pendingBooms.shift();
         explodeAt(b.pos, b.r);
-        if (b.hurtPlayer) {
+        if (b.hurtPlayer && !dodgeInvuln) {   // i-frame dodge: ledakan meleset (tanpa flash/damage)
             const d = Math.hypot(b.pos.x - camera.position.x, b.pos.z - camera.position.z);
             if (d < b.r) {
-                if (!godMode) player.hp -= b.playerDmg;   // cheat: kebal
+                if (!godMode) player.hp -= b.playerDmg;   // cheat: kebal (tetap flash spt semula)
                 updateUI();
                 flashDamage();
                 showHitDir(attackerAngle(b.pos.x, b.pos.z));
@@ -359,37 +359,41 @@ function processPendingBooms() {
     }
 }
 
-// --- Loop zombie bersama: AI gerak per scene -> cakar -> rig -> hit peluru ---
-export function updateZombies(dt, step) {
-    for (let i = zombies.length - 1; i >= 0; i--) {
-        const z = zombies[i];
+// --- Loop robot bersama: AI gerak per scene -> cakar -> rig -> hit peluru ---
+export function updateRobots(dt, step) {
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
 
         // Gerak/aktivasi milik scene aktif. Kontrak hasil:
         //   skip      = jauh & diam (campaign) -> lewati animasi & hit test
         //   chaseDist = jarak 2D ke player BILA cabang kejar berjalan frame ini
-        const res = activeScene.zombieAI(z, dt, step) || {};
+        const res = activeScene.robotAI(z, dt, step) || {};
         if (res.skip) continue;
 
-        // Serangan MENCAKAR: damage & jangkauan per zombie (varian/boss lewat
-        // z.clawDmg & z.reachMul; default nilai CFG.zombie).
+        // Serangan MENCAKAR: damage & jangkauan per robot (varian/boss lewat
+        // z.clawDmg & z.reachMul; default nilai CFG.robot).
         if (res.chaseDist !== undefined && res.chaseDist !== null) {
             if (z.attackCd > 0) z.attackCd -= dt;
-            if (res.chaseDist < player.radius + CFG.zombie.clawRange * (z.reachMul || 1)
+            if (res.chaseDist < player.radius + CFG.robot.clawRange * (z.reachMul || 1)
                 && z.attackCd <= 0) {
-                z.attackCd = CFG.zombie.clawCooldownSec;
-                z.clawT = CLAW_TIME;           // animasi sabetan (animateZombieRig)
+                z.attackCd = CFG.robot.clawCooldownSec;
+                z.clawT = CLAW_TIME;           // animasi sabetan (animateRobotRig)
                 z.clawSide = -z.clawSide;      // lengan bergantian kiri/kanan
-                if (!godMode) player.hp -= (z.clawDmg != null ? z.clawDmg : CFG.zombie.clawDamage);   // cheat: kebal
-                updateUI();
-                flashDamage();
-                showHitDir(attackerAngle(z.mesh.position.x, z.mesh.position.z));
-                playSFX(sfxZombieBite);   // sabetan cakar...
-                playSFX(sfxHit);          // ...plus jeritan player (jokowi-kaget)
-                if (player.hp <= 0) { gameOver(false); return; }
+                playSFX(sfxRobotBite);         // swoosh sabetan (robot tetap mengayun, selalu)
+                // i-frame DODGE = serangan MELESET total (tanpa flash/damage/jeritan).
+                // (god-mode: kebal tapi tetap flash spt semula.)
+                if (!dodgeInvuln) {
+                    if (!godMode) player.hp -= (z.clawDmg != null ? z.clawDmg : CFG.robot.clawDamage);   // cheat: kebal
+                    updateUI();
+                    flashDamage();
+                    showHitDir(attackerAngle(z.mesh.position.x, z.mesh.position.z));
+                    playSFX(sfxHit);          // jeritan player (jokowi-kaget)
+                    if (player.hp <= 0) { gameOver(false); return; }
+                }
             }
         }
 
-        animateZombieRig(z, dt);   // jalan/lompat prosedural
+        animateRobotRig(z, dt);   // jalan/lompat prosedural
 
         // Tabrakan peluru (berlaku saat melompat, idle, maupun mengejar): sweep
         // SEGMEN posisi-lalu -> posisi-kini (anti tembus point-blank / fps rendah).
@@ -399,15 +403,15 @@ export function updateZombies(dt, step) {
         // setinggi laras dan mustahil ditembak dari depan. Damage per peluru dibawa
         // b.damage (rifle/pistol/shotgun beda). Radius diskalakan z.scl (runner/brute/boss).
         const scl = z.scl || 1;
-        const hitR = (z.isModel ? CFG.zombie.bodyHitRadius : 4.5) * scl;
+        const hitR = (z.isModel ? CFG.robot.bodyHitRadius : 4.5) * scl;
         const hitY = z.mesh.position.y + (z.isModel ? 6 : 0) * scl;   // tinggi percikan darah (visual)
         for (let j = bullets.length - 1; j >= 0; j--) {
             const b = bullets[j];
             const bx = b.mesh.position.x, bz = b.mesh.position.z;
             if (segPointDist2(b.px, 0, b.pz, bx, 0, bz,
                 z.mesh.position.x, 0, z.mesh.position.z) < hitR * hitR) {
-                // Peluru Grenade Launcher: MELEDAK saat kena zombie (AoE, bukan hit
-                // tunggal). Antre boom (explodeAt di sini = splice reentrant zombies)
+                // Peluru Grenade Launcher: MELEDAK saat kena robot (AoE, bukan hit
+                // tunggal). Antre boom (explodeAt di sini = splice reentrant robots)
                 // -> diproses processPendingBooms setelah loop. friendly (tak lukai player).
                 if (b.explosive) {
                     queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false);
@@ -418,7 +422,7 @@ export function updateZombies(dt, step) {
                 stats.hits++;
                 z.hp -= base;
                 // Semburan darah di titik tumbuk = titik terdekat lintasan peluru
-                // (xz) ke pusat zombie, pada ketinggian badan hitY — muncrat searah peluru.
+                // (xz) ke pusat robot, pada ketinggian badan hitY — muncrat searah peluru.
                 const abx = bx - b.px, abz = bz - b.pz;
                 const al2 = abx * abx + abz * abz;
                 const at = al2 > 0 ? clamp(((z.mesh.position.x - b.px) * abx
@@ -430,12 +434,12 @@ export function updateZombies(dt, step) {
                 setTimeout(() => crosshair.classList.remove('hit'), 80);
                 if (z.state === 'idle') { z.state = 'chasing'; z.groundY = 0; }   // tertembak = terbangun
 
-                if (z.hp <= 0) { spawnDrop(z.mesh.position); killZombie(i); updateUI(); break; }
+                if (z.hp <= 0) { spawnDrop(z.mesh.position); killRobot(i); updateUI(); break; }
             }
         }
     }
 
-    // Ledakan exploder yang antre (dari killZombie mana pun frame ini) —
+    // Ledakan exploder yang antre (dari killRobot mana pun frame ini) —
     // diproses DI LUAR loop utama; lihat komentar pendingBooms.
     processPendingBooms();
 }

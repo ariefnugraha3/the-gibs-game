@@ -1,11 +1,11 @@
 // Sistem senjata: rifle ("Assault Rifle", model Pindad SS2-V2) & pistol.
 // Meliputi: model + rig tangan CS-style, ganti senjata, reload (mekanik timer
 // nyata + animasi keyframe), melee, dan blok MENEMBAK (spread/recoil/heat).
-// Peluru identik utk kedua senjata; hit test-nya di zombies.js.
+// Peluru identik utk kedua senjata; hit test-nya di robots.js.
 
 import { CFG } from '../core/config.js';
 import {
-    player, keys, mouse, bullets, zombies, isPaused, isGameOver, stats,
+    player, keys, mouse, bullets, robots, isPaused, isGameOver, stats,
     GEO, MAT, _dir, _tip, _v3, _sRight, _sUp, _kickEuler
 } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
@@ -15,8 +15,8 @@ import { rand, clamp, smooth01 } from '../utils/math.js';
 import { playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxMelee, sfxSwitch, sfxEmpty, sfxPickup } from '../utils/sfx.js';
 import { crosshair, showPickup, medkitBar, medkitBarFill } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
-import { stamina, staExhausted, drainStamina, sprintingNow } from './player.js';
-import { killZombie } from './zombies.js';
+import { stamina, staExhausted, drainStamina, dodgeActive } from './player.js';
+import { killRobot } from './robots.js';
 import { spawnDrop, MEDKIT_MAT } from './drops.js';
 import { buildGrenadeMesh } from './grenades.js';   // dipakai ulang utk peluru Grenade Launcher
 
@@ -37,7 +37,7 @@ let aimT = 0;   // aimT 0..1 (transisi ADS dihaluskan)
 const BASE_FOV = 70, AIM_ZOOM = 1.2;   // zoom 20% saat membidik
 let switchTarget = null;
 const SWITCH_TIME = 0.5;
-// Melee (F): pukul dgn popor senjata aktif; 1x pukul membunuh zombie
+// Melee (F): pukul dgn popor senjata aktif; 1x pukul membunuh robot
 let meleeCd = 0, meleeS = 0, meleeHitDone = false;
 const MELEE_TIME = 0.45;   // durasi ayunan (animasi; cooldown & range dari CFG.melee)
 let gunRecoil = 0;      // kickback senjata (visual, tak mengganggu mouse-look)
@@ -918,13 +918,13 @@ export function startReload() { }
 
 // F = melee. Butuh stamina >= biaya melee; tiap ayunan menguras stamina.
 export function tryMelee() {
-    if (grenadeMode || medkitMode) return;       // memegang granat/medkit: tak bisa melee
+    if (grenadeMode || medkitMode || dodgeActive) return;   // memegang granat/medkit / sedang dodge: tak bisa melee
     if (meleeCd > 0 || switchAnim >= 0) return;
     if (stamina < CFG.stamina.meleeCost) return;
     if (player.isReloading) cancelReload();       // F membatalkan reload (+ suaranya) lalu memukul
     drainStamina(CFG.stamina.meleeCost);
     meleeT = MELEE_TIME; meleeCd = CFG.melee.cooldownSec; meleeHitDone = false;
-    playSFX(sfxMelee);   // suara ayunan — berbunyi meski tidak kena zombie
+    playSFX(sfxMelee);   // suara ayunan — berbunyi meski tidak kena robot
 }
 
 // ADS butuh stamina: saat exhausted, toggle ON diabaikan (OFF selalu boleh)
@@ -934,13 +934,13 @@ export function toggleAim() {
 }
 export function setAiming(v) { isAiming = v; }
 
-// Pukulan melee: bunuh 1 zombie terdekat di kerucut depan (jangkauan pendek).
+// Pukulan melee: bunuh 1 robot terdekat di kerucut depan (jangkauan pendek).
 export function doMeleeHit() {
     camera.getWorldDirection(_dir);
     _dir.y = 0; _dir.normalize();
     let best = -1, bestD = 1e9;
-    for (let i = zombies.length - 1; i >= 0; i--) {
-        const z = zombies[i];
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
         const dx = z.mesh.position.x - camera.position.x;
         const dz = z.mesh.position.z - camera.position.z;
         const d = Math.hypot(dx, dz);
@@ -951,8 +951,8 @@ export function doMeleeHit() {
     if (best >= 0) {
         crosshair.classList.add('hit');
         setTimeout(() => crosshair.classList.remove('hit'), 80);
-        spawnDrop(zombies[best].mesh.position);
-        killZombie(best, { cause: 'melee', dirx: _dir.x, dirz: _dir.z });   // GORE: arah tebasan
+        spawnDrop(robots[best].mesh.position);
+        killRobot(best, { cause: 'melee', dirx: _dir.x, dirz: _dir.z });   // GORE: arah tebasan
         updateUI();
     }
 }
@@ -1006,7 +1006,7 @@ export function updateWeaponState(dt) {
 // --- Tembak (kiri klik), fire-rate berbasis waktu nyata, per senjata ---
 // Peluru & damage identik utk kedua senjata; pistol semi-cepat.
 export function updateShooting() {
-    if (grenadeMode || medkitMode) return;   // memegang medkit: klik bukan tembak
+    if (grenadeMode || medkitMode || dodgeActive) return;   // memegang medkit / sedang dodge: tak menembak
     const wpn = player[currentWeapon];
     const wcfg = CFG.weapons[currentWeapon];
     const isLauncher = currentWeapon === 'launcher';   // peluru MELEDAK saat kena (AoE)
@@ -1021,11 +1021,9 @@ export function updateShooting() {
         // Sebar peluru: kerucut acak di ruang kamera (bukan sumbu dunia).
         // Radius = dasar + bloom panas laras; ADS mempersempitnya.
         const acc = isAiming ? CFG.weapons.adsAccuracy : 1;
-        // Penalti bergerak (hanya spread, bukan tendangan kamera):
-        // jalan -> walkSpreadPenalty, lari EFEKTIF -> sprintSpreadPenalty
-        // (stamina habis berarti tidak benar-benar berlari -> penalti jalan biasa)
-        const movePen = (keys.w || keys.a || keys.s || keys.d)
-            ? (sprintingNow ? CFG.movement.sprintSpreadPenalty : CFG.movement.walkSpreadPenalty) : 1;
+        // Penalti bergerak (hanya spread, bukan tendangan kamera): bergerak ->
+        // walkSpreadPenalty, diam -> 1. (Sprint dihapus 2026-07-11.)
+        const movePen = (keys.w || keys.a || keys.s || keys.d) ? CFG.movement.walkSpreadPenalty : 1;
         // Launcher = 1 peluru presisi; senjata lain pakai spread bloom biasa.
         const spread = isLauncher ? 0.006
             : (CFG.weapons.spreadBase + gunHeat * CFG.weapons.spreadBloom) * acc * movePen;
@@ -1044,7 +1042,7 @@ export function updateShooting() {
             const sRad = Math.random() * (spread + (wcfg.pelletSpread || 0));   // bias ke pusat
             // Top-down: sebar HORIZONTAL saja (komponen vertikal dihapus) —
             // peluru terbang datar setinggi laras, kipas pelet shotgun melebar
-            // menyamping ala Alien Shooter, tidak lewat di atas kepala zombie.
+            // menyamping ala Alien Shooter, tidak lewat di atas kepala robot.
             _v3.set(bdx, bdy, bdz)
                 .addScaledVector(_sRight, Math.cos(sAng) * sRad).normalize();
 
@@ -1057,7 +1055,7 @@ export function updateShooting() {
             scene.add(bMesh);
             // px/py/pz = titik awal segmen sweep hit test. Frame pertama mulai dari
             // MATA player (bug fix point-blank: peluru lahir di ujung laras ~13 unit
-            // di depan mata, jadi zombie dalam jarak cakar lahirnya SUDAH terlewati
+            // di depan mata, jadi robot dalam jarak cakar lahirnya SUDAH terlewati
             // dan mustahil tertembak tanpa segmen mata->laras ini).
             bullets.push({
                 mesh: bMesh, dir: _v3.clone(),
@@ -1065,7 +1063,7 @@ export function updateShooting() {
                 life: CFG.weapons.bulletLife, first: true,
                 // Damage dibawa PELURU (senjata bisa berganti sebelum peluru mengenai).
                 damage: wcfg.damage != null ? wcfg.damage : CFG.weapons.bulletDamage,
-                // Peluru Grenade Launcher: meledak saat kena (bullets.js/zombies.js),
+                // Peluru Grenade Launcher: meledak saat kena (bullets.js/robots.js),
                 // radius = granat lama (killRadius+3.5), damage AoE dari CFG.grenade (100).
                 explosive: isLauncher || undefined,
                 explodeR: isLauncher ? CFG.grenade.killRadius + 3.5 : undefined,
@@ -1115,7 +1113,7 @@ export function updateWeaponVisuals(dt) {
     const grp = D.mesh;
     // Goyangan senjata halus (x/y; z milik recoil di updateWeaponState) — diredam saat membidik
     const moving = (keys.w || keys.a || keys.s || keys.d) && !isPaused && !isGameOver;
-    gunBobT += dt * (moving ? (sprintingNow ? 11 : 7.5) : 2.2);
+    gunBobT += dt * (moving ? 7.5 : 2.2);   // (sprint dihapus 2026-07-11)
     const bobA = (moving ? 0.09 : 0.03) * (1 - aimT * 0.8);
     // Animasi ganti senjata: turun lalu naik (model ditukar di tengah, updateWeaponTimers)
     let swOff = 0, swRot = 0;

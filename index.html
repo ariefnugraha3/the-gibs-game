@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>Gibran vs Zombie 3D (DOOM FPS)</title>
+    <title>Gibran vs Robot 3D (DOOM FPS)</title>
     <link rel="stylesheet" href="css/style.css">
     <!-- Library Three.js CDN (global THREE — dipakai semua module di src/) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -84,7 +84,7 @@
     </div>
 
     <div id="modeSelect">
-        <h1>GIBRAN vs ZOMBIE</h1>
+        <h1>GIBRAN vs ROBOT</h1>
         <div class="subtitle">SELECT GAME MODE</div>
         <div id="diffRow">
             <span class="qlabel">DIFFICULTY</span><br />
@@ -96,48 +96,48 @@
             <div class="modeCard" data-mode="survival">
                 <div class="emoji">🏛️</div>
                 <h2>Survival Mode</h2>
-                <p>Defend Monas from endless zombie waves. Survive as long as you can — it only gets harder.</p>
+                <p>Defend Monas from endless robot waves. Survive as long as you can — it only gets harder.</p>
             </div>
             <div class="modeCard" data-mode="campaign">
                 <div class="emoji">🌆</div>
                 <h2>Campaign Mode</h2>
-                <p>Escape the abandoned building (Floor 3), then fight down 1 km of ruined Jakarta highway. Zombies lie in wait — keep your distance.</p>
+                <p>Escape the abandoned building (Floor 3), then fight down 1 km of ruined Jakarta highway. Robots lie in wait — keep your distance.</p>
             </div>
         </div>
     </div>
 
     <div id="cutscene">
-        <!-- Slide 1: orang dikejar zombie -->
+        <!-- Slide 1: orang dikejar robot -->
         <div class="slide active">
             <div class="scene">
                 <div class="actor run" style="left: 22%;">🏃</div>
-                <div class="actor shamble" style="left: 58%;">🧟</div>
+                <div class="actor march" style="left: 58%;">🤖</div>
             </div>
         </div>
-        <!-- Slide 2: kerumunan zombie -->
+        <!-- Slide 2: kerumunan robot -->
         <div class="slide">
             <div class="scene">
                 <div class="crowd" style="left: 50%; transform: translateX(-50%);">
-                    <span class="shamble">🧟</span><span class="shamble" style="animation-delay:.2s">🧟‍♂️</span><span class="shamble" style="animation-delay:.4s">🧟</span><span class="shamble" style="animation-delay:.1s">🧟‍♀️</span><span class="shamble" style="animation-delay:.3s">🧟</span>
+                    <span class="march">🤖</span><span class="march" style="animation-delay:.2s">🤖</span><span class="march" style="animation-delay:.4s">🤖</span><span class="march" style="animation-delay:.1s">🤖</span><span class="march" style="animation-delay:.3s">🤖</span>
                 </div>
             </div>
         </div>
-        <!-- Slide 3: orang berlari ke arah Monas dikejar zombie -->
+        <!-- Slide 3: orang berlari ke arah Monas dikejar robot -->
         <div class="slide">
             <div class="scene">
                 <div class="monas"></div>
                 <div class="actor run flip" style="left: 30%;">🏃</div>
-                <div class="actor shamble" style="left: 64%;">🧟</div>
-                <div class="actor shamble" style="left: 76%; animation-delay:.3s">🧟‍♂️</div>
+                <div class="actor march" style="left: 64%;">🤖</div>
+                <div class="actor march" style="left: 76%; animation-delay:.3s">🤖</div>
             </div>
         </div>
-        <!-- Slide 4: player menghadang zombie + balon dialog -->
+        <!-- Slide 4: player menghadang robot + balon dialog -->
         <div class="slide">
             <div class="scene">
                 <div class="bubble">I WILL FIGHT</div>
                 <div class="actor" style="left: 34%;">🧍</div>
                 <div class="crowd" style="left: 62%;">
-                    <span class="shamble">🧟</span><span class="shamble" style="animation-delay:.3s">🧟‍♂️</span><span class="shamble" style="animation-delay:.15s">🧟</span>
+                    <span class="march">🤖</span><span class="march" style="animation-delay:.3s">🤖</span><span class="march" style="animation-delay:.15s">🤖</span>
                 </div>
             </div>
         </div>
@@ -157,7 +157,7 @@
             <span class="small">WASD = Move | MOUSE = Aim (bullets follow the cursor) | LEFT CLICK = Shoot / Throw / Use |
                 RIGHT CLICK = Move to cursor (WASD cancels it) |
                 1 / 2 = Weapon | Q = Swap Weapon | 3 = Grenade | 4 = Medkit |
-                F = Melee | SHIFT = Sprint<br />
+                F = Melee | SHIFT = Dodge (brief invincible tumble)<br />
                 <span style="color:#ffb84d;">Survival: clear each wave, then the Field Shop opens — buy gear and press SPACE to start the next wave.</span></span>
             <div id="qualityRow">
                 <span class="qlabel">GRAPHICS QUALITY</span><br />

@@ -1,6 +1,6 @@
 // Avatar player TOP-DOWN (pivot 2026-07-11). Pivot LOGIKA player tetap objek
 // `camera` lama (core/renderer.js) — posisi = titik setinggi mata, yaw = arah
-// bidik. Modul ini murni VISUAL: tubuh tentara membulat/stylized segaya zombie
+// bidik. Modul ini murni VISUAL: tubuh tentara membulat/stylized segaya robot
 // (silinder + elipsoid, pivot kaki utk animasi jalan) yang berdiri di kaki pivot, menghadap titik
 // bidik kursor, memegang senapan kompak — `avatarGunTip` di ujung laras jadi
 // titik spawn peluru + induk kilat muzzle (weapons.js). Juga memiliki penanda
@@ -9,13 +9,14 @@
 import { camera } from '../core/renderer.js';
 import { GEO } from '../core/state.js';
 import { aimPoint } from '../core/input.js';
-import { eyeHCur } from './player.js';
+import { eyeHCur, dodgeActive, dodgeProgress, dodgeDirX, dodgeDirZ } from './player.js';
 
 export let avatarGroup = null;
 export let avatarGunTip = null;   // Object3D ujung laras (dibaca weapons.js)
 let legL = null, legR = null;
 let phase = 0, lastX = 0, lastZ = 0;
 let marker = null, markerT = 0;
+const _qT = new THREE.Quaternion(), _tumbleAxis = new THREE.Vector3();   // animasi tumble dodge
 
 export function initPlayerAvatar(sc) {
     // Phong warna polos = program shader sama dgn material dunia (tanpa compile baru)
@@ -116,17 +117,34 @@ export function updatePlayerAvatar(dt) {
     const feetY = camera.position.y - eyeHCur;
     const px = camera.position.x, pz = camera.position.z;
     avatarGroup.position.set(px, feetY, pz);
-    // Menghadap titik bidik (grup dibangun menghadap +Z, sama spt rig zombie).
+    // Menghadap titik bidik (grup dibangun menghadap +Z, sama spt rig robot).
     // Guard: kursor TEPAT di atas player = arah nol -> lookAt menghasilkan NaN;
     // pertahankan hadap terakhir bila jaraknya < 0.5 unit.
     if (aimPoint) {
         const adx = aimPoint.x - px, adz = aimPoint.z - pz;
         if (adx * adx + adz * adz > 0.25) avatarGroup.lookAt(aimPoint.x, feetY, aimPoint.z);
     }
-    // Ayunan kaki menurut kecepatan horizontal NYATA (WASD ataupun klik-kanan)
+    // DODGE tumble (2026-07-11): jungkir PENUH di ATAS hadap-bidik. Sumbu putar =
+    // horizontal tegak lurus arah gulingan (kiri-kanan relatif arah); sudut 0..2π
+    // sepanjang animasi — karena 360° penuh, avatar MULAI & SELESAI tegak
+    // menghadap bidik (tanpa 'pop'). i-frame aktif sepanjang window ini (player.js).
+    if (dodgeActive) {
+        _tumbleAxis.set(dodgeDirZ, 0, -dodgeDirX);
+        const al = Math.hypot(_tumbleAxis.x, _tumbleAxis.z);
+        if (al > 1e-4) {
+            _tumbleAxis.multiplyScalar(1 / al);
+            _qT.setFromAxisAngle(_tumbleAxis, dodgeProgress * Math.PI * 2);
+            avatarGroup.quaternion.premultiply(_qT);   // putaran ruang-dunia SETELAH hadap
+        }
+    }
+    // Ayunan kaki menurut kecepatan horizontal NYATA (WASD ataupun klik-kanan);
+    // dilewati saat tumble (kaki netral, badan berguling utuh).
     const sp = dt > 0 ? Math.hypot(px - lastX, pz - lastZ) / dt : 0;
     lastX = px; lastZ = pz;
-    if (sp > 1) {
+    if (dodgeActive) {
+        legL.rotation.x = 0;
+        legR.rotation.x = 0;
+    } else if (sp > 1) {
         phase += dt * Math.min(13, 4 + sp * 0.12);
         const s = Math.sin(phase) * Math.min(0.62, sp * 0.012);
         legL.rotation.x = s;

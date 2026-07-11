@@ -12,19 +12,22 @@
     },
     "stamina": {
         "max": 100,
-        "sprintDrainPerSec": 10,
         "adsDrainPerSec": 3,
         "meleeCost": 15,
         "regenPerSec": 12,
         "recoverThreshold": 20
     },
+    "dodge": {
+        "staminaCost": 20,
+        "cooldownSec": 1.0,
+        "durationSec": 0.45,
+        "speed": 4.2
+    },
     "movement": {
-        "sprintMultiplier": 1.7,
         "adsMultiplier": 0.7,
         "backpedalWeight": 0.7,
         "strafeWeight": 0.8,
-        "walkSpreadPenalty": 1.25,
-        "sprintSpreadPenalty": 1.5
+        "walkSpreadPenalty": 1.25
     },
     "weapons": {
         "maxWeapons": 3,
@@ -84,7 +87,7 @@
         "pushSpeed": 22,
         "damage": 100
     },
-    "zombie": {
+    "robot": {
         "bodyHitRadius": 5,
         "bodyBlockRadius": 7.5,
         "clawDamage": 5,
@@ -102,24 +105,24 @@
         }
     },
     "survival": {
-        "zombiesPerWaveBase": 30,
-        "zombiesPerWaveStep": 5,
+        "robotsPerWaveBase": 30,
+        "robotsPerWaveStep": 5,
         "shopCountdownSec": 3,
         "spawnIntervalBase": 2.5,
         "spawnIntervalStep": 0.2,
         "spawnIntervalMin": 1,
-        "maxZombiesBase": 20,
-        "maxZombiesStep": 2,
-        "maxZombiesCap": 40,
-        "zombieHpBase": 50,
-        "zombieHpPerTwoWaves": 8,
-        "zombieHpMaxMul": 2.5,
-        "zombieSpeedBase": 0.6,
-        "zombieSpeedRand": 0.4,
-        "zombieSpeedScale": 1,
-        "zombieSpeedWaveMin": 0.72,
-        "zombieSpeedWaveStep": 0.02,
-        "zombieSpeedWaveMax": 1.0,
+        "maxRobotsBase": 20,
+        "maxRobotsStep": 2,
+        "maxRobotsCap": 40,
+        "robotHpBase": 50,
+        "robotHpPerTwoWaves": 8,
+        "robotHpMaxMul": 2.5,
+        "robotSpeedBase": 0.6,
+        "robotSpeedRand": 0.4,
+        "robotSpeedScale": 1,
+        "robotSpeedWaveMin": 0.72,
+        "robotSpeedWaveStep": 0.02,
+        "robotSpeedWaveMax": 1.0,
         "runnerChanceBase": 0.05,
         "runnerChancePerWave": 0.02,
         "runnerChanceMax": 0.35,
@@ -145,8 +148,8 @@
         "monasFogDurationSec": 60
     },
     "campaign": {
-        "zombieHp": 50,
-        "zombieSpeedScale": 1,
+        "robotHp": 50,
+        "robotSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,
         "boss": {
@@ -159,7 +162,7 @@
             "score": 1000,
             "grenadeDamage": 300
         },
-        "stage3Zombies": 26
+        "stage3Robots": 26
     },
     "drops": {
         "magChance": 0.05,
@@ -178,8 +181,8 @@
         "launcherCost": 4000
     },
     "difficulty": {
-        "easy": { "zombieHpMul": 0.75, "zombieDamageMul": 0.5, "spawnIntervalMul": 1.3 },
-        "normal": { "zombieHpMul": 1, "zombieDamageMul": 1, "spawnIntervalMul": 1 },
-        "hard": { "zombieHpMul": 1.4, "zombieDamageMul": 2, "spawnIntervalMul": 0.8 }
+        "easy": { "robotHpMul": 0.75, "robotDamageMul": 0.5, "spawnIntervalMul": 1.3 },
+        "normal": { "robotHpMul": 1, "robotDamageMul": 1, "spawnIntervalMul": 1 },
+        "hard": { "robotHpMul": 1.4, "robotDamageMul": 2, "spawnIntervalMul": 0.8 }
     }
 }

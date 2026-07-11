@@ -2,7 +2,7 @@
 // fisika pantul/gelinding, dan kepejalan granat yang sudah mendarat.
 
 import { CFG } from '../core/config.js';
-import { player, grenades, zombies, _v3 } from '../core/state.js';
+import { player, grenades, robots, _v3 } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { playSFX, sfxThrow, sfxNadeRoll } from '../utils/sfx.js';
@@ -82,7 +82,7 @@ export function spawnGrenade(range = 'far') {
     return true;
 }
 
-// Dorong granat pejal (yang sudah di tanah) keluar dari pendorong (player/zombie).
+// Dorong granat pejal (yang sudah di tanah) keluar dari pendorong (player/robot).
 // Koreksi posisi (granat tak tembus badan) + dorongan KECIL yang DICAP di
 // CFG.grenade.pushSpeed searah dorong: menggelinding wajar sesaat lalu berhenti
 // oleh gesekan di loop granat. Cap (bukan impuls ∝ kecepatan pendorong) yang
@@ -120,15 +120,15 @@ export function updateGrenades(dt) {
         g.mesh.position.y += g.vy * dt;
         g.mesh.position.z += g.vz * dt;
 
-        // Granat PEJAL setelah menyentuh tanah: player & zombie (yang tak melayang)
+        // Granat PEJAL setelah menyentuh tanah: player & robot (yang tak melayang)
         // yang menabraknya mendorongnya keluar + nudge kecil. Diproses SEBELUM
         // resolve tembok/lantai di bawah agar hasil dorongan langsung dibersihkan
         // dari tembok/pohon/median (granat tak terdorong menembus dinding).
         if (g.rolled && g.mesh.position.y < NADE_R + 5) {
             nudgeGrenade(g, camera.position.x, camera.position.z, player.radius);
-            for (let zi = 0; zi < zombies.length; zi++) {
-                const zb = zombies[zi];
-                // Zombie melayang tak mendorong; boss dikecualikan agar tidak
+            for (let zi = 0; zi < robots.length; zi++) {
+                const zb = robots[zi];
+                // Robot melayang tak mendorong; boss dikecualikan agar tidak
                 // bisa "di-bully" memantul-mantulkan granat dgn badan besarnya.
                 if (zb.state === 'jumping' || zb.kind === 'boss') continue;
                 nudgeGrenade(g, zb.mesh.position.x, zb.mesh.position.z, 3.5);

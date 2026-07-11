@@ -1,41 +1,41 @@
 // SCENE: Campaign STAGE 3 (final) — "Taman Monas, Malam Hari". MEMAKAI ULANG
 // dunia taman survival (survival/world.js — dibangun sekali, dibagi dua scene)
-// dgn preset cahaya malam. Zombie disebar saat enter() (bukan oleh orkestrator
+// dgn preset cahaya malam. Robot disebar saat enter() (bukan oleh orkestrator
 // stage 1 — penempatan ulang restart tak perlu: restart campaign selalu ke
-// stage 1, dan resetGame membuang semua zombie lebih dulu). Menang = semua
-// zombie stage 3 mati -> MISSION COMPLETE.
+// stage 1, dan resetGame membuang semua robot lebih dulu). Menang = semua
+// robot stage 3 mati -> MISSION COMPLETE.
 
 import { CFG } from '../../core/config.js';
-import { player, zombies, _v3 } from '../../core/state.js';
+import { player, robots, _v3 } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
 import { applyLightPreset } from '../../world/lighting.js';
 import { showStageMsg } from '../../core/dom.js';
 import { updateUI } from '../../core/hud.js';
-import { disposeZombie } from '../../entities/zombies.js';
+import { disposeRobot } from '../../entities/robots.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
 import {
     PARK, ensureParkWorld, getParkNavSolidFountain,
     resolveObstacles, groundHeightAt
 } from '../survival/world.js';
-import { spawnCampaignZombie, campaignZombieAI, countStageZombies } from './common.js';
+import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { stage1Scene } from './stage1.js';
 
 // Titik masuk: gerbang selatan taman, menghadap Monas (-z dari z positif)
 const S3_START = { x: 0, z: 300 };
 
-// Area boleh-jalan zombie: di dalam pagar, di luar AABB Monas. Bak air mancur
+// Area boleh-jalan robot: di dalam pagar, di luar AABB Monas. Bak air mancur
 // TIDAK dicek di sini (pejal via resolveObstacles + nav-grid bak-pejal —
-// campaignZombieAI tidak punya vault survival).
+// campaignRobotAI tidak punya vault survival).
 function parkWalk(x, z, r) {
     return Math.abs(x) < PARK.hx - r - 2 && Math.abs(z) < PARK.hz - r - 2
         && !(Math.abs(x) < 25 + r && Math.abs(z) < 25 + r);
 }
 
-// Sebar zombie taman (rejection sampling ala stage 2): campuran varian, tidak
+// Sebar robot taman (rejection sampling ala stage 2): campuran varian, tidak
 // ada yang lahir dekat titik masuk player.
-function placeZombies() {
+function placeRobots() {
     const pts = [];
     const put = (x, z, kind) => {
         _v3.set(x, 0, z);
@@ -46,10 +46,10 @@ function placeZombies() {
         for (let i = 0; i < pts.length; i++)
             if (Math.hypot(x - pts[i].x, z - pts[i].z) < 42) return false;
         pts.push({ x, z });
-        spawnCampaignZombie(x, z, 3, kind);
+        spawnCampaignRobot(x, z, 3, kind);
         return true;
     };
-    const total = CFG.campaign.stage3Zombies;
+    const total = CFG.campaign.stage3Robots;
     let placed = 0, tries = 0;
     while (placed < total && tries++ < 900) {
         // Campuran varian: 60% walker, 25% runner, 10% brute, 5% exploder
@@ -65,15 +65,15 @@ export const stage3Scene = {
     // Transisi dari stage 2 (jalan raya bersih + boss tumbang)
     enter() {
         ensureParkWorld();
-        // Bersihkan sisa zombie stage 2 diam-diam (pola transisi stage 1 -> 2)
-        for (let i = zombies.length - 1; i >= 0; i--) {
-            if (zombies[i].stage === 2) {
-                disposeZombie(zombies[i]);
-                scene.remove(zombies[i].mesh);
-                zombies.splice(i, 1);
+        // Bersihkan sisa robot stage 2 diam-diam (pola transisi stage 1 -> 2)
+        for (let i = robots.length - 1; i >= 0; i--) {
+            if (robots[i].stage === 2) {
+                disposeRobot(robots[i]);
+                scene.remove(robots[i].mesh);
+                robots.splice(i, 1);
             }
         }
-        placeZombies();
+        placeRobots();
         applyLightPreset(scene, 'night');
         camera.position.set(S3_START.x, CFG.player.eyeHeight, S3_START.z);
         camera.quaternion.set(0, 0, 0, 1);   // hadap Monas (utara)
@@ -124,9 +124,9 @@ export const stage3Scene = {
     },
 
     // AI campaign generik (idle -> aktif jarak -> kejar) di medan taman;
-    // nav-grid versi bak-PEJAL (tanpa vault) — zombie memutari air mancur.
-    zombieAI(z, dt, step) {
-        return campaignZombieAI(z, dt, step, {
+    // nav-grid versi bak-PEJAL (tanpa vault) — robot memutari air mancur.
+    robotAI(z, dt, step) {
+        return campaignRobotAI(z, dt, step, {
             walkable: parkWalk, resolve: resolveObstacles, nav: getParkNavSolidFountain()
         });
     },
@@ -135,7 +135,7 @@ export const stage3Scene = {
         return [clamp(x, -PARK.hx + 10, PARK.hx - 10), clamp(z, -PARK.hz + 10, PARK.hz - 10)];
     },
 
-    hudStatus() { return `Zombies left: ${countStageZombies(3)}`; },
+    hudStatus() { return `Robots left: ${countStageRobots(3)}`; },
 
     // Monas = penanda pusat (dijepit ke tepi radar saat jauh)
     radarLandmarks(plot) {
@@ -143,6 +143,6 @@ export const stage3Scene = {
     },
 
     checkWin() {
-        if (countStageZombies(3) === 0) gameOver(true);
+        if (countStageRobots(3) === 0) gameOver(true);
     },
 };

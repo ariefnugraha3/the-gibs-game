@@ -1,4 +1,4 @@
-// GORE (2026-07-11): zombie tidak lagi lenyap seketika saat mati — ia TERJATUH
+// GORE (2026-07-11): robot tidak lagi lenyap seketika saat mati — ia TERJATUH
 // (mayat toppling lalu memudar), MUNCRAT darah, dan ANGGOTA TUBUHNYA TERLEPAS
 // (gib). Ledakan MENGHANCURKAN tubuh (dismember penuh). Plus genangan darah di
 // tanah. Dipisah dari effects.js (yang memegang ledakan + sprite percikan darah).
@@ -6,7 +6,7 @@
 // Pool TETAP: gib & decal dibuat SEKALI di initGore (disembunyikan, tetap di
 // scene) supaya program shader-nya ikut terkompilasi saat warmup preload
 // (renderer.compile menyusuri objek tersembunyi) — NOL recompile di tengah main.
-// Mayat memakai ULANG mesh zombie (diserahkan killZombie); materialnya (semua
+// Mayat memakai ULANG mesh robot (diserahkan killRobot); materialnya (semua
 // per-instance) di-dispose saat mayat lenyap. Geometri/ material gib & tekstur
 // decal DIBAGI (jangan dispose).
 
@@ -14,7 +14,7 @@ import { scene } from '../core/renderer.js';
 import { makeTexture } from '../utils/textures.js';
 import { rand } from '../utils/math.js';
 
-const corpses = [];              // mayat yang sedang jatuh/memudar (mesh zombie di-reuse)
+const corpses = [];              // mayat yang sedang jatuh/memudar (mesh robot di-reuse)
 const GIB_POOL = [], DECAL_POOL = [];
 let nextGib = 0, nextDecal = 0;
 const GIB_COUNT = 64, DECAL_COUNT = 44;
@@ -103,7 +103,7 @@ export function spawnGibs(x, y, z, count, dirx, dirz, power, tone, restY) {
 }
 
 // Warna anggota tubuh (baca material mesh pertama di pivot) → gib mengikuti warna
-// baju/kulit zombie itu, digelapkan sedikit supaya berkesan berdarah.
+// baju/kulit robot itu, digelapkan sedikit supaya berkesan berdarah.
 function limbTone(piv) {
     let hex = null;
     piv.traverse(o => { if (hex === null && o.isMesh && o.material && o.material.color) hex = o.material.color.getHex(); });
@@ -114,7 +114,7 @@ function limbTone(piv) {
 
 // Lepaskan anggota tubuh dari rig: sembunyikan di MAYAT + lempar gib seukurannya.
 // level 'heavy' (ledakan) = banyak anggota; 'light' (peluru/melee) = kadang satu.
-export function gibZombie(rig, group, level, dirx, dirz, restY) {
+export function gibRobot(rig, group, level, dirx, dirz, restY) {
     if (!rig) return;
     group.updateMatrixWorld(true);
     const sy = group.scale.y || 1;
@@ -132,7 +132,7 @@ export function gibZombie(rig, group, level, dirx, dirz, restY) {
     }
 }
 
-// Jadikan mesh zombie sebuah MAYAT: pose lemas, lalu toppling + memudar.
+// Jadikan mesh robot sebuah MAYAT: pose lemas, lalu toppling + memudar.
 export function spawnCorpse(group, rig, opts = {}) {
     if (rig) {   // pose lemas mati (menimpa pose jalan/serang terakhir)
         if (rig.inner) rig.inner.position.y = 0;
@@ -213,7 +213,7 @@ export function updateGore(dt) {
     }
 }
 
-// resetGame: buang mayat (dispose material zombie), sembunyikan pool gib & decal.
+// resetGame: buang mayat (dispose material robot), sembunyikan pool gib & decal.
 export function resetGore() {
     for (const c of corpses) { for (const m of c.mats) m.dispose(); scene.remove(c.group); }
     corpses.length = 0;

@@ -13,9 +13,9 @@ export const sfxPurchase = new Audio('assets/sounds/success-purchase.mp3');   //
 export const sfxMelee = new Audio('assets/sounds/smash-melee-attack.mp3');
 export const sfxThrow = new Audio('assets/sounds/throwing-grenade.mp3');
 export const sfxNadeRoll = new Audio('assets/sounds/grenade-rolling.mp3');   // granat kontak lantai (digerbang jarak)
-export const sfxZombieBite = new Audio('assets/sounds/zombie-attack-melee.mp3');
+export const sfxRobotBite = new Audio('assets/sounds/robot-attack-melee.mp3');
 export const sfxFootstep = new Audio('assets/sounds/player-footstep.mp3');
-export const sfxZombieStep = new Audio('assets/sounds/zombie-step.mp3');
+export const sfxRobotStep = new Audio('assets/sounds/robot-step.mp3');
 
 // Pramuat semua klip (dipanggil layar loading pra-game, core/preload.js).
 // Dua tahap — load() saja TIDAK cukup (hanya fetch, decode tetap terjadi di
@@ -30,7 +30,7 @@ export const sfxZombieStep = new Audio('assets/sounds/zombie-step.mp3');
 export function preloadAllSFX() {
     const all = [sfxShoot, sfxShotgun, sfxEmpty, sfxSwitch, sfxExplode, sfxReload, sfxHit,
         sfxPistol, sfxPickup, sfxPurchase, sfxMelee, sfxThrow, sfxNadeRoll,
-        sfxZombieBite, sfxFootstep, sfxZombieStep];
+        sfxRobotBite, sfxFootstep, sfxRobotStep];
     all.forEach(a => { try { a.load(); } catch (e) { /* klip hilang: abaikan */ } });
     all.forEach(a => {
         try {

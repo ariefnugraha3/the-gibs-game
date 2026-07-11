@@ -104,7 +104,7 @@ function catalog() {
             // Radar minimap: Survival mulai TANPA (player.hasRadar false); beli utk
             // mengaktifkannya. updateUI (dipanggil shopPurchase) menampilkan kanvasnya.
             id: 'radar', name: 'Radar', cost: S.radarCost,
-            desc: 'Deploy a tactical radar (top-left minimap) that reveals nearby zombies, supply drops, and the Monument.',
+            desc: 'Deploy a tactical radar (top-left minimap) that reveals nearby robots, supply drops, and the Monument.',
             apply() {
                 if (player.hasRadar) return 'Radar already owned';
                 player.hasRadar = true;
@@ -122,7 +122,7 @@ function catalog() {
         },
         {
             id: 'launcher', name: 'Grenade Launcher', cost: S.launcherCost, weapon: 'launcher',
-            desc: 'Fires 40mm grenade rounds that EXPLODE on impact (including on a direct zombie hit) — 100 area damage. Slow to fire; carries 50 rounds.',
+            desc: 'Fires 40mm grenade rounds that EXPLODE on impact (including on a direct robot hit) — 100 area damage. Slow to fire; carries 50 rounds.',
             apply() { return buyWeapon('launcher', 'Grenade Launcher'); }
         },
     ];

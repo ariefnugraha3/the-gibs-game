@@ -25,7 +25,7 @@ export function createBaseLights(scene) {
     scene.add(dirLight.target);   // target ikut scene agar bayangan bisa mengikuti player
     setQualityLightRef(dirLight); // applyQuality (renderer.js) mengatur shadow map dirLight
 
-    // Rim biru dingin dari arah berlawanan: memisahkan siluet zombie dari tanah
+    // Rim biru dingin dari arah berlawanan: memisahkan siluet robot dari tanah
     rimLight = new THREE.DirectionalLight(0x5a76c8, 0.22);
     rimLight.position.set(300, 200, 350);
     scene.add(rimLight);

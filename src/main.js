@@ -55,7 +55,7 @@ export async function startGame(mode) {
         createBaseLights(scene);   // ambient/hemi/dir(bayangan)/rim — dipakai semua scene
         initQualityUI();           // baris tombol kualitas (butuh dirLight sudah ada)
         initEffects(scene);        // pool lampu ledakan + pool sprite darah
-        initGore(scene);           // pool gib + genangan darah (mayat pakai mesh zombie)
+        initGore(scene);           // pool gib + genangan darah (mayat pakai mesh robot)
         createSky(scene);          // kubah langit + bulan (ikut player)
         await loadingStep(30, 'Building the world…');
 

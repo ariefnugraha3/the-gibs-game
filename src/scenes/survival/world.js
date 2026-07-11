@@ -41,7 +41,7 @@ export function buildSurvivalWorld() {
 // meng-alpha-kan pusat (Monas) menjadi bening, sisanya abu pekat. Dibangun SEKALI
 // (ikut warm-up preload = tanpa hitch), lalu di-fade oleh index.js saat event.
 let fogCanopy = null, fogCanopyMat = null;
-const FOG_H = 26;              // tinggi kanopi (di atas kepala zombie, jauh di bawah kamera)
+const FOG_H = 26;              // tinggi kanopi (di atas kepala robot, jauh di bawah kamera)
 const FOG_DISK_R = 1800;       // radius piringan (jauh melampaui pandangan kamera di sudut mana pun)
 const FOG_MAX_OPACITY = 0.72;  // kepekatan puncak kabut (visual-only)
 
@@ -353,7 +353,7 @@ function createParkRoads() {
 
 function createFence() {
     // Pagar BETON keliling: dinding panel + pilar + coping. Tetap batas keras
-    // player (clamp di playerCollide) & tetap dilompati zombie saat masuk.
+    // player (clamp di playerCollide) & tetap dilompati robot saat masuk.
     const grp = new THREE.Group();
     const hx = PARK.hx, hz = PARK.hz, H = FENCE_H;
     const WH = H * 0.78;   // tinggi dinding panel (pilar sedikit lebih tinggi)
@@ -510,7 +510,7 @@ function createParkProps() {
         }
         if (!ok) continue;
         const sc = rand(0.8, 1.3);
-        treeColliders.push({ x, z, r: 3.4 * sc });   // batang pejal (player & zombie)
+        treeColliders.push({ x, z, r: 3.4 * sc });   // batang pejal (player & robot)
         _q.setFromAxisAngle(up, Math.random() * Math.PI);
         _qt.setFromAxisAngle(tiltAxis, rand(-0.07, 0.07));      // sedikit doyong
         _q.multiply(_qt);
@@ -595,8 +595,8 @@ function createCity() {
 
 // Dorong keluar dari penghalang silinder pejal: pohon selalu; bak air mancur
 // hanya bila kaki masih di bawah bibirnya (di atas -> bebas berjalan/mendarat).
-// Murni horizontal; dipakai player (radius 5) dan zombie (radius 3.5).
-// Return true bila DINDING BAK yang menghalangi (pemicu vault zombie).
+// Murni horizontal; dipakai player (radius 5) dan robot (radius 3.5).
+// Return true bila DINDING BAK yang menghalangi (pemicu vault robot).
 // Setengah lebar dasar Monas (undakan bawah 44×44 -> half 22) = kolisi pejal.
 export const MONAS_HALF = 22;
 
@@ -630,11 +630,11 @@ export function resolveObstacles(pos, radius, feetY) {
     return fountainBlocked;
 }
 
-// Nav-grid pathfinder zombie: taman di dalam pagar; Monas & pohon = penghalang.
+// Nav-grid pathfinder robot: taman di dalam pagar; Monas & pohon = penghalang.
 // fountainWalkable=true (survival): bak air mancur SENGAJA walkable — jalur
 // lurus yang melintasinya membentur dinding bak lalu memicu perilaku vault.
-// fountainWalkable=false (campaign stage 3): campaignZombieAI TIDAK punya
-// vault, jadi bak harus jadi penghalang agar zombie memutarinya (bukan macet).
+// fountainWalkable=false (campaign stage 3): campaignRobotAI TIDAK punya
+// vault, jadi bak harus jadi penghalang agar robot memutarinya (bukan macet).
 // Panggil SETELAH buildSurvivalWorld (treeColliders sudah terisi).
 export function buildSurvivalNav(fountainWalkable = true) {
     const cell = 14, m = 6;   // margin tepi pagar
@@ -642,7 +642,7 @@ export function buildSurvivalNav(fountainWalkable = true) {
         Math.ceil(PARK.hx * 2 / cell), Math.ceil(PARK.hz * 2 / cell),
         (x, z) => {
             if (Math.abs(x) > PARK.hx - m || Math.abs(z) > PARK.hz - m) return false;
-            if (Math.abs(x) < 28 && Math.abs(z) < 28) return false;   // Monas (AABB 24 + badan zombie)
+            if (Math.abs(x) < 28 && Math.abs(z) < 28) return false;   // Monas (AABB 24 + badan robot)
             if (!fountainWalkable
                 && Math.hypot(x - FOUNTAIN.x, z - FOUNTAIN.z) < FOUNTAIN.r + 4) return false;
             for (const t of treeColliders)
@@ -669,7 +669,7 @@ export function getParkNavSolidFountain() {
 }
 
 // Apakah ruas garis (x1,z1)->(x2,z2) melintasi lingkaran bak air mancur?
-// Dipakai zombie: vault hanya bila jalur ke player memang lewat bak.
+// Dipakai robot: vault hanya bila jalur ke player memang lewat bak.
 export function segmentHitsFountain(x1, z1, x2, z2) {
     const dx = x2 - x1, dz = z2 - z1;
     const len2 = dx * dx + dz * dz || 1;

@@ -1,4 +1,4 @@
-# Gibran vs Zombie 3D (DOOM FPS)
+# Gibran vs Robot 3D (DOOM FPS)
 
 A Three.js browser FPS. Two modes: **Survival** (defend Monas from endless waves) and **Campaign** (escape the abandoned building, then clear 1 km of ruined Jakarta highway).
 

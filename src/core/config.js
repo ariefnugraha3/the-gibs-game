@@ -10,7 +10,7 @@ export const CFG = {};
 export const CAMP_M = 7;
 
 const SECTIONS = ['player', 'stamina', 'movement', 'weapons', 'melee',
-    'grenade', 'zombie', 'survival', 'campaign', 'drops', 'shop', 'difficulty'];
+    'grenade', 'robot', 'survival', 'campaign', 'drops', 'shop', 'difficulty'];
 
 // Salinan MURNI hasil muat (tak pernah dimutasi) — applyDifficulty selalu
 // menghitung ulang CFG dari sini agar pengali tidak terkali berulang.
@@ -41,16 +41,16 @@ export function applyDifficulty(name) {
     Object.assign(CFG, JSON.parse(JSON.stringify(CFG_BASE)));
     const d = CFG.difficulty && CFG.difficulty[name];
     if (!d) return;
-    const hp = d.zombieHpMul, dmg = d.zombieDamageMul, spawn = d.spawnIntervalMul;
+    const hp = d.robotHpMul, dmg = d.robotDamageMul, spawn = d.spawnIntervalMul;
     // HP dibulatkan (peluru berdamage 1 — pecahan hp tak terasa bedanya)
-    CFG.survival.zombieHpBase = Math.max(1, Math.round(CFG.survival.zombieHpBase * hp));
-    CFG.campaign.zombieHp = Math.max(1, Math.round(CFG.campaign.zombieHp * hp));
+    CFG.survival.robotHpBase = Math.max(1, Math.round(CFG.survival.robotHpBase * hp));
+    CFG.campaign.robotHp = Math.max(1, Math.round(CFG.campaign.robotHp * hp));
     CFG.campaign.boss.hp = Math.max(1, Math.round(CFG.campaign.boss.hp * hp));
-    CFG.zombie.clawDamage *= dmg;
+    CFG.robot.clawDamage *= dmg;
     CFG.campaign.boss.clawDamage *= dmg;
     CFG.survival.monasClawDamage *= dmg;
-    for (const k in CFG.zombie.variants) {
-        const v = CFG.zombie.variants[k];
+    for (const k in CFG.robot.variants) {
+        const v = CFG.robot.variants[k];
         v.clawDamage *= dmg;
         if (v.boomDamage) v.boomDamage *= dmg;
     }

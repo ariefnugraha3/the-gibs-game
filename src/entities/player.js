@@ -1,14 +1,15 @@
 // Player = kamera. Modul ini memiliki: gerak WASD (normalisasi diagonal) +
-// gerak klik-kanan, stamina, gravitasi + jatuh dari tepian (tanpa lompat),
-// bunyi langkah, dan kepejalan badan zombie terhadap player. Tabrakan dunia
-// (pagar/dinding/penghalang) didelegasikan ke scene aktif. (Jongkok & lompat
-// DIHAPUS 2026-07-11 — top-down tak punya keduanya.)
+// gerak klik-kanan, stamina, DODGE/evade (tumble + i-frame), gravitasi + jatuh
+// dari tepian (tanpa lompat), bunyi langkah, dan kepejalan badan robot terhadap
+// player. Tabrakan dunia (pagar/dinding/penghalang) didelegasikan ke scene aktif.
+// (Jongkok & lompat DIHAPUS 2026-07-11; SPRINT DIHAPUS 2026-07-11 — Shift kini
+// memicu dodge/evade.)
 
 import { CFG } from '../core/config.js';
-import { player, keys, zombies } from '../core/state.js';
+import { player, keys, robots, setDodgeInvuln } from '../core/state.js';
 import { camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
-import { playSFX, sfxFootstep, sfxZombieStep } from '../utils/sfx.js';
+import { playSFX, sfxFootstep, sfxRobotStep } from '../utils/sfx.js';
 import { staminaFill } from '../core/dom.js';
 import { medkitMode } from './weapons.js';
 import { showMoveMarker, hideMoveMarker } from './playerAvatar.js';
@@ -16,13 +17,54 @@ import { showMoveMarker, hideMoveMarker } from './playerAvatar.js';
 // ----- Status milik player (live export; reassign hanya di modul ini) -----
 export let stamina = 100;
 export let staExhausted = false;
-export let sprintingNow = false;   // sprint EFEKTIF frame ini (shift + bergerak + stamina ada)
 export let eyeHCur = 11.4;         // tinggi mata (konstan = eyeHeight; jongkok dihapus)
 
-let footT = 0;    // irama langkah kaki player (detik antar langkah)
-let zStepT = 0;   // irama langkah zombie (satu suara global, bukan per zombie)
+// ----- Dodge/evade (Shift, 2026-07-11): guling cepat + i-frame. Dipicu diskret
+// oleh input.js.tryDodge; state di sini dibaca playerAvatar (animasi tumble). -----
+export let dodgeActive = false;     // sedang berguling (override gerak WASD)
+export let dodgeProgress = 0;       // 0..1 sepanjang animasi (dibaca playerAvatar utk sudut tumble)
+export let dodgeDirX = 0, dodgeDirZ = 0;   // arah gulingan di dunia (unit)
+let dodgeT = 0;                     // sisa durasi dodge (detik)
+let dodgeCd = 0;                    // sisa cooldown anti-spam (detik)
+const _fwd = new THREE.Vector3();   // sementara: arah hadap utk dodge mundur
 
-export function drainStamina(n) { stamina -= n; }
+let footT = 0;    // irama langkah kaki player (detik antar langkah)
+let zStepT = 0;   // irama langkah robot (satu suara global, bukan per robot)
+
+// Kuras stamina (melee/dodge). Jatuh ke 0 -> exhausted (terkunci sampai regen
+// mencapai recoverThreshold) — dulu dipicu sprint; kini oleh dodge & melee.
+export function drainStamina(n) {
+    stamina -= n;
+    if (stamina <= 0) { stamina = 0; staExhausted = true; }
+}
+
+// ----- Dodge/evade: dipanggil input.js saat tekan Shift. Mulai gulingan bila
+// tidak sedang dodge, cooldown habis, tidak exhausted, stamina cukup, & tidak
+// sedang memakai medkit. Arah = arah WASD bila ditekan; jika diam -> MUNDUR
+// (lawan arah hadap bidik) = "tumble ke belakang". Kebal sepanjang animasi. -----
+export function tryDodge() {
+    if (dodgeActive || dodgeCd > 0 || staExhausted || medkitMode) return;
+    if (stamina < CFG.dodge.staminaCost) return;
+    drainStamina(CFG.dodge.staminaCost);
+    const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);     // +1 = atas layar (-z)
+    const side = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);    // +1 = kiri layar (-x)
+    if (fwd !== 0 || side !== 0) {
+        const inv = 1 / Math.hypot(fwd, side);
+        dodgeDirX = -side * inv;   // A = -x dunia
+        dodgeDirZ = -fwd * inv;    // W = -z dunia
+    } else {
+        camera.getWorldDirection(_fwd);   // arah hadap (= arah bidik, horizontal)
+        const h = Math.hypot(_fwd.x, _fwd.z) || 1;
+        dodgeDirX = -_fwd.x / h;   // MUNDUR = lawan arah hadap
+        dodgeDirZ = -_fwd.z / h;
+    }
+    dodgeActive = true;
+    dodgeProgress = 0;
+    dodgeT = CFG.dodge.durationSec;
+    dodgeCd = CFG.dodge.cooldownSec;   // jeda anti-spam (dari MULAI dodge)
+    setDodgeInvuln(true);              // i-frame: kebal sepanjang animasi tumble
+    clearMoveTarget();                 // dodge membatalkan gerak klik-kanan
+}
 
 // ===== Gerak klik-kanan "move to point" (kontrol top-down 2026-07-11) =====
 // setMoveTarget dipanggil input.js saat klik kanan (titik kursor di bidang
@@ -47,7 +89,9 @@ export function clearMoveTarget() {
 export function resetPlayerState() {
     player.vy = 0; player.onGround = true;
     eyeHCur = CFG.player.eyeHeight;
-    stamina = CFG.stamina.max; staExhausted = false; sprintingNow = false;
+    stamina = CFG.stamina.max; staExhausted = false;
+    dodgeActive = false; dodgeProgress = 0; dodgeT = 0; dodgeCd = 0;
+    setDodgeInvuln(false);
     staminaFill.style.width = '100%';
     staminaFill.style.background = '#3ddc6a';
 }
@@ -66,58 +110,67 @@ export function updatePlayerMovement(dt, step) {
     if (keyMove && moveTarget) clearMoveTarget();        // WASD membatalkan klik-kanan
     const moving = keyMove || moveTarget !== null;
 
-    // --- Stamina: kuras (lari) -> exhausted -> pulih (regen). Sprint efektif =
-    // shift + benar-benar bergerak (WASD ataupun gerak klik-kanan) + stamina ada.
-    sprintingNow = keys.shift && !staExhausted && stamina > 0 && moving && !medkitMode;
-    if (sprintingNow) stamina -= CFG.stamina.sprintDrainPerSec * dt;
-    if (stamina <= 0) {
-        stamina = 0;
-        staExhausted = true;
-        sprintingNow = false;
-    }
-    if (!sprintingNow) stamina = Math.min(CFG.stamina.max, stamina + CFG.stamina.regenPerSec * dt);
+    // --- Stamina: SPRINT DIHAPUS 2026-07-11. Kini hanya dikuras oleh dodge
+    // (tryDodge) & melee; di sini cuma REGEN menuju penuh + pulih dari exhausted.
+    stamina = Math.min(CFG.stamina.max, stamina + CFG.stamina.regenPerSec * dt);
     if (staExhausted && stamina >= CFG.stamina.recoverThreshold) staExhausted = false;
     // Bar HUD: hijau -> oranye -> merah (merah juga penanda exhausted)
     staminaFill.style.width = (stamina / CFG.stamina.max * 100) + '%';
     staminaFill.style.background = staExhausted ? '#e74c3c' : stamina > CFG.stamina.max * 0.45 ? '#3ddc6a' : '#e0a53e';
 
+    // Cooldown dodge meluruh tiap frame (dari waktu MULAI dodge).
+    if (dodgeCd > 0) dodgeCd -= dt;
+
     // Memakai medkit memperlambat gerak (medkitSlowMul, mis. -25%).
     const medkitMul = medkitMode ? CFG.player.medkitSlowMul : 1;
-    const moveSpeed = player.speed * (sprintingNow ? CFG.movement.sprintMultiplier : 1) * medkitMul * step;
-    if (keyMove) {
-        const k = moveSpeed / Math.hypot(fwd, side);
-        camera.position.x += -side * k;   // A = kiri layar = -x dunia
-        camera.position.z += -fwd * k;    // W = atas layar = -z dunia
-    } else if (moveTarget) {
-        // Gerak klik-kanan: lurus ke target dgn tabrakan dinding biasa
-        // (menyusur); berhenti saat TIBA atau MACET (tak ada kemajuan ~1.2 dtk,
-        // mis. tertahan dinding) supaya tidak berlari di tempat selamanya.
-        const dx = moveTarget.x - camera.position.x;
-        const dz = moveTarget.z - camera.position.z;
-        const d = Math.hypot(dx, dz);
-        if (d < 3.5) clearMoveTarget();
-        else {
-            const k = Math.min(moveSpeed, d) / d;
-            camera.position.x += dx * k;
-            camera.position.z += dz * k;
-            if (d < moveLastD - 0.05) { moveLastD = d; moveStuckT = 0; }
+    if (dodgeActive) {
+        // DODGE: guling ke arah dodgeDir dgn kecepatan meluruh (ease-out) — MENG-
+        // OVERRIDE WASD/klik-kanan. Tabrakan dinding & badan robot tetap diproses
+        // di bawah (tak bisa berguling menembus dinding). Animasi tumble di
+        // playerAvatar membaca dodgeProgress; i-frame mati saat progress penuh.
+        dodgeT -= dt;
+        dodgeProgress = Math.min(1, 1 - Math.max(0, dodgeT) / CFG.dodge.durationSec);
+        const spd = CFG.dodge.speed * (1 - dodgeProgress) * step;   // meluruh 1 -> 0
+        camera.position.x += dodgeDirX * spd;
+        camera.position.z += dodgeDirZ * spd;
+        if (dodgeT <= 0) { dodgeActive = false; dodgeProgress = 1; setDodgeInvuln(false); }
+    } else {
+        const moveSpeed = player.speed * medkitMul * step;   // kecepatan seragam (sprint dihapus)
+        if (keyMove) {
+            const k = moveSpeed / Math.hypot(fwd, side);
+            camera.position.x += -side * k;   // A = kiri layar = -x dunia
+            camera.position.z += -fwd * k;    // W = atas layar = -z dunia
+        } else if (moveTarget) {
+            // Gerak klik-kanan: lurus ke target dgn tabrakan dinding biasa
+            // (menyusur); berhenti saat TIBA atau MACET (tak ada kemajuan ~1.2 dtk,
+            // mis. tertahan dinding) supaya tidak berlari di tempat selamanya.
+            const dx = moveTarget.x - camera.position.x;
+            const dz = moveTarget.z - camera.position.z;
+            const d = Math.hypot(dx, dz);
+            if (d < 3.5) clearMoveTarget();
             else {
-                moveStuckT += dt;
-                if (moveStuckT > 1.2) clearMoveTarget();
+                const k = Math.min(moveSpeed, d) / d;
+                camera.position.x += dx * k;
+                camera.position.z += dz * k;
+                if (d < moveLastD - 0.05) { moveLastD = d; moveStuckT = 0; }
+                else {
+                    moveStuckT += dt;
+                    if (moveStuckT > 1.2) clearMoveTarget();
+                }
             }
         }
     }
 
-    // Badan zombie pejal bagi player: dorong keluar horizontal (2D, konsisten
+    // Badan robot pejal bagi player: dorong keluar horizontal (2D, konsisten
     // dgn filosofi tabrakan 2D game ini) — player tak bisa menembus kerumunan.
-    // Hanya PLAYER yang didorong; gerak/AI zombie tidak tersentuh. Zombie yang
+    // Hanya PLAYER yang didorong; gerak/AI robot tidak tersentuh. Robot yang
     // masih melayang (lompat pagar / vault bak) dilewati. Dinding scene di
     // bawah tetap membersihkan posisi akhir setelah dorongan ini.
-    const ZBODY_R = CFG.zombie.bodyBlockRadius;
-    for (let zi = 0; zi < zombies.length; zi++) {
-        const zb = zombies[zi];
+    const ZBODY_R = CFG.robot.bodyBlockRadius;
+    for (let zi = 0; zi < robots.length; zi++) {
+        const zb = robots[zi];
         // idle (campaign) ikut pejal — tak bisa ditembus sambil mereka diam;
-        // aman dari dorongan tiap-frame karena zombie idle tidak mencakar.
+        // aman dari dorongan tiap-frame karena robot idle tidak mencakar.
         if (zb.state !== 'chasing' && zb.state !== 'idle') continue;
         const zdx = camera.position.x - zb.mesh.position.x;
         const zdz = camera.position.z - zb.mesh.position.z;
@@ -157,29 +210,29 @@ export function updatePlayerMovement(dt, step) {
 
     // Langkah kaki berirama saat berjalan/berlari di tanah (WASD ataupun
     // gerak klik-kanan — `moving` sudah menghitung keduanya)
-    if (player.onGround && moving) {
+    if (player.onGround && moving && !dodgeActive) {
         footT -= dt;
         if (footT <= 0) {
             playSFX(sfxFootstep, 0.4);
-            footT = sprintingNow ? 0.28 : 0.42;   // lari EFEKTIF = irama rapat
+            footT = 0.42;   // irama langkah jalan (sprint dihapus)
         }
     } else {
         footT = 0.12;   // langkah pertama cepat terdengar saat mulai bergerak
     }
 
-    // Langkah zombie: HEMAT PERFORMA — cuma SATU playSFX tiap ~0.55 dtk dari
-    // zombie bergerak terdekat, volume mengecil dgn jarak. Cukup sebagai
-    // penanda "ada yang mendekat" tanpa membebani audio/CPU per zombie.
+    // Langkah robot: HEMAT PERFORMA — cuma SATU playSFX tiap ~0.55 dtk dari
+    // robot bergerak terdekat, volume mengecil dgn jarak. Cukup sebagai
+    // penanda "ada yang mendekat" tanpa membebani audio/CPU per robot.
     zStepT -= dt;
     if (zStepT <= 0) {
         zStepT = 0.55;
         let nd = 120;   // radius dengar
-        for (let zi = 0; zi < zombies.length; zi++) {
-            const zz = zombies[zi];
+        for (let zi = 0; zi < robots.length; zi++) {
+            const zz = robots[zi];
             if (zz.state !== 'chasing' || zz.moving === false) continue;
             const d = Math.hypot(zz.mesh.position.x - camera.position.x, zz.mesh.position.z - camera.position.z);
             if (d < nd) nd = d;
         }
-        if (nd < 120) playSFX(sfxZombieStep, Math.max(0.08, 0.5 * (1 - nd / 120)));
+        if (nd < 120) playSFX(sfxRobotStep, Math.max(0.08, 0.5 * (1 - nd / 120)));
     }
 }

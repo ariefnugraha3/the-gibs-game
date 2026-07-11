@@ -11,7 +11,7 @@ import { GEO, MAT } from './state.js';
 import { scene, viewCam, renderer, composer, postFxOn } from './renderer.js';
 import { buildGrenadeMesh } from '../entities/grenades.js';
 import { buildMagMesh, buildMedkitMesh } from '../entities/drops.js';
-import { buildHumanZombie, disposeZombie } from '../entities/zombies.js';
+import { buildHumanRobot, disposeRobot } from '../entities/robots.js';
 import { borrowBloodSprite } from '../entities/effects.js';
 
 let loadEl = null, barEl = null, textEl = null;
@@ -46,7 +46,7 @@ export function hideLoading() {
 // di scene, avatar terpasang, pool efek terisi, dunia terbangun):
 // 1) grup warmup anak VIEWCAM berisi satu contoh tiap visual spawn-nanti
 //    (tracer peluru, granat dunia, magazen, medkit, trio ledakan + cincin debu,
-//    satu zombie, sprite darah pinjaman) — pasti masuk frustum;
+//    satu robot, sprite darah pinjaman) — pasti masuk frustum;
 // 2) renderer.compile() = jaring pengaman: menyusuri SELURUH scene (termasuk
 //    objek tersembunyi) dan menginisialisasi program tiap material;
 // 3) beberapa frame render NYATA (jalur sama dgn animate) — unggah tekstur,
@@ -79,9 +79,9 @@ export async function warmupAll() {
     put(new THREE.Mesh(GEO.explosion, boomMats[1]), 7);
     put(new THREE.Mesh(GEO.ring, boomMats[2]), 10);
     put(new THREE.Mesh(GEO.ring, boomMats[3]), 13);
-    // Satu zombie: program Lambert badan + array material kepala + tekstur wajah.
+    // Satu robot: program Lambert badan + array material kepala + tekstur wajah.
     // Varian kulit/aksesori lain hanya beda warna (program GPU sama).
-    const zw = buildHumanZombie();
+    const zw = buildHumanRobot();
     zw.group.position.set(16, -10, -60);
     warm.add(zw.group);
 
@@ -115,7 +115,7 @@ export async function warmupAll() {
         scene.add(bspr);                   // kembali ke induk semula (scene root)
     }
     viewCam.remove(warm);
-    disposeZombie({ mesh: zw.group });     // material zombie per-instance
+    disposeRobot({ mesh: zw.group });     // material robot per-instance
     boomMats.forEach(m => m.dispose());    // hanya material buatan warmup —
     // GEO/MAT bersama + resource granat/magazen/medkit JANGAN di-dispose.
     await loadingStep(100, 'Ready!');

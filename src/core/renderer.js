@@ -8,7 +8,7 @@
 // `camera` TIDAK lagi merender: ia jadi PIVOT LOGIKA PLAYER — posisinya = titik
 // setinggi mata player (kaki + eyeHCur, semantik lama utuh) dan yaw-nya = arah
 // BIDIK ke kursor (di-set input.updateTopdownAim tiap frame). Seluruh logika
-// lama (zombie menarget camera.position, peluru/granat/melee memakai
+// lama (robot menarget camera.position, peluru/granat/melee memakai
 // camera.getWorldDirection, radar, jarak pickup, tabrakan scene) tetap benar
 // TANPA disentuh. Yang merender ke layar adalah `viewCam` — kamera top-down
 // yang membuntuti pivot dari ofset tinggi (followViewCam).

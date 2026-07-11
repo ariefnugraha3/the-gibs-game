@@ -15,7 +15,7 @@ export function slideWalk(walkable, pos, oldX, oldZ, r) {
 // Dorong keluar dari balok pejal (rotated AABB) {x,z,hx,hz,axx,axz,azx,azz,rad,
 // top,standable}. Murni horizontal; dilewati bila kaki sudah di atas puncak
 // balok (yang standable bisa dipijak). Return true bila yang menghalangi
-// adalah balok STANDABLE (median jalan — pemicu lompatan zombie survival tak
+// adalah balok STANDABLE (median jalan — pemicu lompatan robot survival tak
 // dipakai di campaign, tapi kontraknya dipertahankan).
 export function resolveBlockers(pos, radius, feetY, blockers) {
     let hitStandable = false;

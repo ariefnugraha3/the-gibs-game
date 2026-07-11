@@ -11,7 +11,7 @@ import { openCheatConsole, closeCheatConsole, forceHideCheatConsole, isCheatCons
 import {
     tryMelee, trySwitchKey, setAiming, equipMedkit
 } from '../entities/weapons.js';
-import { eyeHCur, setMoveTarget, clearMoveTarget } from '../entities/player.js';
+import { eyeHCur, setMoveTarget, clearMoveTarget, tryDodge } from '../entities/player.js';
 
 // ----- Fullscreen + Keyboard Lock: cegah shortcut browser saat main -----
 // Ctrl+W (tutup tab), Ctrl+R (reload), Ctrl+T/N, dsb TIDAK bisa dicegah
@@ -199,7 +199,10 @@ export function initInput() {
             // WASD MEMBATALKAN gerak klik-kanan (kontrol top-down 2026-07-11)
             if (key === 'w' || key === 'a' || key === 's' || key === 'd') clearMoveTarget();
         }
-        if (e.key === 'Shift') keys.shift = true;
+        // Shift = DODGE/evade (tumble + i-frame). AKSI DISKRET (tekan, bukan
+        // tahan) — `!e.repeat` cegah auto-repeat OS men-spam; gate cooldown/
+        // stamina/medkit ada di tryDodge. (Sprint dihapus 2026-07-11.)
+        if (e.key === 'Shift' && !e.repeat && !isPaused && !isGameOver) tryDodge();
         // (R = reload DIHAPUS bersama sistem magazen 2026-07-11 — tiap senjata
         // kini satu kolam peluru tanpa reload.)
         // F = melee: pukul dgn popor senjata aktif ke arah kursor.
@@ -218,7 +221,6 @@ export function initInput() {
     window.addEventListener('keyup', (e) => {
         const key = e.key.toLowerCase();
         if (keys.hasOwnProperty(key)) keys[key] = false;
-        if (e.key === 'Shift') keys.shift = false;
     });
     window.addEventListener('blur', releaseInputs);   // bug fix: Alt-Tab meninggalkan tombol tertekan
 

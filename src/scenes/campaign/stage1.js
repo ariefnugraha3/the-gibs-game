@@ -22,8 +22,8 @@ import { setScene } from '../../core/sceneManager.js';
 import { hideStageMsg } from '../../core/dom.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
-import { spawnCampaignZombie, campaignZombieAI, countStageZombies } from './common.js';
-import { stage2Scene, buildWorld as buildStage2World, placeZombies as placeStage2Zombies } from './stage2.js';
+import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
+import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
 
 // Grid 30 sel x 2 m; gedung ditaruh ~26 km dari jalan raya (stage 2) —
 // kedua dunia hidup berdampingan di satu scene, dipisah jarak.
@@ -57,7 +57,7 @@ function buildS1Grid() {
     carve(8, 23, 13, 28);   // F Restroom (bawah-tengah)
     carve(15, 23, 21, 28);  // I Storage Room (bawah-kanan)
     carve(23, 18, 28, 28);  // J End / tangga TURUN ke lantai bawah (kanan-bawah)
-    // --- Koridor sempit (jadi zombie-spot ambush) ---
+    // --- Koridor sempit (jadi robot-spot ambush) ---
     carve(3, 7, 4, 8);      // A -> D koridor awal sempit (spot 1)
     carve(24, 7, 25, 8);    // C -> H lorong kanan dekat supply (spot 6)
     // --- Pintu (bukaan; 1-2 sel) ---
@@ -91,7 +91,7 @@ export function stage1Walk(x, z, r) {
 }
 
 // Garis pandang bebas dinding? (sampling grid tiap ~setengah sel).
-// Dipakai aktivasi zombie stage 1: bangun hanya bila MELIHAT player
+// Dipakai aktivasi robot stage 1: bangun hanya bila MELIHAT player
 // (atau sangat dekat menembus dinding tipis / tertembak).
 export function s1LOS(x1, z1, x2, z2) {
     if (!s1grid) return true;
@@ -128,7 +128,7 @@ export function resolve(pos, radius, feetY) {
 // Nav-grid pathfinder stage 1: resolusi SETENGAH sel denah (7 unit = 1 m)
 // agar furnitur ikut ter-bake tanpa menutup jalur yang sebenarnya lebar.
 // Dinding dari grid denah; furnitur/undakan via resolve (sel yang tergeser =
-// penghalang) -> zombie MEMUTARI meja/krat, bukan menabrak/mendorongnya.
+// penghalang) -> robot MEMUTARI meja/krat, bukan menabrak/mendorongnya.
 // Di-bake di AKHIR buildWorld (butuh blockers sudah terisi semua).
 export let s1Nav = null;
 
@@ -352,9 +352,9 @@ export function buildWorld() {
     });
 }
 
-// Zombie stage 1: 9 spot pada denah referensi [col, row, jumlah]. Tiap spot
-// men-spawn `n` zombie di sekitar titiknya (jitter + resolve keluar furnitur).
-const S1_ZOMBIES = [
+// Robot stage 1: 9 spot pada denah referensi [col, row, jumlah]. Tiap spot
+// men-spawn `n` robot di sekitar titiknya (jitter + resolve keluar furnitur).
+const S1_ROBOTS = [
     [3, 8, 2],     // 1 koridor awal (sempit)
     [3, 12, 3],    // 2 office
     [3, 22, 4],    // 3 break room
@@ -365,14 +365,14 @@ const S1_ZOMBIES = [
     [18, 26, 3],   // 8 storage
     [26, 24, 2],   // 9 dekat tangga keluar (serangan terakhir)
 ];
-export function placeZombies() {
-    for (const [c, r, n] of S1_ZOMBIES) {
+export function placeRobots() {
+    for (const [c, r, n] of S1_ROBOTS) {
         const p = s1Cell(c, r);
         for (let k = 0; k < n; k++) {
             _v3.set(p.x + rand(-7, 7), 0, p.z + rand(-7, 7));
             resolve(_v3, 4, 0);                             // geser keluar furnitur
             if (!stage1Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
-            spawnCampaignZombie(_v3.x, _v3.z, 1);
+            spawnCampaignRobot(_v3.x, _v3.z, 1);
         }
     }
 }
@@ -402,7 +402,7 @@ export const stage1Scene = {
     id: 'campaign-1',
 
     // Masuk stage 1 = mulai campaign (start pertama ATAU restart setelah mati).
-    // Array zombies/drops selalu sudah bersih di titik ini, jadi penempatan
+    // Array robots/drops selalu sudah bersih di titik ini, jadi penempatan
     // ulang aman. Kedua dunia dibangun sekali (guard `built`).
     enter() {
         if (!built) {
@@ -410,8 +410,8 @@ export const stage1Scene = {
             buildStage2World();   // STAGE 2: jalan raya + air mancur + median + mobil
             buildWorld();         // STAGE 1: gedung terbengkalai (jauh dari jalan raya)
         }
-        placeStage2Zombies();     // zombie statis jalan raya (stage 2)
-        placeZombies();           // zombie gedung sesuai denah (stage 1)
+        placeStage2Robots();     // robot statis jalan raya (stage 2)
+        placeRobots();           // robot gedung sesuai denah (stage 1)
         placeSupplies();          // ruang persediaan: ammo/granat/medkit
         applyLightPreset(scene, 'indoor');   // interior gelap + kabut rapat
         const sp = s1Cell(S1_START.c, S1_START.r);
@@ -440,7 +440,7 @@ export const stage1Scene = {
 
     groundHeight(x, z, feetY) { return blockersGroundHeight(x, z, feetY, blockers); },
 
-    // Peluru MATI di dinding — mencegah membunuh zombie diam di ruangan lain
+    // Peluru MATI di dinding — mencegah membunuh robot diam di ruangan lain
     // menembus tembok (sweep ruas posisi-lalu -> kini).
     bulletBlocked(b) {
         return b.mesh.position.y < S1.H
@@ -461,14 +461,14 @@ export const stage1Scene = {
         }
     },
 
-    zombieAI(z, dt, step) {
+    robotAI(z, dt, step) {
         // Indoor: aktivasi butuh LOS grid (atau sangat dekat / tertembak)
-        return campaignZombieAI(z, dt, step, { walkable: stage1Walk, resolve, los: s1LOS, nav: s1Nav });
+        return campaignRobotAI(z, dt, step, { walkable: stage1Walk, resolve, los: s1LOS, nav: s1Nav });
     },
 
     clampDropPos(x, z) { return [x, z]; },
 
-    hudStatus() { return `FLOOR 2 — Zombies: ${countStageZombies(1)} | Find the stairs down`; },
+    hudStatus() { return `FLOOR 2 — Robots: ${countStageRobots(1)} | Find the stairs down`; },
 
     // Landmark gedung: tangga keluar (hijau menyala; dijepit ke tepi saat jauh)
     radarLandmarks(plot) {

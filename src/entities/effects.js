@@ -2,12 +2,12 @@
 // (pool sprite tetap), dan cincin debu/percikan generik.
 
 import { CFG } from '../core/config.js';
-import { GEO, explosions, zombies } from '../core/state.js';
+import { GEO, explosions, robots } from '../core/state.js';
 import { scene, viewCam } from '../core/renderer.js';
 import { makeTexture } from '../utils/textures.js';
 import { playSFX, sfxExplode } from '../utils/sfx.js';
 import { spawnDrop } from './drops.js';
-import { killZombie } from './zombies.js';
+import { killRobot } from './robots.js';
 import { updateUI } from '../core/hud.js';
 
 // Pool 3 lampu ledakan, selalu di scene dengan intensity 0:
@@ -66,7 +66,7 @@ export function borrowBloodSprite() {
 }
 
 // radius opsional: default blast granat; ledakan exploder memakai radius
-// lebih kecil (CFG.zombie.variants.exploder.boomRadius) lewat parameter ini.
+// lebih kecil (CFG.robot.variants.exploder.boomRadius) lewat parameter ini.
 export function explodeAt(pos, radius) {
     const expMesh = new THREE.Mesh(
         GEO.explosion,
@@ -98,17 +98,17 @@ export function explodeAt(pos, radius) {
     playSFX(sfxExplode);
 
     const R = radius != null ? radius : CFG.grenade.killRadius + 3.5;
-    for (let i = zombies.length - 1; i >= 0; i--) {
-        const z = zombies[i];
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
         if (z.mesh.position.distanceTo(pos) < R) {
-            // Model damage: boss tahan (grenadeDamage khusus), zombie lain kena
+            // Model damage: boss tahan (grenadeDamage khusus), robot lain kena
             // CFG.grenade.damage penuh — brute ber-HP tinggi bisa selamat dari
             // ledakan di pinggir radius.
             z.hp -= z.kind === 'boss' ? CFG.campaign.boss.grenadeDamage : CFG.grenade.damage;
             if (z.hp > 0) continue;
             spawnDrop(z.mesh.position);
             // GORE: mati oleh ledakan = HANCUR (dismember). Arah = keluar dari pusat ledakan.
-            killZombie(i, { cause: 'explosion', dirx: z.mesh.position.x - pos.x, dirz: z.mesh.position.z - pos.z });
+            killRobot(i, { cause: 'explosion', dirx: z.mesh.position.x - pos.x, dirz: z.mesh.position.z - pos.z });
         }
     }
     updateUI();
@@ -128,7 +128,7 @@ export function spawnGroundPuff(x, z, color, scale, y = 0.6) {
 
 // Satu percikan darah dari pool tetap (round-robin). Opsional kecepatan
 // (vx/vy/vz) = darah MUNCRAT keluar lalu jatuh (updateBloodPool). Sprite sedikit
-// digeser ke kamera render supaya tidak terbenam di dalam badan zombie.
+// digeser ke kamera render supaya tidak terbenam di dalam badan robot.
 export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0) {
     const bl = bloodPool[nextBlood++ % bloodPool.length];
     const dx = viewCam.position.x - x, dy = viewCam.position.y - y, dz = viewCam.position.z - z;
@@ -146,7 +146,7 @@ export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0) {
 // Semburan darah: `n` percikan terlempar sebagai kerucut ke arah (dirx,dirz) +
 // ke atas. `spread` = lebar kerucut (rad; default ±1.05; pakai 6.283 = 360° utk
 // ledakan → darah ke SEGALA arah). Dipakai saat peluru mengenai & (jauh lebih
-// deras + omni) saat zombie hancur oleh ledakan.
+// deras + omni) saat robot hancur oleh ledakan.
 export function spawnBloodBurst(x, y, z, dirx, dirz, n, power = 1, spread = 2.1) {
     const dl = Math.hypot(dirx, dirz) || 1;
     const base = Math.atan2(dirz / dl, dirx / dl);

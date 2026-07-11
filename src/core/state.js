@@ -23,9 +23,15 @@ export const addScore = (n) => { score += n; };
 export const setMode = (m) => { mode = m; };
 
 // Cheat: god mode (player & Monas KEBAL — HP tak berkurang). Di-toggle lewat
-// konsol cheat (tombol `). Dibaca di zombies.js (damage player) & survival damageMonas.
+// konsol cheat (tombol `). Dibaca di robots.js (damage player) & survival damageMonas.
 export let godMode = false;
 export const setGodMode = (v) => { godMode = v; };
+
+// I-frame dodge/evade: player KEBAL selama animasi tumble (di-set player.js saat
+// tryDodge mulai, dimatikan saat animasi selesai). Dibaca di robots.js (kedua
+// titik damage: cakar & ledakan) berdampingan dgn godMode.
+export let dodgeInvuln = false;
+export const setDodgeInvuln = (v) => { dodgeInvuln = v; };
 export const setHighScore = (v) => { highScore = v; localStorage.setItem(hsKey(), v); };
 export const setDifficulty = (name) => {   // dipanggil menu sebelum startGame
     difficulty = name;
@@ -92,12 +98,12 @@ export function configurePlayer() {
     player.upDmg = 0; player.upReload = 0;
 }
 
-export const keys = { w: false, a: false, s: false, d: false, shift: false };
+export const keys = { w: false, a: false, s: false, d: false };   // Shift kini = dodge (aksi diskret), bukan tombol tahan
 export const mouse = { isDown: false };
 
 // ----------- Container entitas (di-splice mundur di update) ----------- //
 export const bullets = [];
-export const zombies = [];
+export const robots = [];
 export const grenades = [];
 export const explosions = [];
 export const drops = [];

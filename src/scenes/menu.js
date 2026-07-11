@@ -51,10 +51,10 @@ function initCutscene() {
     const dotsWrap = document.getElementById('cutsceneDots');
 
     const captions = [
-        "Jakarta has fallen... a citizen flees from the zombies.",
-        "But they are not alone — a whole horde has risen.",
+        "Jakarta has fallen... a citizen flees from the rogue robots.",
+        "But he is not alone — an entire army of machines marches in.",
         "He runs toward Monas, the last place of refuge.",
-        "Facing the horde, he stops and turns around..."
+        "Facing the machine army, he stops and turns around..."
     ];
 
     slides.forEach(() => {

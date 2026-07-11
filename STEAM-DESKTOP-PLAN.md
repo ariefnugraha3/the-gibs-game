@@ -1,6 +1,6 @@
 # Rencana: Konversi ke Desktop Windows (.exe) & Publikasi ke Steam
 
-> Dokumen rencana untuk mengubah **Gibran vs Zombie 3D** (game browser statis,
+> Dokumen rencana untuk mengubah **Gibran vs Robot 3D** (game browser statis,
 > lihat [CLAUDE.md](CLAUDE.md)) menjadi aplikasi desktop Windows yang bisa dijual di
 > **Steam** (dan itch.io versi desktop), tanpa menulis ulang game.
 >
@@ -40,7 +40,7 @@
 Game ini kandidat ideal untuk dibungkus:
 - **Satu file** [index.html](index.html) (inline CSS + DOM + seluruh `<script>`), tanpa
   build system/framework. Wadah tinggal memuat 1 halaman.
-- Aset lokal minimal: `assets/sounds/*.mp3`. (`assets/visuals/zombie.glb` tidak dipakai.)
+- Aset lokal minimal: `assets/sounds/*.mp3`. (`assets/visuals/robot.glb` tidak dipakai.)
 - Render pakai WebGL + Three.js → di Electron memakai Chromium yang **sama** dengan
   Chrome, jadi WebGL/PointerLock/bloom/post-processing berperilaku identik. Tidak ada
   risiko "beda browser".
@@ -128,7 +128,7 @@ Bisa dikerjakan sekarang; hasilnya langsung diuji & bisa dijual di itch.io deskt
    `backgroundColor` gelap agar tak ada flash putih saat start.
 4. **Ikon**: `build/icon.ico` (256×256 minimal). electron-builder memakainya untuk exe.
 5. **electron-builder config** (di `package.json` `build`):
-   - `appId`, `productName: "Gibran vs Zombie 3D"`.
+   - `appId`, `productName: "Gibran vs Robot 3D"`.
    - `win.target`: untuk Steam pakai output folder terpaket (`dir`) → Steam yang urus
      "install"/update lewat depot. Untuk itch bisa tambahan `nsis` (installer) atau zip.
    - `files`: sertakan `index.html`, `assets/**`, `vendor/**`, `desktop/**`.

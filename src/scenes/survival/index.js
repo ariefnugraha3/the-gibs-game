@@ -1,14 +1,14 @@
-// SCENE: Survival Mode — pertahankan Monas dari gelombang zombie tanpa akhir.
+// SCENE: Survival Mode — pertahankan Monas dari gelombang robot tanpa akhir.
 // Memiliki: dunia taman (world.js), difficulty scaling per wave, spawner
-// (zombie melompati pagar), AI kejar + vault bak air mancur, dan seluruh hook
+// (robot melompati pagar), AI kejar + vault bak air mancur, dan seluruh hook
 // antarmuka scene (lihat MODULES.md).
 
 import { CFG, CAMP_M } from '../../core/config.js';
-import { player, zombies, isGameOver, _v3, godMode } from '../../core/state.js';
+import { player, robots, isGameOver, _v3, godMode } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
 import { updateUI } from '../../core/hud.js';
-import { buildHumanZombie, applyVariantTint, CLAW_TIME, reachForScale, disposeZombie } from '../../entities/zombies.js';
+import { buildHumanRobot, applyVariantTint, CLAW_TIME, reachForScale, disposeRobot } from '../../entities/robots.js';
 import { spawnGroundPuff } from '../../entities/effects.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
@@ -23,19 +23,19 @@ import { navAim, turnToward } from '../../utils/pathfind.js';
 import { openShop, closeShop, isShopOpen, requestNextWave } from './shop.js';
 import { requestLock } from '../../core/input.js';
 
-// Wave berbasis "clear" (overhaul 2026-07-07): tiap wave punya jatah zombie
+// Wave berbasis "clear" (overhaul 2026-07-07): tiap wave punya jatah robot
 // TETAP (toSpawn) yang harus dihabisi. Wave bersih saat semua sudah di-spawn
 // DAN lapangan kosong -> fase 'cleared' (hitung mundur 3 dtk) -> 'shopping'
 // (shop antar-gelombang) -> tekan Next Wave -> 'fighting' wave berikutnya.
 const wave = {
     num: 1, phase: 'fighting',   // 'fighting' | 'cleared' | 'shopping'
-    toSpawn: 0,                  // sisa zombie yang belum di-spawn wave ini
+    toSpawn: 0,                  // sisa robot yang belum di-spawn wave ini
     spawnTimer: 0, spawnInterval: 2.5, maxConcurrent: 10,
     clearTimer: 0                // hitung mundur sebelum shop terbuka
 };
 let navGrid = null;   // nav-grid pathfinder (Monas & pohon = penghalang; bak walkable = vault)
 
-// Objektif Monas (IMPROVEMENT-PLAN #6): sebagian zombie menggerogoti Monas;
+// Objektif Monas (IMPROVEMENT-PLAN #6): sebagian robot menggerogoti Monas;
 // monasHp 0 = kalah ("THE MONUMENT HAS FALLEN"). monasMaxHp scene-local (bukan
 // CFG langsung) supaya item shop 'Strengthen Monas' bisa menaikkannya per-run
 // tanpa memutasi CFG (dipulihkan dari CFG saat enter()).
@@ -105,7 +105,7 @@ function endEvent() {
     applyLightPreset(scene, 'outdoor');   // pulihkan fog jarak + cahaya persis preset (juga dipakai enter)
 }
 
-function spawnZombie() {
+function spawnRobot() {
     // Dipanggil hanya oleh updateMode saat fase 'fighting' (jatah & cap sudah
     // dicek di sana) — tak perlu guard pause/gameover/cap di sini.
     const SV = CFG.survival;
@@ -132,16 +132,16 @@ function spawnZombie() {
     const startX = fx - inX * OUT, startZ = fz - inZ * OUT;
     const landX = fx + inX * IN, landZ = fz + inZ * IN;
 
-    // HP naik pelan per wave TAPI dijepit maksimal zombieHpMaxMul × base (+50%).
-    const hp = Math.min(SV.zombieHpBase * SV.zombieHpMaxMul,
-        SV.zombieHpBase + Math.floor((wave.num - 1) / 2) * SV.zombieHpPerTwoWaves);
+    // HP naik pelan per wave TAPI dijepit maksimal robotHpMaxMul × base (+50%).
+    const hp = Math.min(SV.robotHpBase * SV.robotHpMaxMul,
+        SV.robotHpBase + Math.floor((wave.num - 1) / 2) * SV.robotHpPerTwoWaves);
     // Speed penuh = base × scale (scale 1 = kecepatan penuh, seperti campaign),
-    // DIKALI faktor wave: mulai zombieSpeedWaveMin (60%) di wave 1, +Step (2%)
-    // tiap wave, dijepit zombieSpeedWaveMax (100%). Wave awal lebih lambat, mentok
+    // DIKALI faktor wave: mulai robotSpeedWaveMin (60%) di wave 1, +Step (2%)
+    // tiap wave, dijepit robotSpeedWaveMax (100%). Wave awal lebih lambat, mentok
     // di kecepatan penuh (~wave 21). Variasi acak & speedMul varian tetap dikali.
-    const waveMul = Math.min(SV.zombieSpeedWaveMax,
-        SV.zombieSpeedWaveMin + (wave.num - 1) * SV.zombieSpeedWaveStep);
-    const speed = (SV.zombieSpeedBase + Math.random() * SV.zombieSpeedRand) * SV.zombieSpeedScale * waveMul;
+    const waveMul = Math.min(SV.robotSpeedWaveMax,
+        SV.robotSpeedWaveMin + (wave.num - 1) * SV.robotSpeedWaveStep);
+    const speed = (SV.robotSpeedBase + Math.random() * SV.robotSpeedRand) * SV.robotSpeedScale * waveMul;
 
     // --- Varian perilaku (IMPROVEMENT-PLAN #1): peluang naik seiring wave ---
     let kind = 'walker';
@@ -158,13 +158,13 @@ function spawnZombie() {
     if (roll < eC) kind = 'exploder';
     else if (roll < eC + bC) kind = 'brute';
     else if (Math.random() < runnerC) kind = 'runner';
-    const V = kind !== 'walker' ? CFG.zombie.variants[kind] : null;
+    const V = kind !== 'walker' ? CFG.robot.variants[kind] : null;
     const vHp = V ? Math.max(1, Math.round(hp * V.hpMul)) : hp;   // min 1 (runner mati 1 peluru)
     const vSpeed = V ? speed * V.speedMul : speed;
     const scl = V ? V.scale : 1;
 
-    // Zombie manusia prosedural (warga korban alien) — varian skin acak per spawn.
-    const built2 = buildHumanZombie();
+    // Robot manusia prosedural (warga korban alien) — varian skin acak per spawn.
+    const built2 = buildHumanRobot();
     const zMesh = built2.group;
     const baseY = 0;                           // origin grup di kaki (y saat menapak tanah)
     zMesh.position.set(startX, baseY, startZ);
@@ -176,7 +176,7 @@ function spawnZombie() {
     // Busur lompat digeneralisasi (jumpY0->jumpY1 + arcH) agar bisa dipakai ulang
     // untuk vault dinding bak air mancur; groundY = lantai pijakan saat ini.
     // target 'monas' (peluang CFG) = menggerogoti Monas kecuali player mendekat.
-    zombies.push({
+    robots.push({
         mesh: zMesh, hp: vHp, maxHp: vHp, speed: vSpeed, rig: built2.rig, isModel: true,
         baseY, phase: Math.random() * 6.28,
         state: 'jumping', jumpT: 0, jumpDur: 1.1,
@@ -184,25 +184,25 @@ function spawnZombie() {
         jumpY0: 0, jumpY1: 0, arcH: FENCE_H + 14, groundY: 0, vaultCd: 0,
         attackCd: 0, clawT: 0, clawSide: 1, moving: true,   // sistem serangan cakar
         kind, scl, reachMul: reachForScale(scl),   // badan besar = reach ikut membesar
-        clawDmg: V ? V.clawDamage : CFG.zombie.clawDamage,
+        clawDmg: V ? V.clawDamage : CFG.robot.clawDamage,
         monasCommitted: false, monasLocked: false   // komit Monas: aggro 5 m / terkunci setelah gigitan pertama
-        // Target ditentukan per-frame di zombieAI (Monas default / kejar player
+        // Target ditentukan per-frame di robotAI (Monas default / kejar player
         // bila dalam radius aggro) — tidak lagi diundi saat spawn.
     });
 }
 
-// Mulai wave ke-n: set jatah zombie (naik per wave) + cadence spawn + cap
+// Mulai wave ke-n: set jatah robot (naik per wave) + cadence spawn + cap
 // lapangan, roll peluang event kabut Monas (sejak monasFogFromWave), umumkan wave.
 function startWave(n) {
     const SV = CFG.survival;
     wave.num = n;
     wave.phase = 'fighting';
-    wave.toSpawn = SV.zombiesPerWaveBase + (n - 1) * SV.zombiesPerWaveStep;
+    wave.toSpawn = SV.robotsPerWaveBase + (n - 1) * SV.robotsPerWaveStep;
     wave.spawnTimer = 0;
     wave.spawnInterval = Math.max(SV.spawnIntervalMin,
         SV.spawnIntervalBase - (n - 1) * SV.spawnIntervalStep);
-    wave.maxConcurrent = Math.min(SV.maxZombiesCap,
-        SV.maxZombiesBase + (n - 1) * SV.maxZombiesStep);
+    wave.maxConcurrent = Math.min(SV.maxRobotsCap,
+        SV.maxRobotsBase + (n - 1) * SV.maxRobotsStep);
     // Kabut Monas: eligible mulai wave `monasFogFromWave` (setelah wave 3);
     // peluang = base + perWave·(n − fromWave), naik tiap wave, dijepit di ChanceMax.
     if (n >= SV.monasFogFromWave && !EVT.type) {
@@ -262,14 +262,14 @@ export const survivalScene = {
     shopActive: isShopOpen,
 
     // Cheat (cheatConsole "skip-to-wave-N"): LOMPAT LANGSUNG ke wave n. Buang
-    // semua zombie di lapangan tanpa skor/gore (dispose senyap seperti resetGame),
+    // semua robot di lapangan tanpa skor/gore (dispose senyap seperti resetGame),
     // akhiri event yang sedang jalan + tutup shop bila terbuka, lalu startWave(n)
     // — seluruh formula naik-wave (jumlah, cap, interval, peluang kabut) memakai
     // n, jadi kesulitan sesuai wave itu. Balikan angka wave (untuk feedback konsol).
     cheatSkipToWave(n) {
         n = Math.max(1, Math.floor(n));
-        zombies.forEach(z => { disposeZombie(z); scene.remove(z.mesh); });
-        zombies.length = 0;
+        robots.forEach(z => { disposeRobot(z); scene.remove(z.mesh); });
+        robots.length = 0;
         endEvent();      // pulihkan kabut/cahaya bila event sedang berjalan
         closeShop();     // jaga-jaga bila entah bagaimana terpanggil saat shop
         startWave(n);    // formula naik-wave sepenuhnya dari n
@@ -281,17 +281,17 @@ export const survivalScene = {
         if (monasWarnCd > 0) monasWarnCd -= dt;
 
         if (wave.phase === 'fighting') {
-            // Spawn sampai jatah wave habis, dibatasi cap zombie di lapangan
+            // Spawn sampai jatah wave habis, dibatasi cap robot di lapangan
             wave.spawnTimer += dt;
             if (wave.toSpawn > 0 && wave.spawnTimer >= wave.spawnInterval
-                && zombies.length < wave.maxConcurrent) {
+                && robots.length < wave.maxConcurrent) {
                 wave.spawnTimer = 0;
-                spawnZombie();
+                spawnRobot();
                 wave.toSpawn--;
                 updateUI();   // penghitung "N left" ikut segar
             }
-            // Wave bersih: semua sudah di-spawn DAN tak ada zombie tersisa
-            if (wave.toSpawn === 0 && zombies.length === 0) {
+            // Wave bersih: semua sudah di-spawn DAN tak ada robot tersisa
+            if (wave.toSpawn === 0 && robots.length === 0) {
                 wave.phase = 'cleared';
                 wave.clearTimer = CFG.survival.shopCountdownSec;
                 showStageMsg('WAVE CLEARED!', 3200);
@@ -341,7 +341,7 @@ export const survivalScene = {
 
     // Peluru mati HANYA di badan Monas yang sebenarnya — silhouette bertingkat:
     // dasar lebar (44) di bawah, menyempit ke obelisk tipis (~15) di ketinggian
-    // mata. Jadi peluru LEWAT di ruang kosong samping obelisk & mengenai zombie
+    // mata. Jadi peluru LEWAT di ruang kosong samping obelisk & mengenai robot
     // di baliknya (dulu terhalang tembok tak terlihat selebar dasar).
     bulletBlocked(b) {
         const y = b.mesh.position.y;
@@ -371,11 +371,11 @@ export const survivalScene = {
         resolveObstacles(g.mesh.position, NADE_R, g.mesh.position.y - NADE_R);
     },
 
-    // --- AI zombie survival: lompat pagar -> kejar; vault bak air mancur ---
+    // --- AI robot survival: lompat pagar -> kejar; vault bak air mancur ---
     // Return { chaseDist } HANYA bila cabang kejar berjalan frame ini (kontrak
-    // cakar di zombies.js): zombie yang baru mendarat tidak mencakar di frame
+    // cakar di robots.js): robot yang baru mendarat tidak mencakar di frame
     // pendaratannya (sama seperti perilaku lama).
-    zombieAI(z, dt, step) {
+    robotAI(z, dt, step) {
         const oldZX = z.mesh.position.x, oldZZ = z.mesh.position.z;
 
         if (z.state === 'jumping') {
@@ -399,9 +399,9 @@ export const survivalScene = {
         }
 
         // Kejar TARGET (grounded): player, atau Monas. PRIORITAS MONAS — SEMUA
-        // zombie menyerang Monas secara default; hanya beralih mengejar player
+        // robot menyerang Monas secara default; hanya beralih mengejar player
         // bila player berada dalam radius aggro (playerAggroMeters × 7 unit) dari
-        // zombie; begitu player > radius, zombie kembali menyerang Monas.
+        // robot; begitu player > radius, robot kembali menyerang Monas.
         // Pathfinder: direct = garis lurus bebas (kejar langsung — termasuk
         // melintasi bak air mancur, yang memicu vault); waypoint = memutari
         // Monas/pohon. Gerak memakai heading berlaju-putar-terbatas
@@ -409,10 +409,10 @@ export const survivalScene = {
         const dx = camera.position.x - z.mesh.position.x;
         const dz = camera.position.z - z.mesh.position.z;
         const distToEye = Math.hypot(dx, dz);
-        // Radius aggro efektif (meter -> unit). Zombie yang sudah BERKOMITMEN ke
+        // Radius aggro efektif (meter -> unit). Robot yang sudah BERKOMITMEN ke
         // Monas (pernah memukulnya) lebih sulit dialihkan: radiusnya menyusut ke
         // monasLockAggroMeters (5 m). Sebagian (monasLockChance) malah TERKUNCI
-        // penuh (radius 0) -> tak pernah mengejar player. Zombie biasa memakai
+        // penuh (radius 0) -> tak pernah mengejar player. Robot biasa memakai
         // playerAggroMeters (15 m).
         const aggroM = z.monasLocked ? 0
             : z.monasCommitted ? CFG.survival.monasLockAggroMeters
@@ -425,7 +425,7 @@ export const survivalScene = {
             ? Math.hypot(tx - z.mesh.position.x, tz - z.mesh.position.z) : distToEye;
         const aim = navAim(z, navGrid, tx, tz, dt, step);
         z.moving = !aim.direct || distT >
-            (atkMonas ? 6 : player.radius + CFG.zombie.stopRange * (z.reachMul || 1));
+            (atkMonas ? 6 : player.radius + CFG.robot.stopRange * (z.reachMul || 1));
         if (z.moving) {
             const ang = turnToward(z,
                 Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);
@@ -439,14 +439,14 @@ export const survivalScene = {
 
         // Menggerogoti Monas: pakai cooldown & animasi cakar yang sama, tapi
         // damage masuk ke monasHp (BUKAN player) — return {} di bawah menjaga
-        // zombies.js tidak ikut mencakar player.
+        // robots.js tidak ikut mencakar player.
         if (atkMonas && !z.moving) {
             if (z.attackCd > 0) z.attackCd -= dt;
             if (z.attackCd <= 0) {
-                z.attackCd = CFG.zombie.clawCooldownSec;
+                z.attackCd = CFG.robot.clawCooldownSec;
                 z.clawT = CLAW_TIME;
                 z.clawSide = -z.clawSide;
-                // Gigitan PERTAMA ke Monas -> zombie "berkomitmen": radius aggro
+                // Gigitan PERTAMA ke Monas -> robot "berkomitmen": radius aggro
                 // menyusut (5 m) dan sekali roll monasLockChance ia TERKUNCI penuh
                 // (tak akan mengejar player lagi). Diundi hanya sekali.
                 if (!z.monasCommitted) {
@@ -496,11 +496,11 @@ export const survivalScene = {
             if (z.isModel) z.mesh.position.y = z.baseY + z.groundY;
         }
 
-        // Penggerogot Monas TIDAK mencakar player frame ini (kontrak zombies.js)
+        // Penggerogot Monas TIDAK mencakar player frame ini (kontrak robots.js)
         return atkMonas ? {} : { chaseDist: distToEye };
     },
 
-    // Drop dijepit ke dalam pagar (zombie yang mati saat melompat ada di luar)
+    // Drop dijepit ke dalam pagar (robot yang mati saat melompat ada di luar)
     clampDropPos(x, z) {
         return [clamp(x, -PARK.hx + 10, PARK.hx - 10), clamp(z, -PARK.hz + 10, PARK.hz - 10)];
     },
@@ -511,7 +511,7 @@ export const survivalScene = {
             return `WAVE ${wave.num} CLEARED — Next wave in ${Math.max(1, Math.ceil(wave.clearTimer))}...`;
         if (wave.phase === 'shopping')
             return `WAVE ${wave.num} CLEARED — Field Shop open`;
-        const left = wave.toSpawn + zombies.length;   // sisa zombie wave ini
+        const left = wave.toSpawn + robots.length;   // sisa robot wave ini
         return `Wave ${wave.num} — ${left} left · Monas ${pct}%`;
     },
 
