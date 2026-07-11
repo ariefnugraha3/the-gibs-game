@@ -61,7 +61,7 @@ export async function warmupAll() {
     const put = (obj, x) => { obj.position.set(x, 0, -60); warm.add(obj); return obj; };
 
     put(new THREE.Mesh(GEO.bullet, MAT.bullet), -12).scale.set(1, 1, 8.5);   // tracer
-    put(buildGrenadeMesh(1), -8);      // granat dunia (resource Mk2 bersama)
+    put(buildGrenadeMesh(0.7), -8);    // peluru Grenade Launcher (mesh Mk2 bersama — hangatkan agar tembakan pertama tak nge-hitch)
     put(buildMagMesh(), -4);           // drop magazen (geo/mat bersama)
     put(buildMedkitMesh(), 0);         // drop medkit (mat bersama)
     // Trio visual ledakan + cincin debu: material per-instance PERSIS seperti

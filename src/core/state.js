@@ -34,8 +34,8 @@ export const setDifficulty = (name) => {   // dipanggil menu sebelum startGame
 };
 
 // ----------- Statistik satu run (layar game over) ----------- //
-export const stats = { kills: 0, headshots: 0, shots: 0, hits: 0 };
-export function resetStats() { stats.kills = 0; stats.headshots = 0; stats.shots = 0; stats.hits = 0; }
+export const stats = { kills: 0, shots: 0, hits: 0 };
+export function resetStats() { stats.kills = 0; stats.shots = 0; stats.hits = 0; }
 
 // ----------- Player & input yang sedang ditekan ----------- //
 // Catatan: konstanta kecepatan dikalibrasi pada 60 fps, lalu dikalikan `step`
@@ -45,19 +45,20 @@ export const player = {
     // Sistem MAGAZEN DIHAPUS (2026-07-11): tiap senjata = SATU kolam peluru,
     // kap per-senjata dari CFG.weapons.<w>.maxAmmo (rifle 500 / pistol 150 /
     // shotgun 300). Tanpa reload — menembak sampai kolam habis.
-    rifle: { ammo: 500 },     // utama ("Assault Rifle")
-    pistol: { ammo: 150 },    // secondary; damage peluru sama
-    shotgun: { ammo: 300 },   // senjata ke-3 (multi-pelet)
-    // SLOT senjata BERURUTAN (maks CFG.weapons.maxWeapons = 2): weapons[0] =
-    // tombol 1, weapons[1] = tombol 2. Survival mulai HANYA pistol (senjata ke-2
-    // dibeli di shop; ke-3 minta ganti salah satu); Campaign mulai rifle+pistol.
-    // owned = turunan dari weapons (dipakai drops/shop) — sinkron via
-    // syncOwnedFromWeapons. Di-set configurePlayer per mode.
+    rifle: { ammo: 500 },       // utama ("Assault Rifle")
+    pistol: { ammo: 150 },      // secondary; damage peluru sama
+    shotgun: { ammo: 300 },     // multi-pelet (shop Survival)
+    launcher: { ammo: 50 },     // Grenade Launcher: peluru ledak-saat-kena (shop Survival)
+    // SLOT senjata BERURUTAN (maks CFG.weapons.maxWeapons = 3): weapons[0] =
+    // tombol 1, weapons[1] = tombol 2, weapons[2] = tombol 3. Survival mulai HANYA
+    // pistol (senjata lain dibeli di shop; slot ke-4 minta ganti salah satu);
+    // Campaign mulai rifle+pistol. owned = turunan dari weapons (dipakai
+    // drops/shop) — sinkron via syncOwnedFromWeapons. Di-set configurePlayer per mode.
     weapons: ['pistol'],
-    owned: { pistol: true, rifle: true, shotgun: true },
+    owned: { pistol: true, rifle: true, shotgun: true, launcher: true },
     hasRadar: true,   // radar minimap: Survival mulai TANPA (dibeli di shop); mode lain punya
     isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
-    vy: 0, onGround: true,           // vertikal: lompat (SPASI) & gravitasi
+    vy: 0, onGround: true,           // vertikal: gravitasi + jatuh dari tepian (lompat dihapus)
     // Upgrade shop survival (per-run; kembali 1/0 di configurePlayer):
     dmgMul: 1, reloadMul: 1, upDmg: 0, upReload: 0,
     reloadDurMs: 3000                // durasi reload EFEKTIF terakhir (rig KF membacanya)
@@ -66,7 +67,7 @@ export const player = {
 // Rebuild owned dari slot weapons (satu sumber kebenaran). Dipanggil tiap kali
 // slot berubah (configurePlayer, beli/ganti senjata di shop).
 export function syncOwnedFromWeapons() {
-    player.owned = { rifle: false, pistol: false, shotgun: false };
+    player.owned = { rifle: false, pistol: false, shotgun: false, launcher: false };
     for (const w of player.weapons) player.owned[w] = true;
 }
 
@@ -75,14 +76,13 @@ export function configurePlayer() {
     player.hp = CFG.player.maxHp;
     player.speed = CFG.player.speed;
     player.radius = CFG.player.radius;
-    player.grenades = CFG.grenade.start;
     player.medkits = 0;
     // Tanpa magazen: mulai dgn kolam peluru PENUH per senjata (maxAmmo)
-    for (const w of ['rifle', 'pistol', 'shotgun'])
+    for (const w of ['rifle', 'pistol', 'shotgun', 'launcher'])
         player[w].ammo = CFG.weapons[w].maxAmmo;
-    // Slot senjata awal per mode (maks 2): Survival mulai pistol saja (beli
+    // Slot senjata awal per mode (maks 3): Survival mulai pistol saja (beli
     // senjata lain di shop); Campaign & mode lain mulai rifle + pistol
-    // (shotgun hanya dari shop Survival). owned diturunkan dari slot ini.
+    // (shotgun & Grenade Launcher hanya dari shop Survival). owned diturunkan dari slot ini.
     const survivalStart = mode === 'survival';
     player.weapons = survivalStart ? ['pistol'] : ['rifle', 'pistol'];
     syncOwnedFromWeapons();

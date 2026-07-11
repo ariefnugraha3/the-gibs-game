@@ -1,7 +1,7 @@
 // Avatar player TOP-DOWN (pivot 2026-07-11). Pivot LOGIKA player tetap objek
 // `camera` lama (core/renderer.js) — posisi = titik setinggi mata, yaw = arah
-// bidik. Modul ini murni VISUAL: tubuh tentara blocky segaya zombie (kotak +
-// pivot kaki utk animasi jalan) yang berdiri di kaki pivot, menghadap titik
+// bidik. Modul ini murni VISUAL: tubuh tentara membulat/stylized segaya zombie
+// (silinder + elipsoid, pivot kaki utk animasi jalan) yang berdiri di kaki pivot, menghadap titik
 // bidik kursor, memegang senapan kompak — `avatarGunTip` di ujung laras jadi
 // titik spawn peluru + induk kilat muzzle (weapons.js). Juga memiliki penanda
 // "move to point" (klik kanan) berupa cincin berdenyut di tanah.
@@ -23,6 +23,9 @@ export function initPlayerAvatar(sc) {
     const skin = mat(0xd09a66), shirt = mat(0x4a5138), vest = mat(0x23262b, 20),
         pants = mat(0x33383f), boots = mat(0x1b1d20), hair = mat(0x181512), gun = mat(0x15171a, 30);
 
+    // Elipsoid (sphere di-skala) — bentuk membulat untuk kepala/bahu/telapak.
+    const ellip = (r, sx, sy, sz, ws = 10, hs = 8) => { const g = new THREE.SphereGeometry(r, ws, hs); g.scale(sx, sy, sz); return g; };
+
     avatarGroup = new THREE.Group();   // menghadap +Z; di-lookAt ke titik bidik
     const mk = (geo, m, x, y, z, parent = avatarGroup, shadow = true) => {
         const b = new THREE.Mesh(geo, m);
@@ -31,36 +34,46 @@ export function initPlayerAvatar(sc) {
         parent.add(b);
         return b;
     };
-    // Torso + rompi taktis + kepala (proporsi = manusia zombie: mata ~11.4)
-    mk(new THREE.BoxGeometry(3.4, 3.2, 1.9), shirt, 0, 7.6, 0);
-    mk(new THREE.BoxGeometry(3.6, 2.2, 2.1), vest, 0, 7.9, 0);
-    mk(new THREE.BoxGeometry(2.0, 2.0, 2.0), skin, 0, 10.6, 0);
-    mk(new THREE.BoxGeometry(2.16, 0.7, 2.16), hair, 0, 11.5, -0.06, avatarGroup, false);
-    // Kaki: pivot pinggul (rotation.x diayun saat berjalan)
+    // OVERHAUL 2026-07-11: tentara membulat/stylized (silinder meruncing + elipsoid),
+    // bukan balok Minecraft/Roblox. Proporsi & rig pivot (legL/legR, gunGrp,
+    // avatarGunTip) DIPERTAHANKAN — mata ~11.4, spawn peluru tak bergeser.
+    // Torso meruncing dipipihkan + rompi taktis (cangkang) + yoke bahu + leher
+    const torsoG = new THREE.CylinderGeometry(1.55, 1.08, 4.3, 12, 1); torsoG.scale(1, 1, 0.66);
+    mk(torsoG, shirt, 0, 7.7, 0);
+    const vestG = new THREE.CylinderGeometry(1.68, 1.24, 3.0, 12, 1, true); vestG.scale(1, 1, 0.72);
+    mk(vestG, vest, 0, 7.9, 0, avatarGroup, false);
+    mk(ellip(1.02, 2.1, 0.74, 1.0, 12, 6), shirt, 0, 9.55, 0, avatarGroup, false);   // yoke bahu
+    mk(new THREE.CylinderGeometry(0.52, 0.64, 1.0, 8), skin, 0, 9.9, 0, avatarGroup, false);   // leher
+    // Kepala membulat + rambut kubah
+    mk(ellip(1.12, 1.0, 1.14, 1.06, 12, 10), skin, 0, 10.7, 0);
+    const hairG = new THREE.SphereGeometry(1.16, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.62); hairG.scale(1.0, 1.0, 1.04);
+    mk(hairG, hair, 0, 10.62, -0.04, avatarGroup, false);
+    // Kaki: pivot pinggul (rotation.x diayun saat berjalan) — paha+betis meruncing + boot
     const mkLeg = (sx) => {
         const hip = new THREE.Group();
         hip.position.set(sx, 6.0, 0);
         avatarGroup.add(hip);
-        mk(new THREE.BoxGeometry(1.25, 3.0, 1.4), pants, 0, -1.6, 0, hip);
-        mk(new THREE.BoxGeometry(1.35, 1.6, 1.5), pants, 0, -3.7, 0, hip);
-        mk(new THREE.BoxGeometry(1.4, 0.9, 2.1), boots, 0, -4.9, 0.25, hip, false);
+        mk(new THREE.CylinderGeometry(0.78, 0.58, 3.0, 8), pants, 0, -1.5, 0, hip);
+        mk(new THREE.CylinderGeometry(0.56, 0.44, 2.4, 8), pants, 0, -3.9, 0, hip, false);
+        mk(ellip(0.62, 1.1, 0.66, 1.75, 8, 6), boots, 0, -5.05, 0.35, hip, false);
         return hip;
     };
     legL = mkLeg(-0.95);
     legR = mkLeg(0.95);
-    // Lengan menodong ke depan (pose dua tangan di senapan)
+    // Lengan menodong ke depan (pose dua tangan di senapan) — silinder meruncing + telapak
     const mkArm = (sx, rx) => {
         const sh = new THREE.Group();
         sh.position.set(sx, 9.0, 0.4);
         sh.rotation.x = rx;
         avatarGroup.add(sh);
-        mk(new THREE.BoxGeometry(1.0, 2.6, 1.0), shirt, 0, -1.2, 0, sh);
-        mk(new THREE.BoxGeometry(0.9, 1.4, 0.9), skin, 0, -2.9, 0, sh, false);
+        mk(new THREE.CylinderGeometry(0.54, 0.42, 3.6, 8), shirt, 0, -1.5, 0, sh);
+        mk(ellip(0.5, 1.0, 0.85, 1.0, 8, 6), skin, 0, -3.4, 0, sh, false);
         return sh;
     };
     mkArm(1.7, -1.35);
     mkArm(-1.4, -1.15);
-    // Senapan kompak (visual; semua senjata memakai model ini dari atas)
+    // Senapan kompak (visual; semua senjata memakai model ini dari atas). gunGrp &
+    // avatarGunTip TIDAK boleh bergeser (titik spawn peluru terkalibrasi).
     const gunGrp = new THREE.Group();
     gunGrp.position.set(0.65, 7.5, 1.2);
     avatarGroup.add(gunGrp);

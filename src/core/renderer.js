@@ -40,11 +40,15 @@ let dirLightRef = null;
 export function setQualityLightRef(l) { dirLightRef = l; }
 
 // ----- Kamera top-down: ofset dari pivot player — tinggi + mundur ke selatan
-// layar, pitch ~61° -> kesan "dari pojok atas ruangan" ala Alien Shooter.
+// layar, pitch ~49° -> kesan "dari pojok atas ruangan" ala Alien Shooter.
 // (Nilai visual murni -> konstanta kode, bukan CFG.) followViewCam dipanggil
 // tiap frame SETELAH updateGame (posisi pivot terbaru), + sekali di startGame
-// sebelum frame pertama supaya matrix viewCam valid utk raycast bidik. -----
-const CAM_OFF = { x: 0, y: 185, z: 100 };
+// sebelum frame pertama supaya matrix viewCam valid utk raycast bidik.
+// Didekatkan bertahap atas permintaan user (185/100 -> 161/87 -> 146/79 ->
+// 130/82) 2026-07-11; sudut lalu diturunkan lagi ~15% ke 116/100: JARAK dijaga
+// ~154 unit (y turun, z naik) sehingga hanya sudutnya melandai (bukan zoom) —
+// pitch ~57,8° -> ~49,2°, pandangan lebih menyamping/rendah (permintaan user). -----
+const CAM_OFF = { x: 0, y: 116, z: 100 };
 
 // ----- Dead-zone kamera (toleransi gerak 2026-07-11): kamera TIDAK center
 // tepat di player. Ia mengejar sebuah titik fokus `camFocus` (di bidang tanah)

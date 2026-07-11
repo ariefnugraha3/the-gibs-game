@@ -1,10 +1,11 @@
-// Player = kamera. Modul ini memiliki: gerak WASD (bobot arah + normalisasi
-// diagonal), stamina, jongkok (toggle C / tahan Ctrl), lompat + gravitasi,
+// Player = kamera. Modul ini memiliki: gerak WASD (normalisasi diagonal) +
+// gerak klik-kanan, stamina, gravitasi + jatuh dari tepian (tanpa lompat),
 // bunyi langkah, dan kepejalan badan zombie terhadap player. Tabrakan dunia
-// (pagar/dinding/penghalang) didelegasikan ke scene aktif.
+// (pagar/dinding/penghalang) didelegasikan ke scene aktif. (Jongkok & lompat
+// DIHAPUS 2026-07-11 — top-down tak punya keduanya.)
 
 import { CFG } from '../core/config.js';
-import { player, keys, zombies, isPaused, isGameOver } from '../core/state.js';
+import { player, keys, zombies } from '../core/state.js';
 import { camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { playSFX, sfxFootstep, sfxZombieStep } from '../utils/sfx.js';
@@ -16,18 +17,12 @@ import { showMoveMarker, hideMoveMarker } from './playerAvatar.js';
 export let stamina = 100;
 export let staExhausted = false;
 export let sprintingNow = false;   // sprint EFEKTIF frame ini (shift + bergerak + stamina ada)
-export let crouchedNow = false;    // jongkok efektif frame ini (toggle C ATAU tahan Ctrl)
-export let eyeHCur = 11.4;         // tinggi mata efektif frame ini (turun saat jongkok)
+export let eyeHCur = 11.4;         // tinggi mata (konstan = eyeHeight; jongkok dihapus)
 
-let isCrouching = false, crouchT = 0;   // crouchT 0..1 (transisi dihaluskan)
-let crouchHold = false;                 // jongkok versi TAHAN (Ctrl kiri); C tetap toggle
 let footT = 0;    // irama langkah kaki player (detik antar langkah)
 let zStepT = 0;   // irama langkah zombie (satu suara global, bukan per zombie)
 
 export function drainStamina(n) { stamina -= n; }
-export function toggleCrouch() { isCrouching = !isCrouching; }
-export function setCrouchHold(v) { crouchHold = v; }   // keyup clearing TANPA gate — tak boleh nyangkut
-export function clearCrouch() { isCrouching = false; crouchHold = false; }
 
 // ===== Gerak klik-kanan "move to point" (kontrol top-down 2026-07-11) =====
 // setMoveTarget dipanggil input.js saat klik kanan (titik kursor di bidang
@@ -48,18 +43,10 @@ export function clearMoveTarget() {
     hideMoveMarker();
 }
 
-// Lompat (SPASI): hanya saat menapak & tidak pause
-export function tryJump() {
-    if (!isPaused && player.onGround) {
-        player.vy = CFG.player.jumpVelocity;
-        player.onGround = false;
-    }
-}
-
 // Dipanggil saat boot & resetGame: stempel nilai awal dari CFG
 export function resetPlayerState() {
     player.vy = 0; player.onGround = true;
-    crouchT = 0; eyeHCur = CFG.player.eyeHeight;   // isCrouching dilepas releaseInputs()
+    eyeHCur = CFG.player.eyeHeight;
     stamina = CFG.stamina.max; staExhausted = false; sprintingNow = false;
     staminaFill.style.width = '100%';
     staminaFill.style.background = '#3ddc6a';
@@ -71,7 +58,6 @@ export function resetPlayerState() {
 // klik-kanan ke titik + stamina + vertikal. Jongkok & ADS dihapus. ---
 export function updatePlayerMovement(dt, step) {
     const oldX = camera.position.x, oldZ = camera.position.z;
-    crouchedNow = false;   // jongkok tidak ada di top-down (elemen kode dibiarkan dorman)
     // Input WASD digabung jadi SATU vektor lalu dinormalisasi terhadap panjang
     // input mentah — diagonal (mis. W+A) tidak lagi ~1.41x lebih cepat.
     const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);     // +1 = atas layar (-z dunia)
@@ -149,10 +135,10 @@ export function updatePlayerMovement(dt, step) {
     const feetNow = camera.position.y - eyeHCur;
     activeScene.playerCollide(camera.position, oldX, oldZ, feetNow);
 
-    // --- Lompat & gravitasi (SPASI). Batas horizontal scene di atas bekerja
-    // apa pun ketinggiannya. PENTING: kaki dihitung dgn eyeHCur frame LALU;
-    // crouchT baru diperbarui setelahnya — kaki tetap menempel tanah selama
-    // transisi jongkok (tanpa "jatuh" semu yang memicu bunyi mendarat).
+    // --- Gravitasi + jatuh dari tepian (tanpa lompat di top-down). Batas
+    // horizontal scene di atas bekerja apa pun ketinggiannya. vy hanya pernah
+    // negatif (jatuh) atau 0 (menapak): di tanah datar ia dijepit ke lantai
+    // tiap frame; melangkah dari tepi standable (stage 2) memicu jatuh.
     const feetY = camera.position.y - eyeHCur;
     const gH = activeScene.groundHeight(camera.position.x, camera.position.z, feetY);
     const wasAirborne = !player.onGround;
@@ -162,12 +148,11 @@ export function updatePlayerMovement(dt, step) {
         newFeet = gH;
         player.vy = 0;
         player.onGround = true;
-        if (wasAirborne) playSFX(sfxFootstep, 0.55);   // bunyi mendarat setelah lompat
+        if (wasAirborne) playSFX(sfxFootstep, 0.55);   // bunyi mendarat setelah jatuh
     } else {
         player.onGround = false;
     }
-    // Tinggi pivot tetap: kaki + tinggi mata (jongkok dihapus di top-down)
-    eyeHCur = CFG.player.eyeHeight;
+    eyeHCur = CFG.player.eyeHeight;   // tinggi pivot tetap = kaki + tinggi mata
     camera.position.y = newFeet + eyeHCur;
 
     // Langkah kaki berirama saat berjalan/berlari di tanah (WASD ataupun

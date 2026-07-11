@@ -20,7 +20,7 @@ import { setS1FlickerLight } from '../../world/decor.js';
 import { applyLightPreset } from '../../world/lighting.js';
 import { setScene } from '../../core/sceneManager.js';
 import { hideStageMsg } from '../../core/dom.js';
-import { buildGrenadeMesh, NADE_R } from '../../entities/grenades.js';
+import { NADE_R } from '../../entities/grenades.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { spawnCampaignZombie, campaignZombieAI, countStageZombies } from './common.js';
 import { stage2Scene, buildWorld as buildStage2World, placeZombies as placeStage2Zombies } from './stage2.js';
@@ -378,21 +378,19 @@ export function placeZombies() {
 }
 
 // Persediaan stage 1 (tak kedaluwarsa): SUPPLY ROOM (kanan-atas) berisi ammo +
-// granat + medkit sesuai denah; bonus kecil tersebar di break/restroom/storage.
+// medkit; bonus kecil tersebar di break/restroom/storage. (Granat lempar dihapus
+// 2026-07-11 — persediaan granat lama diganti paket peluru.)
 export function placeSupplies() {
     const put = (type, c, r, dx = 0, dz = 0) => {
         const p = s1Cell(c, r);
-        let mesh;
-        if (type === 'mag') mesh = buildMagMesh();
-        else if (type === 'grenade') mesh = buildGrenadeMesh(0.8);
-        else mesh = buildMedkitMesh();
+        const mesh = type === 'mag' ? buildMagMesh() : buildMedkitMesh();
         mesh.position.set(p.x + dx, 1, p.z + dz);
         scene.add(mesh);
         drops.push({ mesh, type, timer: 1e9 });
     };
     // Supply Room (c21-28 r1-6; hindari rak dinding utara r1-2 & timur c27)
     put('mag', 22, 3); put('mag', 23, 4, 4, 0);
-    put('grenade', 24, 3); put('grenade', 25, 4, 0, 4);
+    put('mag', 24, 3); put('mag', 25, 4, 0, 4);
     put('medkit', 23, 5); put('medkit', 25, 3, 6, 0);
     // Bonus tersebar (sel lantai terbuka — sudah diverifikasi bebas furnitur)
     put('mag', 2, 23);       // break room

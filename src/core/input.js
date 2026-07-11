@@ -9,10 +9,9 @@ import { resetGame } from './game.js';
 import { showPauseMenu, hidePauseMenu, isPauseMenuOpen } from './pauseMenu.js';
 import { openCheatConsole, closeCheatConsole, forceHideCheatConsole, isCheatConsoleOpen, handleKey } from './cheatConsole.js';
 import {
-    tryMelee, trySwitchKey, setAiming,
-    grenadeMode, throwEquippedGrenade, equipMedkit
+    tryMelee, trySwitchKey, setAiming, equipMedkit
 } from '../entities/weapons.js';
-import { clearCrouch, eyeHCur, setMoveTarget, clearMoveTarget } from '../entities/player.js';
+import { eyeHCur, setMoveTarget, clearMoveTarget } from '../entities/player.js';
 
 // ----- Fullscreen + Keyboard Lock: cegah shortcut browser saat main -----
 // Ctrl+W (tutup tab), Ctrl+R (reload), Ctrl+T/N, dsb TIDAK bisa dicegah
@@ -51,11 +50,6 @@ function placeAimCursor() {
 function showAimCursor(on) {
     if (!aimCursorEl) aimCursorEl = document.getElementById('aimCursor');
     if (aimCursorEl) aimCursorEl.style.display = on ? 'block' : 'none';
-}
-
-// Jarak horizontal player -> titik bidik (utk memilih lemparan granat jauh/dekat)
-function aimDist() {
-    return Math.hypot(aimPoint.x - camera.position.x, aimPoint.z - camera.position.z);
 }
 
 // Dipanggil animate() SEBELUM updateGame: segarkan aimPoint + yaw pivot.
@@ -106,7 +100,6 @@ export function requestLock() {
 export function releaseInputs() {
     mouse.isDown = false;
     setAiming(false);
-    clearCrouch();      // sisa jaring pengaman lama (jongkok sudah tak terpakai)
     clearMoveTarget();  // gerak klik-kanan berhenti saat pause/blur/reset
     for (const k in keys) keys[k] = false;
     // Catatan: shop survival TIDAK ditutup di sini — ia MODAL (game di-pause,
@@ -161,9 +154,9 @@ export function initInput() {
         placeAimCursor();
     });
 
-    // ----- Klik kiri = TEMBAK (atau lempar granat / channel medkit sesuai item
-    // yang dipegang, semua ke arah kursor); klik kanan = BERGERAK ke titik
-    // kursor (WASD membatalkannya). ADS & lempar-dekat klik kanan DIHAPUS. -----
+    // ----- Klik kiri = TEMBAK (atau tahan utk channel medkit) ke arah kursor;
+    // klik kanan = BERGERAK ke titik kursor (WASD membatalkannya). (Lempar granat
+    // dihapus 2026-07-11 — diganti weapon Grenade Launcher.) -----
     document.addEventListener('mousedown', (e) => {
         if (isPaused || isGameOver) return;
         if (e.button === 2) {
@@ -172,11 +165,6 @@ export function initInput() {
             return;
         }
         if (e.button !== 0) return;
-        if (grenadeMode) {
-            // Lempar ke arah kursor; jarak kursor memilih daya lempar jauh/dekat
-            throwEquippedGrenade(aimDist() > 120 ? 'far' : 'near');
-            return;
-        }
         mouse.isDown = true;   // tembak / tahan utk channel medkit
     });
     document.addEventListener('mouseup', (e) => {

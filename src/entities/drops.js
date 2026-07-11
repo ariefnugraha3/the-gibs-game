@@ -9,7 +9,6 @@ import { activeScene } from '../core/sceneManager.js';
 import { playSFX, sfxPickup } from '../utils/sfx.js';
 import { showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
-import { buildGrenadeMesh } from './grenades.js';
 
 // ----- Medkit (hanya ditaruh manual oleh stage, bukan drop zombie) -----
 // Material BERSAMA: Group tidak ditelusuri clearArray, jadi bahan bersama
@@ -86,12 +85,8 @@ export function spawnDrop(pos) {
         scene.add(magMesh);
         drops.push({ mesh: magMesh, type: 'mag', timer: CFG.drops.lifetimeSec });   // detik
     }
-    if (Math.random() < CFG.drops.grenadeChance) {
-        const nadeMesh = buildGrenadeMesh(0.8);   // model granat yang sama, skala item
-        nadeMesh.position.set(px + 1.5, 1, pz + 1.5);
-        scene.add(nadeMesh);
-        drops.push({ mesh: nadeMesh, type: 'grenade', timer: CFG.drops.lifetimeSec });
-    }
+    // (Drop granat dihapus 2026-07-11 — granat lempar diganti weapon Grenade
+    // Launcher; amunisinya ikut terisi oleh paket peluru 'mag' di bawah.)
 }
 
 let fullInfoCd = 0;   // jeda pesan "already full" agar tidak spam tiap frame
@@ -111,17 +106,14 @@ export function updateDrops(dt, T) {
             // player berdiri di atas item. Tanpa magazen (2026-07-11): drop
             // 'mag' = PAKET PELURU (+CFG.weapons.<w>.ammoPickup per senjata
             // yang DIMILIKI, di-cap maxAmmo).
-            const ownedW = ['rifle', 'pistol', 'shotgun'].filter(w => player.owned[w]);
+            const ownedW = ['rifle', 'pistol', 'shotgun', 'launcher'].filter(w => player.owned[w]);
             const isFull =
                 (d.type === 'mag' && ownedW.every(w => player[w].ammo >= CFG.weapons[w].maxAmmo)) ||
-                (d.type === 'grenade' && player.grenades >= CFG.grenade.max) ||
                 (d.type === 'medkit' && player.medkits >= CFG.player.maxMedkits);
             if (isFull) {
                 if (fullInfoCd <= 0) {
                     fullInfoCd = 1.2;
-                    showPickup(d.type === 'mag' ? 'Ammo already full'
-                        : d.type === 'grenade' ? 'Grenades already full'
-                            : 'Medkit already carried', '#b8b8b8');
+                    showPickup(d.type === 'mag' ? 'Ammo already full' : 'Medkit already carried', '#b8b8b8');
                 }
             } else {
                 if (d.type === 'mag') {          // paket peluru: isi senjata yang DIMILIKI
@@ -134,9 +126,6 @@ export function updateDrops(dt, T) {
                     // dgn tombol 4 untuk memulihkan HP (bukan sembuh saat diambil).
                     player.medkits = Math.min(CFG.player.maxMedkits, player.medkits + 1);
                     showPickup('+1 Medkit (press 4 to use)', '#ff6b81');
-                } else {
-                    player.grenades = Math.min(CFG.grenade.max, player.grenades + 1);
-                    showPickup('+1 Grenade', '#2ed573');
                 }
                 playSFX(sfxPickup);
                 updateUI();

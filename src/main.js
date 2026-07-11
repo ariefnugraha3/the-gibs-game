@@ -19,6 +19,7 @@ import { createBaseLights, updateShadowFollow } from './world/lighting.js';
 import { updateWorldDecor } from './world/decor.js';
 import { createSky, createEmbers, updateEmbers } from './world/sky.js';
 import { initEffects } from './entities/effects.js';
+import { initGore } from './entities/gore.js';
 import { initWeapons, updateWeaponVisuals } from './entities/weapons.js';
 import { resetPlayerState } from './entities/player.js';
 import { initMenu } from './scenes/menu.js';
@@ -54,6 +55,7 @@ export async function startGame(mode) {
         createBaseLights(scene);   // ambient/hemi/dir(bayangan)/rim — dipakai semua scene
         initQualityUI();           // baris tombol kualitas (butuh dirLight sudah ada)
         initEffects(scene);        // pool lampu ledakan + pool sprite darah
+        initGore(scene);           // pool gib + genangan darah (mayat pakai mesh zombie)
         createSky(scene);          // kubah langit + bulan (ikut player)
         await loadingStep(30, 'Building the world…');
 

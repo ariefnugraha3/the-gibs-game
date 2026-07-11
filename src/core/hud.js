@@ -10,7 +10,7 @@ import {
     scoreText, ammoWeapon, ammoCount, ammoMags, ammoHint, ammoBox,
     healthFill, healthNum, waveText, radar, radarCtx, invSlots
 } from './dom.js';
-import { currentWeapon, WEAPON_DEF, grenadeMode, medkitMode } from '../entities/weapons.js';
+import { currentWeapon, WEAPON_DEF, medkitMode } from '../entities/weapons.js';
 
 export function updateUI() {
     const w = player[currentWeapon];
@@ -22,8 +22,6 @@ export function updateUI() {
     let itemName, count, mags = '', hint = '';
     if (medkitMode) {
         itemName = 'Medkit'; count = player.medkits; hint = 'Hold LEFT CLICK to use';
-    } else if (grenadeMode) {
-        itemName = 'Grenade'; count = player.grenades; hint = 'Throw toward the cursor';
     } else {
         itemName = wName; count = w.ammo; mags = `/ ${CFG.weapons[currentWeapon].maxAmmo}`;
     }
@@ -66,23 +64,23 @@ const ITEM_ICONS = {
         '<rect x="7" y="11" width="10" height="1.8" rx="0.6" fill="currentColor"/>' +
         '<path fill="currentColor" d="M2 8h4.2v5L2 14z"/>' +
         '<path fill="currentColor" d="M6.6 10.4h2l-.4 2.5H6.2z"/></svg>',
-    grenade:
+    launcher:
         '<svg viewBox="0 0 24 24" aria-hidden="true">' +
-        '<rect x="7.4" y="8.4" width="9.2" height="12" rx="4.4" fill="currentColor"/>' +
-        '<rect x="9.4" y="6" width="5.2" height="3" rx="0.6" fill="currentColor"/>' +
-        '<rect x="13.4" y="5.4" width="4.6" height="1.5" rx="0.75" fill="currentColor"/>' +
-        '<circle cx="9" cy="5.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+        '<rect x="4.5" y="8.2" width="12" height="3.8" rx="1.4" fill="currentColor"/>' +   // laras gemuk 40mm
+        '<circle cx="5" cy="10.1" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/>' +   // bore muzzle
+        '<path fill="currentColor" d="M13.4 11.6h3l-1 4.4h-2.3z"/>' +   // pistol grip
+        '<rect x="15.8" y="9.1" width="4.6" height="2" rx="0.9" fill="currentColor"/></svg>',   // popor pendek
     medkit:
         '<svg viewBox="0 0 24 24" aria-hidden="true">' +
         '<rect x="3" y="6.5" width="18" height="13" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/>' +
         '<path fill="currentColor" d="M10.4 9.2h3.2v2.6h2.6v3.2h-2.6v2.6h-3.2v-2.6H7.8v-3.2h2.6z"/></svg>',
 };
 
-// Panel inventori (pojok kanan-bawah, baris IKON): slot 1/2 = senjata
-// (player.weapons, maks 2), 3 = granat (jumlah), 4 = medkit (jumlah). Slot aktif
-// (senjata terpegang / mode granat / mode medkit) disorot; slot kosong /
-// hitungan 0 diredupkan. Ikon (SVG) ditulis ulang HANYA saat KEY berubah
-// (cache `_iconKey`) — updateUI sering dipanggil (per tembakan), hindari re-parse.
+// Panel inventori (pojok kanan-bawah, baris IKON): slot 1/2/3 = senjata
+// (player.weapons, maks 3), 4 = medkit (jumlah). Slot aktif (senjata terpegang /
+// mode medkit) disorot; slot kosong / hitungan 0 diredupkan. Ikon (SVG) ditulis
+// ulang HANYA saat KEY berubah (cache `_iconKey`) — updateUI sering dipanggil
+// (per tembakan), hindari re-parse.
 function updateInventory() {
     const W = player.weapons || [];
     const setSlot = (i, iconKey, count, active, dim) => {
@@ -96,12 +94,10 @@ function updateInventory() {
         s.row.classList.toggle('active', !!active);
         s.row.classList.toggle('dim', !!dim);
     };
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
         const wk = W[i];
-        setSlot(i, wk || null, null,
-            wk && !grenadeMode && !medkitMode && currentWeapon === wk, !wk);
+        setSlot(i, wk || null, null, wk && !medkitMode && currentWeapon === wk, !wk);
     }
-    setSlot(2, 'grenade', player.grenades, grenadeMode, player.grenades <= 0);
     setSlot(3, 'medkit', player.medkits, medkitMode, player.medkits <= 0);
 }
 

@@ -4,8 +4,6 @@
         "speed": 1.5,
         "radius": 5,
         "eyeHeight": 11.4,
-        "crouchDrop": 3.6,
-        "jumpVelocity": 33,
         "gravity": 70,
         "medkitHealPct": 0.7,
         "maxMedkits": 2,
@@ -22,7 +20,6 @@
     },
     "movement": {
         "sprintMultiplier": 1.7,
-        "crouchMultiplier": 0.5,
         "adsMultiplier": 0.7,
         "backpedalWeight": 0.7,
         "strafeWeight": 0.8,
@@ -30,7 +27,7 @@
         "sprintSpreadPenalty": 1.5
     },
     "weapons": {
-        "maxWeapons": 2,
+        "maxWeapons": 3,
         "bulletSpeed": 27,
         "bulletLife": 120,
         "bulletDamage": 20,
@@ -39,7 +36,6 @@
         "heatPerShot": 0.22,
         "heatCoolPerSec": 1.4,
         "adsAccuracy": 0.75,
-        "crouchAccuracy": 0.75,
         "rifle": {
             "maxAmmo": 500,
             "ammoPickup": 80,
@@ -61,8 +57,15 @@
             "cameraKick": 0.03,
             "pellets": 10,
             "pelletSpread": 0.09,
-            "damage": 10,
-            "headshotMul": 4
+            "damage": 10
+        },
+        "launcher": {
+            "maxAmmo": 25,
+            "ammoPickup": 8,
+            "fireDelayMs": 1200,
+            "cameraKick": 0.03,
+            "roundSpeed": 5,
+            "damage": 100
         }
     },
     "melee": {
@@ -82,9 +85,6 @@
         "damage": 100
     },
     "zombie": {
-        "headHeight": 11.5,
-        "headshotRadius": 1.6,
-        "headshotDamageMul": 2,
         "bodyHitRadius": 5,
         "bodyBlockRadius": 7.5,
         "clawDamage": 5,
@@ -94,7 +94,7 @@
         "repathSec": 0.5,
         "stuckSec": 0.4,
         "turnRadPerSec": 9,
-        "score": { "normalKill": 100, "normalHeadshot": 150, "specialKill": 150, "specialHeadshot": 200 },
+        "score": { "normalKill": 100, "specialKill": 150 },
         "variants": {
             "runner": { "hpMul": 0.34, "speedMul": 1.8, "scale": 0.75, "clawDamage": 20 },
             "brute": { "hpMul": 4, "speedMul": 0.6, "scale": 1.25, "clawDamage": 40 },
@@ -102,13 +102,13 @@
         }
     },
     "survival": {
-        "zombiesPerWaveBase": 15,
+        "zombiesPerWaveBase": 30,
         "zombiesPerWaveStep": 5,
         "shopCountdownSec": 3,
         "spawnIntervalBase": 2.5,
         "spawnIntervalStep": 0.2,
         "spawnIntervalMin": 1,
-        "maxZombiesBase": 10,
+        "maxZombiesBase": 20,
         "maxZombiesStep": 2,
         "maxZombiesCap": 40,
         "zombieHpBase": 50,
@@ -157,8 +157,7 @@
             "reachMul": 1.8,
             "spawnWhenRemaining": 5,
             "score": 1000,
-            "grenadeDamage": 300,
-            "headshotDamageMul": 3
+            "grenadeDamage": 300
         },
         "stage3Zombies": 26
     },
@@ -168,15 +167,15 @@
         "lifetimeSec": 20
     },
     "shop": {
-        "ammoCost": 400,
-        "grenadeCost": 400,
-        "healthCost": 300,
-        "medkitCost": 400,
-        "healMonasCost": 300,
-        "strengthenMonasCost": 800,
-        "radarCost": 2800,
-        "shotgunCost": 1400,
-        "rifleCost": 1600
+        "ammoCost": 800,
+        "healthCost": 600,
+        "medkitCost": 800,
+        "healMonasCost": 600,
+        "strengthenMonasCost": 1600,
+        "radarCost": 5600,
+        "shotgunCost": 2800,
+        "rifleCost": 3200,
+        "launcherCost": 4000
     },
     "difficulty": {
         "easy": { "zombieHpMul": 0.75, "zombieDamageMul": 0.5, "spawnIntervalMul": 1.3 },

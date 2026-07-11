@@ -3,9 +3,12 @@
 // dari <input> ter-fokus — supaya tak bergantung pada fokus/Keyboard Lock saat
 // pointer-lock (tombol seperti G/D ikut ter-lock selama main). Saat konsol
 // terbuka, game DI-PAUSE & input.js menelan tombol gameplay. Perintah:
-// "god-mode" + Enter = TOGGLE kebal player & Monas. Teks UI English (aturan permanen).
+// "god-mode" + Enter = TOGGLE kebal player & Monas; "more-money" + Enter =
+// +100000 skor (mata uang shop Survival). Teks UI English (aturan permanen).
 
-import { setPaused, godMode, setGodMode } from './state.js';
+import { setPaused, godMode, setGodMode, addScore } from './state.js';
+import { updateUI } from './hud.js';
+import { activeScene } from './sceneManager.js';
 
 let open = false, buffer = '', inputEl = null, feedbackEl = null, boxEl = null, wired = false;
 
@@ -64,6 +67,21 @@ function runCommand(cmd) {
     if (c === 'god-mode') {
         setGodMode(!godMode);   // TOGGLE
         setFeedback(godMode ? 'God mode: ON - player & Monas are invincible' : 'God mode: OFF');
+    } else if (c === 'more-money') {
+        addScore(100000);       // +100000 skor = mata uang shop Survival
+        updateUI();             // segarkan angka SCORE di HUD
+        setFeedback('+100000 score - buy anything in the Field Shop!');
+    } else if (/^skip-to-wave-\d+$/.test(c)) {
+        // Lompat langsung ke wave n (Survival). Scene aktif yang mendukung punya
+        // hook cheatSkipToWave (hanya survivalScene) -> bersihkan lapangan +
+        // startWave(n) dengan formula naik-wave. Tutup konsol utk mulai bertarung.
+        const n = parseInt(c.slice('skip-to-wave-'.length), 10);
+        if (activeScene && typeof activeScene.cheatSkipToWave === 'function') {
+            const applied = activeScene.cheatSkipToWave(n);
+            setFeedback('Jumped to wave ' + applied + ' - close the console to fight!');
+        } else {
+            setFeedback('skip-to-wave only works in Survival mode', false);
+        }
     } else if (c) {
         setFeedback('Unknown command: ' + cmd, false);
     }

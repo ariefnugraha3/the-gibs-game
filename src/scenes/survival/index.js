@@ -8,7 +8,7 @@ import { player, zombies, isGameOver, _v3, godMode } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
 import { updateUI } from '../../core/hud.js';
-import { buildHumanZombie, applyVariantTint, CLAW_TIME, reachForScale } from '../../entities/zombies.js';
+import { buildHumanZombie, applyVariantTint, CLAW_TIME, reachForScale, disposeZombie } from '../../entities/zombies.js';
 import { spawnGroundPuff } from '../../entities/effects.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
@@ -260,6 +260,21 @@ export const survivalScene = {
     // KLIK di shop.js.
     shopKey,
     shopActive: isShopOpen,
+
+    // Cheat (cheatConsole "skip-to-wave-N"): LOMPAT LANGSUNG ke wave n. Buang
+    // semua zombie di lapangan tanpa skor/gore (dispose senyap seperti resetGame),
+    // akhiri event yang sedang jalan + tutup shop bila terbuka, lalu startWave(n)
+    // — seluruh formula naik-wave (jumlah, cap, interval, peluang kabut) memakai
+    // n, jadi kesulitan sesuai wave itu. Balikan angka wave (untuk feedback konsol).
+    cheatSkipToWave(n) {
+        n = Math.max(1, Math.floor(n));
+        zombies.forEach(z => { disposeZombie(z); scene.remove(z.mesh); });
+        zombies.length = 0;
+        endEvent();      // pulihkan kabut/cahaya bila event sedang berjalan
+        closeShop();     // jaga-jaga bila entah bagaimana terpanggil saat shop
+        startWave(n);    // formula naik-wave sepenuhnya dari n
+        return n;
+    },
 
     // --- Mesin fase wave (fighting -> cleared -> shopping) + spawner + event ---
     updateMode(dt) {

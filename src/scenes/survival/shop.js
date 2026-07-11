@@ -63,18 +63,10 @@ function catalog() {
             id: 'ammo', name: 'Replenish All Ammo', cost: S.ammoCost,
             desc: 'Refill every weapon you own to its maximum ammo.',
             apply() {
-                const W = ['rifle', 'pistol', 'shotgun'].filter(w => o[w]);
+                const W = ['rifle', 'pistol', 'shotgun', 'launcher'].filter(w => o[w]);
                 if (W.every(w => player[w].ammo >= CFG.weapons[w].maxAmmo))
                     return 'Ammo already full';
                 for (const w of W) player[w].ammo = CFG.weapons[w].maxAmmo;
-            }
-        },
-        {
-            id: 'grenade', name: 'Replenish Grenades', cost: S.grenadeCost,
-            desc: 'Restock your grenades back to the maximum you can carry.',
-            apply() {
-                if (player.grenades >= CFG.grenade.max) return 'Grenades already full';
-                player.grenades = CFG.grenade.max;
             }
         },
         {
@@ -120,13 +112,18 @@ function catalog() {
         },
         {
             id: 'shotgun', name: 'Shotgun', cost: S.shotgunCost, weapon: 'shotgun',
-            desc: 'Pump-action shotgun. Fires 7 pellets per shot — devastating up close, 4x damage per pellet on a headshot.',
+            desc: 'Pump-action shotgun. Fires a wide spread of pellets per shot — devastating up close.',
             apply() { return buyWeapon('shotgun', 'Shotgun'); }
         },
         {
             id: 'rifle', name: 'Assault Rifle', cost: S.rifleCost, weapon: 'rifle',
             desc: 'Full-auto assault rifle. High rate of fire and solid damage at range.',
             apply() { return buyWeapon('rifle', 'Assault Rifle'); }
+        },
+        {
+            id: 'launcher', name: 'Grenade Launcher', cost: S.launcherCost, weapon: 'launcher',
+            desc: 'Fires 40mm grenade rounds that EXPLODE on impact (including on a direct zombie hit) — 100 area damage. Slow to fire; carries 50 rounds.',
+            apply() { return buyWeapon('launcher', 'Grenade Launcher'); }
         },
     ];
 }

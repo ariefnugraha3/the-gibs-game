@@ -15,11 +15,14 @@ import { updateUI } from '../core/hud.js';
 const explosionLights = [];
 let nextExplosionLight = 0;
 
-// Pool sprite percikan darah: JUMLAH TETAP — 14 sprite dibuat SEKALI
+// Pool sprite percikan darah: JUMLAH TETAP — 48 sprite dibuat SEKALI
 // (visible=false saat idle) lalu dipakai bergilir oleh spawnBlood(). Nol
 // alokasi geometri/material/dispose per tembakan agar performa tidak turun.
+// GORE 2026-07-11: tiap percikan kini punya kecepatan (vx/vy/vz) -> darah
+// MUNCRAT keluar & jatuh (bukan diam), dipakai spawnBloodBurst().
 const bloodPool = [];
 let nextBlood = 0;
+const BLOOD_COUNT = 72;
 
 export function initEffects(sc) {
     for (let i = 0; i < 3; i++) {
@@ -44,13 +47,13 @@ export function initEffects(sc) {
             blob(32 + Math.cos(a) * d, 32 + Math.sin(a) * d, 1.5 + Math.random() * 3.5, 0.9);
         }
     });
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < BLOOD_COUNT; i++) {
         const spr = new THREE.Sprite(new THREE.SpriteMaterial({
             map: bloodTex, transparent: true, opacity: 0, depthWrite: false
         }));
         spr.visible = false;
         sc.add(spr);
-        bloodPool.push({ spr, life: 0, s0: 3 });
+        bloodPool.push({ spr, life: 0, s0: 3, vx: 0, vy: 0, vz: 0 });
     }
 }
 
@@ -98,13 +101,14 @@ export function explodeAt(pos, radius) {
     for (let i = zombies.length - 1; i >= 0; i--) {
         const z = zombies[i];
         if (z.mesh.position.distanceTo(pos) < R) {
-            // Model damage (bukan instakill): boss tahan (grenadeDamage khusus),
-            // zombie lain kena CFG.grenade.damage penuh — brute ber-HP tinggi
-            // bisa selamat dari ledakan di pinggir radius.
-            z.hp -= z.noInstakill ? CFG.campaign.boss.grenadeDamage : CFG.grenade.damage;
+            // Model damage: boss tahan (grenadeDamage khusus), zombie lain kena
+            // CFG.grenade.damage penuh — brute ber-HP tinggi bisa selamat dari
+            // ledakan di pinggir radius.
+            z.hp -= z.kind === 'boss' ? CFG.campaign.boss.grenadeDamage : CFG.grenade.damage;
             if (z.hp > 0) continue;
             spawnDrop(z.mesh.position);
-            killZombie(i);
+            // GORE: mati oleh ledakan = HANCUR (dismember). Arah = keluar dari pusat ledakan.
+            killZombie(i, { cause: 'explosion', dirx: z.mesh.position.x - pos.x, dirz: z.mesh.position.z - pos.z });
         }
     }
     updateUI();
@@ -122,20 +126,36 @@ export function spawnGroundPuff(x, z, color, scale, y = 0.6) {
     explosions.push({ mesh: m, life: 1, scale });
 }
 
-// Percikan darah di titik peluru mengenai zombie — ambil sprite dari pool tetap
-// (round-robin). Sprite menghadap kamera RENDER (viewCam top-down) dan digeser
-// ~1.5 unit ke arahnya supaya tidak terbenam di dalam badan zombie.
-export function spawnBlood(x, y, z) {
+// Satu percikan darah dari pool tetap (round-robin). Opsional kecepatan
+// (vx/vy/vz) = darah MUNCRAT keluar lalu jatuh (updateBloodPool). Sprite sedikit
+// digeser ke kamera render supaya tidak terbenam di dalam badan zombie.
+export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0) {
     const bl = bloodPool[nextBlood++ % bloodPool.length];
     const dx = viewCam.position.x - x, dy = viewCam.position.y - y, dz = viewCam.position.z - z;
     const dl = Math.hypot(dx, dy, dz) || 1;
-    bl.spr.position.set(x + dx / dl * 1.5, y + dy / dl * 1.5, z + dz / dl * 1.5);
+    bl.spr.position.set(x + dx / dl * 1.2, y + dy / dl * 1.2, z + dz / dl * 1.2);
+    bl.vx = vx; bl.vy = vy; bl.vz = vz;
     bl.spr.material.rotation = Math.random() * 6.283;   // roll acak tiap percikan
-    bl.s0 = 2.2 + Math.random() * 1.2;
+    bl.s0 = 1.4 + Math.random() * 1.5;
     bl.spr.scale.setScalar(bl.s0);
-    bl.spr.material.opacity = 0.95;
+    bl.spr.material.opacity = 0.98;
     bl.life = 1;
     bl.spr.visible = true;
+}
+
+// Semburan darah: `n` percikan terlempar sebagai kerucut ke arah (dirx,dirz) +
+// ke atas. `spread` = lebar kerucut (rad; default ±1.05; pakai 6.283 = 360° utk
+// ledakan → darah ke SEGALA arah). Dipakai saat peluru mengenai & (jauh lebih
+// deras + omni) saat zombie hancur oleh ledakan.
+export function spawnBloodBurst(x, y, z, dirx, dirz, n, power = 1, spread = 2.1) {
+    const dl = Math.hypot(dirx, dirz) || 1;
+    const base = Math.atan2(dirz / dl, dirx / dl);
+    for (let i = 0; i < n; i++) {
+        const ang = base + (Math.random() - 0.5) * spread;
+        const spd = (7 + Math.random() * 24) * power;
+        spawnBlood(x + (Math.random() - 0.5) * 3, y + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3,
+            Math.cos(ang) * spd, 5 + Math.random() * 22 * power, Math.sin(ang) * spd);
+    }
 }
 
 // --- Animasi ledakan (membesar + memudar + kilat cahaya meredup) ---
@@ -156,14 +176,19 @@ export function updateExplosions(dt) {
     }
 }
 
-// --- Percikan darah (pool tetap): membesar sedikit + memudar cepat.
-// Loop selalu 14 iterasi ringan; yang idle (life<=0) langsung dilewati. ---
+// --- Percikan darah (pool tetap): muncrat keluar (kecepatan + gravitasi),
+// membesar sedikit, lalu memudar. Loop ringan; yang idle langsung dilewati. ---
 export function updateBloodPool(dt) {
     for (let i = 0; i < bloodPool.length; i++) {
         const bl = bloodPool[i];
         if (bl.life <= 0) continue;
-        bl.life -= dt * 3.2;   // umur ~0.31 dtk
-        bl.spr.scale.setScalar(bl.s0 * (1 + (1 - Math.max(0, bl.life)) * 0.9));
+        bl.life -= dt * 1.7;   // umur ~0.6 dtk (cukup utk melihat semburannya)
+        bl.vy -= 62 * dt;      // gravitasi darah
+        bl.spr.position.x += bl.vx * dt;
+        bl.spr.position.y += bl.vy * dt;
+        bl.spr.position.z += bl.vz * dt;
+        if (bl.spr.position.y < 0.4) { bl.spr.position.y = 0.4; bl.vx *= 0.6; bl.vz *= 0.6; bl.vy = 0; }
+        bl.spr.scale.setScalar(bl.s0 * (1 + (1 - Math.max(0, bl.life)) * 0.5));
         bl.spr.material.opacity = Math.max(0, bl.life) * 0.95;
         if (bl.life <= 0) bl.spr.visible = false;
     }

@@ -17,8 +17,8 @@ import { navAim, turnToward } from '../../utils/pathfind.js';
 // tertembak. HP & kecepatan dari CFG.campaign; tag z.stage utk hitungan HUD
 // dan pembersihan saat pindah stage.
 // kind: 'walker' (default) | 'runner' | 'brute' | 'exploder' (CFG.zombie.
-// variants) | 'boss' (CFG.campaign.boss — langsung 'chasing', headshot &
-// ledakan TIDAK instakill, skor & jangkauan khusus).
+// variants) | 'boss' (CFG.campaign.boss — langsung 'chasing', granat luka
+// berkurang [boss.grenadeDamage], skor & jangkauan khusus).
 export function spawnCampaignZombie(x, z, stage, kind = 'walker') {
     const built2 = buildHumanZombie();
     const zMesh = built2.group;
@@ -50,8 +50,7 @@ export function spawnCampaignZombie(x, z, stage, kind = 'walker') {
         clawDmg: B ? B.clawDamage : (V ? V.clawDamage : CFG.zombie.clawDamage),
         // reach mengikuti skala badan (lihat reachForScale) — badan besar tidak
         // boleh mendorong player keluar dari jangkauan cakarnya sendiri
-        reachMul: reachForScale(scl, B ? B.reachMul : 1),
-        noInstakill: !!B
+        reachMul: reachForScale(scl, B ? B.reachMul : 1)
     });
 }
 

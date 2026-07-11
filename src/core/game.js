@@ -15,6 +15,7 @@ import { updateWeaponTimers, updateWeaponState, updateShooting, resetWeapons } f
 import { updatePlayerMovement, resetPlayerState } from '../entities/player.js';
 import { updateGrenades } from '../entities/grenades.js';
 import { updateExplosions, updateBloodPool, resetBloodPool } from '../entities/effects.js';
+import { updateGore, resetGore } from '../entities/gore.js';
 import { updateDrops } from '../entities/drops.js';
 import { updateBullets } from '../entities/bullets.js';
 import { updateZombies, disposeZombie, resetZombiesFx } from '../entities/zombies.js';
@@ -37,8 +38,9 @@ export function updateGame(dt, step, T) {
     updateBloodPool(dt);           // pudarkan percikan darah
     updateDrops(dt, T);            // bob item + pickup + kedaluwarsa
     updateBullets(step);           // maju + mati di dinding scene
-    updateZombies(dt, step);       // AI scene + cakar + rig + hit peluru
+    updateZombies(dt, step);       // AI scene + cakar + rig + hit peluru (+ spawn mayat/gib saat mati)
     if (isGameOver) return;        // cakar bisa mengakhiri game di tengah loop
+    updateGore(dt);                // mayat terjatuh/memudar + gib balistik + genangan darah
 
     if (activeScene.checkWin) activeScene.checkWin();   // campaign stage akhir
 }
@@ -54,11 +56,10 @@ export function gameOver(won, title) {
     gameOverScreen.style.background = won ? 'rgba(0, 90, 30, 0.82)' : 'rgba(150, 0, 0, 0.8)';
     finalScoreEl.innerText = `Score: ${score}`;
     bestScoreEl.innerText = `Best: ${highScore}`;
-    // Statistik run (IMPROVEMENT-PLAN #10): akurasi & headshot % dihitung per peluru
+    // Statistik run (IMPROVEMENT-PLAN #10): akurasi dihitung per peluru
     const acc = stats.shots > 0 ? Math.round(stats.hits / stats.shots * 100) : 0;
-    const hs = stats.hits > 0 ? Math.round(stats.headshots / stats.hits * 100) : 0;
     document.getElementById('goStats').innerText =
-        `Kills ${stats.kills} · Headshots ${stats.headshots} (${hs}%) · Accuracy ${acc}%`;
+        `Kills ${stats.kills} · Accuracy ${acc}%`;
     gameOverScreen.style.display = 'flex';
 }
 
@@ -68,7 +69,7 @@ export function resetGame() {
     configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG
     releaseInputs();
     resetWeapons();        // batalkan reload/ganti/melee; kembali ke rifle
-    resetPlayerState();    // vy/onGround/crouch/stamina + bar stamina
+    resetPlayerState();    // vy/onGround/stamina + bar stamina
 
     setGameOver(false);
     gameOverScreen.style.display = 'none';
@@ -78,6 +79,7 @@ export function resetGame() {
     zombies.length = 0;
     resetZombiesFx();   // antrean ledakan exploder yang belum terproses
     resetBloodPool();   // pool tetap, cukup disembunyikan
+    resetGore();        // buang mayat + sembunyikan pool gib/genangan darah
     clearArray(bullets, scene);
     clearArray(grenades, scene);
     clearArray(explosions, scene);
