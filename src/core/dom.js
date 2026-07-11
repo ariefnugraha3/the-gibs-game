@@ -3,8 +3,8 @@
 
 export const scoreText = document.getElementById('scoreText');   // ANGKA skor saja (label "SCORE" statis di HTML)
 // Modul amunisi kanan-bawah (redesign HUD 2026-07-10): nama senjata/item,
-// hitungan besar, "/ N mags", baris petunjuk (reload/lempar/medkit), dan
-// kontainernya (kelas 'reloading' meredupkan + mengedipkan hitungan via CSS).
+// hitungan peluru besar, "/ maxAmmo" (tanpa magazen sejak 2026-07-11),
+// baris petunjuk (lempar/medkit), dan kontainernya.
 export const ammoWeapon = document.getElementById('ammoWeapon');
 export const ammoCount = document.getElementById('ammoCount');
 export const ammoMags = document.getElementById('ammoMags');
@@ -13,11 +13,13 @@ export const ammoBox = document.getElementById('ammoBox');
 export const healthFill = document.getElementById('healthFill');
 export const healthNum = document.getElementById('healthNum');   // angka HP di atas bar
 export const waveText = document.getElementById('waveText');
-// Inventori (sisi kanan): 4 slot (1/2 senjata, 3 granat, 4 medkit). Tiap slot =
-// { row, name }; hud.updateUI menulis nama + kelas 'active'/'dim'.
+// Inventori (pojok kanan-bawah, baris IKON): 4 slot (1/2 senjata, 3 granat,
+// 4 medkit). Tiap slot = { row, icon, count }; hud.updateInventory mengisi SVG
+// ikon (icon.innerHTML) + hitungan (count) + kelas 'active'/'dim'.
 export const invSlots = [1, 2, 3, 4].map(i => ({
     row: document.getElementById('invSlot' + i),
-    name: document.getElementById('invName' + i),
+    icon: document.getElementById('invIcon' + i),
+    count: document.getElementById('invCount' + i),
 }));
 export const blocker = document.getElementById('blocker');
 export const gameOverScreen = document.getElementById('gameOver');

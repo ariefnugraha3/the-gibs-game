@@ -8,8 +8,7 @@
 // semuanya dikembalikan persis seperti semula. Teks UI English (aturan permanen).
 
 import { GEO, MAT } from './state.js';
-import { scene, camera, renderer, composer, postFxOn, renderViewmodelPass } from './renderer.js';
-import { setAllRigsVisible } from '../entities/weapons.js';
+import { scene, viewCam, renderer, composer, postFxOn } from './renderer.js';
 import { buildGrenadeMesh } from '../entities/grenades.js';
 import { buildMagMesh, buildMedkitMesh } from '../entities/drops.js';
 import { buildHumanZombie, disposeZombie } from '../entities/zombies.js';
@@ -43,19 +42,23 @@ export function hideLoading() {
     if (loadEl) loadEl.style.display = 'none';
 }
 
-// Pemanasan inti — dipanggil startGame setelah SELURUH init selesai (kamera
-// sudah di scene, pool efek terisi, dunia terbangun):
-// 1) grup warmup anak KAMERA berisi satu contoh tiap visual spawn-nanti
+// Pemanasan inti — dipanggil startGame setelah SELURUH init selesai (viewCam
+// di scene, avatar terpasang, pool efek terisi, dunia terbangun):
+// 1) grup warmup anak VIEWCAM berisi satu contoh tiap visual spawn-nanti
 //    (tracer peluru, granat dunia, magazen, medkit, trio ledakan + cincin debu,
 //    satu zombie, sprite darah pinjaman) — pasti masuk frustum;
-// 2) semua rig senjata/tangan dibuat visible (setAllRigsVisible);
-// 3) renderer.compile() = jaring pengaman: menyusuri SELURUH scene (termasuk
+// 2) renderer.compile() = jaring pengaman: menyusuri SELURUH scene (termasuk
 //    objek tersembunyi) dan menginisialisasi program tiap material;
-// 4) beberapa frame render NYATA (jalur sama dgn animate) — unggah tekstur,
+// 3) beberapa frame render NYATA (jalur sama dgn animate) — unggah tekstur,
 //    link program di draw pertama, panaskan render target bloom/FXAA composer.
+//    (Avatar player + dunia ikut hangat; rig FPS tersembunyi permanen dan tak
+//    pernah dirender, jadi tak perlu dipanaskan.)
 export async function warmupAll() {
+    // Grup warmup jadi ANAK viewCam (kamera render top-down) di z -60 —
+    // pasti masuk frustum apa pun posisi/sudut dunianya. Avatar player &
+    // dunia ikut hangat karena frame render nyata di bawah.
     const warm = new THREE.Group();
-    const put = (obj, x) => { obj.position.set(x, 0, -40); warm.add(obj); return obj; };
+    const put = (obj, x) => { obj.position.set(x, 0, -60); warm.add(obj); return obj; };
 
     put(new THREE.Mesh(GEO.bullet, MAT.bullet), -12).scale.set(1, 1, 8.5);   // tracer
     put(buildGrenadeMesh(1), -8);      // granat dunia (resource Mk2 bersama)
@@ -79,7 +82,7 @@ export async function warmupAll() {
     // Satu zombie: program Lambert badan + array material kepala + tekstur wajah.
     // Varian kulit/aksesori lain hanya beda warna (program GPU sama).
     const zw = buildHumanZombie();
-    zw.group.position.set(16, -8, -40);
+    zw.group.position.set(16, -10, -60);
     warm.add(zw.group);
 
     // Sprite darah pinjaman dari pool efek (program sprite + unggah teksturnya).
@@ -88,37 +91,30 @@ export async function warmupAll() {
     if (bspr) {
         bsprState = { visible: bspr.visible, opacity: bspr.material.opacity };
         warm.add(bspr);                    // reparent otomatis melepasnya dari scene
-        bspr.position.set(-16, 4, -40);
+        bspr.position.set(-16, 4, -60);
         bspr.material.opacity = 0.5;
         bspr.visible = true;
     }
 
-    camera.add(warm);
-    setAllRigsVisible(true);
+    viewCam.add(warm);
 
-    renderer.compile(scene, camera);
+    renderer.compile(scene, viewCam);
     await loadingStep(88, 'Warming up the renderer…');
 
-    // Jalur render sama persis dgn animate(): composer sudah berisi pass
-    // viewmodel; fallback tanpa composer merender pass viewmodel manual —
-    // program shader kedua pass ikut terkompilasi di sini.
+    // Jalur render sama persis dgn animate() (RenderPass composer = viewCam).
     for (let i = 0; i < 3; i++) {
         if (composer && postFxOn) composer.render();
-        else {
-            renderer.render(scene, camera);
-            renderViewmodelPass(null);
-        }
+        else renderer.render(scene, viewCam);
         await loadingStep(90 + i * 3, 'Warming up the renderer…');
     }
 
     // ----- Bereskan: kembalikan semuanya persis seperti semula -----
-    setAllRigsVisible(false);
     if (bspr) {
         bspr.visible = bsprState.visible;
         bspr.material.opacity = bsprState.opacity;
         scene.add(bspr);                   // kembali ke induk semula (scene root)
     }
-    camera.remove(warm);
+    viewCam.remove(warm);
     disposeZombie({ mesh: zw.group });     // material zombie per-instance
     boomMats.forEach(m => m.dispose());    // hanya material buatan warmup —
     // GEO/MAT bersama + resource granat/magazen/medkit JANGAN di-dispose.

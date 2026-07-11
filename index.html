@@ -36,26 +36,29 @@
         </div>
     </div>
 
-    <!-- Skor + modul amunisi: kanan-bawah. hud.js menulis angka skor, nama
-         senjata/item, hitungan besar, magazen, dan baris petunjuk terpisah. -->
+    <!-- Skor + inventori (ikon) + modul amunisi: satu tumpukan di pojok
+         kanan-bawah. Inventori = baris 4 tile ber-IKON (hud.js mengisi SVG per
+         item + hitungan + kelas active/dim); 1/2 = senjata, 3 = granat, 4 = medkit. -->
     <div id="statsHud">
         <div id="scoreBox"><span id="scoreLabel">SCORE</span><span id="scoreText">0</span></div>
+        <div id="inventoryHud">
+            <div class="invSlot" id="invSlot1"><span class="invKey">1</span><span class="invIcon" id="invIcon1"></span><span class="invCount" id="invCount1"></span></div>
+            <div class="invSlot" id="invSlot2"><span class="invKey">2</span><span class="invIcon" id="invIcon2"></span><span class="invCount" id="invCount2"></span></div>
+            <div class="invSlot" id="invSlot3"><span class="invKey">3</span><span class="invIcon" id="invIcon3"></span><span class="invCount" id="invCount3"></span></div>
+            <div class="invSlot" id="invSlot4"><span class="invKey">4</span><span class="invIcon" id="invIcon4"></span><span class="invCount" id="invCount4"></span></div>
+        </div>
         <div id="ammoBox">
             <div id="ammoWeapon">Assault Rifle</div>
-            <div id="ammoMain"><span id="ammoCount">30</span><span id="ammoMags">/ 3 mags</span></div>
+            <div id="ammoMain"><span id="ammoCount">150</span><span id="ammoMags">/ 150</span></div>
             <div id="ammoHint"></div>
         </div>
     </div>
 
-    <!-- Inventori pemain (sisi kanan, vertikal): 1/2 = senjata, 3 = granat, 4 = medkit -->
-    <div id="inventoryHud">
-        <div class="invSlot" id="invSlot1"><span class="invKey">1</span><span class="invName" id="invName1"></span></div>
-        <div class="invSlot" id="invSlot2"><span class="invKey">2</span><span class="invName" id="invName2"></span></div>
-        <div class="invSlot" id="invSlot3"><span class="invKey">3</span><span class="invName" id="invName3"></span></div>
-        <div class="invSlot" id="invSlot4"><span class="invKey">4</span><span class="invName" id="invName4"></span></div>
-    </div>
-
     <div id="crosshair">+</div>
+
+    <!-- Kursor bidik virtual top-down (pointer tetap ter-lock; input.js
+         menggerakkannya dgn delta mouse & menampilkannya selama bermain) -->
+    <div id="aimCursor"><div class="acDot"></div></div>
 
     <!-- Bar channel Medkit (tombol 4): tahan klik kiri untuk memakainya -->
     <div id="medkitBar">
@@ -151,9 +154,10 @@
         <div id="instructions">
             <b>Click here to Start the Action</b><br />
             <span class="small" style="color:#ffb84d;">(enters fullscreen — so Ctrl+W etc. won't close the tab)</span><br /><br />
-            <span class="small">WASD = Move | MOUSE = Look | LEFT CLICK = Shoot | RIGHT CLICK = Aim On/Off |
-                1 / 2 = Weapon | Q = Swap Weapon | 3 = Grenade (LEFT CLICK far / RIGHT CLICK near) | 4 = Medkit |
-                F = Melee | R = Reload | SHIFT = Sprint | C / CTRL = Crouch | SPACE = Jump<br />
+            <span class="small">WASD = Move | MOUSE = Aim (bullets follow the cursor) | LEFT CLICK = Shoot / Throw / Use |
+                RIGHT CLICK = Move to cursor (WASD cancels it) |
+                1 / 2 = Weapon | Q = Swap Weapon | 3 = Grenade | 4 = Medkit |
+                F = Melee | SHIFT = Sprint<br />
                 <span style="color:#ffb84d;">Survival: clear each wave, then the Field Shop opens — buy gear and press SPACE to start the next wave.</span></span>
             <div id="qualityRow">
                 <span class="qlabel">GRAPHICS QUALITY</span><br />

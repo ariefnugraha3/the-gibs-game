@@ -30,7 +30,6 @@
         "sprintSpreadPenalty": 1.5
     },
     "weapons": {
-        "maxMags": 5,
         "maxWeapons": 2,
         "bulletSpeed": 27,
         "bulletLife": 120,
@@ -42,30 +41,27 @@
         "adsAccuracy": 0.75,
         "crouchAccuracy": 0.75,
         "rifle": {
-            "magSize": 30,
-            "startMags": 3,
+            "maxAmmo": 500,
+            "ammoPickup": 80,
             "fireDelayMs": 130,
-            "reloadMs": 3000,
             "cameraKick": 0.012,
-            "damage": 30
+            "damage": 40
         },
         "pistol": {
-            "magSize": 15,
-            "startMags": 3,
+            "maxAmmo": 150,
+            "ammoPickup": 30,
             "fireDelayMs": 260,
-            "reloadMs": 2200,
             "cameraKick": 0.016,
-            "damage": 20
+            "damage": 25
         },
         "shotgun": {
-            "magSize": 8,
-            "startMags": 2,
+            "maxAmmo": 300,
+            "ammoPickup": 50,
             "fireDelayMs": 900,
-            "reloadMs": 2600,
             "cameraKick": 0.03,
-            "pellets": 7,
+            "pellets": 10,
             "pelletSpread": 0.09,
-            "damage": 5,
+            "damage": 10,
             "headshotMul": 4
         }
     },
@@ -115,7 +111,7 @@
         "maxZombiesBase": 10,
         "maxZombiesStep": 2,
         "maxZombiesCap": 40,
-        "zombieHpBase": 60,
+        "zombieHpBase": 50,
         "zombieHpPerTwoWaves": 8,
         "zombieHpMaxMul": 2.5,
         "zombieSpeedBase": 0.6,
@@ -145,7 +141,7 @@
         "eventDurationSec": 22
     },
     "campaign": {
-        "zombieHp": 60,
+        "zombieHp": 50,
         "zombieSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,

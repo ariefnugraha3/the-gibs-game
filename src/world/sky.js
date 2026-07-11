@@ -133,17 +133,26 @@ export function createEmbers(scene) {
 }
 
 export function updateEmbers(dt, T, camera) {
+    // Partikel hidup di KOORDINAT DUNIA ABSOLUT (top-down 2026-07-11: dulu
+    // seluruh gugus di-set ke camera.position tiap frame -> ikut bergeser kaku
+    // seperti "salju" menempel pada player; di top-down ini terlihat salah).
+    // Kini `pts.position` tetap (0,0,0) dan tiap partikel dibungkus TOROIDAL di
+    // jendela ±350 sekitar player: hanya yang keluar jendela yang dilompatkan
+    // satu periode (700) — sisanya DIAM di dunia (drift naik + goyang angin),
+    // jadi bara/abu terasa bagian dari dunia, bukan mengikuti player.
+    const cx = camera.position.x, cz = camera.position.z;
     for (const L of emberLayers) {
         const p = L.pts.geometry.attributes.position.array;
         for (let i = 0; i < p.length; i += 3) {
             p[i] += Math.sin(T * 0.6 + i * 0.35) * dt * L.sway;   // goyangan angin
             p[i + 1] += dt * L.rise;                              // melayang naik
             if (p[i + 1] > 220) p[i + 1] = 0;                     // wrap vertikal
-            if (p[i] > 350) p[i] = -350; else if (p[i] < -350) p[i] = 350;
+            // Bungkus x/z ke [c-350, c+350) dalam satu langkah (aman utk lompat
+            // besar seperti transisi stage ~26 km): identitas utk partikel yang
+            // sudah di dalam jendela (tanpa drift semu saat kamera diam).
+            p[i] = cx + (((p[i] - cx + 350) % 700 + 700) % 700) - 350;
+            p[i + 2] = cz + (((p[i + 2] - cz + 350) % 700 + 700) % 700) - 350;
         }
-        // ikuti player agar partikel selalu menyelimuti area sekitar
-        L.pts.position.x = camera.position.x;
-        L.pts.position.z = camera.position.z;
         L.pts.geometry.attributes.position.needsUpdate = true;
     }
 }

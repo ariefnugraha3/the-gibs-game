@@ -3,8 +3,18 @@
 
 // Ekspor live-binding: modul lain mengimpor { scene, camera, renderer } dan
 // selalu melihat instance terkini (dibuat sekali di initRenderer).
+//
+// ===== PIVOT TOP-DOWN (pivot 2026-07-11: FPS -> top-down ala Alien Shooter) =====
+// `camera` TIDAK lagi merender: ia jadi PIVOT LOGIKA PLAYER — posisinya = titik
+// setinggi mata player (kaki + eyeHCur, semantik lama utuh) dan yaw-nya = arah
+// BIDIK ke kursor (di-set input.updateTopdownAim tiap frame). Seluruh logika
+// lama (zombie menarget camera.position, peluru/granat/melee memakai
+// camera.getWorldDirection, radar, jarak pickup, tabrakan scene) tetap benar
+// TANPA disentuh. Yang merender ke layar adalah `viewCam` — kamera top-down
+// yang membuntuti pivot dari ofset tinggi (followViewCam).
 export let scene = null;
-export let camera = null;
+export let camera = null;      // pivot logika player (bukan kamera render!)
+export let viewCam = null;     // kamera render top-down (mengikuti pivot)
 export let renderer = null;
 export let composer = null, fxaaPass = null, bloomPass = null;
 export let postFxOn = true;   // false di tier kualitas terendah -> render langsung tanpa composer
@@ -29,40 +39,63 @@ export const QUALITY = [
 let dirLightRef = null;
 export function setQualityLightRef(l) { dirLightRef = l; }
 
-// ----- Layer viewmodel (2026-07-10): item yang DIPEGANG player (senjata/
-// granat/medkit — rig anak kamera) ada di layer 1 dan dirender di PASS KEDUA
-// dgn depth buffer dibersihkan dulu: tidak pernah menembus tembok/objek saat
-// player menempel, dan selalu tergambar di atas dunia. Depth di-clear per pass,
-// jadi sesama bagian viewmodel tetap saling menutupi dgn benar. -----
-export const VIEWMODEL_LAYER = 1;
+// ----- Kamera top-down: ofset dari pivot player — tinggi + mundur ke selatan
+// layar, pitch ~61° -> kesan "dari pojok atas ruangan" ala Alien Shooter.
+// (Nilai visual murni -> konstanta kode, bukan CFG.) followViewCam dipanggil
+// tiap frame SETELAH updateGame (posisi pivot terbaru), + sekali di startGame
+// sebelum frame pertama supaya matrix viewCam valid utk raycast bidik. -----
+const CAM_OFF = { x: 0, y: 185, z: 100 };
 
-// Pass kedua: bersihkan depth lalu render HANYA layer viewmodel ke target yang
-// sama. Dipakai pass composer (di bawah) & jalur fallback tanpa composer
-// (main.js animate + frame pemanasan preload.js).
-export function renderViewmodelPass(target) {
-    const oldAuto = renderer.autoClear;
-    renderer.autoClear = false;
-    renderer.setRenderTarget(target || null);
-    renderer.clearDepth();
-    camera.layers.set(VIEWMODEL_LAYER);
-    renderer.render(scene, camera);
-    camera.layers.set(0);
-    renderer.autoClear = oldAuto;
-}
+// ----- Dead-zone kamera (toleransi gerak 2026-07-11): kamera TIDAK center
+// tepat di player. Ia mengejar sebuah titik fokus `camFocus` (di bidang tanah)
+// yang hanya bergeser saat pivot player keluar dari kotak toleransi — setengah
+// lebar `DEAD_X` (sumbu-x dunia = kiri/kanan layar) & `DEAD_Z` (sumbu-z dunia =
+// atas/bawah layar). Gerak kecil di dalam kotak tidak menggerakkan kamera
+// (menghilangkan efek pusing). Sumbu-y (vertikal) selalu diikuti tanpa
+// toleransi karena player nyaris selalu menapak tanah. Nilai bisa di-tuning di
+// sini. DEAD_Z (utara/selatan) sengaja LEBIH KECIL dari DEAD_X (dikecilkan
+// 2026-07-11): di layar widescreen tinggi tampilan terbatas — toleransi
+// vertikal besar mendorong player ke tepi kotak & menyempitkan ruang pandang
+// ke depan saat bergerak utara/selatan. -----
+const DEAD_X = 46, DEAD_Z = 16;
+const camFocus = new THREE.Vector3();
+let camFocusReady = false;
 
-// Semua LAMPU juga harus terlihat oleh pass viewmodel (layers.enable(1)):
-// jumlah lampu kedua pass jadi identik -> hash program shader sama (tanpa
-// recompile) & pencahayaan senjata konsisten dgn dunia. Dipanggil startGame
-// SETELAH seluruh dunia + senjata dibangun (semua lampu dibuat saat init).
-export function enableViewmodelLights() {
-    scene.traverse(o => { if (o.isLight) o.layers.enable(VIEWMODEL_LAYER); });
+export function followViewCam() {
+    if (!viewCam || !camera) return;
+    const p = camera.position;
+    // Inisialisasi / snap saat lompat besar (spawn, ganti scene, restart):
+    // pusatkan langsung supaya tidak ada pan panjang dari posisi lama.
+    if (!camFocusReady || Math.abs(p.x - camFocus.x) > 400 || Math.abs(p.z - camFocus.z) > 400) {
+        camFocus.set(p.x, p.y, p.z);
+        camFocusReady = true;
+    }
+    // Dead-zone horizontal: geser fokus HANYA saat pivot melewati tepi kotak,
+    // lalu dijepit tepat di tepi (player "mendorong" kamera dari batas kotak).
+    const dx = p.x - camFocus.x;
+    if (dx > DEAD_X) camFocus.x = p.x - DEAD_X;
+    else if (dx < -DEAD_X) camFocus.x = p.x + DEAD_X;
+    const dz = p.z - camFocus.z;
+    if (dz > DEAD_Z) camFocus.z = p.z - DEAD_Z;
+    else if (dz < -DEAD_Z) camFocus.z = p.z + DEAD_Z;
+    camFocus.y = p.y;   // vertikal: ikut penuh (tanpa dead-zone)
+
+    viewCam.position.set(camFocus.x + CAM_OFF.x, camFocus.y + CAM_OFF.y, camFocus.z + CAM_OFF.z);
+    // Target sedikit di bawah titik fokus -> lebih banyak dunia terlihat ke atas layar.
+    viewCam.lookAt(camFocus.x, camFocus.y - 8, camFocus.z);
+    viewCam.updateMatrixWorld();
 }
 
 export function initRenderer() {
     scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x3a241a, 220, 1700);   // Kabut asap apokaliptik (warna = horizon)
 
+    // Pivot logika player (FOV/aspek tak dipakai utk render — hanya transform)
     camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 4000);
+    // Kamera render top-down: FOV lebih sempit = distorsi perspektif rendah.
+    // Dimasukkan ke scene agar anak-anaknya (grup warmup preload) ikut dirender.
+    viewCam = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 4000);
+    scene.add(viewCam);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // batasi beban GPU
@@ -81,18 +114,7 @@ export function initRenderer() {
         composer = new THREE.EffectComposer(renderer);
         composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         composer.setSize(window.innerWidth, window.innerHeight);
-        composer.addPass(new THREE.RenderPass(scene, camera));
-        // Pass viewmodel: SETELAH RenderPass (hasil dunia ada di readBuffer),
-        // SEBELUM bloom — senjata/tangan ikut diproses bloom/gamma/FXAA seperti
-        // biasa (kilat muzzle tetap ber-bloom). Objek pass polos (duck-typed):
-        // composer hanya butuh enabled/needsSwap/setSize/render.
-        composer.addPass({
-            enabled: true, needsSwap: false, clear: false, renderToScreen: false,
-            setSize() { },
-            render(r, writeBuffer, readBuffer) {
-                renderViewmodelPass(this.renderToScreen ? null : readBuffer);
-            }
-        });
+        composer.addPass(new THREE.RenderPass(scene, viewCam));   // render dari kamera top-down
         bloomPass = new THREE.UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.4, 0.72);
         composer.addPass(bloomPass);
@@ -110,6 +132,8 @@ export function initRenderer() {
 export function onResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
+    viewCam.aspect = window.innerWidth / window.innerHeight;
+    viewCam.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     if (composer) composer.setSize(window.innerWidth, window.innerHeight);
     setFxaaRes();

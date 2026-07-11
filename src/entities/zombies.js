@@ -32,13 +32,14 @@ export const ZOMBIE_SKIN_TONES = [0x7fa05a, 0x8aa66b, 0x74975a, 0x93a06a];   // 
 
 export const CLAW_TIME = 0.4;   // durasi animasi sabetan (mekanik jeda cakar dari CFG)
 
-// Sudut penyerang relatif hadap kamera (0 = depan, + = searah jarum jam di
-// layar) — dipakai indikator arah serangan (showHitDir). Diekspor utk dipakai
-// juga oleh serangan non-cakar (ledakan exploder).
+// Sudut penyerang relatif LAYAR (0 = atas layar, + = searah jarum jam) —
+// dipakai indikator arah serangan (showHitDir). Top-down 2026-07-11: kamera
+// render ber-yaw tetap menghadap -z, jadi atas layar = -z dunia & kanan layar
+// = +x dunia — sudutnya murni dari ofset dunia, TIDAK lagi dari yaw pivot
+// (yaw pivot kini = arah bidik kursor, bukan arah pandang).
 export function attackerAngle(ax, az) {
-    camera.getWorldDirection(_dir);
     const dx = ax - camera.position.x, dz = az - camera.position.z;
-    return Math.atan2(_dir.x * dz - _dir.z * dx, _dir.x * dx + _dir.z * dz);
+    return Math.atan2(dx, -dz);
 }
 
 // reachMul utk zombie berskala: badan pejal (bodyBlockRadius x scl) MENDORONG

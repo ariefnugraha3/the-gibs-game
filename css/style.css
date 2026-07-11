@@ -247,72 +247,81 @@ body {
     50% { opacity: 0.4; }
 }
 
-/* Inventori pemain: sisi kanan, vertikal (1/2 = senjata, 3 = granat, 4 = medkit).
-   Slot aktif (senjata terpegang / mode granat) disorot emas; kosong/0 diredupkan. */
+/* Inventori pemain (pindah 2026-07-11): BARIS horizontal 4 tile ber-IKON,
+   bagian dari tumpukan #statsHud pojok kanan-bawah (di antara skor & ammo).
+   Tile aktif (senjata terpegang / mode granat / medkit) disorot emas &
+   menonjol naik; kosong/0 diredupkan. Ikon = SVG currentColor (hud.js). */
 #inventoryHud {
-    position: absolute;
-    right: 18px;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 4;
-    pointer-events: none;
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    flex-direction: row;
+    gap: 6px;
+    pointer-events: none;
 }
 
 .invSlot {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-width: 176px;
-    padding: 8px 12px;
-    background: linear-gradient(200deg, rgba(8, 12, 18, 0.68), rgba(8, 12, 18, 0.36));
+    justify-content: center;
+    width: 46px;
+    height: 42px;
+    background: linear-gradient(200deg, rgba(8, 12, 18, 0.72), rgba(8, 12, 18, 0.4));
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-right: 3px solid rgba(255, 255, 255, 0.28);
-    clip-path: polygon(11px 0, 100% 0, 100% 100%, 0 100%, 0 11px);
-    color: #e8eef4;
-    font-weight: bold;
+    border-bottom: 3px solid rgba(255, 255, 255, 0.28);
+    clip-path: polygon(9px 0, 100% 0, 100% 100%, 0 100%, 0 9px);
+    color: #dbe4ec;
     text-shadow: 1px 1px 3px #000;
     transition: background 0.12s, border-color 0.12s, opacity 0.12s, transform 0.12s;
 }
 
+/* Nomor tombol (1-4): petunjuk hotkey kecil di pojok kiri-atas tile */
 .invKey {
-    display: inline-flex;
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    font-size: 9px;
+    font-weight: bold;
+    line-height: 1;
+    color: #8b9bab;
+}
+
+/* Ikon SVG item — di tengah tile */
+.invIcon {
+    display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    color: #cfd8e3;
-    font-size: 12px;
+    width: 28px;
+    height: 28px;
 }
 
-.invName {
-    font-size: 14px;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
+.invIcon svg { width: 100%; height: 100%; display: block; }
+
+/* Hitungan (granat/medkit) di pojok kanan-bawah tile; senjata = kosong */
+.invCount {
+    position: absolute;
+    right: 4px;
+    bottom: 2px;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 1;
+    color: #eef3f8;
+    text-shadow: 1px 1px 2px #000;
 }
 
-.invSlot.dim { opacity: 0.42; }
+.invSlot.dim { opacity: 0.4; }
 
-/* Slot aktif: menonjol sedikit ke kiri (menjauh dari tepi layar) + emas */
+/* Tile aktif: menonjol NAIK (menjauh dari tepi bawah) + emas */
 .invSlot.active {
-    transform: translateX(-7px);
-    background: linear-gradient(200deg, rgba(241, 196, 15, 0.26), rgba(241, 196, 15, 0.07));
+    transform: translateY(-5px);
+    background: linear-gradient(200deg, rgba(241, 196, 15, 0.28), rgba(241, 196, 15, 0.08));
     border-color: rgba(241, 196, 15, 0.6);
-    border-right-color: #f1c40f;
-    box-shadow: 0 0 14px rgba(241, 196, 15, 0.22);
+    border-bottom-color: #f1c40f;
+    box-shadow: 0 0 14px rgba(241, 196, 15, 0.25);
+    color: #ffd964;
 }
 
-.invSlot.active .invKey {
-    background: #f1c40f;
-    border-color: #f1c40f;
-    color: #14120a;
-    box-shadow: 0 0 8px rgba(241, 196, 15, 0.5);
-}
+.invSlot.active .invKey { color: #f1c40f; }
+.invSlot.active .invCount { color: #fff3cf; }
 
 /* Crosshair DISEMBUNYIKAN permanen (permintaan user) — elemen & seluruh JS
    yang menulisnya (opacity ADS, kelas .hit) dibiarkan utuh agar mekanik
@@ -333,6 +342,33 @@ body {
     z-index: 4;
     text-shadow: 0 0 6px rgba(255, 255, 255, 0.45), 0 0 2px #000;
     transition: color 0.08s, text-shadow 0.08s;
+}
+
+/* ---------- Kursor bidik virtual top-down (pivot 2026-07-11): cincin + titik
+   pusat, digerakkan input.js via transform; tampil hanya saat pointer-lock ---------- */
+#aimCursor {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 26px;
+    height: 26px;
+    border: 2px solid rgba(255, 215, 130, 0.95);
+    border-radius: 50%;
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.8), inset 0 0 4px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    z-index: 4;
+}
+
+#aimCursor .acDot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    background: rgba(255, 215, 130, 0.95);
 }
 
 /* Feed info item yang diambil (kiri layar): muncul, diam sebentar, memudar */

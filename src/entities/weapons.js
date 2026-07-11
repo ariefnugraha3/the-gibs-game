@@ -8,7 +8,8 @@ import {
     player, keys, mouse, bullets, zombies, isPaused, isGameOver, stats,
     GEO, MAT, _dir, _tip, _v3, _sRight, _sUp, _kickEuler
 } from '../core/state.js';
-import { scene, camera, VIEWMODEL_LAYER } from '../core/renderer.js';
+import { scene, camera } from '../core/renderer.js';
+import { avatarGunTip } from './playerAvatar.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
 import { playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxMelee, sfxSwitch, sfxEmpty, sfxPickup } from '../utils/sfx.js';
@@ -57,6 +58,7 @@ const HOLD_RAISE = 0.28;
 let medkitChannel = 0;   // detik menahan klik kiri saat mode medkit (0 = belum/lepas)
 
 // Rig & bagian yang dianimasikan
+let fpsHolder = null;   // induk SEMUA rig viewmodel FPS — permanen tersembunyi (top-down)
 export let gunMesh = null, pistolMesh = null, shotgunMesh = null;
 let grenadeHandMesh = null, grenadeHeldMesh = null;   // tangan+granat (tombol 3); granat disembunyikan saat rilis
 let medkitHandMesh = null;                            // tangan+medkit (tombol 4)
@@ -172,6 +174,17 @@ function reloadHandPos(KF, t, out) {
 
 // ----- Perakitan model senjata + tangan (parented ke kamera) -----
 export function initWeapons() {
+    // ===== TOP-DOWN (pivot 2026-07-11): seluruh rig viewmodel FPS (senjata +
+    // tangan) tetap DIBANGUN — semua timer/logika reload/switch/lempar/medkit
+    // membaca transformnya — tapi dimasukkan ke `fpsHolder` yang PERMANEN
+    // tersembunyi (visible=false pada INDUK kebal terhadap tulisan
+    // mesh.visible=true milik startSwitch/applyStartLoadout pada anak-anaknya).
+    // Visual senjata yang terlihat kini milik avatar (playerAvatar.js);
+    // kilat muzzle & sprite-nya di-parent ke avatarGunTip di bawah. =====
+    fpsHolder = new THREE.Group();
+    fpsHolder.visible = false;
+    camera.add(fpsHolder);
+
     // ----- Assault Rifle: Pindad SS2-V2, serba hitam (posisi, panjang laras,
     // titik muzzle, & seluruh mekanik dari kalibrasi lama — hanya visual) -----
     gunMesh = new THREE.Group();
@@ -479,7 +492,7 @@ export function initWeapons() {
 
     pistolMesh.position.set(2.6, -2.3, -5);
     pistolMesh.visible = false;
-    camera.add(pistolMesh);
+    fpsHolder.add(pistolMesh);
 
     // ----- Shotgun (pump-action ber-magazen kotak). Overhaul 2026-07-10:
     // receiver ber-port ejeksi + tutup atas mengecil, rib bidik di atas laras,
@@ -600,7 +613,7 @@ export function initWeapons() {
 
     shotgunMesh.position.set(3, -2.5, -6);
     shotgunMesh.visible = false;
-    camera.add(shotgunMesh);
+    fpsHolder.add(shotgunMesh);
 
     // Isi referensi runtime tabel senjata (dipakai attachMuzzle/switch/visual)
     WEAPON_DEF.rifle.mesh = gunMesh;
@@ -618,10 +631,11 @@ export function initWeapons() {
     rifleMuzzle = muzzlePoint;
     WEAPON_DEF.rifle.muzzlePoint = rifleMuzzle;
 
-    // Muzzle flash: PointLight + sprite radial aditif di ujung laras
+    // Muzzle flash: PointLight + sprite radial aditif — DI UJUNG SENAPAN AVATAR
+    // (top-down; rig FPS tersembunyi). Lampu menerangi dunia sekitar player.
     muzzleFlash = new THREE.PointLight(0xffaa33, 0, 60, 2);
-    muzzleFlash.position.set(0, 0.1, -7.4);
-    gunMesh.add(muzzleFlash);
+    muzzleFlash.position.set(0, 0, 0.3);
+    avatarGunTip.add(muzzleFlash);
 
     const flashTex = makeTexture(64, 64, (g) => {
         const grad = g.createRadialGradient(32, 32, 2, 32, 32, 30);
@@ -647,13 +661,15 @@ export function initWeapons() {
             blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false
         })
     );
-    muzzleSprite.position.set(0, 0.1, -7.5);
+    // Sprite kilat REBAH (menghadap ke atas) supaya terlihat dari kamera top-down
+    muzzleSprite.position.set(0, 0.55, 0.6);
+    muzzleSprite.rotation.x = -Math.PI / 2;
     muzzleSprite.renderOrder = 9;
-    gunMesh.add(muzzleSprite);
+    avatarGunTip.add(muzzleSprite);
 
     gunMesh.position.set(3, -2.5, -6);
-    camera.add(gunMesh);
-    scene.add(camera);
+    fpsHolder.add(gunMesh);
+    scene.add(camera);   // pivot player tetap anggota scene (transform dunia valid)
 
     // ----- Tangan granat (tombol 3): telapak + jari menggenggam granat Mk2,
     // lengan ke kanan-bawah layar (pola sama dgn tangan senjata). grenadeHeldMesh
@@ -684,7 +700,7 @@ export function initWeapons() {
     grenadeHandMesh.add(grenadeHeldMesh);
     grenadeHandMesh.position.set(2.7, -2.6, -4.6);
     grenadeHandMesh.visible = false;
-    camera.add(grenadeHandMesh);
+    fpsHolder.add(grenadeHandMesh);
 
     // ----- Tangan medkit (tombol 4), overhaul 2026-07-10: kotak = BAKI +
     // TUTUP BERENGSEL (mkLid, terbuka saat channel memperlihatkan isi: gulungan
@@ -766,49 +782,19 @@ export function initWeapons() {
     medkitHandMesh.add(mkWorkHand);
     medkitHandMesh.position.set(2.6, -2.9, -4.8);
     medkitHandMesh.visible = false;
-    camera.add(medkitHandMesh);
-
-    // ----- Layer viewmodel (2026-07-10): SEMUA rig item yang dipegang pindah
-    // ke layer 1 — dirender pass kedua dgn depth dibersihkan (renderer.js),
-    // jadi tak pernah menembus tembok/objek & selalu terlihat. layers TIDAK
-    // diwariskan ke anak -> traverse. muzzleFlash (lampu) di-enable juga di
-    // layer 0 agar kilat tembakan tetap menerangi DUNIA di pass pertama. -----
-    for (const rig of [gunMesh, pistolMesh, shotgunMesh, grenadeHandMesh, medkitHandMesh])
-        rig.traverse(o => o.layers.set(VIEWMODEL_LAYER));
-    muzzleFlash.layers.enable(0);
+    fpsHolder.add(medkitHandMesh);
 
     // Senjata aktif awal sesuai kepemilikan (Survival: pistol; lainnya: rifle).
     // Dijalankan setelah semua mesh + WEAPON_DEF terisi.
     applyStartLoadout();
 }
 
-// Pemanasan pra-game (core/preload.js): tampilkan SEMUA rig kamera (3 senjata
-// + tangan granat + tangan medkit) selama frame pemanasan supaya shader &
-// tekstur mereka terkompilasi/terunggah SEBELUM main — equip pertama (mis.
-// tombol 3) tidak lagi tersendat kompilasi program GPU. setAllRigsVisible(false)
-// mengembalikan visibilitas persis seperti sebelumnya.
-let rigVisBackup = null;
-export function setAllRigsVisible(on) {
-    const rigs = [gunMesh, pistolMesh, shotgunMesh, grenadeHandMesh, medkitHandMesh];
-    if (on) {
-        rigVisBackup = rigs.map(r => r && r.visible);
-        rigs.forEach(r => { if (r) r.visible = true; });
-    } else if (rigVisBackup) {
-        rigs.forEach((r, i) => { if (r) r.visible = rigVisBackup[i]; });
-        rigVisBackup = null;
-    }
-}
-
-// Pindahkan muzzle flash/sprite ke senjata aktif & arahkan muzzlePoint ke sana
-// (posisi & skala dari WEAPON_DEF — satu sumber utk semua senjata).
+// Top-down: SEMUA senjata menembak dari ujung senapan avatar — muzzlePoint
+// selalu avatarGunTip (flash & sprite sudah permanen di sana); hanya skala
+// sprite kilat yang mengikuti karakter senjata (WEAPON_DEF.muzzleScale).
 export function attachMuzzle(wpn) {
-    const def = WEAPON_DEF[wpn];
-    def.mesh.add(muzzleFlash);
-    muzzleFlash.position.set(def.muzzle[0], def.muzzle[1], def.muzzle[2]);
-    def.mesh.add(muzzleSprite);
-    muzzleSprite.position.set(def.muzzle[0], def.muzzle[1], def.muzzle[2] - 0.1);
-    muzzleSprite.scale.setScalar(def.muzzleScale);
-    muzzlePoint = def.muzzlePoint;
+    muzzlePoint = avatarGunTip;
+    muzzleSprite.scale.setScalar(WEAPON_DEF[wpn].muzzleScale);
 }
 
 // Mulai animasi ganti senjata; model ditukar di tengah animasi (updateWeaponTimers).
@@ -974,28 +960,12 @@ function cancelReload() {
     updateUI();   // segarkan HUD: teks amunisi kembali dari 'Reloading...' ke sisa peluru/magazen
 }
 
-export function startReload() {
-    if (grenadeMode || medkitMode) return;       // memegang granat/medkit: tak bisa reload
-    const w = player[currentWeapon];
-    if (player.isReloading || w.mags <= 0 || w.ammo === w.magSize) return;
-    if (switchAnim >= 0 || meleeT > 0) return;   // jangan reload saat ganti senjata / memukul
-    player.isReloading = true;
-    reloadStartTime = Date.now();   // rig tangan reload (updateWeaponVisuals) sinkron dgn timer nyata ini
-    reloadSfxNode = playSFX(sfxReload);   // simpan node -> bisa dihentikan bila reload dibatalkan
-    updateUI();
-    // Simpan id timer: dibatalkan di resetGame & saat ganti senjata (startSwitch).
-    // Durasi EFEKTIF = reloadMs x reloadMul (upgrade shop); rig keyframe membaca
-    // player.reloadDurMs yang sama, jadi animasi selalu sinkron dgn timer.
-    const dur = CFG.weapons[currentWeapon].reloadMs * (player.reloadMul || 1);
-    player.reloadDurMs = dur;
-    player.reloadTimer = setTimeout(() => {
-        w.mags--;
-        w.ammo = w.magSize;
-        player.isReloading = false;
-        reloadSfxNode = null;   // reload selesai wajar: suara sudah habis sendiri, lepas ref
-        updateUI();
-    }, dur);
-}
+// SISTEM MAGAZEN DIHAPUS (2026-07-11): tiap senjata = SATU kolam peluru
+// (CFG.weapons.<w>.maxAmmo — rifle 500 / pistol 150 / shotgun 300), TANPA
+// reload. Fungsi ini dipertahankan sebagai no-op (call site lama & test bisa
+// tetap memanggilnya dgn aman); rig animasi reload di updateWeaponVisuals
+// dorman karena player.isReloading tak pernah true lagi.
+export function startReload() { }
 
 // F = melee. Butuh stamina >= biaya melee; tiap ayunan menguras stamina.
 export function tryMelee() {
@@ -1135,9 +1105,11 @@ export function updateShooting() {
             bMesh.position.copy(_tip);
             const sAng = Math.random() * Math.PI * 2;
             const sRad = Math.random() * (spread + (wcfg.pelletSpread || 0));   // bias ke pusat
+            // Top-down: sebar HORIZONTAL saja (komponen vertikal dihapus) —
+            // peluru terbang datar setinggi laras, kipas pelet shotgun melebar
+            // menyamping ala Alien Shooter, tidak lewat di atas kepala zombie.
             _v3.set(bdx, bdy, bdz)
-                .addScaledVector(_sRight, Math.cos(sAng) * sRad)
-                .addScaledVector(_sUp, Math.sin(sAng) * sRad).normalize();
+                .addScaledVector(_sRight, Math.cos(sAng) * sRad).normalize();
 
             // Tracer: bola diregangkan searah laju (visual; hit test tetap titik pusat).
             bMesh.lookAt(_tip.x + _v3.x, _tip.y + _v3.y, _tip.z + _v3.z);
@@ -1163,13 +1135,8 @@ export function updateShooting() {
         }
         gunHeat = Math.min(1, gunHeat + CFG.weapons.heatPerShot);
 
-        // Recoil menendang kamera: naik + geser acak (lewat euler YXZ yang sama
-        // dgn mouse-look, jadi aman — player mengompensasi dgn menarik mouse turun).
-        _kickEuler.setFromQuaternion(camera.quaternion);
-        _kickEuler.x += wcfg.cameraKick * acc * (0.8 + Math.random() * 0.4);
-        _kickEuler.y += (Math.random() - 0.5) * 0.008 * acc;
-        _kickEuler.x = Math.min(Math.PI / 2 - 0.1, _kickEuler.x);
-        camera.quaternion.setFromEuler(_kickEuler);
+        // (Tendangan kamera FPS dihapus — top-down: yaw pivot di-set ulang dari
+        // kursor tiap frame; recoil terasa lewat spread/heat, bukan kamera.)
 
         playSFX(currentWeapon === 'pistol' ? sfxPistol
             : currentWeapon === 'shotgun' ? sfxShotgun : sfxShoot);
@@ -1180,19 +1147,10 @@ export function updateShooting() {
         muzzleFlash.intensity = 4;
         muzzleSprite.rotation.z = Math.random() * 6.28;   // roll acak tiap tembakan
         updateUI();
-
-        if (wpn.ammo === 0 && wpn.mags > 0) startReload();
-    } else if (mouse.isDown && !player.isReloading && switchAnim < 0 && meleeT <= 0
-        && wpn.ammo === 0 && wpn.mags > 0) {
-        // Peluru habis TAPI masih ada magazen -> klik kiri MEMICU reload (mis.
-        // senjata ditinggalkan kosong lalu dipilih lagi sehingga auto-reload
-        // pasca-tembakan-terakhir tak sempat jalan). startReload sendiri menjaga
-        // agar tak dobel saat sedang reload.
-        startReload();
-    } else if (mouse.isDown && emptyReady && !player.isReloading && switchAnim < 0
-        && meleeT <= 0 && wpn.ammo === 0 && wpn.mags === 0) {
-        // Pelatuk ditarik saat peluru & magazen benar-benar habis -> bunyi
-        // "cekrek" kosong SEKALI per tarikan (di-arm ulang saat pelatuk dilepas).
+    } else if (mouse.isDown && emptyReady && switchAnim < 0
+        && meleeT <= 0 && wpn.ammo === 0) {
+        // Tanpa magazen: pelatuk ditarik saat kolam peluru senjata ini habis ->
+        // bunyi "cekrek" kosong SEKALI per tarikan (di-arm ulang saat dilepas).
         playSFX(sfxEmpty, 0.6);
         emptyReady = false;
     }

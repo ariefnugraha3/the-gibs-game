@@ -3,7 +3,7 @@
 
 import { CFG } from '../core/config.js';
 import { GEO, explosions, zombies } from '../core/state.js';
-import { scene, camera } from '../core/renderer.js';
+import { scene, viewCam } from '../core/renderer.js';
 import { makeTexture } from '../utils/textures.js';
 import { playSFX, sfxExplode } from '../utils/sfx.js';
 import { spawnDrop } from './drops.js';
@@ -123,11 +123,11 @@ export function spawnGroundPuff(x, z, color, scale, y = 0.6) {
 }
 
 // Percikan darah di titik peluru mengenai zombie — ambil sprite dari pool tetap
-// (round-robin). Sprite menghadap kamera dan digeser ~1.5 unit ke arah kamera
-// supaya tidak terbenam di dalam badan zombie. Dipudarkan di updateBloodPool().
+// (round-robin). Sprite menghadap kamera RENDER (viewCam top-down) dan digeser
+// ~1.5 unit ke arahnya supaya tidak terbenam di dalam badan zombie.
 export function spawnBlood(x, y, z) {
     const bl = bloodPool[nextBlood++ % bloodPool.length];
-    const dx = camera.position.x - x, dy = camera.position.y - y, dz = camera.position.z - z;
+    const dx = viewCam.position.x - x, dy = viewCam.position.y - y, dz = viewCam.position.z - z;
     const dl = Math.hypot(dx, dy, dz) || 1;
     bl.spr.position.set(x + dx / dl * 1.5, y + dy / dl * 1.5, z + dz / dl * 1.5);
     bl.spr.material.rotation = Math.random() * 6.283;   // roll acak tiap percikan

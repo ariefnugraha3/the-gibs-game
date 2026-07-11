@@ -6,14 +6,15 @@
 import { loadConfig } from './core/config.js';
 import { setMode, configurePlayer, isPaused, isGameOver, highScore } from './core/state.js';
 import {
-    initRenderer, initQualityUI, scene, camera, renderer, composer, postFxOn,
-    renderViewmodelPass, enableViewmodelLights
+    initRenderer, initQualityUI, scene, camera, viewCam, renderer, composer, postFxOn,
+    followViewCam
 } from './core/renderer.js';
 import { initGrain, bestScoreEl, showFatal } from './core/dom.js';
 import { setScene } from './core/sceneManager.js';
 import { updateGame } from './core/game.js';
 import { updateUI, drawRadar } from './core/hud.js';
-import { initInput } from './core/input.js';
+import { initInput, updateTopdownAim } from './core/input.js';
+import { initPlayerAvatar, updatePlayerAvatar } from './entities/playerAvatar.js';
 import { createBaseLights, updateShadowFollow } from './world/lighting.js';
 import { updateWorldDecor } from './world/decor.js';
 import { createSky, createEmbers, updateEmbers } from './world/sky.js';
@@ -60,12 +61,14 @@ export async function startGame(mode) {
         setScene(mode === 'campaign' ? stage1Scene : survivalScene);
         await loadingStep(60, 'Preparing weapons…');
 
+        initPlayerAvatar(scene);   // avatar top-down player (SEBELUM initWeapons:
+                                   // muzzle flash di-parent ke ujung senapannya)
         createEmbers(scene);       // partikel bara/abu ambien (kedua mode)
-        initWeapons();             // senjata + tangan (parented kamera) + kamera ke scene
-        initInput();               // pointer lock, mouse, keyboard, jaring pengaman
+        initWeapons();             // logika senjata + rig FPS tersembunyi + muzzle avatar
+        initInput();               // pointer lock, kursor bidik, keyboard, jaring pengaman
         resetPlayerState();        // stamina/eyeH awal dari CFG
         initGrain();               // film grain overlay
-        enableViewmodelLights();   // semua lampu ikut menerangi pass viewmodel (layer 1)
+        followViewCam();           // matrix kamera top-down valid utk raycast bidik frame pertama
         await loadingStep(75, 'Loading sounds…');
 
         preloadAllSFX();           // fetch + decode semua klip SFX sekarang
@@ -96,7 +99,17 @@ function animate() {
     const step = dt * 60;                          // normalisasi ke baseline 60fps
     const T = clock.elapsedTime;
 
+    // Bidik top-down: kursor -> aimPoint + yaw pivot (pakai matrix viewCam
+    // frame lalu — lag 1 frame tak terasa; harus SEBELUM updateGame supaya
+    // tembakan/lemparan frame ini memakai arah kursor terkini).
+    updateTopdownAim();
+
     updateGame(dt, step, T);
+
+    // Kamera top-down & avatar mengikuti posisi pivot TERBARU (pasca-gerak).
+    // Jalan juga saat pause (pose beku konsisten, kontrak lama updateDecor).
+    followViewCam();
+    updatePlayerAvatar(dt);
 
     // Dekoratif: jalan juga saat pause (kontrak lama updateDecor)
     updateShadowFollow(camera);
@@ -108,11 +121,8 @@ function animate() {
         if (radarTick++ & 1) drawRadar();
     }
 
-    if (composer && postFxOn) composer.render();   // bloom + gamma + FXAA (pass viewmodel sudah di rantainya)
-    else {
-        renderer.render(scene, camera);            // tier rendah / CDN post-fx gagal
-        renderViewmodelPass(null);                 // senjata/item di atas dunia (depth di-clear)
-    }
+    if (composer && postFxOn) composer.render();   // bloom + gamma + FXAA (RenderPass = viewCam)
+    else renderer.render(scene, viewCam);          // tier rendah / CDN post-fx gagal
 }
 
 // Auto-boot di browser; harness test meng-import modul ini tanpa boot.

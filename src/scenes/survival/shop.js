@@ -58,13 +58,15 @@ function catalog() {
     const S = CFG.shop, o = player.owned || {};
     return [
         {
+            // Tanpa magazen (2026-07-11): isi ulang kolam peluru tiap senjata
+            // yang dimiliki sampai kap maxAmmo-nya.
             id: 'ammo', name: 'Replenish All Ammo', cost: S.ammoCost,
-            desc: 'Refill magazines and reserve ammo to full for every weapon you own.',
+            desc: 'Refill every weapon you own to its maximum ammo.',
             apply() {
                 const W = ['rifle', 'pistol', 'shotgun'].filter(w => o[w]);
-                if (W.every(w => player[w].mags >= CFG.weapons.maxMags && player[w].ammo >= player[w].magSize))
+                if (W.every(w => player[w].ammo >= CFG.weapons[w].maxAmmo))
                     return 'Ammo already full';
-                for (const w of W) { player[w].mags = CFG.weapons.maxMags; player[w].ammo = player[w].magSize; }
+                for (const w of W) player[w].ammo = CFG.weapons[w].maxAmmo;
             }
         },
         {
@@ -131,13 +133,12 @@ function catalog() {
 
 // Beli senjata ke SLOT kosong (dipanggil apply hanya saat slot < maxWeapons;
 // kasus slot penuh ditangani shopPurchase -> pemilih ganti). Tandai dimiliki +
-// loadout penuh (mag awal terisi).
+// kolam peluru penuh (tanpa magazen).
 function buyWeapon(w, label) {
     if (player.owned[w]) return `${label} already owned`;
     player.weapons.push(w);
     syncOwnedFromWeapons();
-    player[w].mags = CFG.weapons[w].startMags;
-    player[w].ammo = player[w].magSize;
+    player[w].ammo = CFG.weapons[w].maxAmmo;
     refreshOwnedWeapon();
 }
 
@@ -194,8 +195,7 @@ export function shopReplaceWeapon(oldW) {
     const w = it.weapon;
     player.weapons[idx] = w;             // ganti di posisi slot yang sama
     syncOwnedFromWeapons();
-    player[w].mags = CFG.weapons[w].startMags;
-    player[w].ammo = player[w].magSize;
+    player[w].ammo = CFG.weapons[w].maxAmmo;   // kolam peluru penuh (tanpa magazen)
     addScore(-it.cost);
     playSFX(sfxPurchase);
     pendingWeapon = null;

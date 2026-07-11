@@ -2,17 +2,17 @@
 // jaring pengaman fokus/unload, dan Keyboard Lock (perangkap Ctrl+W dkk).
 
 import { keys, mouse, isPaused, isGameOver, setPaused, mode } from './state.js';
-import { camera } from './renderer.js';
+import { camera, viewCam } from './renderer.js';
 import { blocker } from './dom.js';
 import { activeScene } from './sceneManager.js';
 import { resetGame } from './game.js';
 import { showPauseMenu, hidePauseMenu, isPauseMenuOpen } from './pauseMenu.js';
 import { openCheatConsole, closeCheatConsole, forceHideCheatConsole, isCheatConsoleOpen, handleKey } from './cheatConsole.js';
 import {
-    startReload, tryMelee, trySwitchKey, toggleAim, setAiming,
+    tryMelee, trySwitchKey, setAiming,
     grenadeMode, throwEquippedGrenade, equipMedkit
 } from '../entities/weapons.js';
-import { toggleCrouch, setCrouchHold, clearCrouch, tryJump } from '../entities/player.js';
+import { clearCrouch, eyeHCur, setMoveTarget, clearMoveTarget } from '../entities/player.js';
 
 // ----- Fullscreen + Keyboard Lock: cegah shortcut browser saat main -----
 // Ctrl+W (tutup tab), Ctrl+R (reload), Ctrl+T/N, dsb TIDAK bisa dicegah
@@ -30,6 +30,52 @@ const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyF', 'KeyG',
 // #blocker = layar mulai (klik untuk lanjut); sesudahnya, unlock via Esc =
 // PAUSE -> tampilkan menu jeda (Restart/Exit).
 let hasStarted = false;
+
+// ===== Bidik top-down (pivot 2026-07-11) =====
+// Pointer Lock DIPERTAHANKAN (infra pause/keyboard-lock utuh) — mouse
+// menggerakkan KURSOR VIRTUAL (#aimCursor, delta movementX/Y, dijepit layar).
+// Tiap frame updateTopdownAim(): kursor -> NDC -> ray viewCam -> dipotong
+// bidang tanah setinggi kaki player = `aimPoint`; lalu YAW pivot `camera`
+// dihadapkan ke titik itu — semua sistem lama (peluru/granat/melee/radar yang
+// membaca camera.getWorldDirection) otomatis membidik ke kursor.
+export const aimPoint = new THREE.Vector3(0, 0, -1);
+let curX = window.innerWidth / 2, curY = window.innerHeight / 2;
+let aimCursorEl = null;
+const _aimV = new THREE.Vector3();
+
+function placeAimCursor() {
+    if (aimCursorEl) aimCursorEl.style.transform =
+        `translate(${curX}px, ${curY}px) translate(-50%, -50%)`;
+}
+
+function showAimCursor(on) {
+    if (!aimCursorEl) aimCursorEl = document.getElementById('aimCursor');
+    if (aimCursorEl) aimCursorEl.style.display = on ? 'block' : 'none';
+}
+
+// Jarak horizontal player -> titik bidik (utk memilih lemparan granat jauh/dekat)
+function aimDist() {
+    return Math.hypot(aimPoint.x - camera.position.x, aimPoint.z - camera.position.z);
+}
+
+// Dipanggil animate() SEBELUM updateGame: segarkan aimPoint + yaw pivot.
+// Memakai matrix viewCam frame sebelumnya (lag 1 frame tak terasa; startGame
+// memanggil followViewCam sekali sebelum frame pertama agar matrix valid).
+export function updateTopdownAim() {
+    if (!viewCam || isPaused || isGameOver) return;
+    const ndcX = (curX / window.innerWidth) * 2 - 1;
+    const ndcY = -(curY / window.innerHeight) * 2 + 1;
+    _aimV.set(ndcX, ndcY, 0.5).unproject(viewCam).sub(viewCam.position);
+    const feetY = camera.position.y - eyeHCur;
+    const t = (feetY - viewCam.position.y) / (_aimV.y || -1e-6);
+    aimPoint.set(
+        viewCam.position.x + _aimV.x * t,
+        feetY,
+        viewCam.position.z + _aimV.z * t);
+    // Yaw pivot menghadap titik bidik: forward kamera (-Z diputar yaw) == arah bidik
+    const dx = aimPoint.x - camera.position.x, dz = aimPoint.z - camera.position.z;
+    if (dx * dx + dz * dz > 1e-6) camera.rotation.set(0, Math.atan2(-dx, -dz), 0);
+}
 
 export function enterImmersive() {
     // Fullscreen wajib agar Keyboard Lock menangkap tombol sistem (Ctrl+W dkk).
@@ -60,7 +106,8 @@ export function requestLock() {
 export function releaseInputs() {
     mouse.isDown = false;
     setAiming(false);
-    clearCrouch();   // toggle jongkok ikut dilepas (konsisten dgn toggle bidik)
+    clearCrouch();      // sisa jaring pengaman lama (jongkok sudah tak terpakai)
+    clearMoveTarget();  // gerak klik-kanan berhenti saat pause/blur/reset
     for (const k in keys) keys[k] = false;
     // Catatan: shop survival TIDAK ditutup di sini — ia MODAL (game di-pause,
     // pointer sengaja dilepas untuk kursor). Ditutup hanya oleh Start Next Wave
@@ -80,8 +127,14 @@ export function initInput() {
             // Pilihan kualitas hanya di layar mulai — sembunyikan permanen
             // begitu game pertama dimulai (blocker pause tak menampilkannya).
             document.getElementById('qualityRow').style.display = 'none';
+            // Kursor bidik virtual: pusatkan ulang & tampilkan selama bermain
+            curX = window.innerWidth / 2;
+            curY = window.innerHeight / 2;
+            placeAimCursor();
+            showAimCursor(true);
             setPaused(false);
         } else {
+            showAimCursor(false);      // pause/shop/menu: kursor OS yang tampil
             forceHideCheatConsole();   // ESC saat konsol cheat terbuka -> tutup (menu jeda ambil alih)
             setPaused(true);
             releaseInputs();   // bug fix: tombol/tembakan jangan "nyangkut" saat unlock
@@ -98,30 +151,33 @@ export function initInput() {
         }
     });
 
-    // ----- Mouse look -----
-    const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+    // ----- Kursor bidik virtual (top-down): delta mouse menggerakkan kursor,
+    // bukan memutar kamera. Arah tembak/lempar/melee mengikuti kursor. -----
     document.addEventListener('mousemove', (e) => {
         if (isPaused || isGameOver) return;
-        euler.setFromQuaternion(camera.quaternion);
-        euler.y -= e.movementX * 0.002;
-        euler.x -= e.movementY * 0.002;
-        euler.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, euler.x));
-        camera.quaternion.setFromEuler(euler);
+        if (document.pointerLockElement !== document.body) return;
+        curX = Math.max(0, Math.min(window.innerWidth, curX + e.movementX));
+        curY = Math.max(0, Math.min(window.innerHeight, curY + e.movementY));
+        placeAimCursor();
     });
 
-    // ----- Klik kiri = tembak; klik kanan = TOGGLE bidik iron sight (ADS) -----
+    // ----- Klik kiri = TEMBAK (atau lempar granat / channel medkit sesuai item
+    // yang dipegang, semua ke arah kursor); klik kanan = BERGERAK ke titik
+    // kursor (WASD membatalkannya). ADS & lempar-dekat klik kanan DIHAPUS. -----
     document.addEventListener('mousedown', (e) => {
         if (isPaused || isGameOver) return;
-        // Mode granat (tombol 3): klik kiri = lempar JAUH, klik kanan = lempar
-        // DEKAT (bukan tembak/ADS). Ditangani sebelum jalur senjata biasa.
-        if (grenadeMode) {
-            if (e.button === 0) throwEquippedGrenade('far');
-            else if (e.button === 2) throwEquippedGrenade('near');
+        if (e.button === 2) {
+            // Move-to-point: simpan target di titik kursor (bidang kaki player)
+            setMoveTarget(aimPoint.x, aimPoint.z);
             return;
         }
-        if (e.button === 0) mouse.isDown = true;
-        // ADS butuh stamina: saat exhausted, toggle ON diabaikan (OFF selalu boleh)
-        if (e.button === 2) toggleAim();
+        if (e.button !== 0) return;
+        if (grenadeMode) {
+            // Lempar ke arah kursor; jarak kursor memilih daya lempar jauh/dekat
+            throwEquippedGrenade(aimDist() > 120 ? 'far' : 'near');
+            return;
+        }
+        mouse.isDown = true;   // tembak / tahan utk channel medkit
     });
     document.addEventListener('mouseup', (e) => {
         if (e.button === 0) mouse.isDown = false;
@@ -150,35 +206,31 @@ export function initInput() {
             e.preventDefault();
             return;
         }
-        if (keys.hasOwnProperty(key)) keys[key] = true;
+        if (keys.hasOwnProperty(key)) {
+            keys[key] = true;
+            // WASD MEMBATALKAN gerak klik-kanan (kontrol top-down 2026-07-11)
+            if (key === 'w' || key === 'a' || key === 's' || key === 'd') clearMoveTarget();
+        }
         if (e.key === 'Shift') keys.shift = true;
-        if (key === 'r' && !isPaused && !isGameOver) startReload();
-        // C = toggle jongkok (akurasi naik, gerak melambat)
-        if (key === 'c' && !isPaused && !isGameOver) toggleCrouch();
-        // Ctrl kiri = jongkok TAHAN (lepas tombol = berdiri; C tetap toggle).
-        // preventDefault meredam shortcut browser sebisanya — Ctrl+W tetap bisa
-        // ditelan browser (tutup tab); perangkap andalnya Keyboard Lock di atas.
-        if (e.code === 'ControlLeft') { setCrouchHold(true); e.preventDefault(); }
-        // F = melee: pukul dgn popor senjata aktif (1x pukul bunuh zombie).
+        // (R = reload DIHAPUS bersama sistem magazen 2026-07-11 — tiap senjata
+        // kini satu kolam peluru tanpa reload.)
+        // F = melee: pukul dgn popor senjata aktif ke arah kursor.
         // Gate stamina/cooldown/reload di dalam tryMelee.
         if (key === 'f' && !isPaused && !isGameOver) tryMelee();
         // 1/2 = slot senjata, 3 = GRANAT (equip -> klik lempar), Q = tukar antar
-        // slot senjata. (Shop modal sudah dicegat di atas.)
+        // slot senjata. (Shop modal sudah dicegat di atas. Jongkok C/Ctrl &
+        // lompat SPASI dihapus di mode top-down.)
         if ((key === '1' || key === '2' || key === '3' || key === 'q')
             && !isPaused && !isGameOver) trySwitchKey(key);
         // 4 = pegang Medkit di tangan (tekan lagi = holster); lalu TAHAN klik kiri
         // medkitUseSec detik untuk memakainya (pulihkan 70% HP; hanya bisa punya 1).
         if (key === '4' && !isPaused && !isGameOver) equipMedkit();
-        if (e.code === 'Space') {
-            if (isGameOver) resetGame();       // restart
-            else tryJump();                    // lompat
-        }
+        if (e.code === 'Space' && isGameOver) resetGame();   // restart
     });
     window.addEventListener('keyup', (e) => {
         const key = e.key.toLowerCase();
         if (keys.hasOwnProperty(key)) keys[key] = false;
         if (e.key === 'Shift') keys.shift = false;
-        if (e.code === 'ControlLeft') setCrouchHold(false);
     });
     window.addEventListener('blur', releaseInputs);   // bug fix: Alt-Tab meninggalkan tombol tertekan
 

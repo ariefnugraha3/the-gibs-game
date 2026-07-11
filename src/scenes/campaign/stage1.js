@@ -167,6 +167,10 @@ export function buildWorld() {
         new THREE.MeshLambertMaterial({ map: ceilTex }));
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set(cx, S1.H, cz);
+    // TOP-DOWN (pivot 2026-07-11): plafon DISEMBUNYIKAN — kamera berada jauh di
+    // atasnya; dinding tetap berdiri jadi interior terlihat dari atas ala Alien
+    // Shooter. Fisika "granat memantul di plafon" (grenadeCollide) tidak berubah.
+    ceil.visible = false;
     scene.add(ceil);
 
     // --- Dinding: satu InstancedMesh (hanya sel dinding yang bertetangga lantai) ---

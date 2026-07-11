@@ -108,25 +108,27 @@ export function updateDrops(dt, T) {
         if (dist < player.radius + 2) {
             // Item PENUH tidak diambil (ditinggal untuk nanti) — beri info
             // "already full" di feed, dgn jeda 1.2 dtk agar tidak spam saat
-            // player berdiri di atas item. Mag hanya menghitung senjata yang
-            // DIMILIKI (Survival mulai pistol saja).
+            // player berdiri di atas item. Tanpa magazen (2026-07-11): drop
+            // 'mag' = PAKET PELURU (+CFG.weapons.<w>.ammoPickup per senjata
+            // yang DIMILIKI, di-cap maxAmmo).
             const ownedW = ['rifle', 'pistol', 'shotgun'].filter(w => player.owned[w]);
             const isFull =
-                (d.type === 'mag' && ownedW.every(w => player[w].mags >= CFG.weapons.maxMags)) ||
+                (d.type === 'mag' && ownedW.every(w => player[w].ammo >= CFG.weapons[w].maxAmmo)) ||
                 (d.type === 'grenade' && player.grenades >= CFG.grenade.max) ||
                 (d.type === 'medkit' && player.medkits >= CFG.player.maxMedkits);
             if (isFull) {
                 if (fullInfoCd <= 0) {
                     fullInfoCd = 1.2;
-                    showPickup(d.type === 'mag' ? 'Mags already full'
+                    showPickup(d.type === 'mag' ? 'Ammo already full'
                         : d.type === 'grenade' ? 'Grenades already full'
                             : 'Medkit already carried', '#b8b8b8');
                 }
             } else {
-                if (d.type === 'mag') {          // isi senjata yang DIMILIKI (di-cap maxMags)
+                if (d.type === 'mag') {          // paket peluru: isi senjata yang DIMILIKI
                     for (const w of ownedW)
-                        player[w].mags = Math.min(CFG.weapons.maxMags, player[w].mags + 1);
-                    showPickup('+1 Mag (All Weapons)', '#f1c40f');
+                        player[w].ammo = Math.min(CFG.weapons[w].maxAmmo,
+                            player[w].ammo + CFG.weapons[w].ammoPickup);
+                    showPickup('+Ammo (All Weapons)', '#f1c40f');
                 } else if (d.type === 'medkit') {
                     // Medkit = item genggam (maks 1). Diambil ke inventori; PAKAI
                     // dgn tombol 4 untuk memulihkan HP (bukan sembuh saat diambil).

@@ -4,12 +4,13 @@
 // (pagar/dinding/penghalang) didelegasikan ke scene aktif.
 
 import { CFG } from '../core/config.js';
-import { player, keys, zombies, isPaused, isGameOver, _dir, _right } from '../core/state.js';
+import { player, keys, zombies, isPaused, isGameOver } from '../core/state.js';
 import { camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { playSFX, sfxFootstep, sfxZombieStep } from '../utils/sfx.js';
 import { staminaFill } from '../core/dom.js';
-import { isAiming, setAiming, medkitMode } from './weapons.js';
+import { medkitMode } from './weapons.js';
+import { showMoveMarker, hideMoveMarker } from './playerAvatar.js';
 
 // ----- Status milik player (live export; reassign hanya di modul ini) -----
 export let stamina = 100;
@@ -28,6 +29,25 @@ export function toggleCrouch() { isCrouching = !isCrouching; }
 export function setCrouchHold(v) { crouchHold = v; }   // keyup clearing TANPA gate — tak boleh nyangkut
 export function clearCrouch() { isCrouching = false; crouchHold = false; }
 
+// ===== Gerak klik-kanan "move to point" (kontrol top-down 2026-07-11) =====
+// setMoveTarget dipanggil input.js saat klik kanan (titik kursor di bidang
+// kaki); WASD / pause / tiba di tujuan / macet menabrak dinding membatalkan.
+let moveTarget = null;         // {x, z} atau null
+let moveLastD = Infinity;      // jarak terakhir (deteksi macet)
+let moveStuckT = 0;            // detik tanpa kemajuan
+
+export function setMoveTarget(x, z) {
+    moveTarget = { x, z };
+    moveLastD = Infinity;
+    moveStuckT = 0;
+    showMoveMarker(x, camera.position.y - eyeHCur, z);
+}
+
+export function clearMoveTarget() {
+    moveTarget = null;
+    hideMoveMarker();
+}
+
 // Lompat (SPASI): hanya saat menapak & tidak pause
 export function tryJump() {
     if (!isPaused && player.onGround) {
@@ -45,55 +65,61 @@ export function resetPlayerState() {
     staminaFill.style.background = '#3ddc6a';
 }
 
-// --- Gerak player per frame (WASD relatif kamera) + stamina + vertikal ---
+// --- Gerak player per frame (top-down 2026-07-11: WASD = SUMBU LAYAR, karena
+// kamera render ber-yaw tetap menghadap -z — W atas layar, S bawah, A kiri,
+// D kanan; kecepatan seragam ke semua arah ala Alien Shooter) + gerak
+// klik-kanan ke titik + stamina + vertikal. Jongkok & ADS dihapus. ---
 export function updatePlayerMovement(dt, step) {
-    camera.getWorldDirection(_dir);
-    _dir.y = 0; _dir.normalize();
-    _right.crossVectors(camera.up, _dir).normalize();
-
     const oldX = camera.position.x, oldZ = camera.position.z;
-    // Jongkok efektif = toggle C ATAU tahan Ctrl kiri — TAPI dinonaktifkan selagi
-    // memakai medkit (tak boleh jongkok saat menyembuhkan diri).
-    crouchedNow = (isCrouching || crouchHold) && !medkitMode;
+    crouchedNow = false;   // jongkok tidak ada di top-down (elemen kode dibiarkan dorman)
     // Input WASD digabung jadi SATU vektor lalu dinormalisasi terhadap panjang
-    // input mentah — diagonal (mis. W+A) tidak lagi ~1.41x lebih cepat (bug fix).
-    // Bobot arah: komponen mundur & samping diperlambat (CFG.movement);
-    // gerak diagonal mendapat interpolasi di antara bobot-bobot itu.
-    const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
-    const side = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);
+    // input mentah — diagonal (mis. W+A) tidak lagi ~1.41x lebih cepat.
+    const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);     // +1 = atas layar (-z dunia)
+    const side = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);    // +1 = kiri layar (-x dunia)
+    const keyMove = fwd !== 0 || side !== 0;
+    if (keyMove && moveTarget) clearMoveTarget();        // WASD membatalkan klik-kanan
+    const moving = keyMove || moveTarget !== null;
 
-    // --- Stamina: kuras (lari/ADS) -> exhausted -> pulih (regen) ---
-    // Sprint efektif butuh: shift + tidak jongkok + bergerak MAJU (fwd > 0 —
-    // mundur/menyamping murni tidak bisa lari; diagonal maju tetap boleh) +
-    // stamina tersedia & tidak sedang exhausted.
-    sprintingNow = keys.shift && !crouchedNow && !staExhausted && stamina > 0
-        && fwd > 0 && !medkitMode;   // tak boleh lari saat memakai medkit
+    // --- Stamina: kuras (lari) -> exhausted -> pulih (regen). Sprint efektif =
+    // shift + benar-benar bergerak (WASD ataupun gerak klik-kanan) + stamina ada.
+    sprintingNow = keys.shift && !staExhausted && stamina > 0 && moving && !medkitMode;
     if (sprintingNow) stamina -= CFG.stamina.sprintDrainPerSec * dt;
-    if (isAiming) stamina -= CFG.stamina.adsDrainPerSec * dt;
     if (stamina <= 0) {
         stamina = 0;
         staExhausted = true;
         sprintingNow = false;
-        setAiming(false);        // terlalu lelah membidik — senjata turun sendiri
     }
-    if (!sprintingNow && !isAiming) stamina = Math.min(CFG.stamina.max, stamina + CFG.stamina.regenPerSec * dt);
+    if (!sprintingNow) stamina = Math.min(CFG.stamina.max, stamina + CFG.stamina.regenPerSec * dt);
     if (staExhausted && stamina >= CFG.stamina.recoverThreshold) staExhausted = false;
     // Bar HUD: hijau -> oranye -> merah (merah juga penanda exhausted)
     staminaFill.style.width = (stamina / CFG.stamina.max * 100) + '%';
     staminaFill.style.background = staExhausted ? '#e74c3c' : stamina > CFG.stamina.max * 0.45 ? '#3ddc6a' : '#e0a53e';
 
-    // Pengali kecepatan: jongkok (mendominasi, TIDAK ditumpuk dgn ADS);
-    // ADS saja lebih lambat. Sprint dimatikan selama jongkok / stamina habis.
-    const moveMult = crouchedNow ? CFG.movement.crouchMultiplier : (isAiming ? CFG.movement.adsMultiplier : 1);
     // Memakai medkit memperlambat gerak (medkitSlowMul, mis. -25%).
     const medkitMul = medkitMode ? CFG.player.medkitSlowMul : 1;
-    const moveSpeed = player.speed * (sprintingNow ? CFG.movement.sprintMultiplier : 1) * moveMult * medkitMul * step;
-    if (fwd !== 0 || side !== 0) {
-        const wz = fwd * (fwd < 0 ? CFG.movement.backpedalWeight : 1);   // mundur lebih lambat
-        const wx = side * CFG.movement.strafeWeight;                     // menyamping lebih lambat
+    const moveSpeed = player.speed * (sprintingNow ? CFG.movement.sprintMultiplier : 1) * medkitMul * step;
+    if (keyMove) {
         const k = moveSpeed / Math.hypot(fwd, side);
-        camera.position.addScaledVector(_dir, wz * k);
-        camera.position.addScaledVector(_right, wx * k);
+        camera.position.x += -side * k;   // A = kiri layar = -x dunia
+        camera.position.z += -fwd * k;    // W = atas layar = -z dunia
+    } else if (moveTarget) {
+        // Gerak klik-kanan: lurus ke target dgn tabrakan dinding biasa
+        // (menyusur); berhenti saat TIBA atau MACET (tak ada kemajuan ~1.2 dtk,
+        // mis. tertahan dinding) supaya tidak berlari di tempat selamanya.
+        const dx = moveTarget.x - camera.position.x;
+        const dz = moveTarget.z - camera.position.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 3.5) clearMoveTarget();
+        else {
+            const k = Math.min(moveSpeed, d) / d;
+            camera.position.x += dx * k;
+            camera.position.z += dz * k;
+            if (d < moveLastD - 0.05) { moveLastD = d; moveStuckT = 0; }
+            else {
+                moveStuckT += dt;
+                if (moveStuckT > 1.2) clearMoveTarget();
+            }
+        }
     }
 
     // Badan zombie pejal bagi player: dorong keluar horizontal (2D, konsisten
@@ -140,17 +166,17 @@ export function updatePlayerMovement(dt, step) {
     } else {
         player.onGround = false;
     }
-    // Transisi jongkok mulus: mata turun crouchDrop saat crouchT -> 1
-    crouchT += ((crouchedNow ? 1 : 0) - crouchT) * Math.min(1, dt * 10);
-    eyeHCur = CFG.player.eyeHeight - CFG.player.crouchDrop * crouchT;
+    // Tinggi pivot tetap: kaki + tinggi mata (jongkok dihapus di top-down)
+    eyeHCur = CFG.player.eyeHeight;
     camera.position.y = newFeet + eyeHCur;
 
-    // Langkah kaki berirama saat berjalan/berlari di tanah (jongkok = pelan & senyap)
-    if (player.onGround && (keys.w || keys.a || keys.s || keys.d)) {
+    // Langkah kaki berirama saat berjalan/berlari di tanah (WASD ataupun
+    // gerak klik-kanan — `moving` sudah menghitung keduanya)
+    if (player.onGround && moving) {
         footT -= dt;
         if (footT <= 0) {
-            playSFX(sfxFootstep, crouchedNow ? 0.22 : 0.4);
-            footT = crouchedNow ? 0.6 : sprintingNow ? 0.28 : 0.42;   // lari EFEKTIF = irama rapat
+            playSFX(sfxFootstep, 0.4);
+            footT = sprintingNow ? 0.28 : 0.42;   // lari EFEKTIF = irama rapat
         }
     } else {
         footT = 0.12;   // langkah pertama cepat terdengar saat mulai bergerak

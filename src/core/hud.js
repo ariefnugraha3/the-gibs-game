@@ -16,23 +16,21 @@ export function updateUI() {
     const w = player[currentWeapon];
     const wName = WEAPON_DEF[currentWeapon].name;
     scoreText.innerText = score;   // label "SCORE" statis di HTML
-    // Modul amunisi (redesign 2026-07-10): nama senjata/item + hitungan besar
-    // + magazen + baris petunjuk. Memegang granat/medkit -> hitungan item itu;
-    // reload -> kelas 'reloading' (CSS meredupkan & mengedipkan hitungan).
+    // Modul amunisi (tanpa magazen 2026-07-11): nama senjata/item + hitungan
+    // peluru besar + "/ maxAmmo" + baris petunjuk. Memegang granat/medkit ->
+    // hitungan item itu. (Reload dihapus bersama sistem magazen.)
     let itemName, count, mags = '', hint = '';
     if (medkitMode) {
         itemName = 'Medkit'; count = player.medkits; hint = 'Hold LEFT CLICK to use';
     } else if (grenadeMode) {
-        itemName = 'Grenade'; count = player.grenades; hint = 'LMB far throw · RMB near throw';
+        itemName = 'Grenade'; count = player.grenades; hint = 'Throw toward the cursor';
     } else {
-        itemName = wName; count = w.ammo; mags = `/ ${w.mags} mags`;
-        if (player.isReloading) hint = 'Reloading…';
+        itemName = wName; count = w.ammo; mags = `/ ${CFG.weapons[currentWeapon].maxAmmo}`;
     }
     ammoWeapon.innerText = itemName;
     ammoCount.innerText = count;
     ammoMags.innerText = mags;
     ammoHint.innerText = hint;
-    ammoBox.classList.toggle('reloading', !!player.isReloading && !grenadeMode && !medkitMode);
     // Health bar (maks CFG.player.maxHp): warna merah tetap (CSS) — JS hanya
     // menulis LEBAR + angka HP + kelas 'low' (pulse CSS saat HP <= 25%).
     healthFill.style.width = (player.hp / CFG.player.maxHp * 100) + '%';
@@ -45,32 +43,73 @@ export function updateUI() {
     if (activeScene && activeScene.hudStatus) waveText.innerText = activeScene.hudStatus();
 }
 
-// Panel inventori sisi kanan: slot 1/2 = senjata (player.weapons, maks 2),
-// 3 = granat (jumlah), 4 = medkit (jumlah). Slot aktif (senjata terpegang atau
-// mode granat) disorot; slot kosong / hitungan 0 diredupkan.
+// ----- Ikon item inventori (SVG buatan sendiri, BUKAN emoji/teks) -----
+// viewBox 24x24, fill/stroke = currentColor supaya ikut warna slot (emas saat
+// aktif, redup saat kosong). Siluet dibuat berbeda-beda agar mudah dibedakan:
+// pistol pendek (slide+grip), rifle panjang (laras+popor+magazen), shotgun
+// (laras + tabung pump di bawah + popor tebal), granat (badan bulat+tuas+ring),
+// medkit (kotak + palang).
+const ITEM_ICONS = {
+    pistol:
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path fill="currentColor" d="M3 8h14v3h-4l-2 8H8l2-8H3z"/></svg>',
+    rifle:
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<rect x="2" y="8.4" width="20" height="2.6" rx="0.6" fill="currentColor"/>' +
+        '<rect x="2" y="8.4" width="3.2" height="4.4" rx="0.6" fill="currentColor"/>' +
+        '<path fill="currentColor" d="M10 11h3l-.7 4h-2.4z"/>' +
+        '<path fill="currentColor" d="M6.6 11h2l-.5 2.7H6.1z"/>' +
+        '<rect x="17.4" y="6.7" width="1.3" height="1.9" fill="currentColor"/></svg>',
+    shotgun:
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<rect x="2" y="8" width="20" height="2.4" rx="0.6" fill="currentColor"/>' +
+        '<rect x="7" y="11" width="10" height="1.8" rx="0.6" fill="currentColor"/>' +
+        '<path fill="currentColor" d="M2 8h4.2v5L2 14z"/>' +
+        '<path fill="currentColor" d="M6.6 10.4h2l-.4 2.5H6.2z"/></svg>',
+    grenade:
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<rect x="7.4" y="8.4" width="9.2" height="12" rx="4.4" fill="currentColor"/>' +
+        '<rect x="9.4" y="6" width="5.2" height="3" rx="0.6" fill="currentColor"/>' +
+        '<rect x="13.4" y="5.4" width="4.6" height="1.5" rx="0.75" fill="currentColor"/>' +
+        '<circle cx="9" cy="5.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+    medkit:
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<rect x="3" y="6.5" width="18" height="13" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/>' +
+        '<path fill="currentColor" d="M10.4 9.2h3.2v2.6h2.6v3.2h-2.6v2.6h-3.2v-2.6H7.8v-3.2h2.6z"/></svg>',
+};
+
+// Panel inventori (pojok kanan-bawah, baris IKON): slot 1/2 = senjata
+// (player.weapons, maks 2), 3 = granat (jumlah), 4 = medkit (jumlah). Slot aktif
+// (senjata terpegang / mode granat / mode medkit) disorot; slot kosong /
+// hitungan 0 diredupkan. Ikon (SVG) ditulis ulang HANYA saat KEY berubah
+// (cache `_iconKey`) — updateUI sering dipanggil (per tembakan), hindari re-parse.
 function updateInventory() {
     const W = player.weapons || [];
-    const setSlot = (i, name, active, dim) => {
+    const setSlot = (i, iconKey, count, active, dim) => {
         const s = invSlots[i];
-        if (!s || !s.name) return;
-        s.name.innerText = name;
+        if (!s || !s.row) return;
+        if (s.icon && s._iconKey !== iconKey) {
+            s.icon.innerHTML = iconKey ? ITEM_ICONS[iconKey] : '';
+            s._iconKey = iconKey;
+        }
+        if (s.count) s.count.innerText = count == null ? '' : count;
         s.row.classList.toggle('active', !!active);
         s.row.classList.toggle('dim', !!dim);
     };
     for (let i = 0; i < 2; i++) {
         const wk = W[i];
-        setSlot(i, wk ? WEAPON_DEF[wk].name : '—',
+        setSlot(i, wk || null, null,
             wk && !grenadeMode && !medkitMode && currentWeapon === wk, !wk);
     }
-    setSlot(2, `Grenade ×${player.grenades}`, grenadeMode, player.grenades <= 0);
-    setSlot(3, `Medkit ×${player.medkits}`, medkitMode, player.medkits <= 0);
+    setSlot(2, 'grenade', player.grenades, grenadeMode, player.grenades <= 0);
+    setSlot(3, 'medkit', player.medkits, medkitMode, player.medkits <= 0);
 }
 
 // ----------- Radar / minimap ----------- //
-// Proyeksi relatif-player, heading selalu ke ATAS kanvas:
-//   px = komponen KANAN-dunia, py = -(komponen DEPAN-dunia)  (kanvas y ke bawah).
-// (Perbaikan bug lama: rumus rotasi sebelumnya terbalik 180° — zombie di depan
-// tergambar di belakang & kiri jadi kanan.)
+// Proyeksi relatif-player ke frame (fx,fz). drawRadar memanggilnya dgn frame
+// UTARA-TETAP (fx=0, fz=-1) sejak 2026-07-11 -> radar DIKUNCI utara-ke-atas
+// (tak berputar mengikuti kursor):
+//   px = komponen +x dunia (timur/kanan), py = komponen +z dunia (selatan/bawah).
 // Diekspor agar bisa di-unit-test tanpa canvas.
 export function radarProject(dx, dz, fx, fz, R, range) {
     return {
@@ -84,10 +123,13 @@ export function drawRadar() {
     const W = 150, R = 70, range = 420;
     radarCtx.clearRect(0, 0, W, W);
 
-    // arah hadap player, dinormalisasi di bidang xz (pitch diabaikan)
+    // Radar DIKUNCI UTARA-KE-ATAS (2026-07-11): puncak kanvas = utara dunia
+    // (-z), sejajar layar (screen-up juga -z) — peta tak berputar mengikuti
+    // kursor. Proyeksi pakai sumbu dunia TETAP (fx=0, fz=-1). Arah BIDIK dipakai
+    // hanya utk memutar panah + kerucut (relatif utara), bukan seluruh peta.
+    const fx = 0, fz = -1;
     camera.getWorldDirection(_dir);
-    const fl = Math.hypot(_dir.x, _dir.z) || 1;
-    const fx = _dir.x / fl, fz = _dir.z / fl;
+    const aimAngle = Math.atan2(_dir.x, -_dir.z);   // 0 = utara, + searah jarum jam
 
     radarCtx.save();
     radarCtx.translate(W / 2, W / 2);
@@ -110,7 +152,9 @@ export function drawRadar() {
     radarCtx.moveTo(0, -R); radarCtx.lineTo(0, R);
     radarCtx.stroke();
 
-    // Kerucut pandang player (FOV ~70°, selalu menghadap atas)
+    // Kerucut BIDIK player (FOV ~70°), diputar ke arah bidik dlm frame utara-atas
+    radarCtx.save();
+    radarCtx.rotate(aimAngle);
     const cone = radarCtx.createRadialGradient(0, 0, 2, 0, 0, R * 0.62);
     cone.addColorStop(0, 'rgba(116, 185, 255, 0.28)');
     cone.addColorStop(1, 'rgba(116, 185, 255, 0)');
@@ -120,6 +164,7 @@ export function drawRadar() {
     radarCtx.arc(0, 0, R * 0.62, -Math.PI / 2 - 0.61, -Math.PI / 2 + 0.61);
     radarCtx.closePath();
     radarCtx.fill();
+    radarCtx.restore();
 
     // Blip bercahaya. Landmark (clampEdge=true) di luar jangkauan DIJEPIT ke
     // tepi sebagai penunjuk arah (mis. tangga exit / air mancur / Monas).
@@ -153,14 +198,17 @@ export function drawRadar() {
         plot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z,
             d.type === 'mag' ? "#f1c40f" : d.type === 'medkit' ? "#ff6b81" : "#2ecc71", 2.5);
 
-    // Penanda N (utara dunia = -z), ikut berputar dgn heading
+    // Penanda N — kini TETAP di puncak kanvas (radar dikunci utara); dgn
+    // fx=0,fz=-1 rumus -fx/fz memang menghasilkan titik atas-tengah.
     radarCtx.fillStyle = 'rgba(180, 220, 255, 0.85)';
     radarCtx.font = 'bold 9px Arial';
     radarCtx.textAlign = 'center';
     radarCtx.textBaseline = 'middle';
     radarCtx.fillText('N', -fx * (R - 9), fz * (R - 9));
 
-    // Panah player di pusat (dgn glow)
+    // Panah player di pusat (dgn glow), diputar ke arah BIDIK (frame utara-atas)
+    radarCtx.save();
+    radarCtx.rotate(aimAngle);
     radarCtx.shadowColor = '#9ed2ff';
     radarCtx.shadowBlur = 5;
     radarCtx.fillStyle = '#cfe9ff';
@@ -168,7 +216,8 @@ export function drawRadar() {
     radarCtx.moveTo(0, -7); radarCtx.lineTo(4.6, 5.4); radarCtx.lineTo(0, 2.6); radarCtx.lineTo(-4.6, 5.4);
     radarCtx.closePath(); radarCtx.fill();
     radarCtx.shadowBlur = 0;
-    radarCtx.restore();
+    radarCtx.restore();   // tutup rotate panah
+    radarCtx.restore();   // tutup translate+clip radar
 
     // Cincin bezel dalam (di luar clip agar tepinya tegas)
     radarCtx.save();

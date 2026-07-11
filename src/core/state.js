@@ -42,9 +42,12 @@ export function resetStats() { stats.kills = 0; stats.headshots = 0; stats.shots
 // (delta-time ternormalisasi) agar gerak konsisten di monitor refresh tinggi.
 export const player = {
     hp: 10, grenades: 3, medkits: 0,
-    rifle: { ammo: 30, mags: 3, magSize: 30 },    // utama ("Assault Rifle")
-    pistol: { ammo: 15, mags: 3, magSize: 15 },   // secondary; damage peluru sama
-    shotgun: { ammo: 6, mags: 2, magSize: 6 },    // senjata ke-3 (multi-pelet)
+    // Sistem MAGAZEN DIHAPUS (2026-07-11): tiap senjata = SATU kolam peluru,
+    // kap per-senjata dari CFG.weapons.<w>.maxAmmo (rifle 500 / pistol 150 /
+    // shotgun 300). Tanpa reload — menembak sampai kolam habis.
+    rifle: { ammo: 500 },     // utama ("Assault Rifle")
+    pistol: { ammo: 150 },    // secondary; damage peluru sama
+    shotgun: { ammo: 300 },   // senjata ke-3 (multi-pelet)
     // SLOT senjata BERURUTAN (maks CFG.weapons.maxWeapons = 2): weapons[0] =
     // tombol 1, weapons[1] = tombol 2. Survival mulai HANYA pistol (senjata ke-2
     // dibeli di shop; ke-3 minta ganti salah satu); Campaign mulai rifle+pistol.
@@ -74,11 +77,9 @@ export function configurePlayer() {
     player.radius = CFG.player.radius;
     player.grenades = CFG.grenade.start;
     player.medkits = 0;
-    for (const w of ['rifle', 'pistol', 'shotgun']) {
-        player[w].magSize = CFG.weapons[w].magSize;
-        player[w].ammo = CFG.weapons[w].magSize;
-        player[w].mags = CFG.weapons[w].startMags;
-    }
+    // Tanpa magazen: mulai dgn kolam peluru PENUH per senjata (maxAmmo)
+    for (const w of ['rifle', 'pistol', 'shotgun'])
+        player[w].ammo = CFG.weapons[w].maxAmmo;
     // Slot senjata awal per mode (maks 2): Survival mulai pistol saja (beli
     // senjata lain di shop); Campaign & mode lain mulai rifle + pistol
     // (shotgun hanya dari shop Survival). owned diturunkan dari slot ini.
