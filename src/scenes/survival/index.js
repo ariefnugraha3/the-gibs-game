@@ -13,10 +13,11 @@ import { spawnGroundPuff } from '../../entities/effects.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
 import { showPickup, showStageMsg } from '../../core/dom.js';
-import { applyLightPreset, LIGHT_PRESETS, ambLight, hemiLight, dirLight } from '../../world/lighting.js';
+import { applyLightPreset } from '../../world/lighting.js';
 import {
     PARK, FENCE_H, FOUNTAIN, ensureParkWorld, getSurvivalNav,
-    resolveObstacles, resolveMonas, segmentHitsFountain, groundHeightAt
+    resolveObstacles, resolveMonas, segmentHitsFountain, groundHeightAt,
+    setFogCanopy, driftFogCanopy
 } from './world.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
 import { openShop, closeShop, isShopOpen, requestNextWave } from './shop.js';
@@ -83,22 +84,25 @@ export const getMonasHp = () => monasHp;
 export const getMonasMaxHp = () => monasMaxHp;
 export const isMonasFullyStrengthened = () => monasStage >= CFG.survival.strengthenMonasStages.length;
 
-// Event wave (IMPROVEMENT-PLAN #9): kabut turun ATAU listrik kota padam —
-// hanya menganimasikan fog.near/far & intensitas cahaya (uniform-only, tanpa
-// recompile; scene.fog sudah dibuat sejak initRenderer).
+// Event wave = KABUT MONAS (satu-satunya event; fog jarak & blackout lama dibuang
+// 2026-07-11). Kabut abu-abu TEBAL berbasis-posisi: kanopi overhead (world.js)
+// menutupi hampir seluruh arena kecuali lubang bersih `monasFogClearMeters` di
+// sekitar Monas — sesuatu yang scene.fog (berbasis jarak-ke-kamera) tak bisa.
+// Peluang muncul: mulai eligible di `monasFogFromWave`, `monasFogChanceBase` +
+// `monasFogChancePerWave` per wave berikutnya (di-roll di startWave).
 const EVT = { type: null, left: 0, dur: 1 };
 
-function startEvent() {
-    EVT.type = Math.random() < 0.5 ? 'fog' : 'blackout';
-    EVT.dur = CFG.survival.eventDurationSec;
+function startMonasFog() {
+    EVT.type = 'monasfog';
+    EVT.dur = CFG.survival.monasFogDurationSec;
     EVT.left = EVT.dur;
-    showPickup(EVT.type === 'fog' ? 'The fog is rolling in...' : 'The city lights went out!',
-        EVT.type === 'fog' ? '#9fb6c9' : '#c9b89f');
+    showPickup('A thick grey fog rolls in — stay near the Monument!', '#c2c8ce');
 }
 
 function endEvent() {
     EVT.type = null;
-    applyLightPreset(scene, 'outdoor');   // pulihkan fog + cahaya persis preset
+    setFogCanopy(0);                      // matikan kanopi kabut
+    applyLightPreset(scene, 'outdoor');   // pulihkan fog jarak + cahaya persis preset (juga dipakai enter)
 }
 
 function spawnZombie() {
@@ -188,7 +192,7 @@ function spawnZombie() {
 }
 
 // Mulai wave ke-n: set jatah zombie (naik per wave) + cadence spawn + cap
-// lapangan, picu event lingkungan bila kelipatan eventEveryWaves, umumkan wave.
+// lapangan, roll peluang event kabut Monas (sejak monasFogFromWave), umumkan wave.
 function startWave(n) {
     const SV = CFG.survival;
     wave.num = n;
@@ -199,7 +203,13 @@ function startWave(n) {
         SV.spawnIntervalBase - (n - 1) * SV.spawnIntervalStep);
     wave.maxConcurrent = Math.min(SV.maxZombiesCap,
         SV.maxZombiesBase + (n - 1) * SV.maxZombiesStep);
-    if (SV.eventEveryWaves > 0 && n % SV.eventEveryWaves === 0 && !EVT.type) startEvent();
+    // Kabut Monas: eligible mulai wave `monasFogFromWave` (setelah wave 3);
+    // peluang = base + perWave·(n − fromWave), naik tiap wave, dijepit di ChanceMax.
+    if (n >= SV.monasFogFromWave && !EVT.type) {
+        const chance = Math.min(SV.monasFogChanceMax,
+            SV.monasFogChanceBase + (n - SV.monasFogFromWave) * SV.monasFogChancePerWave);
+        if (Math.random() < chance) startMonasFog();
+    }
     showStageMsg(`WAVE ${n}`, 1800);
     updateUI();
 }
@@ -288,20 +298,13 @@ export const survivalScene = {
             if (!isShopOpen()) openShop();
         }
 
-        // Animasi event aktif: envelope naik-turun 2 dtk di kedua ujung —
-        // nilai dihitung dari preset outdoor (bukan akumulasi) = tanpa drift.
-        if (EVT.type) {
+        // Animasi kabut Monas aktif: envelope naik-turun 2 dtk di kedua ujung
+        // (fade-in cepat, tahan, fade-out) — tanpa akumulasi/drift.
+        if (EVT.type === 'monasfog') {
             EVT.left -= dt;
             const k = Math.max(0, Math.min(1, Math.min(EVT.dur - EVT.left, EVT.left) / 2));
-            const P = LIGHT_PRESETS.outdoor;
-            if (EVT.type === 'fog') {
-                scene.fog.near = P.fogNear + (70 - P.fogNear) * k;
-                scene.fog.far = P.fogFar + (480 - P.fogFar) * k;
-            } else {
-                if (ambLight) ambLight.intensity = P.amb * (1 - 0.8 * k);
-                if (hemiLight) hemiLight.intensity = P.hemi * (1 - 0.8 * k);
-                if (dirLight) dirLight.intensity = P.dir * (1 - 0.85 * k);
-            }
+            setFogCanopy(k);        // kepekatan kabut mengikuti envelope
+            driftFogCanopy(dt);     // gumpalan kabut bergerak; lubang tetap di Monas
             if (EVT.left <= 0) endEvent();
         }
     },

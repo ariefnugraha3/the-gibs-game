@@ -137,8 +137,12 @@
         "monasLockAggroMeters": 5,
         "monasLockChance": 0.5,
         "monasClawDamage": 20,
-        "eventEveryWaves": 5,
-        "eventDurationSec": 22
+        "monasFogFromWave": 4,
+        "monasFogChanceBase": 0.2,
+        "monasFogChancePerWave": 0.03,
+        "monasFogChanceMax": 0.75,
+        "monasFogClearMeters": 15,
+        "monasFogDurationSec": 60
     },
     "campaign": {
         "zombieHp": 50,

@@ -3,6 +3,7 @@
 // (air mancur pejal + kolam + pohon pejal), Monas, dan kota latar (instanced).
 
 import { scene } from '../../core/renderer.js';
+import { CFG, CAMP_M } from '../../core/config.js';
 import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../utils/textures.js';
 import { rand, clamp } from '../../utils/math.js';
 import { resolveCylinders } from '../../utils/collision.js';
@@ -30,6 +31,80 @@ export function buildSurvivalWorld() {
     createParkProps();   // air mancur, kolam, pohon
     createMonas();
     createCity();
+    createFogCanopy();   // kanopi kabut event (tersembunyi sampai dipicu wave 3)
+}
+
+// --- Kabut event (survival, dipicu wave 3): kanopi abu-abu tebal MELAYANG di
+// atas arena dengan LUBANG bersih di sekitar Monas (radius CFG.monasFogClearMeters).
+// scene.fog biasa berbasis jarak-ke-kamera, jadi TIDAK bisa membuat zona bersih
+// berbasis-posisi — maka dipakai piringan tembus-pandang overhead: tekstur radial
+// meng-alpha-kan pusat (Monas) menjadi bening, sisanya abu pekat. Dibangun SEKALI
+// (ikut warm-up preload = tanpa hitch), lalu di-fade oleh index.js saat event.
+let fogCanopy = null, fogCanopyMat = null;
+const FOG_H = 26;              // tinggi kanopi (di atas kepala zombie, jauh di bawah kamera)
+const FOG_DISK_R = 1800;       // radius piringan (jauh melampaui pandangan kamera di sudut mana pun)
+const FOG_MAX_OPACITY = 0.72;  // kepekatan puncak kabut (visual-only)
+
+function createFogCanopy() {
+    const clearR = (CFG.survival.monasFogClearMeters || 20) * CAMP_M;  // zona bersih di sekitar Monas (unit)
+    const featherR = 10 * CAMP_M;                                      // pita transisi bening -> kabut penuh
+    const SZ = 1024, half = SZ / 2;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = SZ;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#a7abb0'; g.fillRect(0, 0, SZ, SZ);   // abu dasar
+    for (let i = 0; i < 130; i++) {                       // gumpalan kabut lembut (billow)
+        const x = Math.random() * SZ, y = Math.random() * SZ, r = 60 + Math.random() * 190;
+        const c = Math.random() < 0.5 ? '212,216,220' : '134,139,146';
+        const rg = g.createRadialGradient(x, y, 2, x, y, r);
+        rg.addColorStop(0, `rgba(${c},0.5)`); rg.addColorStop(1, `rgba(${c},0)`);
+        g.fillStyle = rg;
+        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+    // Lubang bening di pusat (Monas): destination-out mengikis alpha secara radial
+    // -> bening penuh sampai clearR, memudar ke kabut penuh sepanjang featherR.
+    const holePx = clearR / FOG_DISK_R * half;
+    const outPx = (clearR + featherR) / FOG_DISK_R * half;
+    g.globalCompositeOperation = 'destination-out';
+    const hg = g.createRadialGradient(half, half, 0, half, half, outPx);
+    hg.addColorStop(0, 'rgba(0,0,0,1)');
+    hg.addColorStop(holePx / outPx, 'rgba(0,0,0,1)');
+    hg.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = hg;
+    g.beginPath(); g.arc(half, half, outPx, 0, Math.PI * 2); g.fill();
+    g.globalCompositeOperation = 'source-over';
+
+    const tex = new THREE.CanvasTexture(cv);
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = 4;
+    // MeshBasic (unlit) + fog:false = kabut sendiri tak ikut ter-fog jarak; opacity
+    // 0 = tersembunyi sampai event. depthWrite:false agar tak mengganggu transparan lain.
+    fogCanopyMat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, opacity: 0, depthWrite: false,
+        side: THREE.DoubleSide, fog: false
+    });
+    const disk = new THREE.Mesh(new THREE.CircleGeometry(FOG_DISK_R, 72), fogCanopyMat);
+    disk.rotation.x = -Math.PI / 2;        // rebahkan horizontal
+    disk.frustumCulled = false;            // piringan raksasa: jangan di-cull salah
+    fogCanopy = new THREE.Group();
+    fogCanopy.position.set(0, FOG_H, 0);   // pusat kanopi = Monas (origin) -> lubang tepat di Monas
+    fogCanopy.add(disk);
+    fogCanopy.visible = false;
+    fogCanopy.renderOrder = 3;             // gambar setelah geometri dunia (objek transparan)
+    scene.add(fogCanopy);
+}
+
+// Kendali kabut event (dipanggil survival/index.js). k = 0..1 kepekatan (envelope
+// fade-in/out). Piringan disembunyikan penuh saat k~0.
+export function setFogCanopy(k) {
+    if (!fogCanopyMat) return;
+    fogCanopyMat.opacity = k * FOG_MAX_OPACITY;
+    fogCanopy.visible = k > 0.002;
+}
+// Putar pelan agar gumpalan kabut tampak bergerak; sumbu putar = Monas, jadi
+// LUBANG bersih tetap terkunci di Monas (tidak ikut bergeser).
+export function driftFogCanopy(dt) {
+    if (fogCanopy && fogCanopy.visible) fogCanopy.rotation.y += dt * 0.06;
 }
 
 function createMonas() {
