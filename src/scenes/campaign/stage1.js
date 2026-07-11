@@ -1,9 +1,13 @@
-// SCENE: Campaign STAGE 1 — "Gedung Terbengkalai (Lantai 3)", indoor 60x60 m.
-// Denah: tangga masuk (kiri-atas) -> lobby -> Kantor 1/2 -> Ruang Persediaan
-// (kanan-atas: ammo/granat/medkit) -> koridor tengah -> toilet/utilitas ->
-// area pemuatan -> ruang pendingin -> tangga keluar (kanan-bawah, trigger
-// pindah ke stage 2 jalan raya). Grid sel 2 m: 1=dinding, 0=lantai — dinding
-// visual, collision, line-of-sight, dan hit peluru semua dari grid yang SAMA.
+// SCENE: Campaign STAGE 1 — "Gedung Terbengkalai (Lantai 2)", indoor 60x60 m.
+// Denah dirombak 2026-07-11 mengikuti floor-plan referensi user:
+//   TANGGA TURUN (start, kiri-atas — player turun dari Lantai 3) -> koridor
+//   sempit -> OFFICE (kiri) / CONFERENCE (tengah-atas) / SUPPLY ROOM (kanan-
+//   atas: ammo/granat/medkit) -> MAIN HALL (pusat besar) -> SECURITY (kanan) /
+//   BREAK ROOM & RESTROOM (kiri-bawah) / STORAGE (kanan-bawah) -> TANGGA TURUN
+//   (end, kanan-bawah — turun ke lantai bawah = stage 2 jalan raya). Grid sel
+//   2 m: 1=dinding, 0=lantai — dinding visual, collision, line-of-sight, dan
+//   hit peluru semua dari grid yang SAMA. Konektivitas & bebas-pintu sudah
+//   diverifikasi BFS (lihat rombak); jangan ubah pintu tanpa tes ulang.
 
 import { CFG, CAMP_M } from '../../core/config.js';
 import { player, drops, _v3 } from '../../core/state.js';
@@ -30,9 +34,9 @@ export const S1 = {
 };
 export let s1grid = null;                 // [row][col] 1=dinding, 0=lantai
 export const s1Cell = (c, r) => ({ x: S1.x0 + (c + 0.5) * S1.CELL, z: S1.z0 + (r + 0.5) * S1.CELL });
-export const S1_START = { c: 3, r: 4 };   // di ruang tangga masuk (kiri-atas)
-// Trigger tangga keluar (kanan-bawah) -> pindah ke stage 2 (jalan raya)
-export const S1_EXIT = { c0: 24, r0: 25, c1: 28, r1: 27 };
+export const S1_START = { c: 3, r: 4 };   // ruang tangga TURUN dari Lantai 3 (kiri-atas)
+// Trigger tangga TURUN (kanan-bawah) -> turun ke lantai bawah (stage 2 jalan raya)
+export const S1_EXIT = { c0: 24, r0: 23, c1: 28, r1: 27 };
 
 const blockers = [];   // furnitur/undakan pejal stage 1 {x,z,hx,hz,ax*,az*,top,standable}
 let built = false;
@@ -42,32 +46,31 @@ function buildS1Grid() {
     const carve = (c0, r0, c1, r1) => {
         for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g[r][c] = 0;
     };
-    // --- Ruangan ---
-    carve(1, 1, 5, 6);      // tangga masuk (start)
-    carve(1, 8, 5, 16);     // lobby awal + lounge
-    carve(7, 1, 13, 6);     // kantor 1
-    carve(15, 1, 20, 6);    // kantor 2
-    carve(22, 1, 28, 6);    // ruang persediaan (supplies)
-    carve(6, 8, 27, 9);     // koridor tengah (menyatu dgn lobby di barat)
-    carve(7, 11, 10, 16);   // toilet
-    carve(12, 11, 15, 16);  // ruang utilitas
-    carve(17, 11, 21, 21);  // area pemuatan (memanjang ke selatan)
-    carve(23, 11, 28, 16);  // ruang pendingin
-    carve(23, 18, 28, 27);  // vestibula + ruang tangga keluar
-    // --- Pintu (bukaan 2 sel = 4 m; beberapa 1 sel utk kesan sempit) ---
-    carve(2, 7, 3, 7);      // start -> lobby
-    carve(6, 2, 6, 3);      // start -> kantor 1 ("cek pintu samping")
-    carve(9, 7, 10, 7);     // kantor 1 -> koridor
-    carve(16, 7, 17, 7);    // kantor 2 -> koridor
-    carve(21, 2, 21, 3);    // kantor 2 -> persediaan
-    carve(24, 7, 25, 7);    // persediaan -> koridor
-    carve(8, 10, 9, 10);    // koridor -> toilet
-    carve(13, 10, 14, 10);  // koridor -> utilitas
-    carve(18, 10, 19, 10);  // koridor -> pemuatan
-    carve(25, 10, 26, 10);  // koridor -> pendingin
-    carve(22, 13, 22, 14);  // pemuatan -> pendingin
-    carve(22, 19, 22, 20);  // pemuatan -> vestibula (rute bawah)
-    carve(25, 17, 26, 17);  // pendingin -> vestibula/tangga keluar
+    // --- Ruangan (kotak lantai; verifikasi BFS di scratchpad) ---
+    carve(1, 1, 6, 6);      // A Stairwell / START (tangga turun dari Lt.3)
+    carve(9, 1, 18, 7);     // B Conference Room (tengah-atas)
+    carve(21, 1, 28, 6);    // C Supply Room (kanan-atas: ammo/granat/medkit)
+    carve(1, 9, 6, 16);     // D Office Room (kiri-tengah)
+    carve(8, 9, 20, 21);    // G Main Hall (pusat, area terbuka besar)
+    carve(23, 9, 28, 16);   // H Security Room (kanan-tengah)
+    carve(1, 19, 6, 26);    // E Break Room (kiri-bawah)
+    carve(8, 23, 13, 28);   // F Restroom (bawah-tengah)
+    carve(15, 23, 21, 28);  // I Storage Room (bawah-kanan)
+    carve(23, 18, 28, 28);  // J End / tangga TURUN ke lantai bawah (kanan-bawah)
+    // --- Koridor sempit (jadi zombie-spot ambush) ---
+    carve(3, 7, 4, 8);      // A -> D koridor awal sempit (spot 1)
+    carve(24, 7, 25, 8);    // C -> H lorong kanan dekat supply (spot 6)
+    // --- Pintu (bukaan; 1-2 sel) ---
+    carve(7, 3, 8, 3);      // A -> B
+    carve(19, 3, 20, 3);    // B -> C
+    carve(13, 8, 14, 8);    // B -> G (pintu utara main hall)
+    carve(7, 12, 7, 12);    // D -> G
+    carve(21, 12, 22, 12);  // G -> H
+    carve(3, 17, 4, 18);    // D -> E
+    carve(10, 21, 11, 22);  // G -> F (restroom)
+    carve(17, 21, 18, 22);  // G -> I (storage)
+    carve(22, 25, 22, 26);  // I -> J
+    carve(25, 17, 26, 17);  // H -> J
     s1grid = g;
 }
 
@@ -232,38 +235,35 @@ export function buildWorld() {
             rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
         });
     };
-    const WOOD = 0x6b4a2f, SHELF = 0x55606a, CRATE = 0x7a5c33, FRZ = 0xbfc9cc,
-        MACH = 0x3d5040, SOFA = 0x5a3f3f, STALL = 0x88817a, DARK = 0x23211d;
-    // Kantor 1: dua gugus meja + monitor
-    furBlock(9, 3, 26, 7, 14, WOOD);
-    furBlock(11, 5, 26, 7, 14, WOOD, 7, 0);
-    furBox(9, 3, 6, 4.5, 1.5, DARK, 0.3, -4, -3, 0); fur[fur.length - 1].y = 7 + 2.2;
-    furBox(11, 5, 6, 4.5, 1.5, DARK, -0.2, 5, 3, 0); fur[fur.length - 1].y = 7 + 2.2;
-    // Kantor 2: meja + kabinet arsip
-    furBlock(17, 3, 24, 7, 13, WOOD);
-    furBlock(19, 5, 8, 16, 6, SHELF, 10, 8);
-    // Ruang persediaan: rak logam di dinding utara & selatan
-    furBlock(25, 1, 70, 15, 8, SHELF, 0, 2);
-    furBlock(23, 6, 28, 15, 8, SHELF, -2, -2);   // menjauhi pintu selatan (sel 24-25)
-    // Toilet: bilik & wastafel
-    furBlock(8, 12, 2, 15, 26, STALL, 6, 6);
-    furBlock(8, 16, 18, 8, 4, 0xd8d4c8, 0, -2);
-    // Utilitas: mesin/panel
-    furBlock(13, 12, 16, 17, 10, MACH);
-    furBlock(14, 15, 10, 12, 8, DARK, 4, 4);
-    // Area pemuatan: palet & krat (sebagian bisa dipanjat)
-    furBlock(18, 13, 16, 8, 16, CRATE);
-    furBlock(20, 16, 14, 16, 14, CRATE, 2, 0);
-    furBlock(18, 19, 16, 8, 16, CRATE, -4, 4);
-    // Ruang pendingin: unit pembeku dua baris
-    furBlock(24, 12, 10, 18, 8, FRZ, 0, 2);
-    furBlock(26, 12, 10, 18, 8, FRZ, 4, 2);
-    furBlock(24, 15, 10, 18, 8, FRZ, 0, 4);
-    // Lobby: sofa + meja
-    furBlock(3, 13, 26, 6, 10, SOFA);
-    furBlock(3, 11, 10, 5, 10, WOOD);
-    // Vestibula: krat kecil
-    furBlock(24, 20, 12, 9, 12, CRATE);
+    const WOOD = 0x6b4a2f, SHELF = 0x55606a, CRATE = 0x7a5c33,
+        SOFA = 0x5a3f3f, STALL = 0x88817a, DARK = 0x23211d, SINK = 0xd8d4c8;
+    // Conference (B): meja rapat panjang di tengah
+    furBlock(13, 4, 84, 7, 30, WOOD);
+    // Office (D): dua meja + monitor
+    furBlock(3, 11, 26, 7, 12, WOOD);
+    furBlock(4, 14, 22, 7, 12, WOOD, 4, 2);
+    furBox(3, 11, 6, 4, 1.5, DARK, 0.2, 0, -3); fur[fur.length - 1].y = 7 + 2;
+    // Supply (C): rak logam di dinding utara & timur (jauh dari pintu/koridor)
+    furBlock(24, 1, 90, 15, 8, SHELF, 0, 2);
+    furBlock(27, 4, 8, 15, 40, SHELF);
+    // Main Hall (G): krat sebagai cover tersebar (jalur tengah tetap terbuka)
+    furBlock(11, 12, 16, 9, 16, CRATE);
+    furBlock(16, 17, 18, 9, 18, CRATE);
+    furBlock(12, 18, 14, 8, 14, CRATE, 2, 0);
+    // Security (H): meja monitor + kabinet
+    furBlock(25, 11, 24, 7, 12, WOOD);
+    furBlock(27, 14, 8, 16, 20, SHELF, 4, 0);
+    furBox(25, 11, 6, 4, 1.5, DARK, -0.2, 0, -3); fur[fur.length - 1].y = 7 + 2;
+    // Break Room (E): sofa + meja
+    furBlock(3, 21, 20, 6, 18, SOFA);
+    furBlock(4, 24, 16, 7, 12, WOOD, 2, 2);
+    // Restroom (F): bilik + deret wastafel
+    furBlock(9, 24, 2, 15, 24, STALL, 4, 4);
+    furBlock(11, 27, 16, 8, 4, SINK, 0, -1);
+    // Storage (I): dua baris rak + krat (celah c17-18 = pintu ke main hall)
+    furBlock(16, 24, 8, 16, 30, SHELF, 0, 2);
+    furBlock(19, 24, 8, 16, 30, SHELF, 0, 2);
+    furBlock(18, 27, 16, 9, 10, CRATE);
     {   // render semua furnitur sebagai satu instanced mesh
         const unit = new THREE.BoxGeometry(1, 1, 1);
         const fMesh = new THREE.InstancedMesh(unit,
@@ -304,14 +304,14 @@ export function buildWorld() {
             axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(13, 20), top: 10, standable: true
         });
     };
-    mkStairs(3, 2, -1);    // tangga masuk (utara ruang start)
-    mkStairs(26, 26, 1);   // tangga keluar (selatan ruang exit)
+    mkStairs(3, 2, -1);     // START: tangga naik ke utara = jalur turun dari Lantai 3
+    mkStairs(26, 25, 1);    // END: tangga TURUN ke selatan = ke lantai bawah (stage 2)
 
-    // Papan EXIT hijau menyala di atas tangga keluar
-    const exitP = s1Cell(26, 25);
+    // Papan EXIT hijau menyala di atas tangga keluar (kanan-bawah)
+    const exitP = s1Cell(26, 24);
     const exitSign = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 1.2),
         new THREE.MeshBasicMaterial({ color: 0x2eff6a, toneMapped: false }));
-    exitSign.position.set(exitP.x, S1.H - 4, exitP.z + 6);
+    exitSign.position.set(exitP.x, S1.H - 4, exitP.z);
     scene.add(exitSign);
 
     // --- Pencahayaan interior: 6 titik lampu TETAP (dibuat saat build, sebelum
@@ -327,12 +327,16 @@ export function buildWorld() {
         scene.add(fix);
         return L;
     };
-    addLamp(3, 10, 0xffd9a0, 0.9, 240);                          // lobby
-    setS1FlickerLight(addLamp(14, 8, 0xffe2b8, 0.85, 260));      // koridor tengah (berkedip)
-    addLamp(25, 3, 0xffd9a0, 0.9, 240);                          // ruang persediaan
-    addLamp(19, 15, 0xffc890, 0.8, 260);                         // area pemuatan
-    addLamp(25, 13, 0xbfe4ff, 0.7, 220);                         // pendingin (dingin kebiruan)
-    const exitLight = new THREE.PointLight(0x39ff7a, 0.8, 200, 2);
+    addLamp(3, 3, 0xffd9a0, 0.9, 220);                           // stairwell/start
+    addLamp(13, 4, 0xffe2b8, 0.95, 320);                         // conference
+    addLamp(24, 3, 0xffd9a0, 0.9, 240);                          // supply room
+    addLamp(3, 12, 0xffd9a0, 0.85, 220);                         // office
+    setS1FlickerLight(addLamp(14, 14, 0xffe2b8, 0.9, 340));      // main hall (berkedip)
+    addLamp(25, 12, 0xbfe4ff, 0.8, 240);                         // security (dingin kebiruan)
+    addLamp(3, 22, 0xffd9a0, 0.8, 220);                          // break room
+    addLamp(10, 26, 0xbfe4ff, 0.7, 200);                         // restroom
+    addLamp(18, 26, 0xffc890, 0.8, 240);                         // storage
+    const exitLight = new THREE.PointLight(0x39ff7a, 0.85, 220, 2);
     exitLight.position.set(exitP.x, S1.H - 6, exitP.z);
     scene.add(exitLight);
 
@@ -348,32 +352,33 @@ export function buildWorld() {
     });
 }
 
-// Zombie stage 1: titik tengkorak pada denah (sel grid) + jitter kecil.
+// Zombie stage 1: 9 spot pada denah referensi [col, row, jumlah]. Tiap spot
+// men-spawn `n` zombie di sekitar titiknya (jitter + resolve keluar furnitur).
 const S1_ZOMBIES = [
-    [10, 3],    // kantor 1
-    [17, 4],    // kantor 2
-    [12, 8],    // koridor tengah (barat)
-    [21, 9],    // koridor tengah (timur)
-    [9, 14],    // toilet
-    [13, 14],   // ruang utilitas
-    [19, 13],   // area pemuatan utara
-    [19, 20],   // area pemuatan selatan
-    [26, 2],    // ruang persediaan ("awas langit-langit")
-    [25, 14],   // ruang pendingin
-    [26, 21],   // vestibula menuju exit ("cek pintu langit-langit")
+    [3, 8, 2],     // 1 koridor awal (sempit)
+    [3, 12, 3],    // 2 office
+    [3, 22, 4],    // 3 break room
+    [10, 26, 3],   // 4 restroom
+    [14, 15, 5],   // 5 main hall (area terbuka)
+    [24, 8, 4],    // 6 lorong dekat supply
+    [25, 12, 3],   // 7 security (ambush)
+    [18, 26, 3],   // 8 storage
+    [26, 24, 2],   // 9 dekat tangga keluar (serangan terakhir)
 ];
 export function placeZombies() {
-    for (const [c, r] of S1_ZOMBIES) {
+    for (const [c, r, n] of S1_ZOMBIES) {
         const p = s1Cell(c, r);
-        _v3.set(p.x + rand(-4, 4), 0, p.z + rand(-4, 4));
-        resolve(_v3, 4, 0);                             // geser keluar furnitur
-        if (!stage1Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
-        spawnCampaignZombie(_v3.x, _v3.z, 1);
+        for (let k = 0; k < n; k++) {
+            _v3.set(p.x + rand(-7, 7), 0, p.z + rand(-7, 7));
+            resolve(_v3, 4, 0);                             // geser keluar furnitur
+            if (!stage1Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
+            spawnCampaignZombie(_v3.x, _v3.z, 1);
+        }
     }
 }
 
-// Persediaan stage 1 (tak kedaluwarsa): Ruang Persediaan berisi ammo + granat
-// + medkit sesuai denah; bonus kecil di toilet & area pemuatan.
+// Persediaan stage 1 (tak kedaluwarsa): SUPPLY ROOM (kanan-atas) berisi ammo +
+// granat + medkit sesuai denah; bonus kecil tersebar di break/restroom/storage.
 export function placeSupplies() {
     const put = (type, c, r, dx = 0, dz = 0) => {
         const p = s1Cell(c, r);
@@ -385,11 +390,14 @@ export function placeSupplies() {
         scene.add(mesh);
         drops.push({ mesh, type, timer: 1e9 });
     };
-    put('mag', 23, 3); put('mag', 24, 3, 8); put('mag', 26, 4, 0, 6);
-    put('grenade', 27, 3); put('grenade', 27, 4, 0, 8);
-    put('medkit', 23, 5); put('medkit', 25, 5, 6, 0);
-    put('medkit', 9, 15, 0, 6);    // toilet
-    put('mag', 20, 18);            // area pemuatan
+    // Supply Room (c21-28 r1-6; hindari rak dinding utara r1-2 & timur c27)
+    put('mag', 22, 3); put('mag', 23, 4, 4, 0);
+    put('grenade', 24, 3); put('grenade', 25, 4, 0, 4);
+    put('medkit', 23, 5); put('medkit', 25, 3, 6, 0);
+    // Bonus tersebar (sel lantai terbuka — sudah diverifikasi bebas furnitur)
+    put('mag', 2, 23);       // break room
+    put('medkit', 12, 25);   // restroom
+    put('mag', 20, 27);      // storage
 }
 
 export const stage1Scene = {
@@ -462,7 +470,7 @@ export const stage1Scene = {
 
     clampDropPos(x, z) { return [x, z]; },
 
-    hudStatus() { return `FLOOR 3 — Zombies: ${countStageZombies(1)} | Find the exit stairs`; },
+    hudStatus() { return `FLOOR 2 — Zombies: ${countStageZombies(1)} | Find the stairs down`; },
 
     // Landmark gedung: tangga keluar (hijau menyala; dijepit ke tepi saat jauh)
     radarLandmarks(plot) {
