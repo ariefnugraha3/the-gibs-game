@@ -5,7 +5,7 @@
 import { CFG, CAMP_M } from '../../core/config.js';
 import { player, robots } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
-import { buildHumanRobot, tintRobot, applyVariantTint, reachForScale } from '../../entities/robots.js';
+import { buildRobotMesh, reachForScale } from '../../entities/robots.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
 
 // Catatan arsitektur: KEDUA dunia stage dibangun sekali di awal campaign dan
@@ -14,30 +14,25 @@ import { navAim, turnToward } from '../../utils/pathfind.js';
 // jauh. Orkestrasi build/penempatan ada di stage1.js (scene masuk campaign).
 
 // Robot campaign: DIAM di tempat (state 'idle') sampai player mendekat /
-// tertembak. HP & kecepatan dari CFG.campaign; tag z.stage utk hitungan HUD
-// dan pembersihan saat pindah stage.
-// kind: 'walker' (default) | 'runner' | 'brute' | 'exploder' (CFG.robot.
-// variants) | 'boss' (CFG.campaign.boss — langsung 'chasing', granat luka
-// berkurang [boss.grenadeDamage], skor & jangkauan khusus).
-export function spawnCampaignRobot(x, z, stage, kind = 'walker') {
-    const built2 = buildHumanRobot();
+// tertembak. HP/speed/attack per KELAS (CFG.robot.classes); tag z.stage utk
+// hitungan HUD & pembersihan saat pindah stage.
+// cls: 'C' (default melee) | 'B' | 'A' (penembak, CFG.robot.classes) | 'boss'
+// (CFG.campaign.boss — langsung 'chasing', melee, granat luka berkurang
+// [boss.grenadeDamage], skor & jangkauan khusus).
+export function spawnCampaignRobot(x, z, stage, cls = 'C') {
+    // Rangka robot per kelas ('boss' = frame melee gelap raksasa dari builder yang sama)
+    const built2 = buildRobotMesh(cls);
     const zMesh = built2.group;
     zMesh.position.set(x, 0, z);
     zMesh.rotation.y = Math.random() * 6.283;   // arah hadap acak saat diam
     scene.add(zMesh);
 
-    const V = kind !== 'walker' && kind !== 'boss' ? CFG.robot.variants[kind] : null;
-    const B = kind === 'boss' ? CFG.campaign.boss : null;
-    // HP dibulatkan minimal 1 (runner hpMul kecil harus tetap mati 1 peluru, bukan 0)
-    const hp = B ? B.hp : Math.max(1, Math.round(CFG.campaign.robotHp * (V ? V.hpMul : 1)));
-    const speed = B ? B.speed
-        : (0.6 + Math.random() * 0.4) * CFG.campaign.robotSpeedScale * (V ? V.speedMul : 1);
-    const scl = B ? B.scale : (V ? V.scale : 1);
+    const B = cls === 'boss' ? CFG.campaign.boss : null;
+    const C = B ? null : CFG.robot.classes[cls];
+    const hp = B ? B.hp : C.hp;
+    const speed = B ? B.speed : C.speed * CFG.campaign.robotSpeedScale;
+    const scl = B ? B.scale : C.scale;
     if (scl !== 1) zMesh.scale.setScalar(scl);
-    // Pembeda skin varian (helper bersama survival+campaign supaya konsisten).
-    // Boss punya tint sendiri (badan raksasa) — di luar helper.
-    applyVariantTint(zMesh, kind);
-    if (kind === 'boss') tintRobot(zMesh, -0.02, -0.1, -0.12);
 
     robots.push({
         mesh: zMesh, hp, maxHp: hp, speed,
@@ -46,8 +41,13 @@ export function spawnCampaignRobot(x, z, stage, kind = 'walker') {
         sx: x, sz: z, lx: x, lz: z,
         jumpY0: 0, jumpY1: 0, arcH: 0, groundY: 0, vaultCd: 0,
         attackCd: 0, clawT: 0, clawSide: 1, moving: false,
-        kind, scl,
-        clawDmg: B ? B.clawDamage : (V ? V.clawDamage : CFG.robot.clawDamage),
+        kind: B ? 'boss' : cls, scl,
+        armor: B ? 0 : C.armor, attack: B ? B.clawDamage : C.attack,
+        clawDmg: B ? B.clawDamage : C.attack,
+        ranged: B ? false : C.ranged,
+        fireDelaySec: B ? 0 : (C.fireDelaySec || 0), bulletSpeed: B ? 0 : (C.bulletSpeed || 0),
+        range: B ? 0 : (C.rangeMeters || 0) * CAMP_M,   // radius tembak (m -> unit; 0 = melee)
+        fireCd: B ? 0 : Math.random() * (C.fireDelaySec || 0),
         // reach mengikuti skala badan (lihat reachForScale) — badan besar tidak
         // boleh mendorong player keluar dari jangkauan cakarnya sendiri
         reachMul: reachForScale(scl, B ? B.reachMul : 1)
@@ -94,8 +94,16 @@ export function campaignRobotAI(z, dt, step, stage) {
     // selain itu menuju waypoint agar memutari tembok/median. Gerak memakai
     // heading berlaju-putar-terbatas (turnToward) -> belokan melengkung alami.
     const aim = navAim(z, stage.nav, camera.position.x, camera.position.z, dt, step);
-    z.moving = !aim.direct
-        || distToEye > player.radius + CFG.robot.stopRange * (z.reachMul || 1);
+    // PENEMBAK (B/A): berhenti di radius tembaknya (0.95×range) bila garis
+    // pandang bebas, lalu menembak dari tempat (gerbang tembak = z.losOK di
+    // robots.js); melee merapat sampai jangkauan cakar seperti biasa.
+    const stopD = z.ranged && aim.direct ? (z.range || 70) * 0.95
+        : player.radius + CFG.robot.stopRange * (z.reachMul || 1);
+    z.moving = !aim.direct || distToEye > stopD;
+    z.losOK = aim.direct;
+    // Stance MEMBIDIK (lengan senapan terangkat, animateRobotRig): berdiri di
+    // radius tembak dgn garis pandang bebas = mengacungkan senjata.
+    if (z.ranged) z.aiming = !z.moving && aim.direct;
     if (z.moving) {
         const ang = turnToward(z,
             Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);

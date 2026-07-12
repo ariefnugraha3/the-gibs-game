@@ -6,8 +6,10 @@
 // panel deskripsi + harga LEBAR PENUH di bawah grid (diperbarui saat hover/pilih
 // kartu, TIDAK membeli); bawah-kiri = skor, bawah-kanan = Start Next Wave. Item:
 // isi ulang Ammo/Grenade, Replenish Health, Medkit, Heal & Strengthen Monas,
-// Radar, dan BELI Shotgun / Assault Rifle. Mata uang = skor. Membeli senjata ke-3
-// (sudah bawa 2 = maks) -> tampilkan pemilih GANTI senjata.
+// Radar, BELI Shotgun / Assault Rifle / Grenade Launcher, dan UPGRADE senjata
+// (Lv2 lalu Lv3 = maks, +25% damage base per level — kartu hanya muncul utk
+// senjata yang dimiliki). Mata uang = skor. Membeli senjata ke-4
+// (slot penuh) -> tampilkan pemilih GANTI senjata.
 // Semua teks UI English (aturan permanen). Impor Monas/Next-Wave dari scene
 // (index.js) — circular, hanya dipakai DI DALAM fungsi (pola arsitektur).
 
@@ -51,9 +53,42 @@ export function openShop() {
     document.exitPointerLock();
 }
 
+// --- Item upgrade senjata (level 2 lalu 3 = maks) ---------------------------
+// Tiap level menambah +upgradeDamagePct (25%) dari damage BASE (Lv2 = 125%,
+// Lv3 = 150%) — diterapkan weaponDamage() di weapons.js saat peluru lahir
+// (peluru launcher meneruskannya ke boom AoE). Item hanya MUNCUL bila
+// senjatanya sedang dimiliki (syarat user); level tersimpan per-tipe
+// (player.weaponLvl, per-run) sehingga bertahan bila senjatanya diganti
+// lalu dibeli lagi. Harga per tingkat dari CFG.shop.upgradeCosts[w].
+const ROMAN = ['I', 'II', 'III'];
+function upgradeItem(w) {
+    const label = WEAPON_DEF[w].name;
+    const maxL = CFG.weapons.maxWeaponLevel;
+    const lvl = (player.weaponLvl && player.weaponLvl[w]) || 1;
+    const pct = Math.round((CFG.weapons.upgradeDamagePct || 0.25) * 100);
+    const costs = CFG.shop.upgradeCosts[w] || [];
+    const tier = Math.min(lvl, maxL - 1);          // tingkat yang DIJUAL kartu ini (lvl+1)
+    return {
+        id: 'up_' + w, upgrade: w,
+        name: `Upgrade ${label} ${ROMAN[Math.min(tier, ROMAN.length - 1)]}`,
+        cost: costs[tier - 1] != null ? costs[tier - 1] : 0,
+        desc: lvl >= maxL
+            ? `The ${label} is fully upgraded (Level ${maxL}, +${pct * (maxL - 1)}% damage).`
+            : `Upgrade the ${label} to Level ${lvl + 1}. Each level adds +${pct}% of its base damage. Current: Level ${lvl}.`,
+        maxedMsg: `The ${label} is already fully upgraded`,
+        apply() {
+            const cur = (player.weaponLvl && player.weaponLvl[w]) || 1;
+            if (cur >= maxL) return `The ${label} is already fully upgraded`;
+            player.weaponLvl[w] = cur + 1;
+        }
+    };
+}
+
 // --- Katalog item (data-driven) --------------------------------------------
-// { id, name, desc, cost, weapon?, apply() }. apply() -> null bila sukses atau
-// string alasan penolakan (penuh/dimiliki); skor TIDAK dipotong saat ditolak.
+// { id, name, desc, cost, weapon?, upgrade?, maxedMsg?, apply() }. apply() ->
+// null bila sukses atau string alasan penolakan (penuh/dimiliki); skor TIDAK
+// dipotong saat ditolak. Item upgrade (up_<w>) ikut di akhir daftar, hanya
+// untuk senjata yang dimiliki.
 function catalog() {
     const S = CFG.shop, o = player.owned || {};
     return [
@@ -122,9 +157,13 @@ function catalog() {
         },
         {
             id: 'launcher', name: 'Grenade Launcher', cost: S.launcherCost, weapon: 'launcher',
-            desc: 'Fires 40mm grenade rounds that EXPLODE on impact (including on a direct robot hit) — 100 area damage. Slow to fire; carries 50 rounds.',
+            // Angka damage/kapasitas dibaca dari CFG saat katalog dibangun —
+            // tidak basi bila gameplay.json di-retune.
+            desc: `Fires 40mm grenade rounds that EXPLODE on impact (including on a direct robot hit) — ${CFG.weapons.launcher.damage} area damage. Slow to fire; carries ${CFG.weapons.launcher.maxAmmo} rounds.`,
             apply() { return buyWeapon('launcher', 'Grenade Launcher'); }
         },
+        // Upgrade senjata: hanya senjata yang sedang DIMILIKI yang kartunya muncul.
+        ...['pistol', 'shotgun', 'rifle', 'launcher'].filter(w => o[w]).map(upgradeItem),
     ];
 }
 
@@ -146,6 +185,7 @@ function ownedNote(it) {
     if (it.id === 'radar' && player.hasRadar) return 'Owned';
     if (it.id === 'medkit' && player.medkits >= CFG.player.maxMedkits) return 'Full';
     if (it.id === 'strengthenMonas' && isMonasFullyStrengthened()) return 'Maxed';
+    if (it.upgrade && (player.weaponLvl[it.upgrade] || 1) >= CFG.weapons.maxWeaponLevel) return 'Maxed';
     return null;
 }
 
@@ -159,7 +199,7 @@ export function shopPurchase(id) {
     const note = ownedNote(it);
     if (note === 'Owned') return `${it.name} already owned`;
     if (note === 'Full') return 'Medkit stock is full';
-    if (note === 'Maxed') return 'The Monument is already fully reinforced';
+    if (note === 'Maxed') return it.maxedMsg || 'The Monument is already fully reinforced';
     if (score < it.cost) return 'Not enough score';
     // Beli senjata tipe baru sementara slot sudah penuh (maks) -> minta pilih
     // yang diganti; skor dipotong saat konfirmasi (shopReplaceWeapon).

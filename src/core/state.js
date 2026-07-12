@@ -62,6 +62,11 @@ export const player = {
     // drops/shop) — sinkron via syncOwnedFromWeapons. Di-set configurePlayer per mode.
     weapons: ['pistol'],
     owned: { pistol: true, rifle: true, shotgun: true, launcher: true },
+    // Level upgrade per senjata (shop Survival, 2026-07-12): 1..maxWeaponLevel.
+    // Damage efektif = base × (1 + upgradeDamagePct·(lvl−1)) — lihat weaponDamage()
+    // di weapons.js. Level bertahan walau senjatanya diganti lalu dibeli lagi
+    // (per-run; direset configurePlayer).
+    weaponLvl: { rifle: 1, pistol: 1, shotgun: 1, launcher: 1 },
     hasRadar: true,   // radar minimap: Survival mulai TANPA (dibeli di shop); mode lain punya
     isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
     vy: 0, onGround: true,           // vertikal: gravitasi + jatuh dari tepian (lompat dihapus)
@@ -96,6 +101,7 @@ export function configurePlayer() {
     player.hasRadar = !survivalStart;
     player.dmgMul = 1; player.reloadMul = 1;
     player.upDmg = 0; player.upReload = 0;
+    player.weaponLvl = { rifle: 1, pistol: 1, shotgun: 1, launcher: 1 };
 }
 
 export const keys = { w: false, a: false, s: false, d: false };   // Shift kini = dodge (aksi diskret), bukan tombol tahan
@@ -103,6 +109,7 @@ export const mouse = { isDown: false };
 
 // ----------- Container entitas (di-splice mundur di update) ----------- //
 export const bullets = [];
+export const enemyBullets = [];   // peluru DITEMBAKKAN robot ranged (kelas B/A) -> melukai player
 export const robots = [];
 export const grenades = [];
 export const explosions = [];
@@ -118,6 +125,7 @@ export const GEO = {
 };
 export const MAT = {
     bullet: new THREE.MeshBasicMaterial({ color: 0xffe27a, toneMapped: false }),       // tracer terang (ikut bloom)
+    enemyBullet: new THREE.MeshBasicMaterial({ color: 0x55b8ff, toneMapped: false }),   // peluru robot (BIRU plasma, beda dari tracer kuning player)
     grenade: new THREE.MeshLambertMaterial({ color: 0x2ecc71, emissive: 0x0a3d1e }),
     dropNade: new THREE.MeshLambertMaterial({ color: 0x2ecc71, emissive: 0x0e4d24 }),
 };
@@ -135,6 +143,7 @@ export const _kickEuler = new THREE.Euler(0, 0, 0, 'YXZ');                // ten
 export function clearArray(arr, scene) {
     arr.forEach(o => {
         if (o.mesh.material && o.mesh.material.dispose && o.mesh.material !== MAT.bullet
+            && o.mesh.material !== MAT.enemyBullet
             && o.mesh.material !== MAT.grenade && o.mesh.material !== MAT.dropNade) o.mesh.material.dispose();
         if (o.light) o.light.intensity = 0;   // lampu pool: cukup dipadamkan, tetap di scene
         scene.remove(o.mesh);

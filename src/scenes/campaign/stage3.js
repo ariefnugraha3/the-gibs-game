@@ -52,10 +52,10 @@ function placeRobots() {
     const total = CFG.campaign.stage3Robots;
     let placed = 0, tries = 0;
     while (placed < total && tries++ < 900) {
-        // Campuran varian: 60% walker, 25% runner, 10% brute, 5% exploder
+        // Campuran kelas: 60% C (melee), 30% B (penembak), 10% A (penembak berat)
         const r = Math.random();
-        const kind = r < 0.05 ? 'exploder' : r < 0.15 ? 'brute' : r < 0.4 ? 'runner' : 'walker';
-        if (put(rand(-PARK.hx + 40, PARK.hx - 40), rand(-PARK.hz + 40, PARK.hz - 40), kind)) placed++;
+        const cls = r < 0.1 ? 'A' : r < 0.4 ? 'B' : 'C';
+        if (put(rand(-PARK.hx + 40, PARK.hx - 40), rand(-PARK.hz + 40, PARK.hz - 40), cls)) placed++;
     }
 }
 

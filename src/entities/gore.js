@@ -1,7 +1,8 @@
-// GORE (2026-07-11): robot tidak lagi lenyap seketika saat mati — ia TERJATUH
-// (mayat toppling lalu memudar), MUNCRAT darah, dan ANGGOTA TUBUHNYA TERLEPAS
-// (gib). Ledakan MENGHANCURKAN tubuh (dismember penuh). Plus genangan darah di
-// tanah. Dipisah dari effects.js (yang memegang ledakan + sprite percikan darah).
+// GORE (2026-07-11; re-tema COOLANT 2026-07-12): robot tidak lenyap seketika
+// saat mati — ia TERJATUH (bangkai toppling lalu memudar), MUNCRAT cairan
+// COOLANT hijau, dan ANGGOTA MESINNYA TERLEPAS (gib serpihan logam). Ledakan
+// MENGHANCURKAN rangka (dismember penuh). Plus genangan coolant di tanah.
+// Dipisah dari effects.js (yang memegang ledakan + sprite percikan coolant).
 //
 // Pool TETAP: gib & decal dibuat SEKALI di initGore (disembunyikan, tetap di
 // scene) supaya program shader-nya ikut terkompilasi saat warmup preload
@@ -23,14 +24,14 @@ const GIB_GRAV = 150;            // gravitasi gib (visual, unit/dtk²)
 let GIB_GEO = null;              // geometri potongan tubuh (dibagi)
 const _wp = new THREE.Vector3(); // scratch posisi dunia anggota tubuh
 
-// Tekstur genangan darah: blob merah gelap + tetesan (latar transparan)
+// Tekstur genangan COOLANT: blob hijau + tetesan (latar transparan)
 function drawBloodDecal(g, w, h) {
     const cx = w / 2, cy = h / 2;
     const blob = (x, y, r, a) => {
         const rg = g.createRadialGradient(x, y, 0, x, y, r);
-        rg.addColorStop(0, `rgba(96,8,8,${a})`);
-        rg.addColorStop(0.7, `rgba(66,5,5,${a * 0.8})`);
-        rg.addColorStop(1, 'rgba(48,3,3,0)');
+        rg.addColorStop(0, `rgba(30,170,86,${a})`);
+        rg.addColorStop(0.7, `rgba(18,124,60,${a * 0.8})`);
+        rg.addColorStop(1, 'rgba(10,84,40,0)');
         g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill();
     };
     blob(cx, cy, 26, 0.92);
@@ -39,14 +40,14 @@ function drawBloodDecal(g, w, h) {
 }
 
 export function initGore(sc) {
-    // Geometri gib: potongan lengan/kaki (silinder), bongkah daging (elipsoid), kepala (bola)
+    // Geometri gib: potongan aktuator lengan/kaki (silinder), pecahan pelat (elipsoid), kepala (bola)
     const limb = new THREE.CylinderGeometry(0.42, 0.3, 2.4, 6);
     const chunk = new THREE.SphereGeometry(0.62, 7, 5); chunk.scale(1.25, 0.8, 1.0);
     const head = new THREE.SphereGeometry(0.82, 8, 6);
     GIB_GEO = [limb, chunk, head, chunk, limb];   // campuran bentuk per slot pool
 
     for (let i = 0; i < GIB_COUNT; i++) {
-        const m = new THREE.MeshLambertMaterial({ color: 0x6a0f0c, transparent: true, opacity: 1 });
+        const m = new THREE.MeshLambertMaterial({ color: 0x3d444c, transparent: true, opacity: 1 });
         const mesh = new THREE.Mesh(GIB_GEO[i % GIB_GEO.length], m);
         mesh.castShadow = false; mesh.visible = false;
         sc.add(mesh);
@@ -56,7 +57,7 @@ export function initGore(sc) {
     const decalTex = makeTexture(64, 64, drawBloodDecal);
     const decalGeo = new THREE.PlaneGeometry(1, 1);
     for (let i = 0; i < DECAL_COUNT; i++) {
-        const m = new THREE.MeshBasicMaterial({ map: decalTex, color: 0x8f1010, transparent: true, opacity: 0, depthWrite: false });
+        const m = new THREE.MeshBasicMaterial({ map: decalTex, color: 0x2fbf66, transparent: true, opacity: 0, depthWrite: false });
         const mesh = new THREE.Mesh(decalGeo, m);
         mesh.rotation.x = -Math.PI / 2; mesh.visible = false; mesh.renderOrder = 1;
         sc.add(mesh);
@@ -64,8 +65,8 @@ export function initGore(sc) {
     }
 }
 
-// Genangan darah pipih di tanah (di titik mati / benturan gib). Pool round-robin.
-export function spawnBloodDecal(x, z, s, tone = 0x8f1010) {
+// Genangan coolant pipih di tanah (di titik mati / benturan gib). Pool round-robin.
+export function spawnBloodDecal(x, z, s, tone = 0x2fbf66) {
     if (!DECAL_POOL.length) return;
     const d = DECAL_POOL[nextDecal++ % DECAL_POOL.length];
     d.mesh.visible = true;
@@ -97,18 +98,18 @@ export function spawnGibs(x, y, z, count, dirx, dirz, power, tone, restY) {
         g.life = 2.4 + Math.random() * 1.4;
         g.rest = false; g.bled = false;
         g.restY = restY != null ? restY : 0.3;
-        g.mesh.material.color.setHex(tone != null ? tone : 0x6a0f0c);
+        g.mesh.material.color.setHex(tone != null ? tone : 0x3d444c);
         g.mesh.material.opacity = 1;
     }
 }
 
-// Warna anggota tubuh (baca material mesh pertama di pivot) → gib mengikuti warna
-// baju/kulit robot itu, digelapkan sedikit supaya berkesan berdarah.
+// Warna anggota mesin (baca material mesh pertama di pivot) → gib mengikuti warna
+// pelat armor/rangka robot itu, digelapkan sedikit (bekas hangus/oli).
 function limbTone(piv) {
     let hex = null;
     piv.traverse(o => { if (hex === null && o.isMesh && o.material && o.material.color) hex = o.material.color.getHex(); });
-    if (hex === null) return 0x6a0f0c;
-    const c = new THREE.Color(hex); c.offsetHSL(0, 0.1, -0.12);
+    if (hex === null) return 0x3d444c;
+    const c = new THREE.Color(hex); c.offsetHSL(0, 0.05, -0.12);
     return c.getHex();
 }
 
@@ -203,7 +204,7 @@ export function updateGore(dt) {
         if (g.life < 0.5) g.mesh.material.opacity = Math.max(0, g.life / 0.5);
         if (g.life <= 0) { g.mesh.visible = false; g.mesh.material.opacity = 1; }
     }
-    // --- Genangan darah: tahan lalu memudar lambat ---
+    // --- Genangan coolant: tahan lalu memudar lambat ---
     for (let k = 0; k < DECAL_POOL.length; k++) {
         const d = DECAL_POOL[k];
         if (d.life <= 0) continue;

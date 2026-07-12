@@ -31,6 +31,21 @@ const _fwd = new THREE.Vector3();   // sementara: arah hadap utk dodge mundur
 let footT = 0;    // irama langkah kaki player (detik antar langkah)
 let zStepT = 0;   // irama langkah robot (satu suara global, bukan per robot)
 
+// ----- Kecepatan DIREKSIONAL relatif arah bidik/kursor (2026-07-12): berlari
+// SEARAH kursor = kecepatan penuh; menyamping = ×strafeWeight (0.5); MUNDUR
+// membelakangi kursor = ×backpedalWeight (0.5) — orang tak bisa berlari mundur/
+// menyamping secepat lari maju. Blend halus lewat dot(arah gerak, arah bidik):
+// maju-serong otomatis di antaranya (mis. 0.75). (mx,mz) WAJIB ternormalisasi. -----
+function dirSpeedMul(mx, mz) {
+    camera.getWorldDirection(_fwd);   // yaw pivot = arah kursor (updateTopdownAim)
+    const al = Math.hypot(_fwd.x, _fwd.z) || 1;
+    const dot = (mx * _fwd.x + mz * _fwd.z) / al;
+    const M = CFG.movement;
+    return dot >= 0
+        ? M.strafeWeight + (1 - M.strafeWeight) * dot                        // samping -> maju
+        : M.strafeWeight + (M.backpedalWeight - M.strafeWeight) * (-dot);    // samping -> mundur
+}
+
 // Kuras stamina (melee/dodge). Jatuh ke 0 -> exhausted (terkunci sampai regen
 // mencapai recoverThreshold) — dulu dipicu sprint; kini oleh dodge & melee.
 export function drainStamina(n) {
@@ -98,8 +113,9 @@ export function resetPlayerState() {
 
 // --- Gerak player per frame (top-down 2026-07-11: WASD = SUMBU LAYAR, karena
 // kamera render ber-yaw tetap menghadap -z — W atas layar, S bawah, A kiri,
-// D kanan; kecepatan seragam ke semua arah ala Alien Shooter) + gerak
-// klik-kanan ke titik + stamina + vertikal. Jongkok & ADS dihapus. ---
+// D kanan; KECEPATAN DIREKSIONAL 2026-07-12: penuh saat searah kursor,
+// ×0.5 menyamping/mundur — lihat dirSpeedMul) + gerak klik-kanan ke titik +
+// stamina + vertikal. Jongkok & ADS dihapus. ---
 export function updatePlayerMovement(dt, step) {
     const oldX = camera.position.x, oldZ = camera.position.z;
     // Input WASD digabung jadi SATU vektor lalu dinormalisasi terhadap panjang
@@ -135,21 +151,26 @@ export function updatePlayerMovement(dt, step) {
         camera.position.z += dodgeDirZ * spd;
         if (dodgeT <= 0) { dodgeActive = false; dodgeProgress = 1; setDodgeInvuln(false); }
     } else {
-        const moveSpeed = player.speed * medkitMul * step;   // kecepatan seragam (sprint dihapus)
+        const moveSpeed = player.speed * medkitMul * step;   // kecepatan dasar (dikali arah-relatif-kursor di bawah)
         if (keyMove) {
-            const k = moveSpeed / Math.hypot(fwd, side);
+            const h = Math.hypot(fwd, side);
+            // Pengali direksional: dihitung dari arah gerak ternormalisasi vs arah kursor
+            const mul = dirSpeedMul(-side / h, -fwd / h);
+            const k = moveSpeed * mul / h;
             camera.position.x += -side * k;   // A = kiri layar = -x dunia
             camera.position.z += -fwd * k;    // W = atas layar = -z dunia
         } else if (moveTarget) {
             // Gerak klik-kanan: lurus ke target dgn tabrakan dinding biasa
             // (menyusur); berhenti saat TIBA atau MACET (tak ada kemajuan ~1.2 dtk,
             // mis. tertahan dinding) supaya tidak berlari di tempat selamanya.
+            // Pengali direksional juga berlaku (mundur/menyamping dari kursor = lambat).
             const dx = moveTarget.x - camera.position.x;
             const dz = moveTarget.z - camera.position.z;
             const d = Math.hypot(dx, dz);
             if (d < 3.5) clearMoveTarget();
             else {
-                const k = Math.min(moveSpeed, d) / d;
+                const mul = dirSpeedMul(dx / d, dz / d);
+                const k = Math.min(moveSpeed * mul, d) / d;
                 camera.position.x += dx * k;
                 camera.position.z += dz * k;
                 if (d < moveLastD - 0.05) { moveLastD = d; moveStuckT = 0; }
@@ -175,7 +196,7 @@ export function updatePlayerMovement(dt, step) {
         const zdx = camera.position.x - zb.mesh.position.x;
         const zdz = camera.position.z - zb.mesh.position.z;
         const zd = Math.hypot(zdx, zdz);
-        const br = ZBODY_R * (zb.scl || 1);   // varian besar (brute/boss) = badan lebih lebar
+        const br = ZBODY_R * (zb.scl || 1);   // kelas besar (A/boss) = badan lebih lebar
         if (zd < br && zd > 0.001) {
             const push = (br - zd) / zd;
             camera.position.x += zdx * push;

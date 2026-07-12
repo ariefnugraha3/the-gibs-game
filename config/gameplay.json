@@ -8,7 +8,8 @@
         "medkitHealPct": 0.7,
         "maxMedkits": 2,
         "medkitUseSec": 2,
-        "medkitSlowMul": 0.75
+        "medkitSlowMul": 0.75,
+        "deathDelaySec": 4
     },
     "stamina": {
         "max": 100,
@@ -21,16 +22,18 @@
         "staminaCost": 20,
         "cooldownSec": 1.0,
         "durationSec": 0.45,
-        "speed": 4.2
+        "speed": 2.2
     },
     "movement": {
         "adsMultiplier": 0.7,
-        "backpedalWeight": 0.7,
-        "strafeWeight": 0.8,
+        "backpedalWeight": 0.5,
+        "strafeWeight": 0.5,
         "walkSpreadPenalty": 1.25
     },
     "weapons": {
         "maxWeapons": 3,
+        "upgradeDamagePct": 0.25,
+        "maxWeaponLevel": 3,
         "bulletSpeed": 27,
         "bulletLife": 120,
         "bulletDamage": 20,
@@ -90,18 +93,18 @@
     "robot": {
         "bodyHitRadius": 5,
         "bodyBlockRadius": 7.5,
-        "clawDamage": 5,
         "clawCooldownSec": 1,
         "clawRange": 3.5,
         "stopRange": 3.0,
         "repathSec": 0.5,
         "stuckSec": 0.4,
         "turnRadPerSec": 9,
+        "rangedBulletLife": 120,
         "score": { "normalKill": 100, "specialKill": 150 },
-        "variants": {
-            "runner": { "hpMul": 0.34, "speedMul": 1.8, "scale": 0.75, "clawDamage": 20 },
-            "brute": { "hpMul": 4, "speedMul": 0.6, "scale": 1.25, "clawDamage": 40 },
-            "exploder": { "hpMul": 0.67, "speedMul": 1.1, "scale": 1.0, "clawDamage": 20, "boomRadius": 28, "boomDamage": 40 }
+        "classes": {
+            "C": { "hp": 60, "speed": 0.55, "armor": 0, "attack": 5, "ranged": false, "scale": 1.0 },
+            "B": { "hp": 90, "speed": 0.75, "armor": 0, "attack": 3, "ranged": true, "rangeMeters": 8, "fireDelaySec": 1.0, "bulletSpeed": 1, "scale": 1.1 },
+            "A": { "hp": 120, "speed": 0.95, "armor": 0, "attack": 6, "ranged": true, "rangeMeters": 10, "fireDelaySec": 1.5, "bulletSpeed": 0.5, "scale": 1.2 }
         }
     },
     "survival": {
@@ -114,26 +117,17 @@
         "maxRobotsBase": 20,
         "maxRobotsStep": 2,
         "maxRobotsCap": 40,
-        "robotHpBase": 50,
-        "robotHpPerTwoWaves": 8,
-        "robotHpMaxMul": 2.5,
-        "robotSpeedBase": 0.6,
-        "robotSpeedRand": 0.4,
-        "robotSpeedScale": 1,
         "robotSpeedWaveMin": 0.72,
         "robotSpeedWaveStep": 0.02,
         "robotSpeedWaveMax": 1.0,
-        "runnerChanceBase": 0.05,
-        "runnerChancePerWave": 0.02,
-        "runnerChanceMax": 0.35,
-        "bruteFromWave": 4,
-        "bruteChance": 0.12,
-        "bruteChancePerWave": 0.006,
-        "bruteChanceMax": 0.18,
-        "exploderFromWave": 6,
-        "exploderChance": 0.1,
-        "exploderChancePerWave": 0.012,
-        "exploderChanceMax": 0.28,
+        "classBFromWave": 3,
+        "classBChance": 0.15,
+        "classBChancePerWave": 0.02,
+        "classBChanceMax": 0.45,
+        "classAFromWave": 6,
+        "classAChance": 0.08,
+        "classAChancePerWave": 0.015,
+        "classAChanceMax": 0.3,
         "monasMaxHp": 5000,
         "strengthenMonasStages": [7500, 10000, 12500],
         "playerAggroMeters": 15,
@@ -148,7 +142,6 @@
         "monasFogDurationSec": 60
     },
     "campaign": {
-        "robotHp": 50,
         "robotSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,
@@ -178,7 +171,13 @@
         "radarCost": 5600,
         "shotgunCost": 2800,
         "rifleCost": 3200,
-        "launcherCost": 4000
+        "launcherCost": 4000,
+        "upgradeCosts": {
+            "pistol": [1000, 2000],
+            "shotgun": [1600, 3200],
+            "rifle": [2000, 4000],
+            "launcher": [2400, 4800]
+        }
     },
     "difficulty": {
         "easy": { "robotHpMul": 0.75, "robotDamageMul": 0.5, "spawnIntervalMul": 1.3 },

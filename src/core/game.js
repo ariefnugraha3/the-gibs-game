@@ -2,9 +2,10 @@
 // persis), game over, dan reset/restart. Logika detail hidup di modul
 // entities/*; logika khas mode hidup di scene aktif.
 
+import { CFG } from './config.js';
 import {
-    isPaused, isGameOver, setGameOver, setScore, score, highScore, setHighScore,
-    robots, bullets, grenades, explosions, drops, clearArray, configurePlayer,
+    isPaused, isGameOver, setGameOver, setScore, score, highScore, setHighScore, player,
+    robots, bullets, enemyBullets, grenades, explosions, drops, clearArray, configurePlayer,
     stats, resetStats
 } from './state.js';
 import { scene } from './renderer.js';
@@ -14,35 +15,77 @@ import { updateUI } from './hud.js';
 import { updateWeaponTimers, updateWeaponState, updateShooting, resetWeapons } from '../entities/weapons.js';
 import { updatePlayerMovement, resetPlayerState } from '../entities/player.js';
 import { updateGrenades } from '../entities/grenades.js';
-import { updateExplosions, updateBloodPool, resetBloodPool } from '../entities/effects.js';
-import { updateGore, resetGore } from '../entities/gore.js';
+import { updateExplosions, updateBloodPool, resetBloodPool, spawnBloodBurst } from '../entities/effects.js';
+import { updateGore, resetGore, spawnBloodDecal } from '../entities/gore.js';
 import { updateDrops } from '../entities/drops.js';
 import { updateBullets } from '../entities/bullets.js';
-import { updateRobots, disposeRobot, resetRobotsFx } from '../entities/robots.js';
+import { updateRobots, updateEnemyBullets, disposeRobot, resetRobotsFx, PLAYER_BLOOD_HEX } from '../entities/robots.js';
+import { avatarGroup, hideMoveMarker, playAvatarDeath, resetAvatarDeath } from '../entities/playerAvatar.js';
 import { releaseInputs, requestLock } from './input.js';
+
+// ===== Sekuens KEMATIAN player (2026-07-12; revisi "mati biasa"): HP habis
+// TIDAK langsung layar GAME OVER — avatar ROBOH ke arah dorongan damage
+// terakhir (animasi playAvatarDeath di playerAvatar.js: rebah di pivot kaki,
+// senjata terlepas, tubuh lemas) dengan semburan darah sedang + genangan di
+// bawah badan (TANPA gib/ledakan), dunia tetap hidup TANPA kendali player,
+// lalu layar muncul setelah CFG.player.deathDelaySec (2 dtk). Dipicu
+// startPlayerDeath(dirx, dirz) dari semua titik damage player di robots.js. =====
+let playerDeathT = -1;   // >= 0 = sekuens kematian sedang berjalan
+export function isPlayerDying() { return playerDeathT >= 0; }
+
+export function startPlayerDeath(dirx = 0, dirz = 1) {
+    if (playerDeathT >= 0 || isGameOver) return;   // sekali saja
+    playerDeathT = CFG.player.deathDelaySec != null ? CFG.player.deathDelaySec : 2;
+    player.hp = 0;
+    releaseInputs();        // lepaskan WASD/klik yang tertahan (pointer tetap terkunci)
+    hideMoveMarker();
+    updateUI();
+    const dl = Math.hypot(dirx, dirz) || 1;
+    const dx = dirx / dl, dz = dirz / dl;
+    playAvatarDeath(dx, dz);   // tubuh roboh searah dorongan (avatar TETAP tampil)
+    // Darah kematian sedang (bukan ledakan): satu semburan searah roboh +
+    // genangan di titik jatuh dan di arah rebah badan (kepala mendarat ~6 unit).
+    const p = avatarGroup.position;
+    spawnBloodBurst(p.x, p.y + 6, p.z, dx, dz, 12, 1.0, 2.6, PLAYER_BLOOD_HEX);
+    spawnBloodDecal(p.x, p.z, 5, 0x8f1616);
+    spawnBloodDecal(p.x + dx * 6, p.z + dz * 6, 3.5, 0x8f1616);
+}
 
 // Urutan blok = urutan update() lama — JANGAN diubah tanpa alasan kuat:
 // mis. peluru harus maju SEBELUM hit test robot memakai segmen sweep-nya.
 export function updateGame(dt, step, T) {
     if (isGameOver || isPaused) return;
 
-    if (activeScene.updateMode) activeScene.updateMode(dt);   // survival: wave + spawner
+    // Sekuens kematian: hitung mundur -> layar GAME OVER. Selama itu dunia
+    // (darah/gib/robot/peluru) tetap berjalan, tapi SEMUA kendali & update
+    // player (gerak/tembak/timer senjata) dan wave/win-check dilewati.
+    const dying = playerDeathT >= 0;
+    if (dying) {
+        playerDeathT -= dt;
+        if (playerDeathT <= 0) { playerDeathT = -1; gameOver(false); return; }
+    }
 
-    updateWeaponTimers(dt);        // animasi ganti senjata + melee (hit di 45%)
-    updatePlayerMovement(dt, step);// stamina, WASD, tabrakan scene, lompat, langkah
-    if (isGameOver) return;        // (jaga-jaga: transisi scene tak mengakhiri game)
-    updateWeaponState(dt);         // recoil/heat decay + posisi z senjata
-    updateShooting();              // klik kiri -> spawn peluru
+    if (!dying && activeScene.updateMode) activeScene.updateMode(dt);   // survival: wave + spawner
+
+    if (!dying) {
+        updateWeaponTimers(dt);        // animasi ganti senjata + melee (hit di 45%)
+        updatePlayerMovement(dt, step);// stamina, WASD, tabrakan scene, lompat, langkah
+        if (isGameOver) return;        // (jaga-jaga: transisi scene tak mengakhiri game)
+        updateWeaponState(dt);         // recoil/heat decay + posisi z senjata
+        updateShooting();              // klik kiri -> spawn peluru
+    }
     updateGrenades(dt);            // balistik + fuse + ledakan
     updateExplosions(dt);          // animasi visual ledakan/puff
     updateBloodPool(dt);           // pudarkan percikan darah
     updateDrops(dt, T);            // bob item + pickup + kedaluwarsa
     updateBullets(step);           // maju + mati di dinding scene
-    updateRobots(dt, step);       // AI scene + cakar + rig + hit peluru (+ spawn mayat/gib saat mati)
-    if (isGameOver) return;        // cakar bisa mengakhiri game di tengah loop
+    updateRobots(dt, step);       // AI scene + serang (cakar/tembak) + rig + hit peluru (+ spawn mayat/gib saat mati)
+    if (isGameOver) return;        // Monas runtuh (damageMonas) tetap mengakhiri game seketika
+    updateEnemyBullets(dt, step);  // peluru robot ranged -> hit player (bisa memicu sekuens kematian)
+    if (isGameOver) return;        // peluru ber-monasDmg bisa meruntuhkan Monas
     updateGore(dt);                // mayat terjatuh/memudar + gib balistik + genangan darah
 
-    if (activeScene.checkWin) activeScene.checkWin();   // campaign stage akhir
+    if (!dying && activeScene.checkWin) activeScene.checkWin();   // campaign stage akhir
 }
 
 // title opsional: judul khusus scene (mis. survival 'THE MONUMENT HAS FALLEN');
@@ -67,6 +110,8 @@ export function resetGame() {
     setScore(0);
     resetStats();          // statistik run baru
     configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG
+    playerDeathT = -1;     // batalkan sekuens kematian yang mungkin berjalan
+    resetAvatarDeath();    // bangkit dari pose roboh + prop senjata dievaluasi ulang
     releaseInputs();
     resetWeapons();        // batalkan reload/ganti/melee; kembali ke rifle
     resetPlayerState();    // vy/onGround/stamina + bar stamina
@@ -77,10 +122,11 @@ export function resetGame() {
     // Bersihkan seluruh entitas (material per-instance di-dispose)
     robots.forEach(z => { disposeRobot(z); scene.remove(z.mesh); });
     robots.length = 0;
-    resetRobotsFx();   // antrean ledakan exploder yang belum terproses
+    resetRobotsFx();   // antrean ledakan (peluru Grenade Launcher) yang belum terproses
     resetBloodPool();   // pool tetap, cukup disembunyikan
     resetGore();        // buang mayat + sembunyikan pool gib/genangan darah
     clearArray(bullets, scene);
+    clearArray(enemyBullets, scene);   // peluru robot ranged
     clearArray(grenades, scene);
     clearArray(explosions, scene);
     clearArray(drops, scene);

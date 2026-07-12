@@ -39,8 +39,8 @@ let switchTarget = null;
 const SWITCH_TIME = 0.5;
 // Melee (F): pukul dgn popor senjata aktif; 1x pukul membunuh robot
 let meleeCd = 0, meleeS = 0, meleeHitDone = false;
-const MELEE_TIME = 0.45;   // durasi ayunan (animasi; cooldown & range dari CFG.melee)
-let gunRecoil = 0;      // kickback senjata (visual, tak mengganggu mouse-look)
+export const MELEE_TIME = 0.45;   // durasi ayunan (animasi; cooldown & range dari CFG.melee) — diekspor: playerAvatar membaca utk animasi sabetan pedang
+export let gunRecoil = 0;   // kickback senjata (visual; 1 saat menembak -> meluruh dt·6; dibaca playerAvatar utk hentakan laras naik)
 let gunHeat = 0;        // "panas laras" 0..1: naik tiap tembakan, dingin saat jeda —
                         // memperbesar spread saat menembak beruntun (bloom recoil)
 let gunBobT = 0;        // fase goyangan senjata saat berjalan (visual)
@@ -1003,6 +1003,17 @@ export function updateWeaponState(dt) {
     if (muzzleFlash.intensity > 0) muzzleFlash.intensity = Math.max(0, muzzleFlash.intensity - dt * 30);
 }
 
+// Damage efektif sebuah senjata = base CFG × level upgrade shop Survival
+// (player.weaponLvl, 1..maxWeaponLevel; tiap level +upgradeDamagePct dari base
+// — Lv2 = 125%, Lv3 = 150%). Dipakai saat stempel b.damage (peluru biasa DAN
+// peluru ledak launcher — boom-nya meneruskan b.damage lewat queueBoom).
+export function weaponDamage(w) {
+    const wc = CFG.weapons[w];
+    const base = wc && wc.damage != null ? wc.damage : CFG.weapons.bulletDamage;
+    const lvl = (player.weaponLvl && player.weaponLvl[w]) || 1;
+    return base * (1 + (CFG.weapons.upgradeDamagePct || 0.25) * (lvl - 1));
+}
+
 // --- Tembak (kiri klik), fire-rate berbasis waktu nyata, per senjata ---
 // Peluru & damage identik utk kedua senjata; pistol semi-cepat.
 export function updateShooting() {
@@ -1061,8 +1072,9 @@ export function updateShooting() {
                 mesh: bMesh, dir: _v3.clone(),
                 speed: isLauncher ? CFG.weapons.launcher.roundSpeed : CFG.weapons.bulletSpeed,
                 life: CFG.weapons.bulletLife, first: true,
-                // Damage dibawa PELURU (senjata bisa berganti sebelum peluru mengenai).
-                damage: wcfg.damage != null ? wcfg.damage : CFG.weapons.bulletDamage,
+                // Damage dibawa PELURU (senjata bisa berganti sebelum peluru
+                // mengenai) — sudah termasuk bonus level upgrade shop.
+                damage: weaponDamage(currentWeapon),
                 // Peluru Grenade Launcher: meledak saat kena (bullets.js/robots.js),
                 // radius = granat lama (killRadius+3.5), damage AoE dari CFG.grenade (100).
                 explosive: isLauncher || undefined,

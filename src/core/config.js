@@ -42,18 +42,16 @@ export function applyDifficulty(name) {
     const d = CFG.difficulty && CFG.difficulty[name];
     if (!d) return;
     const hp = d.robotHpMul, dmg = d.robotDamageMul, spawn = d.spawnIntervalMul;
-    // HP dibulatkan (peluru berdamage 1 — pecahan hp tak terasa bedanya)
-    CFG.survival.robotHpBase = Math.max(1, Math.round(CFG.survival.robotHpBase * hp));
-    CFG.campaign.robotHp = Math.max(1, Math.round(CFG.campaign.robotHp * hp));
+    // HP & attack per KELAS robot (C/B/A) diskalakan difficulty (HP dibulatkan —
+    // peluru berdamage bulat). Boss & Monas-claw juga.
+    for (const k in CFG.robot.classes) {
+        const c = CFG.robot.classes[k];
+        c.hp = Math.max(1, Math.round(c.hp * hp));
+        c.attack *= dmg;
+    }
     CFG.campaign.boss.hp = Math.max(1, Math.round(CFG.campaign.boss.hp * hp));
-    CFG.robot.clawDamage *= dmg;
     CFG.campaign.boss.clawDamage *= dmg;
     CFG.survival.monasClawDamage *= dmg;
-    for (const k in CFG.robot.variants) {
-        const v = CFG.robot.variants[k];
-        v.clawDamage *= dmg;
-        if (v.boomDamage) v.boomDamage *= dmg;
-    }
     CFG.survival.spawnIntervalBase *= spawn;
     CFG.survival.spawnIntervalMin *= spawn;
 }

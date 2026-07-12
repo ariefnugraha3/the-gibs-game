@@ -11,7 +11,7 @@ import { GEO, MAT } from './state.js';
 import { scene, viewCam, renderer, composer, postFxOn } from './renderer.js';
 import { buildGrenadeMesh } from '../entities/grenades.js';
 import { buildMagMesh, buildMedkitMesh } from '../entities/drops.js';
-import { buildHumanRobot, disposeRobot } from '../entities/robots.js';
+import { buildRobotMesh, disposeRobot } from '../entities/robots.js';
 import { borrowBloodSprite } from '../entities/effects.js';
 
 let loadEl = null, barEl = null, textEl = null;
@@ -60,7 +60,8 @@ export async function warmupAll() {
     const warm = new THREE.Group();
     const put = (obj, x) => { obj.position.set(x, 0, -60); warm.add(obj); return obj; };
 
-    put(new THREE.Mesh(GEO.bullet, MAT.bullet), -12).scale.set(1, 1, 8.5);   // tracer
+    put(new THREE.Mesh(GEO.bullet, MAT.bullet), -12).scale.set(1, 1, 8.5);   // tracer player
+    put(new THREE.Mesh(GEO.bullet, MAT.enemyBullet), -10).scale.setScalar(1.05);   // peluru robot ranged (warm shader biru)
     put(buildGrenadeMesh(0.7), -8);    // peluru Grenade Launcher (mesh Mk2 bersama — hangatkan agar tembakan pertama tak nge-hitch)
     put(buildMagMesh(), -4);           // drop magazen (geo/mat bersama)
     put(buildMedkitMesh(), 0);         // drop medkit (mat bersama)
@@ -79,9 +80,10 @@ export async function warmupAll() {
     put(new THREE.Mesh(GEO.explosion, boomMats[1]), 7);
     put(new THREE.Mesh(GEO.ring, boomMats[2]), 10);
     put(new THREE.Mesh(GEO.ring, boomMats[3]), 13);
-    // Satu robot: program Lambert badan + array material kepala + tekstur wajah.
-    // Varian kulit/aksesori lain hanya beda warna (program GPU sama).
-    const zw = buildHumanRobot();
+    // Satu robot KELAS PENEMBAK ('B': lengan meriam + visor/inti emisif):
+    // program Lambert (termasuk jalur emissive) terkompilasi — kelas lain
+    // hanya beda warna/geometri (program GPU sama).
+    const zw = buildRobotMesh('B');
     zw.group.position.set(16, -10, -60);
     warm.add(zw.group);
 

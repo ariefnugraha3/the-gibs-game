@@ -24,7 +24,7 @@ export function updateBullets(step) {
             // Peluru Grenade Launcher MELEDAK saat menghantam dinding/Monas (impact);
             // habis-umur di ruang kosong hanya lenyap (bukan impact). Antre boom
             // (diproses processPendingBooms setelah loop robot) — friendly.
-            if (b.explosive && hitWall) queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false);
+            if (b.explosive && hitWall) queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage);
             scene.remove(b.mesh); bullets.splice(i, 1);
         }
     }

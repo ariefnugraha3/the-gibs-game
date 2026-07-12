@@ -23,6 +23,9 @@ let nextExplosionLight = 0;
 const bloodPool = [];
 let nextBlood = 0;
 const BLOOD_COUNT = 72;
+// Warna cairan default: COOLANT hijau robot. Darah MERAH player dipilih pemanggil
+// lewat parameter warna spawnBlood/spawnBloodBurst (robots.js, PLAYER_BLOOD_HEX).
+export const COOLANT_HEX = 0x49e07c;
 
 export function initEffects(sc) {
     for (let i = 0; i < 3; i++) {
@@ -31,13 +34,16 @@ export function initEffects(sc) {
         explosionLights.push(l);
     }
 
+    // Tekstur percikan NETRAL putih (2026-07-12): bentuk splat (blob + tetesan)
+    // digambar putih dan DIWARNAI per-spawn lewat material.color — satu pool
+    // melayani DUA cairan: COOLANT hijau (robot) dan DARAH merah (player kena).
     const bloodTex = makeTexture(64, 64, (g) => {
         // splat: blob pusat + tetesan acak di sekitarnya (latar transparan)
         const blob = (x, y, r, a) => {
             const rg = g.createRadialGradient(x, y, 0, x, y, r);
-            rg.addColorStop(0, `rgba(130,16,14,${a})`);
-            rg.addColorStop(0.65, `rgba(92,10,10,${a * 0.85})`);
-            rg.addColorStop(1, 'rgba(70,8,8,0)');
+            rg.addColorStop(0, `rgba(255,255,255,${a})`);
+            rg.addColorStop(0.65, `rgba(235,235,235,${a * 0.85})`);
+            rg.addColorStop(1, 'rgba(210,210,210,0)');
             g.fillStyle = rg;
             g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill();
         };
@@ -49,7 +55,7 @@ export function initEffects(sc) {
     });
     for (let i = 0; i < BLOOD_COUNT; i++) {
         const spr = new THREE.Sprite(new THREE.SpriteMaterial({
-            map: bloodTex, transparent: true, opacity: 0, depthWrite: false
+            map: bloodTex, color: COOLANT_HEX, transparent: true, opacity: 0, depthWrite: false
         }));
         spr.visible = false;
         sc.add(spr);
@@ -65,9 +71,10 @@ export function borrowBloodSprite() {
     return bloodPool.length ? bloodPool[0].spr : null;
 }
 
-// radius opsional: default blast granat; ledakan exploder memakai radius
-// lebih kecil (CFG.robot.variants.exploder.boomRadius) lewat parameter ini.
-export function explodeAt(pos, radius) {
+// radius & dmg opsional: default = blast granat (killRadius+3.5, damage
+// CFG.grenade.damage). Peluru Grenade Launcher meneruskan radius + b.damage-nya
+// sendiri (b.damage sudah termasuk bonus level upgrade shop Survival).
+export function explodeAt(pos, radius, dmg) {
     const expMesh = new THREE.Mesh(
         GEO.explosion,
         new THREE.MeshBasicMaterial({ color: 0xff4500, transparent: true, opacity: 0.85 })
@@ -101,10 +108,12 @@ export function explodeAt(pos, radius) {
     for (let i = robots.length - 1; i >= 0; i--) {
         const z = robots[i];
         if (z.mesh.position.distanceTo(pos) < R) {
-            // Model damage: boss tahan (grenadeDamage khusus), robot lain kena
-            // CFG.grenade.damage penuh — brute ber-HP tinggi bisa selamat dari
-            // ledakan di pinggir radius.
-            z.hp -= z.kind === 'boss' ? CFG.campaign.boss.grenadeDamage : CFG.grenade.damage;
+            // Model damage: boss tahan (grenadeDamage khusus, TIDAK terpengaruh
+            // upgrade); robot lain kena dmg param (peluru launcher, sudah ber-level)
+            // atau default CFG.grenade.damage — dikurangi armor kelas (0 saat ini).
+            const d = z.kind === 'boss' ? CFG.campaign.boss.grenadeDamage
+                : (dmg != null ? dmg : CFG.grenade.damage);
+            z.hp -= Math.max(1, d - (z.armor || 0));
             if (z.hp > 0) continue;
             spawnDrop(z.mesh.position);
             // GORE: mati oleh ledakan = HANCUR (dismember). Arah = keluar dari pusat ledakan.
@@ -126,14 +135,16 @@ export function spawnGroundPuff(x, z, color, scale, y = 0.6) {
     explosions.push({ mesh: m, life: 1, scale });
 }
 
-// Satu percikan darah dari pool tetap (round-robin). Opsional kecepatan
-// (vx/vy/vz) = darah MUNCRAT keluar lalu jatuh (updateBloodPool). Sprite sedikit
-// digeser ke kamera render supaya tidak terbenam di dalam badan robot.
-export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0) {
+// Satu percikan cairan dari pool tetap (round-robin). Opsional kecepatan
+// (vx/vy/vz) = MUNCRAT keluar lalu jatuh (updateBloodPool); `color` = warna
+// cairan (default coolant hijau; darah player = merah). Sprite sedikit
+// digeser ke kamera render supaya tidak terbenam di dalam badan.
+export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0, color = COOLANT_HEX) {
     const bl = bloodPool[nextBlood++ % bloodPool.length];
     const dx = viewCam.position.x - x, dy = viewCam.position.y - y, dz = viewCam.position.z - z;
     const dl = Math.hypot(dx, dy, dz) || 1;
     bl.spr.position.set(x + dx / dl * 1.2, y + dy / dl * 1.2, z + dz / dl * 1.2);
+    bl.spr.material.color.setHex(color);
     bl.vx = vx; bl.vy = vy; bl.vz = vz;
     bl.spr.material.rotation = Math.random() * 6.283;   // roll acak tiap percikan
     bl.s0 = 1.4 + Math.random() * 1.5;
@@ -147,14 +158,14 @@ export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0) {
 // ke atas. `spread` = lebar kerucut (rad; default ±1.05; pakai 6.283 = 360° utk
 // ledakan → darah ke SEGALA arah). Dipakai saat peluru mengenai & (jauh lebih
 // deras + omni) saat robot hancur oleh ledakan.
-export function spawnBloodBurst(x, y, z, dirx, dirz, n, power = 1, spread = 2.1) {
+export function spawnBloodBurst(x, y, z, dirx, dirz, n, power = 1, spread = 2.1, color = COOLANT_HEX) {
     const dl = Math.hypot(dirx, dirz) || 1;
     const base = Math.atan2(dirz / dl, dirx / dl);
     for (let i = 0; i < n; i++) {
         const ang = base + (Math.random() - 0.5) * spread;
         const spd = (7 + Math.random() * 24) * power;
         spawnBlood(x + (Math.random() - 0.5) * 3, y + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3,
-            Math.cos(ang) * spd, 5 + Math.random() * 22 * power, Math.sin(ang) * spd);
+            Math.cos(ang) * spd, 5 + Math.random() * 22 * power, Math.sin(ang) * spd, color);
     }
 }
 

@@ -8,7 +8,7 @@ import { player, robots, isGameOver, _v3, godMode } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
 import { updateUI } from '../../core/hud.js';
-import { buildHumanRobot, applyVariantTint, CLAW_TIME, reachForScale, disposeRobot } from '../../entities/robots.js';
+import { buildRobotMesh, CLAW_TIME, reachForScale, disposeRobot, fireRobotBullet } from '../../entities/robots.js';
 import { spawnGroundPuff } from '../../entities/effects.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
@@ -132,44 +132,30 @@ function spawnRobot() {
     const startX = fx - inX * OUT, startZ = fz - inZ * OUT;
     const landX = fx + inX * IN, landZ = fz + inZ * IN;
 
-    // HP naik pelan per wave TAPI dijepit maksimal robotHpMaxMul × base (+50%).
-    const hp = Math.min(SV.robotHpBase * SV.robotHpMaxMul,
-        SV.robotHpBase + Math.floor((wave.num - 1) / 2) * SV.robotHpPerTwoWaves);
-    // Speed penuh = base × scale (scale 1 = kecepatan penuh, seperti campaign),
-    // DIKALI faktor wave: mulai robotSpeedWaveMin (60%) di wave 1, +Step (2%)
-    // tiap wave, dijepit robotSpeedWaveMax (100%). Wave awal lebih lambat, mentok
-    // di kecepatan penuh (~wave 21). Variasi acak & speedMul varian tetap dikali.
+    // --- KELAS robot (C/B/A, 2026-07-12): distribusi berevolusi per wave.
+    // C = melee dasar (default); B = penembak, muncul sejak classBFromWave; A =
+    // penembak berat, sejak classAFromWave. Peluang naik per wave (base + perWave,
+    // dijepit Max). HP/speed/attack per kelas TETAP (dari CFG.robot.classes);
+    // kecepatan dikali waveMul agar wave awal tetap lebih lambat. ---
     const waveMul = Math.min(SV.robotSpeedWaveMax,
         SV.robotSpeedWaveMin + (wave.num - 1) * SV.robotSpeedWaveStep);
-    const speed = (SV.robotSpeedBase + Math.random() * SV.robotSpeedRand) * SV.robotSpeedScale * waveMul;
-
-    // --- Varian perilaku (IMPROVEMENT-PLAN #1): peluang naik seiring wave ---
-    let kind = 'walker';
+    const aC = wave.num >= SV.classAFromWave ? Math.min(SV.classAChanceMax,
+        SV.classAChance + (wave.num - SV.classAFromWave) * SV.classAChancePerWave) : 0;
+    const bC = wave.num >= SV.classBFromWave ? Math.min(SV.classBChanceMax,
+        SV.classBChance + (wave.num - SV.classBFromWave) * SV.classBChancePerWave) : 0;
     const roll = Math.random();
-    // Peluang varian NAIK per wave (dulu brute/exploder DATAR) supaya komposisi
-    // musuh berevolusi: walker awal -> runner-heavy tengah -> brute/exploder akhir.
-    // Sama pola dgn runner (base + perWave, dijepit Max), dihitung dari FromWave.
-    const eC = wave.num >= SV.exploderFromWave ? Math.min(SV.exploderChanceMax,
-        SV.exploderChance + (wave.num - SV.exploderFromWave) * SV.exploderChancePerWave) : 0;
-    const bC = wave.num >= SV.bruteFromWave ? Math.min(SV.bruteChanceMax,
-        SV.bruteChance + (wave.num - SV.bruteFromWave) * SV.bruteChancePerWave) : 0;
-    const runnerC = Math.min(SV.runnerChanceMax,
-        SV.runnerChanceBase + (wave.num - 1) * SV.runnerChancePerWave);
-    if (roll < eC) kind = 'exploder';
-    else if (roll < eC + bC) kind = 'brute';
-    else if (Math.random() < runnerC) kind = 'runner';
-    const V = kind !== 'walker' ? CFG.robot.variants[kind] : null;
-    const vHp = V ? Math.max(1, Math.round(hp * V.hpMul)) : hp;   // min 1 (runner mati 1 peluru)
-    const vSpeed = V ? speed * V.speedMul : speed;
-    const scl = V ? V.scale : 1;
+    const cls = roll < aC ? 'A' : roll < aC + bC ? 'B' : 'C';
+    const C = CFG.robot.classes[cls];
+    const hp = C.hp;
+    const speed = C.speed * waveMul;
+    const scl = C.scale;
 
-    // Robot manusia prosedural (warga korban alien) — varian skin acak per spawn.
-    const built2 = buildHumanRobot();
+    // Rangka robot prosedural per kelas (pelat armor & visor berwarna kelas).
+    const built2 = buildRobotMesh(cls);
     const zMesh = built2.group;
     const baseY = 0;                           // origin grup di kaki (y saat menapak tanah)
     zMesh.position.set(startX, baseY, startZ);
     if (scl !== 1) zMesh.scale.setScalar(scl);
-    applyVariantTint(zMesh, kind);   // pembeda skin varian (helper bersama survival+campaign)
     scene.add(zMesh);
 
     // state 'jumping' -> melompati pagar; lalu 'chasing' -> kejar target.
@@ -177,14 +163,17 @@ function spawnRobot() {
     // untuk vault dinding bak air mancur; groundY = lantai pijakan saat ini.
     // target 'monas' (peluang CFG) = menggerogoti Monas kecuali player mendekat.
     robots.push({
-        mesh: zMesh, hp: vHp, maxHp: vHp, speed: vSpeed, rig: built2.rig, isModel: true,
+        mesh: zMesh, hp, maxHp: hp, speed, rig: built2.rig, isModel: true,
         baseY, phase: Math.random() * 6.28,
         state: 'jumping', jumpT: 0, jumpDur: 1.1,
         sx: startX, sz: startZ, lx: landX, lz: landZ,
         jumpY0: 0, jumpY1: 0, arcH: FENCE_H + 14, groundY: 0, vaultCd: 0,
         attackCd: 0, clawT: 0, clawSide: 1, moving: true,   // sistem serangan cakar
-        kind, scl, reachMul: reachForScale(scl),   // badan besar = reach ikut membesar
-        clawDmg: V ? V.clawDamage : CFG.robot.clawDamage,
+        kind: cls, scl, reachMul: reachForScale(scl),   // badan besar = reach ikut membesar
+        armor: C.armor, attack: C.attack, clawDmg: C.attack,
+        ranged: C.ranged, fireDelaySec: C.fireDelaySec || 0, bulletSpeed: C.bulletSpeed || 0,
+        range: (C.rangeMeters || 0) * CAMP_M,   // radius tembak (m -> unit; 0 = melee)
+        fireCd: rand(0, C.fireDelaySec || 0),   // stagger tembakan awal antar robot
         monasCommitted: false, monasLocked: false   // komit Monas: aggro 5 m / terkunci setelah gigitan pertama
         // Target ditentukan per-frame di robotAI (Monas default / kejar player
         // bila dalam radius aggro) — tidak lagi diundi saat spawn.
@@ -350,6 +339,13 @@ export const survivalScene = {
         return Math.abs(b.mesh.position.x) < h && Math.abs(b.mesh.position.z) < h;
     },
 
+    // Peluru robot penembak yang DITUJUKAN ke Monas menabrak siluetnya
+    // (updateEnemyBullets): potong monasHp + percikan kecil di titik tumbuk.
+    enemyBulletHitMonas(dmg, pos) {
+        spawnGroundPuff(pos.x, pos.z, 0xd8e2ea, 5, pos.y);
+        damageMonas(dmg);
+    },
+
     // Pantulan granat: pagar & Monas (posisi dikembalikan, kecepatan dibalik +
     // diredam); pohon & bak pejal juga utk granat — supaya gelindingnya wajar
     // (tidak menembus batang/bak; peluru TETAP menembus pohon).
@@ -424,8 +420,18 @@ export const survivalScene = {
         const distT = atkMonas
             ? Math.hypot(tx - z.mesh.position.x, tz - z.mesh.position.z) : distToEye;
         const aim = navAim(z, navGrid, tx, tz, dt, step);
-        z.moving = !aim.direct || distT >
-            (atkMonas ? 6 : player.radius + CFG.robot.stopRange * (z.reachMul || 1));
+        // Jarak berhenti: PENEMBAK (B/A) BERHENTI DI RADIUS TEMBAKNYA (0.95×range,
+        // hanya bila garis pandang bebas — kalau terhalang tetap merapat lewat
+        // waypoint) untuk KEDUA target (player MAUPUN Monas — 2026-07-12: tak lagi
+        // menempel ke Monas); melee: nempel Monas (6) / jangkauan cakar (player).
+        const stopD = z.ranged && aim.direct ? (z.range || 70) * 0.95
+            : atkMonas ? 6
+                : player.radius + CFG.robot.stopRange * (z.reachMul || 1);
+        z.moving = !aim.direct || distT > stopD;
+        z.losOK = aim.direct;   // gerbang tembak robots.js (jangan menembak tembus penghalang)
+        // Stance MEMBIDIK (animasi lengan senapan terangkat, animateRobotRig):
+        // berdiri di radius tembak dgn garis pandang bebas = mengacungkan senjata.
+        if (z.ranged) z.aiming = !z.moving && aim.direct;
         if (z.moving) {
             const ang = turnToward(z,
                 Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);
@@ -437,24 +443,41 @@ export const survivalScene = {
             z.mesh.lookAt(tx, z.mesh.position.y, tz);
         }
 
-        // Menggerogoti Monas: pakai cooldown & animasi cakar yang sama, tapi
-        // damage masuk ke monasHp (BUKAN player) — return {} di bawah menjaga
-        // robots.js tidak ikut mencakar player.
+        // Menyerang Monas. MELEE (C): menggerogoti — cooldown & animasi cakar,
+        // damage masuk ke monasHp. PENEMBAK (B/A, 2026-07-12): MENEMBAK Monas
+        // dari radius tembaknya — peluru diarahkan ke PUSAT Monas (lintasan pasti
+        // masuk siluet bulletBlocked) membawa `monasDmg`; saat terblokir, hook
+        // `enemyBulletHitMonas` di bawah yang memotong monasHp. return {} di
+        // bawah menjaga robots.js tidak ikut menyerang player.
         if (atkMonas && !z.moving) {
-            if (z.attackCd > 0) z.attackCd -= dt;
-            if (z.attackCd <= 0) {
-                z.attackCd = CFG.robot.clawCooldownSec;
-                z.clawT = CLAW_TIME;
-                z.clawSide = -z.clawSide;
-                // Gigitan PERTAMA ke Monas -> robot "berkomitmen": radius aggro
-                // menyusut (5 m) dan sekali roll monasLockChance ia TERKUNCI penuh
-                // (tak akan mengejar player lagi). Diundi hanya sekali.
-                if (!z.monasCommitted) {
-                    z.monasCommitted = true;
-                    z.monasLocked = Math.random() < CFG.survival.monasLockChance;
+            if (z.ranged) {
+                if (z.fireCd > 0) z.fireCd -= dt;
+                if (z.fireCd <= 0 && distT < (z.range || 70)) {
+                    z.fireCd = z.fireDelaySec;
+                    fireRobotBullet(z, 0, 0, 0, CFG.survival.monasClawDamage);
+                    // Tembakan PERTAMA ke Monas -> komitmen (aggro menyusut) +
+                    // roll terkunci, sama seperti gigitan pertama melee.
+                    if (!z.monasCommitted) {
+                        z.monasCommitted = true;
+                        z.monasLocked = Math.random() < CFG.survival.monasLockChance;
+                    }
                 }
-                damageMonas(CFG.survival.monasClawDamage);
-                if (isGameOver) return {};
+            } else {
+                if (z.attackCd > 0) z.attackCd -= dt;
+                if (z.attackCd <= 0) {
+                    z.attackCd = CFG.robot.clawCooldownSec;
+                    z.clawT = CLAW_TIME;
+                    z.clawSide = -z.clawSide;
+                    // Gigitan PERTAMA ke Monas -> robot "berkomitmen": radius aggro
+                    // menyusut (5 m) dan sekali roll monasLockChance ia TERKUNCI penuh
+                    // (tak akan mengejar player lagi). Diundi hanya sekali.
+                    if (!z.monasCommitted) {
+                        z.monasCommitted = true;
+                        z.monasLocked = Math.random() < CFG.survival.monasLockChance;
+                    }
+                    damageMonas(CFG.survival.monasClawDamage);
+                    if (isGameOver) return {};
+                }
             }
         }
 
