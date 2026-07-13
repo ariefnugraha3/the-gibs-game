@@ -8,8 +8,8 @@
 //   BAWAH:  CAFETERIA | ELECTRICAL ROOM | STORAGE ROOM | TANGGA(END, kanan-bawah)
 // Grid sel 2 m (1=dinding, 0=lantai) — dinding/collision/LOS/hit-peluru dari
 // grid yang SAMA (pola stage1/stage2). Konektivitas + bebas-pintu DIVERIFIKASI
-// BFS (scratchpad s3grid.mjs & smoke test). Menang = capai tangga END ->
-// MISSION COMPLETE (gameOver(true)). TANPA boss.
+// BFS (scratchpad s3grid.mjs & smoke test). Capai tangga END -> turun ke jalan
+// (stage 4). TANPA boss.
 
 import { CFG, CAMP_M } from '../../core/config.js';
 import { player, robots, drops, _v3 } from '../../core/state.js';
@@ -19,14 +19,15 @@ import { rand } from '../../utils/math.js';
 import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../utils/collision.js';
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { applyLightPreset } from '../../world/lighting.js';
+import { setScene } from '../../core/sceneManager.js';
 import { showStageMsg } from '../../core/dom.js';
 import { updateUI } from '../../core/hud.js';
-import { gameOver } from '../../core/game.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { stage1Scene } from './stage1.js';
+import { stage4Scene } from './stage4.js';
 
 // Grid 42 kolom x 30 baris (sel 2 m). Gedung ditaruh ~90 km dari origin —
 // jauh dari gedung stage1 (x≈30000) & stage2 (x≈60000); ketiga dunia campaign
@@ -436,7 +437,8 @@ export const stage3Scene = {
     id: 'campaign-3',
 
     // Transisi dari stage 2 (tangga keluar). Bangun dunia sekali; bersihkan
-    // robot stage 2 yang tersisa; tempatkan robot + supply stage 3.
+    // robot stage 2 yang tersisa; tempatkan robot + supply stage 3. (Bukan lagi
+    // stage final — tangga END turun ke jalan/stasiun = stage 4.)
     enter() {
         if (!built) { built = true; buildWorld(); }
         for (let i = robots.length - 1; i >= 0; i--) {
@@ -452,14 +454,14 @@ export const stage3Scene = {
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
         camera.quaternion.set(0, 1, 0, 0);   // yaw 180° — hadap selatan (masuk gedung)
         player.vy = 0; player.onGround = true;
-        showStageMsg('FINAL FLOOR — REACH THE STAIRS DOWN TO ESCAPE');
+        showStageMsg('CLEAR A PATH TO THE STAIRS DOWN TO THE STREET');
         updateUI();
     },
 
     // Mati di stage 3 -> campaign SELALU mengulang dari stage 1
     restartScene: () => stage1Scene,
 
-    // Dinding grid + furnitur; cek trigger tangga END -> MISSION COMPLETE
+    // Dinding grid + furnitur; cek trigger tangga END -> turun ke jalan (stage 4)
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage3Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
@@ -468,7 +470,7 @@ export const stage3Scene = {
             && pos.x <= S3.x0 + (S3_EXIT.c1 + 1) * S3.CELL
             && pos.z >= S3.z0 + S3_EXIT.r0 * S3.CELL
             && pos.z <= S3.z0 + (S3_EXIT.r1 + 1) * S3.CELL) {
-            gameOver(true);   // capai tangga keluar = MISSION COMPLETE
+            setScene(stage4Scene, { transition: true });   // ke jalan menuju stasiun
         }
     },
 
@@ -497,7 +499,7 @@ export const stage3Scene = {
 
     clampDropPos(x, z) { return [x, z]; },
 
-    hudStatus() { return `FINAL FLOOR — Robots: ${countStageRobots(3)} | Reach the stairs down`; },
+    hudStatus() { return `FLOOR 2 — Robots: ${countStageRobots(3)} | Reach the stairs down to the street`; },
 
     radarLandmarks(plot) {
         const e = s3Cell(S3_END.c, S3_END.r);

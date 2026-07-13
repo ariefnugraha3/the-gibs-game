@@ -17,6 +17,7 @@ const ctx2d = new Proxy({}, {
     get: (t, k) => {
         if (k === 'createRadialGradient' || k === 'createLinearGradient') return () => ({ addColorStop() { } });
         if (k === 'getImageData') return (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) });
+        if (k === 'createImageData') return (w, h) => ({ data: new Uint8ClampedArray((w | 0) * (h | 0) * 4) });
         if (k === 'measureText') return () => ({ width: 1 });
         if (k === 'canvas') return { width: 64, height: 64 };
         return () => { };
@@ -627,12 +628,75 @@ let s3aiOk = true;
 try { for (let i = 0; i < 5; i++) s3mod.stage3Scene.robotAI(zS3, 0.05, 3); } catch (e) { s3aiOk = false; }
 T('S3: robotAI jalan tanpa error', s3aiOk);
 
-// Menang: capai tangga END -> MISSION COMPLETE (gameOver(true))
-stateMod.setGameOver(false);
+// Stage 3 tangga END sekarang -> transisi ke stage 4 (spy enter stage4)
+const s4mod = await import(R('src/scenes/campaign/stage4.js'));
+const realS4Enter = s4mod.stage4Scene.enter;
+let s4entered = false;
+s4mod.stage4Scene.enter = () => { s4entered = true; };
 const e3 = s3mod.s3Cell(s3mod.S3_END.c, s3mod.S3_END.r);
 stateMod._v3.set(e3.x, 0, e3.z);
 s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);
-T('S3: capai tangga END -> MISSION COMPLETE (gameOver win)', stateMod.isGameOver === true);
+T('S3: capai tangga END -> transisi ke stage 4', s4entered && smMod.activeScene === s4mod.stage4Scene);
+s4mod.stage4Scene.enter = realS4Enter;
+
+// --- 17. Campaign STAGE 4 (final, OUTDOOR, 2026-07-13): parkiran -> jalan raya
+// 500 m -> stasiun kereta, dgn BOSS di ujung timur. Bangun dunia (union
+// walkable), konektivitas flood-fill START->END, robot 13-spot + supply,
+// robotAI, dan ALUR: bunuh semua -> boss muncul -> bunuh boss -> finish. ---
+s4mod.buildWorld();
+{   // flood-fill union (stage4Walk): START harus terhubung ke END
+    const S = s4mod.S4_START, E = s4mod.S4_END, cell = 14;
+    const gx0 = S.x - 400, gz0 = S.z - 200, NC = 300, NR = 90;
+    const wk = (c, r) => s4mod.stage4Walk(gx0 + (c + 0.5) * cell, gz0 + (r + 0.5) * cell, 3);
+    const sc = Math.round((S.x - gx0) / cell - 0.5), sr = Math.round((S.z - gz0) / cell - 0.5);
+    const ec = Math.round((E.x - gx0) / cell - 0.5), er = Math.round((E.z - gz0) / cell - 0.5);
+    const seen = Array.from({ length: NR }, () => Array(NC).fill(false));
+    const q = [[sc, sr]]; seen[sr][sc] = true;
+    while (q.length) {
+        const [c, r] = q.shift();
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nc = c + dc, nr = r + dr;
+            if (nc < 0 || nr < 0 || nc >= NC || nr >= NR) continue;
+            if (wk(nc, nr) && !seen[nr][nc]) { seen[nr][nc] = true; q.push([nc, nr]); }
+        }
+    }
+    T('S4: START & END walkable + TERHUBUNG (union parkiran->jalan->stasiun)',
+        s4mod.stage4Walk(S.x, S.z, 4) && s4mod.stage4Walk(E.x, E.z, 4) && seen[er][ec]);
+}
+T('S4: nav-grid pathfinder terbangun', s4mod.stage4Scene.robotAI != null);
+
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+const s4dropsBefore = stateMod.drops.length;
+s4mod.placeRobots();
+const nStage4 = robots.filter(z => z.stage === 4).length;
+T('S4: placeRobots menaruh 44 robot (13 spot) tagged stage 4 (' + nStage4 + ')', nStage4 === 44);
+T('S4: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s4dropsBefore);
+
+const zS4 = robots.find(z => z.stage === 4);
+camera.position.set(zS4.mesh.position.x + 30, cfgMod.CFG.player.eyeHeight, zS4.mesh.position.z);
+let s4aiOk = true;
+try { for (let i = 0; i < 5; i++) s4mod.stage4Scene.robotAI(zS4, 0.05, 3); } catch (e) { s4aiOk = false; }
+T('S4: robotAI jalan tanpa error', s4aiOk);
+
+// ALUR MENANG: boss TIDAK muncul selagi masih ada robot
+s4mod.stage4Scene.updateMode(0.1);
+T('S4: boss BELUM muncul selagi masih ada robot', !robots.some(z => z.kind === 'boss'));
+// bunuh SEMUA robot normal -> updateMode -> boss muncul di ujung timur
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+s4mod.stage4Scene.updateMode(0.1);
+const s4boss = robots.find(z => z.kind === 'boss' && z.stage === 4);
+T('S4: setelah semua robot mati -> BOSS muncul', s4boss != null && /BOSS/.test(s4mod.stage4Scene.hudStatus()));
+// finish TERKUNCI selagi boss hidup
+stateMod.setGameOver(false);
+stateMod._v3.set(s4mod.S4_END.x, 0, s4mod.S4_END.z);
+s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_END.x, s4mod.S4_END.z, 0);
+T('S4: finish TERKUNCI selagi boss hidup (belum MISSION COMPLETE)', stateMod.isGameOver === false);
+// bunuh boss -> updateMode -> pintu stasiun aktif -> finish = MISSION COMPLETE
+robotsMod.disposeRobot(s4boss); robots.splice(robots.indexOf(s4boss), 1); scene.remove(s4boss.mesh);
+s4mod.stage4Scene.updateMode(0.1);
+stateMod._v3.set(s4mod.S4_END.x, 0, s4mod.S4_END.z);
+s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_END.x, s4mod.S4_END.z, 0);
+T('S4: bunuh boss -> masuk stasiun -> MISSION COMPLETE (gameOver win)', stateMod.isGameOver === true);
 stateMod.setGameOver(false);
 
 console.log(`\n${pass} pass, ${fail} fail`);
