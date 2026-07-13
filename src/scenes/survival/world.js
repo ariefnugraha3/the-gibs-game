@@ -2,8 +2,9 @@
 // Jalan Silang, pagar beton keliling (batas keras player), properti taman
 // (air mancur pejal + kolam + pohon pejal), Monas, dan kota latar (instanced).
 
-import { scene } from '../../core/renderer.js';
+import { scene, addCamShake } from '../../core/renderer.js';
 import { CFG, CAMP_M } from '../../core/config.js';
+import { spawnGroundPuff } from '../../entities/effects.js';
 import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../utils/textures.js';
 import { rand, clamp } from '../../utils/math.js';
 import { resolveCylinders } from '../../utils/collision.js';
@@ -41,6 +42,19 @@ export function buildSurvivalWorld() {
 // meng-alpha-kan pusat (Monas) menjadi bening, sisanya abu pekat. Dibangun SEKALI
 // (ikut warm-up preload = tanpa hitch), lalu di-fade oleh index.js saat event.
 let fogCanopy = null, fogCanopyMat = null;
+
+// --- Runtuhnya Monas (2026-07-13): saat monasHp habis, Monas TIDAK langsung
+// game over — bagian atas obelisk TUMBANG di sebuah engsel di dasarnya, dengan
+// tremor, debu, puing berhamburan, dan guncangan kamera, lalu game over setelah
+// animasi. Bagian atas (kaki+obelisk+cawan+api) dikumpulkan di `monasTop` (grup
+// engsel di titik MONAS_HINGE); undakan dasar tetap. Refs api dipromosikan ke
+// modul supaya bisa dipadamkan (decor.js dinolkan sementara agar tak menimpa). ---
+let monasTop = null;                                   // grup bagian atas (engsel)
+let monasFlame = null, monasFlameLight = null, monasFlameGlow = null;
+let monasStoneMat = null, monasMarbleMat = null;       // material dipakai ulang utk puing
+let collapse = null;                                   // state animasi (null = tegak)
+const MONAS_HINGE = { x: 6.5, y: 8 };                  // engsel tumbang (tepi dasar obelisk)
+let debrisGeo = null;                                  // geometri puing (dibuat saat runtuh)
 const FOG_H = 26;              // tinggi kanopi (di atas kepala robot, jauh di bawah kamera)
 const FOG_DISK_R = 1800;       // radius piringan (jauh melampaui pandangan kamera di sudut mana pun)
 const FOG_MAX_OPACITY = 0.72;  // kepekatan puncak kabut (visual-only)
@@ -135,7 +149,17 @@ function createMonas() {
     }, 1.1);
     const marble = new THREE.MeshPhongMaterial({ map: marbleTex, normalMap: marbleNrm, shininess: 18, specular: 0x2f2b26 });
     const stone = new THREE.MeshPhongMaterial({ color: 0x8f8a80, shininess: 8, specular: 0x1c1a17 });
+    monasMarbleMat = marble; monasStoneMat = stone;
 
+    // Bagian atas yang bisa tumbang hidup di grup engsel `top` (origin =
+    // MONAS_HINGE di tepi dasar obelisk). Posisi anak = dunia - engsel, sehingga
+    // memutar top.rotation.z menjungkalkan seluruh menara di engsel itu.
+    const top = new THREE.Group();
+    top.position.set(MONAS_HINGE.x, MONAS_HINGE.y, 0);
+    monas.add(top);
+    monasTop = top;
+
+    // add() -> undakan dasar (tetap); addTop() -> menara (ikut engsel, y relatif engsel)
     const add = (geo, mat, y, extra) => {
         const m = new THREE.Mesh(geo, mat);
         m.position.y = y;
@@ -143,23 +167,33 @@ function createMonas() {
         if (extra) extra(m);
         monas.add(m);
     };
+    const addTop = (geo, mat, y, extra) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(-MONAS_HINGE.x, y - MONAS_HINGE.y, 0);
+        m.castShadow = true; m.receiveShadow = true;
+        if (extra) extra(m);
+        top.add(m);
+        return m;
+    };
     add(new THREE.BoxGeometry(44, 2, 44), stone, 1);                                                      // undakan bawah
     add(new THREE.BoxGeometry(40, 3, 40), stone, 3.5);                                                    // teras
-    add(new THREE.BoxGeometry(30, 3, 30), marble, 6.5);                                                   // pelataran atas
-    add(new THREE.CylinderGeometry(5.6, 7.4, 6, 4, 1), marble, 11, m => m.rotation.y = Math.PI / 4);      // kaki obelisk
-    add(new THREE.CylinderGeometry(3.4, 5.6, 50, 4, 1), marble, 39, m => m.rotation.y = Math.PI / 4);     // obelisk meruncing
-    add(new THREE.CylinderGeometry(10, 4, 6, 8, 1, false), marble, 66, m => m.rotation.y = Math.PI / 8);  // cawan
+    add(new THREE.BoxGeometry(30, 3, 30), marble, 6.5);                                                   // pelataran atas (dasar, tetap)
+    addTop(new THREE.CylinderGeometry(5.6, 7.4, 6, 4, 1), marble, 11, m => m.rotation.y = Math.PI / 4);   // kaki obelisk (menara mulai di sini, patah di engsel)
+    addTop(new THREE.CylinderGeometry(3.4, 5.6, 50, 4, 1), marble, 39, m => m.rotation.y = Math.PI / 4);  // obelisk meruncing
+    addTop(new THREE.CylinderGeometry(10, 4, 6, 8, 1, false), marble, 66, m => m.rotation.y = Math.PI / 8); // cawan
     // Lidah api emas: emissive kuat (ditangkap bloom) + cahaya hangat yang menerangi
-    // pelataran + sprite glow yang berdenyut (decor.js)
+    // pelataran + sprite glow yang berdenyut (decor.js). Ikut menara saat tumbang.
     const flame = new THREE.Mesh(
         new THREE.ConeGeometry(4, 15, 8),
         new THREE.MeshPhongMaterial({ color: 0xffd700, emissive: 0xffa028, emissiveIntensity: 1.35, shininess: 90, specular: 0xfff2c0 })
     );
-    flame.position.y = 76.5;
-    monas.add(flame);
+    flame.position.set(-MONAS_HINGE.x, 76.5 - MONAS_HINGE.y, 0);
+    top.add(flame);
+    monasFlame = flame;
     const flameLight = new THREE.PointLight(0xffc36b, 1.1, 420, 2);
-    flameLight.position.set(0, 80, 0);
-    monas.add(flameLight);
+    flameLight.position.set(-MONAS_HINGE.x, 80 - MONAS_HINGE.y, 0);
+    top.add(flameLight);
+    monasFlameLight = flameLight;
     setFlameLight(flameLight);
     const glowTex = makeTexture(64, 64, (g) => {
         const rg = g.createRadialGradient(32, 32, 2, 32, 32, 31);
@@ -172,11 +206,156 @@ function createMonas() {
         map: glowTex, transparent: true, blending: THREE.AdditiveBlending,
         depthWrite: false, toneMapped: false
     }));
-    flameGlow.position.set(0, 78, 0);
+    flameGlow.position.set(-MONAS_HINGE.x, 78 - MONAS_HINGE.y, 0);
     flameGlow.scale.set(30, 30, 1);
-    monas.add(flameGlow);
+    top.add(flameGlow);
+    monasFlameGlow = flameGlow;
     setFlameGlow(flameGlow);
     scene.add(monas);
+}
+
+// ===== Runtuhnya Monas — animasi sinematik (dipanggil survival/index.js) =====
+// Tiga fase: TREMBLE (menara bergetar makin keras, debu naik dari dasar, api
+// meredup), TOPPLE (menara terjungkal di engsel dengan percepatan gravitasi +
+// benturan besar: debu, puing, guncangan kamera, api padam), SETTLE (memantul
+// kecil lalu diam, debu mengendap). updateMonasCollapse mengembalikan true saat
+// SELURUH urutan selesai -> index.js memicu gameOver.
+export function isMonasCollapsing() { return !!collapse; }
+
+export function startMonasCollapse() {
+    if (!monasTop || collapse) return;
+    collapse = {
+        t: 0, phase: 'tremble', impacted: false, dustCd: 0, debris: [],
+        tremble: CFG.survival.monasCollapseTrembleSec || 1.4,
+        topple: CFG.survival.monasCollapseToppleSec || 2.2,
+        settle: CFG.survival.monasCollapseSettleSec || 1.6
+    };
+    // Ambil alih api dari decor.js supaya bisa dipadamkan tanpa ditimpa denyut.
+    setFlameLight(null); setFlameGlow(null);
+    debrisGeo = new THREE.BoxGeometry(3.4, 3.4, 3.4);
+}
+
+// Hamburkan puing marmer di sekitar (x,z): pecahan yang terlempar + gravitasi + spin.
+function spawnDebris(x, z, n, power) {
+    if (!debrisGeo) return;
+    for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(debrisGeo, i % 3 === 0 ? monasStoneMat : monasMarbleMat);
+        const s = 0.5 + Math.random() * 1.4;
+        m.scale.setScalar(s);
+        m.position.set(x + rand(-8, 8), 6 + Math.random() * 20, z + rand(-8, 8));
+        m.castShadow = true;
+        const ang = Math.random() * Math.PI * 2, sp = (10 + Math.random() * 26) * power;
+        collapse.debris.push({
+            mesh: m,
+            vx: Math.cos(ang) * sp, vz: Math.sin(ang) * sp, vy: 10 + Math.random() * 26 * power,
+            rx: rand(-6, 6), ry: rand(-6, 6), rz: rand(-6, 6), rest: 0.7 + Math.random() * s * 0.7
+        });
+        scene.add(m);
+    }
+}
+
+function updateDebris(dt) {
+    for (const d of collapse.debris) {
+        if (d.done) continue;
+        d.vy -= 62 * dt;
+        d.mesh.position.x += d.vx * dt;
+        d.mesh.position.y += d.vy * dt;
+        d.mesh.position.z += d.vz * dt;
+        d.mesh.rotation.x += d.rx * dt;
+        d.mesh.rotation.y += d.ry * dt;
+        d.mesh.rotation.z += d.rz * dt;
+        if (d.mesh.position.y <= d.rest) {   // mendarat: mantul kecil lalu diam
+            d.mesh.position.y = d.rest;
+            if (d.vy < -6) { d.vy *= -0.32; d.vx *= 0.5; d.vz *= 0.5; d.rx *= 0.4; d.ry *= 0.4; d.rz *= 0.4; }
+            else { d.vy = 0; d.vx *= 0.7; d.vz *= 0.7; d.done = true; }
+        }
+    }
+}
+
+export function updateMonasCollapse(dt) {
+    if (!collapse) return false;
+    const c = collapse;
+    c.t += dt;
+    updateDebris(dt);
+
+    if (c.phase === 'tremble') {
+        // Getaran makin keras (0->1); menara bergetar di engsel, debu naik, api meredup.
+        const k = Math.min(1, c.t / c.tremble);
+        const amp = 0.006 + k * k * 0.05;
+        monasTop.rotation.z = (Math.random() - 0.5) * amp + Math.sin(c.t * 47) * amp * 0.5;
+        monasTop.rotation.x = (Math.random() - 0.5) * amp * 0.6;
+        monasTop.position.y = MONAS_HINGE.y + Math.sin(c.t * 60) * k * 0.4;
+        addCamShake(0.5 + k * 3.5);
+        if (monasFlameLight) monasFlameLight.intensity = 1.1 * (1 - k * 0.6) * (0.6 + Math.random() * 0.4);
+        c.dustCd -= dt;
+        if (c.dustCd <= 0) {
+            c.dustCd = 0.12;
+            const a = Math.random() * Math.PI * 2, r = 16 + Math.random() * 10;
+            spawnGroundPuff(Math.cos(a) * r, Math.sin(a) * r, 0x6b6155, 14 + Math.random() * 10, 3 + Math.random() * 8);
+        }
+        if (c.t >= c.tremble) { c.phase = 'topple'; c.t = 0; monasTop.position.y = MONAS_HINGE.y; }
+
+    } else if (c.phase === 'topple') {
+        // Percepatan gravitasi: sudut ~ u^2 sampai ~PI/2 (rebah), sedikit lewat.
+        const u = Math.min(1, c.t / c.topple);
+        const target = Math.PI / 2 + 0.14;               // sedikit menancap ke tanah
+        monasTop.rotation.z = -target * (u * u);
+        monasTop.rotation.x = Math.sin(u * Math.PI) * 0.05;   // sedikit oleng saat jatuh
+        addCamShake(1.2 + u * 1.5);
+        // Debu terseret di sepanjang badan menara yang menyapu turun
+        c.dustCd -= dt;
+        if (c.dustCd <= 0 && u < 0.95) {
+            c.dustCd = 0.05;
+            const reach = MONAS_HINGE.x + 20 + u * 55;     // ujung menara menyapu keluar
+            spawnGroundPuff(reach + rand(-10, 10), rand(-12, 12), 0x6b6155, 16 + Math.random() * 12, 2 + Math.random() * 6);
+        }
+        // BENTURAN (dekat rebah): ledakan debu + puing + guncangan besar, api padam
+        if (!c.impacted && u >= 0.9) {
+            c.impacted = true;
+            const tipX = MONAS_HINGE.x + 46;               // kira-kira posisi ujung obelisk saat mendarat
+            addCamShake(11);
+            for (let i = 0; i < 7; i++) {
+                const fx = MONAS_HINGE.x + 8 + i * 8;
+                spawnGroundPuff(fx + rand(-6, 6), rand(-16, 16), 0x7a7064, 34 + Math.random() * 22, 3 + Math.random() * 8);
+            }
+            spawnGroundPuff(tipX, 0, 0x8a8175, 90, 4);      // gumpalan debu besar di ujung
+            spawnDebris(tipX - 6, 0, 16, 1.3);
+            spawnDebris(MONAS_HINGE.x + 20, 0, 10, 0.9);
+            if (monasFlame) monasFlame.visible = false;
+            if (monasFlameGlow) monasFlameGlow.visible = false;
+            if (monasFlameLight) monasFlameLight.intensity = 0;
+        }
+        if (c.t >= c.topple) {
+            monasTop.rotation.z = -target;
+            c.phase = 'settle'; c.t = 0;
+        }
+
+    } else {   // settle: pantulan kecil menara yang rebah + debu mengendap
+        const u = Math.min(1, c.t / c.settle);
+        const target = Math.PI / 2 + 0.14;
+        monasTop.rotation.z = -target + Math.sin(u * Math.PI * 3) * (1 - u) * 0.05;
+        if (u < 0.4) addCamShake(2.2 * (1 - u / 0.4));
+        c.dustCd -= dt;
+        if (c.dustCd <= 0 && u < 0.6) {
+            c.dustCd = 0.14;
+            spawnGroundPuff(MONAS_HINGE.x + 10 + Math.random() * 50, rand(-14, 14), 0x6b6155, 20 + Math.random() * 14, 2 + Math.random() * 10);
+        }
+        if (c.t >= c.settle) return true;   // seluruh urutan selesai
+    }
+    return false;
+}
+
+// Kembalikan Monas ke posisi tegak (world persist antar-run; dipanggil di enter()).
+export function resetMonasCollapse() {
+    if (collapse) {
+        collapse.debris.forEach(d => scene.remove(d.mesh));
+        collapse = null;
+    }
+    if (debrisGeo) { debrisGeo.dispose(); debrisGeo = null; }
+    if (monasTop) { monasTop.rotation.set(0, 0, 0); monasTop.position.set(MONAS_HINGE.x, MONAS_HINGE.y, 0); }
+    if (monasFlame) monasFlame.visible = true;
+    if (monasFlameGlow) { monasFlameGlow.visible = true; setFlameGlow(monasFlameGlow); }
+    if (monasFlameLight) { monasFlameLight.intensity = 1.1; setFlameLight(monasFlameLight); }
 }
 
 function createGround() {

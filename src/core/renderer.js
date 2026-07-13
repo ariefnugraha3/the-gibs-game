@@ -65,6 +65,14 @@ const DEAD_X = 46, DEAD_Z = 16;
 const camFocus = new THREE.Vector3();
 let camFocusReady = false;
 
+// ----- Guncangan kamera (screen shake, 2026-07-13): dipakai untuk momen
+// sinematik seperti runtuhnya Monas. addCamShake(a) menaikkan amplitudo (unit
+// dunia), diterapkan sebagai jitter posisi viewCam lalu meluruh tiap frame.
+// resetCamShake() dipanggil saat reset run. -----
+let camShake = 0;
+export function addCamShake(a) { camShake = Math.max(camShake, a); }
+export function resetCamShake() { camShake = 0; }
+
 export function followViewCam() {
     if (!viewCam || !camera) return;
     const p = camera.position;
@@ -87,6 +95,13 @@ export function followViewCam() {
     viewCam.position.set(camFocus.x + CAM_OFF.x, camFocus.y + CAM_OFF.y, camFocus.z + CAM_OFF.z);
     // Target sedikit di bawah titik fokus -> lebih banyak dunia terlihat ke atas layar.
     viewCam.lookAt(camFocus.x, camFocus.y - 8, camFocus.z);
+    // Guncangan sinematik: jitter posisi acak yang meluruh (Monas runtuh).
+    if (camShake > 0.05) {
+        viewCam.position.x += (Math.random() - 0.5) * camShake;
+        viewCam.position.y += (Math.random() - 0.5) * camShake;
+        viewCam.position.z += (Math.random() - 0.5) * camShake;
+        camShake *= 0.86;
+    } else camShake = 0;
     viewCam.updateMatrixWorld();
 }
 

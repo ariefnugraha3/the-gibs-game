@@ -73,7 +73,8 @@ class V3 {
     applyQuaternion() { return this; }
     crossVectors() { return this; }
 }
-class Quat { set() { return this; } copy() { return this; } setFromAxisAngle() { return this; } premultiply() { return this; } setFromUnitVectors() { return this; } }
+class Quat { set() { return this; } copy() { return this; } setFromAxisAngle() { return this; } setFromEuler() { return this; } premultiply() { return this; } setFromUnitVectors() { return this; } }
+class Matrix4 { setPosition() { return this; } compose() { return this; } }
 class Euler { constructor() { this.x = 0; this.y = 0; this.z = 0; } set(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; return this; } copy(e) { this.x = e.x; this.y = e.y; this.z = e.z; return this; } }
 class Color {
     constructor(h = 0) { this._h = typeof h === 'object' ? h._h : h; }
@@ -98,7 +99,7 @@ class Sprite extends Obj3D { constructor(m) { super(); this.material = m; this.i
 class Group extends Obj3D { }
 class Scene extends Obj3D { constructor() { super(); this.fog = null; } }
 class PCam extends Obj3D { constructor() { super(); this.aspect = 1; } updateProjectionMatrix() { } }
-class PLight extends Obj3D { constructor() { super(); this.intensity = 0; } }
+class PLight extends Obj3D { constructor() { super(); this.intensity = 0; this.color = new Color(0xffffff); } }
 const geo = (name) => class { constructor(...a) { this.args = a; this.type = name; } scale() { return this; } };
 class Mat {
     constructor(o = {}) {
@@ -111,8 +112,9 @@ class Mat {
 }
 global.THREE = {
     Vector2: class { constructor(x, y) { this.x = x; this.y = y; } set() { } },
-    Vector3: V3, Quaternion: Quat, Euler, Color,
+    Vector3: V3, Quaternion: Quat, Euler, Color, Matrix4,
     Object3D: Obj3D, Group, Mesh, Sprite, Scene, PerspectiveCamera: PCam, PointLight: PLight,
+    InstancedMesh: class extends Obj3D { constructor(g, m, n) { super(); this.geometry = g; this.material = m; this.count = n; this.instanceColor = { needsUpdate: false }; } setMatrixAt() { } setColorAt() { } },
     SphereGeometry: geo('sph'), CylinderGeometry: geo('cyl'), BoxGeometry: geo('box'),
     ConeGeometry: geo('cone'), RingGeometry: geo('ring'), PlaneGeometry: geo('plane'),
     CircleGeometry: geo('circle'), TorusGeometry: geo('torus'),
@@ -506,6 +508,132 @@ shopMod.closeShop();
 // overlay armor avatar: toggle visibilitas per level tanpa error
 avMod.updatePlayerAvatar(0.05);
 T('overlay armor avatar jalan (lvl ' + player.armorLvl + ')', true);
+
+// --- 14. Runtuhnya Monas: kontrak API + durasi fase config-driven ---
+// (world.js penuh butuh InstancedMesh/Matrix4 — di luar cakupan stub; di sini
+// kunci permukaan API + kunci konfigurasi durasi fase, dan guard "belum dibangun".)
+const worldMod = await import(R('src/scenes/survival/world.js'));
+const SV = cfgMod.CFG.survival;
+T('durasi fase runtuh Monas ada & positif (config-driven)',
+    SV.monasCollapseTrembleSec > 0 && SV.monasCollapseToppleSec > 0 && SV.monasCollapseSettleSec > 0);
+T('API runtuh Monas terekspor (start/update/reset/isCollapsing)',
+    typeof worldMod.startMonasCollapse === 'function' && typeof worldMod.updateMonasCollapse === 'function'
+    && typeof worldMod.resetMonasCollapse === 'function' && typeof worldMod.isMonasCollapsing === 'function');
+worldMod.startMonasCollapse();   // belum bangun dunia -> guard: no-op aman
+T('startMonasCollapse aman sebelum dunia dibangun (guard, tetap tegak)',
+    worldMod.isMonasCollapsing() === false && worldMod.updateMonasCollapse(0.1) === false);
+worldMod.resetMonasCollapse();   // tidak boleh melempar
+
+// Hook selebrasi robot saat Monas runtuh (robots.js men-gate celebrateRobot
+// dgn isPlayerDying() ATAU activeScene.robotsCelebrate()): survival ekspor hook.
+const survMod = await import(R('src/scenes/survival/index.js'));
+T('survivalScene.robotsCelebrate hook ada & false saat Monas tegak',
+    typeof survMod.survivalScene.robotsCelebrate === 'function'
+    && survMod.survivalScene.robotsCelebrate() === false);
+
+// --- 15. Campaign STAGE 2 overhaul (2026-07-13): gedung indoor mengikuti denah.
+// Bangun dunia gedung + verifikasi grid (BFS konektivitas), penempatan robot 9
+// spot, robotAI, dan gerbang BOSS penjaga tangga. ---
+const s2mod = await import(R('src/scenes/campaign/stage2.js'));
+s2mod.buildWorld();
+{   // BFS: SEMUA lantai harus terjangkau dari START (menangkap salah-carve pintu)
+    const grid = s2mod.s2grid, ROWS = grid.length, COLS = grid[0].length;
+    const seen = grid.map(row => row.map(() => false));
+    const st = s2mod.S2_START, q = [[st.c, st.r]]; seen[st.r][st.c] = true;
+    let reach = 0, floor = 0;
+    while (q.length) {
+        const [c, r] = q.shift(); reach++;
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nc = c + dc, nr = r + dr;
+            if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS) continue;
+            if (grid[nr][nc] === 0 && !seen[nr][nc]) { seen[nr][nc] = true; q.push([nc, nr]); }
+        }
+    }
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === 0) floor++;
+    T('S2: SEMUA lantai gedung terhubung dari START (BFS, ' + floor + ' sel)', reach === floor && floor > 400);
+}
+T('S2: START & END berada di LANTAI (bukan dinding)',
+    !s2mod.s2Wall(s2mod.S2_START.c, s2mod.S2_START.r) && !s2mod.s2Wall(s2mod.S2_END.c, s2mod.S2_END.r));
+T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
+
+// Bersihkan robot dari section sebelumnya, masuk scene, tempatkan robot+supply
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+const s2dropsBefore = stateMod.drops.length;
+smMod.setScene(s2mod.stage2Scene);   // enter() dipanggil di dalam setScene
+s2mod.placeRobots();
+const nStage2 = robots.filter(z => z.stage === 2).length;
+T('S2: placeRobots menaruh 35 robot (9 spot) tagged stage 2 (' + nStage2 + ')', nStage2 === 35);
+T('S2: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s2dropsBefore);
+
+// robotAI (idle->kejar via nav-grid) jalan tanpa error
+const zS2 = robots.find(z => z.stage === 2);
+camera.position.set(zS2.mesh.position.x + 30, cfgMod.CFG.player.eyeHeight, zS2.mesh.position.z);
+let s2aiOk = true;
+try { for (let i = 0; i < 5; i++) s2mod.stage2Scene.robotAI(zS2, 0.05, 3); } catch (e) { s2aiOk = false; }
+T('S2: robotAI jalan tanpa error', s2aiOk);
+
+// TANPA boss (dibuang atas permintaan user): tak ada boss/updateMode di scene
+T('S2: tak ada boss & tak ada updateMode (boss dibuang)',
+    !robots.some(z => z.kind === 'boss') && s2mod.stage2Scene.updateMode === undefined
+    && !/BOSS/.test(s2mod.stage2Scene.hudStatus()));
+// Tangga END SELALU aktif: menginjak trigger -> transisi ke stage 3 (spy enter
+// stage3 supaya tak membangun dunianya di harness pada langkah ini).
+const s3mod = await import(R('src/scenes/campaign/stage3.js'));
+const realS3Enter = s3mod.stage3Scene.enter;
+let s3entered = false;
+s3mod.stage3Scene.enter = () => { s3entered = true; };
+const e2 = s2mod.s2Cell(s2mod.S2_END.c, s2mod.S2_END.r);
+stateMod._v3.set(e2.x, 0, e2.z);
+s2mod.stage2Scene.playerCollide(stateMod._v3, e2.x, e2.z, 0);
+T('S2: mencapai tangga END -> transisi ke stage 3', s3entered && smMod.activeScene === s3mod.stage3Scene);
+s3mod.stage3Scene.enter = realS3Enter;   // pulihkan enter asli
+
+// --- 16. Campaign STAGE 3 overhaul (2026-07-13): gedung indoor final dgn
+// ATRIUM/VOID pusat mengikuti denah. Bangun dunia + BFS konektivitas (VOID =
+// dinding), penempatan robot 10-spot + supply, robotAI, dan MENANG via tangga. ---
+s3mod.buildWorld();
+{   // BFS: SEMUA lantai (kecuali VOID pusat) terhubung dari START
+    const grid = s3mod.s3grid, ROWS = grid.length, COLS = grid[0].length;
+    const seen = grid.map(row => row.map(() => false));
+    const st = s3mod.S3_START, q = [[st.c, st.r]]; seen[st.r][st.c] = true;
+    let reach = 0, floor = 0;
+    while (q.length) {
+        const [c, r] = q.shift(); reach++;
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nc = c + dc, nr = r + dr;
+            if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS) continue;
+            if (grid[nr][nc] === 0 && !seen[nr][nc]) { seen[nr][nc] = true; q.push([nc, nr]); }
+        }
+    }
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === 0) floor++;
+    T('S3: SEMUA lantai gedung terhubung dari START (BFS, ' + floor + ' sel)', reach === floor && floor > 500);
+}
+const VC = s3mod.S3.VOID;
+T('S3: START & END di lantai; VOID pusat = dinding (tak dilalui)',
+    !s3mod.s3Wall(s3mod.S3_START.c, s3mod.S3_START.r) && !s3mod.s3Wall(s3mod.S3_END.c, s3mod.S3_END.r)
+    && s3mod.s3Wall((VC.c0 + VC.c1) >> 1, (VC.r0 + VC.r1) >> 1));
+T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
+
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+const s3dropsBefore = stateMod.drops.length;
+s3mod.placeRobots();
+const nStage3 = robots.filter(z => z.stage === 3).length;
+T('S3: placeRobots menaruh 39 robot (10 spot) tagged stage 3 (' + nStage3 + ')', nStage3 === 39);
+T('S3: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s3dropsBefore);
+
+const zS3 = robots.find(z => z.stage === 3);
+camera.position.set(zS3.mesh.position.x + 30, cfgMod.CFG.player.eyeHeight, zS3.mesh.position.z);
+let s3aiOk = true;
+try { for (let i = 0; i < 5; i++) s3mod.stage3Scene.robotAI(zS3, 0.05, 3); } catch (e) { s3aiOk = false; }
+T('S3: robotAI jalan tanpa error', s3aiOk);
+
+// Menang: capai tangga END -> MISSION COMPLETE (gameOver(true))
+stateMod.setGameOver(false);
+const e3 = s3mod.s3Cell(s3mod.S3_END.c, s3mod.S3_END.r);
+stateMod._v3.set(e3.x, 0, e3.z);
+s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);
+T('S3: capai tangga END -> MISSION COMPLETE (gameOver win)', stateMod.isGameOver === true);
+stateMod.setGameOver(false);
 
 console.log(`\n${pass} pass, ${fail} fail`);
 process.exit(fail ? 1 : 0);

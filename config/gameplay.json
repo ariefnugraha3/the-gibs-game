@@ -154,7 +154,10 @@
         "monasFogChancePerWave": 0.03,
         "monasFogChanceMax": 0.75,
         "monasFogClearMeters": 15,
-        "monasFogDurationSec": 60
+        "monasFogDurationSec": 60,
+        "monasCollapseTrembleSec": 1.4,
+        "monasCollapseToppleSec": 2.2,
+        "monasCollapseSettleSec": 1.6
     },
     "campaign": {
         "robotSpeedScale": 1,

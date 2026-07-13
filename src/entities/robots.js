@@ -666,11 +666,12 @@ export function updateRobots(dt, step) {
         const z = robots[i];
 
         // ===== SELEBRASI KEMENANGAN (2026-07-12): selama sekuens kematian
-        // player, SEMUA robot berhenti menyerang & bersorak (celebrateRobot) —
-        // AI scene, serangan, dan rig normal dilewati. Robot campaign yang
+        // player ATAU saat Monas runtuh (hook scene `robotsCelebrate`, survival
+        // 2026-07-13), SEMUA robot berhenti menyerang & bersorak (celebrateRobot)
+        // — AI scene, serangan, dan rig normal dilewati. Robot campaign yang
         // masih 'idle' (dorman) tetap diam. Peluru player yang masih melayang
         // tetap diuji di bawah (adil sampai detik terakhir). =====
-        if (isPlayerDying()) {
+        if (isPlayerDying() || (activeScene.robotsCelebrate && activeScene.robotsCelebrate())) {
             if (z.state !== 'idle') celebrateRobot(z, dt);
         } else {
             // Gerak/aktivasi milik scene aktif. Kontrak hasil:

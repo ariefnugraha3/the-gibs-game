@@ -17,7 +17,8 @@ import { applyLightPreset } from '../../world/lighting.js';
 import {
     PARK, FENCE_H, FOUNTAIN, ensureParkWorld, getSurvivalNav,
     resolveObstacles, resolveMonas, segmentHitsFountain, groundHeightAt,
-    setFogCanopy, driftFogCanopy
+    setFogCanopy, driftFogCanopy,
+    startMonasCollapse, updateMonasCollapse, resetMonasCollapse, isMonasCollapsing
 } from './world.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
 import { openShop, closeShop, isShopOpen, requestNextWave } from './shop.js';
@@ -43,18 +44,29 @@ let monasHp = 50;
 let monasMaxHp = 50;
 let monasStage = 0;    // tingkat "Strengthen Monas" (0 = base; naik per pembelian, plafon = jml tier)
 let monasWarnCd = 0;   // jeda peringatan feed agar tidak spam tiap gigitan
+let monasFalling = false;   // true = animasi runtuh Monas sedang berjalan (tunda game over)
 
 function damageMonas(n) {
     if (godMode) return;   // cheat: Monas kebal (HP tak berkurang, tak ada peringatan/kalah)
+    if (monasFalling) return;   // sudah runtuh: abaikan damage lanjutan selama animasi
     monasHp -= n;
     updateUI();
+    if (monasHp <= 0) {
+        // HP habis: JANGAN langsung game over — mainkan animasi Monas TUMBANG
+        // (world.js), lalu updateMode memanggil gameOver saat animasi selesai.
+        monasHp = 0;
+        monasFalling = true;
+        startMonasCollapse();
+        showStageMsg('THE MONUMENT IS FALLING!', 3200);
+        showPickup('THE MONUMENT HAS FALLEN', '#ff4757');
+        return;
+    }
     if (monasWarnCd <= 0) {
         monasWarnCd = 6;
         const crit = monasHp <= monasMaxHp * 0.3;
         showPickup(crit ? 'THE MONUMENT IS CRITICAL!' : 'The Monument is under attack!',
             crit ? '#ff4757' : '#ffb84d');
     }
-    if (monasHp <= 0) gameOver(false, 'THE MONUMENT HAS FALLEN');
 }
 
 // --- Item shop Monas (dipanggil shop.js.shopPurchase) ---
@@ -236,6 +248,8 @@ export const survivalScene = {
         monasHp = monasMaxHp;
         monasStage = 0;      // batalkan tingkat Strengthen run sebelumnya
         monasWarnCd = 0;
+        monasFalling = false;
+        resetMonasCollapse();   // tegakkan kembali Monas (world persist antar-run)
         endEvent();          // pulihkan fog/cahaya bila mati di tengah event
         closeShop();
         camera.position.set(0, CFG.player.eyeHeight, 120);
@@ -249,6 +263,11 @@ export const survivalScene = {
     // KLIK di shop.js.
     shopKey,
     shopActive: isShopOpen,
+
+    // Selebrasi robot (2026-07-13): saat Monas runtuh (monasHp 0), robots.js
+    // menghentikan serangan & membuat SEMUA robot bersorak — sama seperti saat
+    // player mati (celebrateRobot). True selama animasi runtuhnya Monas.
+    robotsCelebrate: () => monasFalling,
 
     // Cheat (cheatConsole "skip-to-wave-N"): LOMPAT LANGSUNG ke wave n. Buang
     // semua robot di lapangan tanpa skor/gore (dispose senyap seperti resetGame),
@@ -268,6 +287,13 @@ export const survivalScene = {
     // --- Mesin fase wave (fighting -> cleared -> shopping) + spawner + event ---
     updateMode(dt) {
         if (monasWarnCd > 0) monasWarnCd -= dt;
+
+        // Monas runtuh: mainkan animasi tumbang (world tetap hidup di belakang);
+        // saat animasi selesai -> GAME OVER. Lewati mesin wave selama runtuh.
+        if (monasFalling) {
+            if (updateMonasCollapse(dt)) gameOver(false, 'THE MONUMENT HAS FALLEN');
+            return;
+        }
 
         if (wave.phase === 'fighting') {
             // Spawn sampai jatah wave habis, dibatasi cap robot di lapangan

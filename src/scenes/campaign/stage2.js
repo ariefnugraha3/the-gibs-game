@@ -1,498 +1,418 @@
-// SCENE: Campaign STAGE 2 — jalan raya Jakarta yang hancur. Denah: air mancur
-// bawah (start) --1 km--> air mancur atas (persimpangan; lengan barat/timur
-// diblokir tumpukan mobil) --serong 500 m. Area boleh-jalan = UNION jalan +
-// cincin air mancur (highwayWalk); gedung membentuk dinding koridor
-// (dekoratif — dinding kerasnya union itu). Menang = semua robot stage 2 mati.
+// SCENE: Campaign STAGE 2 — "Gedung Terbengkalai (Lantai 2)", indoor building.
+// DIROMBAK TOTAL 2026-07-13 dari jalan-raya menjadi gedung dalam-ruangan yang
+// mengikuti floor-plan referensi user (denah). Tata letak (atas->bawah,
+// kiri->kanan):
+//   ATAS:    TANGGA TURUN dari Lt.3 (START, kiri-atas) | OFFICE ROOM |
+//            HALLWAY (koridor panjang, jebakan runtuhan) | STORAGE ROOM (arsip)
+//   TENGAH:  WAITING AREA | OPEN OFFICE (banyak cover) | SUPPLY ROOM
+//            (ammo/medkit); KORIDOR KANAN percabangan (spot 6)
+//   BAWAH:   LAB / RESEARCH ROOM | CONTROL ROOM | TANGGA TURUN (END, kanan-
+//            bawah -> ke stage 3). Grid sel 2 m: 1=dinding, 0=lantai — dinding
+//            visual, collision, line-of-sight, & hit peluru dari grid yang SAMA.
+//   Konektivitas + bebas-pintu DIVERIFIKASI BFS (scratchpad s2grid.mjs & smoke
+//   test); jangan ubah pintu tanpa tes ulang. Menang = capai tangga END (ruang
+//   kanan-bawah) -> transisi ke stage 3 (sama seperti tangga keluar stage 1;
+//   TANPA boss — dibuang atas permintaan user 2026-07-13).
 
 import { CFG, CAMP_M } from '../../core/config.js';
-import { player, robots, _v3 } from '../../core/state.js';
+import { player, robots, drops, _v3 } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
-import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../utils/textures.js';
+import { makeTexture, speckle } from '../../utils/textures.js';
 import { rand } from '../../utils/math.js';
 import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../utils/collision.js';
 import { makeNavGrid } from '../../utils/pathfind.js';
-import { waterJets, setWaterTex } from '../../world/decor.js';
 import { applyLightPreset } from '../../world/lighting.js';
-import {
-    CITY_PALETTE, makeFacadeTex, makeLitTex, makeCityMat, makeBurningCityMat,
-    fillBuildingInstances, addFireSprites
-} from '../../world/facades.js';
+import { setScene } from '../../core/sceneManager.js';
 import { showStageMsg } from '../../core/dom.js';
 import { updateUI } from '../../core/hud.js';
-import { disposeRobot } from '../../entities/robots.js';
 import { NADE_R } from '../../entities/grenades.js';
-import { setScene } from '../../core/sceneManager.js';
+import { disposeRobot } from '../../entities/robots.js';
+import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { stage1Scene } from './stage1.js';
 import { stage3Scene } from './stage3.js';
 
-// Tata letak jalan raya. Skala 1 m ≈ 7 unit (CAMP_M).
-export const CAMP = {
-    halfRoad: 9 * CAMP_M,     // aspal lebar 18 m
-    halfWalk: 11 * CAMP_M,    // + trotoar 2 m kiri & kanan (koridor total 22 m)
-    medianHalf: 1.5 * CAMP_M, // pembatas tengah lebar 3 m (kuning di denah)
-    medianH: 4.5,             // ~0.65 m — BISA dilompati (puncak lompat player 7.8)
-    // Air mancur bawah d=100 m & atas d=50 m (cyan); ring = trotoar keliling.
-    // Jarak jalan antar bak = 1 km -> pusat atas = -(1000 + 50 + 25) m.
-    low: { x: 0, z: 0, r: 50 * CAMP_M, ring: 12 * CAMP_M, topY: 10 },
-    up: { x: 0, z: -(1000 + 50 + 25) * CAMP_M, r: 25 * CAMP_M, ring: 10 * CAMP_M, topY: 10 },
-    armLen: 500 * CAMP_M,     // lengan barat/timur (diblokir mobil rongsok — dekorasi)
-    diagLen: 500 * CAMP_M,    // jalan serong kanan-atas 500 m
-    diagAng: Math.PI * 40 / 180,
+// Grid 40 kolom x 28 baris (sel 2 m). Gedung ditaruh ~60 km dari origin dan
+// ~30 km dari gedung stage 1 (x≈30000) — kedua dunia stage hidup berdampingan
+// di satu scene, dipisah jarak (camera.far + culling menyembunyikan yang jauh).
+export const S2 = {
+    G: 40, ROWS: 28, CELL: 2 * CAMP_M, H: 22,   // tinggi plafon ~3.1 m
+    x0: 60000 - 20 * 2 * CAMP_M,                 // pojok barat-laut grid
+    z0: -14 * 2 * CAMP_M
 };
-// Arah jalan serong (dari pusat air mancur atas, menyerong kanan-atas) + tegak lurusnya
-export const CAMP_DIR = { x: Math.sin(CAMP.diagAng), z: -Math.cos(CAMP.diagAng) };
-export const CAMP_PERP = { x: -CAMP_DIR.z, z: CAMP_DIR.x };
-// Titik masuk STAGE 2 (dari tangga gedung): koridor tepat utara cincin air
-// mancur bawah, menghadap -z (1 km jalan terbentang menuju air mancur atas).
-export const CAMP_START = { x: 0, z: -(CAMP.low.r + CAMP.low.ring + 30) };
+export let s2grid = null;                        // [row][col] 1=dinding, 0=lantai
+export const s2Cell = (c, r) => ({ x: S2.x0 + (c + 0.5) * S2.CELL, z: S2.z0 + (r + 0.5) * S2.CELL });
+export const S2_START = { c: 3, r: 3 };          // ruang tangga TURUN dari Lt.3 (kiri-atas)
+export const S2_END = { c: 34, r: 24 };          // tangga TURUN ke stage 3 (kanan-bawah)
+// Trigger tangga keluar (ruang END, kanan-bawah)
+const S2_EXIT = { c0: 31, r0: 22, c1: 37, r1: 26 };
 
-const blockers = [];      // balok pejal stage 2: median jalan + blokade mobil
-const wreckPiles = [];    // titik blokade mobil (radar)
-let navGrid = null;       // nav-grid pathfinder robot (dibangun di buildWorld)
+const blockers = [];   // furnitur/undakan pejal {x,z,hx,hz,ax*,az*,top,standable}
+let built = false;
 
-// Titik (x,z) dgn radius r masih di dalam area jalan/trotoar?
-export function highwayWalk(x, z, r) {
-    const w = CAMP.halfWalk - r;
-    // jalan utara-selatan antar air mancur
-    if (Math.abs(x) <= w && z >= CAMP.up.z && z <= CAMP.low.z) return true;
-    // lengan barat/timur (di balik blokade mobil; tetap walkable utk fisika granat)
-    if (Math.abs(z - CAMP.up.z) <= w && Math.abs(x) <= CAMP.up.r + CAMP.armLen) return true;
-    // cincin trotoar keliling air mancur (bak pejalnya ditangani resolve)
-    if (Math.hypot(x - CAMP.low.x, z - CAMP.low.z) <= CAMP.low.r + CAMP.low.ring - r) return true;
-    if (Math.hypot(x - CAMP.up.x, z - CAMP.up.z) <= CAMP.up.r + CAMP.up.ring - r) return true;
-    // jalan serong dari air mancur atas (bingkai lokal: u sepanjang, v melintang)
-    const dx = x - CAMP.up.x, dz = z - CAMP.up.z;
-    const u = dx * CAMP_DIR.x + dz * CAMP_DIR.z;
-    const v = dx * CAMP_PERP.x + dz * CAMP_PERP.z;
-    return u >= 0 && u <= CAMP.up.r + CAMP.diagLen && Math.abs(v) <= w;
+function buildS2Grid() {
+    const g = Array.from({ length: S2.ROWS }, () => Array(S2.G).fill(1));
+    const carve = (c0, r0, c1, r1) => {
+        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g[r][c] = 0;
+    };
+    // --- Ruangan (verifikasi BFS di scratchpad s2grid.mjs) ---
+    carve(1, 1, 6, 6);       // START (tangga turun dari Lt.3)
+    carve(9, 1, 15, 6);      // OFFICE ROOM
+    carve(18, 1, 26, 5);     // HALLWAY (koridor panjang)
+    carve(30, 1, 38, 6);     // STORAGE ROOM (arsip)
+    carve(1, 10, 8, 17);     // WAITING AREA
+    carve(11, 9, 24, 17);    // OPEN OFFICE
+    carve(31, 9, 38, 15);    // SUPPLY ROOM
+    carve(1, 20, 11, 26);    // LAB / RESEARCH ROOM
+    carve(14, 20, 25, 26);   // CONTROL ROOM
+    carve(30, 19, 38, 26);   // END (tangga turun ke stage 3)
+    // --- Koridor sempit (jadi robot-spot ambush) ---
+    carve(2, 7, 27, 8);      // koridor utama HALLWAY (atas)
+    carve(28, 2, 29, 19);    // koridor KANAN percabangan (spot 6)
+    carve(4, 8, 5, 10);      // koridor -> WAITING (spot 1)
+    carve(12, 17, 13, 19);   // OPEN OFFICE -> CONTROL (turun)
+    carve(6, 17, 7, 19);     // WAITING -> LAB (turun)
+    // --- Pintu (bukaan staggered 1-2 sel) ---
+    carve(3, 6, 4, 7);       // START -> koridor
+    carve(7, 4, 8, 4);       // START -> OFFICE
+    carve(11, 6, 12, 7);     // OFFICE -> koridor
+    carve(16, 2, 17, 2);     // OFFICE -> HALLWAY
+    carve(21, 5, 22, 7);     // HALLWAY -> koridor
+    carve(27, 3, 29, 3);     // HALLWAY -> koridor kanan
+    carve(28, 4, 30, 4);     // koridor kanan -> STORAGE
+    carve(15, 8, 16, 9);     // koridor -> OPEN OFFICE (pintu utara)
+    carve(9, 13, 11, 13);    // WAITING -> OPEN OFFICE
+    carve(24, 11, 28, 11);   // OPEN OFFICE -> koridor kanan
+    carve(29, 13, 31, 13);   // koridor kanan -> SUPPLY
+    carve(6, 17, 7, 18);     // WAITING -> koridor LAB
+    carve(12, 17, 13, 18);   // OPEN OFFICE -> koridor CONTROL
+    carve(11, 23, 14, 23);   // LAB -> CONTROL
+    carve(25, 21, 30, 21);   // CONTROL -> koridor kanan -> END
+    s2grid = g;
 }
 
-// Penghalang pejal stage 2: dinding bak air mancur (silinder) + balok
-// median/mobil. Murni horizontal; dilewati bila kaki di atas puncaknya.
-export function resolve(pos, radius, feetY) {
-    for (const f of [CAMP.low, CAMP.up]) {
-        if (feetY >= f.topY - 0.4) continue;
-        const dx = pos.x - f.x, dz = pos.z - f.z;
-        const minD = f.r + radius, d2 = dx * dx + dz * dz;
-        if (d2 < minD * minD && d2 > 1e-6) {
-            const d = Math.sqrt(d2);
-            pos.x = f.x + dx / d * minD;
-            pos.z = f.z + dz / d * minD;
-        }
+// Sel dinding? (di luar grid = dinding)
+export function s2Wall(c, r) {
+    return c < 0 || r < 0 || c >= S2.G || r >= S2.ROWS || s2grid[r][c] === 1;
+}
+
+// Lingkaran (x,z,r) sepenuhnya di lantai gedung? (walkable stage 2)
+export function stage2Walk(x, z, r) {
+    if (!s2grid) return false;
+    const c0 = Math.floor((x - r - S2.x0) / S2.CELL), c1 = Math.floor((x + r - S2.x0) / S2.CELL);
+    const r0 = Math.floor((z - r - S2.z0) / S2.CELL), r1 = Math.floor((z + r - S2.z0) / S2.CELL);
+    for (let rr = r0; rr <= r1; rr++)
+        for (let cc = c0; cc <= c1; cc++)
+            if (s2Wall(cc, rr)) return false;
+    return true;
+}
+
+// Garis pandang bebas dinding? (aktivasi robot indoor: bangun bila MELIHAT player)
+export function s2LOS(x1, z1, x2, z2) {
+    if (!s2grid) return true;
+    const dx = x2 - x1, dz = z2 - z1;
+    const dist = Math.hypot(dx, dz);
+    const steps = Math.max(1, Math.ceil(dist / (S2.CELL * 0.5)));
+    for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const c = Math.floor((x1 + dx * t - S2.x0) / S2.CELL);
+        const r = Math.floor((z1 + dz * t - S2.z0) / S2.CELL);
+        if (s2Wall(c, r)) return false;
     }
+    return true;
+}
+
+// Ruas peluru menabrak dinding? (sampling tiap ~7 unit)
+export function s2SegHitsWall(x1, z1, x2, z2) {
+    const dist = Math.hypot(x2 - x1, z2 - z1);
+    const steps = Math.max(1, Math.ceil(dist / 7));
+    for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const c = Math.floor((x1 + (x2 - x1) * t - S2.x0) / S2.CELL);
+        const r = Math.floor((z1 + (z2 - z1) * t - S2.z0) / S2.CELL);
+        if (s2Wall(c, r)) return true;
+    }
+    return false;
+}
+
+// Penghalang pejal stage 2 = furnitur + undakan tangga (balok axis-aligned)
+export function resolve(pos, radius, feetY) {
     return resolveBlockers(pos, radius, feetY, blockers);
 }
 
-export function buildWorld() {
-    // --- Tanah dasar kota (gelap, di bawah semua jalan) ---
-    const baseTex = makeTexture(256, 256, (g, w, h) => {
-        g.fillStyle = '#17150f'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#0e0d0a', '#211d14', '#2a241a', '#0a0908'], 260, 2, 9);
-    }, 90, 90);
-    const base = new THREE.Mesh(
-        new THREE.PlaneGeometry(22000, 22000),
-        new THREE.MeshPhongMaterial({ map: baseTex, shininess: 4, specular: 0x0c0b09 })
-    );
-    base.rotation.x = -Math.PI / 2;
-    base.position.set(800, -0.5, -3700);
-    base.receiveShadow = true;
-    scene.add(base);
+export let s2Nav = null;
 
-    // --- Aspal + trotoar (tekstur dibagi semua ruas) ---
-    const asphaltNrm = makeNormalMap(128, 128, (g, w, h) => {
-        noiseHeight(128, 34, 420, 1, 4)(g, w, h);
-        g.strokeStyle = 'rgb(70,70,70)';
-        for (let i = 0; i < 5; i++) {
-            g.lineWidth = 1 + Math.random();
-            let x = Math.random() * w, y = Math.random() * h;
-            g.beginPath(); g.moveTo(x, y);
-            for (let s = 0; s < 4; s++) { x += rand(-16, 16); y += rand(-16, 16); g.lineTo(x, y); }
-            g.stroke();
-        }
-    }, 1.6);
-    // Marka lajur di kiri-kanan (tengah jalan ditempati median), memanjang sumbu v
-    const mkAsphaltTex = (repY) => makeTexture(256, 256, (g, w, h) => {
-        g.fillStyle = '#26262a'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#1e1e22', '#2e2e33', '#232327', '#333338'], 300, 1, 5);
-        for (let i = 0; i < 6; i++) {
-            g.globalAlpha = 0.12 + Math.random() * 0.12;
-            g.fillStyle = '#0c0c0e';
+export function buildWorld() {
+    buildS2Grid();
+    const sizeX = S2.G * S2.CELL, sizeZ = S2.ROWS * S2.CELL;   // 560 x 392 unit
+    const cx = S2.x0 + sizeX / 2, cz = S2.z0 + sizeZ / 2;
+
+    // --- Lantai: ubin kusam bernoda ---
+    const floorTex = makeTexture(128, 128, (g, w, h) => {
+        g.fillStyle = '#484540'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#3e3a34', '#504b43', '#35322c', '#585349'], 240, 1, 5);
+        g.strokeStyle = 'rgba(22,20,17,0.6)'; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(w, 0); g.moveTo(0, 0); g.lineTo(0, h); g.stroke();
+        for (let i = 0; i < 3; i++) {
+            g.globalAlpha = 0.10 + Math.random() * 0.12;
+            g.fillStyle = '#12100c';
             g.beginPath();
-            g.ellipse(Math.random() * w, Math.random() * h, 8 + Math.random() * 22, 5 + Math.random() * 12, Math.random() * 3, 0, Math.PI * 2);
+            g.ellipse(Math.random() * w, Math.random() * h, 10 + Math.random() * 24, 6 + Math.random() * 14, Math.random() * 3, 0, 6.283);
             g.fill();
         }
         g.globalAlpha = 1;
-        g.strokeStyle = 'rgba(10,10,12,0.65)';
+    }, S2.G, S2.ROWS);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ),
+        new THREE.MeshPhongMaterial({ map: floorTex, shininess: 8, specular: 0x121110 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(cx, 0.01, cz);
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // --- Plafon: panel akustik gelap (disembunyikan seperti stage 1 = top-down) ---
+    const ceilTex = makeTexture(128, 128, (g, w, h) => {
+        g.fillStyle = '#282520'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#221f1a', '#2f2b25', '#1b1915'], 120, 1, 4);
+    }, S2.G, S2.ROWS);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ),
+        new THREE.MeshLambertMaterial({ map: ceilTex }));
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.set(cx, S2.H, cz);
+    ceil.visible = false;   // top-down: kamera di atas plafon (fisika granat tak berubah)
+    scene.add(ceil);
+
+    // --- Dinding: satu InstancedMesh (sel dinding bertetangga lantai saja) ---
+    const wallTex = makeTexture(64, 64, (g, w, h) => {
+        g.fillStyle = '#67635b'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#5c5850', '#726d64', '#534f45'], 140, 1, 4);
         for (let i = 0; i < 5; i++) {
-            g.lineWidth = 0.8 + Math.random();
-            let x = Math.random() * w, y = Math.random() * h;
+            g.strokeStyle = 'rgba(38,35,30,0.5)';
+            g.lineWidth = 1 + Math.random();
+            let x = Math.random() * w, y = 0;
             g.beginPath(); g.moveTo(x, y);
-            for (let s = 0; s < 4; s++) { x += rand(-18, 18); y += rand(-18, 18); g.lineTo(x, y); }
+            for (let s = 0; s < 3; s++) { x += rand(-6, 6); y += h / 3; g.lineTo(x, y); }
             g.stroke();
         }
-        g.fillStyle = 'rgba(206,200,180,0.55)';
-        for (const lx of [0.27, 0.73]) {
-            for (let y = 0; y < h; y += 64) g.fillRect(w * lx - 2, y, 4, 34);
-        }
-    }, 1, repY);
-    const roadMat = (len) => new THREE.MeshPhongMaterial({
-        map: mkAsphaltTex(len / 200), normalMap: asphaltNrm, shininess: 6, specular: 0x101014
     });
-    const walkTex = makeTexture(128, 128, (g, w, h) => {
-        g.fillStyle = '#4c4a44'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#44423c', '#55534c', '#3c3a35'], 200, 1, 4);
-        g.strokeStyle = 'rgba(30,29,26,0.5)'; g.lineWidth = 2;
-        for (let y = 0; y <= h; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
-    }, 1, 40);
-    const walkMat = new THREE.MeshPhongMaterial({ map: walkTex, shininess: 5, specular: 0x121110 });
-
-    // Satu ruas jalan: aspal (plane) + trotoar kiri/kanan (box tipis), di dalam
-    // Group yang diputar yaw — dipakai ruas vertikal, lengan, dan serong.
-    const sideW = CAMP.halfWalk - CAMP.halfRoad;   // lebar trotoar (2 m)
-    // roadY sedikit berbeda tiap ruas: ruas-ruas bertumpuk di bawah bak air
-    // mancur (terlihat samar lewat air transparan) — hindari z-fighting.
-    const mkRoad = (cx, cz, yaw, len, walkFrom, walkTo, roadY) => {
-        const grp = new THREE.Group();
-        grp.position.set(cx, 0, cz);
-        grp.rotation.y = yaw;
-        const road = new THREE.Mesh(new THREE.PlaneGeometry(CAMP.halfRoad * 2, len), roadMat(len));
-        road.rotation.x = -Math.PI / 2;
-        road.position.y = roadY;
-        road.receiveShadow = true;
-        grp.add(road);
-        // trotoar: hanya pada rentang walkFrom..walkTo (lokal, agar tak menembus bak)
-        const wLen = walkTo - walkFrom, wMid = (walkFrom + walkTo) / 2;
-        for (const s of [-1, 1]) {
-            const walk = new THREE.Mesh(new THREE.BoxGeometry(sideW, 1.0, wLen), walkMat);
-            walk.position.set(s * (CAMP.halfRoad + sideW / 2), 0.5, wMid);
-            walk.receiveShadow = true;
-            grp.add(walk);
+    const wallCells = [];
+    for (let r = 0; r < S2.ROWS; r++) {
+        for (let c = 0; c < S2.G; c++) {
+            if (s2grid[r][c] !== 1) continue;
+            let nearFloor = false;
+            for (let dr = -1; dr <= 1 && !nearFloor; dr++)
+                for (let dc = -1; dc <= 1 && !nearFloor; dc++)
+                    if (!s2Wall(c + dc, r + dr)) nearFloor = true;
+            if (nearFloor) wallCells.push([c, r]);
         }
-        scene.add(grp);
-    };
-    const L = CAMP.low, U = CAMP.up;
-    // Ruas utara-selatan: dari z = U.z - U.r (bawah bak atas) ke z = L.z + L.r
-    const vLen = (L.z - U.z) + L.r + U.r;
-    mkRoad(0, (L.z + L.r + U.z - U.r) / 2, 0, vLen,
-        -vLen / 2 + (U.r * 2 + U.ring + 4),      // trotoar mulai setelah cincin bak atas
-        vLen / 2 - (L.r * 2 + L.ring + 4), 0.02); // ...berakhir sebelum cincin bak bawah
-    // Lengan barat/timur: dua strip dari tepi bak atas keluar (yaw dibalik agar
-    // ujung dekat bak selalu di sisi -z lokal -> rentang trotoar simetris)
-    const aLen = CAMP.armLen + 20;
-    for (const s of [-1, 1]) {
-        mkRoad(s * (U.r - 20 + aLen / 2), U.z, s * Math.PI / 2, aLen,
-            -aLen / 2 + (U.ring + 24), aLen / 2 - 6, 0.013);
     }
-    // Ruas serong kanan-atas dari bak atas (yaw: sumbu panjang lokal -> CAMP_DIR)
-    const dLen = CAMP.diagLen + 20;
-    const dMid = U.r - 20 + dLen / 2;
-    mkRoad(U.x + CAMP_DIR.x * dMid, U.z + CAMP_DIR.z * dMid, Math.PI - CAMP.diagAng, dLen,
-        -dLen / 2 + (U.ring + 24), dLen / 2 - 6, 0.028);
-
-    // --- Median jalan (kuning di denah): balok putus-putus, bisa dilompati/dipijak ---
-    const dashLen = 15 * CAMP_M, dashGap = 5 * CAMP_M, stepLen = dashLen + dashGap;
-    const medianList = [];
-    // run: dari titik (sx,sz) sepanjang arah (dx,dz) dari jarak a ke b
-    const addMedianRun = (sx, sz, dx, dz, a, b, yaw) => {
-        const axx = dz, axz = -dx;   // basis lokal: az = arah jalan, ax = melintang
-        for (let t = a; t + dashLen <= b; t += stepLen) {
-            const cx = sx + dx * (t + dashLen / 2), cz = sz + dz * (t + dashLen / 2);
-            medianList.push({ x: cx, z: cz, yaw });
-            blockers.push({
-                x: cx, z: cz, hx: CAMP.medianHalf, hz: dashLen / 2,
-                axx, axz, azx: dx, azz: dz,
-                rad: Math.hypot(CAMP.medianHalf, dashLen / 2),
-                top: CAMP.medianH, standable: true
-            });
-        }
-    };
-    addMedianRun(0, L.z - L.r - L.ring, 0, -1, 30, (L.z - L.r - L.ring) - (U.z + U.r + U.ring) - 30, 0);
-    addMedianRun(U.r + U.ring, U.z, 1, 0, 30, CAMP.armLen - U.ring - 30, Math.PI / 2);
-    addMedianRun(-(U.r + U.ring), U.z, -1, 0, 30, CAMP.armLen - U.ring - 30, Math.PI / 2);
-    addMedianRun(U.x + CAMP_DIR.x * (U.r + U.ring), U.z + CAMP_DIR.z * (U.r + U.ring),
-        CAMP_DIR.x, CAMP_DIR.z, 30, CAMP.diagLen - U.ring - 30, Math.PI - CAMP.diagAng);
-    const medianMesh = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(CAMP.medianHalf * 2, CAMP.medianH, dashLen),
-        new THREE.MeshLambertMaterial({ color: 0xffffff }), medianList.length);
+    const wallMesh = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(S2.CELL, S2.H, S2.CELL),
+        new THREE.MeshPhongMaterial({ map: wallTex, shininess: 5, specular: 0x14130f }),
+        wallCells.length);
     {
-        const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(),
-            _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), _c = new THREE.Color();
-        const upAxis = new THREE.Vector3(0, 1, 0);
-        medianList.forEach((d, i) => {
-            _q.setFromAxisAngle(upAxis, d.yaw);
-            _m.compose(_p.set(d.x, CAMP.medianH / 2, d.z), _q, _s);
-            medianMesh.setMatrixAt(i, _m);
-            // beton dicat kuning kusam, tiap segmen sedikit beda
-            medianMesh.setColorAt(i, _c.setHex(0xb99b32).offsetHSL(0, rand(-0.06, 0.04), rand(-0.06, 0.04)));
+        const _m = new THREE.Matrix4(), _c = new THREE.Color();
+        wallCells.forEach(([c, r], i) => {
+            const p = s2Cell(c, r);
+            _m.setPosition(p.x, S2.H / 2, p.z);
+            wallMesh.setMatrixAt(i, _m);
+            _c.setHex(0xffffff).offsetHSL(0, 0, rand(-0.06, 0.04));
+            wallMesh.setColorAt(i, _c);
         });
-        if (medianMesh.instanceColor) medianMesh.instanceColor.needsUpdate = true;
+        if (wallMesh.instanceColor) wallMesh.instanceColor.needsUpdate = true;
     }
-    medianMesh.castShadow = true;
-    medianMesh.receiveShadow = true;
-    medianMesh.frustumCulled = false;   // bounds instance tak dihitung r128
-    scene.add(medianMesh);
+    wallMesh.receiveShadow = true;
+    wallMesh.frustumCulled = false;
+    scene.add(wallMesh);
 
-    // --- Air mancur (cyan di denah): cincin paving + dinding bak + air + semburan ---
-    const stoneMat = new THREE.MeshPhongMaterial({ color: 0x6f6a5e, shininess: 10, specular: 0x1a1815 });
-    const waterTex = makeTexture(128, 128, (g, w, h) => {
-        g.fillStyle = '#27506b'; g.fillRect(0, 0, w, h);
-        for (let i = 0; i < 40; i++) {
-            g.strokeStyle = `rgba(159,198,224,${0.08 + Math.random() * 0.14})`;
-            g.lineWidth = 1 + Math.random() * 2;
-            const y = Math.random() * h;
-            g.beginPath(); g.moveTo(0, y);
-            g.bezierCurveTo(w * 0.33, y + rand(-6, 6), w * 0.66, y + rand(-6, 6), w, y);
-            g.stroke();
-        }
-    }, 8, 8);
-    setWaterTex(waterTex);
-    const waterMat = new THREE.MeshPhongMaterial({
-        map: waterTex, shininess: 150, specular: 0xbfe2f5, transparent: true, opacity: 0.9
-    });
-    const pavTex = makeTexture(128, 128, (g, w, h) => {
-        g.fillStyle = '#8a7a4a'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#7d6f43', '#968551', '#6f6340', '#a08e57'], 240, 2, 6);
-        g.strokeStyle = 'rgba(52,45,26,0.55)'; g.lineWidth = 2;
-        for (let y = 0; y <= h; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
-        for (let x = 0; x <= w; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
-    }, 20, 20);
-    const pavMat = new THREE.MeshPhongMaterial({ map: pavTex, shininess: 8, specular: 0x14120c });
-    const mkFountain = (f, nJet) => {
-        const ringPav = new THREE.Mesh(new THREE.RingGeometry(f.r - 8, f.r + f.ring, 72), pavMat);
-        ringPav.rotation.x = -Math.PI / 2;
-        ringPav.position.set(f.x, 0.04, f.z);
-        ringPav.receiveShadow = true;
-        scene.add(ringPav);
-        const wall = new THREE.Mesh(
-            new THREE.CylinderGeometry(f.r + 4, f.r + 6, f.topY, 72, 1, true),
-            new THREE.MeshPhongMaterial({ color: 0x6f6a5e, shininess: 10, specular: 0x1a1815, side: THREE.DoubleSide }));
-        wall.position.set(f.x, f.topY / 2, f.z);
-        wall.castShadow = true; wall.receiveShadow = true;
-        scene.add(wall);
-        const lip = new THREE.Mesh(new THREE.RingGeometry(f.r - 2, f.r + 6, 72), stoneMat);
-        lip.rotation.x = -Math.PI / 2;
-        lip.position.set(f.x, f.topY + 0.02, f.z);
-        scene.add(lip);
-        const water = new THREE.Mesh(new THREE.CircleGeometry(f.r + 2, 72), waterMat);
-        water.rotation.x = -Math.PI / 2;
-        water.position.set(f.x, f.topY - 3, f.z);
-        scene.add(water);
-        // menara pusat bertingkat + semburan berdenyut (ikut pool waterJets)
-        const tiers = [[f.r * 0.32, 4], [f.r * 0.2, 7], [f.r * 0.08, f.topY + 16]];
-        let ty = f.topY - 3;
-        for (const [tr, th] of tiers) {
-            const t = new THREE.Mesh(new THREE.CylinderGeometry(tr * 0.85, tr, th, 24), stoneMat);
-            t.position.set(f.x, ty + th / 2, f.z);
-            t.castShadow = true;
-            scene.add(t);
-            ty += th;
-        }
-        for (let i = 0; i < nJet; i++) {
-            const jet = new THREE.Mesh(
-                new THREE.ConeGeometry(4 - i * 0.8, 26 - i * 5, 10),
-                new THREE.MeshPhongMaterial({
-                    color: 0x9fd2ee, transparent: true, opacity: 0.5 - i * 0.1,
-                    shininess: 120, specular: 0xffffff, depthWrite: false
-                }));
-            jet.position.set(f.x + (i - (nJet - 1) / 2) * f.r * 0.3, ty + 6 - i * 2, f.z + (i - 1) * f.r * 0.12);
-            scene.add(jet);
-            waterJets.push(jet);
-        }
+    // --- Furnitur: satu InstancedMesh box + blocker pejal (dijauhkan dari pintu) ---
+    const fur = [];
+    const furBox = (c, r, sx, sy, sz, color, ry = 0, dx = 0, dz = 0) => {
+        const p = s2Cell(c, r);
+        fur.push({ x: p.x + dx, y: sy / 2, z: p.z + dz, sx, sy, sz, ry, color });
+        return { x: p.x + dx, z: p.z + dz };
     };
-    mkFountain(L, 3);
-    mkFountain(U, 2);
-
-    // --- Blokade mobil rongsok (merah di denah): kiri & kanan bak atas ---
-    const carGeo = new THREE.BoxGeometry(1, 1, 1);
-    const carMats = [0x7a3226, 0x2e4a63, 0x5a5a5e, 0x8a7a2a, 0x4a3a30].map(c =>
-        new THREE.MeshLambertMaterial({ color: new THREE.Color(c).offsetHSL(0, -0.1, -0.05) }));
-    const glassMat = new THREE.MeshLambertMaterial({ color: 0x1a222a });
-    const mkCar = (x, y, z, yaw, tilt) => {
-        const car = new THREE.Group();
-        const bodyMat = carMats[(Math.random() * carMats.length) | 0];
-        const body = new THREE.Mesh(carGeo, bodyMat);
-        body.scale.set(13, 8, 30);   // mobil ~1.9 x 1.1 x 4.3 m
-        body.position.y = 4;
-        body.castShadow = true;
-        car.add(body);
-        const cabin = new THREE.Mesh(carGeo, Math.random() < 0.5 ? glassMat : bodyMat);
-        cabin.scale.set(11, 6, 15);
-        cabin.position.set(0, 9, rand(-3, 1));
-        cabin.castShadow = true;
-        car.add(cabin);
-        car.position.set(x, y, z);
-        car.rotation.set(rand(-0.06, 0.06) + tilt, yaw, rand(-0.08, 0.08));
-        scene.add(car);
-    };
-    for (const side of [-1, 1]) {
-        const px = side * (U.r + 58), pz = U.z;
-        wreckPiles.push({ x: px, z: pz });
-        // dua lapis mobil melintang menutup koridor
-        for (let zi = -66; zi <= 66; zi += 33) {
-            mkCar(px + rand(-16, 16), 0, pz + zi + rand(-5, 5), Math.PI / 2 + rand(-0.5, 0.5), 0);
-        }
-        for (let zi = -45; zi <= 45; zi += 45) {
-            mkCar(px + rand(-10, 10), 8 + rand(0, 2), pz + zi + rand(-8, 8), rand(0, 6.28), rand(-0.2, 0.2));
-        }
+    const furBlock = (c, r, sx, sy, sz, color, dx = 0, dz = 0, standable = true) => {
+        const p = furBox(c, r, sx, sy, sz, color, 0, dx, dz);
         blockers.push({
-            x: px, z: pz, hx: 40, hz: CAMP.halfWalk,
+            x: p.x, z: p.z, hx: sx / 2, hz: sz / 2,
             axx: 1, axz: 0, azx: 0, azz: 1,
-            rad: Math.hypot(40, CAMP.halfWalk),
-            top: 34, standable: false   // terlalu tinggi utk dilompati
+            rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
         });
-    }
-
-    createCampaignBuildings();
-
-    // Nav-grid pathfinder: koridor gameplay saja (jalan utama + kedua cincin
-    // air mancur + serong). Lengan barat/timur di balik blokade TIDAK dipetakan
-    // (di luar grid = fallback kejar lurus; tak ada robot di sana). Median
-    // putus-putus & mobil rongsok di-bake lewat resolve: sel yang tergeser =
-    // penghalang, jadi path lewat CELAH antar median, bukan menabraknya.
-    const nx0 = -(CAMP.low.r + CAMP.low.ring + 40);
-    const nx1 = CAMP.up.x + CAMP_DIR.x * (CAMP.up.r + CAMP.diagLen) + CAMP.halfWalk + 40;
-    const nz0 = CAMP.up.z + CAMP_DIR.z * (CAMP.up.r + CAMP.diagLen) - CAMP.halfWalk - 40;
-    const nz1 = CAMP.low.z + CAMP.low.r + CAMP.low.ring + 40;
-    const cell = 14;   // 2 m — cukup halus utk celah median 5 m
-    navGrid = makeNavGrid(nx0, nz0, cell,
-        Math.ceil((nx1 - nx0) / cell), Math.ceil((nz1 - nz0) / cell),
-        (x, z) => {
-            if (!highwayWalk(x, z, 3.5)) return false;
-            _v3.set(x, 0, z);
-            resolve(_v3, 3.5, 0);
-            return Math.abs(_v3.x - x) + Math.abs(_v3.z - z) < 0.01;
-        });
-}
-
-// Lingkaran (x,z,rad) bebas dari semua koridor jalan & cincin air mancur?
-// Dipakai penempatan gedung agar tidak menutupi jalan lain di dekat simpang.
-function campClearOfRoads(x, z, rad) {
-    const m = CAMP.halfWalk + rad;
-    if (Math.abs(x) < m && z < CAMP.low.z + rad && z > CAMP.up.z - rad) return false;
-    if (Math.abs(z - CAMP.up.z) < m && Math.abs(x) < CAMP.up.r + CAMP.armLen + rad) return false;
-    if (Math.hypot(x - CAMP.low.x, z - CAMP.low.z) < CAMP.low.r + CAMP.low.ring + rad) return false;
-    if (Math.hypot(x - CAMP.up.x, z - CAMP.up.z) < CAMP.up.r + CAMP.up.ring + rad) return false;
-    const dx = x - CAMP.up.x, dz = z - CAMP.up.z;
-    const u = dx * CAMP_DIR.x + dz * CAMP_DIR.z;
-    const v = dx * CAMP_PERP.x + dz * CAMP_PERP.z;
-    return !(u > -rad && u < CAMP.up.r + CAMP.diagLen + rad && Math.abs(v) < m);
-}
-
-// Deret gedung menempel di tepi trotoar sepanjang tiap ruas (gaya Jakarta:
-// campuran ruko rendah & menara tinggi). Dekoratif; dinding kerasnya adalah
-// clamp highwayWalk, jadi gedung tak butuh collision sendiri. Resep fasad
-// bersama dari world/facades.js (sama dgn kota survival).
-function createCampaignBuildings() {
-    const facadeTex = makeFacadeTex();
-    const litTex = makeLitTex();
-
-    // Ruas: titik awal + arah + panjang + yaw gedung (muka menghadap jalan)
-    const L = CAMP.low, U = CAMP.up;
-    const vStart = -(L.r + L.ring + 30);
-    const SEGS = [
-        { sx: 0, sz: vStart, dx: 0, dz: -1, len: -vStart - (-(U.z + U.r + U.ring + 30)), ry: Math.PI / 2 },
-        { sx: U.r + U.ring + 30, sz: U.z, dx: 1, dz: 0, len: CAMP.armLen - U.ring - 60, ry: 0 },
-        { sx: -(U.r + U.ring + 30), sz: U.z, dx: -1, dz: 0, len: CAMP.armLen - U.ring - 60, ry: 0 },
-        {
-            sx: U.x + CAMP_DIR.x * (U.r + U.ring + 30), sz: U.z + CAMP_DIR.z * (U.r + U.ring + 30),
-            dx: CAMP_DIR.x, dz: CAMP_DIR.z, len: CAMP.diagLen - U.ring - 60, ry: Math.PI / 2 - CAMP.diagAng
-        },
-    ];
-    const normal = [], burn = [];
-    for (const seg of SEGS) {
-        const px = -seg.dz, pz = seg.dx;   // tegak lurus ruas
-        for (const side of [-1, 1]) {
-            let t = 0;
-            while (t < seg.len) {
-                const w = rand(90, 200);            // muka gedung sepanjang jalan
-                if (t + w > seg.len) break;
-                const d = rand(90, 180);
-                const off = CAMP.halfWalk + d / 2 + 2;
-                const cx = seg.sx + seg.dx * (t + w / 2) + px * side * off;
-                const cz = seg.sz + seg.dz * (t + w / 2) + pz * side * off;
-                t += w + rand(8, 40);
-                // dekat simpang: jangan menutupi koridor jalan lain
-                if (!campClearOfRoads(cx, cz, Math.hypot(w, d) / 2)) continue;
-                const h = Math.random() < 0.55 ? rand(50, 130) : rand(200, 650);   // ruko vs menara
-                const b = {
-                    x: cx, z: cz, w, d, h, ry: seg.ry,
-                    rz: Math.random() < 0.12 ? (Math.random() - 0.5) * 0.1 : 0,   // sebagian doyong (rusak)
-                    color: CITY_PALETTE[(Math.random() * CITY_PALETTE.length) | 0]
-                };
-                (Math.random() < 0.06 ? burn : normal).push(b);
-            }
-        }
-    }
-
-    fillBuildingInstances(scene, normal, makeCityMat(facadeTex, litTex));
-    fillBuildingInstances(scene, burn, makeBurningCityMat(facadeTex));   // berkedip via decor.js
-    addFireSprites(scene, burn);
-}
-
-// Sebar robot di area yang bisa dilalui: mayoritas di jalan 1 km, sebagian
-// di jalan serong & cincin air mancur. Kepadatan dijaga longgar (rata-rata
-// ~1 per 25-35 m jalan, min. jarak antar robot 42 unit ≈ 6 m, dan tidak
-// ada yang lahir dekat titik spawn player).
-export function placeRobots() {
-    const L = CAMP.low, U = CAMP.up;
-    // Zona bersih di sekitar AIR MANCUR START (bawah): tak ada robot di dalam
-    // radius ini dari pusat bak bawah — player baru bertemu robot setelah
-    // benar-benar melangkah ke jalan raya (bukan di area start / cincin bawah).
-    const START_CLEAR = L.r + L.ring + 200;   // ~90 m dari pusat bak start
-    const pts = [];
-    const put = (x, z) => {
-        _v3.set(x, 0, z);
-        resolve(_v3, 4, 0);   // geser keluar bila kebetulan di median/mobil
-        x = _v3.x; z = _v3.z;
-        if (!highwayWalk(x, z, 4)) return false;
-        if (Math.hypot(x - L.x, z - L.z) < START_CLEAR) return false;              // area titik-masuk stage 2
-        if (Math.hypot(x - CAMP_START.x, z - CAMP_START.z) < 220) return false;    // dekat titik-masuk player
-        for (let i = 0; i < pts.length; i++)
-            if (Math.hypot(x - pts[i].x, z - pts[i].z) < 42) return false;
-        pts.push({ x, z });
-        spawnCampaignRobot(x, z, 2);
-        return true;
     };
-    let placed = 0, tries = 0;
-    while (placed < 34 && tries++ < 600) {   // jalan utama antar air mancur (mulai setelah zona start)
-        const side = Math.random() < 0.5 ? -1 : 1;
-        if (put(side * rand(16, CAMP.halfWalk - 8), rand(U.z + 320, -START_CLEAR))) placed++;
+    const WOOD = 0x6b4a2f, SHELF = 0x55606a, CRATE = 0x7a5c33,
+        SOFA = 0x5a3f3f, RUBBLE = 0x4a463f, CONSOLE = 0x2f3a44, BENCH = 0x8a857a;
+    // OFFICE (c9-15 r1-6): dua meja kerja
+    furBlock(11, 2, 26, 7, 12, WOOD);
+    furBlock(13, 4, 22, 7, 12, WOOD, 4, 2);
+    // HALLWAY (c18-26 r1-5): jebakan RUNTUHAN di tengah (puing rendah, bisa dipijak)
+    furBlock(20, 3, 16, 9, 16, RUBBLE);
+    furBlock(24, 2, 14, 8, 14, RUBBLE, 2, 0);
+    // STORAGE (c30-38 r1-6): rak arsip di dinding timur & sudut
+    furBlock(37, 2, 8, 15, 40, SHELF);
+    furBlock(32, 5, 30, 15, 8, SHELF, 2, 0);
+    // WAITING (c1-8 r10-17): sofa + meja dekat jendela
+    furBlock(3, 11, 20, 6, 16, SOFA);
+    furBlock(3, 15, 22, 7, 12, WOOD, 0, 2);
+    // OPEN OFFICE (c11-24 r9-17): krat cover tersebar (jalur tengah terbuka)
+    furBlock(14, 11, 16, 9, 16, CRATE);
+    furBlock(21, 12, 16, 9, 16, CRATE);
+    furBlock(16, 15, 18, 8, 14, CRATE, 2, 0);
+    furBlock(20, 15, 14, 8, 14, CRATE);
+    // SUPPLY (c31-38 r9-15): rak logam (jauh dari titik persediaan & pintu)
+    furBlock(32, 9, 26, 15, 8, SHELF, 2, 0);
+    furBlock(37, 13, 8, 15, 26, SHELF);
+    // LAB / RESEARCH (c1-11 r20-26): meja-meja lab (bisa dilompati -> standable)
+    furBlock(3, 22, 24, 6, 12, BENCH);
+    furBlock(7, 24, 20, 6, 12, BENCH, 2, 0);
+    furBlock(9, 21, 12, 6, 20, BENCH);
+    // CONTROL (c14-25 r20-26): konsol elektronik + kabinet
+    furBlock(16, 22, 26, 7, 12, CONSOLE);
+    furBlock(20, 24, 22, 7, 12, CONSOLE, 2, 2);
+    furBlock(23, 21, 10, 16, 18, SHELF);
+    // END (c30-38 r19-26): sebagian besar kosong (ruang tangga keluar); satu krat sudut
+    furBlock(37, 25, 14, 9, 14, CRATE);
+    {
+        const unit = new THREE.BoxGeometry(1, 1, 1);
+        const fMesh = new THREE.InstancedMesh(unit,
+            new THREE.MeshLambertMaterial({ color: 0xffffff }), fur.length);
+        const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(),
+            _p = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
+        fur.forEach((f, i) => {
+            _e.set(0, f.ry, 0);
+            _m.compose(_p.set(f.x, f.y, f.z), _q.setFromEuler(_e), _s.set(f.sx, f.sy, f.sz));
+            fMesh.setMatrixAt(i, _m);
+            _c.setHex(f.color).offsetHSL(0, rand(-0.04, 0.02), rand(-0.05, 0.03));
+            fMesh.setColorAt(i, _c);
+        });
+        if (fMesh.instanceColor) fMesh.instanceColor.needsUpdate = true;
+        fMesh.castShadow = true;
+        fMesh.frustumCulled = false;
+        scene.add(fMesh);
     }
-    placed = 0; tries = 0;
-    while (placed < 12 && tries++ < 250) {   // jalan serong
-        const u = rand(U.r + U.ring + 60, U.r + CAMP.diagLen - 60);
-        const v = (Math.random() < 0.5 ? -1 : 1) * rand(16, CAMP.halfWalk - 8);
-        if (put(U.x + CAMP_DIR.x * u + CAMP_PERP.x * v, U.z + CAMP_DIR.z * u + CAMP_PERP.z * v)) placed++;
-    }
-    // Cincin air mancur ATAS saja (bak bawah = area start, sengaja dikosongkan)
-    placed = 0; tries = 0;
-    while (placed < 6 && tries++ < 80) {
-        const a = Math.random() * 6.283, d = U.r + rand(14, U.ring - 8);
-        if (put(U.x + Math.cos(a) * d, U.z + Math.sin(a) * d)) placed++;
-    }
+
+    // --- Tangga masuk (START) & keluar (END): undakan + portal gelap ---
+    const stepMat = new THREE.MeshPhongMaterial({ color: 0x57534b, shininess: 6 });
+    const holeMat = new THREE.MeshBasicMaterial({ color: 0x020202 });
+    const mkStairs = (c, r, dirZ) => {
+        const p = s2Cell(c, r);
+        for (let i = 0; i < 5; i++) {
+            const st = new THREE.Mesh(new THREE.BoxGeometry(26, 2 + i * 2, 8), stepMat);
+            st.position.set(p.x, (2 + i * 2) / 2, p.z + dirZ * (i * 8 - 14));
+            st.castShadow = true; st.receiveShadow = true;
+            scene.add(st);
+        }
+        const portal = new THREE.Mesh(new THREE.PlaneGeometry(26, S2.H - 10), holeMat);
+        portal.position.set(p.x, (S2.H - 10) / 2 + 9, p.z + dirZ * 20);
+        portal.rotation.y = dirZ > 0 ? Math.PI : 0;
+        scene.add(portal);
+        blockers.push({
+            x: p.x, z: p.z + dirZ * 4, hx: 13, hz: 20,
+            axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(13, 20), top: 10, standable: true
+        });
+    };
+    mkStairs(S2_START.c, S2_START.r - 1, -1);   // START: tangga naik ke utara = turun dari Lt.3
+    mkStairs(S2_END.c, S2_END.r, 1);            // END: tangga turun ke selatan = ke stage 3
+
+    // Papan EXIT hijau menyala di atas tangga keluar (kanan-bawah) = penanda tujuan
+    const exitP = s2Cell(S2_END.c, S2_END.r - 1);
+    const exitSign = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 1.2),
+        new THREE.MeshBasicMaterial({ color: 0x2eff6a, toneMapped: false }));
+    exitSign.position.set(exitP.x, S2.H - 4, exitP.z);
+    scene.add(exitSign);
+    const exitLight = new THREE.PointLight(0x39ff7a, 0.85, 220, 2);
+    exitLight.position.set(exitP.x, S2.H - 6, exitP.z);
+    scene.add(exitLight);
+
+    // --- Pencahayaan interior: titik lampu TETAP (dibuat saat build) ---
+    const lampFix = new THREE.MeshBasicMaterial({ color: 0xfff2cc, toneMapped: false });
+    const addLamp = (c, r, color, inten, dist) => {
+        const p = s2Cell(c, r);
+        const L = new THREE.PointLight(color, inten, dist, 2);
+        L.position.set(p.x, S2.H - 3, p.z);
+        scene.add(L);
+        const fix = new THREE.Mesh(new THREE.BoxGeometry(8, 0.6, 8), lampFix);
+        fix.position.set(p.x, S2.H - 0.4, p.z);
+        scene.add(fix);
+        return L;
+    };
+    addLamp(3, 3, 0xffd9a0, 0.9, 220);                        // START/stairwell
+    addLamp(12, 3, 0xffe2b8, 0.9, 260);                       // office
+    addLamp(22, 3, 0xffd9a0, 0.85, 320);                      // hallway
+    addLamp(34, 3, 0xffc890, 0.8, 240);                       // storage (arsip)
+    addLamp(4, 13, 0xffe2b8, 0.85, 240);                      // waiting
+    addLamp(18, 13, 0xffe2b8, 0.9, 360);                      // open office
+    addLamp(34, 12, 0xbfe4ff, 0.85, 260);                     // supply (dingin)
+    addLamp(5, 23, 0xffd9a0, 0.8, 240);                       // lab
+    addLamp(19, 23, 0xbfe4ff, 0.85, 300);                     // control (elektronik, kebiruan)
+    addLamp(34, 22, 0xffc890, 0.8, 260);                      // end
+
+    // Bake nav-grid TERAKHIR (blockers sudah terisi): dinding dari grid denah,
+    // furnitur/undakan dari resolve. Radius sampel 3 (< badan 3.5).
+    const half = S2.CELL / 2;
+    s2Nav = makeNavGrid(S2.x0, S2.z0, half, S2.G * 2, S2.ROWS * 2, (x, z) => {
+        if (!stage2Walk(x, z, 3)) return false;
+        _v3.set(x, 0, z);
+        resolve(_v3, 3, 0);
+        return Math.abs(_v3.x - x) + Math.abs(_v3.z - z) < 0.01;
+    });
 }
 
-// --- Boss stage 2: muncul saat sisa robot <= CFG.campaign.boss.spawnWhenRemaining ---
-let bossSpawned = false;
-let bossRef = null;      // objek robot boss (utk HP bar HUD); null setelah mati
-let bossUiT = 0;         // throttle refresh HUD bar boss (updateUI event-driven)
+// Robot stage 2: 9 spot pada denah referensi [col, row, jumlah]. Tiap spot
+// men-spawn `n` robot kelas C (grunt) di sekitar titiknya (jitter + resolve).
+const S2_ROBOTS = [
+    [4, 9, 3],    // 1 dekat tangga awal
+    [22, 3, 4],   // 2 HALLWAY (koridor panjang)
+    [34, 3, 3],   // 3 STORAGE (arsip)
+    [18, 13, 5],  // 4 OPEN OFFICE
+    [4, 13, 4],   // 5 WAITING AREA
+    [28, 14, 5],  // 6 koridor percabangan kanan
+    [5, 23, 4],   // 7 LAB / RESEARCH
+    [19, 23, 4],  // 8 CONTROL ROOM
+    [33, 24, 3],  // 9 dekat tangga akhir
+];
+// Sebagian spot dicampur penembak B/A (variasi tempur); mayoritas tetap melee C.
+const S2_RANGED = { 2: 'B', 4: 'B', 6: 'A', 8: 'B' };   // index spot (1-based) -> kelas penembak sesekali
 
-function spawnBoss() {
-    bossSpawned = true;
-    // Lahir di jalan dekat air mancur atas (di luar bak — resolve aman)
-    spawnCampaignRobot(0, CAMP.up.z + CAMP.up.r + CAMP.up.ring + 60, 2, 'boss');
-    bossRef = robots[robots.length - 1];
-    showStageMsg('SOMETHING BIG IS COMING...');
-    updateUI();
+export function placeRobots() {
+    S2_ROBOTS.forEach(([c, r, n], si) => {
+        const p = s2Cell(c, r);
+        const rangedCls = S2_RANGED[si + 1];
+        for (let k = 0; k < n; k++) {
+            _v3.set(p.x + rand(-7, 7), 0, p.z + rand(-7, 7));
+            resolve(_v3, 4, 0);
+            if (!stage2Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
+            // di spot bertanda ranged: ~1 dari tiap spot jadi penembak, sisanya C
+            const cls = (rangedCls && k === 0) ? rangedCls : 'C';
+            spawnCampaignRobot(_v3.x, _v3.z, 2, cls);
+        }
+    });
+    placeSupplies();
+}
+
+// SUPPLY ROOM (kanan-tengah) berisi ammo + medkit; tak kedaluwarsa (timer 1e9).
+// Dipanggil dari placeRobots (= dijadwalkan saat campaign mulai, seperti robot).
+function placeSupplies() {
+    const put = (type, c, r, dx = 0, dz = 0) => {
+        const p = s2Cell(c, r);
+        const mesh = type === 'mag' ? buildMagMesh() : buildMedkitMesh();
+        mesh.position.set(p.x + dx, 1, p.z + dz);
+        scene.add(mesh);
+        drops.push({ mesh, type, timer: 1e9 });
+    };
+    // Supply Room (c31-38 r9-15; hindari rak c32 r9 & c37 r13)
+    put('mag', 33, 10); put('mag', 35, 11); put('mag', 37, 10);
+    put('medkit', 34, 14); put('medkit', 36, 14);
+    // Bonus tersebar (sel lantai terbuka terverifikasi)
+    put('mag', 22, 3);       // hallway
+    put('medkit', 5, 23);    // lab
+    put('mag', 33, 24);      // dekat tangga akhir
 }
 
 export const stage2Scene = {
     id: 'campaign-2',
 
-    // Masuk dari tangga keluar gedung (transisi stage 1 -> 2). Robot gedung
-    // yang tersisa dibersihkan diam-diam (tanpa skor/drop) supaya hitungan UI
-    // & kondisi menang stage 2 tetap sederhana.
+    // Masuk dari tangga stage 1 -> 2. Robot gedung stage 1 yang tersisa
+    // dibersihkan diam-diam (tanpa skor/drop) agar hitungan & menang sederhana.
     enter() {
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 1) {
@@ -501,82 +421,65 @@ export const stage2Scene = {
                 robots.splice(i, 1);
             }
         }
-        bossSpawned = false; bossRef = null; bossUiT = 0;
-        applyLightPreset(scene, 'outdoor');
-        camera.position.set(CAMP_START.x, CFG.player.eyeHeight, CAMP_START.z);
-        camera.quaternion.set(0, 0, 0, 1);   // hadap utara (koridor 1 km)
+        applyLightPreset(scene, 'indoor');
+        const sp = s2Cell(S2_START.c, S2_START.r);
+        camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
+        camera.quaternion.set(0, 1, 0, 0);   // yaw 180° — hadap selatan (masuk ke gedung)
         player.vy = 0; player.onGround = true;
-        showStageMsg('FLOOR 3 CLEARED — FOLLOW THE HIGHWAY TO THE FOUNTAIN');
+        showStageMsg('FLOOR 2 — FIGHT TO THE STAIRS DOWN');
         updateUI();
     },
 
     // Mati di stage 2 -> campaign SELALU mengulang dari stage 1
     restartScene: () => stage1Scene,
 
-    // HP bar boss di HUD berubah tiap peluru — updateUI() event-driven tidak
-    // menangkap hit yang tak membunuh, jadi di-refresh berkala selama boss hidup.
-    updateMode(dt) {
-        if (!bossRef) return;
-        if (robots.indexOf(bossRef) === -1) { bossRef = null; updateUI(); return; }
-        bossUiT -= dt;
-        if (bossUiT <= 0) { bossUiT = 0.2; updateUI(); }
-    },
-
-    // Dinding keras tepi jalan: geser per-sumbu agar player MELUNCUR menyusuri
-    // tembok; lalu penghalang pejal (bak/median/mobil); lalu slide lagi
-    // (jaring pengaman bila dorongan menaruh player ke dinding).
+    // Dinding grid: geser per-sumbu (menyusur tembok), penghalang furnitur,
+    // slide lagi, lalu cek trigger tangga keluar -> turun ke stage 3
+    // (selalu aktif, seperti tangga keluar stage 1).
     playerCollide(pos, oldX, oldZ, feetY) {
-        slideWalk(highwayWalk, pos, oldX, oldZ, player.radius);
+        slideWalk(stage2Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
-        slideWalk(highwayWalk, pos, oldX, oldZ, player.radius);
+        slideWalk(stage2Walk, pos, oldX, oldZ, player.radius);
+        if (pos.x >= S2.x0 + S2_EXIT.c0 * S2.CELL
+            && pos.x <= S2.x0 + (S2_EXIT.c1 + 1) * S2.CELL
+            && pos.z >= S2.z0 + S2_EXIT.r0 * S2.CELL
+            && pos.z <= S2.z0 + (S2_EXIT.r1 + 1) * S2.CELL) {
+            setScene(stage3Scene, { transition: true });
+        }
     },
 
     groundHeight(x, z, feetY) { return blockersGroundHeight(x, z, feetY, blockers); },
 
-    // Stage 2: peluru menembus gedung dekoratif (tak ada interior), habis oleh umur
-    bulletBlocked() { return false; },
+    // Peluru MATI di dinding (sweep ruas posisi-lalu -> kini)
+    bulletBlocked(b) {
+        return b.mesh.position.y < S2.H
+            && s2SegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z);
+    },
 
     grenadeCollide(g, oldGX, oldGZ) {
-        // Pantulan tepi area jalan + penghalang pejal
-        if (!highwayWalk(g.mesh.position.x, g.mesh.position.z, NADE_R)) {
+        if (!stage2Walk(g.mesh.position.x, g.mesh.position.z, NADE_R)) {
             g.mesh.position.x = oldGX; g.mesh.position.z = oldGZ;
             g.vx = -g.vx * 0.45; g.vz = -g.vz * 0.45;
         }
         resolve(g.mesh.position, NADE_R, g.mesh.position.y - NADE_R);
+        if (g.mesh.position.y > S2.H - NADE_R) {
+            g.mesh.position.y = S2.H - NADE_R;
+            if (g.vy > 0) g.vy = -g.vy * 0.3;
+        }
     },
 
     robotAI(z, dt, step) {
-        // Aktivasi murni jarak (tanpa LOS — jalan terbuka)
-        return campaignRobotAI(z, dt, step, { walkable: highwayWalk, resolve, nav: navGrid });
+        // Indoor: aktivasi butuh LOS grid (atau sangat dekat / tertembak)
+        return campaignRobotAI(z, dt, step, { walkable: stage2Walk, resolve, los: s2LOS, nav: s2Nav });
     },
 
-    clampDropPos(x, z) { return [x, z]; },   // robot mati di jalan — pakai apa adanya
+    clampDropPos(x, z) { return [x, z]; },
 
-    hudStatus() {
-        let s = `Robots left: ${countStageRobots(2)}`;
-        if (bossRef && robots.indexOf(bossRef) !== -1) {
-            const frac = Math.max(0, bossRef.hp / bossRef.maxHp);
-            const blocks = Math.ceil(frac * 10);
-            s += ` — BOSS ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
-        }
-        return s;
-    },
+    hudStatus() { return `FLOOR 2 — Robots: ${countStageRobots(2)} | Find the stairs down`; },
 
-    // Landmark jalan raya: air mancur (cyan, dijepit ke tepi saat jauh —
-    // penunjuk arah tujuan) + blokade mobil (merah, hanya saat dekat)
+    // Landmark gedung: tangga keluar (hijau menyala; dijepit ke tepi saat jauh)
     radarLandmarks(plot) {
-        for (const f of [CAMP.low, CAMP.up])
-            plot(f.x - camera.position.x, f.z - camera.position.z, "#00e5ff", 5, true);
-        for (const wpile of wreckPiles)
-            plot(wpile.x - camera.position.x, wpile.z - camera.position.z, "#ff2d2d", 4);
-    },
-
-    // Boss muncul saat sisa robot menipis (JUGA saat lompat langsung ke 0,
-    // mis. granat membunuh 5 terakhir sekaligus — menang tanpa boss dilarang).
-    // Semua bersih SETELAH boss spawn -> lanjut ke stage 3 (Taman Monas malam).
-    checkWin() {
-        const n = countStageRobots(2);
-        if (!bossSpawned && n <= CFG.campaign.boss.spawnWhenRemaining) { spawnBoss(); return; }
-        if (bossSpawned && n === 0) setScene(stage3Scene, { transition: true });
+        const e = s2Cell(S2_END.c, S2_END.r);
+        plot(e.x - camera.position.x, e.z - camera.position.z, "#2eff6a", 5, true);
     },
 };

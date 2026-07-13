@@ -407,10 +407,10 @@ export const stage1Scene = {
     enter() {
         if (!built) {
             built = true;
-            buildStage2World();   // STAGE 2: jalan raya + air mancur + median + mobil
-            buildWorld();         // STAGE 1: gedung terbengkalai (jauh dari jalan raya)
+            buildStage2World();   // STAGE 2: gedung terbengkalai Lantai 2 (denah, jauh)
+            buildWorld();         // STAGE 1: gedung terbengkalai (jauh dari stage 2)
         }
-        placeStage2Robots();     // robot statis jalan raya (stage 2)
+        placeStage2Robots();     // robot gedung stage 2 (9 spot denah) + supply
         placeRobots();           // robot gedung sesuai denah (stage 1)
         placeSupplies();          // ruang persediaan: ammo/granat/medkit
         applyLightPreset(scene, 'indoor');   // interior gelap + kabut rapat
