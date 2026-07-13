@@ -14,7 +14,7 @@
 // (index.js) — circular, hanya dipakai DI DALAM fungsi (pola arsitektur).
 
 import { CFG } from '../../core/config.js';
-import { player, score, addScore, syncOwnedFromWeapons } from '../../core/state.js';
+import { player, score, addScore, syncOwnedFromWeapons, maxAmmoFor } from '../../core/state.js';
 import { updateUI } from '../../core/hud.js';
 import { playSFX, sfxPurchase } from '../../utils/sfx.js';
 import { WEAPON_DEF, refreshOwnedWeapon } from '../../entities/weapons.js';
@@ -84,6 +84,92 @@ function upgradeItem(w) {
     };
 }
 
+// --- Item ARMOR & upgrade KARAKTER (2026-07-13) ------------------------------
+// ARMOR: TIGA KARTU TERPISAH (revisi 2026-07-13, permintaan user) — tiap tier
+// (CFG.armor.tiers) bisa dibeli LANGSUNG kapan pun (boleh lompat ke III).
+// Membeli = mengenakan tier itu dgn durability penuh (mengganti yang lama).
+// Tier yang SEDANG dipakai: utuh -> ditolak ('Worn'); rusak -> boleh dibeli
+// lagi = REPAIR penuh. Tier LEBIH RENDAH dari yang dipakai -> ditolak.
+// Armor memotong `reduce` dari damage masuk; durability menerima damage BASE
+// penuh; durability 0 = HANCUR (armorLvl kembali 0, semua kartu terbuka lagi).
+function armorTierItem(tier) {
+    const T = (CFG.armor && CFG.armor.tiers) || [];
+    const t = T[tier - 1] || {};
+    const costs = CFG.shop.armorCosts || [];
+    const wearingThis = (player.armorLvl || 0) === tier;
+    return {
+        id: 'armor' + tier, armorTier: tier,
+        name: `Armor ${ROMAN[Math.min(tier - 1, ROMAN.length - 1)]}`,
+        cost: costs[tier - 1] != null ? costs[tier - 1] : 0,
+        desc: `Equip Level ${tier} armor: blocks ${Math.round((t.reduce || 0) * 100)}% of incoming damage. Durability ${t.durability} — it absorbs the FULL base damage of every hit and shatters at 0.`
+            + (wearingThis && player.armor < player.armorMax
+                ? ` Worn and damaged (${Math.max(0, Math.ceil(player.armor))}/${player.armorMax}) — buy again to fully repair it.`
+                : ' Buying replaces whatever armor you wear.'),
+        ownedMsg: 'You already wear stronger armor',
+        apply() {
+            const cur = player.armorLvl || 0;
+            if (cur > tier) return 'You already wear stronger armor';
+            if (cur === tier && player.armor >= player.armorMax)
+                return 'This armor is already worn and intact';
+            player.armorLvl = tier;
+            player.armor = player.armorMax = t.durability;
+        }
+    };
+}
+
+// VITALITY: menaikkan MAX HP player ke tangga CFG.player.hpUpgrades (150 lalu
+// 200) + menyembuhkan sebesar kenaikannya. player.maxHp = max efektif (semua
+// pembaca max HP memakainya).
+function vitalityItem() {
+    const HP = CFG.player.hpUpgrades || [];
+    const costs = CFG.shop.healthUpCosts || [];
+    const lvl = player.hpLvl || 1;             // 1 = dasar; maks = HP.length + 1
+    const idx = Math.min(lvl - 1, HP.length - 1);
+    return {
+        id: 'hpup',
+        name: `Vitality ${ROMAN[Math.min(idx + 1, ROMAN.length - 1)]}`,
+        cost: costs[idx] != null ? costs[idx] : 0,
+        desc: lvl >= HP.length + 1
+            ? `Your body is at peak condition (maximum health ${player.maxHp}).`
+            : `Toughen up: raises your maximum health to ${HP[idx]} and heals the increase. Current maximum: ${player.maxHp}.`,
+        maxedMsg: 'Vitality is already at its peak',
+        apply() {
+            const cur = player.hpLvl || 1;
+            if (cur >= HP.length + 1) return 'Vitality is already at its peak';
+            const target = HP[cur - 1];
+            const gain = Math.max(0, target - player.maxHp);
+            player.hpLvl = cur + 1;
+            player.maxHp = target;
+            player.hp = Math.min(player.maxHp, player.hp + gain);
+        }
+    };
+}
+
+// AMMO CAPACITY: menaikkan kap peluru SEMUA senjata ke tier
+// CFG.weapons.ammoUpgrades (kap efektif dibaca via maxAmmoFor di state.js —
+// drop/isi-ulang/HUD otomatis mengikuti). Menaikkan kap saja, tidak mengisi.
+function ammoCapItem() {
+    const T = CFG.weapons.ammoUpgrades || [];
+    const costs = CFG.shop.ammoUpCosts || [];
+    const lvl = player.ammoLvl || 1;
+    const idx = Math.min(lvl - 1, T.length - 1);
+    const t = T[idx] || {};
+    return {
+        id: 'ammoup',
+        name: `Ammo Capacity ${ROMAN[Math.min(idx + 1, ROMAN.length - 1)]}`,
+        cost: costs[idx] != null ? costs[idx] : 0,
+        desc: lvl >= T.length + 1
+            ? 'Your ammo pouches are fully expanded.'
+            : `Expand your ammo pouches — new capacity: Pistol ${t.pistol}, Assault Rifle ${t.rifle}, Shotgun ${t.shotgun}, Grenade Launcher ${t.launcher}.`,
+        maxedMsg: 'Ammo capacity is already maxed',
+        apply() {
+            const cur = player.ammoLvl || 1;
+            if (cur >= T.length + 1) return 'Ammo capacity is already maxed';
+            player.ammoLvl = cur + 1;
+        }
+    };
+}
+
 // --- Katalog item (data-driven) --------------------------------------------
 // { id, name, desc, cost, weapon?, upgrade?, maxedMsg?, apply() }. apply() ->
 // null bila sukses atau string alasan penolakan (penuh/dimiliki); skor TIDAK
@@ -99,9 +185,9 @@ function catalog() {
             desc: 'Refill every weapon you own to its maximum ammo.',
             apply() {
                 const W = ['rifle', 'pistol', 'shotgun', 'launcher'].filter(w => o[w]);
-                if (W.every(w => player[w].ammo >= CFG.weapons[w].maxAmmo))
+                if (W.every(w => player[w].ammo >= maxAmmoFor(w)))
                     return 'Ammo already full';
-                for (const w of W) player[w].ammo = CFG.weapons[w].maxAmmo;
+                for (const w of W) player[w].ammo = maxAmmoFor(w);
             }
         },
         {
@@ -109,8 +195,8 @@ function catalog() {
             id: 'health', name: 'Replenish Health', cost: S.healthCost,
             desc: 'Instantly restore your health to full (100%).',
             apply() {
-                if (player.hp >= CFG.player.maxHp) return 'Health already full';
-                player.hp = CFG.player.maxHp;
+                if (player.hp >= player.maxHp) return 'Health already full';
+                player.hp = player.maxHp;
             }
         },
         {
@@ -123,6 +209,10 @@ function catalog() {
                 player.medkits = Math.min(CFG.player.maxMedkits, player.medkits + 1);
             }
         },
+        // Perlengkapan KARAKTER (2026-07-13): 3 kartu armor terpisah + vitality + kap peluru
+        ...(((CFG.armor && CFG.armor.tiers) || []).map((t, i) => armorTierItem(i + 1))),
+        vitalityItem(),
+        ammoCapItem(),
         {
             id: 'healMonas', name: 'Heal Monas', cost: S.healMonasCost,
             desc: 'Repair the Monument, restoring 25% of its maximum HP.',
@@ -174,7 +264,7 @@ function buyWeapon(w, label) {
     if (player.owned[w]) return `${label} already owned`;
     player.weapons.push(w);
     syncOwnedFromWeapons();
-    player[w].ammo = CFG.weapons[w].maxAmmo;
+    player[w].ammo = maxAmmoFor(w);
     refreshOwnedWeapon();
 }
 
@@ -186,6 +276,15 @@ function ownedNote(it) {
     if (it.id === 'medkit' && player.medkits >= CFG.player.maxMedkits) return 'Full';
     if (it.id === 'strengthenMonas' && isMonasFullyStrengthened()) return 'Maxed';
     if (it.upgrade && (player.weaponLvl[it.upgrade] || 1) >= CFG.weapons.maxWeaponLevel) return 'Maxed';
+    // Armor per-tier (2026-07-13): tier yang dipakai & masih UTUH -> 'Worn';
+    // tier lebih rendah dari yang dipakai -> 'Owned' (pesan khusus ownedMsg).
+    // Tier yang dipakai tapi RUSAK tetap bisa dibeli (repair) -> tanpa note.
+    if (it.armorTier) {
+        if ((player.armorLvl || 0) === it.armorTier && player.armor >= player.armorMax) return 'Worn';
+        if ((player.armorLvl || 0) > it.armorTier) return 'Owned';
+    }
+    if (it.id === 'hpup' && (player.hpLvl || 1) >= (CFG.player.hpUpgrades || []).length + 1) return 'Maxed';
+    if (it.id === 'ammoup' && (player.ammoLvl || 1) >= (CFG.weapons.ammoUpgrades || []).length + 1) return 'Maxed';
     return null;
 }
 
@@ -197,7 +296,8 @@ export function shopPurchase(id) {
     const it = catalog().find(x => x.id === id);
     if (!it) return 'Unknown item';
     const note = ownedNote(it);
-    if (note === 'Owned') return `${it.name} already owned`;
+    if (note === 'Owned') return it.ownedMsg || `${it.name} already owned`;
+    if (note === 'Worn') return 'This armor is already worn and intact';
     if (note === 'Full') return 'Medkit stock is full';
     if (note === 'Maxed') return it.maxedMsg || 'The Monument is already fully reinforced';
     if (score < it.cost) return 'Not enough score';
@@ -232,7 +332,7 @@ export function shopReplaceWeapon(oldW) {
     const w = it.weapon;
     player.weapons[idx] = w;             // ganti di posisi slot yang sama
     syncOwnedFromWeapons();
-    player[w].ammo = CFG.weapons[w].maxAmmo;   // kolam peluru penuh (tanpa magazen)
+    player[w].ammo = maxAmmoFor(w);   // kolam peluru penuh (kap efektif, tanpa magazen)
     addScore(-it.cost);
     playSFX(sfxPurchase);
     pendingWeapon = null;

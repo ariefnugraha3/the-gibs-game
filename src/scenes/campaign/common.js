@@ -40,7 +40,7 @@ export function spawnCampaignRobot(x, z, stage, cls = 'C') {
         state: B ? 'chasing' : 'idle', stage, jumpT: 0, jumpDur: 0.55,
         sx: x, sz: z, lx: x, lz: z,
         jumpY0: 0, jumpY1: 0, arcH: 0, groundY: 0, vaultCd: 0,
-        attackCd: 0, clawT: 0, clawSide: 1, moving: false,
+        attackCd: 0, clawT: 0, windT: 0, clawSide: 1, moving: false,
         kind: B ? 'boss' : cls, scl,
         armor: B ? 0 : C.armor, attack: B ? B.clawDamage : C.attack,
         clawDmg: B ? B.clawDamage : C.attack,

@@ -9,7 +9,15 @@
         "maxMedkits": 2,
         "medkitUseSec": 2,
         "medkitSlowMul": 0.75,
-        "deathDelaySec": 4
+        "deathDelaySec": 4,
+        "hpUpgrades": [150, 200]
+    },
+    "armor": {
+        "tiers": [
+            { "reduce": 0.3, "durability": 100 },
+            { "reduce": 0.5, "durability": 200 },
+            { "reduce": 0.7, "durability": 300 }
+        ]
     },
     "stamina": {
         "max": 100,
@@ -42,6 +50,10 @@
         "heatPerShot": 0.22,
         "heatCoolPerSec": 1.4,
         "adsAccuracy": 0.75,
+        "ammoUpgrades": [
+            { "pistol": 200, "rifle": 650, "shotgun": 400, "launcher": 40 },
+            { "pistol": 250, "rifle": 750, "shotgun": 500, "launcher": 70 }
+        ],
         "rifle": {
             "maxAmmo": 500,
             "ammoPickup": 80,
@@ -76,7 +88,8 @@
     },
     "melee": {
         "range": 16,
-        "cooldownSec": 0.8
+        "cooldownSec": 0.8,
+        "damage": 150
     },
     "grenade": {
         "max": 5,
@@ -94,6 +107,8 @@
         "bodyHitRadius": 5,
         "bodyBlockRadius": 7.5,
         "clawCooldownSec": 1,
+        "clawWindupSec": 0.5,
+        "clawStrikeGrace": 2.0,
         "clawRange": 3.5,
         "stopRange": 3.0,
         "repathSec": 0.5,
@@ -177,7 +192,10 @@
             "shotgun": [1600, 3200],
             "rifle": [2000, 4000],
             "launcher": [2400, 4800]
-        }
+        },
+        "armorCosts": [1200, 2400, 4000],
+        "healthUpCosts": [2000, 4000],
+        "ammoUpCosts": [1600, 3200]
     },
     "difficulty": {
         "easy": { "robotHpMul": 0.75, "robotDamageMul": 0.5, "spawnIntervalMul": 1.3 },

@@ -96,7 +96,7 @@ body {
         repeating-linear-gradient(90deg, transparent 0 23px, rgba(0, 0, 0, 0.42) 23px 24px);
 }
 
-#healthFill, #staminaFill {
+#healthFill, #staminaFill, #armorFill {
     height: 100%;
     width: 100%;
     background: #3ddc6a;
@@ -104,6 +104,9 @@ body {
 }
 
 #healthFill { background: linear-gradient(180deg, #ff6d58, #c72f1e); }
+
+/* Bar ARMOR (2026-07-13): durability pelindung — baja kebiruan, beda dari HP merah */
+#armorFill { background: linear-gradient(180deg, #b9c6d4, #67788a); }
 
 /* HP <= 25% (kelas 'low' dari hud.js): denyut peringatan — warna tetap merah */
 #healthFill.low { animation: hpPulse 0.9s ease-in-out infinite; }
@@ -996,6 +999,7 @@ body {
 }
 .shopPanel {
     width: min(840px, 94vw);
+    max-height: 92vh;              /* katalog makin panjang (armor 3 kartu) — grid di dalamnya scroll */
     background: rgba(8, 14, 20, 0.94);
     border: 2px solid rgba(241, 196, 15, 0.55);
     border-radius: 12px;
@@ -1025,6 +1029,8 @@ body {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 10px;
+    overflow-y: auto;              /* baris kartu > tinggi panel -> scroll di dalam grid */
+    min-height: 0;
 }
 .shopCard {
     display: flex;

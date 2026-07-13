@@ -24,8 +24,13 @@
         <div id="waveText">Wave 1</div>
     </div>
 
-    <!-- Bar HEALTH & STAMINA: pojok kiri-bawah (label + angka di atas bar) -->
+    <!-- Bar ARMOR (tampil hanya saat memakai armor) + HEALTH & STAMINA:
+         pojok kiri-bawah (label + angka di atas bar) -->
     <div id="barsHud">
+        <div class="barRow" id="armorRow" style="display:none">
+            <div class="barTop"><span class="blabel">ARMOR</span><span class="barNum" id="armorNum">0</span></div>
+            <div class="barShell"><div id="armorFill"></div></div>
+        </div>
         <div class="barRow">
             <div class="barTop"><span class="blabel">HEALTH</span><span class="barNum" id="healthNum">100</span></div>
             <div class="barShell"><div id="healthFill"></div></div>

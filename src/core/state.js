@@ -48,6 +48,15 @@ export function resetStats() { stats.kills = 0; stats.shots = 0; stats.hits = 0;
 // (delta-time ternormalisasi) agar gerak konsisten di monitor refresh tinggi.
 export const player = {
     hp: 10, grenades: 3, medkits: 0,
+    // Upgrade KARAKTER shop Survival (2026-07-13, per-run — reset configurePlayer):
+    // maxHp EFEKTIF (dinaikkan item Vitality via hpLvl; SEMUA pembaca max HP
+    // memakai field ini, bukan CFG.player.maxHp), tier kap peluru (ammoLvl —
+    // kap efektif lewat maxAmmoFor()), dan ARMOR yang dikenakan: armorLvl 0..3
+    // (0 = tanpa armor), armor = durability kini, armorMax = durability penuh.
+    // Armor memotong `reduce` (CFG.armor.tiers) dari damage masuk; durability
+    // menerima damage BASE penuh; 0 -> HANCUR (damagePlayerHp di robots.js).
+    maxHp: 100, hpLvl: 1, ammoLvl: 1,
+    armorLvl: 0, armor: 0, armorMax: 0,
     // Sistem MAGAZEN DIHAPUS (2026-07-11): tiap senjata = SATU kolam peluru,
     // kap per-senjata dari CFG.weapons.<w>.maxAmmo (rifle 500 / pistol 150 /
     // shotgun 300). Tanpa reload — menembak sampai kolam habis.
@@ -82,15 +91,30 @@ export function syncOwnedFromWeapons() {
     for (const w of player.weapons) player.owned[w] = true;
 }
 
+// Kap peluru EFEKTIF sebuah senjata: base CFG.weapons.<w>.maxAmmo, atau nilai
+// tier upgrade Ammo Capacity (CFG.weapons.ammoUpgrades[player.ammoLvl-2]) bila
+// sudah dibeli di shop. SEMUA pembaca kap peluru (drops/shop/hud) lewat sini.
+export function maxAmmoFor(w) {
+    if ((player.ammoLvl || 1) >= 2) {
+        const t = (CFG.weapons.ammoUpgrades || [])[player.ammoLvl - 2];
+        if (t && t[w] != null) return t[w];
+    }
+    return CFG.weapons[w].maxAmmo;
+}
+
 // Stempel nilai CFG ke player (dipanggil saat boot & resetGame)
 export function configurePlayer() {
-    player.hp = CFG.player.maxHp;
+    player.maxHp = CFG.player.maxHp;
+    player.hp = player.maxHp;
+    player.hpLvl = 1;
+    player.ammoLvl = 1;
+    player.armorLvl = 0; player.armor = 0; player.armorMax = 0;
     player.speed = CFG.player.speed;
     player.radius = CFG.player.radius;
     player.medkits = 0;
-    // Tanpa magazen: mulai dgn kolam peluru PENUH per senjata (maxAmmo)
+    // Tanpa magazen: mulai dgn kolam peluru PENUH per senjata (kap efektif)
     for (const w of ['rifle', 'pistol', 'shotgun', 'launcher'])
-        player[w].ammo = CFG.weapons[w].maxAmmo;
+        player[w].ammo = maxAmmoFor(w);
     // Slot senjata awal per mode (maks 3): Survival mulai pistol saja (beli
     // senjata lain di shop); Campaign & mode lain mulai rifle + pistol
     // (shotgun & Grenade Launcher hanya dari shop Survival). owned diturunkan dari slot ini.

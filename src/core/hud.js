@@ -3,12 +3,13 @@
 // aktif lewat hook hudStatus() dan radarLandmarks(plot).
 
 import { CFG } from './config.js';
-import { player, score, robots, drops, _dir } from './state.js';
+import { player, score, robots, drops, _dir, maxAmmoFor } from './state.js';
 import { camera } from './renderer.js';
 import { activeScene } from './sceneManager.js';
 import {
     scoreText, ammoWeapon, ammoCount, ammoMags, ammoHint, ammoBox,
-    healthFill, healthNum, waveText, radar, radarCtx, invSlots
+    healthFill, healthNum, armorRow, armorFill, armorNum,
+    waveText, radar, radarCtx, invSlots
 } from './dom.js';
 import { currentWeapon, WEAPON_DEF, medkitMode } from '../entities/weapons.js';
 
@@ -23,17 +24,31 @@ export function updateUI() {
     if (medkitMode) {
         itemName = 'Medkit'; count = player.medkits; hint = 'Hold LEFT CLICK to use';
     } else {
-        itemName = wName; count = w.ammo; mags = `/ ${CFG.weapons[currentWeapon].maxAmmo}`;
+        // Nama senjata + LEVEL upgrade shop (2026-07-13): " II"/" III" hanya
+        // saat sudah di-upgrade (Lv1 = nama polos). Kap peluru = kap efektif
+        // (ikut tier Ammo Capacity via maxAmmoFor).
+        const wl = (player.weaponLvl && player.weaponLvl[currentWeapon]) || 1;
+        itemName = wName + (wl > 1 ? ' ' + ['I', 'II', 'III'][Math.min(wl, 3) - 1] : '');
+        count = w.ammo; mags = `/ ${maxAmmoFor(currentWeapon)}`;
     }
     ammoWeapon.innerText = itemName;
     ammoCount.innerText = count;
     ammoMags.innerText = mags;
     ammoHint.innerText = hint;
-    // Health bar (maks CFG.player.maxHp): warna merah tetap (CSS) — JS hanya
-    // menulis LEBAR + angka HP + kelas 'low' (pulse CSS saat HP <= 25%).
-    healthFill.style.width = (player.hp / CFG.player.maxHp * 100) + '%';
+    // Health bar (maks = player.maxHp EFEKTIF — bisa naik via item Vitality):
+    // warna merah tetap (CSS) — JS menulis LEBAR + angka + kelas 'low' (<= 25%).
+    const mhp = player.maxHp || CFG.player.maxHp;
+    healthFill.style.width = Math.max(0, player.hp / mhp * 100) + '%';
     healthNum.innerText = Math.max(0, Math.ceil(player.hp));
-    healthFill.classList.toggle('low', player.hp <= CFG.player.maxHp * 0.25);
+    healthFill.classList.toggle('low', player.hp <= mhp * 0.25);
+    // Bar ARMOR (2026-07-13): tampil hanya saat memakai armor; lebar =
+    // durability sisa / durability penuh tier (baja kebiruan, CSS).
+    const wearing = (player.armorLvl || 0) > 0 && player.armorMax > 0;
+    armorRow.style.display = wearing ? '' : 'none';
+    if (wearing) {
+        armorFill.style.width = Math.max(0, player.armor / player.armorMax * 100) + '%';
+        armorNum.innerText = Math.max(0, Math.ceil(player.armor));
+    }
     // Radar minimap disembunyikan sampai dimiliki (Survival: dibeli di shop).
     radar.style.display = player.hasRadar ? '' : 'none';
     updateInventory();

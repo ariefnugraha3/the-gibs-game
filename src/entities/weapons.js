@@ -17,6 +17,7 @@ import { crosshair, showPickup, medkitBar, medkitBarFill } from '../core/dom.js'
 import { updateUI } from '../core/hud.js';
 import { stamina, staExhausted, drainStamina, dodgeActive } from './player.js';
 import { killRobot } from './robots.js';
+import { spawnBloodBurst } from './effects.js';   // muncratan coolant robot yang selamat dari sabetan
 import { spawnDrop, MEDKIT_MAT } from './drops.js';
 import { buildGrenadeMesh } from './grenades.js';   // dipakai ulang utk peluru Grenade Launcher
 
@@ -861,7 +862,7 @@ export function equipMedkit() {
     if (medkitMode) { holsterMedkit(); return; }          // toggle off
     if (switchAnim >= 0 || meleeT > 0) return;
     if (player.medkits <= 0) { showPickup('No medkit', '#b8b8b8'); return; }
-    if (player.hp >= CFG.player.maxHp) { showPickup('Health already full', '#b8b8b8'); return; }
+    if (player.hp >= player.maxHp) { showPickup('Health already full', '#b8b8b8'); return; }
     medkitMode = true;
     medkitChannel = 0;
     isAiming = false;
@@ -888,8 +889,8 @@ function holsterMedkit() {
 // Channel selesai: pakai 1 medkit, sembuh, lalu holster.
 function finishMedkit() {
     player.medkits--;
-    player.hp = Math.min(CFG.player.maxHp,
-        player.hp + Math.round(CFG.player.maxHp * CFG.player.medkitHealPct));
+    player.hp = Math.min(player.maxHp,
+        player.hp + Math.round(player.maxHp * CFG.player.medkitHealPct));
     playSFX(sfxPickup);
     showPickup('Medkit used', '#ff6b81');
     holsterMedkit();
@@ -934,25 +935,40 @@ export function toggleAim() {
 }
 export function setAiming(v) { isAiming = v; }
 
-// Pukulan melee: bunuh 1 robot terdekat di kerucut depan (jangkauan pendek).
+// Sabetan melee: SAPUAN BUSUR (2026-07-13) — melukai SEMUA robot di kerucut
+// depan (~±70°, jangkauan CFG.melee.range + radius badan robot), bukan lagi
+// satu terdekat. Damage CFG.melee.damage (150) per robot: semua kelas biasa
+// (C 60 / B 90 / A 120) tumbang SEKALI tebas — mati oleh pedang = bangkai
+// TERBELAH DUA (cause 'melee' -> bisectCorpse di gore.js); boss (1800) hanya
+// tergerus + muncrat coolant (tak lagi bisa di-instant-kill pedang).
 export function doMeleeHit() {
     camera.getWorldDirection(_dir);
     _dir.y = 0; _dir.normalize();
-    let best = -1, bestD = 1e9;
+    const dmg = CFG.melee.damage != null ? CFG.melee.damage : 9999;
+    let hit = false;
     for (let i = robots.length - 1; i >= 0; i--) {
         const z = robots[i];
         const dx = z.mesh.position.x - camera.position.x;
         const dz = z.mesh.position.z - camera.position.z;
         const d = Math.hypot(dx, dz);
-        if (d > CFG.melee.range) continue;
+        const scl = z.scl || 1;
+        if (d > CFG.melee.range + CFG.robot.bodyHitRadius * scl) continue;   // tepi badan ikut dihitung (badan besar tetap kena)
         if ((dx * _dir.x + dz * _dir.z) / (d || 1) < 0.35) continue;   // ~±70° di depan
-        if (d < bestD) { bestD = d; best = i; }
+        hit = true;
+        z.hp -= Math.max(1, dmg - (z.armor || 0));
+        if (z.hp <= 0) {
+            spawnDrop(z.mesh.position);
+            killRobot(i, { cause: 'melee', dirx: _dir.x, dirz: _dir.z });   // GORE: terbelah dua searah tebasan
+        } else {
+            // Selamat (boss): coolant muncrat di titik sabet + terbangun bila dorman
+            spawnBloodBurst(z.mesh.position.x, z.mesh.position.y + 7 * scl, z.mesh.position.z,
+                _dir.x, _dir.z, 5, 0.9);
+            if (z.state === 'idle') { z.state = 'chasing'; z.groundY = 0; }
+        }
     }
-    if (best >= 0) {
+    if (hit) {
         crosshair.classList.add('hit');
         setTimeout(() => crosshair.classList.remove('hit'), 80);
-        spawnDrop(robots[best].mesh.position);
-        killRobot(best, { cause: 'melee', dirx: _dir.x, dirz: _dir.z });   // GORE: arah tebasan
         updateUI();
     }
 }
@@ -986,7 +1002,7 @@ export function updateWeaponTimers(dt) {
     // Channel medkit (tombol 4): TAHAN klik kiri medkitUseSec detik -> pakai
     // (sembuh + holster). Lepas klik = batal (channel reset).
     if (medkitMode) {
-        if (mouse.isDown && player.medkits > 0 && player.hp < CFG.player.maxHp) {
+        if (mouse.isDown && player.medkits > 0 && player.hp < player.maxHp) {
             medkitChannel += dt;
             if (medkitChannel >= CFG.player.medkitUseSec) finishMedkit();
         } else medkitChannel = 0;

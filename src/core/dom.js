@@ -12,6 +12,10 @@ export const ammoHint = document.getElementById('ammoHint');
 export const ammoBox = document.getElementById('ammoBox');
 export const healthFill = document.getElementById('healthFill');
 export const healthNum = document.getElementById('healthNum');   // angka HP di atas bar
+// Bar ARMOR (2026-07-13): tampil hanya saat player memakai armor (shop Survival)
+export const armorRow = document.getElementById('armorRow');
+export const armorFill = document.getElementById('armorFill');
+export const armorNum = document.getElementById('armorNum');
 export const waveText = document.getElementById('waveText');
 // Inventori (pojok kanan-bawah, baris IKON): 4 slot (1/2 senjata, 3 granat,
 // 4 medkit). Tiap slot = { row, icon, count }; hud.updateInventory mengisi SVG

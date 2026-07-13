@@ -18,7 +18,7 @@
 
 import { CFG } from '../core/config.js';
 import { camera } from '../core/renderer.js';
-import { GEO } from '../core/state.js';
+import { GEO, player } from '../core/state.js';
 import { aimPoint } from '../core/input.js';
 import { eyeHCur, dodgeActive, dodgeProgress, dodgeDirX, dodgeDirZ } from './player.js';
 import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
@@ -36,6 +36,7 @@ let gaitSign = 1, backped = false, realign = false;   // arah siklus langkah + h
 let deathT = -1, deathDirX = 0, deathDirZ = 1;        // animasi ROBOH kematian (>= 0 = berjalan); arah jatuh
 let marker = null, markerT = 0;
 let props = null, propKey = '';   // prop senjata/medkit aktif (show/hide per frame)
+let armorNodes = null, armorKey = -1;   // overlay ARMOR kumulatif (ikuti player.armorLvl)
 let swordPivot = null;            // pivot ayunan pedang (di bahu kanan; tampil saat melee)
 let swooshGrp = null, swooshMat = null;   // kipas JEJAK tebasan (opacity ~ kecepatan ayunan)
 const _qT = new THREE.Quaternion(), _tumbleAxis = new THREE.Vector3();   // salto dodge
@@ -45,12 +46,25 @@ const _segDir = new THREE.Vector3(), _yUnit = new THREE.Vector3(0, 1, 0);
 const SHOULDER = { L: { x: -1.55, y: 9.1, z: 0.35 }, R: { x: 1.6, y: 9.1, z: 0.15 } };
 const GUN_OFF = { x: 0.65, y: 7.5, z: 1.2 };   // posisi gunGrp (terkalibrasi — jangan geser)
 // Titik genggam per prop (ruang LOKAL gunGrp): R = tangan pelatuk, L = tangan penahan depan.
+// Kunci ber-suffix '3' = VARIAN VISUAL LEVEL 3 (upgrade shop; lihat blok prop Lv3 di init).
 const GRIPS = {
     rifle: { R: { x: 0, y: -0.62, z: -0.08 }, L: { x: 0, y: -0.3, z: 2.2 } },
     pistol: { R: { x: 0, y: -0.5, z: 1.4 }, L: { x: -0.08, y: -0.66, z: 1.22 } },
     shotgun: { R: { x: 0, y: -0.36, z: -0.35 }, L: { x: 0, y: -0.44, z: 2.3 } },
     launcher: { R: { x: 0, y: -0.62, z: 0.5 }, L: { x: 0, y: -0.52, z: 2.35 } },
     medkit: { R: { x: 0.15, y: -1.45, z: -0.2 }, L: { x: -1.45, y: -1.45, z: -0.2 } },
+    pistol3: { R: { x: 0, y: -0.55, z: 1.05 }, L: { x: -0.1, y: -0.72, z: 0.9 } },     // Desert Eagle: grip lebih ke belakang
+    shotgun3: { R: { x: 0, y: -0.38, z: -0.4 }, L: { x: 0, y: -0.5, z: 2.6 } },        // pump lebih jauh ke depan
+    rifle3: { R: { x: 0, y: -0.6, z: -1.15 }, L: { x: 0, y: -0.68, z: 1.5 } },         // Gatling: grip belakang + foregrip vertikal
+    launcher3: { R: { x: 0.95, y: 1.55, z: 0.15 }, L: { x: 0.95, y: 1.6, z: 1.4 } },   // roket bahu: kedua tangan MENGGAPAI KE ATAS menahan tabung
+};
+// Ofset avatarGunTip per prop (default = kalibrasi lama 0/0.15/4.5 — JANGAN
+// diubah). HANYA launcher3 yang memindah moncong ke ujung TABUNG BAHU supaya
+// kilat tembakan & spawn peluru roket keluar dari tabungnya (hit test 2D/xz —
+// beda tinggi tak mengubah gameplay; disengaja, permintaan user 2026-07-12).
+const TIPS = {
+    default: { x: 0, y: 0.15, z: 4.5 },
+    launcher3: { x: 0.95, y: 2.45, z: 2.6 },
 };
 // Target tangan saat TUCK dodge & tangan kiri saat sabetan pedang (ruang upperG).
 const TUCK = { L: { x: -0.95, y: 7.2, z: 0.95 }, R: { x: 0.95, y: 7.0, z: 0.95 } };
@@ -203,7 +217,75 @@ export function initPlayerAvatar(sc) {
     box(1.5, 1.05, 1.15, white, -0.65, -1.5, -0.2, pMedkit, true);
     box(0.9, 0.14, 0.3, cross, -0.65, -0.95, -0.2, pMedkit);
     box(0.3, 0.14, 0.9, cross, -0.65, -0.95, -0.2, pMedkit);
-    props = { rifle: pRifle, pistol: pPistol, shotgun: pShotgun, launcher: pLauncher, medkit: pMedkit };
+
+    // ===== VARIAN VISUAL LEVEL 3 (2026-07-12, permintaan user): mencapai Lv3
+    // di shop MENGUBAH BENTUK senjata di tangan — pistol jadi DESERT EAGLE
+    // perak besar, shotgun jadi combat shotgun panjang, rifle jadi GATLING
+    // multi-laras, launcher jadi ROCKET LAUNCHER tabung di ATAS BAHU kanan.
+    // Material Phong warna baru = program shader sama (tanpa recompile). =====
+    const chrome = mat(0xc3c9cf, 45), olive = mat(0x4f5731),
+        band = mat(0xc9a227), shellRed = mat(0x8e2f23);
+    // --- Pistol Lv3: DESERT EAGLE — slide slab perak panjang, celah ventilasi
+    // moncong khas, rel atas, grip karet hitam besar ---
+    const pPistol3 = prop();
+    box(0.5, 0.56, 2.6, chrome, 0, 0.26, 1.6, pPistol3, true);     // slide slab
+    box(0.34, 0.2, 2.5, gun, 0, 0.62, 1.55, pPistol3);             // rel/rib atas
+    box(0.4, 0.34, 1.5, chrome, 0, -0.05, 1.5, pPistol3);          // frame bawah
+    box(0.52, 0.1, 0.12, dark, 0, 0.5, 2.62, pPistol3);            // celah ventilasi moncong
+    box(0.52, 0.1, 0.12, dark, 0, 0.5, 2.4, pPistol3);
+    box(0.3, 0.95, 0.5, dark, 0, -0.62, 1.05, pPistol3).rotation.x = 0.22;   // grip karet
+    box(0.1, 0.34, 0.62, gun, 0, -0.28, 1.62, pPistol3);           // lingkar pelatuk
+    box(0.12, 0.2, 0.16, gun, 0, 0.3, 0.42, pPistol3);             // hammer
+    box(0.08, 0.18, 0.12, dark, 0, 0.66, 0.5, pPistol3);           // pisir belakang
+    box(0.08, 0.2, 0.12, dark, 0, 0.68, 2.72, pPistol3);           // pisir depan
+    // --- Shotgun Lv3: combat shotgun BESAR — laras & tabung magasin panjang,
+    // pelindung panas berrusuk, rem moncong, sadel peluru cadangan merah ---
+    const pShotgun3 = prop();
+    box(0.52, 0.68, 1.7, gun, 0, 0, 0.2, pShotgun3, true);         // receiver besar
+    cyl(0.18, 0.18, 4.2, gun, 0, 0.16, 2.5, pShotgun3, Math.PI / 2);   // laras panjang
+    cyl(0.2, 0.2, 0.34, dark, 0, 0.16, 4.5, pShotgun3, Math.PI / 2);   // rem moncong
+    cyl(0.13, 0.13, 3.6, gun, 0, -0.18, 2.3, pShotgun3, Math.PI / 2);  // tabung magasin penuh
+    box(0.3, 0.08, 0.5, dark, 0, 0.42, 1.4, pShotgun3);            // rusuk pelindung panas
+    box(0.3, 0.08, 0.5, dark, 0, 0.42, 2.1, pShotgun3);
+    box(0.3, 0.08, 0.5, dark, 0, 0.42, 2.8, pShotgun3);
+    box(0.56, 0.5, 1.05, dark, 0, -0.2, 2.6, pShotgun3);           // pump besar
+    box(0.14, 0.3, 0.5, shellRed, 0.34, 0.14, -0.1, pShotgun3);    // sadel peluru cadangan
+    box(0.46, 0.66, 1.4, wood, 0, -0.12, -1.2, pShotgun3);         // popor
+    box(0.5, 0.72, 0.22, dark, 0, -0.12, -1.95, pShotgun3);        // bantalan recoil
+    // --- Rifle Lv3: GATLING GUN — 6 laras tipis mengitari sumbu + ring
+    // penahan, rumah rotor silinder, kotak amunisi bawah, gagang jinjing ---
+    const pRifle3 = prop();
+    box(0.72, 0.9, 2.2, gun, 0, -0.05, -0.5, pRifle3, true);       // receiver besar
+    cyl(0.5, 0.55, 1.3, dark, 0, 0.05, 0.9, pRifle3, Math.PI / 2); // rumah rotor
+    for (let i = 0; i < 6; i++) {                                  // cluster 6 laras
+        const a = i * Math.PI / 3;
+        cyl(0.09, 0.09, 3.4, gun, Math.cos(a) * 0.28, 0.05 + Math.sin(a) * 0.28, 3.0,
+            pRifle3, Math.PI / 2);
+    }
+    cyl(0.4, 0.4, 0.22, dark, 0, 0.05, 4.0, pRifle3, Math.PI / 2); // ring penahan depan
+    cyl(0.42, 0.42, 0.22, dark, 0, 0.05, 2.2, pRifle3, Math.PI / 2);   // ring tengah
+    box(0.5, 0.9, 0.9, dark, 0, -0.95, -0.55, pRifle3);            // kotak amunisi
+    box(0.24, 0.6, 0.34, gun, 0, -0.62, -1.2, pRifle3).rotation.x = 0.25;   // grip belakang
+    box(0.2, 0.7, 0.3, gun, 0, -0.7, 1.5, pRifle3);                // foregrip vertikal
+    box(0.16, 0.24, 1.2, gun, 0, 0.62, -0.5, pRifle3);             // gagang jinjing atas
+    // --- Launcher Lv3: ROCKET LAUNCHER (gaya AT4) — tabung olive panjang
+    // DI ATAS BAHU KANAN (menjulur melewati kepala ke depan & belakang),
+    // bibir moncong + corong exhaust, pita kuning, unit bidik, dua grip bawah;
+    // kedua tangan menggapai ke atas menahannya (GRIPS.launcher3). ---
+    const pLauncher3 = prop();
+    cyl(0.5, 0.5, 7.0, olive, 0.95, 2.45, -1.0, pLauncher3, Math.PI / 2, true);   // tabung utama
+    cyl(0.62, 0.58, 0.55, dark, 0.95, 2.45, 2.35, pLauncher3, Math.PI / 2);       // bibir moncong
+    cyl(0.58, 0.7, 0.6, dark, 0.95, 2.45, -4.35, pLauncher3, Math.PI / 2);        // corong exhaust belakang
+    cyl(0.52, 0.52, 0.35, band, 0.95, 2.45, 1.5, pLauncher3, Math.PI / 2);        // pita kuning
+    box(0.32, 0.42, 1.05, dark, 0.95, 3.15, 0.3, pLauncher3);      // unit bidik atas
+    box(0.26, 0.62, 0.3, gun, 0.95, 1.75, 0.15, pLauncher3);       // grip pelatuk
+    box(0.26, 0.56, 0.3, gun, 0.95, 1.8, 1.4, pLauncher3);         // grip dukung depan
+
+    props = {
+        rifle: pRifle, pistol: pPistol, shotgun: pShotgun, launcher: pLauncher,
+        medkit: pMedkit,
+        pistol3: pPistol3, shotgun3: pShotgun3, rifle3: pRifle3, launcher3: pLauncher3,
+    };
     for (const k in props) props[k].visible = false;
     pRifle.visible = true; propKey = 'rifle';
 
@@ -232,6 +314,41 @@ export function initPlayerAvatar(sc) {
     swooshGrp.add(swooshMesh);
     swooshGrp.visible = false;
     upperG.add(swooshGrp);
+
+    // ===== OVERLAY ARMOR (2026-07-13): tiga set KUMULATIF mengikuti
+    // player.armorLvl (item shop Survival) — tiap tier menambah lapisan di atas
+    // tier sebelumnya: makin tinggi makin sangar, tetap tentara manusia (pelat
+    // baja + trim + aksen merah, BUKAN robot). Pelat kaki di-parent ke pivot
+    // pinggul/lutut (ikut melangkah); dibuat sekali & disembunyikan (warmup
+    // preload mengompilasi shader-nya; Phong = program sama). Saat armor pecah
+    // (durability 0) semua lapisan lenyap + pecahan pelat via gib (robots.js). =====
+    const aPlate = mat(0x6a7178, 32), aTrim = mat(0x373d44, 22), aRed = mat(0x8e2f23, 26);
+    armorNodes = [[], [], []];
+    const reg = (lv, node) => { node.visible = false; armorNodes[lv].push(node); return node; };
+    // --- SET 1 (Armor I): pelat dada + tutup bahu + pelindung paha ---
+    reg(0, box(1.9, 1.5, 0.34, aPlate, 0, 8.3, 1.22, upperG));
+    reg(0, mk(ellip(0.68, 1.1, 0.72, 1.05, 8, 6), aPlate, SHOULDER.L.x - 0.12, SHOULDER.L.y + 0.42, SHOULDER.L.z, upperG, false));
+    reg(0, mk(ellip(0.68, 1.1, 0.72, 1.05, 8, 6), aPlate, SHOULDER.R.x + 0.12, SHOULDER.R.y + 0.42, SHOULDER.R.z, upperG, false));
+    reg(0, box(0.62, 1.5, 0.34, aPlate, -0.06, -1.3, 0.5, hipL));
+    reg(0, box(0.62, 1.5, 0.34, aPlate, 0.06, -1.3, 0.5, hipR));
+    // --- SET 2 (Armor II, + di atas Set 1): bibir pauldron besar, pelat
+    // punggung menutup ransel, pelat sabuk, pelindung tulang kering, alis helm ---
+    reg(1, mk(ellip(0.85, 1.18, 0.5, 1.12, 8, 6), aTrim, SHOULDER.L.x - 0.18, SHOULDER.L.y + 0.78, SHOULDER.L.z, upperG, false));
+    reg(1, mk(ellip(0.85, 1.18, 0.5, 1.12, 8, 6), aTrim, SHOULDER.R.x + 0.18, SHOULDER.R.y + 0.78, SHOULDER.R.z, upperG, false));
+    reg(1, box(1.85, 2.0, 0.25, aPlate, 0, 8.3, -1.78, upperG));
+    reg(1, box(1.5, 0.55, 0.4, aPlate, 0, 5.95, 0.85, avatarGroup));
+    reg(1, box(0.56, 1.3, 0.3, aPlate, 0, -1.35, 0.5, kneeL));
+    reg(1, box(0.56, 1.3, 0.3, aPlate, 0, -1.35, 0.5, kneeR));
+    reg(1, box(1.6, 0.4, 0.35, aTrim, 0, 11.02, 0.88, headG));
+    // --- SET 3 (Armor III, + di atas Set 1+2): kerah pelindung leher, jalur
+    // merah dada, trim pauldron merah, pelat pipi helm, JAMBUL crest merah ---
+    reg(2, cyl(1.0, 1.2, 0.6, aTrim, 0, 9.6, 0, upperG, 0));
+    reg(2, box(0.46, 1.44, 0.12, aRed, 0, 8.3, 1.42, upperG));
+    reg(2, box(1.0, 0.22, 1.2, aRed, SHOULDER.L.x - 0.18, SHOULDER.L.y + 1.08, SHOULDER.L.z, upperG));
+    reg(2, box(1.0, 0.22, 1.2, aRed, SHOULDER.R.x + 0.18, SHOULDER.R.y + 1.08, SHOULDER.R.z, upperG));
+    reg(2, box(0.34, 0.66, 0.9, aPlate, -1.12, 10.55, 0.08, headG));
+    reg(2, box(0.34, 0.66, 0.9, aPlate, 1.12, 10.55, 0.08, headG));
+    reg(2, box(0.16, 0.34, 1.5, aRed, 0, 11.52, -0.05, headG));
 
     sc.add(avatarGroup);
 
@@ -311,6 +428,16 @@ export function updatePlayerAvatar(dt) {
     const feetY = camera.position.y - eyeHCur;
     const px = camera.position.x, pz = camera.position.z;
     avatarGroup.position.set(px, feetY, pz);
+
+    // Overlay ARMOR mengikuti tier yang dikenakan (kumulatif; 0 = polos).
+    // Diperiksa SEBELUM cabang mati supaya armor yang pecah pada pukulan
+    // mematikan tetap lenyap dari jasad (pecahannya terlempar via gib).
+    const aLvl = player.armorLvl || 0;
+    if (armorNodes && aLvl !== armorKey) {
+        for (let s = 0; s < armorNodes.length; s++)
+            for (const n of armorNodes[s]) n.visible = s < aLvl;
+        armorKey = aLvl;
+    }
 
     // ===== MATI "BIASA" (2026-07-12): tubuh ROBOH ke arah jatuh (pivot di
     // kaki, easeIn — makin cepat), senjata lenyap dari tangan, lengan & kaki
@@ -396,13 +523,21 @@ export function updatePlayerAvatar(dt) {
     headYawCur = approachAngle(headYawCur, hdTarget, dt * 24);
     headG.rotation.y = headYawCur;
 
-    // Prop terlihat = medkit saat medkitMode, selain itu senjata aktif.
+    // Prop terlihat = medkit saat medkitMode, selain itu senjata aktif — dengan
+    // VARIAN LEVEL 3 (2026-07-12): senjata yang di-upgrade sampai Lv3 di shop
+    // memakai bentuk 'X3' (Desert Eagle / combat shotgun / Gatling / roket bahu).
     // Selama sabetan melee (meleeT > 0): senjata disembunyikan, PEDANG tampil.
-    const key = medkitMode ? 'medkit' : currentWeapon;
+    const base = medkitMode ? 'medkit' : currentWeapon;
+    const key = !medkitMode && props && props[base + '3']
+        && ((player.weaponLvl && player.weaponLvl[base]) || 1) >= 3 ? base + '3' : base;
     const showKey = inMelee ? '__melee' : key;
     if (props && showKey !== propKey) {
         for (const k in props) props[k].visible = !inMelee && k === key;
         if (swordPivot) swordPivot.visible = inMelee;
+        // Moncong per prop: default = ofset kalibrasi lama (JANGAN geser);
+        // launcher3 = ujung tabung roket di bahu (kilat & spawn roket pindah ke sana).
+        const tp = TIPS[key] || TIPS.default;
+        avatarGunTip.position.set(tp.x, tp.y, tp.z);
         propKey = showKey;
     }
     // RECOIL visual (2026-07-12): ujung senjata MENGHENTAK NAIK sesaat tiap
@@ -414,7 +549,7 @@ export function updatePlayerAvatar(dt) {
     // disimpan utk memutar TITIK GENGGAM di bawah — tangan ikut hentakan.
     let recC = 1, recS = 0;
     if (props && props[key]) {
-        const wc = CFG.weapons[key];
+        const wc = CFG.weapons[base];   // config per senjata DASAR (varian Lv3 tak punya entri CFG)
         const a = -gunRecoil * ((wc && wc.cameraKick) || 0) * 6;
         props[key].rotation.x = a;
         recC = Math.cos(a); recS = Math.sin(a);

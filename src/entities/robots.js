@@ -9,11 +9,11 @@ import { player, robots, bullets, enemyBullets, addScore, stats, _dir, godMode, 
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { rand, clamp, segPointDist2 } from '../utils/math.js';
-import { playSFX, sfxRobotBite, sfxHit } from '../utils/sfx.js';
-import { crosshair, flashDamage, showHitDir } from '../core/dom.js';
+import { playSFX, sfxRobotBite, sfxHit, sfxMelee } from '../utils/sfx.js';
+import { crosshair, flashDamage, showHitDir, showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
-import { spawnBloodBurst, explodeAt } from './effects.js';
-import { spawnCorpse, gibRobot, spawnGibs, spawnBloodDecal } from './gore.js';
+import { spawnBloodBurst, explodeAt, spawnGroundPuff } from './effects.js';
+import { spawnCorpse, bisectCorpse, gibRobot, spawnGibs, spawnBloodDecal } from './gore.js';
 import { spawnDrop } from './drops.js';
 import { startPlayerDeath, isPlayerDying } from '../core/game.js';
 
@@ -285,15 +285,62 @@ export function animateRobotRig(z, dt) {
         r.armL.rotation.z = 0;
     }
 
-    // Sabetan mencakar: satu lengan terangkat lalu menyabet ke bawah-keluar
-    // (menimpa pose jalan; rotation.z kembali 0 di akhir sabetan).
-    if (z.clawT > 0) {
+    // ===== SERANGAN CAKAR 3 FASE (overhaul 2026-07-13; menimpa pose jalan) =====
+    // ANCANG-ANCANG (z.windT dari CFG.robot.clawWindupSec, ditick updateRobots):
+    // lengan penyerang TERCOCOK tinggi ke belakang-luar sambil GEMETAR menahan
+    // tenaga, badan memuntir ke sisi lengan + merunduk kuda-kuda, kepala menunduk
+    // mengincar — telegraf jelas 0.5 dtk sebelum damage (player sempat dodge).
+    // SABET (z.clawT): cubic ease-in MELEDAK — lengan menyabet diagonal
+    // menyilang badan, torso menghentak untwist + LUNGE maju (inner.position.z),
+    // lengan lain mengayun kontra. RECOVERY: smoothstep kembali ke pose jalan.
+    // Konvensi rotasi bahu: MINUS = terangkat ke depan/atas (-1.15 pose dasar,
+    // -2.9 tercocok di atas kepala), PLUS = melewati gantung ke belakang.
+    const atkArm = z.clawSide > 0 ? r.armR : r.armL;
+    const offArm = z.clawSide > 0 ? r.armL : r.armR;
+    const sSide = z.clawSide > 0 ? 1 : -1;    // sisi puntiran torso
+    const zOut = z.clawSide > 0 ? -1 : 1;     // arah "keluar" rotation.z lengan itu
+    if (z.windT > 0) {
+        const k = 1 - z.windT / (z.windDur || 0.5);
+        const e = 1 - Math.pow(1 - Math.min(1, k * 1.35), 3);   // easeOut: cepat tercocok lalu MENAHAN
+        const tremor = Math.sin(z.phase * 30) * 0.05 * e;       // gemetar menahan tenaga di puncak
+        atkArm.rotation.x = -1.15 + (-1.75 + tremor) * e;       // -> -2.9: tercocok di atas-belakang
+        atkArm.rotation.z = zOut * 0.85 * e;                    // mengembang keluar
+        offArm.rotation.x = -1.15 + 0.75 * e;                   // lengan lain turun (kontra)
+        r.inner.rotation.y = sSide * 0.42 * e;                  // torso memuntir ke sisi lengan
+        r.inner.rotation.x = -0.14 * e;                         // condong sedikit ke belakang
+        r.inner.position.y += (-0.55 * e - r.inner.position.y) * Math.min(1, dt * 10); // kuda-kuda merunduk
+        r.head.rotation.x = 0.2 * e;                            // kepala menunduk mengincar
+    } else if (z.clawT > 0) {
         z.clawT -= dt;
         const k = 1 - Math.max(0, z.clawT) / CLAW_TIME;
-        const sw = Math.sin(Math.PI * k);
-        const arm = z.clawSide > 0 ? r.armR : r.armL;
-        arm.rotation.x = -1.6 + sw * 1.5;
-        arm.rotation.z = (z.clawSide > 0 ? -0.5 : 0.5) * sw;
+        if (k < 0.38) {
+            const s = Math.pow(k / 0.38, 3);                    // cubic ease-in: sabetan MELEDAK
+            atkArm.rotation.x = -2.9 + 3.2 * s;                 // overhead -> menembus depan-bawah (+0.3)
+            atkArm.rotation.z = zOut * (0.85 - 1.4 * s);        // menyilang ke sisi seberang (diagonal)
+            offArm.rotation.x = -0.4 + 0.75 * s;                // kontra: mengayun ke belakang
+            r.inner.rotation.y = sSide * (0.42 - 0.87 * s);     // untwist menghentak melewati tengah
+            r.inner.rotation.x = -0.14 + 0.46 * s;              // menghentak condong ke depan
+            r.inner.position.z = 1.7 * s;                       // LUNGE maju (lokal +z = arah hadap)
+            r.inner.position.y += (-0.8 - r.inner.position.y) * Math.min(1, dt * 14);
+            r.head.rotation.x = 0.2 - 0.1 * s;
+        } else {
+            const s = (k - 0.38) / 0.62, ss = s * s * (3 - 2 * s);   // smoothstep settle
+            atkArm.rotation.x = 0.3 + (-1.15 - 0.3) * ss;
+            atkArm.rotation.z = zOut * -0.55 * (1 - ss);
+            offArm.rotation.x = 0.35 + (-1.15 - 0.35) * ss;
+            r.inner.rotation.y = sSide * -0.45 * (1 - ss);
+            r.inner.rotation.x = 0.32 * (1 - ss);
+            r.inner.position.z = 1.7 * (1 - ss);
+            r.head.rotation.x = 0.1 * (1 - ss);
+        }
+    } else {
+        // Di luar serangan: luruskan sisa puntiran/lunge/tunduk dengan halus
+        // (walk/idle tidak menulis inner.rotation & head.rotation.x).
+        const d2 = Math.min(1, dt * 7);
+        r.inner.rotation.x += (0 - r.inner.rotation.x) * d2;
+        r.inner.rotation.y += (0 - r.inner.rotation.y) * d2;
+        r.inner.position.z += (0 - r.inner.position.z) * d2;
+        r.head.rotation.x += (0 - r.head.rotation.x) * d2;
     }
 }
 
@@ -306,6 +353,37 @@ export function disposeRobot(z) {
         if (Array.isArray(o.material)) o.material.forEach(m => m.dispose && m.dispose());
         else if (o.material.dispose) o.material.dispose();
     });
+}
+
+// ===== Damage ke PLAYER melalui ARMOR (2026-07-13) =====
+// Armor (item shop Survival, CFG.armor.tiers) MEMOTONG persentase `reduce`
+// dari damage yang masuk ke HP, sementara DURABILITY-nya menerima damage BASE
+// penuh — tanpa pengurangan/penambahan apa pun (spesifikasi user). Durability
+// habis -> armor HANCUR: pecahan pelat terlempar dari badan + bunyi + feed.
+// Dipakai KETIGA titik damage player (cakar / peluru musuh / ledakan).
+// godMode: tak tersentuh sama sekali (HP maupun armor).
+export function damagePlayerHp(raw) {
+    if (godMode) return;
+    if (player.armorLvl > 0 && player.armor > 0) {
+        const tier = (CFG.armor && CFG.armor.tiers[player.armorLvl - 1]) || {};
+        player.hp -= raw * (1 - (tier.reduce || 0));
+        player.armor -= raw;                 // durability menerima damage BASE penuh
+        if (player.armor <= 0) breakPlayerArmor();
+    } else player.hp -= raw;
+}
+
+// Armor pecah: pelat logam berhamburan dari badan (pool gib tetap) + kepulan
+// debu + bunyi "krak" + feed merah. Overlay armor avatar lenyap sendiri frame
+// berikutnya (playerAvatar membaca player.armorLvl per frame, cache armorKey).
+function breakPlayerArmor() {
+    player.armorLvl = 0; player.armor = 0; player.armorMax = 0;
+    const fy = camera.position.y - CFG.player.eyeHeight;
+    spawnGibs(camera.position.x, fy + 8, camera.position.z, 5, 1, 0.4, 1.3, 0x6a7178, fy + 0.3);
+    spawnGibs(camera.position.x, fy + 7, camera.position.z, 4, -0.8, -0.6, 1.2, 0x373d44, fy + 0.3);
+    spawnGroundPuff(camera.position.x, camera.position.z, 0xd8dee6, 6, fy + 6);
+    playSFX(sfxMelee);
+    showPickup('ARMOR DESTROYED!', '#ff6b6b');
+    updateUI();
 }
 
 // ===== SELEBRASI KEMENANGAN ROBOT (2026-07-12) =====
@@ -327,7 +405,7 @@ function celebrateRobot(z, dt) {
         z.celebPhase = Math.random() * 6.283;
         z.celebHop = 1.4 + Math.random() * 1.8;    // tinggi lompatan girang
         z.celebAlt = Math.random() < 0.35;         // 35%: melambai bergantian, sisanya pompa serempak
-        z.aiming = false; z.clawT = 0; z.recoilT = 0; z.moving = false;
+        z.aiming = false; z.clawT = 0; z.windT = 0; z.recoilT = 0; z.moving = false;
     }
     z.celebT += dt;
     const damp = Math.min(1, dt * 6), snap = Math.min(1, dt * 10);
@@ -446,6 +524,19 @@ export function killRobot(i, opts = {}) {
             const a = Math.random() * 6.283, r = (2 + Math.random() * 15) * scl;
             spawnBloodDecal(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, 1.8 + Math.random() * 3);
         }
+    } else if (opts.cause === 'melee') {
+        // TEBASAN PEDANG (2026-07-13): robot TERBELAH DUA di pinggang — separuh
+        // atas terlempar berputar searah sabetan (meneteskan coolant selama
+        // melayang), separuh bawah BERDIRI sesaat (stump menyembur) lalu lemas
+        // roboh. Kedua penampang diberi cakram tepi-potong menyala (bekas
+        // sayatan panas). Tanpa gibRobot — kedua paruh mempertahankan semua
+        // anggota tubuhnya; hanya serpihan kecil dari penampang.
+        const cutY = p.y + 6.35 * scl;   // tinggi pinggang dunia (bidang potong)
+        spawnBloodBurst(p.x, cutY, p.z, dirx, dirz, 14, 1.4, 2.6);     // semburan kipas searah tebasan
+        spawnBloodBurst(p.x, cutY, p.z, dirx, dirz, 8, 0.8, 6.283);    // cincin rendah 360°
+        spawnGibs(p.x, cutY, p.z, 2, dirx, dirz, 0.8, 0x3d444c, restY); // serpihan logam dari penampang
+        bisectCorpse(z.mesh, z.rig, { dirx, dirz, restY });
+        spawnBloodDecal(p.x, p.z, 3.5 + Math.random() * 2);
     } else {
         spawnBloodBurst(p.x, bodyY, p.z, dirx, dirz, 9, 1.0);          // muncratan coolant
         gibRobot(z.rig, z.mesh, 'light', dirx, dirz, restY);          // kadang satu anggota lepas
@@ -465,7 +556,7 @@ function processPendingBooms() {
         if (b.hurtPlayer && !dodgeInvuln && player.hp > 0) {   // i-frame dodge / sudah tumbang: ledakan meleset
             const d = Math.hypot(b.pos.x - camera.position.x, b.pos.z - camera.position.z);
             if (d < b.r) {
-                if (!godMode) player.hp -= b.playerDmg;   // cheat: kebal (tetap flash spt semula)
+                damagePlayerHp(b.playerDmg);   // lewat ARMOR (godMode ditangani di dalam)
                 // DARAH MERAH player terlempar keluar dari pusat ledakan
                 spawnBloodBurst(camera.position.x, camera.position.y - 3, camera.position.z,
                     camera.position.x - b.pos.x, camera.position.z - b.pos.z,
@@ -545,7 +636,7 @@ export function updateEnemyBullets(dt, step) {
             // KENA: darah + flash SELALU tampil — konsisten dgn cakar/ledakan;
             // god-mode hanya membatalkan pengurangan HP-nya, BUKAN efek visualnya
             // (dulu seluruh blok di dalam !godMode -> kena peluru tak berdarah).
-            if (!godMode) player.hp -= Math.max(1, b.dmg);   // armor player belum ada
+            damagePlayerHp(Math.max(1, b.dmg));   // lewat ARMOR (godMode ditangani di dalam)
             // DARAH MERAH player muncrat searah peluru (beda dari coolant hijau robot)
             spawnBloodBurst(camera.position.x, camera.position.y - 3, camera.position.z,
                 b.dir.x, b.dir.z, 10, 1.15, 1.7, PLAYER_BLOOD_HEX);
@@ -588,6 +679,49 @@ export function updateRobots(dt, step) {
             const res = activeScene.robotAI(z, dt, step) || {};
             if (res.skip) continue;
 
+            // ===== Ticker ANCANG-ANCANG cakar (2026-07-13): jeda clawWindupSec
+            // antara MULAI menyerang dan DAMAGE. Ditick di sini — bukan di cabang
+            // serangan — supaya tetap jalan walau target robot berpindah di tengah
+            // ancang-ancang (player keluar/masuk radius aggro). Habis -> SABETAN
+            // (clawT utk animateRobotRig) + resolusi damage: jangkauan player
+            // dicek ULANG dgn grace lunge (mundur/dodge selama ancang-ancang =
+            // serangan LUPUT); gigitan Monas diserahkan ke hook scene
+            // (monasGnawHit -> damageMonas). Swoosh berbunyi saat sabetan, bukan
+            // saat ancang-ancang. =====
+            if (z.windT > 0) {
+                z.windT -= dt;
+                if (z.windT <= 0) {
+                    z.windT = 0;
+                    z.clawT = CLAW_TIME;
+                    playSFX(sfxRobotBite);
+                    if (z.windTarget === 'monas') {
+                        if (activeScene.monasGnawHit) activeScene.monasGnawHit(z);
+                    } else if (!dodgeInvuln && player.hp > 0) {
+                        // (god-mode: kebal tapi tetap flash spt semula — damagePlayerHp
+                        // menangani godMode di dalam.)
+                        const wdx = camera.position.x - z.mesh.position.x;
+                        const wdz = camera.position.z - z.mesh.position.z;
+                        const reach = player.radius + (CFG.robot.clawRange + (CFG.robot.clawStrikeGrace || 0))
+                            * (z.reachMul || 1);
+                        if (Math.hypot(wdx, wdz) < reach) {
+                            damagePlayerHp(z.clawDmg != null ? z.clawDmg : z.attack);   // lewat ARMOR
+                            // DARAH MERAH player muncrat menjauhi si pencakar
+                            spawnBloodBurst(camera.position.x, camera.position.y - 3, camera.position.z,
+                                wdx, wdz, 7, 0.9, 1.6, PLAYER_BLOOD_HEX);
+                            updateUI();
+                            flashDamage();
+                            showHitDir(attackerAngle(z.mesh.position.x, z.mesh.position.z));
+                            playSFX(sfxHit);          // jeritan player (jokowi-kaget)
+                            // HP habis -> sekuens kematian: roboh menjauhi pencakar
+                            if (player.hp <= 0) {
+                                startPlayerDeath(wdx, wdz);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Serangan saat mengejar player. KELAS PENEMBAK (z.ranged, B/A): BERDIRI
             // di radius `z.range` (di-stop scene AI) lalu lepas peluru tiap
             // fireDelaySec — hanya bila garis pandang bebas (z.losOK dari scene AI;
@@ -602,32 +736,16 @@ export function updateRobots(dt, step) {
                     }
                 } else {
                     if (z.attackCd > 0) z.attackCd -= dt;
-                    if (res.chaseDist < player.radius + CFG.robot.clawRange * (z.reachMul || 1)
+                    if (!(z.windT > 0) && res.chaseDist < player.radius + CFG.robot.clawRange * (z.reachMul || 1)
                         && z.attackCd <= 0) {
+                        // MULAI ANCANG-ANCANG (2026-07-13): damage TIDAK langsung —
+                        // jatuh clawWindupSec kemudian di ticker windup di atas.
+                        // Cooldown dihitung dari SINI supaya irama serangan
+                        // (1x/clawCooldownSec) tidak berubah, hanya tergeser.
                         z.attackCd = CFG.robot.clawCooldownSec;
-                        z.clawT = CLAW_TIME;           // animasi sabetan (animateRobotRig)
+                        z.windT = z.windDur = CFG.robot.clawWindupSec || 0.5;
+                        z.windTarget = 'player';
                         z.clawSide = -z.clawSide;      // lengan bergantian kiri/kanan
-                        playSFX(sfxRobotBite);         // swoosh sabetan (robot tetap mengayun, selalu)
-                        // i-frame DODGE = serangan MELESET total (tanpa flash/damage/jeritan);
-                        // player yang sudah tumbang tak dicakar lagi (sekuens kematian).
-                        // (god-mode: kebal tapi tetap flash spt semula.)
-                        if (!dodgeInvuln && player.hp > 0) {
-                            if (!godMode) player.hp -= (z.clawDmg != null ? z.clawDmg : z.attack);   // cheat: kebal
-                            // DARAH MERAH player muncrat menjauhi si pencakar
-                            spawnBloodBurst(camera.position.x, camera.position.y - 3, camera.position.z,
-                                camera.position.x - z.mesh.position.x, camera.position.z - z.mesh.position.z,
-                                7, 0.9, 1.6, PLAYER_BLOOD_HEX);
-                            updateUI();
-                            flashDamage();
-                            showHitDir(attackerAngle(z.mesh.position.x, z.mesh.position.z));
-                            playSFX(sfxHit);          // jeritan player (jokowi-kaget)
-                            // HP habis -> sekuens kematian: roboh menjauhi pencakar (GAME OVER menyusul)
-                            if (player.hp <= 0) {
-                                startPlayerDeath(camera.position.x - z.mesh.position.x,
-                                    camera.position.z - z.mesh.position.z);
-                                return;
-                            }
-                        }
                     }
                 }
             }

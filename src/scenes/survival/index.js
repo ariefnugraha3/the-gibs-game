@@ -4,11 +4,11 @@
 // antarmuka scene (lihat MODULES.md).
 
 import { CFG, CAMP_M } from '../../core/config.js';
-import { player, robots, isGameOver, _v3, godMode } from '../../core/state.js';
+import { player, robots, _v3, godMode } from '../../core/state.js';
 import { scene, camera } from '../../core/renderer.js';
 import { rand, clamp } from '../../utils/math.js';
 import { updateUI } from '../../core/hud.js';
-import { buildRobotMesh, CLAW_TIME, reachForScale, disposeRobot, fireRobotBullet } from '../../entities/robots.js';
+import { buildRobotMesh, reachForScale, disposeRobot, fireRobotBullet } from '../../entities/robots.js';
 import { spawnGroundPuff } from '../../entities/effects.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
@@ -168,7 +168,7 @@ function spawnRobot() {
         state: 'jumping', jumpT: 0, jumpDur: 1.1,
         sx: startX, sz: startZ, lx: landX, lz: landZ,
         jumpY0: 0, jumpY1: 0, arcH: FENCE_H + 14, groundY: 0, vaultCd: 0,
-        attackCd: 0, clawT: 0, clawSide: 1, moving: true,   // sistem serangan cakar
+        attackCd: 0, clawT: 0, windT: 0, clawSide: 1, moving: true,   // sistem serangan cakar (windT = ancang-ancang)
         kind: cls, scl, reachMul: reachForScale(scl),   // badan besar = reach ikut membesar
         armor: C.armor, attack: C.attack, clawDmg: C.attack,
         ranged: C.ranged, fireDelaySec: C.fireDelaySec || 0, bulletSpeed: C.bulletSpeed || 0,
@@ -346,6 +346,11 @@ export const survivalScene = {
         damageMonas(dmg);
     },
 
+    // Sabetan cakar yang DITUJUKAN ke Monas mendarat (dipanggil ticker windup
+    // robots.js setelah clawWindupSec — 2026-07-13): potong monasHp. Komit/roll
+    // terkunci sudah dilakukan saat inisiasi ancang-ancang di robotAI.
+    monasGnawHit() { damageMonas(CFG.survival.monasClawDamage); },
+
     // Pantulan granat: pagar & Monas (posisi dikembalikan, kecepatan dibalik +
     // diredam); pohon & bak pejal juga utk granat — supaya gelindingnya wajar
     // (tidak menembus batang/bak; peluru TETAP menembus pohon).
@@ -464,19 +469,22 @@ export const survivalScene = {
                 }
             } else {
                 if (z.attackCd > 0) z.attackCd -= dt;
-                if (z.attackCd <= 0) {
+                if (!(z.windT > 0) && z.attackCd <= 0) {
+                    // ANCANG-ANCANG dulu (2026-07-13): damage Monas jatuh saat
+                    // sabetan MENDARAT — ticker windup robots.js memanggil hook
+                    // monasGnawHit di bawah setelah clawWindupSec. Cooldown
+                    // dihitung dari sini (irama gigitan per detik tak berubah).
                     z.attackCd = CFG.robot.clawCooldownSec;
-                    z.clawT = CLAW_TIME;
+                    z.windT = z.windDur = CFG.robot.clawWindupSec || 0.5;
+                    z.windTarget = 'monas';
                     z.clawSide = -z.clawSide;
                     // Gigitan PERTAMA ke Monas -> robot "berkomitmen": radius aggro
                     // menyusut (5 m) dan sekali roll monasLockChance ia TERKUNCI penuh
-                    // (tak akan mengejar player lagi). Diundi hanya sekali.
+                    // (tak akan mengejar player lagi). Diundi sekali, saat INISIASI.
                     if (!z.monasCommitted) {
                         z.monasCommitted = true;
                         z.monasLocked = Math.random() < CFG.survival.monasLockChance;
                     }
-                    damageMonas(CFG.survival.monasClawDamage);
-                    if (isGameOver) return {};
                 }
             }
         }

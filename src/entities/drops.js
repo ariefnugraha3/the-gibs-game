@@ -3,7 +3,7 @@
 // item yang player-nya sudah penuh TIDAK dikonsumsi — ditinggal di lantai.
 
 import { CFG } from '../core/config.js';
-import { player, drops } from '../core/state.js';
+import { player, drops, maxAmmoFor } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { playSFX, sfxPickup } from '../utils/sfx.js';
@@ -108,7 +108,7 @@ export function updateDrops(dt, T) {
             // yang DIMILIKI, di-cap maxAmmo).
             const ownedW = ['rifle', 'pistol', 'shotgun', 'launcher'].filter(w => player.owned[w]);
             const isFull =
-                (d.type === 'mag' && ownedW.every(w => player[w].ammo >= CFG.weapons[w].maxAmmo)) ||
+                (d.type === 'mag' && ownedW.every(w => player[w].ammo >= maxAmmoFor(w))) ||
                 (d.type === 'medkit' && player.medkits >= CFG.player.maxMedkits);
             if (isFull) {
                 if (fullInfoCd <= 0) {
@@ -118,7 +118,7 @@ export function updateDrops(dt, T) {
             } else {
                 if (d.type === 'mag') {          // paket peluru: isi senjata yang DIMILIKI
                     for (const w of ownedW)
-                        player[w].ammo = Math.min(CFG.weapons[w].maxAmmo,
+                        player[w].ammo = Math.min(maxAmmoFor(w),
                             player[w].ammo + CFG.weapons[w].ammoPickup);
                     showPickup('+Ammo (All Weapons)', '#f1c40f');
                 } else if (d.type === 'medkit') {
