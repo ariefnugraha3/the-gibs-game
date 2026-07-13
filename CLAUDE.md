@@ -33,7 +33,7 @@ Load-bearing rules (details in MODULES.md):
 python -m http.server 8000      # then open http://localhost:8000
 ```
 
-Internet required for the Three.js CDN scripts. No build, no install. For syntax checking: `node --check src/<file>.js` (works thanks to `"type": "module"`). A headless test harness pattern (Node + stubbed THREE/DOM driving the real modules) is described at the end of MODULES.md.
+Internet required for the Three.js CDN scripts. No build, no install. For syntax checking: `node --check src/<file>.js` (works thanks to `"type": "module"`). **The live headless test suite is [tools/smoke.mjs](tools/smoke.mjs)** (`node tools/smoke.mjs`, zero deps, currently 87 asserts — stubbed THREE/DOM driving the real `src/` modules; coverage list at the end of MODULES.md). **Mandatory workflow for every gameplay change: add/adjust asserts for the new mechanic → run `node tools/smoke.mjs` until all pass → `node --check` every touched file → sync CLAUDE.md + MODULES.md.** Keep assertions CONFIG-DRIVEN (read `CFG`, never hardcode tuned numbers — the user hand-tunes gameplay.json between sessions; a test failing right after a pure config retune almost always means the test hardcoded a number). A missing stub method (fakeEl/THREE) is a harness gap, not a game bug — extend the stub.
 
 ## Key mechanics and conventions
 
