@@ -22,13 +22,13 @@ import { rand } from '../../utils/math.js';
 import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../utils/collision.js';
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { applyLightPreset } from '../../world/lighting.js';
-import { setScene } from '../../core/sceneManager.js';
 import { showStageMsg } from '../../core/dom.js';
 import { updateUI } from '../../core/hud.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
+import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
 import { stage3Scene } from './stage3.js';
 
@@ -433,6 +433,9 @@ export const stage2Scene = {
     // Mati di stage 2 -> campaign SELALU mengulang dari stage 1
     restartScene: () => stage1Scene,
 
+    // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
+    cheatSkipToStage: (n) => campaignJumpToStage(n),
+
     // Dinding grid: geser per-sumbu (menyusur tembok), penghalang furnitur,
     // slide lagi, lalu cek trigger tangga keluar -> turun ke stage 3
     // (selalu aktif, seperti tangga keluar stage 1).
@@ -444,7 +447,7 @@ export const stage2Scene = {
             && pos.x <= S2.x0 + (S2_EXIT.c1 + 1) * S2.CELL
             && pos.z >= S2.z0 + S2_EXIT.r0 * S2.CELL
             && pos.z <= S2.z0 + (S2_EXIT.r1 + 1) * S2.CELL) {
-            setScene(stage3Scene, { transition: true });
+            beginStageTransition(stage3Scene);   // → SHOP SCENE (loading→shop→loading→stage 3)
         }
     },
 

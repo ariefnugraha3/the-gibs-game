@@ -290,6 +290,50 @@ const zB2 = mkBot('B', -30, 0); zB2.aiming = true; zB2.moving = false;
 for (let i = 0; i < 30; i++) robotsMod.animateRobotRig(zB2, 0.05);
 T('B membidik: kanan naik, kiri tetap di bawah', zB2.rig.armR.rotation.x < -1.2 && zB2.rig.armL.rotation.x > -0.6);
 
+// --- 5i. IDLE per kelas (2026-07-14, spesifikasi user): BADAN & KAKI DIAM,
+//     kepala celingak-celinguk; gestur khas kelas (C angkat-turun tangan,
+//     B gosok senapan, A juggle senapan). ---
+const zIdleC = mkBot('C', 200, 0); zIdleC.state = 'idle'; zIdleC.moving = false;
+let hMin = 9, hMax = -9, bodyMax = 0, legMax = 0, cArmMin = 9;
+for (let i = 0; i < 400; i++) {
+    robotsMod.animateRobotRig(zIdleC, 0.05);
+    const y = zIdleC.rig.head.rotation.y; hMin = Math.min(hMin, y); hMax = Math.max(hMax, y);
+    bodyMax = Math.max(bodyMax, Math.abs(zIdleC.rig.inner.position.y));
+    legMax = Math.max(legMax, Math.abs(zIdleC.rig.thighL.rotation.x));
+    cArmMin = Math.min(cArmMin, zIdleC.rig.armL.rotation.x);
+}
+T('idle: state terinisialisasi', zIdleC.idleInit === 1);
+T('idle C: kepala celingak-celinguk kiri-kanan', hMax - hMin > 0.3);
+T('idle C: BADAN & KAKI diam (tak melompat)', bodyMax < 0.1 && legMax < 0.1);
+T('idle C: sesekali MENAIK-turunkan tangan', cArmMin < -1.2);
+
+const zIdleB = mkBot('B', 260, 0); zIdleB.state = 'idle'; zIdleB.moving = false;
+let bArmMin = 9, bArmZ = -9;
+for (let i = 0; i < 400; i++) {
+    robotsMod.animateRobotRig(zIdleB, 0.05);
+    bArmMin = Math.min(bArmMin, zIdleB.rig.armL.rotation.x);
+    bArmZ = Math.max(bArmZ, zIdleB.rig.armL.rotation.z);
+}
+T('idle B: senapan kanan low-ready diam', Math.abs(zIdleB.rig.armR.rotation.x + 0.24) < 0.01);
+T('idle B: tangan kiri MENGGOSOK senapan', bArmMin < -0.6 && bArmZ > 0.3);
+
+const zIdleA = mkBot('A', 320, 0); zIdleA.state = 'idle'; zIdleA.moving = false;
+T('idle A: rig punya grup senapan gunR + gunL', !!zIdleA.rig.gunR && !!zIdleA.rig.gunL);
+const gunBaseY = zIdleA.rig.gunR.position.y;
+let gunMaxY = -99;
+for (let i = 0; i < 400; i++) {
+    robotsMod.animateRobotRig(zIdleA, 0.05);
+    gunMaxY = Math.max(gunMaxY, zIdleA.rig.gunR.position.y);
+}
+T('idle A: senapan di-JUGGLE naik tinggi', gunMaxY > gunBaseY + 4);
+while (zIdleA.gestActive) robotsMod.animateRobotRig(zIdleA, 0.05);   // biarkan juggle selesai
+T('idle A: senapan kembali ke tangan usai juggle', Math.abs(zIdleA.rig.gunR.position.y - gunBaseY) < 0.3);
+
+// Keluar dari idle: sisa pindaian kepala harus meluruh (tak macet miring).
+zIdleC.state = 'chasing'; zIdleC.moving = true;
+for (let i = 0; i < 60; i++) robotsMod.animateRobotRig(zIdleC, 0.05);
+T('keluar idle: pindaian kepala meluruh', Math.abs(zIdleC.rig.head.rotation.y) < 0.05);
+
 // --- 5d. Burst warna merah (darah player) tak melempar ---
 effectsMod.spawnBloodBurst(0, 5, 0, 1, 0, 5, 1, 1.6, 0xb51a1a);
 T('spawnBloodBurst param warna OK', true);
@@ -301,10 +345,12 @@ T('MELEE_TIME diekspor (0.45)', wMod.MELEE_TIME === 0.45);
 // --- 5h. Sabetan pedang = SAPUAN BUSUR (2026-07-13): SEMUA robot di kerucut
 //     depan kena damage CFG.melee.damage; di belakang/di luar jangkauan selamat;
 //     HP raksasa (boss) hanya tergerus. (Kamera stub menghadap -z.) ---
-const zM1 = mkBot('C', 0, -10); robots.push(zM1);
-const zM2 = mkBot('B', 4, -11); robots.push(zM2);
-const zM3 = mkBot('C', 0, 12); robots.push(zM3);              // di belakang punggung
-const zTank = mkBot('A', -3, -12); zTank.hp = 99999; robots.push(zTank);
+// (jarak DITURUNKAN dari CFG.melee.range supaya tahan re-tuning range user)
+const MR = cfgMod.CFG.melee.range;
+const zM1 = mkBot('C', 0, -MR * 0.55); robots.push(zM1);
+const zM2 = mkBot('B', MR * 0.22, -MR * 0.5); robots.push(zM2);
+const zM3 = mkBot('C', 0, MR + 12); robots.push(zM3);        // di belakang punggung (selalu di belakang)
+const zTank = mkBot('A', -MR * 0.2, -MR * 0.55); zTank.hp = 99999; robots.push(zTank);
 camera.position.set(0, 11.4, 0);
 const nR0 = robots.length;
 wMod.doMeleeHit();
@@ -577,17 +623,33 @@ T('S2: robotAI jalan tanpa error', s2aiOk);
 T('S2: tak ada boss & tak ada updateMode (boss dibuang)',
     !robots.some(z => z.kind === 'boss') && s2mod.stage2Scene.updateMode === undefined
     && !/BOSS/.test(s2mod.stage2Scene.hudStatus()));
-// Tangga END SELALU aktif: menginjak trigger -> transisi ke stage 3 (spy enter
-// stage3 supaya tak membangun dunianya di harness pada langkah ini).
+// Tangga END (overhaul 2026-07-14): trigger -> pindah ke SHOP SCENE terpisah
+// (`campaign-shop`) via LOADING; setelah loading shop terbuka; "Start Next Stage"
+// (SPACE x2) -> LOADING -> transisi ke stage 3. Spy enter stage3 agar tak
+// membangun dunianya di harness. Poll (bukan await tetap) supaya tahan MIN_LOADING.
 const s3mod = await import(R('src/scenes/campaign/stage3.js'));
 const realS3Enter = s3mod.stage3Scene.enter;
 let s3entered = false;
 s3mod.stage3Scene.enter = () => { s3entered = true; };
 const e2 = s2mod.s2Cell(s2mod.S2_END.c, s2mod.S2_END.r);
 stateMod._v3.set(e2.x, 0, e2.z);
-s2mod.stage2Scene.playerCollide(stateMod._v3, e2.x, e2.z, 0);
-T('S2: mencapai tangga END -> transisi ke stage 3', s3entered && smMod.activeScene === s3mod.stage3Scene);
+s2mod.stage2Scene.playerCollide(stateMod._v3, e2.x, e2.z, 0);   // -> setScene(campaignShopScene)
+T('S2: tangga END -> pindah ke SHOP SCENE terpisah (bukan transisi langsung)',
+    smMod.activeScene.id === 'campaign-shop' && !s3entered);
+for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
+stateMod.setScore(0);   // cek KETERSEDIAAN item tanpa beli (skor 0 -> 'Not enough score' vs 'Unknown item')
+T('S2 SHOP SCENE: shop terbuka; Monas difilter; Radar/Shotgun/Rifle/Launcher TERSEDIA',
+    shopMod.isShopOpen()
+    && shopMod.shopPurchase('healMonas') === 'Unknown item'      // Monas disembunyikan di campaign
+    && shopMod.shopPurchase('radar') !== 'Unknown item'         // radar DIJUAL di campaign
+    && shopMod.shopPurchase('shotgun') !== 'Unknown item'       // shotgun DIJUAL
+    && shopMod.shopPurchase('rifle') !== 'Unknown item'         // rifle DIJUAL
+    && shopMod.shopPurchase('launcher') !== 'Unknown item');    // launcher DIJUAL
+smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');   // Start Next Stage -> konfirmasi
+for (let i = 0; i < 400 && !s3entered; i++) await new Promise(r => setTimeout(r, 10));   // LOADING #2 -> setScene
+T('S2: Start Next Stage -> transisi ke stage 3', s3entered && smMod.activeScene === s3mod.stage3Scene);
 s3mod.stage3Scene.enter = realS3Enter;   // pulihkan enter asli
+shopMod.closeShop();
 
 // --- 16. Campaign STAGE 3 overhaul (2026-07-13): gedung indoor final dgn
 // ATRIUM/VOID pusat mengikuti denah. Bangun dunia + BFS konektivitas (VOID =
@@ -628,16 +690,24 @@ let s3aiOk = true;
 try { for (let i = 0; i < 5; i++) s3mod.stage3Scene.robotAI(zS3, 0.05, 3); } catch (e) { s3aiOk = false; }
 T('S3: robotAI jalan tanpa error', s3aiOk);
 
-// Stage 3 tangga END sekarang -> transisi ke stage 4 (spy enter stage4)
+// Stage 3 tangga END -> SHOP SCENE (loading) -> Start Next Stage (loading) -> stage 4
 const s4mod = await import(R('src/scenes/campaign/stage4.js'));
 const realS4Enter = s4mod.stage4Scene.enter;
 let s4entered = false;
 s4mod.stage4Scene.enter = () => { s4entered = true; };
 const e3 = s3mod.s3Cell(s3mod.S3_END.c, s3mod.S3_END.r);
 stateMod._v3.set(e3.x, 0, e3.z);
-s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);
-T('S3: capai tangga END -> transisi ke stage 4', s4entered && smMod.activeScene === s4mod.stage4Scene);
+s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);   // -> setScene(campaignShopScene)
+T('S3: tangga END -> pindah ke SHOP SCENE terpisah', smMod.activeScene.id === 'campaign-shop' && !s4entered);
+for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
+T('S3 SHOP SCENE: shop terbuka', shopMod.isShopOpen());
+smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');   // Start Next Stage -> konfirmasi
+for (let i = 0; i < 400 && !s4entered; i++) await new Promise(r => setTimeout(r, 10));   // LOADING #2 -> setScene
+T('S3: Start Next Stage -> transisi ke stage 4', s4entered && smMod.activeScene === s4mod.stage4Scene);
 s4mod.stage4Scene.enter = realS4Enter;
+shopMod.closeShop();
+stateMod.setPaused(false);   // pulihkan (runEnterShop mem-pause; harness tak ada klik resume)
+shopMod.closeShop();
 
 // --- 17. Campaign STAGE 4 (final, OUTDOOR, 2026-07-13): parkiran -> jalan raya
 // 500 m -> stasiun kereta, dgn BOSS di ujung timur. Bangun dunia (union
@@ -678,26 +748,91 @@ let s4aiOk = true;
 try { for (let i = 0; i < 5; i++) s4mod.stage4Scene.robotAI(zS4, 0.05, 3); } catch (e) { s4aiOk = false; }
 T('S4: robotAI jalan tanpa error', s4aiOk);
 
-// ALUR MENANG: boss TIDAK muncul selagi masih ada robot
+// ALUR MENANG: BOSS TANK (entities/tank.js, 2026-07-14) TIDAK muncul selagi
+// masih ada robot. Tank = entitas MANDIRI (bukan anggota `robots`).
 s4mod.stage4Scene.updateMode(0.1);
-T('S4: boss BELUM muncul selagi masih ada robot', !robots.some(z => z.kind === 'boss'));
-// bunuh SEMUA robot normal -> updateMode -> boss muncul di ujung timur
+T('S4: tank boss BELUM muncul selagi masih ada robot', s4mod.currentTank() == null);
+// bunuh SEMUA robot normal -> updateMode -> TANK muncul (menabrak dinding timur)
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 s4mod.stage4Scene.updateMode(0.1);
-const s4boss = robots.find(z => z.kind === 'boss' && z.stage === 4);
-T('S4: setelah semua robot mati -> BOSS muncul', s4boss != null && /BOSS/.test(s4mod.stage4Scene.hudStatus()));
-// finish TERKUNCI selagi boss hidup
+const s4tank = s4mod.currentTank();
+T('S4: setelah semua robot mati -> TANK boss muncul (bukan anggota robots)',
+    s4tank != null && !robots.includes(s4tank) && /TANK/.test(s4mod.stage4Scene.hudStatus()));
+T('S4: HP tank = HP robot raksasa lama (CFG.campaign.boss.hp)',
+    s4tank.hp === cfgMod.CFG.campaign.boss.hp && s4tank.maxHp === cfgMod.CFG.campaign.boss.hp);
+// jalankan siklus tank (spawn menabrak dinding -> 3 serangan bergantian) ~12 dtk
+camera.position.set(s4mod.S4_START.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_START.z);
+let s4tankOk = true;
+try { for (let i = 0; i < 120; i++) s4mod.stage4Scene.updateMode(0.1); } catch (e) { s4tankOk = false; console.log(e); }
+T('S4: siklus tank (spawn+3 serangan) jalan tanpa error', s4tankOk && !s4tank.dead);
+while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }   // bersihkan peluru MG
+// finish TERKUNCI selagi tank hidup
 stateMod.setGameOver(false);
 stateMod._v3.set(s4mod.S4_END.x, 0, s4mod.S4_END.z);
 s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_END.x, s4mod.S4_END.z, 0);
-T('S4: finish TERKUNCI selagi boss hidup (belum MISSION COMPLETE)', stateMod.isGameOver === false);
-// bunuh boss -> updateMode -> pintu stasiun aktif -> finish = MISSION COMPLETE
-robotsMod.disposeRobot(s4boss); robots.splice(robots.indexOf(s4boss), 1); scene.remove(s4boss.mesh);
+T('S4: finish TERKUNCI selagi tank hidup (belum MISSION COMPLETE)', stateMod.isGameOver === false);
+// hancurkan tank (HP habis) -> updateMode -> pintu stasiun aktif -> MISSION COMPLETE
+s4tank.hp = 0;
 s4mod.stage4Scene.updateMode(0.1);
+T('S4: tank HANCUR saat HP habis', s4tank.dead === true);
 stateMod._v3.set(s4mod.S4_END.x, 0, s4mod.S4_END.z);
 s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_END.x, s4mod.S4_END.z, 0);
-T('S4: bunuh boss -> masuk stasiun -> MISSION COMPLETE (gameOver win)', stateMod.isGameOver === true);
+T('S4: hancurkan tank -> masuk stasiun -> MISSION COMPLETE (gameOver win)', stateMod.isGameOver === true);
 stateMod.setGameOver(false);
+
+// --- 17b. CHEAT skip-to-stage-N (2026-07-14): lompat LANGSUNG ke stage campaign
+// (tanpa shop). Hook `cheatSkipToStage` di tiap stage → `campaignJumpToStage`
+// (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+let jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 4 aktif -> STAGE 3
+T('cheat skip-to-stage-3: pindah ke stage 3 + robot 3-tag', jr === 3
+    && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
+jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempatkan ulang oleh helper)
+T('cheat skip-to-stage-2: pindah ke stage 2 + 35 robot ditempatkan', jr === 2
+    && smMod.activeScene === s2mod.stage2Scene && robots.filter(z => z.stage === 2).length === 35);
+const s4before = smMod.activeScene;
+T('cheat skip-to-stage invalid (9) ditolak, scene tak berubah',
+    smMod.activeScene.cheatSkipToStage(9) === null && smMod.activeScene === s4before);
+T('survival TAK punya hook cheatSkipToStage (campaign-only)',
+    survMod.survivalScene.cheatSkipToStage === undefined);
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+
+// --- 16. IDLE AFK bertahap (2026-07-14): player diam TOTAL & tak ada ancaman ->
+//     +30 dtk MELAMBAI ke kamera, +60 dtk JONGKOK, +90 dtk REBAHAN; gerak &
+//     musuh mengejar mereset seketika. (switchAnim=-1 default, gunRecoil=0,
+//     initWeapons tak perlu; aimPoint konstan = tak dianggap "menggerakkan".) ---
+avMod.resetAvatarDeath();                     // pastikan bukan pose mati (deathT=-1)
+stateMod.setGameOver(false);
+stateMod.setPaused(false);
+while (robots.length) robots.pop();
+camera.position.set(1000, 11.4, 1000);
+inputMod.aimPoint.set(1000, 0, 900);          // kursor konstan (tak "digerakkan")
+for (let i = 0; i < 3; i++) avMod.updatePlayerAvatar(0.1);   // warm: settle lastX & lastAim
+for (let i = 0; i < 3000 && avMod.afkDebug().t < 31; i++) avMod.updatePlayerAvatar(0.2);
+T('AFK +30 dtk: MELAMBAI ke kamera (wave)', avMod.afkDebug().mode === 'wave');
+// Regresi bug "kepala terlepas": tunduk/dongak kepala harus berporos di LEHER —
+// headG.position DIKOMPENSASI (bukan (0,0,0)) saat headG.rotation.x != 0.
+const hG = avMod.avatarGroup.children[0].children[0];   // avatarGroup>upperG>headG
+T('AFK wave: kepala menempel di leher (poros terkompensasi)',
+    Math.abs(hG.rotation.x) > 0.05 && Math.abs(hG.position.z + 9.9 * Math.sin(hG.rotation.x)) < 0.03);
+for (let i = 0; i < 3000 && avMod.afkDebug().t < 61; i++) avMod.updatePlayerAvatar(0.2);
+T('AFK +60 dtk: JONGKOK (crouch)', avMod.afkDebug().mode === 'crouch');
+for (let i = 0; i < 3000 && avMod.afkDebug().t < 91; i++) avMod.updatePlayerAvatar(0.2);
+T('AFK +90 dtk: REBAHAN (lie)', avMod.afkDebug().mode === 'lie');
+// Regresi: saat REBAHAN, aim chain TAK boleh menarik legYaw ke kursor (yg di sini
+// off-kamera) — badan harus menata sejajar layar (legYaw -> ~0), bukan miring/goyang.
+for (let i = 0; i < 10; i++) avMod.updatePlayerAvatar(0.2);
+T('AFK lie: terlentang sejajar layar (legYaw~0, tak ditarik kursor)',
+    Math.abs(avMod.avatarGroup.rotation.y) < 0.15);
+camera.position.set(1060, 11.4, 1000);        // GERAK -> reset
+avMod.updatePlayerAvatar(0.2);
+T('AFK reset saat player BERGERAK', avMod.afkDebug().t === 0 && avMod.afkDebug().mode === 'none');
+for (let i = 0; i < 3; i++) avMod.updatePlayerAvatar(0.2);   // diam lagi (afkT mulai naik)
+robots.push({ state: 'chasing' });            // MUSUH mengejar -> AFK terblok
+for (let i = 0; i < 60; i++) avMod.updatePlayerAvatar(0.2);
+T('AFK TERBLOK saat musuh mengejar', avMod.afkDebug().t === 0);
+while (robots.length) robots.pop();
+avMod.resetAvatarDeath();
 
 console.log(`\n${pass} pass, ${fail} fail`);
 process.exit(fail ? 1 : 0);

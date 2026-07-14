@@ -18,11 +18,11 @@ import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../utils/co
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { setS1FlickerLight } from '../../world/decor.js';
 import { applyLightPreset } from '../../world/lighting.js';
-import { setScene } from '../../core/sceneManager.js';
 import { hideStageMsg } from '../../core/dom.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
+import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
 
 // Grid 30 sel x 2 m; gedung ditaruh ~26 km dari jalan raya (stage 2) —
@@ -423,18 +423,21 @@ export const stage1Scene = {
     // Mati -> ulang dari stage 1 juga (dirinya sendiri)
     restartScene: () => stage1Scene,
 
+    // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
+    cheatSkipToStage: (n) => campaignJumpToStage(n),
+
     // Dinding grid: geser per-sumbu (menyusur tembok), penghalang furnitur,
     // slide lagi, lalu cek trigger tangga keluar -> transisi ke stage 2.
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage1Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
         slideWalk(stage1Walk, pos, oldX, oldZ, player.radius);
-        // Trigger tangga keluar -> turun ke jalan raya (stage 2)
+        // Trigger tangga keluar -> FIELD SHOP dulu, lalu transisi ber-loading ke stage 2
         if (pos.x >= S1.x0 + S1_EXIT.c0 * S1.CELL
             && pos.x <= S1.x0 + (S1_EXIT.c1 + 1) * S1.CELL
             && pos.z >= S1.z0 + S1_EXIT.r0 * S1.CELL
             && pos.z <= S1.z0 + (S1_EXIT.r1 + 1) * S1.CELL) {
-            setScene(stage2Scene, { transition: true });
+            beginStageTransition(stage2Scene);   // → SHOP SCENE (loading→shop→loading→stage 2)
         }
     },
 

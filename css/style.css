@@ -997,6 +997,10 @@ body {
     font-family: Arial, sans-serif;
     color: #e8eef4;
 }
+/* Campaign = SHOP SCENE terpisah (2026-07-14): latar OPAK, stage tak terlihat. */
+#shopOverlay.campaignShop {
+    background: radial-gradient(circle at 50% 40%, #0c1420, #05080c 70%);
+}
 .shopPanel {
     width: min(840px, 94vw);
     max-height: 92vh;              /* katalog makin panjang (armor 3 kartu) — grid di dalamnya scroll */

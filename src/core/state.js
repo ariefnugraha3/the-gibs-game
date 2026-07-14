@@ -76,7 +76,7 @@ export const player = {
     // di weapons.js. Level bertahan walau senjatanya diganti lalu dibeli lagi
     // (per-run; direset configurePlayer).
     weaponLvl: { rifle: 1, pistol: 1, shotgun: 1, launcher: 1 },
-    hasRadar: true,   // radar minimap: Survival mulai TANPA (dibeli di shop); mode lain punya
+    hasRadar: false,   // radar minimap: SEMUA mode mulai TANPA (dibeli di shop) — di-set configurePlayer
     isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
     vy: 0, onGround: true,           // vertikal: gravitasi + jatuh dari tepian (lompat dihapus)
     // Upgrade shop survival (per-run; kembali 1/0 di configurePlayer):
@@ -121,8 +121,9 @@ export function configurePlayer() {
     const survivalStart = mode === 'survival';
     player.weapons = survivalStart ? ['pistol'] : ['rifle', 'pistol'];
     syncOwnedFromWeapons();
-    // Radar: Survival mulai TANPA radar (dibeli di shop, item "Radar"); mode lain langsung ada.
-    player.hasRadar = !survivalStart;
+    // Radar: SEMUA mode mulai TANPA radar — dibeli di shop (item "Radar"), Survival
+    // maupun Campaign (2026-07-14: campaign shop kini menjual Radar).
+    player.hasRadar = false;
     player.dmgMul = 1; player.reloadMul = 1;
     player.upDmg = 0; player.upReload = 0;
     player.weaponLvl = { rifle: 1, pistol: 1, shotgun: 1, launcher: 1 };

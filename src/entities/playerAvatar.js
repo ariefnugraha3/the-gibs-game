@@ -17,24 +17,52 @@
 // mengikuti gagangnya).
 
 import { CFG } from '../core/config.js';
-import { camera } from '../core/renderer.js';
-import { GEO, player } from '../core/state.js';
+import { camera, viewCam } from '../core/renderer.js';
+import { GEO, player, robots, isPaused } from '../core/state.js';
 import { aimPoint } from '../core/input.js';
 import { eyeHCur, dodgeActive, dodgeProgress, dodgeDirX, dodgeDirZ } from './player.js';
-import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
+import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
 
 export let avatarGroup = null;
 export let avatarGunTip = null;   // Object3D ujung laras (dibaca weapons.js)
 let upperG = null, headG = null;  // badan ATAS (torso+kepala+lengan+senjata) & KEPALA — pemisahan atas/bawah 2026-07-12
 let hipL = null, hipR = null, kneeL = null, kneeR = null;
-let handL = null, handR = null;                    // telapak (diposisikan ke anchor tiap frame)
+let handL = null, handR = null;                    // telapak/sarung tangan (grup, diposisikan ke anchor tiap frame)
 let armUpL = null, armLoL = null, armUpR = null, armLoR = null;   // segmen lengan tertarik
+let elbowL = null, elbowR = null;                  // bantalan siku (ditempatkan ke titik siku fake-IK)
 let phase = 0, lastX = 0, lastZ = 0;
 // Rantai hadap manusiawi: kaki (root) -> puntiran pinggang (upperG) -> toleh kepala (headG)
 let aimYaw = 0, legYaw = 0, twistCur = 0, headYawCur = 0;
 let gaitSign = 1, backped = false, realign = false;   // arah siklus langkah + histeresis backpedal + turn-in-place
 let deathT = -1, deathDirX = 0, deathDirZ = 1;        // animasi ROBOH kematian (>= 0 = berjalan); arah jatuh
 let marker = null, markerT = 0;
+// ===== IDLE AFK bertahap (2026-07-14) =====
+let afkT = 0, afkMode = 'none', afkPoseT = 0;        // detik menganggur; mode aktif; waktu dalam mode
+let lastAimX = 0, lastAimZ = 0;                       // deteksi gerak kursor (aim)
+let gunGrpRef = null;                                 // grup senjata (utk digeletakkan saat rebahan)
+const AFK_WAVE = 30, AFK_CROUCH = 60, AFK_LIE = 90, AFK_WAVE_DUR = 5;   // ambang tahap (detik)
+const smoothstep = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+// Titik genggam prop (ruang avatarGroup) dari GRIPS lokal + pitch senjata
+// (rotasi X di pangkal gunGrp) — sama dgn transform anchor recoil.
+function gripAnchor(g, pitch) {
+    const c = Math.cos(pitch), s = Math.sin(pitch);
+    return [GUN_OFF.x + g.x, GUN_OFF.y + g.y * c - g.z * s, GUN_OFF.z + g.y * s + g.z * c];
+}
+// TUNDUK/DONGAK kepala HARUS berporos di LEHER, bukan di origin grup (yang ada
+// di kaki, y≈0) — kalau langsung set headG.rotation.x, kepala (mesh di y≈10.6)
+// terlempar ~5 unit ke belakang. Kompensasi posisi headG agar titik setinggi
+// leher tetap diam saat headG.rotation.x diputar (headG euler 'XYZ', rot.z=0,
+// pivot di sumbu-Y => yaw tak mengganggu kompensasi). lerpHeadPitch = dekati
+// sudut target lalu terapkan kompensasi.
+const HEAD_PIVOT_Y = 9.9;
+function lerpHeadPitch(target, k) {
+    if (!headG) return;
+    headG.rotation.x += (target - headG.rotation.x) * k;
+    const c = Math.cos(headG.rotation.x), s = Math.sin(headG.rotation.x);
+    headG.position.set(0, HEAD_PIVOT_Y * (1 - c), -HEAD_PIVOT_Y * s);
+}
+// State AFK utk smoke test (t detik, mode aktif).
+export function afkDebug() { return { t: afkT, mode: afkMode }; }
 let props = null, propKey = '';   // prop senjata/medkit aktif (show/hide per frame)
 let armorNodes = null, armorKey = -1;   // overlay ARMOR kumulatif (ikuti player.armorLvl)
 let swordPivot = null;            // pivot ayunan pedang (di bahu kanan; tampil saat melee)
@@ -89,6 +117,12 @@ export function initPlayerAvatar(sc) {
         strap = mat(0x1b1e22), pants = mat(0x39404a), boots = mat(0x1d2024),
         helmet = mat(0x3c4433), gun = mat(0x171a1e, 30), wood = mat(0x5a4530),
         white = mat(0xe8e4dc, 24), cross = mat(0xc0392b), dark = mat(0x14171a);
+    // Material identitas KARAKTER (overhaul 2026-07-14): aksen AMBER khas (syal +
+    // patch — senada aksen HUD), sarung tangan, karet, logam gesper/rel, lensa
+    // goggle amber, kain hood. Phong warna polos = program shader sama (tanpa recompile).
+    const accent = mat(0xc8862c, 16), glove = mat(0x25272b, 14), rubber = mat(0x141619, 6),
+        metal = mat(0x9aa1a8, 70), glass = mat(0x86531c, 95), cloth = mat(0x394132, 8),
+        accentDk = mat(0x8a5c1e, 12);
 
     // Elipsoid (sphere di-skala) — bentuk membulat untuk kepala/bahu/telapak/bantalan.
     const ellip = (r, sx, sy, sz, ws = 10, hs = 8) => { const g = new THREE.SphereGeometry(r, ws, hs); g.scale(sx, sy, sz); return g; };
@@ -119,12 +153,27 @@ export function initPlayerAvatar(sc) {
 
     // ----- Kaki: pivot pinggul -> paha; pivot lutut -> betis + pelindung + boot -----
     const mkLeg = (sx) => {
+        const side = sx < 0 ? -1 : 1;
         const hip = new THREE.Group(); hip.position.set(sx, 6.0, 0); avatarGroup.add(hip);
-        mk(new THREE.CylinderGeometry(0.74, 0.6, 2.6, 10), pants, 0, -1.3, 0, hip);
+        mk(new THREE.CylinderGeometry(0.78, 0.62, 2.6, 10), pants, 0, -1.3, 0, hip);   // paha (celana kargo)
+        box(0.72, 0.85, 0.22, strap, side * 0.55, -1.35, 0.34, hip, false);            // kantong kargo paha
+        box(0.74, 0.14, 0.24, dark, side * 0.55, -0.95, 0.36, hip, false);             // tutup kantong
+        box(0.55, 0.32, 0.55, strap, 0, -1.95, 0, hip, false);                          // ikat paha bawah
         const knee = new THREE.Group(); knee.position.set(0, -2.6, 0); hip.add(knee);
-        mk(ellip(0.52, 1.0, 0.8, 1.0, 8, 6), strap, 0, 0.1, 0.3, knee, false);   // pelindung lutut
-        mk(new THREE.CylinderGeometry(0.56, 0.44, 2.4, 10), pants, 0, -1.2, 0, knee, false);
-        mk(ellip(0.62, 1.1, 0.62, 1.7, 8, 6), boots, 0, -2.35, 0.35, knee, false);   // boot
+        mk(ellip(0.56, 1.0, 0.85, 1.05, 10, 7), rubber, 0, 0.12, 0.34, knee, false);   // cangkang pelindung lutut
+        mk(ellip(0.32, 1.0, 0.7, 0.85, 8, 6), strap, 0, 0.16, 0.52, knee, false);      // tempurung tengah
+        mk(new THREE.CylinderGeometry(0.56, 0.44, 2.4, 10), pants, 0, -1.2, 0, knee, false);   // betis
+        box(0.62, 0.32, 0.42, cloth, 0, -1.7, 0.12, knee, false);                       // gaiter/ikat betis
+        mk(ellip(0.6, 1.05, 0.6, 1.4, 8, 6), boots, 0, -2.3, 0.3, knee, false);        // batang boot
+        box(1.0, 0.28, 2.4, rubber, 0, -2.78, 0.55, knee, false);                       // sol
+        mk(ellip(0.48, 1.0, 0.72, 0.85, 8, 6), boots, 0, -2.34, 1.1, knee, false);     // ujung kaki (toe)
+        box(0.46, 0.5, 0.1, strap, 0, -2.05, 0.86, knee, false);                        // lidah/tali sepatu
+        // Holster paha (kaki KANAN): pistol cadangan menyembul — khas & terbaca top-down
+        if (side > 0) {
+            box(0.64, 1.1, 0.46, strap, 0.8, -1.55, 0.18, hip, false);                  // sarung holster
+            box(0.32, 0.66, 0.32, gun, 0.86, -1.08, 0.22, hip, false);                  // popor pistol menyembul
+            box(0.5, 0.16, 0.5, dark, 0.8, -0.95, 0.18, hip, false);                     // tutup holster
+        }
         return { hip, knee };
     };
     const lL = mkLeg(-0.95), lR = mkLeg(0.95);
@@ -133,50 +182,111 @@ export function initPlayerAvatar(sc) {
     // ----- Badan ATAS (upperG): seragam + rompi taktis + kantong dada + ransel.
     // SABUK tetap di ROOT (garis pinggang milik badan bawah — puntiran torso
     // terlihat "patah" alami tepat di atas sabuk). -----
-    const torsoG = new THREE.CylinderGeometry(1.5, 1.05, 3.9, 12, 1); torsoG.scale(1, 1, 0.7);
+    const torsoG = new THREE.CylinderGeometry(1.5, 1.05, 3.9, 12, 1); torsoG.scale(1, 1, 0.72);
     mk(torsoG, fatig, 0, 7.85, 0, upperG);
-    const vestG = new THREE.CylinderGeometry(1.62, 1.26, 2.9, 12, 1, true); vestG.scale(1, 1, 0.76);
+    const vestG = new THREE.CylinderGeometry(1.66, 1.28, 2.95, 12, 1, true); vestG.scale(1, 1, 0.78);
     mk(vestG, vest, 0, 7.95, 0, upperG, false);
-    box(0.62, 0.5, 0.3, strap, -0.5, 8.5, 1.02, upperG);    // kantong magasin dada
-    box(0.62, 0.5, 0.3, strap, 0.5, 8.5, 1.02, upperG);
-    box(0.5, 0.4, 0.26, strap, 0, 7.6, 1.06, upperG);       // kantong kecil tengah
-    mk(ellip(0.95, 1.5, 0.32, 0.95, 10, 5), strap, 0, 5.95, 0, avatarGroup, false);   // sabuk (badan bawah)
-    mk(ellip(1.0, 2.05, 0.7, 0.95, 12, 6), fatig, 0, 9.55, 0, upperG, false);    // yoke bahu
-    box(1.7, 2.0, 0.85, strap, 0, 8.3, -1.28, upperG);      // ransel
+    box(0.12, 2.6, 0.16, dark, 0, 8.0, 1.16, upperG);       // plaket/retsleting depan
+    // ----- CHEST RIG: baris 3 kantong magasin + tutup, kantong admin, pouch radio
+    //       + ANTENA (elemen vertikal khas top-down), granat, name-tape amber. -----
+    for (let i = -1; i <= 1; i++) {
+        box(0.56, 0.84, 0.34, strap, i * 0.66, 8.32, 1.06, upperG);      // kantong magasin
+        box(0.6, 0.16, 0.36, dark, i * 0.66, 8.7, 1.08, upperG);         // garis tutup (buckle)
+    }
+    box(0.82, 0.62, 0.32, strap, -0.02, 7.32, 1.1, upperG);             // kantong admin bawah
+    box(0.5, 0.92, 0.42, strap, -1.02, 7.7, 0.6, upperG);              // pouch radio (kiri)
+    cyl(0.06, 0.05, 2.4, dark, -1.12, 9.4, 0.5, upperG, 0);            // ANTENA radio (menjulur ke atas)
+    box(0.34, 0.5, 0.3, dark, 0.98, 8.5, 0.72, upperG);               // granat asap (kanan)
+    box(0.72, 0.3, 0.08, accent, 0, 8.98, 1.14, upperG);              // NAME-TAPE amber (patch dada)
+    box(0.26, 2.5, 0.16, strap, -0.62, 8.2, 1.04, upperG).rotation.z = 0.16;   // tali harness diagonal
+    box(0.26, 2.5, 0.16, strap, 0.62, 8.2, 1.04, upperG).rotation.z = -0.16;
+    // ----- SYAL/SHEMAGH AMBER khas: melilit leher + terjuntai ke dada (identitas) -----
+    mk(ellip(0.92, 1.2, 0.6, 1.15, 12, 7), accent, 0, 9.32, 0.12, upperG, false);   // lilitan leher
+    box(0.68, 1.0, 0.24, accent, -0.16, 8.55, 1.22, upperG).rotation.z = 0.13;      // juntaian ke dada
+    box(0.32, 0.66, 0.18, accentDk, -0.22, 7.95, 1.24, upperG).rotation.z = 0.22;
+    // ----- Sabuk (badan bawah = root) + gesper + kantong utilitas + kantin -----
+    mk(ellip(0.95, 1.5, 0.32, 0.95, 10, 5), strap, 0, 5.95, 0, avatarGroup, false);
+    box(0.68, 0.5, 0.2, metal, 0, 5.95, 0.98, avatarGroup, false);                   // gesper
+    box(0.64, 0.62, 0.4, strap, -1.2, 5.85, 0.35, avatarGroup, false);              // dump pouch kiri
+    box(0.64, 0.62, 0.4, strap, 1.2, 5.85, 0.35, avatarGroup, false);               // pouch kanan
+    mk(new THREE.CylinderGeometry(0.4, 0.4, 0.9, 10), fatig, 0.55, 5.9, -1.0, avatarGroup, false);   // kantin belakang
+    mk(ellip(1.0, 2.05, 0.7, 0.95, 12, 6), fatig, 0, 9.55, 0, upperG, false);        // yoke bahu
+    // ----- RANSEL ASSAULT: bodi + tutup atas + kantong sisi + tali kompresi
+    //       + gulungan matras + antena panjang (silhouette top-down). -----
+    box(1.7, 2.0, 0.85, strap, 0, 8.3, -1.28, upperG);                 // bodi ransel
+    box(1.72, 0.85, 0.72, cloth, 0, 9.0, -1.4, upperG, false);         // tutup atas
+    box(0.48, 1.5, 0.62, strap, -1.02, 8.1, -1.28, upperG, false);    // kantong sisi kiri
+    box(0.48, 1.5, 0.62, strap, 1.02, 8.1, -1.28, upperG, false);     // kantong sisi kanan
+    box(1.4, 0.14, 0.12, dark, 0, 8.62, -1.74, upperG, false);        // tali kompresi
+    box(1.4, 0.14, 0.12, dark, 0, 7.9, -1.74, upperG, false);
     cyl(0.32, 0.32, 1.7, fatig, 0, 9.5, -1.25, upperG, 0).rotation.z = Math.PI / 2;   // gulungan matras
-    // Bantalan bahu (statis — pangkal visual lengan tertarik)
-    mk(ellip(0.55, 1.05, 0.8, 1.0, 8, 6), fatig, SHOULDER.L.x, SHOULDER.L.y + 0.15, SHOULDER.L.z, upperG, false);
-    mk(ellip(0.55, 1.05, 0.8, 1.0, 8, 6), fatig, SHOULDER.R.x, SHOULDER.R.y + 0.15, SHOULDER.R.z, upperG, false);
+    cyl(0.05, 0.04, 2.6, dark, 0.72, 9.4, -1.6, upperG, 0).rotation.x = -0.18;        // antena panjang ransel
+    // Bantalan bahu (statis — pangkal visual lengan tertarik) + patch/tab.
+    mk(ellip(0.6, 1.1, 0.85, 1.05, 10, 7), fatig, SHOULDER.L.x, SHOULDER.L.y + 0.15, SHOULDER.L.z, upperG, false);
+    mk(ellip(0.6, 1.1, 0.85, 1.05, 10, 7), fatig, SHOULDER.R.x, SHOULDER.R.y + 0.15, SHOULDER.R.z, upperG, false);
+    box(0.5, 0.32, 0.5, accent, SHOULDER.L.x, SHOULDER.L.y + 0.5, SHOULDER.L.z + 0.18, upperG, false);   // patch bahu kiri amber
+    mk(ellip(0.5, 1.0, 0.5, 1.0, 8, 6), strap, SHOULDER.R.x, SHOULDER.R.y + 0.42, SHOULDER.R.z + 0.1, upperG, false);   // tab bahu kanan
 
     // ----- Kepala (headG, di dalam upperG): leher + wajah + HELM — menoleh
     // sendiri (rotation.y) di atas puntiran torso; mesh terpusat di sumbu badan
     // sehingga pivot toleh di origin grup sudah benar. -----
-    mk(new THREE.CylinderGeometry(0.5, 0.62, 0.9, 8), skin, 0, 9.95, 0, headG, false);
-    mk(ellip(1.05, 0.95, 1.08, 0.98, 12, 10), skin, 0, 10.62, 0, headG);
+    mk(new THREE.CylinderGeometry(0.5, 0.62, 0.9, 8), skin, 0, 9.95, 0, headG, false);   // leher
+    mk(ellip(1.05, 0.95, 1.08, 0.98, 12, 10), skin, 0, 10.62, 0, headG);                  // kepala
+    // Penutup wajah bawah (masker kain) — dari hidung ke dagu (misterius, berkarakter)
+    mk(ellip(0.86, 1.0, 0.6, 0.95, 10, 7), cloth, 0, 10.2, 0.48, headG, false);
+    box(0.86, 0.5, 0.18, cloth, 0, 10.12, 0.9, headG, false);
+    // Helm + pinggiran
     const domeG = new THREE.SphereGeometry(1.22, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.55);
-    domeG.scale(1.02, 0.92, 1.06);
+    domeG.scale(1.04, 0.94, 1.08);
     mk(domeG, helmet, 0, 10.78, -0.02, headG, false);
-    mk(new THREE.CylinderGeometry(1.24, 1.3, 0.2, 12), helmet, 0, 10.72, 0, headG, false);   // pinggiran helm
-    mk(ellip(0.13, 1, 1, 0.6, 6, 4), dark, -0.34, 10.62, 0.9, headG, false);   // mata
-    mk(ellip(0.13, 1, 1, 0.6, 6, 4), dark, 0.34, 10.62, 0.9, headG, false);
+    mk(new THREE.CylinderGeometry(1.24, 1.32, 0.2, 12), helmet, 0, 10.7, 0, headG, false);   // pinggiran helm
+    // Rel samping helm + dudukan NVG dahi + strap dagu (aksesori taktis)
+    box(0.12, 0.4, 1.4, dark, -1.16, 10.95, 0, headG, false);
+    box(0.12, 0.4, 1.4, dark, 1.16, 10.95, 0, headG, false);
+    box(0.5, 0.42, 0.32, dark, 0, 11.2, 0.92, headG, false);         // mount NVG di dahi
+    cyl(0.05, 0.05, 0.9, dark, 0, 11.34, 1.1, headG, Math.PI / 2);   // batang NVG kecil
+    box(0.12, 0.85, 0.12, strap, 0.88, 10.16, 0.5, headG, false);    // strap dagu
+    // GOGGLE: strap keliling + dua LENSA AMBER (menggantikan "mata" polos)
+    mk(new THREE.CylinderGeometry(1.16, 1.16, 0.44, 14, 1, true), rubber, 0, 10.64, 0, headG, false);
+    mk(ellip(0.32, 1.05, 0.82, 0.5, 8, 6), glass, -0.4, 10.66, 0.86, headG, false);   // lensa kiri
+    mk(ellip(0.32, 1.05, 0.82, 0.5, 8, 6), glass, 0.4, 10.66, 0.86, headG, false);    // lensa kanan
+    box(0.24, 0.22, 0.2, dark, 0, 10.62, 0.9, headG, false);                          // jembatan goggle
+    // HEADSET: cangkir telinga kiri+kanan + BOOM MIC melengkung ke mulut (khas)
+    mk(ellip(0.42, 0.7, 1.0, 1.0, 8, 6), dark, -1.14, 10.5, 0.05, headG, false);
+    mk(ellip(0.42, 0.7, 1.0, 1.0, 8, 6), dark, 1.14, 10.5, 0.05, headG, false);
+    cyl(0.045, 0.045, 1.5, dark, -1.12, 10.15, 0.7, headG, 0).rotation.x = -0.7;      // boom mic
+    mk(ellip(0.12, 1, 1, 1, 6, 5), dark, -0.68, 10.02, 1.16, headG, false);           // kepala mic
+    // Kerah kain terangkat di belakang leher (kontur silhouette)
+    mk(ellip(0.7, 1.35, 0.5, 0.8, 10, 6), cloth, 0, 10.05, -0.7, headG, false);
 
     // ----- LENGAN TERTARIK (2026-07-12): 2 segmen silinder unit (di-scale
     // panjangnya per frame oleh placeSeg) + telapak yang menempel di anchor
     // genggaman prop aktif. Tidak ada lagi pivot bahu/siku FK. -----
-    const upGeo = new THREE.CylinderGeometry(0.34, 0.3, 1, 8);
-    const loGeo = new THREE.CylinderGeometry(0.29, 0.24, 1, 8);
+    const upGeo = new THREE.CylinderGeometry(0.38, 0.32, 1, 8);   // lengan atas (seragam)
+    const loGeo = new THREE.CylinderGeometry(0.31, 0.25, 1, 8);   // lengan bawah
     armUpL = mk(upGeo, fatig, 0, 0, 0, upperG, false);
     armLoL = mk(loGeo, fatig, 0, 0, 0, upperG, false);
     armUpR = mk(upGeo, fatig, 0, 0, 0, upperG, false);
     armLoR = mk(loGeo, fatig, 0, 0, 0, upperG, false);
-    handL = mk(ellip(0.42, 1.0, 0.8, 1.0, 7, 5), skin, 0, 0, 0, upperG, false);
-    handR = mk(ellip(0.42, 1.0, 0.8, 1.0, 7, 5), skin, 0, 0, 0, upperG, false);
+    elbowL = mk(ellip(0.34, 1.0, 0.95, 1.0, 8, 6), rubber, 0, 0, 0, upperG, false);   // bantalan siku
+    elbowR = mk(ellip(0.34, 1.0, 0.95, 1.0, 8, 6), rubber, 0, 0, 0, upperG, false);
+    // Sarung tangan taktis: grup (telapak + punggung buku jari) — dipindah ke
+    // anchor grip tiap frame (placeArm); detail buku jari halus di sisi punggung.
+    const mkHand = () => {
+        const g = new THREE.Group();
+        mk(ellip(0.44, 1.0, 0.82, 1.05, 8, 6), glove, 0, 0, 0, g, false);   // telapak
+        mk(ellip(0.3, 1.2, 0.5, 1.0, 7, 5), dark, 0, 0.24, 0.16, g, false); // pelat punggung tangan
+        upperG.add(g);
+        return g;
+    };
+    handL = mkHand(); handR = mkHand();
 
     // ----- Grup senjata + prop per-slot. gunGrp & avatarGunTip DI POSISI LAMA
     // (terkalibrasi — titik spawn peluru & kilat muzzle tidak boleh bergeser). -----
     const gunGrp = new THREE.Group();
     gunGrp.position.set(GUN_OFF.x, GUN_OFF.y, GUN_OFF.z);
     upperG.add(gunGrp);   // senjata milik badan ATAS (ikut puntiran torso ke kursor)
+    gunGrpRef = gunGrp;   // dipakai animasi AFK rebahan (senjata digeletakkan di samping)
     avatarGunTip = new THREE.Object3D();
     avatarGunTip.position.set(0, 0.15, 4.5);
     gunGrp.add(avatarGunTip);
@@ -385,6 +495,9 @@ export function playAvatarDeath(dirx, dirz) {
 export function resetAvatarDeath() {
     deathT = -1;
     propKey = '';
+    afkT = 0; afkMode = 'none'; afkPoseT = 0;   // batalkan idle AFK
+    if (gunGrpRef) { gunGrpRef.position.set(GUN_OFF.x, GUN_OFF.y, GUN_OFF.z); gunGrpRef.rotation.set(0, 0, 0); }
+    if (headG) { headG.rotation.x = 0; headG.position.set(0, 0, 0); }   // kepala kembali ke leher
     if (avatarGroup) avatarGroup.visible = true;
 }
 
@@ -413,10 +526,12 @@ function placeArm(side, hx, hy, hz) {
     if (side === 'L') {
         placeSeg(armUpL, S.x, S.y, S.z, ex, ey, ez);
         placeSeg(armLoL, ex, ey, ez, hx, hy, hz);
+        elbowL.position.set(ex, ey, ez);
         handL.position.set(hx, hy, hz);
     } else {
         placeSeg(armUpR, S.x, S.y, S.z, ex, ey, ez);
         placeSeg(armLoR, ex, ey, ez, hx, hy, hz);
+        elbowR.position.set(ex, ey, ez);
         handR.position.set(hx, hy, hz);
     }
 }
@@ -454,6 +569,7 @@ export function updatePlayerAvatar(dt) {
         const rel = Math.min(1, dt * 6);
         upperG.rotation.y += (0 - upperG.rotation.y) * rel;
         headG.rotation.y += (0 - headG.rotation.y) * rel;
+        if (headG.rotation.x !== 0 || headG.position.y !== 0) lerpHeadPitch(0, rel);   // luruhkan tunduk kepala sisa AFK
         upperG.position.y += (0 - upperG.position.y) * rel;
         hipL.rotation.x += (-0.28 - hipL.rotation.x) * rel;
         hipR.rotation.x += (0.18 - hipR.rotation.x) * rel;
@@ -492,6 +608,130 @@ export function updatePlayerAvatar(dt) {
     const moving = sp > 1;
     const inMelee = meleeT > 0;
     let moveYawNow = legYaw;
+    // (RANTAI HADAP/AIM CHAIN — legYaw/twist/head — dipindah ke BAWAH blok AFK
+    // 2026-07-14: saat AFK aktif, aim chain TIDAK boleh mengutak-atik legYaw
+    // sehingga pose rebahan/jongkok tak "berkelahi" dengan bidikan kursor —
+    // dulu itu bikin badan miring salah & kaki bergerak seperti gagal menata.)
+
+    // ===== IDLE AFK BERTAHAP (2026-07-14) — player DIAM TOTAL & TAK ADA ANCAMAN:
+    //  +30 dtk: berbalik ke KAMERA sambil MELAMBAI ("Heyy, kamu di sana?"), lalu
+    //           kembali normal. +60 dtk: JONGKOK sambil sesekali MENGINTIP kamera
+    //           (memastikan player kembali). +90 dtk: REBAHAN telentang, tangan di
+    //           belakang kepala, senjata DIGELETAKKAN di samping. Gerak / tembak /
+    //           ganti senjata / gerak kursor / musuh mengejar = reset seketika. =====
+    const aimDX = aimPoint ? aimPoint.x - lastAimX : 0, aimDZ = aimPoint ? aimPoint.z - lastAimZ : 0;
+    const aimMoved = (aimDX * aimDX + aimDZ * aimDZ) > 1;
+    if (aimPoint) { lastAimX = aimPoint.x; lastAimZ = aimPoint.z; }
+    let anyThreat = false;
+    for (let i = 0; i < robots.length; i++) {
+        const s = robots[i].state;
+        if (s === 'chasing' || s === 'jumping') { anyThreat = true; break; }
+    }
+    const afkBlocked = !aimPoint || isPaused || moving || inMelee || dodgeActive || medkitMode
+        || gunRecoil > 0.05 || switchAnim >= 0 || aimMoved || anyThreat;
+    if (afkBlocked) afkT = 0; else afkT += dt;
+
+    let mode = 'none';
+    if (afkT >= AFK_LIE) mode = 'lie';
+    else if (afkT >= AFK_CROUCH) mode = 'crouch';
+    else if (afkT >= AFK_WAVE && afkT < AFK_WAVE + AFK_WAVE_DUR) mode = 'wave';
+    if (mode !== afkMode) { afkMode = mode; afkPoseT = 0; }
+    afkPoseT += dt;
+
+    if (mode !== 'none') {
+        if (props) propKey = '__afk';   // paksa evaluasi ulang prop saat keluar AFK
+        const base = currentWeapon;     // medkitMode diblok -> selalu senjata
+        const key = props && props[base + '3']
+            && ((player.weaponLvl && player.weaponLvl[base]) || 1) >= 3 ? base + '3' : base;
+        const G = GRIPS[key] || GRIPS.rifle;
+        const camYaw = Math.atan2(viewCam.position.x - px, viewCam.position.z - pz);   // yaw menghadap kamera
+        const lp = Math.min(1, dt * 6);
+
+        if (mode === 'wave') {
+            // -- MELAMBAI: berbalik menghadap kamera, tangan kanan terangkat & mengayun.
+            const p = (afkT - AFK_WAVE) / AFK_WAVE_DUR;                 // 0..1
+            const turn = smoothstep(p / 0.22);
+            legYaw = approachAngle(legYaw, camYaw, dt * 5);
+            avatarGroup.rotation.set(0, legYaw, 0);
+            upperG.rotation.y += (0 - upperG.rotation.y) * lp;
+            headYawCur += (Math.sin(afkPoseT * 3) * 0.1 - headYawCur) * lp;
+            headG.rotation.y = headYawCur;
+            lerpHeadPitch(-0.42 * turn, lp);         // mendongak menatap kamera (poros di leher)
+            const dl = Math.min(1, dt * 8);                            // kaki berdiri santai
+            hipL.rotation.x *= 1 - dl; hipR.rotation.x *= 1 - dl;
+            kneeL.rotation.x *= 1 - dl; kneeR.rotation.x *= 1 - dl;
+            hipL.rotation.z *= 1 - dl; hipR.rotation.z *= 1 - dl;
+            upperG.position.y += (0 - upperG.position.y) * dl;
+            const gp = 0.7 * turn;                                     // muzzle diturunkan sopan
+            if (props[key]) props[key].rotation.x = gp;
+            const la = gripAnchor(G.L, gp); placeArm('L', la[0], la[1], la[2]);   // tangan kiri di senjata
+            const wamt = smoothstep((p - 0.18) / 0.14) * (1 - smoothstep((p - 0.82) / 0.18));
+            const ra = gripAnchor(G.R, gp);
+            const sway = Math.sin(afkPoseT * 9);
+            const wX = 1.5 + sway * 0.95, wY = 10.0, wZ = 1.7;         // tangan kanan melambai tinggi
+            placeArm('R', ra[0] + (wX - ra[0]) * wamt, ra[1] + (wY - ra[1]) * wamt, ra[2] + (wZ - ra[2]) * wamt);
+            return;
+        }
+
+        if (mode === 'crouch') {
+            // -- JONGKOK: badan merendah, lutut menekuk; sesekali MENGINTIP kamera.
+            const ci = smoothstep(afkPoseT / 1.0);
+            avatarGroup.rotation.set(0, legYaw, 0);
+            const cyc = afkPoseT % 6.5;                                // siklus intip ~6.5 dtk
+            const peek = cyc < 1.8 ? Math.sin((cyc / 1.8) * Math.PI) : 0;
+            const rel = wrapPI(camYaw - legYaw);
+            twistCur = approachAngle(twistCur, clampT(rel) * 0.55 * peek, dt * 6);
+            upperG.rotation.y = twistCur;
+            const hd = wrapPI(camYaw - legYaw - twistCur);
+            headYawCur = approachAngle(headYawCur, Math.max(-HEAD_TWIST, Math.min(HEAD_TWIST, hd)) * peek, dt * 8);
+            headG.rotation.y = headYawCur;
+            lerpHeadPitch(-0.3 * peek, lp);          // mendongak mengintip kamera (poros di leher)
+            hipL.rotation.x = -0.72 * ci; hipR.rotation.x = -0.72 * ci;   // merendah
+            kneeL.rotation.x = 1.35 * ci; kneeR.rotation.x = 1.35 * ci;
+            hipL.rotation.z = 0.1 * ci; hipR.rotation.z = -0.1 * ci;
+            avatarGroup.position.y = feetY - 1.7 * ci;
+            upperG.position.y += (0 - upperG.position.y) * lp;
+            if (props[key]) props[key].rotation.x = 0;                 // senjata dipegang normal
+            const ra = gripAnchor(G.R, 0), la = gripAnchor(G.L, 0);
+            placeArm('R', ra[0], ra[1], ra[2]); placeArm('L', la[0], la[1], la[2]);
+            return;
+        }
+
+        // -- REBAHAN: telentang (tumbang mundur di pivot kaki), tangan di belakang
+        //    kepala, senjata DIGELETAKKAN rata di samping badan.
+        const li = smoothstep(afkPoseT / 1.4);
+        legYaw = approachAngle(legYaw, 0, dt * 4);                     // sejajar sumbu layar
+        avatarGroup.rotation.set(-(Math.PI / 2) * li, legYaw, 0);      // TERLENTANG (tumbang ke belakang, wajah ke atas)
+        avatarGroup.position.y = feetY + 1.5 * li;                     // punggung beristirahat di lantai
+        upperG.rotation.y += (0 - upperG.rotation.y) * lp; twistCur = upperG.rotation.y;
+        upperG.position.y += (0 - upperG.position.y) * lp;
+        headYawCur += (0 - headYawCur) * lp; headG.rotation.y = headYawCur;
+        lerpHeadPitch(0.14 * li, lp);                                 // dagu sedikit ke dada (bersandar di tangan)
+        hipL.rotation.x = 0.0; kneeL.rotation.x = 0.12 + 0.04 * Math.sin(afkPoseT * 1.1);   // napas
+        hipR.rotation.x = -0.12 * li; kneeR.rotation.x = 0.45 * li;   // satu lutut sedikit terangkat (santai)
+        hipL.rotation.z = 0; hipR.rotation.z = 0;
+        placeArm('L', -1.05, 10.95, -0.9);                            // TANGAN DI BELAKANG KEPALA (siku mengembang)
+        placeArm('R', 1.05, 10.95, -0.9);
+        if (props[key]) {                                             // SENJATA di samping, rata tanah
+            props[key].rotation.x = 0;
+            gunGrpRef.position.set(
+                GUN_OFF.x + (2.5 - GUN_OFF.x) * li,
+                GUN_OFF.y + (6.8 - GUN_OFF.y) * li,
+                GUN_OFF.z + (-1.3 - GUN_OFF.z) * li);
+            gunGrpRef.rotation.x = -(Math.PI / 2) * li;
+        }
+        return;
+    }
+    // Keluar AFK: kembalikan senjata ke tangan + luruhkan tunduk kepala sisa AFK.
+    if (gunGrpRef && (gunGrpRef.rotation.x !== 0 || gunGrpRef.position.z !== GUN_OFF.z)) {
+        gunGrpRef.position.set(GUN_OFF.x, GUN_OFF.y, GUN_OFF.z);
+        gunGrpRef.rotation.set(0, 0, 0);
+    }
+    if (headG.rotation.x !== 0 || headG.position.y !== 0) lerpHeadPitch(0, Math.min(1, dt * 8));
+
+    // ===== RANTAI HADAP (dipindah ke sini dari atas 2026-07-14 — HANYA jalan bila
+    // AFK tak mengambil alih [blok di atas return duluan]): kaki menghadap arah
+    // gerak, torso memuntir ke kursor, kepala menoleh lebih dulu. =====
     if (dodgeActive || inMelee) {
         legYaw = approachAngle(legYaw, aimYaw, dt * 20);
         gaitSign = 1; backped = false; realign = false;

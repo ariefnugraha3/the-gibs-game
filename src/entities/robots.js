@@ -28,8 +28,14 @@ const CLASS_LOOK = {
     A: { armor: 0xbf2b1f, glow: 0xff5040 },      // merah (penembak berat)
     boss: { armor: 0x3a2f42, glow: 0xff2e4c },   // ungu-gelap + visor merah (raksasa melee)
 };
+// MATA/VISOR robot = MERAH untuk SEMUA kelas (permintaan user 2026-07-14) —
+// tampak menyeramkan & seragam; identitas kelas tetap terbaca dari PELAT ARMOR
+// + INTI DAYA (core) yang masih memakai warna kelas (CLASS_LOOK.glow).
+const EYE_RED = 0xff2020;
 
 export const CLAW_TIME = 0.4;   // durasi animasi sabetan (mekanik jeda cakar dari CFG)
+// Pose diam senapan di tangan (dipakai saat build + dikembalikan usai juggle idle A)
+const GUN_IDLE_Y = -3.9, GUN_IDLE_RX = Math.PI / 2;
 
 // Sudut penyerang relatif LAYAR (0 = atas layar, + = searah jarum jam) —
 // dipakai indikator arah serangan (showHitDir). Top-down 2026-07-11: kamera
@@ -118,8 +124,10 @@ export function buildRobotMesh(cls = 'C') {
     const metal = mat(0x7c848c);          // rangka logam terang
     const joint = mat(0x23262b);          // sendi/aktuator gelap
     const dark = mat(0x14171b);           // laras/telapak/ransel
-    // Visor + inti daya menyala warna kelas (Lambert emissive = program sama, tanpa recompile)
+    // Inti daya menyala warna kelas (Lambert emissive = program sama, tanpa recompile)
     const glow = new THREE.MeshLambertMaterial({ color: 0x0c0e10, emissive: new THREE.Color(L.glow) });
+    // Mata/visor (+ ujung antena penembak) = MERAH utk semua kelas — program Lambert-emissif sama
+    const eye = new THREE.MeshLambertMaterial({ color: 0x120404, emissive: new THREE.Color(EYE_RED) });
 
     const group = new THREE.Group();   // outer: di-lookAt AI
     const inner = new THREE.Group();   // bob badan naik-turun
@@ -149,10 +157,10 @@ export function buildRobotMesh(cls = 'C') {
     inner.add(headG);
     mk(RG.head, metal, 0, 1.15, 0, headG);
     mk(RG.crown, armor, 0, 2.05, 0, headG, false);
-    mk(RG.visor, glow, 0, 1.3, 0.82, headG, false);
+    mk(RG.visor, eye, 0, 1.3, 0.82, headG, false);   // MATA merah
     if (cls === 'B' || cls === 'A') {   // antena penembak (penanda kelas ranged)
         mk(RG.antenna, dark, 0.72, 2.7, -0.2, headG, false);
-        mk(RG.antennaTip, glow, 0.72, 3.4, -0.2, headG, false);
+        mk(RG.antennaTip, eye, 0.72, 3.4, -0.2, headG, false);   // ujung antena merah
     }
 
     // Kaki: pivot pinggul -> paha; pivot lutut -> betis + pelindung lutut + telapak
@@ -179,12 +187,12 @@ export function buildRobotMesh(cls = 'C') {
         mk(RG.pad, armor, 0, 0.18, 0, sh, false);
         mk(RG.arm, metal, 0, -1.95, 0, sh);
         mk(RG.elbow, joint, 0, -2.05, 0, sh, false);
-        let mz = null;
+        let mz = null, gunG = null;
         if (gunArm) {
             // Grup senapan di "tangan": +Z lokal grup = arah -Y lengan (menjulur)
-            const gunG = new THREE.Group();
-            gunG.position.set(0, -3.9, 0.1);
-            gunG.rotation.x = Math.PI / 2;
+            gunG = new THREE.Group();
+            gunG.position.set(0, GUN_IDLE_Y, 0.1);
+            gunG.rotation.x = GUN_IDLE_RX;
             sh.add(gunG);
             mk(RG.gunBody, dark, 0, 0.05, 0.4, gunG, false);
             mk(RG.gun, dark, 0, 0.12, 2.4, gunG, false).rotation.x = Math.PI / 2;   // laras (silinder sb-Y -> rebah sb-Z)
@@ -197,7 +205,7 @@ export function buildRobotMesh(cls = 'C') {
         } else {
             mk(RG.claw, dark, 0, -4.4, 0, sh, false).rotation.x = Math.PI;   // ujung cakar menghadap bawah
         }
-        return { sh, mz };
+        return { sh, mz, gun: gunG };
     };
     const isRanged = cls === 'B' || cls === 'A';
     const dual = cls === 'A';   // kelas A: dua senapan
@@ -207,8 +215,9 @@ export function buildRobotMesh(cls = 'C') {
     return {
         group,
         // muzzle = ujung laras senapan KANAN, muzzleL = KIRI (kelas A saja);
-        // null utk lengan cakar — titik spawn peluru musuh.
-        rig: { inner, thighL: legL.hip, thighR: legR.hip, shinL: legL.knee, shinR: legR.knee, armL, armR, head: headG, muzzle: aR.mz, muzzleL: aL.mz }
+        // null utk lengan cakar — titik spawn peluru musuh. gunR/gunL = grup
+        // senapan (utk animasi juggle idle kelas A); null utk lengan cakar.
+        rig: { inner, thighL: legL.hip, thighR: legR.hip, shinL: legL.knee, shinR: legR.knee, armL, armR, head: headG, muzzle: aR.mz, muzzleL: aL.mz, gunR: aR.gun, gunL: aL.gun }
     };
 }
 
@@ -226,6 +235,17 @@ export function animateRobotRig(z, dt) {
         r.inner.position.y = 0;
         return;
     }
+    // DORMAN (campaign belum terbangun): idle SENTINEL per kelas — mesin siaga
+    // yang memindai, bukan manekin diam. animateRobotIdle mengelola pose penuh.
+    if (z.state === 'idle') { animateRobotIdle(z, r, dt); return; }
+    // Baru aktif dari idle: luruhkan sisa pose siaga (pindaian kepala + sandaran
+    // badan) yang tak ditulis oleh cabang jalan/serang, agar tak "macet" miring.
+    const dClr = Math.min(1, dt * 6);
+    r.head.rotation.y += (0 - r.head.rotation.y) * dClr;
+    r.inner.rotation.z += (0 - r.inner.rotation.z) * dClr;
+    r.inner.position.x += (0 - r.inner.position.x) * dClr;
+    // Senapan kembali ke tangan bila teraktivasi saat juggle idle A masih terbang
+    if (r.gunR && r.gunR.position.y !== GUN_IDLE_Y) { r.gunR.position.y = GUN_IDLE_Y; r.gunR.rotation.x = GUN_IDLE_RX; }
     if (z.moving === false) {
         // BERDIRI di jangkauan cakar / idle campaign: kaki lurus & bob hilang
         // (mulus via damping), hanya sisa sway napas kecil di lengan/kepala.
@@ -341,6 +361,86 @@ export function animateRobotRig(z, dt) {
         r.inner.rotation.y += (0 - r.inner.rotation.y) * d2;
         r.inner.position.z += (0 - r.inner.position.z) * d2;
         r.head.rotation.x += (0 - r.head.rotation.x) * d2;
+    }
+}
+
+// ===== IDLE per KELAS (2026-07-14, spesifikasi user) =====
+// Robot campaign dorman (state 'idle'). BADAN & KAKI DIAM (tak melompat/rock —
+// semua diluruhkan ke netral); yang bergerak hanya KEPALA & LENGAN:
+//   SEMUA : kepala celingak-celinguk kiri-kanan (memperhatikan sekitar).
+//   C     : sesekali MENAIK-TURUNKAN tangan (kedua cakar diangkat lalu turun).
+//   B     : sesekali MENGGOSOK senapannya dgn tangan kiri (mengusap bolak-balik).
+//   A     : sesekali MELEMPAR senapan kanannya ke atas lalu menangkapnya
+//           kembali (juggle) — grup senjata `rig.gunR` terbang berputar & balik.
+// Timing DIACAK per robot (tak seragam). Murni visual.
+function animateRobotIdle(z, r, dt) {
+    if (z.idleInit === undefined) {
+        z.idleInit = 1;
+        z.scanA = 0; z.scanTarget = (Math.random() * 2 - 1) * 0.85;
+        z.scanHold = 0.5 + Math.random() * 1.2;
+        z.idleTempo = 0.85 + Math.random() * 0.4;
+        z.gest = 0; z.gestActive = false; z.gestSide = 1;
+        z.gestT = 1.5 + Math.random() * 3;
+    }
+    const smooth = k => Math.min(1, dt * k);
+    z.phase += dt * z.idleTempo;
+
+    // -- BADAN & KAKI DIAM: luruhkan semua sisa gerak ke netral (tanpa lompat/goyang).
+    r.inner.position.x += (0 - r.inner.position.x) * smooth(8);
+    r.inner.position.y += (0 - r.inner.position.y) * smooth(8);
+    r.inner.position.z += (0 - r.inner.position.z) * smooth(8);
+    r.inner.rotation.z += (0 - r.inner.rotation.z) * smooth(8);
+    r.thighL.rotation.x += (0 - r.thighL.rotation.x) * smooth(6);
+    r.thighR.rotation.x += (0 - r.thighR.rotation.x) * smooth(6);
+    r.shinL.rotation.x += (0 - r.shinL.rotation.x) * smooth(6);
+    r.shinR.rotation.x += (0 - r.shinR.rotation.x) * smooth(6);
+
+    // -- KEPALA celingak-celinguk kiri-kanan (sapuan ke target acak + jeda).
+    z.scanHold -= dt;
+    if (z.scanHold <= 0) {
+        z.scanTarget = (Math.random() * 2 - 1) * 0.85;
+        z.scanHold = 0.5 + Math.random() * 1.3;
+    }
+    z.scanA += (z.scanTarget - z.scanA) * smooth(3.2);
+    r.head.rotation.y = z.scanA;
+    r.head.rotation.x += (0 - r.head.rotation.x) * smooth(6);
+    r.head.rotation.z += (0 - r.head.rotation.z) * smooth(6);
+
+    // -- GESTUR periodik (progres g: 0->1 sekali per gestur, lalu jeda acak).
+    if (!z.gestActive) {
+        z.gestT -= dt;
+        if (z.gestT <= 0) { z.gestActive = true; z.gest = 0; z.gestSide = Math.random() < 0.5 ? 1 : -1; }
+    } else {
+        z.gest += dt / (z.kind === 'A' ? 0.95 : 1.15);   // durasi gestur
+        if (z.gest >= 1) { z.gestActive = false; z.gest = 0; z.gestT = 2.0 + Math.random() * 3.5; }
+    }
+    const g = z.gestActive ? z.gest : 0;
+    const env = Math.sin(g * Math.PI);   // amplop 0->1->0
+
+    if (z.kind === 'A') {
+        // KELAS A: dua senapan low-ready; sesekali JUGGLE senapan KANAN ke atas
+        //   lalu menangkapnya. Grup senjata rig.gunR terbang (position.y busur)
+        //   + berputar (rotation.x 2 putaran) lalu kembali tepat ke pose diam.
+        r.armR.rotation.x = -0.24 - env * 0.35;   // lengan menyentak lalu menyambut
+        r.armL.rotation.x = -0.24;
+        r.armR.rotation.z = 0; r.armL.rotation.z = 0;
+        if (r.gunR) {
+            r.gunR.position.y = GUN_IDLE_Y + env * 8;             // busur naik-turun
+            r.gunR.rotation.x = GUN_IDLE_RX + (z.gestActive ? g * Math.PI * 4 : 0);   // 2 putaran, balik pas
+        }
+    } else if (z.ranged) {
+        // KELAS B: senapan kanan low-ready diam; tangan KIRI sesekali MENGGOSOK
+        //   senapan (menjangkau ke depan lalu mengusap bolak-balik).
+        r.armR.rotation.x = -0.24; r.armR.rotation.z = 0;
+        const rub = Math.sin(g * Math.PI * 7) * 0.16 * env;      // usapan bolak-balik
+        r.armL.rotation.x = -0.06 + (-0.95 - (-0.06)) * env + rub;   // menjangkau ke senapan
+        r.armL.rotation.z = 0.45 * env;                          // menyilang ke tengah (ke senapan)
+    } else {
+        // KELAS C (& boss melee): sesekali MENAIK-TURUNKAN kedua tangan/cakar.
+        const rest = -0.28;
+        r.armL.rotation.x = rest - env * 1.75;   // terangkat lalu turun
+        r.armR.rotation.x = rest - env * 1.75;
+        r.armL.rotation.z = 0.12; r.armR.rotation.z = -0.12;
     }
 }
 

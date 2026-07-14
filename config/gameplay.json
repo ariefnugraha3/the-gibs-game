@@ -87,7 +87,7 @@
         }
     },
     "melee": {
-        "range": 16,
+        "range": 7,
         "cooldownSec": 0.8,
         "damage": 150
     },
@@ -172,6 +172,24 @@
             "spawnWhenRemaining": 5,
             "score": 1000,
             "grenadeDamage": 300
+        },
+        "tank": {
+            "gapSec": 5,
+            "aimSec": 1.1,
+            "spawnRollSec": 2.4,
+            "hitRadius": 18,
+            "cannonDamage": 50,
+            "cannonBlastRatio": 0.3,
+            "cannonShellSpeed": 7,
+            "mgDamage": 5,
+            "mgBurst": 10,
+            "mgIntervalSec": 0.12,
+            "mgBulletSpeed": 4,
+            "mortarDamage": 50,
+            "mortarBlastRatio": 0.35,
+            "mortarSpeed": 2.6,
+            "mortarTurnRadPerSec": 1.6,
+            "mortarMaxSec": 6
         },
         "stage3Robots": 26
     },

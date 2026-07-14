@@ -27,6 +27,25 @@ let pendingWeapon = null;   // senjata yang menunggu konfirmasi GANTI (slot penu
 let confirmNext = false;    // prompt "Are you ready?" sebelum mulai wave berikutnya
 const overlay = () => document.getElementById('shopOverlay');
 
+// KONTEKS shop (2026-07-14): Survival (default) vs Campaign. Menentukan KATALOG
+// (Campaign menyembunyikan item khusus Survival: Monas/Radar/beli-senjata), LABEL
+// tombol, dan AKSI "lanjut" (Survival: mulai wave berikutnya; Campaign: transisi
+// ke stage berikut lewat layar loading). Di-set openShop(ctx); default = Survival.
+let shopCtx = null;
+// Item KHUSUS Survival yang disembunyikan di Campaign: hanya Monas (tak ada
+// Monas di campaign). Radar/Shotgun/Rifle/Launcher + upgrade-nya KINI DIJUAL di
+// campaign juga (2026-07-14, permintaan user).
+const SURVIVAL_ONLY = new Set(['healMonas', 'strengthenMonas']);
+function defaultCtx() {
+    return {
+        mode: 'survival', head: 'FIELD SHOP',
+        nextLabel: 'Start Next Wave ▶',
+        confirmHead: 'START NEXT WAVE?',
+        confirmMsg: 'Are you ready to start the next wave?',
+        onNext: startNextWave,
+    };
+}
+
 export function isShopOpen() { return open; }
 
 export function closeShop() {
@@ -37,17 +56,22 @@ export function closeShop() {
     confirmNext = false;
     const o = overlay();
     o.style.display = 'none';
+    o.classList.remove('campaignShop');
     o.innerHTML = '';
 }
 
-export function openShop() {
+export function openShop(ctx) {
+    shopCtx = ctx || defaultCtx();
     open = true;
     notice = '';
     pendingWeapon = null;
     confirmNext = false;
     selectedId = catalog()[0].id;
     render();
-    overlay().style.display = 'flex';
+    const o = overlay();
+    // Campaign = SHOP SCENE terpisah (2026-07-14): latar OPAK (stage tak terlihat).
+    o.classList.toggle('campaignShop', shopCtx.mode === 'campaign');
+    o.style.display = 'flex';
     // Lepas pointer-lock agar kursor bisa memakai menu klik. input.js men-pause
     // & menyembunyikan blocker selama activeScene.shopActive() true.
     document.exitPointerLock();
@@ -177,7 +201,7 @@ function ammoCapItem() {
 // untuk senjata yang dimiliki.
 function catalog() {
     const S = CFG.shop, o = player.owned || {};
-    return [
+    const items = [
         {
             // Tanpa magazen (2026-07-11): isi ulang kolam peluru tiap senjata
             // yang dimiliki sampai kap maxAmmo-nya.
@@ -255,6 +279,9 @@ function catalog() {
         // Upgrade senjata: hanya senjata yang sedang DIMILIKI yang kartunya muncul.
         ...['pistol', 'shotgun', 'rifle', 'launcher'].filter(w => o[w]).map(upgradeItem),
     ];
+    // Campaign: sembunyikan item khusus Survival (Monas/Radar/beli-senjata).
+    if (shopCtx && shopCtx.mode === 'campaign') return items.filter(it => !SURVIVAL_ONLY.has(it.id));
+    return items;
 }
 
 // Beli senjata ke SLOT kosong (dipanggil apply hanya saat slot < maxWeapons;
@@ -347,7 +374,7 @@ export function isConfirmOpen() { return confirmNext; }
 // Panggil lagi (klik Yes atau SPACE lagi) = benar-benar mulai wave berikutnya.
 export function requestNextWave() {
     if (!open) return;
-    if (confirmNext) { confirmNext = false; startNextWave(); return; }
+    if (confirmNext) { confirmNext = false; (shopCtx && shopCtx.onNext || startNextWave)(); return; }
     confirmNext = true;
     notice = '';
     render();
@@ -420,10 +447,10 @@ function renderReplace(panel) {
 // Prompt konfirmasi "Are you ready?" sebelum mulai wave (Yes = mulai, No = batal).
 function renderConfirm(panel) {
     const body = el('div');
-    body.appendChild(el('div', 'shopReplaceMsg', 'Are you ready to start the next wave?'));
+    body.appendChild(el('div', 'shopReplaceMsg', (shopCtx && shopCtx.confirmMsg) || 'Are you ready to start the next wave?'));
     const btns = el('div', 'shopConfirmBtns');
     const yes = el('button', 'shopConfirmYes', 'Yes ▶');
-    yes.addEventListener('click', () => { confirmNext = false; startNextWave(); });
+    yes.addEventListener('click', () => { confirmNext = false; (shopCtx && shopCtx.onNext || startNextWave)(); });
     const no = el('button', 'shopConfirmNo', 'No');
     no.addEventListener('click', () => { confirmNext = false; render(); });
     btns.appendChild(yes);
@@ -438,12 +465,12 @@ function render() {
     const panel = el('div', 'shopPanel');
     // Prompt konfirmasi mulai wave menutupi seluruh menu (Yes/No).
     if (confirmNext) {
-        panel.appendChild(el('div', 'shopHead', 'START NEXT WAVE?'));
+        panel.appendChild(el('div', 'shopHead', (shopCtx && shopCtx.confirmHead) || 'START NEXT WAVE?'));
         renderConfirm(panel);
         root.appendChild(panel);
         return;
     }
-    panel.appendChild(el('div', 'shopHead', pendingWeapon ? 'REPLACE A WEAPON' : 'FIELD SHOP'));
+    panel.appendChild(el('div', 'shopHead', pendingWeapon ? 'REPLACE A WEAPON' : ((shopCtx && shopCtx.head) || 'FIELD SHOP')));
     panel.appendChild(el('div', 'shopMsg' + (noticeErr ? ' err' : ''), notice || ' '));
 
     if (pendingWeapon) {
@@ -477,7 +504,7 @@ function render() {
 
     const foot = el('div', 'shopFoot');
     foot.appendChild(el('div', 'shopScore', `Score: ${score}`));
-    const next = el('button', 'shopNext', 'Start Next Wave ▶');
+    const next = el('button', 'shopNext', (shopCtx && shopCtx.nextLabel) || 'Start Next Wave ▶');
     next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"
     foot.appendChild(next);
     panel.appendChild(foot);

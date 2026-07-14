@@ -19,13 +19,13 @@ import { rand } from '../../utils/math.js';
 import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../utils/collision.js';
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { applyLightPreset } from '../../world/lighting.js';
-import { setScene } from '../../core/sceneManager.js';
 import { showStageMsg } from '../../core/dom.js';
 import { updateUI } from '../../core/hud.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
+import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
 import { stage4Scene } from './stage4.js';
 
@@ -461,6 +461,9 @@ export const stage3Scene = {
     // Mati di stage 3 -> campaign SELALU mengulang dari stage 1
     restartScene: () => stage1Scene,
 
+    // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
+    cheatSkipToStage: (n) => campaignJumpToStage(n),
+
     // Dinding grid + furnitur; cek trigger tangga END -> turun ke jalan (stage 4)
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage3Walk, pos, oldX, oldZ, player.radius);
@@ -470,7 +473,7 @@ export const stage3Scene = {
             && pos.x <= S3.x0 + (S3_EXIT.c1 + 1) * S3.CELL
             && pos.z >= S3.z0 + S3_EXIT.r0 * S3.CELL
             && pos.z <= S3.z0 + (S3_EXIT.r1 + 1) * S3.CELL) {
-            setScene(stage4Scene, { transition: true });   // ke jalan menuju stasiun
+            beginStageTransition(stage4Scene);   // → SHOP SCENE (loading→shop→loading→stage 4)
         }
     },
 

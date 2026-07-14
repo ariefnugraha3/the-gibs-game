@@ -21,8 +21,10 @@ import { updateUI } from '../../core/hud.js';
 import { gameOver } from '../../core/game.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
+import { spawnTank, updateTank, disposeTank } from '../../entities/tank.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
+import { campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
 
 // Dunia ditaruh ~120 km dari origin (jauh dari gedung stage 1/2/3). Skala 1 m ≈ 7 u.
@@ -62,7 +64,7 @@ function slideUnion(pos, oldX, oldZ, r) {
     pos.x = oldX; pos.z = oldZ;
 }
 
-let exitSignMat = null, exitLightRef = null;
+let exitSignMat = null, exitLightRef = null, bossGate = null;
 
 export function buildWorld() {
     // --- Tanah dasar gelap (di bawah semua) ---
@@ -138,6 +140,20 @@ export function buildWorld() {
     addWall(STA.x0 - T / 2, (ROAD.hz + STA.z1) / 2, T, STA.z1 - ROAD.hz, 60);             // barat stasiun
     addWall(STA.x1 + T / 2, (STA.z0 + STA.z1) / 2, T, STA.z1 - STA.z0, 60);               // timur stasiun
     addWall((STA.x0 + STA.x1) / 2, STA.z1 + T / 2, STA.x1 - STA.x0, T, 60);               // selatan stasiun
+
+    // GERBANG BOSS: panel dinding retak di ujung TIMUR jalan (di jalur BOSS_POS) —
+    // DITEROBOS oleh tank saat muncul (disembunyikan lewat tank.onWallSmash).
+    const gateTex = makeTexture(64, 64, (g, w, h) => {
+        g.fillStyle = '#514b43'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#453f38', '#5c564d', '#38342e'], 90, 1, 4);
+        g.strokeStyle = 'rgba(15,13,10,0.7)'; g.lineWidth = 2;   // retakan
+        for (let k = 0; k < 6; k++) { g.beginPath(); g.moveTo(Math.random() * w, 0); g.lineTo(Math.random() * w, h); g.stroke(); }
+    });
+    bossGate = new THREE.Mesh(new THREE.BoxGeometry(6, 48, 52),
+        new THREE.MeshPhongMaterial({ map: gateTex, shininess: 4, specular: 0x121110 }));
+    bossGate.position.set(ROAD.x1 + T / 2 - 2, 24, ROAD.cz);
+    bossGate.castShadow = true; bossGate.receiveShadow = true;
+    scene.add(bossGate);
 
     // --- Bangunan STASIUN (pejal; pintu masuk di sisi utara = END) ---
     const stTex = makeTexture(128, 128, (g, w, h) => {
@@ -312,24 +328,28 @@ function placeSupplies() {
     put('medkit', OX + 3000, OZ + 140);                                // dekat stasiun
 }
 
-// --- Boss stage 4: penjaga stasiun di ujung TIMUR jalan. Muncul setelah SEMUA
-// robot mati; pintu masuk stasiun aktif setelah boss tumbang. ---
+// --- Boss stage 4: TANK penjaga stasiun (entities/tank.js). Muncul setelah
+// SEMUA robot mati — MENABRAK dinding di ujung TIMUR jalan lalu diam menembaki
+// player; pintu masuk stasiun aktif setelah tank hancur. ---
 let bossSpawned = false, bossDefeated = false;
-let bossRef = null, bossUiT = 0, exitHintT = 0;
+let tank = null, exitHintT = 0;
+
+// Referensi tank aktif (dipakai smoke test utk melumpuhkan boss)
+export function currentTank() { return tank; }
 
 function spawnBoss() {
     bossSpawned = true;
-    spawnCampaignRobot(BOSS_POS.x, BOSS_POS.z, 4, 'boss');
-    bossRef = robots[robots.length - 1];
-    showStageMsg('THE AREA IS CLEAR — SOMETHING BIG BLOCKS THE STATION');
+    tank = spawnTank({ homeX: BOSS_POS.x, homeZ: BOSS_POS.z, wallX: ROAD.x1 + 8, faceX: S4_START.x });
+    tank.onWallSmash = () => { if (bossGate) bossGate.visible = false; };
+    showStageMsg('THE HIGHWAY SHAKES — A WAR TANK SMASHES THROUGH!');
     updateUI();
 }
 
 function onBossDown() {
-    bossDefeated = true; bossRef = null;
+    bossDefeated = true;
     if (exitSignMat) exitSignMat.color.setHex(0x2eff6a);
     if (exitLightRef) { exitLightRef.color.setHex(0x39ff7a); exitLightRef.intensity = 1.0; }
-    showStageMsg('THE GUARDIAN IS DOWN — ENTER THE STATION');
+    showStageMsg('THE TANK IS DESTROYED — ENTER THE STATION');
     updateUI();
 }
 
@@ -347,7 +367,9 @@ export const stage4Scene = {
                 robots.splice(i, 1);
             }
         }
-        bossSpawned = false; bossDefeated = false; bossRef = null; bossUiT = 0; exitHintT = 0;
+        if (tank) { disposeTank(tank); tank = null; }
+        bossSpawned = false; bossDefeated = false; exitHintT = 0;
+        if (bossGate) bossGate.visible = true;   // pasang lagi gerbang boss
         if (exitSignMat) exitSignMat.color.setHex(0xd08a2a);
         if (exitLightRef) { exitLightRef.color.setHex(0xffb04a); exitLightRef.intensity = 0.9; }
         placeRobots();
@@ -361,13 +383,18 @@ export const stage4Scene = {
 
     restartScene: () => stage1Scene,
 
-    // Boss: muncul saat SEMUA robot mati; refresh HP bar; deteksi boss tumbang.
+    // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
+    cheatSkipToStage: (n) => campaignJumpToStage(n),
+
+    // Boss TANK: muncul saat SEMUA robot mati (menabrak dinding timur); jalankan
+    // siklus serangannya tiap frame; deteksi saat hancur -> buka pintu stasiun.
     updateMode(dt) {
         if (!bossSpawned) {
             if (countStageRobots(4) === 0) spawnBoss();   // semua robot normal habis
-        } else if (!bossDefeated) {
-            if (robots.indexOf(bossRef) === -1) onBossDown();
-            else { bossUiT -= dt; if (bossUiT <= 0) { bossUiT = 0.2; updateUI(); } }
+        } else if (tank) {
+            updateTank(tank, dt);
+            if (tank.dead && !bossDefeated) onBossDown();
+            updateUI();   // refresh HP bar tank
         }
     },
 
@@ -383,7 +410,7 @@ export const stage4Scene = {
                 const now = Date.now();
                 if (now - exitHintT > 2500) {
                     exitHintT = now;
-                    showPickup(bossSpawned ? 'Defeat the guardian first!' : 'Clear all enemies to draw out the boss!', '#ff4757');
+                    showPickup(bossSpawned ? 'Destroy the tank first!' : 'Clear all enemies to draw out the boss!', '#ff4757');
                 }
             }
         }
@@ -411,10 +438,10 @@ export const stage4Scene = {
 
     hudStatus() {
         let s = `FINAL — Robots: ${countStageRobots(4)}`;
-        if (bossRef && robots.indexOf(bossRef) !== -1) {
-            const frac = Math.max(0, bossRef.hp / bossRef.maxHp);
+        if (tank && !bossDefeated) {
+            const frac = Math.max(0, tank.hp / tank.maxHp);
             const blocks = Math.ceil(frac * 10);
-            s += ` — BOSS ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
+            s += ` — TANK ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
         } else s += bossDefeated ? ' | Enter the station!' : ' | Reach the train station (east)';
         return s;
     },
