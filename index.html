@@ -88,7 +88,73 @@
         <div id="cheatFeedback"></div>
     </div>
 
-    <div id="modeSelect">
+    <!-- Menu utama (paling awal saat game dibuka): Start Game / Settings /
+         Credits / Exit. Start Game menyingkap #modeSelect; Settings & Credits
+         adalah panel di dalam menu ini (tombol Back kembali ke daftar utama). -->
+    <div id="mainMenu">
+        <div id="mainMenuMain">
+            <h1>GIBRAN vs ROBOT</h1>
+            <div class="subtitle">MAIN MENU</div>
+            <div class="menuBtns">
+                <button id="mmStart" class="menuBtn">Start Game</button>
+                <button id="mmSettings" class="menuBtn">Settings</button>
+                <button id="mmCredits" class="menuBtn">Credits</button>
+                <button id="mmExit" class="menuBtn">Exit Game</button>
+            </div>
+        </div>
+
+        <!-- Panel Settings: pengaturan kualitas grafis dipindah ke sini -->
+        <div id="settingsPanel" class="menuPanel">
+            <h2>SETTINGS</h2>
+            <div id="qualityRow">
+                <span class="qlabel">GRAPHICS QUALITY</span><br />
+                <button class="qbtn" data-q="0">Ultra</button>
+                <button class="qbtn" data-q="1">High</button>
+                <button class="qbtn" data-q="2">Medium</button>
+                <button class="qbtn" data-q="3">Low</button>
+                <button class="qbtn" data-q="4">Very Low</button>
+            </div>
+            <button class="menuBtn menuBack" data-back="settings">Back</button>
+        </div>
+
+        <!-- Panel Credits: siapa/darimana game & aset dibuat -->
+        <div id="creditsPanel" class="menuPanel">
+            <h2>CREDITS</h2>
+            <div class="creditsBody">
+                <div class="creditGroup">
+                    <div class="creditRole">Game Design &amp; Development</div>
+                    <div class="creditName">Arief Nugraha</div>
+                </div>
+                <div class="creditGroup">
+                    <div class="creditRole">Built with the assistance of</div>
+                    <div class="creditName">Claude Code (Anthropic)</div>
+                </div>
+                <div class="creditGroup">
+                    <div class="creditRole">3D Engine</div>
+                    <div class="creditName">Three.js (r128) — MIT License</div>
+                </div>
+                <div class="creditGroup">
+                    <div class="creditRole">Post-processing</div>
+                    <div class="creditName">Three.js examples — UnrealBloom, FXAA, Gamma</div>
+                </div>
+                <div class="creditGroup">
+                    <div class="creditRole">Art &amp; 3D Models</div>
+                    <div class="creditName">Procedural — generated in code (no external assets)</div>
+                </div>
+                <div class="creditGroup">
+                    <div class="creditRole">Sound Effects</div>
+                    <div class="creditName">Community sound libraries (royalty-free)</div>
+                </div>
+                <div class="creditGroup">
+                    <div class="creditRole">Special Thanks</div>
+                    <div class="creditName">Everyone who playtested Gibran vs Robot</div>
+                </div>
+            </div>
+            <button class="menuBtn menuBack" data-back="credits">Back</button>
+        </div>
+    </div>
+
+    <div id="modeSelect" style="display:none">
         <h1>GIBRAN vs ROBOT</h1>
         <div class="subtitle">SELECT GAME MODE</div>
         <div id="diffRow">
@@ -109,6 +175,7 @@
                 <p>Escape the abandoned building (Floor 3), then fight down 1 km of ruined Jakarta highway. Robots lie in wait — keep your distance.</p>
             </div>
         </div>
+        <button id="modeBack" class="menuBtn menuBack">Back</button>
     </div>
 
     <div id="cutscene">
@@ -164,14 +231,6 @@
                 1 / 2 = Weapon | Q = Swap Weapon | 3 = Grenade | 4 = Medkit |
                 F = Melee | SHIFT = Dodge (brief invincible tumble)<br />
                 <span style="color:#ffb84d;">Survival: clear each wave, then the Field Shop opens — buy gear and press SPACE to start the next wave.</span></span>
-            <div id="qualityRow">
-                <span class="qlabel">GRAPHICS QUALITY</span><br />
-                <button class="qbtn" data-q="0">Ultra</button>
-                <button class="qbtn" data-q="1">High</button>
-                <button class="qbtn" data-q="2">Medium</button>
-                <button class="qbtn" data-q="3">Low</button>
-                <button class="qbtn" data-q="4">Very Low</button>
-            </div>
         </div>
         <div id="pauseMenu">
             <div id="pauseMain">

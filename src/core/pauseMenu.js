@@ -1,10 +1,11 @@
 // Menu jeda (ESC): overlay di dalam #blocker yang muncul saat game DI-PAUSE di
 // tengah permainan (mode apa pun — Survival/Campaign). Tombol RESUME (lanjut
 // main via requestLock) + dua aksi berkonfirmasi Yes/No: RESTART GAME (ulang
-// dari awal via resetGame) & EXIT GAME (kembali ke menu pilih mode). Karena
+// dari awal via resetGame) & EXIT GAME (kembali ke MENU UTAMA). Karena
 // startGame() bersifat SEKALI-JALAN (init renderer/input/senjata tak dirancang
-// dipanggil ulang), "exit" = muat ulang halaman — jalan paling bersih & andal
-// untuk kembali ke #modeSelect awal. Teks UI English (aturan permanen).
+// dipanggil ulang), "exit" = muat ulang halaman — jalan paling bersih & andal;
+// setelah reload, layar pertama = #mainMenu (Start/Settings/Credits/Exit).
+// Teks UI English (aturan permanen).
 // Selagi menu jeda terbuka, klik latar #blocker TIDAK me-resume (input.js
 // cek isPauseMenuOpen) — resume HANYA lewat tombol RESUME (permintaan user
 // 2026-07-10, hint "click anywhere" dihapus).
@@ -37,7 +38,7 @@ function wire() {
     document.getElementById('pauseRestart').addEventListener('click',
         () => askConfirm('Restart the game from the beginning?', resetGame));
     document.getElementById('pauseExit').addEventListener('click',
-        () => askConfirm('Exit to the mode selection menu?', () => location.reload()));
+        () => askConfirm('Exit to the main menu?', () => location.reload()));
     document.getElementById('pauseYes').addEventListener('click', () => { const a = onYes; if (a) a(); });
     document.getElementById('pauseNo').addEventListener('click', showMain);
 }
