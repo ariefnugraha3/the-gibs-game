@@ -28,6 +28,7 @@ import { updateUI } from '../../core/hud.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
+import { buildFuturisticDeskMesh } from '../../entities/futuristicDesk.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -240,20 +241,35 @@ export function buildWorld() {
             rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
         });
     };
-    const WOOD = 0x6b4a2f, SHELF = 0x55606a, CRATE = 0x7a5c33,
+    // "object meja" = model FuturisticDesk (entities/futuristicDesk.js) — BUKAN
+    // balok instanced: daftarkan blocker (seperti furBlock) lalu render group model
+    // yang di-skala mengisi footprint sx×sz, permukaan di sy. update() TIDAK dipanggil.
+    const deskModel = (c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
+        const p = s2Cell(c, r);
+        const x = p.x + dx, z = p.z + dz;
+        blockers.push({
+            x, z, hx: sx / 2, hz: sz / 2,
+            axx: 1, axz: 0, azx: 0, azz: 1,
+            rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
+        });
+        const desk = buildFuturisticDeskMesh(sx, sy, sz);
+        desk.position.set(x, 0, z);
+        scene.add(desk);
+    };
+    const SHELF = 0x55606a, CRATE = 0x7a5c33,
         SOFA = 0x5a3f3f, RUBBLE = 0x4a463f, CONSOLE = 0x2f3a44, BENCH = 0x8a857a;
-    // OFFICE (c9-15 r1-6): dua meja kerja
-    furBlock(11, 2, 26, 7, 12, WOOD);
-    furBlock(13, 4, 22, 7, 12, WOOD, 4, 2);
+    // OFFICE (c9-15 r1-6): dua meja kerja (model meja)
+    deskModel(11, 2, 26, 7, 12);
+    deskModel(13, 4, 22, 7, 12, 4, 2);
     // HALLWAY (c18-26 r1-5): jebakan RUNTUHAN di tengah (puing rendah, bisa dipijak)
     furBlock(20, 3, 16, 9, 16, RUBBLE);
     furBlock(24, 2, 14, 8, 14, RUBBLE, 2, 0);
     // STORAGE (c30-38 r1-6): rak arsip di dinding timur & sudut
     furBlock(37, 2, 8, 15, 40, SHELF);
     furBlock(32, 5, 30, 15, 8, SHELF, 2, 0);
-    // WAITING (c1-8 r10-17): sofa + meja dekat jendela
+    // WAITING (c1-8 r10-17): sofa + meja (model meja) dekat jendela
     furBlock(3, 11, 20, 6, 16, SOFA);
-    furBlock(3, 15, 22, 7, 12, WOOD, 0, 2);
+    deskModel(3, 15, 22, 7, 12, 0, 2);
     // OPEN OFFICE (c11-24 r9-17): krat cover tersebar (jalur tengah terbuka)
     furBlock(14, 11, 16, 9, 16, CRATE);
     furBlock(21, 12, 16, 9, 16, CRATE);

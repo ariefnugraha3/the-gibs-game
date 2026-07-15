@@ -101,6 +101,13 @@ class Obj3D {
     lookAt() { } updateMatrixWorld() { } rotateX(a) { this.rotation.x += a; }
     getWorldPosition(v) { let p = this, x = 0, y = 0, z = 0; while (p) { x += p.position.x; y += p.position.y; z += p.position.z; p = p.parent; } return v.set(x, y, z); }
     getWorldDirection(v) { return v.set(0, 0, -1); }
+    clone() {
+        const o = new this.constructor(this.geometry, this.material);
+        o.position.copy(this.position); o.rotation.copy(this.rotation); o.scale.copy(this.scale);
+        o.visible = this.visible; o.castShadow = this.castShadow;
+        for (const c of this.children) o.add(c.clone());
+        return o;
+    }
 }
 class Mesh extends Obj3D { constructor(g, m) { super(); this.geometry = g; this.material = m; this.isMesh = true; } }
 class Sprite extends Obj3D { constructor(m) { super(); this.material = m; this.isSprite = true; } }
@@ -112,7 +119,7 @@ const geo = (name) => class {
     constructor(...a) { this.args = a; this.type = name; }
     scale() { return this; }
     rotateX() { return this; } rotateY() { return this; } rotateZ() { return this; }
-    translate() { return this; } center() { return this; }
+    translate() { return this; } center() { return this; } clone() { return this; }
 };
 class Mat {
     constructor(o = {}) {
@@ -130,8 +137,10 @@ global.THREE = {
     InstancedMesh: class extends Obj3D { constructor(g, m, n) { super(); this.geometry = g; this.material = m; this.count = n; this.instanceColor = { needsUpdate: false }; } setMatrixAt() { } setColorAt() { } },
     SphereGeometry: geo('sph'), CylinderGeometry: geo('cyl'), BoxGeometry: geo('box'),
     ConeGeometry: geo('cone'), RingGeometry: geo('ring'), PlaneGeometry: geo('plane'),
-    CircleGeometry: geo('circle'), TorusGeometry: geo('torus'),
+    CircleGeometry: geo('circle'), TorusGeometry: geo('torus'), ExtrudeGeometry: geo('extrude'),
+    Shape: class { moveTo() { } lineTo() { } quadraticCurveTo() { } bezierCurveTo() { } },
     MeshLambertMaterial: Mat, MeshBasicMaterial: Mat, MeshPhongMaterial: Mat, SpriteMaterial: Mat,
+    MeshStandardMaterial: Mat, MeshPhysicalMaterial: Mat,
     CanvasTexture: class { constructor() { this.repeat = { set() { } }; } },
     Fog: class { }, WebGLRenderer: class {
         constructor() { this.domElement = fakeEl(); this.shadowMap = {}; }
@@ -820,6 +829,14 @@ T('cheat skip-to-stage invalid (9) ditolak, scene tak berubah',
     smMod.activeScene.cheatSkipToStage(9) === null && smMod.activeScene === s4before);
 T('survival TAK punya hook cheatSkipToStage (campaign-only)',
     survMod.survivalScene.cheatSkipToStage === undefined);
+// Anti-stutter: lompat-langsung WAJIB mengompilasi shader dunia baru (mis. stage 4
+// FuturisticSUV MeshStandard/Physical yg tak di-warm preload) via renderer.compile.
+const _rc = rendererMod.renderer.compile;
+let rcCount = 0;
+rendererMod.renderer.compile = function () { rcCount++; return _rc.apply(this, arguments); };
+smMod.activeScene.cheatSkipToStage(4);
+T('cheat jump memanggil renderer.compile (warm shader stage baru)', rcCount > 0);
+rendererMod.renderer.compile = _rc;
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 
 // --- 17c. SAVE GAME / checkpoint Campaign (2026-07-15): simpan nomor stage

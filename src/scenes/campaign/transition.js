@@ -63,6 +63,12 @@ export function campaignJumpToStage(n) {
     const target = [null, stage1Scene, stage2Scene, stage3Scene, stage4Scene][n];
     setScene(target, { fresh: true });          // enter(): bangun dunia + robot (1/3/4) + posisi player
     if (n === 2) placeStage2Robots();           // robot+supply stage 2 (normalnya via stage1.enter)
+    // Kompilasi shader dunia (baru dibangun) di bawah lampu stage tujuan — anti-
+    // stutter untuk jalur lompat-langsung (cheat skip / restart-at-stage) yang
+    // TIDAK punya warm-up loading seperti runLeaveShop/warmupAll. Wajib khususnya
+    // untuk stage 4: FuturisticSUV memakai MeshStandard/MeshPhysical yang tak
+    // di-warm preload, jadi tanpa ini render pertamanya nge-hitch.
+    if (renderer) renderer.compile(scene, viewCam);
     return n;
 }
 

@@ -24,6 +24,8 @@ import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
 import { spawnTank, updateTank, disposeTank } from '../../entities/tank.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
+import { buildFuturisticSUVMesh } from '../../entities/futuristicSUV.js';
+import { buildFuturisticSedanMesh } from '../../entities/futuristicSedan.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -180,25 +182,28 @@ export function buildWorld() {
 
     // --- Cover: mobil rongsok, bus, kontainer, pembatas jalan ---
     const carGeo = new THREE.BoxGeometry(1, 1, 1);
-    const carMats = [0x7a3226, 0x2e4a63, 0x5a5a5e, 0x8a7a2a, 0x4a3a30].map(c =>
-        new THREE.MeshLambertMaterial({ color: new THREE.Color(c).offsetHSL(0, -0.1, -0.05) }));
     const glassMat = new THREE.MeshLambertMaterial({ color: 0x1a222a });
+    const CAR_SCALE = 7;   // 1 unit-model -> 7 u (panjang ~35 u, sekelas mobil)
+    const SUV_PALETTE = [0x0a0e1a, 0x1a2230, 0x3a1520, 0x14202a, 0x2a2418];
+    const SED_PALETTE = [0x1a1a2e, 0x2a1030, 0x102a2a, 0x301a10, 0x1c2438];
     const addBlockerBox = (x, z, hx, hz, top, standable) => {
         blockers.push({ x, z, hx, hz, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(hx, hz), top, standable });
     };
     const mkCar = (x, z, yaw) => {
-        const car = new THREE.Group();
-        const bodyMat = carMats[(Math.random() * carMats.length) | 0];
-        const body = new THREE.Mesh(carGeo, bodyMat);
-        body.scale.set(15, 9, 32); body.position.y = 4.5; body.castShadow = true;
-        car.add(body);
-        const cabin = new THREE.Mesh(carGeo, Math.random() < 0.5 ? glassMat : bodyMat);
-        cabin.scale.set(12, 6, 16); cabin.position.set(0, 10, rand(-3, 1)); cabin.castShadow = true;
-        car.add(cabin);
+        // model SUV futuristik (entities/futuristicSUV.js), warna divariasikan
+        const car = buildFuturisticSUVMesh(CAR_SCALE, SUV_PALETTE[(Math.random() * SUV_PALETTE.length) | 0]);
         car.position.set(x, 0, z);
         car.rotation.set(rand(-0.05, 0.05), yaw, rand(-0.06, 0.06));
         scene.add(car);
         addBlockerBox(x, z, 10, 17, 9, false);
+    };
+    const mkSedan = (x, z, yaw) => {
+        // model sedan futuristik (entities/futuristicSedan.js) — lebih pendek/ceper
+        const car = buildFuturisticSedanMesh(CAR_SCALE, SED_PALETTE[(Math.random() * SED_PALETTE.length) | 0]);
+        car.position.set(x, 0, z);
+        car.rotation.set(rand(-0.04, 0.04), yaw, rand(-0.05, 0.05));
+        scene.add(car);
+        addBlockerBox(x, z, 9, 15, 7, false);
     };
     const mkBus = (x, z) => {
         const bus = new THREE.Group();
@@ -225,24 +230,41 @@ export function buildWorld() {
         scene.add(m);
         addBlockerBox(x, z, sx / 2, 5, 9, true);
     };
-    // Parkiran (cover + "tumpukan barang")
+    // Parkiran: dua baris parkir (campur SUV & sedan) + "tumpukan barang"
+    mkSedan(OX + 250, OZ - 435, 0.05);     // baris utara (dekat tembok)
+    mkCar(OX + 410, OZ - 432, -0.04);
+    mkSedan(OX + 560, OZ - 435, 0.03);
+    mkCar(OX + 720, OZ - 430, 0.0);
     mkCar(OX + 250, OZ - 330, 0.1);
     mkCar(OX + 100, OZ - 150, 1.4);
-    mkCar(OX + 520, OZ - 320, -0.2);
+    mkSedan(OX + 520, OZ - 320, -0.2);
     mkContainer(OX + 560, OZ - 190);       // spot 4 tumpukan barang
-    mkCar(OX + 780, OZ - 330, 0.3);
+    mkSedan(OX + 780, OZ - 330, 0.3);
     mkCar(OX + 880, OZ - 200, 1.5);
+    mkSedan(OX + 300, OZ - 110, 1.5);      // baris selatan (dekat mulut jalan)
+    mkCar(OX + 660, OZ - 110, 1.5);
+    mkSedan(OX + 900, OZ - 385, 0.2);
     // Median tengah jalan (beton putus-putus, bisa dipijak)
     for (let x = OX + 260; x < OX + 3300; x += 260) mkBarrier(x, OZ, 120);
-    // Jalan: mobil hancur + bus + pembatas
+    // Jalan: mobil rongsok berserak di kedua lajur (campur) + bus + pembatas
+    mkSedan(OX + 420, OZ - 55, 0.2);
+    mkCar(OX + 700, OZ + 48, 1.5);
     mkCar(OX + 950, OZ + 45, 1.5);
     mkBus(OX + 1150, OZ + 52);             // spot 8 bus rusak
+    mkSedan(OX + 1360, OZ - 58, 0.3);
     mkCar(OX + 1700, OZ - 28, 0.4);        // spot 9 mobil hancur
+    mkSedan(OX + 1900, OZ + 55, 1.5);
     mkCar(OX + 2000, OZ + 40, 1.6);
     mkBarrier(OX + 2050, OZ + 60, 90);     // spot 11 pembatas jalan
+    mkSedan(OX + 2350, OZ - 58, 0.15);
     mkCar(OX + 2600, OZ - 24, 0.2);
-    // Stasiun: pembatas depan
+    mkSedan(OX + 2900, OZ + 50, 1.5);
+    mkCar(OX + 3150, OZ - 42, 0.3);
+    // Stasiun: parkir depan (campur) + pembatas
     mkBarrier(OX + 2760, OZ + 150, 120);
+    mkSedan(OX + 2640, OZ + 140, 0.1);
+    mkCar(OX + 3320, OZ + 175, 1.5);
+    mkSedan(OX + 2620, OZ + 250, 0.2);
 
     // --- Lampu jalan (atmosfer malam) ---
     const lampFix = new THREE.MeshBasicMaterial({ color: 0xffe6b0, toneMapped: false });
