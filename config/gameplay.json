@@ -189,6 +189,7 @@
             "mortarBlastRatio": 0.35,
             "mortarSpeed": 2.6,
             "mortarTurnRadPerSec": 1.6,
+            "mortarGravity": 90,
             "mortarMaxSec": 6
         },
         "stage3Robots": 26

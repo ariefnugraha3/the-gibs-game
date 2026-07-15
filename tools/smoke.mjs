@@ -108,7 +108,12 @@ class Group extends Obj3D { }
 class Scene extends Obj3D { constructor() { super(); this.fog = null; } }
 class PCam extends Obj3D { constructor() { super(); this.aspect = 1; } updateProjectionMatrix() { } }
 class PLight extends Obj3D { constructor() { super(); this.intensity = 0; this.color = new Color(0xffffff); } }
-const geo = (name) => class { constructor(...a) { this.args = a; this.type = name; } scale() { return this; } };
+const geo = (name) => class {
+    constructor(...a) { this.args = a; this.type = name; }
+    scale() { return this; }
+    rotateX() { return this; } rotateY() { return this; } rotateZ() { return this; }
+    translate() { return this; } center() { return this; }
+};
 class Mat {
     constructor(o = {}) {
         this.color = o.color instanceof Color ? o.color : new Color(o.color || 0xffffff);
@@ -772,6 +777,19 @@ camera.position.set(s4mod.S4_START.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_STAR
 let s4tankOk = true;
 try { for (let i = 0; i < 120; i++) s4mod.stage4Scene.updateMode(0.1); } catch (e) { s4tankOk = false; console.log(e); }
 T('S4: siklus tank (spawn+3 serangan) jalan tanpa error', s4tankOk && !s4tank.dead);
+// Mortar = LOB PARABOLA balistik (2026-07-15, bukan homing): suntik 1 mortar
+// naik + gravitasi → updateTank harus meng-ARC-kan (naik dulu) lalu MELEDAK saat
+// turun melewati landY (proyektil hilang dari array; homing-nya sudah dihapus).
+{
+    const mo = { mesh: new THREE.Object3D(), vx: 0, vz: 0, vy: 40, g: cfgMod.CFG.campaign.tank.mortarGravity, landY: 5, life: 600, id: ++s4tank.pendingId };
+    mo.mesh.position.set(s4tank.parts.group.position.x, 20, s4tank.parts.group.position.z);
+    s4tank.mortars.push(mo);
+    let peaked = 20;
+    for (let i = 0; i < 80 && s4tank.mortars.includes(mo); i++) { s4mod.stage4Scene.updateMode(0.1); peaked = Math.max(peaked, mo.mesh.position.y); }
+    T('S4: mortar = LOB PARABOLA (naik dulu lalu meledak saat turun, bukan homing)',
+        peaked > 24 && !s4tank.mortars.includes(mo) && cfgMod.CFG.campaign.tank.mortarGravity > 0);
+}
+while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mortars.splice(0, 1); }   // bersihkan mortar sisa
 while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }   // bersihkan peluru MG
 // finish TERKUNCI selagi tank hidup
 stateMod.setGameOver(false);
