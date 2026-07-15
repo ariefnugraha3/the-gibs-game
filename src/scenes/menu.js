@@ -6,6 +6,7 @@
 
 import { applyDifficulty } from '../core/config.js';
 import { setDifficulty } from '../core/state.js';
+import { loadCampaignStage, clearCampaignSave } from '../core/saveGame.js';
 
 export function initMenu(onPick) {
     initMainMenu();
@@ -22,21 +23,50 @@ export function initMenu(onPick) {
     paintDiff();
 
     let picked = false;
+    let continueStage = 0;   // stage checkpoint yang sedang ditanyakan di prompt
+
+    // Mulai mode terpilih pada stage tertentu (campaign: 1 = baru, >1 = continue).
+    function beginMode(mode, stage) {
+        if (picked) return;   // jaga-jaga klik ganda
+        picked = true;
+        // Terapkan difficulty SEBELUM dunia/entitas dibangun: CFG dimutasi
+        // dari CFG_BASE + high score dimuat per-difficulty.
+        applyDifficulty(diff);
+        setDifficulty(diff);
+        document.getElementById('modeSelect').style.display = 'none';
+        document.getElementById('continuePrompt').style.display = 'none';
+        // Cutscene pembuka bertema Monas -> hanya untuk Survival; Campaign
+        // langsung ke layar mulai (blocker) di bawahnya.
+        if (mode === 'campaign') document.getElementById('cutscene').style.display = 'none';
+        onPick(mode, { stage });
+    }
+
     document.querySelectorAll('#modeSelect .modeCard').forEach(card => {
         card.addEventListener('click', () => {
-            if (picked) return;   // jaga-jaga klik ganda
-            picked = true;
+            if (picked) return;
             const mode = card.dataset.mode;
-            // Terapkan difficulty SEBELUM dunia/entitas dibangun: CFG dimutasi
-            // dari CFG_BASE + high score dimuat per-difficulty.
-            applyDifficulty(diff);
-            setDifficulty(diff);
-            document.getElementById('modeSelect').style.display = 'none';
-            // Cutscene pembuka bertema Monas -> hanya untuk Survival; Campaign
-            // langsung ke layar mulai (blocker) di bawahnya.
-            if (mode === 'campaign') document.getElementById('cutscene').style.display = 'none';
-            onPick(mode);
+            // Campaign dengan checkpoint tersimpan (stage >1) → tawarkan Continue.
+            if (mode === 'campaign') {
+                const saved = loadCampaignStage();
+                if (saved > 1) { showContinuePrompt(saved); return; }
+            }
+            beginMode(mode, 1);
         });
+    });
+
+    // Prompt "Continue game?" (campaign): Yes → mulai di stage checkpoint;
+    // No → hapus save + New Game dari stage 1.
+    const cp = document.getElementById('continuePrompt');
+    function showContinuePrompt(stage) {
+        continueStage = stage;
+        document.getElementById('cpText').textContent =
+            `You have a saved campaign at Stage ${stage}. Continue?`;
+        cp.style.display = 'flex';
+    }
+    document.getElementById('cpYes').addEventListener('click', () => beginMode('campaign', continueStage));
+    document.getElementById('cpNo').addEventListener('click', () => {
+        clearCampaignSave();
+        beginMode('campaign', 1);
     });
 
     // Tombol Back di layar pilih mode -> kembali ke menu utama.

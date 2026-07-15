@@ -17,6 +17,7 @@ import { resolveBlockers, blockersGroundHeight } from '../../utils/collision.js'
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { applyLightPreset } from '../../world/lighting.js';
 import { showStageMsg, showPickup } from '../../core/dom.js';
+import { saveCampaignStage } from '../../core/saveGame.js';
 import { updateUI } from '../../core/hud.js';
 import { gameOver } from '../../core/game.js';
 import { NADE_R } from '../../entities/grenades.js';
@@ -359,6 +360,7 @@ export const stage4Scene = {
     // Transisi dari stage 3 (tangga keluar). Bangun dunia sekali; bersihkan
     // robot stage 3 tersisa; tempatkan robot + supply stage 4; reset boss.
     enter() {
+        saveCampaignStage(4);   // checkpoint: campaign berada di stage 4 (final)
         if (!built) { built = true; buildWorld(); }
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 3) {

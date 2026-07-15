@@ -20,6 +20,7 @@ import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../utils/co
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { applyLightPreset } from '../../world/lighting.js';
 import { showStageMsg } from '../../core/dom.js';
+import { saveCampaignStage } from '../../core/saveGame.js';
 import { updateUI } from '../../core/hud.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
@@ -440,6 +441,7 @@ export const stage3Scene = {
     // robot stage 2 yang tersisa; tempatkan robot + supply stage 3. (Bukan lagi
     // stage final — tangga END turun ke jalan/stasiun = stage 4.)
     enter() {
+        saveCampaignStage(3);   // checkpoint: campaign berada di stage 3
         if (!built) { built = true; buildWorld(); }
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 2) {

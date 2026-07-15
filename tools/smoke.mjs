@@ -47,7 +47,14 @@ global.document = {
     fullscreenElement: null, documentElement: fakeEl(), pointerLockElement: null
 };
 Object.defineProperty(global, 'navigator', { value: { keyboard: null }, configurable: true });
-global.localStorage = { getItem: () => null, setItem() { } };
+global.localStorage = (() => {
+    const store = new Map();
+    return {
+        getItem: (k) => store.has(k) ? store.get(k) : null,
+        setItem: (k, v) => store.set(k, String(v)),
+        removeItem: (k) => store.delete(k),
+    };
+})();
 global.Audio = class {
     constructor() { this.volume = 1; this.currentTime = 0; }
     load() { } play() { return { catch() { } }; } pause() { }
@@ -796,6 +803,41 @@ T('cheat skip-to-stage invalid (9) ditolak, scene tak berubah',
 T('survival TAK punya hook cheatSkipToStage (campaign-only)',
     survMod.survivalScene.cheatSkipToStage === undefined);
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+
+// --- 17c. SAVE GAME / checkpoint Campaign (2026-07-15): simpan nomor stage
+// terakhir yang di-enter di localStorage → Continue dari titik-mulai stage itu.
+// enter() tiap stage menulis checkpoint; MISSION COMPLETE menghapusnya. ---
+const saveMod = await import(R('src/core/saveGame.js'));
+saveMod.clearCampaignSave();
+T('save: kosong -> loadCampaignStage()=0', saveMod.loadCampaignStage() === 0);
+saveMod.saveCampaignStage(3);
+T('save: tulis 3 -> load 3', saveMod.loadCampaignStage() === 3);
+saveMod.saveCampaignStage(9);   // di luar 1..4 -> dianggap tak valid
+T('save: nilai invalid (9) dibaca sebagai 0', saveMod.loadCampaignStage() === 0);
+saveMod.clearCampaignSave();
+T('save: clear -> 0', saveMod.loadCampaignStage() === 0);
+// enter() stage MENULIS checkpoint (uji lewat cheat jump = enter langsung)
+smMod.activeScene.cheatSkipToStage(3);   // stage3.enter -> saveCampaignStage(3)
+T('save: enter stage 3 menulis checkpoint 3', saveMod.loadCampaignStage() === 3);
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+smMod.activeScene.cheatSkipToStage(1);   // stage1.enter -> saveCampaignStage(1)
+T('save: enter stage 1 menulis checkpoint 1', saveMod.loadCampaignStage() === 1);
+// Prompt game-over "RESTART STAGE" (2026-07-15): resetGame(true) campaign ulang
+// dari AWAL stage CHECKPOINT (bukan stage 1) via campaignJumpToStage(loadCampaignStage()||1).
+saveMod.saveCampaignStage(3);
+const restartTarget = saveMod.loadCampaignStage() || 1;
+T('restart-stage: target = stage checkpoint (3), BUKAN 1', restartTarget === 3);
+smMod.activeScene.cheatSkipToStage(restartTarget);   // = campaignJumpToStage(3), efek sama dgn resetGame(true)
+T('restart-stage: mendarat di AWAL stage 3 + robot stage 3',
+    smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+// MISSION COMPLETE (gameOver win) menghapus checkpoint (campaign tamat = New Game)
+saveMod.saveCampaignStage(4);
+gameMod.gameOver(true);
+T('save: MISSION COMPLETE (gameOver win) menghapus checkpoint', saveMod.loadCampaignStage() === 0);
+stateMod.setGameOver(false);
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
 
 // --- 16. IDLE AFK bertahap (2026-07-14): player diam TOTAL & tak ada ancaman ->
 //     +30 dtk MELAMBAI ke kamera, +60 dtk JONGKOK, +90 dtk REBAHAN; gerak &

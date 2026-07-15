@@ -25,6 +25,7 @@ import { resetPlayerState } from './entities/player.js';
 import { initMenu } from './scenes/menu.js';
 import { survivalScene } from './scenes/survival/index.js';
 import { stage1Scene } from './scenes/campaign/stage1.js';
+import { campaignJumpToStage } from './scenes/campaign/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
 
@@ -43,7 +44,9 @@ export async function boot() {
     initMenu(startGame);
 }
 
-export async function startGame(mode) {
+// opts.stage (campaign): titik-mulai stage (1..4) — dipakai untuk MELANJUTKAN
+// game tersimpan (checkpoint). Default 1 = mulai dari awal.
+export async function startGame(mode, opts = {}) {
     try {
         setMode(mode);
         configurePlayer();
@@ -59,8 +62,14 @@ export async function startGame(mode) {
         createSky(scene);          // kubah langit + bulan (ikut player)
         await loadingStep(30, 'Building the world…');
 
-        // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal
+        // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal.
+        // stage1.enter membangun dunia stage 1 & 2 (guard `built`), jadi lanjut ke
+        // stage >1 aman: setScene(stage1) dulu (bangun dunia), lalu campaignJumpToStage
+        // lompat ke checkpoint (buang robot stage 1, tempatkan robot stage tujuan;
+        // dunia stage 3/4 dibangun lazy di enter-nya sendiri). warmup di bawah
+        // memanaskan shader stage tujuan (scene sudah = stage checkpoint).
         setScene(mode === 'campaign' ? stage1Scene : survivalScene);
+        if (mode === 'campaign' && opts.stage > 1) campaignJumpToStage(opts.stage);
         await loadingStep(60, 'Preparing weapons…');
 
         initPlayerAvatar(scene);   // avatar top-down player (SEBELUM initWeapons:

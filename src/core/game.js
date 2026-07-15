@@ -6,7 +6,7 @@ import { CFG } from './config.js';
 import {
     isPaused, isGameOver, setGameOver, setScore, score, highScore, setHighScore, player,
     robots, bullets, enemyBullets, grenades, explosions, drops, clearArray, configurePlayer,
-    stats, resetStats
+    stats, resetStats, mode
 } from './state.js';
 import { scene } from './renderer.js';
 import { activeScene, setScene } from './sceneManager.js';
@@ -22,6 +22,8 @@ import { updateBullets } from '../entities/bullets.js';
 import { updateRobots, updateEnemyBullets, disposeRobot, resetRobotsFx, PLAYER_BLOOD_HEX } from '../entities/robots.js';
 import { avatarGroup, hideMoveMarker, playAvatarDeath, resetAvatarDeath } from '../entities/playerAvatar.js';
 import { releaseInputs, requestLock } from './input.js';
+import { clearCampaignSave, loadCampaignStage } from './saveGame.js';
+import { campaignJumpToStage } from '../scenes/campaign/transition.js';
 
 // ===== Sekuens KEMATIAN player (2026-07-12; revisi "mati biasa"): HP habis
 // TIDAK langsung layar GAME OVER — avatar ROBOH ke arah dorongan damage
@@ -93,6 +95,9 @@ export function updateGame(dt, step, T) {
 export function gameOver(won, title) {
     setGameOver(true);
     document.exitPointerLock();
+    // MISSION COMPLETE (won, campaign stage 4 selesai) = campaign tamat →
+    // hapus checkpoint supaya campaign berikutnya mulai baru (bukan Continue).
+    if (won) clearCampaignSave();
     if (score > highScore) setHighScore(score);
     // Campaign selesai = menang; selain itu (HP habis) = kalah.
     gameOverTitle.innerText = title || (won ? 'MISSION COMPLETE' : 'GAME OVER');
@@ -103,10 +108,29 @@ export function gameOver(won, title) {
     const acc = stats.shots > 0 ? Math.round(stats.hits / stats.shots * 100) : 0;
     document.getElementById('goStats').innerText =
         `Kills ${stats.kills} · Accuracy ${acc}%`;
+    // Prompt game-over: RESTART (campaign = ulang dari AWAL stage yang sedang
+    // dimainkan; survival = ulang run) / EXIT TO MAIN MENU (reload → #mainMenu).
+    wireGameOverButtons();
+    document.getElementById('goRestart').textContent =
+        mode === 'campaign' ? 'RESTART STAGE' : 'RESTART';
     gameOverScreen.style.display = 'flex';
 }
 
-export function resetGame() {
+// Rangkai tombol prompt game-over sekali (lazy). Restart = ulang stage sekarang
+// (checkpoint campaign), Exit = kembali ke menu utama (reload — startGame
+// sekali-jalan). Klik bekerja karena pointer sudah di-unlock oleh gameOver.
+let goWired = false;
+function wireGameOverButtons() {
+    if (goWired) return;
+    goWired = true;
+    document.getElementById('goRestart').addEventListener('click', () => resetGame(true));
+    document.getElementById('goExit').addEventListener('click', () => location.reload());
+}
+
+// atCurrentStage: campaign mengulang dari AWAL stage yang sedang dimainkan
+// (checkpoint tersimpan) alih-alih stage 1 — dipakai prompt/SPACE game-over.
+// Default false = kebijakan restartScene (pause "RESTART GAME" = dari awal).
+export function resetGame(atCurrentStage = false) {
     setScore(0);
     resetStats();          // statistik run baru
     configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG
@@ -131,11 +155,18 @@ export function resetGame() {
     clearArray(explosions, scene);
     clearArray(drops, scene);
 
-    // Scene menentukan titik restart: survival mengulang di tempat; campaign
-    // SELALU mengulang dari stage 1 (kebijakan restartScene milik stage).
-    const target = activeScene.restartScene ? activeScene.restartScene() : activeScene;
-    if (target === activeScene) target.enter({ fresh: true });
-    else setScene(target, { fresh: true });
+    // Titik restart: `atCurrentStage` (prompt game-over) campaign → ulang dari
+    // AWAL stage checkpoint (campaignJumpToStage: dunia sudah terbangun selama
+    // main, ia setScene + tempatkan robot stage itu; stage 2 ditangani khusus).
+    // Selain itu (pause "RESTART GAME") pakai kebijakan restartScene stage:
+    // survival mengulang di tempat, campaign dari stage 1.
+    if (atCurrentStage && mode === 'campaign') {
+        campaignJumpToStage(loadCampaignStage() || 1);
+    } else {
+        const target = activeScene.restartScene ? activeScene.restartScene() : activeScene;
+        if (target === activeScene) target.enter({ fresh: true });
+        else setScene(target, { fresh: true });
+    }
 
     updateUI();
     requestLock();

@@ -19,6 +19,7 @@ import { makeNavGrid } from '../../utils/pathfind.js';
 import { setS1FlickerLight } from '../../world/decor.js';
 import { applyLightPreset } from '../../world/lighting.js';
 import { hideStageMsg } from '../../core/dom.js';
+import { saveCampaignStage } from '../../core/saveGame.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
@@ -405,6 +406,7 @@ export const stage1Scene = {
     // Array robots/drops selalu sudah bersih di titik ini, jadi penempatan
     // ulang aman. Kedua dunia dibangun sekali (guard `built`).
     enter() {
+        saveCampaignStage(1);     // checkpoint: campaign berada di stage 1
         if (!built) {
             built = true;
             buildStage2World();   // STAGE 2: gedung terbengkalai Lantai 2 (denah, jauh)

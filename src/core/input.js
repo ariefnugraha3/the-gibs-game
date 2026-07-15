@@ -216,7 +216,7 @@ export function initInput() {
         // 4 = pegang Medkit di tangan (tekan lagi = holster); lalu TAHAN klik kiri
         // medkitUseSec detik untuk memakainya (pulihkan 70% HP; hanya bisa punya 1).
         if (key === '4' && !isPaused && !isGameOver) equipMedkit();
-        if (e.code === 'Space' && isGameOver) resetGame();   // restart
+        if (e.code === 'Space' && isGameOver) resetGame(true);   // restart stage sekarang (checkpoint campaign)
     });
     window.addEventListener('keyup', (e) => {
         const key = e.key.toLowerCase();

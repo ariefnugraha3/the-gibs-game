@@ -13,7 +13,7 @@
 import { resetGame } from './game.js';
 import { requestLock } from './input.js';
 
-let instr = null, menu = null, mainP = null, confP = null, confText = null;
+let instr = null, menu = null, mainP = null, confP = null, confText = null, tutP = null;
 let onYes = null, wired = false, visible = false;
 
 // Apakah menu jeda sedang tampil — input.js memakainya untuk MENGABAIKAN
@@ -29,12 +29,16 @@ function wire() {
     mainP = document.getElementById('pauseMain');
     confP = document.getElementById('pauseConfirm');
     confText = document.getElementById('pauseConfirmText');
+    tutP = document.getElementById('pauseTutorial-panel');
     // Klik di dalam kotak menu jangan merambat ke #blocker
     menu.addEventListener('click', e => e.stopPropagation());
     menu.addEventListener('mousedown', e => e.stopPropagation());
     // RESUME = satu-satunya jalan melanjutkan (lock ulang pointer; sukses
     // lock memicu pointerlockchange -> hidePauseMenu + setPaused(false))
     document.getElementById('pauseResume').addEventListener('click', requestLock);
+    // TUTORIAL = tampilkan panel How to Play (key-mapping); Back kembali ke menu.
+    document.getElementById('pauseTutorial').addEventListener('click', showTutorial);
+    document.getElementById('pauseTutBack').addEventListener('click', showMain);
     document.getElementById('pauseRestart').addEventListener('click',
         () => askConfirm('Restart the game from the beginning?', resetGame));
     document.getElementById('pauseExit').addEventListener('click',
@@ -43,10 +47,11 @@ function wire() {
     document.getElementById('pauseNo').addEventListener('click', showMain);
 }
 
-// Panel utama (dua tombol) tampil, prompt konfirmasi tersembunyi.
+// Panel utama (tombol-tombol) tampil, prompt konfirmasi & tutorial tersembunyi.
 function showMain() {
     onYes = null;
     if (confP) confP.style.display = 'none';
+    if (tutP) tutP.style.display = 'none';
     if (mainP) mainP.style.display = 'flex';
 }
 
@@ -56,6 +61,13 @@ function askConfirm(text, action) {
     if (confText) confText.textContent = text;
     if (mainP) mainP.style.display = 'none';
     if (confP) confP.style.display = 'flex';
+}
+
+// Tampilkan panel Tutorial (How to Play); sembunyikan menu utama.
+function showTutorial() {
+    if (mainP) mainP.style.display = 'none';
+    if (confP) confP.style.display = 'none';
+    if (tutP) tutP.style.display = 'flex';
 }
 
 // Tampilkan menu jeda (input.js memanggilnya saat pointer-unlock di tengah main).

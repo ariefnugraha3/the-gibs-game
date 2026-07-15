@@ -23,6 +23,7 @@ import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../utils/co
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { applyLightPreset } from '../../world/lighting.js';
 import { showStageMsg } from '../../core/dom.js';
+import { saveCampaignStage } from '../../core/saveGame.js';
 import { updateUI } from '../../core/hud.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
@@ -414,6 +415,7 @@ export const stage2Scene = {
     // Masuk dari tangga stage 1 -> 2. Robot gedung stage 1 yang tersisa
     // dibersihkan diam-diam (tanpa skor/drop) agar hitungan & menang sederhana.
     enter() {
+        saveCampaignStage(2);   // checkpoint: campaign berada di stage 2
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 1) {
                 disposeRobot(robots[i]);

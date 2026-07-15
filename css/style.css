@@ -485,15 +485,85 @@ body {
     z-index: 5;
 }
 
+/* ---------- Kartu "Click to Start" (boxed, hanya key-mapping) ---------- */
 #instructions {
-    font-size: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    background: rgba(10, 14, 20, 0.9);
+    border: 1px solid rgba(255, 184, 77, 0.35);
+    border-radius: 16px;
+    padding: 30px 40px 26px;
+    max-width: min(560px, 92vw);
+    box-shadow: 0 16px 50px rgba(0, 0, 0, 0.65);
     text-align: center;
-    text-shadow: 2px 2px 5px black;
+    font-family: Arial, sans-serif;
 }
 
-#instructions span.small {
-    font-size: 22px;
-    color: #ddd;
+#instructions .startTitle {
+    font-size: clamp(26px, 4vw, 38px);
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #fff;
+    text-shadow: 0 0 22px rgba(255, 90, 20, 0.5), 2px 2px 4px #000;
+}
+
+#instructions .startSub {
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: #ffb84d;
+}
+
+/* Grid key-mapping (dipakai kartu Start & panel Tutorial menu jeda) */
+.keyGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 18px;
+    width: 100%;
+    margin: 8px 0 4px;
+}
+
+.keyRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 5px 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.keyCap {
+    flex: 0 0 auto;
+    min-width: 74px;
+    padding: 5px 10px;
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    color: #ffd9a0;
+    background: rgba(255, 184, 77, 0.12);
+    border: 1px solid rgba(255, 184, 77, 0.4);
+    border-radius: 7px;
+    box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35);
+    text-align: center;
+}
+
+.keyDesc {
+    font-size: 15px;
+    color: #dfe6ee;
+    text-align: left;
+}
+
+#instructions .startCta {
+    margin-top: 8px;
+    font-size: 15px;
+    letter-spacing: 2px;
+    color: #ff9b52;
+    animation: ctaPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ctaPulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
 }
 
 /* ---------- Menu jeda (ESC): overlay di dalam #blocker saat pause di tengah
@@ -519,6 +589,19 @@ body {
 }
 
 #pauseConfirm { display: none; }
+
+/* Panel Tutorial (How to Play) di dalam menu jeda */
+#pauseTutorial-panel {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    min-width: 300px;
+}
+
+#pauseTutorial-panel .pauseTitle { font-size: 30px; letter-spacing: 2px; }
+#pauseTutorial-panel .keyGrid { margin: 4px 0 6px; }
+#pauseTutorial-panel #pauseTutBack { min-width: 200px; }
 
 .pauseTitle {
     font-size: 40px;
@@ -610,7 +693,15 @@ body {
     color: white;
     flex-direction: column;
     z-index: 10;
-    cursor: pointer;
+    cursor: default;
+}
+
+#goButtons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    margin: 4px 0 0;
 }
 
 /* ---------- Layar loading pra-game: overlay OPAK di atas menu/cutscene
@@ -809,6 +900,43 @@ body {
     overflow-y: auto;
     padding: 0 8px;
 }
+
+/* Prompt Continue game? (Campaign checkpoint) */
+#continuePrompt {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 33;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.72);
+    font-family: Arial, sans-serif;
+}
+
+.cpBox {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+    background: rgba(10, 14, 20, 0.94);
+    border: 1px solid rgba(255, 184, 77, 0.4);
+    border-radius: 14px;
+    padding: 36px 48px;
+    max-width: min(520px, 90vw);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    text-align: center;
+}
+
+.cpTitle {
+    font-size: 30px;
+    letter-spacing: 3px;
+    color: #ffb84d;
+    text-shadow: 2px 2px 6px black;
+}
+
+.cpText { font-size: 18px; color: #e8eef4; line-height: 1.5; }
+.cpBtns { display: flex; flex-direction: column; gap: 14px; width: 100%; }
+.cpBtns .menuBtn { min-width: 260px; }
 
 .creditGroup { display: flex; flex-direction: column; gap: 3px; }
 .creditRole {

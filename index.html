@@ -178,6 +178,20 @@
         <button id="modeBack" class="menuBtn menuBack">Back</button>
     </div>
 
+    <!-- Prompt "Continue game?" (Campaign): muncul di atas #modeSelect saat ada
+         checkpoint tersimpan (stage >1). Yes = lanjut di stage itu; No = New
+         Game dari stage 1 + hapus save. -->
+    <div id="continuePrompt">
+        <div class="cpBox">
+            <div class="cpTitle">CONTINUE GAME?</div>
+            <div class="cpText" id="cpText"></div>
+            <div class="cpBtns">
+                <button id="cpYes" class="menuBtn">Yes, Continue</button>
+                <button id="cpNo" class="menuBtn">No, New Game</button>
+            </div>
+        </div>
+    </div>
+
     <div id="cutscene">
         <!-- Slide 1: orang dikejar robot -->
         <div class="slide active">
@@ -224,20 +238,44 @@
 
     <div id="blocker">
         <div id="instructions">
-            <b>Click here to Start the Action</b><br />
-            <span class="small" style="color:#ffb84d;">(enters fullscreen — so Ctrl+W etc. won't close the tab)</span><br /><br />
-            <span class="small">WASD = Move | MOUSE = Aim (bullets follow the cursor) | LEFT CLICK = Shoot / Throw / Use |
-                RIGHT CLICK = Move to cursor (WASD cancels it) |
-                1 / 2 = Weapon | Q = Swap Weapon | 3 = Grenade | 4 = Medkit |
-                F = Melee | SHIFT = Dodge (brief invincible tumble)<br />
-                <span style="color:#ffb84d;">Survival: clear each wave, then the Field Shop opens — buy gear and press SPACE to start the next wave.</span></span>
+            <div class="startTitle">Click to Start the Action</div>
+            <div class="startSub">Enters fullscreen — so Ctrl+W etc. won't close the tab</div>
+            <div class="keyGrid">
+                <div class="keyRow"><span class="keyCap">WASD</span><span class="keyDesc">Move</span></div>
+                <div class="keyRow"><span class="keyCap">Mouse</span><span class="keyDesc">Aim</span></div>
+                <div class="keyRow"><span class="keyCap">L-Click</span><span class="keyDesc">Shoot / Use</span></div>
+                <div class="keyRow"><span class="keyCap">R-Click</span><span class="keyDesc">Move to cursor</span></div>
+                <div class="keyRow"><span class="keyCap">1&nbsp;2&nbsp;3</span><span class="keyDesc">Weapons</span></div>
+                <div class="keyRow"><span class="keyCap">Q</span><span class="keyDesc">Swap Weapon</span></div>
+                <div class="keyRow"><span class="keyCap">4</span><span class="keyDesc">Medkit</span></div>
+                <div class="keyRow"><span class="keyCap">F</span><span class="keyDesc">Melee</span></div>
+                <div class="keyRow"><span class="keyCap">Shift</span><span class="keyDesc">Dodge</span></div>
+            </div>
+            <div class="startCta">▸ Click anywhere to begin ◂</div>
         </div>
         <div id="pauseMenu">
             <div id="pauseMain">
                 <div class="pauseTitle">PAUSED</div>
                 <button id="pauseResume" class="pauseBtn">RESUME</button>
+                <button id="pauseTutorial" class="pauseBtn">TUTORIAL</button>
                 <button id="pauseRestart" class="pauseBtn">RESTART GAME</button>
                 <button id="pauseExit" class="pauseBtn">EXIT GAME</button>
+            </div>
+            <!-- Panel Tutorial (How to Play): key-mapping + Back -->
+            <div id="pauseTutorial-panel">
+                <div class="pauseTitle">HOW TO PLAY</div>
+                <div class="keyGrid">
+                    <div class="keyRow"><span class="keyCap">WASD</span><span class="keyDesc">Move</span></div>
+                    <div class="keyRow"><span class="keyCap">Mouse</span><span class="keyDesc">Aim</span></div>
+                    <div class="keyRow"><span class="keyCap">L-Click</span><span class="keyDesc">Shoot / Use</span></div>
+                    <div class="keyRow"><span class="keyCap">R-Click</span><span class="keyDesc">Move to cursor</span></div>
+                    <div class="keyRow"><span class="keyCap">1&nbsp;2&nbsp;3</span><span class="keyDesc">Weapons</span></div>
+                    <div class="keyRow"><span class="keyCap">Q</span><span class="keyDesc">Swap Weapon</span></div>
+                    <div class="keyRow"><span class="keyCap">4</span><span class="keyDesc">Medkit</span></div>
+                    <div class="keyRow"><span class="keyCap">F</span><span class="keyDesc">Melee</span></div>
+                    <div class="keyRow"><span class="keyCap">Shift</span><span class="keyDesc">Dodge</span></div>
+                </div>
+                <button id="pauseTutBack" class="pauseBtn">Back</button>
             </div>
             <div id="pauseConfirm">
                 <div class="pauseConfirmText" id="pauseConfirmText"></div>
@@ -261,8 +299,11 @@
         <h1 id="gameOverTitle" style="font-size: 70px; margin-bottom: 0;">GAME OVER</h1>
         <p id="finalScore" style="font-size: 30px; margin: 6px 0;">Score: 0</p>
         <p id="bestScore" style="font-size: 24px; color: #f1c40f; margin: 0 0 10px;">Best: 0</p>
-        <p id="goStats" style="font-size: 18px; color: #cfd8e3; margin: 0 0 14px;"></p>
-        <p style="font-size: 26px;">Press SPACE to restart</p>
+        <p id="goStats" style="font-size: 18px; color: #cfd8e3; margin: 0 0 18px;"></p>
+        <div id="goButtons">
+            <button id="goRestart" class="pauseBtn">RESTART STAGE</button>
+            <button id="goExit" class="pauseBtn">EXIT TO MAIN MENU</button>
+        </div>
     </div>
 
     <!-- Penjaga file://: ES module + fetch config WAJIB lewat HTTP server -->
