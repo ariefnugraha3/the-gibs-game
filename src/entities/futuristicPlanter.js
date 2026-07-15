@@ -34,4 +34,22 @@ export class Planter {
     update(t) {}
 }
 
+/**
+ * Drop-in builder pot tanaman neon. Model lokal: diameter pot ≈1.0, tinggi
+ * ≈1.55 (dasar pot di y=-0.5, daun puncak ≈y1.05). Di-skala NON-UNIFORM
+ * mengisi footprint sx×sz dgn tinggi sy; berdiri di y=0. `update()` no-op.
+ * Sejajar buildFuturisticDeskMesh.
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticPlanterMesh(sx, sy, sz) {
+    const p = new Planter();
+    const scY = sy / 1.55;
+    p.group.scale.set(sx / 1.0, scY, sz / 1.0);
+    p.group.position.y = 0.5 * scY;   // dasar pot (y -0.5) -> y=0 dunia
+    const g = new THREE.Group();
+    g.add(p.group);
+    return g;
+}
+
 export default Planter;

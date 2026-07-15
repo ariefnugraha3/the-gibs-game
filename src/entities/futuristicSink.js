@@ -37,4 +37,22 @@ export class Sink {
     }
 }
 
+/**
+ * Drop-in builder wastafel. Model lokal: lebar(x)≈0.8, dalam(z)≈0.5, tinggi
+ * ≈1.15 (dasar pedestal di y=-0.15). Di-skala NON-UNIFORM mengisi footprint
+ * sx×sz dgn tinggi sy; berdiri di y=0. `update()` (air holografik) TIDAK
+ * dipanggil (statis). Sejajar buildFuturisticDeskMesh.
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticSinkMesh(sx, sy, sz) {
+    const s = new Sink();
+    const scY = sy / 1.15;
+    s.group.scale.set(sx / 0.8, scY, sz / 0.5);
+    s.group.position.y = 0.15 * scY;   // dasar pedestal (y -0.15) -> y=0 dunia
+    const g = new THREE.Group();
+    g.add(s.group);
+    return g;
+}
+
 export default Sink;

@@ -93,7 +93,7 @@ class Obj3D {
         this.position = new V3(); this.scale = new V3(1, 1, 1);
         this.rotation = new Euler(); this.quaternion = new Quat();
         this.children = []; this.parent = null; this.visible = true; this.castShadow = false;
-        this.matrixWorld = {}; this.isObject3D = true;
+        this.matrixWorld = {}; this.isObject3D = true; this.userData = {};
     }
     add(...os) { for (const o of os) { if (o.parent) o.parent.remove(o); o.parent = this; this.children.push(o); } return this; }
     remove(o) { const i = this.children.indexOf(o); if (i >= 0) { this.children.splice(i, 1); o.parent = null; } return this; }
@@ -128,6 +128,7 @@ class Mat {
         this.opacity = o.opacity != null ? o.opacity : 1;
         this.transparent = !!o.transparent; this.map = o.map || null;
     }
+    clone() { return new Mat({ color: new Color(this.color), emissive: new Color(this.emissive), opacity: this.opacity, transparent: this.transparent, map: this.map }); }
     dispose() { }
 }
 global.THREE = {
@@ -138,10 +139,11 @@ global.THREE = {
     SphereGeometry: geo('sph'), CylinderGeometry: geo('cyl'), BoxGeometry: geo('box'),
     ConeGeometry: geo('cone'), RingGeometry: geo('ring'), PlaneGeometry: geo('plane'),
     CircleGeometry: geo('circle'), TorusGeometry: geo('torus'), ExtrudeGeometry: geo('extrude'),
-    IcosahedronGeometry: geo('ico'),
+    IcosahedronGeometry: geo('ico'), DodecahedronGeometry: geo('dodeca'), EdgesGeometry: geo('edges'),
+    LineSegments: class extends Obj3D { constructor(g, m) { super(); this.geometry = g; this.material = m; } },
     Shape: class { moveTo() { } lineTo() { } quadraticCurveTo() { } bezierCurveTo() { } },
     MeshLambertMaterial: Mat, MeshBasicMaterial: Mat, MeshPhongMaterial: Mat, SpriteMaterial: Mat,
-    MeshStandardMaterial: Mat, MeshPhysicalMaterial: Mat,
+    MeshStandardMaterial: Mat, MeshPhysicalMaterial: Mat, LineBasicMaterial: Mat,
     CanvasTexture: class { constructor() { this.repeat = { set() { } }; } },
     Fog: class { }, WebGLRenderer: class {
         constructor() { this.domElement = fakeEl(); this.shadowMap = {}; }
@@ -911,6 +913,33 @@ for (let i = 0; i < 60; i++) avMod.updatePlayerAvatar(0.2);
 T('AFK TERBLOK saat musuh mengejar', avMod.afkDebug().t === 0);
 while (robots.length) robots.pop();
 avMod.resetAvatarDeath();
+
+// --- 18. Model furnitur futuristik (2026-07-15): builder drop-in build*Mesh
+//     (entities/futuristic{Bench,Console,Crate,Planter,Rubble,Sink,Stall,Sofa}.js)
+//     dipakai stage 1-3 menggantikan balok berwarna. Verifikasi tiap builder
+//     menghasilkan Group ter-skala berdiri di y>=0 (tanpa NaN dari bagi-nol);
+//     footprint blocker TAK berubah -> nav/BFS/robot-count masih hijau di atas. ---
+const propBuilders = {
+    Bench: (await import(R('src/entities/futuristicBench.js'))).buildFuturisticBenchMesh,
+    Console: (await import(R('src/entities/futuristicConsole.js'))).buildFuturisticConsoleMesh,
+    Crate: (await import(R('src/entities/futuristicCrate.js'))).buildFuturisticCrateMesh,
+    Planter: (await import(R('src/entities/futuristicPlanter.js'))).buildFuturisticPlanterMesh,
+    Rubble: (await import(R('src/entities/futuristicRubble.js'))).buildFuturisticRubbleMesh,
+    Sink: (await import(R('src/entities/futuristicSink.js'))).buildFuturisticSinkMesh,
+    Stall: (await import(R('src/entities/futuristicStall.js'))).buildFuturisticStallMesh,
+    Sofa: (await import(R('src/entities/futuristicSofa.js'))).buildFuturisticSofaMesh,
+};
+const fin = (n) => typeof n === 'number' && isFinite(n) && n > 0;
+for (const [name, build] of Object.entries(propBuilders)) {
+    let ok = typeof build === 'function';
+    if (ok) {
+        const g = build(16, 9, 16), inner = g && g.children && g.children[0];
+        ok = !!g && g.isObject3D && g.children.length === 1 && !!inner &&
+            fin(inner.scale.x) && fin(inner.scale.y) && fin(inner.scale.z) &&
+            fin(inner.position.y + 1) && inner.position.y >= 0 && inner.children.length > 0;
+    }
+    T('prop builder ' + name + ': Group ter-skala berdiri di y>=0 (tanpa NaN)', ok);
+}
 
 console.log(`\n${pass} pass, ${fail} fail`);
 process.exit(fail ? 1 : 0);

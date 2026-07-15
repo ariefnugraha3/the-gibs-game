@@ -26,6 +26,11 @@ import { spawnTank, updateTank, disposeTank } from '../../entities/tank.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { buildFuturisticSUVMesh } from '../../entities/futuristicSUV.js';
 import { buildFuturisticSedanMesh } from '../../entities/futuristicSedan.js';
+import { buildFuturisticCrateMesh } from '../../entities/futuristicCrate.js';
+import { buildFuturisticBenchMesh } from '../../entities/futuristicBench.js';
+import { buildFuturisticPlanterMesh } from '../../entities/futuristicPlanter.js';
+import { buildFuturisticStallMesh } from '../../entities/futuristicStall.js';
+import { buildFuturisticRubbleMesh } from '../../entities/futuristicRubble.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -265,6 +270,34 @@ export function buildWorld() {
     mkSedan(OX + 2640, OZ + 140, 0.1);
     mkCar(OX + 3320, OZ + 175, 1.5);
     mkSedan(OX + 2620, OZ + 250, 0.2);
+
+    // --- Prop futuristik (entities/futuristic*.js) di area luar: kios/krat/puing
+    //     = COVER pejal (blocker, dijauhkan dari koridor supaya konektivitas
+    //     union START->END tak putus — diverifikasi flood-fill smoke); bangku &
+    //     planter = DEKORASI pelataran stasiun TANPA blocker (nav tak berubah). ---
+    const mkPropCover = (build, x, z, sx, sy, sz, standable, yaw = 0) => {
+        const m = build(sx, sy, sz);
+        m.position.set(x, 0, z); if (yaw) m.rotation.y = yaw;
+        scene.add(m);
+        addBlockerBox(x, z, sx / 2, sz / 2, sy, standable);
+    };
+    const mkPropDecor = (build, x, z, sx, sy, sz, yaw = 0) => {
+        const m = build(sx, sy, sz);
+        m.position.set(x, 0, z); if (yaw) m.rotation.y = yaw;
+        scene.add(m);
+    };
+    // Pelataran stasiun: KIOS (cover, tepi barat) + bangku mengapit pintu masuk +
+    // planter sudut (dekor — pintu masuk END di x≈OX+3010, dijauhkan).
+    mkPropCover(buildFuturisticStallMesh, OX + 2560, OZ + 210, 44, 40, 28, false);
+    mkPropDecor(buildFuturisticBenchMesh, OX + 2820, OZ + 322, 44, 10, 16);
+    mkPropDecor(buildFuturisticBenchMesh, OX + 3200, OZ + 322, 44, 10, 16);
+    mkPropDecor(buildFuturisticPlanterMesh, OX + 2560, OZ + 90, 26, 34, 26);
+    mkPropDecor(buildFuturisticPlanterMesh, OX + 3450, OZ + 90, 26, 34, 26);
+    // Parkiran: tumpukan KRAT (cover) di samping kontainer barang (spot 4).
+    mkPropCover(buildFuturisticCrateMesh, OX + 610, OZ - 150, 24, 24, 24, true);
+    mkPropCover(buildFuturisticCrateMesh, OX + 588, OZ - 120, 20, 20, 20, true, 0.4);
+    // Jalan: PUING runtuhan (cover) menempel tembok UTARA (lajur selatan terbuka).
+    mkPropCover(buildFuturisticRubbleMesh, OX + 1500, OZ - 70, 40, 14, 24, true);
 
     // --- Lampu jalan (atmosfer malam) ---
     const lampFix = new THREE.MeshBasicMaterial({ color: 0xffe6b0, toneMapped: false });

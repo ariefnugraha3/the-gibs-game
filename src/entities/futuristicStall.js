@@ -39,4 +39,22 @@ export class Stall {
     update(t) {}
 }
 
+/**
+ * Drop-in builder kios/sekat. Model lokal: lebar(x)≈2.2, dalam(z)≈1.2, tinggi
+ * ≈2.05 (dasar counter di y=-0.5, atap ≈y1.55). Di-skala NON-UNIFORM mengisi
+ * footprint sx×sz dgn tinggi sy; berdiri di y=0. `update()` no-op. Sejajar
+ * buildFuturisticDeskMesh.
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticStallMesh(sx, sy, sz) {
+    const s = new Stall();
+    const scY = sy / 2.05;
+    s.group.scale.set(sx / 2.2, scY, sz / 1.2);
+    s.group.position.y = 0.5 * scY;   // dasar counter (y -0.5) -> y=0 dunia
+    const g = new THREE.Group();
+    g.add(s.group);
+    return g;
+}
+
 export default Stall;

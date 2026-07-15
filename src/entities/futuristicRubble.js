@@ -33,4 +33,22 @@ export class Rubble {
     update(t) {}
 }
 
+/**
+ * Drop-in builder puing/runtuhan. Model lokal acak: sebaran batu ~1.6×1.6,
+ * tinggi ~1.0 (batu terendah ≈y-0.75). Di-skala NON-UNIFORM mengisi footprint
+ * sx×sz dgn tinggi sy; dinaikkan agar dasar ≈y=0 (puing dekorasi, sedikit
+ * overhang tak masalah). `update()` no-op. Sejajar buildFuturisticDeskMesh.
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticRubbleMesh(sx, sy, sz) {
+    const rb = new Rubble();
+    const scY = sy / 1.0;
+    rb.group.scale.set(sx / 1.6, scY, sz / 1.6);
+    rb.group.position.y = 0.75 * scY;   // batu terendah (~y-0.75) -> ~y=0 dunia
+    const g = new THREE.Group();
+    g.add(rb.group);
+    return g;
+}
+
 export default Rubble;

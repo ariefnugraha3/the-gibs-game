@@ -29,4 +29,19 @@ export class Sofa {
     update(t) {}
 }
 
+/**
+ * Drop-in builder sofa. Model lokal: lebar(x)≈2.5, dalam(z)≈1.0, tinggi ≈1.25
+ * (dasar di y=0). Di-skala NON-UNIFORM mengisi footprint sx×sz dgn tinggi sy;
+ * berdiri di y=0. `update()` no-op. Sejajar buildFuturisticDeskMesh.
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticSofaMesh(sx, sy, sz) {
+    const s = new Sofa();
+    s.group.scale.set(sx / 2.5, sy / 1.25, sz / 1.0);   // dasar sofa sudah di y=0
+    const g = new THREE.Group();
+    g.add(s.group);
+    return g;
+}
+
 export default Sofa;

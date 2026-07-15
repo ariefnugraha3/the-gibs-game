@@ -24,4 +24,20 @@ export class Bench {
     update(t) { this.group.position.y = Math.sin(t * 2) * 0.05; }
 }
 
+/**
+ * Drop-in builder bangku (dipakai furnitur stage campaign). Model lokal:
+ * lebar(x)≈2, dalam(z)≈0.5, tinggi ≈0.55 (dasar pad di y=0). Di-skala
+ * NON-UNIFORM mengisi footprint sx×sz dgn tinggi sy; berdiri di y=0.
+ * `update()` (hover) TIDAK dipanggil (statis). Sejajar buildFuturisticDeskMesh.
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticBenchMesh(sx, sy, sz) {
+    const b = new Bench();
+    b.group.scale.set(sx / 2, sy / 0.55, sz / 0.5);   // dasar model sudah di y=0
+    const g = new THREE.Group();
+    g.add(b.group);
+    return g;
+}
+
 export default Bench;

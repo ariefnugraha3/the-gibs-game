@@ -28,6 +28,9 @@ import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { buildFuturisticDeskMesh } from '../../entities/futuristicDesk.js';
 import { buildFuturisticChairMesh } from '../../entities/futuristicChair.js';
 import { buildFuturisticCupboardMesh } from '../../entities/futuristicCupboard.js';
+import { buildFuturisticCrateMesh } from '../../entities/futuristicCrate.js';
+import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
+import { buildFuturisticPlanterMesh } from '../../entities/futuristicPlanter.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -308,8 +311,12 @@ export function buildWorld() {
             scene.add(cab);
         }
     };
-    const CRATE = 0x7a5c33,
-        CONSOLE = 0x2f3a44, PLANTER = 0x3a4a32;
+    // PROP MODEL generik (entities/futuristic*.js): dari cell grid + blocker
+    // footprint sama seperti furBlock -> nav/collision IDENTIK dgn versi balok.
+    const propModel = (build, c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
+        const p = s3Cell(c, r);
+        putModel(build(sx, sy, sz), p.x + dx, p.z + dz, sx, sy, sz, standable);
+    };
     // ARCHIVE (c8-17 r1-8): banyak rak (model lemari) + meja (model meja)
     cupboardModel(10, 2, 8, 15, 40);
     cupboardModel(15, 2, 8, 15, 40);
@@ -324,22 +331,22 @@ export function buildWorld() {
     // CAFETERIA (c1-11 r23-28): meja makan (model meja) tersebar
     deskModel(3, 25, 16, 7, 16);
     deskModel(8, 26, 16, 7, 16, 2, 0);
-    // ELECTRICAL (c14-22 r23-28): panel/konsol + rak (model lemari)
-    furBlock(16, 25, 24, 9, 12, CONSOLE);
+    // ELECTRICAL (c14-22 r23-28): panel/konsol (model) + rak (model lemari)
+    propModel(buildFuturisticConsoleMesh, 16, 25, 24, 9, 12);
     cupboardModel(20, 26, 10, 15, 20, 2, 0);
-    // STORAGE (c25-31 r23-28): rak (model lemari) + krat
+    // STORAGE (c25-31 r23-28): rak (model lemari) + krat (model)
     cupboardModel(26, 25, 8, 15, 26);
-    furBlock(30, 26, 16, 9, 12, CRATE);
+    propModel(buildFuturisticCrateMesh, 30, 26, 16, 9, 12);
     // SUPPLY (c34-40 r12-19): rak (model lemari; jauh dari titik persediaan & pintu c34 r15)
     cupboardModel(40, 17, 8, 15, 26);
     cupboardModel(36, 19, 26, 15, 8, 0, 0);
-    // TOP corridor (c20-28 r1-4): cover
-    furBlock(21, 2, 12, 8, 12, CRATE);
-    furBlock(27, 2, 12, 8, 12, CRATE);
-    // ATRIUM ring: planter di sudut (jauh dari 4 pintu atrium)
-    furBlock(16, 12, 14, 6, 14, PLANTER);
-    furBlock(27, 20, 14, 6, 14, PLANTER);
-    {
+    // TOP corridor (c20-28 r1-4): cover (model krat)
+    propModel(buildFuturisticCrateMesh, 21, 2, 12, 8, 12);
+    propModel(buildFuturisticCrateMesh, 27, 2, 12, 8, 12);
+    // ATRIUM ring: planter (model) di sudut (jauh dari 4 pintu atrium)
+    propModel(buildFuturisticPlanterMesh, 16, 12, 14, 6, 14);
+    propModel(buildFuturisticPlanterMesh, 27, 20, 14, 6, 14);
+    if (fur.length) {   // sisa furnitur balok (kini kosong: semua prop -> model)
         const unit = new THREE.BoxGeometry(1, 1, 1);
         const fMesh = new THREE.InstancedMesh(unit,
             new THREE.MeshLambertMaterial({ color: 0xffffff }), fur.length);

@@ -31,6 +31,11 @@ import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { buildFuturisticDeskMesh } from '../../entities/futuristicDesk.js';
 import { buildFuturisticChairMesh } from '../../entities/futuristicChair.js';
 import { buildFuturisticCupboardMesh } from '../../entities/futuristicCupboard.js';
+import { buildFuturisticCrateMesh } from '../../entities/futuristicCrate.js';
+import { buildFuturisticSofaMesh } from '../../entities/futuristicSofa.js';
+import { buildFuturisticRubbleMesh } from '../../entities/futuristicRubble.js';
+import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
+import { buildFuturisticBenchMesh } from '../../entities/futuristicBench.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -280,39 +285,43 @@ export function buildWorld() {
             scene.add(cab);
         }
     };
-    const CRATE = 0x7a5c33,
-        SOFA = 0x5a3f3f, RUBBLE = 0x4a463f, CONSOLE = 0x2f3a44, BENCH = 0x8a857a;
+    // PROP MODEL generik (entities/futuristic*.js): dari cell grid + blocker
+    // footprint sama seperti furBlock -> nav/collision IDENTIK dgn versi balok.
+    const propModel = (build, c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
+        const p = s2Cell(c, r);
+        putModel(build(sx, sy, sz), p.x + dx, p.z + dz, sx, sy, sz, standable);
+    };
     // OFFICE (c9-15 r1-6): dua meja kerja (model meja)
     deskModel(11, 2, 26, 7, 12);
     deskModel(13, 4, 22, 7, 12, 4, 2);
-    // HALLWAY (c18-26 r1-5): jebakan RUNTUHAN di tengah (puing rendah, bisa dipijak)
-    furBlock(20, 3, 16, 9, 16, RUBBLE);
-    furBlock(24, 2, 14, 8, 14, RUBBLE, 2, 0);
+    // HALLWAY (c18-26 r1-5): jebakan RUNTUHAN (model puing) di tengah
+    propModel(buildFuturisticRubbleMesh, 20, 3, 16, 9, 16);
+    propModel(buildFuturisticRubbleMesh, 24, 2, 14, 8, 14, 2, 0);
     // STORAGE (c30-38 r1-6): rak arsip (model lemari) di dinding timur & sudut
     cupboardModel(37, 2, 8, 15, 40);
     cupboardModel(32, 5, 30, 15, 8, 2, 0);
-    // WAITING (c1-8 r10-17): sofa + meja (model meja) dekat jendela
-    furBlock(3, 11, 20, 6, 16, SOFA);
+    // WAITING (c1-8 r10-17): sofa (model) + meja (model meja) dekat jendela
+    propModel(buildFuturisticSofaMesh, 3, 11, 20, 6, 16);
     deskModel(3, 15, 22, 7, 12, 0, 2);
-    // OPEN OFFICE (c11-24 r9-17): krat cover tersebar (jalur tengah terbuka)
-    furBlock(14, 11, 16, 9, 16, CRATE);
-    furBlock(21, 12, 16, 9, 16, CRATE);
-    furBlock(16, 15, 18, 8, 14, CRATE, 2, 0);
-    furBlock(20, 15, 14, 8, 14, CRATE);
+    // OPEN OFFICE (c11-24 r9-17): krat (model) cover tersebar (jalur tengah terbuka)
+    propModel(buildFuturisticCrateMesh, 14, 11, 16, 9, 16);
+    propModel(buildFuturisticCrateMesh, 21, 12, 16, 9, 16);
+    propModel(buildFuturisticCrateMesh, 16, 15, 18, 8, 14, 2, 0);
+    propModel(buildFuturisticCrateMesh, 20, 15, 14, 8, 14);
     // SUPPLY (c31-38 r9-15): rak logam (model lemari; jauh dari titik persediaan & pintu)
     cupboardModel(32, 9, 26, 15, 8, 2, 0);
     cupboardModel(37, 13, 8, 15, 26);
-    // LAB / RESEARCH (c1-11 r20-26): meja-meja lab (bisa dilompati -> standable)
-    furBlock(3, 22, 24, 6, 12, BENCH);
-    furBlock(7, 24, 20, 6, 12, BENCH, 2, 0);
-    furBlock(9, 21, 12, 6, 20, BENCH);
-    // CONTROL (c14-25 r20-26): konsol elektronik + kabinet
-    furBlock(16, 22, 26, 7, 12, CONSOLE);
-    furBlock(20, 24, 22, 7, 12, CONSOLE, 2, 2);
+    // LAB / RESEARCH (c1-11 r20-26): meja-meja lab (model bangku; bisa dilompati -> standable)
+    propModel(buildFuturisticBenchMesh, 3, 22, 24, 6, 12);
+    propModel(buildFuturisticBenchMesh, 7, 24, 20, 6, 12, 2, 0);
+    propModel(buildFuturisticBenchMesh, 9, 21, 12, 6, 20);
+    // CONTROL (c14-25 r20-26): konsol elektronik (model) + kabinet
+    propModel(buildFuturisticConsoleMesh, 16, 22, 26, 7, 12);
+    propModel(buildFuturisticConsoleMesh, 20, 24, 22, 7, 12, 2, 2);
     cupboardModel(23, 21, 10, 16, 18);
-    // END (c30-38 r19-26): sebagian besar kosong (ruang tangga keluar); satu krat sudut
-    furBlock(37, 25, 14, 9, 14, CRATE);
-    {
+    // END (c30-38 r19-26): sebagian besar kosong (ruang tangga keluar); satu krat (model) sudut
+    propModel(buildFuturisticCrateMesh, 37, 25, 14, 9, 14);
+    if (fur.length) {   // sisa furnitur balok (kini kosong: semua prop -> model)
         const unit = new THREE.BoxGeometry(1, 1, 1);
         const fMesh = new THREE.InstancedMesh(unit,
             new THREE.MeshLambertMaterial({ color: 0xffffff }), fur.length);

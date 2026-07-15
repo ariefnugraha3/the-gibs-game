@@ -19,4 +19,22 @@ export class Crate {
     update(t) { this.group.rotation.y += 0.01; }
 }
 
+/**
+ * Drop-in builder krat (cover stage campaign). Model lokal: kubus 1.2³
+ * berpusat di origin. Di-skala NON-UNIFORM mengisi footprint sx×sz dgn tinggi
+ * sy; dinaikkan agar dasar berdiri di y=0. `update()` (putar) TIDAK dipanggil
+ * (statis). Sejajar buildFuturisticDeskMesh.
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticCrateMesh(sx, sy, sz) {
+    const c = new Crate();
+    const scY = sy / 1.2;
+    c.group.scale.set(sx / 1.2, scY, sz / 1.2);
+    c.group.position.y = 0.6 * scY;   // kubus berpusat -> naikkan agar dasar y=0
+    const g = new THREE.Group();
+    g.add(c.group);
+    return g;
+}
+
 export default Crate;

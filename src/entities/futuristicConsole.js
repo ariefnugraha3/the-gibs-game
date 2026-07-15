@@ -29,4 +29,22 @@ export class Console {
     }
 }
 
+/**
+ * Drop-in builder konsol/terminal. Model lokal: lebar(x)≈1.6, dalam(z)≈0.6,
+ * tinggi ≈1.025 (dasar pad glow di y=-0.525). Di-skala NON-UNIFORM mengisi
+ * footprint sx×sz dgn tinggi sy; berdiri di y=0. Layar menghadap +z.
+ * `update()` (pulsa layar) TIDAK dipanggil (statis). Lihat buildFuturisticDeskMesh.
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticConsoleMesh(sx, sy, sz) {
+    const c = new Console();
+    const scY = sy / 1.025;
+    c.group.scale.set(sx / 1.6, scY, sz / 0.6);
+    c.group.position.y = 0.525 * scY;   // dasar (pad y -0.525) -> y=0 dunia
+    const g = new THREE.Group();
+    g.add(c.group);
+    return g;
+}
+
 export default Console;
