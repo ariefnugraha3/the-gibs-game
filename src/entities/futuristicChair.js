@@ -1,4 +1,6 @@
-import * as THREE from 'three';
+// THREE global (CDN r128); modul TIDAK meng-import THREE (aturan proyek).
+// CATATAN: MeshStandardMaterial — shader di-warm via renderer.compile saat dunia
+// stage dibangun (lihat futuristicDesk). Dipakai sbg dekorasi kursi (tanpa blocker).
 
 export class FuturisticChair {
     constructor() {
@@ -156,3 +158,21 @@ export class FuturisticChair {
         this.group.position.y = Math.sin(time * 2) * 0.05;
     }
 }
+
+/**
+ * Drop-in builder kursi (dekorasi). Model lokal: dasar bintang-5 ~2 u, dudukan
+ * y≈1.3, sandaran ~y3.2, dasar roda di y≈−0.2. Di-skala uniform lalu diangkat
+ * agar berdiri di y=0. `update()` TIDAK dipanggil (kursi statis).
+ * @param {number} [scale=4.5]  skala uniform (1 u-model → `scale` u-dunia)
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticChairMesh(scale = 4.5) {
+    const c = new FuturisticChair();
+    c.group.scale.setScalar(scale);
+    c.group.position.y = 0.2 * scale;   // dasar roda (y −0.2 lokal) -> y=0 dunia
+    const g = new THREE.Group();
+    g.add(c.group);
+    return g;
+}
+
+export default FuturisticChair;

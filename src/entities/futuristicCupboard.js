@@ -1,4 +1,7 @@
-import * as THREE from 'three';
+// THREE global (CDN r128); modul TIDAK meng-import THREE (aturan proyek).
+// CATATAN: MeshStandardMaterial — shader di-warm via renderer.compile saat dunia
+// stage dibangun (lihat futuristicDesk). PointLight internal DIBUANG di builder
+// (jangan nambah lampu ke scene = biaya/rekompilasi shader).
 
 export class FuturisticCupboard {
     constructor() {
@@ -196,3 +199,25 @@ export class FuturisticCupboard {
         }
     }
 }
+
+/**
+ * Drop-in builder lemari/rak (cupboard). Model lokal tinggi ~4.45 u (badan
+ * y −2..2 + dasar), lebar/dalam ~2 u. Di-skala NON-UNIFORM mengisi footprint
+ * sx×sz dgn tinggi sy; berdiri di y=0. PointLight internal DIBUANG (biaya shader).
+ * `update()` (pintu/hover) TIDAK dipanggil (statis).
+ * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticCupboardMesh(sx, sy, sz) {
+    const c = new FuturisticCupboard();
+    if (c.internalLight) c.group.remove(c.internalLight);   // jangan tambah point-light ke scene
+    const MODEL_H = 4.45, MODEL_BOTTOM = -2.45;             // dari geometri (dasar + hover pad)
+    const scY = sy / MODEL_H;
+    c.group.scale.set(sx / 2, scY, sz / 2);
+    c.group.position.y = -MODEL_BOTTOM * scY;               // dasar -> y=0 dunia
+    const g = new THREE.Group();
+    g.add(c.group);
+    return g;
+}
+
+export default FuturisticCupboard;

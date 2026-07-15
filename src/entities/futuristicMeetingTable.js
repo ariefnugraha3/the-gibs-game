@@ -1,4 +1,6 @@
-import * as THREE from 'three';
+// THREE global (CDN r128); modul TIDAK meng-import THREE (aturan proyek).
+// CATATAN: MeshStandardMaterial — shader di-warm via renderer.compile saat dunia
+// stage dibangun (lihat futuristicDesk). Dipakai utk meja rapat/konferensi.
 
 export class FuturisticMeetingTable {
     constructor() {
@@ -158,3 +160,20 @@ export class FuturisticMeetingTable {
         });
     }
 }
+
+/**
+ * Drop-in builder meja rapat/konferensi. Model lokal: top ~7×3.5 u di y≈1.5,
+ * pedestal dari y=0. Di-skala NON-UNIFORM mengisi footprint sx×sz dgn permukaan
+ * di sy; berdiri di y=0. `update()` (putar/holo) TIDAK dipanggil (statis).
+ * @param {number} sx lebar dunia @param {number} sy tinggi permukaan @param {number} sz dalam
+ * @returns {THREE.Group}
+ */
+export function buildFuturisticMeetingTableMesh(sx, sy, sz) {
+    const t = new FuturisticMeetingTable();
+    t.group.scale.set(sx / 7, sy / 1.5, sz / 3.5);
+    const g = new THREE.Group();
+    g.add(t.group);
+    return g;
+}
+
+export default FuturisticMeetingTable;

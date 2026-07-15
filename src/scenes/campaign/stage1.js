@@ -23,6 +23,9 @@ import { saveCampaignStage } from '../../core/saveGame.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { buildFuturisticDeskMesh } from '../../entities/futuristicDesk.js';
+import { buildFuturisticChairMesh } from '../../entities/futuristicChair.js';
+import { buildFuturisticCupboardMesh } from '../../entities/futuristicCupboard.js';
+import { buildFuturisticMeetingTableMesh } from '../../entities/futuristicMeetingTable.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
@@ -237,39 +240,66 @@ export function buildWorld() {
             rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
         });
     };
-    // "object meja" = model FuturisticDesk (entities/futuristicDesk.js) — BUKAN
-    // balok instanced: daftarkan blocker (seperti furBlock) lalu render group model
-    // yang di-skala mengisi footprint sx×sz, permukaan di sy. update() TIDAK dipanggil.
-    const deskModel = (c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
-        const p = s1Cell(c, r);
-        const x = p.x + dx, z = p.z + dz;
+    // MODEL FURNITUR (entities/futuristic*.js) — BUKAN balok instanced: daftarkan
+    // blocker (footprint sama seperti furBlock) lalu render group model yg di-skala
+    // mengisi footprint. update() (putar/pulsa/hover) TIDAK dipanggil (statis).
+    const putModel = (mesh, x, z, sx, sy, sz, standable) => {
         blockers.push({
-            x, z, hx: sx / 2, hz: sz / 2,
-            axx: 1, axz: 0, azx: 0, azz: 1,
+            x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1,
             rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
         });
-        const desk = buildFuturisticDeskMesh(sx, sy, sz);
-        desk.position.set(x, 0, z);
-        scene.add(desk);
+        mesh.position.set(x, 0, z);
+        scene.add(mesh);
     };
-    const SHELF = 0x55606a, CRATE = 0x7a5c33,
+    // MEJA kerja: model desk + satu KURSI (dekorasi, TANPA blocker) di sisi depan.
+    const deskModel = (c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
+        const p = s1Cell(c, r), x = p.x + dx, z = p.z + dz;
+        putModel(buildFuturisticDeskMesh(sx, sy, sz), x, z, sx, sy, sz, standable);
+        const chair = buildFuturisticChairMesh(Math.min(5, sz * 0.35));
+        chair.position.set(x, 0, z + sz * 0.28);
+        scene.add(chair);
+    };
+    // MEJA RAPAT: model meeting table (ruang konferensi).
+    const meetingModel = (c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
+        const p = s1Cell(c, r);
+        putModel(buildFuturisticMeetingTableMesh(sx, sy, sz), p.x + dx, p.z + dz, sx, sy, sz, standable);
+    };
+    // RAK/LEMARI: deret lemari (cupboard) sepanjang sisi terpanjang (tiap unit ~kotak,
+    // dibatasi 4) — 1 blocker footprint penuh (nav/collision sama seperti dulu).
+    const cupboardModel = (c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
+        const p = s1Cell(c, r), x = p.x + dx, z = p.z + dz;
+        blockers.push({
+            x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1,
+            rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
+        });
+        const along = sx >= sz, longLen = along ? sx : sz, shortLen = along ? sz : sx;
+        const n = Math.max(1, Math.min(4, Math.round(longLen / shortLen)));
+        const unit = longLen / n;
+        for (let i = 0; i < n; i++) {
+            const off = -longLen / 2 + unit * (i + 0.5);
+            const cab = buildFuturisticCupboardMesh(along ? unit : shortLen, sy, along ? shortLen : unit);
+            cab.position.set(along ? x + off : x, 0, along ? z : z + off);
+            scene.add(cab);
+        }
+    };
+    const CRATE = 0x7a5c33,
         SOFA = 0x5a3f3f, STALL = 0x88817a, DARK = 0x23211d, SINK = 0xd8d4c8;
-    // Conference (B): meja rapat panjang di tengah (model meja)
-    deskModel(13, 4, 84, 7, 30);
-    // Office (D): dua meja (model meja) + monitor
+    // Conference (B): meja rapat panjang di tengah (model meja rapat)
+    meetingModel(13, 4, 84, 7, 30);
+    // Office (D): dua meja (model meja + kursi) + monitor
     deskModel(3, 11, 26, 7, 12);
     deskModel(4, 14, 22, 7, 12, 4, 2);
     furBox(3, 11, 6, 4, 1.5, DARK, 0.2, 0, -3); fur[fur.length - 1].y = 7 + 2;
-    // Supply (C): rak logam di dinding utara & timur (jauh dari pintu/koridor)
-    furBlock(24, 1, 90, 15, 8, SHELF, 0, 2);
-    furBlock(27, 4, 8, 15, 40, SHELF);
+    // Supply (C): rak logam (model lemari) di dinding utara & timur
+    cupboardModel(24, 1, 90, 15, 8, 0, 2);
+    cupboardModel(27, 4, 8, 15, 40);
     // Main Hall (G): krat sebagai cover tersebar (jalur tengah tetap terbuka)
     furBlock(11, 12, 16, 9, 16, CRATE);
     furBlock(16, 17, 18, 9, 18, CRATE);
     furBlock(12, 18, 14, 8, 14, CRATE, 2, 0);
-    // Security (H): meja monitor (model meja) + kabinet
+    // Security (H): meja monitor (model meja) + kabinet (model lemari)
     deskModel(25, 11, 24, 7, 12);
-    furBlock(27, 14, 8, 16, 20, SHELF, 4, 0);
+    cupboardModel(27, 14, 8, 16, 20, 4, 0);
     furBox(25, 11, 6, 4, 1.5, DARK, -0.2, 0, -3); fur[fur.length - 1].y = 7 + 2;
     // Break Room (E): sofa + meja (model meja)
     furBlock(3, 21, 20, 6, 18, SOFA);
@@ -277,9 +307,9 @@ export function buildWorld() {
     // Restroom (F): bilik + deret wastafel
     furBlock(9, 24, 2, 15, 24, STALL, 4, 4);
     furBlock(11, 27, 16, 8, 4, SINK, 0, -1);
-    // Storage (I): dua baris rak + krat (celah c17-18 = pintu ke main hall)
-    furBlock(16, 24, 8, 16, 30, SHELF, 0, 2);
-    furBlock(19, 24, 8, 16, 30, SHELF, 0, 2);
+    // Storage (I): dua baris rak (model lemari) + krat (celah c17-18 = pintu ke main hall)
+    cupboardModel(16, 24, 8, 16, 30, 0, 2);
+    cupboardModel(19, 24, 8, 16, 30, 0, 2);
     furBlock(18, 27, 16, 9, 10, CRATE);
     {   // render semua furnitur sebagai satu instanced mesh
         const unit = new THREE.BoxGeometry(1, 1, 1);

@@ -26,6 +26,8 @@ import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { buildFuturisticDeskMesh } from '../../entities/futuristicDesk.js';
+import { buildFuturisticChairMesh } from '../../entities/futuristicChair.js';
+import { buildFuturisticCupboardMesh } from '../../entities/futuristicCupboard.js';
 import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -269,26 +271,48 @@ export function buildWorld() {
             rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
         });
     };
-    // "object meja" = model FuturisticDesk (entities/futuristicDesk.js) — BUKAN
-    // balok instanced: daftarkan blocker (seperti furBlock) lalu render group model
-    // yang di-skala mengisi footprint sx×sz, permukaan di sy. update() TIDAK dipanggil.
-    const deskModel = (c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
-        const p = s3Cell(c, r);
-        const x = p.x + dx, z = p.z + dz;
+    // MODEL FURNITUR (entities/futuristic*.js) — BUKAN balok instanced: daftarkan
+    // blocker (footprint sama seperti furBlock) lalu render group model yg di-skala
+    // mengisi footprint. update() (putar/pulsa/hover) TIDAK dipanggil (statis).
+    const putModel = (mesh, x, z, sx, sy, sz, standable) => {
         blockers.push({
-            x, z, hx: sx / 2, hz: sz / 2,
-            axx: 1, axz: 0, azx: 0, azz: 1,
+            x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1,
             rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
         });
-        const desk = buildFuturisticDeskMesh(sx, sy, sz);
-        desk.position.set(x, 0, z);
-        scene.add(desk);
+        mesh.position.set(x, 0, z);
+        scene.add(mesh);
     };
-    const SHELF = 0x55606a, CRATE = 0x7a5c33,
+    // MEJA kerja: model desk + satu KURSI (dekorasi, TANPA blocker) di sisi depan.
+    const deskModel = (c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
+        const p = s3Cell(c, r), x = p.x + dx, z = p.z + dz;
+        putModel(buildFuturisticDeskMesh(sx, sy, sz), x, z, sx, sy, sz, standable);
+        const chair = buildFuturisticChairMesh(Math.min(5, sz * 0.35));
+        chair.position.set(x, 0, z + sz * 0.28);
+        scene.add(chair);
+    };
+    // RAK/LEMARI: deret lemari (cupboard) sepanjang sisi terpanjang (tiap unit ~kotak,
+    // dibatasi 4) — 1 blocker footprint penuh (nav/collision sama seperti dulu).
+    const cupboardModel = (c, r, sx, sy, sz, dx = 0, dz = 0, standable = true) => {
+        const p = s3Cell(c, r), x = p.x + dx, z = p.z + dz;
+        blockers.push({
+            x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1,
+            rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
+        });
+        const along = sx >= sz, longLen = along ? sx : sz, shortLen = along ? sz : sx;
+        const n = Math.max(1, Math.min(4, Math.round(longLen / shortLen)));
+        const unit = longLen / n;
+        for (let i = 0; i < n; i++) {
+            const off = -longLen / 2 + unit * (i + 0.5);
+            const cab = buildFuturisticCupboardMesh(along ? unit : shortLen, sy, along ? shortLen : unit);
+            cab.position.set(along ? x + off : x, 0, along ? z : z + off);
+            scene.add(cab);
+        }
+    };
+    const CRATE = 0x7a5c33,
         CONSOLE = 0x2f3a44, PLANTER = 0x3a4a32;
-    // ARCHIVE (c8-17 r1-8): banyak rak + meja (model meja)
-    furBlock(10, 2, 8, 15, 40, SHELF);
-    furBlock(15, 2, 8, 15, 40, SHELF);
+    // ARCHIVE (c8-17 r1-8): banyak rak (model lemari) + meja (model meja)
+    cupboardModel(10, 2, 8, 15, 40);
+    cupboardModel(15, 2, 8, 15, 40);
     deskModel(12, 6, 26, 7, 12, 2, 0);
     // OFFICE (c31-40 r1-8): meja kerja (model meja)
     deskModel(33, 2, 26, 7, 12);
@@ -296,19 +320,19 @@ export function buildWorld() {
     // READING (c1-10 r12-19): meja baca (model meja) + rak
     deskModel(3, 13, 28, 7, 12);
     deskModel(7, 17, 26, 7, 12, 0, 2);
-    furBlock(2, 16, 8, 15, 24, SHELF);
+    cupboardModel(2, 16, 8, 15, 24);
     // CAFETERIA (c1-11 r23-28): meja makan (model meja) tersebar
     deskModel(3, 25, 16, 7, 16);
     deskModel(8, 26, 16, 7, 16, 2, 0);
-    // ELECTRICAL (c14-22 r23-28): panel/konsol
+    // ELECTRICAL (c14-22 r23-28): panel/konsol + rak (model lemari)
     furBlock(16, 25, 24, 9, 12, CONSOLE);
-    furBlock(20, 26, 10, 15, 20, SHELF, 2, 0);
-    // STORAGE (c25-31 r23-28): rak + krat
-    furBlock(26, 25, 8, 15, 26, SHELF);
+    cupboardModel(20, 26, 10, 15, 20, 2, 0);
+    // STORAGE (c25-31 r23-28): rak (model lemari) + krat
+    cupboardModel(26, 25, 8, 15, 26);
     furBlock(30, 26, 16, 9, 12, CRATE);
-    // SUPPLY (c34-40 r12-19): rak (jauh dari titik persediaan & pintu c34 r15)
-    furBlock(40, 17, 8, 15, 26, SHELF);
-    furBlock(36, 19, 26, 15, 8, SHELF, 0, 0);
+    // SUPPLY (c34-40 r12-19): rak (model lemari; jauh dari titik persediaan & pintu c34 r15)
+    cupboardModel(40, 17, 8, 15, 26);
+    cupboardModel(36, 19, 26, 15, 8, 0, 0);
     // TOP corridor (c20-28 r1-4): cover
     furBlock(21, 2, 12, 8, 12, CRATE);
     furBlock(27, 2, 12, 8, 12, CRATE);
