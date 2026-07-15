@@ -10,7 +10,7 @@
         "medkitUseSec": 2,
         "medkitSlowMul": 0.75,
         "deathDelaySec": 4,
-        "hpUpgrades": [150, 200]
+        "hpUpgrades": [150, 200, 250]
     },
     "armor": {
         "tiers": [
@@ -51,8 +51,9 @@
         "heatCoolPerSec": 1.4,
         "adsAccuracy": 0.75,
         "ammoUpgrades": [
-            { "pistol": 200, "rifle": 650, "shotgun": 400, "launcher": 40 },
-            { "pistol": 250, "rifle": 750, "shotgun": 500, "launcher": 70 }
+            { "pistol": 180, "rifle": 600, "shotgun": 360, "launcher": 29 },
+            { "pistol": 210, "rifle": 700, "shotgun": 420, "launcher": 33 },
+            { "pistol": 240, "rifle": 800, "shotgun": 480, "launcher": 36 }
         ],
         "rifle": {
             "maxAmmo": 500,
@@ -216,8 +217,8 @@
             "launcher": [2400, 4800]
         },
         "armorCosts": [1200, 2400, 4000],
-        "healthUpCosts": [2000, 4000],
-        "ammoUpCosts": [1600, 3200]
+        "healthUpCosts": [2000, 4000, 6000],
+        "ammoUpCosts": [1600, 3200, 4800]
     },
     "difficulty": {
         "easy": { "robotHpMul": 0.75, "robotDamageMul": 0.5, "spawnIntervalMul": 1.3 },

@@ -95,6 +95,14 @@ export function strengthenMonas() {
 export const getMonasHp = () => monasHp;
 export const getMonasMaxHp = () => monasMaxHp;
 export const isMonasFullyStrengthened = () => monasStage >= CFG.survival.strengthenMonasStages.length;
+// Snapshot/restore Monas (2026-07-15): dipakai shop UNDO (klik kanan =
+// batalkan pembelian terakhir, termasuk Heal/Strengthen Monas).
+export const getMonasState = () => ({ hp: monasHp, max: monasMaxHp, stage: monasStage });
+export function setMonasState(s) {
+    if (!s) return;
+    monasHp = s.hp; monasMaxHp = s.max; monasStage = s.stage;
+    updateUI();
+}
 
 // Event wave = KABUT MONAS (satu-satunya event; fog jarak & blackout lama dibuang
 // 2026-07-11). Kabut abu-abu TEBAL berbasis-posisi: kanopi overhead (world.js)

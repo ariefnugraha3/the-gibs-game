@@ -14,18 +14,93 @@
 // (index.js) — circular, hanya dipakai DI DALAM fungsi (pola arsitektur).
 
 import { CFG } from '../../core/config.js';
-import { player, score, addScore, syncOwnedFromWeapons, maxAmmoFor } from '../../core/state.js';
+import { player, score, addScore, setScore, syncOwnedFromWeapons, maxAmmoFor } from '../../core/state.js';
 import { updateUI } from '../../core/hud.js';
 import { playSFX, sfxPurchase } from '../../utils/sfx.js';
 import { WEAPON_DEF, refreshOwnedWeapon } from '../../entities/weapons.js';
-import { healMonas, strengthenMonas, startNextWave, isMonasFullyStrengthened } from './index.js';
+import { healMonas, strengthenMonas, startNextWave, isMonasFullyStrengthened, getMonasState, setMonasState } from './index.js';
 
 let open = false;
 let selectedId = null;
+let activeTab = 'weapon';   // tab aktif (2026-07-15): Weapons/Armor/Upgrades/General
 let notice = '', noticeErr = false, noticeT = 0;
 let pendingWeapon = null;   // senjata yang menunggu konfirmasi GANTI (slot penuh)
 let confirmNext = false;    // prompt "Are you ready?" sebelum mulai wave berikutnya
+let lastPurchase = null;    // snapshot pembelian TERAKHIR (klik kanan = batal beli)
 const overlay = () => document.getElementById('shopOverlay');
+
+// --- UNDO pembelian terakhir (2026-07-15) -----------------------------------
+// Klik-kiri kartu = langsung beli; klik-KANAN = batalkan pembelian yang BARU
+// SAJA dilakukan (satu langkah, bukan menjual barang lama). Caranya: snapshot
+// seluruh state yang bisa diubah pembelian SEBELUM transaksi, lalu pulihkan +
+// kembalikan skor saat undo. Tak perlu logika balik per-item.
+function snapshotState() {
+    return {
+        score,
+        hp: player.hp, maxHp: player.maxHp, hpLvl: player.hpLvl,
+        medkits: player.medkits,
+        armor: player.armor, armorMax: player.armorMax, armorLvl: player.armorLvl,
+        ammoLvl: player.ammoLvl, hasRadar: player.hasRadar,
+        weaponLvl: { ...player.weaponLvl },
+        weapons: player.weapons.slice(),
+        ammo: { rifle: player.rifle.ammo, pistol: player.pistol.ammo, shotgun: player.shotgun.ammo, launcher: player.launcher.ammo },
+        monas: (shopCtx && shopCtx.mode === 'campaign') ? null : getMonasState(),
+    };
+}
+function restoreState(s) {
+    // Hanya sinkron ulang senjata (mesh FPS) bila slot benar-benar berubah —
+    // undo item non-senjata (medkit/health/dst) tak menyentuh rig senjata.
+    const weaponsChanged = s.weapons.join(',') !== player.weapons.join(',');
+    setScore(s.score);
+    player.hp = s.hp; player.maxHp = s.maxHp; player.hpLvl = s.hpLvl;
+    player.medkits = s.medkits;
+    player.armor = s.armor; player.armorMax = s.armorMax; player.armorLvl = s.armorLvl;
+    player.ammoLvl = s.ammoLvl; player.hasRadar = s.hasRadar;
+    player.weaponLvl = { ...s.weaponLvl };
+    player.weapons = s.weapons.slice();
+    player.rifle.ammo = s.ammo.rifle; player.pistol.ammo = s.ammo.pistol;
+    player.shotgun.ammo = s.ammo.shotgun; player.launcher.ammo = s.ammo.launcher;
+    syncOwnedFromWeapons();
+    if (s.monas) setMonasState(s.monas);
+    if (weaponsChanged) refreshOwnedWeapon();
+    updateUI();
+}
+// Batalkan pembelian terakhir. null = sukses, string = alasan (tak ada / tutup).
+export function shopUndoLast() {
+    if (!open) return 'Shop closed';
+    if (!lastPurchase) return 'Nothing to cancel';
+    restoreState(lastPurchase.snapshot);
+    lastPurchase = null;
+    playSFX(sfxPurchase);
+    return null;
+}
+
+// --- TAB shop (2026-07-15) --------------------------------------------------
+// Katalog dikelompokkan ke 4 tab agar tidak berantakan (permintaan user):
+//  - weapon : tiap senjata (pistol/shotgun/rifle/launcher) SATU BARIS = kartu
+//             beli + kartu upgrade-nya.
+//  - armor  : 3 kartu armor.
+//  - upgrade: Ammo Capacity + Vitality (max HP) + Strengthen Monas.
+//  - general: sisanya (isi ulang ammo/health, medkit, Heal Monas, Radar).
+// Tab murni urusan RENDER — catalog() tetap daftar rata (dipakai shopPurchase
+// & filter campaign). itemTab() mengklasifikasi tiap item.
+const TABS = [
+    { id: 'weapon', label: 'Weapons' },
+    { id: 'armor', label: 'Armor' },
+    { id: 'upgrade', label: 'Upgrades' },
+    { id: 'general', label: 'General' },
+];
+const WEAPON_ORDER = ['pistol', 'shotgun', 'rifle', 'launcher'];
+function itemTab(it) {
+    if (it.weapon || it.upgrade) return 'weapon';
+    if (it.armorTier) return 'armor';
+    if (it.id === 'ammoup' || it.id === 'hpup' || it.id === 'strengthenMonas') return 'upgrade';
+    return 'general';
+}
+function tabItems(tab) { return catalog().filter(it => itemTab(it) === tab); }
+// Tab yang punya minimal 1 item (campaign menyembunyikan sebagian item).
+function visibleTabs() { return TABS.filter(t => tabItems(t.id).length > 0); }
+function firstTabId() { const v = visibleTabs(); return v.length ? v[0].id : 'general'; }
 
 // KONTEKS shop (2026-07-14): Survival (default) vs Campaign. Menentukan KATALOG
 // (Campaign menyembunyikan item khusus Survival: Monas/Radar/beli-senjata), LABEL
@@ -48,12 +123,23 @@ function defaultCtx() {
 
 export function isShopOpen() { return open; }
 
+// Debug/uji: klasifikasi item per tab yang saat ini TERLIHAT (mengikuti
+// owned/campaign). { active, tabs:[id..], items:{tab:[itemId..]} }.
+export function shopTabDebug() {
+    return {
+        active: activeTab,
+        tabs: visibleTabs().map(t => t.id),
+        items: Object.fromEntries(TABS.map(t => [t.id, tabItems(t.id).map(it => it.id)])),
+    };
+}
+
 export function closeShop() {
     if (!open) return;
     open = false;
     notice = '';
     pendingWeapon = null;
     confirmNext = false;
+    lastPurchase = null;
     const o = overlay();
     o.style.display = 'none';
     o.classList.remove('campaignShop');
@@ -66,7 +152,10 @@ export function openShop(ctx) {
     notice = '';
     pendingWeapon = null;
     confirmNext = false;
-    selectedId = catalog()[0].id;
+    lastPurchase = null;
+    activeTab = firstTabId();
+    const first = tabItems(activeTab)[0];
+    selectedId = first ? first.id : (catalog()[0] && catalog()[0].id);
     render();
     const o = overlay();
     // Campaign = SHOP SCENE terpisah (2026-07-14): latar OPAK (stage tak terlihat).
@@ -151,7 +240,7 @@ function vitalityItem() {
     const idx = Math.min(lvl - 1, HP.length - 1);
     return {
         id: 'hpup',
-        name: `Vitality ${ROMAN[Math.min(idx + 1, ROMAN.length - 1)]}`,
+        name: `Vitality ${ROMAN[Math.min(idx, ROMAN.length - 1)]}`,
         cost: costs[idx] != null ? costs[idx] : 0,
         desc: lvl >= HP.length + 1
             ? `Your body is at peak condition (maximum health ${player.maxHp}).`
@@ -180,7 +269,7 @@ function ammoCapItem() {
     const t = T[idx] || {};
     return {
         id: 'ammoup',
-        name: `Ammo Capacity ${ROMAN[Math.min(idx + 1, ROMAN.length - 1)]}`,
+        name: `Ammo Capacity ${ROMAN[Math.min(idx, ROMAN.length - 1)]}`,
         cost: costs[idx] != null ? costs[idx] : 0,
         desc: lvl >= T.length + 1
             ? 'Your ammo pouches are fully expanded.'
@@ -335,9 +424,11 @@ export function shopPurchase(id) {
         pendingWeapon = it;
         return 'choose-replace';
     }
+    const snap = snapshotState();   // sebelum apply/potong skor (utk undo klik-kanan)
     const rejected = it.apply();
     if (rejected) return rejected;
     addScore(-it.cost);
+    lastPurchase = { snapshot: snap, id };
     playSFX(sfxPurchase);
     updateUI();
     return null;
@@ -356,11 +447,13 @@ export function shopReplaceWeapon(oldW) {
     const idx = player.weapons.indexOf(oldW);
     if (idx < 0) return 'You do not carry that weapon';
     if (score < it.cost) { pendingWeapon = null; return 'Not enough score'; }
+    const snap = snapshotState();        // utk undo klik-kanan
     const w = it.weapon;
     player.weapons[idx] = w;             // ganti di posisi slot yang sama
     syncOwnedFromWeapons();
     player[w].ammo = maxAmmoFor(w);   // kolam peluru penuh (kap efektif, tanpa magazen)
     addScore(-it.cost);
+    lastPurchase = { snapshot: snap, id: it.id };
     playSFX(sfxPurchase);
     pendingWeapon = null;
     refreshOwnedWeapon();                // senjata aktif tetap valid bila yang aktif diganti
@@ -401,6 +494,13 @@ function doPurchase(id) {
     const msg = shopPurchase(id);
     if (msg === 'choose-replace') { notice = ''; render(); return; }
     setNotice(msg == null ? 'Purchased!' : msg, msg != null);
+    render();
+}
+
+// Klik-kanan kartu: batalkan pembelian terakhir (undo satu langkah).
+function doUndo() {
+    const msg = shopUndoLast();
+    setNotice(msg == null ? 'Purchase canceled' : msg, msg != null);
     render();
 }
 
@@ -459,6 +559,42 @@ function renderConfirm(panel) {
     panel.appendChild(body);
 }
 
+// Bangun satu kartu item (nama + harga/status). Tanpa tombol Buy (2026-07-15):
+// KLIK-KIRI kartu = langsung beli; KLIK-KANAN = batalkan pembelian terakhir;
+// hover = preview di panel deskripsi. `desc` = panel deskripsi yang diperbarui.
+function makeCard(it, desc) {
+    const card = el('div', 'shopCard');
+    card.appendChild(el('div', 'shopCardName', it.name));
+    const note = ownedNote(it);
+    const foot = el('div', 'shopCardPrice', note ? note : `${it.cost}`);
+    if (note) { foot.classList.add('note'); card.classList.add('owned'); }
+    else if (score < it.cost) { foot.classList.add('poor'); card.classList.add('poor'); }
+    card.appendChild(foot);
+    if (it.id === selectedId) card.classList.add('sel');
+    card.addEventListener('mouseenter', () => { selectedId = it.id; showDesc(desc, it); });
+    card.addEventListener('click', () => doPurchase(it.id));          // klik-kiri = beli
+    card.addEventListener('contextmenu', (e) => { e.preventDefault(); doUndo(); }); // klik-kanan = batal
+    return card;
+}
+
+// Baris tab di atas grid. Klik tab = ganti activeTab + pilih item pertamanya.
+function renderTabs(panel) {
+    const vis = visibleTabs();
+    if (vis.length <= 1) return;                 // tak perlu tab bila cuma 1
+    const row = el('div', 'shopTabs');
+    for (const t of vis) {
+        const b = el('button', 'shopTab' + (t.id === activeTab ? ' active' : ''), t.label);
+        b.addEventListener('click', () => {
+            activeTab = t.id;
+            const first = tabItems(t.id)[0];
+            if (first) selectedId = first.id;
+            render();
+        });
+        row.appendChild(b);
+    }
+    panel.appendChild(row);
+}
+
 function render() {
     const root = overlay();
     root.innerHTML = '';
@@ -476,34 +612,39 @@ function render() {
     if (pendingWeapon) {
         renderReplace(panel);
     } else {
-        // Grid kartu item + panel deskripsi lebar penuh di bawahnya.
-        const grid = el('div', 'shopGrid');
+        // Tab + isi tab aktif + panel deskripsi lebar penuh di bawahnya.
+        renderTabs(panel);
+        // Pastikan tab aktif masih punya item (bisa kosong di campaign).
+        if (!tabItems(activeTab).length) activeTab = firstTabId();
         const desc = el('div', 'shopDesc');
-        const items = catalog();
-        for (const it of items) {
-            const card = el('div', 'shopCard');
-            card.appendChild(el('div', 'shopCardName', it.name));
-            const note = ownedNote(it);
-            // Tombol Buy per-kartu = SATU-SATUNYA jalur beli (klik kartu hanya
-            // memilih/preview). stopPropagation supaya klik Buy tak ikut memicu
-            // handler pilih kartu.
-            const buy = el('button', 'shopCardBuy', note ? note : 'Buy');
-            if (note || score < it.cost) buy.classList.add('disabled');
-            else buy.addEventListener('click', (e) => { e.stopPropagation(); doPurchase(it.id); });
-            card.appendChild(buy);
-            if (note) card.classList.add('owned');
-            card.addEventListener('mouseenter', () => { selectedId = it.id; showDesc(desc, it); });
-            card.addEventListener('click', () => { selectedId = it.id; showDesc(desc, it); });
-            grid.appendChild(card);
+        const items = tabItems(activeTab);
+        // SATU grid seragam untuk SEMUA tab (kartu berukuran & bergaya sama).
+        // Tab weapon: setiap senjata dimulai di kolom 1 (kelas `rowStart`) agar
+        // pasangan [Beli]+[Upgrade]-nya duduk pada satu baris — tanpa mengubah
+        // gaya/ukuran kartu. Tinggi grid TETAP (CSS) agar panel tak berubah
+        // ukuran saat pindah tab.
+        const grid = el('div', 'shopGrid');
+        if (activeTab === 'weapon') {
+            for (const w of WEAPON_ORDER) {
+                const rowItems = items.filter(it => it.weapon === w || it.upgrade === w);
+                rowItems.forEach((it, i) => {
+                    const card = makeCard(it, desc);
+                    if (i === 0) card.classList.add('rowStart');   // mulai baris baru per senjata
+                    grid.appendChild(card);
+                });
+            }
+        } else {
+            for (const it of items) grid.appendChild(makeCard(it, desc));
         }
         panel.appendChild(grid);
         panel.appendChild(desc);
-        // Deskripsi awal = item terpilih (terakhir di-hover / pertama saat buka)
+        // Deskripsi awal = item terpilih dalam tab (fallback item pertama tab).
         showDesc(desc, items.find(x => x.id === selectedId) || items[0]);
     }
 
     const foot = el('div', 'shopFoot');
     foot.appendChild(el('div', 'shopScore', `Score: ${score}`));
+    foot.appendChild(el('div', 'shopHint', 'Left-click to buy · Right-click to cancel'));
     const next = el('button', 'shopNext', (shopCtx && shopCtx.nextLabel) || 'Start Next Wave ▶');
     next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"
     foot.appendChild(next);

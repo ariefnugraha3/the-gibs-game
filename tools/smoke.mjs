@@ -443,6 +443,27 @@ robots.splice(robots.indexOf(zX), 1);
 const shopMod = await import(R('src/scenes/survival/shop.js'));
 stateMod.setScore(999999);
 shopMod.openShop();
+// --- Tab shop (2026-07-15): item terkelompok ke Weapons/Armor/Upgrades/General ---
+const tabDbg = shopMod.shopTabDebug();
+T('tab shop: 4 tab terlihat, default = weapon', tabDbg.active === 'weapon'
+    && tabDbg.tabs.join(',') === 'weapon,armor,upgrade,general');
+T('tab weapon berisi upgrade senjata (up_pistol)', tabDbg.items.weapon.includes('up_pistol'));
+T('tab armor = armor1/2/3', tabDbg.items.armor.join(',') === 'armor1,armor2,armor3');
+T('tab upgrade = ammoup + hpup + strengthenMonas', tabDbg.items.upgrade.includes('ammoup')
+    && tabDbg.items.upgrade.includes('hpup') && tabDbg.items.upgrade.includes('strengthenMonas'));
+T('tab general = isi ulang/medkit/radar/heal-monas (bukan armor/upgrade)',
+    tabDbg.items.general.includes('ammo') && tabDbg.items.general.includes('health')
+    && tabDbg.items.general.includes('medkit') && tabDbg.items.general.includes('radar')
+    && tabDbg.items.general.includes('healMonas')
+    && !tabDbg.items.general.includes('armor1') && !tabDbg.items.general.includes('ammoup'));
+// --- Undo pembelian terakhir (2026-07-15): klik-kanan = batalkan beli terakhir ---
+{
+    const sBefore = stateMod.score, medBefore = player.medkits;
+    T('beli Medkit (klik kartu)', shopMod.shopPurchase('medkit') === null && player.medkits === medBefore + 1);
+    T('undo pembelian terakhir: efek + skor kembali', shopMod.shopUndoLast() === null
+        && player.medkits === medBefore && stateMod.score === sBefore);
+    T('undo lagi = tidak ada yang dibatalkan', typeof shopMod.shopUndoLast() === 'string');
+}
 T('beli upgrade pistol (Lv1->2)', shopMod.shopPurchase('up_pistol') === null && player.weaponLvl.pistol === 2);
 T('upgrade shotgun TERSEMBUNYI sebelum punya shotgun', shopMod.shopPurchase('up_shotgun') === 'Unknown item');
 // (beli senjata via shopPurchase butuh initWeapons [mesh FPS] — di harness cukup
@@ -571,10 +592,20 @@ T('naik ke Armor III', shopMod.shopPurchase('armor3') === null
     && player.armorLvl === 3 && player.armorMax === AT[2].durability);
 player.hp = 40;
 const hpT = cfgMod.CFG.player.hpUpgrades;
-T('beli Vitality II: maxHp naik + heal kenaikan', shopMod.shopPurchase('hpup') === null
+T('beli Vitality I: maxHp naik + heal kenaikan', shopMod.shopPurchase('hpup') === null
     && player.maxHp === hpT[0] && player.hp === 40 + (hpT[0] - cfgMod.CFG.player.maxHp));
-T('beli Ammo Capacity II: kap rifle ikut naik', shopMod.shopPurchase('ammoup') === null
-    && stateMod.maxAmmoFor('rifle') === cfgMod.CFG.weapons.ammoUpgrades[0].rifle);
+T('Vitality bertingkat sampai III (health puncak = hpUpgrades terakhir)',
+    shopMod.shopPurchase('hpup') === null && player.maxHp === hpT[1]
+    && shopMod.shopPurchase('hpup') === null && player.maxHp === hpT[hpT.length - 1]
+    && typeof shopMod.shopPurchase('hpup') === 'string');   // tier ke-4 = Maxed
+const auT = cfgMod.CFG.weapons.ammoUpgrades;
+T('beli Ammo Capacity I: kap rifle ikut naik', shopMod.shopPurchase('ammoup') === null
+    && stateMod.maxAmmoFor('rifle') === auT[0].rifle);
+T('Ammo Capacity bertingkat sampai III (rifle & launcher ikut tier terakhir)',
+    shopMod.shopPurchase('ammoup') === null && shopMod.shopPurchase('ammoup') === null
+    && stateMod.maxAmmoFor('rifle') === auT[auT.length - 1].rifle
+    && stateMod.maxAmmoFor('launcher') === auT[auT.length - 1].launcher
+    && typeof shopMod.shopPurchase('ammoup') === 'string');   // tier ke-4 = Maxed
 shopMod.closeShop();
 // overlay armor avatar: toggle visibilitas per level tanpa error
 avMod.updatePlayerAvatar(0.05);
