@@ -61,13 +61,12 @@ export function campaignJumpToStage(n) {
     clearArray(drops, scene);
     busy = false;   // batalkan transisi shop yang mungkin sedang menanti
     const target = [null, stage1Scene, stage2Scene, stage3Scene, stage4Scene][n];
-    setScene(target, { fresh: true });          // enter(): bangun dunia + robot (1/3/4) + posisi player
+    setScene(target, { fresh: true });          // enter(): robot + posisi player (dunia sudah pre-built)
     if (n === 2) placeStage2Robots();           // robot+supply stage 2 (normalnya via stage1.enter)
-    // Kompilasi shader dunia (baru dibangun) di bawah lampu stage tujuan — anti-
-    // stutter untuk jalur lompat-langsung (cheat skip / restart-at-stage) yang
-    // TIDAK punya warm-up loading seperti runLeaveShop/warmupAll. Wajib khususnya
-    // untuk stage 4: FuturisticSUV memakai MeshStandard/MeshPhysical yang tak
-    // di-warm preload, jadi tanpa ini render pertamanya nge-hitch.
+    // Kompilasi shader di bawah lampu stage tujuan — jaring pengaman anti-stutter
+    // utk jalur lompat-langsung (cheat skip / restart-at-stage). Sejak pre-build
+    // semua dunia (2026-07-16) shader sudah di-warm startGame, jadi panggilan ini
+    // murah; dipertahankan utk jaga-jaga (mis. jump sebelum warmup di smoke).
     if (renderer) renderer.compile(scene, viewCam);
     return n;
 }
@@ -128,10 +127,10 @@ async function runLeaveShop() {
     closeShop();
     showLoading();
     await loadingStep(8, 'Loading next area…');
-    setScene(pendingNext, { transition: true });   // enter(): bangun dunia (stage 3/4 lazy) + robot + posisi awal
-    busy = false;
-    await loadingStep(55, 'Preparing the area…');
-    renderer.compile(scene, viewCam);              // kompilasi shader dunia baru (anti-stutter)
+    setScene(pendingNext, { transition: true });   // enter(): robot + posisi awal (SEMUA dunia
+    busy = false;                                  // sudah di-pre-build stage1.enter, 2026-07-16 —
+    await loadingStep(55, 'Preparing the area…');  // loading tiap transisi kini konsisten ~minHold)
+    renderer.compile(scene, viewCam);              // jaring pengaman shader (sudah di-warm startGame)
     await loadingStep(78, 'Warming up…');
     for (let i = 0; i < 3; i++) {                  // beberapa frame render nyata (unggah tekstur / link program)
         if (composer && postFxOn) composer.render();

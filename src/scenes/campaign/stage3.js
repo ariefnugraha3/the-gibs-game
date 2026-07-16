@@ -54,6 +54,14 @@ const S3_EXIT = { c0: 34, r0: 24, c1: 40, r1: 28 };
 const blockers = [];
 let built = false;
 
+// Bangun dunia SEKALI (guard `built`) — dipanggil enter() DAN `stage1.enter`
+// (2026-07-16: SEMUA dunia campaign di-pre-build di awal, di balik layar
+// loading awal + warmupAll, supaya loading antar-stage konsisten ~900 ms —
+// dulu build+compile lazy stage 3/4 membuat LOADING #2-nya jauh lebih lama
+// daripada transisi 1→2 yang dunianya sudah jadi).
+export function ensureWorld() { if (!built) { built = true; buildWorld(); } }
+export const worldBuilt = () => built;   // debug/smoke
+
 function inVoid(c, r) {
     const V = S3.VOID;
     return c >= V.c0 && c <= V.c1 && r >= V.r0 && r <= V.r1;
@@ -489,7 +497,7 @@ export const stage3Scene = {
     // stage final — tangga END turun ke jalan/stasiun = stage 4.)
     enter() {
         saveCampaignStage(3);   // checkpoint: campaign berada di stage 3
-        if (!built) { built = true; buildWorld(); }
+        ensureWorld();   // normalnya sudah dibangun stage1.enter (pre-build) — guard jaga-jaga
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 2) {
                 disposeRobot(robots[i]);

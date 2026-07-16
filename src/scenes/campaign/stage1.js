@@ -34,6 +34,8 @@ import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js'
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
+import { ensureWorld as ensureStage3World } from './stage3.js';   // (circular aman: dipanggil DI DALAM enter)
+import { ensureWorld as ensureStage4World } from './stage4.js';
 
 // Grid 30 sel x 2 m; gedung ditaruh ~26 km dari jalan raya (stage 2) —
 // kedua dunia hidup berdampingan di satu scene, dipisah jarak.
@@ -473,6 +475,14 @@ export const stage1Scene = {
             built = true;
             buildStage2World();   // STAGE 2: gedung terbengkalai Lantai 2 (denah, jauh)
             buildWorld();         // STAGE 1: gedung terbengkalai (jauh dari stage 2)
+            // PRE-BUILD dunia stage 3 & 4 juga (2026-07-16): SEMUA dunia campaign
+            // dibangun di sini, di balik layar loading awal startGame (warmupAll
+            // sesudahnya ikut meng-compile shadernya, termasuk MeshStandard/
+            // Physical mobil stage 4) → LOADING #2 antar-stage tak lagi
+            // menanggung build+compile lazy, tiap transisi konsisten ~900 ms.
+            // enter stage 3/4 tinggal menempatkan robot (guard di ensureWorld).
+            ensureStage3World();
+            ensureStage4World();
         }
         placeStage2Robots();     // robot gedung stage 2 (9 spot denah) + supply
         placeRobots();           // robot gedung sesuai denah (stage 1)

@@ -809,7 +809,7 @@ shopMod.closeShop();
 // --- 16. Campaign STAGE 3 overhaul (2026-07-13): gedung indoor final dgn
 // ATRIUM/VOID pusat mengikuti denah. Bangun dunia + BFS konektivitas (VOID =
 // dinding), penempatan robot 10-spot + supply, robotAI, dan MENANG via tangga. ---
-s3mod.buildWorld();
+s3mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya tak membangun ulang)
 {   // BFS: SEMUA lantai (kecuali VOID pusat) terhubung dari START
     const grid = s3mod.s3grid, ROWS = grid.length, COLS = grid[0].length;
     const seen = grid.map(row => row.map(() => false));
@@ -868,7 +868,15 @@ shopMod.closeShop();
 // 500 m -> stasiun kereta, dgn BOSS di ujung timur. Bangun dunia (union
 // walkable), konektivitas flood-fill START->END, robot 13-spot + supply,
 // robotAI, dan ALUR: bunuh semua -> boss muncul -> bunuh boss -> finish. ---
-s4mod.buildWorld();
+s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya tak membangun ulang)
+// PRE-BUILD konsistensi loading (2026-07-16): ensureWorld idempoten — panggilan
+// kedua TIDAK membangun ulang dunia (jumlah anak scene tetap), guard `built` set.
+{
+    const nBefore = scene.children.length;
+    s4mod.ensureWorld();
+    T('S4: ensureWorld idempoten (panggilan ke-2 tak membangun ulang dunia)',
+        scene.children.length === nBefore && s4mod.worldBuilt() && s3mod.worldBuilt());
+}
 {   // flood-fill union (stage4Walk): START harus terhubung ke END
     const S = s4mod.S4_START, E = s4mod.S4_END, cell = 14;
     const gx0 = S.x - 400, gz0 = S.z - 200, NC = 300, NR = 90;
@@ -896,6 +904,12 @@ s4mod.placeRobots();
 const nStage4 = robots.filter(z => z.stage === 4).length;
 T('S4: placeRobots menaruh 44 robot (13 spot) tagged stage 4 (' + nStage4 + ')', nStage4 === 44);
 T('S4: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s4dropsBefore);
+// Layout baru 2026-07-16 (parkiran/stasiun kecil, jalan 2 lajur): semua spot
+// robot & supply hasil retarget harus tetap berdiri DI DALAM union walkable.
+T('S4: semua robot layout baru berdiri di area walkable',
+    robots.filter(z => z.stage === 4).every(z => s4mod.stage4Walk(z.mesh.position.x, z.mesh.position.z, 3)));
+T('S4: semua supply layout baru berada di area walkable',
+    stateMod.drops.slice(s4dropsBefore).every(d => s4mod.stage4Walk(d.mesh.position.x, d.mesh.position.z, 2)));
 
 const zS4 = robots.find(z => z.stage === 4);
 camera.position.set(zS4.mesh.position.x + 30, cfgMod.CFG.player.eyeHeight, zS4.mesh.position.z);
@@ -920,6 +934,68 @@ camera.position.set(s4mod.S4_START.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_STAR
 let s4tankOk = true;
 try { for (let i = 0; i < 120; i++) s4mod.stage4Scene.updateMode(0.1); } catch (e) { s4tankOk = false; console.log(e); }
 T('S4: siklus tank (spawn+3 serangan) jalan tanpa error', s4tankOk && !s4tank.dead);
+// Netralkan state serangan (cd beku) supaya blok-blok uji berikut deterministik
+const s4calm = () => {
+    s4tank.mgLeft = 0; s4tank.mortarLeft = 0; s4tank.blastPending = false; s4tank.cd = 99;
+    while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mortars.splice(0, 1); }
+    while (s4tank.shells.length) { scene.remove(s4tank.shells[0].mesh); s4tank.shells.splice(0, 1); }
+};
+s4calm();
+// PAGAR LISTRIK (2026-07-16): player di dalam radius shockRadiusMeters tersengat
+// shockDps HP/DETIK yang MENEMBUS armor (durability TIDAK tergerus — HP langsung,
+// bukan damagePlayerHp); godMode kebal; di luar radius aman. Config-driven.
+{
+    const TB = cfgMod.CFG.campaign.bosses.tank;
+    const shockR = TB.shockRadiusMeters * cfgMod.CAMP_M;
+    const tp = s4tank.parts.group.position;
+    player.hp = 100; player.armorLvl = 1; player.armor = 100; player.armorMax = 100;
+    camera.position.set(tp.x - shockR * 0.5, cfgMod.CFG.player.eyeHeight, tp.z);
+    for (let i = 0; i < 10; i++) s4mod.stage4Scene.updateMode(0.1);   // 1 detik tersengat
+    const drop = 100 - player.hp;
+    T('S4: PAGAR LISTRIK — dekat tank tersengat shockDps/detik MENEMBUS armor',
+        TB.shockDps > 0 && Math.abs(drop - TB.shockDps) < TB.shockDps * 0.2 && player.armor === 100);
+    stateMod.setGodMode(true);
+    player.hp = 100;
+    for (let i = 0; i < 10; i++) s4mod.stage4Scene.updateMode(0.1);
+    T('S4: setruman tank tidak menembus god-mode', player.hp === 100);
+    stateMod.setGodMode(false);
+    camera.position.set(tp.x - shockR * 3, cfgMod.CFG.player.eyeHeight, tp.z);
+    player.hp = 100;
+    for (let i = 0; i < 10; i++) s4mod.stage4Scene.updateMode(0.1);
+    T('S4: di luar radius setrum player aman', player.hp === 100);
+    player.armorLvl = 0; player.armor = 0; player.armorMax = 0;
+    s4calm();
+}
+// LOB BER-APEX (2026-07-16, rombak "parabola aneh"): mortar SELALU melambung
+// (vy0 > 0) ke puncak = max(sy, landY) + min(riseCap, max(apexMeters·CAMP_M,
+// jarak·apexRatio)), lalu MENDARAT di posisi player SAAT tembakan itu.
+{
+    const TB = cfgMod.CFG.campaign.bosses.tank;
+    const tp = s4tank.parts.group.position;
+    camera.position.set(tp.x - 400, cfgMod.CFG.player.eyeHeight, tp.z + 10);
+    const txp = camera.position.x, tzp = camera.position.z;
+    s4tank.mortarLeft = 1; s4tank.mortarTimer = 0; s4tank.blastPending = true;
+    s4mod.stage4Scene.updateMode(0.02);   // tembakkan 1 mortar (belum terintegrasi)
+    const mo = s4tank.mortars[s4tank.mortars.length - 1];
+    const vy0 = mo.vy, sy0 = mo.mesh.position.y;
+    const d0 = Math.hypot(txp - mo.mesh.position.x, tzp - mo.mesh.position.z);
+    const g = TB.mortarGravity;
+    const riseCap = 0.5 * g * Math.pow(TB.mortarMaxSec * 0.45, 2);
+    const wantRise = Math.min(riseCap, Math.max(TB.mortarApexMeters * cfgMod.CAMP_M, d0 * TB.mortarApexRatio));
+    const wantApex = Math.max(sy0, 5) + wantRise;
+    const apexCalc = sy0 + vy0 * vy0 / (2 * mo.g);   // puncak analitik dari vy0
+    let lastX = 0, lastZ = 0;
+    for (let i = 0; i < 600 && s4tank.mortars.includes(mo); i++) {
+        lastX = mo.mesh.position.x; lastZ = mo.mesh.position.z;
+        s4mod.stage4Scene.updateMode(0.02);
+    }
+    const missBy = Math.hypot(lastX - txp, lastZ - tzp);
+    T('S4: mortar LOB BER-APEX — vy0 selalu ke atas, puncak sesuai formula config',
+        vy0 > 0 && Math.abs(apexCalc - wantApex) < 2 && TB.mortarApexMeters > 0 && TB.mortarApexRatio > 0);
+    T('S4: mortar mendarat di posisi player saat tembakan (meleset ' + missBy.toFixed(1) + ' u < 10)',
+        !s4tank.mortars.includes(mo) && missBy < 10);
+    s4calm();
+}
 // Mortar = LOB PARABOLA balistik (2026-07-15, bukan homing): suntik 1 mortar
 // naik + gravitasi → updateTank harus meng-ARC-kan (naik dulu) lalu MELEDAK saat
 // turun melewati landY (proyektil hilang dari array; homing-nya sudah dihapus).
@@ -1012,6 +1088,11 @@ T('save: enter stage 3 menulis checkpoint 3', saveMod.loadCampaignStage() === 3)
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 smMod.activeScene.cheatSkipToStage(1);   // stage1.enter -> saveCampaignStage(1)
 T('save: enter stage 1 menulis checkpoint 1', saveMod.loadCampaignStage() === 1);
+// Konsistensi loading antar-stage (2026-07-16): stage1.enter mem-pre-build SEMUA
+// dunia campaign (ensureWorld stage 3 & 4 di dalam guard `built`-nya) sehingga
+// LOADING #2 transisi mana pun tak lagi menanggung build+compile lazy.
+T('campaign: dunia stage 3 & 4 PRE-BUILT saat campaign dimulai (loading konsisten)',
+    s3mod.worldBuilt() && s4mod.worldBuilt());
 // Prompt game-over "RESTART STAGE" (2026-07-15): resetGame(true) campaign ulang
 // dari AWAL stage CHECKPOINT (bukan stage 1) via campaignJumpToStage(loadCampaignStage()||1).
 saveMod.saveCampaignStage(3);

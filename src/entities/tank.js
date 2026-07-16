@@ -23,16 +23,28 @@
 //      MENGHADAP KE DEPAN; tiap mortar mendarat di posisi player SAAT tembakan
 //      itu — dihindari dgn MENJAUH dari titik jatuh atau TUMBLE/dodge (i-frame
 //      meleset; damage mortarDamage, radius killRadius × mortarBlastRatio).
+//      Lengkung DIROMBAK 2026-07-16: lob BER-APEX (lihat fireMortar) — selalu
+//      melambung tinggi dulu, tak lagi menukik datar pada sasaran dekat.
+//
+// PAGAR LISTRIK (2026-07-16): tank TIDAK BISA DIDEKATI — player di dalam radius
+// shockRadiusMeters tersengat shockDps HP/detik MENEMBUS ARMOR (HP dikurangi
+// langsung, TANPA damagePlayerHp/durability; godMode kebal, i-frame dodge
+// meleset). Busur petir tank->player + percikan biru + flash merah = umpan
+// balik; saat tak ada yang dekat, lambung sesekali BERDESIS busur kecil
+// (telegraf "berlistrik"). HP habis oleh setruman -> startPlayerDeath (roboh
+// menjauhi tank).
 
-import { CFG } from '../core/config.js';
-import { player, bullets, enemyBullets, GEO, MAT, addScore, stats } from '../core/state.js';
+import { CFG, CAMP_M } from '../core/config.js';
+import { player, bullets, enemyBullets, GEO, MAT, addScore, stats, godMode, dodgeInvuln } from '../core/state.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { segPointDist2, clamp } from '../utils/math.js';
-import { queueBoom } from './robots.js';
+import { queueBoom, attackerAngle } from './robots.js';
 import { spawnGroundPuff, spawnBloodBurst, explodeAt } from './effects.js';
 import { spawnGibs, spawnBloodDecal } from './gore.js';
-import { playSFX, sfxExplode, sfxShoot, sfxShotgun } from '../utils/sfx.js';
+import { playSFX, sfxExplode, sfxShoot, sfxShotgun, sfxHit } from '../utils/sfx.js';
 import { updateUI } from '../core/hud.js';
+import { flashDamage, showHitDir } from '../core/dom.js';
+import { startPlayerDeath } from '../core/game.js';
 
 const _wp = new THREE.Vector3();   // scratch getWorldPosition
 const _UP = new THREE.Vector3(0, 1, 0);   // sumbu HIDUNG mortar (+Y lokal) utk orientasi lintasan
@@ -74,6 +86,52 @@ export function mortarShell() {
     }
     return g;
 }
+
+// ===== BUSUR PETIR pagar listrik (2026-07-16): satu group segmen kotak tipis
+// (MeshBasic biru-es = program shader yang sudah dipanaskan, tanpa recompile)
+// yang tiap frame dibentangkan ZIG-ZAG antara dua titik (tank->player saat
+// menyengat; dua titik lambung acak saat crackle idle). Dibuat SEKALI (malas),
+// di-share, TIDAK ikut di-dispose bersama tank (cukup disembunyikan). =====
+let ZAP = null;
+const ZAP_SEGS = 9;
+const _za = new THREE.Vector3();   // scratch arah segmen busur
+function zapPool() {
+    if (!ZAP) {
+        const mat = new THREE.MeshBasicMaterial({ color: 0x9fe2ff, transparent: true, opacity: 0.9, toneMapped: false });
+        const geo = new THREE.BoxGeometry(0.55, 1, 0.55);   // memanjang di +Y -> diarahkan setFromUnitVectors
+        const grp = new THREE.Group();
+        grp.visible = false;
+        const segs = [];
+        for (let i = 0; i < ZAP_SEGS; i++) { const m = new THREE.Mesh(geo, mat); segs.push(m); grp.add(m); }
+        ZAP = { grp, segs, mat, inScene: false };
+    }
+    if (!ZAP.inScene) { scene.add(ZAP.grp); ZAP.inScene = true; }
+    return ZAP;
+}
+// Bentangkan busur dari (ax,ay,az) ke (bx,by,bz): waypoint di-jitter tegak-lurus
+// (envelope sin -> ujung tetap terpaku), tiap segmen kotak diskala+diorientasikan.
+function layZap(ax, ay, az, bx, by, bz) {
+    const Z = zapPool();
+    let px = ax, py = ay, pz = az;
+    for (let i = 0; i < ZAP_SEGS; i++) {
+        const t = (i + 1) / ZAP_SEGS;
+        const env = Math.sin(Math.PI * t) * 6;   // jitter maksimum di tengah busur
+        const nx = ax + (bx - ax) * t + (i < ZAP_SEGS - 1 ? (Math.random() - 0.5) * env : 0);
+        const ny = ay + (by - ay) * t + (i < ZAP_SEGS - 1 ? (Math.random() - 0.5) * env : 0);
+        const nz = az + (bz - az) * t + (i < ZAP_SEGS - 1 ? (Math.random() - 0.5) * env : 0);
+        const m = Z.segs[i];
+        _za.set(nx - px, ny - py, nz - pz);
+        const len = _za.length() || 0.001;
+        m.position.set((px + nx) / 2, (py + ny) / 2, (pz + nz) / 2);
+        m.scale.set(1, len, 1);
+        _za.normalize();
+        m.quaternion.setFromUnitVectors(_UP, _za);
+        px = nx; py = ny; pz = nz;
+    }
+    Z.grp.visible = true;
+    Z.mat.opacity = 0.5 + Math.random() * 0.5;   // kelap-kelip listrik
+}
+function hideZap() { if (ZAP) ZAP.grp.visible = false; }
 
 // ===== Bangun mesh tank prosedural — DIROMBAK TOTAL 2026-07-15 mengacu bentuk
 // TANK TIGER I Jerman PD2 (lambung boxy sisi-tegak yang menggantung di atas
@@ -271,6 +329,7 @@ export function spawnTank({ homeX, homeZ, wallX, faceX }) {
         blastPending: false, pendingId: 0,
         mgLeft: 0, mgTimer: 0,
         mortarLeft: 0, mortarTimer: 0,
+        shockFxT: 0, shockSfxT: 0, idleZapT: 1.5,
         shells: [], mortars: [],
         turretYaw: Math.atan2((faceX != null ? faceX : homeX - 300) - homeX, 0),
         trackPhase: 0, chargeK: 0, onWallSmash: null
@@ -279,6 +338,7 @@ export function spawnTank({ homeX, homeZ, wallX, faceX }) {
 
 export function disposeTank(tank) {
     if (!tank || !tank.parts) return;
+    hideZap();   // busur petir di-share antar tank -> cukup disembunyikan
     tank.shells.forEach(s => scene.remove(s.mesh));
     tank.mortars.forEach(m => scene.remove(m.mesh));
     tank.parts.group.traverse(o => { if (o.isMesh && o.material && o.material.dispose) o.material.dispose(); });
@@ -304,6 +364,9 @@ export function updateTank(tank, dt) {
 
     if (tank.dead) { updateDeath(tank, dt); return; }
     if (tank.hp <= 0) { killTank(tank); return; }   // HP habis (peluru/ledakan) -> hancur
+
+    // PAGAR LISTRIK: aktif selama tank hidup (fase spawn maupun battle)
+    updateShock(tank, dt);
 
     // --- FASE SPAWN: menggelinding dari timur, MENABRAK dinding, berhenti di home ---
     if (tank.phase === 'spawn') {
@@ -386,6 +449,59 @@ export function updateTank(tank, dt) {
         tank.attackIdx = nextIdx;
         launchAttack(tank);
     }
+}
+
+// ===== PAGAR LISTRIK: player dalam radius shockRadiusMeters dari pusat tank
+// tersengat shockDps HP/DETIK yang MENEMBUS ARMOR — HP dikurangi LANGSUNG,
+// sengaja TIDAK lewat damagePlayerHp (spesifikasi user: setrum mengabaikan
+// armor; durability armor pun tak tergerus). godMode kebal (visual tetap
+// tampil — konsisten titik damage lain); i-frame dodge = MELESET total.
+// Umpan balik: busur petir tank->dada player tiap frame + percikan biru-es +
+// flash merah + arah serangan (rate-limit 0.22 dtk) + jerit sfxHit tiap 1 dtk.
+// Di luar radius: crackle kecil sesekali antara dua titik lambung acak =
+// telegraf bahwa tank berlistrik (player belajar radius TANPA mati konyol).
+function updateShock(tank, dt) {
+    const T = CFG.campaign.bosses.tank;
+    const R = (T.shockRadiusMeters || 0) * CAMP_M;
+    const px = tank.parts.group.position.x, pz = tank.parts.group.position.z;
+    const dx = camera.position.x - px, dz = camera.position.z - pz;
+    const d = Math.hypot(dx, dz);
+    if (R > 0 && d < R && player.hp > 0 && !dodgeInvuln) {
+        if (!godMode) {
+            player.hp -= (T.shockDps || 10) * dt;   // MENEMBUS armor: HP langsung
+            if (player.hp <= 0) {
+                player.hp = 0;
+                startPlayerDeath(dx, dz);   // roboh menjauhi tank
+            }
+        }
+        // busur petir dari tepi lambung terdekat ke dada player (bergetar tiap frame)
+        const ux = dx / (d || 1), uz = dz / (d || 1);
+        layZap(px + ux * 20, 14, pz + uz * 20,
+            camera.position.x, camera.position.y - 3, camera.position.z);
+        tank.shockFxT -= dt;
+        if (tank.shockFxT <= 0) {
+            tank.shockFxT = 0.22;
+            // percikan LISTRIK biru-es menyembur dari badan (bukan darah merah — setrum)
+            spawnBloodBurst(camera.position.x, camera.position.y - 4, camera.position.z,
+                ux, uz, 3, 0.7, 2.6, 0x9fe2ff);
+            flashDamage();
+            showHitDir(attackerAngle(px, pz));
+            addCamShake(0.5);
+        }
+        tank.shockSfxT -= dt;
+        if (tank.shockSfxT <= 0) { tank.shockSfxT = 1.0; playSFX(sfxHit); }
+        tank.idleZapT = 0.6;   // tunda crackle idle agar tak menimpa busur utama
+        return;
+    }
+    // Tak ada yang tersengat: crackle idle 0.12 dtk tiap ~1-2 dtk di lambung
+    tank.shockFxT = 0; tank.shockSfxT = 0;
+    tank.idleZapT -= dt;
+    if (tank.idleZapT <= -0.12) { tank.idleZapT = 0.9 + Math.random() * 1.1; hideZap(); return; }
+    if (tank.idleZapT <= 0) {
+        const a = Math.random() * 6.283, b = Math.random() * 6.283;
+        layZap(px + Math.sin(a) * 24, 8 + Math.random() * 12, pz + Math.cos(a) * 14,
+            px + Math.sin(b) * 24, 8 + Math.random() * 12, pz + Math.cos(b) * 14);
+    } else hideZap();
 }
 
 // Belok sudut a menuju b dgn laju terbatas maxDelta (rad)
@@ -499,9 +615,15 @@ function fireMG(tank) {
 }
 
 // --- MORTAR: 1 proyektil LOB PARABOLA (balistik, gravitasi) ke posisi player
-// saat menembak — BUKAN homing. Kecepatan mendatar tetap → waktu terbang =
-// jarak/kecepatan; kecepatan vertikal dihitung agar mendarat di `landY` sejajar
-// player setelah waktu itu. Hindari dgn MENJAUH dari titik jatuh (atau tumble). ---
+// saat menembak — BUKAN homing. LENGKUNG DIROMBAK 2026-07-16 ("parabola aneh"):
+// dulu waktu-terbang = jarak/mortarSpeed lalu vy diturunkan darinya — pada
+// sasaran DEKAT vy jadi NEGATIF (shell menukik DATAR seperti peluru, bukan
+// mortir). Kini LOB BER-APEX sejati: puncak lengkung = titik tertinggi kedua
+// ujung + max(mortarApexMeters, jarak × mortarApexRatio) — SELALU melambung
+// tinggi dulu (dekat = lob hampir vertikal, jauh = parabola panjang). Waktu
+// terbang murni gravitasi: naik √(2·hUp/g) + turun √(2·hDown/g); kecepatan
+// mendatar = jarak/waktu (mortarSpeed kini DORMAN). Titik jatuh tetap posisi
+// player SAAT menembak — hindari dgn menjauh / tumble. ---
 function fireMortar(tank) {
     const p = tank.parts;
     p.mortarMuzzle.getWorldPosition(_wp);
@@ -509,18 +631,26 @@ function fireMortar(tank) {
     const sx = _wp.x, sy = _wp.y, sz = _wp.z;
     const dx = camera.position.x - sx, dz = camera.position.z - sz;
     const d = Math.hypot(dx, dz) || 1;
-    const Sh = (T.mortarSpeed || 2.6) * 60;              // kecepatan mendatar (units/detik)
-    const flight = clamp(d / Sh, 0.6, 2.6);              // waktu terbang (detik)
     const g = T.mortarGravity || 90;                     // gravitasi lob (units/detik^2)
     const landY = 5;                                     // tinggi ledakan (sejajar player)
+    // puncak dibatasi agar waktu terbang selalu < mortarMaxSec (sasaran SANGAT
+    // jauh tetap terkejar — lob panjang cepat, bukan kedaluwarsa di udara)
+    const riseCap = 0.5 * g * Math.pow((T.mortarMaxSec || 6) * 0.45, 2);
+    const rise = Math.min(riseCap,
+        Math.max((T.mortarApexMeters || 12) * CAMP_M, d * (T.mortarApexRatio || 0.25)));
+    const apexY = Math.max(sy, landY) + rise;            // puncak lengkung (koordinat dunia)
+    const tUp = Math.sqrt(2 * (apexY - sy) / g);
+    const tDown = Math.sqrt(2 * (apexY - landY) / g);
+    const flight = tUp + tDown;                          // waktu terbang (detik)
     const vx = dx / flight, vz = dz / flight;            // units/detik mendatar
-    const vy = (landY - sy) / flight + 0.5 * g * flight; // agar mendarat di landY setelah `flight`
+    const vy = g * tUp;                                  // SELALU ke atas (lob sejati)
     const m = mortarShell();          // shell mortir realistis (ogive zaitun + sirip + fuze)
     m.position.set(sx, sy, sz);
     scene.add(m);
+    spawnGroundPuff(sx, sz, 0xcbd2da, 3, sy);            // kepulan tembak di mulut tabung
     tank.pendingId++;
     tank.mortars.push({
-        mesh: m, vx, vz, vy, g, landY,
+        mesh: m, vx, vz, vy, g, landY, trailT: 0,
         life: (T.mortarMaxSec || 6) * 60, id: tank.pendingId
     });
     p.mortarGlow.material.opacity = 1;
@@ -540,6 +670,13 @@ function updateMortars(tank, dt, step) {
         // lalu MENUKIK nose-first saat menurun (bukan tumbling acak).
         _vv.set(mo.vx, mo.vy, mo.vz);
         if (_vv.length() > 1e-3) { _vv.normalize(); mo.mesh.quaternion.setFromUnitVectors(_UP, _vv); }
+        // jejak ASAP tipis di belakang shell (puff kelabu kecil, menumpang pool
+        // explosions — hidup singkat, jadi hanya beberapa aktif per shell)
+        mo.trailT = (mo.trailT || 0) - dt;
+        if (mo.trailT <= 0) {
+            mo.trailT = 0.12;
+            spawnGroundPuff(mo.mesh.position.x, mo.mesh.position.z, 0x8a8f96, 1.6, mo.mesh.position.y);
+        }
         mo.life -= step;
         // meledak saat proyektil MENDARAT (menurun melewati landY) / umur habis
         if ((mo.vy < 0 && mo.mesh.position.y <= mo.landY) || mo.life <= 0) {
@@ -599,6 +736,7 @@ export function damageTank(tank, dmg) {
 // bangkai membara. Skor boss diberikan. stage4 mendeteksi tank.dead. =====
 function killTank(tank) {
     tank.dead = true; tank.hp = 0; tank.deathT = 0;
+    hideZap();   // listrik padam bersama tank
     addScore(tank.score);
     stats.kills++;
     const p = tank.parts, px = p.group.position.x, pz = p.group.position.z;

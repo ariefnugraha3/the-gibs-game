@@ -198,7 +198,11 @@
                 "mortarSpeed": 2.6,
                 "mortarTurnRadPerSec": 1.6,
                 "mortarGravity": 90,
-                "mortarMaxSec": 6
+                "mortarMaxSec": 6,
+                "mortarApexMeters": 12,
+                "mortarApexRatio": 0.25,
+                "shockRadiusMeters": 7,
+                "shockDps": 10
             }
         },
         "stage3Robots": 26

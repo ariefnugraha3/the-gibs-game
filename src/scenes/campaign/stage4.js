@@ -1,8 +1,11 @@
 // SCENE: Campaign STAGE 4 (final) — "Jalan Menuju Stasiun Kereta Api".
-// Dibuat 2026-07-13 dari denah referensi user. Level LUAR-RUANGAN (bukan grid):
-// PARKIRAN GEDUNG (barat, sisi UTARA jalan; start = pintu keluar gedung) ->
-// JALAN RAYA (barat->timur, ~500 m, banyak cover: mobil/bus/pembatas) ->
-// STASIUN KERETA API (timur, sisi SELATAN jalan; finish = pintu masuk stasiun).
+// Dibuat 2026-07-13 dari denah referensi user; LAYOUT DIROMBAK 2026-07-16
+// (parkiran & pelataran stasiun DIPERKECIL, jalan jadi 2 LAJUR tanpa median).
+// Level LUAR-RUANGAN (bukan grid):
+// PARKIRAN GEDUNG kecil (barat, sisi UTARA jalan; start = pintu keluar gedung)
+// -> JALAN RAYA 2 LAJUR (barat->timur, ~500 m; cover rongsokan slalom di bahu
+// bergantian, TANPA pembatas tengah) -> STASIUN KERETA API kecil (timur, sisi
+// SELATAN jalan; finish = pintu masuk stasiun).
 // Area boleh-jalan = UNION 3 persegi (parkiran + jalan + pelataran stasiun);
 // gedung/tembok keliling & bangunan stasiun = dinding (visual + clamp union).
 // ALUR MENANG: bunuh SEMUA robot -> BOSS muncul di ujung TIMUR jalan -> bunuh
@@ -38,19 +41,32 @@ import { stage1Scene } from './stage1.js';
 // Dunia ditaruh ~120 km dari origin (jauh dari gedung stage 1/2/3). Skala 1 m ≈ 7 u.
 const OX = 120000, OZ = 0;
 // UTARA = z negatif (atas layar), SELATAN = z positif; BARAT = x kecil, TIMUR = x besar.
-const ROAD = { x0: OX, x1: OX + 3500, cz: OZ, hz: 84 };                  // jalan 500 m (|z|<=hz)
-const PARK = { x0: OX - 140, x1: OX + 1000, z0: OZ - 470, z1: OZ - 50 }; // parkiran (utara-barat)
-const STA = { x0: OX + 2500, x1: OX + 3520, z0: OZ + 50, z1: OZ + 540 }; // pelataran stasiun (selatan-timur)
-const STATION_BLD = { x: OX + 3010, z: OZ + 430, hx: 340, hz: 95 };     // bangunan stasiun (pejal; pintu di sisi utara)
+// LAYOUT DIROMBAK 2026-07-16 (permintaan user): jalan kini HANYA 2 LAJUR
+// (lebar total ~9 m, 1 marka tengah putus-putus, TANPA pembatas/median tengah)
+// dan luas PARKIRAN + PELATARAN STASIUN diperkecil drastis (parkiran 163×60 m
+// -> 100×43 m; pelataran 146×70 m -> 94×50 m, bangunan stasiun ikut mengecil).
+// Panjang jalan tetap ~500 m; alur & kontrak scene tak berubah.
+const ROAD = { x0: OX, x1: OX + 3500, cz: OZ, hz: 32 };                  // jalan 500 m, 2 lajur (|z|<=hz)
+const PARK = { x0: OX - 140, x1: OX + 560, z0: OZ - 310, z1: OZ - 10 };  // parkiran kecil (utara-barat)
+const STA = { x0: OX + 2860, x1: OX + 3520, z0: OZ + 10, z1: OZ + 360 }; // pelataran stasiun kecil (selatan-timur)
+const STATION_BLD = { x: OX + 3190, z: OZ + 290, hx: 220, hz: 70 };     // bangunan stasiun (pejal; pintu di sisi utara)
 
-export const S4_START = { x: OX - 10, z: OZ - 330 };                     // pintu keluar gedung (parkiran barat-laut)
-export const S4_END = { x: OX + 3010, z: OZ + 300 };                    // pintu masuk stasiun (utara bangunan)
-const S4_EXIT = { x0: OX + 2890, x1: OX + 3130, z0: OZ + 275, z1: OZ + 330 };  // trigger finish
+export const S4_START = { x: OX - 10, z: OZ - 260 };                     // pintu keluar gedung (parkiran barat-laut)
+export const S4_END = { x: OX + 3190, z: OZ + 195 };                    // pintu masuk stasiun (utara bangunan)
+const S4_EXIT = { x0: OX + 3090, x1: OX + 3290, z0: OZ + 170, z1: OZ + 225 };  // trigger finish
 const BOSS_POS = { x: OX + 3400, z: OZ + 0 };                           // ujung timur jalan
 
 const blockers = [];      // cover pejal (mobil/bus/pembatas/kontainer/bangunan)
 let navGrid = null;
 let built = false;
+
+// Bangun dunia SEKALI (guard `built`) — dipanggil enter() DAN `stage1.enter`
+// (2026-07-16: SEMUA dunia campaign di-pre-build di awal, di balik layar
+// loading awal + warmupAll [ikut meng-compile MeshStandard/Physical mobil
+// futuristik yang dulu bikin LOADING #2 transisi ke stage 4 paling lama],
+// supaya loading antar-stage konsisten ~900 ms).
+export function ensureWorld() { if (!built) { built = true; buildWorld(); } }
+export const worldBuilt = () => built;   // debug/smoke
 
 // Titik (x,z) radius r di dalam area boleh-jalan (parkiran ∪ jalan ∪ stasiun)?
 export function stage4Walk(x, z, r) {
@@ -94,10 +110,15 @@ export function buildWorld() {
     const roadTex = makeTexture(256, 256, (g, w, h) => {
         g.fillStyle = '#26262a'; g.fillRect(0, 0, w, h);
         speckle(g, w, h, ['#1e1e22', '#2e2e33', '#232327', '#333338'], 300, 1, 5);
-        g.strokeStyle = 'rgba(206,200,180,0.6)';   // marka lajur putus-putus (memanjang X)
+        // 2 LAJUR: SATU marka tengah putus-putus (repeat.z=1 -> tepat di as jalan)
+        g.strokeStyle = 'rgba(206,200,180,0.6)';
         g.lineWidth = 4;
-        for (const zy of [0.5]) for (let x = 0; x < w; x += 64) { g.beginPath(); g.moveTo(x, h * zy - 2); g.lineTo(x + 34, h * zy - 2); g.stroke(); }
-    }, 26, 3);
+        for (let x = 0; x < w; x += 64) { g.beginPath(); g.moveTo(x, h * 0.5 - 2); g.lineTo(x + 34, h * 0.5 - 2); g.stroke(); }
+        // garis tepi menerus di kedua bahu
+        g.strokeStyle = 'rgba(206,200,180,0.35)';
+        g.lineWidth = 3;
+        for (const zy of [0.06, 0.94]) { g.beginPath(); g.moveTo(0, h * zy); g.lineTo(w, h * zy); g.stroke(); }
+    }, 26, 1);
     const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD.x1 - ROAD.x0, ROAD.hz * 2),
         new THREE.MeshPhongMaterial({ map: roadTex, normalMap: asphaltNrm, shininess: 6, specular: 0x101014 }));
     road.rotation.x = -Math.PI / 2;
@@ -141,10 +162,9 @@ export function buildWorld() {
     addWall((PARK.x0 + (S4_START.x - 55)) / 2, PARK.z0 - T / 2, (S4_START.x - 55) - PARK.x0, T, 90);
     addWall(((S4_START.x + 55) + PARK.x1) / 2, PARK.z0 - T / 2, PARK.x1 - (S4_START.x + 55), T, 90);
     addWall(PARK.x0 - T / 2, (PARK.z0 + PARK.z1) / 2, T, PARK.z1 - PARK.z0, 80);          // barat parkiran
-    addWall(PARK.x1 + T / 2, (PARK.z0 - 95) / 2 + PARK.z0 / 2, T, (-95 - PARK.z0), 60);   // timur parkiran (di atas jalan)
+    addWall(PARK.x1 + T / 2, (PARK.z0 - ROAD.hz) / 2, T, -ROAD.hz - PARK.z0, 60);         // timur parkiran (turun ke bahu jalan)
     addWall((PARK.x1 + ROAD.x1) / 2, -ROAD.hz - T / 2, ROAD.x1 - PARK.x1, T, 40);         // utara jalan (timur parkiran)
     addWall((ROAD.x0 + STA.x0) / 2, ROAD.hz + T / 2, STA.x0 - ROAD.x0, T, 40);            // selatan jalan (barat stasiun)
-    addWall(ROAD.x1 + T / 2, ROAD.cz - 17, T, ROAD.hz * 2 - 68, 46);                      // timur jalan (celah selatan ke stasiun)
     addWall(STA.x0 - T / 2, (ROAD.hz + STA.z1) / 2, T, STA.z1 - ROAD.hz, 60);             // barat stasiun
     addWall(STA.x1 + T / 2, (STA.z0 + STA.z1) / 2, T, STA.z1 - STA.z0, 60);               // timur stasiun
     addWall((STA.x0 + STA.x1) / 2, STA.z1 + T / 2, STA.x1 - STA.x0, T, 60);               // selatan stasiun
@@ -157,9 +177,11 @@ export function buildWorld() {
         g.strokeStyle = 'rgba(15,13,10,0.7)'; g.lineWidth = 2;   // retakan
         for (let k = 0; k < 6; k++) { g.beginPath(); g.moveTo(Math.random() * w, 0); g.lineTo(Math.random() * w, h); g.stroke(); }
     });
-    bossGate = new THREE.Mesh(new THREE.BoxGeometry(6, 48, 52),
+    // Panel menutup hampir seluruh lebar jalan 2-lajur; CELAH selatan (z +8..+32)
+    // = jalur memutar player ke pelataran stasiun (seperti celah desain lama).
+    bossGate = new THREE.Mesh(new THREE.BoxGeometry(6, 48, 38),
         new THREE.MeshPhongMaterial({ map: gateTex, shininess: 4, specular: 0x121110 }));
-    bossGate.position.set(ROAD.x1 + T / 2 - 2, 24, ROAD.cz);
+    bossGate.position.set(ROAD.x1 + T / 2 - 2, 24, ROAD.cz - 11);
     bossGate.castShadow = true; bossGate.receiveShadow = true;
     scene.add(bossGate);
 
@@ -194,13 +216,19 @@ export function buildWorld() {
     const addBlockerBox = (x, z, hx, hz, top, standable) => {
         blockers.push({ x, z, hx, hz, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(hx, hz), top, standable });
     };
+    // Model mobil MEMANJANG di sumbu-X saat yaw 0 -> blocker MENGIKUTI orientasi
+    // (penting utk jalan sempit 2 lajur: mobil sejajar jalan hanya memblokir
+    // ~20 u dari lebar 64 u; mobil melintang/parkir memblokir memanjang di z).
+    const carHalf = (yaw, hLong, hShort) =>
+        Math.abs(Math.sin(yaw)) > 0.5 ? [hShort, hLong] : [hLong, hShort];
     const mkCar = (x, z, yaw) => {
         // model SUV futuristik (entities/futuristicSUV.js), warna divariasikan
         const car = buildFuturisticSUVMesh(CAR_SCALE, SUV_PALETTE[(Math.random() * SUV_PALETTE.length) | 0]);
         car.position.set(x, 0, z);
         car.rotation.set(rand(-0.05, 0.05), yaw, rand(-0.06, 0.06));
         scene.add(car);
-        addBlockerBox(x, z, 10, 17, 9, false);
+        const [hx, hz] = carHalf(yaw, 17, 10);
+        addBlockerBox(x, z, hx, hz, 9, false);
     };
     const mkSedan = (x, z, yaw) => {
         // model sedan futuristik (entities/futuristicSedan.js) — lebih pendek/ceper
@@ -208,18 +236,19 @@ export function buildWorld() {
         car.position.set(x, 0, z);
         car.rotation.set(rand(-0.04, 0.04), yaw, rand(-0.05, 0.05));
         scene.add(car);
-        addBlockerBox(x, z, 9, 15, 7, false);
+        const [hx, hz] = carHalf(yaw, 15, 9);
+        addBlockerBox(x, z, hx, hz, 7, false);
     };
-    const mkBus = (x, z) => {
+    const mkBus = (x, z) => {   // bus mogok SEJAJAR jalan (memanjang X)
         const bus = new THREE.Group();
         const body = new THREE.Mesh(carGeo, new THREE.MeshLambertMaterial({ color: 0x6b5a2a }));
-        body.scale.set(20, 16, 70); body.position.y = 8; body.castShadow = true;
+        body.scale.set(70, 16, 20); body.position.y = 8; body.castShadow = true;
         bus.add(body);
         const win = new THREE.Mesh(carGeo, glassMat);
-        win.scale.set(21, 5, 60); win.position.y = 12; bus.add(win);
-        bus.position.set(x, 0, z); bus.rotation.y = rand(-0.15, 0.15);
+        win.scale.set(60, 5, 21); win.position.y = 12; bus.add(win);
+        bus.position.set(x, 0, z); bus.rotation.y = rand(-0.08, 0.08);
         scene.add(bus);
-        addBlockerBox(x, z, 12, 36, 16, false);
+        addBlockerBox(x, z, 36, 12, 16, false);
     };
     const mkContainer = (x, z) => {
         const box = new THREE.Mesh(new THREE.BoxGeometry(46, 26, 26),
@@ -228,48 +257,39 @@ export function buildWorld() {
         scene.add(box);
         addBlockerBox(x, z, 23, 13, 26, false);
     };
-    const mkBarrier = (x, z, sx) => {   // pembatas beton rendah (bisa dipijak)
+    const mkBarrier = (x, z, sx) => {   // pembatas beton rendah di BAHU jalan (bisa dipijak)
         const m = new THREE.Mesh(new THREE.BoxGeometry(sx, 9, 10),
             new THREE.MeshLambertMaterial({ color: 0x8a8378 }));
         m.position.set(x, 4.5, z); m.castShadow = true; m.receiveShadow = true;
         scene.add(m);
         addBlockerBox(x, z, sx / 2, 5, 9, true);
     };
-    // Parkiran: dua baris parkir (campur SUV & sedan) + "tumpukan barang"
-    mkSedan(OX + 250, OZ - 435, 0.05);     // baris utara (dekat tembok)
-    mkCar(OX + 410, OZ - 432, -0.04);
-    mkSedan(OX + 560, OZ - 435, 0.03);
-    mkCar(OX + 720, OZ - 430, 0.0);
-    mkCar(OX + 250, OZ - 330, 0.1);
-    mkCar(OX + 100, OZ - 150, 1.4);
-    mkSedan(OX + 520, OZ - 320, -0.2);
-    mkContainer(OX + 560, OZ - 190);       // spot 4 tumpukan barang
-    mkSedan(OX + 780, OZ - 330, 0.3);
-    mkCar(OX + 880, OZ - 200, 1.5);
-    mkSedan(OX + 300, OZ - 110, 1.5);      // baris selatan (dekat mulut jalan)
-    mkCar(OX + 660, OZ - 110, 1.5);
-    mkSedan(OX + 900, OZ - 385, 0.2);
-    // Median tengah jalan (beton putus-putus, bisa dipijak)
-    for (let x = OX + 260; x < OX + 3300; x += 260) mkBarrier(x, OZ, 120);
-    // Jalan: mobil rongsok berserak di kedua lajur (campur) + bus + pembatas
-    mkSedan(OX + 420, OZ - 55, 0.2);
-    mkCar(OX + 700, OZ + 48, 1.5);
-    mkCar(OX + 950, OZ + 45, 1.5);
-    mkBus(OX + 1150, OZ + 52);             // spot 8 bus rusak
-    mkSedan(OX + 1360, OZ - 58, 0.3);
-    mkCar(OX + 1700, OZ - 28, 0.4);        // spot 9 mobil hancur
-    mkSedan(OX + 1900, OZ + 55, 1.5);
-    mkCar(OX + 2000, OZ + 40, 1.6);
-    mkBarrier(OX + 2050, OZ + 60, 90);     // spot 11 pembatas jalan
-    mkSedan(OX + 2350, OZ - 58, 0.15);
-    mkCar(OX + 2600, OZ - 24, 0.2);
-    mkSedan(OX + 2900, OZ + 50, 1.5);
-    mkCar(OX + 3150, OZ - 42, 0.3);
-    // Stasiun: parkir depan (campur) + pembatas
-    mkBarrier(OX + 2760, OZ + 150, 120);
-    mkSedan(OX + 2640, OZ + 140, 0.1);
-    mkCar(OX + 3320, OZ + 175, 1.5);
-    mkSedan(OX + 2620, OZ + 250, 0.2);
+    // Parkiran KECIL: satu baris parkir dekat tembok utara + rongsokan tersebar
+    mkSedan(OX + 150, OZ - 275, 1.52);     // baris utara (moncong ke tembok)
+    mkCar(OX + 300, OZ - 272, 1.48);
+    mkSedan(OX + 450, OZ - 276, 1.55);
+    mkCar(OX + 80, OZ - 140, 0.12);        // rongsok tersebar
+    mkSedan(OX + 330, OZ - 120, 1.35);
+    mkCar(OX + 500, OZ - 210, 0.25);
+    mkSedan(OX + 180, OZ - 55, 0.9);       // dekat mulut jalan
+    mkContainer(OX + 430, OZ - 170);       // spot 4 tumpukan barang
+    // Jalan 2 LAJUR (TANPA median): rongsokan slalom bergantian bahu utara/selatan,
+    // mayoritas SEJAJAR jalan supaya tiap wreck menyisakan satu lajur lolos.
+    mkSedan(OX + 420, OZ - 14, 0.08);
+    mkCar(OX + 700, OZ + 14, -0.06);
+    mkCar(OX + 950, OZ - 12, 0.1);
+    mkBus(OX + 1250, OZ + 14);             // spot 8 bus rusak (sejajar jalan)
+    mkSedan(OX + 1550, OZ - 14, -0.1);
+    mkCar(OX + 1800, OZ + 12, 0.35);       // spot 9 mobil hancur (agak serong)
+    mkBarrier(OX + 2050, OZ - 22, 90);     // spot 11 pembatas beton bahu utara
+    mkSedan(OX + 2300, OZ + 14, 0.06);
+    mkCar(OX + 2600, OZ - 12, -0.08);
+    mkSedan(OX + 2950, OZ + 13, 0.1);
+    mkCar(OX + 3200, OZ - 14, 0.3);
+    // Pelataran stasiun KECIL: parkir sisi barat + pembatas depan pintu
+    mkBarrier(OX + 3120, OZ + 90, 110);
+    mkSedan(OX + 2900, OZ + 260, 0.05);
+    mkCar(OX + 3460, OZ + 200, 1.55);
 
     // --- Prop futuristik (entities/futuristic*.js) di area luar: kios/krat/puing
     //     = COVER pejal (blocker, dijauhkan dari koridor supaya konektivitas
@@ -287,17 +307,17 @@ export function buildWorld() {
         scene.add(m);
     };
     // Pelataran stasiun: KIOS (cover, tepi barat) + bangku mengapit pintu masuk +
-    // planter sudut (dekor — pintu masuk END di x≈OX+3010, dijauhkan).
-    mkPropCover(buildFuturisticStallMesh, OX + 2560, OZ + 210, 44, 40, 28, false);
-    mkPropDecor(buildFuturisticBenchMesh, OX + 2820, OZ + 322, 44, 10, 16);
-    mkPropDecor(buildFuturisticBenchMesh, OX + 3200, OZ + 322, 44, 10, 16);
-    mkPropDecor(buildFuturisticPlanterMesh, OX + 2560, OZ + 90, 26, 34, 26);
-    mkPropDecor(buildFuturisticPlanterMesh, OX + 3450, OZ + 90, 26, 34, 26);
+    // planter sudut (dekor — pintu masuk END di x≈OX+3190, dijauhkan).
+    mkPropCover(buildFuturisticStallMesh, OX + 2940, OZ + 150, 44, 40, 28, false);
+    mkPropDecor(buildFuturisticBenchMesh, OX + 3080, OZ + 212, 44, 10, 16);
+    mkPropDecor(buildFuturisticBenchMesh, OX + 3300, OZ + 212, 44, 10, 16);
+    mkPropDecor(buildFuturisticPlanterMesh, OX + 2890, OZ + 40, 26, 34, 26);
+    mkPropDecor(buildFuturisticPlanterMesh, OX + 3470, OZ + 40, 26, 34, 26);
     // Parkiran: tumpukan KRAT (cover) di samping kontainer barang (spot 4).
-    mkPropCover(buildFuturisticCrateMesh, OX + 610, OZ - 150, 24, 24, 24, true);
-    mkPropCover(buildFuturisticCrateMesh, OX + 588, OZ - 120, 20, 20, 20, true, 0.4);
+    mkPropCover(buildFuturisticCrateMesh, OX + 500, OZ - 120, 24, 24, 24, true);
+    mkPropCover(buildFuturisticCrateMesh, OX + 478, OZ - 92, 20, 20, 20, true, 0.4);
     // Jalan: PUING runtuhan (cover) menempel tembok UTARA (lajur selatan terbuka).
-    mkPropCover(buildFuturisticRubbleMesh, OX + 1500, OZ - 70, 40, 14, 24, true);
+    mkPropCover(buildFuturisticRubbleMesh, OX + 1500, OZ - 24, 40, 14, 24, true);
 
     // --- Lampu jalan (atmosfer malam) ---
     const lampFix = new THREE.MeshBasicMaterial({ color: 0xffe6b0, toneMapped: false });
@@ -307,12 +327,12 @@ export function buildWorld() {
         const fix = new THREE.Mesh(new THREE.BoxGeometry(5, 5, 5), lampFix);
         fix.position.set(x, 60, z); scene.add(fix);
     };
-    addLamp(OX + 150, OZ - 260, 0xffe0a0, 0.7, 420);   // parkiran
-    addLamp(OX + 650, OZ - 260, 0xffe0a0, 0.7, 420);
-    addLamp(OX + 500, OZ, 0xfff0c0, 0.6, 460);         // jalan
-    addLamp(OX + 1400, OZ, 0xfff0c0, 0.6, 460);
-    addLamp(OX + 2300, OZ, 0xfff0c0, 0.6, 460);
-    addLamp(OX + 3100, OZ + 180, 0xbfe4ff, 0.7, 440);  // stasiun
+    addLamp(OX + 150, OZ - 160, 0xffe0a0, 0.7, 420);   // parkiran
+    addLamp(OX + 450, OZ - 160, 0xffe0a0, 0.7, 420);
+    addLamp(OX + 500, OZ - 44, 0xfff0c0, 0.6, 460);    // bahu utara jalan
+    addLamp(OX + 1400, OZ - 44, 0xfff0c0, 0.6, 460);
+    addLamp(OX + 2300, OZ - 44, 0xfff0c0, 0.6, 460);
+    addLamp(OX + 3190, OZ + 120, 0xbfe4ff, 0.7, 440);  // stasiun
 
     // Papan EXIT hijau di pintu masuk stasiun = penanda finish (amber -> hijau saat boss tumbang)
     exitSignMat = new THREE.MeshBasicMaterial({ color: 0xd08a2a, toneMapped: false });
@@ -338,20 +358,22 @@ export function buildWorld() {
 
 // Robot stage 4: 13 spot denah [x, z, jumlah] (relatif OX/OZ) + kelas.
 // Mayoritas melee C; sebagian penembak B/A di area terbuka jalan raya.
+// (Koordinat diretarget 2026-07-16 mengikuti layout baru: parkiran & stasiun
+// kecil, jalan 2 lajur — jumlah spot & total 44 robot TIDAK berubah.)
 const S4_ROBOTS = [
-    [OX + 40, OZ - 310, 3],    // 1 dekat pintu keluar gedung
-    [OX + 300, OZ - 300, 4],   // 2 parkiran tengah
-    [OX + 120, OZ - 180, 3],   // 3 dekat mobil & cover
-    [OX + 560, OZ - 250, 4],   // 4 dekat tumpukan barang
-    [OX + 850, OZ - 380, 3],   // 5 sudut parkiran dekat tangga darurat
+    [OX + 40, OZ - 260, 3],    // 1 dekat pintu keluar gedung
+    [OX + 260, OZ - 220, 4],   // 2 parkiran tengah
+    [OX + 100, OZ - 120, 3],   // 3 dekat mobil rongsok
+    [OX + 430, OZ - 120, 4],   // 4 dekat kontainer + krat barang
+    [OX + 480, OZ - 250, 3],   // 5 sudut timur parkiran
     [OX + 120, OZ + 0, 4],     // 6 awal jalan raya (terbuka)
-    [OX + 900, OZ - 30, 4],    // 7 tengah kiri jalan
-    [OX + 1150, OZ + 30, 3],   // 8 dekat bus rusak
-    [OX + 1700, OZ - 10, 4],   // 9 tengah jalan (mobil hancur)
-    [OX + 2100, OZ + 15, 3],   // 10 tengah kanan jalan
-    [OX + 2050, OZ + 40, 3],   // 11 dekat pembatas jalan
-    [OX + 3200, OZ - 20, 3],   // 12 akhir jalan sebelum stasiun
-    [OX + 3010, OZ + 180, 3],  // 13 depan pintu masuk stasiun
+    [OX + 800, OZ + 0, 4],     // 7 jalan sisi barat
+    [OX + 1250, OZ - 14, 3],   // 8 dekat bus rusak
+    [OX + 1700, OZ + 0, 4],    // 9 tengah jalan (mobil hancur)
+    [OX + 2100, OZ + 8, 3],    // 10 tengah kanan jalan
+    [OX + 2450, OZ - 8, 3],    // 11 dekat pembatas bahu jalan
+    [OX + 3300, OZ + 0, 3],    // 12 akhir jalan sebelum stasiun
+    [OX + 3190, OZ + 120, 3],  // 13 depan pintu masuk stasiun
 ];
 const S4_RANGED = { 6: 'B', 7: 'A', 9: 'B', 10: 'A', 12: 'B' };   // index spot (1-based) -> penembak sesekali
 
@@ -377,11 +399,11 @@ function placeSupplies() {
         scene.add(mesh);
         drops.push({ mesh, type, timer: 1e9 });
     };
-    put('mag', OX + 360, OZ - 260); put('mag', OX + 700, OZ - 300);   // parkiran
-    put('medkit', OX + 200, OZ - 350);
-    put('mag', OX + 1400, OZ - 40); put('mag', OX + 2400, OZ + 30);   // jalan
-    put('medkit', OX + 1900, OZ + 45);
-    put('medkit', OX + 3000, OZ + 140);                                // dekat stasiun
+    put('mag', OX + 280, OZ - 180); put('mag', OX + 460, OZ - 60);    // parkiran
+    put('medkit', OX + 120, OZ - 290);
+    put('mag', OX + 1400, OZ - 18); put('mag', OX + 2400, OZ + 16);   // jalan
+    put('medkit', OX + 1900, OZ + 20);
+    put('medkit', OX + 3150, OZ + 60);                                 // dekat stasiun
 }
 
 // --- Boss stage 4: TANK penjaga stasiun (entities/tank.js). Muncul setelah
@@ -416,7 +438,7 @@ export const stage4Scene = {
     // robot stage 3 tersisa; tempatkan robot + supply stage 4; reset boss.
     enter() {
         saveCampaignStage(4);   // checkpoint: campaign berada di stage 4 (final)
-        if (!built) { built = true; buildWorld(); }
+        ensureWorld();   // normalnya sudah dibangun stage1.enter (pre-build) — guard jaga-jaga
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 3) {
                 disposeRobot(robots[i]);

@@ -63,11 +63,12 @@ export async function startGame(mode, opts = {}) {
         await loadingStep(30, 'Building the world…');
 
         // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal.
-        // stage1.enter membangun dunia stage 1 & 2 (guard `built`), jadi lanjut ke
-        // stage >1 aman: setScene(stage1) dulu (bangun dunia), lalu campaignJumpToStage
-        // lompat ke checkpoint (buang robot stage 1, tempatkan robot stage tujuan;
-        // dunia stage 3/4 dibangun lazy di enter-nya sendiri). warmup di bawah
-        // memanaskan shader stage tujuan (scene sudah = stage checkpoint).
+        // stage1.enter membangun SEMUA dunia campaign (1-4, guard `built`;
+        // 2026-07-16 — dulu stage 3/4 lazy sehingga loading transisinya lebih
+        // lama), jadi lanjut ke stage >1 aman: setScene(stage1) dulu (bangun
+        // semua dunia), lalu campaignJumpToStage lompat ke checkpoint (buang
+        // robot stage 1, tempatkan robot stage tujuan). warmup di bawah
+        // memanaskan shader SEMUA stage sekaligus.
         setScene(mode === 'campaign' ? stage1Scene : survivalScene);
         if (mode === 'campaign' && opts.stage > 1) campaignJumpToStage(opts.stage);
         await loadingStep(60, 'Preparing weapons…');
