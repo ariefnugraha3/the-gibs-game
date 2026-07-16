@@ -20,7 +20,7 @@ import { stamina, staExhausted, drainStamina, dodgeActive } from './player.js';
 import { killRobot } from './robots.js';
 import { spawnBloodBurst } from './effects.js';   // muncratan coolant robot yang selamat dari sabetan
 import { spawnDrop, MEDKIT_MAT } from './drops.js';
-import { buildGrenadeMesh } from './grenades.js';   // dipakai ulang utk peluru Grenade Launcher
+import { buildGrenadeMesh, buildRocketMesh } from './grenades.js';   // peluru Grenade Launcher (Lv1-2 granat Mk2, Lv3 roket)
 
 // ----- Status senjata (live export; reassign hanya di modul ini) -----
 export let currentWeapon = 'rifle';                 // 'rifle' | 'pistol' | 'shotgun' | 'launcher'
@@ -1083,19 +1083,26 @@ export function updateShooting() {
         _sRight.setFromMatrixColumn(camera.matrixWorld, 0);
         _sUp.setFromMatrixColumn(camera.matrixWorld, 1);
 
-        // Batas jarak peluru (2026-07-16): peluru berhenti TEPAT di titik kursor
-        // saat tembakan dilepas — jarak horizontal mata/pivot -> aimPoint, diukur
-        // dari posisi tembak (sx/sz). Lewat batas = peluru lenyap (bullets.js);
-        // pelet PERTAMA membawa titik kursor (fxX/fxZ) utk efek tembakan di lantai.
+        // Batas jarak peluru (2026-07-16): peluru berhenti TEPAT sejauh titik
+        // kursor saat tembakan dilepas — jarak horizontal mata/pivot -> aimPoint,
+        // diukur dari posisi tembak (sx/sz). Lewat batas = peluru lenyap
+        // (bullets.js); pelet PERTAMA ditandai `fx` utk efek tembakan di lantai
+        // DI POSISI AKHIR PELURU (bukan titik kursor — sebar arah harus terlihat:
+        // dulu efek dipaku ke titik kursor beku sehingga semua tembakan tampak
+        // mendarat di satu titik yang sama persis, revisi 2026-07-16).
         const aimMax = Math.hypot(aimPoint.x - camera.position.x, aimPoint.z - camera.position.z);
 
         // Satu tarikan pelatuk = `pellets` peluru (shotgun 10; launcher/lainnya
         // tanpa kunci pellets = 1). Tiap pelet dapat sebar tambahan pelletSpread.
         const pellets = wcfg.pellets || 1;
         for (let pi = 0; pi < pellets; pi++) {
-            // Launcher: peluru MELEDAK saat kena = granat Mk2 (buildGrenadeMesh),
-            // lebih lambat, TIDAK diregangkan seperti tracer. Lainnya = tracer bola.
-            const bMesh = isLauncher ? buildGrenadeMesh(0.7) : new THREE.Mesh(GEO.bullet, MAT.bullet);
+            // Launcher: peluru MELEDAK saat kena — Lv1-2 = granat Mk2
+            // (buildGrenadeMesh); Lv3 = ROKET (buildRocketMesh, 2026-07-16 —
+            // menyamai prop peluncur roket bahu `launcher3` di avatar; visual
+            // saja, damage/AoE/kecepatan tak berubah). Lainnya = tracer bola.
+            const isRocket = isLauncher && ((player.weaponLvl && player.weaponLvl.launcher) || 1) >= 3;
+            const bMesh = isLauncher ? (isRocket ? buildRocketMesh(0.7) : buildGrenadeMesh(0.7))
+                : new THREE.Mesh(GEO.bullet, MAT.bullet);
             bMesh.position.copy(_tip);
             const sAng = Math.random() * Math.PI * 2;
             const sRad = Math.random() * (spread + (wcfg.pelletSpread || 0));   // bias ke pusat
@@ -1105,7 +1112,10 @@ export function updateShooting() {
             _v3.set(bdx, bdy, bdz)
                 .addScaledVector(_sRight, Math.cos(sAng) * sRad).normalize();
 
-            if (isLauncher) bMesh.scale.setScalar(0.7);
+            if (isLauncher) {
+                // Roket Lv3: moncong (+Z lokal) dihadapkan searah arah terbang.
+                if (isRocket) bMesh.lookAt(_tip.x + _v3.x, _tip.y + _v3.y, _tip.z + _v3.z);
+            }
             else {
                 // Tracer: bola diregangkan searah laju (visual; hit test titik pusat).
                 bMesh.lookAt(_tip.x + _v3.x, _tip.y + _v3.y, _tip.z + _v3.z);
@@ -1128,10 +1138,10 @@ export function updateShooting() {
                 explosive: isLauncher || undefined,
                 explodeR: isLauncher ? CFG.grenade.killRadius + 3.5 : undefined,
                 // Batas kursor: maxDist dari titik tembak sx/sz; pelet pertama
-                // membawa titik kursor utk efek lantai (launcher meledak di sana).
+                // ditandai fx = efek lantai di posisi akhir peluru (launcher
+                // meledak di posisi akhirnya juga — ikut sebar arah).
                 maxDist: aimMax, sx: camera.position.x, sz: camera.position.z,
-                fxX: pi === 0 ? aimPoint.x : undefined,
-                fxZ: pi === 0 ? aimPoint.z : undefined,
+                fx: pi === 0 || undefined,
                 px: camera.position.x, py: camera.position.y, pz: camera.position.z
             });
             stats.shots++;   // akurasi dihitung per PELURU (shotgun adil)

@@ -137,7 +137,9 @@ function hideZap() { if (ZAP) ZAP.grp.visible = false; }
 // TANK TIGER I Jerman PD2 (lambung boxy sisi-tegak yang menggantung di atas
 // track, roda jalan besar saling-tumpang, meriam 88 mm panjang + rem moncong
 // dobel-baffle, mantlet, kubah komandan, kotak stowage buritan, spatbor, alat,
-// mata rantai cadangan di glacis, kamuflase 3-warna dunkelgelb). Primitif murah
+// mata rantai cadangan di glacis). CAT DIGANTI 2026-07-16 ke skema faksi robot
+// 2045 (gunmetal gelap + lensa sensor merah, panduan gaya world/palette.js) —
+// bentuk Tiger I tetap. Primitif murah
 // (Lambert/Basic = program shader yang SUDAH dipanaskan → tanpa recompile).
 // KONTRAK MEKANIK TAK BERUBAH: FRONT = -X (ke player); HULL diam, TURRET (anak)
 // berputar (turret.rotation.y) & cannon = +Z lokal; muzzle anchor sbg titik
@@ -149,16 +151,18 @@ export function buildTankMesh() {
     const paintMats = [];   // cat bodi (dihanguskan saat mati)
 
     // --- Material (di-share; Lambert = 1 program shader, tanpa recompile) ---
-    const armor = new THREE.MeshLambertMaterial({ color: 0x8c7d4c });    // dunkelgelb lapuk (bodi+turret)
-    const armorDk = new THREE.MeshLambertMaterial({ color: 0x6f6343 });  // panel bayangan/bawah
-    const camoGrn = new THREE.MeshLambertMaterial({ color: 0x515a30 });  // kamuflase hijau-zaitun
-    const camoBrn = new THREE.MeshLambertMaterial({ color: 0x6a4a2b });  // kamuflase coklat-merah
+    // Cat 2045 (panduan gaya world/palette.js): gunmetal gelap faksi robot —
+    // senada rangka robot & warna armor boss, BUKAN dunkelgelb WWII lagi.
+    const armor = new THREE.MeshLambertMaterial({ color: 0x474d41 });    // abu-zaitun gelap (bodi+turret)
+    const armorDk = new THREE.MeshLambertMaterial({ color: 0x363b33 });  // panel bayangan/bawah
+    const camoGrn = new THREE.MeshLambertMaterial({ color: 0x2f353b });  // tambalan kamuflase gunmetal
+    const camoBrn = new THREE.MeshLambertMaterial({ color: 0x3d444c });  // tambalan senada serpihan robot
     const steel = new THREE.MeshLambertMaterial({ color: 0x71757d });    // logam terang (pelek/hub/kabel)
     const gun = new THREE.MeshLambertMaterial({ color: 0x1f2226 });      // gunmetal (laras/MG/knalpot)
     const track = new THREE.MeshLambertMaterial({ color: 0x34363a });    // rantai besi gelap
     const rubber = new THREE.MeshLambertMaterial({ color: 0x161618 });   // ban karet roda jalan
     const wood = new THREE.MeshLambertMaterial({ color: 0x6b4a29 });     // gagang alat
-    const glass = new THREE.MeshLambertMaterial({ color: 0x2b3238 });    // lensa lampu (tak menyala)
+    const glass = new THREE.MeshLambertMaterial({ color: 0x120404, emissive: 0x661010 }); // lensa sensor merah (senada mata robot)
     paintMats.push(armor, armorDk, camoGrn, camoBrn);
 
     // mk: mesh + posisi + rotasi opsional (noShadow utk detail kecil = hemat).

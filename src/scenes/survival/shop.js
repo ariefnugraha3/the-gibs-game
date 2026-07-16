@@ -6,9 +6,9 @@
 // panel deskripsi + harga LEBAR PENUH di bawah grid (diperbarui saat hover/pilih
 // kartu, TIDAK membeli); bawah-kiri = skor, bawah-kanan = Start Next Wave. Item:
 // isi ulang Ammo/Grenade, Replenish Health, Medkit, Heal & Strengthen Monas,
-// Radar, BELI Shotgun / Assault Rifle / Grenade Launcher, dan UPGRADE senjata
-// (Lv2 lalu Lv3 = maks, +25% damage base per level — kartu hanya muncul utk
-// senjata yang dimiliki). Mata uang = skor. Membeli senjata ke-4
+// Radar, dan SATU kartu GABUNGAN per senjata (2026-07-17: beli + upgrade Lv2/Lv3
+// dalam kartu yang sama, pola Vitality/Ammo Capacity — bukan lagi kartu beli &
+// upgrade terpisah). Mata uang = skor. Membeli senjata ke-4
 // (slot penuh) -> tampilkan pemilih GANTI senjata.
 // Semua teks UI English (aturan permanen). Impor Monas/Next-Wave dari scene
 // (index.js) — circular, hanya dipakai DI DALAM fungsi (pola arsitektur).
@@ -22,7 +22,7 @@ import { healMonas, strengthenMonas, startNextWave, isMonasFullyStrengthened, ge
 
 let open = false;
 let selectedId = null;
-let activeTab = 'weapon';   // tab aktif (2026-07-15): Weapons/Armor/Upgrades/General
+let activeTab = 'general';   // tab aktif (2026-07-15; General pertama sejak 2026-07-17)
 let notice = '', noticeErr = false, noticeT = 0;
 let pendingWeapon = null;   // senjata yang menunggu konfirmasi GANTI (slot penuh)
 let confirmNext = false;    // prompt "Are you ready?" sebelum mulai wave berikutnya
@@ -75,20 +75,19 @@ export function shopUndoLast() {
     return null;
 }
 
-// --- TAB shop (2026-07-15) --------------------------------------------------
+// --- TAB shop (2026-07-15; urutan direvisi 2026-07-17: General PERTAMA) -----
 // Katalog dikelompokkan ke 4 tab agar tidak berantakan (permintaan user):
-//  - weapon : tiap senjata (pistol/shotgun/rifle/launcher) SATU BARIS = kartu
-//             beli + kartu upgrade-nya.
+//  - general: isi ulang ammo/health, medkit, Heal Monas, Radar (tab pembuka).
+//  - weapon : SATU kartu GABUNGAN per senjata (beli + upgrade — lihat weaponItem).
 //  - armor  : 3 kartu armor.
 //  - upgrade: Ammo Capacity + Vitality (max HP) + Strengthen Monas.
-//  - general: sisanya (isi ulang ammo/health, medkit, Heal Monas, Radar).
 // Tab murni urusan RENDER — catalog() tetap daftar rata (dipakai shopPurchase
 // & filter campaign). itemTab() mengklasifikasi tiap item.
 const TABS = [
+    { id: 'general', label: 'General' },
     { id: 'weapon', label: 'Weapons' },
     { id: 'armor', label: 'Armor' },
     { id: 'upgrade', label: 'Upgrades' },
-    { id: 'general', label: 'General' },
 ];
 const WEAPON_ORDER = ['pistol', 'shotgun', 'rifle', 'launcher'];
 function itemTab(it) {
@@ -166,24 +165,55 @@ export function openShop(ctx) {
     document.exitPointerLock();
 }
 
-// --- Item upgrade senjata (level 2 lalu 3 = maks) ---------------------------
-// Tiap level menambah +upgradeDamagePct (25%) dari damage BASE (Lv2 = 125%,
-// Lv3 = 150%) — diterapkan weaponDamage() di weapons.js saat peluru lahir
-// (peluru launcher meneruskannya ke boom AoE). Item hanya MUNCUL bila
-// senjatanya sedang dimiliki (syarat user); level tersimpan per-tipe
-// (player.weaponLvl, per-run) sehingga bertahan bila senjatanya diganti
-// lalu dibeli lagi. Harga per tingkat dari CFG.shop.upgradeCosts[w].
+// --- Item senjata GABUNGAN: beli + upgrade dalam SATU kartu (2026-07-17) ----
+// Mengikuti pola Vitality/Ammo Capacity (permintaan user — tidak lagi kartu
+// beli & kartu upgrade terpisah): belum dimiliki -> kartu menjual SENJATANYA
+// (harga beli, nama polos); sudah dimiliki -> kartu YANG SAMA (id tetap = kunci
+// senjata) menjual upgrade Lv2 lalu Lv3 = maks (nama ber-angka romawi tingkat
+// yang dijual, harga CFG.shop.upgradeCosts[w]); Lv3 -> note 'Maxed'. Tiap level
+// menambah +upgradeDamagePct (25%) dari damage BASE — diterapkan weaponDamage()
+// di weapons.js saat peluru lahir (peluru launcher meneruskannya ke boom AoE).
+// Level tersimpan per-tipe (player.weaponLvl, per-run) sehingga bertahan bila
+// senjatanya diganti lalu dibeli lagi. PISTOL tidak pernah dijual (loadout
+// awal): kartunya hanya muncul saat dimiliki (varian upgrade saja) — sama
+// seperti perilaku kartu upgrade lama.
 const ROMAN = ['I', 'II', 'III'];
-function upgradeItem(w) {
+function weaponItem(w) {
+    const S = CFG.shop;
     const label = WEAPON_DEF[w].name;
+    const owned = !!(player.owned && player.owned[w]);
+    if (!owned) {
+        const BUY = {
+            shotgun: {
+                cost: S.shotgunCost,
+                desc: 'Pump-action shotgun. Fires a wide spread of pellets per shot — devastating up close.'
+            },
+            rifle: {
+                cost: S.rifleCost,
+                desc: 'Full-auto assault rifle. High rate of fire and solid damage at range.'
+            },
+            launcher: {
+                cost: S.launcherCost,
+                // Angka damage/kapasitas dibaca dari CFG saat katalog dibangun —
+                // tidak basi bila gameplay.json di-retune.
+                desc: `Fires 40mm grenade rounds that EXPLODE on impact (including on a direct robot hit) — ${CFG.weapons.launcher.damage} area damage. Slow to fire; carries ${CFG.weapons.launcher.maxAmmo} rounds.`
+            }
+        }[w];
+        if (!BUY) return null;   // pistol: tak dijual — kartu hanya utk upgrade
+        return {
+            id: w, name: label, cost: BUY.cost, weapon: w,
+            desc: BUY.desc + ' Once owned, this card sells its damage upgrades.',
+            apply() { return buyWeapon(w, label); }
+        };
+    }
     const maxL = CFG.weapons.maxWeaponLevel;
     const lvl = (player.weaponLvl && player.weaponLvl[w]) || 1;
     const pct = Math.round((CFG.weapons.upgradeDamagePct || 0.25) * 100);
-    const costs = CFG.shop.upgradeCosts[w] || [];
+    const costs = S.upgradeCosts[w] || [];
     const tier = Math.min(lvl, maxL - 1);          // tingkat yang DIJUAL kartu ini (lvl+1)
     return {
-        id: 'up_' + w, upgrade: w,
-        name: `Upgrade ${label} ${ROMAN[Math.min(tier, ROMAN.length - 1)]}`,
+        id: w, weapon: w, upgrade: w,
+        name: `${label} ${ROMAN[Math.min(tier, ROMAN.length - 1)]}`,
         cost: costs[tier - 1] != null ? costs[tier - 1] : 0,
         desc: lvl >= maxL
             ? `The ${label} is fully upgraded (Level ${maxL}, +${pct * (maxL - 1)}% damage).`
@@ -286,8 +316,8 @@ function ammoCapItem() {
 // --- Katalog item (data-driven) --------------------------------------------
 // { id, name, desc, cost, weapon?, upgrade?, maxedMsg?, apply() }. apply() ->
 // null bila sukses atau string alasan penolakan (penuh/dimiliki); skor TIDAK
-// dipotong saat ditolak. Item upgrade (up_<w>) ikut di akhir daftar, hanya
-// untuk senjata yang dimiliki.
+// dipotong saat ditolak. Kartu senjata gabungan (id = kunci senjata) di akhir
+// daftar via weaponItem().
 function catalog() {
     const S = CFG.shop, o = player.owned || {};
     const items = [
@@ -348,25 +378,9 @@ function catalog() {
                 player.hasRadar = true;
             }
         },
-        {
-            id: 'shotgun', name: 'Shotgun', cost: S.shotgunCost, weapon: 'shotgun',
-            desc: 'Pump-action shotgun. Fires a wide spread of pellets per shot — devastating up close.',
-            apply() { return buyWeapon('shotgun', 'Shotgun'); }
-        },
-        {
-            id: 'rifle', name: 'Assault Rifle', cost: S.rifleCost, weapon: 'rifle',
-            desc: 'Full-auto assault rifle. High rate of fire and solid damage at range.',
-            apply() { return buyWeapon('rifle', 'Assault Rifle'); }
-        },
-        {
-            id: 'launcher', name: 'Grenade Launcher', cost: S.launcherCost, weapon: 'launcher',
-            // Angka damage/kapasitas dibaca dari CFG saat katalog dibangun —
-            // tidak basi bila gameplay.json di-retune.
-            desc: `Fires 40mm grenade rounds that EXPLODE on impact (including on a direct robot hit) — ${CFG.weapons.launcher.damage} area damage. Slow to fire; carries ${CFG.weapons.launcher.maxAmmo} rounds.`,
-            apply() { return buyWeapon('launcher', 'Grenade Launcher'); }
-        },
-        // Upgrade senjata: hanya senjata yang sedang DIMILIKI yang kartunya muncul.
-        ...['pistol', 'shotgun', 'rifle', 'launcher'].filter(w => o[w]).map(upgradeItem),
+        // Senjata: SATU kartu gabungan beli+upgrade per senjata (2026-07-17,
+        // lihat weaponItem; pistol null bila tak dimiliki = tak pernah dijual).
+        ...WEAPON_ORDER.map(weaponItem).filter(Boolean),
     ];
     // Campaign: sembunyikan item khusus Survival (Monas/Radar/beli-senjata).
     if (shopCtx && shopCtx.mode === 'campaign') return items.filter(it => !SURVIVAL_ONLY.has(it.id));
@@ -387,7 +401,9 @@ function buyWeapon(w, label) {
 // Status tampilan non-harga: senjata dimiliki -> 'Owned'; Medkit sudah dibawa ->
 // 'Held'; Strengthen Monas di tingkat tertinggi -> 'Maxed' (Buy dimatikan).
 function ownedNote(it) {
-    if (it.weapon && player.owned[it.weapon]) return 'Owned';
+    // Kartu senjata gabungan (2026-07-17): varian dimiliki = penjual upgrade
+    // (punya it.upgrade) — jangan dicap 'Owned' agar upgrade tetap terbeli.
+    if (it.weapon && !it.upgrade && player.owned[it.weapon]) return 'Owned';
     if (it.id === 'radar' && player.hasRadar) return 'Owned';
     if (it.id === 'medkit' && player.medkits >= CFG.player.maxMedkits) return 'Full';
     if (it.id === 'strengthenMonas' && isMonasFullyStrengthened()) return 'Maxed';
@@ -623,19 +639,10 @@ function render() {
         // pasangan [Beli]+[Upgrade]-nya duduk pada satu baris — tanpa mengubah
         // gaya/ukuran kartu. Tinggi grid TETAP (CSS) agar panel tak berubah
         // ukuran saat pindah tab.
+        // Kartu senjata kini GABUNGAN beli+upgrade (2026-07-17) — semua tab
+        // memakai loop seragam yang sama (pasangan `rowStart` tak diperlukan).
         const grid = el('div', 'shopGrid');
-        if (activeTab === 'weapon') {
-            for (const w of WEAPON_ORDER) {
-                const rowItems = items.filter(it => it.weapon === w || it.upgrade === w);
-                rowItems.forEach((it, i) => {
-                    const card = makeCard(it, desc);
-                    if (i === 0) card.classList.add('rowStart');   // mulai baris baru per senjata
-                    grid.appendChild(card);
-                });
-            }
-        } else {
-            for (const it of items) grid.appendChild(makeCard(it, desc));
-        }
+        for (const it of items) grid.appendChild(makeCard(it, desc));
         panel.appendChild(grid);
         panel.appendChild(desc);
         // Deskripsi awal = item terpilih dalam tab (fallback item pertama tab).

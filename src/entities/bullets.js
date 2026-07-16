@@ -15,12 +15,14 @@ export function updateBullets(step) {
         const b = bullets[i];
         // Peluru yang frame LALU berhenti di batas kursor (b.ended): segmen
         // terakhirnya sudah diberi giliran sweep robot (robots.js jalan setelah
-        // updateBullets) — sekarang baru mati. Launcher MELEDAK di titik kursor;
-        // peluru biasa (pelet pertama, fxX/fxZ = titik kursor saat menembak)
-        // memunculkan efek tembakan di lantai.
+        // updateBullets) — sekarang baru mati. Launcher MELEDAK di posisi akhir;
+        // peluru biasa (pelet pertama, flag b.fx) memunculkan efek tembakan di
+        // lantai DI POSISI AKHIR PELURU (2026-07-16: dulu di titik kursor beku
+        // fxX/fxZ — sebar arah jadi tak terlihat, semua tembakan tampak mendarat
+        // di satu titik yang sama).
         if (b.ended) {
             if (b.explosive) queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage);
-            else if (b.fxX !== undefined) spawnBulletFloorHit(b.fxX, b.fxZ, b.mesh.position.y);
+            else if (b.fx) spawnBulletFloorHit(b.mesh.position.x, b.mesh.position.z, b.mesh.position.y);
             scene.remove(b.mesh); bullets.splice(i, 1);
             continue;
         }

@@ -127,10 +127,11 @@ class Mat {
     constructor(o = {}) {
         this.color = o.color instanceof Color ? o.color : new Color(o.color || 0xffffff);
         this.emissive = o.emissive instanceof Color ? o.emissive : new Color(o.emissive || 0);
+        this.emissiveIntensity = o.emissiveIntensity != null ? o.emissiveIntensity : 1;
         this.opacity = o.opacity != null ? o.opacity : 1;
         this.transparent = !!o.transparent; this.map = o.map || null;
     }
-    clone() { return new Mat({ color: new Color(this.color), emissive: new Color(this.emissive), opacity: this.opacity, transparent: this.transparent, map: this.map }); }
+    clone() { return new Mat({ color: new Color(this.color), emissive: new Color(this.emissive), emissiveIntensity: this.emissiveIntensity, opacity: this.opacity, transparent: this.transparent, map: this.map }); }
     dispose() { }
 }
 global.THREE = {
@@ -463,7 +464,8 @@ wMod.updateWeaponTimers(0.5);   // selesaikan ayunan -> meleeT <= 0 (jangan cema
 //     maxDist (jarak pivot->aimPoint saat menembak), mati TEPAT di batas
 //     (frame TUNDA satu — segmen terakhir tetap dapat giliran sweep robot),
 //     lalu efek tembakan di lantai (2 ground puff, menumpang pool explosions)
-//     tepat di titik kursor. (Jarak kursor uji bebas — bukan angka tuning.) ---
+//     DI POSISI AKHIR PELURU (2026-07-16: bukan lagi titik kursor beku — sebar
+//     arah harus terlihat). (Jarak kursor uji bebas — bukan angka tuning.) ---
 const inpAimMod = await import(R('src/core/input.js'));
 const bulMod = await import(R('src/entities/bullets.js'));
 wMod.initWeapons();
@@ -477,7 +479,12 @@ stateMod.mouse.isDown = false;
 T('tembakan lahir', stateMod.bullets.length === 1);
 const bCur = stateMod.bullets[0];
 T('peluru distempel maxDist = jarak kursor', bCur && Math.abs(bCur.maxDist - AIMD) < 1e-6);
-T('pelet pertama membawa titik kursor (fxX/fxZ)', bCur && bCur.fxX === 0 && bCur.fxZ === -AIMD);
+T('pelet pertama ditandai fx (efek lantai di posisi akhir peluru)', bCur && bCur.fx === true);
+// Sebar arah (spreadBase > 0, config-driven): arah peluru menyimpang lateral <=
+// spread dari bidikan murni -z; TIDAK dituntut menyimpang (random boleh ~0).
+T('arah peluru dalam kerucut sebar config (|dx| <= spread)', bCur &&
+    Math.abs(bCur.dir.x) <= (cfgMod.CFG.weapons.spreadBase + cfgMod.CFG.weapons.spreadBloom) * 1.3 + 1e-6 &&
+    bCur.dir.z < 0);
 const nExp0 = stateMod.explosions.length;
 let bEndX = 0, bEndZ = 0, bSteps = 0;
 for (; bSteps < 600 && stateMod.bullets.length; bSteps++) {
@@ -493,6 +500,37 @@ T('posisi akhir terjepit tepat di jarak batas (' + bEndX.toFixed(1) + ',' + bEnd
 T('efek tembakan lantai muncul (2 puff)', stateMod.explosions.length === nExp0 + 2);
 for (const e of stateMod.explosions.splice(0)) scene.remove(e.mesh);   // bersih-bersih pool
 for (let i = 0; i < 5; i++) wMod.updateWeaponState(0.2);   // luruhkan gunRecoil (tembakan me-reset gate AFK avatar)
+
+// --- 6d. Peluru Grenade Launcher per level (2026-07-16): Lv1-2 = granat Mk2,
+//     Lv3 = ROKET (buildRocketMesh, userData.rocket — menyamai prop peluncur
+//     bahu `launcher3` avatar); keduanya tetap eksplosif (b.explosive). ---
+const prevWpn = wMod.currentWeapon;
+wMod.startSwitch('launcher');
+for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);   // selesaikan animasi switch 0.5 dtk
+player.launcher = player.launcher || { ammo: 5 };
+player.launcher.ammo = Math.max(5, player.launcher.ammo | 0);
+player.weaponLvl = player.weaponLvl || {};
+player.weaponLvl.launcher = 1;
+stateMod.bullets.length = 0;
+stateMod.mouse.isDown = true; player.lastShot = 0;
+wMod.updateShooting();
+stateMod.mouse.isDown = false;
+T('ronde launcher Lv1 = granat Mk2 (bukan roket), eksplosif',
+    stateMod.bullets.length === 1 && !stateMod.bullets[0].mesh.userData.rocket && stateMod.bullets[0].explosive === true);
+scene.remove(stateMod.bullets[0].mesh); stateMod.bullets.length = 0;
+player.weaponLvl.launcher = 3;
+stateMod.mouse.isDown = true; player.lastShot = 0;
+wMod.updateShooting();
+stateMod.mouse.isDown = false;
+T('ronde launcher Lv3 = ROKET (userData.rocket), eksplosif + damage Lv3',
+    stateMod.bullets.length === 1 && stateMod.bullets[0].mesh.userData.rocket === true
+    && stateMod.bullets[0].explosive === true
+    && Math.abs(stateMod.bullets[0].damage - wMod.weaponDamage('launcher')) < 1e-9);
+scene.remove(stateMod.bullets[0].mesh); stateMod.bullets.length = 0;
+player.weaponLvl.launcher = 1;                                // pulihkan level
+wMod.startSwitch(prevWpn);                                    // kembalikan senjata semula
+for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);
+for (let i = 0; i < 5; i++) wMod.updateWeaponState(0.2);      // luruhkan gunRecoil
 
 // --- 7. Kecepatan direksional relatif kursor. Kamera barat daya (2026-07-16):
 // WASD memakai basis LAYAR (SCREEN_UP/LEFT), jadi arahkan stub bidik ke SCREEN_UP
@@ -578,11 +616,11 @@ robots.splice(robots.indexOf(zX), 1);
 const shopMod = await import(R('src/scenes/survival/shop.js'));
 stateMod.setScore(999999);
 shopMod.openShop();
-// --- Tab shop (2026-07-15): item terkelompok ke Weapons/Armor/Upgrades/General ---
+// --- Tab shop (2026-07-15; urutan 2026-07-17): GENERAL pertama & jadi default ---
 const tabDbg = shopMod.shopTabDebug();
-T('tab shop: 4 tab terlihat, default = weapon', tabDbg.active === 'weapon'
-    && tabDbg.tabs.join(',') === 'weapon,armor,upgrade,general');
-T('tab weapon berisi upgrade senjata (up_pistol)', tabDbg.items.weapon.includes('up_pistol'));
+T('tab shop: 4 tab terlihat, General PERTAMA & default', tabDbg.active === 'general'
+    && tabDbg.tabs.join(',') === 'general,weapon,armor,upgrade');
+T('tab weapon berisi kartu senjata gabungan (pistol)', tabDbg.items.weapon.includes('pistol'));
 T('tab armor = armor1/2/3', tabDbg.items.armor.join(',') === 'armor1,armor2,armor3');
 T('tab upgrade = ammoup + hpup + strengthenMonas', tabDbg.items.upgrade.includes('ammoup')
     && tabDbg.items.upgrade.includes('hpup') && tabDbg.items.upgrade.includes('strengthenMonas'));
@@ -599,17 +637,19 @@ T('tab general = isi ulang/medkit/radar/heal-monas (bukan armor/upgrade)',
         && player.medkits === medBefore && stateMod.score === sBefore);
     T('undo lagi = tidak ada yang dibatalkan', typeof shopMod.shopUndoLast() === 'string');
 }
-T('beli upgrade pistol (Lv1->2)', shopMod.shopPurchase('up_pistol') === null && player.weaponLvl.pistol === 2);
-T('upgrade shotgun TERSEMBUNYI sebelum punya shotgun', shopMod.shopPurchase('up_shotgun') === 'Unknown item');
-// (beli senjata via shopPurchase butuh initWeapons [mesh FPS] — di harness cukup
-// grant kepemilikan langsung; yang diuji = GATING katalog dari player.owned)
-player.weapons.push('shotgun'); stateMod.syncOwnedFromWeapons();
-T('upgrade shotgun muncul & terbeli (Lv2)', shopMod.shopPurchase('up_shotgun') === null && player.weaponLvl.shotgun === 2);
-T('beli upgrade pistol lagi (Lv2->3)', shopMod.shopPurchase('up_pistol') === null && player.weaponLvl.pistol === 3);
-const rejMax = shopMod.shopPurchase('up_pistol');
+// --- Kartu senjata GABUNGAN (2026-07-17): id lama up_<w> hilang; kartu yang
+//     sama menjual SENJATA saat belum dimiliki lalu UPGRADE Lv2/Lv3 saat sudah ---
+T('id lama up_pistol hilang (kartu gabungan)', shopMod.shopPurchase('up_pistol') === 'Unknown item');
+T('kartu pistol (dimiliki) = upgrade Lv1->2', shopMod.shopPurchase('pistol') === null && player.weaponLvl.pistol === 2);
+T('kartu shotgun (belum dimiliki) = BELI senjatanya (level tetap 1)',
+    shopMod.shopPurchase('shotgun') === null && player.owned.shotgun === true
+    && (player.weaponLvl.shotgun || 1) === 1);
+T('kartu shotgun yang sama kini = upgrade Lv2', shopMod.shopPurchase('shotgun') === null && player.weaponLvl.shotgun === 2);
+T('kartu pistol lagi (Lv2->3)', shopMod.shopPurchase('pistol') === null && player.weaponLvl.pistol === 3);
+const rejMax = shopMod.shopPurchase('pistol');
 T('Lv3 = maks, pembelian ditolak (' + rejMax + ')', typeof rejMax === 'string' && player.weaponLvl.pistol === 3);
 const s0 = stateMod.score;
-shopMod.shopPurchase('up_pistol');
+shopMod.shopPurchase('pistol');
 T('skor tidak terpotong saat ditolak', stateMod.score === s0);
 shopMod.closeShop();
 
@@ -899,10 +939,14 @@ shopMod.closeShop();
 stateMod.setPaused(false);   // pulihkan (runEnterShop mem-pause; harness tak ada klik resume)
 shopMod.closeShop();
 
-// --- 17. Campaign STAGE 4 (final, OUTDOOR, 2026-07-13): parkiran -> jalan raya
-// 500 m -> stasiun kereta, dgn BOSS di ujung timur. Bangun dunia (union
-// walkable), konektivitas flood-fill START->END, robot 13-spot + supply,
-// robotAI, dan ALUR: bunuh semua -> boss muncul -> bunuh boss -> finish. ---
+// --- 17. Campaign STAGE 4 (final, OUTDOOR; layout ALUN-ALUN 2026-07-17):
+// parkiran kecil -> jalan raya 500 m -> GERBANG -> kompleks alun-alun (ring
+// jalan 2 lajur mengelilingi lapangan), BOSS TANK spawn di PUSAT alun-alun.
+// Bangun dunia (union walkable), konektivitas flood-fill START->END (END =
+// pusat alun-alun; union tembus — gerbang = blocker, bukan union), robot
+// 13-spot + supply (semua di BARAT gerbang = alun steril), robotAI, GERBANG
+// tertutup selagi robot hidup, dan ALUR: bunuh semua -> gerbang terbuka +
+// boss muncul -> bunuh boss -> MISSION COMPLETE (jeda singkat, tanpa trigger). ---
 s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya tak membangun ulang)
 // PRE-BUILD konsistensi loading (2026-07-16): ensureWorld idempoten — panggilan
 // kedua TIDAK membangun ulang dunia (jumlah anak scene tetap), guard `built` set.
@@ -928,7 +972,7 @@ s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
             if (wk(nc, nr) && !seen[nr][nc]) { seen[nr][nc] = true; q.push([nc, nr]); }
         }
     }
-    T('S4: START & END walkable + TERHUBUNG (union parkiran->jalan->stasiun)',
+    T('S4: START & END walkable + TERHUBUNG (union parkiran->jalan->alun-alun)',
         s4mod.stage4Walk(S.x, S.z, 4) && s4mod.stage4Walk(E.x, E.z, 4) && seen[er][ec]);
 }
 T('S4: nav-grid pathfinder terbangun', s4mod.stage4Scene.robotAI != null);
@@ -952,16 +996,37 @@ let s4aiOk = true;
 try { for (let i = 0; i < 5; i++) s4mod.stage4Scene.robotAI(zS4, 0.05, 3); } catch (e) { s4aiOk = false; }
 T('S4: robotAI jalan tanpa error', s4aiOk);
 
+// Semua robot layout baru berada di BARAT gerbang (alun-alun STERIL dari robot)
+T('S4: semua robot di barat gerbang alun-alun (alun steril)',
+    robots.filter(z => z.stage === 4).every(z => z.mesh.position.x < s4mod.S4_GATE.x - 20));
 // ALUR MENANG: BOSS TANK (entities/tank.js, 2026-07-14) TIDAK muncul selagi
 // masih ada robot. Tank = entitas MANDIRI (bukan anggota `robots`).
 s4mod.stage4Scene.updateMode(0.1);
 T('S4: tank boss BELUM muncul selagi masih ada robot', s4mod.currentTank() == null);
-// bunuh SEMUA robot normal -> updateMode -> TANK muncul (menabrak dinding timur)
+// GERBANG tertutup selagi robot hidup: playerCollide di posisi gerbang harus
+// MENDORONG player keluar dari panel (blocker pejal di mulut ring).
+{
+    stateMod._v3.set(s4mod.S4_GATE.x, 0, s4mod.S4_GATE.z);
+    s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_GATE.x - 40, s4mod.S4_GATE.z, 0);
+    T('S4: gerbang alun-alun TERTUTUP selagi robot hidup (player terdorong keluar)',
+        Math.abs(stateMod._v3.x - s4mod.S4_GATE.x) > 4);
+}
+// bunuh SEMUA robot normal -> updateMode -> GERBANG terbuka + TANK muncul di
+// PUSAT alun-alun (home = S4_END; menggelinding dari sisi timur lapangan).
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 s4mod.stage4Scene.updateMode(0.1);
 const s4tank = s4mod.currentTank();
 T('S4: setelah semua robot mati -> TANK boss muncul (bukan anggota robots)',
     s4tank != null && !robots.includes(s4tank) && /TANK/.test(s4mod.stage4Scene.hudStatus()));
+T('S4: home tank = PUSAT alun-alun (S4_END)',
+    s4tank.homeX === s4mod.S4_END.x && s4tank.homeZ === s4mod.S4_END.z);
+// GERBANG kini terbuka: posisi yang sama tidak lagi terdorong.
+{
+    stateMod._v3.set(s4mod.S4_GATE.x, 0, s4mod.S4_GATE.z);
+    s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_GATE.x - 40, s4mod.S4_GATE.z, 0);
+    T('S4: gerbang TERBUKA setelah semua robot mati (player bisa lewat)',
+        Math.abs(stateMod._v3.x - s4mod.S4_GATE.x) < 1e-6);
+}
 T('S4: HP tank = CFG.campaign.bosses.tank.hp',
     s4tank.hp === cfgMod.CFG.campaign.bosses.tank.hp && s4tank.maxHp === cfgMod.CFG.campaign.bosses.tank.hp);
 // jalankan siklus tank (spawn menabrak dinding -> 3 serangan bergantian) ~12 dtk
@@ -1066,18 +1131,17 @@ while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mor
     while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mortars.splice(0, 1); }
 }
 while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }   // bersihkan peluru MG
-// finish TERKUNCI selagi tank hidup
+// MENANG selagi tank hidup = belum (tak ada trigger finish; menang murni dari
+// kematian tank + jeda WIN_DELAY singkat di updateMode).
 stateMod.setGameOver(false);
-stateMod._v3.set(s4mod.S4_END.x, 0, s4mod.S4_END.z);
-s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_END.x, s4mod.S4_END.z, 0);
-T('S4: finish TERKUNCI selagi tank hidup (belum MISSION COMPLETE)', stateMod.isGameOver === false);
-// hancurkan tank (HP habis) -> updateMode -> pintu stasiun aktif -> MISSION COMPLETE
+T('S4: belum MISSION COMPLETE selagi tank hidup', stateMod.isGameOver === false);
+// hancurkan tank (HP habis) -> updateMode -> jeda singkat -> MISSION COMPLETE
 s4tank.hp = 0;
 s4mod.stage4Scene.updateMode(0.1);
 T('S4: tank HANCUR saat HP habis', s4tank.dead === true);
-stateMod._v3.set(s4mod.S4_END.x, 0, s4mod.S4_END.z);
-s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_END.x, s4mod.S4_END.z, 0);
-T('S4: hancurkan tank -> masuk stasiun -> MISSION COMPLETE (gameOver win)', stateMod.isGameOver === true);
+T('S4: belum menang PERSIS saat tank hancur (jeda ledakan dulu)', stateMod.isGameOver === false);
+for (let i = 0; i < 40 && !stateMod.isGameOver; i++) s4mod.stage4Scene.updateMode(0.1);   // > jeda win
+T('S4: hancurkan tank -> MISSION COMPLETE (gameOver win, tanpa trigger stasiun)', stateMod.isGameOver === true);
 stateMod.setGameOver(false);
 
 // --- 17b. CHEAT skip-to-stage-N (2026-07-14): lompat LANGSUNG ke stage campaign
@@ -1095,8 +1159,9 @@ T('cheat skip-to-stage invalid (9) ditolak, scene tak berubah',
     smMod.activeScene.cheatSkipToStage(9) === null && smMod.activeScene === s4before);
 T('survival TAK punya hook cheatSkipToStage (campaign-only)',
     survMod.survivalScene.cheatSkipToStage === undefined);
-// Anti-stutter: lompat-langsung WAJIB mengompilasi shader dunia baru (mis. stage 4
-// FuturisticSUV MeshStandard/Physical yg tak di-warm preload) via renderer.compile.
+// Anti-stutter: lompat-langsung WAJIB mengompilasi shader dunia baru via
+// renderer.compile (kini belt-and-suspenders — mobil stage 4 sudah Lambert
+// [rombak 2026-07-16], tapi jalur compile tetap wajib utk material non-warm lain).
 const _rc = rendererMod.renderer.compile;
 let rcCount = 0;
 rendererMod.renderer.compile = function () { rcCount++; return _rc.apply(this, arguments); };
@@ -1207,6 +1272,69 @@ for (const [name, build] of Object.entries(propBuilders)) {
             fin(inner.position.y + 1) && inner.position.y >= 0 && inner.children.length > 0;
     }
     T('prop builder ' + name + ': Group ter-skala berdiri di y>=0 (tanpa NaN)', ok);
+}
+
+// --- 19. Panduan gaya "GIBS 2045" (2026-07-16, world/palette.js): semua prop
+//     futuristik + kendaraan HARUS memakai token PAL — tanpa neon terlarang
+//     (cyan 0x00ffff / magenta 0xff00ff) dan emissive lingkungan <= EMISSIVE_MAX.
+//     Sweep material dilakukan lewat traverse Group hasil builder (aturan tetap
+//     tegak walau warna token di-retune). ---
+const palMod = await import(R('src/world/palette.js'));
+{
+    const { PAL, EMISSIVE_MAX, FORBIDDEN_HEX } = palMod;
+    T('palette: token PAL lengkap & numerik', PAL &&
+        ['ink', 'gunmetal', 'steel', 'panel', 'concrete', 'tech', 'techDim', 'screenBg', 'amber', 'hazard', 'white']
+            .every(k => typeof PAL[k] === 'number') &&
+        typeof EMISSIVE_MAX === 'number' && Array.isArray(FORBIDDEN_HEX));
+
+    const styleGroups = [];
+    for (const [name, build] of Object.entries(propBuilders)) styleGroups.push([name, build(16, 9, 16)]);
+    styleGroups.push(['Desk', (await import(R('src/entities/futuristicDesk.js'))).buildFuturisticDeskMesh(16, 9, 10)]);
+    styleGroups.push(['Chair', (await import(R('src/entities/futuristicChair.js'))).buildFuturisticChairMesh(4.5)]);
+    styleGroups.push(['Cupboard', (await import(R('src/entities/futuristicCupboard.js'))).buildFuturisticCupboardMesh(14, 20, 8)]);
+    styleGroups.push(['MeetingTable', (await import(R('src/entities/futuristicMeetingTable.js'))).buildFuturisticMeetingTableMesh(30, 9, 16)]);
+    styleGroups.push(['Sedan', (await import(R('src/entities/futuristicSedan.js'))).buildFuturisticSedanMesh(7, null)]);
+    styleGroups.push(['SUV', (await import(R('src/entities/futuristicSUV.js'))).buildFuturisticSUVMesh(7, null)]);
+
+    let neonOk = true, emisOk = true, badNeon = '', badEmis = '';
+    for (const [name, g] of styleGroups) {
+        g.traverse(o => {
+            const m = o.material;
+            if (!m || !m.color) return;
+            const c = m.color.getHex ? m.color.getHex() : null;
+            const e = m.emissive && m.emissive.getHex ? m.emissive.getHex() : 0;
+            if (FORBIDDEN_HEX.includes(c) || FORBIDDEN_HEX.includes(e)) { neonOk = false; badNeon = badNeon || name; }
+            if (e !== 0 && typeof m.emissiveIntensity === 'number' && m.emissiveIntensity > EMISSIVE_MAX) {
+                emisOk = false; badEmis = badEmis || (name + ' @' + m.emissiveIntensity);
+            }
+        });
+    }
+    T('palette: tanpa neon terlarang (cyan/magenta) di semua prop & kendaraan' + (badNeon ? ' [' + badNeon + ']' : ''), neonOk);
+    T('palette: emissive lingkungan <= EMISSIVE_MAX di semua prop & kendaraan' + (badEmis ? ' [' + badEmis + ']' : ''), emisOk);
+
+    // Rombak mobil 2026-07-16 (low-poly Lambert): tiap mobil punya >= 4 roda
+    // silinder (geometri stub type 'cyl') menapak di y>0, material SEMUA
+    // MeshLambertMaterial-kompatibel (tanpa Physical), dan builder TANPA lift
+    // (dasar roda model sudah di y=0 -> inner group y === 0).
+    for (const nm of ['Sedan', 'SUV']) {
+        const g = styleGroups.find(e => e[0] === nm)[1];
+        let cyl = 0;
+        g.traverse(o => { if (o.isMesh && o.geometry && o.geometry.type === 'cyl' && o.position.y > 0) cyl++; });
+        const inner = g.children[0];
+        T('mobil ' + nm + ': >=4 roda silinder tegak & tanpa lift builder (inner y=0)',
+            cyl >= 4 && !!inner && inner.position.y === 0);
+    }
+
+    // Rombak prop low-poly 2026-07-16: SEMUA prop & kendaraan wajib ringan —
+    // maksimum 25 mesh per model (penjaga "tidak berat ketika render").
+    let heaviest = '', heavyN = 0, allLite = true;
+    for (const [name, g] of styleGroups) {
+        let n = 0;
+        g.traverse(o => { if (o.isMesh) n++; });
+        if (n > heavyN) { heavyN = n; heaviest = name; }
+        if (n > 25) allLite = false;
+    }
+    T('semua prop & kendaraan low-poly <= 25 mesh (terberat: ' + heaviest + ' = ' + heavyN + ')', allLite);
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

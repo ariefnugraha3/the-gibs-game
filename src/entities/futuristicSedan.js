@@ -1,7 +1,17 @@
 // THREE global (CDN r128); modul TIDAK meng-import THREE (aturan proyek).
-// CATATAN: memakai MeshStandardMaterial (bukan Lambert/Basic) — shader-nya
-// di-warm lewat renderer.compile saat dunia stage 4 dibangun (lihat FuturisticSUV
-// & campaignJumpToStage/runLeaveShop), jadi tanpa recompile mid-game.
+// DIROMBAK TOTAL 2026-07-16 — versi low-poly ringan:
+//  - Semua MeshLambertMaterial (program shader yang SUDAH dipanaskan preload
+//    -> tanpa recompile & jauh lebih murah di-render; dulu ExtrudeGeometry
+//    ber-bevel + MeshStandardMaterial).
+//  - Bentuk "3 kotak" sedan klasik: kap mesin depan + kabin kaca + bagasi.
+//  - RODA DIBENAHI: silinder ber-POROS Z (tegak, menggelinding searah panjang
+//    bodi), menapak tanah di y=0, dan MENONJOL keluar sisi bodi — dulu roda
+//    terkubur di dalam bodi (z ±0.9 < tebal bodi+bevel ±1.1) dan model harus
+//    diangkat 0.9·scale oleh builder.
+// Model lokal: panjang di sumbu X (depan = +X), dasar roda di y=0.
+// Warna mengikuti panduan gaya "GIBS 2045" (world/palette.js) — tanpa neon.
+
+import { PAL } from '../world/palette.js';
 
 export class FuturisticSedan {
     constructor(bodyColor = null) {
@@ -11,147 +21,80 @@ export class FuturisticSedan {
     }
 
     buildCar() {
-        // --- Materials ---
-        const bodyMaterial = new THREE.MeshStandardMaterial({
-            color: this.bodyColor != null ? this.bodyColor : 0x1a1a2e,
-            metalness: 0.9,
-            roughness: 0.3
+        // --- Material (Lambert semua = 1 program shader, murah) ---
+        const bodyMat = new THREE.MeshLambertMaterial({ color: this.bodyColor != null ? this.bodyColor : PAL.gunmetal });
+        const glassMat = new THREE.MeshLambertMaterial({
+            color: PAL.screenBg, transparent: true, opacity: 0.65,
+            emissive: PAL.techDim, emissiveIntensity: 0.25
         });
+        const trimMat = new THREE.MeshLambertMaterial({ color: PAL.ink });
+        const tireMat = new THREE.MeshLambertMaterial({ color: PAL.rubber });
+        const hubMat = new THREE.MeshLambertMaterial({ color: PAL.steel });
+        const headMat = new THREE.MeshLambertMaterial({ color: PAL.white, emissive: PAL.white, emissiveIntensity: 0.5 });
+        const tailMat = new THREE.MeshLambertMaterial({ color: PAL.hazard, emissive: PAL.hazard, emissiveIntensity: 0.5 });
 
-        const glassMaterial = new THREE.MeshStandardMaterial({
-            color: 0x0044ff,
-            metalness: 0.5,
-            roughness: 0.1,
-            transparent: true,
-            opacity: 0.6,
-            emissive: 0x0022aa,
-            emissiveIntensity: 0.5
-        });
-
-        const glowMaterial = new THREE.MeshStandardMaterial({
-            color: 0x00ffff,
-            emissive: 0x00ffff,
-            emissiveIntensity: 2
-        });
-
-        const redGlowMaterial = new THREE.MeshStandardMaterial({
-            color: 0xff0044,
-            emissive: 0xff0044,
-            emissiveIntensity: 2
-        });
-
-        const wheelMaterial = new THREE.MeshStandardMaterial({
-            color: 0x050505,
-            metalness: 0.8,
-            roughness: 0.2
-        });
-
-        // --- Main Body (Sleek Extruded Shape) ---
-        const shape = new THREE.Shape();
-        shape.moveTo(2.2, -0.5);
-        shape.lineTo(-2.2, -0.5);
-        shape.lineTo(-2.4, 0);
-        shape.lineTo(-1.8, 0.3);
-        shape.quadraticCurveTo(-1, 0.9, 0.2, 0.9);
-        shape.quadraticCurveTo(1.2, 0.8, 1.8, 0.2);
-        shape.lineTo(2.2, -0.5);
-
-        const extrudeSettings = {
-            depth: 1.8,
-            bevelEnabled: true,
-            bevelThickness: 0.2,
-            bevelSize: 0.2,
-            bevelSegments: 5,
-            steps: 1
+        const mk = (geo, mat, x, y, z) => {
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(x, y, z);
+            m.castShadow = true; m.receiveShadow = true;
+            this.group.add(m);
+            return m;
         };
 
-        const bodyGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-        bodyGeo.center();
-        const body = new THREE.Mesh(bodyGeo, bodyMaterial);
-        this.group.add(body);
+        // --- Bodi "3 kotak" (tanpa rotasi — blocky terbaca jelas dari top-down) ---
+        mk(new THREE.BoxGeometry(4.6, 0.55, 1.76), bodyMat, 0, 0.575, 0);      // bodi bawah (y 0.3..0.85)
+        mk(new THREE.BoxGeometry(1.2, 0.30, 1.66), bodyMat, 1.6, 1.0, 0);      // kap mesin depan
+        mk(new THREE.BoxGeometry(1.0, 0.28, 1.66), bodyMat, -1.75, 0.99, 0);   // bagasi belakang
+        mk(new THREE.BoxGeometry(2.0, 0.50, 1.50), glassMat, -0.15, 1.10, 0);  // kabin kaca (di atas bodi)
+        mk(new THREE.BoxGeometry(1.7, 0.08, 1.40), bodyMat, -0.15, 1.39, 0);   // pelat atap
 
-        // --- Glass Canopy ---
-        // Cloning the body geometry, scaling it down slightly, and pushing it up
-        const glassGeo = bodyGeo.clone();
-        glassGeo.scale(0.8, 0.7, 0.75);
-        glassGeo.translate(0, 0.15, 0);
-        const glass = new THREE.Mesh(glassGeo, glassMaterial);
-        this.group.add(glass);
+        // --- Bumper + lampu (depan = +X) ---
+        mk(new THREE.BoxGeometry(0.22, 0.30, 1.80), trimMat, 2.35, 0.50, 0);   // bumper depan
+        mk(new THREE.BoxGeometry(0.22, 0.30, 1.80), trimMat, -2.35, 0.50, 0);  // bumper belakang
+        mk(new THREE.BoxGeometry(0.06, 0.12, 1.40), headMat, 2.32, 0.78, 0);   // strip headlight
+        mk(new THREE.BoxGeometry(0.06, 0.12, 1.40), tailMat, -2.32, 0.78, 0);  // strip taillight
 
-        // --- Wheels (Cylinders) ---
-        // Rotate cylinders 90 degrees on X to lay them flat along the Z axis
-        const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 24);
-        wheelGeo.rotateX(Math.PI / 2);
-        
-        const hubGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.32, 12);
+        // --- Roda: poros Z (tegak), menapak y=0, menonjol keluar sisi bodi ---
+        // Bodi setengah-lebar 0.88; roda di z ±0.94 (span 0.80..1.08) -> terlihat.
+        const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.28, 12);
+        wheelGeo.rotateX(Math.PI / 2);                                          // poros Y -> Z
+        const hubGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.30, 8);
         hubGeo.rotateX(Math.PI / 2);
-
-        const wheelPositions = [
-            [-1.4, -0.5, 0.9], [1.3, -0.5, 0.9],   // Right side
-            [-1.4, -0.5, -0.9], [1.3, -0.5, -0.9]  // Left side
-        ];
-
-        wheelPositions.forEach(pos => {
-            const wheel = new THREE.Mesh(wheelGeo, wheelMaterial);
-            wheel.position.set(...pos);
-            this.group.add(wheel);
-
-            const hub = new THREE.Mesh(hubGeo, glowMaterial);
-            hub.position.set(...pos);
-            this.group.add(hub);
-        });
-
-        // --- Lights ---
-        const headlightGeo = new THREE.BoxGeometry(0.1, 0.1, 1.4);
-        const headlight = new THREE.Mesh(headlightGeo, glowMaterial);
-        headlight.position.set(-2.3, -0.1, 0);
-        this.group.add(headlight);
-
-        const taillightGeo = new THREE.BoxGeometry(0.1, 0.1, 1.4);
-        const taillight = new THREE.Mesh(taillightGeo, redGlowMaterial);
-        taillight.position.set(2.3, -0.1, 0);
-        this.group.add(taillight);
-
-        // --- Spoiler ---
-        const spoilerGeo = new THREE.BoxGeometry(0.3, 0.1, 1.8);
-        const spoiler = new THREE.Mesh(spoilerGeo, bodyMaterial);
-        spoiler.position.set(2.1, 0.6, 0);
-        this.group.add(spoiler);
-
-        const spoilerSupportGeo = new THREE.BoxGeometry(0.1, 0.3, 1.8);
-        const spoilerSupport = new THREE.Mesh(spoilerSupportGeo, bodyMaterial);
-        spoilerSupport.position.set(2.1, 0.4, 0);
-        this.group.add(spoilerSupport);
-
-        // --- Underglow ---
-        const underglowGeo = new THREE.BoxGeometry(3.5, 0.05, 1.6);
-        const underglow = new THREE.Mesh(underglowGeo, glowMaterial);
-        underglow.position.set(0, -0.6, 0);
-        this.group.add(underglow);
+        this.wheels = [];
+        for (const x of [1.5, -1.5]) for (const z of [0.94, -0.94]) {
+            this.wheels.push(mk(wheelGeo, tireMat, x, 0.35, z));               // r 0.35 -> menapak y=0
+            mk(hubGeo, hubMat, x, 0.35, z);
+        }
     }
 
-    // Call this in your game loop to animate the car
-    update(time) {
-        // Gentle hover effect
-        this.group.position.y = Math.sin(time * 2) * 0.1;
-        // Slow rotation to show off the 3D model
-        this.group.rotation.y += 0.01;
+    // Kompat API lama (TIDAK dipanggil game — mobil statis).
+    update(delta, state = {}) {
+        if (typeof state.speed === 'number' && this.wheels) {
+            for (const w of this.wheels) w.rotation.z -= state.speed * delta * 2;
+        }
+    }
+
+    dispose() {
+        this.group.traverse((o) => {
+            if (o.geometry) o.geometry.dispose();
+            if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
+        });
     }
 }
 
 /**
  * Drop-in builder untuk "object mobil" cover (sejajar buildFuturisticSUVMesh).
  * Mengembalikan THREE.Group: panjang bodi di-orient ke sumbu Z (siap di-yaw lewat
- * group.rotation.y) dan berdiri di y=0. `update()` TIDAK dipanggil (mobil statis).
+ * group.rotation.y) dan berdiri di y=0 (dasar roda model SUDAH di y=0 — tanpa
+ * pengangkatan lagi). `update()` TIDAK dipanggil (mobil statis).
  * @param {number} [scale=7]         1 unit-model ≈ `scale` u-dunia (1 m ≈ 7 u)
- * @param {number|null} [bodyColor]  warna cat bodi (null = default gelap)
+ * @param {number|null} [bodyColor]  warna cat bodi (null = default gunmetal)
  * @returns {THREE.Group}
  */
 export function buildFuturisticSedanMesh(scale = 7, bodyColor = null) {
     const sed = new FuturisticSedan(bodyColor);
     sed.group.rotation.y = Math.PI / 2;   // panjang bodi (X model) -> sumbu Z dunia
     sed.group.scale.setScalar(scale);
-    sed.group.position.y = 0.9 * scale;   // dasar roda (y −0.9 lokal) -> y=0 dunia
     const g = new THREE.Group();
     g.add(sed.group);
     return g;

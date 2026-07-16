@@ -1,55 +1,47 @@
 // THREE global (CDN r128); modul TIDAK meng-import THREE (aturan proyek).
-// Material dibuat di dalam constructor (bukan top-level) — MeshStandardMaterial
-// di-warm via renderer.compile saat dunia stage dibangun (lihat futuristicDesk).
-// Dipecah dari futuristicProps.js (2026-07-15).
+// DIROMBAK TOTAL 2026-07-16 — low-poly ringan & realistis: wastafel pedestal
+// porselen dgn keran BERCUCURAN (riser tegak + cucuran mendatar di atas bak —
+// dulu keran cuma silinder tegak tanpa cucuran + "air hologram" teal menyala).
+// TANPA emissive. SEMUA MeshLambertMaterial (program shader sudah dipanaskan
+// preload -> tanpa recompile & murah). Model lokal: lebar(x) 0.8, dalam(z)
+// 0.5, tinggi 1.1, dasar pedestal di y=0.
+// Warna mengikuti panduan gaya "GIBS 2045" (world/palette.js).
+
+import { PAL } from '../world/palette.js';
 
 export class Sink {
     constructor() {
         this.group = new THREE.Group();
         this.group.userData.name = "Sink";
-        const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1a24, metalness: 0.9, roughness: 0.3 });
-        const darkMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.8, roughness: 0.5 });
-        const cyanGlow = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5 });
-        // Basin
-        const basinGeo = new THREE.BoxGeometry(0.8, 0.3, 0.5);
-        const basin = new THREE.Mesh(basinGeo, metalMat);
-        basin.position.y = 0.5;
-        this.group.add(basin);
-        // Water (Holographic)
-        const waterGeo = new THREE.PlaneGeometry(0.6, 0.3);
-        this.water = new THREE.Mesh(waterGeo, cyanGlow);
-        this.water.rotation.x = -Math.PI / 2;
-        this.water.position.y = 0.55;
-        this.group.add(this.water);
-        // Faucet
-        const faucetGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8);
-        const faucet = new THREE.Mesh(faucetGeo, darkMat);
-        faucet.position.set(0, 0.8, -0.15);
-        this.group.add(faucet);
-        // Pedestal
-        const pedGeo = new THREE.CylinderGeometry(0.2, 0.3, 0.5, 8);
-        const ped = new THREE.Mesh(pedGeo, metalMat);
-        ped.position.y = 0.1;
-        this.group.add(ped);
+        const porcMat = new THREE.MeshLambertMaterial({ color: PAL.white });   // porselen
+        const tapMat = new THREE.MeshLambertMaterial({ color: PAL.steel });
+
+        const mk = (geo, mat, x, y, z) => {
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(x, y, z);
+            this.group.add(m);
+            return m;
+        };
+
+        mk(new THREE.CylinderGeometry(0.12, 0.18, 0.55, 8), porcMat, 0, 0.275, 0);  // pedestal (dasar y=0)
+        mk(new THREE.BoxGeometry(0.8, 0.25, 0.5), porcMat, 0, 0.675, 0);            // bak cuci (top ~0.8)
+        // Keran: riser tegak di belakang bak + cucuran mendatar menjorok ke bak
+        mk(new THREE.CylinderGeometry(0.035, 0.035, 0.3, 6), tapMat, 0, 0.93, -0.18);
+        mk(new THREE.BoxGeometry(0.05, 0.05, 0.22), tapMat, 0, 1.06, -0.08);
     }
-    update(t) {
-        this.water.material.emissiveIntensity = 1.0 + Math.sin(t * 10) * 0.5;
-    }
+    update(t) { }   // statis (kompat API)
 }
 
 /**
- * Drop-in builder wastafel. Model lokal: lebar(x)≈0.8, dalam(z)≈0.5, tinggi
- * ≈1.15 (dasar pedestal di y=-0.15). Di-skala NON-UNIFORM mengisi footprint
- * sx×sz dgn tinggi sy; berdiri di y=0. `update()` (air holografik) TIDAK
- * dipanggil (statis). Sejajar buildFuturisticDeskMesh.
+ * Drop-in builder wastafel. Model lokal: lebar(x) 0.8, dalam(z) 0.5, tinggi
+ * 1.1, dasar pedestal di y=0. Di-skala NON-UNIFORM mengisi footprint sx×sz
+ * dgn tinggi sy; berdiri di y=0.
  * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
  * @returns {THREE.Group}
  */
 export function buildFuturisticSinkMesh(sx, sy, sz) {
     const s = new Sink();
-    const scY = sy / 1.15;
-    s.group.scale.set(sx / 0.8, scY, sz / 0.5);
-    s.group.position.y = 0.15 * scY;   // dasar pedestal (y -0.15) -> y=0 dunia
+    s.group.scale.set(sx / 0.8, sy / 1.1, sz / 0.5);   // dasar model sudah di y=0
     const g = new THREE.Group();
     g.add(s.group);
     return g;

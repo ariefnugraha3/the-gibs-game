@@ -1,34 +1,38 @@
 // THREE global (CDN r128); modul TIDAK meng-import THREE (aturan proyek).
-// Material dibuat di dalam constructor (bukan top-level) — MeshStandardMaterial
-// di-warm via renderer.compile saat dunia stage dibangun (lihat futuristicDesk).
-// Dipecah dari futuristicProps.js (2026-07-15).
+// DIROMBAK TOTAL 2026-07-16 — low-poly ringan & realistis: papan dudukan +
+// 2 kaki kotak menapak lantai (dulu "hover pad" silinder glow melayang —
+// tidak sesuai kenyataan). SEMUA MeshLambertMaterial (program shader sudah
+// dipanaskan preload -> tanpa recompile & murah di-render).
+// Model lokal: lebar(x) 2, dalam(z) 0.5, tinggi 0.55, dasar kaki di y=0.
+// Warna mengikuti panduan gaya "GIBS 2045" (world/palette.js).
+
+import { PAL } from '../world/palette.js';
 
 export class Bench {
     constructor() {
         this.group = new THREE.Group();
         this.group.userData.name = "Bench";
-        const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1a24, metalness: 0.9, roughness: 0.3 });
-        const cyanGlow = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5 });
-        const seatGeo = new THREE.BoxGeometry(2, 0.1, 0.5);
-        const seat = new THREE.Mesh(seatGeo, metalMat);
-        seat.position.y = 0.5;
+        const seatMat = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
+        const legMat = new THREE.MeshLambertMaterial({ color: PAL.ink });
+        // Papan dudukan
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(2, 0.08, 0.5), seatMat);
+        seat.position.y = 0.51;
         this.group.add(seat);
-        // Hover pads instead of legs
-        const padGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.4, 8);
+        // 2 kaki panel di ujung (menapak lantai)
+        const legGeo = new THREE.BoxGeometry(0.1, 0.47, 0.44);
         for (let i = -1; i <= 1; i += 2) {
-            const pad = new THREE.Mesh(padGeo, cyanGlow);
-            pad.position.set(i * 0.7, 0.2, 0);
-            this.group.add(pad);
+            const leg = new THREE.Mesh(legGeo, legMat);
+            leg.position.set(i * 0.85, 0.235, 0);
+            this.group.add(leg);
         }
     }
-    update(t) { this.group.position.y = Math.sin(t * 2) * 0.05; }
+    update(t) { }   // statis (kompat API)
 }
 
 /**
  * Drop-in builder bangku (dipakai furnitur stage campaign). Model lokal:
- * lebar(x)≈2, dalam(z)≈0.5, tinggi ≈0.55 (dasar pad di y=0). Di-skala
+ * lebar(x) 2, dalam(z) 0.5, tinggi 0.55, dasar kaki di y=0. Di-skala
  * NON-UNIFORM mengisi footprint sx×sz dgn tinggi sy; berdiri di y=0.
- * `update()` (hover) TIDAK dipanggil (statis). Sejajar buildFuturisticDeskMesh.
  * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
  * @returns {THREE.Group}
  */

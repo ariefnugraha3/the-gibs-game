@@ -1,47 +1,55 @@
 // THREE global (CDN r128); modul TIDAK meng-import THREE (aturan proyek).
-// Material dibuat di dalam constructor (bukan top-level) — MeshStandardMaterial
-// di-warm via renderer.compile saat dunia stage dibangun (lihat futuristicDesk).
-// Dipecah dari futuristicProps.js (2026-07-15).
+// DIROMBAK TOTAL 2026-07-16 — low-poly ringan & realistis: kabinet konsol
+// kontrol dgn panel layar MIRING di atasnya + bibir keyboard (dulu layar
+// tegak mengambang + pad glow magenta melayang). SEMUA MeshLambertMaterial
+// (program shader sudah dipanaskan preload -> tanpa recompile & murah).
+// Model lokal: lebar(x) 1.6, dalam(z) 0.6, tinggi 1.2, dasar kabinet di y=0.
+// Warna mengikuti panduan gaya "GIBS 2045" (world/palette.js).
+
+import { PAL } from '../world/palette.js';
 
 export class Console {
     constructor() {
         this.group = new THREE.Group();
         this.group.userData.name = "Console";
-        const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1a24, metalness: 0.9, roughness: 0.3 });
-        const cyanGlow = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5 });
-        const magentaGlow = new THREE.MeshStandardMaterial({ color: 0xff00ff, emissive: 0xff00ff, emissiveIntensity: 1.5 });
-        const baseGeo = new THREE.BoxGeometry(1.5, 1, 0.5);
-        const base = new THREE.Mesh(baseGeo, metalMat);
-        this.group.add(base);
-        // Screen
-        const screenGeo = new THREE.PlaneGeometry(1.4, 0.8);
-        this.screen = new THREE.Mesh(screenGeo, cyanGlow);
-        this.screen.position.set(0, 0.1, 0.26);
-        this.group.add(this.screen);
-        // Base Glow
-        const padGeo = new THREE.BoxGeometry(1.6, 0.05, 0.6);
-        const pad = new THREE.Mesh(padGeo, magentaGlow);
-        pad.position.y = -0.5;
-        this.group.add(pad);
+        const bodyMat = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
+        const trimMat = new THREE.MeshLambertMaterial({ color: PAL.ink });
+        const screenMat = new THREE.MeshLambertMaterial({ color: PAL.screenBg, emissive: PAL.tech, emissiveIntensity: 0.7 });
+        // Kabinet
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.75, 0.55), bodyMat);
+        body.position.y = 0.375;
+        this.group.add(body);
+        // Panel layar miring di atas kabinet (housing + muka layar sejajar)
+        const scr = new THREE.Group();
+        scr.position.set(0, 0.98, -0.08);
+        scr.rotation.x = -0.28;                      // condong ke belakang, muka ke +z
+        const housing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.45, 0.08), trimMat);
+        scr.add(housing);
+        this.screen = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.33, 0.02), screenMat);
+        this.screen.position.z = 0.045;
+        scr.add(this.screen);
+        this.group.add(scr);
+        // Bibir keyboard di depan
+        const ledge = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.05, 0.25), trimMat);
+        ledge.position.set(0, 0.78, 0.32);
+        this.group.add(ledge);
     }
     update(t) {
-        this.screen.material.emissiveIntensity = 0.5 + (Math.sin(t * 5) * 0.5 + 0.5);
+        // Pulsa layar (kompat API; TIDAK dipanggil game — statis)
+        this.screen.material.emissiveIntensity = 0.45 + (Math.sin(t * 5) * 0.5 + 0.5) * 0.4;
     }
 }
 
 /**
- * Drop-in builder konsol/terminal. Model lokal: lebar(x)≈1.6, dalam(z)≈0.6,
- * tinggi ≈1.025 (dasar pad glow di y=-0.525). Di-skala NON-UNIFORM mengisi
- * footprint sx×sz dgn tinggi sy; berdiri di y=0. Layar menghadap +z.
- * `update()` (pulsa layar) TIDAK dipanggil (statis). Lihat buildFuturisticDeskMesh.
+ * Drop-in builder konsol/terminal. Model lokal: lebar(x) 1.6, dalam(z) 0.6,
+ * tinggi 1.2, dasar kabinet di y=0. Di-skala NON-UNIFORM mengisi footprint
+ * sx×sz dgn tinggi sy; berdiri di y=0. Layar menghadap +z.
  * @param {number} sx lebar dunia @param {number} sy tinggi @param {number} sz dalam
  * @returns {THREE.Group}
  */
 export function buildFuturisticConsoleMesh(sx, sy, sz) {
     const c = new Console();
-    const scY = sy / 1.025;
-    c.group.scale.set(sx / 1.6, scY, sz / 0.6);
-    c.group.position.y = 0.525 * scY;   // dasar (pad y -0.525) -> y=0 dunia
+    c.group.scale.set(sx / 1.6, sy / 1.2, sz / 0.6);   // dasar model sudah di y=0
     const g = new THREE.Group();
     g.add(c.group);
     return g;

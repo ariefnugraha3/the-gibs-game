@@ -9,7 +9,7 @@
 
 import { GEO, MAT } from './state.js';
 import { scene, viewCam, renderer, composer, postFxOn } from './renderer.js';
-import { buildGrenadeMesh } from '../entities/grenades.js';
+import { buildGrenadeMesh, buildRocketMesh } from '../entities/grenades.js';
 import { buildMagMesh, buildMedkitMesh } from '../entities/drops.js';
 import { buildRobotMesh, disposeRobot } from '../entities/robots.js';
 import { borrowBloodSprite } from '../entities/effects.js';
@@ -62,7 +62,8 @@ export async function warmupAll() {
 
     put(new THREE.Mesh(GEO.bullet, MAT.bullet), -12).scale.set(1, 1, 8.5);   // tracer player
     put(new THREE.Mesh(GEO.bullet, MAT.enemyBullet), -10).scale.setScalar(1.05);   // peluru robot ranged (warm shader biru)
-    put(buildGrenadeMesh(0.7), -8);    // peluru Grenade Launcher (mesh Mk2 bersama — hangatkan agar tembakan pertama tak nge-hitch)
+    put(buildGrenadeMesh(0.7), -8);    // peluru Grenade Launcher Lv1-2 (mesh Mk2 bersama — hangatkan agar tembakan pertama tak nge-hitch)
+    put(buildRocketMesh(0.7), -6);     // peluru ROKET launcher Lv3 (geo/mat bersama, Lambert/Basic)
     put(buildMagMesh(), -4);           // drop magazen (geo/mat bersama)
     put(buildMedkitMesh(), 0);         // drop medkit (mat bersama)
     // Trio visual ledakan + cincin debu: material per-instance PERSIS seperti

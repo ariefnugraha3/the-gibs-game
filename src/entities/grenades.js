@@ -54,6 +54,50 @@ export function buildGrenadeMesh(scale = 1) {
     return grp;
 }
 
+// ----- Model ROKET (peluru Grenade Launcher Lv3, 2026-07-16) -----
+// Saat upgrade launcher mencapai Lv3 prop avatar berganti jadi peluncur roket
+// AT4 di bahu (playerAvatar `launcher3`) — pelurunya ikut berganti dari granat
+// Mk2 menjadi roket ini (weapons.js updateShooting). Geometri & material
+// DIBAGI (dibuat sekali, jangan dispose); Lambert/Basic = program shader yang
+// sudah dipanaskan -> tanpa recompile. MONCONG = +Z lokal (weapons.js
+// meng-lookAt-kan +Z searah arah terbang; peluru terbang lurus, tanpa update
+// orientasi per frame). `userData.rocket = true` utk smoke test.
+const RKT_GEO = {
+    body: new THREE.CylinderGeometry(0.5, 0.5, 3.0, 10).rotateX(Math.PI / 2),   // poros -> Z
+    nose: new THREE.ConeGeometry(0.5, 1.3, 10).rotateX(Math.PI / 2),            // lancip ke +Z
+    nozzle: new THREE.CylinderGeometry(0.34, 0.42, 0.5, 8).rotateX(Math.PI / 2),
+    finH: new THREE.BoxGeometry(2.0, 0.08, 0.9),                                 // 2 plat silang = 4 sirip
+    finV: new THREE.BoxGeometry(0.08, 2.0, 0.9),
+    flame: new THREE.ConeGeometry(0.3, 0.9, 8).rotateX(-Math.PI / 2)             // lancip ke -Z (api knalpot)
+};
+const RKT_MAT = {
+    body: new THREE.MeshLambertMaterial({ color: 0x4d5638, emissive: 0x12160a }),   // tabung zaitun
+    nose: new THREE.MeshLambertMaterial({ color: 0xb3402e, emissive: 0x2a0c08 }),   // hulu ledak merah-bata (PAL.hazard)
+    steel: new THREE.MeshLambertMaterial({ color: 0x9aa1a8, emissive: 0x14161a }),  // sirip baja
+    nozzle: new THREE.MeshLambertMaterial({ color: 0x23262b }),                     // nozel gelap (PAL.ink)
+    flame: new THREE.MeshBasicMaterial({ color: 0xffb03b, toneMapped: false })      // semburan amber (ikut bloom)
+};
+
+export function buildRocketMesh(scale = 1) {
+    const grp = new THREE.Group();
+    const add = (geo, mat, z, shadow = false) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.z = z;
+        m.castShadow = shadow;
+        grp.add(m);
+        return m;
+    };
+    add(RKT_GEO.body, RKT_MAT.body, -0.2, true);    // tabung badan
+    add(RKT_GEO.nose, RKT_MAT.nose, 1.95);          // kerucut hulu ledak (depan)
+    add(RKT_GEO.nozzle, RKT_MAT.nozzle, -1.95);     // nozel belakang
+    add(RKT_GEO.finH, RKT_MAT.steel, -1.45);        // sirip silang belakang
+    add(RKT_GEO.finV, RKT_MAT.steel, -1.45);
+    add(RKT_GEO.flame, RKT_MAT.flame, -2.55);       // api roket menyembur ke belakang
+    grp.scale.setScalar(scale);
+    grp.userData.rocket = true;
+    return grp;
+}
+
 // Lepaskan granat (dipanggil dari animasi lempar di weapons.js saat titik
 // rilis). range: 'far' (klik kiri) = throwSpeed/throwUpward penuh; 'near'
 // (klik kanan) = throwNearSpeed/throwNearUpward -> lemparan pendek. Granat TIDAK

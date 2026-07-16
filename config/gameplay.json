@@ -45,7 +45,7 @@
         "bulletSpeed": 27,
         "bulletLife": 120,
         "bulletDamage": 20,
-        "spreadBase": 0.035,
+        "spreadBase": 0.055,
         "spreadBloom": 0.05,
         "heatPerShot": 0.22,
         "heatCoolPerSec": 1.4,

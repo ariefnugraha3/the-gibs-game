@@ -1,15 +1,15 @@
-// SCENE: Campaign STAGE 4 (final) — "Jalan Menuju Stasiun Kereta Api".
-// Dibuat 2026-07-13 dari denah referensi user; LAYOUT DIROMBAK 2026-07-16
-// (parkiran & pelataran stasiun DIPERKECIL, jalan jadi 2 LAJUR tanpa median).
-// Level LUAR-RUANGAN (bukan grid):
+// SCENE: Campaign STAGE 4 (final) — "Jalan Menuju Alun-Alun".
+// Dibuat 2026-07-13; LAYOUT DIROMBAK TOTAL 2026-07-17 dari denah referensi
+// user (STASIUN DIHAPUS, diganti ALUN-ALUN): level LUAR-RUANGAN (bukan grid):
 // PARKIRAN GEDUNG kecil (barat, sisi UTARA jalan; start = pintu keluar gedung)
-// -> JALAN RAYA 2 LAJUR (barat->timur, ~500 m; cover rongsokan slalom di bahu
-// bergantian, TANPA pembatas tengah) -> STASIUN KERETA API kecil (timur, sisi
-// SELATAN jalan; finish = pintu masuk stasiun).
-// Area boleh-jalan = UNION 3 persegi (parkiran + jalan + pelataran stasiun);
-// gedung/tembok keliling & bangunan stasiun = dinding (visual + clamp union).
-// ALUR MENANG: bunuh SEMUA robot -> BOSS muncul di ujung TIMUR jalan -> bunuh
-// boss -> pintu masuk stasiun aktif -> MISSION COMPLETE.
+// -> JALAN RAYA 2 LAJUR (barat->timur, ~500 m; cover rongsokan slalom) ->
+// KOMPLEKS ALUN-ALUN di ujung timur: lapangan alun-alun persegi DIKELILINGI
+// jalan ring 2 lajur (SQ = ring + alun, seluruhnya walkable).
+// Area boleh-jalan = UNION 3 persegi (parkiran + jalan + kompleks alun-alun).
+// GERBANG di mulut ring (GATE_X): TERTUTUP (blocker pejal) selama masih ada
+// robot — robot hanya ada di parkiran+jalan (alun-alun steril); bunuh SEMUA
+// robot -> gerbang terbuka + BOSS TANK muncul menggelinding ke TENGAH
+// alun-alun -> hancurkan tank -> MISSION COMPLETE (tanpa trigger finish).
 
 import { CFG } from '../../core/config.js';
 import { player, robots, drops, _v3 } from '../../core/state.js';
@@ -41,20 +41,21 @@ import { stage1Scene } from './stage1.js';
 // Dunia ditaruh ~120 km dari origin (jauh dari gedung stage 1/2/3). Skala 1 m ≈ 7 u.
 const OX = 120000, OZ = 0;
 // UTARA = z negatif (atas layar), SELATAN = z positif; BARAT = x kecil, TIMUR = x besar.
-// LAYOUT DIROMBAK 2026-07-16 (permintaan user): jalan kini HANYA 2 LAJUR
-// (lebar total ~9 m, 1 marka tengah putus-putus, TANPA pembatas/median tengah)
-// dan luas PARKIRAN + PELATARAN STASIUN diperkecil drastis (parkiran 163×60 m
-// -> 100×43 m; pelataran 146×70 m -> 94×50 m, bangunan stasiun ikut mengecil).
-// Panjang jalan tetap ~500 m; alur & kontrak scene tak berubah.
-const ROAD = { x0: OX, x1: OX + 3500, cz: OZ, hz: 32 };                  // jalan 500 m, 2 lajur (|z|<=hz)
-const PARK = { x0: OX - 140, x1: OX + 560, z0: OZ - 310, z1: OZ - 10 };  // parkiran kecil (utara-barat)
-const STA = { x0: OX + 2860, x1: OX + 3520, z0: OZ + 10, z1: OZ + 360 }; // pelataran stasiun kecil (selatan-timur)
-const STATION_BLD = { x: OX + 3190, z: OZ + 290, hx: 220, hz: 70 };     // bangunan stasiun (pejal; pintu di sisi utara)
+// LAYOUT DIROMBAK TOTAL 2026-07-17 (denah user): PARKIRAN diperkecil lagi
+// (100×43 m -> 60×30 m), STASIUN DIHAPUS, dan ujung timur jalan kini masuk ke
+// KOMPLEKS ALUN-ALUN (SQ ~86×86 m): lapangan alun-alun (ALUN) dikelilingi
+// jalan RING 2 lajur selebar jalan raya (RING_W = 2×ROAD.hz). Seluruh SQ
+// (ring + alun) walkable; jalan raya tetap 2 lajur ~500 m.
+const ROAD = { x0: OX, x1: OX + 3500, cz: OZ, hz: 32 };                    // jalan 500 m, 2 lajur (|z|<=hz)
+const PARK = { x0: OX - 140, x1: OX + 280, z0: OZ - 220, z1: OZ - 10 };    // parkiran kecil (utara-barat)
+const SQ = { x0: OX + 3470, x1: OX + 4070, z0: OZ - 300, z1: OZ + 300 };   // kompleks alun-alun (ring + alun)
+const RING_W = 64;                                                          // lebar ring 2 lajur (= lebar jalan raya)
+const ALUN = { x0: SQ.x0 + RING_W, x1: SQ.x1 - RING_W, z0: SQ.z0 + RING_W, z1: SQ.z1 - RING_W }; // lapangan tengah
 
-export const S4_START = { x: OX - 10, z: OZ - 260 };                     // pintu keluar gedung (parkiran barat-laut)
-export const S4_END = { x: OX + 3190, z: OZ + 195 };                    // pintu masuk stasiun (utara bangunan)
-const S4_EXIT = { x0: OX + 3090, x1: OX + 3290, z0: OZ + 170, z1: OZ + 225 };  // trigger finish
-const BOSS_POS = { x: OX + 3400, z: OZ + 0 };                           // ujung timur jalan
+export const S4_START = { x: OX - 10, z: OZ - 180 };                        // pintu keluar gedung (parkiran barat-laut)
+export const S4_END = { x: (SQ.x0 + SQ.x1) / 2, z: OZ };                   // PUSAT alun-alun (landmark radar + spawn boss)
+export const S4_GATE = { x: OX + 3480, z: OZ };                            // gerbang mulut ring (jalan -> alun-alun)
+const BOSS_POS = S4_END;                                                    // boss muncul di tengah alun-alun
 
 const blockers = [];      // cover pejal (mobil/bus/pembatas/kontainer/bangunan)
 let navGrid = null;
@@ -68,11 +69,13 @@ let built = false;
 export function ensureWorld() { if (!built) { built = true; buildWorld(); } }
 export const worldBuilt = () => built;   // debug/smoke
 
-// Titik (x,z) radius r di dalam area boleh-jalan (parkiran ∪ jalan ∪ stasiun)?
+// Titik (x,z) radius r di dalam area boleh-jalan (parkiran ∪ jalan ∪ alun-alun)?
+// SQ (ring + lapangan alun-alun) walkable seluruhnya — pemisahan ring/alun
+// murni visual; gerbang masuk kompleks dijaga blocker (gateBlocker), bukan union.
 export function stage4Walk(x, z, r) {
     if (x >= ROAD.x0 + r && x <= ROAD.x1 - r && Math.abs(z - ROAD.cz) <= ROAD.hz - r) return true;
     if (x >= PARK.x0 + r && x <= PARK.x1 - r && z >= PARK.z0 + r && z <= PARK.z1 - r) return true;
-    if (x >= STA.x0 + r && x <= STA.x1 - r && z >= STA.z0 + r && z <= STA.z1 - r) return true;
+    if (x >= SQ.x0 + r && x <= SQ.x1 - r && z >= SQ.z0 + r && z <= SQ.z1 - r) return true;
     return false;
 }
 
@@ -88,7 +91,11 @@ function slideUnion(pos, oldX, oldZ, r) {
     pos.x = oldX; pos.z = oldZ;
 }
 
-let exitSignMat = null, exitLightRef = null, bossGate = null;
+// GERBANG alun-alun (2026-07-17): mesh panel + blocker pejal di mulut ring —
+// tertutup selama masih ada robot; dibuka (mesh hilang + blocker dicabut) saat
+// boss muncul. gateBlocker DIBAKE ke nav-grid (dibangun saat build) — tak apa:
+// robot tak pernah perlu menyeberanginya (semuanya di barat gerbang).
+let roadGate = null, gateBlocker = null;
 
 export function buildWorld() {
     // --- Tanah dasar gelap (di bawah semua) ---
@@ -126,7 +133,7 @@ export function buildWorld() {
     road.receiveShadow = true;
     scene.add(road);
 
-    // --- Beton parkiran + pelataran stasiun ---
+    // --- Beton parkiran ---
     const concTex = makeTexture(128, 128, (g, w, h) => {
         g.fillStyle = '#3a3833'; g.fillRect(0, 0, w, h);
         speckle(g, w, h, ['#332f2a', '#454039', '#2c2925'], 220, 1, 5);
@@ -143,7 +150,54 @@ export function buildWorld() {
         scene.add(m);
     };
     mkPlane((PARK.x0 + PARK.x1) / 2, (PARK.z0 + PARK.z1) / 2, PARK.x1 - PARK.x0, PARK.z1 - PARK.z0);
-    mkPlane((STA.x0 + STA.x1) / 2, (STA.z0 + STA.z1) / 2, STA.x1 - STA.x0, STA.z1 - STA.z0);
+
+    // --- KOMPLEKS ALUN-ALUN (2026-07-17): ring jalan 2 lajur mengelilingi
+    //     lapangan tengah. Ring = 4 strip aspal (tekstur marka sama dgn jalan
+    //     raya, repeat pendek); strip vertikal dibungkus Group ber-yaw 90° agar
+    //     markanya membujur utara-selatan. Lapangan = rumput alun-alun. ---
+    const ringTex = makeTexture(256, 256, (g, w, h) => {
+        g.fillStyle = '#26262a'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#1e1e22', '#2e2e33', '#232327', '#333338'], 300, 1, 5);
+        g.strokeStyle = 'rgba(206,200,180,0.6)'; g.lineWidth = 4;
+        for (let x = 0; x < w; x += 64) { g.beginPath(); g.moveTo(x, h * 0.5 - 2); g.lineTo(x + 34, h * 0.5 - 2); g.stroke(); }
+        g.strokeStyle = 'rgba(206,200,180,0.35)'; g.lineWidth = 3;
+        for (const zy of [0.06, 0.94]) { g.beginPath(); g.moveTo(0, h * zy); g.lineTo(w, h * zy); g.stroke(); }
+    }, 5, 1);
+    const ringMat = new THREE.MeshPhongMaterial({ map: ringTex, normalMap: asphaltNrm, shininess: 6, specular: 0x101014 });
+    const mkRingStrip = (cx, cz, len, vertical) => {
+        const grp = new THREE.Group();
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(len, RING_W), ringMat);
+        m.rotation.x = -Math.PI / 2;
+        m.receiveShadow = true;
+        grp.add(m);
+        grp.position.set(cx, 0.02, cz);
+        if (vertical) grp.rotation.y = Math.PI / 2;   // marka membujur utara-selatan
+        scene.add(grp);
+    };
+    const sqCx = (SQ.x0 + SQ.x1) / 2, sqCz = (SQ.z0 + SQ.z1) / 2;
+    mkRingStrip(sqCx, SQ.z0 + RING_W / 2, SQ.x1 - SQ.x0, false);                       // ring utara
+    mkRingStrip(sqCx, SQ.z1 - RING_W / 2, SQ.x1 - SQ.x0, false);                       // ring selatan
+    mkRingStrip(SQ.x0 + RING_W / 2, sqCz, (SQ.z1 - SQ.z0) - RING_W * 2, true);          // ring barat
+    mkRingStrip(SQ.x1 - RING_W / 2, sqCz, (SQ.z1 - SQ.z0) - RING_W * 2, true);          // ring timur
+    // Lapangan alun-alun: rumput dgn jalur paving menyilang di tengah
+    const grassTex = makeTexture(128, 128, (g, w, h) => {
+        g.fillStyle = '#2f4423'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#28391e', '#3a5029', '#243619', '#33482a'], 260, 1, 4);
+    }, 10, 10);
+    const alun = new THREE.Mesh(new THREE.PlaneGeometry(ALUN.x1 - ALUN.x0, ALUN.z1 - ALUN.z0),
+        new THREE.MeshPhongMaterial({ map: grassTex, shininess: 2, specular: 0x0a0f08 }));
+    alun.rotation.x = -Math.PI / 2;
+    alun.position.set((ALUN.x0 + ALUN.x1) / 2, 0.03, (ALUN.z0 + ALUN.z1) / 2);
+    alun.receiveShadow = true;
+    scene.add(alun);
+    const paveMat = new THREE.MeshPhongMaterial({ map: concTex, shininess: 5, specular: 0x121110 });
+    for (const [sx, sz] of [[ALUN.x1 - ALUN.x0, 40], [40, ALUN.z1 - ALUN.z0]]) {
+        const path = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), paveMat);
+        path.rotation.x = -Math.PI / 2;
+        path.position.set((ALUN.x0 + ALUN.x1) / 2, 0.04, (ALUN.z0 + ALUN.z1) / 2);
+        path.receiveShadow = true;
+        scene.add(path);
+    }
 
     // --- Tembok/gedung keliling (VISUAL saja; batas gameplay = clamp union) ---
     const wallTex = makeTexture(64, 64, (g, w, h) => {
@@ -163,56 +217,43 @@ export function buildWorld() {
     addWall(((S4_START.x + 55) + PARK.x1) / 2, PARK.z0 - T / 2, PARK.x1 - (S4_START.x + 55), T, 90);
     addWall(PARK.x0 - T / 2, (PARK.z0 + PARK.z1) / 2, T, PARK.z1 - PARK.z0, 80);          // barat parkiran
     addWall(PARK.x1 + T / 2, (PARK.z0 - ROAD.hz) / 2, T, -ROAD.hz - PARK.z0, 60);         // timur parkiran (turun ke bahu jalan)
-    addWall((PARK.x1 + ROAD.x1) / 2, -ROAD.hz - T / 2, ROAD.x1 - PARK.x1, T, 40);         // utara jalan (timur parkiran)
-    addWall((ROAD.x0 + STA.x0) / 2, ROAD.hz + T / 2, STA.x0 - ROAD.x0, T, 40);            // selatan jalan (barat stasiun)
-    addWall(STA.x0 - T / 2, (ROAD.hz + STA.z1) / 2, T, STA.z1 - ROAD.hz, 60);             // barat stasiun
-    addWall(STA.x1 + T / 2, (STA.z0 + STA.z1) / 2, T, STA.z1 - STA.z0, 60);               // timur stasiun
-    addWall((STA.x0 + STA.x1) / 2, STA.z1 + T / 2, STA.x1 - STA.x0, T, 60);               // selatan stasiun
+    addWall((PARK.x1 + SQ.x0) / 2, -ROAD.hz - T / 2, SQ.x0 - PARK.x1, T, 40);             // utara jalan (timur parkiran -> alun)
+    addWall((ROAD.x0 + SQ.x0) / 2, ROAD.hz + T / 2, SQ.x0 - ROAD.x0, T, 40);              // selatan jalan (barat alun)
+    // Keliling kompleks ALUN-ALUN: utara/timur/selatan penuh; barat dua segmen
+    // dgn BUKAAN selebar jalan (|z|<=hz) = mulut ring tempat jalan raya masuk.
+    addWall((SQ.x0 + SQ.x1) / 2, SQ.z0 - T / 2, SQ.x1 - SQ.x0, T, 60);                    // utara alun
+    addWall((SQ.x0 + SQ.x1) / 2, SQ.z1 + T / 2, SQ.x1 - SQ.x0, T, 60);                    // selatan alun
+    addWall(SQ.x1 + T / 2, (SQ.z0 + SQ.z1) / 2, T, SQ.z1 - SQ.z0, 60);                    // timur alun
+    addWall(SQ.x0 - T / 2, (SQ.z0 - ROAD.hz) / 2, T, -ROAD.hz - SQ.z0, 60);               // barat alun (utara bukaan)
+    addWall(SQ.x0 - T / 2, (ROAD.hz + SQ.z1) / 2, T, SQ.z1 - ROAD.hz, 60);                // barat alun (selatan bukaan)
 
-    // GERBANG BOSS: panel dinding retak di ujung TIMUR jalan (di jalur BOSS_POS) —
-    // DITEROBOS oleh tank saat muncul (disembunyikan lewat tank.onWallSmash).
+    // GERBANG ALUN-ALUN (2026-07-17): panel retak menutup mulut ring — pejal
+    // (blocker) selama masih ada robot; dibuka saat boss muncul (openGate).
     const gateTex = makeTexture(64, 64, (g, w, h) => {
         g.fillStyle = '#514b43'; g.fillRect(0, 0, w, h);
         speckle(g, w, h, ['#453f38', '#5c564d', '#38342e'], 90, 1, 4);
         g.strokeStyle = 'rgba(15,13,10,0.7)'; g.lineWidth = 2;   // retakan
         for (let k = 0; k < 6; k++) { g.beginPath(); g.moveTo(Math.random() * w, 0); g.lineTo(Math.random() * w, h); g.stroke(); }
     });
-    // Panel menutup hampir seluruh lebar jalan 2-lajur; CELAH selatan (z +8..+32)
-    // = jalur memutar player ke pelataran stasiun (seperti celah desain lama).
-    bossGate = new THREE.Mesh(new THREE.BoxGeometry(6, 48, 38),
+    roadGate = new THREE.Mesh(new THREE.BoxGeometry(12, 48, ROAD.hz * 2 + 8),
         new THREE.MeshPhongMaterial({ map: gateTex, shininess: 4, specular: 0x121110 }));
-    bossGate.position.set(ROAD.x1 + T / 2 - 2, 24, ROAD.cz - 11);
-    bossGate.castShadow = true; bossGate.receiveShadow = true;
-    scene.add(bossGate);
-
-    // --- Bangunan STASIUN (pejal; pintu masuk di sisi utara = END) ---
-    const stTex = makeTexture(128, 128, (g, w, h) => {
-        g.fillStyle = '#5a5348'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#4e483e', '#655d51', '#443f36'], 140, 1, 5);
-        g.fillStyle = 'rgba(20,18,14,0.5)';
-        for (let x = 8; x < w; x += 26) g.fillRect(x, 12, 12, h - 24);   // pilar/jendela
-    }, 8, 3);
-    const stMat = new THREE.MeshPhongMaterial({ map: stTex, shininess: 8, specular: 0x1a1712 });
-    const stBld = new THREE.Mesh(new THREE.BoxGeometry(STATION_BLD.hx * 2, 130, STATION_BLD.hz * 2), stMat);
-    stBld.position.set(STATION_BLD.x, 65, STATION_BLD.z);
-    stBld.castShadow = true; stBld.receiveShadow = true;
-    scene.add(stBld);
-    blockers.push({
-        x: STATION_BLD.x, z: STATION_BLD.z, hx: STATION_BLD.hx, hz: STATION_BLD.hz,
-        axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(STATION_BLD.hx, STATION_BLD.hz), top: 130, standable: false
-    });
-    // Papan nama stasiun + panah masuk (hijau menyala = penanda finish)
-    const stSign = new THREE.Mesh(new THREE.BoxGeometry(160, 14, 3),
-        new THREE.MeshBasicMaterial({ color: 0xcfe6ff, toneMapped: false }));
-    stSign.position.set(STATION_BLD.x, 118, STATION_BLD.z - STATION_BLD.hz - 2);
-    scene.add(stSign);
+    roadGate.position.set(S4_GATE.x, 24, S4_GATE.z);
+    roadGate.castShadow = true; roadGate.receiveShadow = true;
+    scene.add(roadGate);
+    gateBlocker = {
+        x: S4_GATE.x, z: S4_GATE.z, hx: 8, hz: ROAD.hz + 6,
+        axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(8, ROAD.hz + 6), top: 48, standable: false
+    };
+    blockers.push(gateBlocker);
 
     // --- Cover: mobil rongsok, bus, kontainer, pembatas jalan ---
     const carGeo = new THREE.BoxGeometry(1, 1, 1);
     const glassMat = new THREE.MeshLambertMaterial({ color: 0x1a222a });
     const CAR_SCALE = 7;   // 1 unit-model -> 7 u (panjang ~35 u, sekelas mobil)
-    const SUV_PALETTE = [0x0a0e1a, 0x1a2230, 0x3a1520, 0x14202a, 0x2a2418];
-    const SED_PALETTE = [0x1a1a2e, 0x2a1030, 0x102a2a, 0x301a10, 0x1c2438];
+    // Cat mobil sipil Jakarta 2045: perak/putih berdebu, hijau, marun, teal pudar
+    // (panduan gaya world/palette.js — buang biru-hitam dingin).
+    const SUV_PALETTE = [0x8f8a80, 0xb8b2a6, 0x4a5a50, 0x6e3a34, 0x37505a];
+    const SED_PALETTE = [0xb0aa9c, 0x50606a, 0x5a4a34, 0x74423a, 0x46584e];
     const addBlockerBox = (x, z, hx, hz, top, standable) => {
         blockers.push({ x, z, hx, hz, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(hx, hz), top, standable });
     };
@@ -264,15 +305,13 @@ export function buildWorld() {
         scene.add(m);
         addBlockerBox(x, z, sx / 2, 5, 9, true);
     };
-    // Parkiran KECIL: satu baris parkir dekat tembok utara + rongsokan tersebar
-    mkSedan(OX + 150, OZ - 275, 1.52);     // baris utara (moncong ke tembok)
-    mkCar(OX + 300, OZ - 272, 1.48);
-    mkSedan(OX + 450, OZ - 276, 1.55);
-    mkCar(OX + 80, OZ - 140, 0.12);        // rongsok tersebar
-    mkSedan(OX + 330, OZ - 120, 1.35);
-    mkCar(OX + 500, OZ - 210, 0.25);
-    mkSedan(OX + 180, OZ - 55, 0.9);       // dekat mulut jalan
-    mkContainer(OX + 430, OZ - 170);       // spot 4 tumpukan barang
+    // Parkiran KECIL (60×30 m): baris parkir dekat tembok utara + rongsokan
+    mkSedan(OX + 60, OZ - 186, 1.52);      // baris utara (moncong ke tembok)
+    mkCar(OX + 170, OZ - 183, 1.48);
+    mkCar(OX - 60, OZ - 100, 0.12);        // rongsok tersebar
+    mkSedan(OX + 200, OZ - 95, 1.35);
+    mkSedan(OX + 90, OZ - 48, 0.9);        // dekat mulut jalan
+    mkContainer(OX + 232, OZ - 165);       // spot 4 tumpukan barang (sudut timur)
     // Jalan 2 LAJUR (TANPA median): rongsokan slalom bergantian bahu utara/selatan,
     // mayoritas SEJAJAR jalan supaya tiap wreck menyisakan satu lajur lolos.
     mkSedan(OX + 420, OZ - 14, 0.08);
@@ -286,15 +325,12 @@ export function buildWorld() {
     mkCar(OX + 2600, OZ - 12, -0.08);
     mkSedan(OX + 2950, OZ + 13, 0.1);
     mkCar(OX + 3200, OZ - 14, 0.3);
-    // Pelataran stasiun KECIL: parkir sisi barat + pembatas depan pintu
-    mkBarrier(OX + 3120, OZ + 90, 110);
-    mkSedan(OX + 2900, OZ + 260, 0.05);
-    mkCar(OX + 3460, OZ + 200, 1.55);
+    mkBarrier(OX + 3380, OZ + 24, 90);     // pembatas bahu selatan sebelum gerbang
 
     // --- Prop futuristik (entities/futuristic*.js) di area luar: kios/krat/puing
     //     = COVER pejal (blocker, dijauhkan dari koridor supaya konektivitas
     //     union START->END tak putus — diverifikasi flood-fill smoke); bangku &
-    //     planter = DEKORASI pelataran stasiun TANPA blocker (nav tak berubah). ---
+    //     planter/kios = DEKORASI alun-alun TANPA blocker (nav tak berubah). ---
     const mkPropCover = (build, x, z, sx, sy, sz, standable, yaw = 0) => {
         const m = build(sx, sy, sz);
         m.position.set(x, 0, z); if (yaw) m.rotation.y = yaw;
@@ -306,16 +342,18 @@ export function buildWorld() {
         m.position.set(x, 0, z); if (yaw) m.rotation.y = yaw;
         scene.add(m);
     };
-    // Pelataran stasiun: KIOS (cover, tepi barat) + bangku mengapit pintu masuk +
-    // planter sudut (dekor — pintu masuk END di x≈OX+3190, dijauhkan).
-    mkPropCover(buildFuturisticStallMesh, OX + 2940, OZ + 150, 44, 40, 28, false);
-    mkPropDecor(buildFuturisticBenchMesh, OX + 3080, OZ + 212, 44, 10, 16);
-    mkPropDecor(buildFuturisticBenchMesh, OX + 3300, OZ + 212, 44, 10, 16);
-    mkPropDecor(buildFuturisticPlanterMesh, OX + 2890, OZ + 40, 26, 34, 26);
-    mkPropDecor(buildFuturisticPlanterMesh, OX + 3470, OZ + 40, 26, 34, 26);
+    // ALUN-ALUN: dekorasi TANPA blocker (arena duel tank harus lapang) — bangku
+    // di tepi jalur paving + planter di 4 sudut lapangan; kios kecil di ring utara.
+    mkPropDecor(buildFuturisticBenchMesh, S4_END.x - 90, OZ + 34, 44, 10, 16);
+    mkPropDecor(buildFuturisticBenchMesh, S4_END.x + 90, OZ - 34, 44, 10, 16);
+    mkPropDecor(buildFuturisticPlanterMesh, ALUN.x0 + 24, ALUN.z0 + 24, 26, 34, 26);
+    mkPropDecor(buildFuturisticPlanterMesh, ALUN.x1 - 24, ALUN.z0 + 24, 26, 34, 26);
+    mkPropDecor(buildFuturisticPlanterMesh, ALUN.x0 + 24, ALUN.z1 - 24, 26, 34, 26);
+    mkPropDecor(buildFuturisticPlanterMesh, ALUN.x1 - 24, ALUN.z1 - 24, 26, 34, 26);
+    mkPropDecor(buildFuturisticStallMesh, S4_END.x, SQ.z0 + RING_W + 18, 44, 40, 28);
     // Parkiran: tumpukan KRAT (cover) di samping kontainer barang (spot 4).
-    mkPropCover(buildFuturisticCrateMesh, OX + 500, OZ - 120, 24, 24, 24, true);
-    mkPropCover(buildFuturisticCrateMesh, OX + 478, OZ - 92, 20, 20, 20, true, 0.4);
+    mkPropCover(buildFuturisticCrateMesh, OX + 190, OZ - 130, 24, 24, 24, true);
+    mkPropCover(buildFuturisticCrateMesh, OX + 165, OZ - 105, 20, 20, 20, true, 0.4);
     // Jalan: PUING runtuhan (cover) menempel tembok UTARA (lajur selatan terbuka).
     mkPropCover(buildFuturisticRubbleMesh, OX + 1500, OZ - 24, 40, 14, 24, true);
 
@@ -327,24 +365,15 @@ export function buildWorld() {
         const fix = new THREE.Mesh(new THREE.BoxGeometry(5, 5, 5), lampFix);
         fix.position.set(x, 60, z); scene.add(fix);
     };
-    addLamp(OX + 150, OZ - 160, 0xffe0a0, 0.7, 420);   // parkiran
-    addLamp(OX + 450, OZ - 160, 0xffe0a0, 0.7, 420);
+    addLamp(OX + 60, OZ - 120, 0xffe0a0, 0.7, 420);    // parkiran
+    addLamp(OX + 220, OZ - 120, 0xffe0a0, 0.7, 420);
     addLamp(OX + 500, OZ - 44, 0xfff0c0, 0.6, 460);    // bahu utara jalan
     addLamp(OX + 1400, OZ - 44, 0xfff0c0, 0.6, 460);
     addLamp(OX + 2300, OZ - 44, 0xfff0c0, 0.6, 460);
-    addLamp(OX + 3190, OZ + 120, 0xbfe4ff, 0.7, 440);  // stasiun
-
-    // Papan EXIT hijau di pintu masuk stasiun = penanda finish (amber -> hijau saat boss tumbang)
-    exitSignMat = new THREE.MeshBasicMaterial({ color: 0xd08a2a, toneMapped: false });
-    const exitSign = new THREE.Mesh(new THREE.BoxGeometry(60, 8, 3), exitSignMat);
-    exitSign.position.set(S4_END.x, 30, S4_END.z + 6);
-    scene.add(exitSign);
-    exitLightRef = new THREE.PointLight(0xffb04a, 0.9, 260, 2);
-    exitLightRef.position.set(S4_END.x, 26, S4_END.z);
-    scene.add(exitLightRef);
+    addLamp(S4_END.x, S4_END.z, 0xbfe4ff, 0.8, 620);   // pusat alun-alun
 
     // --- Nav-grid pathfinder atas union (cover di-bake lewat resolve) ---
-    const gx0 = PARK.x0 - 20, gx1 = STA.x1 + 20, gz0 = PARK.z0 - 20, gz1 = STA.z1 + 20;
+    const gx0 = PARK.x0 - 20, gx1 = SQ.x1 + 20, gz0 = SQ.z0 - 20, gz1 = SQ.z1 + 20;
     const cell = 14;
     navGrid = makeNavGrid(gx0, gz0, cell,
         Math.ceil((gx1 - gx0) / cell), Math.ceil((gz1 - gz0) / cell),
@@ -358,22 +387,23 @@ export function buildWorld() {
 
 // Robot stage 4: 13 spot denah [x, z, jumlah] (relatif OX/OZ) + kelas.
 // Mayoritas melee C; sebagian penembak B/A di area terbuka jalan raya.
-// (Koordinat diretarget 2026-07-16 mengikuti layout baru: parkiran & stasiun
-// kecil, jalan 2 lajur — jumlah spot & total 44 robot TIDAK berubah.)
+// (Retarget 2026-07-17 mengikuti layout alun-alun: robot HANYA di parkiran +
+// jalan raya sampai sebelum gerbang alun-alun [x <= ~3400 < GATE 3480] —
+// ALUN-ALUN STERIL dari robot; jumlah spot & total 44 robot TIDAK berubah.)
 const S4_ROBOTS = [
-    [OX + 40, OZ - 260, 3],    // 1 dekat pintu keluar gedung
-    [OX + 260, OZ - 220, 4],   // 2 parkiran tengah
-    [OX + 100, OZ - 120, 3],   // 3 dekat mobil rongsok
-    [OX + 430, OZ - 120, 4],   // 4 dekat kontainer + krat barang
-    [OX + 480, OZ - 250, 3],   // 5 sudut timur parkiran
+    [OX + 60, OZ - 170, 3],    // 1 dekat pintu keluar gedung
+    [OX + 170, OZ - 150, 4],   // 2 parkiran tengah
+    [OX + 60, OZ - 90, 3],     // 3 dekat mobil rongsok
+    [OX + 200, OZ - 60, 4],    // 4 dekat kontainer + krat barang
+    [OX + 230, OZ - 190, 3],   // 5 sudut timur parkiran
     [OX + 120, OZ + 0, 4],     // 6 awal jalan raya (terbuka)
     [OX + 800, OZ + 0, 4],     // 7 jalan sisi barat
     [OX + 1250, OZ - 14, 3],   // 8 dekat bus rusak
     [OX + 1700, OZ + 0, 4],    // 9 tengah jalan (mobil hancur)
     [OX + 2100, OZ + 8, 3],    // 10 tengah kanan jalan
     [OX + 2450, OZ - 8, 3],    // 11 dekat pembatas bahu jalan
-    [OX + 3300, OZ + 0, 3],    // 12 akhir jalan sebelum stasiun
-    [OX + 3190, OZ + 120, 3],  // 13 depan pintu masuk stasiun
+    [OX + 2900, OZ + 0, 3],    // 12 jalan menjelang alun-alun
+    [OX + 3320, OZ - 6, 3],    // 13 ujung jalan di depan gerbang alun-alun
 ];
 const S4_RANGED = { 6: 'B', 7: 'A', 9: 'B', 10: 'A', 12: 'B' };   // index spot (1-based) -> penembak sesekali
 
@@ -399,35 +429,45 @@ function placeSupplies() {
         scene.add(mesh);
         drops.push({ mesh, type, timer: 1e9 });
     };
-    put('mag', OX + 280, OZ - 180); put('mag', OX + 460, OZ - 60);    // parkiran
-    put('medkit', OX + 120, OZ - 290);
+    put('mag', OX + 220, OZ - 130); put('mag', OX + 40, OZ - 60);     // parkiran
+    put('medkit', OX + 130, OZ - 200);
     put('mag', OX + 1400, OZ - 18); put('mag', OX + 2400, OZ + 16);   // jalan
     put('medkit', OX + 1900, OZ + 20);
-    put('medkit', OX + 3150, OZ + 60);                                 // dekat stasiun
+    put('medkit', OX + 3400, OZ - 18);                                 // sebelum gerbang alun-alun
 }
 
-// --- Boss stage 4: TANK penjaga stasiun (entities/tank.js). Muncul setelah
-// SEMUA robot mati — MENABRAK dinding di ujung TIMUR jalan lalu diam menembaki
-// player; pintu masuk stasiun aktif setelah tank hancur. ---
+// --- Boss stage 4: TANK penjaga alun-alun (entities/tank.js). Muncul setelah
+// SEMUA robot mati — SPAWN DI TENGAH ALUN-ALUN (2026-07-17: menggelinding dari
+// sisi timur lapangan ke pusat; wallX ditaruh di BARAT home agar fase smash
+// dinding tank TIDAK pernah terpicu) bersamaan GERBANG ring terbuka; MISSION
+// COMPLETE saat tank hancur (tanpa trigger finish — stasiun dihapus). ---
 let bossSpawned = false, bossDefeated = false;
-let tank = null, exitHintT = 0;
+let tank = null, exitHintT = 0, winT = 0, winFired = false;
+const WIN_DELAY_SEC = 2.5;   // jeda visual ledakan tank -> layar MISSION COMPLETE
 
 // Referensi tank aktif (dipakai smoke test utk melumpuhkan boss)
 export function currentTank() { return tank; }
 
+// Buka gerbang alun-alun: mesh disembunyikan + blocker dicabut dari daftar
+// (dipulihkan lagi di enter()). Nav-grid TIDAK dibangun ulang (lihat catatan).
+function openGate() {
+    if (roadGate) roadGate.visible = false;
+    const gi = blockers.indexOf(gateBlocker);
+    if (gi >= 0) blockers.splice(gi, 1);
+}
+
 function spawnBoss() {
     bossSpawned = true;
-    tank = spawnTank({ homeX: BOSS_POS.x, homeZ: BOSS_POS.z, wallX: ROAD.x1 + 8, faceX: S4_START.x });
-    tank.onWallSmash = () => { if (bossGate) bossGate.visible = false; };
-    showStageMsg('THE HIGHWAY SHAKES — A WAR TANK SMASHES THROUGH!');
+    openGate();
+    tank = spawnTank({ homeX: BOSS_POS.x, homeZ: BOSS_POS.z, wallX: BOSS_POS.x - 9999, faceX: S4_START.x });
+    showStageMsg('THE GATE IS OPEN — A WAR TANK GUARDS THE TOWN SQUARE!');
     updateUI();
 }
 
 function onBossDown() {
     bossDefeated = true;
-    if (exitSignMat) exitSignMat.color.setHex(0x2eff6a);
-    if (exitLightRef) { exitLightRef.color.setHex(0x39ff7a); exitLightRef.intensity = 1.0; }
-    showStageMsg('THE TANK IS DESTROYED — ENTER THE STATION');
+    winT = WIN_DELAY_SEC;
+    showStageMsg('THE TANK IS DESTROYED — THE TOWN SQUARE IS FREE!');
     updateUI();
 }
 
@@ -447,16 +487,16 @@ export const stage4Scene = {
             }
         }
         if (tank) { disposeTank(tank); tank = null; }
-        bossSpawned = false; bossDefeated = false; exitHintT = 0;
-        if (bossGate) bossGate.visible = true;   // pasang lagi gerbang boss
-        if (exitSignMat) exitSignMat.color.setHex(0xd08a2a);
-        if (exitLightRef) { exitLightRef.color.setHex(0xffb04a); exitLightRef.intensity = 0.9; }
+        bossSpawned = false; bossDefeated = false; exitHintT = 0; winT = 0; winFired = false;
+        // Pasang lagi gerbang alun-alun (mesh + blocker — dicabut openGate saat run sebelumnya)
+        if (roadGate) roadGate.visible = true;
+        if (gateBlocker && !blockers.includes(gateBlocker)) blockers.push(gateBlocker);
         placeRobots();
         applyLightPreset(scene, 'night');
         camera.position.set(S4_START.x, CFG.player.eyeHeight, S4_START.z);
         camera.quaternion.set(0, -0.7071, 0, 0.7071);   // hadap timur (menuju jalan)
         player.vy = 0; player.onGround = true;
-        showStageMsg('REACH THE TRAIN STATION — CROSS THE HIGHWAY EAST');
+        showStageMsg('CLEAR THE HIGHWAY — REACH THE TOWN SQUARE EAST');
         updateUI();
     },
 
@@ -465,32 +505,35 @@ export const stage4Scene = {
     // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
     cheatSkipToStage: (n) => campaignJumpToStage(n),
 
-    // Boss TANK: muncul saat SEMUA robot mati (menabrak dinding timur); jalankan
-    // siklus serangannya tiap frame; deteksi saat hancur -> buka pintu stasiun.
+    // Boss TANK: muncul saat SEMUA robot mati (gerbang terbuka + tank
+    // menggelinding ke tengah alun-alun); jalankan siklus serangannya tiap
+    // frame; tank hancur -> MISSION COMPLETE setelah jeda ledakan singkat.
     updateMode(dt) {
         if (!bossSpawned) {
             if (countStageRobots(4) === 0) spawnBoss();   // semua robot normal habis
         } else if (tank) {
             updateTank(tank, dt);
             if (tank.dead && !bossDefeated) onBossDown();
+            if (bossDefeated && !winFired) {
+                winT -= dt;
+                if (winT <= 0) { winFired = true; gameOver(true); }   // MISSION COMPLETE
+            }
             updateUI();   // refresh HP bar tank
         }
     },
 
-    // Dinding = clamp union (menyusur per-sumbu) + cover pejal; lalu trigger
-    // finish (pintu masuk stasiun) — aktif hanya setelah boss tumbang.
+    // Dinding = clamp union (menyusur per-sumbu) + cover pejal (termasuk
+    // gateBlocker selama gerbang tertutup); mendekati gerbang tertutup = hint.
     playerCollide(pos, oldX, oldZ, feetY) {
         slideUnion(pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
         slideUnion(pos, oldX, oldZ, player.radius);
-        if (pos.x >= S4_EXIT.x0 && pos.x <= S4_EXIT.x1 && pos.z >= S4_EXIT.z0 && pos.z <= S4_EXIT.z1) {
-            if (bossDefeated) gameOver(true);   // masuk stasiun = MISSION COMPLETE
-            else {
-                const now = Date.now();
-                if (now - exitHintT > 2500) {
-                    exitHintT = now;
-                    showPickup(bossSpawned ? 'Destroy the tank first!' : 'Clear all enemies to draw out the boss!', '#ff4757');
-                }
+        if (!bossSpawned && Math.abs(pos.z - S4_GATE.z) <= ROAD.hz
+            && pos.x > S4_GATE.x - 70 && pos.x < S4_GATE.x + 70) {
+            const now = Date.now();
+            if (now - exitHintT > 2500) {
+                exitHintT = now;
+                showPickup('Clear all enemies to open the town square gate!', '#ff4757');
             }
         }
     },
@@ -523,12 +566,13 @@ export const stage4Scene = {
             const frac = Math.max(0, tank.hp / tank.maxHp);
             const blocks = Math.ceil(frac * 10);
             s += ` — TANK ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
-        } else s += bossDefeated ? ' | Enter the station!' : ' | Reach the train station (east)';
+        } else s += bossDefeated ? ' | MISSION COMPLETE' : ' | Reach the town square (east)';
         return s;
     },
 
-    // Landmark: pintu masuk stasiun (dijepit ke tepi radar saat jauh)
+    // Landmark: pusat alun-alun (dijepit ke tepi radar saat jauh; hijau saat
+    // gerbang terbuka = boss menunggu di sana)
     radarLandmarks(plot) {
-        plot(S4_END.x - camera.position.x, S4_END.z - camera.position.z, bossDefeated ? "#2eff6a" : "#ffb04a", 5, true);
+        plot(S4_END.x - camera.position.x, S4_END.z - camera.position.z, bossSpawned ? "#2eff6a" : "#ffb04a", 5, true);
     },
 };
