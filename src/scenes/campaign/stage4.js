@@ -25,7 +25,7 @@ import { updateUI } from '../../core/hud.js';
 import { gameOver } from '../../core/game.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { disposeRobot } from '../../entities/robots.js';
-import { spawnTank, updateTank, disposeTank } from '../../entities/tank.js';
+import { spawnTank, updateTank, disposeTank, resolveTankBlock } from '../../entities/tank.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { buildFuturisticSUVMesh } from '../../entities/futuristicSUV.js';
 import { buildFuturisticSedanMesh } from '../../entities/futuristicSedan.js';
@@ -523,11 +523,13 @@ export const stage4Scene = {
     },
 
     // Dinding = clamp union (menyusur per-sumbu) + cover pejal (termasuk
-    // gateBlocker selama gerbang tertutup); mendekati gerbang tertutup = hint.
+    // gateBlocker selama gerbang tertutup) + badan tank boss (pejal,
+    // 2026-07-17); mendekati gerbang tertutup = hint.
     playerCollide(pos, oldX, oldZ, feetY) {
         slideUnion(pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
         slideUnion(pos, oldX, oldZ, player.radius);
+        resolveTankBlock(tank, pos);   // player tidak bisa menembus tank/bangkainya
         if (!bossSpawned && Math.abs(pos.z - S4_GATE.z) <= ROAD.hz
             && pos.x > S4_GATE.x - 70 && pos.x < S4_GATE.x + 70) {
             const now = Date.now();

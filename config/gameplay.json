@@ -185,14 +185,18 @@
                 "spawnRollSec": 2.4,
                 "hitRadius": 18,
                 "cannonDamage": 50,
-                "cannonBlastRatio": 0.3,
+                "cannonBlastRatio": 0.5,
                 "cannonShellSpeed": 7,
                 "mgDamage": 5,
                 "mgBurst": 15,
                 "mgIntervalSec": 0.1,
                 "mgBulletSpeed": 4,
+                "mgConeDeg": 120,
+                "hullTurnRadPerSec": 0.6,
+                "mortarLockSec": 0.5,
+                "bodyRadius": 26,
                 "mortarDamage": 50,
-                "mortarBlastRatio": 0.35,
+                "mortarBlastRatio": 0.5,
                 "mortarBurst": 5,
                 "mortarBurstGapSec": 0.5,
                 "mortarSpeed": 2.6,
@@ -201,8 +205,8 @@
                 "mortarMaxSec": 6,
                 "mortarApexMeters": 12,
                 "mortarApexRatio": 0.25,
-                "shockRadiusMeters": 7,
-                "shockDps": 10
+                "shockRadiusMeters": 10,
+                "shockDps": 20
             }
         },
         "stage3Robots": 26

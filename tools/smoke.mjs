@@ -1068,7 +1068,8 @@ s4calm();
 }
 // LOB BER-APEX (2026-07-16, rombak "parabola aneh"): mortar SELALU melambung
 // (vy0 > 0) ke puncak = max(sy, landY) + min(riseCap, max(apexMeters·CAMP_M,
-// jarak·apexRatio)), lalu MENDARAT di posisi player SAAT tembakan itu.
+// jarak·apexRatio)), lalu MENDARAT di posisi player (STATIS di test ini —
+// pengejaran + penguncian mortarLockSec diuji terpisah di bawah).
 {
     const TB = cfgMod.CFG.campaign.bosses.tank;
     const tp = s4tank.parts.group.position;
@@ -1129,6 +1130,111 @@ while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mor
     T('S4: serangan mortar = BURST mortarBurst tembakan (jeda mortarBurstGapSec)',
         burst >= 2 && gap > 0 && (s4tank.pendingId - idBefore) === burst && s4tank.mortarLeft === 0);
     while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mortars.splice(0, 1); }
+}
+// HULL BERPUTAR mengikuti player (2026-07-17): badan tank memutar moncong depan
+// (-X lokal) ke arah player dgn laju hullTurnRadPerSec supaya kerucut MG depan
+// kembali menangkap player yang memutari tank; turret tetap membidik player
+// (yaw lokal turret = yaw dunia - yaw hull). Config-driven.
+{
+    const TB = cfgMod.CFG.campaign.bosses.tank;
+    const tp = s4tank.parts.group.position;
+    s4calm();
+    s4tank.hullYaw = 0; s4tank.parts.group.rotation.y = 0;   // moncong hadap barat (-X)
+    camera.position.set(tp.x, cfgMod.CFG.player.eyeHeight, tp.z + 300);   // player di SAMPING
+    const wantHull = Math.atan2(camera.position.z - tp.z, -(camera.position.x - tp.x));
+    const before = Math.abs(s4tank.hullYaw - wantHull);
+    const frames = Math.ceil((Math.PI / TB.hullTurnRadPerSec) / 0.1) + 10;
+    for (let i = 0; i < frames; i++) s4mod.stage4Scene.updateMode(0.1);
+    T('S4: HULL tank BERPUTAR mengikuti player (hullTurnRadPerSec; moncong -> player)',
+        TB.hullTurnRadPerSec > 0 && before > 1 && Math.abs(s4tank.hullYaw - wantHull) < 0.05
+        && Math.abs(s4tank.parts.group.rotation.y - s4tank.hullYaw) < 1e-9);
+    const wantTurret = Math.atan2(camera.position.x - s4tank.homeX, camera.position.z - s4tank.homeZ);
+    T('S4: turret tetap membidik player walau hull berputar (yaw lokal = dunia - hull)',
+        Math.abs(s4tank.parts.turret.rotation.y + s4tank.hullYaw - wantTurret) < 0.05);
+    s4calm();
+}
+// KERUCUT MG (2026-07-17): senapan mesin hanya menembak di kerucut DEPAN
+// mgConeDeg — player di BELAKANG hull => arah peluru DIJEPIT ke tepi kerucut
+// (tidak membidik player); player di DEPAN => peluru mengarah ke player.
+{
+    const TB = cfgMod.CFG.campaign.bosses.tank;
+    const tp = s4tank.parts.group.position;
+    const half = (TB.mgConeDeg / 2) * Math.PI / 180;
+    while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
+    s4tank.hullYaw = 0; s4tank.parts.group.rotation.y = 0;   // moncong hadap barat (-X)
+    camera.position.set(tp.x + 600, cfgMod.CFG.player.eyeHeight, tp.z);   // player DI BELAKANG (timur)
+    s4tank.mgLeft = 1; s4tank.mgTimer = 0;
+    s4mod.stage4Scene.updateMode(0.01);   // 1 tembakan MG (hull nyaris tak sempat berputar)
+    const bBack = enemyBullets[enemyBullets.length - 1];
+    const fwdX = -Math.cos(s4tank.hullYaw), fwdZ = Math.sin(s4tank.hullYaw);
+    const angFwd = Math.acos(Math.max(-1, Math.min(1, bBack.dir.x * fwdX + bBack.dir.z * fwdZ)));
+    const dxb = camera.position.x - bBack.px, dzb = camera.position.z - bBack.pz;
+    const db = Math.hypot(dxb, dzb);
+    const angPlayer = Math.acos(Math.max(-1, Math.min(1, (bBack.dir.x * dxb + bBack.dir.z * dzb) / db)));
+    T('S4: MG player di BELAKANG — peluru dijepit ke tepi kerucut mgConeDeg (tak membidik player)',
+        TB.mgConeDeg > 0 && TB.mgConeDeg < 360 && angFwd <= half + 0.03
+        && angPlayer > (Math.PI - half) * 0.5);
+    while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
+    s4tank.hullYaw = 0; s4tank.parts.group.rotation.y = 0;
+    camera.position.set(tp.x - 600, cfgMod.CFG.player.eyeHeight, tp.z);   // player DI DEPAN moncong
+    s4tank.mgLeft = 1; s4tank.mgTimer = 0;
+    s4mod.stage4Scene.updateMode(0.01);
+    const bFront = enemyBullets[enemyBullets.length - 1];
+    const dxf = camera.position.x - bFront.px, dzf = camera.position.z - bFront.pz;
+    const df = Math.hypot(dxf, dzf);
+    T('S4: MG player di DEPAN kerucut — peluru mengarah ke player',
+        (bFront.dir.x * dxf + bFront.dir.z * dzf) / df > 0.98);
+    while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
+    s4calm();
+}
+// MORTAR MENGEJAR + TERKUNCI (2026-07-17): titik jatuh mengikuti player selama
+// terbang dan TERKUNCI mortarLockSec sebelum mendarat — mendarat di posisi
+// player SAAT PENGUNCIAN (bukan posisi fire-time / posisi akhir player).
+{
+    const TB = cfgMod.CFG.campaign.bosses.tank;
+    const tp = s4tank.parts.group.position;
+    s4calm();
+    camera.position.set(tp.x - 400, cfgMod.CFG.player.eyeHeight, tp.z);
+    const fireX = camera.position.x, fireZ = camera.position.z;
+    s4tank.mortarLeft = 1; s4tank.mortarTimer = 0; s4tank.blastPending = true;
+    s4mod.stage4Scene.updateMode(0.02);   // tembak 1 mortar
+    const mo = s4tank.mortars[s4tank.mortars.length - 1];
+    T('S4: mortar membawa tLeft (sisa terbang) utk pengejaran', mo != null && mo.tLeft > TB.mortarLockSec);
+    // player LARI menyamping sepanjang terbang; catat posisinya saat terkunci
+    let lockX = null, lockZ = null, lastX = 0, lastZ = 0, vzLock = null, vzChanged = false;
+    for (let i = 0; i < 900 && s4tank.mortars.includes(mo); i++) {
+        camera.position.z += 70 * 0.02;   // lari ~10 m/dtk menyamping
+        lastX = mo.mesh.position.x; lastZ = mo.mesh.position.z;
+        s4mod.stage4Scene.updateMode(0.02);
+        if (s4tank.mortars.includes(mo) && mo.tLeft <= TB.mortarLockSec) {
+            if (lockX == null) { lockX = camera.position.x; lockZ = camera.position.z; vzLock = mo.vz; }
+            else if (mo.vz !== vzLock) vzChanged = true;
+        }
+    }
+    const missLock = Math.hypot(lastX - lockX, lastZ - lockZ);
+    const missFire = Math.hypot(lastX - fireX, lastZ - fireZ);
+    const missFinal = Math.hypot(lastX - camera.position.x, lastZ - camera.position.z);
+    T('S4: titik jatuh mortar = posisi player saat TERKUNCI (mengejar selama terbang)',
+        lockX != null && missLock < 8 && missFire > missLock + 10);
+    T('S4: setelah terkunci arah mortar beku (masih bisa dihindari di detik terakhir)',
+        vzChanged === false && missFinal > 70 * TB.mortarLockSec * 0.5);
+    s4calm();
+}
+// KOLISI BADAN TANK (2026-07-17): player tidak bisa berjalan menembus tank —
+// playerCollide stage4 mendorong keluar lingkaran bodyRadius; di luar radius
+// posisi tidak disentuh. Config-driven.
+{
+    const TB = cfgMod.CFG.campaign.bosses.tank;
+    const tp = s4tank.parts.group.position;
+    const pin = new THREE.Vector3(tp.x + TB.bodyRadius * 0.3, cfgMod.CFG.player.eyeHeight, tp.z + 1);
+    s4mod.stage4Scene.playerCollide(pin, pin.x, pin.z, 0);
+    T('S4: KOLISI TANK — player di dalam bodyRadius terdorong keluar',
+        TB.bodyRadius > 0 && Math.hypot(pin.x - tp.x, pin.z - tp.z) >= TB.bodyRadius - 0.01);
+    const ox = tp.x + TB.bodyRadius * 2;
+    const pout = new THREE.Vector3(ox, cfgMod.CFG.player.eyeHeight, tp.z);
+    s4mod.stage4Scene.playerCollide(pout, pout.x, pout.z, 0);
+    T('S4: di luar bodyRadius player tidak terdorong',
+        Math.abs(pout.x - ox) < 0.01 && Math.abs(pout.z - tp.z) < 0.01);
 }
 while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }   // bersihkan peluru MG
 // MENANG selagi tank hidup = belum (tak ada trigger finish; menang murni dari

@@ -16,8 +16,12 @@
 // (yang lebih dulu; senapan mesin tak meledak -> selalu jeda penuh):
 //   1. MERIAM  : turret membidik player lalu menembak 1 peluru meledak-saat-tiba
 //      (damage cannonDamage, radius = killRadius granat × cannonBlastRatio).
-//   2. SENAPAN MESIN : 1 sesi = mgBurst peluru dari HULL depan, arahnya SELALU
-//      mengikuti player (damage mgDamage/peluru).
+//   2. SENAPAN MESIN : 1 sesi = mgBurst peluru dari HULL depan — HANYA dalam
+//      KERUCUT DEPAN selebar mgConeDeg (120°, 2026-07-17): arah tembak = arah
+//      ke player DIJEPIT ke tepi kerucut di sekitar moncong hull, jadi player
+//      di samping/belakang tank TIDAK terbidik (peluru menyembur di tepi
+//      kerucut, meleset). HULL BERPUTAR mengikuti player (hullTurnRadPerSec)
+//      supaya MG tetap dapat kesempatan menembak walau player memutari tank.
 //   3. MORTAR  : BURST mortarBurst (3) proyektil LOB PARABOLA (balistik+gravitasi)
 //      berjeda mortarBurstGapSec (0.5 dtk) dari tabung belakang turret yang
 //      MENGHADAP KE DEPAN; tiap mortar mendarat di posisi player SAAT tembakan
@@ -25,6 +29,14 @@
 //      meleset; damage mortarDamage, radius killRadius × mortarBlastRatio).
 //      Lengkung DIROMBAK 2026-07-16: lob BER-APEX (lihat fireMortar) — selalu
 //      melambung tinggi dulu, tak lagi menukik datar pada sasaran dekat.
+//      TITIK JATUH MENGEJAR PLAYER (2026-07-17): selama terbang kecepatan
+//      mendatar dikoreksi tiap frame agar titik jatuh = posisi player SAAT INI;
+//      pada mortarLockSec (0.5 dtk) TERAKHIR titik jatuh TERKUNCI di posisi
+//      player saat penguncian — jendela menghindar tinggal 0.5 dtk itu.
+//
+// KOLISI BADAN (2026-07-17): player tidak bisa menembus tank — stage4
+// memanggil resolveTankBlock di playerCollide (dorong keluar lingkaran
+// bodyRadius dari pusat hull; berlaku juga pada bangkai).
 //
 // PAGAR LISTRIK (2026-07-16): tank TIDAK BISA DIDEKATI — player di dalam radius
 // shockRadiusMeters tersengat shockDps HP/detik MENEMBUS ARMOR (HP dikurangi
@@ -336,6 +348,7 @@ export function spawnTank({ homeX, homeZ, wallX, faceX }) {
         shockFxT: 0, shockSfxT: 0, idleZapT: 1.5,
         shells: [], mortars: [],
         turretYaw: Math.atan2((faceX != null ? faceX : homeX - 300) - homeX, 0),
+        hullYaw: 0,   // yaw badan tank (moncong hull = -X lokal; 0 = hadap barat)
         trackPhase: 0, chargeK: 0, onWallSmash: null
     };
 }
@@ -395,10 +408,24 @@ export function updateTank(tank, dt) {
     }
 
     // --- FASE BATTLE ---
-    // Turret MELACAK player terus-menerus (belok terbatas — terlihat hidup).
+    // HULL BERPUTAR mengikuti player (2026-07-17): badan tank pelan-pelan
+    // memutar moncong depan (-X lokal) ke arah player supaya senapan mesin
+    // hull (kerucut mgConeDeg di depan) tetap dapat kesempatan menembak walau
+    // player memutari tank. Roda ikut berputar selagi badan belok (visual).
+    const T = CFG.campaign.bosses.tank;
+    const hdx = camera.position.x - p.group.position.x;
+    const hdz = camera.position.z - p.group.position.z;
+    const wantHull = Math.atan2(hdz, -hdx);   // moncong hull (-X lokal) -> arah player
+    const prevHull = tank.hullYaw;
+    tank.hullYaw = turnAngle(tank.hullYaw, wantHull, (T.hullTurnRadPerSec || 0.6) * dt);
+    p.group.rotation.y = tank.hullYaw;
+    if (tank.hullYaw !== prevHull) { tank.trackPhase += dt * 5; spinTracks(p, tank.trackPhase); }
+    // Turret MELACAK player terus-menerus (yaw DUNIA; rotasi lokal turret =
+    // yaw dunia MINUS yaw hull supaya laras tetap ke player walau badan ikut
+    // berputar — turret anak group yang kini bisa berotasi).
     const want = aimYaw(tank, camera.position.x, camera.position.z);
     tank.turretYaw = turnAngle(tank.turretYaw, want, 2.2 * dt);
-    p.turret.rotation.y = tank.turretYaw;
+    p.turret.rotation.y = tank.turretYaw - tank.hullYaw;
     // kilat muzzle meredup tiap frame (di-nyalakan saat menembak / charge)
     p.cannonFlash.material.opacity *= 0.82;
     p.mortarGlow.material.opacity *= 0.9;
@@ -599,18 +626,31 @@ function updateShells(tank, dt, step) {
     }
 }
 
-// --- SENAPAN MESIN: peluru dari hull depan, arah MENGIKUTI player tiap tembakan ---
+// --- SENAPAN MESIN: peluru dari hull depan — HANYA KERUCUT DEPAN mgConeDeg
+// (2026-07-17): arah ke player DIJEPIT ke tepi kerucut di sekitar moncong hull
+// (sudut bertanda moncong->player di-clamp ±setengah kerucut), jadi player di
+// samping/belakang TIDAK terbidik — peluru menyembur lurus di tepi kerucut dan
+// meleset; rotasi hull (updateTank) yang membawa player kembali masuk kerucut. ---
 function fireMG(tank) {
     const p = tank.parts;
     p.mgMuzzle.getWorldPosition(_wp);
+    const T = CFG.campaign.bosses.tank;
     const dx = camera.position.x - _wp.x, dz = camera.position.z - _wp.z;
     const d = Math.hypot(dx, dz) || 1;
+    const ux = dx / d, uz = dz / d;
+    // moncong hull di dunia = -X lokal diputar hullYaw
+    const fwdX = -Math.cos(tank.hullYaw), fwdZ = Math.sin(tank.hullYaw);
+    const half = ((T.mgConeDeg || 120) / 2) * Math.PI / 180;
+    let ang = Math.atan2(fwdZ * ux - fwdX * uz, fwdX * ux + fwdZ * uz);   // sudut bertanda moncong->player
+    if (ang > half) ang = half; else if (ang < -half) ang = -half;        // jepit ke kerucut depan
+    const fx = fwdX * Math.cos(ang) + fwdZ * Math.sin(ang);               // moncong diputar `ang`
+    const fz = -fwdX * Math.sin(ang) + fwdZ * Math.cos(ang);
     const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
     m.scale.setScalar(1.15);
     m.position.copy(_wp);
     scene.add(m);
     enemyBullets.push({
-        mesh: m, dir: new THREE.Vector3(dx / d, 0, dz / d),
+        mesh: m, dir: new THREE.Vector3(fx, 0, fz),
         speed: CFG.campaign.bosses.tank.mgBulletSpeed || 4, life: CFG.robot.rangedBulletLife,
         dmg: CFG.campaign.bosses.tank.mgDamage || 5, monasDmg: 0,
         px: _wp.x, py: _wp.y, pz: _wp.z
@@ -626,8 +666,9 @@ function fireMG(tank) {
 // ujung + max(mortarApexMeters, jarak × mortarApexRatio) — SELALU melambung
 // tinggi dulu (dekat = lob hampir vertikal, jauh = parabola panjang). Waktu
 // terbang murni gravitasi: naik √(2·hUp/g) + turun √(2·hDown/g); kecepatan
-// mendatar = jarak/waktu (mortarSpeed kini DORMAN). Titik jatuh tetap posisi
-// player SAAT menembak — hindari dgn menjauh / tumble. ---
+// mendatar = jarak/waktu (mortarSpeed kini DORMAN). Titik jatuh MENGEJAR player
+// selama terbang dan TERKUNCI mortarLockSec sebelum mendarat (2026-07-17,
+// lihat updateMortars) — hindari dgn bergerak di detik terakhir / tumble. ---
 function fireMortar(tank) {
     const p = tank.parts;
     p.mortarMuzzle.getWorldPosition(_wp);
@@ -655,6 +696,7 @@ function fireMortar(tank) {
     tank.pendingId++;
     tank.mortars.push({
         mesh: m, vx, vz, vy, g, landY, trailT: 0,
+        tLeft: flight,   // sisa waktu terbang — utk pengejaran + penguncian titik jatuh (updateMortars)
         life: (T.mortarMaxSec || 6) * 60, id: tank.pendingId
     });
     p.mortarGlow.material.opacity = 1;
@@ -666,6 +708,20 @@ function updateMortars(tank, dt, step) {
     const T = CFG.campaign.bosses.tank;
     for (let i = tank.mortars.length - 1; i >= 0; i--) {
         const mo = tank.mortars[i];
+        // TITIK JATUH MENGEJAR PLAYER (2026-07-17): selama sisa terbang masih
+        // > mortarLockSec, kecepatan mendatar dikoreksi tiap frame agar titik
+        // jatuh = posisi player SAAT INI; memasuki mortarLockSec (0.5 dtk)
+        // terakhir titik jatuh TERKUNCI (= posisi player saat penguncian) —
+        // jendela menghindar player memang tinggal sesingkat itu. Gerak
+        // VERTIKAL murni gravitasi (lengkung lob ber-apex tak berubah).
+        // Mortar tanpa tLeft (injeksi test lama) = parabola murni tanpa kejar.
+        if (mo.tLeft != null) {
+            mo.tLeft -= dt;
+            if (mo.tLeft > (T.mortarLockSec || 0.5)) {
+                mo.vx = (camera.position.x - mo.mesh.position.x) / mo.tLeft;
+                mo.vz = (camera.position.z - mo.mesh.position.z) / mo.tLeft;
+            }
+        }
         mo.vy -= mo.g * dt;                              // gravitasi (parabola)
         mo.mesh.position.x += mo.vx * dt;
         mo.mesh.position.y += mo.vy * dt;
@@ -701,6 +757,22 @@ function detonate(tank, x, z, radius, damage, id) {
         tank.blastPending = false;
         tank.cd = CFG.campaign.bosses.tank.gapSec;   // jeda 5 dtk BARU dimulai SETELAH ledakan
     }
+}
+
+// ===== KOLISI BADAN TANK (2026-07-17): player tidak bisa berjalan menembus
+// tank — dorong keluar lingkaran bodyRadius dari pusat hull. Dipanggil dari
+// playerCollide stage4 SETELAH resolve dinding/cover, jadi WASD, click-move,
+// dan dodge semuanya ikut terhalang. Berlaku juga pada BANGKAI (wreck pejal). =====
+export function resolveTankBlock(tank, pos) {
+    if (!tank || !tank.parts) return;
+    const R = CFG.campaign.bosses.tank.bodyRadius || 26;
+    const px = tank.parts.group.position.x, pz = tank.parts.group.position.z;
+    const dx = pos.x - px, dz = pos.z - pz;
+    const d = Math.hypot(dx, dz);
+    if (d >= R) return;
+    if (d < 0.001) { pos.x = px + R; return; }   // tepat di pusat: dorong ke timur
+    pos.x = px + (dx / d) * R;
+    pos.z = pz + (dz / d) * R;
 }
 
 // ===== Hit-test peluru PLAYER -> tank (tank di luar array robots) =====
