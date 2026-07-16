@@ -932,6 +932,13 @@ T('S4: siklus tank (spawn+3 serangan) jalan tanpa error', s4tankOk && !s4tank.de
     T('S4: mortar = LOB PARABOLA (naik dulu lalu meledak saat turun, bukan homing)',
         peaked > 24 && !s4tank.mortars.includes(mo) && cfgMod.CFG.campaign.tank.mortarGravity > 0);
 }
+// Bentuk proyektil mortar (2026-07-16): shell mortir REALISTIS = GROUP multi-part
+// (badan+hidung+buritan+boom+fuze+4 sirip), bukan bola tunggal.
+{
+    const tankMod = await import(R('src/entities/tank.js'));
+    const shell = tankMod.mortarShell();
+    T('S4: proyektil mortar = shell multi-part (bukan bola)', shell.children.length >= 8);
+}
 while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mortars.splice(0, 1); }   // bersihkan mortar sisa
 while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }   // bersihkan peluru MG
 // finish TERKUNCI selagi tank hidup

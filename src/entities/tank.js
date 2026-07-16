@@ -33,6 +33,45 @@ import { playSFX, sfxExplode, sfxShoot, sfxShotgun } from '../utils/sfx.js';
 import { updateUI } from '../core/hud.js';
 
 const _wp = new THREE.Vector3();   // scratch getWorldPosition
+const _UP = new THREE.Vector3(0, 1, 0);   // sumbu HIDUNG mortar (+Y lokal) utk orientasi lintasan
+const _vv = new THREE.Vector3();          // scratch arah kecepatan mortar
+
+// ===== Mesh PROYEKTIL MORTAR (2026-07-16): shell mortir REALISTIS (acuan M73 HE)
+// menggantikan bola kuning lama. Badan OGIVE zaitun (silinder + hidung/buritan
+// kerucut) + FUZE kuningan di hidung + BOOM ekor & 4 SIRIP baja menyilang. Hidung
+// = +Y lokal (updateMortars mengarahkannya sepanjang kecepatan -> menukik saat
+// turun). Geometri+material dibuat SEKALI (malas, shared); Lambert = program
+// shader yang sudah dipanaskan -> tanpa recompile saat mortar pertama ditembak. =====
+let MSHELL = null;
+export function mortarShell() {
+    if (!MSHELL) {
+        MSHELL = {
+            body: new THREE.CylinderGeometry(1.15, 1.02, 2.4, 14),
+            nose: new THREE.ConeGeometry(1.15, 1.8, 14),
+            tail: new THREE.ConeGeometry(1.02, 1.5, 14),
+            boom: new THREE.CylinderGeometry(0.34, 0.34, 1.7, 8),
+            fuze: new THREE.CylinderGeometry(0.24, 0.34, 0.85, 8),
+            fin: new THREE.BoxGeometry(0.08, 1.25, 1.15),
+            olive: new THREE.MeshLambertMaterial({ color: 0x40492a, emissive: 0x3a1e00 }),   // HE zaitun (emissive rendah agar terlihat terbang)
+            steel: new THREE.MeshLambertMaterial({ color: 0x9aa0a8 }),                         // sirip/boom baja
+            brass: new THREE.MeshLambertMaterial({ color: 0xb8923e, emissive: 0x2a1800 }),     // fuze kuningan
+        };
+    }
+    const S = MSHELL, g = new THREE.Group();
+    const put = (geo, mat, y, rx) => { const m = new THREE.Mesh(geo, mat); m.position.y = y; if (rx) m.rotation.x = rx; g.add(m); return m; };
+    put(S.body, S.olive, 0.6);              // badan utama (zaitun)
+    put(S.nose, S.olive, 2.65);             // hidung ogive (apex +Y)
+    put(S.tail, S.olive, -1.35, Math.PI);   // buritan mengerucut ke boom (apex -Y)
+    put(S.boom, S.steel, -2.7);             // tabung ekor
+    put(S.fuze, S.brass, 3.75);             // fuze/sumbu di ujung hidung
+    for (let i = 0; i < 4; i++) {           // 4 sirip ekor menyilang, menonjol radial dari boom
+        const a = i * Math.PI / 2, f = new THREE.Mesh(S.fin, S.steel);
+        f.position.set(Math.sin(a) * 0.9, -3.0, Math.cos(a) * 0.9);
+        f.rotation.y = a;
+        g.add(f);
+    }
+    return g;
+}
 
 // ===== Bangun mesh tank prosedural — DIROMBAK TOTAL 2026-07-15 mengacu bentuk
 // TANK TIGER I Jerman PD2 (lambung boxy sisi-tegak yang menggantung di atas
@@ -453,8 +492,7 @@ function fireMortar(tank) {
     const landY = 5;                                     // tinggi ledakan (sejajar player)
     const vx = dx / flight, vz = dz / flight;            // units/detik mendatar
     const vy = (landY - sy) / flight + 0.5 * g * flight; // agar mendarat di landY setelah `flight`
-    const m = new THREE.Mesh(GEO.grenade, new THREE.MeshLambertMaterial({ color: 0x30281c, emissive: 0xaa3a10 }));
-    m.scale.setScalar(1.5);
+    const m = mortarShell();          // shell mortir realistis (ogive zaitun + sirip + fuze)
     m.position.set(sx, sy, sz);
     scene.add(m);
     tank.pendingId++;
@@ -475,7 +513,10 @@ function updateMortars(tank, dt, step) {
         mo.mesh.position.x += mo.vx * dt;
         mo.mesh.position.y += mo.vy * dt;
         mo.mesh.position.z += mo.vz * dt;
-        mo.mesh.rotation.x += dt * 6;
+        // Hadapkan HIDUNG (+Y lokal) sepanjang arah gerak -> naik miring ke atas,
+        // lalu MENUKIK nose-first saat menurun (bukan tumbling acak).
+        _vv.set(mo.vx, mo.vy, mo.vz);
+        if (_vv.length() > 1e-3) { _vv.normalize(); mo.mesh.quaternion.setFromUnitVectors(_UP, _vv); }
         mo.life -= step;
         // meledak saat proyektil MENDARAT (menurun melewati landY) / umur habis
         if ((mo.vy < 0 && mo.mesh.position.y <= mo.landY) || mo.life <= 0) {

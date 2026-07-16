@@ -177,7 +177,7 @@
             "grenadeDamage": 300
         },
         "tank": {
-            "gapSec": 5,
+            "gapSec": 2.5,
             "aimSec": 1.1,
             "spawnRollSec": 2.4,
             "hitRadius": 18,
