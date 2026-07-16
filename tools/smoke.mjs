@@ -940,6 +940,20 @@ T('S4: siklus tank (spawn+3 serangan) jalan tanpa error', s4tankOk && !s4tank.de
     T('S4: proyektil mortar = shell multi-part (bukan bola)', shell.children.length >= 8);
 }
 while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mortars.splice(0, 1); }   // bersihkan mortar sisa
+// Mortar BURST (2026-07-16): serangan mortar = mortarBurst tembakan berjeda
+// mortarBurstGapSec (bukan 1 tembakan). Picu burst manual (tank di fase battle,
+// hidup) lalu hitung tembakan lewat kenaikan pendingId (fireMortar +1 tiap tembak).
+{
+    const burst = cfgMod.CFG.campaign.tank.mortarBurst;
+    const gap = cfgMod.CFG.campaign.tank.mortarBurstGapSec;
+    s4tank.mortarLeft = burst; s4tank.mortarTimer = 0; s4tank.blastPending = true;
+    const idBefore = s4tank.pendingId;
+    const frames = Math.ceil((burst * gap) / 0.1) + 5;
+    for (let i = 0; i < frames && s4tank.mortarLeft > 0; i++) s4mod.stage4Scene.updateMode(0.1);
+    T('S4: serangan mortar = BURST mortarBurst tembakan (jeda mortarBurstGapSec)',
+        burst >= 2 && gap > 0 && (s4tank.pendingId - idBefore) === burst && s4tank.mortarLeft === 0);
+    while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mortars.splice(0, 1); }
+}
 while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }   // bersihkan peluru MG
 // finish TERKUNCI selagi tank hidup
 stateMod.setGameOver(false);

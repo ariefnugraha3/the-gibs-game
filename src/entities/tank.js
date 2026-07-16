@@ -17,10 +17,11 @@
 //      (damage cannonDamage, radius = killRadius granat × cannonBlastRatio).
 //   2. SENAPAN MESIN : 1 sesi = mgBurst peluru dari HULL depan, arahnya SELALU
 //      mengikuti player (damage mgDamage/peluru).
-//   3. MORTAR  : 1 proyektil LOB PARABOLA (balistik+gravitasi) dari tabung
-//      belakang turret yang MENGHADAP KE DEPAN, mendarat di posisi player saat
-//      menembak — dihindari dgn MENJAUH dari titik jatuh atau TUMBLE/dodge
-//      (i-frame meleset; damage mortarDamage, radius killRadius × mortarBlastRatio).
+//   3. MORTAR  : BURST mortarBurst (3) proyektil LOB PARABOLA (balistik+gravitasi)
+//      berjeda mortarBurstGapSec (0.5 dtk) dari tabung belakang turret yang
+//      MENGHADAP KE DEPAN; tiap mortar mendarat di posisi player SAAT tembakan
+//      itu — dihindari dgn MENJAUH dari titik jatuh atau TUMBLE/dodge (i-frame
+//      meleset; damage mortarDamage, radius killRadius × mortarBlastRatio).
 
 import { CFG } from '../core/config.js';
 import { player, bullets, enemyBullets, GEO, MAT, addScore, stats } from '../core/state.js';
@@ -268,6 +269,7 @@ export function spawnTank({ homeX, homeZ, wallX, faceX }) {
         attackIdx: -1, cd: 1.4, aiming: false,
         blastPending: false, pendingId: 0,
         mgLeft: 0, mgTimer: 0,
+        mortarLeft: 0, mortarTimer: 0,
         shells: [], mortars: [],
         turretYaw: Math.atan2((faceX != null ? faceX : homeX - 300) - homeX, 0),
         trackPhase: 0, chargeK: 0, onWallSmash: null
@@ -349,6 +351,22 @@ export function updateTank(tank, dt) {
         return;
     }
 
+    // Sesi MORTAR (burst) sedang berjalan? Tembak `mortarBurst` mortir dengan
+    // jeda `mortarBurstGapSec` antar tembakan. Setiap mortar membidik posisi
+    // player SAAT itu (burst tersebar mengejar player). blastPending sudah true
+    // sejak launchAttack -> cd tetap beku selama burst + semua mortar terbang;
+    // jeda gapSec baru mulai saat mortar TERAKHIR meledak (detonate id===pendingId,
+    // karena fireMortar menaikkan pendingId tiap tembakan -> yg terakhir = max).
+    if (tank.mortarLeft > 0) {
+        tank.mortarTimer -= dt;
+        if (tank.mortarTimer <= 0) {
+            fireMortar(tank);
+            tank.mortarLeft--;
+            tank.mortarTimer = CFG.campaign.tank.mortarBurstGapSec || 0.5;
+        }
+        return;
+    }
+
     // MENUNGGU proyektil MELEDAK: utk cannon/mortar, jeda `gapSec` BARU dimulai
     // SETELAH shell/mortar meledak (detonate men-set cd), BUKAN saat meledak
     // langsung menembak. Selama proyektil masih terbang, jangan hitung mundur.
@@ -414,8 +432,12 @@ function launchAttack(tank) {
         tank.mgLeft = T.mgBurst || 10; tank.mgTimer = 0; tank.aiming = true;
         // (senapan mesin tak meledak -> cd = gapSec di-set saat burst selesai)
     } else {
-        fireMortar(tank);
-        tank.blastPending = true;   // jeda gapSec dimulai SETELAH mortar meledak (detonate)
+        // MORTAR: burst `mortarBurst` tembakan berjeda `mortarBurstGapSec`
+        // (handler di updateTank). blastPending di-set sekarang -> cd beku selama
+        // burst + terbang; jeda gapSec baru dimulai saat mortar TERAKHIR meledak.
+        tank.mortarLeft = T.mortarBurst || 3;
+        tank.mortarTimer = 0;   // tembakan pertama langsung frame berikutnya
+        tank.blastPending = true;
     }
 }
 
