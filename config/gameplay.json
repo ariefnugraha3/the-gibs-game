@@ -9,7 +9,7 @@
         "maxMedkits": 2,
         "medkitUseSec": 2,
         "medkitSlowMul": 0.75,
-        "deathDelaySec": 4,
+        "deathDelaySec": 3,
         "hpUpgrades": [150, 200, 250]
     },
     "armor": {
