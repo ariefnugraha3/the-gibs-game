@@ -21,7 +21,7 @@ import { camera, viewCam } from '../core/renderer.js';
 import { GEO, player, robots, isPaused } from '../core/state.js';
 import { aimPoint } from '../core/input.js';
 import { eyeHCur, dodgeActive, dodgeProgress, dodgeDirX, dodgeDirZ } from './player.js';
-import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
+import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim, meleeDirX, meleeDirZ } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
 
 export let avatarGroup = null;
 export let avatarGunTip = null;   // Object3D ujung laras (dibaca weapons.js)
@@ -601,6 +601,10 @@ export function updatePlayerAvatar(dt) {
         const adx = aimPoint.x - px, adz = aimPoint.z - pz;
         if (adx * adx + adz * adz > 0.25) aimYaw = Math.atan2(adx, adz);
     }
+    // Saat MELEE (2026-07-16): hadapkan badan ke ARAH TEBASAN (meleeDir = robot
+    // terjangkau terdekat, auto-pilih di tryMelee) — bukan kursor; jadi character
+    // otomatis berputar menebas robot yang menempel walau kursor di arah lain.
+    if (meleeT > 0 && (meleeDirX || meleeDirZ)) aimYaw = Math.atan2(meleeDirX, meleeDirZ);
     // Kecepatan horizontal NYATA (WASD ataupun klik-kanan) + arah geraknya.
     const vx = dt > 0 ? (px - lastX) / dt : 0, vz = dt > 0 ? (pz - lastZ) / dt : 0;
     const sp = Math.hypot(vx, vz);

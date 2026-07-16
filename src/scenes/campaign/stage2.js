@@ -36,7 +36,7 @@ import { buildFuturisticSofaMesh } from '../../entities/futuristicSofa.js';
 import { buildFuturisticRubbleMesh } from '../../entities/futuristicRubble.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { buildFuturisticBenchMesh } from '../../entities/futuristicBench.js';
-import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
 import { stage3Scene } from './stage3.js';
@@ -526,6 +526,8 @@ export const stage2Scene = {
         // Indoor: aktivasi butuh LOS grid (atau sangat dekat / tertembak)
         return campaignRobotAI(z, dt, step, { walkable: stage2Walk, resolve, los: s2LOS, nav: s2Nav });
     },
+
+    clampRobot(z, oldX, oldZ) { campaignClampRobot(z, oldX, oldZ, { walkable: stage2Walk, resolve }); },
 
     clampDropPos(x, z) { return [x, z]; },
 

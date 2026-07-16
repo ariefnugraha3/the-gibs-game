@@ -47,8 +47,22 @@ export function setQualityLightRef(l) { dirLightRef = l; }
 // Didekatkan bertahap atas permintaan user (185/100 -> 161/87 -> 146/79 ->
 // 130/82) 2026-07-11; sudut lalu diturunkan lagi ~15% ke 116/100: JARAK dijaga
 // ~154 unit (y turun, z naik) sehingga hanya sudutnya melandai (bukan zoom) —
-// pitch ~57,8° -> ~49,2°, pandangan lebih menyamping/rendah (permintaan user). -----
-const CAM_OFF = { x: 0, y: 116, z: 100 };
+// pitch ~57,8° -> ~49,2°, pandangan lebih menyamping/rendah (permintaan user).
+// AZIMUTH diputar ke BARAT DAYA (2026-07-16, permintaan user): dulu ofset
+// horizontal murni +z (kamera tepat di SELATAN, memandang lurus ke utara);
+// kini dibagi rata x=-z (barat + selatan) sehingga kamera memandang dari POJOK
+// BARAT DAYA secara diagonal. Jarak horizontal (~100) & tinggi (116) DIJAGA
+// supaya pitch/zoom tak berubah — hanya arah pandangnya yang berputar 45°. -----
+const CAM_OFF = { x: -70.7, y: 116, z: 70.7 };
+
+// Basis LAYAR di bidang tanah (dunia), diturunkan dari azimuth CAM_OFF: arah
+// "atas layar" (SCREEN_UP = arah pandang horizontal kamera) & "kiri layar"
+// (SCREEN_LEFT). Dipakai gerak WASD & dodge (player.js) agar tetap RELATIF LAYAR
+// walau kamera dimiringkan ke barat daya (W tetap = naik di layar). Dengan
+// kamera barat daya, SCREEN_UP menunjuk ke timur laut dunia.
+const _camH = Math.hypot(CAM_OFF.x, CAM_OFF.z) || 1;
+export const SCREEN_UP = { x: -CAM_OFF.x / _camH, z: -CAM_OFF.z / _camH };
+export const SCREEN_LEFT = { x: SCREEN_UP.z, z: -SCREEN_UP.x };
 
 // ----- Dead-zone kamera (toleransi gerak 2026-07-11): kamera TIDAK center
 // tepat di player. Ia mengejar sebuah titik fokus `camFocus` (di bidang tanah)
@@ -57,13 +71,22 @@ const CAM_OFF = { x: 0, y: 116, z: 100 };
 // atas/bawah layar). Gerak kecil di dalam kotak tidak menggerakkan kamera
 // (menghilangkan efek pusing). Sumbu-y (vertikal) selalu diikuti tanpa
 // toleransi karena player nyaris selalu menapak tanah. Nilai bisa di-tuning di
-// sini. DEAD_Z (utara/selatan) sengaja LEBIH KECIL dari DEAD_X (dikecilkan
-// 2026-07-11): di layar widescreen tinggi tampilan terbatas — toleransi
-// vertikal besar mendorong player ke tepi kotak & menyempitkan ruang pandang
-// ke depan saat bergerak utara/selatan. -----
-const DEAD_X = 46, DEAD_Z = 16;
+// sini. Sejak 2026-07-16 (permintaan user) DEAD_X DIKECILKAN agar SAMA dengan
+// DEAD_Z — kotak toleransi kini persegi (gerak horizontal & vertikal punya
+// toleransi setara), lebih cocok dengan kamera diagonal barat daya. -----
+const DEAD_X = 16, DEAD_Z = 16;
 const camFocus = new THREE.Vector3();
 let camFocusReady = false;
+// Re-center saat BERHENTI (2026-07-16, permintaan user): selagi bergerak dead-zone
+// membiarkan player di TEPI kotak; begitu player berhenti, fokus di-EASE kembali
+// ke player supaya ia kembali ke TENGAH layar. Halus (bukan snap) agar tak bikin
+// pusing: smoothing eksponensial berbasis dt, laju RECENTER_RATE per detik.
+// _prevPX/_prevPZ = posisi pivot frame lalu (deteksi gerak); MOVE_EPS2 = ambang
+// jarak² per frame utk membedakan "diam" (≈0) dari "jalan" (≥~0.5 unit/frame).
+let _prevPX = 0, _prevPZ = 0;
+const RECENTER_RATE = 3, MOVE_EPS2 = 0.01;
+// Debug/uji: posisi titik fokus kamera (dipakai tes recenter).
+export const camFocusPos = () => ({ x: camFocus.x, y: camFocus.y, z: camFocus.z });
 
 // ----- Guncangan kamera (screen shake, 2026-07-13): dipakai untuk momen
 // sinematik seperti runtuhnya Monas. addCamShake(a) menaikkan amplitudo (unit
@@ -73,7 +96,7 @@ let camShake = 0;
 export function addCamShake(a) { camShake = Math.max(camShake, a); }
 export function resetCamShake() { camShake = 0; }
 
-export function followViewCam() {
+export function followViewCam(dt = 0) {
     if (!viewCam || !camera) return;
     const p = camera.position;
     // Inisialisasi / snap saat lompat besar (spawn, ganti scene, restart):
@@ -81,15 +104,26 @@ export function followViewCam() {
     if (!camFocusReady || Math.abs(p.x - camFocus.x) > 400 || Math.abs(p.z - camFocus.z) > 400) {
         camFocus.set(p.x, p.y, p.z);
         camFocusReady = true;
+        _prevPX = p.x; _prevPZ = p.z;
     }
-    // Dead-zone horizontal: geser fokus HANYA saat pivot melewati tepi kotak,
-    // lalu dijepit tepat di tepi (player "mendorong" kamera dari batas kotak).
-    const dx = p.x - camFocus.x;
-    if (dx > DEAD_X) camFocus.x = p.x - DEAD_X;
-    else if (dx < -DEAD_X) camFocus.x = p.x + DEAD_X;
-    const dz = p.z - camFocus.z;
-    if (dz > DEAD_Z) camFocus.z = p.z - DEAD_Z;
-    else if (dz < -DEAD_Z) camFocus.z = p.z + DEAD_Z;
+    // Deteksi gerak dari perpindahan pivot sejak frame lalu.
+    const movedSq = (p.x - _prevPX) * (p.x - _prevPX) + (p.z - _prevPZ) * (p.z - _prevPZ);
+    _prevPX = p.x; _prevPZ = p.z;
+    if (movedSq > MOVE_EPS2) {
+        // BERGERAK: dead-zone — geser fokus HANYA saat pivot melewati tepi kotak,
+        // lalu dijepit tepat di tepi (player "mendorong" kamera dari batas kotak).
+        const dx = p.x - camFocus.x;
+        if (dx > DEAD_X) camFocus.x = p.x - DEAD_X;
+        else if (dx < -DEAD_X) camFocus.x = p.x + DEAD_X;
+        const dz = p.z - camFocus.z;
+        if (dz > DEAD_Z) camFocus.z = p.z - DEAD_Z;
+        else if (dz < -DEAD_Z) camFocus.z = p.z + DEAD_Z;
+    } else {
+        // BERHENTI: ease fokus kembali ke player (recenter) — halus, dt-based.
+        const k = 1 - Math.exp(-RECENTER_RATE * dt);
+        camFocus.x += (p.x - camFocus.x) * k;
+        camFocus.z += (p.z - camFocus.z) * k;
+    }
     camFocus.y = p.y;   // vertikal: ikut penuh (tanpa dead-zone)
 
     viewCam.position.set(camFocus.x + CAM_OFF.x, camFocus.y + CAM_OFF.y, camFocus.z + CAM_OFF.z);

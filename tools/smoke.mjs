@@ -99,6 +99,8 @@ class Obj3D {
     remove(o) { const i = this.children.indexOf(o); if (i >= 0) { this.children.splice(i, 1); o.parent = null; } return this; }
     traverse(fn) { fn(this); this.children.forEach(c => c.traverse(fn)); }
     lookAt() { } updateMatrixWorld() { } rotateX(a) { this.rotation.x += a; }
+    rotateY(a) { this.rotation.y += a; } rotateZ(a) { this.rotation.z += a; }
+    translateX(d) { this.position.x += d; } translateY(d) { this.position.y += d; } translateZ(d) { this.position.z += d; }
     getWorldPosition(v) { let p = this, x = 0, y = 0, z = 0; while (p) { x += p.position.x; y += p.position.y; z += p.position.z; p = p.parent; } return v.set(x, y, z); }
     getWorldDirection(v) { return v.set(0, 0, -1); }
     clone() {
@@ -272,6 +274,36 @@ T('kaki tinggal di paruh BAWAH', zC2.rig.thighL.parent === zC2.rig.inner
 for (let i = 0; i < 40; i++) goreMod.updateGore(0.1);   // terbang -> berdiri -> roboh -> pudar -> dispose
 T('bisection update+dispose OK', true);
 
+// --- 4d. Pemisahan robot-robot (2026-07-16): tak boleh menumpuk di satu titik ---
+{
+    const saved = robots.splice(0, robots.length);         // kosongkan sementara
+    const sepR = cfgMod.CFG.robot.separationRadius;
+    const a = mkBot('C', 100, 100), b = mkBot('C', 100.3, 100);   // hampir menumpuk
+    robots.push(a, b);
+    for (let i = 0; i < 60; i++) robotsMod.separateRobots();
+    const dist = Math.hypot(a.mesh.position.x - b.mesh.position.x, a.mesh.position.z - b.mesh.position.z);
+    T('robot menumpuk terdorong menjauh (~2×separationRadius, ' + dist.toFixed(1) + ')', dist >= sepR * 2 - 0.5);
+    // idle (dorman) = JANGKAR: tak digeser, hanya mendorong yang lain
+    robots.splice(0, robots.length);
+    const idleBot = mkBot('C', 200, 200); idleBot.state = 'idle';
+    const mover = mkBot('C', 200.4, 200);
+    robots.push(idleBot, mover);
+    for (let i = 0; i < 60; i++) robotsMod.separateRobots();
+    T('robot idle = jangkar (tak bergeser)', idleBot.mesh.position.x === 200 && idleBot.mesh.position.z === 200);
+    T('robot chasing terdorong keluar dari idle', Math.hypot(mover.mesh.position.x - 200, mover.mesh.position.z - 200) >= sepR * 2 - 0.5);
+    // clampRobot: dorongan separasi TIDAK menembus dinding (bug 2026-07-16 —
+    // robot nyangkut dinding). Hook scene menjepit ke area sah tiap frame.
+    robots.splice(0, robots.length);
+    smMod.activeScene.clampRobot = (z) => { if (z.mesh.position.x > 50) z.mesh.position.x = 50; };  // "dinding" x=50
+    const wa = mkBot('C', 48, 0), wb = mkBot('C', 48.3, 0);
+    robots.push(wa, wb);
+    for (let i = 0; i < 60; i++) robotsMod.separateRobots();
+    T('separasi hormati clampRobot: robot tak menembus dinding', wa.mesh.position.x <= 50.001 && wb.mesh.position.x <= 50.001);
+    delete smMod.activeScene.clampRobot;
+    robots.splice(0, robots.length);
+    for (const z of saved) robots.push(z);                 // pulihkan isi array semula
+}
+
 // --- 5. killRobot -> gore coolant (tanpa throw) ---
 const nBefore = robots.length;
 robotsMod.killRobot(robots.indexOf(zC), { cause: 'explosion', dirx: 1, dirz: 0 });
@@ -366,25 +398,26 @@ T('spawnBloodBurst param warna OK', true);
 const wMod = await import(R('src/entities/weapons.js'));
 T('MELEE_TIME diekspor (0.45)', wMod.MELEE_TIME === 0.45);
 
-// --- 5h. Sabetan pedang = SAPUAN BUSUR (2026-07-13): SEMUA robot di kerucut
-//     depan kena damage CFG.melee.damage; di belakang/di luar jangkauan selamat;
-//     HP raksasa (boss) hanya tergerus. (Kamera stub menghadap -z.) ---
+// --- 5h. Sabetan pedang = KERUCUT DEPAN ~±70° searah `meleeDir` (2026-07-16;
+//     default -z = arah kursor stub): robot DEPAN kena damage CFG.melee.damage;
+//     BELAKANG (walau dalam jangkauan) & luar jangkauan selamat; HP raksasa
+//     (boss) hanya tergerus. (Kamera stub menghadap -z.) ---
 // (jarak DITURUNKAN dari CFG.melee.range supaya tahan re-tuning range user)
 const MR = cfgMod.CFG.melee.range;
-const zM1 = mkBot('C', 0, -MR * 0.55); robots.push(zM1);
-const zM2 = mkBot('B', MR * 0.22, -MR * 0.5); robots.push(zM2);
-const zM3 = mkBot('C', 0, MR + 12); robots.push(zM3);        // di belakang punggung (selalu di belakang)
+const zM1 = mkBot('C', 0, -MR * 0.55); robots.push(zM1);       // depan (utara/-z)
+const zM2 = mkBot('B', MR * 0.22, -MR * 0.5); robots.push(zM2); // depan
+const zBehind = mkBot('C', 0, MR * 0.5); robots.push(zBehind);  // BELAKANG dlm jangkauan -> LUAR kerucut, selamat
 const zTank = mkBot('A', -MR * 0.2, -MR * 0.55); zTank.hp = 99999; robots.push(zTank);
 camera.position.set(0, 11.4, 0);
 const nR0 = robots.length;
-wMod.doMeleeHit();
-T('sapuan membunuh SEMUA di kerucut depan', !robots.includes(zM1) && !robots.includes(zM2));
-T('robot di belakang selamat dari sapuan', robots.includes(zM3));
+wMod.doMeleeHit();   // meleeDir default = (0,-1) = -z
+T('kerucut depan: robot depan tertebas', !robots.includes(zM1) && !robots.includes(zM2));
+T('robot di belakang (luar kerucut) selamat walau dalam jangkauan', robots.includes(zBehind));
 T('HP raksasa selamat tergerus melee.damage',
     robots.includes(zTank) && zTank.hp === 99999 - Math.max(1, cfgMod.CFG.melee.damage - (zTank.armor || 0)));
 T('jumlah splice sapuan benar (2 mati)', robots.length === nR0 - 2);
-for (let i = 0; i < 40; i++) goreMod.updateGore(0.1);          // dua bangkai terbelah dituntaskan
-robots.splice(robots.indexOf(zM3), 1); scene.remove(zM3.mesh); // bersih-bersih utk section berikut
+for (let i = 0; i < 40; i++) goreMod.updateGore(0.1);          // bangkai terbelah dituntaskan
+robots.splice(robots.indexOf(zBehind), 1); scene.remove(zBehind.mesh); // bersih-bersih
 robots.splice(robots.indexOf(zTank), 1); scene.remove(zTank.mesh);
 
 // --- 6. Avatar player: build + prop + gunTip terkalibrasi + salto ---
@@ -404,8 +437,34 @@ T('dodge aktif', playerMod.dodgeActive === true);
 for (let i = 0; i < 12; i++) { playerMod.updatePlayerMovement(0.05, 3); avMod.updatePlayerAvatar(0.05); }
 T('salto selesai tanpa throw', playerMod.dodgeActive === false);
 
-// --- 7. Kecepatan direksional relatif kursor (stub aim selalu (0,0,-1) = "utara") ---
+// --- 6b. Melee AUTO-TARGET (2026-07-16): tekan F -> character otomatis MENGHADAP
+//     robot terjangkau TERDEKAT (walau kursor ke arah lain) & menebas kerucut ke
+//     arah itu; robot di sisi berlawanan (arah kursor) SELAMAT. Kamera stub bidik -z. ---
+playerMod.resetPlayerState();                      // stamina penuh
+camera.position.set(0, 11.4, 0);
+const savedR = robots.splice(0, robots.length);    // simpan isi (zB/zA dll utk tes selebrasi nanti)
+const zBack = mkBot('C', 0, MR * 0.5); robots.push(zBack);          // BELAKANG kursor (selatan/+z) — terdekat
+const zSide = mkBot('B', MR * 0.15, MR * 0.55); robots.push(zSide); // sekerucut belakang
+const zFrontM = mkBot('C', 0, -MR * 0.9); robots.push(zFrontM);     // arah kursor (utara) tapi lebih jauh
+const nRb = robots.length;
+wMod.tryMelee();
+T('melee auto-hadap robot terdekat di BELAKANG kursor', wMod.meleeDirZ > 0.5);
+wMod.doMeleeHit();
+T('robot target + sekerucut (belakang) tertebas', !robots.includes(zBack) && !robots.includes(zSide));
+T('robot arah kursor (luar kerucut tebasan) SELAMAT', robots.includes(zFrontM));
+T('jumlah splice auto-target benar (2 mati)', robots.length === nRb - 2);
+for (let i = 0; i < 40; i++) goreMod.updateGore(0.1);
+robots.splice(robots.indexOf(zFrontM), 1); scene.remove(zFrontM.mesh);
+robots.splice(0, robots.length);
+for (const z of savedR) robots.push(z);            // pulihkan isi array semula
+wMod.updateWeaponTimers(0.5);   // selesaikan ayunan -> meleeT <= 0 (jangan cemari tes avatar berikut)
+
+// --- 7. Kecepatan direksional relatif kursor. Kamera barat daya (2026-07-16):
+// WASD memakai basis LAYAR (SCREEN_UP/LEFT), jadi arahkan stub bidik ke SCREEN_UP
+// agar W = "searah kursor" (penuh), S = mundur (50%), A = menyamping (50%). ---
 camera.position.set(800, 11.4, 800);   // jauh dari robot uji (hindari body-push)
+const _origWDir = camera.getWorldDirection;
+camera.getWorldDirection = (v) => v.set(rendererMod.SCREEN_UP.x, 0, rendererMod.SCREEN_UP.z);
 const kk = stateMod.keys;
 const move = (key) => {
     for (const q in kk) kk[q] = false;
@@ -419,6 +478,47 @@ const dF = move('w'), dB = move('s'), dS = move('a');
 T('maju (searah kursor) penuh, mundur 50% (' + dF.toFixed(2) + ' vs ' + dB.toFixed(2) + ')',
     dF > 0 && Math.abs(dB / dF - 0.5) < 0.06);
 T('menyamping 50% (' + dS.toFixed(2) + ')', Math.abs(dS / dF - 0.5) < 0.06);
+camera.getWorldDirection = _origWDir;   // pulihkan stub bidik utara utk tes berikutnya
+// Basis layar kamera BARAT DAYA (2026-07-16): SCREEN_UP = timur laut dunia
+// (x>0, z<0), diagonal ~45°; W menggerakkan player sepanjang SCREEN_UP (bukan -z murni).
+T('SCREEN_UP diagonal timur laut (kamera barat daya)',
+    rendererMod.SCREEN_UP.x > 0.5 && rendererMod.SCREEN_UP.z < -0.5
+    && Math.abs(Math.abs(rendererMod.SCREEN_UP.x) - Math.abs(rendererMod.SCREEN_UP.z)) < 0.05);
+{
+    for (const q in kk) kk[q] = false;
+    kk.w = true;
+    const x0 = camera.position.x, z0 = camera.position.z;
+    playerMod.updatePlayerMovement(0.1, 6);
+    for (const q in kk) kk[q] = false;
+    const ddx = camera.position.x - x0, ddz = camera.position.z - z0, dl = Math.hypot(ddx, ddz) || 1;
+    T('W bergerak searah SCREEN_UP', (ddx / dl) * rendererMod.SCREEN_UP.x + (ddz / dl) * rendererMod.SCREEN_UP.z > 0.98);
+}
+// Radar SEJAJAR LAYAR (2026-07-16): frame proyeksi = SCREEN_UP -> arah SCREEN_UP
+// jatuh di ATAS radar (px~0, py<0); utara dunia serong ke KIRI-ATAS (px<0, py<0).
+{
+    const hudMod = await import(R('src/core/hud.js'));
+    const U = rendererMod.SCREEN_UP;
+    const up = hudMod.radarProject(U.x * 100, U.z * 100, U.x, U.z, 70, 420);
+    T('radar: arah SCREEN_UP -> atas radar', Math.abs(up.px) < 0.01 && up.py < -1);
+    const north = hudMod.radarProject(0, -100, U.x, U.z, 70, 420);
+    T('radar: utara dunia -> serong kiri-atas', north.px < -0.5 && north.py < -0.5);
+}
+// Recenter halus saat BERHENTI (2026-07-16): selagi jalan fokus tertinggal di
+// tepi dead-zone; begitu berhenti, fokus di-ease kembali ke player (halus).
+{
+    camera.position.set(5000, 11.4, 5000);
+    rendererMod.followViewCam(0.016);              // snap: fokus = pivot, reset prev
+    camera.position.set(5100, 11.4, 5000);         // BERGERAK +100x dalam 1 frame
+    rendererMod.followViewCam(0.016);              // dead-zone: fokus tertinggal di tepi
+    const off0 = Math.abs(rendererMod.camFocusPos().x - camera.position.x);
+    T('bergerak: fokus tertinggal di tepi dead-zone (~16)', Math.abs(off0 - 16) < 0.5);
+    rendererMod.followViewCam(0.016);              // BERHENTI (pivot tetap): recenter 1 frame
+    const off1 = Math.abs(rendererMod.camFocusPos().x - camera.position.x);
+    T('berhenti: recenter HALUS (mengecil tapi tak langsung 0)', off1 < off0 - 0.1 && off1 > 1);
+    for (let i = 0; i < 200; i++) rendererMod.followViewCam(0.016);   // ~3.2 s
+    T('berhenti: akhirnya fokus balik ke tengah (player)',
+        Math.abs(rendererMod.camFocusPos().x - camera.position.x) < 0.5);
+}
 
 // --- 8. Upgrade senjata: weaponDamage per level (config-driven) ---
 stateMod.configurePlayer();

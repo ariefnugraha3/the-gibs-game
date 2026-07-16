@@ -119,7 +119,8 @@ function animate() {
 
     // Kamera top-down & avatar mengikuti posisi pivot TERBARU (pasca-gerak).
     // Jalan juga saat pause (pose beku konsisten, kontrak lama updateDecor).
-    followViewCam();
+    // dt utk recenter halus saat player berhenti (followViewCam).
+    followViewCam(dt);
     updatePlayerAvatar(dt);
 
     // Dekoratif: jalan juga saat pause (kontrak lama updateDecor)

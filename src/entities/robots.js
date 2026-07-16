@@ -901,4 +901,73 @@ export function updateRobots(dt, step) {
     // Ledakan yang antre (peluru Grenade Launcher yang kena robot frame ini) —
     // diproses DI LUAR loop utama; lihat komentar pendingBooms.
     processPendingBooms();
+
+    // Pemisahan robot-robot: cegah menumpuk di satu titik (setelah semua gerak).
+    separateRobots();
+}
+
+// ===== Pemisahan robot-robot (2026-07-16, permintaan user) =====
+// Cegah robot menumpuk di satu titik. Tiap pasang robot yang badannya tumpang-
+// tindih (jarak pusat < jumlah radius separasi = separationRadius×skala) didorong
+// saling menjauh sepanjang garis penghubung, sebesar `separationRelax` × overlap
+// (relaksasi < 1 = konvergen halus beberapa frame, tak jitter). Robot 'idle'
+// (dorman campaign) = JANGKAR: tak digeser (jaga penempatan) tapi tetap mendorong
+// yang lain; dua idle dilewati. Robot 'jumping' (lompat pagar) dilewati.
+// EFEK ALAMI: saat player dikepung kelas C, robot yang tak kebagian tempat
+// terdorong keluar cincin terdepan & MENUNGGU di belakang (tak sampai jangkauan
+// cakar). O(n²) tapi n ≤ ~44 -> murah. Hanya menggeser mesh.position (root);
+// rig relatif tak terpengaruh. Tanpa jepit dinding (sama seperti gerak robot yang
+// mengandalkan pathfinding) — dorongan kecil, frame berikut ditarik balik AI.
+export function separateRobots() {
+    const n = robots.length;
+    if (n < 2) return;
+    const base = CFG.robot.separationRadius || 5.5;
+    const relax = CFG.robot.separationRelax != null ? CFG.robot.separationRelax : 0.5;
+    // Simpan posisi valid PRA-separasi (scene AI sudah men-clamp robot ke area
+    // sah frame ini) → dipakai clampRobot sbg titik jatuh-balik supaya dorongan
+    // separasi tak menyangkutkan robot ke dalam dinding (bug 2026-07-16).
+    for (let i = 0; i < n; i++) {
+        const z = robots[i];
+        z._sepOX = z.mesh.position.x; z._sepOZ = z.mesh.position.z;
+    }
+    for (let i = 0; i < n; i++) {
+        const a = robots[i];
+        if (a.state === 'jumping') continue;
+        const ap = a.mesh.position, ra = base * (a.scl || 1), aFixed = a.state === 'idle';
+        for (let j = i + 1; j < n; j++) {
+            const b = robots[j];
+            if (b.state === 'jumping') continue;
+            const bFixed = b.state === 'idle';
+            if (aFixed && bFixed) continue;   // dua idle: jangan usik penempatan campaign
+            const bp = b.mesh.position;
+            let dx = bp.x - ap.x, dz = bp.z - ap.z;
+            const minD = ra + base * (b.scl || 1);
+            let d2 = dx * dx + dz * dz;
+            if (d2 >= minD * minD) continue;
+            let d = Math.sqrt(d2);
+            if (d < 1e-4) {                   // tepat menumpuk -> arah dorong acak
+                const ang = Math.random() * Math.PI * 2;
+                dx = Math.cos(ang); dz = Math.sin(ang); d = 1;
+            }
+            const push = (minD - d) * relax, nx = dx / d, nz = dz / d;
+            if (aFixed) { bp.x += nx * push; bp.z += nz * push; }          // a jangkar
+            else if (bFixed) { ap.x -= nx * push; ap.z -= nz * push; }     // b jangkar
+            else {                                                          // dua-duanya geser separuh
+                const h = push * 0.5;
+                ap.x -= nx * h; ap.z -= nz * h;
+                bp.x += nx * h; bp.z += nz * h;
+            }
+        }
+    }
+    // Jepit setiap robot yang bergeser kembali ke area boleh-jalan (hug-slide dari
+    // posisi valid pra-separasi) supaya tak nyangkut/tembus dinding. Hook scene:
+    // survival = pagar+Monas+pohon; campaign = furnitur+grid boleh-jalan.
+    if (activeScene.clampRobot) {
+        for (let i = 0; i < n; i++) {
+            const z = robots[i];
+            if (z.state === 'jumping' || z.state === 'idle') continue;   // idle tak digeser; jumping di udara
+            if (z.mesh.position.x !== z._sepOX || z.mesh.position.z !== z._sepOZ)
+                activeScene.clampRobot(z, z._sepOX, z._sepOZ);
+        }
+    }
 }

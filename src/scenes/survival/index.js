@@ -360,6 +360,17 @@ export const survivalScene = {
         resolveObstacles(pos, player.radius, feetY);
     },
 
+    // Jepit robot ke area sah SETELAH dorongan separasi (cegah nyangkut dinding,
+    // 2026-07-16): pagar + Monas (hug-slide dari posisi valid pra-separasi) +
+    // pohon/bak. (oldX,oldZ) = posisi valid sebelum separasi.
+    clampRobot(z, oldX, oldZ) {
+        const p = z.mesh.position;
+        const bx = PARK.hx - 6, bz = PARK.hz - 6;
+        p.x = clamp(p.x, -bx, bx); p.z = clamp(p.z, -bz, bz);
+        resolveMonas(p, oldX, oldZ, 2);
+        resolveObstacles(p, 3.5, z.groundY);
+    },
+
     groundHeight: groundHeightAt,
 
     // Peluru mati HANYA di badan Monas yang sebenarnya — silhouette bertingkat:

@@ -41,6 +41,10 @@ const SWITCH_TIME = 0.5;
 // Melee (F): pukul dgn popor senjata aktif; 1x pukul membunuh robot
 let meleeCd = 0, meleeS = 0, meleeHitDone = false;
 export const MELEE_TIME = 0.45;   // durasi ayunan (animasi; cooldown & range dari CFG.melee) — diekspor: playerAvatar membaca utk animasi sabetan pedang
+// Arah tebasan melee (2026-07-16): AUTO ke robot terjangkau TERDEKAT saat F
+// ditekan (character otomatis MENGHADAP robot itu), atau ke arah kursor bila tak
+// ada robot dekat. Dipakai doMeleeHit (kerucut hit) + playerAvatar (hadap badan).
+export let meleeDirX = 0, meleeDirZ = -1;
 export let gunRecoil = 0;   // kickback senjata (visual; 1 saat menembak -> meluruh dt·6; dibaca playerAvatar utk hentakan laras naik)
 let gunHeat = 0;        // "panas laras" 0..1: naik tiap tembakan, dingin saat jeda —
                         // memperbesar spread saat menembak beruntun (bloom recoil)
@@ -917,6 +921,26 @@ function cancelReload() {
 // dorman karena player.isReloading tak pernah true lagi.
 export function startReload() { }
 
+// Pilih ARAH tebasan saat F ditekan: ke robot terjangkau TERDEKAT (character
+// otomatis menghadapnya, mis. robot di selatan walau kursor di utara), atau ke
+// arah kursor bila tak ada robot menempel. Mengisi meleeDirX/meleeDirZ.
+function pickMeleeDir() {
+    let bx = 0, bz = 0, bd = Infinity;
+    for (const z of robots) {
+        const dx = z.mesh.position.x - camera.position.x;
+        const dz = z.mesh.position.z - camera.position.z;
+        const d = Math.hypot(dx, dz);
+        if (d > CFG.melee.range + CFG.robot.bodyHitRadius * (z.scl || 1)) continue;   // hanya yang terjangkau
+        if (d < bd) { bd = d; bx = dx; bz = dz; }
+    }
+    if (bd < Infinity && bd > 1e-3) {                 // ada robot menempel -> hadap dia
+        meleeDirX = bx / bd; meleeDirZ = bz / bd;
+    } else {                                          // tak ada -> ikut kursor (arah hadap pivot)
+        camera.getWorldDirection(_dir); _dir.y = 0; _dir.normalize();
+        meleeDirX = _dir.x; meleeDirZ = _dir.z;
+    }
+}
+
 // F = melee. Butuh stamina >= biaya melee; tiap ayunan menguras stamina.
 export function tryMelee() {
     if (grenadeMode || medkitMode || dodgeActive) return;   // memegang granat/medkit / sedang dodge: tak bisa melee
@@ -924,6 +948,7 @@ export function tryMelee() {
     if (stamina < CFG.stamina.meleeCost) return;
     if (player.isReloading) cancelReload();       // F membatalkan reload (+ suaranya) lalu memukul
     drainStamina(CFG.stamina.meleeCost);
+    pickMeleeDir();   // auto-hadap robot terdekat (atau kursor) — arah tebasan
     meleeT = MELEE_TIME; meleeCd = CFG.melee.cooldownSec; meleeHitDone = false;
     playSFX(sfxMelee);   // suara ayunan — berbunyi meski tidak kena robot
 }
@@ -935,16 +960,16 @@ export function toggleAim() {
 }
 export function setAiming(v) { isAiming = v; }
 
-// Sabetan melee: SAPUAN BUSUR (2026-07-13) — melukai SEMUA robot di kerucut
-// depan (~±70°, jangkauan CFG.melee.range + radius badan robot), bukan lagi
-// satu terdekat. Damage CFG.melee.damage (150) per robot: semua kelas biasa
-// (C 60 / B 90 / A 120) tumbang SEKALI tebas — mati oleh pedang = bangkai
-// TERBELAH DUA (cause 'melee' -> bisectCorpse di gore.js); boss (1800) hanya
-// tergerus + muncrat coolant (tak lagi bisa di-instant-kill pedang).
+// Sabetan melee: SAPUAN BUSUR di KERUCUT DEPAN (~±70°) sepanjang jangkauan
+// CFG.melee.range + radius badan robot. Arahnya = `meleeDir` yang dipilih saat F
+// ditekan (AUTO ke robot terjangkau terdekat — character menghadapnya — atau ke
+// kursor bila tak ada; 2026-07-16). Damage CFG.melee.damage (150) per robot:
+// kelas biasa (C 60 / B 90 / A 120) tumbang SEKALI tebas — mati oleh pedang =
+// bangkai TERBELAH DUA (cause 'melee' -> bisectCorpse); boss (1800) hanya
+// tergerus + muncrat coolant. Gore/darah searah tebasan (meleeDir).
 export function doMeleeHit() {
-    camera.getWorldDirection(_dir);
-    _dir.y = 0; _dir.normalize();
     const dmg = CFG.melee.damage != null ? CFG.melee.damage : 9999;
+    const dirx = meleeDirX, dirz = meleeDirZ;
     let hit = false;
     for (let i = robots.length - 1; i >= 0; i--) {
         const z = robots[i];
@@ -952,17 +977,17 @@ export function doMeleeHit() {
         const dz = z.mesh.position.z - camera.position.z;
         const d = Math.hypot(dx, dz);
         const scl = z.scl || 1;
-        if (d > CFG.melee.range + CFG.robot.bodyHitRadius * scl) continue;   // tepi badan ikut dihitung (badan besar tetap kena)
-        if ((dx * _dir.x + dz * _dir.z) / (d || 1) < 0.35) continue;   // ~±70° di depan
+        if (d > CFG.melee.range + CFG.robot.bodyHitRadius * scl) continue;   // tepi badan ikut (badan besar tetap kena)
+        if ((dx * dirx + dz * dirz) / (d || 1) < 0.35) continue;   // ~±70° di depan (arah tebasan)
         hit = true;
         z.hp -= Math.max(1, dmg - (z.armor || 0));
         if (z.hp <= 0) {
             spawnDrop(z.mesh.position);
-            killRobot(i, { cause: 'melee', dirx: _dir.x, dirz: _dir.z });   // GORE: terbelah dua searah tebasan
+            killRobot(i, { cause: 'melee', dirx, dirz });   // GORE: terbelah dua searah tebasan
         } else {
             // Selamat (boss): coolant muncrat di titik sabet + terbangun bila dorman
             spawnBloodBurst(z.mesh.position.x, z.mesh.position.y + 7 * scl, z.mesh.position.z,
-                _dir.x, _dir.z, 5, 0.9);
+                dirx, dirz, 5, 0.9);
             if (z.state === 'idle') { z.state = 'chasing'; z.groundY = 0; }
         }
     }
@@ -1296,7 +1321,7 @@ export function updateWeaponVisuals(dt) {
 export function resetWeapons() {
     cancelReload();   // bug fix: reload lama jangan selesai di game baru + hentikan suaranya
     switchAnim = -1; switchTarget = null;
-    meleeT = 0; meleeCd = 0; meleeS = 0;
+    meleeT = 0; meleeCd = 0; meleeS = 0; meleeDirX = 0; meleeDirZ = -1;
     for (const k in WEAPON_DEF) WEAPON_DEF[k].mesh.rotation.set(0, 0, 0);
     applyStartLoadout();   // currentWeapon + visibilitas + muzzle sesuai owned
     gunRotX = 0; gunRotZ = 0;

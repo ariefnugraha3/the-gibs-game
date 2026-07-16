@@ -31,7 +31,7 @@ import { buildFuturisticCupboardMesh } from '../../entities/futuristicCupboard.j
 import { buildFuturisticCrateMesh } from '../../entities/futuristicCrate.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { buildFuturisticPlanterMesh } from '../../entities/futuristicPlanter.js';
-import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
 import { stage4Scene } from './stage4.js';
@@ -548,6 +548,8 @@ export const stage3Scene = {
     robotAI(z, dt, step) {
         return campaignRobotAI(z, dt, step, { walkable: stage3Walk, resolve, los: s3LOS, nav: s3Nav });
     },
+
+    clampRobot(z, oldX, oldZ) { campaignClampRobot(z, oldX, oldZ, { walkable: stage3Walk, resolve }); },
 
     clampDropPos(x, z) { return [x, z]; },
 

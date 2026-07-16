@@ -7,7 +7,7 @@
 
 import { CFG } from '../core/config.js';
 import { player, keys, robots, setDodgeInvuln } from '../core/state.js';
-import { camera } from '../core/renderer.js';
+import { camera, SCREEN_UP, SCREEN_LEFT } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { playSFX, sfxFootstep, sfxRobotStep } from '../utils/sfx.js';
 import { staminaFill } from '../core/dom.js';
@@ -61,12 +61,15 @@ export function tryDodge() {
     if (dodgeActive || dodgeCd > 0 || staExhausted || medkitMode) return;
     if (stamina < CFG.dodge.staminaCost) return;
     drainStamina(CFG.dodge.staminaCost);
-    const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);     // +1 = atas layar (-z)
-    const side = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);    // +1 = kiri layar (-x)
+    const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);     // +1 = atas layar
+    const side = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);    // +1 = kiri layar
     if (fwd !== 0 || side !== 0) {
-        const inv = 1 / Math.hypot(fwd, side);
-        dodgeDirX = -side * inv;   // A = -x dunia
-        dodgeDirZ = -fwd * inv;    // W = -z dunia
+        // WASD -> arah dunia via basis LAYAR (kamera barat daya): W = SCREEN_UP.
+        const mx = fwd * SCREEN_UP.x + side * SCREEN_LEFT.x;
+        const mz = fwd * SCREEN_UP.z + side * SCREEN_LEFT.z;
+        const inv = 1 / Math.hypot(mx, mz);
+        dodgeDirX = mx * inv;
+        dodgeDirZ = mz * inv;
     } else {
         camera.getWorldDirection(_fwd);   // arah hadap (= arah bidik, horizontal)
         const h = Math.hypot(_fwd.x, _fwd.z) || 1;
@@ -154,11 +157,15 @@ export function updatePlayerMovement(dt, step) {
         const moveSpeed = player.speed * medkitMul * step;   // kecepatan dasar (dikali arah-relatif-kursor di bawah)
         if (keyMove) {
             const h = Math.hypot(fwd, side);
+            // WASD -> arah dunia via basis LAYAR (kamera barat daya): W=SCREEN_UP,
+            // A=SCREEN_LEFT. |mx,mz| = h (basis ortonormal) -> normalisasi bagi h.
+            const mx = fwd * SCREEN_UP.x + side * SCREEN_LEFT.x;
+            const mz = fwd * SCREEN_UP.z + side * SCREEN_LEFT.z;
             // Pengali direksional: dihitung dari arah gerak ternormalisasi vs arah kursor
-            const mul = dirSpeedMul(-side / h, -fwd / h);
+            const mul = dirSpeedMul(mx / h, mz / h);
             const k = moveSpeed * mul / h;
-            camera.position.x += -side * k;   // A = kiri layar = -x dunia
-            camera.position.z += -fwd * k;    // W = atas layar = -z dunia
+            camera.position.x += mx * k;
+            camera.position.z += mz * k;
         } else if (moveTarget) {
             // Gerak klik-kanan: lurus ke target dgn tabrakan dinding biasa
             // (menyusur); berhenti saat TIBA atau MACET (tak ada kemajuan ~1.2 dtk,

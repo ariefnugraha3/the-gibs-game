@@ -31,7 +31,7 @@ import { buildFuturisticBenchMesh } from '../../entities/futuristicBench.js';
 import { buildFuturisticPlanterMesh } from '../../entities/futuristicPlanter.js';
 import { buildFuturisticStallMesh } from '../../entities/futuristicStall.js';
 import { buildFuturisticRubbleMesh } from '../../entities/futuristicRubble.js';
-import { spawnCampaignRobot, campaignRobotAI, countStageRobots } from './common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
 import { campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
 
@@ -490,6 +490,8 @@ export const stage4Scene = {
         // Outdoor: aktivasi murni jarak (tanpa LOS), pathfinder nav-grid
         return campaignRobotAI(z, dt, step, { walkable: stage4Walk, resolve, nav: navGrid });
     },
+
+    clampRobot(z, oldX, oldZ) { campaignClampRobot(z, oldX, oldZ, { walkable: stage4Walk, resolve }); },
 
     clampDropPos(x, z) { return [x, z]; },
 

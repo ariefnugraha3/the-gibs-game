@@ -4,7 +4,7 @@
 
 import { CFG } from './config.js';
 import { player, score, robots, drops, _dir, maxAmmoFor } from './state.js';
-import { camera } from './renderer.js';
+import { camera, SCREEN_UP } from './renderer.js';
 import { activeScene } from './sceneManager.js';
 import {
     scoreText, ammoWeapon, ammoCount, ammoMags, ammoHint, ammoBox,
@@ -117,10 +117,10 @@ function updateInventory() {
 }
 
 // ----------- Radar / minimap ----------- //
-// Proyeksi relatif-player ke frame (fx,fz). drawRadar memanggilnya dgn frame
-// UTARA-TETAP (fx=0, fz=-1) sejak 2026-07-11 -> radar DIKUNCI utara-ke-atas
-// (tak berputar mengikuti kursor):
-//   px = komponen +x dunia (timur/kanan), py = komponen +z dunia (selatan/bawah).
+// Proyeksi relatif-player ke frame (fx,fz) = arah "atas" radar di dunia. Sejak
+// 2026-07-16 drawRadar memanggilnya dgn frame SEJAJAR LAYAR (fx,fz = SCREEN_UP)
+// supaya radar sebidang dgn tampilan (dulu utara-tetap fx=0,fz=-1). Radar TETAP
+// tak berputar mengikuti kursor (frame = orientasi kamera yang tetap).
 // Diekspor agar bisa di-unit-test tanpa canvas.
 export function radarProject(dx, dz, fx, fz, R, range) {
     return {
@@ -134,13 +134,17 @@ export function drawRadar() {
     const W = 150, R = 70, range = 420;
     radarCtx.clearRect(0, 0, W, W);
 
-    // Radar DIKUNCI UTARA-KE-ATAS (2026-07-11): puncak kanvas = utara dunia
-    // (-z), sejajar layar (screen-up juga -z) — peta tak berputar mengikuti
-    // kursor. Proyeksi pakai sumbu dunia TETAP (fx=0, fz=-1). Arah BIDIK dipakai
-    // hanya utk memutar panah + kerucut (relatif utara), bukan seluruh peta.
-    const fx = 0, fz = -1;
+    // Radar SEJAJAR LAYAR (2026-07-16): frame proyeksi = SCREEN_UP (arah "atas
+    // layar" di dunia) — bukan lagi utara-tetap. Sejak kamera diputar ke barat
+    // daya, utara dunia (-z) tampil serong di layar; menyamakan frame radar dgn
+    // layar membuat blip di radar sejajar dengan yang terlihat (permintaan user).
+    // Penanda N lalu bergeser ke arah utara SEBENARNYA (serong kiri-atas), cocok
+    // dgn tampilan. Peta tetap TAK berputar mengikuti kursor (frame kamera tetap).
+    const fx = SCREEN_UP.x, fz = SCREEN_UP.z;
     camera.getWorldDirection(_dir);
-    const aimAngle = Math.atan2(_dir.x, -_dir.z);   // 0 = utara, + searah jarum jam
+    // Sudut BIDIK relatif "atas radar" (= atas layar): 0 = atas, + searah jarum jam.
+    // Rumus umum thd frame (fx,fz); utk fx=0,fz=-1 menyusut ke atan2(dir.x,-dir.z).
+    const aimAngle = Math.atan2(_dir.x * -fz + _dir.z * fx, _dir.x * fx + _dir.z * fz);
 
     radarCtx.save();
     radarCtx.translate(W / 2, W / 2);
@@ -209,8 +213,9 @@ export function drawRadar() {
         plot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z,
             d.type === 'mag' ? "#f1c40f" : d.type === 'medkit' ? "#ff6b81" : "#2ecc71", 2.5);
 
-    // Penanda N — kini TETAP di puncak kanvas (radar dikunci utara); dgn
-    // fx=0,fz=-1 rumus -fx/fz memang menghasilkan titik atas-tengah.
+    // Penanda N — di titik tempat utara SEBENARNYA jatuh di radar. Dgn frame
+    // sejajar-layar (SCREEN_UP unit), rumus (-fx, fz)·(R-9) = arah utara dunia
+    // pada radar (serong kiri-atas saat kamera barat daya).
     radarCtx.fillStyle = 'rgba(180, 220, 255, 0.85)';
     radarCtx.font = 'bold 9px Arial';
     radarCtx.textAlign = 'center';

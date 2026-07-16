@@ -128,6 +128,20 @@ export function campaignRobotAI(z, dt, step, stage) {
     return { chaseDist: distToEye };
 }
 
+// Jepit robot campaign ke area sah SETELAH dorongan separasi robot-robot
+// (cegah nyangkut/tembus dinding, 2026-07-16). Sama seperti clamp gerak di
+// campaignRobotAi: penghalang pejal `stage.resolve` lalu jepit per-sumbu ke area
+// `stage.walkable`, dgn (oldX,oldZ) = posisi valid pra-separasi sbg jatuh-balik.
+export function campaignClampRobot(z, oldX, oldZ, stage) {
+    const p = z.mesh.position;
+    stage.resolve(p, 3.5, 0);
+    if (!stage.walkable(p.x, p.z, 3)) {
+        if (stage.walkable(p.x, oldZ, 3)) p.z = oldZ;
+        else if (stage.walkable(oldX, p.z, 3)) p.x = oldX;
+        else { p.x = oldX; p.z = oldZ; }
+    }
+}
+
 // Hitung sisa robot milik satu stage (teks status HUD)
 export function countStageRobots(stage) {
     let n = 0;

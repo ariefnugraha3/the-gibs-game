@@ -112,6 +112,8 @@
         "clawStrikeGrace": 2.0,
         "clawRange": 3.5,
         "stopRange": 3.0,
+        "separationRadius": 4.0,
+        "separationRelax": 0.5,
         "repathSec": 0.5,
         "stuckSec": 0.4,
         "turnRadPerSec": 9,
