@@ -913,8 +913,8 @@ s4mod.stage4Scene.updateMode(0.1);
 const s4tank = s4mod.currentTank();
 T('S4: setelah semua robot mati -> TANK boss muncul (bukan anggota robots)',
     s4tank != null && !robots.includes(s4tank) && /TANK/.test(s4mod.stage4Scene.hudStatus()));
-T('S4: HP tank = HP robot raksasa lama (CFG.campaign.boss.hp)',
-    s4tank.hp === cfgMod.CFG.campaign.boss.hp && s4tank.maxHp === cfgMod.CFG.campaign.boss.hp);
+T('S4: HP tank = CFG.campaign.bosses.tank.hp',
+    s4tank.hp === cfgMod.CFG.campaign.bosses.tank.hp && s4tank.maxHp === cfgMod.CFG.campaign.bosses.tank.hp);
 // jalankan siklus tank (spawn menabrak dinding -> 3 serangan bergantian) ~12 dtk
 camera.position.set(s4mod.S4_START.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_START.z);
 let s4tankOk = true;
@@ -924,13 +924,13 @@ T('S4: siklus tank (spawn+3 serangan) jalan tanpa error', s4tankOk && !s4tank.de
 // naik + gravitasi → updateTank harus meng-ARC-kan (naik dulu) lalu MELEDAK saat
 // turun melewati landY (proyektil hilang dari array; homing-nya sudah dihapus).
 {
-    const mo = { mesh: new THREE.Object3D(), vx: 0, vz: 0, vy: 40, g: cfgMod.CFG.campaign.tank.mortarGravity, landY: 5, life: 600, id: ++s4tank.pendingId };
+    const mo = { mesh: new THREE.Object3D(), vx: 0, vz: 0, vy: 40, g: cfgMod.CFG.campaign.bosses.tank.mortarGravity, landY: 5, life: 600, id: ++s4tank.pendingId };
     mo.mesh.position.set(s4tank.parts.group.position.x, 20, s4tank.parts.group.position.z);
     s4tank.mortars.push(mo);
     let peaked = 20;
     for (let i = 0; i < 80 && s4tank.mortars.includes(mo); i++) { s4mod.stage4Scene.updateMode(0.1); peaked = Math.max(peaked, mo.mesh.position.y); }
     T('S4: mortar = LOB PARABOLA (naik dulu lalu meledak saat turun, bukan homing)',
-        peaked > 24 && !s4tank.mortars.includes(mo) && cfgMod.CFG.campaign.tank.mortarGravity > 0);
+        peaked > 24 && !s4tank.mortars.includes(mo) && cfgMod.CFG.campaign.bosses.tank.mortarGravity > 0);
 }
 // Bentuk proyektil mortar (2026-07-16): shell mortir REALISTIS = GROUP multi-part
 // (badan+hidung+buritan+boom+fuze+4 sirip), bukan bola tunggal.
@@ -944,8 +944,8 @@ while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mor
 // mortarBurstGapSec (bukan 1 tembakan). Picu burst manual (tank di fase battle,
 // hidup) lalu hitung tembakan lewat kenaikan pendingId (fireMortar +1 tiap tembak).
 {
-    const burst = cfgMod.CFG.campaign.tank.mortarBurst;
-    const gap = cfgMod.CFG.campaign.tank.mortarBurstGapSec;
+    const burst = cfgMod.CFG.campaign.bosses.tank.mortarBurst;
+    const gap = cfgMod.CFG.campaign.bosses.tank.mortarBurstGapSec;
     s4tank.mortarLeft = burst; s4tank.mortarTimer = 0; s4tank.blastPending = true;
     const idBefore = s4tank.pendingId;
     const frames = Math.ceil((burst * gap) / 0.1) + 5;

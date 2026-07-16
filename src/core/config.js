@@ -49,8 +49,9 @@ export function applyDifficulty(name) {
         c.hp = Math.max(1, Math.round(c.hp * hp));
         c.attack *= dmg;
     }
-    CFG.campaign.boss.hp = Math.max(1, Math.round(CFG.campaign.boss.hp * hp));
-    CFG.campaign.boss.clawDamage *= dmg;
+    CFG.campaign.bosses.giant.hp = Math.max(1, Math.round(CFG.campaign.bosses.giant.hp * hp));
+    CFG.campaign.bosses.giant.clawDamage *= dmg;
+    CFG.campaign.bosses.tank.hp = Math.max(1, Math.round(CFG.campaign.bosses.tank.hp * hp));
     CFG.survival.monasClawDamage *= dmg;
     CFG.survival.spawnIntervalBase *= spawn;
     CFG.survival.spawnIntervalMin *= spawn;

@@ -583,10 +583,10 @@ export function queueBoom(x, y, z, r, hurtPlayer = false, playerDmg = 0, dmg = n
 }
 export function resetRobotsFx() { pendingBooms.length = 0; }   // dipanggil resetGame
 
-// Skor per kematian: boss = `CFG.campaign.boss.score`; selain itu dari
+// Skor per kematian: boss = `CFG.campaign.bosses.giant.score`; selain itu dari
 // `CFG.robot.score` — special = kelas penembak A/B (150), normal = kelas C (100).
 function robotScore(z) {
-    if (z.kind === 'boss') return CFG.campaign.boss.score;
+    if (z.kind === 'boss') return CFG.campaign.bosses.giant.score;
     const S = CFG.robot.score;
     return (z.kind === 'A' || z.kind === 'B') ? S.specialKill : S.normalKill;
 }

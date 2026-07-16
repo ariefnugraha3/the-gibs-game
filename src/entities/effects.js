@@ -111,7 +111,7 @@ export function explodeAt(pos, radius, dmg) {
             // Model damage: boss tahan (grenadeDamage khusus, TIDAK terpengaruh
             // upgrade); robot lain kena dmg param (peluru launcher, sudah ber-level)
             // atau default CFG.grenade.damage — dikurangi armor kelas (0 saat ini).
-            const d = z.kind === 'boss' ? CFG.campaign.boss.grenadeDamage
+            const d = z.kind === 'boss' ? CFG.campaign.bosses.giant.grenadeDamage
                 : (dmg != null ? dmg : CFG.grenade.damage);
             z.hp -= Math.max(1, d - (z.armor || 0));
             if (z.hp > 0) continue;

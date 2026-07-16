@@ -1,6 +1,7 @@
 // BOSS STAGE 4 (2026-07-14): TANK penjaga stasiun — menggantikan robot raksasa.
 // Menabrak dinding di ujung TIMUR jalan lalu DIAM di tempat menembaki player.
-// HP = CFG.campaign.boss.hp (SAMA dgn robot raksasa lama); skor = boss.score.
+// HP/skor = CFG.campaign.bosses.tank.hp / .score (SAMA dgn robot raksasa lama:
+// 1800 / 1000; kini kunci tank sendiri, tak lagi meminjam bosses.giant).
 //
 // Entitas MANDIRI (BUKAN anggota array `robots`): dikelola stage4.updateMode
 // (spawnTank/updateTank/damageTank). Alasan: rig/gore/selebrasi/animasi di
@@ -11,7 +12,7 @@
 // armor/godMode/i-frame dodge ditangani processPendingBooms).
 //
 // TIGA serangan BERGANTIAN (cannon -> senapan mesin -> mortar), jeda antar
-// serangan CFG.campaign.tank.gapSec ATAU saat proyektil meriam/mortar MELEDAK
+// serangan CFG.campaign.bosses.tank.gapSec ATAU saat proyektil meriam/mortar MELEDAK
 // (yang lebih dulu; senapan mesin tak meledak -> selalu jeda penuh):
 //   1. MERIAM  : turret membidik player lalu menembak 1 peluru meledak-saat-tiba
 //      (damage cannonDamage, radius = killRadius granat × cannonBlastRatio).
@@ -259,7 +260,7 @@ export function spawnTank({ homeX, homeZ, wallX, faceX }) {
     parts.group.position.set(startX, 0, homeZ);
     scene.add(parts.group);
 
-    const B = CFG.campaign.boss;
+    const B = CFG.campaign.bosses.tank;
     return {
         parts, homeX, homeZ, wallX: wallX != null ? wallX : homeX + 108,
         faceX: faceX != null ? faceX : homeX - 300,   // arah player (barat) utk orientasi awal
@@ -307,7 +308,7 @@ export function updateTank(tank, dt) {
     // --- FASE SPAWN: menggelinding dari timur, MENABRAK dinding, berhenti di home ---
     if (tank.phase === 'spawn') {
         tank.spawnT += dt;
-        const dur = CFG.campaign.tank.spawnRollSec || 2.4;
+        const dur = CFG.campaign.bosses.tank.spawnRollSec || 2.4;
         const k = clamp(tank.spawnT / dur, 0, 1);
         const ease = 1 - Math.pow(1 - k, 2);   // easeOut: melambat mendekati home
         const startX = tank.homeX + 160;
@@ -345,8 +346,8 @@ export function updateTank(tank, dt) {
         if (tank.mgTimer <= 0) {
             fireMG(tank);
             tank.mgLeft--;
-            tank.mgTimer = CFG.campaign.tank.mgIntervalSec || 0.12;
-            if (tank.mgLeft <= 0) { tank.cd = CFG.campaign.tank.gapSec; tank.aiming = false; }
+            tank.mgTimer = CFG.campaign.bosses.tank.mgIntervalSec || 0.12;
+            if (tank.mgLeft <= 0) { tank.cd = CFG.campaign.bosses.tank.gapSec; tank.aiming = false; }
         }
         return;
     }
@@ -362,7 +363,7 @@ export function updateTank(tank, dt) {
         if (tank.mortarTimer <= 0) {
             fireMortar(tank);
             tank.mortarLeft--;
-            tank.mortarTimer = CFG.campaign.tank.mortarBurstGapSec || 0.5;
+            tank.mortarTimer = CFG.campaign.bosses.tank.mortarBurstGapSec || 0.5;
         }
         return;
     }
@@ -375,7 +376,7 @@ export function updateTank(tank, dt) {
     // Cooldown antar serangan. Telegraf "charge" pada aimSec terakhir, di muzzle
     // serangan BERIKUTNYA (nextIdx).
     tank.cd -= dt;
-    const aimSec = CFG.campaign.tank.aimSec || 1.1;
+    const aimSec = CFG.campaign.bosses.tank.aimSec || 1.1;
     const nextIdx = (tank.attackIdx + 1) % 3;
     const charging = tank.cd <= aimSec && tank.cd > 0 && (nextIdx === 0 || nextIdx === 2);
     tank.chargeK += ((charging ? 1 : 0) - tank.chargeK) * Math.min(1, dt * 10);
@@ -424,7 +425,7 @@ function applyCharge(tank, idx) {
 // ===== Mulai serangan sesuai attackIdx (0 meriam, 1 senapan mesin, 2 mortar) =====
 function launchAttack(tank) {
     tank.chargeK = 0;
-    const T = CFG.campaign.tank;
+    const T = CFG.campaign.bosses.tank;
     if (tank.attackIdx === 0) {
         fireCannon(tank);
         tank.blastPending = true;   // jeda gapSec dimulai SETELAH shell meledak (detonate)
@@ -455,7 +456,7 @@ function fireCannon(tank) {
     tank.pendingId++;
     tank.shells.push({
         mesh: m, dirx: dx / dist, dirz: dz / dist,
-        speed: CFG.campaign.tank.cannonShellSpeed || 7,
+        speed: CFG.campaign.bosses.tank.cannonShellSpeed || 7,
         tx, tz, travelled: 0, dist, life: 220, id: tank.pendingId
     });
     p.cannonFlash.material.opacity = 1;
@@ -471,8 +472,8 @@ function updateShells(tank, dt, step) {
         s.mesh.position.z += s.dirz * dpos;
         s.travelled += dpos; s.life -= step;
         if (s.travelled >= s.dist || s.life <= 0) {
-            const R = CFG.grenade.killRadius * (CFG.campaign.tank.cannonBlastRatio || 0.3);
-            detonate(tank, s.mesh.position.x, s.mesh.position.z, R, CFG.campaign.tank.cannonDamage || 50, s.id);
+            const R = CFG.grenade.killRadius * (CFG.campaign.bosses.tank.cannonBlastRatio || 0.3);
+            detonate(tank, s.mesh.position.x, s.mesh.position.z, R, CFG.campaign.bosses.tank.cannonDamage || 50, s.id);
             scene.remove(s.mesh); tank.shells.splice(i, 1);
         }
     }
@@ -490,8 +491,8 @@ function fireMG(tank) {
     scene.add(m);
     enemyBullets.push({
         mesh: m, dir: new THREE.Vector3(dx / d, 0, dz / d),
-        speed: CFG.campaign.tank.mgBulletSpeed || 4, life: CFG.robot.rangedBulletLife,
-        dmg: CFG.campaign.tank.mgDamage || 5, monasDmg: 0,
+        speed: CFG.campaign.bosses.tank.mgBulletSpeed || 4, life: CFG.robot.rangedBulletLife,
+        dmg: CFG.campaign.bosses.tank.mgDamage || 5, monasDmg: 0,
         px: _wp.x, py: _wp.y, pz: _wp.z
     });
     playSFX(sfxShoot);
@@ -504,7 +505,7 @@ function fireMG(tank) {
 function fireMortar(tank) {
     const p = tank.parts;
     p.mortarMuzzle.getWorldPosition(_wp);
-    const T = CFG.campaign.tank;
+    const T = CFG.campaign.bosses.tank;
     const sx = _wp.x, sy = _wp.y, sz = _wp.z;
     const dx = camera.position.x - sx, dz = camera.position.z - sz;
     const d = Math.hypot(dx, dz) || 1;
@@ -528,7 +529,7 @@ function fireMortar(tank) {
 }
 
 function updateMortars(tank, dt, step) {
-    const T = CFG.campaign.tank;
+    const T = CFG.campaign.bosses.tank;
     for (let i = tank.mortars.length - 1; i >= 0; i--) {
         const mo = tank.mortars[i];
         mo.vy -= mo.g * dt;                              // gravitasi (parabola)
@@ -557,7 +558,7 @@ function detonate(tank, x, z, radius, damage, id) {
     queueBoom(x, 5, z, radius, true, damage, 1);
     if (tank && !tank.dead && id === tank.pendingId && tank.blastPending) {
         tank.blastPending = false;
-        tank.cd = CFG.campaign.tank.gapSec;   // jeda 5 dtk BARU dimulai SETELAH ledakan
+        tank.cd = CFG.campaign.bosses.tank.gapSec;   // jeda 5 dtk BARU dimulai SETELAH ledakan
     }
 }
 
@@ -565,7 +566,7 @@ function detonate(tank, x, z, radius, damage, id) {
 function tankBulletHits(tank) {
     const p = tank.parts;
     const cx = p.group.position.x, cz = p.group.position.z;
-    const R = CFG.campaign.tank.hitRadius || 18;
+    const R = CFG.campaign.bosses.tank.hitRadius || 18;
     const R2 = R * R;
     for (let j = bullets.length - 1; j >= 0; j--) {
         const b = bullets[j];

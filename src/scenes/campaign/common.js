@@ -17,7 +17,7 @@ import { navAim, turnToward } from '../../utils/pathfind.js';
 // tertembak. HP/speed/attack per KELAS (CFG.robot.classes); tag z.stage utk
 // hitungan HUD & pembersihan saat pindah stage.
 // cls: 'C' (default melee) | 'B' | 'A' (penembak, CFG.robot.classes) | 'boss'
-// (CFG.campaign.boss — langsung 'chasing', melee, granat luka berkurang
+// (CFG.campaign.bosses.giant — langsung 'chasing', melee, granat luka berkurang
 // [boss.grenadeDamage], skor & jangkauan khusus).
 export function spawnCampaignRobot(x, z, stage, cls = 'C') {
     // Rangka robot per kelas ('boss' = frame melee gelap raksasa dari builder yang sama)
@@ -27,7 +27,7 @@ export function spawnCampaignRobot(x, z, stage, cls = 'C') {
     zMesh.rotation.y = Math.random() * 6.283;   // arah hadap acak saat diam
     scene.add(zMesh);
 
-    const B = cls === 'boss' ? CFG.campaign.boss : null;
+    const B = cls === 'boss' ? CFG.campaign.bosses.giant : null;
     const C = B ? null : CFG.robot.classes[cls];
     const hp = B ? B.hp : C.hp;
     const speed = B ? B.speed : C.speed * CFG.campaign.robotSpeedScale;
