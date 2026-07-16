@@ -459,6 +459,41 @@ robots.splice(0, robots.length);
 for (const z of savedR) robots.push(z);            // pulihkan isi array semula
 wMod.updateWeaponTimers(0.5);   // selesaikan ayunan -> meleeT <= 0 (jangan cemari tes avatar berikut)
 
+// --- 6c. Batas jarak peluru = titik kursor (2026-07-16): peluru distempel
+//     maxDist (jarak pivot->aimPoint saat menembak), mati TEPAT di batas
+//     (frame TUNDA satu — segmen terakhir tetap dapat giliran sweep robot),
+//     lalu efek tembakan di lantai (2 ground puff, menumpang pool explosions)
+//     tepat di titik kursor. (Jarak kursor uji bebas — bukan angka tuning.) ---
+const inpAimMod = await import(R('src/core/input.js'));
+const bulMod = await import(R('src/entities/bullets.js'));
+wMod.initWeapons();
+stateMod.bullets.length = 0;
+camera.position.set(0, 11.4, 0);
+const AIMD = 77;                                   // jarak kursor uji (arbitrer)
+inpAimMod.aimPoint.set(0, 0, -AIMD);               // kamera stub bidik -z
+stateMod.mouse.isDown = true; player.lastShot = 0;
+wMod.updateShooting();
+stateMod.mouse.isDown = false;
+T('tembakan lahir', stateMod.bullets.length === 1);
+const bCur = stateMod.bullets[0];
+T('peluru distempel maxDist = jarak kursor', bCur && Math.abs(bCur.maxDist - AIMD) < 1e-6);
+T('pelet pertama membawa titik kursor (fxX/fxZ)', bCur && bCur.fxX === 0 && bCur.fxZ === -AIMD);
+const nExp0 = stateMod.explosions.length;
+let bEndX = 0, bEndZ = 0, bSteps = 0;
+for (; bSteps < 600 && stateMod.bullets.length; bSteps++) {
+    bEndX = bCur.mesh.position.x; bEndZ = bCur.mesh.position.z;
+    bulMod.updateBullets(1);
+}
+T('peluru lenyap di batas kursor (bukan umur, ' + bSteps + ' frame)',
+    stateMod.bullets.length === 0 && bSteps < 600);
+// Kontrak klem: jarak horizontal titik akhir dari titik tembak (sx/sz) PERSIS
+// maxDist (offset lateral kecil = posisi muzzle rig; di game nyata ~0.65 unit).
+T('posisi akhir terjepit tepat di jarak batas (' + bEndX.toFixed(1) + ',' + bEndZ.toFixed(1) + ')',
+    Math.abs(Math.hypot(bEndX - bCur.sx, bEndZ - bCur.sz) - AIMD) < 0.01 && bEndZ < -AIMD * 0.9);
+T('efek tembakan lantai muncul (2 puff)', stateMod.explosions.length === nExp0 + 2);
+for (const e of stateMod.explosions.splice(0)) scene.remove(e.mesh);   // bersih-bersih pool
+for (let i = 0; i < 5; i++) wMod.updateWeaponState(0.2);   // luruhkan gunRecoil (tembakan me-reset gate AFK avatar)
+
 // --- 7. Kecepatan direksional relatif kursor. Kamera barat daya (2026-07-16):
 // WASD memakai basis LAYAR (SCREEN_UP/LEFT), jadi arahkan stub bidik ke SCREEN_UP
 // agar W = "searah kursor" (penuh), S = mundur (50%), A = menyamping (50%). ---

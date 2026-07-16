@@ -9,6 +9,7 @@ import {
     GEO, MAT, _dir, _tip, _v3, _sRight, _sUp, _kickEuler
 } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
+import { aimPoint } from '../core/input.js';   // batas jarak peluru = titik kursor (2026-07-16)
 import { avatarGunTip } from './playerAvatar.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
@@ -1082,6 +1083,12 @@ export function updateShooting() {
         _sRight.setFromMatrixColumn(camera.matrixWorld, 0);
         _sUp.setFromMatrixColumn(camera.matrixWorld, 1);
 
+        // Batas jarak peluru (2026-07-16): peluru berhenti TEPAT di titik kursor
+        // saat tembakan dilepas — jarak horizontal mata/pivot -> aimPoint, diukur
+        // dari posisi tembak (sx/sz). Lewat batas = peluru lenyap (bullets.js);
+        // pelet PERTAMA membawa titik kursor (fxX/fxZ) utk efek tembakan di lantai.
+        const aimMax = Math.hypot(aimPoint.x - camera.position.x, aimPoint.z - camera.position.z);
+
         // Satu tarikan pelatuk = `pellets` peluru (shotgun 10; launcher/lainnya
         // tanpa kunci pellets = 1). Tiap pelet dapat sebar tambahan pelletSpread.
         const pellets = wcfg.pellets || 1;
@@ -1120,6 +1127,11 @@ export function updateShooting() {
                 // radius = granat lama (killRadius+3.5), damage AoE dari CFG.grenade (100).
                 explosive: isLauncher || undefined,
                 explodeR: isLauncher ? CFG.grenade.killRadius + 3.5 : undefined,
+                // Batas kursor: maxDist dari titik tembak sx/sz; pelet pertama
+                // membawa titik kursor utk efek lantai (launcher meledak di sana).
+                maxDist: aimMax, sx: camera.position.x, sz: camera.position.z,
+                fxX: pi === 0 ? aimPoint.x : undefined,
+                fxZ: pi === 0 ? aimPoint.z : undefined,
                 px: camera.position.x, py: camera.position.y, pz: camera.position.z
             });
             stats.shots++;   // akurasi dihitung per PELURU (shotgun adil)

@@ -4,6 +4,7 @@
 import { CFG } from '../core/config.js';
 import { GEO, explosions, robots } from '../core/state.js';
 import { scene, viewCam } from '../core/renderer.js';
+import { activeScene } from '../core/sceneManager.js';
 import { makeTexture } from '../utils/textures.js';
 import { playSFX, sfxExplode } from '../utils/sfx.js';
 import { spawnDrop } from './drops.js';
@@ -133,6 +134,18 @@ export function spawnGroundPuff(x, z, color, scale, y = 0.6) {
     m.position.set(x, y, z);
     scene.add(m);
     explosions.push({ mesh: m, life: 1, scale });
+}
+
+// Efek tembakan di lantai (2026-07-16): dipanggil bullets.js saat peluru
+// berakhir di BATAS KURSOR tanpa mengenai apa pun — kilat percik kecil +
+// cincin debu tepat di titik kursor saat tembakan dilepas. Tinggi lantai
+// dari hook scene aktif (groundHeight; y = tinggi peluru, agar puncak
+// standable [atap bangkai mobil dsb] ikut dihitung). Menumpang pool
+// explosions via spawnGroundPuff — tanpa material/lampu baru.
+export function spawnBulletFloorHit(x, z, y = 0) {
+    const gy = (activeScene && activeScene.groundHeight) ? activeScene.groundHeight(x, z, y) : 0;
+    spawnGroundPuff(x, z, 0xffd28a, 4, gy + 0.8);   // percik terang (amber)
+    spawnGroundPuff(x, z, 0x8f8579, 7, gy + 0.5);   // debu
 }
 
 // Satu percikan cairan dari pool tetap (round-robin). Opsional kecepatan
