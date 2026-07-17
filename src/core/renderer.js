@@ -101,6 +101,15 @@ let camShake = 0;
 export function addCamShake(a) { camShake = Math.max(camShake, a); }
 export function resetCamShake() { camShake = 0; }
 
+// ----- PAN SINEMATIK (2026-07-17, cutscene heli stage 4): scene men-set titik
+// fokus override via setCineFocus(x, z) — followViewCam meng-EASE camFocus ke
+// sana (menggantikan dead-zone/recenter; pan halus "perlahan"), tanpa snap
+// >400. setCineFocus(null) mengembalikan kamera ke mode normal (fokus kembali
+// mengejar pivot player). -----
+const CINE_PAN_RATE = 1.5;   // laju ease eksponensial pan sinematik (per detik)
+let cineFocus = null;
+export function setCineFocus(x, z) { cineFocus = (x == null) ? null : { x, z }; }
+
 // ----- BATAS ARENA KAMERA (2026-07-17): hook scene opsional `camBounds()`
 // mengembalikan rect dunia {x0,x1,z0,z1,groundY} yang TIDAK BOLEH dilewati
 // tepi tapak-pandang kamera, atau null = bebas (default). Dipakai duel boss
@@ -151,7 +160,7 @@ export function followViewCam(dt = 0) {
     const p = camera.position;
     // Inisialisasi / snap saat lompat besar (spawn, ganti scene, restart):
     // pusatkan langsung supaya tidak ada pan panjang dari posisi lama.
-    if (!camFocusReady || Math.abs(p.x - camFocus.x) > 400 || Math.abs(p.z - camFocus.z) > 400) {
+    if (!camFocusReady || (!cineFocus && (Math.abs(p.x - camFocus.x) > 400 || Math.abs(p.z - camFocus.z) > 400))) {
         camFocus.set(p.x, p.y, p.z);
         camFocusReady = true;
         _prevPX = p.x; _prevPZ = p.z;
@@ -159,7 +168,13 @@ export function followViewCam(dt = 0) {
     // Deteksi gerak dari perpindahan pivot sejak frame lalu.
     const movedSq = (p.x - _prevPX) * (p.x - _prevPX) + (p.z - _prevPZ) * (p.z - _prevPZ);
     _prevPX = p.x; _prevPZ = p.z;
-    if (movedSq > MOVE_EPS2) {
+    if (cineFocus) {
+        // PAN SINEMATIK: ease halus menuju titik override (abaikan dead-zone;
+        // pan panjang tidak memicu snap karena guard di atas).
+        const kc = 1 - Math.exp(-CINE_PAN_RATE * dt);
+        camFocus.x += (cineFocus.x - camFocus.x) * kc;
+        camFocus.z += (cineFocus.z - camFocus.z) * kc;
+    } else if (movedSq > MOVE_EPS2) {
         // BERGERAK: dead-zone — geser fokus HANYA saat pivot melewati tepi kotak,
         // lalu dijepit tepat di tepi (player "mendorong" kamera dari batas kotak).
         const dx = p.x - camFocus.x;

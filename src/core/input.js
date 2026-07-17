@@ -1,7 +1,7 @@
 // Semua input: pointer lock, mouse look, klik tembak/ADS, keyboard gameplay,
 // jaring pengaman fokus/unload, dan Keyboard Lock (perangkap Ctrl+W dkk).
 
-import { keys, mouse, isPaused, isGameOver, setPaused, mode } from './state.js';
+import { keys, mouse, isPaused, isGameOver, setPaused, mode, cinematicActive } from './state.js';
 import { camera, viewCam } from './renderer.js';
 import { blocker } from './dom.js';
 import { activeScene } from './sceneManager.js';
@@ -147,7 +147,7 @@ export function initInput() {
     // ----- Kursor bidik virtual (top-down): delta mouse menggerakkan kursor,
     // bukan memutar kamera. Arah tembak/lempar/melee mengikuti kursor. -----
     document.addEventListener('mousemove', (e) => {
-        if (isPaused || isGameOver) return;
+        if (isPaused || isGameOver || cinematicActive) return;   // cutscene: kursor bidik beku
         if (document.pointerLockElement !== document.body) return;
         curX = Math.max(0, Math.min(window.innerWidth, curX + e.movementX));
         curY = Math.max(0, Math.min(window.innerHeight, curY + e.movementY));
@@ -158,7 +158,7 @@ export function initInput() {
     // klik kanan = BERGERAK ke titik kursor (WASD membatalkannya). (Lempar granat
     // dihapus 2026-07-11 — diganti weapon Grenade Launcher.) -----
     document.addEventListener('mousedown', (e) => {
-        if (isPaused || isGameOver) return;
+        if (isPaused || isGameOver || cinematicActive) return;   // cutscene: klik ditelan
         if (e.button === 2) {
             // Move-to-point: simpan target di titik kursor (bidang kaki player)
             setMoveTarget(aimPoint.x, aimPoint.z);
@@ -175,6 +175,10 @@ export function initInput() {
     // ----- Keyboard -----
     window.addEventListener('keydown', (e) => {
         const key = e.key.toLowerCase();
+        // MODE SINEMATIK (2026-07-17, cutscene): telan SEMUA tombol — termasuk
+        // backtick konsol cheat — KECUALI Escape (pause/unlock tetap bekerja;
+        // pointer-unlock menghentikan cutscene sementara lewat isPaused).
+        if (cinematicActive && e.key !== 'Escape') { e.preventDefault(); return; }
         // Konsol cheat (tombol `): toggle. Buka HANYA saat main aktif (pointer
         // ter-lock). Saat terbuka, telan semua tombol gameplay (ketikan -> <input>);
         // Enter ditangani oleh input konsol, backtick di sini utk menutup.

@@ -6,7 +6,7 @@ import { CFG } from './config.js';
 import {
     isPaused, isGameOver, setGameOver, setScore, score, highScore, setHighScore, player,
     robots, bullets, enemyBullets, grenades, explosions, drops, clearArray, configurePlayer,
-    stats, resetStats, mode
+    stats, resetStats, mode, cinematicActive
 } from './state.js';
 import { scene } from './renderer.js';
 import { activeScene, setScene } from './sceneManager.js';
@@ -69,7 +69,11 @@ export function updateGame(dt, step, T) {
 
     if (!dying && activeScene.updateMode) activeScene.updateMode(dt);   // survival: wave + spawner
 
-    if (!dying) {
+    // MODE SINEMATIK (2026-07-17): cutscene membekukan SEMUA kendali player
+    // (blok yang sama dgn sekuens kematian) tapi updateMode TETAP jalan di
+    // atas (cutscene dikemudikan dari sana) dan dunia tetap disimulasikan.
+    const noCtl = dying || cinematicActive;
+    if (!noCtl) {
         updateWeaponTimers(dt);        // animasi ganti senjata + melee (hit di 45%)
         updatePlayerMovement(dt, step);// stamina, WASD, tabrakan scene, lompat, langkah
         if (isGameOver) return;        // (jaga-jaga: transisi scene tak mengakhiri game)

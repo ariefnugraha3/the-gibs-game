@@ -26,6 +26,12 @@ export const setMode = (m) => { mode = m; };
 // konsol cheat (tombol `). Dibaca di robots.js (damage player) & survival damageMonas.
 export let godMode = false;
 export const setGodMode = (v) => { godMode = v; };
+// MODE SINEMATIK (2026-07-17, cutscene heli stage 4): true = semua kendali
+// player dibekukan (blok kontrol updateGame dilewati + input.js menelan semua
+// input kecuali Escape) sementara DUNIA & updateMode tetap berjalan (cutscene
+// dikemudikan updateMode scene). Di-set scene via setCinematicActive.
+export let cinematicActive = false;
+export const setCinematicActive = (v) => { cinematicActive = v; };
 
 // I-frame dodge/evade: player KEBAL selama animasi tumble (di-set player.js saat
 // tryDodge mulai, dimatikan saat animasi selesai). Dibaca di robots.js (kedua

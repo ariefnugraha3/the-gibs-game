@@ -18,8 +18,13 @@
 // boss hancur.
 
 import { CFG } from '../../core/config.js';
-import { player, robots, drops, _v3 } from '../../core/state.js';
-import { scene, camera } from '../../core/renderer.js';
+import { player, robots, drops, _v3, GEO, setCinematicActive } from '../../core/state.js';
+import { scene, camera, addCamShake, setCineFocus } from '../../core/renderer.js';
+import { setCineBars } from '../../core/dom.js';
+import { releaseInputs } from '../../core/input.js';
+import { spawnGroundPuff } from '../../entities/effects.js';
+import { playSFX, sfxExplode } from '../../utils/sfx.js';
+import { spawnHelicopter, updateHelicopter, blastHelicopter, disposeHelicopter } from '../../entities/helicopter.js';
 import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../utils/textures.js';
 import { rand } from '../../utils/math.js';
 import { resolveBlockers, blockersGroundHeight } from '../../utils/collision.js';
@@ -59,9 +64,17 @@ const RING_W = 64;                                                          // l
 const ALUN = { x0: SQ.x0 + RING_W, x1: SQ.x1 - RING_W, z0: SQ.z0 + RING_W, z1: SQ.z1 - RING_W }; // lapangan tengah
 
 export const S4_START = { x: OX - 10, z: OZ - 180 };                        // pintu keluar gedung (parkiran barat-laut)
-export const S4_END = { x: (SQ.x0 + SQ.x1) / 2, z: OZ };                   // PUSAT alun-alun (landmark radar + spawn boss)
+export const S4_END = { x: (SQ.x0 + SQ.x1) / 2, z: OZ };                   // PUSAT alun-alun (landmark radar + heli penjemput)
 export const S4_GATE = { x: OX + 3480, z: OZ };                            // gerbang mulut ring (jalan -> alun-alun)
-const BOSS_POS = S4_END;                                                    // boss muncul di tengah alun-alun
+// CUTSCENE PENJEMPUTAN (2026-07-17): heli menunggu di PUSAT alun; tank datang
+// dari UTARA menembaknya lalu parkir di DEPAN bangkai (barat = arah hidung
+// heli & arah kedatangan player) — pusat kini terisi bangkai, jadi home boss
+// BUKAN lagi S4_END. WRECK_CLEAR = radius lingkaran anti-tabrak bangkai yang
+// di-inject ke tank (defleksi arah charge + slide, entities/tank.js).
+const HELI_POS = S4_END;
+const BOSS_POS = { x: S4_END.x - 90, z: S4_END.z };
+const WRECK_CLEAR = 58;
+export const S4_BOSS = BOSS_POS;   // utk smoke test
 
 const blockers = [];      // cover pejal (mobil/bus/pembatas/kontainer/bangunan)
 let navGrid = null;
@@ -455,10 +468,21 @@ const WIN_DELAY_SEC = 2.5;   // jeda visual ledakan tank -> layar MISSION COMPLE
 // camBounds membatasi kamera; dilepas saat boss kalah / enter() ulang.
 let arenaLocked = false;
 
+// CUTSCENE PENJEMPUTAN (2026-07-17): state heli + mesin fase sinematik.
+let heli = null, heliSpawned = false, heliBlocker = null;
+let cine = null, cutsceneDone = false;
+
 // Referensi tank aktif (dipakai smoke test utk melumpuhkan boss)
 export function currentTank() { return tank; }
+// Referensi heli penjemput (utk smoke test)
+export function currentHeli() { return heli; }
 // Debug/uji: status kunci arena + rect lapangan (ALUN) & kompleks (SQ)
 export const arenaDebug = () => ({ locked: arenaLocked, alun: { ...ALUN }, sq: { ...SQ } });
+// Debug/uji cutscene: fase aktif + selesai + geometri bangkai/anti-tabrak
+export const cineDebug = () => ({
+    active: !!cine, phase: cine ? cine.phase : null, done: cutsceneDone,
+    wreckClear: WRECK_CLEAR, heliX: HELI_POS.x, heliZ: HELI_POS.z
+});
 
 // Buka gerbang alun-alun: mesh disembunyikan + blocker dicabut dari daftar
 // (dipulihkan lagi di enter()). Nav-grid TIDAK dibangun ulang (lihat catatan).
@@ -468,17 +492,162 @@ function openGate() {
     if (gi >= 0) blockers.splice(gi, 1);
 }
 
-function spawnBoss() {
-    bossSpawned = true;
+// Semua robot mati -> gerbang terbuka + HELI PENJEMPUT mendarat menunggu di
+// pusat alun-alun (rotor berputar cepat), hidung menghadap BARAT (arah
+// kedatangan player). Bangkainya kelak jadi obstacle -> blocker pejal ikut
+// dipasang sekarang (dicabut lagi di enter()).
+function heliArrives() {
+    heliSpawned = true;
     openGate();
-    // arena = rect kompleks alun-alun (SQ) — dipakai mekanik ENRAGE/CHARGE tank
-    // (charge keluar-masuk arena; sama dgn rect camBounds sehingga tank yang
-    // keluar benar-benar di luar pandangan kamera yang dijepit).
-    tank = spawnTank({
-        homeX: BOSS_POS.x, homeZ: BOSS_POS.z, wallX: BOSS_POS.x - 9999, faceX: S4_START.x,
-        arena: { x0: SQ.x0, x1: SQ.x1, z0: SQ.z0, z1: SQ.z1 }
-    });
-    showStageMsg('THE GATE IS OPEN — A WAR TANK GUARDS THE TOWN SQUARE!');
+    heli = spawnHelicopter(HELI_POS.x, HELI_POS.z, -Math.PI / 2);
+    heliBlocker = {
+        x: HELI_POS.x, z: HELI_POS.z, hx: 26, hz: 26,
+        axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(26, 26), top: 18, standable: false
+    };
+    blockers.push(heliBlocker);
+    showStageMsg('THE HIGHWAY IS CLEAR — REACH THE EXTRACTION HELICOPTER!');
+    updateUI();
+}
+
+// ===== CUTSCENE (2026-07-17, dipicu playerCollide saat player menginjak ring
+// road): freeze input (state.cinematicActive; Esc tetap bekerja = pause) ->
+// letterbox + HUD pudar (dom.setCineBars) -> pan kamera ke heli (renderer.
+// setCineFocus) -> TANK masuk dari UTARA -> menembak heli (meledak hancur) ->
+// tank maju ke DEPAN bangkai (BOSS_POS) -> badan diluruskan -> pan kembali ke
+// player -> kontrol pulih, duel dimulai. Mesin BERBASIS TIMER (deterministik,
+// tak menunggu kamera tiba — laju pan CINE_PAN_RATE disetel tiba lebih dulu). =====
+function startCutscene() {
+    cine = { phase: 'freeze', t: 0.9, dur: 0, from: null, to: null, shell: null, sFrom: null, track: 0 };
+    releaseInputs();
+    setCinematicActive(true);
+    setCineBars(true);
+}
+
+// Belok sudut a -> b terbatas maxD rad (salinan lokal turnAngle tank.js)
+function approachAngle(a, b, maxD) {
+    let d = (b - a) % (Math.PI * 2);
+    if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d) <= maxD ? b : a + Math.sign(d) * maxD;
+}
+// Turret tank sinematik selalu membidik heli (fase 'cine': updateTank skip)
+function aimTurretAtHeli() {
+    const g = tank.parts.group.position;
+    tank.turretYaw = Math.atan2(HELI_POS.x - g.x, HELI_POS.z - g.z);
+    tank.parts.turret.rotation.y = tank.turretYaw - tank.hullYaw;
+}
+// Roda berputar + debu + guncangan kecil selama tank bergerak dlm cutscene
+function cineTracksDust(dt) {
+    cine.track += dt * 8;
+    for (const w of tank.parts.wheels) w.rotation.x = cine.track;
+    if (Math.random() < 0.5) spawnGroundPuff(
+        tank.parts.group.position.x + rand(-14, 14),
+        tank.parts.group.position.z + rand(-10, 10), 0x6b6252, 4, 3);
+    addCamShake(0.5);
+}
+
+function updateCutscene(dt) {
+    cine.t -= dt;
+    if (cine.phase === 'freeze' && cine.t <= 0) {
+        cine.phase = 'panIn'; cine.t = 3.0;
+        setCineFocus(HELI_POS.x, HELI_POS.z);            // (3) kamera bergeser ke pusat alun
+    } else if (cine.phase === 'panIn' && cine.t <= 0) {
+        cine.phase = 'hold'; cine.t = 1.0;               // (4) heli menunggu, rotor berputar
+    } else if (cine.phase === 'hold' && cine.t <= 0) {
+        // (5) TANK datang dari UTARA — spawn fase 'cine' (dikemudikan di sini)
+        bossSpawned = true;
+        tank = spawnTank({
+            homeX: BOSS_POS.x, homeZ: BOSS_POS.z, wallX: BOSS_POS.x - 9999, faceX: S4_START.x,
+            arena: { x0: SQ.x0, x1: SQ.x1, z0: SQ.z0, z1: SQ.z1 },
+            avoid: { x: HELI_POS.x, z: HELI_POS.z, r: WRECK_CLEAR }
+        });
+        tank.phase = 'cine';
+        tank.parts.group.position.set(HELI_POS.x, 0, SQ.z0 - 70);
+        tank.hullYaw = Math.PI / 2;                      // moncong (-X lokal) menghadap SELATAN
+        tank.parts.group.rotation.y = tank.hullYaw;
+        cine.from = { x: HELI_POS.x, z: SQ.z0 - 70 };
+        cine.to = { x: HELI_POS.x, z: HELI_POS.z - 130 };   // titik tembak di utara heli
+        cine.phase = 'tankIn'; cine.dur = 2.2; cine.t = 2.2;
+    } else if (cine.phase === 'tankIn') {
+        const k = 1 - Math.max(0, cine.t / cine.dur);
+        const e = 1 - Math.pow(1 - k, 2);                // easeOut: melambat mendekat
+        tank.parts.group.position.x = cine.from.x + (cine.to.x - cine.from.x) * e;
+        tank.parts.group.position.z = cine.from.z + (cine.to.z - cine.from.z) * e;
+        cineTracksDust(dt);
+        aimTurretAtHeli();
+        if (cine.t <= 0) {
+            // TEMBAK: kilat moncong + peluru sinematik melesat ke heli
+            tank.parts.cannonFlash.material.opacity = 1;
+            playSFX(sfxExplode);
+            addCamShake(2.4);
+            cine.shell = new THREE.Mesh(GEO.grenade,
+                new THREE.MeshLambertMaterial({ color: 0x2b2b2b, emissive: 0x552200 }));
+            cine.shell.scale.setScalar(1.6);
+            tank.parts.cannonMuzzle.getWorldPosition(_v3);
+            cine.shell.position.copy(_v3);
+            cine.sFrom = { x: _v3.x, y: _v3.y, z: _v3.z };
+            scene.add(cine.shell);
+            cine.phase = 'shell'; cine.dur = 0.32; cine.t = 0.32;
+        }
+    } else if (cine.phase === 'shell') {
+        const k = 1 - Math.max(0, cine.t / cine.dur);
+        cine.shell.position.set(
+            cine.sFrom.x + (HELI_POS.x - cine.sFrom.x) * k,
+            cine.sFrom.y + (10 - cine.sFrom.y) * k,
+            cine.sFrom.z + (HELI_POS.z - cine.sFrom.z) * k);
+        if (cine.t <= 0) {
+            scene.remove(cine.shell);
+            if (cine.shell.material.dispose) cine.shell.material.dispose();
+            cine.shell = null;
+            blastHelicopter(heli);                       // heli MELEDAK HANCUR
+            addCamShake(8);
+            cine.phase = 'burn'; cine.t = 1.3;
+        }
+    } else if (cine.phase === 'burn') {
+        aimTurretAtHeli();
+        if (cine.t <= 0) {
+            // (6) tank maju ke DEPAN bangkai heli (BOSS_POS, barat)
+            cine.from = { x: tank.parts.group.position.x, z: tank.parts.group.position.z };
+            cine.to = { x: BOSS_POS.x, z: BOSS_POS.z };
+            cine.phase = 'advance'; cine.dur = 2.4; cine.t = 2.4;
+        }
+    } else if (cine.phase === 'advance') {
+        const k = 1 - Math.max(0, cine.t / cine.dur);
+        const e = k * k * (3 - 2 * k);                   // smoothstep
+        tank.parts.group.position.x = cine.from.x + (cine.to.x - cine.from.x) * e;
+        tank.parts.group.position.z = cine.from.z + (cine.to.z - cine.from.z) * e;
+        const wantHull = Math.atan2(cine.to.z - cine.from.z, -(cine.to.x - cine.from.x));
+        tank.hullYaw = approachAngle(tank.hullYaw, wantHull, 2.4 * dt);
+        tank.parts.group.rotation.y = tank.hullYaw;
+        cineTracksDust(dt);
+        aimTurretAtHeli();
+        if (cine.t <= 0) { cine.phase = 'settle'; cine.t = 1.0; }
+    } else if (cine.phase === 'settle') {
+        // badan berputar di poros meluruskan diri ke orientasi duel (moncong barat)
+        tank.hullYaw = approachAngle(tank.hullYaw, 0, 2.2 * dt);
+        tank.parts.group.rotation.y = tank.hullYaw;
+        if (cine.t <= 0) {
+            // (7) kamera kembali ke player di tepi alun-alun
+            cine.phase = 'panBack'; cine.t = 2.6;
+            setCineFocus(camera.position.x, camera.position.z);
+        }
+    } else if (cine.phase === 'panBack' && cine.t <= 0) {
+        endCutscene();                                    // (8) permainan dimulai
+        return;
+    }
+    // kilat moncong meluruh (updateTank fase 'cine' tak berjalan)
+    if (tank) tank.parts.cannonFlash.material.opacity *= 0.86;
+}
+
+function endCutscene() {
+    cine = null; cutsceneDone = true;
+    setCineFocus(null);
+    setCineBars(false);
+    setCinematicActive(false);
+    tank.hullYaw = 0;
+    tank.parts.group.rotation.y = 0;
+    tank.phase = 'battle';
+    tank.cd = (CFG.campaign.bosses.tank.gapSec || 5) + 0.8;   // jeda napas sebelum serangan pertama
+    showStageMsg('A WAR TANK GUARDS THE TOWN SQUARE — DESTROY IT!');
     updateUI();
 }
 
@@ -508,6 +677,18 @@ export const stage4Scene = {
         if (tank) { disposeTank(tank); tank = null; }
         bossSpawned = false; bossDefeated = false; exitHintT = 0; winT = 0; winFired = false;
         arenaLocked = false;
+        // Reset CUTSCENE + heli (2026-07-17): buang heli/bangkai lama + blocker-
+        // nya, batalkan sinematik yang mungkin tengah berjalan (restart/cheat).
+        if (heli) { disposeHelicopter(heli); heli = null; }
+        if (heliBlocker) {
+            const hb = blockers.indexOf(heliBlocker);
+            if (hb >= 0) blockers.splice(hb, 1);
+            heliBlocker = null;
+        }
+        heliSpawned = false; cutsceneDone = false;
+        if (cine && cine.shell) { scene.remove(cine.shell); if (cine.shell.material.dispose) cine.shell.material.dispose(); }
+        cine = null;
+        setCineFocus(null); setCineBars(false); setCinematicActive(false);
         // Pasang lagi gerbang alun-alun (mesh + blocker — dicabut openGate saat run sebelumnya)
         if (roadGate) roadGate.visible = true;
         if (gateBlocker && !blockers.includes(gateBlocker)) blockers.push(gateBlocker);
@@ -525,12 +706,16 @@ export const stage4Scene = {
     // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
     cheatSkipToStage: (n) => campaignJumpToStage(n),
 
-    // Boss TANK: muncul saat SEMUA robot mati (gerbang terbuka + tank
-    // menggelinding ke tengah alun-alun); jalankan siklus serangannya tiap
-    // frame; tank hancur -> MISSION COMPLETE setelah jeda ledakan singkat.
+    // ALUR AKHIR (2026-07-17): semua robot mati -> gerbang terbuka + HELI
+    // penjemput menunggu di pusat (heliArrives) -> player menginjak ring road
+    // -> CUTSCENE (tank datang dari utara, menghancurkan heli, parkir di depan
+    // bangkai) -> duel; tank hancur -> MISSION COMPLETE setelah jeda singkat.
     updateMode(dt) {
-        if (!bossSpawned) {
-            if (countStageRobots(4) === 0) spawnBoss();   // semua robot normal habis
+        if (heli) updateHelicopter(heli, dt);   // rotor berputar / asap bangkai
+        if (!heliSpawned) {
+            if (countStageRobots(4) === 0) heliArrives();   // semua robot normal habis
+        } else if (cine) {
+            updateCutscene(dt);
         } else if (tank) {
             updateTank(tank, dt);
             if (tank.dead && !bossDefeated) onBossDown();
@@ -550,6 +735,14 @@ export const stage4Scene = {
         resolve(pos, player.radius, feetY);
         slideUnion(pos, oldX, oldZ, player.radius);
         resolveTankBlock(tank, pos);   // player tidak bisa menembus tank/bangkainya
+        // PEMICU CUTSCENE (2026-07-17): heli sudah menunggu + player MENGINJAK
+        // ring road (masuk rect SQ) -> mulai sinematik penjemputan-gagal.
+        // (Selama cutscene playerCollide tak terpanggil — kontrol player beku.)
+        if (heliSpawned && !cutsceneDone && !cine
+            && pos.x > SQ.x0 + 2 && pos.x < SQ.x1 - 2
+            && pos.z > SQ.z0 + 2 && pos.z < SQ.z1 - 2) {
+            startCutscene();
+        }
         // KUNCI ARENA BOSS (2026-07-17): menginjak lapangan ALUN selagi tank
         // hidup mengunci duel; selama terkunci player DIJEPIT di dalam rumput
         // lapangan (WASD/click-move/dodge semua lewat sini) — tak bisa keluar
@@ -568,7 +761,7 @@ export const stage4Scene = {
             if (pos.z < ALUN.z0 + r) pos.z = ALUN.z0 + r;
             else if (pos.z > ALUN.z1 - r) pos.z = ALUN.z1 - r;
         }
-        if (!bossSpawned && Math.abs(pos.z - S4_GATE.z) <= ROAD.hz
+        if (!heliSpawned && Math.abs(pos.z - S4_GATE.z) <= ROAD.hz
             && pos.x > S4_GATE.x - 70 && pos.x < S4_GATE.x + 70) {
             const now = Date.now();
             if (now - exitHintT > 2500) {
@@ -610,17 +803,20 @@ export const stage4Scene = {
 
     hudStatus() {
         let s = `FINAL — Robots: ${countStageRobots(4)}`;
+        if (cine) return s;   // HUD tersembunyi selama cutscene (body.cine)
         if (tank && !bossDefeated) {
             const frac = Math.max(0, tank.hp / tank.maxHp);
             const blocks = Math.ceil(frac * 10);
             s += ` — TANK ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
-        } else s += bossDefeated ? ' | MISSION COMPLETE' : ' | Reach the town square (east)';
+        } else if (bossDefeated) s += ' | MISSION COMPLETE';
+        else if (heliSpawned) s += ' | Reach the extraction helicopter (east)!';
+        else s += ' | Reach the town square (east)';
         return s;
     },
 
     // Landmark: pusat alun-alun (dijepit ke tepi radar saat jauh; hijau saat
-    // gerbang terbuka = boss menunggu di sana)
+    // gerbang terbuka = heli penjemput menunggu di sana)
     radarLandmarks(plot) {
-        plot(S4_END.x - camera.position.x, S4_END.z - camera.position.z, bossSpawned ? "#2eff6a" : "#ffb04a", 5, true);
+        plot(S4_END.x - camera.position.x, S4_END.z - camera.position.z, heliSpawned ? "#2eff6a" : "#ffb04a", 5, true);
     },
 };

@@ -1011,29 +1011,76 @@ T('S4: tank boss BELUM muncul selagi masih ada robot', s4mod.currentTank() == nu
     T('S4: gerbang alun-alun TERTUTUP selagi robot hidup (player terdorong keluar)',
         Math.abs(stateMod._v3.x - s4mod.S4_GATE.x) > 4);
 }
-// bunuh SEMUA robot normal -> updateMode -> GERBANG terbuka + TANK muncul di
-// PUSAT alun-alun (home = S4_END; menggelinding dari sisi timur lapangan).
+// bunuh SEMUA robot normal -> updateMode -> GERBANG terbuka + HELI PENJEMPUT
+// menunggu di PUSAT alun-alun (rotor berputar cepat); TANK BELUM muncul — ia
+// datang lewat CUTSCENE saat player menginjak ring road (2026-07-17).
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 s4mod.stage4Scene.updateMode(0.1);
-const s4tank = s4mod.currentTank();
-T('S4: setelah semua robot mati -> TANK boss muncul (bukan anggota robots)',
-    s4tank != null && !robots.includes(s4tank) && /TANK/.test(s4mod.stage4Scene.hudStatus()));
-T('S4: home tank = PUSAT alun-alun (S4_END)',
-    s4tank.homeX === s4mod.S4_END.x && s4tank.homeZ === s4mod.S4_END.z);
-// GERBANG kini terbuka: posisi yang sama tidak lagi terdorong.
+const s4heli = s4mod.currentHeli();
+T('S4: semua robot mati -> HELI penjemput menunggu di pusat alun (tank belum muncul)',
+    s4heli != null && s4mod.currentTank() == null && !s4heli.wrecked
+    && s4heli.parts.group.position.x === s4mod.S4_END.x
+    && s4heli.parts.group.position.z === s4mod.S4_END.z);
 {
+    const r0 = s4heli.parts.rotor.rotation.y;
+    s4mod.stage4Scene.updateMode(0.1);
+    T('S4: baling-baling heli BERPUTAR cepat menunggu player', s4heli.parts.rotor.rotation.y > r0);
+}
+// GERBANG kini terbuka: posisi yang sama tidak lagi terdorong. CATATAN: collide
+// DI DALAM rect SQ ini sekaligus = "player menginjak ring road" -> CUTSCENE mulai.
+{
+    // fokus kamera dipanaskan ke pivot dulu (di game nyata fokus selalu
+    // membuntuti player) — supaya pan sinematik diukur dari posisi wajar
+    camera.position.set(s4mod.S4_GATE.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_GATE.z);
+    rendererMod.followViewCam(0.1);   // snap: fokus = pivot di gerbang
     stateMod._v3.set(s4mod.S4_GATE.x, 0, s4mod.S4_GATE.z);
     s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_GATE.x - 40, s4mod.S4_GATE.z, 0);
     T('S4: gerbang TERBUKA setelah semua robot mati (player bisa lewat)',
         Math.abs(stateMod._v3.x - s4mod.S4_GATE.x) < 1e-6);
 }
+// CUTSCENE (2026-07-17): input dibekukan (cinematicActive; Esc tetap hidup),
+// letterbox+HUD via dom, kamera pan ke heli, TANK masuk dari UTARA menembak
+// heli (hancur), maju ke DEPAN bangkai, pan balik, kontrol pulih. Mesin
+// berbasis TIMER -> deterministik headless.
+T('S4 cutscene: menginjak ring road -> sinematik aktif + input player dibekukan',
+    s4mod.cineDebug().active && stateMod.cinematicActive === true);
+{
+    // pan kamera: setCineFocus override -> followViewCam meng-ease fokus ke heli
+    camera.position.set(s4mod.S4_GATE.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_GATE.z);
+    for (let i = 0; i < 12; i++) s4mod.stage4Scene.updateMode(0.1);   // lewati fase freeze -> panIn
+    for (let i = 0; i < 3; i++) rendererMod.followViewCam(0.1);
+    const f0 = Math.hypot(rendererMod.camFocusPos().x - s4mod.S4_END.x, rendererMod.camFocusPos().z - s4mod.S4_END.z);
+    for (let i = 0; i < 30; i++) rendererMod.followViewCam(0.1);
+    const f1 = Math.hypot(rendererMod.camFocusPos().x - s4mod.S4_END.x, rendererMod.camFocusPos().z - s4mod.S4_END.z);
+    T('S4 cutscene: kamera bergeser perlahan ke pusat alun (fokus mendekati heli)',
+        f1 < f0 && f1 < 30);
+}
+{
+    let sawTankCine = false, frames = 0;
+    while (!s4mod.cineDebug().done && frames < 300) {
+        s4mod.stage4Scene.updateMode(0.1);
+        const tnow = s4mod.currentTank();
+        if (tnow && tnow.phase === 'cine') sawTankCine = true;
+        frames++;
+    }
+    T('S4 cutscene: tank masuk dari utara -> heli DIHANCURKAN -> selesai, kontrol pulih',
+        s4mod.cineDebug().done && sawTankCine && s4heli.wrecked
+        && stateMod.cinematicActive === false
+        && s4mod.currentTank() != null && s4mod.currentTank().phase === 'battle');
+}
+const s4tank = s4mod.currentTank();
+T('S4: tank parkir di DEPAN bangkai heli (home = S4_BOSS, bukan pusat alun)',
+    s4tank.homeX === s4mod.S4_BOSS.x && s4tank.homeZ === s4mod.S4_BOSS.z
+    && (s4mod.S4_BOSS.x !== s4mod.S4_END.x || s4mod.S4_BOSS.z !== s4mod.S4_END.z)
+    && Math.hypot(s4tank.parts.group.position.x - s4mod.S4_END.x,
+        s4tank.parts.group.position.z - s4mod.S4_END.z) >= s4mod.cineDebug().wreckClear - 1);
 T('S4: HP tank = CFG.campaign.bosses.tank.hp',
     s4tank.hp === cfgMod.CFG.campaign.bosses.tank.hp && s4tank.maxHp === cfgMod.CFG.campaign.bosses.tank.hp);
-// jalankan siklus tank (spawn menabrak dinding -> 3 serangan bergantian) ~12 dtk
+// jalankan siklus tank (3 serangan bergantian, pasca-cutscene) ~12 dtk
 camera.position.set(s4mod.S4_START.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_START.z);
 let s4tankOk = true;
 try { for (let i = 0; i < 120; i++) s4mod.stage4Scene.updateMode(0.1); } catch (e) { s4tankOk = false; console.log(e); }
-T('S4: siklus tank (spawn+3 serangan) jalan tanpa error', s4tankOk && !s4tank.dead);
+T('S4: siklus tank (3 serangan bergantian) jalan tanpa error', s4tankOk && !s4tank.dead);
 // Netralkan state serangan (cd beku) supaya blok-blok uji berikut deterministik
 const s4calm = () => {
     s4tank.mgLeft = 0; s4tank.mortarLeft = 0; s4tank.blastPending = false; s4tank.cd = 99;
@@ -1290,14 +1337,16 @@ while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mor
 }
 while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }   // bersihkan peluru MG
 // MEKANIK ENRAGE / CHARGE (2026-07-17): HP < enrageHpFrac -> tiap SIKLUS penuh
-// (attackIdx 2 -> giliran kembali ke 0) peluang chargeChance memulai charge:
+// (attackIdx 2 -> giliran kembali ke 0) SELALU memulai charge (sistem peluang
+// chargeChance DIHAPUS 2026-07-17 — permintaan user):
 // 'turn' (badan pivot ke player) -> 'chargeOut' (maju SECEPAT LARI PLAYER
 // sampai keluar arena + chargeOutMargin = tersembunyi dari kamera terjepit) ->
 // 'away' (hujan awayMortarShots mortir) -> 'chargeBack' (start acak di LUAR
 // arena searah posisi player, berhenti tepat di pusat) -> 'straighten' (badan
 // lurus rotation.y = 0 seperti awal duel) -> 'battle' (attackIdx -1 = wajib
-// 1 siklus penuh lagi). Config-driven; Math.random dipaksa 0 agar roll
-// deterministik; godMode ON selama gerak (pagar listrik tank melintasi player).
+// 1 siklus penuh lagi). Config-driven; Math.random dipaksa 0 agar titik start
+// acak charge-balik deterministik; godMode ON selama gerak (pagar listrik
+// tank melintasi player).
 {
     const TB = cfgMod.CFG.campaign.bosses.tank;
     const A = s4mod.arenaDebug();
@@ -1319,15 +1368,18 @@ while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.s
     s4tank.hp = s4tank.maxHp * TB.enrageHpFrac - 1;
     s4tank.attackIdx = 2; s4tank.cd = 0.05;
     s4mod.stage4Scene.updateMode(0.1);
-    T('S4 enrage: HP < ambang + siklus penuh -> mulai CHARGE (fase turn)',
-        TB.chargeChance > 0 && s4tank.phase === 'turn');
-    // 3) 'turn': badan pivot menghadap player -> 'chargeOut' searah player
+    T('S4 enrage: HP < ambang + siklus penuh -> SELALU mulai CHARGE (fase turn, tanpa roll peluang)',
+        s4tank.phase === 'turn');
+    // 3) 'turn': badan pivot ke ARAH CHARGE (dasar = ke player, DIDEFLEKSI
+    // menjauhi lingkaran bangkai heli di pusat — 2026-07-17) -> 'chargeOut'
     for (let i = 0; i < 100 && s4tank.phase === 'turn'; i++) s4mod.stage4Scene.updateMode(0.1);
     const tp0 = { x: s4tank.parts.group.position.x, z: s4tank.parts.group.position.z };
-    const wantHull = Math.atan2(camera.position.z - tp0.z, -(camera.position.x - tp0.x));
-    T('S4 enrage: badan selesai berputar menghadap player -> chargeOut searah player',
-        s4tank.phase === 'chargeOut' && Math.abs(s4tank.hullYaw - wantHull) < 0.05
-        && s4tank.chargeDirX * (camera.position.x - tp0.x) + s4tank.chargeDirZ * (camera.position.z - tp0.z) > 0);
+    let pvx = camera.position.x - tp0.x, pvz = camera.position.z - tp0.z;
+    const pvd = Math.hypot(pvx, pvz) || 1; pvx /= pvd; pvz /= pvd;
+    T('S4 enrage: badan selesai berputar -> chargeOut (hull = arah charge, condong ke player)',
+        s4tank.phase === 'chargeOut'
+        && Math.abs(s4tank.hullYaw - Math.atan2(s4tank.chargeDirZ, -s4tank.chargeDirX)) < 1e-6
+        && s4tank.chargeDirX * pvx + s4tank.chargeDirZ * pvz > 0.4);
     // 4) kecepatan charge = kecepatan LARI PLAYER (config-driven)
     const bx = s4tank.parts.group.position.x, bz = s4tank.parts.group.position.z;
     s4mod.stage4Scene.updateMode(0.1);
@@ -1335,8 +1387,14 @@ while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.s
     const wantSpd = cfgMod.CFG.player.speed * 60 * (TB.chargeSpeedMul || 1) * 0.1;
     T('S4 enrage: kecepatan charge = kecepatan lari player',
         wantSpd > 0 && Math.abs(moved - wantSpd) < wantSpd * 0.05);
-    // 5) maju terus sampai KELUAR arena + margin -> fase 'away' (tersembunyi)
-    for (let i = 0; i < 300 && s4tank.phase === 'chargeOut'; i++) s4mod.stage4Scene.updateMode(0.1);
+    // 5) maju terus sampai KELUAR arena + margin -> fase 'away' (tersembunyi);
+    // lacak jarak minimum ke bangkai heli (lintasan tak boleh menabraknya)
+    let minOut = Infinity;
+    for (let i = 0; i < 300 && s4tank.phase === 'chargeOut'; i++) {
+        s4mod.stage4Scene.updateMode(0.1);
+        minOut = Math.min(minOut, Math.hypot(s4tank.parts.group.position.x - s4mod.S4_END.x,
+            s4tank.parts.group.position.z - s4mod.S4_END.z));
+    }
     const gp = s4tank.parts.group.position, mOut = TB.chargeOutMargin;
     T('S4 enrage: tank keluar arena + margin (di luar pandangan kamera terjepit) -> away',
         s4tank.phase === 'away' && mOut > 0
@@ -1356,9 +1414,16 @@ while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.s
         s4tank.phase === 'chargeBack'
         && (sp.x < A.sq.x0 || sp.x > A.sq.x1 || sp.z < A.sq.z0 || sp.z > A.sq.z1)
         && s4tank.chargeDirX * pdx + s4tank.chargeDirZ * pdz > 0.999);
-    // 8) tiba di pusat -> 'straighten'; badan lurus (rotation.y=0) -> 'battle'
-    for (let i = 0; i < 400 && s4tank.phase === 'chargeBack'; i++) s4mod.stage4Scene.updateMode(0.1);
-    T('S4 enrage: charge balik berhenti TEPAT di pusat arena (home)',
+    // 8) tiba di home (depan bangkai) -> 'straighten'; badan lurus -> 'battle'
+    let minBack = Infinity;
+    for (let i = 0; i < 400 && s4tank.phase === 'chargeBack'; i++) {
+        s4mod.stage4Scene.updateMode(0.1);
+        minBack = Math.min(minBack, Math.hypot(s4tank.parts.group.position.x - s4mod.S4_END.x,
+            s4tank.parts.group.position.z - s4mod.S4_END.z));
+    }
+    T('S4 enrage: lintasan charge keluar & balik TIDAK menabrak bangkai heli',
+        minOut >= s4mod.cineDebug().wreckClear - 0.6 && minBack >= s4mod.cineDebug().wreckClear - 0.6);
+    T('S4 enrage: charge balik berhenti TEPAT di home (depan bangkai heli)',
         s4tank.phase === 'straighten'
         && Math.abs(s4tank.parts.group.position.x - s4tank.homeX) < 0.01
         && Math.abs(s4tank.parts.group.position.z - s4tank.homeZ) < 0.01);
@@ -1536,6 +1601,7 @@ const palMod = await import(R('src/world/palette.js'));
     styleGroups.push(['MeetingTable', (await import(R('src/entities/futuristicMeetingTable.js'))).buildFuturisticMeetingTableMesh(30, 9, 16)]);
     styleGroups.push(['Sedan', (await import(R('src/entities/futuristicSedan.js'))).buildFuturisticSedanMesh(7, null)]);
     styleGroups.push(['SUV', (await import(R('src/entities/futuristicSUV.js'))).buildFuturisticSUVMesh(7, null)]);
+    styleGroups.push(['Helicopter', (await import(R('src/entities/helicopter.js'))).buildHelicopterMesh().group]);
 
     let neonOk = true, emisOk = true, badNeon = '', badEmis = '';
     for (const [name, g] of styleGroups) {

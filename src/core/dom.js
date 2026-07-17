@@ -80,6 +80,18 @@ export function showPickup(text, color) {
 
 // Pesan stage (campaign): tampil sebentar di sepertiga atas layar
 let stageMsgTimer = 0;
+// MODE SINEMATIK (2026-07-17, cutscene heli stage 4): letterbox hitam meluncur
+// masuk perlahan dari atas & bawah (transisi CSS #cineTop/#cineBot) dan seluruh
+// HUD memudar (body.cine — daftar elemen di style.css). Murni presentasi;
+// pembekuan input/kontrol ditangani state.cinematicActive.
+export function setCineBars(on) {
+    const top = document.getElementById('cineTop');
+    const bot = document.getElementById('cineBot');
+    if (top) top.classList.toggle('on', !!on);
+    if (bot) bot.classList.toggle('on', !!on);
+    if (document.body && document.body.classList) document.body.classList.toggle('cine', !!on);
+}
+
 export function showStageMsg(text, dur = 4200) {
     stageMsgEl.innerText = text;
     stageMsgEl.style.opacity = 1;

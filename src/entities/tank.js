@@ -35,8 +35,9 @@
 //      player saat penguncian — jendela menghindar tinggal 0.5 dtk itu.
 //
 // MEKANIK ENRAGE / CHARGE (2026-07-17): saat HP < enrageHpFrac (50%), tiap
-// SIKLUS serangan penuh (cannon->MG->mortar) selesai ada peluang chargeChance
-// memulai sekuens CHARGE (fase di updateTank):
+// SIKLUS serangan penuh (cannon->MG->mortar) selesai tank SELALU memulai
+// sekuens CHARGE (sistem peluang `chargeChance` DIHAPUS 2026-07-17 —
+// permintaan user; fase di updateTank):
 //   'turn'       badan berputar DI POROS ke arah player (hullTurnRadPerSec —
 //                kunci ini HIDUP LAGI; dulu dorman pasca-MG-koaksial);
 //   'chargeOut'  maju lurus SECEPAT LARI PLAYER (CFG.player.speed × 60 ×
@@ -364,7 +365,7 @@ export function buildTankMesh() {
 // di timur dinding lalu menggelinding ke home (fase 'spawn'). `arena` (opsional)
 // = rect {x0,x1,z0,z1} kompleks arena utk mekanik enrage/charge (tanpa arena
 // mekaniknya mati). =====
-export function spawnTank({ homeX, homeZ, wallX, faceX, arena }) {
+export function spawnTank({ homeX, homeZ, wallX, faceX, arena, avoid }) {
     const parts = buildTankMesh();
     const startX = homeX + 160;   // mulai di timur (di balik dinding, luar peta)
     parts.group.position.set(startX, 0, homeZ);
@@ -387,7 +388,10 @@ export function spawnTank({ homeX, homeZ, wallX, faceX, arena }) {
         turretYaw: Math.atan2((faceX != null ? faceX : homeX - 300) - homeX, 0),
         // Mekanik ENRAGE/CHARGE (2026-07-17): hullYaw HANYA berubah dalam fase
         // charge (battle tak pernah memutar badan); arena di-inject scene.
-        hullYaw: 0, arena: arena || null,
+        // `avoid` (opsional) = lingkaran {x,z,r} yang TIDAK BOLEH dilintasi
+        // gerak charge (bangkai heli di pusat alun) — arah charge dideleksi
+        // + slide per-frame (chargeMove) menjauhinya.
+        hullYaw: 0, arena: arena || null, avoid: avoid || null,
         chargeDirX: 0, chargeDirZ: 0, awayLeft: 0, awayTimer: 0, wasInside: true,
         trackPhase: 0, chargeK: 0, onWallSmash: null
     };
@@ -424,6 +428,10 @@ export function updateTank(tank, dt) {
 
     if (tank.dead) { updateDeath(tank, dt); return; }
     if (tank.hp <= 0) { killTank(tank); return; }   // HP habis (peluru/ledakan) -> hancur
+
+    // FASE 'cine' (2026-07-17): transform tank dikemudikan CUTSCENE scene
+    // (stage4) — seluruh logika mandiri (shock/serangan/turret) dilewati.
+    if (tank.phase === 'cine') return;
 
     // KILAT TERTEMBAK: cat ter-tint MERAH tipis (maks HIT_TINT 10%) saat peluru
     // player mengenai tank, memudar HIT_FLASH_SEC — umpan balik "kena!" saja,
@@ -479,8 +487,14 @@ export function updateTank(tank, dt) {
     // --- FASE CHARGE (mekanik ENRAGE, 2026-07-17 — lihat komentar header) ---
     if (tank.phase === 'turn') {
         // Badan berputar DI POROS menghadap player; sampai -> kunci arah charge.
-        const wantHull = Math.atan2(camera.position.z - p.group.position.z,
-            -(camera.position.x - p.group.position.x));   // moncong hull = -X lokal
+        // Arah dasar (ke player) DIDEFLEKSI menjauhi lingkaran `avoid` (bangkai
+        // heli) bila lintasan lurusnya bakal menabrak — tank tak pernah
+        // menggilas bangkai (2026-07-17).
+        const gx = p.group.position.x, gz = p.group.position.z;
+        let bx = camera.position.x - gx, bz = camera.position.z - gz;
+        const bd = Math.hypot(bx, bz) || 1; bx /= bd; bz /= bd;
+        const dir = deflectDir(tank, bx, bz, (dx, dz) => [gx, gz, gx + dx * 1200, gz + dz * 1200]);
+        const wantHull = Math.atan2(dir.z, -dir.x);   // moncong hull = -X lokal
         tank.hullYaw = turnAngle(tank.hullYaw, wantHull, (T.hullTurnRadPerSec || 1.6) * dt);
         p.group.rotation.y = tank.hullYaw;
         tank.trackPhase += dt * 6; spinTracks(p, tank.trackPhase);   // track memutar di tempat
@@ -587,13 +601,13 @@ export function updateTank(tank, dt) {
     if (tank.cd <= 0) {
         // Trigger ENRAGE (2026-07-17): SIKLUS penuh baru saja selesai (serangan
         // terakhir = mortar [attackIdx 2] dan giliran kembali ke cannon
-        // [nextIdx 0]), HP < enrageHpFrac, arena ter-inject -> peluang
-        // chargeChance memulai sekuens charge alih-alih serangan berikutnya.
-        // Pasca-charge attackIdx di-reset -1 sehingga WAJIB satu siklus penuh
-        // lagi sebelum roll berikutnya ("setelah 1 cycle serangan").
+        // [nextIdx 0]), HP < enrageHpFrac, arena ter-inject -> SELALU memulai
+        // sekuens charge alih-alih serangan berikutnya (sistem peluang
+        // `chargeChance` DIHAPUS 2026-07-17, permintaan user — pasti charge
+        // tiap siklus). Pasca-charge attackIdx di-reset -1 sehingga WAJIB satu
+        // siklus penuh lagi sebelum charge berikutnya ("setelah 1 cycle").
         if (nextIdx === 0 && tank.attackIdx === 2 && tank.arena
-            && tank.hp < tank.maxHp * (T.enrageHpFrac || 0.5)
-            && Math.random() < (T.chargeChance || 0)) {
+            && tank.hp < tank.maxHp * (T.enrageHpFrac || 0.5)) {
             tank.phase = 'turn';
             return;
         }
@@ -603,6 +617,26 @@ export function updateTank(tank, dt) {
 }
 
 // ===== Helper mekanik ENRAGE/CHARGE (2026-07-17) =====
+// Defleksi arah charge menjauhi lingkaran `avoid` (bangkai heli, 2026-07-17):
+// coba rotasi 0, ±10°, ±20°, ... ±77° — kandidat pertama yang SEGMEN
+// lintasannya bebas lingkaran dipakai; tanpa avoid / semua gagal -> arah dasar.
+// `mkSeg(dx,dz)` = segmen lintasan kandidat (chargeOut: sinar dari posisi tank;
+// chargeBack: titik start luar -> home).
+const DEFLECT_STEPS = [0, 0.17, -0.17, 0.35, -0.35, 0.52, -0.52, 0.7, -0.7, 0.9, -0.9, 1.1, -1.1, 1.35, -1.35];
+function deflectDir(tank, baseX, baseZ, mkSeg) {
+    if (!tank.avoid) return { x: baseX, z: baseZ };
+    const r2 = (tank.avoid.r + 2) * (tank.avoid.r + 2);
+    for (const a of DEFLECT_STEPS) {
+        const c = Math.cos(a), s = Math.sin(a);
+        const dx = baseX * c - baseZ * s, dz = baseX * s + baseZ * c;
+        const seg = mkSeg(dx, dz);
+        if (segPointDist2(seg[0], 0, seg[1], seg[2], 0, seg[3], tank.avoid.x, 0, tank.avoid.z) >= r2) {
+            return { x: dx, z: dz };
+        }
+    }
+    return { x: baseX, z: baseZ };
+}
+
 // Tank di dalam rect arena (diperluas margin m)? Tanpa arena -> anggap selalu
 // di dalam (mekanik charge mati; trigger juga menjaga `tank.arena`).
 function inArena(tank, m) {
@@ -623,6 +657,16 @@ function chargeMove(tank, dt) {
     const spd = CFG.player.speed * 60 * (T.chargeSpeedMul || 1);
     p.group.position.x += tank.chargeDirX * spd * dt;
     p.group.position.z += tank.chargeDirZ * spd * dt;
+    // SLIDE anti-tabrak bangkai heli (2026-07-17): bila menyentuh lingkaran
+    // `avoid`, dorong keluar radial — jaring pengaman di atas defleksi arah.
+    if (tank.avoid) {
+        const ax = p.group.position.x - tank.avoid.x, az = p.group.position.z - tank.avoid.z;
+        const ad = Math.hypot(ax, az);
+        if (ad < tank.avoid.r && ad > 0.001) {
+            p.group.position.x = tank.avoid.x + ax / ad * tank.avoid.r;
+            p.group.position.z = tank.avoid.z + az / ad * tank.avoid.r;
+        }
+    }
     tank.trackPhase += dt * 10;
     spinTracks(p, tank.trackPhase);
     addCamShake(0.6);
@@ -649,17 +693,27 @@ function beginChargeBack(tank) {
     const T = CFG.campaign.bosses.tank;
     const a = tank.arena, p = tank.parts;
     const m = T.chargeOutMargin || 180;
-    let dx = camera.position.x - tank.homeX, dz = camera.position.z - tank.homeZ;
-    const d = Math.hypot(dx, dz);
-    if (d < 1) { dx = -1; dz = 0; } else { dx /= d; dz /= d; }   // player tepat di pusat: fallback barat
-    const ex = -dx, ez = -dz;   // arah keluar dari pusat (sisi berlawanan player)
-    const tX = ex > 1e-6 ? (a.x1 + m - tank.homeX) / ex : ex < -1e-6 ? (a.x0 - m - tank.homeX) / ex : Infinity;
-    const tZ = ez > 1e-6 ? (a.z1 + m - tank.homeZ) / ez : ez < -1e-6 ? (a.z0 - m - tank.homeZ) / ez : Infinity;
-    const dist = Math.min(tX, tZ) + rand(0, 220);   // acak — yang penting di luar arena
-    p.group.position.x = tank.homeX + ex * dist;
-    p.group.position.z = tank.homeZ + ez * dist;
-    tank.chargeDirX = dx; tank.chargeDirZ = dz;
-    tank.hullYaw = Math.atan2(dz, -dx);   // moncong hull (-X lokal) menghadap arah charge
+    let bx = camera.position.x - tank.homeX, bz = camera.position.z - tank.homeZ;
+    const bd = Math.hypot(bx, bz);
+    if (bd < 1) { bx = -1; bz = 0; } else { bx /= bd; bz /= bd; }   // player tepat di pusat: fallback barat
+    const extra = rand(0, 220);   // titik start acak — yang penting di luar arena
+    // Jarak keluar dari home MELAWAN arah kandidat (e = -dir), analitik per sumbu
+    const exitDist = (ex, ez) => {
+        const tX = ex > 1e-6 ? (a.x1 + m - tank.homeX) / ex : ex < -1e-6 ? (a.x0 - m - tank.homeX) / ex : Infinity;
+        const tZ = ez > 1e-6 ? (a.z1 + m - tank.homeZ) / ez : ez < -1e-6 ? (a.z0 - m - tank.homeZ) / ez : Infinity;
+        return Math.min(tX, tZ) + extra;
+    };
+    // Arah dasar = ke player; DIDEFLEKSI bila segmen start->home bakal melintasi
+    // bangkai heli (avoid) — mis. player di sisi seberang bangkai (2026-07-17).
+    const dir = deflectDir(tank, bx, bz, (dx, dz) => {
+        const dd = exitDist(-dx, -dz);
+        return [tank.homeX - dx * dd, tank.homeZ - dz * dd, tank.homeX, tank.homeZ];
+    });
+    const dist = exitDist(-dir.x, -dir.z);
+    p.group.position.x = tank.homeX - dir.x * dist;
+    p.group.position.z = tank.homeZ - dir.z * dist;
+    tank.chargeDirX = dir.x; tank.chargeDirZ = dir.z;
+    tank.hullYaw = Math.atan2(dir.z, -dir.x);   // moncong hull (-X lokal) menghadap arah charge
     p.group.rotation.y = tank.hullYaw;
     tank.wasInside = false;
     tank.phase = 'chargeBack';

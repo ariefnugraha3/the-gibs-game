@@ -194,7 +194,6 @@
                 "mgConeDeg": 120,
                 "hullTurnRadPerSec": 1.6,
                 "enrageHpFrac": 0.5,
-                "chargeChance": 0.5,
                 "chargeSpeedMul": 1.0,
                 "chargeOutMargin": 180,
                 "awayMortarShots": 10,
