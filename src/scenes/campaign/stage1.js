@@ -144,6 +144,25 @@ export function resolve(pos, radius, feetY) {
 // Di-bake di AKHIR buildWorld (butuh blockers sudah terisi semua).
 export let s1Nav = null;
 
+// Bangun SEMUA dunia campaign (stage 1 sendiri + stage 2/3/4) SEKALI, guard
+// `built` — bagian pembangunan MURNI dari enter() (tanpa menempatkan robot /
+// memosisikan player). Dipakai stage1.enter() DAN cutscene intro (intro.js)
+// supaya dunia sudah ada untuk warmup + transisi ke stage 1 di akhir intro,
+// tanpa menempatkan robot dua kali.
+export function ensureWorld() {
+    if (built) return;
+    built = true;
+    buildStage2World();   // STAGE 2: gedung terbengkalai Lantai 2 (denah, jauh)
+    buildWorld();         // STAGE 1: gedung terbengkalai (jauh dari stage 2)
+    // PRE-BUILD dunia stage 3 & 4 juga (2026-07-16): SEMUA dunia campaign
+    // dibangun di sini, di balik layar loading awal startGame (warmupAll
+    // sesudahnya ikut meng-compile shadernya, termasuk MeshStandard/Physical
+    // mobil stage 4) → LOADING #2 antar-stage tak lagi menanggung build+compile
+    // lazy, tiap transisi konsisten ~900 ms.
+    ensureStage3World();
+    ensureStage4World();
+}
+
 export function buildWorld() {
     buildS1Grid();
     const size = S1.G * S1.CELL;                      // 420 unit = 60 m
@@ -471,19 +490,8 @@ export const stage1Scene = {
     // ulang aman. Kedua dunia dibangun sekali (guard `built`).
     enter() {
         saveCampaignStage(1);     // checkpoint: campaign berada di stage 1
-        if (!built) {
-            built = true;
-            buildStage2World();   // STAGE 2: gedung terbengkalai Lantai 2 (denah, jauh)
-            buildWorld();         // STAGE 1: gedung terbengkalai (jauh dari stage 2)
-            // PRE-BUILD dunia stage 3 & 4 juga (2026-07-16): SEMUA dunia campaign
-            // dibangun di sini, di balik layar loading awal startGame (warmupAll
-            // sesudahnya ikut meng-compile shadernya, termasuk MeshStandard/
-            // Physical mobil stage 4) → LOADING #2 antar-stage tak lagi
-            // menanggung build+compile lazy, tiap transisi konsisten ~900 ms.
-            // enter stage 3/4 tinggal menempatkan robot (guard di ensureWorld).
-            ensureStage3World();
-            ensureStage4World();
-        }
+        ensureWorld();            // bangun SEMUA dunia campaign sekali (guard `built`;
+                                  // intro.js mungkin sudah membangunnya lebih dulu)
         placeStage2Robots();     // robot gedung stage 2 (9 spot denah) + supply
         placeRobots();           // robot gedung sesuai denah (stage 1)
         placeSupplies();          // ruang persediaan: ammo/granat/medkit

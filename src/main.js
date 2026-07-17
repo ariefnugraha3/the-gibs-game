@@ -25,6 +25,7 @@ import { resetPlayerState } from './entities/player.js';
 import { initMenu } from './scenes/menu.js';
 import { survivalScene } from './scenes/survival/index.js';
 import { stage1Scene } from './scenes/campaign/stage1.js';
+import { introScene, beginIntro } from './scenes/campaign/intro.js';
 import { campaignJumpToStage } from './scenes/campaign/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
@@ -69,8 +70,17 @@ export async function startGame(mode, opts = {}) {
         // semua dunia), lalu campaignJumpToStage lompat ke checkpoint (buang
         // robot stage 1, tempatkan robot stage tujuan). warmup di bawah
         // memanaskan shader SEMUA stage sekaligus.
-        setScene(mode === 'campaign' ? stage1Scene : survivalScene);
-        if (mode === 'campaign' && opts.stage > 1) campaignJumpToStage(opts.stage);
+        //
+        // INTRO CUTSCENE (2026-07-17): start campaign BARU (bukan "Continue"
+        // stage>1) diawali cutscene penurunan heli di atap (introScene) SEBELUM
+        // Stage 1. introScene.enter() juga membangun SEMUA dunia campaign (via
+        // ensureCampaignWorlds) sehingga warmup tetap meng-compile shadernya &
+        // transisi ke Stage 1 di akhir cutscene instan; beginIntro() (di bawah,
+        // setelah avatar/senjata ter-init) menyalakan mesin sinematiknya.
+        const playIntro = mode === 'campaign' && !(opts.stage > 1);
+        if (mode !== 'campaign') setScene(survivalScene);
+        else if (playIntro) setScene(introScene);
+        else { setScene(stage1Scene); if (opts.stage > 1) campaignJumpToStage(opts.stage); }
         await loadingStep(60, 'Preparing weapons…');
 
         initPlayerAvatar(scene);   // avatar top-down player (SEBELUM initWeapons:
@@ -84,6 +94,10 @@ export async function startGame(mode, opts = {}) {
         await loadingStep(75, 'Loading sounds…');
 
         preloadAllSFX();           // fetch + decode semua klip SFX sekarang
+        // INTRO CUTSCENE: nyalakan mesin sinematiknya SETELAH avatar/senjata
+        // ter-init (beginIntro menyembunyikan avatar & spawn heli) tapi SEBELUM
+        // warmupAll — supaya heli/tali ikut ter-compile shadernya (tanpa hitch).
+        if (playIntro) beginIntro();
         await loadingStep(85, 'Warming up the renderer…');
         await warmupAll();         // kompilasi shader + unggah tekstur (lihat preload.js)
 

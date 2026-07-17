@@ -1084,6 +1084,7 @@ T('S4: siklus tank (3 serangan bergantian) jalan tanpa error', s4tankOk && !s4ta
 // Netralkan state serangan (cd beku) supaya blok-blok uji berikut deterministik
 const s4calm = () => {
     s4tank.mgLeft = 0; s4tank.mortarLeft = 0; s4tank.blastPending = false; s4tank.cd = 99;
+    s4tank.holdT = 0;   // buang jeda masuk-arena (di-set pemicu kunci arena)
     while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mortars.splice(0, 1); }
     while (s4tank.shells.length) { scene.remove(s4tank.shells[0].mesh); s4tank.shells.splice(0, 1); }
 };
@@ -1336,6 +1337,33 @@ while (s4tank.mortars.length) { scene.remove(s4tank.mortars[0].mesh); s4tank.mor
         && foc.x + ext.maxX <= A.sq.x1 + 0.5 && foc.z + ext.maxZ <= A.sq.z1 + 0.5
         && foc.x + ext.minX >= A.sq.x0 - 0.5 && foc.z + ext.minZ >= A.sq.z0 - 0.5);
 }
+// JEDA MASUK ARENA (2026-07-17): pemicu kunci arena (blok di atas) men-set
+// tank.holdT = engageDelaySec — selama jeda itu tank MENAHAN semua serangan
+// (cd beku, tanpa proyektil baru) walau cd sudah siap; setelah jeda habis
+// serangan berjalan lagi. Config-driven.
+{
+    const TB = cfgMod.CFG.campaign.bosses.tank;
+    T('S4: menginjak lapangan men-set jeda masuk arena (holdT = engageDelaySec)',
+        TB.engageDelaySec > 0 && Math.abs(s4tank.holdT - TB.engageDelaySec) < 1e-9);
+    s4tank.phase = 'battle';
+    s4tank.mgLeft = 0; s4tank.mortarLeft = 0; s4tank.blastPending = false;
+    s4tank.cd = 0.05;   // serangan siap meluncur — tapi harus tertahan jeda
+    const idBefore = s4tank.pendingId, ebBefore = enemyBullets.length;
+    const steps = Math.max(1, Math.floor((TB.engageDelaySec - 0.05) / 0.1));
+    for (let i = 0; i < steps; i++) s4mod.stage4Scene.updateMode(0.1);   // < jeda
+    T('S4: selama jeda masuk arena tank TIDAK menembak (cd beku, tanpa proyektil baru)',
+        s4tank.pendingId === idBefore && enemyBullets.length === ebBefore
+        && s4tank.shells.length === 0 && s4tank.mortars.length === 0
+        && Math.abs(s4tank.cd - 0.05) < 1e-9);
+    for (let i = 0; i < 30 && s4tank.pendingId === idBefore && enemyBullets.length === ebBefore; i++) {
+        s4mod.stage4Scene.updateMode(0.1);
+    }
+    T('S4: setelah jeda masuk arena habis tank kembali menyerang',
+        s4tank.holdT <= 0 && (s4tank.pendingId > idBefore || enemyBullets.length > ebBefore));
+    while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
+    robotsMod.resetRobotsFx();   // buang boom proyektil yang sempat meledak
+    s4calm();
+}
 // KOLISI BADAN TANK (2026-07-17): player tidak bisa berjalan menembus tank —
 // playerCollide stage4 mendorong keluar lingkaran bodyRadius; di luar radius
 // posisi tidak disentuh. Config-driven.
@@ -1532,6 +1560,104 @@ T('save: MISSION COMPLETE (gameOver win) menghapus checkpoint', saveMod.loadCamp
 stateMod.setGameOver(false);
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
+
+// --- 17d. INTRO CUTSCENE campaign (2026-07-17): start campaign BARU diawali
+// cutscene penurunan HELIKOPTER di ATAP gedung sebelum Stage 1. Scene NON-
+// gameplay (cinematicActive membekukan kontrol); mesin BERBASIS TIMER (durasi
+// dari CFG.campaign.intro): SCENE 1 heli terbang menuju atap -> hover -> tali
+// menjuntai -> character TURUN tali -> BERJALAN ke pintu -> MASUK -> 2 dtk
+// (doorDelaySec) -> Stage 1. Config-driven; stage1.enter di-spy (deteksi transisi
+// tanpa menempatkan robot). ---
+{
+    const introMod = await import(R('src/scenes/campaign/intro.js'));
+    const s1mod = await import(R('src/scenes/campaign/stage1.js'));
+    const I = cfgMod.CFG.campaign.intro;
+    const realS1Enter = s1mod.stage1Scene.enter;
+    let s1entered = false;
+    s1mod.stage1Scene.enter = () => { s1entered = true; };   // spy: deteksi transisi ke Stage 1
+
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    // enter(): bangun dunia atap + SEMUA dunia campaign (guard) + lampu malam
+    let introEnterOk = true;
+    try { smMod.setScene(introMod.introScene); } catch (e) { introEnterOk = false; console.log(e); }
+    T('INTRO: introScene.enter membangun dunia atap tanpa error, cutscene belum aktif',
+        introEnterOk && introMod.introDebug().active === false);
+
+    stateMod.setPaused(true);   // keadaan pra-cutscene (layar mulai)
+    const introBlocker = global.document.getElementById('blocker');
+    introMod.beginIntro();
+    T('INTRO: beginIntro -> AUTO-PLAY (unpause + blocker/tutorial DISEMBUNYIKAN) + sinematik ON + fase fly',
+        stateMod.cinematicActive === true && stateMod.isPaused === false
+        && introBlocker.style.display === 'none'
+        && introMod.introDebug().phase === 'fly' && introMod.introDebug().avatarShown === false);
+
+    // Helper: jalankan updateMode hingga fase = target (atau cutscene selesai)
+    const run = (target, max = 500) => {
+        let n = 0;
+        while (introMod.introDebug().active && introMod.introDebug().phase !== target && n < max) {
+            introMod.introScene.updateMode(0.1); n++;
+        }
+        return introMod.introDebug().phase === target;
+    };
+
+    // SCENE 1: HELIKOPTER MENYUSURI langit malam — melintas jauh (kamera ikut heli).
+    // Fase fly+approach DIGABUNG (transisi mulus 2026-07-17): sampel di TENGAH fly
+    // (~separuh flySec, masih dalam porsi "ikut heli" sebelum blend framing tali).
+    const h0 = introMod.introDebug();
+    const flyFrames = Math.floor((I.flySec * 0.5) / 0.1);
+    for (let i = 0; i < flyFrames; i++) introMod.introScene.updateMode(0.1);
+    const hFly = introMod.introDebug();
+    T('INTRO SCENE 1: heli MENYUSURI langit (melintas jauh mendatar, kamera mengikuti)',
+        hFly.phase === 'fly' && (hFly.heliX - h0.heliX) > 600
+        && Math.abs(hFly.pivotX - hFly.heliX) < 40 && Math.abs(hFly.pivotZ - hFly.heliZ) < 40);
+
+    // SCENE 2: approach -> heli SAMPAI di atas atap (menggantung) -> tali -> turun
+    run('descend');
+    introMod.introScene.updateMode(0.1);   // 1 frame descend agar setAvatarRappel(true) terpanggil
+    const dTop = introMod.introDebug();
+    const rap0 = avMod.rappelDebug();
+    T('INTRO SCENE 2 (turun tali): fase descend -> avatar TAMPIL dari ketinggian tali + POSE RAPPEL aktif',
+        dTop.phase === 'descend' && dTop.avatarShown === true
+        && dTop.pivotY > dTop.roofY + dTop.eyeH + 40
+        && Math.abs(dTop.heliX - dTop.drop.x) < 40 && rap0.active === true);
+    run('walk');
+    const dBot = introMod.introDebug();
+    T('INTRO SCENE 2 (turun tali): akhir descend -> pivot (avatar) sampai di lantai atap + pose rappel dilepas',
+        dBot.phase === 'walk' && Math.abs(dBot.pivotY - (dBot.roofY + dBot.eyeH)) < 1
+        && avMod.rappelDebug().active === false);
+
+    // SCENE 2: BERJALAN dari titik turun ke PINTU gedung
+    const w0 = introMod.introDebug();
+    run('enter');
+    const w1 = introMod.introDebug();
+    T('INTRO SCENE 2 (jalan ke pintu): pivot bergerak dari titik turun MENUJU pintu',
+        w1.phase === 'enter'
+        && Math.abs(w1.pivotX - w1.door.x) < Math.abs(w0.pivotX - w0.door.x)
+        && Math.abs(w1.pivotZ - w1.door.z) < Math.abs(w0.pivotZ - w0.door.z));
+
+    // SCENE 2: MASUK pintu -> fase wait, avatar hilang (masuk gedung)
+    run('wait');
+    T('INTRO SCENE 2 (masuk pintu): fase wait + avatar disembunyikan (masuk gedung)',
+        introMod.introDebug().phase === 'wait' && introMod.introDebug().avatarShown === false);
+
+    // JEDA 2 DETIK (doorDelaySec) setelah masuk pintu -> baru berakhir (config-driven)
+    const preSteps = Math.max(1, Math.floor((I.doorDelaySec - 0.05) / 0.1));
+    for (let i = 0; i < preSteps; i++) introMod.introScene.updateMode(0.1);
+    T('INTRO: belum berakhir sebelum doorDelaySec habis (jeda ' + I.doorDelaySec + ' dtk)',
+        I.doorDelaySec > 0 && !s1entered && stateMod.cinematicActive === true);
+    for (let i = 0; i < 6; i++) introMod.introScene.updateMode(0.1);   // lewati sisa jeda
+    T('INTRO: doorDelaySec habis -> cutscene selesai -> Stage 1 (sinematik OFF) + tutorial ditampilkan (pause+blocker)',
+        s1entered && stateMod.cinematicActive === false
+        && smMod.activeScene === s1mod.stage1Scene && introMod.introDebug().active === false
+        && stateMod.isPaused === true && introBlocker.style.display === 'flex');
+
+    // Continue/restart (opts.stage > 1) TIDAK memutar intro — hanya start baru.
+    // (Diverifikasi di main.js: playIntro = campaign && !(opts.stage > 1); di sini
+    // cukup pastikan setScene langsung ke stage tanpa introScene tak error.)
+    s1mod.stage1Scene.enter = realS1Enter;   // pulihkan
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    stateMod.setCinematicActive(false);
+}
 
 // --- 16. IDLE AFK bertahap (2026-07-14): player diam TOTAL & tak ada ancaman ->
 //     +30 dtk MELAMBAI ke kamera, +60 dtk JONGKOK, +90 dtk REBAHAN; gerak &

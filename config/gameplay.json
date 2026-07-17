@@ -166,6 +166,16 @@
         "robotSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,
+        "intro": {
+            "flySec": 5.0,
+            "approachSec": 2.2,
+            "hoverSec": 1.2,
+            "ropeSec": 1.0,
+            "descendSec": 3.0,
+            "walkSec": 4.0,
+            "enterSec": 0.9,
+            "doorDelaySec": 2.0
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,
@@ -182,6 +192,7 @@
                 "score": 1000,
                 "gapSec": 1.5,
                 "enrageGapSec": 0.8,
+                "engageDelaySec": 2,
                 "aimSec": 0.5,
                 "spawnRollSec": 2.4,
                 "hitRadius": 18,

@@ -491,8 +491,60 @@ export function playAvatarDeath(dirx, dirz) {
     deathT = 0;
 }
 
+// ===== FAST-ROPE / RAPPEL (2026-07-17, cutscene intro): pose meluncur turun
+// dari tali heli — badan tegak MENGGANTUNG, KEDUA tangan meraih tali di ATAS
+// kepala, kaki menjuntai rapat sedikit menekuk + ayunan lembut, kepala menunduk
+// melihat pendaratan; mendekati dasar (rappelK→1) lutut MENEKUK meredam
+// pendaratan. Dipakai intro.js: setAvatarRappel(true, k, yaw) tiap frame fase
+// 'descend', lalu setAvatarRappel(false) saat menyentuh atap. Prop senjata
+// disembunyikan (kedua tangan di tali; senapan "terslempang"). =====
+let rappelActive = false, rappelK = 0, rappelYaw = 0, rappelClock = 0;
+export function setAvatarRappel(on, k = 0, yaw = 0) {
+    if (on && !rappelActive) rappelClock = 0;   // reset ayunan saat mulai
+    rappelActive = !!on;
+    rappelK = k;
+    rappelYaw = yaw;
+}
+export function rappelDebug() { return { active: rappelActive, k: rappelK }; }
+
+// Terapkan pose fast-rope (dipanggil updatePlayerAvatar saat rappelActive; early
+// return seperti cabang kematian). Visual murni — posisi logika tak disentuh.
+function poseRappel(dt) {
+    rappelClock += dt;
+    const s = Math.sin(rappelClock * 2.2);        // ayunan cepat (goyang badan)
+    const s2 = Math.sin(rappelClock * 1.3);       // ayunan lambat (putaran halus)
+    const land = rappelK > 0.82 ? (rappelK - 0.82) / 0.18 : 0;   // 0..1 redam pendaratan
+    // Seluruh badan menghadap yaw + goyang halus (tergantung di tali)
+    avatarGroup.rotation.set(0, rappelYaw + s2 * 0.12, s * 0.05);
+    legYaw = rappelYaw;
+    // Torso sedikit condong + goyang; kepala MENUNDUK melihat ke bawah
+    upperG.rotation.set(-0.08, s2 * 0.18, s * 0.06);
+    upperG.position.set(0, 0, 0);
+    const lp = Math.min(1, dt * 6);
+    lerpHeadPitch(0.34, lp);
+    headG.rotation.y += (s2 * 0.18 - headG.rotation.y) * lp;
+    // Kaki menjuntai rapat, sedikit menekuk + ayunan gunting; menekuk saat mendarat
+    hipL.rotation.x = 0.30 + s * 0.12 + land * 0.30;
+    hipR.rotation.x = 0.26 - s * 0.12 + land * 0.30;
+    kneeL.rotation.x = 0.50 + land * 0.60;
+    kneeR.rotation.x = 0.46 + land * 0.60;
+    hipL.rotation.z = 0.05; hipR.rotation.z = -0.05;
+    kneeL.rotation.z = 0; kneeR.rotation.z = 0;
+    // KEDUA tangan meraih tali di ATAS kepala (dekat pusat badan = garis tali)
+    placeArm('R', 0.7, 12.0 + s * 0.25, 1.3);
+    placeArm('L', -0.7, 12.2 - s * 0.25, 1.1);
+    // Sembunyikan prop senjata/pedang (kedua tangan di tali)
+    if (props && propKey !== '__rappel') {
+        for (const q in props) props[q].visible = false;
+        if (swordPivot) swordPivot.visible = false;
+        if (swooshGrp) swooshGrp.visible = false;
+        propKey = '__rappel';
+    }
+}
+
 // Dipanggil resetGame: batalkan pose mati + paksa evaluasi ulang prop senjata.
 export function resetAvatarDeath() {
+    rappelActive = false;   // batalkan pose rappel intro juga
     deathT = -1;
     propKey = '';
     afkT = 0; afkMode = 'none'; afkPoseT = 0;   // batalkan idle AFK
@@ -553,6 +605,10 @@ export function updatePlayerAvatar(dt) {
             for (const n of armorNodes[s]) n.visible = s < aLvl;
         armorKey = aLvl;
     }
+
+    // ===== FAST-ROPE intro (2026-07-17): pose meluncur turun dari tali —
+    // early-return sebelum rantai-hadap/aim (seperti cabang mati). =====
+    if (rappelActive) { poseRappel(dt); return; }
 
     // ===== MATI "BIASA" (2026-07-12): tubuh ROBOH ke arah jatuh (pivot di
     // kaki, easeIn — makin cepat), senjata lenyap dari tangan, lengan & kaki

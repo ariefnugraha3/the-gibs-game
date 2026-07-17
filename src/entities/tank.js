@@ -58,6 +58,11 @@
 // `tank.arena` (rect kompleks alun-alun) di-inject stage4 lewat spawnTank —
 // tanpa arena mekanik ini MATI (tank.js tetap buta geometri scene).
 //
+// JEDA MASUK ARENA (2026-07-17): saat player BARU menginjak lapangan alun-alun
+// (kunci arena terpicu), stage4 men-set tank.holdT = engageDelaySec (2 dtk) —
+// selama itu tank MENAHAN semua serangan (cd/burst beku, mortir 'away' pun
+// menunggu); turret tetap melacak & tank tetap bisa ditembak.
+//
 // KOLISI BADAN (2026-07-17): player tidak bisa menembus tank — stage4
 // memanggil resolveTankBlock di playerCollide (dorong keluar lingkaran
 // bodyRadius dari pusat hull; berlaku juga pada bangkai).
@@ -393,6 +398,10 @@ export function spawnTank({ homeX, homeZ, wallX, faceX, arena, avoid }) {
         // + slide per-frame (chargeMove) menjauhinya.
         hullYaw: 0, arena: arena || null, avoid: avoid || null,
         chargeDirX: 0, chargeDirZ: 0, awayLeft: 0, awayTimer: 0, wasInside: true,
+        // JEDA MASUK ARENA (2026-07-17): stage4 men-set holdT = engageDelaySec
+        // saat player BARU menginjak lapangan alun-alun — selama holdT > 0 tank
+        // MENAHAN semua serangan (cd/burst beku, mortir 'away' pun menunggu).
+        holdT: 0,
         trackPhase: 0, chargeK: 0, onWallSmash: null
     };
 }
@@ -484,6 +493,11 @@ export function updateTank(tank, dt) {
     tankBulletHits(tank);
     if (tank.dead) return;
 
+    // JEDA MASUK ARENA (2026-07-17): hitung mundur di SEMUA fase hidup (fase
+    // 'away' pun) — selama holdT > 0 senjata ditahan (cek di fase battle + gerbang
+    // tembak 'away'); turret tetap melacak & tank tetap bisa ditembak.
+    if (tank.holdT > 0) tank.holdT -= dt;
+
     // --- FASE CHARGE (mekanik ENRAGE, 2026-07-17 — lihat komentar header) ---
     if (tank.phase === 'turn') {
         // Badan berputar DI POROS menghadap player; sampai -> kunci arah charge.
@@ -519,9 +533,10 @@ export function updateTank(tank, dt) {
     }
     if (tank.phase === 'away') {
         // Dari luar layar: hujani player mortir (awayMortarShots tembakan),
-        // lalu siapkan charge kembali ke pusat arena.
+        // lalu siapkan charge kembali ke pusat arena. Selama jeda masuk arena
+        // (holdT) tembakan menunggu (timer boleh habis, peluru tak keluar).
         tank.awayTimer -= dt;
-        if (tank.awayTimer <= 0) {
+        if (tank.awayTimer <= 0 && tank.holdT <= 0) {
             if (tank.awayLeft > 0) {
                 fireMortar(tank);
                 tank.awayLeft--;
@@ -556,6 +571,11 @@ export function updateTank(tank, dt) {
     }
 
     // --- FASE BATTLE (badan diam; hanya turret yang berputar) ---
+    // JEDA MASUK ARENA: selama holdT > 0 SEMUA logika serangan ditahan (burst
+    // MG/mortar beku, cd beku, tak ada serangan baru) — "napas" 2 dtk saat
+    // player baru menginjak lapangan; proyektil yang sudah terbang tetap jalan.
+    if (tank.holdT > 0) return;
+
     // Sesi SENAPAN MESIN sedang berjalan?
     if (tank.mgLeft > 0) {
         tank.mgTimer -= dt;

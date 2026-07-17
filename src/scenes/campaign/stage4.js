@@ -753,6 +753,10 @@ export const stage4Scene = {
             && pos.x > ALUN.x0 + r + 2 && pos.x < ALUN.x1 - r - 2
             && pos.z > ALUN.z0 + r + 2 && pos.z < ALUN.z1 - r - 2) {
             arenaLocked = true;
+            // JEDA MASUK ARENA (2026-07-17): tank menahan semua serangan
+            // engageDelaySec (2 dtk) — napas sejenak begitu player baru
+            // menginjak lapangan sebelum tank mulai menembak.
+            if (tank) tank.holdT = CFG.campaign.bosses.tank.engageDelaySec || 2;
             showStageMsg('THE DUEL BEGINS — NO WAY OUT UNTIL THE TANK FALLS!');
         }
         if (arenaLocked) {
