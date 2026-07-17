@@ -181,6 +181,7 @@
                 "hp": 6000,
                 "score": 1000,
                 "gapSec": 1.5,
+                "enrageGapSec": 0.8,
                 "aimSec": 0.5,
                 "spawnRollSec": 2.4,
                 "hitRadius": 18,

@@ -1088,6 +1088,23 @@ const s4calm = () => {
     while (s4tank.shells.length) { scene.remove(s4tank.shells[0].mesh); s4tank.shells.splice(0, 1); }
 };
 s4calm();
+// ENRAGE GAP (2026-07-17): jeda antar-serangan = gapSec normal, tapi saat HP <
+// enrageHpFrac × maxHp pakai enrageGapSec yang lebih cepat. Uji lewat akhir burst MG.
+{
+    const TB = cfgMod.CFG.campaign.bosses.tank;
+    s4calm(); s4tank.phase = 'battle'; s4tank.hp = s4tank.maxHp;
+    s4tank.mgLeft = 1; s4tank.mgTimer = 0;
+    s4mod.stage4Scene.updateMode(0.05);
+    const gapNormal = s4tank.cd;
+    s4calm(); s4tank.phase = 'battle'; s4tank.hp = s4tank.maxHp * (TB.enrageHpFrac || 0.5) - 1;
+    s4tank.mgLeft = 1; s4tank.mgTimer = 0;
+    s4mod.stage4Scene.updateMode(0.05);
+    const gapEnrage = s4tank.cd;
+    T('S4: jeda serangan normal = gapSec, ENRAGE (HP<50%) = enrageGapSec (lebih cepat)',
+        Math.abs(gapNormal - TB.gapSec) < 1e-6 && Math.abs(gapEnrage - TB.enrageGapSec) < 1e-6
+        && TB.enrageGapSec < TB.gapSec);
+    s4tank.hp = s4tank.maxHp; s4calm();
+}
 // PAGAR LISTRIK (2026-07-16): player di dalam radius shockRadiusMeters tersengat
 // shockDps HP/DETIK yang MENEMBUS armor (durability TIDAK tergerus — HP langsung,
 // bukan damagePlayerHp); godMode kebal; di luar radius aman. Config-driven.

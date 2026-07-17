@@ -549,7 +549,7 @@ export function updateTank(tank, dt) {
         tank.trackPhase += dt * 6; spinTracks(p, tank.trackPhase);
         if (tank.hullYaw === 0) {
             tank.phase = 'battle';
-            tank.cd = T.gapSec;
+            tank.cd = gapFor(tank);
             tank.attackIdx = -1;   // wajib 1 siklus penuh lagi sebelum roll charge berikutnya
         }
         return;
@@ -563,7 +563,7 @@ export function updateTank(tank, dt) {
             fireMG(tank);
             tank.mgLeft--;
             tank.mgTimer = CFG.campaign.bosses.tank.mgIntervalSec || 0.12;
-            if (tank.mgLeft <= 0) { tank.cd = CFG.campaign.bosses.tank.gapSec; tank.aiming = false; }
+            if (tank.mgLeft <= 0) { tank.cd = gapFor(tank); tank.aiming = false; }
         }
         return;
     }
@@ -975,6 +975,14 @@ function updateMortars(tank, dt, step) {
     }
 }
 
+// Jeda antar-serangan: saat ENRAGE (HP < enrageHpFrac × maxHp) pakai
+// enrageGapSec yang lebih cepat, selain itu gapSec normal.
+function gapFor(tank) {
+    const T = CFG.campaign.bosses.tank;
+    const enraged = tank.hp < tank.maxHp * (T.enrageHpFrac || 0.5);
+    return (enraged && T.enrageGapSec) ? T.enrageGapSec : T.gapSec;
+}
+
 // Ledakan proyektil (meriam/mortar): AoE ke player via queueBoom (hurtPlayer;
 // armor/godMode/i-frame dodge ditangani processPendingBooms). Saat proyektil
 // serangan yang menanti meledak -> MULAI jeda `gapSec` (BUKAN langsung menembak
@@ -983,7 +991,7 @@ function detonate(tank, x, z, radius, damage, id) {
     queueBoom(x, 5, z, radius, true, damage, 1);
     if (tank && !tank.dead && id === tank.pendingId && tank.blastPending) {
         tank.blastPending = false;
-        tank.cd = CFG.campaign.bosses.tank.gapSec;   // jeda 5 dtk BARU dimulai SETELAH ledakan
+        tank.cd = gapFor(tank);   // jeda BARU dimulai SETELAH ledakan (enrageGapSec saat enrage)
     }
 }
 
