@@ -178,7 +178,7 @@
                 "grenadeDamage": 300
             },
             "tank": {
-                "hp": 5000,
+                "hp": 6000,
                 "score": 1000,
                 "gapSec": 1.5,
                 "aimSec": 0.5,
@@ -192,7 +192,13 @@
                 "mgIntervalSec": 0.1,
                 "mgBulletSpeed": 4,
                 "mgConeDeg": 120,
-                "hullTurnRadPerSec": 0.6,
+                "hullTurnRadPerSec": 1.6,
+                "enrageHpFrac": 0.5,
+                "chargeChance": 0.5,
+                "chargeSpeedMul": 1.0,
+                "chargeOutMargin": 180,
+                "awayMortarShots": 10,
+                "awayMortarGapSec": 0.7,
                 "mortarLockSec": 0.5,
                 "bodyRadius": 26,
                 "mortarDamage": 50,
@@ -205,7 +211,7 @@
                 "mortarMaxSec": 6,
                 "mortarApexMeters": 12,
                 "mortarApexRatio": 0.25,
-                "shockRadiusMeters": 10,
+                "shockRadiusMeters": 8,
                 "shockDps": 20
             }
         },

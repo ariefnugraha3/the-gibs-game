@@ -10,6 +10,12 @@
 // robot — robot hanya ada di parkiran+jalan (alun-alun steril); bunuh SEMUA
 // robot -> gerbang terbuka + BOSS TANK muncul menggelinding ke TENGAH
 // alun-alun -> hancurkan tank -> MISSION COMPLETE (tanpa trigger finish).
+// KUNCI ARENA BOSS (2026-07-17, permintaan user): begitu player MENGINJAK
+// lapangan alun-alun selagi tank hidup, arena TERKUNCI — player dijepit di
+// dalam rumput ALUN (tak bisa keluar, bahkan tak bisa mundur ke ring road)
+// dan tepi tapak-pandang kamera dijepit di dalam kompleks SQ (alun + ring)
+// lewat hook scene `camBounds` (renderer.followViewCam); bebas lagi saat
+// boss hancur.
 
 import { CFG } from '../../core/config.js';
 import { player, robots, drops, _v3 } from '../../core/state.js';
@@ -444,9 +450,15 @@ function placeSupplies() {
 let bossSpawned = false, bossDefeated = false;
 let tank = null, exitHintT = 0, winT = 0, winFired = false;
 const WIN_DELAY_SEC = 2.5;   // jeda visual ledakan tank -> layar MISSION COMPLETE
+// KUNCI ARENA BOSS (2026-07-17): true begitu player menginjak lapangan ALUN
+// selagi tank hidup — playerCollide menjepit player di dalam lapangan &
+// camBounds membatasi kamera; dilepas saat boss kalah / enter() ulang.
+let arenaLocked = false;
 
 // Referensi tank aktif (dipakai smoke test utk melumpuhkan boss)
 export function currentTank() { return tank; }
+// Debug/uji: status kunci arena + rect lapangan (ALUN) & kompleks (SQ)
+export const arenaDebug = () => ({ locked: arenaLocked, alun: { ...ALUN }, sq: { ...SQ } });
 
 // Buka gerbang alun-alun: mesh disembunyikan + blocker dicabut dari daftar
 // (dipulihkan lagi di enter()). Nav-grid TIDAK dibangun ulang (lihat catatan).
@@ -459,13 +471,20 @@ function openGate() {
 function spawnBoss() {
     bossSpawned = true;
     openGate();
-    tank = spawnTank({ homeX: BOSS_POS.x, homeZ: BOSS_POS.z, wallX: BOSS_POS.x - 9999, faceX: S4_START.x });
+    // arena = rect kompleks alun-alun (SQ) — dipakai mekanik ENRAGE/CHARGE tank
+    // (charge keluar-masuk arena; sama dgn rect camBounds sehingga tank yang
+    // keluar benar-benar di luar pandangan kamera yang dijepit).
+    tank = spawnTank({
+        homeX: BOSS_POS.x, homeZ: BOSS_POS.z, wallX: BOSS_POS.x - 9999, faceX: S4_START.x,
+        arena: { x0: SQ.x0, x1: SQ.x1, z0: SQ.z0, z1: SQ.z1 }
+    });
     showStageMsg('THE GATE IS OPEN — A WAR TANK GUARDS THE TOWN SQUARE!');
     updateUI();
 }
 
 function onBossDown() {
     bossDefeated = true;
+    arenaLocked = false;   // arena terbuka lagi — player bebas berkeliling
     winT = WIN_DELAY_SEC;
     showStageMsg('THE TANK IS DESTROYED — THE TOWN SQUARE IS FREE!');
     updateUI();
@@ -488,6 +507,7 @@ export const stage4Scene = {
         }
         if (tank) { disposeTank(tank); tank = null; }
         bossSpawned = false; bossDefeated = false; exitHintT = 0; winT = 0; winFired = false;
+        arenaLocked = false;
         // Pasang lagi gerbang alun-alun (mesh + blocker — dicabut openGate saat run sebelumnya)
         if (roadGate) roadGate.visible = true;
         if (gateBlocker && !blockers.includes(gateBlocker)) blockers.push(gateBlocker);
@@ -530,6 +550,24 @@ export const stage4Scene = {
         resolve(pos, player.radius, feetY);
         slideUnion(pos, oldX, oldZ, player.radius);
         resolveTankBlock(tank, pos);   // player tidak bisa menembus tank/bangkainya
+        // KUNCI ARENA BOSS (2026-07-17): menginjak lapangan ALUN selagi tank
+        // hidup mengunci duel; selama terkunci player DIJEPIT di dalam rumput
+        // lapangan (WASD/click-move/dodge semua lewat sini) — tak bisa keluar
+        // alun-alun, tak bisa mundur ke ring road. Pemicu butuh masuk sedikit
+        // lebih dalam (+2) dari jepitan supaya tidak ada dorongan saat terkunci.
+        const r = player.radius;
+        if (bossSpawned && !bossDefeated && !arenaLocked
+            && pos.x > ALUN.x0 + r + 2 && pos.x < ALUN.x1 - r - 2
+            && pos.z > ALUN.z0 + r + 2 && pos.z < ALUN.z1 - r - 2) {
+            arenaLocked = true;
+            showStageMsg('THE DUEL BEGINS — NO WAY OUT UNTIL THE TANK FALLS!');
+        }
+        if (arenaLocked) {
+            if (pos.x < ALUN.x0 + r) pos.x = ALUN.x0 + r;
+            else if (pos.x > ALUN.x1 - r) pos.x = ALUN.x1 - r;
+            if (pos.z < ALUN.z0 + r) pos.z = ALUN.z0 + r;
+            else if (pos.z > ALUN.z1 - r) pos.z = ALUN.z1 - r;
+        }
         if (!bossSpawned && Math.abs(pos.z - S4_GATE.z) <= ROAD.hz
             && pos.x > S4_GATE.x - 70 && pos.x < S4_GATE.x + 70) {
             const now = Date.now();
@@ -541,6 +579,14 @@ export const stage4Scene = {
     },
 
     groundHeight(x, z, feetY) { return blockersGroundHeight(x, z, feetY, blockers); },
+
+    // Hook opsional kamera (renderer.followViewCam, 2026-07-17): selama duel
+    // boss terkunci, tepi tapak-pandang kamera TIDAK BOLEH melewati batas
+    // kompleks alun-alun (SQ = lapangan + ring road) — pandangan maksimal
+    // sampai tembok keliling; null = kamera bebas (default semua scene lain).
+    camBounds() {
+        return arenaLocked ? { x0: SQ.x0, x1: SQ.x1, z0: SQ.z0, z1: SQ.z1, groundY: 0 } : null;
+    },
 
     // Outdoor: peluru tak terhalang dinding interior; habis oleh umur/cover-hit
     bulletBlocked() { return false; },

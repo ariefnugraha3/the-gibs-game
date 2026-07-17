@@ -1,6 +1,11 @@
 // WebGL: scene THREE tunggal, kamera (= badan player), renderer, rantai
 // post-processing, dan tier kualitas grafis pilihan player.
 
+// activeScene dibaca DI DALAM followViewCam (hook opsional `camBounds` —
+// batas arena kamera duel boss stage 4). sceneManager bebas-impor -> tanpa
+// siklus; live binding dibaca dalam fungsi sesuai konvensi proyek.
+import { activeScene } from './sceneManager.js';
+
 // Ekspor live-binding: modul lain mengimpor { scene, camera, renderer } dan
 // selalu melihat instance terkini (dibuat sekali di initRenderer).
 //
@@ -96,6 +101,51 @@ let camShake = 0;
 export function addCamShake(a) { camShake = Math.max(camShake, a); }
 export function resetCamShake() { camShake = 0; }
 
+// ----- BATAS ARENA KAMERA (2026-07-17): hook scene opsional `camBounds()`
+// mengembalikan rect dunia {x0,x1,z0,z1,groundY} yang TIDAK BOLEH dilewati
+// tepi tapak-pandang kamera, atau null = bebas (default). Dipakai duel boss
+// alun-alun stage 4. `groundViewExtents(focusY, planeY)` memproyeksikan 4
+// sudut layar viewCam ke bidang tanah y=planeY dan mengembalikan ofset
+// min/maks (x,z) tapak-pandang RELATIF titik fokus — trigonometri murni dari
+// CAM_OFF + target lookAt (fokus.y − 8) + fov/aspek viewCam (tanpa matriks,
+// aman utk stub test; fallback fov 50 / aspek 1 bila belum ter-set). -----
+export function groundViewExtents(focusY, planeY = 0) {
+    // Basis kamera lookAt: E = fokus + CAM_OFF memandang T = fokus + (0,-8,0)
+    const fx = -CAM_OFF.x, fy = -CAM_OFF.y - 8, fz = -CAM_OFF.z;
+    const fl = Math.hypot(fx, fy, fz) || 1;
+    const f = { x: fx / fl, y: fy / fl, z: fz / fl };            // arah pandang
+    const rh = Math.hypot(f.x, f.z) || 1;
+    const r = { x: -f.z / rh, y: 0, z: f.x / rh };               // kanan layar (horizontal)
+    const u = {                                                   // atas layar = cross(-f, r), disederhanakan (r.y=0)
+        x: -f.y * r.z, y: f.x * r.z - f.z * r.x, z: f.y * r.x
+    };
+    const half = ((viewCam && viewCam.fov ? viewCam.fov : 50) * Math.PI / 180) / 2;
+    const ty = Math.tan(half);
+    const tx = ty * (viewCam && viewCam.aspect ? viewCam.aspect : 1);
+    const eyeH = focusY + CAM_OFF.y - planeY;                     // tinggi mata di atas bidang
+    let minX = 0, maxX = 0, minZ = 0, maxZ = 0, got = false;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+        const dx = f.x + r.x * tx * sx + u.x * ty * sy;
+        const dy = f.y + u.y * ty * sy;                           // r.y = 0
+        const dz = f.z + r.z * tx * sx + u.z * ty * sy;
+        if (dy >= -1e-4) continue;                                // sinar nyaris datar/naik: abaikan
+        const t = -eyeH / dy;
+        const ox = CAM_OFF.x + dx * t, oz = CAM_OFF.z + dz * t;
+        if (!got) { minX = maxX = ox; minZ = maxZ = oz; got = true; }
+        else {
+            if (ox < minX) minX = ox; else if (ox > maxX) maxX = ox;
+            if (oz < minZ) minZ = oz; else if (oz > maxZ) maxZ = oz;
+        }
+    }
+    return { minX, maxX, minZ, maxZ };
+}
+
+// Jepit v ke [lo, hi]; bila rect lebih sempit dari tapak (lo > hi) ambil tengah.
+function clampCentered(v, lo, hi) {
+    if (lo > hi) return (lo + hi) / 2;
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
 export function followViewCam(dt = 0) {
     if (!viewCam || !camera) return;
     const p = camera.position;
@@ -125,6 +175,17 @@ export function followViewCam(dt = 0) {
         camFocus.z += (p.z - camFocus.z) * k;
     }
     camFocus.y = p.y;   // vertikal: ikut penuh (tanpa dead-zone)
+
+    // BATAS ARENA (2026-07-17, hook scene opsional): jepit fokus supaya tapak-
+    // pandang (proyeksi 4 sudut layar ke tanah) tak melewati rect `camBounds()`
+    // — dipakai duel boss alun-alun stage 4; scene tanpa hook = bebas. Berlaku
+    // juga setelah snap (blok ini di bawah kedua cabang dead-zone/recenter).
+    const cb = activeScene && activeScene.camBounds ? activeScene.camBounds() : null;
+    if (cb) {
+        const e = groundViewExtents(camFocus.y, cb.groundY || 0);
+        camFocus.x = clampCentered(camFocus.x, cb.x0 - e.minX, cb.x1 - e.maxX);
+        camFocus.z = clampCentered(camFocus.z, cb.z0 - e.minZ, cb.z1 - e.maxZ);
+    }
 
     viewCam.position.set(camFocus.x + CAM_OFF.x, camFocus.y + CAM_OFF.y, camFocus.z + CAM_OFF.z);
     // Target sedikit di bawah titik fokus -> lebih banyak dunia terlihat ke atas layar.
