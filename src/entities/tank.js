@@ -16,12 +16,12 @@
 // (yang lebih dulu; senapan mesin tak meledak -> selalu jeda penuh):
 //   1. MERIAM  : turret membidik player lalu menembak 1 peluru meledak-saat-tiba
 //      (damage cannonDamage, radius = killRadius granat × cannonBlastRatio).
-//   2. SENAPAN MESIN : 1 sesi = mgBurst peluru dari HULL depan — HANYA dalam
-//      KERUCUT DEPAN selebar mgConeDeg (120°, 2026-07-17): arah tembak = arah
-//      ke player DIJEPIT ke tepi kerucut di sekitar moncong hull, jadi player
-//      di samping/belakang tank TIDAK terbidik (peluru menyembur di tepi
-//      kerucut, meleset). HULL BERPUTAR mengikuti player (hullTurnRadPerSec)
-//      supaya MG tetap dapat kesempatan menembak walau player memutari tank.
+//   2. SENAPAN MESIN : 1 sesi = mgBurst peluru dari MG KOAKSIAL di TURRET, di
+//      samping meriam (2026-07-17 — PINDAH dari bola glacis hull): muzzle anak
+//      turret jadi ikut melacak player, tiap peluru membidik posisi player
+//      SAAT INI. BADAN tank DIAM — tidak lagi berputar mengikuti player; hanya
+//      TURRET yang berputar (kerucut mgConeDeg + rotasi hull hullTurnRadPerSec
+//      DIHAPUS; kedua kunci config itu kini DORMAN).
 //   3. MORTAR  : BURST mortarBurst (3) proyektil LOB PARABOLA (balistik+gravitasi)
 //      berjeda mortarBurstGapSec (0.5 dtk) dari tabung belakang turret yang
 //      MENGHADAP KE DEPAN; tiap mortar mendarat di posisi player SAAT tembakan
@@ -59,6 +59,11 @@ import { flashDamage, showHitDir } from '../core/dom.js';
 import { startPlayerDeath } from '../core/game.js';
 
 const _wp = new THREE.Vector3();   // scratch getWorldPosition
+// KILAT TERTEMBAK (2026-07-17): porsi tint MERAH maksimum pada cat saat peluru
+// player mengenai tank — permintaan user: SEDIKIT saja, 10% dari 100% — dan lama
+// pudarnya. Visual murni (konvensi: konstanta visual tinggal di kode, bukan CFG).
+const HIT_TINT = 0.10;
+const HIT_FLASH_SEC = 0.15;
 const _UP = new THREE.Vector3(0, 1, 0);   // sumbu HIDUNG mortar (+Y lokal) utk orientasi lintasan
 const _vv = new THREE.Vector3();          // scratch arah kecepatan mortar
 
@@ -235,10 +240,7 @@ export function buildTankMesh() {
     // mata rantai cadangan tergantung di glacis (ikonik) — sebaris di sumbu Z
     for (let sz = -12; sz <= 12; sz += 4) mk(new THREE.BoxGeometry(4, 3.4, 3), track, -29.5, 13.5, sz, group, 0, 0, 0.34, true);
 
-    // ----- SENAPAN MESIN lambung (bola, menghadap -X) -----
-    mk(new THREE.SphereGeometry(3.4, 12, 10), armorDk, -28.6, 16.5, -7.5, group);
-    mk(new THREE.CylinderGeometry(0.85, 0.85, 9, 8), gun, -33.5, 16.5, -7.5, group, 0, 0, Math.PI / 2, true);
-    const mgMuzzle = new THREE.Object3D(); mgMuzzle.position.set(-38, 16.5, -7.5); group.add(mgMuzzle);
+    // (bola MG glacis DIHAPUS 2026-07-17 — senapan mesin pindah KOAKSIAL ke turret)
     // lampu depan
     mk(lat(1.5, 1.5, 1.6, 10), steel, -27, 20.4, 10.5, group, 0, 0, 0, true);
     mk(lat(1.1, 1.1, 0.5, 10), glass, -27, 20.4, 11.4, group, 0, 0, 0, true);
@@ -280,7 +282,13 @@ export function buildTankMesh() {
     mk(new THREE.BoxGeometry(1.3, 2.4, 2.4), bore, 2.9, 5.5, 50.6, turret, 0, 0, 0, true);   // port ventilasi kanan
     mk(new THREE.BoxGeometry(1.3, 2.4, 2.4), bore, -2.9, 5.5, 50.6, turret, 0, 0, 0, true);  // port ventilasi kiri
     mk(lat(1.05, 1.05, 4.0, 14), bore, 0, 5.5, 51.4, turret, 0, 0, 0, true);   // LUBANG BORE (rongga laras)
-    mk(lat(0.6, 0.6, 8, 8), gun, 3.6, 5.6, 20, turret, 0, 0, 0, true);   // MG koaksial
+    // ----- SENAPAN MESIN KOAKSIAL (2026-07-17: PINDAH dari bola glacis hull ke
+    // TURRET, di samping meriam — anchor muzzle anak turret sehingga MG ikut
+    // berputar melacak player bersama turret; badan tank kini diam) -----
+    mk(new THREE.BoxGeometry(2.0, 2.0, 4.6), gun, 3.6, 5.6, 16.4, turret, 0, 0, 0, true);   // rumah MG di mantlet
+    mk(lat(0.6, 0.6, 10, 8), gun, 3.6, 5.6, 22, turret, 0, 0, 0, true);                     // laras koaksial
+    mk(lat(0.85, 0.85, 1.3, 8), gun, 3.6, 5.6, 26.6, turret, 0, 0, 0, true);                // penekan kilat moncong
+    const mgMuzzle = new THREE.Object3D(); mgMuzzle.position.set(3.6, 5.6, 27.5); turret.add(mgMuzzle);
     const cannonMuzzle = new THREE.Object3D(); cannonMuzzle.position.set(0, 5.5, 53.6); turret.add(cannonMuzzle);
     const cannonFlash = new THREE.Mesh(GEO.explosion, new THREE.MeshBasicMaterial({
         color: 0xffd070, transparent: true, opacity: 0, toneMapped: false
@@ -321,7 +329,10 @@ export function buildTankMesh() {
 
     return {
         group, turret, tracks, wheels, mgMuzzle, cannonMuzzle, mortarMuzzle,
-        cannonFlash, mortarGlow, paintMats
+        cannonFlash, mortarGlow, paintMats,
+        // warna dasar tiap material cat (urutan = paintMats) — acuan kilat
+        // tertembak applyHitFlash agar tint memudar kembali PERSIS ke asal
+        paintBase: paintMats.map(m => m.color.getHex())
     };
 }
 
@@ -340,6 +351,7 @@ export function spawnTank({ homeX, homeZ, wallX, faceX }) {
         faceX: faceX != null ? faceX : homeX - 300,   // arah player (barat) utk orientasi awal
         hp: B.hp, maxHp: B.hp, score: B.score,
         phase: 'spawn', spawnT: 0, wallSmashed: false, dead: false, deathT: 0,
+        hitT: 0,   // kilat tertembak (1 saat kena -> pudar HIT_FLASH_SEC)
         // Siklus serangan
         attackIdx: -1, cd: 1.4, aiming: false,
         blastPending: false, pendingId: 0,
@@ -348,7 +360,6 @@ export function spawnTank({ homeX, homeZ, wallX, faceX }) {
         shockFxT: 0, shockSfxT: 0, idleZapT: 1.5,
         shells: [], mortars: [],
         turretYaw: Math.atan2((faceX != null ? faceX : homeX - 300) - homeX, 0),
-        hullYaw: 0,   // yaw badan tank (moncong hull = -X lokal; 0 = hadap barat)
         trackPhase: 0, chargeK: 0, onWallSmash: null
     };
 }
@@ -382,6 +393,15 @@ export function updateTank(tank, dt) {
     if (tank.dead) { updateDeath(tank, dt); return; }
     if (tank.hp <= 0) { killTank(tank); return; }   // HP habis (peluru/ledakan) -> hancur
 
+    // KILAT TERTEMBAK: cat ter-tint MERAH tipis (maks HIT_TINT 10%) saat peluru
+    // player mengenai tank, memudar HIT_FLASH_SEC — umpan balik "kena!" saja,
+    // BUKAN indikator sisa HP. Diletakkan SETELAH cek mati agar tak menimpa cat
+    // hangus bangkai; k=0 mengembalikan warna dasar PERSIS.
+    if (tank.hitT > 0) {
+        tank.hitT = Math.max(0, tank.hitT - dt / HIT_FLASH_SEC);
+        applyHitFlash(tank, tank.hitT);
+    }
+
     // PAGAR LISTRIK: aktif selama tank hidup (fase spawn maupun battle)
     updateShock(tank, dt);
 
@@ -408,24 +428,13 @@ export function updateTank(tank, dt) {
     }
 
     // --- FASE BATTLE ---
-    // HULL BERPUTAR mengikuti player (2026-07-17): badan tank pelan-pelan
-    // memutar moncong depan (-X lokal) ke arah player supaya senapan mesin
-    // hull (kerucut mgConeDeg di depan) tetap dapat kesempatan menembak walau
-    // player memutari tank. Roda ikut berputar selagi badan belok (visual).
-    const T = CFG.campaign.bosses.tank;
-    const hdx = camera.position.x - p.group.position.x;
-    const hdz = camera.position.z - p.group.position.z;
-    const wantHull = Math.atan2(hdz, -hdx);   // moncong hull (-X lokal) -> arah player
-    const prevHull = tank.hullYaw;
-    tank.hullYaw = turnAngle(tank.hullYaw, wantHull, (T.hullTurnRadPerSec || 0.6) * dt);
-    p.group.rotation.y = tank.hullYaw;
-    if (tank.hullYaw !== prevHull) { tank.trackPhase += dt * 5; spinTracks(p, tank.trackPhase); }
-    // Turret MELACAK player terus-menerus (yaw DUNIA; rotasi lokal turret =
-    // yaw dunia MINUS yaw hull supaya laras tetap ke player walau badan ikut
-    // berputar — turret anak group yang kini bisa berotasi).
+    // BADAN DIAM (2026-07-17): hull TIDAK berputar mengikuti player — tetap pada
+    // orientasi spawn-nya. Hanya TURRET yang melacak player (belok-terbatas);
+    // senapan mesin kini KOAKSIAL di turret sehingga ikut membidik ke mana pun
+    // player berada (rotasi hull + kerucut MG depan dihapus).
     const want = aimYaw(tank, camera.position.x, camera.position.z);
     tank.turretYaw = turnAngle(tank.turretYaw, want, 2.2 * dt);
-    p.turret.rotation.y = tank.turretYaw - tank.hullYaw;
+    p.turret.rotation.y = tank.turretYaw;
     // kilat muzzle meredup tiap frame (di-nyalakan saat menembak / charge)
     p.cannonFlash.material.opacity *= 0.82;
     p.mortarGlow.material.opacity *= 0.9;
@@ -626,31 +635,22 @@ function updateShells(tank, dt, step) {
     }
 }
 
-// --- SENAPAN MESIN: peluru dari hull depan — HANYA KERUCUT DEPAN mgConeDeg
-// (2026-07-17): arah ke player DIJEPIT ke tepi kerucut di sekitar moncong hull
-// (sudut bertanda moncong->player di-clamp ±setengah kerucut), jadi player di
-// samping/belakang TIDAK terbidik — peluru menyembur lurus di tepi kerucut dan
-// meleset; rotasi hull (updateTank) yang membawa player kembali masuk kerucut. ---
+// --- SENAPAN MESIN KOAKSIAL (2026-07-17: PINDAH dari bola glacis hull ke
+// TURRET, di samping meriam): muzzle anak turret — ikut berputar bersama turret
+// yang melacak player — dan tiap peluru MEMBIDIK posisi player SAAT INI (pola
+// pra-kerucut). Kerucut depan mgConeDeg + rotasi hull dihapus bersama pindahnya
+// MG (badan tank diam; mgConeDeg & hullTurnRadPerSec di config kini DORMAN). ---
 function fireMG(tank) {
     const p = tank.parts;
     p.mgMuzzle.getWorldPosition(_wp);
-    const T = CFG.campaign.bosses.tank;
     const dx = camera.position.x - _wp.x, dz = camera.position.z - _wp.z;
     const d = Math.hypot(dx, dz) || 1;
-    const ux = dx / d, uz = dz / d;
-    // moncong hull di dunia = -X lokal diputar hullYaw
-    const fwdX = -Math.cos(tank.hullYaw), fwdZ = Math.sin(tank.hullYaw);
-    const half = ((T.mgConeDeg || 120) / 2) * Math.PI / 180;
-    let ang = Math.atan2(fwdZ * ux - fwdX * uz, fwdX * ux + fwdZ * uz);   // sudut bertanda moncong->player
-    if (ang > half) ang = half; else if (ang < -half) ang = -half;        // jepit ke kerucut depan
-    const fx = fwdX * Math.cos(ang) + fwdZ * Math.sin(ang);               // moncong diputar `ang`
-    const fz = -fwdX * Math.sin(ang) + fwdZ * Math.cos(ang);
     const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
     m.scale.setScalar(1.15);
     m.position.copy(_wp);
     scene.add(m);
     enemyBullets.push({
-        mesh: m, dir: new THREE.Vector3(fx, 0, fz),
+        mesh: m, dir: new THREE.Vector3(dx / d, 0, dz / d),
         speed: CFG.campaign.bosses.tank.mgBulletSpeed || 4, life: CFG.robot.rangedBulletLife,
         dmg: CFG.campaign.bosses.tank.mgDamage || 5, monasDmg: 0,
         px: _wp.x, py: _wp.y, pz: _wp.z
@@ -802,8 +802,24 @@ function tankBulletHits(tank) {
     }
 }
 
+// Tint SEMUA material cat ke arah MERAH sebesar k×HIT_TINT (k 1→0 selama kilat
+// memudar; k=0 = warna dasar persis dari paintBase). Hanya mengubah NILAI warna
+// material Lambert yang sudah ada (setHex) — tanpa material/shader baru.
+function applyHitFlash(tank, k) {
+    const p = tank.parts, t = k * HIT_TINT;
+    for (let i = 0; i < p.paintMats.length; i++) {
+        const base = p.paintBase[i];
+        const br = base >> 16 & 255, bg = base >> 8 & 255, bb = base & 255;
+        const r = Math.round(br + (255 - br) * t);   // merah naik ke arah 255
+        const g = Math.round(bg * (1 - t));          // hijau/biru turun -> rona memerah
+        const b = Math.round(bb * (1 - t));
+        p.paintMats[i].color.setHex(r << 16 | g << 8 | b);
+    }
+}
+
 export function damageTank(tank, dmg) {
     if (tank.dead) return;
+    tank.hitT = 1;   // picu kilat merah tertembak (dipudarkan updateTank)
     tank.hp -= Math.max(1, dmg);
     if (tank.hp <= 0) killTank(tank);
 }
