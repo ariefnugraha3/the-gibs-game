@@ -23,7 +23,7 @@ import { scene, camera, addCamShake, setCineFocus, SCREEN_UP } from '../../core/
 import { setCineBars } from '../../core/dom.js';
 import { releaseInputs } from '../../core/input.js';
 import { spawnGroundPuff } from '../../entities/effects.js';
-import { playSFX, sfxExplode } from '../../utils/sfx.js';
+import { playSFX, sfxExplode, startMusic } from '../../utils/sfx.js';
 import { spawnHelicopter, updateHelicopter, blastHelicopter, disposeHelicopter } from '../../entities/helicopter.js';
 import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../utils/textures.js';
 import { rand } from '../../utils/math.js';
@@ -992,6 +992,7 @@ export const stage4Scene = {
         camera.position.set(S4_START.x, CFG.player.eyeHeight, S4_START.z);
         camera.quaternion.set(0, -0.7071, 0, 0.7071);   // hadap timur (menuju jalan)
         player.vy = 0; player.onGround = true;
+        startMusic();   // musik latar in-game (lanjut bila sudah menyala dari stage 1)
         showStageMsg('CLEAR THE HIGHWAY — REACH THE TOWN SQUARE EAST');
         updateUI();
     },

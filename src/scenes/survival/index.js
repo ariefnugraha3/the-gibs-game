@@ -21,6 +21,7 @@ import {
     startMonasCollapse, updateMonasCollapse, resetMonasCollapse, isMonasCollapsing
 } from './world.js';
 import { navAim, turnToward } from '../../utils/pathfind.js';
+import { startMusic } from '../../utils/sfx.js';
 import { openShop, closeShop, isShopOpen, requestNextWave } from './shop.js';
 import { requestLock } from '../../core/input.js';
 
@@ -262,6 +263,7 @@ export const survivalScene = {
         closeShop();
         camera.position.set(0, CFG.player.eyeHeight, 120);
         camera.quaternion.set(0, 0, 0, 1);
+        startMusic();   // musik latar in-game (sepanjang survival)
         startWave(1);
     },
 

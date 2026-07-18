@@ -11,12 +11,12 @@
 // (jumlah lampu tetap) — indikator hijau = MeshBasic emissive-semu.
 
 import { scene, camera } from '../../core/renderer.js';
-import { robots } from '../../core/state.js';
 import { PAL } from '../../world/palette.js';
 
-const OPEN_DIST = 48;    // jarak (unit) player/robot memicu buka
-const OPEN_TIME = 0.45;  // detik buka/tutup penuh
-const GREEN = 0x39ff7a;  // hijau "bisa dibuka" (senada lampu EXIT)
+const OPEN_TIME = 0.45;      // detik buka/tutup penuh
+const FRONT_CELLS = 2;       // player HARUS di <= 2 kotak DI DEPAN bukaan (permintaan user 2026-07-18)
+const DOOR_SOLID_MAX = 0.5;  // pintu PEJAL (memblok robot) selama open < ini (masih >=1/2 tertutup)
+const GREEN = 0x39ff7a;      // hijau "bisa dibuka" (senada lampu EXIT)
 
 // Bangun pintu untuk satu stage.
 //   doorList item {c0,r0,c1,r1,dir} — dir 'ew' (celah di dinding VERTIKAL, panel
@@ -58,39 +58,76 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
         panel.position.set(cx, closedY, cz);
         scene.add(panel);
 
-        // --- LAMPU HIJAU di kedua sisi (di ATAS tembok jamb) = penanda bisa dibuka ---
+        // --- LAMPU HIJAU KECIL di MUKA tembok = penanda pintu bisa dibuka.
+        //     2026-07-18 (permintaan user): dipindah dari PUNCAK tembok ke kedua
+        //     MUKA jamb — DEPAN (+) & BELAKANG (−) — dan DIPERKECIL. Tiap jamb
+        //     dapat 2 lampu (satu tiap muka) → keempat titik pintu bertanda. ---
         const jamb = ew
             ? [cellFn(d.c0, d.r0 - 1), cellFn(d.c1, d.r1 + 1)]
             : [cellFn(d.c0 - 1, d.r0), cellFn(d.c1 + 1, d.r1)];
+        const halfC = CELL / 2, lampY = H * 0.55;   // tinggi lampu ~tengah muka tembok
         for (const j of jamb) {
-            const g = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 5), greenMat);
-            g.position.set(j.x, H + 1, j.z);                     // pad hijau di puncak tembok samping
-            scene.add(g);
+            for (const s of [-1, 1]) {               // dua MUKA tembok: depan & belakang
+                const g = new THREE.Mesh(
+                    ew ? new THREE.BoxGeometry(0.5, 2.2, 1.3) : new THREE.BoxGeometry(1.3, 2.2, 0.5),
+                    greenMat);
+                g.position.set(
+                    ew ? j.x + s * (halfC + 0.25) : j.x,
+                    lampY,
+                    ew ? j.z : j.z + s * (halfC + 0.25));
+                scene.add(g);
+            }
         }
 
-        doors.push({ panel, cx, cz, closedY, openY, open: 0 });
+        doors.push({
+            panel, cx, cz, closedY, openY, open: 0,
+            ew,                                    // orientasi: true = dinding vertikal (masuk dari ±x)
+            perpMax: (FRONT_CELLS + 0.5) * CELL,   // tegak-lurus dinding: <= 2 kotak di depan (+ tepi sel)
+            paraMax: span / 2 + CELL * 0.4,        // sejajar dinding: dalam lebar bukaan (+ sedikit margin)
+            hx: ew ? thick / 2 : w / 2,            // setengah-footprint daun pintu (blok robot saat tutup)
+            hz: ew ? w / 2 : thick / 2,
+        });
     }
     return doors;
 }
 
-// Animasi pintu tiap frame (dari updateMode stage). Buka bila player ATAU robot
-// mana pun < OPEN_DIST dari pusat pintu; jika tidak, tutup. Ease-in-out halus.
+// Animasi pintu tiap frame (dari updateMode stage). HANYA PLAYER yang membuka
+// (robot TIDAK), dan hanya bila player berada dalam ZONA "2 kotak di depan"
+// pintu: <= perpMax tegak-lurus dinding (2 sel) DAN <= paraMax sejajar dinding
+// (selebar bukaan). Di luar zona → pintu SELALU tertutup. Ease-in-out halus.
 export function updateStageDoors(doors, dt) {
     if (!doors || !doors.length) return;
-    const px = camera.position.x, pz = camera.position.z, d2 = OPEN_DIST * OPEN_DIST;
+    const px = camera.position.x, pz = camera.position.z;   // camera = pivot logika player
     const step = dt / OPEN_TIME;
     for (const dr of doors) {
-        let near = (px - dr.cx) ** 2 + (pz - dr.cz) ** 2 < d2;
-        if (!near) {
-            for (const z of robots) {
-                const m = z.mesh; if (!m) continue;
-                if ((m.position.x - dr.cx) ** 2 + (m.position.z - dr.cz) ** 2 < d2) { near = true; break; }
-            }
-        }
+        const dx = px - dr.cx, dz = pz - dr.cz;
+        const perp = dr.ew ? Math.abs(dx) : Math.abs(dz);   // tegak-lurus dinding (arah masuk pintu)
+        const para = dr.ew ? Math.abs(dz) : Math.abs(dx);   // sejajar dinding (lebar bukaan)
+        const near = perp <= dr.perpMax && para <= dr.paraMax;
         const target = near ? 1 : 0;
         if (dr.open < target) dr.open = Math.min(target, dr.open + step);
         else if (dr.open > target) dr.open = Math.max(target, dr.open - step);
         const t = dr.open, e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;   // easeInOut
         dr.panel.position.y = dr.closedY + (dr.openY - dr.closedY) * e;
+    }
+}
+
+// Dorong sebuah lingkaran (pos.x,pos.z, radius) KELUAR dari footprint pintu yang
+// masih TERTUTUP (open < DOOR_SOLID_MAX). Dipakai kolisi ROBOT: robot TIDAK bisa
+// menembus pintu tertutup (2026-07-18, permintaan user) — pintu hanya dibuka
+// player, jadi robot terhalang daun pintu persis seperti tembok. Dorong sepanjang
+// sumbu penetrasi TERKECIL (biasanya tegak-lurus daun tipis → mundur ke ruangan).
+// Player TIDAK diblok (dia yang membuka pintu; footprint ⊂ zona buka → selalu
+// terbuka saat player menyentuhnya) sehingga tak pernah terjepit.
+export function resolveDoors(doors, pos, radius) {
+    if (!doors) return;
+    for (const dr of doors) {
+        if (dr.open >= DOOR_SOLID_MAX) continue;              // sudah cukup terbuka → tembus
+        const ex = dr.hx + radius, ez = dr.hz + radius;
+        const dx = pos.x - dr.cx, dz = pos.z - dr.cz;
+        if (Math.abs(dx) >= ex || Math.abs(dz) >= ez) continue;   // di luar footprint
+        const ox = ex - Math.abs(dx), oz = ez - Math.abs(dz);     // penetrasi tiap sumbu
+        if (ox < oz) pos.x = dr.cx + (dx < 0 ? -ex : ex);         // dorong sumbu-x
+        else pos.z = dr.cz + (dz < 0 ? -ez : ez);                 // dorong sumbu-z
     }
 }

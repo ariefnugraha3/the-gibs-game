@@ -917,10 +917,9 @@ s3mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === 0) floor++;
     T('S3: SEMUA lantai gedung terhubung dari START (BFS, ' + floor + ' sel)', reach === floor && floor > 500);
 }
-const VC = s3mod.S3.VOID;
-T('S3: START & END di lantai; VOID pusat = dinding (tak dilalui)',
-    !s3mod.s3Wall(s3mod.S3_START.c, s3mod.S3_START.r) && !s3mod.s3Wall(s3mod.S3_END.c, s3mod.S3_END.r)
-    && s3mod.s3Wall((VC.c0 + VC.c1) >> 1, (VC.r0 + VC.r1) >> 1));
+// DENAH BARU 2026-07-18: LOBI tengah (tanpa VOID); END = PINTU UTAMA LOBI (selatan).
+T('S3: START & END (pintu lobi) di lantai',
+    !s3mod.s3Wall(s3mod.S3_START.c, s3mod.S3_START.r) && !s3mod.s3Wall(s3mod.S3_END.c, s3mod.S3_END.r));
 T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 
 // --- 16b. TANPA DINDING GANDA (2026-07-18): denah gedung stage 1/2/3 dirapatkan
@@ -952,6 +951,28 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     T('No double walls: stage 1 grid (' + b1 + ' band)', b1 === 0);
     T('No double walls: stage 2 grid (' + b2 + ' band)', b2 === 0);
     T('No double walls: stage 3 grid (' + b3 + ' band)', b3 === 0);
+
+    // STAGE 1 DENAH RESMI 2026-07-18 (stage1.csv, 30x30): SEMUA lantai terhubung
+    // dari START (BFS) + START/END di lantai. Cermin S3 di atas.
+    {
+        const grid = s1mod.s1grid, ROWS = grid.length, COLS = grid[0].length;
+        const seen = grid.map(row => row.map(() => false));
+        const st = s1mod.S1_START, q = [[st.c, st.r]]; seen[st.r][st.c] = true;
+        let reach = 0, floorN = 0;
+        while (q.length) {
+            const [c, r] = q.shift(); reach++;
+            for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nc = c + dc, nr = r + dr;
+                if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS) continue;
+                if (grid[nr][nc] === 0 && !seen[nr][nc]) { seen[nr][nc] = true; q.push([nc, nr]); }
+            }
+        }
+        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === 0) floorN++;
+        T('S1: grid 30x30 (plan resmi)', COLS === 30 && ROWS === 30);
+        T('S1: SEMUA lantai gedung terhubung dari START (BFS, ' + floorN + ' sel)', reach === floorN && floorN > 500);
+        T('S1: START & END di lantai',
+            !s1mod.s1Wall(s1mod.S1_START.c, s1mod.S1_START.r) && !s1mod.s1Wall(s1mod.S1_END.c, s1mod.S1_END.r));
+    }
 }
 
 // --- 16c. INTERIOR FUTURISTIK (2026-07-18): material dinding/lantai stage 1-3
@@ -970,24 +991,65 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         fmat.emissiveIntensity <= palM.EMISSIVE_MAX && wmat.emissiveIntensity <= palM.EMISSIVE_MAX);
 }
 
-// --- 16d. PINTU GESER OTOMATIS (2026-07-18): doors.js — pintu ruangan tertutup
-// MENUTUP saat jauh, MELUNCUR TURUN membuka saat player dekat (dekor reaktif,
-// tanpa collision). ---
+// --- 16d. PINTU GESER OTOMATIS (2026-07-18): doors.js — HANYA PLAYER membuka,
+// dan hanya bila player <= 2 KOTAK DI DEPAN bukaan pintu (permintaan user);
+// robot TIDAK membuka; di luar zona = SELALU tutup. MELUNCUR TURUN saat buka. ---
 {
     const doorMod = await import(R('src/scenes/campaign/doors.js'));
+    const CELL = 14;
     const cellFn = (c, r) => ({ x: c * 20, z: r * 20 });   // koordinat sintetis, jauh dari robot nyata
-    const doors = doorMod.buildStageDoors([{ c0: 5, r0: 5, c1: 5, r1: 5, dir: 'ew' }], cellFn, 14, 22);
+    const doors = doorMod.buildStageDoors([{ c0: 5, r0: 5, c1: 5, r1: 5, dir: 'ew' }], cellFn, CELL, 22);
     const dr = doors[0], yClosed = dr.panel.position.y;
     T('Doors: pintu + panel terbangun (tertutup di atas, openY < closedY)',
         doors.length === 1 && dr.closedY > dr.openY && yClosed === dr.closedY);
-    camera.position.set(dr.cx + 400, 11, dr.cz + 400);      // jauh -> tetap tutup
-    for (let i = 0; i < 30; i++) doorMod.updateStageDoors(doors, 0.05);
-    const yFar = dr.panel.position.y;
-    camera.position.set(dr.cx, 11, dr.cz);                  // dekat -> buka (panel TURUN)
-    for (let i = 0; i < 30; i++) doorMod.updateStageDoors(doors, 0.05);
-    const yNear = dr.panel.position.y;
-    T('Doors: tutup saat jauh, TURUN membuka saat player dekat',
-        Math.abs(yFar - yClosed) < 0.5 && yNear < yClosed - 5);
+    // Helper: setel posisi player, jalankan sampai stabil, kembalikan panel.y.
+    const settle = (x, z) => {
+        camera.position.set(x, 11, z);
+        for (let i = 0; i < 30; i++) doorMod.updateStageDoors(doors, 0.05);
+        return dr.panel.position.y;
+    };
+    const isOpen = (y) => y < yClosed - 5, isShut = (y) => Math.abs(y - yClosed) < 0.5;
+    // 'ew' → arah masuk = ±x (perp), sejajar bukaan = z (para).
+    const yFar = settle(dr.cx + 400, dr.cz + 400);        // jauh → tutup
+    const yFront2 = settle(dr.cx + 2 * CELL, dr.cz);      // 2 kotak di depan → BUKA
+    const yFront3 = settle(dr.cx + 3 * CELL, dr.cz);      // 3 kotak → terlalu jauh, tutup
+    const ySide = settle(dr.cx, dr.cz + 2 * CELL);        // sejajar, meleset dari bukaan → tutup
+    T('Doors: BUKA hanya saat player <= 2 kotak DI DEPAN bukaan',
+        isShut(yFar) && isOpen(yFront2) && isShut(yFront3) && isShut(ySide));
+    // ROBOT di depan pintu TIDAK membukanya (player jauh) — hanya player yang bisa.
+    const fakeBot = { mesh: { position: { x: dr.cx + CELL, y: 0, z: dr.cz } } };
+    robots.push(fakeBot);
+    const yBot = settle(dr.cx + 400, dr.cz + 400);        // player jauh, robot di depan pintu
+    robots.splice(robots.indexOf(fakeBot), 1);
+    T('Doors: robot di depan pintu TIDAK membuka (hanya player)', isShut(yBot));
+    // ROBOT tak bisa MENEMBUS pintu tertutup: resolveDoors mendorong keluar saat
+    // TUTUP, tapi TIDAK saat TERBUKA (2026-07-18, permintaan user).
+    settle(dr.cx + 400, dr.cz + 400);                     // pastikan TUTUP (player jauh)
+    const pShut = { x: dr.cx, z: dr.cz };
+    doorMod.resolveDoors(doors, pShut, 3.5);
+    const pushedOut = Math.abs(pShut.x - dr.cx) > 3;      // 'ew' → didorong di sumbu-x keluar daun
+    settle(dr.cx + 2 * CELL, dr.cz);                      // BUKA (player 2 kotak di depan)
+    const pOpen = { x: dr.cx, z: dr.cz };
+    doorMod.resolveDoors(doors, pOpen, 3.5);
+    const passesOpen = pOpen.x === dr.cx && pOpen.z === dr.cz;
+    T('Doors: robot DIBLOK saat tutup, TEMBUS saat terbuka', pushedOut && passesOpen);
+}
+
+// --- 16e. MUSIK LATAR IN-GAME (2026-07-18, permintaan user): hanya saat BERMAIN
+// (dinyalakan enter() survival + stage 1-4), loop, volume di bawah SFX (0.7),
+// startMusic idempoten (tak mengulang antar-enter). ---
+{
+    const sfxMod = await import(R('src/utils/sfx.js'));
+    T('Music: startMusic & stopMusic diekspor',
+        typeof sfxMod.startMusic === 'function' && typeof sfxMod.stopMusic === 'function');
+    T('Music: bgMusic loop + volume di bawah SFX 0.7',
+        sfxMod.bgMusic.loop === true && sfxMod.bgMusic.volume > 0 && sfxMod.bgMusic.volume < 0.7);
+    let played = 0;
+    sfxMod.bgMusic.play = () => { played++; return { catch() { } }; };
+    sfxMod.stopMusic();     // reset musicOn
+    sfxMod.startMusic();    // -> play sekali
+    sfxMod.startMusic();    // idempoten -> TIDAK play lagi
+    T('Music: startMusic idempoten (play 1x sampai stopMusic)', played === 1);
 }
 
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }

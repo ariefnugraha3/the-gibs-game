@@ -115,9 +115,10 @@ export function campaignRobotAI(z, dt, step, stage) {
         z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
     }
 
-    // Penghalang pejal stage, lalu jepit ke area boleh-jalan per-sumbu
-    // (menyusur dinding gedung/tepi jalan, tidak menembus tembok ruangan).
+    // Penghalang pejal stage, PINTU TERTUTUP (robot tak bisa menembus, 2026-07-18),
+    // lalu jepit ke area boleh-jalan per-sumbu (menyusur dinding gedung/tepi jalan).
     stage.resolve(z.mesh.position, 3.5, 0);
+    if (stage.doorBlock) stage.doorBlock(z.mesh.position, 3.5);
     if (!stage.walkable(z.mesh.position.x, z.mesh.position.z, 3)) {
         if (stage.walkable(z.mesh.position.x, oldZZ, 3)) z.mesh.position.z = oldZZ;
         else if (stage.walkable(oldZX, z.mesh.position.z, 3)) z.mesh.position.x = oldZX;
@@ -135,6 +136,7 @@ export function campaignRobotAI(z, dt, step, stage) {
 export function campaignClampRobot(z, oldX, oldZ, stage) {
     const p = z.mesh.position;
     stage.resolve(p, 3.5, 0);
+    if (stage.doorBlock) stage.doorBlock(p, 3.5);   // pintu tertutup memblok robot (2026-07-18)
     if (!stage.walkable(p.x, p.z, 3)) {
         if (stage.walkable(p.x, oldZ, 3)) p.z = oldZ;
         else if (stage.walkable(oldX, p.z, 3)) p.x = oldX;

@@ -1,13 +1,15 @@
 // SCENE: Campaign STAGE 1 — "Gedung Terbengkalai (Lantai 2)", indoor 60x60 m.
-// Denah dirombak 2026-07-11 mengikuti floor-plan referensi user:
-//   TANGGA TURUN (start, kiri-atas — player turun dari Lantai 3) -> koridor
-//   sempit -> OFFICE (kiri) / CONFERENCE (tengah-atas) / SUPPLY ROOM (kanan-
-//   atas: ammo/granat/medkit) -> MAIN HALL (pusat besar) -> SECURITY (kanan) /
-//   BREAK ROOM & RESTROOM (kiri-bawah) / STORAGE (kanan-bawah) -> TANGGA TURUN
-//   (end, kanan-bawah — turun ke lantai bawah = stage 2 jalan raya). Grid sel
-//   2 m: 1=dinding, 0=lantai — dinding visual, collision, line-of-sight, dan
-//   hit peluru semua dari grid yang SAMA. Konektivitas & bebas-pintu sudah
-//   diverifikasi BFS (lihat rombak); jangan ubah pintu tanpa tes ulang.
+// DENAH DIROMBAK 2026-07-18 mengikuti PLAN RESMI user (stage1.csv/gambar) — grid
+// 30x30 (BUKAN 40x30 seperti stage 2/3): '#'=dinding biru, '-'=pintu (merah),
+// tangga START hijau (kiri-atas), tangga END kuning (kanan-bawah). buildS1Grid
+// mem-parse string denah `S1_MAP` langsung (bukan carve()), jadi dinding/pintu
+// PERSIS sesuai plan. Tata letak: START (kiri-atas) -> CONFERENCE (tengah-atas) /
+//   SUPPLY (kanan-atas: ammo/medkit) -> OFFICE (kiri-tengah) / MAIN HALL (pusat) /
+//   SECURITY (kanan-tengah) -> BREAK (kiri-bawah) / RESTROOM & STORAGE (bawah-
+//   tengah) -> END tangga TURUN (kanan-bawah = stage 2). Grid sel 2 m (1=dinding,
+//   0=lantai) — dinding visual, collision, LOS, hit-peluru semua dari grid SAMA.
+//   Konektivitas (684 sel lantai, 1 region) + 0 dinding-ganda DIVERIFIKASI BFS
+//   (scratchpad parse1.mjs & smoke test); pintu geser di semua bukaan '-'.
 
 import { CFG, CAMP_M } from '../../core/config.js';
 import { player, drops, _v3 } from '../../core/state.js';
@@ -19,6 +21,7 @@ import { makeNavGrid } from '../../utils/pathfind.js';
 import { setS1FlickerLight } from '../../world/decor.js';
 import { applyLightPreset } from '../../world/lighting.js';
 import { hideStageMsg } from '../../core/dom.js';
+import { startMusic } from '../../utils/sfx.js';
 import { saveCampaignStage } from '../../core/saveGame.js';
 import { NADE_R } from '../../entities/grenades.js';
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
@@ -33,14 +36,15 @@ import { buildFuturisticSinkMesh } from '../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from './interior.js';
-import { buildStageDoors, updateStageDoors } from './doors.js';
+import { buildStageDoors, updateStageDoors, resolveDoors } from './doors.js';
 import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
 import { ensureWorld as ensureStage3World } from './stage3.js';   // (circular aman: dipanggil DI DALAM enter)
 import { ensureWorld as ensureStage4World } from './stage4.js';
 
-// Grid 30 sel x 2 m; gedung ditaruh ~26 km dari jalan raya (stage 2) —
+// Grid 30 kolom x 30 baris (sel 2 m; PERSEGI 30x30 sesuai plan resmi user —
+// BUKAN 40x30 seperti stage 2/3). Gedung ~26 km dari jalan raya (stage 2) —
 // kedua dunia hidup berdampingan di satu scene, dipisah jarak.
 export const S1 = {
     G: 30, CELL: 2 * CAMP_M, H: 22,       // tinggi plafon ~3.1 m
@@ -49,19 +53,59 @@ export const S1 = {
 };
 export let s1grid = null;                 // [row][col] 1=dinding, 0=lantai
 export const s1Cell = (c, r) => ({ x: S1.x0 + (c + 0.5) * S1.CELL, z: S1.z0 + (r + 0.5) * S1.CELL });
-export const S1_START = { c: 3, r: 4 };   // ruang tangga TURUN dari Lantai 3 (kiri-atas)
+export const S1_START = { c: 3, r: 4 };   // ruang tangga TURUN dari Lantai 3 (hijau, kiri-atas)
+export const S1_END = { c: 25, r: 27 };   // tangga TURUN (kuning, kanan-bawah) -> stage 2
 // Trigger tangga TURUN (kanan-bawah) -> turun ke lantai bawah (stage 2 jalan raya)
-export const S1_EXIT = { c0: 24, r0: 23, c1: 28, r1: 27 };
+export const S1_EXIT = { c0: 22, r0: 25, c1: 28, r1: 28 };
 
-// PINTU geser otomatis (2026-07-18) — hanya ruangan TERTUTUP (BUKAN Main Hall G).
-// {sel bukaan c0,r0..c1,r1, dir} dir 'ew'=dinding vertikal / 'ns'=horizontal.
+// DENAH RESMI (stage1.csv). 30x30. '#'=dinding, '.'=lantai (pintu '-' = lantai).
+// JANGAN ubah tanpa update S1_DOORS/S1_EXIT/robot + tes ulang (parse1.mjs/smoke).
+const S1_MAP = [
+    '##############################',   // 0
+    '#.......#....................#',   // 1
+    '#.......#....................#',   // 2
+    '#...................#........#',   // 3  (pintu A<->B @c8, B<->C @c20)
+    '#...................#........#',   // 4
+    '#.......#...........#........#',   // 5
+    '#.......#...........#........#',   // 6
+    '###..########...##############',   // 7  (pintu A<->D @c3-4, B<->Hall @c13-15)
+    '#.......#............#.......#',   // 8
+    '#.......#............#.......#',   // 9
+    '#.......#............#.......#',   // 10
+    '#....................#.......#',   // 11 (pintu D<->Hall @c8)
+    '#............................#',   // 12 (pintu D<->Hall @c8, Hall<->H @c21)
+    '#.......#............#.......#',   // 13
+    '#.......#............#.......#',   // 14
+    '#.......#............#.......#',   // 15
+    '#.......#............#.......#',   // 16
+    '###..####......#.....#########',   // 17 (pintu D<->E @c3-4; Hall turun @c9-14,16-20)
+    '#.......#......#.....#.......#',   // 18
+    '#.......#......#.....#.......#',   // 19
+    '#.......#####..#.#####.......#',   // 20 (pintu F @c13-14, I @c16)
+    '#.......#......#.....#.......#',   // 21
+    '#.......#......#.....#.......#',   // 22
+    '#.......#......#.............#',   // 23 (pintu I<->J @c21)
+    '#.......#......#.............#',   // 24
+    '#.......#......#.....#.......#',   // 25
+    '#.......#......#.....#.......#',   // 26
+    '#.......#......#.....#.......#',   // 27
+    '#.......#......#.....#.......#',   // 28
+    '##############################',   // 29
+];
+
+// PINTU geser otomatis di SEMUA bukaan '-' plan resmi (10 pintu). {sel bukaan
+// c0,r0..c1,r1, dir} dir 'ew'=dinding VERTIKAL (panel sumbu-z) / 'ns'=HORIZONTAL.
 const S1_DOORS = [
-    { c0: 8, r0: 3, c1: 8, r1: 3, dir: 'ew' },     // A (stairwell) <-> B (conference)
-    { c0: 20, r0: 3, c1: 20, r1: 3, dir: 'ew' },   // B (conference) <-> C (supply)
-    { c0: 22, r0: 12, c1: 22, r1: 12, dir: 'ew' }, // G (main hall) <-> H (security) — 2026-07-18 permintaan user
-    { c0: 3, r0: 17, c1: 4, r1: 17, dir: 'ns' },   // D (office) <-> E (break room)
-    { c0: 25, r0: 17, c1: 26, r1: 17, dir: 'ns' }, // H (security) <-> J (end/stairs)
-    { c0: 22, r0: 25, c1: 22, r1: 26, dir: 'ew' }, // I (storage) <-> J (end/stairs)
+    { c0: 8, r0: 3, c1: 8, r1: 4, dir: 'ew' },      // A (start) <-> B (conference)
+    { c0: 20, r0: 1, c1: 20, r1: 2, dir: 'ew' },    // B (conference) <-> C (supply)
+    { c0: 3, r0: 7, c1: 4, r1: 7, dir: 'ns' },      // A <-> D (office)
+    { c0: 13, r0: 7, c1: 15, r1: 7, dir: 'ns' },    // B <-> Main Hall (pintu utara aula)
+    { c0: 8, r0: 11, c1: 8, r1: 12, dir: 'ew' },    // D (office) <-> Main Hall
+    { c0: 21, r0: 12, c1: 21, r1: 12, dir: 'ew' },  // Main Hall <-> H (security)
+    { c0: 3, r0: 17, c1: 4, r1: 17, dir: 'ns' },    // D (office) <-> E (break room)
+    { c0: 13, r0: 20, c1: 14, r1: 20, dir: 'ns' },  // F restroom (bagi atas/bawah)
+    { c0: 16, r0: 20, c1: 16, r1: 20, dir: 'ns' },  // I storage (bagi atas/bawah)
+    { c0: 21, r0: 23, c1: 21, r1: 24, dir: 'ew' },  // I (storage) <-> J (end/stairs)
 ];
 let s1doors = null;
 
@@ -69,40 +113,8 @@ const blockers = [];   // furnitur/undakan pejal stage 1 {x,z,hx,hz,ax*,az*,top,
 let built = false;
 
 function buildS1Grid() {
-    const g = Array.from({ length: S1.G }, () => Array(S1.G).fill(1));
-    const carve = (c0, r0, c1, r1) => {
-        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g[r][c] = 0;
-    };
-    // --- Ruangan (kotak lantai; verifikasi BFS di scratchpad) ---
-    // 2026-07-18: batas ruangan dirapatkan agar SETIAP celah antar-ruang = 1 sel
-    // dinding (bukan 2) -> tak ada lagi "dinding ganda" (dua tembok paralel
-    // berdempetan). Verifikasi via detektor double-wall (scratchpad walls.mjs).
-    carve(1, 1, 7, 6);      // A Stairwell / START (tangga turun dari Lt.3)
-    carve(9, 1, 19, 7);     // B Conference Room (tengah-atas)
-    carve(21, 1, 28, 6);    // C Supply Room (kanan-atas: ammo/granat/medkit)
-    carve(1, 8, 6, 16);     // D Office Room (kiri-tengah)
-    carve(8, 9, 21, 21);    // G Main Hall (pusat, area terbuka besar)
-    carve(23, 8, 28, 16);   // H Security Room (kanan-tengah)
-    carve(1, 18, 6, 26);    // E Break Room (kiri-bawah)
-    carve(8, 23, 13, 28);   // F Restroom (bawah-tengah)
-    carve(15, 23, 21, 28);  // I Storage Room (bawah-kanan)
-    carve(23, 18, 28, 28);  // J End / tangga TURUN ke lantai bawah (kanan-bawah)
-    // --- Koridor sempit (jadi robot-spot ambush) ---
-    carve(3, 7, 4, 8);      // A -> D koridor awal sempit (spot 1)
-    carve(24, 7, 25, 8);    // C -> H lorong kanan dekat supply (spot 6)
-    // --- Pintu (bukaan; 1-2 sel) ---
-    carve(8, 3, 8, 3);      // A -> B
-    carve(20, 3, 20, 3);    // B -> C
-    carve(13, 8, 14, 8);    // B -> G (pintu utara main hall)
-    carve(7, 12, 7, 12);    // D -> G
-    carve(22, 12, 22, 12);  // G -> H
-    carve(3, 17, 4, 17);    // D -> E
-    carve(10, 21, 11, 22);  // G -> F (restroom)
-    carve(17, 21, 18, 22);  // G -> I (storage)
-    carve(22, 25, 22, 26);  // I -> J
-    carve(25, 17, 26, 17);  // H -> J
-    carve(21, 8, 21, 8);    // nub: tutup stub dinding-ganda pojok C-G (col21 r7,8)
-    s1grid = g;
+    // Bangun grid langsung dari denah resmi (baris string -> 1/0); '.' & '-' = lantai.
+    s1grid = S1_MAP.map(row => [...row].map(ch => (ch === '#' ? 1 : 0)));
 }
 
 // Sel dinding? (di luar grid = dinding)
@@ -321,33 +333,35 @@ export function buildWorld() {
         m.position.set(p.x + dx, top, p.z + dz);
         scene.add(m);
     };
-    // Conference (B): meja rapat panjang di tengah (model meja rapat)
-    meetingModel(13, 4, 84, 7, 30);
-    // Office (D): dua meja (model meja + kursi) + terminal (konsol di atas meja)
-    deskModel(3, 11, 26, 7, 12);
-    deskModel(4, 14, 22, 7, 12, 4, 2);
-    monitorModel(3, 11, 6, 4, 1.5, 0, -3, 7);
-    // Supply (C): rak logam (model lemari) di dinding utara & timur
-    cupboardModel(24, 1, 90, 15, 8, 0, 2);
-    cupboardModel(27, 4, 8, 15, 40);
-    // Main Hall (G): krat (model) sebagai cover tersebar (jalur tengah terbuka)
-    propModel(buildFuturisticCrateMesh, 11, 12, 16, 9, 16);
-    propModel(buildFuturisticCrateMesh, 16, 17, 18, 9, 18);
-    propModel(buildFuturisticCrateMesh, 12, 18, 14, 8, 14, 2, 0);
-    // Security (H): meja monitor (model meja) + terminal + kabinet (model lemari)
-    deskModel(25, 11, 24, 7, 12);
-    cupboardModel(27, 14, 8, 16, 20, 4, 0);
-    monitorModel(25, 11, 6, 4, 1.5, 0, -3, 7);
-    // Break Room (E): sofa (model) + meja (model meja)
-    propModel(buildFuturisticSofaMesh, 3, 21, 20, 6, 18);
-    deskModel(4, 24, 16, 7, 12, 2, 2);
-    // Restroom (F): bilik (model kios/sekat) + deret wastafel (model)
-    propModel(buildFuturisticStallMesh, 9, 24, 2, 15, 24, 4, 4);
-    propModel(buildFuturisticSinkMesh, 11, 27, 16, 8, 4, 0, -1);
-    // Storage (I): dua baris rak (model lemari) + krat (celah c17-18 = pintu ke main hall)
-    cupboardModel(16, 24, 8, 16, 30, 0, 2);
-    cupboardModel(19, 24, 8, 16, 30, 0, 2);
-    propModel(buildFuturisticCrateMesh, 18, 27, 16, 9, 10);
+    // Furnitur DIROMBAK 2026-07-18 ke denah resmi (jauh dari pintu/bukaan aula).
+    // Conference (B) c9-19 r1-6: meja rapat panjang di tengah
+    meetingModel(14, 3, 84, 7, 30);
+    // Supply (C) c21-28 r1-6: rak logam (model lemari) di dinding utara & timur
+    cupboardModel(24, 1, 70, 15, 8, 0, 1);
+    cupboardModel(27, 4, 8, 15, 24);
+    // Office (D) c1-7 r8-16: dua meja (model meja + kursi) + terminal
+    deskModel(3, 10, 26, 7, 12);
+    deskModel(4, 13, 22, 7, 12, 2, 0);
+    monitorModel(3, 10, 6, 4, 1.5, 0, -3, 7);
+    // Main Hall (pusat) c9-20 r8-16: krat cover tersebar (jalur tengah terbuka)
+    propModel(buildFuturisticCrateMesh, 12, 10, 16, 9, 16);
+    propModel(buildFuturisticCrateMesh, 17, 13, 16, 9, 16);
+    propModel(buildFuturisticCrateMesh, 11, 15, 14, 8, 14);
+    // Security (H) c22-28 r8-16: meja monitor + terminal + kabinet
+    deskModel(25, 10, 24, 7, 12);
+    cupboardModel(27, 14, 8, 16, 20);
+    monitorModel(25, 10, 6, 4, 1.5, 0, -3, 7);
+    // Break Room (E) c1-7 r18-28: sofa + meja
+    propModel(buildFuturisticSofaMesh, 3, 20, 20, 6, 18);
+    deskModel(4, 25, 16, 7, 12, 2, 0);
+    // Restroom (F) c9-14 r21-28: bilik (sekat) + deret wastafel
+    propModel(buildFuturisticStallMesh, 10, 24, 2, 15, 18, 2, 0);
+    propModel(buildFuturisticSinkMesh, 11, 27, 10, 8, 4, 0, -1);
+    // Storage (I) c16-20 r21-28: rak + krat (sisakan jalur c18-20 ke pintu c21)
+    cupboardModel(17, 22, 8, 16, 16);
+    propModel(buildFuturisticCrateMesh, 18, 27, 12, 9, 10);
+    // End room (J) c22-28 r18-28: sebagian besar TERBUKA (jalur ke tangga); satu krat pinggir
+    propModel(buildFuturisticCrateMesh, 24, 19, 12, 9, 12);
     if (fur.length) {   // render sisa furnitur balok sbg satu instanced mesh (kini kosong: semua prop -> model)
         const unit = new THREE.BoxGeometry(1, 1, 1);
         const fMesh = new THREE.InstancedMesh(unit,
@@ -388,11 +402,11 @@ export function buildWorld() {
             axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(13, 20), top: 10, standable: true
         });
     };
-    mkStairs(3, 2, -1);     // START: tangga naik ke utara = jalur turun dari Lantai 3
-    mkStairs(26, 25, 1);    // END: tangga TURUN ke selatan = ke lantai bawah (stage 2)
+    mkStairs(3, 2, -1);     // START: tangga naik ke utara = jalur turun dari Lantai 3 (hijau)
+    mkStairs(25, 27, 1);    // END: tangga TURUN ke selatan = ke lantai bawah (stage 2) (kuning)
 
     // Papan EXIT hijau menyala di atas tangga keluar (kanan-bawah)
-    const exitP = s1Cell(26, 24);
+    const exitP = s1Cell(25, 26);
     const exitSign = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 1.2),
         new THREE.MeshBasicMaterial({ color: 0x2eff6a, toneMapped: false }));
     exitSign.position.set(exitP.x, S1.H - 4, exitP.z);
@@ -412,14 +426,15 @@ export function buildWorld() {
         return L;
     };
     addLamp(3, 3, 0xffd9a0, 0.9, 220);                           // stairwell/start
-    addLamp(13, 4, 0xffe2b8, 0.95, 320);                         // conference
+    addLamp(14, 3, 0xffe2b8, 0.95, 320);                         // conference
     addLamp(24, 3, 0xffd9a0, 0.9, 240);                          // supply room
     addLamp(3, 12, 0xffd9a0, 0.85, 220);                         // office
-    setS1FlickerLight(addLamp(14, 14, 0xffe2b8, 0.9, 340));      // main hall (berkedip)
+    setS1FlickerLight(addLamp(14, 12, 0xffe2b8, 0.9, 340));      // main hall (berkedip)
     addLamp(25, 12, 0xbfe4ff, 0.8, 240);                         // security (dingin kebiruan)
-    addLamp(3, 22, 0xffd9a0, 0.8, 220);                          // break room
-    addLamp(10, 26, 0xbfe4ff, 0.7, 200);                         // restroom
-    addLamp(18, 26, 0xffc890, 0.8, 240);                         // storage
+    addLamp(3, 23, 0xffd9a0, 0.8, 220);                          // break room
+    addLamp(11, 25, 0xbfe4ff, 0.7, 200);                         // restroom
+    addLamp(18, 25, 0xffc890, 0.8, 240);                         // storage
+    addLamp(25, 22, 0xffc890, 0.8, 240);                         // end room
     const exitLight = new THREE.PointLight(0x39ff7a, 0.85, 220, 2);
     exitLight.position.set(exitP.x, S1.H - 6, exitP.z);
     scene.add(exitLight);
@@ -439,15 +454,15 @@ export function buildWorld() {
 // Robot stage 1: 9 spot pada denah referensi [col, row, jumlah]. Tiap spot
 // men-spawn `n` robot di sekitar titiknya (jitter + resolve keluar furnitur).
 const S1_ROBOTS = [
-    [3, 8, 2],     // 1 koridor awal (sempit)
-    [3, 12, 3],    // 2 office
-    [3, 22, 4],    // 3 break room
-    [10, 26, 3],   // 4 restroom
-    [14, 15, 5],   // 5 main hall (area terbuka)
-    [24, 8, 4],    // 6 lorong dekat supply
-    [25, 12, 3],   // 7 security (ambush)
-    [18, 26, 3],   // 8 storage
-    [26, 24, 2],   // 9 dekat tangga keluar (serangan terakhir)
+    [14, 3, 3],    // 1 conference (tengah-atas)
+    [24, 3, 3],    // 2 supply room (kanan-atas)
+    [4, 12, 3],    // 3 office (kiri-tengah)
+    [14, 12, 5],   // 4 main hall (area terbuka)
+    [25, 12, 4],   // 5 security (kanan-tengah, ambush)
+    [4, 23, 3],    // 6 break room (kiri-bawah)
+    [11, 25, 3],   // 7 restroom (bawah-tengah)
+    [18, 25, 3],   // 8 storage (bawah-tengah)
+    [25, 24, 2],   // 9 dekat tangga keluar (serangan terakhir)
 ];
 export function placeRobots() {
     for (const [c, r, n] of S1_ROBOTS) {
@@ -472,14 +487,14 @@ export function placeSupplies() {
         scene.add(mesh);
         drops.push({ mesh, type, timer: 1e9 });
     };
-    // Supply Room (c21-28 r1-6; hindari rak dinding utara r1-2 & timur c27)
-    put('mag', 22, 3); put('mag', 23, 4, 4, 0);
-    put('mag', 24, 3); put('mag', 25, 4, 0, 4);
-    put('medkit', 23, 5); put('medkit', 25, 3, 6, 0);
-    // Bonus tersebar (sel lantai terbuka — sudah diverifikasi bebas furnitur)
-    put('mag', 2, 23);       // break room
-    put('medkit', 12, 25);   // restroom
-    put('mag', 20, 27);      // storage
+    // Supply Room (c21-28 r1-6; hindari rak dinding utara r1 & timur c27)
+    put('mag', 22, 3); put('mag', 23, 4);
+    put('mag', 24, 3); put('mag', 25, 4);
+    put('medkit', 23, 5); put('medkit', 25, 3);
+    // Bonus tersebar (sel lantai terbuka — bebas furnitur)
+    put('mag', 3, 22);       // break room
+    put('medkit', 11, 23);   // restroom (bagian atas, dekat pintu ke aula)
+    put('mag', 19, 27);      // storage
 }
 
 export const stage1Scene = {
@@ -500,6 +515,7 @@ export const stage1Scene = {
         const sp = s1Cell(S1_START.c, S1_START.r);
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
         camera.quaternion.set(0, 1, 0, 0);   // yaw 180° — hadap selatan (pintu lobby)
+        startMusic();   // musik latar in-game (mulai saat masuk Stage 1; TIDAK di intro/menu)
         hideStageMsg();
     },
 
@@ -551,11 +567,19 @@ export const stage1Scene = {
     },
 
     robotAI(z, dt, step) {
-        // Indoor: aktivasi butuh LOS grid (atau sangat dekat / tertembak)
-        return campaignRobotAI(z, dt, step, { walkable: stage1Walk, resolve, los: s1LOS, nav: s1Nav });
+        // Indoor: aktivasi butuh LOS grid (atau sangat dekat / tertembak).
+        // doorBlock: robot tak bisa menembus pintu TERTUTUP (2026-07-18).
+        return campaignRobotAI(z, dt, step, {
+            walkable: stage1Walk, resolve, los: s1LOS, nav: s1Nav,
+            doorBlock: (pos, r) => resolveDoors(s1doors, pos, r)
+        });
     },
 
-    clampRobot(z, oldX, oldZ) { campaignClampRobot(z, oldX, oldZ, { walkable: stage1Walk, resolve }); },
+    clampRobot(z, oldX, oldZ) {
+        campaignClampRobot(z, oldX, oldZ, {
+            walkable: stage1Walk, resolve, doorBlock: (pos, r) => resolveDoors(s1doors, pos, r)
+        });
+    },
 
     clampDropPos(x, z) { return [x, z]; },
 
