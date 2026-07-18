@@ -993,6 +993,16 @@ s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
         s4mod.stage4Walk(S.x, S.z, 4) && s4mod.stage4Walk(E.x, E.z, 4) && seen[er][ec]);
 }
 T('S4: nav-grid pathfinder terbangun', s4mod.stage4Scene.robotAI != null);
+T('S4: roadside occluders terdaftar (sistem fade objek penghalang aktif)', s4mod.occluderDebug().count > 15);
+{   // Parkiran dirapikan 2026-07-18: KONTAINER lama (OX+232,-165 = S4_START+242/+15)
+    // DIHAPUS -> titik itu kini area walkable bebas blocker (resolve tak menggeser).
+    const px = s4mod.S4_START.x + 242, pz = s4mod.S4_START.z + 15;
+    stateMod._v3.set(px, 0, pz);
+    s4mod.resolve(stateMod._v3, 4, 0);
+    T('S4: kontainer parkiran DIHAPUS (titik lama kini bebas blocker)',
+        s4mod.stage4Walk(px, pz, 4)
+        && Math.abs(stateMod._v3.x - px) < 1e-6 && Math.abs(stateMod._v3.z - pz) < 1e-6);
+}
 
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s4dropsBefore = stateMod.drops.length;

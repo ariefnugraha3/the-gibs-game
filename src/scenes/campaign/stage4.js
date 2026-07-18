@@ -19,7 +19,7 @@
 
 import { CFG } from '../../core/config.js';
 import { player, robots, drops, _v3, GEO, setCinematicActive } from '../../core/state.js';
-import { scene, camera, addCamShake, setCineFocus } from '../../core/renderer.js';
+import { scene, camera, addCamShake, setCineFocus, SCREEN_UP } from '../../core/renderer.js';
 import { setCineBars } from '../../core/dom.js';
 import { releaseInputs } from '../../core/input.js';
 import { spawnGroundPuff } from '../../entities/effects.js';
@@ -30,6 +30,7 @@ import { rand } from '../../utils/math.js';
 import { resolveBlockers, blockersGroundHeight } from '../../utils/collision.js';
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { applyLightPreset } from '../../world/lighting.js';
+import { makeFacadeTex, makeLitTex, makeCityMat, fillBuildingInstances, CITY_PALETTE } from '../../world/facades.js';
 import { showStageMsg, showPickup } from '../../core/dom.js';
 import { saveCampaignStage } from '../../core/saveGame.js';
 import { updateUI } from '../../core/hud.js';
@@ -40,7 +41,6 @@ import { spawnTank, updateTank, disposeTank, resolveTankBlock } from '../../enti
 import { buildMedkitMesh, buildMagMesh } from '../../entities/drops.js';
 import { buildFuturisticSUVMesh } from '../../entities/futuristicSUV.js';
 import { buildFuturisticSedanMesh } from '../../entities/futuristicSedan.js';
-import { buildFuturisticCrateMesh } from '../../entities/futuristicCrate.js';
 import { buildFuturisticBenchMesh } from '../../entities/futuristicBench.js';
 import { buildFuturisticPlanterMesh } from '../../entities/futuristicPlanter.js';
 import { buildFuturisticStallMesh } from '../../entities/futuristicStall.js';
@@ -58,7 +58,8 @@ const OX = 120000, OZ = 0;
 // KOMPLEKS ALUN-ALUN (SQ ~86×86 m): lapangan alun-alun (ALUN) dikelilingi
 // jalan RING 2 lajur selebar jalan raya (RING_W = 2×ROAD.hz). Seluruh SQ
 // (ring + alun) walkable; jalan raya tetap 2 lajur ~500 m.
-const ROAD = { x0: OX, x1: OX + 3500, cz: OZ, hz: 32 };                    // jalan 500 m, 2 lajur (|z|<=hz)
+// hz 38.5 => koridor 77 u: aspal 49 u (7 m = 2 lajur × 3.5 m) + trotoar 14 u (2 m) tiap sisi (2026-07-18, permintaan user).
+const ROAD = { x0: OX - 140, x1: OX + 3500, cz: OZ, hz: 38.5 };            // jalan 2 lajur; ujung barat DIPERPANJANG (2026-07-18) sampai mentok tepi barat parkiran (PARK.x0)
 const PARK = { x0: OX - 140, x1: OX + 280, z0: OZ - 220, z1: OZ - 10 };    // parkiran kecil (utara-barat)
 const SQ = { x0: OX + 3470, x1: OX + 4070, z0: OZ - 300, z1: OZ + 300 };   // kompleks alun-alun (ring + alun)
 const RING_W = 64;                                                          // lebar ring 2 lajur (= lebar jalan raya)
@@ -116,6 +117,54 @@ function slideUnion(pos, oldX, oldZ, r) {
 // boss muncul. gateBlocker DIBAKE ke nav-grid (dibangun saat build) — tak apa:
 // robot tak pernah perlu menyeberanginya (semuanya di barat gerbang).
 let roadGate = null, gateBlocker = null;
+
+// === OCCLUSION FADE (2026-07-18, permintaan user): objek dekor yg menutup garis
+// pandang kamera->player/robot dibuat semi-transparan (≈45%) supaya entitas tetap
+// terlihat; pulih opak saat tak menutup. Kamera dari BARAT-DAYA (SCREEN_UP =
+// timur-laut), jadi occluder = objek di sisi kamera (barat-daya) dari entitas &
+// cukup tinggi utk menutup garis pandang miring di titik itu. ===
+const occluders = [];
+function registerOccluder(obj, radius, top) {
+    const items = [], seen = new Set();
+    obj.traverse((m) => {
+        if (!m.material) return;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        for (const mat of mats) {
+            if (seen.has(mat)) continue;
+            seen.add(mat);
+            items.push({ mat, baseOp: (mat.opacity == null ? 1 : mat.opacity), baseTr: !!mat.transparent });
+        }
+    });
+    occluders.push({ x: obj.position.x, z: obj.position.z, radius, top, f: 1, items });
+}
+function updateOccluders(dt) {
+    if (!occluders.length) return;
+    const ux = -SCREEN_UP.x, uz = -SCREEN_UP.z;   // ke arah kamera (barat-daya), unit
+    const vx = SCREEN_UP.z, vz = -SCREEN_UP.x;     // tegak lurus (kanan layar), unit
+    const px = camera.position.x, pz = camera.position.z;
+    const hits = (o, ex, ez) => {
+        const dx = o.x - ex, dz = o.z - ez;
+        const along = dx * ux + dz * uz;                       // sejauh mana ke arah kamera
+        if (along < 3) return false;                            // objek harus DI DEPAN entitas (sisi kamera)
+        if (o.top < (7 + 1.09 * along) - 14) return false;      // terlalu pendek utk menutup garis pandang di titik itu
+        return Math.abs(dx * vx + dz * vz) < o.radius + 12;     // sejajar di layar
+    };
+    for (const o of occluders) {
+        let occ = hits(o, px, pz);
+        if (!occ) {
+            for (const z of robots) {
+                const rx = z.mesh.position.x, rz = z.mesh.position.z;
+                if (Math.abs(rx - px) > 320 || Math.abs(rz - pz) > 320) continue;   // hanya robot dekat/di layar
+                if (hits(o, rx, rz)) { occ = true; break; }
+            }
+        }
+        o.f += ((occ ? 0.45 : 1) - o.f) * Math.min(1, dt * 9);
+        const faded = o.f < 0.985;
+        for (const it of o.items) { it.mat.opacity = it.baseOp * o.f; it.mat.transparent = it.baseTr || faded; }
+    }
+}
+// Debug/uji: jumlah occluder terdaftar + faktor fade paling kecil saat ini.
+export const occluderDebug = () => ({ count: occluders.length, minF: occluders.reduce((a, o) => Math.min(a, o.f), 1) });
 
 export function buildWorld() {
     // --- Tanah dasar gelap (di bawah semua) ---
@@ -219,6 +268,51 @@ export function buildWorld() {
         scene.add(path);
     }
 
+    // --- TROTOAR (2026-07-18, permintaan user): strip beton datar selebar 1.5 m
+    //     (≈10.5 u) di KEDUA sisi jalan raya DAN mengapit jalan ring alun-alun
+    //     (tepi luar dekat tembok + tepi dalam dekat rumput). Murni dekor (beton
+    //     terang vs aspal gelap + garis kerb) — tanpa blocker, nav tak berubah. ---
+    const WALK_W = 14;   // 2 m × 7 u/m (2026-07-18, dilebarkan dari 1.5 m atas permintaan user)
+    const walkTex = makeTexture(128, 128, (g, w, h) => {
+        g.fillStyle = '#6f685c'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#645d52', '#7a7367', '#585248', '#6a6459'], 240, 1, 5);
+    }, 4, 4);
+    const walkMat = new THREE.MeshPhongMaterial({ map: walkTex, shininess: 4, specular: 0x141310 });
+    const curbMat = new THREE.MeshBasicMaterial({ color: 0xb8b1a1, toneMapped: false });
+    const sidewalk = (cx, cz, sx, sz) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), walkMat);
+        m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.045, cz); m.receiveShadow = true;
+        scene.add(m);
+    };
+    const curbLine = (cx, cz, sx, sz) => {   // garis kerb tipis (datar) di tepi jalan
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), curbMat);
+        m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.05, cz); scene.add(m);
+    };
+    // JALAN RAYA: trotoar sisi utara & selatan (berhenti di mulut kompleks alun).
+    {
+        const x0 = ROAD.x0, x1 = SQ.x0, mid = (x0 + x1) / 2, len = x1 - x0;
+        sidewalk(mid, -ROAD.hz + WALK_W / 2, len, WALK_W);   // sisi utara
+        sidewalk(mid, ROAD.hz - WALK_W / 2, len, WALK_W);    // sisi selatan
+        curbLine(mid, -ROAD.hz + WALK_W, len, 1.4);
+        curbLine(mid, ROAD.hz - WALK_W, len, 1.4);
+    }
+    // RING ALUN-ALUN: trotoar tepi LUAR (dekat tembok keliling) & tepi DALAM
+    // (mengelilingi lapangan rumput); bukaan gerbang barat (|z|<=ROAD.hz) dilewati.
+    {
+        const cx = (SQ.x0 + SQ.x1) / 2, cz = (SQ.z0 + SQ.z1) / 2;
+        const W = SQ.x1 - SQ.x0, H = SQ.z1 - SQ.z0;
+        sidewalk(cx, SQ.z0 + WALK_W / 2, W, WALK_W);                       // luar utara
+        sidewalk(cx, SQ.z1 - WALK_W / 2, W, WALK_W);                       // luar selatan
+        sidewalk(SQ.x1 - WALK_W / 2, cz, WALK_W, H - 2 * WALK_W);          // luar timur
+        sidewalk(SQ.x0 + WALK_W / 2, (SQ.z0 - ROAD.hz) / 2, WALK_W, -ROAD.hz - SQ.z0);   // luar barat (utara bukaan)
+        sidewalk(SQ.x0 + WALK_W / 2, (ROAD.hz + SQ.z1) / 2, WALK_W, SQ.z1 - ROAD.hz);    // luar barat (selatan bukaan)
+        const aw = ALUN.x1 - ALUN.x0, ah = ALUN.z1 - ALUN.z0;
+        sidewalk(cx, ALUN.z0 - WALK_W / 2, aw + 2 * WALK_W, WALK_W);       // dalam utara
+        sidewalk(cx, ALUN.z1 + WALK_W / 2, aw + 2 * WALK_W, WALK_W);       // dalam selatan
+        sidewalk(ALUN.x0 - WALK_W / 2, cz, WALK_W, ah);                    // dalam barat
+        sidewalk(ALUN.x1 + WALK_W / 2, cz, WALK_W, ah);                    // dalam timur
+    }
+
     // --- Tembok/gedung keliling (VISUAL saja; batas gameplay = clamp union) ---
     const wallTex = makeTexture(64, 64, (g, w, h) => {
         g.fillStyle = '#4a4640'; g.fillRect(0, 0, w, h);
@@ -235,10 +329,11 @@ export function buildWorld() {
     // Gedung parkiran (utara): dua segmen dgn CELAH pintu keluar di START
     addWall((PARK.x0 + (S4_START.x - 55)) / 2, PARK.z0 - T / 2, (S4_START.x - 55) - PARK.x0, T, 90);
     addWall(((S4_START.x + 55) + PARK.x1) / 2, PARK.z0 - T / 2, PARK.x1 - (S4_START.x + 55), T, 90);
-    addWall(PARK.x0 - T / 2, (PARK.z0 + PARK.z1) / 2, T, PARK.z1 - PARK.z0, 80);          // barat parkiran
-    addWall(PARK.x1 + T / 2, (PARK.z0 - ROAD.hz) / 2, T, -ROAD.hz - PARK.z0, 60);         // timur parkiran (turun ke bahu jalan)
-    addWall((PARK.x1 + SQ.x0) / 2, -ROAD.hz - T / 2, SQ.x0 - PARK.x1, T, 40);             // utara jalan (timur parkiran -> alun)
-    addWall((ROAD.x0 + SQ.x0) / 2, ROAD.hz + T / 2, SQ.x0 - ROAD.x0, T, 40);              // selatan jalan (barat alun)
+    addWall(PARK.x0 - T / 2, (PARK.z0 + PARK.z1) / 2, T, PARK.z1 - PARK.z0, 80);          // barat parkiran (backing gedung)
+    // TEMBOK JALAN RAYA DIHAPUS 2026-07-18 (permintaan user — jelek): sisi utara &
+    // selatan jalan + timur parkiran kini TERBUKA ke pemandangan kota. Batas
+    // gameplay = clamp union (stage4Walk) yg TAK TERLIHAT — player berhenti tepat
+    // di tepi trotoar/parkiran, tak bisa keluar ke area dekor.
     // Keliling kompleks ALUN-ALUN: utara/timur/selatan penuh; barat dua segmen
     // dgn BUKAAN selebar jalan (|z|<=hz) = mulut ring tempat jalan raya masuk.
     addWall((SQ.x0 + SQ.x1) / 2, SQ.z0 - T / 2, SQ.x1 - SQ.x0, T, 60);                    // utara alun
@@ -277,11 +372,12 @@ export function buildWorld() {
     const addBlockerBox = (x, z, hx, hz, top, standable) => {
         blockers.push({ x, z, hx, hz, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(hx, hz), top, standable });
     };
-    // Model mobil MEMANJANG di sumbu-X saat yaw 0 -> blocker MENGIKUTI orientasi
-    // (penting utk jalan sempit 2 lajur: mobil sejajar jalan hanya memblokir
-    // ~20 u dari lebar 64 u; mobil melintang/parkir memblokir memanjang di z).
+    // Builder futuristic* mengembalikan mesh dgn PANJANG bodi di sumbu Z pada
+    // yaw 0 (moncong = -Z). Jadi yaw 0/π = moncong UTARA-SELATAN (memanjang Z,
+    // utk parkir NOSE-IN), yaw ±π/2 = memanjang X (sejajar jalan). Blocker
+    // mengikuti orientasi ASLI model ini (dulu terbalik → mobil parkir salah hadap).
     const carHalf = (yaw, hLong, hShort) =>
-        Math.abs(Math.sin(yaw)) > 0.5 ? [hShort, hLong] : [hLong, hShort];
+        Math.abs(Math.sin(yaw)) > 0.5 ? [hLong, hShort] : [hShort, hLong];
     const mkCar = (x, z, yaw) => {
         // model SUV futuristik (entities/futuristicSUV.js), warna divariasikan
         const car = buildFuturisticSUVMesh(CAR_SCALE, SUV_PALETTE[(Math.random() * SUV_PALETTE.length) | 0]);
@@ -290,6 +386,7 @@ export function buildWorld() {
         scene.add(car);
         const [hx, hz] = carHalf(yaw, 17, 10);
         addBlockerBox(x, z, hx, hz, 9, false);
+        registerOccluder(car, 18, 16);   // mobil memudar saat menutup player/robot
     };
     const mkSedan = (x, z, yaw) => {
         // model sedan futuristik (entities/futuristicSedan.js) — lebih pendek/ceper
@@ -299,6 +396,7 @@ export function buildWorld() {
         scene.add(car);
         const [hx, hz] = carHalf(yaw, 15, 9);
         addBlockerBox(x, z, hx, hz, 7, false);
+        registerOccluder(car, 16, 14);
     };
     const mkBus = (x, z) => {   // bus mogok SEJAJAR jalan (memanjang X)
         const bus = new THREE.Group();
@@ -310,13 +408,7 @@ export function buildWorld() {
         bus.position.set(x, 0, z); bus.rotation.y = rand(-0.08, 0.08);
         scene.add(bus);
         addBlockerBox(x, z, 36, 12, 16, false);
-    };
-    const mkContainer = (x, z) => {
-        const box = new THREE.Mesh(new THREE.BoxGeometry(46, 26, 26),
-            new THREE.MeshLambertMaterial({ color: 0x3f6b4a }));
-        box.position.set(x, 13, z); box.castShadow = true; box.receiveShadow = true;
-        scene.add(box);
-        addBlockerBox(x, z, 23, 13, 26, false);
+        registerOccluder(bus, 38, 18);
     };
     const mkBarrier = (x, z, sx) => {   // pembatas beton rendah di BAHU jalan (bisa dipijak)
         const m = new THREE.Mesh(new THREE.BoxGeometry(sx, 9, 10),
@@ -325,13 +417,78 @@ export function buildWorld() {
         scene.add(m);
         addBlockerBox(x, z, sx / 2, 5, 9, true);
     };
-    // Parkiran KECIL (60×30 m): baris parkir dekat tembok utara + rongsokan
-    mkSedan(OX + 60, OZ - 186, 1.52);      // baris utara (moncong ke tembok)
-    mkCar(OX + 170, OZ - 183, 1.48);
-    mkCar(OX - 60, OZ - 100, 0.12);        // rongsok tersebar
-    mkSedan(OX + 200, OZ - 95, 1.35);
-    mkSedan(OX + 90, OZ - 48, 0.9);        // dekat mulut jalan
-    mkContainer(OX + 232, OZ - 165);       // spot 4 tumpukan barang (sudut timur)
+    // === PARKIRAN (dirombak 2026-07-18, permintaan user — dirapikan mirip foto
+    //     referensi): petak parkir bermarka + mobil berjajar rapi + wheel-stop
+    //     (pembatas) + panah arah; KONTAINER & tumpukan krat DIHAPUS. ===
+    const bayLineMat = new THREE.MeshBasicMaterial({ color: 0xd8d2be, toneMapped: false });
+    const BAY_W = 30, BAY_D = 36;
+    const bayLine = (cx, cz) => {   // garis petak (membujur Z = ⟂ jalan; petak nose-in)
+        const ln = new THREE.Mesh(new THREE.PlaneGeometry(2, BAY_D), bayLineMat);
+        ln.rotation.x = -Math.PI / 2; ln.position.set(cx, 0.05, cz); scene.add(ln);
+    };
+    const stopMat = new THREE.MeshPhongMaterial({ color: 0x8f887c, shininess: 6, specular: 0x141310 });
+    const wheelStop = (cx, cz) => {   // pembatas beton rendah di ujung petak (sejajar jalan)
+        const m = new THREE.Mesh(new THREE.BoxGeometry(16, 3.5, 4), stopMat);
+        m.position.set(cx, 1.75, cz); m.castShadow = true; m.receiveShadow = true; scene.add(m);
+    };
+    // KISI PETAK SERAGAM (2026-07-18, permintaan user "luruskan & serasikan"):
+    // SEMUA deret memakai KISI-X yang SAMA -> garis petak SEJAJAR & sekolom LURUS
+    // antar-deret (dulu tiap deret pakai offset X sendiri = terlihat zigzag).
+    // 14 petak dari tepi barat parkiran (PARK.x0) ke tepi timur (PARK.x1).
+    const BAY_X0 = OX - 125, BAY_N = 14;
+    const bayCenter = (i) => BAY_X0 + i * BAY_W;
+    // Gambar SATU deret di kisi: garis pembatas kiri + wheel-stop tiap petak,
+    // isi mobil via carFn(cx,i) (null = petak KOSONG tetap bermarka+wheel-stop),
+    // lewati indeks di `skip` (celah pintu). Garis penutup di ujung tiap segmen.
+    const buildBayRow = (rowZ, stopZ, carFn, skip) => {
+        for (let i = 0; i < BAY_N; i++) {
+            if (skip && skip.has(i)) continue;
+            const cx = bayCenter(i);
+            bayLine(cx - BAY_W / 2, rowZ);
+            wheelStop(cx, stopZ);
+            const mk = carFn && carFn(cx, i);
+            if (mk) mk();
+            if (i === BAY_N - 1 || (skip && skip.has(i + 1))) bayLine(cx + BAY_W / 2, rowZ);
+        }
+    };
+    // DERET UTARA (moncong ke tembok, yaw 0): wheel-stop DEKAT TEMBOK, mobil tepat
+    // di depannya; 3 petak di celah pintu keluar gedung = KOSONG total (biar player keluar).
+    const NROW_Z = OZ - 198, NROW_STOP = OZ - 214;
+    const DOOR_BAYS = new Set([3, 4, 5]);   // pusat -35/-5/+25 (celah pintu OX-65..OX+45)
+    buildBayRow(NROW_Z, NROW_STOP,
+        (cx, i) => () => (i % 2 ? mkSedan : mkCar)(cx, NROW_Z, rand(-0.02, 0.02)), DOOR_BAYS);
+    // DERET SELATAN: sisi timur berisi mobil (moncong ke selatan, yaw π), sisanya
+    // PETAK KOSONG — TETAP bermarka + wheel-stop (permintaan user: petak kosong
+    // pun berpembatas). Satu KISI = kolom garis lurus sejajar deret utara.
+    // GAP KELUAR-MASUK MOBIL (2026-07-18, permintaan user): 2 petak paling BARAT
+    // (0,1) & 2 petak paling TIMUR (12,13) DIHAPUS total (tanpa marka/wheel-stop)
+    // = jalur mobil masuk/keluar parkiran di kedua ujung.
+    const SROW_Z = OZ - 70, SROW_STOP = OZ - 52;
+    const SOUTH_CARS = new Set([9, 10, 11]);   // pusat 145/175/205
+    const SROW_GAPS = new Set([0, 1, 12, 13]);
+    buildBayRow(SROW_Z, SROW_STOP,
+        (cx, i) => SOUTH_CARS.has(i) ? () => (i % 2 ? mkCar : mkSedan)(cx, SROW_Z, Math.PI + rand(-0.02, 0.02)) : null,
+        SROW_GAPS);
+    // Panah arah LURUS ke timur (+X) di aisle menuntun keluar ke jalan raya.
+    const arrowTex = makeTexture(64, 64, (g, w, h) => {
+        g.clearRect(0, 0, w, h);
+        g.fillStyle = 'rgba(206,200,180,0.85)';
+        g.beginPath();
+        g.moveTo(w * 0.18, h * 0.40); g.lineTo(w * 0.58, h * 0.40); g.lineTo(w * 0.58, h * 0.26);
+        g.lineTo(w * 0.86, h * 0.50); g.lineTo(w * 0.58, h * 0.74); g.lineTo(w * 0.58, h * 0.60);
+        g.lineTo(w * 0.18, h * 0.60); g.closePath(); g.fill();
+    }, 1, 1);
+    const arrowMat = new THREE.MeshBasicMaterial({ map: arrowTex, transparent: true, toneMapped: false, depthWrite: false });
+    const addArrow = (ax, az, heading = 0) => {   // heading rad: 0 = timur (+X); -π/2 = SELATAN (+Z, ke jalan)
+        const grp = new THREE.Group();
+        const a = new THREE.Mesh(new THREE.PlaneGeometry(32, 20), arrowMat);
+        a.rotation.x = -Math.PI / 2; grp.add(a);
+        grp.position.set(ax, 0.06, az); grp.rotation.y = heading; scene.add(grp);
+    };
+    addArrow(OX + 10, OZ - 134, 0);              // aisle -> timur
+    addArrow(OX + 140, OZ - 134, 0);
+    addArrow(OX + 160, OZ - 105, -Math.PI / 2);  // DIPINDAH 2026-07-18 ke tengah aisle -> SELATAN, membelok ke jalan
+    addArrow(OX + 420, OZ - 8, 0);               // di jalan raya -> timur
     // Jalan 2 LAJUR (TANPA median): rongsokan slalom bergantian bahu utara/selatan,
     // mayoritas SEJAJAR jalan supaya tiap wreck menyisakan satu lajur lolos.
     mkSedan(OX + 420, OZ - 14, 0.08);
@@ -371,26 +528,49 @@ export function buildWorld() {
     mkPropDecor(buildFuturisticPlanterMesh, ALUN.x0 + 24, ALUN.z1 - 24, 26, 34, 26);
     mkPropDecor(buildFuturisticPlanterMesh, ALUN.x1 - 24, ALUN.z1 - 24, 26, 34, 26);
     mkPropDecor(buildFuturisticStallMesh, S4_END.x, SQ.z0 + RING_W + 18, 44, 40, 28);
-    // Parkiran: tumpukan KRAT (cover) di samping kontainer barang (spot 4).
-    mkPropCover(buildFuturisticCrateMesh, OX + 190, OZ - 130, 24, 24, 24, true);
-    mkPropCover(buildFuturisticCrateMesh, OX + 165, OZ - 105, 20, 20, 20, true, 0.4);
     // Jalan: PUING runtuhan (cover) menempel tembok UTARA (lajur selatan terbuka).
     mkPropCover(buildFuturisticRubbleMesh, OX + 1500, OZ - 24, 40, 14, 24, true);
 
-    // --- Lampu jalan (atmosfer malam) ---
-    const lampFix = new THREE.MeshBasicMaterial({ color: 0xffe6b0, toneMapped: false });
-    const addLamp = (x, z, color, inten, dist) => {
+    // --- Lampu jalan BERTIANG (2026-07-18: tiang tinggi + lengan + kepala LED,
+    //     mirip foto referensi) — DEKORASI (tanpa blocker), ditaruh di tepi. ---
+    const poleMat = new THREE.MeshPhongMaterial({ color: 0x2b2d31, shininess: 30, specular: 0x3a3d42 });
+    const headMat = new THREE.MeshBasicMaterial({ color: 0xffe8bf, toneMapped: false });
+    // arm = sudut lengan (rad): -π/2 = MENGHADAP JALAN (selatan), π = menghadap
+    // barat; null = kepala di atas tiang (tanpa lengan). Kepala+lampu = anak grup
+    // -> ikut berputar dgn lengan (jadi cahaya menyorot ke arah yg dihadapi).
+    const addLamp = (x, z, color, inten, dist, arm = -Math.PI / 2) => {
+        const g = new THREE.Group();
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.9, 54, 8), poleMat);   // DIKECILKAN 2026-07-18 (dulu 74, terlalu tinggi/besar)
+        pole.position.y = 27; pole.castShadow = true; g.add(pole);
+        const hasArm = arm !== null && arm !== undefined;
+        const hx = hasArm ? 14 : 0;
+        if (hasArm) {
+            const a = new THREE.Mesh(new THREE.BoxGeometry(15, 1.8, 1.8), poleMat);
+            a.position.set(7, 52, 0); g.add(a);
+        }
+        const head = new THREE.Mesh(new THREE.BoxGeometry(9, 2.6, 5), headMat);
+        head.position.set(hx, hasArm ? 51 : 55, 0); g.add(head);
         const L = new THREE.PointLight(color, inten, dist, 2);
-        L.position.set(x, 60, z); scene.add(L);
-        const fix = new THREE.Mesh(new THREE.BoxGeometry(5, 5, 5), lampFix);
-        fix.position.set(x, 60, z); scene.add(fix);
+        L.position.set(hx, hasArm ? 49.5 : 53, 0); g.add(L);
+        g.position.set(x, 0, z);
+        if (hasArm) g.rotation.y = arm;
+        scene.add(g);
     };
-    addLamp(OX + 60, OZ - 120, 0xffe0a0, 0.7, 420);    // parkiran
-    addLamp(OX + 220, OZ - 120, 0xffe0a0, 0.7, 420);
-    addLamp(OX + 500, OZ - 44, 0xfff0c0, 0.6, 460);    // bahu utara jalan
-    addLamp(OX + 1400, OZ - 44, 0xfff0c0, 0.6, 460);
-    addLamp(OX + 2300, OZ - 44, 0xfff0c0, 0.6, 460);
-    addLamp(S4_END.x, S4_END.z, 0xbfe4ff, 0.8, 620);   // pusat alun-alun
+    // Parkiran: tiang tepi utara, lengan MENGHADAP JALAN (selatan) menyorot aisle
+    addLamp(OX - 100, OZ - 216, 0xffe0a0, 0.7, 440);
+    addLamp(OX + 130, OZ - 216, 0xffe0a0, 0.7, 440);
+    addLamp(OX + 220, OZ - 216, 0xffe0a0, 0.7, 440);
+    addLamp(OX + 276, OZ - 44, 0xffe0a0, 0.6, 420, Math.PI);   // sudut tenggara, lengan ke mulut jalan (barat)
+    // JALAN RAYA (2026-07-18, permintaan user): lampu jalan berselang di KEDUA
+    // bahu sepanjang jalan (di trotoar), lengan menghadap ke aspal — selayaknya
+    // lampu jalan raya. Utara -> lengan ke selatan; selatan -> lengan ke utara.
+    for (let k = 0, x = ROAD.x0 + 260; x < SQ.x0 - 150; x += 600, k++) {
+        const north = (k % 2 === 0);
+        addLamp(x, north ? -ROAD.hz + 3 : ROAD.hz - 3, 0xfff0c0, 0.6, 480, north ? -Math.PI / 2 : Math.PI / 2);
+    }
+    addLamp(S4_END.x, S4_END.z, 0xbfe4ff, 0.8, 640, null);   // pusat alun-alun (kepala di atas)
+
+    buildRoadside();   // gedung/toko/rumah/warung/pohon/pagar/JPO Jakarta di kiri-kanan jalan (dekor)
 
     // --- Nav-grid pathfinder atas union (cover di-bake lewat resolve) ---
     const gx0 = PARK.x0 - 20, gx1 = SQ.x1 + 20, gz0 = SQ.z0 - 20, gz1 = SQ.z1 + 20;
@@ -403,6 +583,119 @@ export function buildWorld() {
             resolve(_v3, 3.5, 0);
             return Math.abs(_v3.x - x) + Math.abs(_v3.z - z) < 0.01;
         });
+}
+
+// === JAKARTA ROADSIDE (2026-07-18, permintaan user): gedung/toko/rumah/warung/
+// pohon/pagar/JPO di KIRI-KANAN jalan raya supaya betul-betul terasa jalan kota
+// Jakarta. SEMUA di LUAR tembok koridor (murni dekor — TANPA blocker/nav, jadi
+// konektivitas/BFS tak berubah). Sisi SELATAN (arah kamera) = individual +
+// didaftarkan occluder (memudar saat menutup entitas); sisi UTARA = skyline latar
+// (instanced, di belakang entitas = tak pernah menutup). ===
+function buildRoadside() {
+    const RX0 = ROAD.x0 + 20, RX1 = SQ.x0 - 20, LEN = RX1 - RX0;
+    const NX0 = PARK.x1 + 30;   // dekor sisi UTARA mulai di TIMUR parkiran (JANGAN masuk area parkiran)
+    const facadeTex = makeFacadeTex();
+
+    // --- Verge (tanah tepi) hijau kecoklatan; sisi UTARA mulai timur parkiran ---
+    const vergeTex = makeTexture(128, 128, (g, w, h) => {
+        g.fillStyle = '#2b3320'; g.fillRect(0, 0, w, h);
+        speckle(g, w, h, ['#25301c', '#343d26', '#20281a', '#2e3722'], 240, 1, 4);
+    }, 20, 4);
+    const vergeMat = new THREE.MeshPhongMaterial({ map: vergeTex, shininess: 2, specular: 0x0a0f08 });
+    const vergePlane = (x0, x1, s) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0 + 120, 300), vergeMat);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set((x0 + x1) / 2, 0.006, s * (ROAD.hz + 150));
+        m.receiveShadow = true; scene.add(m);
+    };
+    vergePlane(RX0, RX1, 1);     // selatan penuh
+    vergePlane(NX0, RX1, -1);    // utara mulai timur parkiran
+
+    // --- Pepohonan (instanced) di verge dekat trotoar (utara mulai timur parkiran) ---
+    const foliageMat = new THREE.MeshLambertMaterial({ color: 0x2f4a24 });
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3a2c1e });
+    const coneGeo = new THREE.ConeGeometry(1, 1, 7), trunkGeo = new THREE.CylinderGeometry(0.5, 0.7, 1, 6);
+    const trees = [];
+    for (let x = RX0; x < RX1; x += 58) { if (Math.random() < 0.4) continue; trees.push({ x: x + rand(-10, 10), z: (ROAD.hz + 24) + rand(-5, 5) }); }   // selatan
+    for (let x = NX0; x < RX1; x += 58) { if (Math.random() < 0.4) continue; trees.push({ x: x + rand(-10, 10), z: -(ROAD.hz + 24) + rand(-5, 5) }); }   // utara
+    const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(),
+        _p = new THREE.Vector3(), _sc = new THREE.Vector3();
+    _q.setFromEuler(_e);
+    const fol = new THREE.InstancedMesh(coneGeo, foliageMat, trees.length);
+    const trk = new THREE.InstancedMesh(trunkGeo, trunkMat, trees.length);
+    trees.forEach((t, i) => {
+        const hgt = rand(26, 40), r = rand(7, 10);
+        _m.compose(_p.set(t.x, hgt * 0.62, t.z), _q, _sc.set(r, hgt * 0.72, r)); fol.setMatrixAt(i, _m);
+        _m.compose(_p.set(t.x, hgt * 0.2, t.z), _q, _sc.set(2.2, hgt * 0.42, 2.2)); trk.setMatrixAt(i, _m);
+    });
+    fol.frustumCulled = false; trk.frustumCulled = false; scene.add(fol); scene.add(trk);
+
+    // --- Skyline sisi UTARA (instanced, tinggi) = gedung latar di belakang jalan ---
+    const cityMat = makeCityMat(facadeTex, makeLitTex());
+    const bg = [];
+    for (let x = NX0; x < RX1 + 80; x += rand(64, 104)) {   // mulai TIMUR parkiran
+        for (const row of [96, 200]) {
+            if (Math.random() < 0.28) continue;
+            const tall = row > 150;
+            bg.push({
+                x: x + rand(-14, 14), z: -(ROAD.hz + row) + rand(-16, 16),
+                w: rand(48, 92), d: rand(44, 78), h: tall ? rand(200, 360) : rand(110, 220),
+                ry: rand(-0.04, 0.04), rz: 0, color: CITY_PALETTE[(Math.random() * CITY_PALETTE.length) | 0]
+            });
+        }
+    }
+    fillBuildingInstances(scene, bg, cityMat);
+
+    // --- Ruko/toko/rumah sisi SELATAN (individual = OCCLUDER, memudar saat menutup) ---
+    const rukoCols = [0x8a7f6a, 0x9a5a4a, 0x6a7a5a, 0x7a6a8a, 0xb0a48a, 0x5a6a7a, 0xa88a5a, 0x86603f];
+    const canopyCols = [0xc0503a, 0x3a7a5a, 0x4a5a8a, 0xb8863a];
+    for (let x = RX0; x < RX1; x += rand(60, 92)) {
+        const w = rand(38, 58), d = rand(32, 50), hgt = rand(38, 118);
+        const bx = x + w / 2, bz = ROAD.hz + 26 + d / 2 + rand(0, 24);
+        const mat = new THREE.MeshLambertMaterial({ color: rukoCols[(Math.random() * rukoCols.length) | 0], map: facadeTex });
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, d), mat);
+        m.position.set(bx, hgt / 2, bz); m.castShadow = true; m.receiveShadow = true; scene.add(m);
+        const can = new THREE.Mesh(new THREE.BoxGeometry(w + 4, 2, 8),
+            new THREE.MeshLambertMaterial({ color: canopyCols[(Math.random() * canopyCols.length) | 0] }));
+        can.position.set(bx, 12, bz - d / 2 - 3); scene.add(can);
+        registerOccluder(m, Math.hypot(w, d) / 2, hgt);
+    }
+
+    // --- Warung kecil (occluder pendek) di verge selatan dekat jalan ---
+    for (let k = 0; k < 6; k++) {
+        const x = RX0 + rand(120, LEN - 120), wg = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(20, 13, 13), new THREE.MeshLambertMaterial({ color: 0x8a7a5a }));
+        body.position.y = 6.5; wg.add(body);
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(24, 2, 17), new THREE.MeshLambertMaterial({ color: canopyCols[k % canopyCols.length] }));
+        roof.position.y = 14.5; wg.add(roof);
+        wg.position.set(x, 0, ROAD.hz + 16);
+        scene.add(wg);
+        registerOccluder(wg, 13, 15);
+    }
+
+    // --- Pagar (fence) rendah di tepi selatan ---
+    const fenceMat = new THREE.MeshLambertMaterial({ color: 0x54504a });
+    for (let x = RX0; x < RX1; x += 110) {
+        const f = new THREE.Mesh(new THREE.BoxGeometry(84, 8, 1.6), fenceMat);
+        f.position.set(x + 42, 4, ROAD.hz + 11); scene.add(f);
+    }
+
+    // --- JPO (jembatan penyeberangan orang) menyeberang jalan (2 titik) ---
+    const jMat = new THREE.MeshLambertMaterial({ color: 0x6a6a72 });
+    const jDeckMat = new THREE.MeshLambertMaterial({ color: 0x80808a });
+    for (const jx of [RX0 + LEN * 0.4, RX0 + LEN * 0.78]) {
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(9, 3, ROAD.hz * 2 + 48), jDeckMat);
+        deck.position.set(jx, 52, 0); scene.add(deck);
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(11, 1.4, ROAD.hz * 2 + 48), jMat);
+        roof.position.set(jx, 60, 0); scene.add(roof);
+        for (const s of [-1, 1]) {
+            const col = new THREE.Mesh(new THREE.BoxGeometry(5, 52, 5), jMat);
+            col.position.set(jx, 26, s * (ROAD.hz + 18)); scene.add(col);
+            const tower = new THREE.Mesh(new THREE.BoxGeometry(13, 52, 15), jMat);
+            tower.position.set(jx, 26, s * (ROAD.hz + 42)); tower.castShadow = true; scene.add(tower);
+            if (s > 0) registerOccluder(tower, 13, 52);   // menara sisi kamera = occluder
+        }
+    }
 }
 
 // Robot stage 4: 13 spot denah [x, z, jumlah] (relatif OX/OZ) + kelas.
@@ -713,6 +1006,7 @@ export const stage4Scene = {
     // -> CUTSCENE (tank datang dari utara, menghancurkan heli, parkir di depan
     // bangkai) -> duel; tank hancur -> MISSION COMPLETE setelah jeda singkat.
     updateMode(dt) {
+        updateOccluders(dt);   // objek penghalang -> semi-transparan (2026-07-18)
         if (heli) updateHelicopter(heli, dt);   // rotor berputar / asap bangkai
         if (!heliSpawned) {
             if (countStageRobots(4) === 0) heliArrives();   // semua robot normal habis
