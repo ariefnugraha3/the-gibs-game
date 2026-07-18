@@ -605,6 +605,23 @@ T('weaponDamage Lv3 = +' + pctUp * 200 + '%', Math.abs(wMod.weaponDamage('pistol
 stateMod.configurePlayer();
 T('configurePlayer reset level ke 1', player.weaponLvl.pistol === 1);
 
+// --- 8a2. MEDKIT PAKAI SEKETIKA (2026-07-18): tombol 4 -> useMedkit() langsung
+//     sembuh medkitHealPct, kurangi stok; ditolak saat stok 0 / HP penuh. ---
+{
+    const healPct = cfgMod.CFG.player.medkitHealPct;
+    player.maxHp = 100; player.hp = 20; player.medkits = 2;
+    wMod.useMedkit();
+    const expect = Math.min(100, 20 + Math.round(100 * healPct));
+    T('useMedkit: HP sembuh medkitHealPct + stok -1 (seketika, tanpa channel)',
+        player.hp === expect && player.medkits === 1);
+    player.hp = 100; player.medkits = 1;
+    wMod.useMedkit();
+    T('useMedkit: HP sudah penuh -> tak dipakai (stok tetap)', player.medkits === 1 && player.hp === 100);
+    player.hp = 50; player.medkits = 0;
+    wMod.useMedkit();
+    T('useMedkit: stok 0 -> tak ada penyembuhan', player.hp === 50 && player.medkits === 0);
+}
+
 // --- 8b. explodeAt memakai dmg param (plumbing boom launcher ber-level) ---
 const zX = mkBot('C', 500, 500); robots.push(zX);
 const hpX = zX.hp;
@@ -1068,7 +1085,22 @@ T('S4 cutscene: menginjak ring road -> sinematik aktif + input player dibekukan'
         && stateMod.cinematicActive === false
         && s4mod.currentTank() != null && s4mod.currentTank().phase === 'battle');
 }
+// API BERKOBAR (2026-07-18): bangkai heli MENYALA sepanjang sisa Stage 4 (lidah
+// api dianimasikan updateHelicopter). Cairan/gib heli HITAM, BUKAN coolant hijau.
+T('S4: bangkai heli BERKOBAR (lidah api menyala) setelah dihancurkan',
+    s4heli.wrecked && Array.isArray(s4heli.flames) && s4heli.flames.length > 0
+    && s4heli.flames[0].spr.isSprite === true);
+{
+    const y0 = s4heli.flames[0].spr.scale.y;
+    for (let i = 0; i < 6; i++) s4mod.stage4Scene.updateMode(0.05);
+    T('S4: lidah api berkedip (skala/opasitas berubah antar-frame, api tetap ada)',
+        s4heli.flames[0].spr.scale.y !== y0 && s4heli.flames.length > 0);
+}
 const s4tank = s4mod.currentTank();
+// TANK DIKECILKAN (2026-07-18, permintaan user): skala grup < 1 (proporsional
+// thd karakter/robot/heli); bodyRadius/hitRadius CFG diturunkan seukuran.
+T('S4: tank dikecilkan sedikit (skala grup < 1)',
+    s4tank.parts.group.scale.x < 1 && s4tank.parts.group.scale.x > 0.5);
 T('S4: tank parkir di DEPAN bangkai heli (home = S4_BOSS, bukan pusat alun)',
     s4tank.homeX === s4mod.S4_BOSS.x && s4tank.homeZ === s4mod.S4_BOSS.z
     && (s4mod.S4_BOSS.x !== s4mod.S4_END.x || s4mod.S4_BOSS.z !== s4mod.S4_END.z)
@@ -1486,10 +1518,18 @@ while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.s
 // kematian tank + jeda WIN_DELAY singkat di updateMode).
 stateMod.setGameOver(false);
 T('S4: belum MISSION COMPLETE selagi tank hidup', stateMod.isGameOver === false);
+// PROYEKTIL LENYAP saat tank hancur (2026-07-18): shell/mortar terbang + peluru
+// MG (enemyBullets) dibuang seketika supaya bangkai tak bisa lagi melukai player.
+while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
+s4tank.shells.push({ mesh: new THREE.Mesh(), dirx: 1, dirz: 0, speed: 7, tx: 9e9, tz: 0, travelled: 0, dist: 9e9, life: 220, id: 999 });   // seed shell terbang (mock, jauh dari mendarat)
+s4tank.mortars.push({ mesh: new THREE.Mesh(), vx: 0, vz: 0, vy: 50, g: 90, landY: 5, tLeft: 5, trailT: 1, life: 300, id: 998 });
+enemyBullets.push({ mesh: new THREE.Mesh(), dir: new THREE.Vector3(1, 0, 0), speed: 4, life: 100, dmg: 5, monasDmg: 0, px: 0, py: 0, pz: 0 });
 // hancurkan tank (HP habis) -> updateMode -> jeda singkat -> MISSION COMPLETE
 s4tank.hp = 0;
 s4mod.stage4Scene.updateMode(0.1);
 T('S4: tank HANCUR saat HP habis', s4tank.dead === true);
+T('S4: proyektil tank (shell/mortar/peluru MG) LENYAP saat tank hancur (tak melukai player)',
+    s4tank.shells.length === 0 && s4tank.mortars.length === 0 && enemyBullets.length === 0);
 T('S4: belum menang PERSIS saat tank hancur (jeda ledakan dulu)', stateMod.isGameOver === false);
 for (let i = 0; i < 40 && !stateMod.isGameOver; i++) s4mod.stage4Scene.updateMode(0.1);   // > jeda win
 T('S4: hancurkan tank -> MISSION COMPLETE (gameOver win, tanpa trigger stasiun)', stateMod.isGameOver === true);
@@ -1580,8 +1620,13 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     // enter(): bangun dunia atap + SEMUA dunia campaign (guard) + lampu malam
     let introEnterOk = true;
     try { smMod.setScene(introMod.introScene); } catch (e) { introEnterOk = false; console.log(e); }
-    T('INTRO: introScene.enter membangun dunia atap tanpa error, cutscene belum aktif',
+    T('INTRO: introScene.enter membangun dunia atap + KOTA (gedung/jalan/sungai) tanpa error, cutscene belum aktif',
         introEnterOk && introMod.introDebug().active === false);
+    // PEMANASAN KOTA (2026-07-18): render latar kota dari semua sudut kamera cutscene
+    // saat masih di loading (anti lag/stutter) — pastikan tak error di stub.
+    let introWarmOk = true;
+    try { introMod.warmupIntro(); } catch (e) { introWarmOk = false; console.log(e); }
+    T('INTRO: warmupIntro (render kota dari semua sudut kamera) jalan tanpa error', introWarmOk);
 
     stateMod.setPaused(true);   // keadaan pra-cutscene (layar mulai)
     const introBlocker = global.document.getElementById('blocker');
@@ -1620,14 +1665,30 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         dTop.phase === 'descend' && dTop.avatarShown === true
         && dTop.pivotY > dTop.roofY + dTop.eyeH + 40
         && Math.abs(dTop.heliX - dTop.drop.x) < 40 && rap0.active === true);
+    // (2026-07-18) SEBELUM berjalan ke pintu: fase ropeUp (heli menarik naik tali,
+    // avatar berdiri di titik turun, rappel dilepas) lalu heliLeave (heli TERBANG
+    // PERGI — player menontonnya). BARU kemudian jalan ke pintu.
+    run('ropeUp');
+    const ru = introMod.introDebug();
+    T('INTRO (2026-07-18): setelah turun -> fase ropeUp (avatar berdiri di titik turun, pose rappel dilepas)',
+        ru.phase === 'ropeUp' && ru.avatarShown === true && avMod.rappelDebug().active === false
+        && Math.abs(ru.pivotY - (ru.roofY + ru.eyeH)) < 1);
+    run('heliLeave');
+    for (let i = 0; i < Math.floor((I.heliLeaveSec || 2.8) / 0.1) - 2; i++) introMod.introScene.updateMode(0.1);
+    const hlv = introMod.introDebug();
+    T('INTRO (2026-07-18): heli TERBANG PERGI (menanjak + menjauh dari titik turun) sebelum player berjalan',
+        hlv.heliY > ru.roofY + 180 && Math.hypot(hlv.heliX - ru.drop.x, hlv.heliZ - ru.drop.z) > 300);
     run('walk');
     const dBot = introMod.introDebug();
-    T('INTRO SCENE 2 (turun tali): akhir descend -> pivot (avatar) sampai di lantai atap + pose rappel dilepas',
+    T('INTRO SCENE 2 (turun tali): akhir -> fase walk, pivot (avatar) di lantai atap + pose rappel dilepas',
         dBot.phase === 'walk' && Math.abs(dBot.pivotY - (dBot.roofY + dBot.eyeH)) < 1
         && avMod.rappelDebug().active === false);
 
-    // SCENE 2: BERJALAN dari titik turun ke PINTU gedung
+    // SCENE 2: BERJALAN dari titik turun ke PINTU gedung (di sisi KIRI/-x — ditukar
+    // dgn tangki air 2026-07-18 agar konsisten Stage 1 yang tangganya di kiri-atas)
     const w0 = introMod.introDebug();
+    T('INTRO (2026-07-18): pintu bulkhead pindah ke sisi KIRI (barat, door.x < drop.x)',
+        w0.door.x < w0.drop.x);
     run('enter');
     const w1 = introMod.introDebug();
     T('INTRO SCENE 2 (jalan ke pintu): pivot bergerak dari titik turun MENUJU pintu',
@@ -1657,6 +1718,23 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     s1mod.stage1Scene.enter = realS1Enter;   // pulihkan
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     stateMod.setCinematicActive(false);
+}
+
+// --- 15b. CITYSCAPE campaign stage 1-3 (2026-07-18): latar KOTA JAKARTA keliling
+//     gedung indoor (gedung+jalan+pohon; DEKOR — TANPA blocker, jadi
+//     collision/nav/BFS stage tak berubah, sudah diverifikasi tes stage) + ENV
+//     kota (kubah kobaran-api global disembunyikan + scene.background haze). ---
+{
+    const cityMod = await import(R('src/scenes/campaign/cityscape.js'));
+    let cityOk = true;
+    try { cityMod.buildCampaignCityscape(30000, 0, 210, 210); } catch (e) { cityOk = false; console.log(e); }
+    T('CITYSCAPE: buildCampaignCityscape (gedung+jalan+pohon keliling) jalan tanpa error', cityOk);
+    cityMod.enterCityEnv();
+    T('CITYSCAPE: enterCityEnv -> scene.background di-set (haze kota, kubah api global disembunyikan)',
+        scene.background != null);
+    cityMod.exitCityEnv();
+    T('CITYSCAPE: exitCityEnv -> background dilepas (stage 4 outdoor pakai kubah global)',
+        scene.background === null);
 }
 
 // --- 16. IDLE AFK bertahap (2026-07-14): player diam TOTAL & tak ada ancaman ->

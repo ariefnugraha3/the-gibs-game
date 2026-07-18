@@ -132,6 +132,12 @@ export function createEmbers(scene) {
     mkLayer(200, 1.6, 0x8a7566, 0.32, THREE.NormalBlending, 5, 5);    // abu melayang
 }
 
+// Sembunyikan/tampilkan bara & abu (dipakai intro cutscene 2026-07-18: latar
+// KOTA yang tenang, TANPA percikan api). Aman dipanggil sebelum layer dibuat.
+export function setEmbersVisible(v) {
+    for (const L of emberLayers) L.pts.visible = !!v;
+}
+
 export function updateEmbers(dt, T, camera) {
     // Partikel hidup di KOORDINAT DUNIA ABSOLUT (top-down 2026-07-11: dulu
     // seluruh gugus di-set ke camera.position tiap frame -> ikut bergeser kaku

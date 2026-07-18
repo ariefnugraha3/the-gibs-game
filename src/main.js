@@ -25,7 +25,7 @@ import { resetPlayerState } from './entities/player.js';
 import { initMenu } from './scenes/menu.js';
 import { survivalScene } from './scenes/survival/index.js';
 import { stage1Scene } from './scenes/campaign/stage1.js';
-import { introScene, beginIntro } from './scenes/campaign/intro.js';
+import { introScene, beginIntro, warmupIntro } from './scenes/campaign/intro.js';
 import { campaignJumpToStage } from './scenes/campaign/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
@@ -100,6 +100,9 @@ export async function startGame(mode, opts = {}) {
         if (playIntro) beginIntro();
         await loadingStep(85, 'Warming up the renderer…');
         await warmupAll();         // kompilasi shader + unggah tekstur (lihat preload.js)
+        // INTRO: render KOTA latar dari semua sudut kamera cutscene MASIH di balik
+        // layar loading → semua buffer/tekstur kota terunggah → cutscene tanpa lag.
+        if (playIntro) { warmupIntro(); await loadingStep(98, 'Preparing the city…'); }
 
         hideLoading();
         bestScoreEl.innerText = `Best: ${highScore}`;

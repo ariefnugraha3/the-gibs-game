@@ -9,21 +9,15 @@ import { resetGame } from './game.js';
 import { showPauseMenu, hidePauseMenu, isPauseMenuOpen } from './pauseMenu.js';
 import { openCheatConsole, closeCheatConsole, forceHideCheatConsole, isCheatConsoleOpen, handleKey } from './cheatConsole.js';
 import {
-    tryMelee, trySwitchKey, setAiming, equipMedkit
+    tryMelee, trySwitchKey, setAiming, useMedkit
 } from '../entities/weapons.js';
 import { eyeHCur, setMoveTarget, clearMoveTarget, tryDodge } from '../entities/player.js';
 
-// ----- Fullscreen + Keyboard Lock: cegah shortcut browser saat main -----
-// Ctrl+W (tutup tab), Ctrl+R (reload), Ctrl+T/N, dsb TIDAK bisa dicegah
-// dengan preventDefault biasa — itu shortcut level browser/OS. Satu-satunya
-// cara andal adalah Keyboard Lock API, yang HANYA menangkap tombol sistem
-// saat dokumen fullscreen (Chromium; Firefox/Safari tak punya API-nya — di
-// sana jaring pengaman 'beforeunload' di bawah yang bekerja). Kita kunci
-// HANYA tombol gameplay + shortcut berbahaya, SENGAJA tanpa Escape, agar
-// Esc tetap keluar pointer-lock (pause) seperti biasa.
-const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyF', 'KeyG',
-    'KeyQ', 'KeyC', 'KeyT', 'KeyN', 'KeyP', 'KeyB',
-    'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
+// FULLSCREEN + Keyboard Lock DIHAPUS (2026-07-18, permintaan user): dulu game
+// masuk fullscreen agar Keyboard Lock API menangkap Ctrl+W/Ctrl+R dsb — tapi
+// Ctrl tak lagi dipakai gameplay (crouch sudah dihapus), jadi mekanik fullscreen
+// yang mengganggu itu dibuang. Jaring pengaman kehilangan progres kini SEPENUHNYA
+// mengandalkan 'beforeunload' di bawah (konfirmasi sebelum tab tertutup/reload).
 
 // Apakah game sudah pernah dimulai (pointer pernah ter-lock). Sebelum ini
 // #blocker = layar mulai (klik untuk lanjut); sesudahnya, unlock via Esc =
@@ -71,29 +65,14 @@ export function updateTopdownAim() {
     if (dx * dx + dz * dz > 1e-6) camera.rotation.set(0, Math.atan2(-dx, -dz), 0);
 }
 
-export function enterImmersive() {
-    // Fullscreen wajib agar Keyboard Lock menangkap tombol sistem (Ctrl+W dkk).
-    // Dipanggil dari gesture pengguna (klik blocker / tekan SPASI restart) -> valid.
-    const el = document.documentElement;
-    if (el && !document.fullscreenElement && el.requestFullscreen) {
-        const fp = el.requestFullscreen();
-        if (fp && fp.catch) fp.catch(() => { });
-    }
-    // Selalu lock ulang (idempotent): kalau player sempat keluar fullscreen,
-    // browser otomatis melepas lock — panggilan ini memasangnya lagi saat resume.
-    if (navigator.keyboard && navigator.keyboard.lock) {
-        navigator.keyboard.lock(LOCK_KEYS).catch(() => { });
-    }
-}
-
 // Minta pointer-lock dengan aman: Chrome melempar NotAllowedError bila diminta
 // terlalu cepat setelah Esc (cooldown ~1.25 dtk) — jangan jadi unhandled rejection.
+// (Fullscreen + Keyboard Lock DIHAPUS 2026-07-18 — lihat catatan di atas.)
 export function requestLock() {
     try {
         const p = document.body.requestPointerLock();
         if (p && p.catch) p.catch(() => { });
     } catch (e) { /* player cukup klik lagi */ }
-    enterImmersive();
 }
 
 // Lepas semua input yang sedang ditekan (dipanggil saat unlock / blur / reset).
@@ -217,9 +196,9 @@ export function initInput() {
         // lompat SPASI dihapus di mode top-down.)
         if ((key === '1' || key === '2' || key === '3' || key === 'q')
             && !isPaused && !isGameOver) trySwitchKey(key);
-        // 4 = pegang Medkit di tangan (tekan lagi = holster); lalu TAHAN klik kiri
-        // medkitUseSec detik untuk memakainya (pulihkan 70% HP; hanya bisa punya 1).
-        if (key === '4' && !isPaused && !isGameOver) equipMedkit();
+        // 4 = PAKAI medkit SEKETIKA (2026-07-18) — langsung pulihkan HP, tak perlu
+        // equip lalu tahan klik kiri lagi.
+        if (key === '4' && !isPaused && !isGameOver) useMedkit();
         if (e.code === 'Space' && isGameOver) resetGame(true);   // restart stage sekarang (checkpoint campaign)
     });
     window.addEventListener('keyup', (e) => {

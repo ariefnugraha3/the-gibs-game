@@ -26,12 +26,45 @@ import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 import { spawnGroundPuff, explodeAt } from './effects.js';
 import { spawnGibs, spawnBloodDecal } from './gore.js';
 import { playSFX, sfxExplode } from '../utils/sfx.js';
+import { makeTexture } from '../utils/textures.js';
 import { rand } from '../utils/math.js';
 
 const ROTOR_SPEED = 16;       // rad/dtk rotor utama (berputar cepat, siap angkut)
 const TAIL_SPEED = 44;        // rad/dtk rotor ekor
 const WASH_GAP = 0.5;         // jeda debu downwash saat utuh (detik)
 const BURN_GAP = 0.3;         // jeda kepulan asap bangkai (detik)
+// CAIRAN heli = HITAM (bukan hijau — "hanya robot yang punya coolant hijau",
+// permintaan user 2026-07-18): genangan bocoran hitam di titik mati + gib.
+const HELI_FLUID = 0x141210;
+
+// ===== API BERKOBAR (2026-07-18): bangkai heli MENYALA sepanjang sisa Stage 4.
+// Lidah api = sprite billboard oranye (program SpriteMaterial = sudah dipanaskan
+// warmup; hanya teksturnya baru — dibuat sekali, dibagi). Berkedip-kedip
+// (skala+opasitas sin, sedikit bergoyang) selamanya selagi bangkai ada. =====
+let FLAME_TEX = null;
+function flameTex() {
+    if (!FLAME_TEX) {
+        FLAME_TEX = makeTexture(64, 64, (g) => {
+            // lidah api: inti kuning-putih -> oranye -> merah transparan
+            const rg = g.createRadialGradient(32, 40, 2, 32, 36, 30);
+            rg.addColorStop(0, 'rgba(255,246,200,0.98)');
+            rg.addColorStop(0.35, 'rgba(255,170,50,0.92)');
+            rg.addColorStop(0.7, 'rgba(220,70,20,0.55)');
+            rg.addColorStop(1, 'rgba(120,20,0,0)');
+            g.fillStyle = rg;
+            g.beginPath(); g.ellipse(32, 36, 20, 30, 0, 0, 6.283); g.fill();
+        });
+    }
+    return FLAME_TEX;
+}
+// Satu sprite api (material sendiri = opasitas/skala per-lidah; tekstur dibagi).
+export function buildHeliFlameSprite() {
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flameTex(), color: 0xffb050, transparent: true, opacity: 0.9,
+        depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false
+    }));
+    return spr;
+}
 
 export function buildHelicopterMesh() {
     const group = new THREE.Group();
@@ -149,6 +182,17 @@ export function updateHelicopter(heli, dt) {
         spawnGroundPuff(px, pz, 0x2a2622, 5 + Math.random() * 4, 9 + Math.random() * 8);
         if (Math.random() < 0.3) spawnGroundPuff(px, pz, 0x8a5a14, 2.5, 7);   // bara amber redup
     }
+    // API BERKOBAR terus (lidah api berkedip): skala/opasitas sin + goyang halus
+    heli.fireT = (heli.fireT || 0) + dt;
+    if (heli.flames) {
+        for (const f of heli.flames) {
+            const w = heli.fireT * f.freq + f.phase;
+            const flick = 0.7 + 0.3 * Math.sin(w) + 0.12 * Math.sin(w * 3.3);
+            f.spr.scale.set(f.sx * flick, f.sy * (0.75 + 0.45 * flick), 1);
+            f.spr.material.opacity = 0.55 + 0.35 * (0.5 + 0.5 * Math.sin(w * 1.7));
+            f.spr.position.set(f.ox + Math.sin(w * 2.1) * 0.6, f.oy + f.sy * (flick - 1) * 0.5, f.oz);
+        }
+    }
 }
 
 // Heli DIHANCURKAN (cutscene: tertembak meriam tank): ledakan besar, bilah
@@ -161,22 +205,40 @@ export function blastHelicopter(heli) {
     const x = p.group.position.x, z = p.group.position.z;
     p.rotor.visible = false;                          // bilah utama terlempar...
     p.tailRotor.visible = false;
-    spawnGibs(x, 22, z, 12, 0, 0, 2.6, PAL.ink, 6.283);       // ...jadi serpihan bilah 360°
-    spawnGibs(x, 14, z, 10, 0, 0, 2.0, PAL.white, 6.283);     // sobekan panel bodi
+    // Serpihan HITAM (bukan hijau): gib rest di y 6 (di atas bangkai), genangan HITAM
+    spawnGibs(x, 22, z, 12, 0, 0, 2.6, PAL.ink, 0.4, HELI_FLUID);       // ...jadi serpihan bilah 360°
+    spawnGibs(x, 14, z, 10, 0, 0, 2.0, PAL.white, 0.4, HELI_FLUID);     // sobekan panel bodi
     explodeAt(new THREE.Vector3(x, 12, z), 22, 1);            // ledakan visual besar
-    spawnBloodDecal(x, z, 9, 0x141210);                       // genangan hangus
+    spawnBloodDecal(x, z, 9, HELI_FLUID);                     // genangan bocoran HITAM (heli bukan robot)
     p.paintMats.forEach(m => m.color && m.color.setHex(0x2a241c));   // cat gosong
     if (heli.parts.glassMat && heli.parts.glassMat.color) heli.parts.glassMat.color.setHex(0x191512);
     if (heli.beaconM) { heli.beaconM.emissiveIntensity = 0; heli.beaconM.color.setHex(0x2a241c); }
     p.group.rotation.z = 0.14;                        // bodi rebah miring
     p.group.rotation.x = 0.05;
     p.group.position.y = -1.2;                        // amblas sedikit
+    // API BERKOBAR: beberapa lidah api menyala di badan (dianimasikan
+    // updateHelicopter, menyala sepanjang sisa Stage 4). Parent ke grup bangkai
+    // supaya ikut miring/amblas. "Sedikit" — kluster kecil di sekitar mesin/kabin.
+    heli.flames = [];
+    // "Sedikit" api (user): kluster kecil lidah api menjilat dari mesin/kabin —
+    // proporsional dgn siluet heli, bukan inferno raksasa.
+    const spots = [[0, 11, 0], [2.5, 9, 3], [-3, 10, -2.5], [1.5, 8, 6], [-1.5, 11, -5]];
+    for (const [ox, oy, oz] of spots) {
+        const spr = buildHeliFlameSprite();
+        const sx = 4 + Math.random() * 2.5, sy = 6.5 + Math.random() * 3.5;
+        spr.scale.set(sx, sy, 1);
+        spr.position.set(ox, oy, oz);
+        p.group.add(spr);
+        heli.flames.push({ spr, ox, oy, oz, sx, sy, phase: Math.random() * 6.283, freq: 6 + Math.random() * 4 });
+    }
     playSFX(sfxExplode);
 }
 
 export function disposeHelicopter(heli) {
     if (!heli || !heli.parts) return;
-    heli.parts.group.traverse(o => { if (o.isMesh && o.material && o.material.dispose) o.material.dispose(); });
+    // Sprite api & mesh: dispose material per-instance (tekstur api DIBAGI — jangan)
+    heli.parts.group.traverse(o => { if ((o.isMesh || o.isSprite) && o.material && o.material.dispose) o.material.dispose(); });
     scene.remove(heli.parts.group);
     heli.parts = null;
+    heli.flames = null;
 }

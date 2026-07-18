@@ -37,6 +37,7 @@ import { buildFuturisticRubbleMesh } from '../../entities/futuristicRubble.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { buildFuturisticBenchMesh } from '../../entities/futuristicBench.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
+import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
 import { stage3Scene } from './stage3.js';
@@ -177,6 +178,9 @@ export function buildWorld() {
     floor.position.set(cx, 0.01, cz);
     floor.receiveShadow = true;
     scene.add(floor);
+
+    // Latar KOTA JAKARTA mengelilingi gedung (2026-07-18) — dekor, tanpa blocker
+    buildCampaignCityscape(cx, cz, sizeX / 2, sizeZ / 2);
 
     // --- Plafon: panel akustik gelap (disembunyikan seperti stage 1 = top-down) ---
     const ceilTex = makeTexture(128, 128, (g, w, h) => {
@@ -473,6 +477,7 @@ export const stage2Scene = {
             }
         }
         applyLightPreset(scene, 'indoor');
+        enterCityEnv();   // latar kota Jakarta (kubah api global disembunyikan + haze dingin)
         const sp = s2Cell(S2_START.c, S2_START.r);
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
         camera.quaternion.set(0, 1, 0, 0);   // yaw 180° — hadap selatan (masuk ke gedung)

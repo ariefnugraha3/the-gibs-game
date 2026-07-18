@@ -32,6 +32,7 @@ import { buildFuturisticStallMesh } from '../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
+import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
 import { ensureWorld as ensureStage3World } from './stage3.js';   // (circular aman: dipanggil DI DALAM enter)
@@ -189,6 +190,9 @@ export function buildWorld() {
     floor.position.set(cx, 0.01, cz);
     floor.receiveShadow = true;
     scene.add(floor);
+
+    // Latar KOTA JAKARTA mengelilingi gedung (2026-07-18) — dekor, tanpa blocker
+    buildCampaignCityscape(cx, cz, size / 2, size / 2);
 
     // --- Plafon: panel akustik gelap (menghadap ke bawah) ---
     const ceilTex = makeTexture(128, 128, (g, w, h) => {
@@ -496,6 +500,7 @@ export const stage1Scene = {
         placeRobots();           // robot gedung sesuai denah (stage 1)
         placeSupplies();          // ruang persediaan: ammo/granat/medkit
         applyLightPreset(scene, 'indoor');   // interior gelap + kabut rapat
+        enterCityEnv();   // latar kota Jakarta: kubah api global disembunyikan + haze dingin
         const sp = s1Cell(S1_START.c, S1_START.r);
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
         camera.quaternion.set(0, 1, 0, 0);   // yaw 180° — hadap selatan (pintu lobby)

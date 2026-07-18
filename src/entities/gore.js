@@ -55,7 +55,7 @@ export function initGore(sc) {
         const mesh = new THREE.Mesh(GIB_GEO[i % GIB_GEO.length], m);
         mesh.castShadow = false; mesh.visible = false;
         sc.add(mesh);
-        GIB_POOL.push({ mesh, life: 0, vx: 0, vy: 0, vz: 0, sx: 0, sy: 0, sz: 0, rest: false, bled: false, restY: 0.3 });
+        GIB_POOL.push({ mesh, life: 0, vx: 0, vy: 0, vz: 0, sx: 0, sy: 0, sz: 0, rest: false, bled: false, restY: 0.3, decalTone: 0x2fbf66 });
     }
 
     CUT_GEO = new THREE.CircleGeometry(1.3, 12);   // penampang potongan pinggang (bisection)
@@ -85,7 +85,10 @@ export function spawnBloodDecal(x, z, s, tone = 0x2fbf66) {
 }
 
 // Lempar `count` potongan tubuh dari (x,y,z) ke arah (dirx,dirz) (kerucut acak).
-export function spawnGibs(x, y, z, count, dirx, dirz, power, tone, restY) {
+// `decalTone` (opsional) = warna GENANGAN yang muncul saat gib mendarat: default
+// COOLANT hijau (robot); mesin non-robot (heli/tank) melewatkan warna HITAM —
+// "hanya robot yang punya cairan hijau" (permintaan user 2026-07-18).
+export function spawnGibs(x, y, z, count, dirx, dirz, power, tone, restY, decalTone) {
     if (!GIB_POOL.length) return;
     const dl = Math.hypot(dirx, dirz) || 1;
     const baseAng = Math.atan2(dirz / dl, dirx / dl);
@@ -104,6 +107,7 @@ export function spawnGibs(x, y, z, count, dirx, dirz, power, tone, restY) {
         g.life = 2.4 + Math.random() * 1.4;
         g.rest = false; g.bled = false;
         g.restY = restY != null ? restY : 0.3;
+        g.decalTone = decalTone != null ? decalTone : 0x2fbf66;   // genangan mendarat (hijau default)
         g.mesh.material.color.setHex(tone != null ? tone : 0x3d444c);
         g.mesh.material.opacity = 1;
     }
@@ -345,7 +349,7 @@ export function updateGore(dt) {
             g.mesh.rotation.z += g.sz * dt;
             if (g.mesh.position.y <= g.restY) {
                 g.mesh.position.y = g.restY;
-                if (!g.bled && g.vy < -6) { g.bled = true; spawnBloodDecal(g.mesh.position.x, g.mesh.position.z, 1.8 + Math.random() * 1.8); }
+                if (!g.bled && g.vy < -6) { g.bled = true; spawnBloodDecal(g.mesh.position.x, g.mesh.position.z, 1.8 + Math.random() * 1.8, g.decalTone); }
                 g.vy = -g.vy * 0.3; g.vx *= 0.5; g.vz *= 0.5;
                 g.sx *= 0.4; g.sy *= 0.4; g.sz *= 0.4;
                 if (Math.abs(g.vy) < 3) { g.rest = true; g.vy = 0; }

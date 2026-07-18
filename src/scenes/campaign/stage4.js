@@ -46,6 +46,7 @@ import { buildFuturisticPlanterMesh } from '../../entities/futuristicPlanter.js'
 import { buildFuturisticStallMesh } from '../../entities/futuristicStall.js';
 import { buildFuturisticRubbleMesh } from '../../entities/futuristicRubble.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
+import { exitCityEnv } from './cityscape.js';
 import { campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
 
@@ -694,6 +695,7 @@ export const stage4Scene = {
         if (gateBlocker && !blockers.includes(gateBlocker)) blockers.push(gateBlocker);
         placeRobots();
         applyLightPreset(scene, 'night');
+        exitCityEnv();   // stage 4 outdoor: pulihkan kubah kobaran-api global + fog apokaliptik (stage 1-3 menyembunyikannya)
         camera.position.set(S4_START.x, CFG.player.eyeHeight, S4_START.z);
         camera.quaternion.set(0, -0.7071, 0, 0.7071);   // hadap timur (menuju jalan)
         player.vy = 0; player.onGround = true;

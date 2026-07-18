@@ -13,6 +13,8 @@ import { buildGrenadeMesh, buildRocketMesh } from '../entities/grenades.js';
 import { buildMagMesh, buildMedkitMesh } from '../entities/drops.js';
 import { buildRobotMesh, disposeRobot } from '../entities/robots.js';
 import { borrowBloodSprite } from '../entities/effects.js';
+import { avatarGroup } from '../entities/playerAvatar.js';
+import { buildHeliFlameSprite } from '../entities/helicopter.js';
 
 let loadEl = null, barEl = null, textEl = null;
 
@@ -99,6 +101,24 @@ export async function warmupAll() {
         bspr.visible = true;
     }
 
+    // AVATAR player (2026-07-18): render NYATA di depan viewCam supaya SEMUA
+    // tekstur/materialnya terunggah SEKARANG — menghilangkan stutter saat avatar
+    // pertama TAMPIL turun dari heli di cutscene intro (di sana ia visible=false
+    // sampai fase 'descend', jadi frame render biasa tak menghangatkannya).
+    let avParent = null, avVisible = false;
+    if (avatarGroup) {
+        avParent = avatarGroup.parent; avVisible = avatarGroup.visible;
+        warm.add(avatarGroup);             // reparent (anak viewCam) — pasti masuk frustum
+        avatarGroup.position.set(30, -8, -58);
+        avatarGroup.rotation.set(0, 0, 0);
+        avatarGroup.visible = true;
+    }
+    // Lidah API bangkai heli (cutscene boss Stage 4): program SpriteMaterial sudah
+    // hangat, tapi teksturnya baru — unggah sekarang agar tak nge-hitch saat heli meledak.
+    const flame = buildHeliFlameSprite();
+    flame.position.set(-24, 2, -58); flame.scale.set(9, 13, 1);
+    warm.add(flame);
+
     viewCam.add(warm);
 
     renderer.compile(scene, viewCam);
@@ -117,6 +137,12 @@ export async function warmupAll() {
         bspr.material.opacity = bsprState.opacity;
         scene.add(bspr);                   // kembali ke induk semula (scene root)
     }
+    if (avatarGroup) {
+        (avParent || scene).add(avatarGroup);   // kembali ke induk semula (biasanya scene)
+        avatarGroup.visible = avVisible;         // pulihkan visibilitas (intro: false)
+        avatarGroup.position.set(0, 0, 0);
+    }
+    flame.material.dispose();              // material per-instance (tekstur api DIBAGI — jangan)
     viewCam.remove(warm);
     disposeRobot({ mesh: zw.group });     // material robot per-instance
     boomMats.forEach(m => m.dispose());    // hanya material buatan warmup —

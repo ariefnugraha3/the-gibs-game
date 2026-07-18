@@ -93,6 +93,14 @@ const _wp = new THREE.Vector3();   // scratch getWorldPosition
 // pudarnya. Visual murni (konvensi: konstanta visual tinggal di kode, bukan CFG).
 const HIT_TINT = 0.10;
 const HIT_FLASH_SEC = 0.15;
+// SKALA TANK (2026-07-18, permintaan user): dikecilkan sedikit agar proporsional
+// terhadap karakter/robot/heli (dulu terlihat terlalu besar). Diterapkan ke grup
+// (buildTankMesh) — muzzle/turret/roda ikut menyusut; hitRadius/bodyRadius di
+// CFG sudah diturunkan seukuran (kolisi & hit-test cocok dgn siluet baru).
+const TANK_SCALE = 0.7;
+// CAIRAN/DEBRIS tank = HITAM/oli, BUKAN hijau ("hanya robot yang punya coolant
+// hijau", permintaan user 2026-07-18): genangan gib mendarat pakai tone gelap.
+const TANK_FLUID = 0x141210;
 const _UP = new THREE.Vector3(0, 1, 0);   // sumbu HIDUNG mortar (+Y lokal) utk orientasi lintasan
 const _vv = new THREE.Vector3();          // scratch arah kecepatan mortar
 
@@ -355,6 +363,8 @@ export function buildTankMesh() {
     camo(camoBrn, 9, 5, 0.4, 17, 15.5, 18.25, group);
     camo(camoGrn, 9, 5, 0.3, 6, 5.5, 12.7, turret);          // depan turret
     camo(camoBrn, 7, 6, 0.3, -11.5, 5, 3, turret, 0.5);      // sisi turret
+
+    group.scale.setScalar(TANK_SCALE);   // kecilkan sedikit (proporsional; kolisi CFG seukuran)
 
     return {
         group, turret, tracks, wheels, mgMuzzle, cannonMuzzle, mortarMuzzle,
@@ -697,7 +707,7 @@ function chargeMove(tank, dt) {
     if (now !== tank.wasInside) {
         tank.wasInside = now;
         const x = p.group.position.x, z = p.group.position.z;
-        spawnGibs(x, 20, z, 10, tank.chargeDirX, tank.chargeDirZ, 2.0, 0x8a8378, 0.4);
+        spawnGibs(x, 20, z, 10, tank.chargeDirX, tank.chargeDirZ, 2.0, 0x8a8378, 0.4, TANK_FLUID);
         spawnGroundPuff(x, z, 0xcbbfa6, 10, 10);
         addCamShake(5);
         playSFX(sfxExplode);
@@ -808,8 +818,8 @@ function spinTracks(p, ph) {
 // menyembunyikan panel gerbangnya lewat callback onWallSmash (bila di-set).
 function smashWall(tank) {
     const wx = tank.wallX, wz = tank.homeZ;
-    spawnGibs(wx, 22, wz, 12, -1, 0, 2.2, 0x8a8378, 0.4);      // pecahan beton (terlempar ke barat)
-    spawnGibs(wx, 14, wz, 8, -0.6, 0.5, 1.6, 0x6f6a60, 0.4);
+    spawnGibs(wx, 22, wz, 12, -1, 0, 2.2, 0x8a8378, 0.4, TANK_FLUID);      // pecahan beton (terlempar ke barat)
+    spawnGibs(wx, 14, wz, 8, -0.6, 0.5, 1.6, 0x6f6a60, 0.4, TANK_FLUID);
     spawnGroundPuff(wx, wz, 0xcbbfa6, 12, 12);
     spawnGroundPuff(wx, wz + 14, 0xcbbfa6, 8, 8);
     spawnGroundPuff(wx, wz - 14, 0xcbbfa6, 8, 8);
@@ -1080,11 +1090,26 @@ export function damageTank(tank, dmg) {
     if (tank.hp <= 0) killTank(tank);
 }
 
+// Buang SEKETIKA semua proyektil tank yang masih terbang (shell meriam + mortar)
+// DAN peluru senapan mesin di enemyBullets — dipanggil saat tank hancur supaya
+// bangkainya TIDAK bisa lagi mencelakai player (permintaan user 2026-07-18).
+// Proyektil hilang tanpa meledak (tak ada AoE susulan). Aman menghapus SELURUH
+// enemyBullets: di duel stage 4 semua robot sudah mati -> satu-satunya sumber
+// peluru musuh = MG tank.
+function clearTankProjectiles(tank) {
+    for (const s of tank.shells) scene.remove(s.mesh);
+    tank.shells.length = 0;
+    for (const m of tank.mortars) scene.remove(m.mesh);
+    tank.mortars.length = 0;
+    for (let i = enemyBullets.length - 1; i >= 0; i--) { scene.remove(enemyBullets[i].mesh); enemyBullets.splice(i, 1); }
+}
+
 // ===== KEMATIAN: ledakan besar berantai + serpihan + turret terangkat, lalu
 // bangkai membara. Skor boss diberikan. stage4 mendeteksi tank.dead. =====
 function killTank(tank) {
     tank.dead = true; tank.hp = 0; tank.deathT = 0;
     hideZap();   // listrik padam bersama tank
+    clearTankProjectiles(tank);   // shell/mortar/peluru MG terbang -> lenyap (tak melukai player)
     addScore(tank.score);
     stats.kills++;
     const p = tank.parts, px = p.group.position.x, pz = p.group.position.z;
@@ -1092,9 +1117,9 @@ function killTank(tank) {
     p.paintMats.forEach(m => m.color && m.color.setHex(0x20211c));
     // ledakan besar + serpihan logam ke segala arah
     explodeAt(new THREE.Vector3(px, 16, pz), 30, 1);
-    spawnGibs(px, 18, pz, 14, 1, 0, 2.2, 0x3d444c, 0.4);
-    spawnGibs(px, 14, pz, 10, -1, 0.4, 1.8, 0x20211c, 0.4);
-    spawnBloodDecal(px, pz, 8, 0x141210);
+    spawnGibs(px, 18, pz, 14, 1, 0, 2.2, 0x3d444c, 0.4, TANK_FLUID);
+    spawnGibs(px, 14, pz, 10, -1, 0.4, 1.8, 0x20211c, 0.4, TANK_FLUID);
+    spawnBloodDecal(px, pz, 8, TANK_FLUID);
     addCamShake(9);
     playSFX(sfxExplode);
     updateUI();

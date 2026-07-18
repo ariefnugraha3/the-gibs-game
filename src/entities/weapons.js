@@ -861,8 +861,24 @@ export function refreshOwnedWeapon() {
     updateUI();
 }
 
-// ----- Mode medkit (tombol 4): pegang medkit, TAHAN klik kiri medkitUseSec detik
-// untuk memakainya (sembuh 70%). Tekan 4 lagi = holster (toggle). -----
+// ----- PAKAI MEDKIT SEKETIKA (tombol 4, 2026-07-18 permintaan user): tekan 4 ->
+// medkit LANGSUNG dipakai (sembuh medkitHealPct), TANPA equip + tahan klik kiri.
+// (Mekanik lama "pegang lalu channel" — equipMedkit/holsterMedkit/finishMedkit +
+// medkitMode + channel + medkitUseSec + prop pegang medkit — kini DORMAN, seperti
+// grenadeMode: dibiarkan utuh tapi tak lagi tercapai lewat input.) -----
+export function useMedkit() {
+    if (player.medkits <= 0) { showPickup('No medkit', '#b8b8b8'); return; }
+    if (player.hp >= player.maxHp) { showPickup('Health already full', '#b8b8b8'); return; }
+    player.medkits--;
+    player.hp = Math.min(player.maxHp,
+        player.hp + Math.round(player.maxHp * CFG.player.medkitHealPct));
+    playSFX(sfxPickup);
+    showPickup('Medkit used', '#ff6b81');
+    updateUI();
+}
+
+// ----- (DORMAN sejak 2026-07-18) Mode medkit lama (tombol 4): pegang medkit,
+// TAHAN klik kiri medkitUseSec detik untuk memakainya. Diganti useMedkit(). -----
 export function equipMedkit() {
     if (medkitMode) { holsterMedkit(); return; }          // toggle off
     if (switchAnim >= 0 || meleeT > 0) return;
