@@ -867,9 +867,8 @@ try { for (let i = 0; i < 5; i++) s2mod.stage2Scene.robotAI(zS2, 0.05, 3); } cat
 T('S2: robotAI jalan tanpa error', s2aiOk);
 
 // TANPA boss (dibuang atas permintaan user): tak ada boss/updateMode di scene
-T('S2: tak ada boss & tak ada updateMode (boss dibuang)',
-    !robots.some(z => z.kind === 'boss') && s2mod.stage2Scene.updateMode === undefined
-    && !/BOSS/.test(s2mod.stage2Scene.hudStatus()));
+T('S2: tak ada boss (boss dibuang; updateMode kini animasi pintu, bukan boss)',
+    !robots.some(z => z.kind === 'boss') && !/BOSS/.test(s2mod.stage2Scene.hudStatus()));
 // Tangga END (overhaul 2026-07-14): trigger -> pindah ke SHOP SCENE terpisah
 // (`campaign-shop`) via LOADING; setelah loading shop terbuka; "Start Next Stage"
 // (SPACE x2) -> LOADING -> transisi ke stage 3. Spy enter stage3 agar tak
@@ -969,6 +968,26 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         && !palM.FORBIDDEN_HEX.includes(eHex(fmat)) && !palM.FORBIDDEN_HEX.includes(eHex(wmat)));
     T('Interior: emissiveIntensity <= EMISSIVE_MAX',
         fmat.emissiveIntensity <= palM.EMISSIVE_MAX && wmat.emissiveIntensity <= palM.EMISSIVE_MAX);
+}
+
+// --- 16d. PINTU GESER OTOMATIS (2026-07-18): doors.js — pintu ruangan tertutup
+// MENUTUP saat jauh, MELUNCUR TURUN membuka saat player dekat (dekor reaktif,
+// tanpa collision). ---
+{
+    const doorMod = await import(R('src/scenes/campaign/doors.js'));
+    const cellFn = (c, r) => ({ x: c * 20, z: r * 20 });   // koordinat sintetis, jauh dari robot nyata
+    const doors = doorMod.buildStageDoors([{ c0: 5, r0: 5, c1: 5, r1: 5, dir: 'ew' }], cellFn, 14, 22);
+    const dr = doors[0], yClosed = dr.panel.position.y;
+    T('Doors: pintu + panel terbangun (tertutup di atas, openY < closedY)',
+        doors.length === 1 && dr.closedY > dr.openY && yClosed === dr.closedY);
+    camera.position.set(dr.cx + 400, 11, dr.cz + 400);      // jauh -> tetap tutup
+    for (let i = 0; i < 30; i++) doorMod.updateStageDoors(doors, 0.05);
+    const yFar = dr.panel.position.y;
+    camera.position.set(dr.cx, 11, dr.cz);                  // dekat -> buka (panel TURUN)
+    for (let i = 0; i < 30; i++) doorMod.updateStageDoors(doors, 0.05);
+    const yNear = dr.panel.position.y;
+    T('Doors: tutup saat jauh, TURUN membuka saat player dekat',
+        Math.abs(yFar - yClosed) < 0.5 && yNear < yClosed - 5);
 }
 
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }

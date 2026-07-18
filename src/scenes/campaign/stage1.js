@@ -33,6 +33,7 @@ import { buildFuturisticSinkMesh } from '../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from './interior.js';
+import { buildStageDoors, updateStageDoors } from './doors.js';
 import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
@@ -51,6 +52,18 @@ export const s1Cell = (c, r) => ({ x: S1.x0 + (c + 0.5) * S1.CELL, z: S1.z0 + (r
 export const S1_START = { c: 3, r: 4 };   // ruang tangga TURUN dari Lantai 3 (kiri-atas)
 // Trigger tangga TURUN (kanan-bawah) -> turun ke lantai bawah (stage 2 jalan raya)
 export const S1_EXIT = { c0: 24, r0: 23, c1: 28, r1: 27 };
+
+// PINTU geser otomatis (2026-07-18) — hanya ruangan TERTUTUP (BUKAN Main Hall G).
+// {sel bukaan c0,r0..c1,r1, dir} dir 'ew'=dinding vertikal / 'ns'=horizontal.
+const S1_DOORS = [
+    { c0: 8, r0: 3, c1: 8, r1: 3, dir: 'ew' },     // A (stairwell) <-> B (conference)
+    { c0: 20, r0: 3, c1: 20, r1: 3, dir: 'ew' },   // B (conference) <-> C (supply)
+    { c0: 22, r0: 12, c1: 22, r1: 12, dir: 'ew' }, // G (main hall) <-> H (security) — 2026-07-18 permintaan user
+    { c0: 3, r0: 17, c1: 4, r1: 17, dir: 'ns' },   // D (office) <-> E (break room)
+    { c0: 25, r0: 17, c1: 26, r1: 17, dir: 'ns' }, // H (security) <-> J (end/stairs)
+    { c0: 22, r0: 25, c1: 22, r1: 26, dir: 'ew' }, // I (storage) <-> J (end/stairs)
+];
+let s1doors = null;
 
 const blockers = [];   // furnitur/undakan pejal stage 1 {x,z,hx,hz,ax*,az*,top,standable}
 let built = false;
@@ -233,6 +246,9 @@ export function buildWorld() {
     wallMesh.frustumCulled = false;   // bounds instance tak dihitung r128
     scene.add(wallMesh);
 
+    // --- Pintu geser otomatis (ruangan tertutup; buka saat player mendekat) ---
+    s1doors = buildStageDoors(S1_DOORS, s1Cell, S1.CELL, S1.H);
+
     // --- Furnitur: satu InstancedMesh box + blocker pejal ---
     const fur = [];   // {x,y,z,sx,sy,sz,ry,color}
     const furBox = (c, r, sx, sy, sz, color, ry = 0, dx = 0, dz = 0) => {
@@ -265,7 +281,8 @@ export function buildWorld() {
         const p = s1Cell(c, r), x = p.x + dx, z = p.z + dz;
         putModel(buildFuturisticDeskMesh(sx, sy, sz), x, z, sx, sy, sz, standable);
         const chair = buildFuturisticChairMesh(Math.min(5, sz * 0.35));
-        chair.position.set(x, 0, z + sz * 0.28);
+        chair.position.set(x, 0, z + sz * 0.5 + 2);   // majukan KELUAR dari meja (2026-07-18)
+        chair.rotation.y = Math.PI;                     // putar 180°: jok menghadap meja
         scene.add(chair);
     };
     // MEJA RAPAT: model meeting table (ruang konferensi).
@@ -491,6 +508,9 @@ export const stage1Scene = {
 
     // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
     cheatSkipToStage: (n) => campaignJumpToStage(n),
+
+    // Animasi pintu geser otomatis (buka saat player/robot mendekat)
+    updateMode(dt) { updateStageDoors(s1doors, dt); },
 
     // Dinding grid: geser per-sumbu (menyusur tembok), penghalang furnitur,
     // slide lagi, lalu cek trigger tangga keluar -> transisi ke stage 2.

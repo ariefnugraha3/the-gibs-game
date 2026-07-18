@@ -33,6 +33,7 @@ import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js'
 import { buildFuturisticPlanterMesh } from '../../entities/futuristicPlanter.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from './interior.js';
+import { buildStageDoors, updateStageDoors } from './doors.js';
 import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -52,6 +53,13 @@ export const s3Cell = (c, r) => ({ x: S3.x0 + (c + 0.5) * S3.CELL, z: S3.z0 + (r
 export const S3_START = { c: 3, r: 3 };
 export const S3_END = { c: 37, r: 26 };
 const S3_EXIT = { c0: 34, r0: 24, c1: 40, r1: 28 };
+
+// PINTU geser otomatis (2026-07-18) — ruangan TERTUTUP (BUKAN ring/atrium tengah).
+const S3_DOORS = [
+    { c0: 11, r0: 15, c1: 11, r1: 15, dir: 'ew' }, // READING <-> ring kiri
+    { c0: 32, r0: 15, c1: 32, r1: 15, dir: 'ew' }, // SUPPLY <-> ring kanan
+];
+let s3doors = null;
 
 const blockers = [];
 let built = false;
@@ -221,6 +229,9 @@ export function buildWorld() {
     wallMesh.frustumCulled = false;
     scene.add(wallMesh);
 
+    // --- Pintu geser otomatis (ruangan tertutup; buka saat player mendekat) ---
+    s3doors = buildStageDoors(S3_DOORS, s3Cell, S3.CELL, S3.H);
+
     // --- ATRIUM VOID: pit gelap + pagar rendah keliling (bukan tembok tinggi) ---
     const V = S3.VOID;
     const vx0 = S3.x0 + V.c0 * S3.CELL, vx1 = S3.x0 + (V.c1 + 1) * S3.CELL;
@@ -281,7 +292,8 @@ export function buildWorld() {
         const p = s3Cell(c, r), x = p.x + dx, z = p.z + dz;
         putModel(buildFuturisticDeskMesh(sx, sy, sz), x, z, sx, sy, sz, standable);
         const chair = buildFuturisticChairMesh(Math.min(5, sz * 0.35));
-        chair.position.set(x, 0, z + sz * 0.28);
+        chair.position.set(x, 0, z + sz * 0.5 + 2);   // majukan KELUAR dari meja (2026-07-18)
+        chair.rotation.y = Math.PI;                     // putar 180°: jok menghadap meja
         scene.add(chair);
     };
     // RAK/LEMARI: deret lemari (cupboard) sepanjang sisi terpanjang (tiap unit ~kotak,
@@ -504,6 +516,9 @@ export const stage3Scene = {
 
     // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
     cheatSkipToStage: (n) => campaignJumpToStage(n),
+
+    // Animasi pintu geser otomatis (buka saat player/robot mendekat)
+    updateMode(dt) { updateStageDoors(s3doors, dt); },
 
     // Dinding grid + furnitur; cek trigger tangga END -> turun ke jalan (stage 4)
     playerCollide(pos, oldX, oldZ, feetY) {

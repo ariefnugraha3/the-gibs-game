@@ -38,6 +38,7 @@ import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js'
 import { buildFuturisticBenchMesh } from '../../entities/futuristicBench.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from './interior.js';
+import { buildStageDoors, updateStageDoors } from './doors.js';
 import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -57,6 +58,14 @@ export const S2_START = { c: 3, r: 3 };          // ruang tangga TURUN dari Lt.3
 export const S2_END = { c: 34, r: 24 };          // tangga TURUN ke stage 3 (kanan-bawah)
 // Trigger tangga keluar (ruang END, kanan-bawah)
 const S2_EXIT = { c0: 31, r0: 22, c1: 37, r1: 26 };
+
+// PINTU geser otomatis (2026-07-18) — ruangan TERTUTUP (BUKAN Open Office/koridor).
+const S2_DOORS = [
+    { c0: 17, r0: 2, c1: 17, r1: 2, dir: 'ew' },   // OFFICE <-> HALLWAY
+    { c0: 30, r0: 13, c1: 30, r1: 13, dir: 'ew' }, // koridor kanan <-> SUPPLY
+    { c0: 13, r0: 23, c1: 13, r1: 23, dir: 'ew' }, // LAB <-> CONTROL
+];
+let s2doors = null;
 
 const blockers = [];   // furnitur/undakan pejal {x,z,hx,hz,ax*,az*,top,standable}
 let built = false;
@@ -216,6 +225,9 @@ export function buildWorld() {
     wallMesh.frustumCulled = false;
     scene.add(wallMesh);
 
+    // --- Pintu geser otomatis (ruangan tertutup; buka saat player mendekat) ---
+    s2doors = buildStageDoors(S2_DOORS, s2Cell, S2.CELL, S2.H);
+
     // --- Furnitur: satu InstancedMesh box + blocker pejal (dijauhkan dari pintu) ---
     const fur = [];
     const furBox = (c, r, sx, sy, sz, color, ry = 0, dx = 0, dz = 0) => {
@@ -247,7 +259,8 @@ export function buildWorld() {
         const p = s2Cell(c, r), x = p.x + dx, z = p.z + dz;
         putModel(buildFuturisticDeskMesh(sx, sy, sz), x, z, sx, sy, sz, standable);
         const chair = buildFuturisticChairMesh(Math.min(5, sz * 0.35));
-        chair.position.set(x, 0, z + sz * 0.28);
+        chair.position.set(x, 0, z + sz * 0.5 + 2);   // majukan KELUAR dari meja (2026-07-18)
+        chair.rotation.y = Math.PI;                     // putar 180°: jok menghadap meja
         scene.add(chair);
     };
     // RAK/LEMARI: deret lemari (cupboard) sepanjang sisi terpanjang (tiap unit ~kotak,
@@ -470,6 +483,9 @@ export const stage2Scene = {
 
     // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
     cheatSkipToStage: (n) => campaignJumpToStage(n),
+
+    // Animasi pintu geser otomatis (buka saat player/robot mendekat)
+    updateMode(dt) { updateStageDoors(s2doors, dt); },
 
     // Dinding grid: geser per-sumbu (menyusur tembok), penghalang furnitur,
     // slide lagi, lalu cek trigger tangga keluar -> turun ke stage 3
