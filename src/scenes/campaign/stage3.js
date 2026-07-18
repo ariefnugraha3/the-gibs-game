@@ -32,6 +32,7 @@ import { buildFuturisticCrateMesh } from '../../entities/futuristicCrate.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { buildFuturisticPlanterMesh } from '../../entities/futuristicPlanter.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
+import { buildInteriorFloorMat, buildInteriorWallMat } from './interior.js';
 import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -74,29 +75,33 @@ function buildS3Grid() {
         for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g[r][c] = 0;
     };
     // --- Ruangan (verifikasi BFS di scratchpad s3grid.mjs) ---
-    carve(1, 1, 5, 6);       // START (tangga turun)
-    carve(8, 1, 17, 8);      // ARCHIVE ROOM
-    carve(20, 1, 28, 4);     // koridor sempit atas (spot 2)
+    // 2026-07-18: batas ruangan + ring dirapatkan agar SETIAP celah antar-ruang =
+    // 1 sel dinding (bukan 2/3) -> tak ada lagi "dinding ganda". Ring atas/bawah
+    // dipanjangkan ke tepi timur/barat menutup celah ke OFFICE/SUPPLY/END.
+    // Verifikasi via detektor double-wall (scratchpad walls.mjs) + BFS smoke.
+    carve(1, 1, 6, 8);       // START (tangga turun)
+    carve(8, 1, 18, 8);      // ARCHIVE ROOM
+    carve(20, 1, 29, 4);     // koridor sempit atas (spot 2)
     carve(31, 1, 40, 8);     // OFFICE ROOM
     carve(1, 12, 10, 19);    // READING ROOM
-    carve(34, 12, 40, 19);   // SUPPLY ROOM
-    carve(1, 23, 11, 28);    // CAFETERIA
-    carve(14, 23, 22, 28);   // ELECTRICAL ROOM
-    carve(25, 23, 31, 28);   // STORAGE ROOM
+    carve(33, 12, 40, 19);   // SUPPLY ROOM
+    carve(1, 23, 12, 28);    // CAFETERIA
+    carve(14, 23, 23, 28);   // ELECTRICAL ROOM
+    carve(25, 23, 32, 28);   // STORAGE ROOM
     carve(34, 23, 40, 28);   // END (tangga turun ke lantai bawah)
     carve(15, 11, 28, 21);   // ATRIUM (ring di sekitar VOID)
     // --- Ring koridor mengelilingi atrium ---
-    carve(2, 9, 35, 10);     // ring ATAS
+    carve(2, 9, 40, 10);     // ring ATAS (memanjang ke timur menutup celah OFFICE/SUPPLY)
     carve(12, 9, 13, 22);    // ring KIRI (vertikal)
     carve(30, 9, 31, 22);    // ring KANAN (vertikal)
-    carve(6, 21, 35, 22);    // ring BAWAH
+    carve(1, 21, 40, 22);    // ring BAWAH (memanjang ke barat & timur menutup celah)
     // --- Pintu / penghubung ---
     carve(2, 6, 4, 9);       // START -> ring atas (spot 1)
     carve(11, 8, 12, 9);     // ARCHIVE -> ring atas
     carve(23, 4, 24, 9);     // koridor sempit -> ring atas
     carve(34, 8, 35, 9);     // OFFICE -> ring atas
     carve(10, 15, 12, 15);   // READING -> ring kiri
-    carve(31, 15, 34, 15);   // SUPPLY -> ring kanan
+    carve(32, 15, 32, 15);   // SUPPLY -> ring kanan
     carve(5, 22, 6, 23);     // CAFETERIA -> ring bawah
     carve(17, 22, 18, 23);   // ELECTRICAL -> ring bawah
     carve(27, 22, 28, 23);   // STORAGE -> ring bawah
@@ -162,23 +167,9 @@ export function buildWorld() {
     const sizeX = S3.G * S3.CELL, sizeZ = S3.ROWS * S3.CELL;
     const cx = S3.x0 + sizeX / 2, cz = S3.z0 + sizeZ / 2;
 
-    // --- Lantai ---
-    const floorTex = makeTexture(128, 128, (g, w, h) => {
-        g.fillStyle = '#46433c'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#3c3931', '#4e4940', '#332f2a', '#565045'], 240, 1, 5);
-        g.strokeStyle = 'rgba(20,18,15,0.6)'; g.lineWidth = 2;
-        g.beginPath(); g.moveTo(0, 0); g.lineTo(w, 0); g.moveTo(0, 0); g.lineTo(0, h); g.stroke();
-        for (let i = 0; i < 3; i++) {
-            g.globalAlpha = 0.10 + Math.random() * 0.12;
-            g.fillStyle = '#100e0a';
-            g.beginPath();
-            g.ellipse(Math.random() * w, Math.random() * h, 10 + Math.random() * 24, 6 + Math.random() * 14, Math.random() * 3, 0, 6.283);
-            g.fill();
-        }
-        g.globalAlpha = 1;
-    }, S3.G, S3.ROWS);
+    // --- Lantai: panel fasilitas TERANG futuristik (interior.js; 1 ubin/sel 2 m) ---
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ),
-        new THREE.MeshPhongMaterial({ map: floorTex, shininess: 8, specular: 0x121110 }));
+        buildInteriorFloorMat(S3.G, S3.ROWS));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(cx, 0.01, cz);
     floor.receiveShadow = true;
@@ -200,18 +191,6 @@ export function buildWorld() {
     scene.add(ceil);
 
     // --- Dinding (InstancedMesh; sel dinding bertetangga lantai, KECUALI VOID) ---
-    const wallTex = makeTexture(64, 64, (g, w, h) => {
-        g.fillStyle = '#63605a'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#585449', '#6e6960', '#4f4b42'], 140, 1, 4);
-        for (let i = 0; i < 5; i++) {
-            g.strokeStyle = 'rgba(36,33,28,0.5)';
-            g.lineWidth = 1 + Math.random();
-            let x = Math.random() * w, y = 0;
-            g.beginPath(); g.moveTo(x, y);
-            for (let s = 0; s < 3; s++) { x += rand(-6, 6); y += h / 3; g.lineTo(x, y); }
-            g.stroke();
-        }
-    });
     const wallCells = [];
     for (let r = 0; r < S3.ROWS; r++) {
         for (let c = 0; c < S3.G; c++) {
@@ -225,7 +204,7 @@ export function buildWorld() {
     }
     const wallMesh = new THREE.InstancedMesh(
         new THREE.BoxGeometry(S3.CELL, S3.H, S3.CELL),
-        new THREE.MeshPhongMaterial({ map: wallTex, shininess: 5, specular: 0x14130f }),
+        buildInteriorWallMat(),
         wallCells.length);
     {
         const _m = new THREE.Matrix4(), _c = new THREE.Color();

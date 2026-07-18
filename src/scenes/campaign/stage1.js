@@ -32,6 +32,7 @@ import { buildFuturisticStallMesh } from '../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
+import { buildInteriorFloorMat, buildInteriorWallMat } from './interior.js';
 import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
@@ -60,13 +61,16 @@ function buildS1Grid() {
         for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g[r][c] = 0;
     };
     // --- Ruangan (kotak lantai; verifikasi BFS di scratchpad) ---
-    carve(1, 1, 6, 6);      // A Stairwell / START (tangga turun dari Lt.3)
-    carve(9, 1, 18, 7);     // B Conference Room (tengah-atas)
+    // 2026-07-18: batas ruangan dirapatkan agar SETIAP celah antar-ruang = 1 sel
+    // dinding (bukan 2) -> tak ada lagi "dinding ganda" (dua tembok paralel
+    // berdempetan). Verifikasi via detektor double-wall (scratchpad walls.mjs).
+    carve(1, 1, 7, 6);      // A Stairwell / START (tangga turun dari Lt.3)
+    carve(9, 1, 19, 7);     // B Conference Room (tengah-atas)
     carve(21, 1, 28, 6);    // C Supply Room (kanan-atas: ammo/granat/medkit)
-    carve(1, 9, 6, 16);     // D Office Room (kiri-tengah)
-    carve(8, 9, 20, 21);    // G Main Hall (pusat, area terbuka besar)
-    carve(23, 9, 28, 16);   // H Security Room (kanan-tengah)
-    carve(1, 19, 6, 26);    // E Break Room (kiri-bawah)
+    carve(1, 8, 6, 16);     // D Office Room (kiri-tengah)
+    carve(8, 9, 21, 21);    // G Main Hall (pusat, area terbuka besar)
+    carve(23, 8, 28, 16);   // H Security Room (kanan-tengah)
+    carve(1, 18, 6, 26);    // E Break Room (kiri-bawah)
     carve(8, 23, 13, 28);   // F Restroom (bawah-tengah)
     carve(15, 23, 21, 28);  // I Storage Room (bawah-kanan)
     carve(23, 18, 28, 28);  // J End / tangga TURUN ke lantai bawah (kanan-bawah)
@@ -74,16 +78,17 @@ function buildS1Grid() {
     carve(3, 7, 4, 8);      // A -> D koridor awal sempit (spot 1)
     carve(24, 7, 25, 8);    // C -> H lorong kanan dekat supply (spot 6)
     // --- Pintu (bukaan; 1-2 sel) ---
-    carve(7, 3, 8, 3);      // A -> B
-    carve(19, 3, 20, 3);    // B -> C
+    carve(8, 3, 8, 3);      // A -> B
+    carve(20, 3, 20, 3);    // B -> C
     carve(13, 8, 14, 8);    // B -> G (pintu utara main hall)
     carve(7, 12, 7, 12);    // D -> G
-    carve(21, 12, 22, 12);  // G -> H
-    carve(3, 17, 4, 18);    // D -> E
+    carve(22, 12, 22, 12);  // G -> H
+    carve(3, 17, 4, 17);    // D -> E
     carve(10, 21, 11, 22);  // G -> F (restroom)
     carve(17, 21, 18, 22);  // G -> I (storage)
     carve(22, 25, 22, 26);  // I -> J
     carve(25, 17, 26, 17);  // H -> J
+    carve(21, 8, 21, 8);    // nub: tutup stub dinding-ganda pojok C-G (col21 r7,8)
     s1grid = g;
 }
 
@@ -169,23 +174,9 @@ export function buildWorld() {
     const size = S1.G * S1.CELL;                      // 420 unit = 60 m
     const cx = S1.x0 + size / 2, cz = S1.z0 + size / 2;
 
-    // --- Lantai: ubin kusam bernoda ---
-    const floorTex = makeTexture(128, 128, (g, w, h) => {
-        g.fillStyle = '#4a463e'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#403c35', '#524d44', '#37342e', '#5a554b'], 240, 1, 5);
-        g.strokeStyle = 'rgba(24,22,19,0.6)'; g.lineWidth = 2;
-        g.beginPath(); g.moveTo(0, 0); g.lineTo(w, 0); g.moveTo(0, 0); g.lineTo(0, h); g.stroke();
-        for (let i = 0; i < 3; i++) {                  // noda gelap
-            g.globalAlpha = 0.10 + Math.random() * 0.12;
-            g.fillStyle = '#14110d';
-            g.beginPath();
-            g.ellipse(Math.random() * w, Math.random() * h, 10 + Math.random() * 24, 6 + Math.random() * 14, Math.random() * 3, 0, 6.283);
-            g.fill();
-        }
-        g.globalAlpha = 1;
-    }, S1.G, S1.G);   // 1 ubin per sel (2 m)
+    // --- Lantai: panel fasilitas TERANG futuristik (interior.js; 1 ubin/sel 2 m) ---
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
-        new THREE.MeshPhongMaterial({ map: floorTex, shininess: 8, specular: 0x121110 }));
+        buildInteriorFloorMat(S1.G, S1.G));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(cx, 0.01, cz);
     floor.receiveShadow = true;
@@ -212,18 +203,6 @@ export function buildWorld() {
     scene.add(ceil);
 
     // --- Dinding: satu InstancedMesh (hanya sel dinding yang bertetangga lantai) ---
-    const wallTex = makeTexture(64, 64, (g, w, h) => {
-        g.fillStyle = '#6b675f'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#605c54', '#767168', '#575349'], 140, 1, 4);
-        for (let i = 0; i < 5; i++) {                  // rembesan/retak
-            g.strokeStyle = 'rgba(40,37,32,0.5)';
-            g.lineWidth = 1 + Math.random();
-            let x = Math.random() * w, y = 0;
-            g.beginPath(); g.moveTo(x, y);
-            for (let s = 0; s < 3; s++) { x += rand(-6, 6); y += h / 3; g.lineTo(x, y); }
-            g.stroke();
-        }
-    });
     const wallCells = [];
     for (let r = 0; r < S1.G; r++) {
         for (let c = 0; c < S1.G; c++) {
@@ -237,7 +216,7 @@ export function buildWorld() {
     }
     const wallMesh = new THREE.InstancedMesh(
         new THREE.BoxGeometry(S1.CELL, S1.H, S1.CELL),
-        new THREE.MeshPhongMaterial({ map: wallTex, shininess: 5, specular: 0x14130f }),
+        buildInteriorWallMat(),
         wallCells.length);
     {
         const _m = new THREE.Matrix4(), _c = new THREE.Color();
@@ -499,7 +478,7 @@ export const stage1Scene = {
         placeStage2Robots();     // robot gedung stage 2 (9 spot denah) + supply
         placeRobots();           // robot gedung sesuai denah (stage 1)
         placeSupplies();          // ruang persediaan: ammo/granat/medkit
-        applyLightPreset(scene, 'indoor');   // interior gelap + kabut rapat
+        applyLightPreset(scene, 'indoor');   // interior TERANG futuristik (2026-07-18)
         enterCityEnv();   // latar kota Jakarta: kubah api global disembunyikan + haze dingin
         const sp = s1Cell(S1_START.c, S1_START.r);
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);

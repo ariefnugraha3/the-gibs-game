@@ -51,9 +51,9 @@
         "heatCoolPerSec": 1.4,
         "adsAccuracy": 0.75,
         "ammoUpgrades": [
-            { "pistol": 180, "rifle": 600, "shotgun": 360, "launcher": 29 },
-            { "pistol": 210, "rifle": 700, "shotgun": 420, "launcher": 33 },
-            { "pistol": 240, "rifle": 800, "shotgun": 480, "launcher": 36 }
+            { "pistol": 300, "rifle": 600, "shotgun": 360, "launcher": 30 },
+            { "pistol": 360, "rifle": 700, "shotgun": 420, "launcher": 35 },
+            { "pistol": 430, "rifle": 800, "shotgun": 480, "launcher": 40 }
         ],
         "rifle": {
             "maxAmmo": 500,
@@ -63,7 +63,7 @@
             "damage": 40
         },
         "pistol": {
-            "maxAmmo": 150,
+            "maxAmmo": 250,
             "ammoPickup": 30,
             "fireDelayMs": 260,
             "cameraKick": 0.016,
@@ -84,7 +84,7 @@
             "fireDelayMs": 1200,
             "cameraKick": 0.03,
             "roundSpeed": 5,
-            "damage": 100
+            "damage": 115
         }
     },
     "melee": {

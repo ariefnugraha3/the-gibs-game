@@ -121,11 +121,10 @@ export function configurePlayer() {
     // Tanpa magazen: mulai dgn kolam peluru PENUH per senjata (kap efektif)
     for (const w of ['rifle', 'pistol', 'shotgun', 'launcher'])
         player[w].ammo = maxAmmoFor(w);
-    // Slot senjata awal per mode (maks 3): Survival mulai pistol saja (beli
-    // senjata lain di shop); Campaign & mode lain mulai rifle + pistol
-    // (shotgun & Grenade Launcher hanya dari shop Survival). owned diturunkan dari slot ini.
-    const survivalStart = mode === 'survival';
-    player.weapons = survivalStart ? ['pistol'] : ['rifle', 'pistol'];
+    // Slot senjata awal (maks 3): SEMUA mode mulai pistol saja (beli senjata
+    // lain di shop; shotgun & Grenade Launcher hanya dari shop Survival).
+    // owned diturunkan dari slot ini.
+    player.weapons = ['pistol'];
     syncOwnedFromWeapons();
     // Radar: SEMUA mode mulai TANPA radar — dibeli di shop (item "Radar"), Survival
     // maupun Campaign (2026-07-14: campaign shop kini menjual Radar).

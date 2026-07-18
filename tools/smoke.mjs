@@ -924,6 +924,53 @@ T('S3: START & END di lantai; VOID pusat = dinding (tak dilalui)',
     && s3mod.s3Wall((VC.c0 + VC.c1) >> 1, (VC.r0 + VC.r1) >> 1));
 T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 
+// --- 16b. TANPA DINDING GANDA (2026-07-18): denah gedung stage 1/2/3 dirapatkan
+// agar SETIAP celah antar-ruang = 1 sel dinding. Detektor: run dinding tebal-2
+// (dua tembok paralel berdempetan = selalu ganda) ATAU tebal-3 dgn sel TENGAH
+// tak ter-render (dua strip + celah terlihat). Sudut/tembok tipis panjang tidak
+// dihitung. Cermin scratchpad walls.mjs. ---
+{
+    const s1mod = await import(R('src/scenes/campaign/stage1.js'));
+    if (!s1mod.s1grid) s1mod.buildWorld();
+    const wcl = (g, c, r) => (r < 0 || c < 0 || r >= g.length || c >= g[0].length) ? true : g[r][c] === 1;
+    const flr = (g, c, r) => !wcl(g, c, r);
+    const rnd = (g, c, r) => {   // sel dinding ter-render? (punya tetangga-8 lantai)
+        if (!wcl(g, c, r)) return false;
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (flr(g, c + dc, r + dr)) return true;
+        return false;
+    };
+    const bands = (g) => {
+        let n = 0;
+        for (let r = 0; r < g.length; r++) for (let c = 0; c < g[0].length; c++) {
+            if (flr(g, c - 1, r) && wcl(g, c, r) && wcl(g, c + 1, r) && flr(g, c + 2, r)) n++;
+            else if (flr(g, c - 1, r) && wcl(g, c, r) && wcl(g, c + 1, r) && wcl(g, c + 2, r) && flr(g, c + 3, r) && !rnd(g, c + 1, r)) n++;
+            if (flr(g, c, r - 1) && wcl(g, c, r) && wcl(g, c, r + 1) && flr(g, c, r + 2)) n++;
+            else if (flr(g, c, r - 1) && wcl(g, c, r) && wcl(g, c, r + 1) && wcl(g, c, r + 2) && flr(g, c, r + 3) && !rnd(g, c, r + 1)) n++;
+        }
+        return n;
+    };
+    const b1 = bands(s1mod.s1grid), b2 = bands(s2mod.s2grid), b3 = bands(s3mod.s3grid);
+    T('No double walls: stage 1 grid (' + b1 + ' band)', b1 === 0);
+    T('No double walls: stage 2 grid (' + b2 + ' band)', b2 === 0);
+    T('No double walls: stage 3 grid (' + b3 + ' band)', b3 === 0);
+}
+
+// --- 16c. INTERIOR FUTURISTIK (2026-07-18): material dinding/lantai stage 1-3
+// (interior.js) — panel terang + aksen strip/nat TEAL menyala. Wajib patuh GIBS
+// 2045: aksen emissive = PAL.tech, intensity <= EMISSIVE_MAX, tanpa neon. ---
+{
+    const intMod = await import(R('src/scenes/campaign/interior.js'));
+    const palM = await import(R('src/world/palette.js'));
+    const fmat = intMod.buildInteriorFloorMat(30, 30), wmat = intMod.buildInteriorWallMat();
+    const eHex = (m) => (m.emissive && m.emissive.getHex) ? m.emissive.getHex() : 0;
+    T('Interior: material lantai & dinding terbangun (punya map)', !!(fmat && wmat && fmat.map && wmat.map));
+    T('Interior: emissive aksen = PAL.tech (teal), bukan neon terlarang',
+        eHex(fmat) === palM.PAL.tech && eHex(wmat) === palM.PAL.tech
+        && !palM.FORBIDDEN_HEX.includes(eHex(fmat)) && !palM.FORBIDDEN_HEX.includes(eHex(wmat)));
+    T('Interior: emissiveIntensity <= EMISSIVE_MAX',
+        fmat.emissiveIntensity <= palM.EMISSIVE_MAX && wmat.emissiveIntensity <= palM.EMISSIVE_MAX);
+}
+
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s3dropsBefore = stateMod.drops.length;
 s3mod.placeRobots();

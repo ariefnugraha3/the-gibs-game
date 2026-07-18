@@ -37,6 +37,7 @@ import { buildFuturisticRubbleMesh } from '../../entities/futuristicRubble.js';
 import { buildFuturisticConsoleMesh } from '../../entities/futuristicConsole.js';
 import { buildFuturisticBenchMesh } from '../../entities/futuristicBench.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from './common.js';
+import { buildInteriorFloorMat, buildInteriorWallMat } from './interior.js';
 import { buildCampaignCityscape, enterCityEnv } from './cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from './transition.js';
 import { stage1Scene } from './stage1.js';
@@ -66,15 +67,18 @@ function buildS2Grid() {
         for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g[r][c] = 0;
     };
     // --- Ruangan (verifikasi BFS di scratchpad s2grid.mjs) ---
-    carve(1, 1, 6, 6);       // START (tangga turun dari Lt.3)
-    carve(9, 1, 15, 6);      // OFFICE ROOM
+    // 2026-07-18: batas ruangan dirapatkan agar SETIAP celah antar-ruang = 1 sel
+    // dinding (bukan 2/3) -> tak ada lagi "dinding ganda". Verifikasi via detektor
+    // double-wall (scratchpad walls.mjs) + BFS smoke.
+    carve(1, 1, 7, 6);       // START (tangga turun dari Lt.3)
+    carve(9, 1, 16, 6);      // OFFICE ROOM
     carve(18, 1, 26, 5);     // HALLWAY (koridor panjang)
     carve(30, 1, 38, 6);     // STORAGE ROOM (arsip)
-    carve(1, 10, 8, 17);     // WAITING AREA
-    carve(11, 9, 24, 17);    // OPEN OFFICE
-    carve(31, 9, 38, 15);    // SUPPLY ROOM
-    carve(1, 20, 11, 26);    // LAB / RESEARCH ROOM
-    carve(14, 20, 25, 26);   // CONTROL ROOM
+    carve(1, 10, 9, 17);     // WAITING AREA
+    carve(11, 9, 26, 17);    // OPEN OFFICE
+    carve(31, 8, 38, 17);    // SUPPLY ROOM
+    carve(1, 19, 12, 26);    // LAB / RESEARCH ROOM
+    carve(14, 19, 25, 26);   // CONTROL ROOM
     carve(30, 19, 38, 26);   // END (tangga turun ke stage 3)
     // --- Koridor sempit (jadi robot-spot ambush) ---
     carve(2, 7, 27, 8);      // koridor utama HALLWAY (atas)
@@ -82,22 +86,23 @@ function buildS2Grid() {
     carve(4, 8, 5, 10);      // koridor -> WAITING (spot 1)
     carve(12, 17, 13, 19);   // OPEN OFFICE -> CONTROL (turun)
     carve(6, 17, 7, 19);     // WAITING -> LAB (turun)
+    carve(25, 9, 27, 10);    // simpul NE: sambung koridor atas ke konektor koridor kanan
     // --- Pintu (bukaan staggered 1-2 sel) ---
     carve(3, 6, 4, 7);       // START -> koridor
-    carve(7, 4, 8, 4);       // START -> OFFICE
-    carve(11, 6, 12, 7);     // OFFICE -> koridor
-    carve(16, 2, 17, 2);     // OFFICE -> HALLWAY
+    carve(11, 6, 12, 7);     // OFFICE -> koridor (START & OFFICE juga langsung ke koridor lewat baris 6-7)
+    carve(17, 2, 17, 2);     // OFFICE -> HALLWAY
     carve(21, 5, 22, 7);     // HALLWAY -> koridor
     carve(27, 3, 29, 3);     // HALLWAY -> koridor kanan
     carve(28, 4, 30, 4);     // koridor kanan -> STORAGE
     carve(15, 8, 16, 9);     // koridor -> OPEN OFFICE (pintu utara)
-    carve(9, 13, 11, 13);    // WAITING -> OPEN OFFICE
+    carve(10, 13, 10, 13);   // WAITING -> OPEN OFFICE
     carve(24, 11, 28, 11);   // OPEN OFFICE -> koridor kanan
     carve(29, 13, 31, 13);   // koridor kanan -> SUPPLY
     carve(6, 17, 7, 18);     // WAITING -> koridor LAB
     carve(12, 17, 13, 18);   // OPEN OFFICE -> koridor CONTROL
-    carve(11, 23, 14, 23);   // LAB -> CONTROL
+    carve(13, 23, 13, 23);   // LAB -> CONTROL
     carve(25, 21, 30, 21);   // CONTROL -> koridor kanan -> END
+    carve(26, 19, 26, 19);   // nub: tutup stub dinding-ganda ujung koridor kanan (col26,27 r19)
     s2grid = g;
 }
 
@@ -157,23 +162,9 @@ export function buildWorld() {
     const sizeX = S2.G * S2.CELL, sizeZ = S2.ROWS * S2.CELL;   // 560 x 392 unit
     const cx = S2.x0 + sizeX / 2, cz = S2.z0 + sizeZ / 2;
 
-    // --- Lantai: ubin kusam bernoda ---
-    const floorTex = makeTexture(128, 128, (g, w, h) => {
-        g.fillStyle = '#484540'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#3e3a34', '#504b43', '#35322c', '#585349'], 240, 1, 5);
-        g.strokeStyle = 'rgba(22,20,17,0.6)'; g.lineWidth = 2;
-        g.beginPath(); g.moveTo(0, 0); g.lineTo(w, 0); g.moveTo(0, 0); g.lineTo(0, h); g.stroke();
-        for (let i = 0; i < 3; i++) {
-            g.globalAlpha = 0.10 + Math.random() * 0.12;
-            g.fillStyle = '#12100c';
-            g.beginPath();
-            g.ellipse(Math.random() * w, Math.random() * h, 10 + Math.random() * 24, 6 + Math.random() * 14, Math.random() * 3, 0, 6.283);
-            g.fill();
-        }
-        g.globalAlpha = 1;
-    }, S2.G, S2.ROWS);
+    // --- Lantai: panel fasilitas TERANG futuristik (interior.js; 1 ubin/sel 2 m) ---
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ),
-        new THREE.MeshPhongMaterial({ map: floorTex, shininess: 8, specular: 0x121110 }));
+        buildInteriorFloorMat(S2.G, S2.ROWS));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(cx, 0.01, cz);
     floor.receiveShadow = true;
@@ -195,18 +186,6 @@ export function buildWorld() {
     scene.add(ceil);
 
     // --- Dinding: satu InstancedMesh (sel dinding bertetangga lantai saja) ---
-    const wallTex = makeTexture(64, 64, (g, w, h) => {
-        g.fillStyle = '#67635b'; g.fillRect(0, 0, w, h);
-        speckle(g, w, h, ['#5c5850', '#726d64', '#534f45'], 140, 1, 4);
-        for (let i = 0; i < 5; i++) {
-            g.strokeStyle = 'rgba(38,35,30,0.5)';
-            g.lineWidth = 1 + Math.random();
-            let x = Math.random() * w, y = 0;
-            g.beginPath(); g.moveTo(x, y);
-            for (let s = 0; s < 3; s++) { x += rand(-6, 6); y += h / 3; g.lineTo(x, y); }
-            g.stroke();
-        }
-    });
     const wallCells = [];
     for (let r = 0; r < S2.ROWS; r++) {
         for (let c = 0; c < S2.G; c++) {
@@ -220,7 +199,7 @@ export function buildWorld() {
     }
     const wallMesh = new THREE.InstancedMesh(
         new THREE.BoxGeometry(S2.CELL, S2.H, S2.CELL),
-        new THREE.MeshPhongMaterial({ map: wallTex, shininess: 5, specular: 0x14130f }),
+        buildInteriorWallMat(),
         wallCells.length);
     {
         const _m = new THREE.Matrix4(), _c = new THREE.Color();
