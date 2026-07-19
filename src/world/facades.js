@@ -9,28 +9,34 @@ export const CITY_PALETTE = [0x26262b, 0x2e2a26, 0x202428, 0x35302a, 0x1c1d22];
 
 // Fasad: grid jendela gelap (map, di-tint warna instance) + sebagian menyala
 // (emissiveMap). Beberapa "lantai hancur" digelapkan total — kesan rusak perang.
-export function makeFacadeTex() {
+// `scale` (2026-07-19, permintaan user "jendela lebih besar"): pengali ukuran
+// grid jendela — 1 = grid lama (kota latar), ~2 = jendela besar proporsional
+// utk gedung dekat kamera (roadside stage 4). Grid makeLitTex HARUS memakai
+// scale yang sama supaya jendela menyala sejajar dgn jendela gelapnya.
+export function makeFacadeTex(scale = 1) {
+    const sy = 16 * scale, sx = 13 * scale, ww = 9 * scale, wh = 10 * scale;
     return makeTexture(256, 512, (g, w, h) => {
         g.fillStyle = '#c9ccd4'; g.fillRect(0, 0, w, h);   // terang: dikalikan warna gelap instance
-        for (let y = 8; y < h - 8; y += 16) {
+        for (let y = 8; y < h - 8; y += sy) {
             const destroyed = Math.random() < 0.08;
-            if (destroyed) { g.fillStyle = 'rgba(10,10,12,0.55)'; g.fillRect(0, y - 3, w, 16); }
-            for (let x = 6; x < w - 6; x += 13) {
+            if (destroyed) { g.fillStyle = 'rgba(10,10,12,0.55)'; g.fillRect(0, y - 3, w, sy); }
+            for (let x = 6; x < w - 6; x += sx) {
                 g.fillStyle = destroyed ? '#0e0e12' : (Math.random() < 0.12 ? '#1a1a20' : '#3c3c46');
-                g.fillRect(x, y, 9, 10);
+                g.fillRect(x, y, ww, wh);
             }
         }
     });
 }
 
-export function makeLitTex() {
+export function makeLitTex(scale = 1) {
+    const sy = 16 * scale, sx = 13 * scale, ww = 9 * scale, wh = 10 * scale;
     return makeTexture(256, 512, (g, w, h) => {
         g.fillStyle = '#000000'; g.fillRect(0, 0, w, h);
-        for (let y = 8; y < h - 8; y += 16) {
-            for (let x = 6; x < w - 6; x += 13) {
+        for (let y = 8; y < h - 8; y += sy) {
+            for (let x = 6; x < w - 6; x += sx) {
                 if (Math.random() < 0.07) {
                     g.fillStyle = Math.random() < 0.5 ? '#ffb45e' : '#ff7b30';
-                    g.fillRect(x, y, 9, 10);
+                    g.fillRect(x, y, ww, wh);
                 }
             }
         }

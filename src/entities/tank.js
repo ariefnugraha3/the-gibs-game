@@ -82,7 +82,11 @@ import { segPointDist2, clamp, rand } from '../utils/math.js';
 import { queueBoom, attackerAngle } from './robots.js';
 import { spawnGroundPuff, spawnBloodBurst, explodeAt } from './effects.js';
 import { spawnGibs, spawnBloodDecal } from './gore.js';
-import { playSFX, sfxExplode, sfxShoot, sfxShotgun, sfxHit } from '../utils/sfx.js';
+import {
+    playSFX, playLoopSFX, stopLoopSFX, sfxExplode, sfxHit,
+    sfxTankMG, sfxTankMortar, sfxTankBlast, sfxTankExplode,
+    sfxTankIncoming, sfxTankMove, sfxTankTurret
+} from '../utils/sfx.js';
 import { updateUI } from '../core/hud.js';
 import { flashDamage, showHitDir } from '../core/dom.js';
 import { startPlayerDeath } from '../core/game.js';
@@ -101,6 +105,10 @@ const TANK_SCALE = 0.7;
 // CAIRAN/DEBRIS tank = HITAM/oli, BUKAN hijau ("hanya robot yang punya coolant
 // hijau", permintaan user 2026-07-18): genangan gib mendarat pakai tone gelap.
 const TANK_FLUID = 0x141210;
+// DESING MORTAR DATANG (2026-07-19): suara tank-incoming-mortar dinyalakan saat
+// sisa terbang <= detik ini (durasi pas: belum ditembakkan = belum berbunyi,
+// dihentikan paksa tepat saat mendarat). Konvensi: konstanta audio-visual di kode.
+const INCOMING_SEC = 1.2;
 const _UP = new THREE.Vector3(0, 1, 0);   // sumbu HIDUNG mortar (+Y lokal) utk orientasi lintasan
 const _vv = new THREE.Vector3();          // scratch arah kecepatan mortar
 
@@ -187,37 +195,37 @@ function layZap(ax, ay, az, bx, by, bz) {
 }
 function hideZap() { if (ZAP) ZAP.grp.visible = false; }
 
-// ===== Bangun mesh tank prosedural — DIROMBAK TOTAL 2026-07-15 mengacu bentuk
-// TANK TIGER I Jerman PD2 (lambung boxy sisi-tegak yang menggantung di atas
-// track, roda jalan besar saling-tumpang, meriam 88 mm panjang + rem moncong
-// dobel-baffle, mantlet, kubah komandan, kotak stowage buritan, spatbor, alat,
-// mata rantai cadangan di glacis). CAT DIGANTI 2026-07-16 ke skema faksi robot
-// 2045 (gunmetal gelap + lensa sensor merah, panduan gaya world/palette.js) —
-// bentuk Tiger I tetap. Primitif murah
+// ===== Bangun mesh tank prosedural — DIROMBAK LAGI 2026-07-19 (permintaan
+// user) dari Tiger I PD2 menjadi MBT FUTURISTIS 2045: lambung wedge FACET
+// stealth rendah, skirt armor menutup sebagian roda, glacis tajam dgn STRIP
+// SENSOR merah (senada mata robot), turret facet rendah, meriam gaya RAILGUN
+// (selubung angular + rel kembar + cincin kapasitor + bore gelap), pod MG
+// koaksial kompak, tabung mortar belakang MENGHADAP DEPAN dlm rumah angular,
+// nozel pendorong vektor di buritan, tiang sensor pengganti kubah komandan.
+// Cat tetap skema faksi robot (gunmetal, world/palette.js). Primitif murah
 // (Lambert/Basic = program shader yang SUDAH dipanaskan → tanpa recompile).
-// KONTRAK MEKANIK TAK BERUBAH: FRONT = -X (ke player); HULL diam, TURRET (anak)
-// berputar (turret.rotation.y) & cannon = +Z lokal; muzzle anchor sbg titik
-// spawn proyektil; `wheels[]` diputar spinTracks (rotation.x); `paintMats[]`
-// dihanguskan saat mati. Nilai muzzle sekadar kosmetik (proyektil terbang ke
-// player) — hit-test & damage tak bergantung padanya. =====
+// KONTRAK MEKANIK TAK BERUBAH (JANGAN diubah saat menyentuh visual): FRONT =
+// -X (ke player); HULL diam, TURRET (anak) berputar (turret.rotation.y) &
+// cannon = +Z lokal; muzzle anchor (koordinat LAMA dipertahankan) = titik
+// spawn proyektil; `wheels[]` diputar spinTracks (rotation.x); `paintMats[]`/
+// `paintBase` utk kilat tertembak + bangkai hangus. Nilai muzzle sekadar
+// kosmetik (proyektil terbang ke player) — hit-test/damage tak bergantung. =====
 export function buildTankMesh() {
     const group = new THREE.Group();
     const paintMats = [];   // cat bodi (dihanguskan saat mati)
 
     // --- Material (di-share; Lambert = 1 program shader, tanpa recompile) ---
-    // Cat 2045 (panduan gaya world/palette.js): gunmetal gelap faksi robot —
-    // senada rangka robot & warna armor boss, BUKAN dunkelgelb WWII lagi.
+    // Cat 2045 (panduan gaya world/palette.js): gunmetal gelap faksi robot.
     const armor = new THREE.MeshLambertMaterial({ color: 0x474d41 });    // abu-zaitun gelap (bodi+turret)
     const armorDk = new THREE.MeshLambertMaterial({ color: 0x363b33 });  // panel bayangan/bawah
-    const camoGrn = new THREE.MeshLambertMaterial({ color: 0x2f353b });  // tambalan kamuflase gunmetal
-    const camoBrn = new THREE.MeshLambertMaterial({ color: 0x3d444c });  // tambalan senada serpihan robot
-    const steel = new THREE.MeshLambertMaterial({ color: 0x71757d });    // logam terang (pelek/hub/kabel)
-    const gun = new THREE.MeshLambertMaterial({ color: 0x1f2226 });      // gunmetal (laras/MG/knalpot)
-    const track = new THREE.MeshLambertMaterial({ color: 0x34363a });    // rantai besi gelap
-    const rubber = new THREE.MeshLambertMaterial({ color: 0x161618 });   // ban karet roda jalan
-    const wood = new THREE.MeshLambertMaterial({ color: 0x6b4a29 });     // gagang alat
-    const glass = new THREE.MeshLambertMaterial({ color: 0x120404, emissive: 0x661010 }); // lensa sensor merah (senada mata robot)
-    paintMats.push(armor, armorDk, camoGrn, camoBrn);
+    const panelA = new THREE.MeshLambertMaterial({ color: 0x2f353b });   // panel facet gunmetal
+    const panelB = new THREE.MeshLambertMaterial({ color: 0x3d444c });   // panel senada serpihan robot
+    const steel = new THREE.MeshLambertMaterial({ color: 0x71757d });    // logam terang (hub/cincin)
+    const gun = new THREE.MeshLambertMaterial({ color: 0x1f2226 });      // gunmetal (laras/MG/nozel)
+    const track = new THREE.MeshLambertMaterial({ color: 0x34363a });    // rantai komposit gelap
+    const rubber = new THREE.MeshLambertMaterial({ color: 0x161618 });   // roda jalan
+    const glass = new THREE.MeshLambertMaterial({ color: 0x120404, emissive: 0x661010 }); // lensa/strip sensor merah (senada mata robot)
+    paintMats.push(armor, armorDk, panelA, panelB);
 
     // mk: mesh + posisi + rotasi opsional (noShadow utk detail kecil = hemat).
     const mk = (g, m, x, y, z, parent, rx, ry, rz, noShadow) => {
@@ -229,29 +237,33 @@ export function buildTankMesh() {
         return b;
     };
     // Silinder yang berbaring LATERAL (poros = sumbu Z dunia): sprocket/idler,
-    // kolar meriam, laras (di +Z). Poros dibaked ke Z sekali via rotateX.
+    // laras (di +Z). Poros dibaked ke Z sekali via rotateX.
     const lat = (r1, r2, h, seg) => { const g = new THREE.CylinderGeometry(r1, r2, h, seg); g.rotateX(Math.PI / 2); return g; };
 
     // ===================== LAMBUNG BAWAH (bak) =====================
     mk(new THREE.BoxGeometry(52, 8, 26), armorDk, 1, 8, 0, group);
 
     // ===================== TRACK + RODA (kiri z-, kanan z+) =====================
-    // Roda jalan Tiger: BESAR & saling tumpang. Geo ban dibaked poros ke sumbu-X
-    // lokal (rotateZ) supaya di dalam wrapper ber-rotasi Y 90° porosnya jadi Z
-    // dunia (lateral, menghadap kamera) DAN spinTracks(rotation.x) = menggelinding.
+    // Geo ban dibaked poros ke sumbu-X lokal (rotateZ) supaya di dalam wrapper
+    // ber-rotasi Y 90° porosnya jadi Z dunia DAN spinTracks(rotation.x) =
+    // menggelinding — KONTRAK LAMA, jangan diubah.
     const tireGeo = new THREE.CylinderGeometry(6, 6, 5.4, 16); tireGeo.rotateZ(Math.PI / 2);
     const hubGeo = new THREE.CylinderGeometry(2, 2, 5.8, 10); hubGeo.rotateZ(Math.PI / 2);
     const tracks = [], wheels = [];
     for (const side of [-1, 1]) {
         const zc = side * 13.5;
         tracks.push(mk(new THREE.BoxGeometry(56, 10, 9), track, 1, 5.5, zc, group));   // lintasan bawah
-        mk(new THREE.BoxGeometry(50, 4, 8.6), track, 1, 15.5, zc, group);              // return run atas
-        // sprocket depan (-X) & idler belakang (+X) — cakram lateral bergigi kasar
+        // SKIRT ARMOR FACET 2045 (pengganti return-run polos): slab miring
+        // menggantung menutupi separuh atas roda — roda tetap terlihat berputar.
+        const skirt = mk(new THREE.BoxGeometry(54, 8, 1.6), panelA, 1, 13, zc + side * 4.6, group);
+        skirt.rotation.x = side * 0.14;
+        mk(new THREE.BoxGeometry(50, 3.5, 8.6), track, 1, 15.5, zc, group, 0, 0, 0, true);   // return run (di balik skirt)
+        // sprocket depan (-X) & idler belakang (+X)
         mk(lat(6.6, 6.6, 6, 12), track, -27.5, 6.5, zc, group);
         mk(lat(6.6, 6.6, 6, 12), track, 29.5, 6.5, zc, group);
         mk(lat(3, 3, 6.4, 8), steel, -27.5, 6.5, zc, group, 0, 0, 0, true);
         mk(lat(3, 3, 6.4, 8), steel, 29.5, 6.5, zc, group, 0, 0, 0, true);
-        // roda jalan besar saling tumpang (7 buah) — berputar (wheels[])
+        // roda jalan saling tumpang (7 buah) — berputar (wheels[])
         for (let wx = -21; wx <= 23; wx += 6.2) {
             const ww = new THREE.Group();
             ww.position.set(wx, 6, zc); ww.rotation.y = Math.PI / 2; group.add(ww);
@@ -260,71 +272,72 @@ export function buildTankMesh() {
             mk(hubGeo, steel, 0, 0, 0, wheel, 0, 0, 0, true);
             wheels.push(wheel);
         }
-        // spatbor/mudguard depan & belakang (menjorok di ujung track)
-        mk(new THREE.BoxGeometry(16, 0.8, 11), armorDk, -24, 20, zc, group, 0, 0, -0.05);
-        mk(new THREE.BoxGeometry(16, 0.8, 11), armorDk, 25, 20, zc, group, 0, 0, 0.05);
+        // mudguard wedge depan & belakang (menirus, bukan pelat datar)
+        mk(new THREE.BoxGeometry(15, 1.2, 10.4), panelB, -24, 19.6, zc, group, 0, 0, -0.16);
+        mk(new THREE.BoxGeometry(15, 1.2, 10.4), panelB, 25, 19.6, zc, group, 0, 0, 0.16);
     }
 
-    // ===================== SUPERSTRUKTUR (lambung atas, MENGGANTUNG) =====================
-    // Tiger: dinding tegak yang melebar menutupi track. Lebar 36 (± track).
-    mk(new THREE.BoxGeometry(50, 10, 36), armor, 1, 16.5, 0, group);
-    mk(new THREE.BoxGeometry(50, 2, 36), armorDk, 1, 11.6, 0, group, 0, 0, 0, true);   // tepi bawah gelap
-
-    // ----- GLACIS depan (-X): pelat miring + pelat pengemudi + visor + bola MG -----
-    mk(new THREE.BoxGeometry(9, 11, 36), armor, -25, 16, 0, group, 0, 0, 0.34);        // glacis miring
-    mk(new THREE.BoxGeometry(3.5, 13, 36), armorDk, -26.8, 10, 0, group);              // pelat bawah tegak
-    mk(new THREE.BoxGeometry(1.6, 2.6, 6), gun, -29.3, 17.5, 8, group, 0, 0, 0.34, true);   // celah visor sopir
-    // mata rantai cadangan tergantung di glacis (ikonik) — sebaris di sumbu Z
-    for (let sz = -12; sz <= 12; sz += 4) mk(new THREE.BoxGeometry(4, 3.4, 3), track, -29.5, 13.5, sz, group, 0, 0, 0.34, true);
-
-    // (bola MG glacis DIHAPUS 2026-07-17 — senapan mesin pindah KOAKSIAL ke turret)
-    // lampu depan
-    mk(lat(1.5, 1.5, 1.6, 10), steel, -27, 20.4, 10.5, group, 0, 0, 0, true);
-    mk(lat(1.1, 1.1, 0.5, 10), glass, -27, 20.4, 11.4, group, 0, 0, 0, true);
-
-    // ----- DEK MESIN belakang (+X): pelat + kisi + knalpot + pelat buritan -----
-    mk(new THREE.BoxGeometry(15, 1.4, 30), armorDk, 22, 21.8, 0, group);
-    for (let gz = -9; gz <= 9; gz += 4.4) mk(new THREE.BoxGeometry(12, 0.8, 2.6), gun, 22, 22.6, gz, group, 0, 0, 0, true);
-    for (const ez of [-11, 11]) {
-        mk(new THREE.CylinderGeometry(1.8, 2.1, 9, 10), gun, 27.5, 20, ez, group);         // knalpot tegak
-        mk(new THREE.CylinderGeometry(2.1, 2.1, 1.4, 10), track, 27.5, 24.7, ez, group, 0, 0, 0, true);
+    // ===================== SUPERSTRUKTUR FACET (lambung atas) =====================
+    // Slab utama + panel sisi MIRING (facet stealth) yang melebar menutupi track.
+    mk(new THREE.BoxGeometry(50, 10, 30), armor, 1, 16.5, 0, group);
+    for (const side of [-1, 1]) {   // panel sisi miring keluar (wedge sisi)
+        const p = mk(new THREE.BoxGeometry(46, 11, 4), panelB, 1, 16, side * 16.4, group);
+        p.rotation.x = -side * 0.38;
     }
-    mk(new THREE.BoxGeometry(3, 13, 34), armor, 28.7, 15.5, 0, group);                       // pelat buritan
-    // alat di sisi kanan (z+, menghadap kamera): sekop + kapak + kabel derek
-    mk(new THREE.BoxGeometry(15, 1.1, 1.1), wood, -6, 20.6, 18.3, group, 0, 0, 0, true);
-    mk(new THREE.BoxGeometry(3.4, 1.6, 1.2), steel, 3, 20.6, 18.3, group, 0, 0, 0, true);
-    mk(new THREE.BoxGeometry(11, 1.0, 1.0), wood, 13, 20.6, 18.3, group, 0, 0, 0, true);
-    mk(new THREE.BoxGeometry(20, 0.6, 0.6), steel, -2, 18.5, 18.4, group, 0, 0.05, 0, true);   // kabel derek
+    mk(new THREE.BoxGeometry(50, 1.2, 33), armorDk, 1, 21.9, 0, group, 0, 0, 0, true);   // dek atap tipis
 
-    // ===================== TURRET berputar (anak). Cannon = +Z lokal =====================
+    // ----- GLACIS depan (-X): wedge tajam + STRIP SENSOR merah + lampu slit -----
+    mk(new THREE.BoxGeometry(10, 11, 33), armor, -25, 15.5, 0, group, 0, 0, 0.42);      // glacis miring tajam
+    mk(new THREE.BoxGeometry(4, 12, 30), armorDk, -26.8, 9.5, 0, group, 0, 0, 0.1);     // pelat bawah nyaris tegak
+    mk(new THREE.BoxGeometry(8, 1.2, 30), panelA, -21.5, 21.2, 0, group, 0, 0, 0.1, true); // pelat hidung atas
+    // STRIP SENSOR menyala merah melintang glacis (pengganti visor sopir WWII)
+    mk(new THREE.BoxGeometry(0.9, 1.4, 24), glass, -28.4, 18.6, 0, group, 0, 0, 0.42, true);
+    // sepasang lampu slit sipit
+    mk(new THREE.BoxGeometry(0.8, 1.0, 4.5), glass, -29.2, 14.5, 10, group, 0, 0, 0.1, true);
+    mk(new THREE.BoxGeometry(0.8, 1.0, 4.5), glass, -29.2, 14.5, -10, group, 0, 0, 0.1, true);
+
+    // ----- DEK MESIN belakang (+X): kisi datar + NOZEL PENDORONG VEKTOR -----
+    mk(new THREE.BoxGeometry(15, 1.4, 28), armorDk, 22, 22.4, 0, group);
+    for (let gz = -9; gz <= 9; gz += 4.4) mk(new THREE.BoxGeometry(12, 0.8, 2.6), gun, 22, 23.2, gz, group, 0, 0, 0, true);
+    mk(new THREE.BoxGeometry(3, 13, 30), armor, 28.7, 15.5, 0, group, 0, 0, -0.12);      // pelat buritan miring
+    for (const ez of [-9.5, 9.5]) {   // nozel pendorong kotak (pengganti knalpot bulat WWII)
+        mk(new THREE.BoxGeometry(4.5, 5, 7.5), gun, 29.6, 17.5, ez, group);
+        mk(new THREE.BoxGeometry(1.2, 3.2, 6), new THREE.MeshBasicMaterial({ color: 0x070707 }), 31.6, 17.5, ez, group, 0, 0, 0, true);   // rongga nozel gelap
+    }
+
+    // ===================== TURRET FACET berputar (anak). Cannon = +Z lokal =====================
     const turret = new THREE.Group();
     turret.position.set(3, 21, 0);
     group.add(turret);
-    mk(new THREE.CylinderGeometry(14.5, 15, 2, 20), armorDk, 0, 0.5, -1, turret, 0, 0, 0, true);   // cincin
-    mk(new THREE.CylinderGeometry(13.5, 14.2, 9, 24), armor, 0, 5.5, -1, turret);                  // drum turret (sisi tegak)
-    mk(new THREE.CylinderGeometry(13.6, 13.6, 0.9, 24), armorDk, 0, 10.3, -1, turret, 0, 0, 0, true); // atap
-    mk(new THREE.CylinderGeometry(2, 2, 1, 12), armorDk, 5, 10.9, -4, turret, 0, 0, 0, true);       // ventilator
-    // muka datar + mantlet bulat (Saukopf-ish) di depan (+Z)
-    mk(new THREE.BoxGeometry(19, 9, 3), armor, 0, 5.5, 12.5, turret);
-    mk(lat(5.4, 5.4, 5, 16), gun, 0, 5.5, 14.5, turret);
-    // ----- MERIAM 88 mm (L/56) ke +Z: pangkal tebal + laras panjang + rem moncong dobel-baffle -----
-    mk(lat(2.7, 2.9, 6, 14), gun, 0, 5.5, 18, turret);
-    mk(lat(1.7, 1.8, 30, 14), gun, 0, 5.5, 34, turret);
-    // rem moncong BULAT (bukan kotak) + dua flens + PORT samping gelap + LUBANG
-    // BORE hitam di muka → laras terlihat BERONGGA/berlubang, bukan balok pejal.
+    mk(new THREE.CylinderGeometry(14.5, 15, 2, 20), armorDk, 0, 0.5, -1, turret, 0, 0, 0, true);   // cincin dasar
+    // badan turret RENDAH facet: slab tengah + panel pipi miring kiri/kanan + atap
+    mk(new THREE.BoxGeometry(22, 9, 22), armor, 0, 5.5, -2, turret);
+    for (const side of [-1, 1]) {
+        const cheek = mk(new THREE.BoxGeometry(4, 10, 21), panelA, side * 12, 5, -2, turret);
+        cheek.rotation.z = side * 0.3;   // pipi miring ke dalam (wedge)
+    }
+    mk(new THREE.BoxGeometry(20, 1, 20), armorDk, 0, 10.4, -2, turret, 0, 0, 0, true);   // atap datar
+    // muka turret wedge + mantlet ANGULAR (bukan bulat)
+    mk(new THREE.BoxGeometry(18, 8, 4), armor, 0, 5.5, 10.5, turret, 0.12, 0, 0);
+    mk(new THREE.BoxGeometry(11, 7, 5), gun, 0, 5.5, 14, turret);
+    // strip optik merah di muka turret (sensor tembak)
+    mk(new THREE.BoxGeometry(8, 0.9, 0.6), glass, -3, 9.2, 12.6, turret, 0.12, 0, 0, true);
+    // ----- MERIAM RAILGUN ke +Z: selubung angular + laras inti + REL KEMBAR
+    // atas-bawah + cincin kapasitor + moncong angular ber-BORE gelap -----
     const bore = new THREE.MeshBasicMaterial({ color: 0x070707 });   // Basic gelap = "lubang" (sudah dipanaskan)
-    mk(lat(2.7, 2.6, 4.8, 16), gun, 0, 5.5, 50.6, turret);          // badan rem moncong (silinder)
-    mk(lat(3.0, 3.0, 0.8, 18), gun, 0, 5.5, 48.4, turret, 0, 0, 0, true);   // flens belakang
-    mk(lat(3.0, 3.0, 0.8, 18), gun, 0, 5.5, 52.8, turret, 0, 0, 0, true);   // flens depan
-    mk(new THREE.BoxGeometry(1.3, 2.4, 2.4), bore, 2.9, 5.5, 50.6, turret, 0, 0, 0, true);   // port ventilasi kanan
-    mk(new THREE.BoxGeometry(1.3, 2.4, 2.4), bore, -2.9, 5.5, 50.6, turret, 0, 0, 0, true);  // port ventilasi kiri
-    mk(lat(1.05, 1.05, 4.0, 14), bore, 0, 5.5, 51.4, turret, 0, 0, 0, true);   // LUBANG BORE (rongga laras)
-    // ----- SENAPAN MESIN KOAKSIAL (2026-07-17: PINDAH dari bola glacis hull ke
-    // TURRET, di samping meriam — anchor muzzle anak turret sehingga MG ikut
-    // berputar melacak player bersama turret; badan tank kini diam) -----
-    mk(new THREE.BoxGeometry(2.0, 2.0, 4.6), gun, 3.6, 5.6, 16.4, turret, 0, 0, 0, true);   // rumah MG di mantlet
+    mk(new THREE.BoxGeometry(6.5, 6.5, 11), gun, 0, 5.5, 19.5, turret);                  // selubung pangkal angular
+    mk(lat(1.35, 1.5, 27, 12), gun, 0, 5.5, 36, turret);                                 // laras inti
+    mk(new THREE.BoxGeometry(1.0, 2.8, 26), panelB, 0, 5.5, 36.5, turret, 0, 0, 0, true); // rel kembar (atas+bawah laras)
+    for (const rz of [26.5, 32.5, 38.5, 44.5]) {                                          // cincin kapasitor
+        mk(lat(2.4, 2.4, 1.1, 10), steel, 0, 5.5, rz, turret, 0, 0, 0, true);
+    }
+    mk(new THREE.BoxGeometry(3.6, 3.6, 4.4), gun, 0, 5.5, 51, turret);                   // moncong angular
+    mk(lat(1.05, 1.05, 2.4, 12), bore, 0, 5.5, 52.4, turret, 0, 0, 0, true);             // LUBANG BORE (rongga laras)
+    // ----- SENAPAN MESIN KOAKSIAL: pod kompak di samping meriam (anchor muzzle
+    // anak turret — ikut melacak player bersama turret; kontrak 2026-07-17) -----
+    mk(new THREE.BoxGeometry(2.4, 2.4, 5.2), gun, 3.6, 5.6, 16.4, turret, 0, 0, 0, true);   // pod MG angular
     mk(lat(0.6, 0.6, 10, 8), gun, 3.6, 5.6, 22, turret, 0, 0, 0, true);                     // laras koaksial
-    mk(lat(0.85, 0.85, 1.3, 8), gun, 3.6, 5.6, 26.6, turret, 0, 0, 0, true);                // penekan kilat moncong
+    mk(new THREE.BoxGeometry(1.6, 1.6, 1.4), gun, 3.6, 5.6, 26.6, turret, 0, 0, 0, true);   // penekan kilat kotak
     const mgMuzzle = new THREE.Object3D(); mgMuzzle.position.set(3.6, 5.6, 27.5); turret.add(mgMuzzle);
     const cannonMuzzle = new THREE.Object3D(); cannonMuzzle.position.set(0, 5.5, 53.6); turret.add(cannonMuzzle);
     const cannonFlash = new THREE.Mesh(GEO.explosion, new THREE.MeshBasicMaterial({
@@ -332,37 +345,37 @@ export function buildTankMesh() {
     }));
     cannonFlash.scale.setScalar(3.5); cannonFlash.position.copy(cannonMuzzle.position); turret.add(cannonFlash);
 
-    // ----- KUBAH KOMANDAN (cupola) kiri-belakang atap + blok pandang periskop -----
-    mk(new THREE.CylinderGeometry(3.6, 3.8, 4.2, 16), armor, -6.5, 12.4, -6, turret);
-    mk(new THREE.CylinderGeometry(4.1, 4.1, 0.8, 16), armorDk, -6.5, 14.7, -6, turret, 0, 0, 0, true);
-    for (let a = 0; a < 6; a++) {
-        const ang = a / 6 * Math.PI * 2;
-        mk(new THREE.BoxGeometry(1.3, 1.9, 1), gun, -6.5 + Math.cos(ang) * 3.7, 12.4, -6 + Math.sin(ang) * 3.7, turret, 0, -ang, 0, true);
-    }
-    // kotak stowage buritan turret (Rommelkiste) + antena
-    mk(new THREE.BoxGeometry(17, 6, 5), armorDk, 0, 4.5, -15.5, turret);
-    mk(new THREE.CylinderGeometry(0.18, 0.18, 18, 5), gun, -10, 13, -7, turret, 0, 0, 0, true);
+    // ----- TIANG SENSOR kiri-belakang atap (pengganti kubah komandan): mast
+    // pendek + lensa merah berkeliling + antena phased-array pipih -----
+    mk(new THREE.CylinderGeometry(2.2, 2.8, 4.6, 10), armor, -6.5, 12.4, -6, turret);
+    mk(new THREE.CylinderGeometry(2.5, 2.5, 1.0, 10), gun, -6.5, 15, -6, turret, 0, 0, 0, true);
+    mk(new THREE.BoxGeometry(1.0, 0.9, 4.6), glass, -6.5, 13.4, -6, turret, 0, 0, 0, true);      // lensa depan-belakang
+    mk(new THREE.BoxGeometry(4.6, 0.9, 1.0), glass, -6.5, 13.4, -6, turret, 0, 0, 0, true);      // lensa kiri-kanan
+    mk(new THREE.BoxGeometry(0.5, 7, 3.4), panelB, -10.5, 14, -9, turret, 0, 0.4, 0, true);      // panel antena pipih
+    mk(new THREE.CylinderGeometry(0.18, 0.18, 14, 5), gun, -10, 15, -7, turret, 0, 0, 0, true);  // antena cambuk
+    // modul baterai/stowage buritan turret (angular, menirus)
+    mk(new THREE.BoxGeometry(16, 6, 5), armorDk, 0, 4.5, -14.5, turret, -0.14, 0, 0);
 
-    // ----- TABUNG MORTAR di BELAKANG turret, MENGHADAP KE DEPAN (condong
-    // atas-DEPAN, +Z) — menembak lob PARABOLA ke arah player (rotation.x +0.6
-    // memiringkan ujung tabung ke +Z/depan-atas; muzzle di ujung depan-atas) -----
-    mk(new THREE.BoxGeometry(6, 4, 6), armorDk, 0, 9, -6, turret);                            // dudukan (di atap belakang)
-    mk(new THREE.CylinderGeometry(2.4, 2.7, 13, 12), gun, 0, 13, -2.5, turret, 0.6, 0, 0);    // tabung condong ke depan-atas
-    mk(new THREE.CylinderGeometry(2.7, 2.7, 1, 12), track, 0, 16.4, 0.6, turret, 0.6, 0, 0, true);   // bibir depan
+    // ----- TABUNG MORTAR di BELAKANG turret, MENGHADAP KE DEPAN (kontrak lama:
+    // condong atas-DEPAN +Z, muzzle di ujung depan-atas) — kini dlm RUMAH
+    // angular 2045 dgn bibir moncong facet -----
+    mk(new THREE.BoxGeometry(7, 5, 7), armorDk, 0, 9, -6, turret);                            // rumah dudukan angular
+    mk(new THREE.BoxGeometry(5.4, 4, 5.4), panelA, 0, 11.5, -4.6, turret, 0.6, 0, 0, true);   // kerah rumah miring
+    mk(new THREE.CylinderGeometry(2.4, 2.7, 13, 10), gun, 0, 13, -2.5, turret, 0.6, 0, 0);    // tabung condong depan-atas
+    mk(new THREE.BoxGeometry(4.6, 1.2, 4.6), track, 0, 16.4, 0.6, turret, 0.6, 0, 0, true);   // bibir moncong facet
     const mortarMuzzle = new THREE.Object3D(); mortarMuzzle.position.set(0, 18.2, 1.4); turret.add(mortarMuzzle);
     const mortarGlow = new THREE.Mesh(GEO.explosion, new THREE.MeshBasicMaterial({
         color: 0xff7a3a, transparent: true, opacity: 0, toneMapped: false
     }));
     mortarGlow.scale.setScalar(2.4); mortarGlow.position.copy(mortarMuzzle.position); turret.add(mortarGlow);
 
-    // ===================== KAMUFLASE 3-warna (bercak tipis, terutama ATAP & sisi +Z) =====================
-    const camo = (m, w, h, d, x, y, z, parent, ry) => mk(new THREE.BoxGeometry(w, h, d), m, x, y, z, parent, 0, ry, 0, true);
-    camo(camoGrn, 15, 0.4, 11, -7, 21.7, 6, group);          // atap superstruktur
-    camo(camoBrn, 12, 0.4, 9, 15, 21.7, -6, group);
-    camo(camoGrn, 17, 6, 0.4, -3, 16.5, 18.25, group);       // sisi +Z (menghadap kamera)
-    camo(camoBrn, 9, 5, 0.4, 17, 15.5, 18.25, group);
-    camo(camoGrn, 9, 5, 0.3, 6, 5.5, 12.7, turret);          // depan turret
-    camo(camoBrn, 7, 6, 0.3, -11.5, 5, 3, turret, 0.5);      // sisi turret
+    // ===================== AKSEN PANEL (pengganti bercak kamuflase WWII) =====================
+    const accent = (m, w, h, d, x, y, z, parent, ry) => mk(new THREE.BoxGeometry(w, h, d), m, x, y, z, parent, 0, ry, 0, true);
+    accent(panelA, 15, 0.4, 11, -7, 22.1, 6, group);         // panel atap
+    accent(panelB, 12, 0.4, 9, 15, 22.1, -6, group);
+    accent(panelA, 14, 5, 0.5, -4, 16.5, 15.3, group);       // panel sisi +Z (menghadap kamera)
+    accent(panelB, 8, 4, 0.5, 14, 15.5, 15.3, group);
+    accent(panelB, 8, 4.5, 0.4, 5, 5.5, 9.4, turret);        // panel muka turret
 
     group.scale.setScalar(TANK_SCALE);   // kecilkan sedikit (proporsional; kolisi CFG seukuran)
 
@@ -399,6 +412,9 @@ export function spawnTank({ homeX, homeZ, wallX, faceX, arena, avoid }) {
         mgLeft: 0, mgTimer: 0,
         mortarLeft: 0, mortarTimer: 0,
         shockFxT: 0, shockSfxT: 0, idleZapT: 1.5,
+        // SUARA (2026-07-19): timer heartbeat gerak/turret + node loop aktifnya
+        // (tank-moving / tank-turret-rotate) — dikelola updateTankAudio.
+        moveT: 0, moveSnd: null, turretT: 0, turretSnd: null,
         shells: [], mortars: [],
         turretYaw: Math.atan2((faceX != null ? faceX : homeX - 300) - homeX, 0),
         // Mekanik ENRAGE/CHARGE (2026-07-17): hullYaw HANYA berubah dalam fase
@@ -419,11 +435,34 @@ export function spawnTank({ homeX, homeZ, wallX, faceX, arena, avoid }) {
 export function disposeTank(tank) {
     if (!tank || !tank.parts) return;
     hideZap();   // busur petir di-share antar tank -> cukup disembunyikan
+    stopTankAudio(tank);   // loop gerak/turret mati bersama tank (2026-07-19)
     tank.shells.forEach(s => scene.remove(s.mesh));
-    tank.mortars.forEach(m => scene.remove(m.mesh));
+    tank.mortars.forEach(m => { stopLoopSFX(m.snd); scene.remove(m.mesh); });
     tank.parts.group.traverse(o => { if (o.isMesh && o.material && o.material.dispose) o.material.dispose(); });
     scene.remove(tank.parts.group);
     tank.parts = null;
+}
+
+// ===== AUDIO TANK (2026-07-19, permintaan user): loop tank-moving saat BADAN
+// bergerak (fase spawn/charge/pivot + drive cutscene — BUKAN rotasi turret) dan
+// loop tank-turret-rotate saat turret benar-benar berputar. Pola "heartbeat":
+// tiap kode penggerak memanggil tankMovingTick / men-set turretT; timer > 0 →
+// loop menyala, habis → berhenti. Satu node loop per tank (bukan per frame). =====
+export function tankMovingTick(tank) { tank.moveT = 0.15; }
+function updateTankAudio(tank, dt) {
+    if (tank.moveT > 0) {
+        tank.moveT -= dt;
+        if (!tank.moveSnd) tank.moveSnd = playLoopSFX(sfxTankMove, 0.55);
+    } else if (tank.moveSnd) { stopLoopSFX(tank.moveSnd); tank.moveSnd = null; }
+    if (tank.turretT > 0) {
+        tank.turretT -= dt;
+        if (!tank.turretSnd) tank.turretSnd = playLoopSFX(sfxTankTurret, 0.3);
+    } else if (tank.turretSnd) { stopLoopSFX(tank.turretSnd); tank.turretSnd = null; }
+}
+function stopTankAudio(tank) {
+    if (tank.moveSnd) { stopLoopSFX(tank.moveSnd); tank.moveSnd = null; }
+    if (tank.turretSnd) { stopLoopSFX(tank.turretSnd); tank.turretSnd = null; }
+    tank.moveT = 0; tank.turretT = 0;
 }
 
 // Sudut yaw turret (DUNIA) agar cannon (+Z lokal) menghadap titik (tx,tz) —
@@ -447,6 +486,10 @@ export function updateTank(tank, dt) {
 
     if (tank.dead) { updateDeath(tank, dt); return; }
     if (tank.hp <= 0) { killTank(tank); return; }   // HP habis (peluru/ledakan) -> hancur
+
+    // Pemeliharaan loop suara gerak/turret — SEBELUM early-return 'cine' supaya
+    // tick dari drive cutscene (cineTracksDust) ikut terpelihara (2026-07-19).
+    updateTankAudio(tank, dt);
 
     // FASE 'cine' (2026-07-17): transform tank dikemudikan CUTSCENE scene
     // (stage4) — seluruh logika mandiri (shock/serangan/turret) dilewati.
@@ -474,6 +517,7 @@ export function updateTank(tank, dt) {
         p.group.position.x = startX + (tank.homeX - startX) * ease;
         tank.trackPhase += dt * 8;
         spinTracks(p, tank.trackPhase);
+        tankMovingTick(tank);   // suara tank-moving selama menggelinding masuk
         addCamShake(0.7);
         if (Math.random() < 0.6) spawnGroundPuff(p.group.position.x + 22, p.group.position.z + (Math.random() - 0.5) * 20, 0x6b6252, 5 + Math.random() * 4, 3);
         // Momen MENABRAK dinding (melintasi wallX menuju barat)
@@ -493,7 +537,11 @@ export function updateTank(tank, dt) {
     // tetap bisa ditembak selagi berputar/charge).
     const T = CFG.campaign.bosses.tank;
     const want = aimYaw(tank, camera.position.x, camera.position.z);
+    const prevTurretYaw = tank.turretYaw;
     tank.turretYaw = turnAngle(tank.turretYaw, want, 2.2 * dt);
+    // Suara rotasi turret HANYA saat yaw benar-benar berubah signifikan
+    // (2026-07-19) — turret yang sudah terkunci ke player tidak berbunyi.
+    if (Math.abs(tank.turretYaw - prevTurretYaw) > 0.004) tank.turretT = 0.12;
     p.turret.rotation.y = tank.turretYaw - tank.hullYaw;
     // kilat muzzle meredup tiap frame (di-nyalakan saat menembak / charge)
     p.cannonFlash.material.opacity *= 0.82;
@@ -522,6 +570,7 @@ export function updateTank(tank, dt) {
         tank.hullYaw = turnAngle(tank.hullYaw, wantHull, (T.hullTurnRadPerSec || 1.6) * dt);
         p.group.rotation.y = tank.hullYaw;
         tank.trackPhase += dt * 6; spinTracks(p, tank.trackPhase);   // track memutar di tempat
+        tankMovingTick(tank);   // pivot badan = track bergerak (bukan turret) -> suara moving
         if (tank.hullYaw === wantHull) {   // turnAngle men-snap tepat saat tiba
             tank.chargeDirX = -Math.cos(tank.hullYaw);   // arah moncong (dikunci — dodge-able)
             tank.chargeDirZ = Math.sin(tank.hullYaw);
@@ -572,6 +621,7 @@ export function updateTank(tank, dt) {
         tank.hullYaw = turnAngle(tank.hullYaw, 0, (T.hullTurnRadPerSec || 1.6) * dt);
         p.group.rotation.y = tank.hullYaw;
         tank.trackPhase += dt * 6; spinTracks(p, tank.trackPhase);
+        tankMovingTick(tank);   // pivot meluruskan diri = track bergerak
         if (tank.hullYaw === 0) {
             tank.phase = 'battle';
             tank.cd = gapFor(tank);
@@ -687,6 +737,7 @@ function chargeMove(tank, dt) {
     const spd = CFG.player.speed * 60 * (T.chargeSpeedMul || 1);
     p.group.position.x += tank.chargeDirX * spd * dt;
     p.group.position.z += tank.chargeDirZ * spd * dt;
+    tankMovingTick(tank);   // suara tank-moving selama charge (2026-07-19)
     // SLIDE anti-tabrak bangkai heli (2026-07-17): bila menyentuh lingkaran
     // `avoid`, dorong keluar radial — jaring pengaman di atas defleksi arah.
     if (tank.avoid) {
@@ -913,7 +964,7 @@ function fireMG(tank) {
         dmg: CFG.campaign.bosses.tank.mgDamage || 5, monasDmg: 0,
         px: _wp.x, py: _wp.y, pz: _wp.z
     });
-    playSFX(sfxShoot);
+    playSFX(sfxTankMG);   // rentetan MG tank (boss-tank/tank-machine-gun, 2026-07-19)
 }
 
 // --- MORTAR: 1 proyektil LOB PARABOLA (balistik, gravitasi) ke posisi player
@@ -955,10 +1006,11 @@ function fireMortar(tank) {
     tank.mortars.push({
         mesh: m, vx, vz, vy, g, landY, trailT: 0,
         tLeft: flight,   // sisa waktu terbang — utk pengejaran + penguncian titik jatuh (updateMortars)
+        snd: null,       // node desing "incoming" (menyala INCOMING_SEC sebelum mendarat)
         life: (T.mortarMaxSec || 6) * 60, id: tank.pendingId
     });
     p.mortarGlow.material.opacity = 1;
-    playSFX(sfxShotgun);
+    playSFX(sfxTankMortar);   // "bloop" tabung mortar (boss-tank/tank-mortar-shot, 2026-07-19)
     addCamShake(1.2);
 }
 
@@ -996,8 +1048,14 @@ function updateMortars(tank, dt, step) {
             spawnGroundPuff(mo.mesh.position.x, mo.mesh.position.z, 0x8a8f96, 1.6, mo.mesh.position.y);
         }
         mo.life -= step;
+        // DESING MORTAR DATANG (2026-07-19, permintaan user — durasi PAS):
+        // menyala saat sisa terbang <= INCOMING_SEC (jadi tak pernah berbunyi
+        // sebelum ditembakkan), dan DIHENTIKAN PAKSA saat meledak di bawah.
+        if (mo.tLeft != null && mo.tLeft <= INCOMING_SEC && !mo.snd)
+            mo.snd = playSFX(sfxTankIncoming, 0.6);
         // meledak saat proyektil MENDARAT (menurun melewati landY) / umur habis
         if ((mo.vy < 0 && mo.mesh.position.y <= mo.landY) || mo.life <= 0) {
+            stopLoopSFX(mo.snd);   // desing berhenti TEPAT saat ledakan (tak tersisa)
             const R = CFG.grenade.killRadius * (T.mortarBlastRatio || 0.35);
             detonate(tank, mo.mesh.position.x, mo.mesh.position.z, R, T.mortarDamage || 50, mo.id);
             scene.remove(mo.mesh); tank.mortars.splice(i, 1);
@@ -1018,7 +1076,7 @@ function gapFor(tank) {
 // serangan yang menanti meledak -> MULAI jeda `gapSec` (BUKAN langsung menembak
 // lagi): set cd penuh + lepas blastPending supaya cooldown baru dihitung.
 function detonate(tank, x, z, radius, damage, id) {
-    queueBoom(x, 5, z, radius, true, damage, 1);
+    queueBoom(x, 5, z, radius, true, damage, 1, sfxTankBlast);   // ledakan meriam/mortar = tank-explosive-attack (2026-07-19)
     if (tank && !tank.dead && id === tank.pendingId && tank.blastPending) {
         tank.blastPending = false;
         tank.cd = gapFor(tank);   // jeda BARU dimulai SETELAH ledakan (enrageGapSec saat enrage)
@@ -1053,7 +1111,7 @@ function tankBulletHits(tank) {
         if (segPointDist2(b.px, 0, b.pz, bx, 0, bz, cx, 0, cz) < R2) {
             if (b.explosive) {
                 // Peluru Grenade Launcher: damage LANGSUNG ke tank + boom visual
-                queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage);
+                queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage, b.boomSfx);
                 damageTank(tank, b.damage != null ? b.damage : CFG.grenade.damage);
             } else {
                 const dmg = (b.damage != null ? b.damage : CFG.weapons.bulletDamage) * (player.dmgMul || 1);
@@ -1099,7 +1157,7 @@ export function damageTank(tank, dmg) {
 function clearTankProjectiles(tank) {
     for (const s of tank.shells) scene.remove(s.mesh);
     tank.shells.length = 0;
-    for (const m of tank.mortars) scene.remove(m.mesh);
+    for (const m of tank.mortars) { stopLoopSFX(m.snd); scene.remove(m.mesh); }
     tank.mortars.length = 0;
     for (let i = enemyBullets.length - 1; i >= 0; i--) { scene.remove(enemyBullets[i].mesh); enemyBullets.splice(i, 1); }
 }
@@ -1109,19 +1167,20 @@ function clearTankProjectiles(tank) {
 function killTank(tank) {
     tank.dead = true; tank.hp = 0; tank.deathT = 0;
     hideZap();   // listrik padam bersama tank
+    stopTankAudio(tank);          // loop gerak/turret mati seketika (2026-07-19)
     clearTankProjectiles(tank);   // shell/mortar/peluru MG terbang -> lenyap (tak melukai player)
     addScore(tank.score);
     stats.kills++;
     const p = tank.parts, px = p.group.position.x, pz = p.group.position.z;
     // gelapkan cat (bangkai hangus)
     p.paintMats.forEach(m => m.color && m.color.setHex(0x20211c));
-    // ledakan besar + serpihan logam ke segala arah
-    explodeAt(new THREE.Vector3(px, 16, pz), 30, 1);
+    // ledakan besar + serpihan logam ke segala arah — suara khusus
+    // boss-tank/tank-explode (2026-07-19) lewat param sfx explodeAt.
+    explodeAt(new THREE.Vector3(px, 16, pz), 30, 1, sfxTankExplode);
     spawnGibs(px, 18, pz, 14, 1, 0, 2.2, 0x3d444c, 0.4, TANK_FLUID);
     spawnGibs(px, 14, pz, 10, -1, 0.4, 1.8, 0x20211c, 0.4, TANK_FLUID);
     spawnBloodDecal(px, pz, 8, TANK_FLUID);
     addCamShake(9);
-    playSFX(sfxExplode);
     updateUI();
 }
 

@@ -7,6 +7,7 @@
 import { applyDifficulty } from '../core/config.js';
 import { setDifficulty } from '../core/state.js';
 import { loadCampaignStage, clearCampaignSave } from '../core/saveGame.js';
+import { startMenuMusic, stopMusic } from '../utils/sfx.js';
 
 export function initMenu(onPick) {
     initMainMenu();
@@ -29,6 +30,7 @@ export function initMenu(onPick) {
     function beginMode(mode, stage) {
         if (picked) return;   // jaga-jaga klik ganda
         picked = true;
+        stopMusic();   // musik main-menu BERHENTI saat mode Campaign/Survival diklik (2026-07-19)
         // Terapkan difficulty SEBELUM dunia/entitas dibangun: CFG dimutasi
         // dari CFG_BASE + high score dimuat per-difficulty.
         applyDifficulty(diff);
@@ -81,6 +83,10 @@ export function initMenu(onPick) {
 // Menu utama: Start Game menyingkap #modeSelect; Settings/Credits membuka
 // panelnya masing-masing (Back kembali ke daftar tombol); Exit menutup tab.
 function initMainMenu() {
+    // MUSIK MAIN MENU (2026-07-19, permintaan user): menyala begitu menu tampil.
+    // Autoplay browser biasanya menolak sebelum gesture pertama — retry otomatis
+    // sfx.js menyalakannya pada pointerdown/keydown pertama player.
+    startMenuMusic();
     const menu = document.getElementById('mainMenu');
     const settings = document.getElementById('settingsPanel');
     const credits = document.getElementById('creditsPanel');

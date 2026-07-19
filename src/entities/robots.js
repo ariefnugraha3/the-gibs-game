@@ -9,7 +9,7 @@ import { player, robots, bullets, enemyBullets, addScore, stats, _dir, godMode, 
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { rand, clamp, segPointDist2 } from '../utils/math.js';
-import { playSFX, sfxRobotBite, sfxHit, sfxMelee } from '../utils/sfx.js';
+import { playSFX, sfxRobotBite, sfxHit, sfxMelee, sfxRobotShot, startBattleMusic } from '../utils/sfx.js';
 import { crosshair, flashDamage, showHitDir, showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 import { spawnBloodBurst, explodeAt, spawnGroundPuff } from './effects.js';
@@ -578,8 +578,10 @@ function celebrateRobot(z, dt) {
 // robot (null -> default CFG.grenade.damage di explodeAt); peluru launcher
 // meneruskan b.damage-nya (sudah termasuk bonus level upgrade shop).
 const pendingBooms = [];
-export function queueBoom(x, y, z, r, hurtPlayer = false, playerDmg = 0, dmg = null) {
-    pendingBooms.push({ pos: new THREE.Vector3(x, y, z), r, hurtPlayer, playerDmg, dmg });
+export function queueBoom(x, y, z, r, hurtPlayer = false, playerDmg = 0, dmg = null, sfx = null) {
+    // `sfx` (2026-07-19, opsional): klip ledakan pengganti default grenade-explode
+    // — roket Lv3 (rocket-explode) & proyektil tank (tank-explosive-attack).
+    pendingBooms.push({ pos: new THREE.Vector3(x, y, z), r, hurtPlayer, playerDmg, dmg, sfx });
 }
 export function resetRobotsFx() { pendingBooms.length = 0; }   // dipanggil resetGame
 
@@ -652,11 +654,12 @@ export function killRobot(i, opts = {}) {
 function processPendingBooms() {
     while (pendingBooms.length) {
         const b = pendingBooms.shift();
-        explodeAt(b.pos, b.r, b.dmg);
+        explodeAt(b.pos, b.r, b.dmg, b.sfx);
         if (b.hurtPlayer && !dodgeInvuln && player.hp > 0) {   // i-frame dodge / sudah tumbang: ledakan meleset
             const d = Math.hypot(b.pos.x - camera.position.x, b.pos.z - camera.position.z);
             if (d < b.r) {
                 damagePlayerHp(b.playerDmg);   // lewat ARMOR (godMode ditangani di dalam)
+                playSFX(sfxHit);               // jeritan player kena ledakan (jokowi-kaget, 2026-07-19)
                 // DARAH MERAH player terlempar keluar dari pusat ledakan
                 spawnBloodBurst(camera.position.x, camera.position.y - 3, camera.position.z,
                     camera.position.x - b.pos.x, camera.position.z - b.pos.z,
@@ -709,6 +712,10 @@ export function fireRobotBullet(z, tx, ty, tz, monasDmg = 0) {
         speed: z.bulletSpeed, life: CFG.robot.rangedBulletLife, dmg: z.attack, monasDmg,
         px: _ebPos.x, py: _ebPos.y, pz: _ebPos.z
     });
+    // SUARA TEMBAKAN robot A/B (2026-07-19) — digerbang jarak ke player supaya
+    // penembak Monas yang jauh (survival) tidak menyemburkan spam suara.
+    const pd = Math.hypot(_ebPos.x - camera.position.x, _ebPos.z - camera.position.z);
+    if (pd < 400) playSFX(sfxRobotShot, Math.max(0.15, 0.6 * (1 - pd / 400)));
     // RECOIL: hentakan laras NAIK sesaat pada lengan yang menembak
     // (animateRobotRig) — BUKAN lagi overlay cakar (dulu tampak "mencakar ke bawah").
     z.recoilT = 0.25;
@@ -869,11 +876,14 @@ export function updateRobots(dt, step) {
             const bx = b.mesh.position.x, bz = b.mesh.position.z;
             if (segPointDist2(b.px, 0, b.pz, bx, 0, bz,
                 z.mesh.position.x, 0, z.mesh.position.z) < hitR * hitR) {
+                // MUSIK BATTLE (2026-07-19, permintaan user): menyala saat player
+                // BERHASIL MENEMBAK robot pertama kali di stage (idempoten, guard murah).
+                startBattleMusic();
                 // Peluru Grenade Launcher: MELEDAK saat kena robot (AoE, bukan hit
                 // tunggal). Antre boom (explodeAt di sini = splice reentrant robots)
                 // -> diproses processPendingBooms setelah loop. friendly (tak lukai player).
                 if (b.explosive) {
-                    queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage);
+                    queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage, b.boomSfx);
                     scene.remove(b.mesh); bullets.splice(j, 1);
                     continue;
                 }

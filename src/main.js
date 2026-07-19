@@ -24,9 +24,9 @@ import { initWeapons, updateWeaponVisuals } from './entities/weapons.js';
 import { resetPlayerState } from './entities/player.js';
 import { initMenu } from './scenes/menu.js';
 import { survivalScene } from './scenes/survival/index.js';
-import { stage1Scene } from './scenes/campaign/stage1.js';
-import { introScene, beginIntro, warmupIntro } from './scenes/campaign/intro.js';
-import { campaignJumpToStage } from './scenes/campaign/transition.js';
+import { stage1Scene } from './scenes/campaign/stages/stage1.js';
+import { introScene, beginIntro, warmupIntro } from './scenes/campaign/cutscenes/intro.js';
+import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
 

@@ -13,7 +13,10 @@ import { aimPoint } from '../core/input.js';   // batas jarak peluru = titik kur
 import { avatarGunTip } from './playerAvatar.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
-import { playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxMelee, sfxSwitch, sfxEmpty, sfxPickup } from '../utils/sfx.js';
+import {
+    playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxSwitch, sfxEmpty,
+    sfxLauncherShot, sfxRocketShot, sfxRocketExplode, sfxHeal, sfxMeleeSwing, sfxMeleeHit
+} from '../utils/sfx.js';
 import { crosshair, showPickup, medkitBar, medkitBarFill } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 import { stamina, staExhausted, drainStamina, dodgeActive } from './player.js';
@@ -872,7 +875,7 @@ export function useMedkit() {
     player.medkits--;
     player.hp = Math.min(player.maxHp,
         player.hp + Math.round(player.maxHp * CFG.player.medkitHealPct));
-    playSFX(sfxPickup);
+    playSFX(sfxHeal);   // suara penyembuhan (player-heal.mp3, 2026-07-19 — dulu meminjam pick-up)
     showPickup('Medkit used', '#ff6b81');
     updateUI();
 }
@@ -912,7 +915,7 @@ function finishMedkit() {
     player.medkits--;
     player.hp = Math.min(player.maxHp,
         player.hp + Math.round(player.maxHp * CFG.player.medkitHealPct));
-    playSFX(sfxPickup);
+    playSFX(sfxHeal);   // suara penyembuhan (player-heal.mp3, 2026-07-19 — dulu meminjam pick-up)
     showPickup('Medkit used', '#ff6b81');
     holsterMedkit();
 }
@@ -967,7 +970,8 @@ export function tryMelee() {
     drainStamina(CFG.stamina.meleeCost);
     pickMeleeDir();   // auto-hadap robot terdekat (atau kursor) — arah tebasan
     meleeT = MELEE_TIME; meleeCd = CFG.melee.cooldownSec; meleeHitDone = false;
-    playSFX(sfxMelee);   // suara ayunan — berbunyi meski tidak kena robot
+    // (2026-07-19) Suara PINDAH ke momen sabetan (doMeleeHit, 45% ayunan):
+    // KENA musuh = player-melee-attack-hit, LUPUT = player-melee-attack.
 }
 
 // ADS butuh stamina: saat exhausted, toggle ON diabaikan (OFF selalu boleh)
@@ -1008,6 +1012,9 @@ export function doMeleeHit() {
             if (z.state === 'idle') { z.state = 'chasing'; z.groundY = 0; }
         }
     }
+    // Suara sabetan (2026-07-19): berbunyi TEPAT di momen bilah menyapu —
+    // versi "-hit" bila mengenai minimal satu robot, versi biasa bila luput.
+    playSFX(hit ? sfxMeleeHit : sfxMeleeSwing);
     if (hit) {
         crosshair.classList.add('hit');
         setTimeout(() => crosshair.classList.remove('hit'), 80);
@@ -1079,6 +1086,9 @@ export function updateShooting() {
     const wpn = player[currentWeapon];
     const wcfg = CFG.weapons[currentWeapon];
     const isLauncher = currentWeapon === 'launcher';   // peluru MELEDAK saat kena (AoE)
+    // Lv3 launcher = ROKET (di-hoist dari loop pelet 2026-07-19 — dipakai juga
+    // utk memilih suara tembak/ledakan: grenade vs rocket).
+    const isRocket = isLauncher && ((player.weaponLvl && player.weaponLvl.launcher) || 1) >= 3;
     if (mouse.isDown && !player.isReloading && switchAnim < 0 && meleeT <= 0
         && Date.now() - player.lastShot > wcfg.fireDelayMs && wpn.ammo > 0) {
         muzzlePoint.getWorldPosition(_tip);   // muzzle senjata aktif
@@ -1116,7 +1126,6 @@ export function updateShooting() {
             // (buildGrenadeMesh); Lv3 = ROKET (buildRocketMesh, 2026-07-16 —
             // menyamai prop peluncur roket bahu `launcher3` di avatar; visual
             // saja, damage/AoE/kecepatan tak berubah). Lainnya = tracer bola.
-            const isRocket = isLauncher && ((player.weaponLvl && player.weaponLvl.launcher) || 1) >= 3;
             const bMesh = isLauncher ? (isRocket ? buildRocketMesh(0.7) : buildGrenadeMesh(0.7))
                 : new THREE.Mesh(GEO.bullet, MAT.bullet);
             bMesh.position.copy(_tip);
@@ -1153,6 +1162,9 @@ export function updateShooting() {
                 // radius = granat lama (killRadius+3.5), damage AoE dari CFG.grenade (100).
                 explosive: isLauncher || undefined,
                 explodeR: isLauncher ? CFG.grenade.killRadius + 3.5 : undefined,
+                // Suara ledakan per level (2026-07-19): Lv3 roket = rocket-explode;
+                // Lv1-2 pakai default grenade-explode (boomSfx kosong).
+                boomSfx: isRocket ? sfxRocketExplode : undefined,
                 // Batas kursor: maxDist dari titik tembak sx/sz; pelet pertama
                 // ditandai fx = efek lantai di posisi akhir peluru (launcher
                 // meledak di posisi akhirnya juga — ikut sebar arah).
@@ -1167,8 +1179,11 @@ export function updateShooting() {
         // (Tendangan kamera FPS dihapus — top-down: yaw pivot di-set ulang dari
         // kursor tiap frame; recoil terasa lewat spread/heat, bukan kamera.)
 
+        // Suara tembak per senjata (2026-07-19): launcher Lv1-2 = grenade-launcher-shot,
+        // Lv3 = rocket-launcher-shot (bukan lagi meminjam suara shotgun).
         playSFX(currentWeapon === 'pistol' ? sfxPistol
-            : (currentWeapon === 'shotgun' || isLauncher) ? sfxShotgun : sfxShoot);
+            : currentWeapon === 'shotgun' ? sfxShotgun
+                : isLauncher ? (isRocket ? sfxRocketShot : sfxLauncherShot) : sfxShoot);
 
         wpn.ammo--;
         player.lastShot = Date.now();

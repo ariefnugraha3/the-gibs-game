@@ -21,7 +21,7 @@ export function updateBullets(step) {
         // fxX/fxZ — sebar arah jadi tak terlihat, semua tembakan tampak mendarat
         // di satu titik yang sama).
         if (b.ended) {
-            if (b.explosive) queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage);
+            if (b.explosive) queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage, b.boomSfx);
             else if (b.fx) spawnBulletFloorHit(b.mesh.position.x, b.mesh.position.z, b.mesh.position.y);
             scene.remove(b.mesh); bullets.splice(i, 1);
             continue;
@@ -53,7 +53,7 @@ export function updateBullets(step) {
             // Peluru Grenade Launcher MELEDAK saat menghantam dinding/Monas (impact);
             // habis-umur di ruang kosong hanya lenyap (bukan impact). Antre boom
             // (diproses processPendingBooms setelah loop robot) — friendly.
-            if (b.explosive && hitWall) queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage);
+            if (b.explosive && hitWall) queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, b.explodeR, false, 0, b.damage, b.boomSfx);
             scene.remove(b.mesh); bullets.splice(i, 1);
         }
     }

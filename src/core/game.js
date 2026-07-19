@@ -23,7 +23,8 @@ import { updateRobots, updateEnemyBullets, disposeRobot, resetRobotsFx, PLAYER_B
 import { avatarGroup, hideMoveMarker, playAvatarDeath, resetAvatarDeath } from '../entities/playerAvatar.js';
 import { releaseInputs, requestLock } from './input.js';
 import { clearCampaignSave, loadCampaignStage } from './saveGame.js';
-import { campaignJumpToStage } from '../scenes/campaign/transition.js';
+import { campaignJumpToStage } from '../scenes/campaign/utility/transition.js';
+import { stopMusic } from '../utils/sfx.js';
 
 // ===== Sekuens KEMATIAN player (2026-07-12; revisi "mati biasa"): HP habis
 // TIDAK langsung layar GAME OVER — avatar ROBOH ke arah dorongan damage
@@ -98,6 +99,7 @@ export function updateGame(dt, step, T) {
 // default tetap MISSION COMPLETE / GAME OVER.
 export function gameOver(won, title) {
     setGameOver(true);
+    stopMusic();   // stage berakhir (menang/kalah) -> musik battle/boss berhenti (2026-07-19)
     document.exitPointerLock();
     // MISSION COMPLETE (won, campaign stage 4 selesai) = campaign tamat →
     // hapus checkpoint supaya campaign berikutnya mulai baru (bukan Continue).
@@ -136,6 +138,7 @@ function wireGameOverButtons() {
 // Default false = kebijakan restartScene (pause "RESTART GAME" = dari awal).
 export function resetGame(atCurrentStage = false) {
     setScore(0);
+    stopMusic();           // run baru: musik battle mati sampai tembakan kena pertama (2026-07-19)
     resetStats();          // statistik run baru
     configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG
     playerDeathT = -1;     // batalkan sekuens kematian yang mungkin berjalan

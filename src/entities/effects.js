@@ -75,7 +75,10 @@ export function borrowBloodSprite() {
 // radius & dmg opsional: default = blast granat (killRadius+3.5, damage
 // CFG.grenade.damage). Peluru Grenade Launcher meneruskan radius + b.damage-nya
 // sendiri (b.damage sudah termasuk bonus level upgrade shop Survival).
-export function explodeAt(pos, radius, dmg) {
+// `sfx` (2026-07-19, opsional): klip ledakan pengganti default grenade-explode —
+// roket Lv3 = rocket-explode, proyektil tank = tank-explosive-attack, tank mati
+// = tank-explode (diteruskan queueBoom atau pemanggil langsung).
+export function explodeAt(pos, radius, dmg, sfx) {
     const expMesh = new THREE.Mesh(
         GEO.explosion,
         new THREE.MeshBasicMaterial({ color: 0xff4500, transparent: true, opacity: 0.85 })
@@ -103,7 +106,7 @@ export function explodeAt(pos, radius, dmg) {
     shock.position.set(pos.x, 0.8, pos.z);
     scene.add(shock);
     explosions.push({ mesh: shock, life: 1, scale: 95 });
-    playSFX(sfxExplode);
+    playSFX(sfx || sfxExplode);
 
     const R = radius != null ? radius : CFG.grenade.killRadius + 3.5;
     for (let i = robots.length - 1; i >= 0; i--) {

@@ -56,8 +56,8 @@ global.localStorage = (() => {
     };
 })();
 global.Audio = class {
-    constructor() { this.volume = 1; this.currentTime = 0; }
-    load() { } play() { return { catch() { } }; } pause() { }
+    constructor() { this.volume = 1; this.currentTime = 0; this.paused = true; this.loop = false; }
+    load() { } play() { this.paused = false; return { catch() { } }; } pause() { this.paused = true; }
     cloneNode() { return new global.Audio(); }
 };
 global.requestAnimationFrame = (f) => setTimeout(f, 0);
@@ -828,7 +828,7 @@ T('survivalScene.robotsCelebrate hook ada & false saat Monas tegak',
 // --- 15. Campaign STAGE 2 overhaul (2026-07-13): gedung indoor mengikuti denah.
 // Bangun dunia gedung + verifikasi grid (BFS konektivitas), penempatan robot 9
 // spot, robotAI, dan gerbang BOSS penjaga tangga. ---
-const s2mod = await import(R('src/scenes/campaign/stage2.js'));
+const s2mod = await import(R('src/scenes/campaign/stages/stage2.js'));
 s2mod.buildWorld();
 {   // BFS: SEMUA lantai harus terjangkau dari START (menangkap salah-carve pintu)
     const grid = s2mod.s2grid, ROWS = grid.length, COLS = grid[0].length;
@@ -850,13 +850,23 @@ T('S2: START & END berada di LANTAI (bukan dinding)',
     !s2mod.s2Wall(s2mod.S2_START.c, s2mod.S2_START.r) && !s2mod.s2Wall(s2mod.S2_END.c, s2mod.S2_END.r));
 T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
 
+// Jumlah robot STAGE 1 = 30 (2026-07-19, permintaan user — dulu 29)
+{
+    const s1m = await import(R('src/scenes/campaign/stages/stage1.js'));
+    if (!s1m.s1grid) s1m.buildWorld();
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    s1m.placeRobots();
+    const n1 = robots.filter(z => z.stage === 1).length;
+    T('S1: placeRobots menaruh 30 robot (9 spot) tagged stage 1 (' + n1 + ')', n1 === 30);
+}
+
 // Bersihkan robot dari section sebelumnya, masuk scene, tempatkan robot+supply
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s2dropsBefore = stateMod.drops.length;
 smMod.setScene(s2mod.stage2Scene);   // enter() dipanggil di dalam setScene
 s2mod.placeRobots();
 const nStage2 = robots.filter(z => z.stage === 2).length;
-T('S2: placeRobots menaruh 35 robot (9 spot) tagged stage 2 (' + nStage2 + ')', nStage2 === 35);
+T('S2: placeRobots menaruh 40 robot (9 spot) tagged stage 2 (' + nStage2 + ')', nStage2 === 40);
 T('S2: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s2dropsBefore);
 
 // robotAI (idle->kejar via nav-grid) jalan tanpa error
@@ -873,7 +883,7 @@ T('S2: tak ada boss (boss dibuang; updateMode kini animasi pintu, bukan boss)',
 // (`campaign-shop`) via LOADING; setelah loading shop terbuka; "Start Next Stage"
 // (SPACE x2) -> LOADING -> transisi ke stage 3. Spy enter stage3 agar tak
 // membangun dunianya di harness. Poll (bukan await tetap) supaya tahan MIN_LOADING.
-const s3mod = await import(R('src/scenes/campaign/stage3.js'));
+const s3mod = await import(R('src/scenes/campaign/stages/stage3.js'));
 const realS3Enter = s3mod.stage3Scene.enter;
 let s3entered = false;
 s3mod.stage3Scene.enter = () => { s3entered = true; };
@@ -928,7 +938,7 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 // tak ter-render (dua strip + celah terlihat). Sudut/tembok tipis panjang tidak
 // dihitung. Cermin scratchpad walls.mjs. ---
 {
-    const s1mod = await import(R('src/scenes/campaign/stage1.js'));
+    const s1mod = await import(R('src/scenes/campaign/stages/stage1.js'));
     if (!s1mod.s1grid) s1mod.buildWorld();
     const wcl = (g, c, r) => (r < 0 || c < 0 || r >= g.length || c >= g[0].length) ? true : g[r][c] === 1;
     const flr = (g, c, r) => !wcl(g, c, r);
@@ -979,7 +989,7 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 // (interior.js) — panel terang + aksen strip/nat TEAL menyala. Wajib patuh GIBS
 // 2045: aksen emissive = PAL.tech, intensity <= EMISSIVE_MAX, tanpa neon. ---
 {
-    const intMod = await import(R('src/scenes/campaign/interior.js'));
+    const intMod = await import(R('src/scenes/campaign/utility/interior.js'));
     const palM = await import(R('src/world/palette.js'));
     const fmat = intMod.buildInteriorFloorMat(30, 30), wmat = intMod.buildInteriorWallMat();
     const eHex = (m) => (m.emissive && m.emissive.getHex) ? m.emissive.getHex() : 0;
@@ -995,7 +1005,7 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 // dan hanya bila player <= 2 KOTAK DI DEPAN bukaan pintu (permintaan user);
 // robot TIDAK membuka; di luar zona = SELALU tutup. MELUNCUR TURUN saat buka. ---
 {
-    const doorMod = await import(R('src/scenes/campaign/doors.js'));
+    const doorMod = await import(R('src/scenes/campaign/utility/doors.js'));
     const CELL = 14;
     const cellFn = (c, r) => ({ x: c * 20, z: r * 20 });   // koordinat sintetis, jauh dari robot nyata
     const doors = doorMod.buildStageDoors([{ c0: 5, r0: 5, c1: 5, r1: 5, dir: 'ew' }], cellFn, CELL, 22);
@@ -1033,30 +1043,66 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     doorMod.resolveDoors(doors, pOpen, 3.5);
     const passesOpen = pOpen.x === dr.cx && pOpen.z === dr.cz;
     T('Doors: robot DIBLOK saat tutup, TEMBUS saat terbuka', pushedOut && passesOpen);
+    // PELURU vs PINTU (2026-07-19, permintaan user): peluru player & robot MATI
+    // di daun pintu TERTUTUP (doorBlocksShot dipanggil bulletBlocked stage 1-3);
+    // tembus saat pintu terbuka penuh; ruas yang meleset dari pintu tetap bebas.
+    settle(dr.cx + 400, dr.cz + 400);   // player jauh -> pintu TUTUP
+    const shotShut = doorMod.doorBlocksShot(doors, dr.cx - 30, dr.cz, dr.cx + 30, dr.cz, 8);
+    const shotMiss = doorMod.doorBlocksShot(doors, dr.cx - 30, dr.cz + 80, dr.cx + 30, dr.cz + 80, 8);
+    settle(dr.cx + 2 * CELL, dr.cz);    // player 2 kotak di depan -> pintu BUKA penuh
+    const shotOpen = doorMod.doorBlocksShot(doors, dr.cx - 30, dr.cz, dr.cx + 30, dr.cz, 8);
+    T('Doors: peluru DIBLOK pintu tertutup, TEMBUS saat terbuka, ruas meleset bebas',
+        shotShut === true && shotOpen === false && shotMiss === false);
 }
 
-// --- 16e. MUSIK LATAR IN-GAME (2026-07-18, permintaan user): hanya saat BERMAIN
-// (dinyalakan enter() survival + stage 1-4), loop, volume di bawah SFX (0.7),
-// startMusic idempoten (tak mengulang antar-enter). ---
+// --- 16e. MUSIK LATAR (DIROMBAK 2026-07-19, permintaan user — 3 KONTEKS):
+// MENU (bg-music-main-menu; berhenti saat pilih mode di beginMode), BATTLE
+// (bg-music-in-game / -2 dipilih ACAK; menyala saat tembakan player pertama
+// KENA robot [robots.js], BUKAN saat stage mulai; berhenti saat masuk shop
+// campaign / game over / reset), BOSS (bg-music-boss-fight; menyala saat duel
+// tank dimulai [tankBossIntro.endCutscene], berhenti saat boss tumbang). ---
 {
     const sfxMod = await import(R('src/utils/sfx.js'));
-    T('Music: startMusic & stopMusic diekspor',
-        typeof sfxMod.startMusic === 'function' && typeof sfxMod.stopMusic === 'function');
-    T('Music: bgMusic loop + volume di bawah SFX 0.7',
-        sfxMod.bgMusic.loop === true && sfxMod.bgMusic.volume > 0 && sfxMod.bgMusic.volume < 0.7);
+    T('Music: API baru diekspor (menu/battle/boss/stop + loop helper)',
+        typeof sfxMod.startMenuMusic === 'function' && typeof sfxMod.startBattleMusic === 'function'
+        && typeof sfxMod.startBossMusic === 'function' && typeof sfxMod.stopMusic === 'function'
+        && typeof sfxMod.playLoopSFX === 'function' && typeof sfxMod.stopLoopSFX === 'function');
+    const tracks = [sfxMod.bgMusic, sfxMod.bgMusicAlt, sfxMod.bgMusicMenu, sfxMod.bgMusicBoss];
+    T('Music: 4 track loop + volume di bawah SFX 0.7',
+        tracks.every(m => m.loop === true && m.volume > 0 && m.volume < 0.7));
     let played = 0;
-    sfxMod.bgMusic.play = () => { played++; return { catch() { } }; };
-    sfxMod.stopMusic();     // reset musicOn
-    sfxMod.startMusic();    // -> play sekali
-    sfxMod.startMusic();    // idempoten -> TIDAK play lagi
-    T('Music: startMusic idempoten (play 1x sampai stopMusic)', played === 1);
+    for (const m of tracks) m.play = () => { played++; m.paused = false; return { catch() { } }; };
+    sfxMod.stopMusic();
+    sfxMod.startBattleMusic();   // pilih acak 1 dari 2 track in-game
+    sfxMod.startBattleMusic();   // idempoten — tak mengulang
+    T('Music: startBattleMusic idempoten + konteks battle',
+        played === 1 && sfxMod.musicDebug() === 'battle');
+    sfxMod.startBossMusic();     // battle -> boss (track berganti)
+    T('Music: startBossMusic mengganti ke konteks boss',
+        sfxMod.musicDebug() === 'boss' && played === 2 && sfxMod.bgMusicBoss.paused === false);
+    sfxMod.startBattleMusic();   // battle TIDAK menimpa musik boss (duel berjalan)
+    T('Music: battle TIDAK menimpa boss', sfxMod.musicDebug() === 'boss' && played === 2);
+    sfxMod.stopMusic();
+    T('Music: stopMusic mematikan konteks aktif',
+        sfxMod.musicDebug() === null && tracks.every(m => m.paused !== false));
+    sfxMod.startMenuMusic();
+    T('Music: startMenuMusic menyalakan track menu', sfxMod.musicDebug() === 'menu' && played === 3);
+    sfxMod.stopMusic();
+    // Scene gameplay TIDAK lagi menyalakan musik di enter() — trigger battle
+    // music satu-satunya = peluru player mengenai robot (robots.js).
+    const sceneFiles = ['src/scenes/survival/index.js', 'src/scenes/campaign/stages/stage1.js',
+        'src/scenes/campaign/stages/stage2.js', 'src/scenes/campaign/stages/stage3.js',
+        'src/scenes/campaign/stages/stage4.js'];
+    T('Music: enter() scene gameplay tak menyalakan musik; trigger = hit peluru di robots.js',
+        sceneFiles.every(f => !fs.readFileSync(ROOT + '/' + f, 'utf8').includes('startBattleMusic'))
+        && fs.readFileSync(ROOT + '/src/entities/robots.js', 'utf8').includes('startBattleMusic()'));
 }
 
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s3dropsBefore = stateMod.drops.length;
 s3mod.placeRobots();
 const nStage3 = robots.filter(z => z.stage === 3).length;
-T('S3: placeRobots menaruh 39 robot (10 spot) tagged stage 3 (' + nStage3 + ')', nStage3 === 39);
+T('S3: placeRobots menaruh 40 robot (10 spot) tagged stage 3 (' + nStage3 + ')', nStage3 === 40);
 T('S3: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s3dropsBefore);
 
 const zS3 = robots.find(z => z.stage === 3);
@@ -1066,7 +1112,7 @@ try { for (let i = 0; i < 5; i++) s3mod.stage3Scene.robotAI(zS3, 0.05, 3); } cat
 T('S3: robotAI jalan tanpa error', s3aiOk);
 
 // Stage 3 tangga END -> SHOP SCENE (loading) -> Start Next Stage (loading) -> stage 4
-const s4mod = await import(R('src/scenes/campaign/stage4.js'));
+const s4mod = await import(R('src/scenes/campaign/stages/stage4.js'));
 const realS4Enter = s4mod.stage4Scene.enter;
 let s4entered = false;
 s4mod.stage4Scene.enter = () => { s4entered = true; };
@@ -1122,6 +1168,27 @@ s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
 }
 T('S4: nav-grid pathfinder terbangun', s4mod.stage4Scene.robotAI != null);
 T('S4: roadside occluders terdaftar (sistem fade objek penghalang aktif)', s4mod.occluderDebug().count > 15);
+// ZONA BEBAS-DEKOR (2026-07-19): gedung/pohon/dekor roadside TIDAK BOLEH
+// berdiri di parkiran / koridor jalan raya / kompleks alun-alun — semua
+// footprint terklaim harus bebas zona gameplay (roadsideDebug).
+T('S4: dekor roadside tak menyentuh zona gameplay (parkiran/jalan/alun-alun)',
+    s4mod.roadsideDebug().count > 30 && s4mod.roadsideDebug().clear === true);
+{   // KORIDOR JALAN RAYA tetap tembus (2026-07-19: rongsokan dipadatkan): di
+    // tiap sampel x sepanjang jalan harus ada z bebas blocker utk player.
+    let corridorOk = true;
+    const sqx0 = s4mod.arenaDebug().sq.x0;
+    for (let x = s4mod.S4_START.x + 300; x < sqx0 - 40 && corridorOk; x += 25) {
+        let free = false;
+        for (let z = -30; z <= 30 && !free; z += 3) {
+            if (!s4mod.stage4Walk(x, z, 3.5)) continue;
+            stateMod._v3.set(x, 0, z);
+            s4mod.resolve(stateMod._v3, 3.5, 0);
+            if (Math.abs(stateMod._v3.x - x) + Math.abs(stateMod._v3.z - z) < 0.01) free = true;
+        }
+        corridorOk = free;
+    }
+    T('S4: koridor jalan raya tetap tembus di antara rongsokan (ada celah di tiap sampel x)', corridorOk);
+}
 {   // Parkiran dirapikan 2026-07-18: KONTAINER lama (OX+232,-165 = S4_START+242/+15)
     // DIHAPUS -> titik itu kini area walkable bebas blocker (resolve tak menggeser).
     const px = s4mod.S4_START.x + 242, pz = s4mod.S4_START.z + 15;
@@ -1136,7 +1203,11 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s4dropsBefore = stateMod.drops.length;
 s4mod.placeRobots();
 const nStage4 = robots.filter(z => z.stage === 4).length;
-T('S4: placeRobots menaruh 44 robot (13 spot) tagged stage 4 (' + nStage4 + ')', nStage4 === 44);
+T('S4: placeRobots menaruh 40 robot (13 spot) tagged stage 4 (' + nStage4 + ')', nStage4 === 40);
+// Komposisi 2026-07-19 (permintaan user): varian penembak A/B diperbanyak
+T('S4: varian kelas A/B diperbanyak (A >= 5, B >= 8)',
+    robots.filter(z => z.stage === 4 && z.kind === 'A').length >= 5
+    && robots.filter(z => z.stage === 4 && z.kind === 'B').length >= 8);
 T('S4: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s4dropsBefore);
 // Layout baru 2026-07-16 (parkiran/stasiun kecil, jalan 2 lajur): semua spot
 // robot & supply hasil retarget harus tetap berdiri DI DALAM union walkable.
@@ -1330,6 +1401,11 @@ s4calm();
         vy0 > 0 && Math.abs(apexCalc - wantApex) < 2 && TB.mortarApexMeters > 0 && TB.mortarApexRatio > 0);
     T('S4: mortar mendarat di posisi player saat tembakan (meleset ' + missBy.toFixed(1) + ' u < 10)',
         !s4tank.mortars.includes(mo) && missBy < 10);
+    // DESING MORTAR DATANG (2026-07-19, permintaan user — durasi PAS): node
+    // tank-incoming-mortar dibuat SELAMA fase akhir terbang dan sudah DIPAUSE
+    // tepat saat mortar meledak (tak ada sisa desing setelah ledakan).
+    T('S4: desing incoming-mortar menyala saat mau jatuh & BERHENTI tepat saat meledak',
+        mo.snd != null && mo.snd.paused === true);
     s4calm();
 }
 // Mortar = LOB PARABOLA balistik (2026-07-15, bukan homing): suntik 1 mortar
@@ -1681,8 +1757,8 @@ let jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 4 aktif -> STAGE
 T('cheat skip-to-stage-3: pindah ke stage 3 + robot 3-tag', jr === 3
     && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempatkan ulang oleh helper)
-T('cheat skip-to-stage-2: pindah ke stage 2 + 35 robot ditempatkan', jr === 2
-    && smMod.activeScene === s2mod.stage2Scene && robots.filter(z => z.stage === 2).length === 35);
+T('cheat skip-to-stage-2: pindah ke stage 2 + 40 robot ditempatkan', jr === 2
+    && smMod.activeScene === s2mod.stage2Scene && robots.filter(z => z.stage === 2).length === 40);
 const s4before = smMod.activeScene;
 T('cheat skip-to-stage invalid (9) ditolak, scene tak berubah',
     smMod.activeScene.cheatSkipToStage(9) === null && smMod.activeScene === s4before);
@@ -1747,8 +1823,8 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
 // (doorDelaySec) -> Stage 1. Config-driven; stage1.enter di-spy (deteksi transisi
 // tanpa menempatkan robot). ---
 {
-    const introMod = await import(R('src/scenes/campaign/intro.js'));
-    const s1mod = await import(R('src/scenes/campaign/stage1.js'));
+    const introMod = await import(R('src/scenes/campaign/cutscenes/intro.js'));
+    const s1mod = await import(R('src/scenes/campaign/stages/stage1.js'));
     const I = cfgMod.CFG.campaign.intro;
     const realS1Enter = s1mod.stage1Scene.enter;
     let s1entered = false;
@@ -1765,6 +1841,15 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     let introWarmOk = true;
     try { introMod.warmupIntro(); } catch (e) { introWarmOk = false; console.log(e); }
     T('INTRO: warmupIntro (render kota dari semua sudut kamera) jalan tanpa error', introWarmOk);
+
+    // 2026-07-19 (permintaan user): heli hover DITURUNKAN ½ (128 -> 64) + LANDMARK
+    // JAKARTA (Monas, Bundaran HI, Stadion GBK) terpasang di latar kota, jauh dari atap.
+    const IM = introMod.introMetrics();
+    T('INTRO: ketinggian hover heli diturunkan (HOVER_Y < 55)', IM.hoverY < 55 && IM.hoverY > 25);
+    T('INTRO: landmark Jakarta (Monas/Bundaran HI/GBK) terpasang jauh dari atap hero',
+        ['monas', 'bundaranHI', 'gbk'].every(k => IM.landmarks[k] && IM.landmarks[k].r > 0
+            && Math.hypot(IM.landmarks[k].x - introMod.introDebug().drop.x,
+                IM.landmarks[k].z - introMod.introDebug().drop.z) > 250));
 
     stateMod.setPaused(true);   // keadaan pra-cutscene (layar mulai)
     const introBlocker = global.document.getElementById('blocker');
@@ -1801,7 +1886,7 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     const rap0 = avMod.rappelDebug();
     T('INTRO SCENE 2 (turun tali): fase descend -> avatar TAMPIL dari ketinggian tali + POSE RAPPEL aktif',
         dTop.phase === 'descend' && dTop.avatarShown === true
-        && dTop.pivotY > dTop.roofY + dTop.eyeH + 40
+        && dTop.pivotY > dTop.roofY + dTop.eyeH + 18   // margin diturunkan (HOVER_Y 48, 2026-07-19 — heli menggantung rendah)
         && Math.abs(dTop.heliX - dTop.drop.x) < 40 && rap0.active === true);
     // (2026-07-18) SEBELUM berjalan ke pintu: fase ropeUp (heli menarik naik tali,
     // avatar berdiri di titik turun, rappel dilepas) lalu heliLeave (heli TERBANG
@@ -1863,7 +1948,7 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
 //     collision/nav/BFS stage tak berubah, sudah diverifikasi tes stage) + ENV
 //     kota (kubah kobaran-api global disembunyikan + scene.background haze). ---
 {
-    const cityMod = await import(R('src/scenes/campaign/cityscape.js'));
+    const cityMod = await import(R('src/scenes/campaign/utility/cityscape.js'));
     let cityOk = true;
     try { cityMod.buildCampaignCityscape(30000, 0, 210, 210); } catch (e) { cityOk = false; console.log(e); }
     T('CITYSCAPE: buildCampaignCityscape (gedung+jalan+pohon keliling) jalan tanpa error', cityOk);
