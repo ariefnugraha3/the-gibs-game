@@ -33,7 +33,7 @@ import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.
 import { buildFuturisticPlanterMesh } from '../../../entities/futuristicPlanter.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from '../utility/common.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
-import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot } from '../utility/doors.js';
+import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
@@ -517,12 +517,17 @@ export const stage3Scene = {
     groundHeight(x, z, feetY) { return blockersGroundHeight(x, z, feetY, blockers); },
 
     // Peluru MATI di dinding; PINTU TERTUTUP juga memblok peluru player & robot
-    // (2026-07-19, doorBlocksShot).
+    // (2026-07-19; doorClampShot menjepit posisi peluru ke sisi penembak —
+    // boom launcher tak meledak di balik pintu).
     bulletBlocked(b) {
         return (b.mesh.position.y < S3.H
             && s3SegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z))
-            || doorBlocksShot(s3doors, b.px, b.pz, b.mesh.position.x, b.mesh.position.z, b.mesh.position.y);
+            || doorClampShot(s3doors, b);
     },
+
+    // AoE ledakan (launcher) TIDAK menembus pintu tertutup (2026-07-19):
+    // dicek explodeAt per robot — ruas pusat ledakan -> robot.
+    blastBlocked(x0, z0, x1, z1, y) { return doorBlocksShot(s3doors, x0, z0, x1, z1, y); },
 
     grenadeCollide(g, oldGX, oldGZ) {
         if (!stage3Walk(g.mesh.position.x, g.mesh.position.z, NADE_R)) {

@@ -142,7 +142,15 @@ export function resolveDoors(doors, pos, radius) {
 // dan peluru robot (updateEnemyBullets di robots.js) sama-sama mati lewat hook
 // itu, jadi SATU cek ini menutup keduanya. =====
 export function doorBlocksShot(doors, x0, z0, x1, z1, y) {
-    if (!doors) return false;
+    return doorShotEntry(doors, x0, z0, x1, z1, y) !== null;
+}
+
+// Inti slab test: kembalikan parameter t MASUK terkecil (0..1) ruas terhadap
+// semua daun pintu yang masih menghadang di ketinggian y, atau null bila bebas.
+// t dipakai doorClampShot untuk menjepit peluru di titik tumbuk.
+function doorShotEntry(doors, x0, z0, x1, z1, y) {
+    if (!doors) return null;
+    let best = null;
     for (const dr of doors) {
         if (dr.panel.position.y + dr.closedY <= y) continue;   // puncak panel (H = 2×closedY) sudah di bawah jalur peluru
         const hx = dr.hx + 0.4, hz = dr.hz + 0.4;
@@ -160,7 +168,29 @@ export function doorBlocksShot(doors, x0, z0, x1, z1, y) {
             if (tb < t1) t1 = tb;
             if (t0 > t1) { hit = false; break; }
         }
-        if (hit) return true;
+        if (hit && (best === null || t0 < best)) best = t0;
     }
-    return false;
+    return best;
+}
+
+// Blok peluru SEKALIGUS jepit posisinya ke SISI PENEMBAK daun pintu (bug fix
+// 2026-07-19, permintaan user): peluru launcher yang menghantam pintu dulunya
+// meledak di posisi SETELAH maju frame itu — kecepatan peluru bisa membawanya
+// MELEWATI daun tipis (3.2 unit), jadi pusat ledakan jatuh DI BALIK pintu dan
+// AoE-nya membantai robot di ruangan sebelah. Kini posisi dimundurkan ke titik
+// masuk footprint − ~1.2 unit (jelas di depan daun), sehingga boom launcher
+// meledak DI DEPAN pintu dan cek oklusi blastBlocked (explodeAt) melihat daun
+// pintu di antara ledakan dan robot di baliknya. Dipakai hook bulletBlocked
+// stage 1-3 untuk peluru player & robot (mutasi posisi peluru robot tak
+// berdampak — peluru langsung dibuang setelah hook).
+export function doorClampShot(doors, b) {
+    const p = b.mesh.position;
+    const t = doorShotEntry(doors, b.px, b.pz, p.x, p.z, p.y);
+    if (t === null) return false;
+    const dx = p.x - b.px, dz = p.z - b.pz;
+    const len = Math.hypot(dx, dz);
+    const tt = Math.max(0, t - (len > 1e-6 ? 1.2 / len : 0));
+    p.x = b.px + dx * tt;
+    p.z = b.pz + dz * tt;
+    return true;
 }

@@ -1053,6 +1053,33 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     const shotOpen = doorMod.doorBlocksShot(doors, dr.cx - 30, dr.cz, dr.cx + 30, dr.cz, 8);
     T('Doors: peluru DIBLOK pintu tertutup, TEMBUS saat terbuka, ruas meleset bebas',
         shotShut === true && shotOpen === false && shotMiss === false);
+    // LEDAKAN vs PINTU (2026-07-19, bug fix — AoE launcher tak boleh menembus
+    // pintu tertutup): (a) doorClampShot menjepit posisi peluru ledak ke SISI
+    // PENEMBAK daun pintu (dulu boom di posisi setelah maju frame = bisa sudah
+    // DI BALIK pintu); (b) explodeAt melewati robot yang terhalang pintu lewat
+    // hook scene blastBlocked (stage 1-3 -> doorBlocksShot).
+    settle(dr.cx + 400, dr.cz + 400);                     // player jauh -> pintu TUTUP
+    const clampB = { px: dr.cx - 30, pz: dr.cz, mesh: { position: new THREE.Vector3(dr.cx + 30, 8, dr.cz) } };
+    const clamped = doorMod.doorClampShot(doors, clampB);
+    T('doorClampShot: peluru terjepit di SISI PENEMBAK daun pintu tertutup',
+        clamped === true && clampB.mesh.position.x < dr.cx - dr.hx);
+    const missB = { px: dr.cx - 30, pz: dr.cz + 80, mesh: { position: new THREE.Vector3(dr.cx + 30, 8, dr.cz + 80) } };
+    T('doorClampShot: ruas meleset dari pintu tidak diblok/dijepit',
+        doorMod.doorClampShot(doors, missB) === false && missB.mesh.position.x === dr.cx + 30);
+    // explodeAt + hook blastBlocked: robot DI BALIK pintu tertutup selamat,
+    // robot di sisi ledakan tetap kena (HP besar supaya tak ada killRobot/gore).
+    const zNear = mkBot('C', dr.cx - 10, dr.cz), zFar = mkBot('C', dr.cx + 10, dr.cz);
+    zNear.hp = 100000; zFar.hp = 100000;
+    robots.push(zNear, zFar);
+    const prevBB = smMod.activeScene.blastBlocked;
+    smMod.activeScene.blastBlocked = (x0, z0, x1, z1, y) => doorMod.doorBlocksShot(doors, x0, z0, x1, z1, y);
+    effectsMod.explodeAt(new THREE.Vector3(dr.cx - 14, 8, dr.cz), 60, 10);
+    T('explodeAt: AoE TIDAK menembus pintu tertutup (robot di baliknya selamat, sisi ledakan kena)',
+        zNear.hp === 100000 - 10 && zFar.hp === 100000);
+    if (prevBB === undefined) delete smMod.activeScene.blastBlocked;
+    else smMod.activeScene.blastBlocked = prevBB;
+    scene.remove(zNear.mesh); scene.remove(zFar.mesh);
+    robots.splice(robots.indexOf(zNear), 1); robots.splice(robots.indexOf(zFar), 1);
 }
 
 // --- 16e. MUSIK LATAR (DIROMBAK 2026-07-19, permintaan user — 3 KONTEKS):

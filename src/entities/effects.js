@@ -112,6 +112,12 @@ export function explodeAt(pos, radius, dmg, sfx) {
     for (let i = robots.length - 1; i >= 0; i--) {
         const z = robots[i];
         if (z.mesh.position.distanceTo(pos) < R) {
+            // PINTU TERTUTUP menahan ledakan (2026-07-19, permintaan user):
+            // hook scene opsional blastBlocked (stage 1-3 -> doorBlocksShot) —
+            // ruas pusat ledakan -> robot yang terhalang daun pintu tertutup
+            // berarti robot di balik pintu TIDAK kena AoE launcher.
+            if (activeScene && activeScene.blastBlocked
+                && activeScene.blastBlocked(pos.x, pos.z, z.mesh.position.x, z.mesh.position.z, pos.y)) continue;
             // Model damage: boss tahan (grenadeDamage khusus, TIDAK terpengaruh
             // upgrade); robot lain kena dmg param (peluru launcher, sudah ber-level)
             // atau default CFG.grenade.damage — dikurangi armor kelas (0 saat ini).

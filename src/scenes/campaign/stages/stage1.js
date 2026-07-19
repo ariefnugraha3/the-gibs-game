@@ -35,7 +35,7 @@ import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from '../utility/common.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
-import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot } from '../utility/doors.js';
+import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
@@ -546,12 +546,18 @@ export const stage1Scene = {
 
     // Peluru MATI di dinding — mencegah membunuh robot diam di ruangan lain
     // menembus tembok (sweep ruas posisi-lalu -> kini). PINTU TERTUTUP juga
-    // memblok peluru player & robot (2026-07-19, doorBlocksShot).
+    // memblok peluru player & robot (2026-07-19; doorClampShot sekaligus
+    // menjepit posisi peluru ke sisi penembak daun pintu supaya boom launcher
+    // tak meledak di balik pintu).
     bulletBlocked(b) {
         return (b.mesh.position.y < S1.H
             && s1SegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z))
-            || doorBlocksShot(s1doors, b.px, b.pz, b.mesh.position.x, b.mesh.position.z, b.mesh.position.y);
+            || doorClampShot(s1doors, b);
     },
+
+    // AoE ledakan (launcher) TIDAK menembus pintu tertutup (2026-07-19):
+    // dicek explodeAt per robot — ruas pusat ledakan -> robot.
+    blastBlocked(x0, z0, x1, z1, y) { return doorBlocksShot(s1doors, x0, z0, x1, z1, y); },
 
     grenadeCollide(g, oldGX, oldGZ) {
         // Pantulan dinding grid + penghalang furnitur
