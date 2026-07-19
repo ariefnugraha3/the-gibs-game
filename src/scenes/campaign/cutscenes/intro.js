@@ -31,7 +31,7 @@ import { CFG, CAMP_M } from '../../../core/config.js';
 import { scene, camera, viewCam, renderer, composer, postFxOn, addCamShake, setCineFocus, followViewCam } from '../../../core/renderer.js';
 import { setScene } from '../../../core/sceneManager.js';
 import { setCinematicActive, setPaused } from '../../../core/state.js';
-import { setCineBars, blocker } from '../../../core/dom.js';
+import { setCineBars, blocker, showCutsceneSkip, hideCutsceneSkip } from '../../../core/dom.js';
 import { hidePauseMenu } from '../../../core/pauseMenu.js';
 import { releaseInputs } from '../../../core/input.js';
 import { aimPoint } from '../../../core/input.js';
@@ -41,7 +41,7 @@ import { PAL } from '../../../world/palette.js';
 import { makeFacadeTex, makeLitTex, makeCityMat, fillBuildingInstances, CITY_PALETTE } from '../../../world/facades.js';
 import { setEmbersVisible } from '../../../world/sky.js';
 import { skyDome } from '../../../world/decor.js';
-import { playLoopSFX, stopLoopSFX, sfxHeli } from '../../../utils/sfx.js';
+import { playLoopSFX, stopLoopSFX, playSFX, sfxHeli, sfxFootstep, getSFXScale } from '../../../utils/sfx.js';
 import { spawnHelicopter, updateHelicopter, disposeHelicopter } from '../../../entities/helicopter.js';
 import { avatarGroup, setAvatarRappel } from '../../../entities/playerAvatar.js';
 import { stage1Scene, ensureWorld as ensureCampaignWorlds } from '../stages/stage1.js';
@@ -85,6 +85,7 @@ let introSky = null;                               // kubah langit intro (haze k
 let savedFog = null;                               // {hex,near,far} fog global (dipulihkan di finish)
 let heli = null, rope = null;
 let heliSnd = null;                                // loop helicopter-flying (2026-07-19; berhenti saat heli pergi)
+let stepT = 0;                                     // irama langkah kaki fase walk/enter (2026-07-19, SFX cutscene)
 let cine = null;                                   // {phase, t} mesin cutscene (null = tak aktif)
 let eyeH = 11.4;
 
@@ -522,7 +523,14 @@ export function beginIntro() {
     // pivot (kamera) langsung mengikuti heli agar tak ada pan panjang di frame awal
     camera.position.set(FLY_START.x, FLY_START.y - AIR_DROP, FLY_START.z);
     cine = { phase: 'fly', t: 0, bob: 0 };
+    stepT = 0.12;                  // langkah pertama cepat terdengar saat fase walk mulai
+    showCutsceneSkip(skipIntro);   // tombol SKIP kanan-bawah (2026-07-19; SPACE juga)
 }
+
+// SKIP cutscene (2026-07-19, tombol kanan-bawah / SPACE): loncat langsung ke
+// akhir — finishIntro aman dipanggil dari fase mana pun (lepas pose rappel,
+// buang heli/tali/atap + pulihkan langit/bara/fog, masuk Stage 1 + tutorial).
+export function skipIntro() { if (cine) finishIntro(); }
 
 // Heli menggantung dgn ayunan halus (bob) di atas titik turun
 function hoverHeli(dt) {
@@ -648,6 +656,7 @@ export const introScene = {
                 cine.phase = 'ropeUp'; cine.t = 0;
                 setAvatarRappel(false);   // lepas tali → pose berdiri/jalan normal
                 addCamShake(1.4);          // hentakan pendaratan
+                playSFX(sfxFootstep, 0.55);   // bunyi kaki menjejak atap (2026-07-19, SFX cutscene)
             }
 
         } else if (cine.phase === 'ropeUp') {
@@ -673,7 +682,7 @@ export const introScene = {
             heli.parts.group.position.set(hx, hy, hz);
             heli.parts.group.rotation.y = Math.atan2(LEAVE.x - DROP.x, LEAVE.z - DROP.z);   // hidung ke arah pergi
             heli.parts.group.rotation.z = 0.08 * e;   // sedikit bank saat menanjak
-            if (heliSnd) heliSnd.volume = 0.5 * (1 - e);   // deru memudar seiring heli menjauh (2026-07-19)
+            if (heliSnd) heliSnd.volume = Math.min(1, 0.5 * (1 - e) * getSFXScale());   // deru memudar seiring heli menjauh (ikut slider SFX)
             faceAvatar(hx, hz);                        // player menghadap heli yang menjauh
             if (k >= 1) {
                 cine.phase = 'walk'; cine.t = 0;
@@ -682,20 +691,26 @@ export const introScene = {
 
         } else if (cine.phase === 'walk') {
             // SCENE 2: character BERJALAN dari titik turun ke PINTU gedung (heli
-            // sudah pergi — tak disentuh lagi di sini).
+            // sudah pergi — tak disentuh lagi di sini). Langkah kaki berirama
+            // (2026-07-19, permintaan user — SFX cutscene; irama = player.js).
             updateHelicopter(heli, dt);
             const k = Math.min(1, cine.t / (I.walkSec || 2.6));
             const e = smooth(k);
             camera.position.set(lerp(DROP.x, DOOR.x, e), ROOF_Y + eyeH, lerp(DROP.z, DOOR.z, e));
             faceAvatar(DOOR.x, DOOR.z);
+            stepT -= dt;
+            if (stepT <= 0) { playSFX(sfxFootstep, 0.4); stepT = 0.42; }
             if (k >= 1) { cine.phase = 'enter'; cine.t = 0; }
 
         } else if (cine.phase === 'enter') {
-            // SCENE 2: character MASUK ke dalam pintu (melangkah ke bukaan gelap).
+            // SCENE 2: character MASUK ke dalam pintu (melangkah ke bukaan gelap)
+            // — langkah kaki terus berbunyi sampai masuk.
             updateHelicopter(heli, dt);
             const k = Math.min(1, cine.t / (I.enterSec || 0.9));
             camera.position.set(DOOR.x, ROOF_Y + eyeH, lerp(DOOR.z, DOOR.z - 14, k));   // masuk ke -z (dalam pintu)
             faceAvatar(DOOR.x, DOOR.z - 40);
+            stepT -= dt;
+            if (stepT <= 0) { playSFX(sfxFootstep, 0.4); stepT = 0.42; }
             if (k >= 1) {
                 cine.phase = 'wait'; cine.t = 0;
                 if (avatarGroup) avatarGroup.visible = false;   // sudah masuk gedung
@@ -731,6 +746,7 @@ function faceAvatar(tx, tz) {
 // Stage 1 (enter() memosisikan player di START & menempatkan robot).
 function finishIntro() {
     cine = null;
+    hideCutsceneSkip();       // tombol skip hilang bersama cutscene (2026-07-19)
     setAvatarRappel(false);   // pastikan pose rappel dilepas
     setCinematicActive(false);
     setCineBars(false);

@@ -92,6 +92,42 @@ export function setCineBars(on) {
     if (document.body && document.body.classList) document.body.classList.toggle('cine', !!on);
 }
 
+// ===== Tombol SKIP CUTSCENE (2026-07-19, permintaan user): tombol kanan-bawah
+// yang tampil selama cutscene (intro campaign & tank-boss stage 4). Dibuat
+// LAZY (sekali) via JS supaya index.html tak perlu berubah; style inline.
+// KLIK tombol dan tombol SPACE/Enter (input.js, saat pointer terkunci kursor
+// tak terlihat — cutscene tank) sama-sama lewat triggerCutsceneSkip().
+// Callback SEKALI-JALAN: sekali terpicu langsung dilepas (anti double-skip). =====
+let skipBtn = null, skipCb = null;
+export function showCutsceneSkip(onSkip) {
+    skipCb = onSkip;
+    if (!skipBtn) {
+        skipBtn = document.createElement('button');
+        skipBtn.id = 'cutsceneSkip';
+        skipBtn.textContent = 'SKIP ▸ [SPACE]';
+        skipBtn.style.cssText =
+            'position:fixed;right:26px;bottom:64px;z-index:60;display:none;'
+            + 'padding:10px 18px;background:rgba(20,18,14,0.82);color:#ffb03b;'
+            + 'border:1px solid rgba(255,176,59,0.55);border-radius:4px;'
+            + 'font-family:inherit;font-size:13px;font-weight:700;letter-spacing:0.14em;'
+            + 'cursor:pointer;pointer-events:auto;';
+        skipBtn.addEventListener('click', (e) => { e.stopPropagation(); triggerCutsceneSkip(); });
+        if (document.body) document.body.appendChild(skipBtn);
+    }
+    skipBtn.style.display = 'block';
+}
+export function hideCutsceneSkip() {
+    skipCb = null;
+    if (skipBtn) skipBtn.style.display = 'none';
+}
+export function triggerCutsceneSkip() {
+    if (!skipCb) return false;
+    const cb = skipCb;
+    skipCb = null;   // sekali-jalan (path skip memanggil hideCutsceneSkip juga)
+    cb();
+    return true;
+}
+
 export function showStageMsg(text, dur = 4200) {
     stageMsgEl.innerText = text;
     stageMsgEl.style.opacity = 1;

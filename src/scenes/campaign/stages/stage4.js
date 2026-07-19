@@ -1040,9 +1040,14 @@ export const stage4Scene = {
     updateMode(dt) {
         updateOccluders(dt);   // objek penghalang -> semi-transparan (2026-07-18)
         intro.update(dt);      // heli penjemput + mesin cutscene tank-boss (cutscenes/tankBossIntro.js)
+        // updateTank dipanggil JUGA selama cutscene (2026-07-19, permintaan
+        // user — SFX cutscene lengkap): fase 'cine' early-return SETELAH
+        // updateTankAudio, jadi loop tank-moving (tick dari cineTracksDust) +
+        // tank-turret-rotate (tick dari aimTurretAtHeli) berbunyi saat tank
+        // digerakkan sinematik; logika duel tetap menunggu cutscene selesai.
+        if (tank) updateTank(tank, dt);
         // Cutscene SELESAI (tank sudah diserahkan lewat setTank) -> jalankan DUEL.
         if (tank && intro.isDone() && !intro.isActive()) {
-            updateTank(tank, dt);
             if (tank.dead && !bossDefeated) onBossDown();
             if (bossDefeated && !winFired) {
                 winT -= dt;

@@ -147,7 +147,7 @@ global.THREE = {
     Shape: class { moveTo() { } lineTo() { } quadraticCurveTo() { } bezierCurveTo() { } },
     MeshLambertMaterial: Mat, MeshBasicMaterial: Mat, MeshPhongMaterial: Mat, SpriteMaterial: Mat,
     MeshStandardMaterial: Mat, MeshPhysicalMaterial: Mat, LineBasicMaterial: Mat,
-    CanvasTexture: class { constructor() { this.repeat = { set() { } }; } },
+    CanvasTexture: class { constructor() { this.repeat = { set() { } }; this.offset = { set() { } }; } },
     Fog: class { }, WebGLRenderer: class {
         constructor() { this.domElement = fakeEl(); this.shadowMap = {}; }
         setPixelRatio() { } setSize() { } getPixelRatio() { return 1; } compile() { } render() { }
@@ -850,14 +850,72 @@ T('S2: START & END berada di LANTAI (bukan dinding)',
     !s2mod.s2Wall(s2mod.S2_START.c, s2mod.S2_START.r) && !s2mod.s2Wall(s2mod.S2_END.c, s2mod.S2_END.r));
 T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
 
-// Jumlah robot STAGE 1 = 30 (2026-07-19, permintaan user — dulu 29)
+// Jumlah robot STAGE 1 = 40 (2026-07-19 malam, permintaan user — dulu 30)
 {
     const s1m = await import(R('src/scenes/campaign/stages/stage1.js'));
+    const comMod = await import(R('src/scenes/campaign/utility/common.js'));
     if (!s1m.s1grid) s1m.buildWorld();
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     s1m.placeRobots();
     const n1 = robots.filter(z => z.stage === 1).length;
-    T('S1: placeRobots menaruh 30 robot (9 spot) tagged stage 1 (' + n1 + ')', n1 === 30);
+    T('S1: placeRobots menaruh 40 robot (9 spot) tagged stage 1 (' + n1 + ')', n1 === 40);
+
+    // --- LAMPU PER-RUANGAN (2026-07-19): mati saat mulai, menyala saat player
+    // memasuki rect ruangannya (yang lain tetap mati). ---
+    const lamps = s1m.s1LampsDbg();
+    comMod.resetRoomLamps(lamps);
+    T('LAMPU: semua lampu ruangan MATI + SELUBUNG HITAM terpasang saat stage dimulai',
+        lamps.length >= 10 && lamps.every(l => !l.on && l.L.intensity === 0)
+        && lamps.filter(l => l.shroud).length >= 10
+        && lamps.filter(l => l.shroud).every(l => l.shroud.visible && l.shroud.material.opacity === 1));
+    const conf = s1m.s1Cell(14, 3);                    // ruang conference
+    camera.position.set(conf.x, cfgMod.CFG.player.eyeHeight, conf.z);
+    for (let i = 0; i < 12; i++) s1m.stage1Scene.updateMode(0.1);
+    const lit = lamps.find(l => l.on);
+    T('LAMPU: masuk ruangan -> lampu MENYALA + selubung hitamnya HILANG (ruangan lain tetap gelap)',
+        lit && lit.L.intensity > 0.5 * lit.base
+        && (!lit.shroud || lit.shroud.visible === false)
+        && lamps.some(l => !l.on && l.shroud && l.shroud.visible));
+
+    // REVISI (2026-07-19): lampu menyala saat PINTU ruangan DIBUKA — player
+    // berdiri DI DEPAN pintu A<->B (masih di ruang A, BELUM masuk conference)
+    // -> pintu bergeser terbuka -> lampu conference menyala lebih dulu.
+    comMod.resetRoomLamps(lamps);
+    const frontA = s1m.s1Cell(6, 3);            // ruang A, zona depan pintu A<->B (c8 r3-4)
+    camera.position.set(frontA.x, cfgMod.CFG.player.eyeHeight, frontA.z);
+    for (let i = 0; i < 30; i++) s1m.stage1Scene.updateMode(0.05);   // pintu terbuka penuh
+    const confLamp = lamps[1];                  // lampu conference (rect c9-19 r1-6)
+    T('LAMPU: pintu DIBUKA -> lampu ruangan di baliknya MENYALA (player belum masuk rect)',
+        confLamp.doors && confLamp.doors.length > 0 && confLamp.on
+        && !(frontA.x >= confLamp.x0 && frontA.x <= confLamp.x1));
+
+    // --- EXIT TERKUNCI (2026-07-19): trigger tangga END DITOLAK selagi robot
+    // stage 1 masih hidup (tak ada transisi/setScene). ---
+    const scBefore = smMod.activeScene;
+    const eEnd = s1m.s1Cell(s1m.S1_END.c, s1m.S1_END.r);
+    stateMod._v3.set(eEnd.x, 0, eEnd.z);
+    s1m.stage1Scene.playerCollide(stateMod._v3, eEnd.x, eEnd.z, 0);
+    T('EXIT LOCK: trigger END stage 1 DITOLAK selagi robot hidup', smMod.activeScene === scBefore);
+
+    // --- AKTIVASI LOS KETAT (2026-07-19): robot dekat (< 30 unit) di balik
+    // DINDING / PINTU TERTUTUP tetap idle; pintu terbuka -> baru mengejar. ---
+    comMod.spawnCampaignRobot(s1m.s1Cell(1, 8).x, s1m.s1Cell(1, 8).z, 1);   // di balik dinding r7
+    const zWall = robots[robots.length - 1];
+    const cp1 = s1m.s1Cell(1, 6);
+    camera.position.set(cp1.x, cfgMod.CFG.player.eyeHeight, cp1.z);
+    s1m.stage1Scene.robotAI(zWall, 0.1, 6);
+    T('AKTIVASI KETAT: robot dekat di balik DINDING tetap idle (bypass jarak dihapus)',
+        zWall.state === 'idle');
+    comMod.spawnCampaignRobot(s1m.s1Cell(3, 8).x, s1m.s1Cell(3, 8).z, 1);   // di balik pintu A<->D
+    const zDoor = robots[robots.length - 1];
+    const cp2 = s1m.s1Cell(3, 6);
+    camera.position.set(cp2.x, cfgMod.CFG.player.eyeHeight, cp2.z);
+    s1m.stage1Scene.robotAI(zDoor, 0.1, 6);
+    const doorIdle = zDoor.state === 'idle';           // pintu masih TERTUTUP -> tak terlihat
+    for (let i = 0; i < 30; i++) s1m.stage1Scene.updateMode(0.05);   // player di zona depan pintu -> pintu TERBUKA penuh
+    s1m.stage1Scene.robotAI(zDoor, 0.1, 6);
+    T('AKTIVASI KETAT: robot di balik pintu TERTUTUP idle; pintu TERBUKA -> mengejar',
+        doorIdle && zDoor.state === 'chasing');
 }
 
 // Bersihkan robot dari section sebelumnya, masuk scene, tempatkan robot+supply
@@ -866,7 +924,7 @@ const s2dropsBefore = stateMod.drops.length;
 smMod.setScene(s2mod.stage2Scene);   // enter() dipanggil di dalam setScene
 s2mod.placeRobots();
 const nStage2 = robots.filter(z => z.stage === 2).length;
-T('S2: placeRobots menaruh 40 robot (9 spot) tagged stage 2 (' + nStage2 + ')', nStage2 === 40);
+T('S2: placeRobots menaruh 50 robot (9 spot) tagged stage 2 (' + nStage2 + ')', nStage2 === 50);
 T('S2: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s2dropsBefore);
 
 // robotAI (idle->kejar via nav-grid) jalan tanpa error
@@ -888,9 +946,15 @@ const realS3Enter = s3mod.stage3Scene.enter;
 let s3entered = false;
 s3mod.stage3Scene.enter = () => { s3entered = true; };
 const e2 = s2mod.s2Cell(s2mod.S2_END.c, s2mod.S2_END.r);
+// EXIT TERKUNCI (2026-07-19): trigger tangga END DITOLAK selagi robot stage 2 hidup
+stateMod._v3.set(e2.x, 0, e2.z);
+s2mod.stage2Scene.playerCollide(stateMod._v3, e2.x, e2.z, 0);
+T('S2: EXIT TERKUNCI selagi robot hidup (tetap di stage 2)',
+    smMod.activeScene === s2mod.stage2Scene);
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }   // "bunuh" semua robot
 stateMod._v3.set(e2.x, 0, e2.z);
 s2mod.stage2Scene.playerCollide(stateMod._v3, e2.x, e2.z, 0);   // -> setScene(campaignShopScene)
-T('S2: tangga END -> pindah ke SHOP SCENE terpisah (bukan transisi langsung)',
+T('S2: semua robot mati -> tangga END pindah ke SHOP SCENE terpisah (bukan transisi langsung)',
     smMod.activeScene.id === 'campaign-shop' && !s3entered);
 for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
 stateMod.setScore(0);   // cek KETERSEDIAAN item tanpa beli (skor 0 -> 'Not enough score' vs 'Unknown item')
@@ -1095,8 +1159,10 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         && typeof sfxMod.startBossMusic === 'function' && typeof sfxMod.stopMusic === 'function'
         && typeof sfxMod.playLoopSFX === 'function' && typeof sfxMod.stopLoopSFX === 'function');
     const tracks = [sfxMod.bgMusic, sfxMod.bgMusicAlt, sfxMod.bgMusicMenu, sfxMod.bgMusicBoss];
-    T('Music: 4 track loop + volume di bawah SFX 0.7',
-        tracks.every(m => m.loop === true && m.volume > 0 && m.volume < 0.7));
+    T('Music: 4 track loop + volume = musicVol slider (default 80%, di bawah SFX 100%)',
+        tracks.every(m => m.loop === true && m.volume > 0
+            && Math.abs(m.volume - sfxMod.getMusicVolume()) < 1e-9
+            && m.volume < sfxMod.getSFXVolume()));
     let played = 0;
     for (const m of tracks) m.play = () => { played++; m.paused = false; return { catch() { } }; };
     sfxMod.stopMusic();
@@ -1129,7 +1195,7 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s3dropsBefore = stateMod.drops.length;
 s3mod.placeRobots();
 const nStage3 = robots.filter(z => z.stage === 3).length;
-T('S3: placeRobots menaruh 40 robot (10 spot) tagged stage 3 (' + nStage3 + ')', nStage3 === 40);
+T('S3: placeRobots menaruh 55 robot (10 spot) tagged stage 3 (' + nStage3 + ')', nStage3 === 55);
 T('S3: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s3dropsBefore);
 
 const zS3 = robots.find(z => z.stage === 3);
@@ -1144,9 +1210,16 @@ const realS4Enter = s4mod.stage4Scene.enter;
 let s4entered = false;
 s4mod.stage4Scene.enter = () => { s4entered = true; };
 const e3 = s3mod.s3Cell(s3mod.S3_END.c, s3mod.S3_END.r);
+// EXIT TERKUNCI (2026-07-19): pintu lobi DITOLAK selagi robot stage 3 hidup
+stateMod._v3.set(e3.x, 0, e3.z);
+s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);
+T('S3: PINTU LOBI TERKUNCI selagi robot hidup (tetap di stage 3)',
+    smMod.activeScene === s3mod.stage3Scene);
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }   // "bunuh" semua robot
 stateMod._v3.set(e3.x, 0, e3.z);
 s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);   // -> setScene(campaignShopScene)
-T('S3: tangga END -> pindah ke SHOP SCENE terpisah', smMod.activeScene.id === 'campaign-shop' && !s4entered);
+T('S3: semua robot mati -> pintu lobi pindah ke SHOP SCENE terpisah',
+    smMod.activeScene.id === 'campaign-shop' && !s4entered);
 for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
 T('S3 SHOP SCENE: shop terbuka', shopMod.isShopOpen());
 smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');   // Start Next Stage -> konfirmasi
@@ -1173,6 +1246,34 @@ s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
     s4mod.ensureWorld();
     T('S4: ensureWorld idempoten (panggilan ke-2 tak membangun ulang dunia)',
         scene.children.length === nBefore && s4mod.worldBuilt() && s3mod.worldBuilt());
+}
+
+// --- TANGGA BORDES (2026-07-19, foto referensi user): START & END HARUS BEDA —
+// START = flight turun dari Lt.3 (varian NAIK, tanpa lubang), END = LUBANG di
+// lantai + flight MENEMBUS TURUN ke bawah ruangan (stage 1 & 2; stage 3 keluar
+// lewat pintu lobi = hanya varian naik). Metrik di-dedupe per koordinat build. ---
+{
+    const swMod = await import(R('src/scenes/campaign/utility/stairwell.js'));
+    const s1x = await import(R('src/scenes/campaign/stages/stage1.js'));
+    const sw = swMod.stairwellDebug();
+    T('Stairwell: 3 tangga NAIK (START stage 1/2/3) + 2 tangga TURUN berlubang (END stage 1/2)',
+        sw.ups === 3 && sw.downs === 2 && sw.holes.length === 2);
+    // END DIPUTAR 90° + RAPAT tembok TIMUR (2026-07-19, permintaan user):
+    // pusat lubang = muka tembok timur − DOWN_FLUSH_OFF, orientasi tertukar
+    // (lebar-x > lebar-z), z tetap sebaris sel END.
+    const e1 = s1x.s1Cell(s1x.S1_END.c, s1x.S1_END.r);
+    const ex1 = s1x.S1.x0 + (s1x.S1.G - 1) * s1x.S1.CELL - swMod.DOWN_FLUSH_OFF;
+    const h1 = sw.holes.find(h => Math.abs((h.x0 + h.x1) / 2 - ex1) < 0.01);
+    T('Stairwell: lubang END stage 1 RAPAT tembok timur (putar 90°) + tetap menembus lantai',
+        !!h1 && Math.abs((h1.z0 + h1.z1) / 2 - (e1.z + 4)) < 0.01
+        && (h1.x1 - h1.x0) > (h1.z1 - h1.z0)
+        && h1.x1 - h1.x0 <= 32 && h1.z1 - h1.z0 <= 26);
+    const e2s = s2mod.s2Cell(s2mod.S2_END.c, s2mod.S2_END.r);
+    const ex2 = s2mod.S2.x0 + (s2mod.S2.G - 1) * s2mod.S2.CELL - swMod.DOWN_FLUSH_OFF;
+    const h2 = sw.holes.find(h => Math.abs((h.x0 + h.x1) / 2 - ex2) < 0.01);
+    T('Stairwell: lubang END stage 2 RAPAT tembok timur + lantai stage 1 & 2 = 4 strip mengelilingi lubang',
+        !!h2 && Math.abs((h2.z0 + h2.z1) / 2 - (e2s.z + 4)) < 0.01
+        && sw.floorStrips.length === 2 && sw.floorStrips.every(n => n === 4));
 }
 {   // flood-fill union (stage4Walk): START harus terhubung ke END
     const S = s4mod.S4_START, E = s4mod.S4_END, cell = 14;
@@ -1784,8 +1885,8 @@ let jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 4 aktif -> STAGE
 T('cheat skip-to-stage-3: pindah ke stage 3 + robot 3-tag', jr === 3
     && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempatkan ulang oleh helper)
-T('cheat skip-to-stage-2: pindah ke stage 2 + 40 robot ditempatkan', jr === 2
-    && smMod.activeScene === s2mod.stage2Scene && robots.filter(z => z.stage === 2).length === 40);
+T('cheat skip-to-stage-2: pindah ke stage 2 + 50 robot ditempatkan', jr === 2
+    && smMod.activeScene === s2mod.stage2Scene && robots.filter(z => z.stage === 2).length === 50);
 const s4before = smMod.activeScene;
 T('cheat skip-to-stage invalid (9) ditolak, scene tak berubah',
     smMod.activeScene.cheatSkipToStage(9) === null && smMod.activeScene === s4before);
@@ -1962,12 +2063,62 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         && smMod.activeScene === s1mod.stage1Scene && introMod.introDebug().active === false
         && stateMod.isPaused === true && introBlocker.style.display === 'flex');
 
+    // SKIP CUTSCENE (2026-07-19, tombol kanan-bawah / SPACE): putar ulang intro
+    // lalu skipIntro() di tengah fase fly -> langsung finish (Stage 1 + tutorial,
+    // sinematik OFF, dunia atap dibuang) — finishIntro aman dari fase mana pun.
+    smMod.setScene(introMod.introScene);
+    introMod.beginIntro();
+    for (let i = 0; i < 8; i++) introMod.introScene.updateMode(0.1);   // masih di tengah cutscene
+    T('INTRO SKIP: cutscene aktif kembali sebelum di-skip',
+        introMod.introDebug().active === true && stateMod.cinematicActive === true);
+    introMod.skipIntro();
+    T('INTRO SKIP: skipIntro -> langsung Stage 1 + tutorial (sinematik OFF, pause+blocker)',
+        smMod.activeScene === s1mod.stage1Scene && introMod.introDebug().active === false
+        && stateMod.cinematicActive === false && stateMod.isPaused === true
+        && introBlocker.style.display === 'flex');
+
     // Continue/restart (opts.stage > 1) TIDAK memutar intro — hanya start baru.
     // (Diverifikasi di main.js: playIntro = campaign && !(opts.stage > 1); di sini
     // cukup pastikan setScene langsung ke stage tanpa introScene tak error.)
     s1mod.stage1Scene.enter = realS1Enter;   // pulihkan
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     stateMod.setCinematicActive(false);
+}
+
+// --- Slider volume Settings (2026-07-19; revisi: nilai ABSOLUT 0..1 — slider
+// penuh = volume 1.0 utk musik & SFX): SFX diskalakan relatif SFX_BASE 0.7
+// (clamp <= 1), musik diterapkan LIVE ke track, keduanya tersimpan. ---
+{
+    const sfxMod = await import(R('src/utils/sfx.js'));
+    sfxMod.setSFXVolume(1);                             // slider penuh
+    const nFull = sfxMod.playSFX(sfxMod.sfxShoot, 0.7); // klip standar -> 1.0 penuh
+    sfxMod.setMusicVolume(1);
+    const musicFull = sfxMod.bgMusic.volume;            // -> 1.0 penuh
+    sfxMod.setSFXVolume(0.35);
+    const nHalf = sfxMod.playSFX(sfxMod.sfxShoot, 0.7); // -> 0.35 (absolut)
+    sfxMod.setMusicVolume(0.15);
+    T('VOLUME: slider ABSOLUT — penuh = 1.0 (musik & SFX), nilai lain diterapkan + tersimpan',
+        Math.abs(nFull.volume - 1) < 1e-9 && Math.abs(musicFull - 1) < 1e-9
+        && Math.abs(nHalf.volume - 0.35) < 1e-9
+        && Math.abs(sfxMod.bgMusic.volume - 0.15) < 1e-9
+        && localStorage.getItem('gibsSfxVol') === '0.35'
+        && localStorage.getItem('gibsMusicVol') === '0.15');
+    sfxMod.setMusicVolume(0.8); sfxMod.setSFXVolume(1);   // pulihkan default (musik 80%, SFX 100%)
+    nFull.pause(); nHalf.pause();
+}
+
+// --- Tombol SKIP cutscene (2026-07-19, dom.js): show -> trigger memanggil
+// callback SEKALI (sekali-jalan; klik tombol & SPACE/Enter via input.js memakai
+// jalur triggerCutsceneSkip yang sama), tanpa callback -> false. ---
+{
+    const domMod = await import(R('src/core/dom.js'));
+    let hits = 0;
+    domMod.showCutsceneSkip(() => hits++);
+    const first = domMod.triggerCutsceneSkip();
+    const second = domMod.triggerCutsceneSkip();
+    domMod.hideCutsceneSkip();
+    T('SKIP BUTTON: trigger memanggil callback sekali, trigger ke-2 = false (sekali-jalan)',
+        first === true && second === false && hits === 1);
 }
 
 // --- 15b. CITYSCAPE campaign stage 1-3 (2026-07-18): latar KOTA JAKARTA keliling

@@ -1200,6 +1200,13 @@ body {
 .qbtn:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
 .qbtn.active { background: #c0392b; border-color: #e0503e; color: #fff; box-shadow: 0 0 10px rgba(224, 80, 62, 0.5); }
 
+/* Slider volume musik & SFX di panel Settings (2026-07-19) */
+#volumeRows { margin-top: 22px; }
+.volRow { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; }
+.volRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; width: 150px; text-align: right; }
+.volRow input[type="range"] { width: 200px; accent-color: #e0503e; cursor: pointer; }
+.volVal { font-size: 13px; color: #ccc; width: 46px; text-align: left; font-family: Arial, sans-serif; font-weight: bold; }
+
 /* ---------- Indikator arah serangan (baji merah di tepi layar, diputar
    showHitDir ke sudut penyerang; mask menyisakan cincin luar saja) ---------- */
 #hitDir {

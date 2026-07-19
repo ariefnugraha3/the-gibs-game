@@ -20,7 +20,7 @@ import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../utils
 import { makeNavGrid } from '../../../utils/pathfind.js';
 import { setS1FlickerLight } from '../../../world/decor.js';
 import { applyLightPreset } from '../../../world/lighting.js';
-import { hideStageMsg } from '../../../core/dom.js';
+import { hideStageMsg, showStageMsg } from '../../../core/dom.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { NADE_R } from '../../../entities/grenades.js';
 import { buildMedkitMesh, buildMagMesh } from '../../../entities/drops.js';
@@ -33,9 +33,10 @@ import { buildFuturisticSofaMesh } from '../../../entities/futuristicSofa.js';
 import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from '../utility/common.js';
-import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps } from '../utility/common.js';
+import { buildInteriorWallMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
+import { buildStairwellUp, buildStairwellDown, buildFloorWithHole, stairwellHoleRect, stairwellUpFootprint, DOWN_FLUSH_OFF } from '../utility/stairwell.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
@@ -107,6 +108,15 @@ const S1_DOORS = [
     { c0: 21, r0: 23, c1: 21, r1: 24, dir: 'ew' },  // I (storage) <-> J (end/stairs)
 ];
 let s1doors = null;
+
+// Lampu PER-RUANGAN (2026-07-19, permintaan user): mati saat stage dimulai,
+// menyala saat player memasuki rect ruangannya (updateRoomLamps di updateMode).
+let s1Lamps = [];
+export const s1LampsDbg = () => s1Lamps;   // smoke test
+let s1HallLamp = null;                     // lampu main-hall — berkedip SETELAH menyala
+// Papan EXIT: MERAH selagi robot masih hidup (exit terkunci), HIJAU saat bersih.
+let s1ExitSign = null, s1ExitLight = null, s1ExitOpen = false;
+let s1HintT = 0;                           // rate-limit pesan "exit terkunci"
 
 const blockers = [];   // furnitur/undakan pejal stage 1 {x,z,hx,hz,ax*,az*,top,standable}
 let built = false;
@@ -198,13 +208,16 @@ export function buildWorld() {
     const size = S1.G * S1.CELL;                      // 420 unit = 60 m
     const cx = S1.x0 + size / 2, cz = S1.z0 + size / 2;
 
-    // --- Lantai: panel fasilitas TERANG futuristik (interior.js; 1 ubin/sel 2 m) ---
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
-        buildInteriorFloorMat(S1.G, S1.G));
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(cx, 0.01, cz);
-    floor.receiveShadow = true;
-    scene.add(floor);
+    // --- Lantai: panel fasilitas TERANG futuristik (interior.js; 1 ubin/sel 2 m).
+    // DILUBANGI di tangga END (2026-07-19, foto referensi user): 4 strip
+    // mengelilingi lubang poros tangga turun -> lantai benar-benar bolong.
+    // Tangga END DIPUTAR 90° + DIPEPET tembok TIMUR ruang END (2026-07-19,
+    // permintaan user — spt tangga entry): pusat = muka tembok − DOWN_FLUSH_OFF. ---
+    const endP = s1Cell(S1_END.c, S1_END.r);
+    const eastF = S1.x0 + (S1.G - 1) * S1.CELL;      // muka dalam tembok TIMUR (c29)
+    const endC = { x: eastF - DOWN_FLUSH_OFF, z: endP.z + 4 };
+    buildFloorWithHole(S1.x0, S1.z0, size, size, S1.CELL,
+        stairwellHoleRect(endC.x, endC.z, true));
 
     // Latar KOTA JAKARTA mengelilingi gedung (2026-07-18) — dekor, tanpa blocker
     buildCampaignCityscape(cx, cz, size / 2, size / 2);
@@ -380,63 +393,90 @@ export function buildWorld() {
         scene.add(fMesh);
     }
 
-    // --- Tangga masuk & keluar: undakan + portal gelap (kesan lantai bawah) ---
-    const stepMat = new THREE.MeshPhongMaterial({ color: 0x57534b, shininess: 6 });
-    const holeMat = new THREE.MeshBasicMaterial({ color: 0x020202 });
-    const mkStairs = (c, r, dirZ) => {   // dirZ: -1 = naik ke utara, +1 = ke selatan
-        const p = s1Cell(c, r);
-        for (let i = 0; i < 5; i++) {
-            const st = new THREE.Mesh(new THREE.BoxGeometry(26, 2 + i * 2, 8), stepMat);
-            st.position.set(p.x, (2 + i * 2) / 2, p.z + dirZ * (i * 8 - 14));
-            st.castShadow = true; st.receiveShadow = true;
-            scene.add(st);
-        }
-        const portal = new THREE.Mesh(new THREE.PlaneGeometry(26, S1.H - 10), holeMat);
-        // tepat di DEPAN muka dinding (bukan terkubur di dalam sel dinding)
-        portal.position.set(p.x, (S1.H - 10) / 2 + 9, p.z + dirZ * 20);
-        portal.rotation.y = dirZ > 0 ? Math.PI : 0;
-        scene.add(portal);
-        blockers.push({   // undakan pejal (bisa dipijak)
-            x: p.x, z: p.z + dirZ * 4, hx: 13, hz: 20,
-            axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(13, 20), top: 10, standable: true
-        });
-    };
-    mkStairs(3, 2, -1);     // START: tangga naik ke utara = jalur turun dari Lantai 3 (hijau)
-    mkStairs(25, 27, 1);    // END: tangga TURUN ke selatan = ke lantai bawah (stage 2) (kuning)
+    // --- Tangga BORDES dog-leg (2026-07-19, foto referensi user; ganti undakan+
+    // portal lama). START != END: START = flight TURUN DARI Lt.3 (dua flight +
+    // bordes + railing hitam + poros gelap Lt.3 di atas, TANPA lubang), END =
+    // LUBANG NYATA di lantai (lihat buildFloorWithHole di atas) dgn flight yang
+    // MENEMBUS TURUN ke bawah ruangan (= stage 2). Blocker tangga PERSIS
+    // footprint lama -> nav/kolisi/BFS tak berubah; lubang ⊂ blocker sehingga
+    // player/robot tak pernah bisa berdiri di atasnya. ---
+    const stairBlocker = (px, pz, hx, hz) => blockers.push({
+        x: px, z: pz, hx, hz,
+        axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(hx, hz), top: 10, standable: true
+    });
+    // START (hijau, kiri-atas): TANGGA SUDUT L (redesain 2026-07-19 — keluhan
+    // user: celah di belakang tangga + kotak gelap melayang dihapus). Flight 1
+    // masuk dari TIMUR menyusuri tembok utara, bordes sudut di pojok, flight 2
+    // belok 90° menyusuri tembok barat & lenyap di balik dinding stub poros —
+    // seluruh footprint RAPAT tembok barat+utara tanpa celah.
+    const upF = stairwellUpFootprint(S1.x0 + S1.CELL, S1.z0 + S1.CELL);
+    buildStairwellUp(S1.x0 + S1.CELL, S1.z0 + S1.CELL, S1.H);
+    stairBlocker(upF.x, upF.z, upF.hx, upF.hz);
+    // END (kuning, kanan-bawah): DIPUTAR 90° + RAPAT tembok timur — masuk dari
+    // barat, turun ke timur menembus lantai ke stage 2.
+    buildStairwellDown(endC.x, endC.z, true);
+    stairBlocker(endC.x, endC.z, 16, 13);
 
-    // Papan EXIT hijau menyala di atas tangga keluar (kanan-bawah)
-    const exitP = s1Cell(25, 26);
-    const exitSign = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 1.2),
-        new THREE.MeshBasicMaterial({ color: 0x2eff6a, toneMapped: false }));
-    exitSign.position.set(exitP.x, S1.H - 4, exitP.z);
-    scene.add(exitSign);
+    // Papan EXIT MENEMPEL di tembok TIMUR di atas tangga END (2026-07-19; muka
+    // menghadap barat). Mulai MERAH = exit TERKUNCI sampai SEMUA robot stage 1
+    // tumbang (2026-07-19, permintaan user); berubah hijau di updateMode.
+    s1ExitOpen = false;
+    s1ExitSign = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 1.2),
+        new THREE.MeshBasicMaterial({ color: 0xff4a3c, toneMapped: false }));
+    s1ExitSign.rotation.y = Math.PI / 2;             // tebal 1.2 ke sumbu-x (nempel muka tembok)
+    s1ExitSign.position.set(eastF - 0.8, S1.H - 5, endC.z);
+    scene.add(s1ExitSign);
 
-    // --- Pencahayaan interior: 6 titik lampu TETAP (dibuat saat build, sebelum
+    // --- Pencahayaan interior: titik lampu TETAP (dibuat saat build, sebelum
     // render pertama -> shader compile sekali; hanya intensity yang dianimasikan).
-    const lampFix = new THREE.MeshBasicMaterial({ color: 0xfff2cc, toneMapped: false });
-    const addLamp = (c, r, color, inten, dist) => {
+    // LAMPU PER-RUANGAN (2026-07-19, permintaan user): mulai MATI (intensity 0),
+    // menyala saat player MEMASUKI rect ruangannya (updateRoomLamps @ updateMode);
+    // rect = (c0,r0)-(c1,r1) sel ruangan. Kotak armatur plafon dihapus 2026-07-19.
+    s1Lamps = [];
+    const addLamp = (c, r, color, inten, dist, c0, r0, c1, r1) => {
         const p = s1Cell(c, r);
-        const L = new THREE.PointLight(color, inten, dist, 2);
+        const L = new THREE.PointLight(color, 0, dist, 2);
         L.position.set(p.x, S1.H - 3, p.z);
         scene.add(L);
-        const fix = new THREE.Mesh(new THREE.BoxGeometry(8, 0.6, 8), lampFix);
-        fix.position.set(p.x, S1.H - 0.4, p.z);
-        scene.add(fix);
-        return L;
+        const lm = {
+            L, base: inten, on: false, k: 0,
+            x0: S1.x0 + c0 * S1.CELL, x1: S1.x0 + (c1 + 1) * S1.CELL,
+            z0: S1.z0 + r0 * S1.CELL, z1: S1.z0 + (r1 + 1) * S1.CELL
+        };
+        // SELUBUNG GELAP (revisi 2026-07-19, permintaan user: ruangan yang belum
+        // dimasuki HITAM TOTAL, bukan sekadar lampu mati): kotak hitam pekat
+        // memenuhi ruangan, memudar hilang bersama lampu menyala. Satu per rect.
+        if (!s1Lamps.some(o => o.shroud && o.x0 === lm.x0 && o.z0 === lm.z0 && o.x1 === lm.x1 && o.z1 === lm.z1)) {
+            const sh = new THREE.Mesh(
+                new THREE.BoxGeometry(lm.x1 - lm.x0 - 1, S1.H - 0.6, lm.z1 - lm.z0 - 1),
+                new THREE.MeshBasicMaterial({ color: 0x030303, transparent: true, opacity: 1 }));
+            sh.position.set((lm.x0 + lm.x1) / 2, (S1.H - 0.6) / 2 + 0.2, (lm.z0 + lm.z1) / 2);
+            scene.add(sh);
+            lm.shroud = sh;
+        }
+        s1Lamps.push(lm);
+        return lm;
     };
-    addLamp(3, 3, 0xffd9a0, 0.9, 220);                           // stairwell/start
-    addLamp(14, 3, 0xffe2b8, 0.95, 320);                         // conference
-    addLamp(24, 3, 0xffd9a0, 0.9, 240);                          // supply room
-    addLamp(3, 12, 0xffd9a0, 0.85, 220);                         // office
-    setS1FlickerLight(addLamp(14, 12, 0xffe2b8, 0.9, 340));      // main hall (berkedip)
-    addLamp(25, 12, 0xbfe4ff, 0.8, 240);                         // security (dingin kebiruan)
-    addLamp(3, 23, 0xffd9a0, 0.8, 220);                          // break room
-    addLamp(11, 25, 0xbfe4ff, 0.7, 200);                         // restroom
-    addLamp(18, 25, 0xffc890, 0.8, 240);                         // storage
-    addLamp(25, 22, 0xffc890, 0.8, 240);                         // end room
-    const exitLight = new THREE.PointLight(0x39ff7a, 0.85, 220, 2);
-    exitLight.position.set(exitP.x, S1.H - 6, exitP.z);
-    scene.add(exitLight);
+    addLamp(3, 3, 0xffd9a0, 0.9, 220, 1, 1, 7, 6);                  // stairwell/start (A)
+    addLamp(14, 3, 0xffe2b8, 0.95, 320, 9, 1, 19, 6);               // conference (B)
+    addLamp(24, 3, 0xffd9a0, 0.9, 240, 21, 1, 28, 6);               // supply room (C)
+    addLamp(3, 12, 0xffd9a0, 0.85, 220, 1, 8, 7, 16);               // office (D)
+    s1HallLamp = addLamp(14, 12, 0xffe2b8, 0.9, 340, 9, 8, 20, 17); // main hall (berkedip SETELAH menyala)
+    addLamp(25, 12, 0xbfe4ff, 0.8, 240, 22, 8, 28, 16);             // security (dingin kebiruan)
+    addLamp(3, 23, 0xffd9a0, 0.8, 220, 1, 18, 7, 28);               // break room (E)
+    addLamp(11, 25, 0xbfe4ff, 0.7, 200, 9, 18, 14, 28);             // restroom (F)
+    addLamp(18, 25, 0xffc890, 0.8, 240, 15, 18, 20, 28);            // storage (I)
+    addLamp(25, 22, 0xffc890, 0.8, 240, 22, 18, 28, 28);            // end room (J)
+    // Tautkan PINTU -> lampu ruangan (revisi 2026-07-19, permintaan user: lampu
+    // menyala saat PINTU DIBUKA, bukan saat player melangkah masuk): tiap lampu
+    // memuat pintu-pintu di tepi rect-nya (±1.5 sel); updateRoomLamps menyalakan
+    // lampu begitu salah satu pintunya mulai terbuka.
+    for (const lm of s1Lamps) lm.doors = s1doors.filter(d =>
+        d.cx >= lm.x0 - 1.5 * S1.CELL && d.cx <= lm.x1 + 1.5 * S1.CELL &&
+        d.cz >= lm.z0 - 1.5 * S1.CELL && d.cz <= lm.z1 + 1.5 * S1.CELL);
+    s1ExitLight = new THREE.PointLight(0xff5040, 0.85, 220, 2);     // merah = terkunci
+    s1ExitLight.position.set(eastF - 8, S1.H - 6, endC.z);   // di depan papan EXIT (tembok timur)
+    scene.add(s1ExitLight);
 
     // Bake nav-grid TERAKHIR (semua blockers sudah terisi): dinding dari grid
     // denah, furnitur/undakan dari resolve. Radius sampel 3 (< badan 3.5)
@@ -452,17 +492,18 @@ export function buildWorld() {
 
 // Robot stage 1: 9 spot pada denah referensi [col, row, jumlah]. Tiap spot
 // men-spawn `n` robot di sekitar titiknya (jitter + resolve keluar furnitur).
-// Total 30 (2026-07-19, permintaan user — dulu 29).
+// Total 40 (2026-07-19 malam, permintaan user — dulu 30; sebaran seimbang:
+// aula/security/end terpadat, ruang kecil 4).
 const S1_ROBOTS = [
-    [14, 3, 3],    // 1 conference (tengah-atas)
-    [24, 3, 3],    // 2 supply room (kanan-atas)
-    [4, 12, 3],    // 3 office (kiri-tengah)
-    [14, 12, 5],   // 4 main hall (area terbuka)
-    [25, 12, 4],   // 5 security (kanan-tengah, ambush)
-    [4, 23, 3],    // 6 break room (kiri-bawah)
-    [11, 25, 3],   // 7 restroom (bawah-tengah)
-    [18, 25, 3],   // 8 storage (bawah-tengah)
-    [25, 24, 3],   // 9 dekat tangga keluar (serangan terakhir)
+    [14, 3, 4],    // 1 conference (tengah-atas)
+    [24, 3, 4],    // 2 supply room (kanan-atas)
+    [4, 12, 4],    // 3 office (kiri-tengah)
+    [14, 12, 6],   // 4 main hall (area terbuka terbesar)
+    [25, 12, 5],   // 5 security (kanan-tengah, ambush)
+    [4, 23, 4],    // 6 break room (kiri-bawah)
+    [11, 25, 4],   // 7 restroom (bawah-tengah)
+    [18, 25, 4],   // 8 storage (bawah-tengah)
+    [25, 24, 5],   // 9 dekat tangga keluar (serangan terakhir)
 ];
 export function placeRobots() {
     for (const [c, r, n] of S1_ROBOTS) {
@@ -512,6 +553,16 @@ export const stage1Scene = {
         placeSupplies();          // ruang persediaan: ammo/granat/medkit
         applyLightPreset(scene, 'indoor');   // interior TERANG futuristik (2026-07-18)
         enterCityEnv();   // latar kota Jakarta: kubah api global disembunyikan + haze dingin
+        // Lampu ruangan mulai MATI (menyala saat dimasuki); kedip main-hall
+        // menunggu lampunya menyala. Papan EXIT balik MERAH (terkunci).
+        resetRoomLamps(s1Lamps);
+        setS1FlickerLight(null);
+        if (s1HallLamp) s1HallLamp.flicker = false;
+        s1ExitOpen = false;
+        if (s1ExitSign) {
+            s1ExitSign.material.color.setHex(0xff4a3c);
+            s1ExitLight.color.setHex(0xff5040);
+        }
         const sp = s1Cell(S1_START.c, S1_START.r);
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
         camera.quaternion.set(0, 1, 0, 0);   // yaw 180° — hadap selatan (pintu lobby)
@@ -524,21 +575,42 @@ export const stage1Scene = {
     // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
     cheatSkipToStage: (n) => campaignJumpToStage(n),
 
-    // Animasi pintu geser otomatis (buka saat player/robot mendekat)
-    updateMode(dt) { updateStageDoors(s1doors, dt); },
+    // Pintu geser + lampu per-ruangan + papan EXIT merah->hijau saat bersih
+    updateMode(dt) {
+        updateStageDoors(s1doors, dt);
+        updateRoomLamps(s1Lamps, dt);
+        // kedip lampu main-hall dimulai hanya SETELAH lampunya menyala penuh
+        // (decor.js menulis intensity absolut tiap frame)
+        if (s1HallLamp && s1HallLamp.on && s1HallLamp.k >= 1 && !s1HallLamp.flicker) {
+            s1HallLamp.flicker = true;
+            setS1FlickerLight(s1HallLamp.L);
+        }
+        const clear = countStageRobots(1) === 0;
+        if (clear !== s1ExitOpen && s1ExitSign) {
+            s1ExitOpen = clear;
+            s1ExitSign.material.color.setHex(clear ? 0x2eff6a : 0xff4a3c);
+            s1ExitLight.color.setHex(clear ? 0x39ff7a : 0xff5040);
+        }
+    },
 
     // Dinding grid: geser per-sumbu (menyusur tembok), penghalang furnitur,
     // slide lagi, lalu cek trigger tangga keluar -> transisi ke stage 2.
+    // EXIT TERKUNCI (2026-07-19, permintaan user): transisi hanya bila SEMUA
+    // robot stage 1 sudah tumbang; selain itu tampilkan pesan terkunci.
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage1Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
         slideWalk(stage1Walk, pos, oldX, oldZ, player.radius);
-        // Trigger tangga keluar -> FIELD SHOP dulu, lalu transisi ber-loading ke stage 2
         if (pos.x >= S1.x0 + S1_EXIT.c0 * S1.CELL
             && pos.x <= S1.x0 + (S1_EXIT.c1 + 1) * S1.CELL
             && pos.z >= S1.z0 + S1_EXIT.r0 * S1.CELL
             && pos.z <= S1.z0 + (S1_EXIT.r1 + 1) * S1.CELL) {
-            beginStageTransition(stage2Scene);   // → SHOP SCENE (loading→shop→loading→stage 2)
+            if (countStageRobots(1) === 0) {
+                beginStageTransition(stage2Scene);   // → SHOP SCENE (loading→shop→loading→stage 2)
+            } else if (Date.now() - s1HintT > 2500) {
+                s1HintT = Date.now();
+                showStageMsg('THE EXIT IS LOCKED — DESTROY ALL ROBOTS FIRST!', 2200);
+            }
         }
     },
 
@@ -574,10 +646,14 @@ export const stage1Scene = {
     },
 
     robotAI(z, dt, step) {
-        // Indoor: aktivasi butuh LOS grid (atau sangat dekat / tertembak).
+        // Indoor: aktivasi HANYA bila robot MELIHAT player (2026-07-19 — LOS
+        // grid + PINTU TERTUTUP menutup pandangan; bypass jarak dihapus di
+        // common.js). Tertembak tetap membangunkan (robots.js).
         // doorBlock: robot tak bisa menembus pintu TERTUTUP (2026-07-18).
         return campaignRobotAI(z, dt, step, {
-            walkable: stage1Walk, resolve, los: s1LOS, nav: s1Nav,
+            walkable: stage1Walk, resolve, nav: s1Nav,
+            los: (x1, z1, x2, z2) => s1LOS(x1, z1, x2, z2)
+                && !doorBlocksShot(s1doors, x1, z1, x2, z2, 8),
             doorBlock: (pos, r) => resolveDoors(s1doors, pos, r)
         });
     },
@@ -590,12 +666,17 @@ export const stage1Scene = {
 
     clampDropPos(x, z) { return [x, z]; },
 
-    hudStatus() { return `FLOOR 2 — Robots: ${countStageRobots(1)} | Find the stairs down`; },
+    hudStatus() {
+        const n = countStageRobots(1);
+        return n > 0 ? `FLOOR 2 — Robots: ${n} | Destroy ALL robots to unlock the exit`
+            : 'FLOOR 2 — Robots: 0 | EXIT UNLOCKED — reach the stairs down';
+    },
 
-    // Landmark gedung: tangga keluar (hijau menyala; dijepit ke tepi saat jauh)
+    // Landmark gedung: tangga keluar (merah = terkunci / hijau = terbuka)
     radarLandmarks(plot) {
         const ex = S1.x0 + (S1_EXIT.c0 + S1_EXIT.c1 + 1) / 2 * S1.CELL;
         const ez = S1.z0 + (S1_EXIT.r0 + S1_EXIT.r1 + 1) / 2 * S1.CELL;
-        plot(ex - camera.position.x, ez - camera.position.z, "#2eff6a", 5, true);
+        plot(ex - camera.position.x, ez - camera.position.z,
+            s1ExitOpen ? "#2eff6a" : "#ff5040", 5, true);
     },
 };

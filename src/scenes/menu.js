@@ -7,7 +7,7 @@
 import { applyDifficulty } from '../core/config.js';
 import { setDifficulty } from '../core/state.js';
 import { loadCampaignStage, clearCampaignSave } from '../core/saveGame.js';
-import { startMenuMusic, stopMusic } from '../utils/sfx.js';
+import { startMenuMusic, stopMusic, getMusicVolume, setMusicVolume, getSFXVolume, setSFXVolume } from '../utils/sfx.js';
 
 export function initMenu(onPick) {
     initMainMenu();
@@ -113,6 +113,24 @@ function initMainMenu() {
         b.addEventListener('click', showList));
 
     initSettingsQuality();
+    initSettingsVolume();
+}
+
+// Slider volume MUSIK & SFX di panel Settings (2026-07-19, permintaan user;
+// revisi: nilai = volume ABSOLUT 0..1 — slider penuh = 1.0, DEFAULT musik 80%
+// & SFX 100%). Disimpan localStorage lewat setter sfx.js; musik menu yang
+// sedang menyala langsung berubah saat slider digeser (setMusicVolume live).
+function initSettingsVolume() {
+    const wire = (sliderId, valId, get, set) => {
+        const s = document.getElementById(sliderId), v = document.getElementById(valId);
+        if (!s || !v) return;
+        const paint = () => { v.textContent = Math.round(get() * 100) + '%'; };
+        s.value = Math.round(get() * 100);
+        paint();
+        s.addEventListener('input', () => { set(s.value / 100); paint(); });
+    };
+    wire('musicVolSlider', 'musicVolVal', getMusicVolume, setMusicVolume);
+    wire('sfxVolSlider', 'sfxVolVal', getSFXVolume, setSFXVolume);
 }
 
 // Tombol kualitas grafis di panel Settings: engine belum ada di sini, jadi

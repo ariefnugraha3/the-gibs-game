@@ -70,9 +70,13 @@ export function campaignRobotAI(z, dt, step, stage) {
     z.mesh.visible = dCull < CFG.campaign.cullDistance;
     if (z.state === 'idle') {
         z.moving = false;
-        // Stage 1 (indoor): bangun hanya bila MELIHAT player (LOS grid) atau
-        // sangat dekat menembus dinding tipis; stage 2 cukup jarak.
-        if (dCull < CFG.campaign.activateMeters * CAMP_M && (!stage.los || dCull < 30 ||
+        // Stage indoor (hook los ada): bangun HANYA bila MELIHAT player — bypass
+        // "sangat dekat menembus dinding tipis" DIHAPUS 2026-07-19 (permintaan
+        // user: robot di dalam ruangan tak boleh mengejar sebelum player
+        // terlihat / memasuki ruangannya; stage 1-3 membungkus los dgn cek
+        // pintu tertutup juga). Tertembak tetap membangunkan (robots.js);
+        // tanpa hook los (stage 4 outdoor) aktivasi murni jarak spt semula.
+        if (dCull < CFG.campaign.activateMeters * CAMP_M && (!stage.los ||
             stage.los(z.mesh.position.x, z.mesh.position.z, camera.position.x, camera.position.z))) {
             z.state = 'chasing'; z.groundY = 0;
         }
@@ -149,4 +153,41 @@ export function countStageRobots(stage) {
     let n = 0;
     for (let i = 0; i < robots.length; i++) if (robots[i].stage === stage) n++;
     return n;
+}
+
+// ===== LAMPU PER-RUANGAN (2026-07-19, permintaan user): semua lampu ruangan
+// MATI saat stage dimulai dan MENYALA (fade ~0.5 dtk) saat SALAH SATU PINTU
+// ruangannya MULAI TERBUKA (`lm.doors`, revisi 2026-07-19 — "menyala ketika
+// pintu dibuka, bukan ketika player baru masuk": pintu geser terbuka saat
+// player berdiri di depannya, jadi ruangan sudah terang SEBELUM dimasuki);
+// masuk rect tanpa lewat pintu (aula/lobi/koridor bukaan terbuka + ruang
+// spawn) tetap menyalakan sbg CADANGAN. Sekali menyala tetap menyala. Jumlah
+// PointLight konstan (dibuat saat build; HANYA intensity yang dianimasikan).
+// SELUBUNG GELAP (`lm.shroud` — "harus hitam total, bukan sekadar lampu
+// mati"): kotak hitam pekat memenuhi ruangan yang belum terbuka (menutup
+// interior dari ambient global + menyembunyikan isinya), MEMUDAR HILANG
+// bersama lampu yang menyala.
+// lamps: [{L, base, x0, x1, z0, z1, on, k, shroud?, doors?}] milik stage. =====
+const DOOR_LIT = 0.3;   // pintu tergeser terbuka segini -> lampu ruangan menyala
+export function updateRoomLamps(lamps, dt) {
+    const px = camera.position.x, pz = camera.position.z;
+    for (const lm of lamps) {
+        if (!lm.on
+            && ((lm.doors && lm.doors.some(d => d.open > DOOR_LIT))
+                || (px >= lm.x0 && px <= lm.x1 && pz >= lm.z0 && pz <= lm.z1))) lm.on = true;
+        if (lm.on && lm.k < 1) {
+            lm.k = Math.min(1, lm.k + dt * 2.2);
+            lm.L.intensity = lm.base * lm.k;
+            if (lm.shroud) {
+                lm.shroud.material.opacity = 1 - lm.k;
+                lm.shroud.visible = lm.k < 1;
+            }
+        }
+    }
+}
+export function resetRoomLamps(lamps) {
+    for (const lm of lamps) {
+        lm.on = false; lm.k = 0; lm.L.intensity = 0;
+        if (lm.shroud) { lm.shroud.material.opacity = 1; lm.shroud.visible = true; }
+    }
 }

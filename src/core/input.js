@@ -3,7 +3,7 @@
 
 import { keys, mouse, isPaused, isGameOver, setPaused, mode, cinematicActive } from './state.js';
 import { camera, viewCam } from './renderer.js';
-import { blocker } from './dom.js';
+import { blocker, triggerCutsceneSkip } from './dom.js';
 import { activeScene } from './sceneManager.js';
 import { resetGame } from './game.js';
 import { showPauseMenu, hidePauseMenu, isPauseMenuOpen } from './pauseMenu.js';
@@ -157,7 +157,14 @@ export function initInput() {
         // MODE SINEMATIK (2026-07-17, cutscene): telan SEMUA tombol — termasuk
         // backtick konsol cheat — KECUALI Escape (pause/unlock tetap bekerja;
         // pointer-unlock menghentikan cutscene sementara lewat isPaused).
-        if (cinematicActive && e.key !== 'Escape') { e.preventDefault(); return; }
+        // SPACE/Enter = SKIP cutscene (2026-07-19): tombol skip kanan-bawah tak
+        // bisa diklik saat pointer terkunci (kursor tersembunyi — cutscene tank),
+        // jadi keyboard memicu callback skip yang sama; tidak saat menu jeda.
+        if (cinematicActive && e.key !== 'Escape') {
+            e.preventDefault();
+            if ((e.key === ' ' || e.key === 'Enter') && !isPaused) triggerCutsceneSkip();
+            return;
+        }
         // Konsol cheat (tombol `): toggle. Buka HANYA saat main aktif (pointer
         // ter-lock). Saat terbuka, telan semua tombol gameplay (ketikan -> <input>);
         // Enter ditangani oleh input konsol, backtick di sini utk menutup.

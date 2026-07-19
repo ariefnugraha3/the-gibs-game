@@ -118,6 +118,19 @@
                 <button class="qbtn" data-q="3">Low</button>
                 <button class="qbtn" data-q="4">Very Low</button>
             </div>
+            <!-- Slider volume musik & SFX (2026-07-19): master 0-100%, tersimpan localStorage -->
+            <div id="volumeRows">
+                <div class="volRow">
+                    <span class="qlabel">MUSIC VOLUME</span>
+                    <input id="musicVolSlider" type="range" min="0" max="100" step="5" />
+                    <span id="musicVolVal" class="volVal">100%</span>
+                </div>
+                <div class="volRow">
+                    <span class="qlabel">SFX VOLUME</span>
+                    <input id="sfxVolSlider" type="range" min="0" max="100" step="5" />
+                    <span id="sfxVolVal" class="volVal">100%</span>
+                </div>
+            </div>
             <button class="menuBtn menuBack" data-back="settings">Back</button>
         </div>
 

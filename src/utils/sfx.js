@@ -46,12 +46,39 @@ export const sfxTankTurret = new Audio('assets/sounds/boss-tank/tank-turret-rota
 // 3. BOSS  (bg-music-boss-fight): menyala saat DUEL tank dimulai (akhir
 //    cutscene tankBossIntro), berhenti saat boss tumbang (stage4.onBossDown).
 // Menu jeda in-game & shop survival DIBIARKAN menyala (overlay gameplay).
-const MUSIC_VOL = 0.3;   // latar, di bawah SFX (0.7)
+// ----- VOLUME (revisi 2026-07-19, permintaan user — slider Settings 0..1
+// ABSOLUT): `musicVol` = volume nyata semua track musik (DEFAULT 0.8);
+// `sfxVol` = volume nyata SFX standar (DEFAULT 1.0) — panggilan
+// playSFX/playLoopSFX dgn vol khusus (heli 0.55, falloff, dst.) diskalakan
+// relatif `SFX_BASE` 0.7 (mix bawaan antar-klip) agar keseimbangannya
+// terjaga, di-clamp <= 1. Slider penuh = volume 1.0 utk keduanya. Disimpan
+// localStorage ('gibsMusicVol' / 'gibsSfxVol') dan diterapkan LIVE ke musik. -----
+const SFX_BASE = 0.7;
+let musicVol = 0.8, sfxVol = 1;
+try {
+    const mv = parseFloat(localStorage.getItem('gibsMusicVol'));
+    if (!isNaN(mv)) musicVol = Math.max(0, Math.min(1, mv));
+    const sv = parseFloat(localStorage.getItem('gibsSfxVol'));
+    if (!isNaN(sv)) sfxVol = Math.max(0, Math.min(1, sv));
+} catch (e) { /* localStorage tak tersedia: pakai default */ }
+export const getMusicVolume = () => musicVol;
+export const getSFXVolume = () => sfxVol;
+export const getSFXScale = () => sfxVol / SFX_BASE;   // utk penulisan volume manual (fade heli intro)
+export function setMusicVolume(v) {
+    musicVol = Math.max(0, Math.min(1, v));
+    try { localStorage.setItem('gibsMusicVol', String(musicVol)); } catch (e) { }
+    for (const m of [bgMusic, bgMusicAlt, bgMusicMenu, bgMusicBoss]) m.volume = musicVol;
+}
+export function setSFXVolume(v) {
+    sfxVol = Math.max(0, Math.min(1, v));
+    try { localStorage.setItem('gibsSfxVol', String(sfxVol)); } catch (e) { }
+}
+
 export const bgMusic = new Audio('assets/sounds/bg-music-in-game.mp3');       // battle track 1
 export const bgMusicAlt = new Audio('assets/sounds/bg-music-in-game-2.mp3');  // battle track 2
 export const bgMusicMenu = new Audio('assets/sounds/bg-music-main-menu.mp3');
 export const bgMusicBoss = new Audio('assets/sounds/bg-music-boss-fight.mp3');
-for (const m of [bgMusic, bgMusicAlt, bgMusicMenu, bgMusicBoss]) { m.loop = true; m.volume = MUSIC_VOL; }
+for (const m of [bgMusic, bgMusicAlt, bgMusicMenu, bgMusicBoss]) { m.loop = true; m.volume = musicVol; }
 
 let curTrack = null;     // elemen Audio yang sedang menyala
 let curName = null;      // 'menu' | 'battle' | 'boss' | null
@@ -115,7 +142,7 @@ export const musicDebug = () => curName;
 export function playLoopSFX(sfx, vol = 0.5) {
     const n = sfx.cloneNode(true);
     n.loop = true;
-    n.volume = vol;
+    n.volume = Math.min(1, vol * (sfxVol / SFX_BASE));   // relatif SFX_BASE, ikut slider Settings
     n.play().catch(() => { });
     return n;
 }
@@ -168,7 +195,7 @@ export function playSFX(sfx, vol = 0.7) {
         node = pool.nodes[pool.next++ % pool.nodes.length];
         node.currentTime = 0;
     }
-    node.volume = vol;
+    node.volume = Math.min(1, vol * (sfxVol / SFX_BASE));   // relatif SFX_BASE, ikut slider Settings
     node.play().catch(() => { });
     return node;   // dikembalikan agar pemanggil bisa menghentikannya (mis. reload dibatalkan)
 }

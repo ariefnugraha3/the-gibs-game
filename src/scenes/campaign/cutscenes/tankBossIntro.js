@@ -18,10 +18,10 @@
 import { CFG } from '../../../core/config.js';
 import { _v3, GEO, setCinematicActive } from '../../../core/state.js';
 import { scene, camera, addCamShake, setCineFocus } from '../../../core/renderer.js';
-import { setCineBars, showStageMsg } from '../../../core/dom.js';
+import { setCineBars, showStageMsg, showCutsceneSkip, hideCutsceneSkip } from '../../../core/dom.js';
 import { releaseInputs } from '../../../core/input.js';
 import { spawnGroundPuff } from '../../../entities/effects.js';
-import { playSFX, sfxExplode, playLoopSFX, stopLoopSFX, sfxHeli, stopMusic, startBossMusic } from '../../../utils/sfx.js';
+import { playSFX, sfxExplode, sfxTankBlast, playLoopSFX, stopLoopSFX, sfxHeli, stopMusic, startBossMusic } from '../../../utils/sfx.js';
 import { spawnHelicopter, updateHelicopter, blastHelicopter, disposeHelicopter } from '../../../entities/helicopter.js';
 import { spawnTank, tankMovingTick } from '../../../entities/tank.js';
 import { rand } from '../../../utils/math.js';
@@ -36,7 +36,7 @@ import { countStageRobots } from '../utility/common.js';
 export function createTankBossIntro(deps) {
     const { SQ, HELI_POS, BOSS_POS, WRECK_CLEAR, S4_START, blockers, openGate, setTank } = deps;
 
-    let heli = null, heliSpawned = false, heliBlocker = null;
+    let heli = null, heliSpawned = false, heliBlocker = null, heliDead = false;
     let cine = null, cutsceneDone = false;
     let tank = null;   // dibuat cutscene; juga diteruskan ke stage4 lewat setTank
     let heliSnd = null;   // loop helicopter-flying selama heli diperlihatkan cutscene (2026-07-19)
@@ -69,6 +69,32 @@ export function createTankBossIntro(deps) {
         // tepat saat heli hancur ditembak tank (fase 'shell').
         stopMusic();
         heliSnd = playLoopSFX(sfxHeli, 0.55);
+        showCutsceneSkip(skip);   // tombol SKIP kanan-bawah (2026-07-19; SPACE — kursor tersembunyi saat pointer lock)
+    }
+
+    // SKIP cutscene (2026-07-19, tombol kanan-bawah / SPACE): loncat langsung
+    // ke keadaan akhir — heli pasti sudah jadi bangkai terbakar, tank spawn
+    // (bila belum) dan terparkir di BOSS_POS, lalu endCutscene() memulai duel.
+    function skip() {
+        if (!cine) return;
+        if (cine.shell) {
+            scene.remove(cine.shell);
+            if (cine.shell.material.dispose) cine.shell.material.dispose();
+            cine.shell = null;
+        }
+        if (!tank) {   // fase awal (freeze/panIn/hold): tank belum di-spawn
+            tank = spawnTank({
+                homeX: BOSS_POS.x, homeZ: BOSS_POS.z, wallX: BOSS_POS.x - 9999, faceX: S4_START.x,
+                arena: { x0: SQ.x0, x1: SQ.x1, z0: SQ.z0, z1: SQ.z1 },
+                avoid: { x: HELI_POS.x, z: HELI_POS.z, r: WRECK_CLEAR }
+            });
+            tank.phase = 'cine';
+            setTank(tank);
+        }
+        if (heli && !heliDead) { blastHelicopter(heli); heliDead = true; }
+        stopLoopSFX(heliSnd); heliSnd = null;
+        tank.parts.group.position.set(BOSS_POS.x, 0, BOSS_POS.z);
+        endCutscene();
     }
 
     // Belok sudut a -> b terbatas maxD rad (salinan lokal turnAngle tank.js)
@@ -77,11 +103,16 @@ export function createTankBossIntro(deps) {
         if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2;
         return Math.abs(d) <= maxD ? b : a + Math.sign(d) * maxD;
     }
-    // Turret tank sinematik selalu membidik heli (fase 'cine': updateTank skip)
+    // Turret tank sinematik selalu membidik heli (fase 'cine': updateTank skip
+    // logikanya, tapi updateTankAudio tetap terpelihara — stage4 memanggil
+    // updateTank juga selama cutscene). Rotasi RELATIF turret yang benar-benar
+    // berubah men-tick suara tank-turret-rotate (2026-07-19, SFX cutscene).
     function aimTurretAtHeli() {
         const g = tank.parts.group.position;
         tank.turretYaw = Math.atan2(HELI_POS.x - g.x, HELI_POS.z - g.z);
-        tank.parts.turret.rotation.y = tank.turretYaw - tank.hullYaw;
+        const rel = tank.turretYaw - tank.hullYaw;
+        if (Math.abs(rel - tank.parts.turret.rotation.y) > 0.004) tank.turretT = 0.15;
+        tank.parts.turret.rotation.y = rel;
     }
     // Roda berputar + debu + guncangan kecil selama tank bergerak dlm cutscene
     function cineTracksDust(dt) {
@@ -148,7 +179,8 @@ export function createTankBossIntro(deps) {
                 scene.remove(cine.shell);
                 if (cine.shell.material.dispose) cine.shell.material.dispose();
                 cine.shell = null;
-                blastHelicopter(heli);                       // heli MELEDAK HANCUR
+                playSFX(sfxTankBlast);                       // ledakan peluru tank menghantam heli (2026-07-19)
+                blastHelicopter(heli); heliDead = true;      // heli MELEDAK HANCUR (+ ledakan besar explodeAt)
                 stopLoopSFX(heliSnd); heliSnd = null;        // rotor mati bersama helinya (2026-07-19)
                 addCamShake(8);
                 cine.phase = 'burn'; cine.t = 1.3;
@@ -173,9 +205,11 @@ export function createTankBossIntro(deps) {
             aimTurretAtHeli();
             if (cine.t <= 0) { cine.phase = 'settle'; cine.t = 1.0; }
         } else if (cine.phase === 'settle') {
-            // badan berputar di poros meluruskan diri ke orientasi duel (moncong barat)
+            // badan berputar di poros meluruskan diri ke orientasi duel (moncong
+            // barat) — track ikut berputar + suara tank-moving (2026-07-19)
             tank.hullYaw = approachAngle(tank.hullYaw, 0, 2.2 * dt);
             tank.parts.group.rotation.y = tank.hullYaw;
+            if (Math.abs(tank.hullYaw) > 0.01) cineTracksDust(dt);
             if (cine.t <= 0) {
                 // (7) kamera kembali ke player di tepi alun-alun
                 cine.phase = 'panBack'; cine.t = 2.6;
@@ -191,6 +225,7 @@ export function createTankBossIntro(deps) {
 
     function endCutscene() {
         cine = null; cutsceneDone = true;
+        hideCutsceneSkip();   // tombol skip hilang bersama cutscene (2026-07-19)
         setCineFocus(null);
         setCineBars(false);
         setCinematicActive(false);
@@ -224,16 +259,17 @@ export function createTankBossIntro(deps) {
             if (hb >= 0) blockers.splice(hb, 1);
             heliBlocker = null;
         }
-        heliSpawned = false; cutsceneDone = false;
+        heliSpawned = false; cutsceneDone = false; heliDead = false;
         if (cine && cine.shell) { scene.remove(cine.shell); if (cine.shell.material.dispose) cine.shell.material.dispose(); }
         cine = null;
         stopLoopSFX(heliSnd); heliSnd = null;   // loop heli mati bila cutscene dibatalkan (restart/cheat)
+        hideCutsceneSkip();
         setCineFocus(null); setCineBars(false); setCinematicActive(false);
         tank = null;
     }
 
     return {
-        update, start, reset,
+        update, start, reset, skip,
         currentHeli: () => heli,
         cineDebug: () => ({
             active: !!cine, phase: cine ? cine.phase : null, done: cutsceneDone,
