@@ -10,6 +10,7 @@
 // Lambert/Basic (sudah dipanaskan preload) → tanpa recompile; tanpa PointLight
 // (jumlah lampu tetap) — indikator hijau = MeshBasic emissive-semu.
 
+import { CFG } from '../../../core/config.js';
 import { scene, camera } from '../../../core/renderer.js';
 import { PAL } from '../../../world/palette.js';
 
@@ -81,6 +82,7 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
 
         doors.push({
             panel, cx, cz, closedY, openY, open: 0,
+            linger: 0,                             // sisa delay tutup (dtk) setelah player keluar zona (2026-07-20)
             ew,                                    // orientasi: true = dinding vertikal (masuk dari ±x)
             perpMax: (FRONT_CELLS + 0.5) * CELL,   // tegak-lurus dinding: <= 2 kotak di depan (+ tepi sel)
             paraMax: span / 2 + CELL * 0.4,        // sejajar dinding: dalam lebar bukaan (+ sedikit margin)
@@ -94,17 +96,24 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
 // Animasi pintu tiap frame (dari updateMode stage). HANYA PLAYER yang membuka
 // (robot TIDAK), dan hanya bila player berada dalam ZONA "2 kotak di depan"
 // pintu: <= perpMax tegak-lurus dinding (2 sel) DAN <= paraMax sejajar dinding
-// (selebar bukaan). Di luar zona → pintu SELALU tertutup. Ease-in-out halus.
+// (selebar bukaan). Di luar zona → pintu menutup, tapi TIDAK langsung
+// (2026-07-20, permintaan user — dulu langsung menutup begitu player keluar
+// zona): menunggu `CFG.campaign.doors.closeDelaySec` (3 dtk) dulu via timer
+// `dr.linger` (di-reset penuh selama player masih di zona), BARU meluncur naik.
+// Ease-in-out halus.
 export function updateStageDoors(doors, dt) {
     if (!doors || !doors.length) return;
     const px = camera.position.x, pz = camera.position.z;   // camera = pivot logika player
     const step = dt / OPEN_TIME;
+    const closeDelay = CFG.campaign.doors.closeDelaySec;
     for (const dr of doors) {
         const dx = px - dr.cx, dz = pz - dr.cz;
         const perp = dr.ew ? Math.abs(dx) : Math.abs(dz);   // tegak-lurus dinding (arah masuk pintu)
         const para = dr.ew ? Math.abs(dz) : Math.abs(dx);   // sejajar dinding (lebar bukaan)
         const near = perp <= dr.perpMax && para <= dr.paraMax;
-        const target = near ? 1 : 0;
+        if (near) dr.linger = closeDelay;                   // delay tutup di-reset selama di zona
+        else if (dr.linger > 0) dr.linger = Math.max(0, dr.linger - dt);
+        const target = (near || dr.linger > 0) ? 1 : 0;
         if (dr.open < target) dr.open = Math.min(target, dr.open + step);
         else if (dr.open > target) dr.open = Math.max(target, dr.open - step);
         const t = dr.open, e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;   // easeInOut

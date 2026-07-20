@@ -221,7 +221,9 @@ const dIn = Math.round(rangeB * 0.7);
 let zB = mkBot('B', 0, dIn); robots.push(zB); chaseDist = dIn;
 robotsMod.updateRobots(0.016, 1);
 T('B menembak dalam range (' + dIn + '<' + rangeB + ')', enemyBullets.length === 1);
-T('fireCd terisi', zB.fireCd > 0.9);
+// config-driven (2026-07-20): fireCd di-set = fireDelaySec kelas (user me-retune
+// nilainya antar sesi — jangan hardcode 0.9)
+T('fireCd terisi', zB.fireCd > 0 && zB.fireCd >= cfgMod.CFG.robot.classes.B.fireDelaySec - 0.02);
 // luar range: tidak menembak
 zB.fireCd = 0; chaseDist = rangeB + 15;
 robotsMod.updateRobots(0.016, 1);
@@ -1077,9 +1079,13 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     T('Doors: pintu + panel terbangun (tertutup di atas, openY < closedY)',
         doors.length === 1 && dr.closedY > dr.openY && yClosed === dr.closedY);
     // Helper: setel posisi player, jalankan sampai stabil, kembalikan panel.y.
+    // Durasi settle config-driven: harus melewati delay tutup closeDelaySec
+    // (2026-07-20) + animasi buka/tutup supaya keadaan akhirnya deterministik.
+    const doorDelay = cfgMod.CFG.campaign.doors.closeDelaySec;
+    const settleFrames = Math.ceil((doorDelay + 1.5) / 0.05);
     const settle = (x, z) => {
         camera.position.set(x, 11, z);
-        for (let i = 0; i < 30; i++) doorMod.updateStageDoors(doors, 0.05);
+        for (let i = 0; i < settleFrames; i++) doorMod.updateStageDoors(doors, 0.05);
         return dr.panel.position.y;
     };
     const isOpen = (y) => y < yClosed - 5, isShut = (y) => Math.abs(y - yClosed) < 0.5;
@@ -1090,6 +1096,17 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     const ySide = settle(dr.cx, dr.cz + 2 * CELL);        // sejajar, meleset dari bukaan → tutup
     T('Doors: BUKA hanya saat player <= 2 kotak DI DEPAN bukaan',
         isShut(yFar) && isOpen(yFront2) && isShut(yFront3) && isShut(ySide));
+    // DELAY TUTUP (2026-07-20, permintaan user): pintu TIDAK langsung menutup
+    // saat player keluar zona — masih terbuka selama closeDelaySec berjalan,
+    // baru meluncur naik setelah delay habis (config-driven).
+    settle(dr.cx + 2 * CELL, dr.cz);                      // BUKA penuh dulu
+    camera.position.set(dr.cx + 400, 11, dr.cz + 400);    // player keluar zona
+    for (let i = 0; i < Math.floor(doorDelay * 0.5 / 0.05); i++) doorMod.updateStageDoors(doors, 0.05);
+    const yLinger = dr.panel.position.y;                  // baru ~setengah delay → masih TERBUKA
+    for (let i = 0; i < Math.ceil((doorDelay * 0.5 + 1.5) / 0.05); i++) doorMod.updateStageDoors(doors, 0.05);
+    const yDelayed = dr.panel.position.y;                 // delay habis → TERTUTUP
+    T('Doors (2026-07-20): delay tutup closeDelaySec — masih terbuka di tengah delay, tertutup setelah habis',
+        isOpen(yLinger) && isShut(yDelayed));
     // ROBOT di depan pintu TIDAK membukanya (player jauh) — hanya player yang bisa.
     const fakeBot = { mesh: { position: { x: dr.cx + CELL, y: 0, z: dr.cz } } };
     robots.push(fakeBot);
@@ -1970,6 +1987,15 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     try { introMod.warmupIntro(); } catch (e) { introWarmOk = false; console.log(e); }
     T('INTRO: warmupIntro (render kota dari semua sudut kamera) jalan tanpa error', introWarmOk);
 
+    // KOTA JAKARTA (2026-07-20, foto referensi): jalan protokol ber-trafik +
+    // kampung + ruko terbangun, gedung tinggi TIDAK berlebihan (batas struktural
+    // longgar — penempatan probabilistik, bukan angka tuning gameplay).
+    const CS = introMod.cityDebug();
+    T('INTRO KOTA JAKARTA: jalan protokol + arus trafik + kampung + ruko + lampu jalan terbangun',
+        CS && CS.roads >= 3 && CS.carDots > 200 && CS.houses > 300 && CS.rukos > 30 && CS.lampHeads > 30);
+    T('INTRO KOTA JAKARTA: gedung tinggi tidak terlalu banyak (koridor protokol saja) + ada mahkota atap menyala',
+        CS && CS.towers > 20 && CS.towers < 170 && CS.crowns > 0 && CS.crowns <= CS.towers);
+
     // 2026-07-19 (permintaan user): heli hover DITURUNKAN ½ (128 -> 64) + LANDMARK
     // JAKARTA (Monas, Bundaran HI, Stadion GBK) terpasang di latar kota, jauh dari atap.
     const IM = introMod.introMetrics();
@@ -1981,11 +2007,18 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
 
     stateMod.setPaused(true);   // keadaan pra-cutscene (layar mulai)
     const introBlocker = global.document.getElementById('blocker');
+    const domSkipMod = await import(R('src/core/dom.js'));
+    domSkipMod.hideCutsceneSkip();   // bersihkan callback skip tersisa dari tes lain
     introMod.beginIntro();
     T('INTRO: beginIntro -> AUTO-PLAY (unpause + blocker/tutorial DISEMBUNYIKAN) + sinematik ON + fase fly',
         stateMod.cinematicActive === true && stateMod.isPaused === false
         && introBlocker.style.display === 'none'
         && introMod.introDebug().phase === 'fly' && introMod.introDebug().avatarShown === false);
+    // BUG FIX 2026-07-20: beginIntro dipanggil main.js MASIH di balik layar
+    // loading — tombol SKIP (dan deru heli) TIDAK boleh menyala di beginIntro;
+    // keduanya ditunda ke frame PERTAMA updateMode (cutscene benar-benar tampil).
+    T('INTRO (2026-07-20): tombol SKIP belum terdaftar saat masih di balik layar loading',
+        domSkipMod.triggerCutsceneSkip() === false && introMod.introDebug().phase === 'fly');
 
     // Helper: jalankan updateMode hingga fase = target (atau cutscene selesai)
     const run = (target, max = 500) => {
@@ -2071,7 +2104,11 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     for (let i = 0; i < 8; i++) introMod.introScene.updateMode(0.1);   // masih di tengah cutscene
     T('INTRO SKIP: cutscene aktif kembali sebelum di-skip',
         introMod.introDebug().active === true && stateMod.cinematicActive === true);
-    introMod.skipIntro();
+    // Tombol SKIP kini terdaftar (frame pertama updateMode sudah jalan, 2026-07-20)
+    // — klik tombol = jalur skip yang sama dgn SPACE (memanggil skipIntro).
+    const viaBtn = domSkipMod.triggerCutsceneSkip();
+    if (!viaBtn) introMod.skipIntro();   // jaring pengaman agar tes lanjutan tetap jalan
+    T('INTRO SKIP (2026-07-20): tombol SKIP terdaftar setelah cutscene tampil (trigger = skip)', viaBtn === true);
     T('INTRO SKIP: skipIntro -> langsung Stage 1 + tutorial (sinematik OFF, pause+blocker)',
         smMod.activeScene === s1mod.stage1Scene && introMod.introDebug().active === false
         && stateMod.cinematicActive === false && stateMod.isPaused === true

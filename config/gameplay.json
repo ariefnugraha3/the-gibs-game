@@ -5,7 +5,7 @@
         "radius": 5,
         "eyeHeight": 11.4,
         "gravity": 70,
-        "medkitHealPct": 0.7,
+        "medkitHealPct": 0.5,
         "maxMedkits": 2,
         "medkitUseSec": 2,
         "medkitSlowMul": 0.75,
@@ -22,8 +22,8 @@
     "stamina": {
         "max": 100,
         "adsDrainPerSec": 3,
-        "meleeCost": 15,
-        "regenPerSec": 12,
+        "meleeCost": 20,
+        "regenPerSec": 10,
         "recoverThreshold": 20
     },
     "dodge": {
@@ -90,7 +90,7 @@
     "melee": {
         "range": 7,
         "cooldownSec": 0.8,
-        "damage": 150
+        "damage": 125
     },
     "grenade": {
         "max": 5,
@@ -120,9 +120,9 @@
         "rangedBulletLife": 120,
         "score": { "normalKill": 100, "specialKill": 150 },
         "classes": {
-            "C": { "hp": 60, "speed": 0.55, "armor": 0, "attack": 5, "ranged": false, "scale": 1.0 },
-            "B": { "hp": 90, "speed": 0.75, "armor": 0, "attack": 3, "ranged": true, "rangeMeters": 8, "fireDelaySec": 1.0, "bulletSpeed": 1, "scale": 1.1 },
-            "A": { "hp": 120, "speed": 0.95, "armor": 0, "attack": 6, "ranged": true, "rangeMeters": 10, "fireDelaySec": 1.5, "bulletSpeed": 0.5, "scale": 1.2 }
+            "C": { "hp": 60, "speed": 1, "armor": 0, "attack": 5, "ranged": false, "scale": 1.0 },
+            "B": { "hp": 90, "speed": 0.75, "armor": 0, "attack": 3, "ranged": true, "rangeMeters": 15, "fireDelaySec": 0.8, "bulletSpeed": 1, "scale": 1.1 },
+            "A": { "hp": 120, "speed": 0.95, "armor": 0, "attack": 6, "ranged": true, "rangeMeters": 16, "fireDelaySec": 0.5, "bulletSpeed": 0.8, "scale": 1.2 }
         }
     },
     "survival": {
@@ -178,6 +178,9 @@
             "enterSec": 0.9,
             "doorDelaySec": 2.0
         },
+        "doors": {
+            "closeDelaySec": 3.0
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,
@@ -208,7 +211,7 @@
                 "mgConeDeg": 120,
                 "hullTurnRadPerSec": 1.6,
                 "enrageHpFrac": 0.5,
-                "chargeSpeedMul": 1.0,
+                "chargeSpeedMul": 1.2,
                 "chargeOutMargin": 180,
                 "awayMortarShots": 10,
                 "awayMortarGapSec": 0.7,
@@ -224,7 +227,7 @@
                 "mortarMaxSec": 6,
                 "mortarApexMeters": 12,
                 "mortarApexRatio": 0.25,
-                "shockRadiusMeters": 8,
+                "shockRadiusMeters": 5,
                 "shockDps": 20
             }
         },

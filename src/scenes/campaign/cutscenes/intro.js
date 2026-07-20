@@ -201,10 +201,17 @@ function buildRoof() {
     return g;
 }
 
-// ===== Bangun KOTA di bawah/keliling atap (2026-07-18, permintaan user: latar
-// jadi GEDUNG-GEDUNG & JALAN seperti foto udara kota, BUKAN kobaran api). Semua
-// masuk grup `parent` (= roof) supaya ikut dibuang di akhir. Efisien & mudah
-// dipanaskan: gedung = SATU InstancedMesh (facades.js), jalan/sungai = plane. =====
+// ===== Bangun KOTA JAKARTA di bawah/keliling atap (DIROMBAK 2026-07-20,
+// permintaan user + foto udara referensi Sudirman-Thamrin malam): latar harus
+// BISA DIKENALI sebagai Jakarta — JALAN PROTOKOL ber-ARUS LALU LINTAS (titik
+// lampu MERAH/PUTIH spt foto long-exposure), simpang susun SEMANGGI (dek ring
+// layang), BUNDARAN HI (kolam + Monumen Selamat Datang + air mancur), MONAS +
+// ring Medan Merdeka, STADION GBK, hamparan KAMPUNG (rumah kecil + taburan
+// lampu hangat), deretan RUKO/TOKO ber-signboard, satu SEKOLAH (gedung putih +
+// bendera merah-putih), dan gedung tinggi yang TIDAK terlalu banyak (menara
+// jangkung hanya di koridor Sudirman-Thamrin; sisanya blok rendah jarang).
+// Semua masuk grup `parent` (= roof) supaya ikut dibuang di akhir. Efisien &
+// mudah dipanaskan: gedung/rumah/ruko/lampu/trafik = InstancedMesh. =====
 // Bundaran + air mancur khas Jakarta (Bundaran HI) — dipakai buildCity.
 const RB = { x: IX, z: IZ + 470 };   // pusat bundaran (selatan hero)
 const RB_R = 220;                    // radius luar (utk sisihkan gedung/pohon)
@@ -220,18 +227,91 @@ export const introMetrics = () => ({
     landmarks: { monas: { ...LM_MONAS }, gbk: { ...LM_GBK }, bundaranHI: { x: RB.x, z: RB.z, r: RB_R } },
 });
 
+// --- JALAN PROTOKOL (2026-07-20; koordinat LOKAL dx,dz thd IX/IZ; w = lebar
+// aspal). Sudirman: lewat sisi timur kompleks GBK -> Bundaran HI; Thamrin:
+// Bundaran HI -> tepi Medan Merdeka (Monas) — persis urutan aslinya di
+// Jakarta; Tol dalam kota (Gatot Subroto) menyilang Sudirman di SEMANGGI. ---
+const SUDIRMAN = { x0: -1450, z0: 1500, x1: 0, z1: 470, w: 96 };
+const THAMRIN = { x0: 0, z0: 470, x1: 507, z1: -232, w: 96 };
+const TOLL = { x0: -1228, z0: -492, x1: 392, z1: 1789, w: 118 };
+const MAIN_ROADS = [SUDIRMAN, THAMRIN, TOLL];
+const SEMANGGI = { x: -360, z: 730, r: 178 };    // pusat + radius dek ring layang
+const SCHOOL = { x: 476, z: 67 };                 // kompleks sekolah (timur Thamrin)
+
+const segLen = (s) => Math.hypot(s.x1 - s.x0, s.z1 - s.z0);
+// Jarak titik (lokal) ke SEGMEN jalan — zona eksklusi & penempatan tepi jalan
+function distSeg(px, pz, s) {
+    const dx = s.x1 - s.x0, dz = s.z1 - s.z0, L2 = dx * dx + dz * dz;
+    let t = L2 ? ((px - s.x0) * dx + (pz - s.z0) * dz) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (s.x0 + dx * t), pz - (s.z0 + dz * t));
+}
+// Jarak ke tepi aspal jalan protokol terdekat (negatif = di atas aspal)
+const distMainRoad = (px, pz) => Math.min(...MAIN_ROADS.map(s => distSeg(px, pz, s) - s.w / 2));
+
+// Statistik kota (utk smoke test: Jakarta terbangun, gedung tak berlebihan)
+let cityStats = null;
+export const cityDebug = () => cityStats;
+
+// Satu InstancedMesh box dari daftar {x,y,z,sx,sy,sz,ry?,color?} — dipakai
+// rumah kampung, signboard ruko, mahkota gedung, lampu jalan & titik trafik.
+function instBoxes(parent, list, mat) {
+    if (!list.length) return null;
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, list.length);
+    const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(),
+        _p = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
+    list.forEach((b, i) => {
+        _e.set(0, b.ry || 0, 0);
+        _m.compose(_p.set(b.x, b.y, b.z), _q.setFromEuler(_e), _s.set(b.sx, b.sy, b.sz));
+        inst.setMatrixAt(i, _m);
+        if (b.color != null) inst.setColorAt(i, _c.setHex(b.color));
+    });
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    if (inst.instanceMatrix) inst.instanceMatrix.needsUpdate = true;
+    inst.frustumCulled = false;
+    parent.add(inst);
+    return inst;
+}
+
+// Jendela menyala gaya Jakarta malam (foto: gedung TERANG, campuran hangat +
+// putih dingin, kepadatan ~30%) — grid = makeFacadeTex agar jendelanya sejajar.
+function makeJktLitTex() {
+    const sy = 16, sx = 13, ww = 9, wh = 10;
+    return makeTexture(256, 512, (g, w, h) => {
+        g.fillStyle = '#000000'; g.fillRect(0, 0, w, h);
+        for (let y = 8; y < h - 8; y += sy) {
+            for (let x = 6; x < w - 6; x += sx) {
+                const r = Math.random();
+                if (r < 0.30) {
+                    g.fillStyle = r < 0.16 ? '#ffcf92' : (r < 0.24 ? '#f2e4c0' : '#c6d4e2');
+                    g.fillRect(x, y, ww, wh);
+                }
+            }
+        }
+    });
+}
+
 function buildCity(parent) {
-    // --- Jalanan: aspal + JALAN RAYA LEBAR (Jakarta: avenue lebar, blok besar) ---
-    const streetTex = makeTexture(256, 256, (c, w, h) => {
-        c.fillStyle = '#1a1c22'; c.fillRect(0, 0, w, h);
-        speckle(c, w, h, ['#141620', '#20232b', '#101218', '#242832'], 190, 1, 4);
-        c.strokeStyle = 'rgba(170,174,186,0.14)'; c.lineWidth = 8;   // jalan tepi blok (lebar)
-        c.strokeRect(3, 3, w - 6, h - 6);
-        c.strokeStyle = 'rgba(210,200,150,0.10)'; c.lineWidth = 2;   // marka pudar
-        c.beginPath(); c.moveTo(w / 2, 0); c.lineTo(w / 2, h); c.moveTo(0, h / 2); c.lineTo(w, h / 2); c.stroke();
-    }, 30, 30);
+    const col = { red: [], white: [], lamp: [], pole: [] };   // kolektor trafik + lampu jalan (di-flush jadi InstancedMesh)
+
+    // --- Hamparan kota dari udara: dasar gelap + TABURAN CAHAYA hunian hangat
+    //     (karpet lampu kota spt foto) + garis gang/jalan lingkungan samar ---
+    const cityTex = makeTexture(256, 256, (c, w, h) => {
+        c.fillStyle = '#14161b'; c.fillRect(0, 0, w, h);
+        speckle(c, w, h, ['#1a1c21', '#101115', '#191a1e', '#1e2026'], 170, 1, 4);
+        for (let i = 0; i < 150; i++) {   // lampu hunian: mayoritas hangat, sebagian putih
+            c.fillStyle = Math.random() < 0.72 ? 'rgba(255,188,116,0.5)' : 'rgba(208,218,232,0.32)';
+            const s = 1 + Math.random() * 1.7;
+            c.fillRect(Math.random() * w, Math.random() * h, s, s);
+        }
+        c.strokeStyle = 'rgba(255,200,140,0.08)'; c.lineWidth = 2;   // gang/jalan lingkungan samar
+        for (let i = 1; i < 4; i++) {
+            c.beginPath(); c.moveTo(i * w / 4, 0); c.lineTo(i * w / 4, h);
+            c.moveTo(0, i * h / 4); c.lineTo(w, i * h / 4); c.stroke();
+        }
+    }, 20, 20);
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(5400, 5400),
-        new THREE.MeshLambertMaterial({ map: streetTex }));
+        new THREE.MeshLambertMaterial({ map: cityTex }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(IX, CITY_GROUND, IZ);
     ground.receiveShadow = true;
@@ -239,7 +319,7 @@ function buildCity(parent) {
 
     // --- Kanal/sungai di sisi UTARA (jauh -z) ---
     const river = new THREE.Mesh(new THREE.PlaneGeometry(5400, 900),
-        new THREE.MeshLambertMaterial({ color: 0x33424a }));
+        new THREE.MeshLambertMaterial({ color: 0x2c3a42 }));
     river.rotation.x = -Math.PI / 2;
     river.position.set(IX, CITY_GROUND + 1, IZ - 1850);
     parent.add(river);
@@ -260,11 +340,13 @@ function buildCity(parent) {
     heroTier(HALF_X * 2 + 70, HALF_Z * 2 + 70, CITY_GROUND, -210);   // pangkal lebar
     heroTier(HALF_X * 2 + 8, HALF_Z * 2 + 8, -210, -4);              // tingkat atas (top rata deck)
 
-    // --- BUNDARAN + AIR MANCUR (Bundaran HI/"Selamat Datang") di SELATAN hero ---
-    buildRoundabout(parent);
+    // --- JALAN PROTOKOL ber-arus lalu lintas + simpang susun SEMANGGI ---
+    buildRoads(parent, col);
+    buildSemanggi(parent, col);
 
-    // --- LANDMARK JAKARTA (2026-07-19): MONAS + STADION GBK di latar kota ---
-    buildLandmarks(parent);
+    // --- BUNDARAN HI + MONAS/Medan Merdeka + STADION GBK ---
+    buildRoundabout(parent, col);
+    buildLandmarks(parent, col);
 
     // --- Taman/ruang hijau tersebar (Jakarta banyak ruang terbuka hijau) ---
     const grassMat = new THREE.MeshLambertMaterial({ color: 0x2c4a24 });
@@ -274,69 +356,126 @@ function buildCity(parent) {
         m.position.set(IX + px, CITY_GROUND + 0.6, IZ + pz);
         m.receiveShadow = true; parent.add(m);
     };
-    park(-760, 280, 155); park(660, -540, 130); park(-400, -880, 120); park(900, 600, 165); park(220, 1180, 140);
+    park(-760, 280, 155); park(980, -260, 130); park(-400, -880, 120); park(900, 600, 165); park(220, 1180, 140);
 
-    // --- Gedung sekeliling: LEBIH RENGGANG & BERVARIASI (Jakarta: blok besar
-    //     berjauhan, jalan lebar — TIDAK serapat Manhattan). Cell besar +
-    //     penempatan probabilistik + footprint bervariasi (mal/hotel lebar &
-    //     menara ramping) + sedikit rotasi (grid tak kaku). Mayoritas lebih
-    //     PENDEK dari deck; menara pencakar langka menembus. ---
-    const list = [];
-    const CELL = 128;
+    // --- GEDUNG TINGGI: TIDAK terlalu banyak (permintaan user) — menara
+    //     jangkung HANYA di KORIDOR Sudirman-Thamrin (canyon skyline spt foto;
+    //     jendela menyala campuran hangat/putih + MAHKOTA ATAP menyala amber/
+    //     putih/teal spt foto malam Jakarta), di luar koridor blok rendah jarang. ---
+    const towerMat = new THREE.MeshLambertMaterial({
+        color: 0xffffff, map: facadeTex, emissive: 0xffffff,
+        emissiveMap: makeJktLitTex(), emissiveIntensity: 0.8
+    });
+    const list = [], crowns = [];
+    const CROWN_COLORS = [0xffb35c, 0xcfd8e4, PAL.tech];
+    const CELL = 150;
     for (let gx = -1980; gx <= 1980; gx += CELL) {
         for (let gz = -1150; gz <= 1980; gz += CELL) {
             if (Math.abs(gx) < HALF_X + 120 && Math.abs(gz) < HALF_Z + 120) continue;   // sisakan hero
             if (Math.hypot(gx, gz - (RB.z - IZ)) < RB_R + 40) continue;                 // sisakan bundaran
-            if (Math.hypot(gx - (LM_MONAS.x - IX), gz - (LM_MONAS.z - IZ)) < LM_MONAS.r + 40) continue;   // sisakan Monas/Medan Merdeka
-            if (Math.hypot(gx - (LM_GBK.x - IX), gz - (LM_GBK.z - IZ)) < LM_GBK.r + 40) continue;         // sisakan Stadion GBK
-            if (Math.random() < 0.42) continue;                                          // ~58% lot = kosong/hijau (renggang)
-            const dist = Math.hypot(gx, gz);
-            const jx = (Math.random() - 0.5) * 40, jz = (Math.random() - 0.5) * 40;
-            const wide = Math.random() < 0.35;   // blok LEBAR (mal/hotel) vs menara ramping
-            const w = wide ? 70 + Math.random() * 36 : 32 + Math.random() * 26;
-            const d = wide ? 70 + Math.random() * 36 : 32 + Math.random() * 26;
-            let h;
-            if (Math.random() < 0.08 && dist > 500) h = 500 + Math.random() * 190;   // pencakar (top 0..+190)
-            else if (wide) h = 90 + Math.random() * 130;                              // blok lebar rendah
-            else h = 130 + Math.random() * (120 + 240 * Math.min(1, dist / 1500));    // top di bawah deck
-            list.push({ x: IX + gx + jx, z: IZ + gz + jz, w, d, h, ry: (Math.random() - 0.5) * 0.3, rz: 0, color: CITY_PALETTE[(Math.random() * CITY_PALETTE.length) | 0] });
+            if (Math.abs(gx - (LM_MONAS.x - IX)) < 400 && Math.abs(gz - (LM_MONAS.z - IZ)) < 400) continue;   // Medan Merdeka + ring jalannya
+            if (Math.hypot(gx - (LM_GBK.x - IX), gz - (LM_GBK.z - IZ)) < LM_GBK.r + 40) continue;             // Stadion GBK
+            if (Math.hypot(gx - SEMANGGI.x, gz - SEMANGGI.z) < SEMANGGI.r + 70) continue;                     // dek Semanggi
+            if (Math.hypot(gx - SCHOOL.x, gz - SCHOOL.z) < 170) continue;                                     // sekolah
+            if (distMainRoad(gx, gz) < 42) continue;                                                          // jangan di aspal
+            const canyon = Math.min(distSeg(gx, gz, SUDIRMAN), distSeg(gx, gz, THAMRIN)) < 300;
+            if (Math.random() > (canyon ? 0.5 : 0.14)) continue;
+            const jx = (Math.random() - 0.5) * 36, jz = (Math.random() - 0.5) * 36;
+            let w, d, h;
+            if (canyon) {   // menara koridor protokol (canyon Sudirman spt foto)
+                w = 36 + Math.random() * 30; d = 36 + Math.random() * 30;
+                h = 240 + Math.random() * 320;
+                if (Math.random() < 0.12) h = 560 + Math.random() * 120;   // menara super
+            } else {        // luar koridor: blok rendah jarang (mal/kantor kecil)
+                w = 44 + Math.random() * 46; d = 44 + Math.random() * 46;
+                h = 60 + Math.random() * 140;
+            }
+            const ry = (Math.random() - 0.5) * 0.25;
+            list.push({ x: IX + gx + jx, z: IZ + gz + jz, w, d, h, ry, rz: 0, color: CITY_PALETTE[(Math.random() * CITY_PALETTE.length) | 0] });
+            if (h > 280) crowns.push({   // mahkota atap menyala (ikon skyline Jakarta malam)
+                x: IX + gx + jx, y: h + 2, z: IZ + gz + jz,
+                sx: w * 0.85, sy: 4, sz: d * 0.85, ry,
+                color: CROWN_COLORS[(Math.random() * CROWN_COLORS.length) | 0]
+            });
         }
     }
     // fillBuildingInstances menaruh box dari y=0; bungkus grup digeser ke jalanan.
     const cityG = new THREE.Group();
     cityG.position.y = CITY_GROUND;
     parent.add(cityG);
-    fillBuildingInstances(cityG, list, makeCityMat(facadeTex, litTex));
+    fillBuildingInstances(cityG, list, towerMat);
+    instBoxes(cityG, crowns, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
 
-    // --- Pepohonan (InstancedMesh kerucut hijau) tersebar di lot kosong/tepi jalan ---
+    // --- KAMPUNG (rumah) + deretan RUKO/TOKO + SEKOLAH ---
+    const nHouses = buildKampung(parent);
+    const nRuko = buildRukoRows(parent);
+    buildSchool(parent);
+
+    // --- Flush lampu jalan + arus lalu lintas (satu InstancedMesh per warna) ---
+    instBoxes(parent, col.pole, new THREE.MeshLambertMaterial({ color: 0x2c3036 }));
+    instBoxes(parent, col.lamp, new THREE.MeshBasicMaterial({ color: 0xffe2ae, toneMapped: false }));
+    instBoxes(parent, col.red, new THREE.MeshBasicMaterial({ color: 0xe8442e, toneMapped: false }));
+    instBoxes(parent, col.white, new THREE.MeshBasicMaterial({ color: 0xfff1cf, toneMapped: false }));
+
+    // --- Pepohonan (jalur hijau tepi jalan protokol + tersebar) ---
     buildTrees(parent);
+
+    cityStats = {
+        roads: MAIN_ROADS.length, towers: list.length, crowns: crowns.length,
+        houses: nHouses, rukos: nRuko,
+        carDots: col.red.length + col.white.length, lampHeads: col.lamp.length
+    };
 }
 
-// Bundaran ikonik Jakarta: jalan ring aspal, rumput, kolam air mancur, monumen
-// tengah (pedestal + tiang + dua figur "Selamat Datang" abstrak). Semua di
-// CITY_GROUND (jauh di bawah deck) — sekadar landmark latar yang terlihat dari atap.
-function buildRoundabout(parent) {
+// BUNDARAN HI (dirombak 2026-07-20, foto referensi): jalan ring aspal, rumput,
+// KOLAM air mancur menyala, Monumen Selamat Datang (pedestal DI KOLAM + kolom
+// + dua figur melambai), cincin lampu tepi + TRAFIK memutari bundaran. Semua
+// di CITY_GROUND (jauh di bawah deck) — landmark latar terlihat dari atap.
+function buildRoundabout(parent, col) {
     const y = CITY_GROUND;
     const asphalt = new THREE.MeshLambertMaterial({ color: 0x23262c });
     const grass = new THREE.MeshLambertMaterial({ color: 0x2f5227 });
-    const water = new THREE.MeshLambertMaterial({ color: 0x2f5a66, emissive: 0x0e2b31, emissiveIntensity: 0.25 });
+    const water = new THREE.MeshLambertMaterial({ color: 0x2f5a66, emissive: 0x14343c, emissiveIntensity: 0.45 });
     const stone = new THREE.MeshLambertMaterial({ color: 0x8f8b80 });
-    const monu = new THREE.MeshLambertMaterial({ color: 0xb7a98a, emissive: 0x2a2214, emissiveIntensity: 0.2 });
+    const monu = new THREE.MeshLambertMaterial({ color: 0xb7a98a, emissive: 0x2a2214, emissiveIntensity: 0.35 });
     const flat = (geo, mat, dy) => {
         const m = new THREE.Mesh(geo, mat);
         m.rotation.x = -Math.PI / 2; m.position.set(RB.x, y + dy, RB.z);
         m.receiveShadow = true; parent.add(m);
     };
-    flat(new THREE.RingGeometry(120, 210, 44), asphalt, 0.5);   // jalan ring
-    flat(new THREE.CircleGeometry(118, 36), grass, 0.7);         // rumput dalam
-    flat(new THREE.CircleGeometry(84, 36), water, 0.9);          // kolam air mancur
-    const ped = new THREE.Mesh(new THREE.CylinderGeometry(14, 18, 10, 16), stone);
-    ped.position.set(RB.x, y + 5, RB.z); ped.castShadow = true; parent.add(ped);
-    const spire = new THREE.Mesh(new THREE.CylinderGeometry(2, 3, 30, 10), monu);
-    spire.position.set(RB.x, y + 25, RB.z); spire.castShadow = true; parent.add(spire);
-    for (const s of [-1, 1]) {   // dua figur "Selamat Datang" (abstrak)
-        const fig = new THREE.Mesh(new THREE.BoxGeometry(3, 12, 1.4), monu);
-        fig.position.set(RB.x + s * 3, y + 46, RB.z); parent.add(fig);
+    flat(new THREE.RingGeometry(120, 210, 44), asphalt, 2.0);   // jalan ring (menutup ruas jalan protokol di bawahnya)
+    flat(new THREE.CircleGeometry(118, 36), grass, 2.6);         // rumput dalam
+    flat(new THREE.CircleGeometry(86, 36), water, 3.2);          // kolam air mancur (menyala lembut)
+    // Monumen "Selamat Datang": pedestal DI TENGAH KOLAM + kolom + dua figur
+    const ped = new THREE.Mesh(new THREE.CylinderGeometry(9, 12, 12, 14), stone);
+    ped.position.set(RB.x, y + 9, RB.z); ped.castShadow = true; parent.add(ped);
+    const spire = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 3.4, 36, 10), monu);
+    spire.position.set(RB.x, y + 33, RB.z); spire.castShadow = true; parent.add(spire);
+    for (const s of [-1, 1]) {   // dua figur "Selamat Datang" melambai (abstrak)
+        const fig = new THREE.Mesh(new THREE.BoxGeometry(3, 12, 1.5), monu);
+        fig.position.set(RB.x + s * 2.8, y + 57, RB.z);
+        fig.rotation.z = s * 0.12; parent.add(fig);
+    }
+    // Semburan air mancur menyala (foto: kolam HI bercahaya putih)
+    const jetMat = new THREE.MeshBasicMaterial({ color: 0xcfe2ea, toneMapped: false });
+    for (let i = 0; i < 6; i++) {
+        const a = i / 6 * Math.PI * 2;
+        const jet = new THREE.Mesh(new THREE.ConeGeometry(2.2, 11, 8), jetMat);
+        jet.position.set(RB.x + Math.cos(a) * 42, y + 8.5, RB.z + Math.sin(a) * 42);
+        parent.add(jet);
+    }
+    for (let i = 0; i < 12; i++) {   // cincin lampu tepi bundaran
+        const a = i / 12 * Math.PI * 2;
+        const x = RB.x + Math.cos(a) * 222, z = RB.z + Math.sin(a) * 222;
+        col.pole.push({ x, y: y + 12, z, sx: 1.3, sy: 24, sz: 1.3 });
+        col.lamp.push({ x, y: y + 25, z, sx: 2.6, sy: 1.5, sz: 2.6 });
+    }
+    for (let i = 0; i < 16; i++) {   // trafik memutari bundaran
+        const a = Math.random() * Math.PI * 2, r = 128 + Math.random() * 74;
+        (i % 2 ? col.red : col.white).push({
+            x: RB.x + Math.cos(a) * r, y: y + 2.4, z: RB.z + Math.sin(a) * r,
+            sx: 2.8, sy: 1.4, sz: 2.8
+        });
     }
 }
 
@@ -349,14 +488,15 @@ function buildRoundabout(parent) {
 // buildRoundabout. Semua di CITY_GROUND, murni latar (bukan gameplay);
 // Lambert/Basic (ikut ter-warmup warmupIntro, tanpa recompile); emissive api
 // Monas 0.85 <= EMISSIVE_MAX (aksen amber — panduan GIBS 2045).
-function buildLandmarks(parent) {
+function buildLandmarks(parent, col) {
     const y = CITY_GROUND;
     const grass = new THREE.MeshLambertMaterial({ color: 0x2c4a24 });
-    const marble = new THREE.MeshLambertMaterial({ color: PAL.white });
+    // Monas malam hari DISOROT lampu sorot -> marmer ber-emissive lembut (foto)
+    const marble = new THREE.MeshLambertMaterial({ color: PAL.white, emissive: 0x8a8474, emissiveIntensity: 0.5 });
     const stone = new THREE.MeshLambertMaterial({ color: 0x8f8b80 });
     const flame = new THREE.MeshLambertMaterial({ color: 0xd8a437, emissive: 0x8a5a14, emissiveIntensity: 0.85 });
 
-    // --- MONAS + Medan Merdeka ---
+    // --- MONAS + Medan Merdeka + RING JALAN keliling taman (2026-07-20) ---
     {
         const mx = LM_MONAS.x, mz = LM_MONAS.z;
         const park = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), grass);
@@ -371,6 +511,22 @@ function buildLandmarks(parent) {
         put(new THREE.CylinderGeometry(6.5, 10.5, 250, 8), marble, y + 157);       // obelisk menjulang
         put(new THREE.CylinderGeometry(11, 8, 8, 8), marble, y + 285);             // pelataran puncak
         put(new THREE.ConeGeometry(7, 16, 8), flame, y + 296);                     // lidah api emas
+        // Ring jalan Medan Merdeka (aspal persegi keliling taman) + trafik tipis
+        const ringMat = new THREE.MeshLambertMaterial({ color: 0x21242b });
+        const mkRing = (w_, h_, ox, oz) => {
+            const m = new THREE.Mesh(new THREE.PlaneGeometry(w_, h_), ringMat);
+            m.rotation.x = -Math.PI / 2;
+            m.position.set(mx + ox, y + 1.2, mz + oz);
+            parent.add(m);
+        };
+        mkRing(760, 34, 0, -350); mkRing(760, 34, 0, 350);
+        mkRing(34, 760, -350, 0); mkRing(34, 760, 350, 0);
+        for (let i = 0; i < 10; i++) {
+            const side = (Math.random() * 4) | 0, t = (Math.random() - 0.5) * 660;
+            const ox = side === 0 || side === 1 ? t : (side === 2 ? -350 : 350);
+            const oz = side === 0 ? -350 : (side === 1 ? 350 : t);
+            (i % 2 ? col.red : col.white).push({ x: mx + ox, y: y + 2.4, z: mz + oz, sx: 2.8, sy: 1.4, sz: 2.8 });
+        }
     }
 
     // --- STADION GBK (oval = grup di-skala-x) ---
@@ -402,23 +558,38 @@ function buildLandmarks(parent) {
     }
 }
 
-// Pepohonan latar (Jakarta hijau): SATU InstancedMesh kerucut hijau tersebar di
-// area kota (hindari hero + pusat bundaran + sungai). Satu draw call = ringan &
-// mudah dipanaskan warmupIntro. Base menapak di CITY_GROUND.
+// Pepohonan latar (foto: Sudirman-Semanggi RIMBUN jalur hijau): SATU
+// InstancedMesh kerucut hijau — separuh ditanam BERBARIS di tepi jalan
+// protokol (jalur hijau spt foto Semanggi), sisanya tersebar (hindari hero,
+// bundaran, landmark, dek Semanggi, sekolah, aspal). Base di CITY_GROUND.
 function buildTrees(parent) {
-    const N = 240;
+    const N = 300;
     const inst = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 7),
         new THREE.MeshLambertMaterial({ color: 0x27431f }), N);
     const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
+    const spotOk = (dx, dz) => {
+        if (Math.abs(dx) < HALF_X + 120 && Math.abs(dz) < HALF_Z + 120) return false;   // bukan hero
+        if (Math.hypot(dx, dz - (RB.z - IZ)) < 128) return false;                        // bukan kolam/rumput bundaran
+        if (Math.abs(dx - (LM_MONAS.x - IX)) < 300 && Math.abs(dz - (LM_MONAS.z - IZ)) < 300) return false;   // bukan pelataran Monas
+        if (Math.hypot(dx - (LM_GBK.x - IX), dz - (LM_GBK.z - IZ)) < LM_GBK.r) return false;                  // bukan area GBK
+        if (Math.hypot(dx - SEMANGGI.x, dz - SEMANGGI.z) < SEMANGGI.r + 16) return false;                     // bukan dek Semanggi
+        if (Math.hypot(dx - SCHOOL.x, dz - SCHOOL.z) < 90) return false;                                      // bukan sekolah
+        if (distMainRoad(dx, dz) < 8) return false;                                                           // jangan di aspal
+        return true;
+    };
     for (let i = 0; i < N; i++) {
         let dx = 0, dz = 0;
-        for (let t = 0; t < 6; t++) {
-            dx = (Math.random() - 0.5) * 3800; dz = -1120 + Math.random() * 3080;
-            if (Math.abs(dx) < HALF_X + 120 && Math.abs(dz) < HALF_Z + 120) continue;   // bukan hero
-            if (Math.hypot(dx, dz - (RB.z - IZ)) < 130) continue;                        // bukan tengah bundaran
-            if (Math.hypot(dx - (LM_MONAS.x - IX), dz - (LM_MONAS.z - IZ)) < LM_MONAS.r) continue;   // bukan area Monas
-            if (Math.hypot(dx - (LM_GBK.x - IX), dz - (LM_GBK.z - IZ)) < LM_GBK.r) continue;         // bukan area GBK
-            break;
+        for (let t = 0; t < 8; t++) {
+            if (t < 4 && i % 2 === 0) {   // separuh pohon = barisan jalur hijau tepi jalan
+                const s = MAIN_ROADS[(Math.random() * MAIN_ROADS.length) | 0];
+                const len = segLen(s), ddx = (s.x1 - s.x0) / len, ddz = (s.z1 - s.z0) / len;
+                const d = Math.random() * len, side = Math.random() < 0.5 ? -1 : 1;
+                const off = side * (s.w / 2 + 12 + Math.random() * 14);
+                dx = s.x0 + ddx * d - ddz * off; dz = s.z0 + ddz * d + ddx * off;
+            } else {
+                dx = (Math.random() - 0.5) * 3800; dz = -1120 + Math.random() * 3080;
+            }
+            if (spotOk(dx, dz)) break;
         }
         const sc = 8 + Math.random() * 11;
         _m.compose(_p.set(IX + dx, CITY_GROUND + sc / 2, IZ + dz), _q, _s.set(sc * 0.7, sc, sc * 0.7));
@@ -427,6 +598,204 @@ function buildTrees(parent) {
     if (inst.instanceMatrix) inst.instanceMatrix.needsUpdate = true;
     inst.frustumCulled = false;
     parent.add(inst);
+}
+
+// ===== JALAN PROTOKOL (2026-07-20): bidang aspal bermarka lajur (tekstur per
+// ruas, repeat ikut panjang) + MEDIAN hijau + lampu jalan dua sisi + ARUS LALU
+// LINTAS: pasangan titik lampu MERAH (lajur kiri) / PUTIH (lajur kanan) —
+// meniru foto udara long-exposure Sudirman/tol dalam kota. =====
+function buildRoads(parent, col) {
+    const medianMat = new THREE.MeshLambertMaterial({ color: 0x24381e });
+    for (const s of MAIN_ROADS) {
+        const len = segLen(s);
+        const tex = makeTexture(128, 256, (c, w, h) => {
+            c.fillStyle = '#20232a'; c.fillRect(0, 0, w, h);
+            speckle(c, w, h, ['#181b21', '#262a32', '#141619'], 90, 1, 3);
+            c.fillStyle = 'rgba(214,208,190,0.30)';                    // garis tepi
+            c.fillRect(4, 0, 3, h); c.fillRect(w - 7, 0, 3, h);
+            c.fillStyle = 'rgba(214,208,190,0.16)';                    // marka lajur putus-putus
+            for (const lx of [22, 38, 54, 74, 90, 106]) {
+                for (let y = 0; y < h; y += 26) c.fillRect(lx, y, 2, 12);
+            }
+        }, 1, Math.max(2, Math.round(len / 300)));
+        const g = new THREE.Group();
+        g.position.set(IX + (s.x0 + s.x1) / 2, CITY_GROUND + 1.4, IZ + (s.z0 + s.z1) / 2);
+        g.rotation.y = Math.atan2(s.x1 - s.x0, s.z1 - s.z0);
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(s.w, len), new THREE.MeshLambertMaterial({ map: tex }));
+        m.rotation.x = -Math.PI / 2; m.receiveShadow = true;
+        g.add(m);
+        const med = new THREE.Mesh(new THREE.PlaneGeometry(7, len), medianMat);   // median jalur hijau
+        med.rotation.x = -Math.PI / 2; med.position.y = 0.25;
+        g.add(med);
+        parent.add(g);
+        dressRoad(col, s);
+    }
+}
+
+// Lampu jalan + arus trafik sepanjang satu ruas (masuk kolektor col)
+function dressRoad(col, s) {
+    const len = segLen(s), dx = (s.x1 - s.x0) / len, dz = (s.z1 - s.z0) / len;
+    const px = -dz, pz = dx;   // tegak lurus (kiri arah ruas)
+    for (let d = 45; d < len - 30; d += 115) {   // tiang lampu dua sisi
+        for (const side of [-1, 1]) {
+            const off = side * (s.w / 2 + 7);
+            const x = IX + s.x0 + dx * d + px * off, z = IZ + s.z0 + dz * d + pz * off;
+            col.pole.push({ x, y: CITY_GROUND + 16, z, sx: 1.4, sy: 32, sz: 1.4 });
+            col.lamp.push({ x, y: CITY_GROUND + 33, z, sx: 3, sy: 1.6, sz: 3 });
+        }
+    }
+    const carsPerSide = Math.floor(len / 26);   // arus: sisi kiri MERAH, kanan PUTIH
+    for (let i = 0; i < carsPerSide; i++) {
+        for (const [listArr, side] of [[col.red, -1], [col.white, 1]]) {
+            const d = Math.random() * len;
+            const off = side * (7 + Math.random() * (s.w / 2 - 16));
+            const cx = s.x0 + dx * d + px * off, cz = s.z0 + dz * d + pz * off;
+            for (const q of [-1.7, 1.7]) {   // sepasang lampu = satu mobil
+                listArr.push({ x: IX + cx + px * q, y: CITY_GROUND + 2.4, z: IZ + cz + pz * q, sx: 2.8, sy: 1.4, sz: 2.8 });
+            }
+        }
+    }
+}
+
+// ===== Simpang susun SEMANGGI (ikon foto referensi): dek RING LAYANG di
+// persilangan Sudirman × Tol — cincin aspal melayang, tepi menyala hangat,
+// kolom penyangga, dan trafik memutari dek. =====
+function buildSemanggi(parent, col) {
+    const cx = IX + SEMANGGI.x, cz = IZ + SEMANGGI.z, H = 30;
+    const deck = new THREE.Mesh(new THREE.RingGeometry(122, SEMANGGI.r, 40),
+        new THREE.MeshLambertMaterial({ color: 0x23262c, side: THREE.DoubleSide }));
+    deck.rotation.x = -Math.PI / 2;
+    deck.position.set(cx, CITY_GROUND + H, cz);
+    parent.add(deck);
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xffdca0, toneMapped: false, side: THREE.DoubleSide });
+    for (const [r0, r1] of [[122, 126], [SEMANGGI.r - 4, SEMANGGI.r]]) {   // tepi dek menyala (lampu string)
+        const e = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 40), glowMat);
+        e.rotation.x = -Math.PI / 2;
+        e.position.set(cx, CITY_GROUND + H + 0.4, cz);
+        parent.add(e);
+    }
+    const colMat = new THREE.MeshLambertMaterial({ color: 0x6a655c });
+    for (let i = 0; i < 10; i++) {   // kolom penyangga dek
+        const a = i / 10 * Math.PI * 2;
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 5.5, H, 8), colMat);
+        p.position.set(cx + Math.cos(a) * 150, CITY_GROUND + H / 2, cz + Math.sin(a) * 150);
+        parent.add(p);
+    }
+    for (let i = 0; i < 18; i++) {   // trafik memutari dek layang
+        const a = Math.random() * Math.PI * 2, r = 132 + Math.random() * 36;
+        (i % 2 ? col.red : col.white).push({
+            x: cx + Math.cos(a) * r, y: CITY_GROUND + H + 2.2, z: cz + Math.sin(a) * r,
+            sx: 2.8, sy: 1.4, sz: 2.8
+        });
+    }
+}
+
+// ===== Hamparan KAMPUNG (foto 1: karpet atap rumah rapat + lampu hangat di
+// antara menara): rumah kecil ber-orientasi acak (SATU InstancedMesh) +
+// taburan titik lampu hangat. Menghindari jalan, koridor menara, landmark. =====
+function buildKampung(parent) {
+    const houses = [], glow = [];
+    const HOUSE_COLORS = [0x2e2a24, 0x38322a, 0x27251f, 0x403830, 0x33291f];
+    let tries = 0;
+    while (houses.length < 820 && tries < 6000) {
+        tries++;
+        const dx = (Math.random() - 0.5) * 3960, dz = -1120 + Math.random() * 3100;
+        if (Math.abs(dx) < HALF_X + 150 && Math.abs(dz) < HALF_Z + 150) continue;   // hero
+        if (Math.hypot(dx, dz - (RB.z - IZ)) < RB_R + 30) continue;                 // bundaran
+        if (Math.abs(dx - (LM_MONAS.x - IX)) < 385 && Math.abs(dz - (LM_MONAS.z - IZ)) < 385) continue;   // Medan Merdeka + ring
+        if (Math.hypot(dx - (LM_GBK.x - IX), dz - (LM_GBK.z - IZ)) < LM_GBK.r + 30) continue;             // GBK
+        if (Math.hypot(dx - SEMANGGI.x, dz - SEMANGGI.z) < SEMANGGI.r + 60) continue;                     // Semanggi
+        if (Math.hypot(dx - SCHOOL.x, dz - SCHOOL.z) < 150) continue;                                     // sekolah
+        if (distMainRoad(dx, dz) < 20) continue;                                                          // jangan di aspal
+        if (Math.min(distSeg(dx, dz, SUDIRMAN), distSeg(dx, dz, THAMRIN)) < 240) continue;                // koridor = zona menara
+        const w = 8 + Math.random() * 13, d = 8 + Math.random() * 13, h = 5 + Math.random() * 8;
+        houses.push({
+            x: IX + dx, y: CITY_GROUND + h / 2, z: IZ + dz, sx: w, sy: h, sz: d,
+            ry: (Math.random() - 0.5) * 0.9,
+            color: HOUSE_COLORS[(Math.random() * HOUSE_COLORS.length) | 0]
+        });
+        if (Math.random() < 0.3) glow.push({   // lampu teras/gang hangat
+            x: IX + dx + (Math.random() - 0.5) * 20, y: CITY_GROUND + 2.5 + Math.random() * 4,
+            z: IZ + dz + (Math.random() - 0.5) * 20, sx: 1.8, sy: 1.1, sz: 1.8
+        });
+    }
+    instBoxes(parent, houses, new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    instBoxes(parent, glow, new THREE.MeshBasicMaterial({ color: 0xffc98c, toneMapped: false }));
+    return houses.length;
+}
+
+// ===== Deretan RUKO/TOKO (foto: pertokoan ber-signboard menyala di tepi
+// jalan): blok 2-4 lantai berjendela kasar + STRIP SIGNBOARD menyala (amber/
+// putih/merah-bata/teal — tanpa neon terlarang) menghadap jalan. =====
+function buildRukoRows(parent) {
+    const rukos = [], signs = [];
+    const SIGN_COLORS = [PAL.amber, PAL.white, PAL.hazard, PAL.tech];
+    const RUKO_COLORS = [0x433c32, 0x3a362e, 0x4a4034, 0x36322c];
+    const along = (s, d0, step) => {
+        const len = segLen(s), dx = (s.x1 - s.x0) / len, dz = (s.z1 - s.z0) / len;
+        const px = -dz, pz = dx, yaw = Math.atan2(dx, dz);
+        for (let d = d0; d < len - 40; d += step) {
+            for (const side of [-1, 1]) {
+                if (Math.random() < 0.3) continue;   // sela gang/lot kosong
+                const off = side * (s.w / 2 + 24);
+                const x = s.x0 + dx * d + px * off, z = s.z0 + dz * d + pz * off;
+                if (Math.abs(x) < 235 && Math.abs(z) < 250) continue;                       // hero
+                if (Math.hypot(x, z - (RB.z - IZ)) < RB_R + 26) continue;                    // bundaran
+                if (Math.hypot(x - SEMANGGI.x, z - SEMANGGI.z) < SEMANGGI.r + 40) continue;  // dek Semanggi
+                if (Math.hypot(x - SCHOOL.x, z - SCHOOL.z) < 130) continue;                  // sekolah
+                const h = 14 + Math.random() * 17;
+                rukos.push({
+                    x: IX + x, y: CITY_GROUND + h / 2, z: IZ + z, sx: 15, sy: h, sz: 20,
+                    ry: yaw, color: RUKO_COLORS[(Math.random() * RUKO_COLORS.length) | 0]
+                });
+                signs.push({   // signboard menyala menghadap jalan
+                    x: IX + x - side * px * 8.6, y: CITY_GROUND + h * 0.55, z: IZ + z - side * pz * 8.6,
+                    sx: 1.1, sy: 3.4, sz: 13, ry: yaw,
+                    color: SIGN_COLORS[(Math.random() * SIGN_COLORS.length) | 0]
+                });
+            }
+        }
+    };
+    along(THAMRIN, 70, 26);
+    along(SUDIRMAN, 220, 40);
+    along(TOLL, 260, 44);
+    // Jendela ruko pakai grid fasad KASAR (scale 4 -> lantai sedikit, proporsional
+    // blok pendek) + jendela menyala hangat — resep facades.js yang sama.
+    instBoxes(parent, rukos, makeCityMat(makeFacadeTex(4), makeLitTex(4)));
+    instBoxes(parent, signs, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+    return rukos.length;
+}
+
+// ===== SEKOLAH (permintaan user): kompleks khas sekolah Indonesia — gedung
+// kelas putih panjang beratap genteng (bentuk L), lapangan upacara, koridor
+// menyala hangat, dan tiang BENDERA MERAH-PUTIH. Timur Thamrin (terlihat
+// kamera SW->NE saat hover/turun tali). =====
+function buildSchool(parent) {
+    const g = new THREE.Group();
+    g.position.set(IX + SCHOOL.x, CITY_GROUND, IZ + SCHOOL.z);
+    g.rotation.y = Math.atan2(THAMRIN.x1 - THAMRIN.x0, THAMRIN.z1 - THAMRIN.z0);   // sejajar jalan
+    const wall = new THREE.MeshLambertMaterial({ color: PAL.white });
+    const roofM = new THREE.MeshLambertMaterial({ color: 0x7c3b2c });   // genteng tanah liat
+    const add = (geo, mat, x, yy, z) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, yy, z);
+        m.castShadow = true; g.add(m);
+        return m;
+    };
+    const field = new THREE.Mesh(new THREE.PlaneGeometry(92, 62),
+        new THREE.MeshLambertMaterial({ color: 0x555045 }));   // lapangan upacara (paving)
+    field.rotation.x = -Math.PI / 2; field.position.set(0, 1.4, 24); g.add(field);
+    add(new THREE.BoxGeometry(96, 13, 16), wall, 0, 6.5, -16);        // gedung kelas utama
+    add(new THREE.BoxGeometry(100, 3.4, 20), roofM, 0, 14.6, -16);    // atap genteng
+    add(new THREE.BoxGeometry(16, 13, 46), wall, -44, 6.5, 12);       // sayap kelas (bentuk L)
+    add(new THREE.BoxGeometry(20, 3.4, 50), roofM, -44, 14.6, 12);
+    const lit = new THREE.Mesh(new THREE.BoxGeometry(92, 3.2, 0.7),   // koridor kelas menyala hangat
+        new THREE.MeshBasicMaterial({ color: 0xffd9a0, toneMapped: false }));
+    lit.position.set(0, 6.8, -7.4); g.add(lit);
+    add(new THREE.CylinderGeometry(0.5, 0.5, 26, 6), wall, 26, 13, 16);   // tiang bendera
+    add(new THREE.BoxGeometry(5, 1.9, 0.4), new THREE.MeshLambertMaterial({ color: PAL.hazard }), 28.9, 24.4, 16);   // merah
+    add(new THREE.BoxGeometry(5, 1.9, 0.4), wall, 28.9, 22.5, 16);                                                    // putih
+    parent.add(g);
 }
 
 // ===== Kubah langit INTRO (2026-07-18): haze malam kota yang TENANG (biru-abu
@@ -518,13 +887,16 @@ export function beginIntro() {
     heli = spawnHelicopter(FLY_START.x, FLY_START.z, yaw);
     heli.parts.group.position.y = FLY_START.y;
     heli.parts.group.rotation.z = 0.06;              // sedikit MIRING (bank) — gaya terbang
-    heliSnd = playLoopSFX(sfxHeli, 0.5);             // deru heli sepanjang cutscene (2026-07-19)
     rope = buildRope();
     // pivot (kamera) langsung mengikuti heli agar tak ada pan panjang di frame awal
     camera.position.set(FLY_START.x, FLY_START.y - AIR_DROP, FLY_START.z);
-    cine = { phase: 'fly', t: 0, bob: 0 };
+    // `live:false` (2026-07-20, bug fix): beginIntro dipanggil main.js MASIH di
+    // balik layar loading (sebelum warmupAll/warmupIntro/hideLoading) — deru heli
+    // + tombol SKIP dulu dinyalakan di sini sehingga MUNCUL DULUAN saat loading.
+    // Keduanya kini ditunda ke frame PERTAMA updateMode (animate() baru berjalan
+    // setelah hideLoading, jadi frame pertama = cutscene benar-benar tampil).
+    cine = { phase: 'fly', t: 0, bob: 0, live: false };
     stepT = 0.12;                  // langkah pertama cepat terdengar saat fase walk mulai
-    showCutsceneSkip(skipIntro);   // tombol SKIP kanan-bawah (2026-07-19; SPACE juga)
 }
 
 // SKIP cutscene (2026-07-19, tombol kanan-bawah / SPACE): loncat langsung ke
@@ -592,6 +964,13 @@ export const introScene = {
     // Mesin cutscene (dipanggil updateGame tiap frame selagi TAK paused).
     updateMode(dt) {
         if (!cine) return;
+        if (!cine.live) {
+            // Frame pertama cutscene TAMPIL (layar loading sudah ditutup — lihat
+            // catatan `live` di beginIntro): BARU nyalakan deru heli + tombol SKIP.
+            cine.live = true;
+            heliSnd = playLoopSFX(sfxHeli, 0.5);   // deru heli sepanjang cutscene (2026-07-19)
+            showCutsceneSkip(skipIntro);           // tombol SKIP kanan-bawah (2026-07-19; SPACE juga)
+        }
         const I = CFG.campaign.intro;
         cine.t += dt;
         positionIntroSky();   // kubah langit intro ikut kamera (anti far-plane clip)
