@@ -18,6 +18,7 @@ const OPEN_TIME = 0.45;      // detik buka/tutup penuh
 const FRONT_CELLS = 2;       // player HARUS di <= 2 kotak DI DEPAN bukaan (permintaan user 2026-07-18)
 const DOOR_SOLID_MAX = 0.5;  // pintu PEJAL (memblok robot) selama open < ini (masih >=1/2 tertutup)
 const GREEN = 0x39ff7a;      // hijau "bisa dibuka" (senada lampu EXIT)
+const LOCK_RED = 0xff4a3c;   // merah "TERKUNCI" (varian pintu terkunci, mis. ruang komputer stage 1)
 
 // Bangun pintu untuk satu stage.
 //   doorList item {c0,r0,c1,r1,dir} — dir 'ew' (celah di dinding VERTIKAL, panel
@@ -59,10 +60,16 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
         panel.position.set(cx, closedY, cz);
         scene.add(panel);
 
-        // --- LAMPU HIJAU KECIL di MUKA tembok = penanda pintu bisa dibuka.
+        // --- LAMPU KECIL di MUKA tembok = penanda status pintu. HIJAU = bisa
+        //     dibuka; MERAH (d.locked, mis. ruang komputer stage 1) = TERKUNCI
+        //     sampai objektif selesai (setDoorLocked mengubahnya jadi hijau).
         //     2026-07-18 (permintaan user): dipindah dari PUNCAK tembok ke kedua
         //     MUKA jamb — DEPAN (+) & BELAKANG (−) — dan DIPERKECIL. Tiap jamb
         //     dapat 2 lampu (satu tiap muka) → keempat titik pintu bertanda. ---
+        const litMat = d.locked
+            ? new THREE.MeshBasicMaterial({ color: LOCK_RED, toneMapped: false })   // material sendiri (bisa di-recolor saat unlock)
+            : greenMat;
+        const lights = [];
         const jamb = ew
             ? [cellFn(d.c0, d.r0 - 1), cellFn(d.c1, d.r1 + 1)]
             : [cellFn(d.c0 - 1, d.r0), cellFn(d.c1 + 1, d.r1)];
@@ -71,12 +78,13 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
             for (const s of [-1, 1]) {               // dua MUKA tembok: depan & belakang
                 const g = new THREE.Mesh(
                     ew ? new THREE.BoxGeometry(0.5, 2.2, 1.3) : new THREE.BoxGeometry(1.3, 2.2, 0.5),
-                    greenMat);
+                    litMat);
                 g.position.set(
                     ew ? j.x + s * (halfC + 0.25) : j.x,
                     lampY,
                     ew ? j.z : j.z + s * (halfC + 0.25));
                 scene.add(g);
+                lights.push(g);
             }
         }
 
@@ -84,6 +92,9 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
             panel, cx, cz, closedY, openY, open: 0,
             linger: 0,                             // sisa delay tutup (dtk) setelah player keluar zona (2026-07-20)
             ew,                                    // orientasi: true = dinding vertikal (masuk dari ±x)
+            locked: !!d.locked,                    // TERKUNCI (tak pernah membuka sampai setDoorLocked(false))
+            lockMat: d.locked ? litMat : null,     // material lampu merah -> hijau saat unlock
+            lights,
             perpMax: (FRONT_CELLS + 0.5) * CELL,   // tegak-lurus dinding: <= 2 kotak di depan (+ tepi sel)
             paraMax: span / 2 + CELL * 0.4,        // sejajar dinding: dalam lebar bukaan (+ sedikit margin)
             hx: ew ? thick / 2 : w / 2,            // setengah-footprint daun pintu (blok robot saat tutup)
@@ -113,7 +124,8 @@ export function updateStageDoors(doors, dt) {
         const near = perp <= dr.perpMax && para <= dr.paraMax;
         if (near) dr.linger = closeDelay;                   // delay tutup di-reset selama di zona
         else if (dr.linger > 0) dr.linger = Math.max(0, dr.linger - dt);
-        const target = (near || dr.linger > 0) ? 1 : 0;
+        // Pintu TERKUNCI tak pernah membuka (target 0) berapa pun kedekatan player.
+        const target = dr.locked ? 0 : ((near || dr.linger > 0) ? 1 : 0);
         if (dr.open < target) dr.open = Math.min(target, dr.open + step);
         else if (dr.open > target) dr.open = Math.max(target, dr.open - step);
         const t = dr.open, e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;   // easeInOut
@@ -128,9 +140,10 @@ export function updateStageDoors(doors, dt) {
 // sumbu penetrasi TERKECIL (biasanya tegak-lurus daun tipis → mundur ke ruangan).
 // Player TIDAK diblok (dia yang membuka pintu; footprint ⊂ zona buka → selalu
 // terbuka saat player menyentuhnya) sehingga tak pernah terjepit.
-export function resolveDoors(doors, pos, radius) {
+export function resolveDoors(doors, pos, radius, lockedOnly = false) {
     if (!doors) return;
     for (const dr of doors) {
+        if (lockedOnly && !dr.locked) continue;               // blok PLAYER hanya di pintu TERKUNCI (stage 1)
         if (dr.open >= DOOR_SOLID_MAX) continue;              // sudah cukup terbuka → tembus
         const ex = dr.hx + radius, ez = dr.hz + radius;
         const dx = pos.x - dr.cx, dz = pos.z - dr.cz;
@@ -139,6 +152,16 @@ export function resolveDoors(doors, pos, radius) {
         if (ox < oz) pos.x = dr.cx + (dx < 0 ? -ex : ex);         // dorong sumbu-x
         else pos.z = dr.cz + (dz < 0 ? -ez : ez);                 // dorong sumbu-z
     }
+}
+
+// Kunci/buka sebuah pintu (stage 1: ruang komputer TERKUNCI sampai semua robot
+// tumbang). Membuka juga mengubah lampu penandanya dari MERAH -> HIJAU. Pintu
+// terkunci tak pernah membuka (updateStageDoors) & memblok player (resolveDoors
+// lockedOnly). `door` = elemen array hasil buildStageDoors.
+export function setDoorLocked(door, locked) {
+    if (!door) return;
+    door.locked = !!locked;
+    if (door.lockMat) door.lockMat.color.setHex(locked ? LOCK_RED : GREEN);   // merah <-> hijau (mis. re-lock saat restart)
 }
 
 // ===== PELURU vs PINTU (2026-07-19, permintaan user): peluru PLAYER & ROBOT

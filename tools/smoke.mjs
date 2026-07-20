@@ -860,7 +860,8 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     s1m.placeRobots();
     const n1 = robots.filter(z => z.stage === 1).length;
-    T('S1: placeRobots menaruh 40 robot (9 spot) tagged stage 1 (' + n1 + ')', n1 === 40);
+    T('S1: placeRobots menaruh 50 robot GELOMBANG-1 (kelas C) tagged stage 1 (' + n1 + ')',
+        n1 === 50 && n1 === s1m.s1Wave1Count && robots.filter(z => z.stage === 1).every(z => z.kind === 'C'));
 
     // --- LAMPU PER-RUANGAN (2026-07-19): mati saat mulai, menyala saat player
     // memasuki rect ruangannya (yang lain tetap mati). ---
@@ -891,13 +892,13 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
         confLamp.doors && confLamp.doors.length > 0 && confLamp.on
         && !(frontA.x >= confLamp.x0 && frontA.x <= confLamp.x1));
 
-    // --- EXIT TERKUNCI (2026-07-19): trigger tangga END DITOLAK selagi robot
-    // stage 1 masih hidup (tak ada transisi/setScene). ---
+    // --- FINISH TERKUNCI (2026-07-20): trigger TANGGA (T, titik masuk = titik
+    // selesai) DITOLAK selagi objektif belum tuntas (fase clear1, robot hidup). ---
     const scBefore = smMod.activeScene;
-    const eEnd = s1m.s1Cell(s1m.S1_END.c, s1m.S1_END.r);
-    stateMod._v3.set(eEnd.x, 0, eEnd.z);
-    s1m.stage1Scene.playerCollide(stateMod._v3, eEnd.x, eEnd.z, 0);
-    T('EXIT LOCK: trigger END stage 1 DITOLAK selagi robot hidup', smMod.activeScene === scBefore);
+    const eFin = s1m.s1Cell(4, 2);   // ruang TANGGA (T, c1-5 r1-3)
+    stateMod._v3.set(eFin.x, 0, eFin.z);
+    s1m.stage1Scene.playerCollide(stateMod._v3, eFin.x, eFin.z, 0);
+    T('FINISH LOCK: trigger tangga stage 1 DITOLAK selagi objektif belum tuntas', smMod.activeScene === scBefore);
 
     // --- AKTIVASI LOS KETAT (2026-07-19): robot dekat (< 30 unit) di balik
     // DINDING / PINTU TERTUTUP tetap idle; pintu terbuka -> baru mengejar. ---
@@ -918,6 +919,40 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     s1m.stage1Scene.robotAI(zDoor, 0.1, 6);
     T('AKTIVASI KETAT: robot di balik pintu TERTUTUP idle; pintu TERBUKA -> mengejar',
         doorIdle && zDoor.state === 'chasing');
+}
+
+// --- ALUR STAGE 1 (2026-07-20, ROMBAK TOTAL): clear1 (bunuh 50 robot) -> BUKA
+// ruang komputer -> download 10 dtk (gerak beku) -> spawn 20 robot wave-2
+// (10C/5B/5A) di ruang X -> clear2 -> done (tangga aktif). Config-driven
+// (downloadSec). Mulai dari state built section sebelumnya (fase clear1). ---
+{
+    const s1m = await import(R('src/scenes/campaign/stages/stage1.js'));
+    // Fase awal = clear1 + pintu ruang komputer TERKUNCI (merah).
+    T('S1 FLOW: fase clear1 + pintu ruang komputer TERKUNCI',
+        s1m.s1Debug().phase === 'clear1' && s1m.s1CompDoorDbg() && s1m.s1CompDoorDbg().locked === true);
+    // Buang SEMUA robot stage 1 -> updateMode -> fase download + pintu TERBUKA.
+    for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 1) { scene.remove(robots[i].mesh); robots.splice(i, 1); }
+    s1m.stage1Scene.updateMode(0.1);
+    T('S1 FLOW: semua robot wave-1 tumbang -> fase download + pintu komputer TERBUKA',
+        s1m.s1Debug().phase === 'download' && s1m.s1CompDoorDbg().locked === false);
+    // Player MENEMPEL komputer -> fase downloading + kendali dibekukan (cinematicActive).
+    const cp = s1m.s1Cell(s1m.S1_COMP.c, s1m.S1_COMP.r);
+    camera.position.set(cp.x, cfgMod.CFG.player.eyeHeight, cp.z);
+    s1m.stage1Scene.updateMode(0.1);
+    T('S1 FLOW: menempel komputer -> mengunduh + gerak dibekukan (cinematicActive)',
+        s1m.s1Debug().phase === 'downloading' && stateMod.cinematicActive === true);
+    // Jalankan updateMode sampai unduh (downloadSec) selesai -> 20 robot wave-2 spawn.
+    const dl = cfgMod.CFG.campaign.stage1.downloadSec;
+    for (let t = 0; t <= dl + 1; t += 0.2) s1m.stage1Scene.updateMode(0.2);
+    const w2 = robots.filter(z => z.stage === 1);
+    const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
+    T('S1 FLOW: unduh selesai -> 20 robot wave-2 (10C/5B/5A) + kendali dikembalikan',
+        s1m.s1Debug().phase === 'clear2' && stateMod.cinematicActive === false
+        && w2.length === 20 && nC === 10 && nB === 5 && nA === 5);
+    // Buang wave-2 -> fase done (tangga aktif).
+    for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 1) { scene.remove(robots[i].mesh); robots.splice(i, 1); }
+    s1m.stage1Scene.updateMode(0.1);
+    T('S1 FLOW: wave-2 tumbang -> fase done (tangga jadi aktif)', s1m.s1Debug().phase === 'done');
 }
 
 // Bersihkan robot dari section sebelumnya, masuk scene, tempatkan robot+supply
@@ -1028,8 +1063,8 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     T('No double walls: stage 2 grid (' + b2 + ' band)', b2 === 0);
     T('No double walls: stage 3 grid (' + b3 + ' band)', b3 === 0);
 
-    // STAGE 1 DENAH RESMI 2026-07-18 (stage1.csv, 30x30): SEMUA lantai terhubung
-    // dari START (BFS) + START/END di lantai. Cermin S3 di atas.
+    // STAGE 1 DENAH RESMI 2026-07-20 (stage1-v2.csv, 50x50): SEMUA lantai terhubung
+    // dari START (BFS) + START/KOMPUTER di lantai. Cermin S3 di atas.
     {
         const grid = s1mod.s1grid, ROWS = grid.length, COLS = grid[0].length;
         const seen = grid.map(row => row.map(() => false));
@@ -1044,10 +1079,10 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
             }
         }
         for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === 0) floorN++;
-        T('S1: grid 30x30 (plan resmi)', COLS === 30 && ROWS === 30);
-        T('S1: SEMUA lantai gedung terhubung dari START (BFS, ' + floorN + ' sel)', reach === floorN && floorN > 500);
-        T('S1: START & END di lantai',
-            !s1mod.s1Wall(s1mod.S1_START.c, s1mod.S1_START.r) && !s1mod.s1Wall(s1mod.S1_END.c, s1mod.S1_END.r));
+        T('S1: grid 50x50 (plan resmi stage1-v2)', COLS === 50 && ROWS === 50);
+        T('S1: SEMUA lantai gedung terhubung dari START (BFS, ' + floorN + ' sel)', reach === floorN && floorN > 1500);
+        T('S1: START & KOMPUTER di lantai',
+            !s1mod.s1Wall(s1mod.S1_START.c, s1mod.S1_START.r) && !s1mod.s1Wall(s1mod.S1_COMP.c, s1mod.S1_COMP.r));
     }
 }
 
@@ -1271,26 +1306,18 @@ s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
 // lewat pintu lobi = hanya varian naik). Metrik di-dedupe per koordinat build. ---
 {
     const swMod = await import(R('src/scenes/campaign/utility/stairwell.js'));
-    const s1x = await import(R('src/scenes/campaign/stages/stage1.js'));
     const sw = swMod.stairwellDebug();
-    T('Stairwell: 3 tangga NAIK (START stage 1/2/3) + 2 tangga TURUN berlubang (END stage 1/2)',
-        sw.ups === 3 && sw.downs === 2 && sw.holes.length === 2);
-    // END DIPUTAR 90° + RAPAT tembok TIMUR (2026-07-19, permintaan user):
-    // pusat lubang = muka tembok timur − DOWN_FLUSH_OFF, orientasi tertukar
-    // (lebar-x > lebar-z), z tetap sebaris sel END.
-    const e1 = s1x.s1Cell(s1x.S1_END.c, s1x.S1_END.r);
-    const ex1 = s1x.S1.x0 + (s1x.S1.G - 1) * s1x.S1.CELL - swMod.DOWN_FLUSH_OFF;
-    const h1 = sw.holes.find(h => Math.abs((h.x0 + h.x1) / 2 - ex1) < 0.01);
-    T('Stairwell: lubang END stage 1 RAPAT tembok timur (putar 90°) + tetap menembus lantai',
-        !!h1 && Math.abs((h1.z0 + h1.z1) / 2 - (e1.z + 4)) < 0.01
-        && (h1.x1 - h1.x0) > (h1.z1 - h1.z0)
-        && h1.x1 - h1.x0 <= 32 && h1.z1 - h1.z0 <= 26);
+    // STAGE 1 (rombak 2026-07-20): titik MASUK = titik SELESAI = TANGGA NAIK
+    // (tanpa lubang; lantai satu-bidang penuh). Hanya stage 2 yang punya tangga
+    // TURUN berlubang (stage 3 keluar lewat pintu lobi). -> 3 naik, 1 turun.
+    T('Stairwell: 3 tangga NAIK (START stage 1/2/3) + 1 tangga TURUN berlubang (END stage 2)',
+        sw.ups === 3 && sw.downs === 1 && sw.holes.length === 1);
     const e2s = s2mod.s2Cell(s2mod.S2_END.c, s2mod.S2_END.r);
     const ex2 = s2mod.S2.x0 + (s2mod.S2.G - 1) * s2mod.S2.CELL - swMod.DOWN_FLUSH_OFF;
     const h2 = sw.holes.find(h => Math.abs((h.x0 + h.x1) / 2 - ex2) < 0.01);
-    T('Stairwell: lubang END stage 2 RAPAT tembok timur + lantai stage 1 & 2 = 4 strip mengelilingi lubang',
+    T('Stairwell: lubang END stage 2 RAPAT tembok timur + lantai stage 2 = 4 strip mengelilingi lubang',
         !!h2 && Math.abs((h2.z0 + h2.z1) / 2 - (e2s.z + 4)) < 0.01
-        && sw.floorStrips.length === 2 && sw.floorStrips.every(n => n === 4));
+        && sw.floorStrips.length === 1 && sw.floorStrips.every(n => n === 4));
 }
 {   // flood-fill union (stage4Walk): START harus terhubung ke END
     const S = s4mod.S4_START, E = s4mod.S4_END, cell = 14;

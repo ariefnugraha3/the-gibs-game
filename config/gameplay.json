@@ -181,6 +181,11 @@
         "doors": {
             "closeDelaySec": 3.0
         },
+        "stage1": {
+            "downloadSec": 10,
+            "computerRange": 20,
+            "liftWarnRange": 30
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,

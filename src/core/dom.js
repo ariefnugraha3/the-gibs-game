@@ -39,6 +39,24 @@ export const radarCtx = radar.getContext('2d');
 // Bar channel Medkit (tombol 4): tampil saat memegang medkit; fill = progress tahan klik.
 export const medkitBar = document.getElementById('medkitBar');
 export const medkitBarFill = document.getElementById('medkitBarFill');
+// Bar progress DOWNLOAD (stage 1): unduh data 10 dtk (gerak dibekukan).
+const downloadBar = document.getElementById('downloadBar');
+const downloadBarFill = document.getElementById('downloadBarFill');
+const downloadBarPct = document.getElementById('downloadBarPct');
+
+// Tampilkan / perbarui (k = 0..1) / sembunyikan bar unduhan data (stage 1).
+export function showDownloadBar() {
+    if (downloadBar) downloadBar.style.display = 'flex';
+    setDownloadProgress(0);
+}
+export function setDownloadProgress(k) {
+    const pct = Math.max(0, Math.min(100, Math.round(k * 100)));
+    if (downloadBarFill) downloadBarFill.style.width = pct + '%';
+    if (downloadBarPct) downloadBarPct.innerText = pct + '%';
+}
+export function hideDownloadBar() {
+    if (downloadBar) downloadBar.style.display = 'none';
+}
 
 // Radar tajam di layar HiDPI: backing store diskalakan devicePixelRatio (ukuran CSS tetap 150px)
 const RADAR_DPR = Math.min(window.devicePixelRatio || 1, 2);
