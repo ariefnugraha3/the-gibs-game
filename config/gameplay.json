@@ -193,6 +193,15 @@
             "componentRange": 16,
             "liftRange": 26
         },
+        "stage3": {
+            "doorHp": 1500,
+            "machineHp": 1200,
+            "gateWaveCount": 6,
+            "machineWaveCount": 4,
+            "respawnSec": 8,
+            "machineFirstWaveSec": 3,
+            "machineHitRadius": 16
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,

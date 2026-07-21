@@ -53,21 +53,38 @@ export function setQualityLightRef(l) { dirLightRef = l; }
 // 130/82) 2026-07-11; sudut lalu diturunkan lagi ~15% ke 116/100: JARAK dijaga
 // ~154 unit (y turun, z naik) sehingga hanya sudutnya melandai (bukan zoom) —
 // pitch ~57,8° -> ~49,2°, pandangan lebih menyamping/rendah (permintaan user).
-// AZIMUTH diputar ke BARAT DAYA (2026-07-16, permintaan user): dulu ofset
-// horizontal murni +z (kamera tepat di SELATAN, memandang lurus ke utara);
-// kini dibagi rata x=-z (barat + selatan) sehingga kamera memandang dari POJOK
-// BARAT DAYA secara diagonal. Jarak horizontal (~100) & tinggi (116) DIJAGA
-// supaya pitch/zoom tak berubah — hanya arah pandangnya yang berputar 45°. -----
-const CAM_OFF = { x: -70.7, y: 116, z: 70.7 };
+// AZIMUTH default BARAT DAYA (2026-07-16): ofset horizontal dibagi rata x=-z
+// (barat + selatan) → kamera memandang dari POJOK BARAT DAYA (ke timur laut).
+// CAM_OFF = ofset AKTIF (MUTABLE) — bisa DI-OVERRIDE PER-SCENE: sebuah scene boleh
+// punya properti `camOffset {x,y,z}` (mis. STAGE 3 memandang dari BARAT LAUT / NW
+// ke tenggara / SE, 2026-07-21). `applySceneCamOffset` (di followViewCam tiap
+// frame) menerapkan override scene aktif atau memulihkan default utk scene lain,
+// sekaligus memutakhirkan basis layar SCREEN_UP/LEFT. Jarak horizontal (~100) &
+// tinggi (116) dijaga agar pitch/zoom tetap — hanya arah pandang yang berputar. --
+const CAM_OFF_DEFAULT = { x: -70.7, y: 116, z: 70.7 };   // barat daya (memandang timur laut)
+const CAM_OFF = { x: -70.7, y: 116, z: 70.7 };           // AKTIF (di-set dari scene)
 
-// Basis LAYAR di bidang tanah (dunia), diturunkan dari azimuth CAM_OFF: arah
+// Basis LAYAR di bidang tanah (dunia), diturunkan dari azimuth CAM_OFF AKTIF: arah
 // "atas layar" (SCREEN_UP = arah pandang horizontal kamera) & "kiri layar"
-// (SCREEN_LEFT). Dipakai gerak WASD & dodge (player.js) agar tetap RELATIF LAYAR
-// walau kamera dimiringkan ke barat daya (W tetap = naik di layar). Dengan
-// kamera barat daya, SCREEN_UP menunjuk ke timur laut dunia.
-const _camH = Math.hypot(CAM_OFF.x, CAM_OFF.z) || 1;
-export const SCREEN_UP = { x: -CAM_OFF.x / _camH, z: -CAM_OFF.z / _camH };
-export const SCREEN_LEFT = { x: SCREEN_UP.z, z: -SCREEN_UP.x };
+// (SCREEN_LEFT). Dipakai gerak WASD & dodge (player.js) + radar (hud.js) agar tetap
+// RELATIF LAYAR walau kamera dimiringkan. OBJEK di-MUTASI in-place saat azimuth
+// berganti (importir memegang referensi objek yang sama → ikut ter-update).
+export const SCREEN_UP = { x: 0, z: 0 };
+export const SCREEN_LEFT = { x: 0, z: 0 };
+function recomputeScreenBasis() {
+    const h = Math.hypot(CAM_OFF.x, CAM_OFF.z) || 1;
+    SCREEN_UP.x = -CAM_OFF.x / h; SCREEN_UP.z = -CAM_OFF.z / h;
+    SCREEN_LEFT.x = SCREEN_UP.z; SCREEN_LEFT.z = -SCREEN_UP.x;
+}
+recomputeScreenBasis();
+// Terapkan azimuth kamera dari override scene aktif (`activeScene.camOffset`) atau
+// default; hitung ulang HANYA saat berubah (dipanggil tiap frame di followViewCam).
+function applySceneCamOffset() {
+    const w = (activeScene && activeScene.camOffset) || CAM_OFF_DEFAULT;
+    if (w.x === CAM_OFF.x && w.y === CAM_OFF.y && w.z === CAM_OFF.z) return;
+    CAM_OFF.x = w.x; CAM_OFF.y = w.y; CAM_OFF.z = w.z;
+    recomputeScreenBasis();
+}
 
 // ----- Dead-zone kamera (toleransi gerak 2026-07-11): kamera TIDAK center
 // tepat di player. Ia mengejar sebuah titik fokus `camFocus` (di bidang tanah)
@@ -157,6 +174,7 @@ function clampCentered(v, lo, hi) {
 
 export function followViewCam(dt = 0) {
     if (!viewCam || !camera) return;
+    applySceneCamOffset();   // azimuth kamera per-scene (mis. stage 3 = barat laut) + basis layar
     const p = camera.position;
     // Inisialisasi / snap saat lompat besar (spawn, ganti scene, restart):
     // pusatkan langsung supaya tidak ada pan panjang dari posisi lama.

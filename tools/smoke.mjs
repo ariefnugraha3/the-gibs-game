@@ -1048,9 +1048,9 @@ T('S2: Start Next Stage -> transisi ke stage 3', s3entered && smMod.activeScene 
 s3mod.stage3Scene.enter = realS3Enter;   // pulihkan enter asli
 shopMod.closeShop();
 
-// --- 16. Campaign STAGE 3 overhaul (2026-07-13): gedung indoor final dgn
-// ATRIUM/VOID pusat mengikuti denah. Bangun dunia + BFS konektivitas (VOID =
-// dinding), penempatan robot 10-spot + supply, robotAI, dan MENANG via tangga. ---
+// --- 16. Campaign STAGE 3 (2026-07-21, ROMBAK TOTAL stage3-v2.csv 40x40):
+// lantai PABRIK ROBOT — pintu blast '+' + 4 mesin pembuat robot. Bangun dunia +
+// BFS konektivitas ('+'/'o' = lantai/bukaan). Alur diuji di blok S3 FLOW. ---
 s3mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya tak membangun ulang)
 {   // BFS: SEMUA lantai (kecuali VOID pusat) terhubung dari START
     const grid = s3mod.s3grid, ROWS = grid.length, COLS = grid[0].length;
@@ -1068,8 +1068,8 @@ s3mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === 0) floor++;
     T('S3: SEMUA lantai gedung terhubung dari START (BFS, ' + floor + ' sel)', reach === floor && floor > 500);
 }
-// DENAH BARU 2026-07-18: LOBI tengah (tanpa VOID); END = PINTU UTAMA LOBI (selatan).
-T('S3: START & END (pintu lobi) di lantai',
+// START = LIFT (masuk); END = PINTU KELUAR 'o' (selatan-tengah). Keduanya lantai.
+T('S3: START (lift) & END (pintu keluar) di lantai',
     !s3mod.s3Wall(s3mod.S3_START.c, s3mod.S3_START.r) && !s3mod.s3Wall(s3mod.S3_END.c, s3mod.S3_END.r));
 T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 
@@ -1283,34 +1283,98 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         && fs.readFileSync(ROOT + '/src/entities/robots.js', 'utf8').includes('startBattleMusic()'));
 }
 
+// === STAGE 3 FLOW (2026-07-21, WAVE-based v2 stage3-v2.csv): TAK ADA robot
+// sebelum player MENEMBAK PINTU (player berkeliling dulu). Tembak PINTU BLAST '+'
+// => GELOMBANG 6 tangga + 6 lift (12); ke-12 mati -> respawn `respawnSec` (8 dtk).
+// Hancurkan pintu -> masuk X -> TUNDA `machineFirstWaveSec` (3 dtk) -> GELOMBANG
+// 4/mesin (16); habis -> respawn 8 dtk. Hancurkan 4 mesin + habisi robot -> PINTU
+// KELUAR 'o' -> stage 4. Config-driven. ===
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s3dropsBefore = stateMod.drops.length;
-s3mod.placeRobots();
-const nStage3 = robots.filter(z => z.stage === 3).length;
-T('S3: placeRobots menaruh 55 robot (10 spot) tagged stage 3 (' + nStage3 + ')', nStage3 === 55);
-T('S3: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s3dropsBefore);
+smMod.setScene(s3mod.stage3Scene);   // enter(): reset destructibles + supply (TANPA placeRobots — robot via gelombang)
+const s3cfg = cfgMod.CFG.campaign.stage3;
+// KAMERA khusus stage 3 (2026-07-21, permintaan user): memandang dari BARAT LAUT
+// (NW→SE). followViewCam menerapkan `camOffset` (z<0) → SCREEN_UP (basis atas layar)
+// menunjuk TENGGARA (x>0,z>0), basis WASD/radar ikut berputar.
+rendererMod.followViewCam(0.016);
+T('S3 KAMERA: camOffset BARAT LAUT (NW) -> SCREEN_UP menunjuk TENGGARA (x>0, z>0)',
+    s3mod.stage3Scene.camOffset.x < 0 && s3mod.stage3Scene.camOffset.z < 0
+    && rendererMod.SCREEN_UP.x > 0 && rendererMod.SCREEN_UP.z > 0);
+T('S3: mulai fase door + 0 robot + belum menembak pintu (boleh berkeliling)',
+    s3mod.s3Debug().phase === 'door' && robots.filter(z => z.stage === 3).length === 0 && s3mod.s3Debug().doorFired === false);
+T('S3: enter menaruh supply (ruang W + ruang X digandakan)', stateMod.drops.length > s3dropsBefore);
+T('S3: PINTU BLAST + terpasang HP penuh + memblok',
+    s3mod.s3DoorDbg().hp === s3cfg.doorHp && s3mod.s3DoorDbg().visible === true && s3mod.s3DoorDbg().blocked === true);
+T('S3: 4 MESIN pembuat robot (2 kiri + 2 kanan) semua hidup',
+    s3mod.s3MachinesDbg().length === 4 && s3mod.s3MachinesDbg().every(m => m.alive));
 
+// (0) SEBELUM menembak pintu: updateMode lama -> TETAP 0 robot (player boleh berkeliling)
+for (let t = 0; t < 10; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+T('S3 FLOW: TIDAK ada robot sebelum player menembak pintu (biarkan berkeliling)',
+    robots.filter(z => z.stage === 3).length === 0 && s3mod.s3Debug().doorFired === false);
+
+// fake bullet menyeberang baris pintu + helper "tembak pintu" (picu gelombang)
+const s3FakeBullet = (px, pz, x, z, dmg) => ({ mesh: { position: { x, y: 8, z } }, px, py: 8, pz, dir: { x: 0, y: 0, z: 1 }, damage: dmg });
+const dpx = s3mod.s3Cell(19.5, 29).x, dpz = s3mod.s3Cell(19.5, 29).z;
+const s3FireDoor = (dmg = 40) => { stateMod.bullets.push(s3FakeBullet(dpx, dpz - 6, dpx, dpz + 4, dmg)); s3mod.stage3Scene.updateMode(0.05); };
+
+// (1) TEMBAK PINTU pertama -> HP turun + GELOMBANG 6 tangga + 6 lift (12) LANGSUNG chasing
+const hpBefore = s3mod.s3DoorDbg().hp;
+s3FireDoor(40);
+const gspawn = robots.filter(z => z.stage === 3);
+T('S3 FLOW: tembak pintu PERTAMA -> HP turun + GELOMBANG (6+6=12) langsung chasing',
+    s3mod.s3DoorDbg().hp < hpBefore && s3mod.s3Debug().doorFired === true
+    && gspawn.length === s3cfg.gateWaveCount * 2 && gspawn.every(z => z.state === 'chasing'));
+
+// robotAI jalan tanpa error
 const zS3 = robots.find(z => z.stage === 3);
-camera.position.set(zS3.mesh.position.x + 30, cfgMod.CFG.player.eyeHeight, zS3.mesh.position.z);
 let s3aiOk = true;
 try { for (let i = 0; i < 5; i++) s3mod.stage3Scene.robotAI(zS3, 0.05, 3); } catch (e) { s3aiOk = false; }
 T('S3: robotAI jalan tanpa error', s3aiOk);
 
-// Stage 3 tangga END -> SHOP SCENE (loading) -> Start Next Stage (loading) -> stage 4
+// (2) Habisi ke-12 -> TUNGGU < respawnSec: masih 0; >= respawnSec: gelombang baru (12)
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+for (let t = 0; t < s3cfg.respawnSec - 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+const midWait = robots.filter(z => z.stage === 3).length;
+for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+T('S3 FLOW: gelombang berikut hanya ~respawnSec (8 dtk) SETELAH ke-12 bersih',
+    midWait === 0 && robots.filter(z => z.stage === 3).length === s3cfg.gateWaveCount * 2);
+
+// (3) Hancurkan PINTU (damage besar) -> fase toX + mesh hilang + blocker dilepas
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+s3FireDoor(s3cfg.doorHp + 100);
+T('S3 FLOW: PINTU BLAST HANCUR -> fase toX + mesh hilang + blocker dilepas',
+    s3mod.s3Debug().phase === 'toX' && s3mod.s3DoorDbg().visible === false && s3mod.s3DoorDbg().blocked === false);
+
+// (4) Masuk ruang X -> fase machines TANPA spawn langsung; >= machineFirstWaveSec -> 16 (4/mesin)
+const xin = s3mod.s3Cell(19.5, 33);
+camera.position.set(xin.x, cfgMod.CFG.player.eyeHeight, xin.z);
+s3mod.stage3Scene.updateMode(0.1);
+T('S3 FLOW: masuk ruang X -> fase machines (4 mesin) TANPA spawn langsung',
+    s3mod.s3Debug().phase === 'machines' && s3mod.s3Debug().machinesAlive === 4 && robots.filter(z => z.stage === 3).length === 0);
+for (let t = 0; t < s3cfg.machineFirstWaveSec - 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+const beforeMW = robots.filter(z => z.stage === 3).length;
+for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+T('S3 FLOW: mesin spawn PERTAMA setelah ~machineFirstWaveSec (3 dtk) = 4/mesin (16)',
+    beforeMW === 0 && robots.filter(z => z.stage === 3).length === s3cfg.machineWaveCount * 4);
+
+// (5) Hancurkan 4 MESIN (HP 0) -> hancur; habisi robot -> fase done (EXIT aktif)
+for (const m of s3mod.s3MachinesDbg()) m.hp = 0;
+s3mod.stage3Scene.updateMode(0.05);
+T('S3 FLOW: 4 MESIN HANCUR saat HP habis', s3mod.s3Debug().machinesAlive === 0);
+while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+s3mod.stage3Scene.updateMode(0.05);
+T('S3 FLOW: mesin hancur + robot habis -> fase done (PINTU KELUAR AKTIF)', s3mod.s3Debug().phase === 'done');
+
+// (7) Stage 3 EXIT 'o' fase done -> SHOP SCENE -> Start Next Stage -> stage 4
 const s4mod = await import(R('src/scenes/campaign/stages/stage4.js'));
 const realS4Enter = s4mod.stage4Scene.enter;
 let s4entered = false;
 s4mod.stage4Scene.enter = () => { s4entered = true; };
 const e3 = s3mod.s3Cell(s3mod.S3_END.c, s3mod.S3_END.r);
-// EXIT TERKUNCI (2026-07-19): pintu lobi DITOLAK selagi robot stage 3 hidup
-stateMod._v3.set(e3.x, 0, e3.z);
-s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);
-T('S3: PINTU LOBI TERKUNCI selagi robot hidup (tetap di stage 3)',
-    smMod.activeScene === s3mod.stage3Scene);
-while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }   // "bunuh" semua robot
 stateMod._v3.set(e3.x, 0, e3.z);
 s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);   // -> setScene(campaignShopScene)
-T('S3: semua robot mati -> pintu lobi pindah ke SHOP SCENE terpisah',
+T('S3: fase done -> PINTU KELUAR pindah ke SHOP SCENE terpisah',
     smMod.activeScene.id === 'campaign-shop' && !s4entered);
 for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
 T('S3 SHOP SCENE: shop terbuka', shopMod.isShopOpen());
@@ -1321,6 +1385,11 @@ s4mod.stage4Scene.enter = realS4Enter;
 shopMod.closeShop();
 stateMod.setPaused(false);   // pulihkan (runEnterShop mem-pause; harness tak ada klik resume)
 shopMod.closeShop();
+// KAMERA: keluar stage 3 -> scene lain (tanpa camOffset) -> SCREEN_UP kembali
+// default TIMUR LAUT (x>0, z<0). applySceneCamOffset memulihkan azimuth default.
+rendererMod.followViewCam(0.016);
+T('KAMERA: scene non-stage-3 -> SCREEN_UP kembali default TIMUR LAUT (x>0, z<0)',
+    rendererMod.SCREEN_UP.x > 0 && rendererMod.SCREEN_UP.z < 0);
 
 // --- 17. Campaign STAGE 4 (final, OUTDOOR; layout ALUN-ALUN 2026-07-17):
 // parkiran kecil -> jalan raya 500 m -> GERBANG -> kompleks alun-alun (ring
@@ -1961,7 +2030,8 @@ stateMod.setGameOver(false);
 // (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 let jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 4 aktif -> STAGE 3
-T('cheat skip-to-stage-3: pindah ke stage 3 + robot 3-tag', jr === 3
+s3FireDoor();   // stage 3 MULAI kosong; tembak PINTU -> gelombang robot (tangga/lift)
+T('cheat skip-to-stage-3: pindah ke stage 3 + tembak pintu -> gelombang robot (3-tag)', jr === 3
     && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempatkan ulang oleh helper)
 T('cheat skip-to-stage-2: pindah ke stage 2 + 50 robot ditempatkan', jr === 2
@@ -2011,7 +2081,8 @@ saveMod.saveCampaignStage(3);
 const restartTarget = saveMod.loadCampaignStage() || 1;
 T('restart-stage: target = stage checkpoint (3), BUKAN 1', restartTarget === 3);
 smMod.activeScene.cheatSkipToStage(restartTarget);   // = campaignJumpToStage(3), efek sama dgn resetGame(true)
-T('restart-stage: mendarat di AWAL stage 3 + robot stage 3',
+s3FireDoor();   // stage 3 kosong; tembak PINTU -> gelombang robot
+T('restart-stage: mendarat di AWAL stage 3 + tembak pintu -> gelombang robot stage 3',
     smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 // MISSION COMPLETE (gameOver win) menghapus checkpoint (campaign tamat = New Game)
