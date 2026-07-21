@@ -965,6 +965,14 @@ T('S2: placeRobots menaruh 50 robot GELOMBANG-1 (kelas C) tagged stage 2 (' + nS
     nStage2 === 50 && nStage2 === s2mod.s2Wave1Count && robots.filter(z => z.stage === 2).every(z => z.kind === 'C'));
 T('S2: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s2dropsBefore);
 
+// KAMERA khusus stage 2 (2026-07-22, permintaan user): memandang dari TIMUR LAUT
+// (NE→SW). followViewCam menerapkan camOffset (x>0,z<0) → SCREEN_UP (basis atas
+// layar) menunjuk BARAT DAYA (x<0,z>0); basis WASD/radar ikut berputar.
+rendererMod.followViewCam(0.016);
+T('S2 KAMERA: camOffset TIMUR LAUT (NE) -> SCREEN_UP menunjuk BARAT DAYA (x<0, z>0)',
+    s2mod.stage2Scene.camOffset.x > 0 && s2mod.stage2Scene.camOffset.z < 0
+    && rendererMod.SCREEN_UP.x < 0 && rendererMod.SCREEN_UP.z > 0);
+
 // robotAI (idle->kejar via nav-grid) jalan tanpa error
 const zS2 = robots.find(z => z.stage === 2);
 camera.position.set(zS2.mesh.position.x + 30, cfgMod.CFG.player.eyeHeight, zS2.mesh.position.z);
@@ -1390,6 +1398,35 @@ shopMod.closeShop();
 rendererMod.followViewCam(0.016);
 T('KAMERA: scene non-stage-3 -> SCREEN_UP kembali default TIMUR LAUT (x>0, z<0)',
     rendererMod.SCREEN_UP.x > 0 && rendererMod.SCREEN_UP.z < 0);
+
+// === LIFT ENTITY (2026-07-22, permintaan user): kabin lift dipisah ke
+// utility/lift.js agar BENTUK/UKURAN/PENEMPATAN konsisten lintas stage 1/2/3, dan
+// SEMUA stage pakai SEPASANG lift (kiri-kanan) spt stage 1. SATU bentuk kabin;
+// hanya beda STATE pintu (open true/false). buildLiftBank = 2 unit; facing memutar
+// rotation.y; ukuran KANONIK (LIFT.CARW/DEPTH) sama utk semua. ===
+{
+    const liftMod = await import(R('src/scenes/campaign/utility/lift.js'));
+    const open = liftMod.buildLift({ open: true, facing: 'east', H: 22 });
+    const openN = liftMod.buildLift({ open: true, facing: 'north', H: 22 });
+    const closed = liftMod.buildLift({ open: false, facing: 'east', H: 22 });
+    const bank = liftMod.buildLiftBank({ facing: 'east', H: 22, open: true, gap: 30 });
+    T('LIFT: buildLift open & closed -> THREE.Group berisi mesh',
+        open.isObject3D && open.children.length > 0 && closed.children.length > 0);
+    T('LIFT: facing memutar rotation.y (east=0, north=+90°)',
+        Math.abs(open.rotation.y) < 1e-6 && Math.abs(openN.rotation.y - Math.PI / 2) < 1e-6);
+    T('LIFT: ukuran KANONIK terdefinisi (CARW/DEPTH/GAP > 0, dipakai 3 stage)',
+        liftMod.LIFT.CARW > 0 && liftMod.LIFT.DEPTH > 0 && liftMod.LIFT.GAP > 0);
+    T('LIFT: state open vs closed beda bentuk (jumlah mesh beda)',
+        open.children.length !== closed.children.length);
+    T('LIFT: buildLiftBank = SEPASANG unit (2 kabin, kiri-kanan) + footprint blocker',
+        bank.children.length === 2 && liftMod.liftBankFootprint('east', 30).hz > 0);
+    // Ketiga stage MENGIMPOR entity yang sama & memakai buildLiftBank (SEPASANG)
+    const usesLift = (f) => fs.readFileSync(ROOT + '/' + f, 'utf8');
+    T('LIFT: stage 1/2/3 memakai buildLiftBank dari utility/lift.js (tanpa builder lokal)',
+        ['src/scenes/campaign/stages/stage1.js', 'src/scenes/campaign/stages/stage2.js', 'src/scenes/campaign/stages/stage3.js']
+            .every(f => usesLift(f).includes("from '../utility/lift.js'") && usesLift(f).includes('buildLiftBank(')
+                && !/function buildLiftCar|function buildLiftDoors/.test(usesLift(f))));
+}
 
 // --- 17. Campaign STAGE 4 (final, OUTDOOR; layout ALUN-ALUN 2026-07-17):
 // parkiran kecil -> jalan raya 500 m -> GERBANG -> kompleks alun-alun (ring

@@ -51,6 +51,7 @@ import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobo
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
+import { buildLiftBank } from '../utility/lift.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
@@ -295,23 +296,6 @@ function buildBlastDoor(w) {
     return g;
 }
 
-// LIFT (titik masuk): kabin menghadap TIMUR (+x, player keluar ke gedung).
-function buildLiftCar() {
-    const g = new THREE.Group();
-    const H = S3.H, W = 26, DEP = 26;
-    const frame = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
-    const teal = new THREE.MeshBasicMaterial({ color: PAL.tech, toneMapped: false });
-    const box = (mat, sx, sy, sz, x, y, z) => {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-        m.position.set(x, y, z); g.add(m); return m;
-    };
-    box(frame, 1.4, H, W, -DEP / 2, H / 2, 0);               // dinding belakang (barat)
-    box(teal, DEP, 0.8, W, 0, H - 1, 0);                     // langit teal
-    for (const s of [-1, 1]) box(frame, 1.2, H * 0.85, 6, DEP / 2, H * 0.43, s * (W / 2 - 3));   // daun timur
-    box(teal, 1, 1.3, W * 0.6, DEP / 2 - 0.5, H * 0.9, 0);   // indikator
-    return g;
-}
-
 export function buildWorld() {
     buildS3Grid();
     const sizeX = S3.G * S3.CELL, sizeZ = S3.ROWS * S3.CELL;
@@ -408,10 +392,13 @@ export function buildWorld() {
     blockers.push({ x: upF.x, z: upF.z, hx: upF.hx, hz: upF.hz, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(upF.hx, upF.hz), top: 10, standable: true });
     propModel(buildFuturisticCrateMesh, 5, 4, 10, 9, 10);   // puing kaki tangga
 
-    // --- LIFT (titik masuk) di nook c9-10 r15-19 ---
-    const la = s3Cell(9, 15), lb = s3Cell(10, 19);
-    const lift = buildLiftCar();
-    lift.position.set((la.x + lb.x) / 2, 0, (la.z + lb.z) / 2);
+    // --- LIFT (titik masuk) di nook c9-10 r15-19 — SEPASANG lift (kiri-kanan)
+    // MENGHADAP TIMUR, MENEMPEL tembok BARAT (col8). Terbuka; player spawn di
+    // depannya (c10) seolah baru keluar lift. Walkable (tanpa blocker). ---
+    const liftWallX3 = S3.x0 + 9 * S3.CELL;          // muka timur tembok barat (col8)
+    const liftZ3 = S3.z0 + 16.5 * S3.CELL;           // pusat pasangan (dekat spawn r16)
+    const lift = buildLiftBank({ facing: 'east', H: S3.H, open: true, gap: 30 });
+    lift.position.set(liftWallX3, 0, liftZ3);
     scene.add(lift);
 
     // === 4 MESIN PEMBUAT ROBOT (blocker DI-BAKE nav, robot memutar) ===

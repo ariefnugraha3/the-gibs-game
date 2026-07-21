@@ -55,6 +55,7 @@ import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobo
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
+import { buildLiftBank } from '../utility/lift.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
@@ -303,33 +304,6 @@ function buildGenerator() {
     return g;
 }
 
-// LIFT (titik SELESAI): dinding belakang SELATAN + dua daun BERGESER TERBUKA di
-// muka UTARA (-z, mengundang player masuk dari aula) + langit interior teal
-// menyala. Sel L tetap walkable (player masuk = trigger selesai). Nook menghadap
-// UTARA.
-function buildLiftCar() {
-    const g = new THREE.Group();
-    const H = S2.H, W = 26, D = 40;   // W = lebar (x, ~2 sel L), D = kedalaman (z)
-    const frameMat = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
-    const tealMat = new THREE.MeshBasicMaterial({ color: PAL.tech, toneMapped: false });
-    // dinding belakang (SELATAN, +z) + langit interior menyala
-    const back = new THREE.Mesh(new THREE.BoxGeometry(W, H, 1.4), frameMat);
-    back.position.set(0, H / 2, D / 2); g.add(back);
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(W, 0.8, D), tealMat);
-    roof.position.set(0, H - 1, 0); g.add(roof);
-    // dua daun pintu TERGESER ke sisi (terbuka) di muka UTARA (-z)
-    for (const s of [-1, 1]) {
-        const leaf = new THREE.Mesh(new THREE.BoxGeometry(6, H * 0.85, 1.2), frameMat);
-        leaf.position.set(s * (W / 2 - 3), H * 0.43, -D / 2);
-        g.add(leaf);
-    }
-    // strip indikator teal di ambang atas (muka utara)
-    const ind = new THREE.Mesh(new THREE.BoxGeometry(W * 0.6, 1.3, 1), tealMat);
-    ind.position.set(0, H * 0.9, -D / 2 + 0.5);
-    g.add(ind);
-    return g;
-}
-
 export function buildWorld() {
     buildS2Grid();
     const sizeX = S2.G * S2.CELL, sizeZ = S2.ROWS * S2.CELL;   // 700 x 700 unit
@@ -498,12 +472,15 @@ export function buildWorld() {
     });
     propModel(buildFuturisticRubbleMesh, 4, 4, 12, 9, 12);   // puing di kaki tangga (rusak)
 
-    // === LIFT (titik selesai) di nook cols9-10 rows15-19 (menghadap utara) ===
-    const la = s2Cell(9, 15), lb = s2Cell(10, 19);
-    const liftC = { x: (la.x + lb.x) / 2, z: (la.z + lb.z) / 2 };
-    s2LiftPos = { x: liftC.x, z: liftC.z };
-    const lift = buildLiftCar();
-    lift.position.set(liftC.x, 0, liftC.z);
+    // === LIFT (titik selesai) di nook cols9-12 rows15-19 — SEPASANG lift (kiri-
+    // kanan) MENGHADAP TIMUR, MENEMPEL tembok BARAT (col8) — PERSIS spt stage 1 & 3
+    // (tetap di TITIK/nook yang sama, hanya orientasi diseragamkan). Terbuka
+    // (player masuk & naik = selesai). Walkable (tanpa blocker). ===
+    const liftWallX2 = S2.x0 + 9 * S2.CELL;          // muka timur tembok barat nook (col8)
+    const liftZ2 = S2.z0 + 17.5 * S2.CELL;           // pusat z nook (rows 15-19)
+    s2LiftPos = { x: liftWallX2 + 8, z: liftZ2 };    // titik peringatan (depan pintu) — spt stage 1
+    const lift = buildLiftBank({ facing: 'east', H: S2.H, open: true, gap: 30 });
+    lift.position.set(liftWallX2, 0, liftZ2);
     scene.add(lift);
 
     // --- Pencahayaan PER-RUANGAN (mati → nyala saat pintu dibuka / rect dimasuki) ---
@@ -653,6 +630,12 @@ function pickComponents() {
 
 export const stage2Scene = {
     id: 'campaign-2',
+
+    // Kamera KHUSUS stage 2 (2026-07-22, permintaan user): memandang dari TIMUR
+    // LAUT (NE) ke BARAT DAYA (SW) — x dibalik dari default barat daya. Tinggi &
+    // jarak horizontal sama (pitch/zoom tetap), hanya azimuth berputar. renderer
+    // `applySceneCamOffset` menerapkannya + memutakhirkan basis layar (WASD/radar).
+    camOffset: { x: 70.7, y: 116, z: -70.7 },
 
     enter() {
         saveCampaignStage(2);

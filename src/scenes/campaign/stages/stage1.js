@@ -26,7 +26,6 @@ import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../utils
 import { makeNavGrid } from '../../../utils/pathfind.js';
 import { setS1FlickerLight } from '../../../world/decor.js';
 import { applyLightPreset } from '../../../world/lighting.js';
-import { PAL } from '../../../world/palette.js';
 import { hideStageMsg, showStageMsg, showDownloadBar, setDownloadProgress, hideDownloadBar } from '../../../core/dom.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { NADE_R } from '../../../entities/grenades.js';
@@ -45,6 +44,7 @@ import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobo
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot, setDoorLocked } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
+import { buildLiftBank, liftBankFootprint } from '../utility/lift.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage2Scene, buildWorld as buildStage2World } from './stage2.js';   // robotnya kini ditempatkan stage2.enter sendiri
@@ -227,38 +227,6 @@ export function resolve(pos, radius, feetY) {
 
 // Nav-grid pathfinder (resolusi setengah sel; di-bake di AKHIR buildWorld)
 export let s1Nav = null;
-
-// LIFT rusak (2026-07-20, permintaan user): DUA lift, MENGHADAP TIMUR (+x),
-// MENEMPEL tembok BARAT alcove. Origin lokal = muka tembok (x=0), +x = ke timur
-// (arah hadap); dua unit ber-offset ±z (utara/selatan). Pintu tertutup (dekor).
-function buildLiftDoors() {
-    const g = new THREE.Group();
-    const frameMat = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
-    const doorMat = new THREE.MeshLambertMaterial({ color: PAL.steel });
-    const tealMat = new THREE.MeshBasicMaterial({ color: PAL.tech, toneMapped: false });
-    const H = S1.H, DEPTH = 10, CARW = 22;   // dalam (x, ke timur) & lebar pintu (z) per lift
-    for (const zoff of [-18, 18]) {          // DUA lift: utara & selatan
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(DEPTH, H, CARW + 4), frameMat);
-        frame.position.set(DEPTH / 2, H / 2, zoff);   // menempel tembok, memanjang ke timur
-        frame.castShadow = true;
-        g.add(frame);
-        for (const s of [-1, 1]) {           // dua daun pintu di MUKA TIMUR (+x)
-            const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.2, H * 0.82, CARW / 2 - 0.4), doorMat);
-            leaf.position.set(DEPTH + 0.6, H * 0.42, zoff + s * (CARW / 4 + 0.2));
-            g.add(leaf);
-        }
-        const seam = new THREE.Mesh(new THREE.BoxGeometry(1.5, H * 0.82, 0.7), frameMat);
-        seam.position.set(DEPTH + 0.7, H * 0.42, zoff);
-        g.add(seam);
-        const ind = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.4, 6), tealMat);   // indikator lantai (di atas)
-        ind.position.set(DEPTH + 0.8, H * 0.86, zoff);
-        g.add(ind);
-        const btn = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.7, 0.9), tealMat); // tombol panggil (sisi)
-        btn.position.set(DEPTH + 0.7, H * 0.42, zoff + CARW / 2 + 1.5);
-        g.add(btn);
-    }
-    return g;
-}
 
 // MARKER "berdiri di sini" (2026-07-20): kotak lantai amber menyala (aksen
 // human/player) — ditaruh di sel tepat SELATAN super komputer supaya player tahu
@@ -479,17 +447,20 @@ export function buildWorld() {
     s1Marker.position.set(standP.x, 0, standP.z);
     scene.add(s1Marker);
 
-    // === LIFT rusak (nook c9-10 r15-19): DUA lift MENGHADAP TIMUR, MENEMPEL
-    // tembok BARAT (col8). Badan lift di col9; player berdiri di col10 (timur). ===
+    // === LIFT rusak (nook c9-10 r15-19): SEPASANG lift (kiri-kanan) MENGHADAP
+    // TIMUR, MENEMPEL tembok BARAT (col8) — entity lift.js (RUSAK = pintu tertutup,
+    // solid). Badan lift di col9; player berdiri di col10 (timur). ===
     const liftWallX = S1.x0 + 9 * S1.CELL;           // muka timur tembok barat alcove
     const liftZ = S1.z0 + 17.5 * S1.CELL;            // pusat z alcove (rows15-19)
+    const LIFT_GAP1 = 36;
     s1LiftPos = { x: liftWallX + 8, z: liftZ };      // titik peringatan (di depan pintu)
-    const lift = buildLiftDoors();
+    const lift = buildLiftBank({ facing: 'east', H: S1.H, open: false, gap: LIFT_GAP1 });
     lift.position.set(liftWallX, 0, liftZ);
     scene.add(lift);
+    const lf1 = liftBankFootprint('east', LIFT_GAP1);
     blockers.push({
-        x: liftWallX + 6, z: liftZ, hx: 8, hz: 32, axx: 1, axz: 0, azx: 0, azz: 1,
-        rad: Math.hypot(8, 32), top: S1.H, standable: false
+        x: liftWallX + lf1.cx, z: liftZ + lf1.cz, hx: lf1.hx, hz: lf1.hz,
+        axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(lf1.hx, lf1.hz), top: S1.H, standable: false
     });
 
     // --- Tangga BORDES NAIK (dari Lt.3) di ruang TANGGA (kiri-atas). Titik masuk
