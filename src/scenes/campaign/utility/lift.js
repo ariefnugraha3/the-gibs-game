@@ -34,21 +34,83 @@ export function buildLift({ facing = 'east', H = 22, open = true } = {}) {
     const frameMat = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
     const doorMat = new THREE.MeshLambertMaterial({ color: PAL.steel });
     const tealMat = new THREE.MeshBasicMaterial({ color: PAL.tech, toneMapped: false });
+    
+    // Tambahan: Material panel gelap untuk kesan futuristik & dimensi dalam (TANPA recompile)
+    const darkPanelMat = new THREE.MeshLambertMaterial({ color: 0x050508 }); 
+    
     const W = LIFT.CARW, D = LIFT.DEPTH;
 
-    box(g, frameMat, 1.4, H, W + 2, 0.7, H / 2, 0);                     // dinding belakang (di tembok, x≈0)
-    box(g, tealMat, D, 0.7, W, D / 2, H - 1, 0, false);                 // langit teal (plafon kabin)
-    box(g, doorMat, D - 1, 0.4, W - 1, D / 2, 0.25, 0, false);          // lantai kabin
-    if (open) box(g, tealMat, 0.5, H * 0.66, W - 3, 1.6, H * 0.45, 0, false);   // strip interior menyala (tampak saat terbuka)
-    for (const s of [-1, 1]) box(g, frameMat, 1.4, H, 1.6, D, H / 2, s * (W / 2 - 0.2));   // tiang bingkai pintu (muka)
-    if (open) {
-        for (const s of [-1, 1]) box(g, doorMat, 1, H * 0.85, 5, D, H * 0.44, s * (W / 2 - 2.8));   // dua daun TERGESER ke sisi
-    } else {
-        for (const s of [-1, 1]) box(g, doorMat, 1, H * 0.85, W / 2 - 0.6, D, H * 0.44, s * (W / 4));   // dua daun TERTUTUP (rapat tengah)
-        box(g, frameMat, 1.2, H * 0.85, 0.7, D + 0.1, H * 0.44, 0);     // seam tengah
-        box(g, tealMat, 0.6, 1.6, 0.9, D + 0.1, H * 0.42, W / 2 + 1.4, false);   // tombol panggil (sisi)
+    // 1. STRUKTUR BELAKANG & DINDING SAMPING (Penutup Bocor)
+    box(g, frameMat, 1.4, H, W + 2, 0.7, H / 2, 0);                                   // dinding belakang
+    box(g, darkPanelMat, 0.6, H - 4, W - 4, 1.2, H / 2, 0, false);                    // panel gelap dalam (inset)
+    box(g, tealMat, 0.5, H - 8, 0.4, 1.3, H / 2, 0, false);                           // strip neon vertikal belakang
+    
+    // PENUTUP SAMPING KIRI & KANAN (plat abu-abu agar tidak bolong)
+    for (const s of [-1, 1]) {
+        box(g, frameMat, D + 0.5, H, 1.2, D / 2, H / 2, s * (W / 2 + 0.1));          // plat besi utama samping
+        box(g, darkPanelMat, D - 1, H * 0.5, 0.4, D / 2, H * 0.5, s * (W / 2 + 0.25), false); // jalur panel gelap samping
+        box(g, tealMat, D - 1, 0.3, 0.5, D / 2, H * 0.75, s * (W / 2 + 0.3), false);       // strip neon samping
     }
-    box(g, tealMat, 0.9, 1.2, W * 0.55, D - 0.3, H * 0.9, 0, false);    // indikator lantai (ambang atas)
+
+    // 2. LANGIT-LANGIT & LANTAI (Recessed lighting & threshold glow)
+    box(g, darkPanelMat, D - 1, 0.6, W - 1, D / 2, H - 0.4, 0, false);                // casing plafon gelap
+    box(g, tealMat, D, 0.7, W, D / 2, H - 1, 0, false);                              // strip neon plafon utama
+    box(g, tealMat, D - 2, 0.1, W - 2, D / 2, H - 1.4, 0, false);                     // outline neon plafon
+    
+    box(g, doorMat, D - 1, 0.4, W - 1, D / 2, 0.25, 0, false);                        // lantai kabin
+    box(g, tealMat, D - 1, 0.42, 0.5, D / 2, 0.25, 0, false);                         // threshold lantai tengah
+    box(g, tealMat, 0.4, 0.42, W - 1, D - 0.5, 0.25, 0, false);                       // threshold lantai depan
+    
+    // 3. INTERIOR STRIP (Saat pintu terbuka)
+    if (open) {
+        box(g, tealMat, 0.5, H * 0.66, 0.6, 1.6, H * 0.45, 0, false);                 // strip neon tengah menyala
+        box(g, tealMat, 0.5, H * 0.5, 0.3, 1.6, H * 0.4, -W / 3, false);              // strip neon sisi kiri
+        box(g, tealMat, 0.5, H * 0.5, 0.3, 1.6, H * 0.4, W / 3, false);               // strip neon sisi kanan
+    }
+
+    // 4. TIANG BINGKAI MUKA (Cyber-struts dengan celah neon)
+    for (const s of [-1, 1]) {
+        box(g, frameMat, 1.8, H, 1.8, D, H / 2, s * (W / 2 - 0.2));                   // tiang bingkai utama (lebih tebal)
+        box(g, darkPanelMat, 2.0, H * 0.8, 0.5, D + 0.1, H * 0.45, s * (W / 2 - 0.2), false); // alur tiang
+        box(g, tealMat, 2.1, H * 0.6, 0.2, D + 0.2, H * 0.4, s * (W / 2 - 0.2), false);      // strip neon tiang
+    }
+
+    // 5. PINTU & MEKANISME HOLOGRAFIK
+    if (open) {
+        // Pintu terbuka (daun geser ke samping dengan garis neon edge)
+        for (const s of [-1, 1]) {
+            box(g, doorMat, 1, H * 0.85, 5, D, H * 0.44, s * (W / 2 - 2.8));          // daun pintu
+            box(g, tealMat, 1.05, H * 0.85, 0.3, D, H * 0.44, s * (W / 2 - 2.8), false); // neon edge daun pintu
+        }
+    } else {
+        // Pintu tertutup (berpanel dengan garis mekanis & sensor)
+        for (const s of [-1, 1]) {
+            box(g, doorMat, 1, H * 0.85, W / 2 - 0.6, D, H * 0.44, s * (W / 4));      // daun pintu tertutup
+            
+            // Detail panel pintu (garir horizontal sci-fi)
+            box(g, darkPanelMat, 1.1, H * 0.15, W / 2 - 2, D, H * 0.7, s * (W / 4), false);
+            box(g, tealMat, 1.2, 0.3, W / 2 - 2, D, H * 0.7, s * (W / 4), false);     // strip neon atas pintu
+            
+            box(g, darkPanelMat, 1.1, H * 0.15, W / 2 - 2, D, H * 0.2, s * (W / 4), false);
+            box(g, tealMat, 1.2, 0.3, W / 2 - 2, D, H * 0.2, s * (W / 4), false);     // strip neon bawah pintu
+            
+            // Garis vertikal batas pintu
+            box(g, tealMat, 1.1, H * 0.85, 0.2, D, H * 0.44, s * (W / 4 - 0.5), false);
+        }
+        box(g, frameMat, 1.2, H * 0.85, 0.7, D + 0.1, H * 0.44, 0);                   // seam tengah besi tebal
+        
+        // Panel & Tombol Panggil Holografik (bukan sekadar kotak biasa)
+        box(g, darkPanelMat, 0.8, 3.5, 2.0, D + 0.2, H * 0.4, W / 2 + 1.2, false);    // panel gelam samping
+        box(g, tealMat, 0.9, 1.6, 0.9, D + 0.3, H * 0.45, W / 2 + 1.4, false);        // tombol glow utama
+        box(g, tealMat, 0.9, 0.4, 0.9, D + 0.3, H * 0.55, W / 2 + 1.4, false);        // status bar atas
+    }
+
+    // 6. INDIKATOR LANTAI (Digital Holographic Display di ambang atas)
+    box(g, darkPanelMat, 1.0, 3.0, W * 0.6, D - 0.3, H * 0.9, 0, false);             // casing layar gelap
+    box(g, tealMat, 1.1, 1.5, W * 0.5, D - 0.2, H * 0.92, 0, false);                 // layar teal menyala
+    box(g, frameMat, 1.3, 0.2, W * 0.65, D - 0.2, H * 0.83, 0, false);               // batas besi bawah
+    box(g, frameMat, 1.3, 0.2, W * 0.65, D - 0.2, H * 0.98, 0, false);               // batas besi atas
+
     g.rotation.y = YAW[facing];
     return g;
 }
