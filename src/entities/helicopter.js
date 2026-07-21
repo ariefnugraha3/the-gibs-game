@@ -78,6 +78,11 @@ export function buildHelicopterMesh() {
     const steel = new THREE.MeshLambertMaterial({ color: PAL.steel });     // skid/strut
     const dark = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });   // mesin/hub/knalpot
     const blade = new THREE.MeshLambertMaterial({ color: PAL.ink });       // bilah rotor
+    
+    // --- MATERIAL FUTURISTIK (Tambahan aman, tidak recompile) ---
+    const tech = new THREE.MeshBasicMaterial({ color: PAL.tech || 0x00ffff, toneMapped: false }); // Neon cyan/teal
+    const darkPanelMat = new THREE.MeshLambertMaterial({ color: 0x050508 }); // Panel gelap dimensi dalam
+    
     const beaconM = new THREE.MeshLambertMaterial({
         color: PAL.amberDim, emissive: PAL.amber, emissiveIntensity: Math.min(0.8, EMISSIVE_MAX)
     });
@@ -92,22 +97,41 @@ export function buildHelicopterMesh() {
         return b;
     };
 
-    // ===================== KABIN (hidung +Z; anggaran <= 25 mesh — penjaga low-poly) =====================
-    mk(new THREE.BoxGeometry(11, 8, 15), body, 0, 10, 1, group);                 // badan utama
-    mk(new THREE.BoxGeometry(8.6, 5.5, 5), body, 0, 8.6, 9.4, group, 0.34);      // hidung melandai
-    mk(new THREE.BoxGeometry(8.2, 5.2, 6.4), glass, 0, 12.8, 6.6, group, 0.52, 0, 0, true);   // kaca depan lebar
-    mk(new THREE.BoxGeometry(11.6, 3.4, 8), glass, 0, 12.2, 1.5, group, 0, 0, 0, true);        // jendela pintu kiri-kanan
-    mk(new THREE.BoxGeometry(11.4, 1.6, 13), stripe, 0, 8.2, 1.5, group, 0, 0, 0, true);       // strip amber keliling bawah
+    // ===================== KABIN (Hidung +Z; panel sci-fi & neon glow) =====================
+    mk(new THREE.BoxGeometry(11, 8, 15), body, 0, 10, 1, group);                                          // badan utama
+    mk(new THREE.BoxGeometry(10.2, 7.2, 14.2), darkPanelMat, 0, 10, 1.2, group, 0, 0, 0, true);          // panel inset dalam (kesan kokpit gelap)
+    mk(new THREE.BoxGeometry(11.1, 0.4, 15.1), tech, 0, 11.5, 1, group, 0, 0, 0, true);                 // garis neon badan tengah
+    
+    mk(new THREE.BoxGeometry(8.6, 5.5, 5), body, 0, 8.6, 9.4, group, 0.34);                              // hidung melandai
+    mk(new THREE.BoxGeometry(2.0, 1.8, 1), tech, 0, 8.6, 11.5, group, 0.34, 0, 0, true);                // sensor / scaner moncong
+    
+    mk(new THREE.BoxGeometry(8.2, 5.2, 6.4), glass, 0, 12.8, 6.6, group, 0.52, 0, 0, true);             // kaca depan lebar
+    mk(new THREE.BoxGeometry(8.4, 0.3, 6.6), dark, 0, 10.2, 6.6, group, 0.52, 0, 0, true);              // bingkai kaca bawah
+    mk(new THREE.BoxGeometry(8.4, 0.3, 6.6), dark, 0, 15.2, 6.6, group, 0.52, 0, 0, true);              // bingkai kaca atas
+    mk(new THREE.BoxGeometry(11.6, 3.4, 8), glass, 0, 12.2, 1.5, group, 0, 0, 0, true);                 // jendela pintu kiri-kanan
+    mk(new THREE.BoxGeometry(11.7, 0.3, 8.1), dark, 0, 13.9, 1.5, group, 0, 0, 0, true);                // bingkai jendela atas
+    mk(new THREE.BoxGeometry(11.7, 0.3, 8.1), dark, 0, 10.5, 1.5, group, 0, 0, 0, true);                // bingkai jendela bawah
+    
+    mk(new THREE.BoxGeometry(11.4, 1.6, 13), stripe, 0, 8.2, 1.5, group, 0, 0, 0, true);                // strip amber keliling bawah
+    mk(new THREE.BoxGeometry(11.5, 0.2, 13.1), tech, 0, 9.0, 1.5, group, 0, 0, 0, true);                // garis neon di atas strip amber
+    
     // mesin di atap + knalpot serong ke belakang
-    mk(new THREE.BoxGeometry(6.6, 3.6, 9), steel, 0, 15.8, -2.5, group);
-    mk(new THREE.CylinderGeometry(1.2, 1.5, 5, 8), dark, 0, 16.2, -8, group, 1.15, 0, 0, true);
+    mk(new THREE.BoxGeometry(6.6, 3.6, 9), steel, 0, 15.8, -2.5, group);                                // badan mesin
+    mk(new THREE.BoxGeometry(6.8, 1.2, 9.2), dark, 0, 14.2, -2.5, group, 0, 0, 0, true);                // bingkai bawah mesin
+    mk(new THREE.BoxGeometry(6.7, 0.3, 9.1), tech, 0, 15.0, -2.5, group, 0, 0, 0, true);                // garis neon mesin
+    mk(new THREE.CylinderGeometry(1.2, 1.5, 5, 8), dark, 0, 16.2, -8, group, 1.15, 0, 0, true);         // knalpot luar
+    mk(new THREE.CylinderGeometry(0.8, 0.8, 5.2, 8), tech, 0, 16.2, -8, group, 1.15, 0, 0, true);       // interior knalpot menyala (afterburner)
 
     // ===================== BOOM EKOR + SIRIP + STABILIZER =====================
     const boomGeo = new THREE.CylinderGeometry(1.3, 2.5, 26, 10); boomGeo.rotateX(Math.PI / 2);
-    mk(boomGeo, bodyDk, 0, 13, -18.5, group);                                    // boom meruncing ke belakang
-    mk(new THREE.BoxGeometry(1.2, 9.5, 4.6), body, 0, 16.5, -32.5, group, -0.14);   // sirip tegak (agak menyapu)
-    mk(new THREE.BoxGeometry(1.4, 2, 5), stripe, 0, 20.6, -33.1, group, -0.14, 0, 0, true);   // band amber puncak sirip
-    mk(new THREE.BoxGeometry(10.5, 0.8, 3.4), body, 0, 14, -27, group, 0, 0, 0, true);        // stabilizer horizontal
+    mk(boomGeo, bodyDk, 0, 13, -18.5, group);                                                            // boom meruncing ke belakang
+    mk(new THREE.BoxGeometry(0.3, 0.3, 20), tech, 0.8, 13, -16, group, 0, 0, 0, true);                  // strip neon boom kanan
+    mk(new THREE.BoxGeometry(0.3, 0.3, 20), tech, -0.8, 13, -16, group, 0, 0, 0, true);                 // strip neon boom kiri
+    mk(new THREE.BoxGeometry(1.2, 9.5, 4.6), body, 0, 16.5, -32.5, group, -0.14);                       // sirip tegak (agak menyapu)
+    mk(new THREE.BoxGeometry(1.3, 0.3, 4.7), tech, 0, 14.5, -32.5, group, -0.14, 0, 0, true);           // garis neon sirip
+    mk(new THREE.BoxGeometry(1.4, 2, 5), stripe, 0, 20.6, -33.1, group, -0.14, 0, 0, true);             // band amber puncak sirip
+    mk(new THREE.BoxGeometry(10.5, 0.8, 3.4), body, 0, 14, -27, group, 0, 0, 0, true);                  // stabilizer horizontal
+    mk(new THREE.BoxGeometry(10.6, 0.2, 3.5), tech, 0, 14.3, -27, group, 0, 0, 0, true);                // garis neon stab
     const beacon = mk(new THREE.BoxGeometry(0.9, 0.9, 0.9), beaconM, 0, 21.8, -32.6, group, 0, 0, 0, true);   // beacon amber
 
     // ===================== ROTOR EKOR (2 bilah, sisi kiri sirip; spin sumbu X) =====================
@@ -116,16 +140,19 @@ export function buildHelicopterMesh() {
     group.add(tailRotor);
     const tailHubGeo = new THREE.CylinderGeometry(0.8, 0.8, 1.6, 8); tailHubGeo.rotateZ(Math.PI / 2);
     mk(tailHubGeo, dark, 0, 0, 0, tailRotor, 0, 0, 0, true);
-    mk(new THREE.BoxGeometry(0.5, 9.5, 1.1), blade, -0.6, 0, 0, tailRotor, 0, 0, 0, true);    // rotor ekor 2-BILAH = satu box menembus hub (khas heli ringan)
+    mk(new THREE.BoxGeometry(0.5, 9.5, 1.1), blade, -0.6, 0, 0, tailRotor, 0, 0, 0, true);              // rotor ekor 2-BILAH
+    mk(new THREE.BoxGeometry(0.3, 9.6, 0.2), tech, -0.7, 0, 0, tailRotor, 0, 0, 0, true);               // strip neon rotor ekor
 
-    // ===================== ROTOR UTAMA (3 bilah; spin sumbu Y) =====================
-    // rotor ditinggikan agar sapuan bilah (radius ~35) BEBAS dari puncak sirip
-    // ekor + beacon (~22.3) — tanpa saling tembus saat berputar.
-    mk(new THREE.CylinderGeometry(0.8, 1.0, 4.2, 8), dark, 0, 19.2, 0, group, 0, 0, 0, true); // tiang rotor (statis)
+    // ===================== ROTOR UTAMA (3 bilah; spin sumbu Y + cincin antigrav) =====================
+    mk(new THREE.CylinderGeometry(0.8, 1.0, 4.2, 8), dark, 0, 19.2, 0, group, 0, 0, 0, true);           // tiang rotor (statis)
+    mk(new THREE.CylinderGeometry(1.2, 1.2, 0.5, 10), tech, 0, 21.0, 0, group, 0, 0, 0, true);          // ring neon di tiang
+    
     const rotor = new THREE.Group();
     rotor.position.set(0, 22.4, 0);
     group.add(rotor);
-    mk(new THREE.CylinderGeometry(1.7, 1.7, 1.5, 10), dark, 0, 0, 0, rotor, 0, 0, 0, true);   // hub
+    mk(new THREE.CylinderGeometry(1.7, 1.7, 1.5, 10), dark, 0, 0, 0, rotor, 0, 0, 0, true);             // hub
+    mk(new THREE.TorusGeometry(2.0, 0.15, 8, 24), tech, 0, 0, 0, rotor, Math.PI / 2, 0, 0, true);       // cincin holografik di hub
+    
     const bladeGeo = new THREE.BoxGeometry(1.9, 0.32, 36);
     for (let i = 0; i < 3; i++) {
         const b = new THREE.Mesh(bladeGeo, blade);
@@ -133,17 +160,30 @@ export function buildHelicopterMesh() {
         b.rotation.y = i * Math.PI * 2 / 3;
         b.rotation.x = 0.02;   // coning tipis
         b.castShadow = true;
-        // bilah digeser keluar dari hub sepanjang arah bilahnya sendiri
         b.translateZ(17.5);
         rotor.add(b);
+        
+        // Tambah garis neon cyan di ujung bilah rotor
+        const tipLight = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.34, 3), tech);
+        tipLight.position.copy(b.position);
+        tipLight.rotation.copy(b.rotation);
+        tipLight.translateZ(16); 
+        rotor.add(tipLight);
     }
 
-    // ===================== SKID LANDING GEAR =====================
-    const railGeo = new THREE.BoxGeometry(1.1, 1.1, 30);
+    // ===================== SKID LANDING GEAR (Modifikasi jadi Hoverpad Futuristik) =====================
     for (const side of [-1, 1]) {
-        mk(railGeo, steel, side * 5.6, 1.3, 1, group, 0, 0, 0, true);                          // rail skid
-        mk(new THREE.BoxGeometry(1.0, 5.8, 1.3), steel, side * 5.2, 4.6, 6.5, group, 0, 0, side * 0.28, true);   // strut depan
-        mk(new THREE.BoxGeometry(1.0, 5.8, 1.3), steel, side * 5.2, 4.6, -4.5, group, 0, 0, side * 0.28, true);  // strut belakang
+        // strut depan & belakang (lebih tebal dan bersudut)
+        mk(new THREE.BoxGeometry(1.2, 5.8, 1.5), steel, side * 5.2, 4.6, 6.5, group, 0, 0, side * 0.28, true);   
+        mk(new THREE.BoxGeometry(1.2, 5.8, 1.5), steel, side * 5.2, 4.6, -4.5, group, 0, 0, side * 0.28, true);  
+        
+        // rail/pad bawah (daripada pipa, pakai pad lebar ala hovercraft)
+        mk(new THREE.BoxGeometry(1.8, 1.0, 30), steel, side * 5.6, 1.3, 1, group, 0, 0, 0, true);                   // pad bawah utama
+        mk(new THREE.BoxGeometry(1.9, 0.3, 30), tech, side * 5.6, 0.8, 1, group, 0, 0, 0, true);                     // glow neon di bawah pad (hover)
+        
+        // detail mekanis samping pad
+        mk(new THREE.BoxGeometry(0.4, 1.2, 2), dark, side * 5.6, 1.3, 10, group, 0, 0, 0, true);                     
+        mk(new THREE.BoxGeometry(0.4, 1.2, 2), dark, side * 5.6, 1.3, -8, group, 0, 0, 0, true);                     
     }
 
     return { group, rotor, tailRotor, beacon, beaconM, glassMat: glass, paintMats };
