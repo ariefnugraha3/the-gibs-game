@@ -47,7 +47,7 @@ import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorCl
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
-import { stage2Scene, buildWorld as buildStage2World, placeRobots as placeStage2Robots } from './stage2.js';
+import { stage2Scene, buildWorld as buildStage2World } from './stage2.js';   // robotnya kini ditempatkan stage2.enter sendiri
 import { ensureWorld as ensureStage3World } from './stage3.js';   // (circular aman: dipanggil DI DALAM enter)
 import { ensureWorld as ensureStage4World } from './stage4.js';
 
@@ -631,8 +631,7 @@ export const stage1Scene = {
     enter() {
         saveCampaignStage(1);
         ensureWorld();            // bangun SEMUA dunia campaign sekali (guard `built`)
-        placeStage2Robots();      // robot gedung stage 2 + supply
-        placeRobots();            // robot GELOMBANG 1 stage 1 (50 kelas C)
+        placeRobots();            // robot GELOMBANG 1 stage 1 (50 kelas C; stage 2 robotnya sendiri di stage2.enter)
         placeSupplies();          // supply room: 4 ammo + 2 medkit
         applyLightPreset(scene, 'indoor');
         enterCityEnv();

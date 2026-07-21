@@ -17,7 +17,7 @@ import { blocker } from '../../../core/dom.js';
 import { hidePauseMenu } from '../../../core/pauseMenu.js';
 import { stopMusic } from '../../../utils/sfx.js';
 import { stage1Scene } from '../stages/stage1.js';   // restartScene (circular aman: dibaca DI DALAM fungsi)
-import { stage2Scene, placeRobots as placeStage2Robots } from '../stages/stage2.js';   // (circular aman: DI DALAM fungsi)
+import { stage2Scene } from '../stages/stage2.js';   // (circular aman: DI DALAM fungsi)
 import { stage3Scene } from '../stages/stage3.js';
 import { stage4Scene } from '../stages/stage4.js';
 
@@ -48,9 +48,9 @@ export function beginStageTransition(nextScene) {
 // tanpa shop/loading (konsol cheat `skip-to-stage-N`, hook `cheatSkipToStage`
 // di tiap stage). Buang SEMUA robot + entitas transien (stage sekarang & yang
 // dilewati) lalu `setScene(target)` → enter() membangun dunia + menempatkan
-// robot (stage 1/3/4) + memosisikan player. Stage 2 spesial: robotnya normalnya
-// ditempatkan `stage1.enter`, jadi setelah masuk kita panggil `placeStage2Robots`.
-// Kembalikan n bila valid, null bila di luar 1..4. =====
+// robot (SETIAP stage menempatkan robotnya sendiri di enter() — termasuk stage 2
+// sejak 2026-07-21) + memosisikan player. Kembalikan n bila valid, null bila di
+// luar 1..4. =====
 export function campaignJumpToStage(n) {
     if (!(n >= 1 && n <= 4)) return null;
     stopMusic();   // stage lama berakhir (cheat/restart-checkpoint) -> musik battle mati dulu
@@ -64,8 +64,7 @@ export function campaignJumpToStage(n) {
     clearArray(drops, scene);
     busy = false;   // batalkan transisi shop yang mungkin sedang menanti
     const target = [null, stage1Scene, stage2Scene, stage3Scene, stage4Scene][n];
-    setScene(target, { fresh: true });          // enter(): robot + posisi player (dunia sudah pre-built)
-    if (n === 2) placeStage2Robots();           // robot+supply stage 2 (normalnya via stage1.enter)
+    setScene(target, { fresh: true });          // enter(): robot + posisi player (dunia sudah pre-built; stage 2 kini tempatkan robotnya sendiri)
     // Kompilasi shader di bawah lampu stage tujuan — jaring pengaman anti-stutter
     // utk jalur lompat-langsung (cheat skip / restart-at-stage). Sejak pre-build
     // semua dunia (2026-07-16) shader sudah di-warm startGame, jadi panggilan ini

@@ -39,13 +39,16 @@ export const radarCtx = radar.getContext('2d');
 // Bar channel Medkit (tombol 4): tampil saat memegang medkit; fill = progress tahan klik.
 export const medkitBar = document.getElementById('medkitBar');
 export const medkitBarFill = document.getElementById('medkitBarFill');
-// Bar progress DOWNLOAD (stage 1): unduh data 10 dtk (gerak dibekukan).
+// Bar progress DOWNLOAD (stage 1): unduh data 10 dtk (gerak dibekukan). Dipakai
+// ulang stage 2 utk "RESTORING GENERATOR" (label bisa di-set).
 const downloadBar = document.getElementById('downloadBar');
 const downloadBarFill = document.getElementById('downloadBarFill');
 const downloadBarPct = document.getElementById('downloadBarPct');
+const downloadBarLabel = document.getElementById('downloadBarLabel');
 
-// Tampilkan / perbarui (k = 0..1) / sembunyikan bar unduhan data (stage 1).
-export function showDownloadBar() {
+// Tampilkan / perbarui (k = 0..1) / sembunyikan bar progress (label opsional).
+export function showDownloadBar(label) {
+    if (downloadBarLabel && label) downloadBarLabel.innerText = label;
     if (downloadBar) downloadBar.style.display = 'flex';
     setDownloadProgress(0);
 }

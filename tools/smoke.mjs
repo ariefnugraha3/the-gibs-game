@@ -846,10 +846,11 @@ s2mod.buildWorld();
         }
     }
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === 0) floor++;
-    T('S2: SEMUA lantai gedung terhubung dari START (BFS, ' + floor + ' sel)', reach === floor && floor > 400);
+    T('S2: SEMUA lantai gedung terhubung dari START (BFS, ' + floor + ' sel)', reach === floor && floor > 1500);
+    T('S2: grid 50x50 (plan resmi stage2-v3)', COLS === 50 && ROWS === 50);
 }
-T('S2: START & END berada di LANTAI (bukan dinding)',
-    !s2mod.s2Wall(s2mod.S2_START.c, s2mod.S2_START.r) && !s2mod.s2Wall(s2mod.S2_END.c, s2mod.S2_END.r));
+T('S2: START & GENERATOR berada di LANTAI (bukan dinding)',
+    !s2mod.s2Wall(s2mod.S2_START.c, s2mod.S2_START.r) && !s2mod.s2Wall(s2mod.S2_GEN.c, s2mod.S2_GEN.r));
 T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
 
 // Jumlah robot STAGE 1 = 40 (2026-07-19 malam, permintaan user — dulu 30)
@@ -958,10 +959,10 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
 // Bersihkan robot dari section sebelumnya, masuk scene, tempatkan robot+supply
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s2dropsBefore = stateMod.drops.length;
-smMod.setScene(s2mod.stage2Scene);   // enter() dipanggil di dalam setScene
-s2mod.placeRobots();
+smMod.setScene(s2mod.stage2Scene);   // enter() menempatkan robot+supply stage 2 sendiri (2026-07-21)
 const nStage2 = robots.filter(z => z.stage === 2).length;
-T('S2: placeRobots menaruh 50 robot (9 spot) tagged stage 2 (' + nStage2 + ')', nStage2 === 50);
+T('S2: placeRobots menaruh 50 robot GELOMBANG-1 (kelas C) tagged stage 2 (' + nStage2 + ')',
+    nStage2 === 50 && nStage2 === s2mod.s2Wave1Count && robots.filter(z => z.stage === 2).every(z => z.kind === 'C'));
 T('S2: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s2dropsBefore);
 
 // robotAI (idle->kejar via nav-grid) jalan tanpa error
@@ -982,17 +983,56 @@ const s3mod = await import(R('src/scenes/campaign/stages/stage3.js'));
 const realS3Enter = s3mod.stage3Scene.enter;
 let s3entered = false;
 s3mod.stage3Scene.enter = () => { s3entered = true; };
-const e2 = s2mod.s2Cell(s2mod.S2_END.c, s2mod.S2_END.r);
-// EXIT TERKUNCI (2026-07-19): trigger tangga END DITOLAK selagi robot stage 2 hidup
-stateMod._v3.set(e2.x, 0, e2.z);
-s2mod.stage2Scene.playerCollide(stateMod._v3, e2.x, e2.z, 0);
-T('S2: EXIT TERKUNCI selagi robot hidup (tetap di stage 2)',
-    smMod.activeScene === s2mod.stage2Scene);
-while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }   // "bunuh" semua robot
-stateMod._v3.set(e2.x, 0, e2.z);
-s2mod.stage2Scene.playerCollide(stateMod._v3, e2.x, e2.z, 0);   // -> setScene(campaignShopScene)
-T('S2: semua robot mati -> tangga END pindah ke SHOP SCENE terpisah (bukan transisi langsung)',
-    smMod.activeScene.id === 'campaign-shop' && !s3entered);
+// === S2 FLOW (2026-07-21, ROMBAK TOTAL v3): clear1 (50 C) -> goGen -> collect 3
+// komponen (gudang + 20 penjaga) -> restore 10 dtk (gerak beku) -> DONE LANGSUNG
+// + wave2 bala bantuan (25: 10C/10B/5A). ATURAN BARU (permintaan user): setelah
+// generator pulih, player TAK wajib membunuh semua robot — LIFT langsung aktif
+// (boleh lari melewati wave2) = pindah ke SHOP SCENE. Config-driven (restoreSec). ===
+const EY2 = cfgMod.CFG.player.eyeHeight;
+const s2GenC = s2mod.s2Cell(s2mod.S2_GEN.c, s2mod.S2_GEN.r);
+const s2LiftC = s2mod.s2Cell((s2mod.S2_LIFT.c0 + s2mod.S2_LIFT.c1) / 2, (s2mod.S2_LIFT.r0 + s2mod.S2_LIFT.r1) / 2);
+const killS2 = () => { for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 2) { scene.remove(robots[i].mesh); robots.splice(i, 1); } };
+// LIFT DITOLAK selagi belum 'done' (fase clear1, robot hidup)
+stateMod._v3.set(s2LiftC.x, 0, s2LiftC.z);
+s2mod.stage2Scene.playerCollide(stateMod._v3, s2LiftC.x, s2LiftC.z, 0);
+T('S2: LIFT DITOLAK selagi belum selesai (fase clear1)', smMod.activeScene === s2mod.stage2Scene);
+killS2(); s2mod.stage2Scene.updateMode(0.1);
+T('S2 FLOW: wave1 (50 C) tumbang -> fase goGen', s2mod.s2Debug().phase === 'goGen');
+camera.position.set(s2GenC.x, EY2, s2GenC.z); s2mod.stage2Scene.updateMode(0.1);
+T('S2 FLOW: dekati generator -> collect + 20 penjaga gudang + 3 komponen',
+    s2mod.s2Debug().phase === 'collect' && robots.filter(z => z.stage === 2).length === 20 && s2mod.s2ComponentsDbg().length === 3);
+{   // 3 komponen di UJUNG PALING DALAM rak (baris terbawah, terjauh dari pintu
+    // masuk gudang) + tersebar 1 per ZONA kiri/tengah/kanan → player wajib
+    // menyusuri seluruh gudang & hadapi semua penjaga (2026-07-21, permintaan user).
+    const comps = s2mod.s2ComponentsDbg();
+    const deepRow = comps.every(c => c.row === comps[0].row) && comps[0].row >= 43;
+    const zoneOf = (c) => c.col <= 13 ? 0 : c.col <= 29 ? 1 : 2;
+    const zonesHit = new Set(comps.map(zoneOf));
+    T('S2 FLOW: 3 komponen di UJUNG PALING DALAM rak (baris terbawah) + tersebar 3 zona',
+        comps.length === 3 && deepRow && zonesHit.size === 3);
+}
+for (const cmp of s2mod.s2ComponentsDbg()) { camera.position.set(cmp.mx, EY2, cmp.mz); s2mod.stage2Scene.updateMode(0.1); }
+T('S2 FLOW: 3 komponen terkumpul (berdiri timur rak) -> restore', s2mod.s2Debug().phase === 'restore' && s2mod.s2Debug().comp === 3);
+killS2();   // "bunuh" 20 penjaga (isolasi supaya cek komposisi wave2 bersih)
+camera.position.set(s2GenC.x, EY2, s2GenC.z); s2mod.stage2Scene.updateMode(0.1);
+T('S2 FLOW: injak generator -> restoring + gerak dibekukan (cinematicActive)',
+    s2mod.s2Debug().phase === 'restoring' && stateMod.cinematicActive === true);
+{
+    const rs = cfgMod.CFG.campaign.stage2.restoreSec;
+    for (let t = 0; t <= rs + 1; t += 0.2) s2mod.stage2Scene.updateMode(0.2);
+    const w2 = robots.filter(z => z.stage === 2);
+    const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
+    // Selesai restore -> LANGSUNG 'done' (TAK ada fase clear2 lagi) + wave2 (25).
+    T('S2 FLOW: restore selesai -> DONE LANGSUNG + wave2 bala bantuan (10C/10B/5A) + kendali kembali',
+        s2mod.s2Debug().phase === 'done' && stateMod.cinematicActive === false && w2.length === 25 && nC === 10 && nB === 10 && nA === 5);
+}
+// ATURAN BARU (2026-07-21): lift bisa dinaiki MESKI robot wave2 masih hidup — TANPA killS2.
+const w2alive = robots.filter(z => z.stage === 2).length;
+stateMod._v3.set(s2LiftC.x, 0, s2LiftC.z);
+s2mod.stage2Scene.playerCollide(stateMod._v3, s2LiftC.x, s2LiftC.z, 0);   // -> setScene(campaignShopScene)
+T('S2: fase done -> LIFT pindah ke SHOP SCENE MESKI wave2 (25) masih hidup (tak wajib dibunuh)',
+    smMod.activeScene.id === 'campaign-shop' && w2alive === 25 && !s3entered);
+killS2();   // rapikan sisa robot stage 2 utk section berikutnya
 for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
 stateMod.setScore(0);   // cek KETERSEDIAAN item tanpa beli (skor 0 -> 'Not enough score' vs 'Unknown item')
 T('S2 SHOP SCENE: shop terbuka; Monas difilter; Radar/Shotgun/Rifle/Launcher TERSEDIA',
@@ -1307,17 +1347,12 @@ s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
 {
     const swMod = await import(R('src/scenes/campaign/utility/stairwell.js'));
     const sw = swMod.stairwellDebug();
-    // STAGE 1 (rombak 2026-07-20): titik MASUK = titik SELESAI = TANGGA NAIK
-    // (tanpa lubang; lantai satu-bidang penuh). Hanya stage 2 yang punya tangga
-    // TURUN berlubang (stage 3 keluar lewat pintu lobi). -> 3 naik, 1 turun.
-    T('Stairwell: 3 tangga NAIK (START stage 1/2/3) + 1 tangga TURUN berlubang (END stage 2)',
-        sw.ups === 3 && sw.downs === 1 && sw.holes.length === 1);
-    const e2s = s2mod.s2Cell(s2mod.S2_END.c, s2mod.S2_END.r);
-    const ex2 = s2mod.S2.x0 + (s2mod.S2.G - 1) * s2mod.S2.CELL - swMod.DOWN_FLUSH_OFF;
-    const h2 = sw.holes.find(h => Math.abs((h.x0 + h.x1) / 2 - ex2) < 0.01);
-    T('Stairwell: lubang END stage 2 RAPAT tembok timur + lantai stage 2 = 4 strip mengelilingi lubang',
-        !!h2 && Math.abs((h2.z0 + h2.z1) / 2 - (e2s.z + 4)) < 0.01
-        && sw.floorStrips.length === 1 && sw.floorStrips.every(n => n === 4));
+    // STAGE 1 & 2 (rombak 2026-07-20/21): titik MASUK memakai TANGGA NAIK
+    // (buildStairwellUp; stage 1 titik selesai = tangga sama, stage 2 titik
+    // selesai = LIFT). TAK ADA lagi tangga TURUN berlubang (stage 3 keluar lewat
+    // pintu lobi). -> 3 naik (START stage 1/2/3), 0 turun, lantai satu-bidang.
+    T('Stairwell: 3 tangga NAIK (START stage 1/2/3) + 0 tangga TURUN berlubang (stage 1 finish=tangga, stage 2 finish=lift)',
+        sw.ups === 3 && sw.downs === 0 && sw.holes.length === 0 && sw.floorStrips.length === 0);
 }
 {   // flood-fill union (stage4Walk): START harus terhubung ke END
     const S = s4mod.S4_START, E = s4mod.S4_END, cell = 14;

@@ -186,6 +186,13 @@
             "computerRange": 20,
             "liftWarnRange": 30
         },
+        "stage2": {
+            "restoreSec": 10,
+            "genApproachRange": 46,
+            "genRestoreRange": 20,
+            "componentRange": 16,
+            "liftRange": 26
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,
