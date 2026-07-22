@@ -13,13 +13,15 @@
 //                   GELOMBANG robot MULAI hanya SETELAH tembakan PERTAMA ke pintu
 //                   (s3DoorFired; sebelum itu player boleh berkeliling, TAK ADA
 //                   robot): 6 dari TANGGA + 6 dari LIFT (gateWaveCount, kelas ACAK
-//                   C50/B25/A25, LANGSUNG mengejar); ke-12 robot habis → gelombang
-//                   baru respawnSec (8 dtk) kemudian. Pintu hancur → gelombang STOP.
+//                   C50/B25/A25, LANGSUNG mengejar). ANTI-CAMP (2026-07-22): gelombang
+//                   baru menyala respawnSec (8 dtk) setelah sisa robot TURUN DI BAWAH
+//                   reinforceThreshold (4) — menyisakan 1 robot tak lagi membekukan
+//                   spawn (dulu harus 0). Pintu hancur → gelombang STOP.
 //   2. 'toX'      : robot sisa tetap mengejar; masuk ruang X (lewati bekas pintu).
 //   3. 'machines' : 4 MESIN aktif. JANGAN langsung spawn — TUNDA machineFirstWaveSec
 //                   (3 dtk), lalu GELOMBANG machineWaveCount (4) robot PER MESIN
-//                   hidup; ke-16 habis → respawn respawnSec (8 dtk). Hancurkan ke-4
-//                   mesin dgn menembak. Drop ammo/medkit di X DIGANDAKAN.
+//                   hidup; sisa < reinforceThreshold → respawn respawnSec (8 dtk).
+//                   Hancurkan ke-4 mesin dgn menembak. Drop ammo/medkit di X DIGANDAKAN.
 //   4. 'done'     : SEMUA mesin hancur + SEMUA robot habis → PINTU KELUAR 'o'
 //                   AKTIF (hijau). Capai 'o' → beginStageTransition(stage4).
 
@@ -638,9 +640,12 @@ export const stage3Scene = {
         if (s3Phase === 'door') {
             s3DoorBulletHits();
             // GELOMBANG robot MULAI hanya SETELAH tembakan PERTAMA ke pintu (biarkan
-            // player berkeliling dulu). 6 dari tangga + 6 dari lift; gelombang
-            // berikutnya baru muncul `respawnSec` (8 dtk) SETELAH ke-12 robot bersih.
-            if (s3DoorFired && countStageRobots(3) === 0) {
+            // player berkeliling dulu). 6 dari tangga + 6 dari lift. ANTI-CAMP
+            // (2026-07-22): gelombang berikut menyala saat sisa robot TURUN DI BAWAH
+            // `reinforceThreshold` (bukan lagi harus 0) — menyisakan 1 robot TAK LAGI
+            // membekukan spawn, jadi player tak bisa aman menghancurkan pintu. Player
+            // tetap dapat jeda saat benar-benar membersihkan lapangan (0 < threshold).
+            if (s3DoorFired && countStageRobots(3) < s3.reinforceThreshold) {
                 s3SpawnT -= dt;
                 if (s3SpawnT <= 0) { spawnDoorWave(); s3SpawnT = s3.respawnSec; }
             }
@@ -659,9 +664,10 @@ export const stage3Scene = {
             s3MachineBulletHits();
             for (const m of s3Machines) if (m.alive && m.hp <= 0) s3DestroyMachine(m);
             // GELOMBANG mesin: tunda `machineFirstWaveSec` (3 dtk) sebelum yang PERTAMA,
-            // lalu 4 robot PER MESIN hidup; gelombang berikut `respawnSec` (8 dtk)
-            // setelah semua bersih.
-            if (s3MachinesAlive() > 0 && countStageRobots(3) === 0) {
+            // lalu 4 robot PER MESIN hidup. ANTI-CAMP (2026-07-22): gelombang berikut
+            // menyala saat sisa robot TURUN DI BAWAH `reinforceThreshold` (bukan 0) —
+            // menyisakan 1 robot tak lagi membekukan spawn saat menghancurkan mesin.
+            if (s3MachinesAlive() > 0 && countStageRobots(3) < s3.reinforceThreshold) {
                 s3SpawnT -= dt;
                 if (s3SpawnT <= 0) { spawnMachineWave(); s3SpawnT = s3.respawnSec; }
             }

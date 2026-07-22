@@ -198,6 +198,7 @@
             "machineHp": 1200,
             "gateWaveCount": 6,
             "machineWaveCount": 4,
+            "reinforceThreshold": 4,
             "respawnSec": 8,
             "machineFirstWaveSec": 3,
             "machineHitRadius": 16

@@ -1348,6 +1348,15 @@ for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 T('S3 FLOW: gelombang berikut hanya ~respawnSec (8 dtk) SETELAH ke-12 bersih',
     midWait === 0 && robots.filter(z => z.stage === 3).length === s3cfg.gateWaveCount * 2);
 
+// (2b) ANTI-CAMP (2026-07-22): menyisakan < reinforceThreshold robot TAK membekukan
+// gelombang -> player tak bisa aman camp 1 robot lalu menghancurkan pintu.
+const s3thr = s3cfg.reinforceThreshold;
+while (robots.filter(z => z.stage === 3).length > s3thr - 1) { const i3 = robots.findIndex(z => z.stage === 3); scene.remove(robots[i3].mesh); robots.splice(i3, 1); }
+const s3campBefore = robots.filter(z => z.stage === 3).length;   // = threshold-1
+for (let t = 0; t < s3cfg.respawnSec + 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+T('S3 FLOW: sisa <reinforceThreshold robot TETAP memicu gelombang (anti-camp door)',
+    s3campBefore === s3thr - 1 && robots.filter(z => z.stage === 3).length > s3campBefore);
+
 // (3) Hancurkan PINTU (damage besar) -> fase toX + mesh hilang + blocker dilepas
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 s3FireDoor(s3cfg.doorHp + 100);
@@ -1365,6 +1374,13 @@ const beforeMW = robots.filter(z => z.stage === 3).length;
 for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 T('S3 FLOW: mesin spawn PERTAMA setelah ~machineFirstWaveSec (3 dtk) = 4/mesin (16)',
     beforeMW === 0 && robots.filter(z => z.stage === 3).length === s3cfg.machineWaveCount * 4);
+
+// (4b) ANTI-CAMP fase machines: sisa < reinforceThreshold -> gelombang tetap datang
+while (robots.filter(z => z.stage === 3).length > s3thr - 1) { const i3 = robots.findIndex(z => z.stage === 3); scene.remove(robots[i3].mesh); robots.splice(i3, 1); }
+const s3mCampBefore = robots.filter(z => z.stage === 3).length;   // = threshold-1
+for (let t = 0; t < s3cfg.respawnSec + 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+T('S3 FLOW: sisa <reinforceThreshold robot TETAP memicu gelombang (anti-camp machines)',
+    s3mCampBefore === s3thr - 1 && robots.filter(z => z.stage === 3).length > s3mCampBefore);
 
 // (5) Hancurkan 4 MESIN (HP 0) -> hancur; habisi robot -> fase done (EXIT aktif)
 for (const m of s3mod.s3MachinesDbg()) m.hp = 0;
