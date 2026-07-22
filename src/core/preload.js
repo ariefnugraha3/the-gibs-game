@@ -10,7 +10,8 @@
 import { GEO, MAT } from './state.js';
 import { scene, viewCam, renderer, composer, postFxOn } from './renderer.js';
 import { buildGrenadeMesh, buildRocketMesh } from '../entities/grenades.js';
-import { buildMagMesh, buildMedkitMesh } from '../entities/drops.js';
+import { buildMagMesh, buildMedkitMesh, buildLootMesh } from '../entities/drops.js';
+import { buildBarrelMesh } from '../entities/barrels.js';
 import { buildRobotMesh, disposeRobot } from '../entities/robots.js';
 import { borrowBloodSprite } from '../entities/effects.js';
 import { avatarGroup } from '../entities/playerAvatar.js';
@@ -68,6 +69,8 @@ export async function warmupAll() {
     put(buildRocketMesh(0.7), -6);     // peluru ROKET launcher Lv3 (geo/mat bersama, Lambert/Basic)
     put(buildMagMesh(), -4);           // drop magazen (geo/mat bersama)
     put(buildMedkitMesh(), 0);         // drop medkit (mat bersama)
+    put(buildLootMesh(), 18);          // chip loot/uang amber (geo/mat bersama)
+    put(buildBarrelMesh(), -18);       // barel peledak (geo/mat bersama)
     // Trio visual ledakan + cincin debu: material per-instance PERSIS seperti
     // explodeAt/spawnGroundPuff (toneMapped true & false = dua program berbeda).
     const boomMats = [

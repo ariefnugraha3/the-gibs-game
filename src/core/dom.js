@@ -1,7 +1,7 @@
 // Referensi elemen DOM overlay + helper UI kecil yang menulis DOM langsung.
 // Module script dieksekusi setelah DOM siap (defer), jadi query aman di sini.
 
-export const scoreText = document.getElementById('scoreText');   // ANGKA skor saja (label "SCORE" statis di HTML)
+export const scoreText = document.getElementById('scoreText');   // ANGKA uang saja (label "MONEY" statis di HTML — 2026-07-22 dulu "SCORE")
 // Modul amunisi kanan-bawah (redesign HUD 2026-07-10): nama senjata/item,
 // hitungan peluru besar, "/ maxAmmo" (tanpa magazen sejak 2026-07-11),
 // baris petunjuk (lempar/medkit), dan kontainernya.

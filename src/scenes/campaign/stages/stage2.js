@@ -51,7 +51,8 @@ import { buildFuturisticBenchMesh } from '../../../entities/futuristicBench.js';
 import { buildFuturisticMeetingTableMesh } from '../../../entities/futuristicMeetingTable.js';
 import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps } from '../utility/common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill } from '../utility/common.js';
+import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
@@ -603,6 +604,14 @@ function placeSupplies() {
     put('medkit', 34, 4); put('medkit', 30, 4);
 }
 
+// ===== BAREL PELEDAK (SECOND-IMPROVEMENT point 2): tong eksplosif di lorong
+// gudang + ruang tempur bawah. Ditembak -> ledakan AoE + rambat antar barel.
+// Pejal ke player saja (resolveBarrelBlock); di sel lantai terbuka (aisle). =====
+const S2_BARRELS = [[15, 37], [23, 40], [31, 37], [20, 24], [33, 24]];
+export function placeBarrels() {
+    for (const [c, r] of S2_BARRELS) { const p = s2Cell(c, r); spawnBarrel(p.x, p.z, 0); }
+}
+
 // Pilih 3 rak memegang komponen. Tiap komponen di UJUNG PALING DALAM rak (baris
 // TERBAWAH `S2_SHELF_R1` — paling jauh dari pintu masuk gudang di KANAN-ATAS),
 // di sel TIMUR rak (tempat berdiri). 1 rak ACAK per ZONA kiri/tengah/kanan supaya
@@ -644,6 +653,7 @@ export const stage2Scene = {
             if (robots[i].stage === 1) { disposeRobot(robots[i]); scene.remove(robots[i].mesh); robots.splice(i, 1); }
         }
         placeRobots();            // GELOMBANG 1 (50 kelas C) + supply
+        resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
         applyLightPreset(scene, 'indoor');
         enterCityEnv();
         // Reset ALUR
@@ -674,6 +684,9 @@ export const stage2Scene = {
     // Mati di stage 2 -> campaign SELALU mengulang dari stage 1
     restartScene: () => stage1Scene,
     cheatSkipToStage: (n) => campaignJumpToStage(n),
+
+    // Ganjaran kill campaign: LOOT/uang (bukan skor langsung). Lihat common.js.
+    awardKill: campaignAwardKill,
 
     updateMode(dt) {
         updateStageDoors(s2doors, dt);
@@ -759,6 +772,7 @@ export const stage2Scene = {
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage2Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
+        resolveBarrelBlock(pos, player.radius);   // barel peledak pejal ke player
         slideWalk(stage2Walk, pos, oldX, oldZ, player.radius);
         if (pos.x >= S2.x0 + S2_LIFT.c0 * S2.CELL
             && pos.x <= S2.x0 + (S2_LIFT.c1 + 1) * S2.CELL

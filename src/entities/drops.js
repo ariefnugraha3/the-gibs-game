@@ -2,13 +2,14 @@
 // persediaan tetap (ditaruh manual oleh stage). Pickup dgn aturan "full-item":
 // item yang player-nya sudah penuh TIDAK dikonsumsi — ditinggal di lantai.
 
-import { CFG } from '../core/config.js';
-import { player, drops, maxAmmoFor } from '../core/state.js';
+import { CFG, CAMP_M } from '../core/config.js';
+import { player, drops, maxAmmoFor, addScore } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { playSFX, sfxPickup } from '../utils/sfx.js';
 import { showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
+import { PAL } from '../world/palette.js';
 
 // ----- Medkit (hanya ditaruh manual oleh stage, bukan drop robot) -----
 // Material BERSAMA: Group tidak ditelusuri clearArray, jadi bahan bersama
@@ -75,6 +76,45 @@ export function buildMagMesh() {
     return grp;
 }
 
+// ----- LOOT / uang (SECOND-IMPROVEMENT-PLAN point 1, 2026-07-22) -----
+// Chip kredit amber yang JATUH dari robot mati (campaign) lalu TERSEDOT ke player
+// (magnet) dan menambah SKOR = mata uang shop. Campaign kini TAK memberi skor
+// saat kill (killRobot: hook activeScene.awardKill -> campaignAwardKill menaruh
+// loot); player harus MELOOT untuk dapat uang belanja (ala Alien Shooter).
+// Geo/material BERSAMA (JANGAN dispose). Amber = aksen manusia GIBS-2045.
+const LOOT_GEO = {
+    coin: new THREE.CylinderGeometry(2.0, 2.0, 0.7, 8),   // chip oktagonal
+    core: new THREE.CylinderGeometry(1.15, 1.15, 0.9, 8), // emboss tengah
+};
+const LOOT_MAT = {
+    coin: new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false }),
+    core: new THREE.MeshBasicMaterial({ color: PAL.amberDim, toneMapped: false }),
+};
+export function buildLootMesh() {
+    const g = new THREE.Group();
+    const coin = new THREE.Mesh(LOOT_GEO.coin, LOOT_MAT.coin);
+    coin.rotation.x = Math.PI / 2;   // hadap kamera top-down (pipih di bidang xz)
+    g.add(coin);
+    const core = new THREE.Mesh(LOOT_GEO.core, LOOT_MAT.core);
+    core.rotation.x = Math.PI / 2;
+    g.add(core);
+    return g;
+}
+
+// Taruh loot senilai `value` (dipecah `chips` keping) di (x,z) — dipakai
+// campaignAwardKill (common.js). Keping tersebar sedikit + magnet ke player.
+export function spawnLoot(x, z, value, chips = 1) {
+    const [px, pz] = activeScene.clampDropPos(x, z);
+    const per = Math.max(1, Math.round(value / chips));
+    for (let i = 0; i < chips; i++) {
+        const mesh = buildLootMesh();
+        const a = Math.random() * 6.283, r = chips > 1 ? 3 + Math.random() * 6 : 0;
+        mesh.position.set(px + Math.cos(a) * r, 2, pz + Math.sin(a) * r);
+        scene.add(mesh);
+        drops.push({ mesh, type: 'loot', value: per, timer: CFG.drops.lootLifetimeSec, spin: Math.random() * 6.283 });
+    }
+}
+
 // Drop acak saat robot mati. Posisi dijepit oleh scene aktif (survival:
 // ke dalam pagar; campaign: apa adanya) lewat hook clampDropPos.
 export function spawnDrop(pos) {
@@ -90,12 +130,39 @@ export function spawnDrop(pos) {
 }
 
 let fullInfoCd = 0;   // jeda pesan "already full" agar tidak spam tiap frame
+let lootSndCd = 0;    // jeda suara ambil loot (banyak keping = jangan spam audio)
 
 export function updateDrops(dt, T) {
     if (fullInfoCd > 0) fullInfoCd -= dt;
+    if (lootSndCd > 0) lootSndCd -= dt;
     for (let i = drops.length - 1; i >= 0; i--) {
         const d = drops[i];
         d.timer -= dt;
+
+        // LOOT (uang): berputar pipih + TERSEDOT ke player (magnet) -> ambil =
+        // +value ke SKOR (mata uang shop campaign). Ditangani penuh di sini.
+        if (d.type === 'loot') {
+            d.spin += 5 * dt; d.mesh.rotation.y = d.spin;
+            const dxl = camera.position.x - d.mesh.position.x, dzl = camera.position.z - d.mesh.position.z;
+            const distL = Math.hypot(dxl, dzl);
+            const magR = CFG.drops.lootMagnetMeters * CAMP_M;
+            if (distL < magR && distL > 1e-3) {   // makin dekat makin cepat tersedot
+                const pull = CFG.drops.lootMagnetSpeed * (0.4 + 0.6 * (1 - distL / magR));
+                d.mesh.position.x += dxl / distL * pull * dt;
+                d.mesh.position.z += dzl / distL * pull * dt;
+            }
+            d.mesh.position.y = 2 + Math.sin(T * 4 + i) * 0.4;
+            if (distL < CFG.drops.lootPickupRadius) {
+                addScore(d.value);
+                if (lootSndCd <= 0) { lootSndCd = 0.12; playSFX(sfxPickup, 0.5); }
+                updateUI();
+                scene.remove(d.mesh); drops.splice(i, 1);
+                continue;
+            }
+            if (d.timer <= 0) { scene.remove(d.mesh); drops.splice(i, 1); }
+            continue;
+        }
+
         d.mesh.rotation.y += 3 * dt;
         d.mesh.position.y = 1.2 + Math.sin(T * 3 + i) * 0.3;   // bob (jalan di kedua mode)
 

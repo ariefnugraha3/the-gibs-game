@@ -947,9 +947,14 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     for (let t = 0; t <= dl + 1; t += 0.2) s1m.stage1Scene.updateMode(0.2);
     const w2 = robots.filter(z => z.stage === 1);
     const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
-    T('S1 FLOW: unduh selesai -> 20 robot wave-2 (10C/5B/5A) + kendali dikembalikan',
+    // SECOND-IMPROVEMENT #3 (2026-07-22): unduh selesai spawn wave-2 (10C/5B/5A) +
+    // HORDE (CFG.campaign.stage1.hordeCount kelas C yang LANGSUNG menyerbu = 'chasing').
+    const horde = cfgMod.CFG.campaign.stage1.hordeCount;
+    T('S1 FLOW: unduh selesai -> wave-2 (10C/5B/5A) + HORDE (' + horde + ' C) + kendali dikembalikan',
         s1m.s1Debug().phase === 'clear2' && stateMod.cinematicActive === false
-        && w2.length === 20 && nC === 10 && nB === 5 && nA === 5);
+        && w2.length === 20 + horde && nC === 10 + horde && nB === 5 && nA === 5);
+    T('S1 FLOW: HORDE langsung menyerbu (ada robot chasing di wave-2)',
+        horde === 0 || w2.some(z => z.state === 'chasing'));
     // Buang wave-2 -> fase done (tangga aktif).
     for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 1) { scene.remove(robots[i].mesh); robots.splice(i, 1); }
     s1m.stage1Scene.updateMode(0.1);
@@ -1042,7 +1047,7 @@ T('S2: fase done -> LIFT pindah ke SHOP SCENE MESKI wave2 (25) masih hidup (tak 
     smMod.activeScene.id === 'campaign-shop' && w2alive === 25 && !s3entered);
 killS2();   // rapikan sisa robot stage 2 utk section berikutnya
 for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
-stateMod.setScore(0);   // cek KETERSEDIAAN item tanpa beli (skor 0 -> 'Not enough score' vs 'Unknown item')
+stateMod.setScore(0);   // cek KETERSEDIAAN item tanpa beli (uang 0 -> 'Not enough money' vs 'Unknown item')
 T('S2 SHOP SCENE: shop terbuka; Monas difilter; Radar/Shotgun/Rifle/Launcher TERSEDIA',
     shopMod.isShopOpen()
     && shopMod.shopPurchase('healMonas') === 'Unknown item'      // Monas disembunyikan di campaign
@@ -2447,6 +2452,7 @@ const palMod = await import(R('src/world/palette.js'));
     styleGroups.push(['Sedan', (await import(R('src/entities/futuristicSedan.js'))).buildFuturisticSedanMesh(7, null)]);
     styleGroups.push(['SUV', (await import(R('src/entities/futuristicSUV.js'))).buildFuturisticSUVMesh(7, null)]);
     styleGroups.push(['Helicopter', (await import(R('src/entities/helicopter.js'))).buildHelicopterMesh().group]);
+    styleGroups.push(['Barrel', (await import(R('src/entities/barrels.js'))).buildBarrelMesh()]);
 
     let neonOk = true, emisOk = true, badNeon = '', badEmis = '';
     for (const [name, g] of styleGroups) {
@@ -2477,16 +2483,108 @@ const palMod = await import(R('src/world/palette.js'));
             cyl >= 4 && !!inner && inner.position.y === 0);
     }
 
-    // Rombak prop low-poly 2026-07-16: SEMUA prop & kendaraan wajib ringan —
-    // maksimum 25 mesh per model (penjaga "tidak berat ketika render").
-    let heaviest = '', heavyN = 0, allLite = true;
+    // Rombak prop low-poly 2026-07-16: PROP & kendaraan BERULANG wajib ringan
+    // (maks 25 mesh/model, penjaga "tidak berat ketika render"). PENGECUALIAN:
+    // HELIKOPTER = aset HERO cutscene (SATU instance, bukan prop berulang) yang
+    // SENGAJA dibuat lebih detail oleh user (2026-07-22) — diberi cap SENDIRI
+    // yang longgar (`MESH_CAP`), tetap dijaga agar tak tumbuh liar. Cek palet
+    // (neon/emissive) di atas TETAP berlaku penuh untuk heli.
+    const MESH_CAP = { Helicopter: 70 };
+    let heaviest = '', heavyN = 0, allLite = true, offender = '';
     for (const [name, g] of styleGroups) {
         let n = 0;
         g.traverse(o => { if (o.isMesh) n++; });
         if (n > heavyN) { heavyN = n; heaviest = name; }
-        if (n > 25) allLite = false;
+        const cap = MESH_CAP[name] || 25;
+        if (n > cap) { allLite = false; offender = offender || (name + '=' + n + '>' + cap); }
     }
-    T('semua prop & kendaraan low-poly <= 25 mesh (terberat: ' + heaviest + ' = ' + heavyN + ')', allLite);
+    T('prop/kendaraan low-poly dalam cap (default 25, Helicopter ' + MESH_CAP.Helicopter + '; terberat: ' + heaviest + ' = ' + heavyN + ')' + (offender ? ' [' + offender + ']' : ''), allLite);
+}
+
+// --- 20. LOOT/UANG + BAREL PELEDAK + HARGA CAMPAIGN (SECOND-IMPROVEMENT-PLAN,
+//     2026-07-22). Campaign TAK memberi skor saat kill — jatuhkan LOOT (magnet →
+//     uang shop); barel eksplosif ditembak → AoE + rambat; harga shop campaign
+//     diskalakan CFG.shop.campaignPriceMul. Semua config-driven. ---
+{
+    const dropsMod = await import(R('src/entities/drops.js'));
+    const barMod = await import(R('src/entities/barrels.js'));
+    const comMod2 = await import(R('src/scenes/campaign/utility/common.js'));
+    const goreMod2 = await import(R('src/entities/gore.js'));
+
+    let lootBlocked = false;
+    smMod.setScene({
+        id: 'lootbar-test', enter() { },
+        robotAI: () => ({ chaseDist: 5 }),
+        bulletBlocked: () => lootBlocked,
+        playerCollide() { }, groundHeight: () => 0,
+        clampDropPos: (x, z) => [x, z],
+    });
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    stateMod.drops.length = 0; barMod.resetBarrels();
+
+    // (a) spawnLoot -> drop 'loot' bernilai; magnet + pungut -> +SKOR
+    camera.position.set(0, 11.4, 0);
+    stateMod.setScore(0);
+    const lootC = cfgMod.CFG.drops.loot.C;
+    dropsMod.spawnLoot(60, 0, lootC, 1);
+    T('spawnLoot: 1 drop tipe loot bernilai C (' + lootC + ')', stateMod.drops.length === 1
+        && stateMod.drops[0].type === 'loot' && stateMod.drops[0].value === lootC);
+    for (let i = 0; i < 400 && stateMod.drops.length; i++) dropsMod.updateDrops(0.05, i * 0.05);
+    T('loot tersedot magnet + terpungut -> skor = nilai C', stateMod.drops.length === 0 && stateMod.score === lootC);
+
+    // (b) campaignAwardKill: killRobot campaign TANPA skor langsung, jatuhkan loot A
+    smMod.activeScene.awardKill = comMod2.campaignAwardKill;
+    stateMod.setScore(0);
+    const zL = mkBot('A', 30, 0); robots.push(zL);
+    robotsMod.killRobot(robots.indexOf(zL), { cause: 'bullet', dirx: 1, dirz: 0 });
+    const lastD = stateMod.drops[stateMod.drops.length - 1];
+    T('campaignAwardKill: kill TANPA skor langsung + jatuhkan loot (nilai A ' + cfgMod.CFG.drops.loot.A + ')',
+        stateMod.score === 0 && lastD && lastD.type === 'loot' && lastD.value === cfgMod.CFG.drops.loot.A);
+    delete smMod.activeScene.awardKill;
+    stateMod.drops.length = 0; goreMod2.resetGore();
+
+    // (c) BAREL: resolveBarrelBlock dorong player keluar; tembak barel -> meledak
+    //     (queueBoom di processPendingBooms) -> robot dalam radius MATI.
+    barMod.resetBarrels();
+    barMod.spawnBarrel(200, 0, 0);
+    T('spawnBarrel: 1 barel terdaftar', barMod.barrelDebug().count === 1);
+    const pos = { x: 201, z: 0 };
+    barMod.resolveBarrelBlock(pos, cfgMod.CFG.player.radius);
+    T('resolveBarrelBlock: player didorong keluar lingkaran barel',
+        Math.hypot(pos.x - 200, pos.z - 0) >= cfgMod.CFG.player.radius + 3.9);
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    const zBar = mkBot('C', 205, 0); robots.push(zBar); chaseDist = 5;
+    camera.position.set(200, 11.4, -400);   // player jauh (barel diledakkan sendiri oleh tembakan)
+    stateMod.bullets.push({ mesh: { position: new THREE.Vector3(200, 8, 0) }, px: 190, pz: 0, dir: new THREE.Vector3(1, 0, 0), damage: cfgMod.CFG.barrels.hp });
+    barMod.barrelBulletHits();
+    T('barel tertembak -> meledak (count 0)', barMod.barrelDebug().count === 0);
+    robotsMod.updateRobots(0.016, 1);   // processPendingBooms -> explodeAt -> robot mati
+    T('ledakan barel membunuh robot di radius', !robots.includes(zBar));
+    goreMod2.resetGore();
+
+    // (d) RAMBATAN (chain): meledakkan barel -> barel lain dalam radius ikut meledak
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    barMod.resetBarrels();
+    barMod.spawnBarrel(300, 0, 0); barMod.spawnBarrel(320, 0, 0);   // 20 unit < radius blast
+    barMod.detonateBarrel(barMod.barrels[0]);
+    T('rambatan: barel pertama meledak (sisa 1)', barMod.barrelDebug().count === 1);
+    robotsMod.updateRobots(0.016, 1);   // boom barel-1 -> detonateBarrelsInRadius -> barel-2 ikut
+    T('rambatan: barel kedua ikut meledak (chain, sisa 0)', barMod.barrelDebug().count === 0);
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    barMod.resetBarrels(); stateMod.drops.length = 0; goreMod2.resetGore();
+
+    // (e) HARGA CAMPAIGN: shop mode campaign menskalakan harga (campaignPriceMul).
+    //     Uang SETARA harga campaign (< harga survival) -> item TERBELI hanya bila
+    //     shop memakai harga campaign (kalau pakai harga survival -> 'Not enough money').
+    shopMod.closeShop();
+    shopMod.openShop({ mode: 'campaign', head: 'X', nextLabel: 'x', confirmMsg: 'x', onNext() { } });
+    const mul = cfgMod.CFG.shop.campaignPriceMul;
+    stateMod.player.hp = 1;
+    stateMod.setScore(Math.round(cfgMod.CFG.shop.healthCost * mul));
+    T('harga campaign = base × mul (' + mul + ') < survival; item terbeli di harga campaign',
+        mul < 1 && Math.round(cfgMod.CFG.shop.healthCost * mul) < cfgMod.CFG.shop.healthCost
+        && shopMod.shopPurchase('health') === null);
+    shopMod.closeShop();
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

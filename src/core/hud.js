@@ -16,7 +16,7 @@ import { currentWeapon, WEAPON_DEF, medkitMode } from '../entities/weapons.js';
 export function updateUI() {
     const w = player[currentWeapon];
     const wName = WEAPON_DEF[currentWeapon].name;
-    scoreText.innerText = score;   // label "SCORE" statis di HTML
+    scoreText.innerText = score;   // label "MONEY" statis di HTML (2026-07-22; `score` = uang/mata uang shop)
     // Modul amunisi (tanpa magazen 2026-07-11): nama senjata/item + hitungan
     // peluru besar + "/ maxAmmo" + baris petunjuk. Memegang granat/medkit ->
     // hitungan item itu. (Reload dihapus bersama sistem magazen.)
@@ -208,10 +208,11 @@ export function drawRadar() {
     // Robot
     for (const z of robots)
         plot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z, "#ff4757", 3);
-    // Drops (mag kuning, granat hijau, medkit merah muda)
+    // Drops (mag kuning, medkit merah muda, loot/uang amber, lainnya hijau)
     for (const d of drops)
         plot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z,
-            d.type === 'mag' ? "#f1c40f" : d.type === 'medkit' ? "#ff6b81" : "#2ecc71", 2.5);
+            d.type === 'mag' ? "#f1c40f" : d.type === 'medkit' ? "#ff6b81"
+                : d.type === 'loot' ? "#ffb03b" : "#2ecc71", 2.5);
 
     // Penanda N — di titik tempat utara SEBENARNYA jatuh di radar. Dgn frame
     // sejajar-layar (SCREEN_UP unit), rumus (-fx, fz)·(R-9) = arah utara dunia

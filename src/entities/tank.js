@@ -76,7 +76,7 @@
 // menjauhi tank).
 
 import { CFG, CAMP_M } from '../core/config.js';
-import { player, bullets, enemyBullets, GEO, MAT, addScore, stats, godMode, dodgeInvuln } from '../core/state.js';
+import { player, bullets, enemyBullets, GEO, MAT, stats, godMode, dodgeInvuln } from '../core/state.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { segPointDist2, clamp, rand } from '../utils/math.js';
 import { queueBoom, attackerAngle } from './robots.js';
@@ -1163,13 +1163,14 @@ function clearTankProjectiles(tank) {
 }
 
 // ===== KEMATIAN: ledakan besar berantai + serpihan + turret terangkat, lalu
-// bangkai membara. Skor boss diberikan. stage4 mendeteksi tank.dead. =====
+// bangkai membara. stage4 mendeteksi tank.dead → MISSION COMPLETE. =====
 function killTank(tank) {
     tank.dead = true; tank.hp = 0; tank.deathT = 0;
     hideZap();   // listrik padam bersama tank
     stopTankAudio(tank);          // loop gerak/turret mati seketika (2026-07-19)
     clearTankProjectiles(tank);   // shell/mortar/peluru MG terbang -> lenyap (tak melukai player)
-    addScore(tank.score);
+    // Campaign TAK memberi skor saat kill (2026-07-22): skor akhir = UANG hasil
+    // loot sepanjang run. Boss tank pun tak menambah skor langsung (mengakhiri game).
     stats.kills++;
     const p = tank.parts, px = p.group.position.x, pz = p.group.position.z;
     // gelapkan cat (bangkai hangus)

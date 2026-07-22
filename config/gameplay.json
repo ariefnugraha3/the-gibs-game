@@ -65,7 +65,7 @@
             "ammoPickup": 30,
             "fireDelayMs": 260,
             "cameraKick": 0.016,
-            "damage": 25
+            "damage": 40
         },
         "shotgun": {
             "maxAmmo": 300,
@@ -182,7 +182,8 @@
         "stage1": {
             "downloadSec": 10,
             "computerRange": 20,
-            "liftWarnRange": 30
+            "liftWarnRange": 30,
+            "hordeCount": 16
         },
         "stage2": {
             "restoreSec": 10,
@@ -252,9 +253,21 @@
     },
     "drops": {
         "magChance": 0.05,
-        "lifetimeSec": 20
+        "lifetimeSec": 20,
+        "lootLifetimeSec": 16,
+        "lootMagnetMeters": 12,
+        "lootMagnetSpeed": 58,
+        "lootPickupRadius": 6,
+        "loot": { "C": 18, "B": 32, "A": 48, "boss": 400 }
+    },
+    "barrels": {
+        "hp": 40,
+        "blastRadiusMeters": 6,
+        "robotDamage": 120,
+        "playerDamage": 55
     },
     "shop": {
+        "campaignPriceMul": 0.5,
         "ammoCost": 800,
         "healthCost": 600,
         "medkitCost": 800,

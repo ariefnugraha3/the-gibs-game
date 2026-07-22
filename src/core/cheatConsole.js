@@ -69,7 +69,7 @@ function runCommand(cmd) {
         setFeedback(godMode ? 'God mode: ON - player & Monas are invincible' : 'God mode: OFF');
     } else if (c === 'more-money') {
         addScore(100000);       // +100000 skor = mata uang shop Survival
-        updateUI();             // segarkan angka SCORE di HUD
+        updateUI();             // segarkan angka MONEY di HUD
         setFeedback('+100000 score - buy anything in the Field Shop!');
     } else if (/^skip-to-wave-\d+$/.test(c)) {
         // Lompat langsung ke wave n (Survival). Scene aktif yang mendukung punya

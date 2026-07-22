@@ -49,7 +49,8 @@ import { buildFuturisticCrateMesh } from '../../../entities/futuristicCrate.js';
 import { buildFuturisticMeetingTableMesh } from '../../../entities/futuristicMeetingTable.js';
 import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps } from '../utility/common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill } from '../utility/common.js';
+import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
@@ -583,6 +584,14 @@ function placeSupplies() {
     put('medkit', 12, 33); put('medkit', 28, 33); put('medkit', 16, 36); put('medkit', 24, 36);
 }
 
+// ===== BAREL PELEDAK (SECOND-IMPROVEMENT point 2): tong eksplosif di ruang pabrik
+// X + ruang tengah sebelum pintu blast. Ditembak -> ledakan AoE + rambat antar
+// barel. Pejal ke player saja (resolveBarrelBlock); di sel lantai terbuka. =====
+const S3_BARRELS = [[12, 34], [27, 34], [19, 32], [19, 36], [19, 24]];
+export function placeBarrels() {
+    for (const [c, r] of S3_BARRELS) { const p = s3Cell(c, r); spawnBarrel(p.x, p.z, 0); }
+}
+
 export const stage3Scene = {
     id: 'campaign-3',
 
@@ -600,6 +609,7 @@ export const stage3Scene = {
             if (robots[i].stage === 2 || robots[i].stage === 3) { disposeRobot(robots[i]); scene.remove(robots[i].mesh); robots.splice(i, 1); }
         }
         placeSupplies();
+        resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
         applyLightPreset(scene, 'indoor');
         enterCityEnv();
         resetRoomLamps(s3Lamps);
@@ -630,6 +640,9 @@ export const stage3Scene = {
 
     restartScene: () => stage1Scene,
     cheatSkipToStage: (n) => campaignJumpToStage(n),
+
+    // Ganjaran kill campaign: LOOT/uang (bukan skor langsung). Lihat common.js.
+    awardKill: campaignAwardKill,
 
     updateMode(dt) {
         updateStageDoors(s3doors, dt);
@@ -689,6 +702,7 @@ export const stage3Scene = {
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage3Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
+        resolveBarrelBlock(pos, player.radius);   // barel peledak pejal ke player
         slideWalk(stage3Walk, pos, oldX, oldZ, player.radius);
         if (pos.x >= S3.x0 + S3_EXIT.c0 * S3.CELL && pos.x <= S3.x0 + (S3_EXIT.c1 + 1) * S3.CELL
             && pos.z >= S3.z0 + S3_EXIT.r0 * S3.CELL && pos.z <= S3.z0 + (S3_EXIT.r1 + 1) * S3.CELL) {

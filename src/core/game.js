@@ -18,6 +18,7 @@ import { updateGrenades } from '../entities/grenades.js';
 import { updateExplosions, updateBloodPool, resetBloodPool, spawnBloodBurst } from '../entities/effects.js';
 import { updateGore, resetGore, spawnBloodDecal } from '../entities/gore.js';
 import { updateDrops } from '../entities/drops.js';
+import { updateBarrels, barrelBulletHits, resetBarrels } from '../entities/barrels.js';
 import { updateBullets } from '../entities/bullets.js';
 import { updateRobots, updateEnemyBullets, disposeRobot, resetRobotsFx, PLAYER_BLOOD_HEX } from '../entities/robots.js';
 import { avatarGroup, hideMoveMarker, playAvatarDeath, resetAvatarDeath } from '../entities/playerAvatar.js';
@@ -84,8 +85,10 @@ export function updateGame(dt, step, T) {
     updateGrenades(dt);            // balistik + fuse + ledakan
     updateExplosions(dt);          // animasi visual ledakan/puff
     updateBloodPool(dt);           // pudarkan percikan darah
-    updateDrops(dt, T);            // bob item + pickup + kedaluwarsa
+    updateDrops(dt, T);            // bob item + pickup + kedaluwarsa (+ magnet loot)
+    updateBarrels(dt);             // denyut beacon barel peledak
     updateBullets(step);           // maju + mati di dinding scene
+    barrelBulletHits();            // peluru player -> barel meledak (SEBELUM sweep robot)
     updateRobots(dt, step);       // AI scene + serang (cakar/tembak) + rig + hit peluru (+ spawn mayat/gib saat mati)
     if (isGameOver) return;        // Monas runtuh (damageMonas) tetap mengakhiri game seketika
     updateEnemyBullets(dt, step);  // peluru robot ranged -> hit player (bisa memicu sekuens kematian)
@@ -108,7 +111,7 @@ export function gameOver(won, title) {
     // Campaign selesai = menang; selain itu (HP habis) = kalah.
     gameOverTitle.innerText = title || (won ? 'MISSION COMPLETE' : 'GAME OVER');
     gameOverScreen.style.background = won ? 'rgba(0, 90, 30, 0.82)' : 'rgba(150, 0, 0, 0.8)';
-    finalScoreEl.innerText = `Score: ${score}`;
+    finalScoreEl.innerText = `Money: ${score}`;
     bestScoreEl.innerText = `Best: ${highScore}`;
     // Statistik run (IMPROVEMENT-PLAN #10): akurasi dihitung per peluru
     const acc = stats.shots > 0 ? Math.round(stats.hits / stats.shots * 100) : 0;
@@ -156,6 +159,7 @@ export function resetGame(atCurrentStage = false) {
     resetRobotsFx();   // antrean ledakan (peluru Grenade Launcher) yang belum terproses
     resetBloodPool();   // pool tetap, cukup disembunyikan
     resetGore();        // buang mayat + sembunyikan pool gib/genangan darah
+    resetBarrels();     // buang barel peledak (ditaruh ulang oleh enter() stage)
     clearArray(bullets, scene);
     clearArray(enemyBullets, scene);   // peluru robot ranged
     clearArray(grenades, scene);

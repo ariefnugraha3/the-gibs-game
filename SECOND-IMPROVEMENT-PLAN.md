@@ -82,9 +82,9 @@ Kerjakan dulu **#1 (loot drop) + #2 (barrel meledak) + #3 (swarm moment)**:
 
 | # | Fitur | Prioritas | Status |
 |---|-------|-----------|--------|
-| 1 | Loot & currency drop | 1 | Belum |
-| 2 | Barrel meledak | 1 | Belum |
-| 3 | Swarm moment / horde | 1 | Belum |
+| 1 | Loot & currency drop | 1 | **SELESAI** (2026-07-22) |
+| 2 | Barrel meledak | 1 | **SELESAI** (2026-07-22) |
+| 3 | Swarm moment / horde | 1 | **SELESAI** (2026-07-22, Stage 1) |
 | 4 | Senjata signature (Flamethrower) | 1 | Belum |
 | 5 | Variasi objektif per stage | 2 | Belum |
 | 6 | Environmental hazard aktif | 2 | Belum |
@@ -92,3 +92,22 @@ Kerjakan dulu **#1 (loot drop) + #2 (barrel meledak) + #3 (swarm moment)**:
 | 8 | Enemy special abilities | 2 | Belum |
 | 9 | Combo / kill-streak progression | 3 | Belum |
 | 10 | Mini-boss per stage | 3 | Belum |
+
+## Catatan implementasi (2026-07-22)
+
+**Ekonomi campaign (baru):** campaign TAK lagi memberi skor saat kill (`killRobot`
+memakai hook `activeScene.awardKill`). Campaign stage memakai `campaignAwardKill`
+(common.js) → menjatuhkan **LOOT/uang** (chip amber, `CFG.drops.loot` per kelas:
+C/B/A/boss) yang **tersedot ke player (magnet)** dan menambah SKOR = mata uang
+shop (ala Alien Shooter). Survival TAK berubah (skor langsung saat kill). Harga
+shop campaign diskalakan `CFG.shop.campaignPriceMul` (0.5) supaya wajar untuk
+rencana 13 stage — player tak bisa langsung beli banyak di stage awal. Semua
+config-driven (`config/gameplay.json`).
+
+- **#1 Loot:** `entities/drops.js` `spawnLoot`/`buildLootMesh` + cabang `'loot'` di
+  `updateDrops` (magnet `lootMagnetMeters`/`lootMagnetSpeed`, pungut `lootPickupRadius`).
+- **#2 Barel:** `entities/barrels.js` (entity baru) — ditembak → ledakan AoE
+  (`CFG.barrels`) + rambat antar barel; pejal ke player (`resolveBarrelBlock`),
+  bukan penghalang nav. Ditaruh di semua stage (parkiran/gudang/pabrik/jalan).
+- **#3 Horde:** `spawnSwarm` (common.js) + `spawnStage1Horde` — gerombolan kelas C
+  yang LANGSUNG menyerbu saat data Stage 1 selesai diunduh (`CFG.campaign.stage1.hordeCount`).

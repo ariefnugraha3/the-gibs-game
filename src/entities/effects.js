@@ -9,6 +9,7 @@ import { makeTexture } from '../utils/textures.js';
 import { playSFX, sfxExplode } from '../utils/sfx.js';
 import { spawnDrop } from './drops.js';
 import { killRobot } from './robots.js';
+import { detonateBarrelsInRadius } from './barrels.js';   // call-time (circular aman)
 import { updateUI } from '../core/hud.js';
 
 // Pool 3 lampu ledakan, selalu di scene dengan intensity 0:
@@ -130,6 +131,9 @@ export function explodeAt(pos, radius, dmg, sfx) {
             killRobot(i, { cause: 'explosion', dirx: z.mesh.position.x - pos.x, dirz: z.mesh.position.z - pos.z });
         }
     }
+    // Rambatan BAREL PELEDAK: barel dalam radius ikut meledak (chain). Antre boom
+    // baru diproses di while-loop processPendingBooms yang sama (bukan rekursi).
+    detonateBarrelsInRadius(pos.x, pos.z, R);
     updateUI();
 }
 

@@ -382,8 +382,18 @@ function catalog() {
         // lihat weaponItem; pistol null bila tak dimiliki = tak pernah dijual).
         ...WEAPON_ORDER.map(weaponItem).filter(Boolean),
     ];
-    // Campaign: sembunyikan item khusus Survival (Monas/Radar/beli-senjata).
-    if (shopCtx && shopCtx.mode === 'campaign') return items.filter(it => !SURVIVAL_ONLY.has(it.id));
+    // Campaign: sembunyikan item khusus Survival (Monas) + terapkan PENGALI HARGA
+    // campaign (CFG.shop.campaignPriceMul, 2026-07-22). Ekonomi campaign 13-stage
+    // memakai UANG dari LOOT robot (CFG.drops.loot) yang jauh lebih kecil daripada
+    // skor-per-kill Survival — harga campaign diskalakan supaya WAJAR (player tak
+    // langsung bisa beli banyak di stage awal, tetap fun & balance). Survival TAK
+    // tersentuh (pengali hanya berlaku saat shopCtx.mode === 'campaign').
+    if (shopCtx && shopCtx.mode === 'campaign') {
+        const out = items.filter(it => !SURVIVAL_ONLY.has(it.id));
+        const mul = CFG.shop.campaignPriceMul;
+        if (mul && mul !== 1) for (const it of out) it.cost = Math.round(it.cost * mul);
+        return out;
+    }
     return items;
 }
 
@@ -432,7 +442,7 @@ export function shopPurchase(id) {
     if (note === 'Worn') return 'This armor is already worn and intact';
     if (note === 'Full') return 'Medkit stock is full';
     if (note === 'Maxed') return it.maxedMsg || 'The Monument is already fully reinforced';
-    if (score < it.cost) return 'Not enough score';
+    if (score < it.cost) return 'Not enough money';
     // Beli senjata tipe baru sementara slot sudah penuh (maks) -> minta pilih
     // yang diganti; skor dipotong saat konfirmasi (shopReplaceWeapon).
     if (it.weapon && !player.owned[it.weapon]
@@ -462,7 +472,7 @@ export function shopReplaceWeapon(oldW) {
     const it = pendingWeapon;
     const idx = player.weapons.indexOf(oldW);
     if (idx < 0) return 'You do not carry that weapon';
-    if (score < it.cost) { pendingWeapon = null; return 'Not enough score'; }
+    if (score < it.cost) { pendingWeapon = null; return 'Not enough money'; }
     const snap = snapshotState();        // utk undo klik-kanan
     const w = it.weapon;
     player.weapons[idx] = w;             // ganti di posisi slot yang sama
@@ -650,7 +660,7 @@ function render() {
     }
 
     const foot = el('div', 'shopFoot');
-    foot.appendChild(el('div', 'shopScore', `Score: ${score}`));
+    foot.appendChild(el('div', 'shopScore', `Money: ${score}`));
     foot.appendChild(el('div', 'shopHint', 'Left-click to buy · Right-click to cancel'));
     const next = el('button', 'shopNext', (shopCtx && shopCtx.nextLabel) || 'Start Next Wave ▶');
     next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"

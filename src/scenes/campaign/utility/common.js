@@ -6,6 +6,7 @@ import { CFG, CAMP_M } from '../../../core/config.js';
 import { player, robots } from '../../../core/state.js';
 import { scene, camera } from '../../../core/renderer.js';
 import { buildRobotMesh, reachForScale } from '../../../entities/robots.js';
+import { spawnLoot } from '../../../entities/drops.js';
 import { navAim, turnToward } from '../../../utils/pathfind.js';
 
 // Catatan arsitektur: KEDUA dunia stage dibangun sekali di awal campaign dan
@@ -19,7 +20,9 @@ import { navAim, turnToward } from '../../../utils/pathfind.js';
 // cls: 'C' (default melee) | 'B' | 'A' (penembak, CFG.robot.classes) | 'boss'
 // (CFG.campaign.bosses.giant — langsung 'chasing', melee, granat luka berkurang
 // [boss.grenadeDamage], skor & jangkauan khusus).
-export function spawnCampaignRobot(x, z, stage, cls = 'C') {
+// `active` (2026-07-22): true = langsung 'chasing' (bukan 'idle') — dipakai
+// SWARM/horde (spawnSwarm) supaya robot langsung menyerbu, bukan menunggu LOS.
+export function spawnCampaignRobot(x, z, stage, cls = 'C', active = false) {
     // Rangka robot per kelas ('boss' = frame melee gelap raksasa dari builder yang sama)
     const built2 = buildRobotMesh(cls);
     const zMesh = built2.group;
@@ -37,7 +40,7 @@ export function spawnCampaignRobot(x, z, stage, cls = 'C') {
     robots.push({
         mesh: zMesh, hp, maxHp: hp, speed,
         rig: built2.rig, isModel: true, baseY: 0, phase: Math.random() * 6.28,
-        state: B ? 'chasing' : 'idle', stage, jumpT: 0, jumpDur: 0.55,
+        state: (B || active) ? 'chasing' : 'idle', stage, jumpT: 0, jumpDur: 0.55,
         sx: x, sz: z, lx: x, lz: z,
         jumpY0: 0, jumpY1: 0, arcH: 0, groundY: 0, vaultCd: 0,
         attackCd: 0, clawT: 0, windT: 0, clawSide: 1, moving: false,
@@ -52,6 +55,32 @@ export function spawnCampaignRobot(x, z, stage, cls = 'C') {
         // boleh mendorong player keluar dari jangkauan cakarnya sendiri
         reachMul: reachForScale(scl, B ? B.reachMul : 1)
     });
+}
+
+// GANJARAN kill campaign (SECOND-IMPROVEMENT-PLAN point 1, 2026-07-22): campaign
+// TAK memberi skor langsung — jatuhkan LOOT/uang (CFG.drops.loot per KELAS) di
+// posisi robot; player memungutnya (magnet, drops.js) → jadi uang belanja shop
+// (ala Alien Shooter). Boss = pecahan banyak keping. Dipakai stage*.awardKill.
+export function campaignAwardKill(z) {
+    const L = CFG.drops.loot || {};
+    const value = L[z.kind] != null ? L[z.kind] : (L.C || 15);
+    spawnLoot(z.mesh.position.x, z.mesh.position.z, value, z.kind === 'boss' ? 8 : 1);
+}
+
+// SWARM / HORDE (SECOND-IMPROVEMENT-PLAN point 3, 2026-07-22): sebar sekelompok
+// robot yang LANGSUNG MENYERBU (active=true → 'chasing', bukan idle) dari daftar
+// titik `spots` [[cellC, cellR, n], ...]. `cellFn(c,r)`→{x,z} dunia, `walkFn`/
+// `resolveFn` menjepit spawn ke lantai sah. Reusable untuk stage mana pun.
+export function spawnSwarm(spots, stage, cellFn, walkFn, resolveFn, scratch, cls = 'C') {
+    for (const [c, r, n] of spots) {
+        const p = cellFn(c, r);
+        for (let k = 0; k < n; k++) {
+            scratch.set(p.x + (Math.random() - 0.5) * 14, 0, p.z + (Math.random() - 0.5) * 14);
+            if (resolveFn) resolveFn(scratch, 4, 0);
+            if (walkFn && !walkFn(scratch.x, scratch.z, 4)) scratch.set(p.x, 0, p.z);
+            spawnCampaignRobot(scratch.x, scratch.z, stage, cls, true);   // active = langsung menyerbu
+        }
+    }
 }
 
 // AI robot campaign generik. `stage` menyuplai:

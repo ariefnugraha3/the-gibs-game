@@ -603,7 +603,12 @@ export function killRobot(i, opts = {}) {
     const z = robots[i];
     robots.splice(i, 1);          // keluar dari daftar HIDUP DULU (mayat jadi inert: tak ber-AI/pejal/kena tembak)
     stats.kills++;
-    addScore(robotScore(z));
+    // GANJARAN KEMATIAN (2026-07-22): scene aktif menentukan. Survival = SKOR
+    // langsung (robotScore, tak punya hook awardKill). Campaign = TAK ada skor
+    // langsung — scene menjatuhkan LOOT/uang (awardKill -> campaignAwardKill) yang
+    // harus dipungut player untuk jadi uang belanja shop (ala Alien Shooter).
+    if (activeScene.awardKill) activeScene.awardKill(z);
+    else addScore(robotScore(z));
 
     const p = z.mesh.position, scl = z.scl || 1;
     const dirx = opts.dirx != null ? opts.dirx : (Math.random() - 0.5);

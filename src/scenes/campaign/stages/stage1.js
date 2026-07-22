@@ -40,7 +40,8 @@ import { buildFuturisticSofaMesh } from '../../../entities/futuristicSofa.js';
 import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps } from '../utility/common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill, spawnSwarm } from '../utility/common.js';
+import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot, setDoorLocked } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
@@ -595,6 +596,29 @@ export function placeSupplies() {
     put('medkit', 32, 6); put('medkit', 36, 7); // 2 medkit
 }
 
+// ===== BAREL PELEDAK (SECOND-IMPROVEMENT point 2): tong eksplosif di ruang
+// tempur terbuka. Ditembak -> ledakan AoE membunuh robot di sekitar (rambat antar
+// barel). BUKAN penghalang nav (robot boleh lewat = berkerumun di dekatnya),
+// hanya PEJAL ke player (resolveBarrelBlock di playerCollide). Ditaruh di sel
+// lantai terbuka jauh dari pintu/furnitur. =====
+const S1_BARRELS = [[18, 31], [26, 31], [24, 44], [31, 45], [40, 22]];
+export function placeBarrels() {
+    for (const [c, r] of S1_BARRELS) { const p = s1Cell(c, r); spawnBarrel(p.x, p.z, 0); }
+}
+
+// ===== HORDE (SECOND-IMPROVEMENT point 3): gerombolan kelas C yang LANGSUNG
+// MENYERBU dari ruang X saat data selesai diunduh — bersama bala bantuan wave-2,
+// momen "hostiles inbound" jadi BANJIR robot. Jumlah CFG.campaign.stage1.hordeCount
+// (config-driven), disebar ke sudut ruang X via spawnSwarm (active = 'chasing'). =====
+const S1_HORDE_ANCHORS = [[4, 41], [16, 41], [4, 47], [16, 47], [10, 44]];
+export function spawnStage1Horde() {
+    const n = CFG.campaign.stage1.hordeCount || 0;
+    if (n <= 0) return;
+    const per = Math.floor(n / S1_HORDE_ANCHORS.length), rem = n % S1_HORDE_ANCHORS.length;
+    const spots = S1_HORDE_ANCHORS.map((a, i) => [a[0], a[1], per + (i < rem ? 1 : 0)]);
+    spawnSwarm(spots, 1, s1Cell, stage1Walk, resolve, _v3, 'C');
+}
+
 export const stage1Scene = {
     id: 'campaign-1',
 
@@ -604,6 +628,7 @@ export const stage1Scene = {
         ensureWorld();            // bangun SEMUA dunia campaign sekali (guard `built`)
         placeRobots();            // robot GELOMBANG 1 stage 1 (50 kelas C; stage 2 robotnya sendiri di stage2.enter)
         placeSupplies();          // supply room: 4 ammo + 2 medkit
+        resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
         applyLightPreset(scene, 'indoor');
         enterCityEnv();
         // Reset ALUR ke awal: fase clear1, unduh 0, pintu komputer TERKUNCI lagi.
@@ -635,6 +660,10 @@ export const stage1Scene = {
 
     restartScene: () => stage1Scene,
     cheatSkipToStage: (n) => campaignJumpToStage(n),
+
+    // Ganjaran kill campaign: TAK ada skor langsung — jatuhkan LOOT/uang (dipungut
+    // player, magnet) jadi uang belanja shop. Lihat campaignAwardKill (common.js).
+    awardKill: campaignAwardKill,
 
     // Pintu geser + lampu per-ruangan + STATE MACHINE alur stage.
     updateMode(dt) {
@@ -674,8 +703,9 @@ export const stage1Scene = {
                 setCinematicActive(false);   // kembalikan kendali
                 hideDownloadBar();
                 if (s1Marker) s1Marker.visible = false;   // marker tak perlu lagi
-                spawnWave2();                // 20 robot tambahan di ruang X
-                showStageMsg('Data secured! Hostiles inbound — fight your way back to the stairs!', 5000);
+                spawnWave2();                // 20 robot tambahan di ruang X (10C/5B/5A)
+                spawnStage1Horde();          // + HORDE kelas C langsung menyerbu (SECOND-IMPROVEMENT #3)
+                showStageMsg('Data secured! A HORDE of robots swarms in — fight your way back to the stairs!', 5200);
             }
         } else if (s1Phase === 'clear2') {
             if (n === 0) {
@@ -711,6 +741,7 @@ export const stage1Scene = {
         slideWalk(stage1Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
         resolveDoors(s1doors, pos, player.radius, true);   // pintu TERKUNCI memblok player
+        resolveBarrelBlock(pos, player.radius);            // barel peledak pejal ke player
         slideWalk(stage1Walk, pos, oldX, oldZ, player.radius);
         // Trigger SELESAI = ruang TANGGA (T). Aktif hanya bila semua objektif tuntas.
         if (pos.x >= S1.x0 + S1_FINISH.c0 * S1.CELL

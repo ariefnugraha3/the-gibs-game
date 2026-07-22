@@ -42,7 +42,8 @@ import { buildFuturisticBenchMesh } from '../../../entities/futuristicBench.js';
 import { buildFuturisticPlanterMesh } from '../../../entities/futuristicPlanter.js';
 import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
 import { buildFuturisticRubbleMesh } from '../../../entities/futuristicRubble.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots } from '../utility/common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill } from '../utility/common.js';
+import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { exitCityEnv } from '../utility/cityscape.js';
 import { campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
@@ -943,6 +944,17 @@ function placeSupplies() {
     put('medkit', OX + 3400, OZ - 18);                                 // sebelum gerbang alun-alun
 }
 
+// ===== BAREL PELEDAK (SECOND-IMPROVEMENT point 2): tong eksplosif sepanjang
+// jalur tempur parkiran → jalan raya (cover + hazard ala Alien Shooter). Ditembak
+// -> ledakan AoE + rambat antar barel. Pejal ke player (resolveBarrelBlock). =====
+const S4_BARRELS = [
+    [OX + 120, OZ - 110], [OX + 230, OZ - 150],   // parkiran
+    [OX + 800, OZ + 20], [OX + 1700, OZ - 18], [OX + 2450, OZ + 16], [OX + 2900, OZ - 14],   // jalan raya
+];
+export function placeBarrels() {
+    for (const [x, z] of S4_BARRELS) spawnBarrel(x, z, 0);
+}
+
 // --- Boss stage 4: TANK penjaga alun-alun (entities/tank.js). Muncul setelah
 // SEMUA robot mati — SPAWN DI TENGAH ALUN-ALUN (2026-07-17: menggelinding dari
 // sisi timur lapangan ke pusat; wallX ditaruh di BARAT home agar fase smash
@@ -1019,6 +1031,7 @@ export const stage4Scene = {
         if (roadGate) roadGate.visible = true;
         if (gateBlocker && !blockers.includes(gateBlocker)) blockers.push(gateBlocker);
         placeRobots();
+        resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
         applyLightPreset(scene, 'night');
         exitCityEnv();   // stage 4 outdoor: pulihkan kubah kobaran-api global + fog apokaliptik (stage 1-3 menyembunyikannya)
         camera.position.set(S4_START.x, CFG.player.eyeHeight, S4_START.z);
@@ -1029,6 +1042,9 @@ export const stage4Scene = {
     },
 
     restartScene: () => stage1Scene,
+
+    // Ganjaran kill campaign: LOOT/uang (bukan skor langsung). Lihat common.js.
+    awardKill: campaignAwardKill,
 
     // CHEAT: konsol `skip-to-stage-N` -> lompat langsung ke stage n (tanpa shop)
     cheatSkipToStage: (n) => campaignJumpToStage(n),
@@ -1064,6 +1080,7 @@ export const stage4Scene = {
         slideUnion(pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
         slideUnion(pos, oldX, oldZ, player.radius);
+        resolveBarrelBlock(pos, player.radius);   // barel peledak pejal ke player
         resolveTankBlock(tank, pos);   // player tidak bisa menembus tank/bangkainya
         // PEMICU CUTSCENE (2026-07-17): heli sudah menunggu + player MENGINJAK
         // ring road (masuk rect SQ) -> mulai sinematik penjemputan-gagal.
