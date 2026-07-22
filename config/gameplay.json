@@ -21,7 +21,6 @@
     },
     "stamina": {
         "max": 100,
-        "adsDrainPerSec": 3,
         "meleeCost": 20,
         "regenPerSec": 10,
         "recoverThreshold": 20
@@ -33,7 +32,6 @@
         "speed": 2.2
     },
     "movement": {
-        "adsMultiplier": 0.7,
         "backpedalWeight": 0.5,
         "strafeWeight": 0.5,
         "walkSpreadPenalty": 1.25
@@ -210,7 +208,6 @@
                 "scale": 2.4,
                 "clawDamage": 60,
                 "reachMul": 1.8,
-                "spawnWhenRemaining": 5,
                 "score": 1000,
                 "grenadeDamage": 300
             },
@@ -244,7 +241,6 @@
                 "mortarBurst": 5,
                 "mortarBurstGapSec": 0.5,
                 "mortarSpeed": 2.6,
-                "mortarTurnRadPerSec": 1.6,
                 "mortarGravity": 90,
                 "mortarMaxSec": 6,
                 "mortarApexMeters": 12,
@@ -252,12 +248,10 @@
                 "shockRadiusMeters": 5,
                 "shockDps": 20
             }
-        },
-        "stage3Robots": 26
+        }
     },
     "drops": {
         "magChance": 0.05,
-        "grenadeChance": 0.02,
         "lifetimeSec": 20
     },
     "shop": {
