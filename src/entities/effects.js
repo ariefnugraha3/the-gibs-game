@@ -30,6 +30,21 @@ const BLOOD_COUNT = 72;
 // lewat parameter warna spawnBlood/spawnBloodBurst (robots.js, PLAYER_BLOOD_HEX).
 export const COOLANT_HEX = 0x49e07c;
 
+// ===== KILAT MONCONG ROBOT (2026-07-27) =====
+// Sebelumnya tembakan robot A/B TIDAK punya kilat sama sekali — bola plasma
+// muncul begitu saja dari udara, jadi tembakannya tak pernah terbaca sebagai
+// "letusan". Pool TETAP (dibuat sekali di initEffects, `visible=false` saat
+// idle) berisi bidang datar ber-blending aditif, DIREBAHKAN menghadap ke atas
+// persis seperti kilat moncong player supaya terlihat dari kamera top-down.
+// PENTING: pool ini SENGAJA TANPA PointLight — jumlah lampu harus konstan
+// (invarian "no mid-game shader recompile"); terangnya datang dari material
+// aditif + bloom. Materialnya milik masing-masing entri (opasitas per kilat)
+// tapi dibuat SEKALI, dan programnya sama dgn kilat moncong player yang sudah
+// ikut warm-up.
+const MUZZLE_COUNT = 10;
+const muzzlePool = [];
+let nextMuzzle = 0;
+
 export function initEffects(sc) {
     for (let i = 0; i < 3; i++) {
         const l = new THREE.PointLight(0xff8a3d, 0, 260, 2);
@@ -64,6 +79,63 @@ export function initEffects(sc) {
         sc.add(spr);
         bloodPool.push({ spr, life: 0, s0: 3, vx: 0, vy: 0, vz: 0 });
     }
+
+    // Kilat moncong: bintang 4 lidah api + inti pijar (sama gaya dgn milik player).
+    const muzzleTex = makeTexture(64, 64, (g) => {
+        g.translate(32, 32);
+        const core = g.createRadialGradient(0, 0, 0, 0, 0, 13);
+        core.addColorStop(0, 'rgba(255,255,255,1)');
+        core.addColorStop(0.45, 'rgba(255,224,150,0.85)');
+        core.addColorStop(1, 'rgba(255,170,60,0)');
+        g.fillStyle = core;
+        g.beginPath(); g.arc(0, 0, 13, 0, 6.283); g.fill();
+        g.fillStyle = 'rgba(255,214,130,0.92)';
+        for (let i = 0; i < 4; i++) {
+            g.rotate(Math.PI / 2);
+            g.beginPath();
+            g.moveTo(0, -2.6); g.lineTo(29, 0); g.lineTo(0, 2.6);
+            g.closePath(); g.fill();
+        }
+    });
+    const muzzleGeo = new THREE.PlaneGeometry(1, 1);
+    for (let i = 0; i < MUZZLE_COUNT; i++) {
+        const m = new THREE.Mesh(muzzleGeo, new THREE.MeshBasicMaterial({
+            map: muzzleTex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+            depthWrite: false, depthTest: false, toneMapped: false
+        }));
+        m.rotation.x = -Math.PI / 2;   // REBAH menghadap atas (terbaca dari kamera top-down)
+        m.renderOrder = 9;
+        m.visible = false;
+        sc.add(m);
+        muzzlePool.push({ mesh: m, life: 0, s0: 1 });
+    }
+}
+
+// Nyalakan satu kilat moncong di titik dunia (x,y,z). `yaw` = arah tembak
+// (kilat diputar mengikutinya), `scale` = besar kilat (kelas A lebih besar).
+// Round-robin: kilat tertua ditimpa bila 10 tembakan berbarengan.
+export function spawnMuzzleFlash(x, y, z, yaw = 0, scale = 4) {
+    if (!muzzlePool.length) return;
+    const f = muzzlePool[nextMuzzle++ % muzzlePool.length];
+    f.mesh.position.set(x, y, z);
+    f.mesh.rotation.set(-Math.PI / 2, 0, yaw + Math.random() * 0.6);   // roll acak = tiap letusan beda
+    f.s0 = scale;
+    f.mesh.scale.setScalar(scale);
+    f.mesh.material.opacity = 1;
+    f.mesh.visible = true;
+    f.life = 1;
+}
+
+// Debug/uji: jumlah kilat moncong yang sedang menyala.
+export const muzzleFlashDebug = () => muzzlePool.reduce((n, f) => n + (f.life > 0 ? 1 : 0), 0);
+
+// Pemanasan pra-game (core/preload.js): pinjam SATU bidang kilat moncong supaya
+// TEKSTUR-nya ikut terunggah di frame pemanasan. Programnya sama dgn kilat
+// moncong player, tapi teksturnya beda — tanpa ini, unggahan tekstur terjadi
+// pada tembakan robot A/B PERTAMA (persis saat aksi mulai). Pemanggil wajib
+// mengembalikan visible/opacity-nya + menaruhnya lagi ke scene.
+export function borrowMuzzleFlash() {
+    return muzzlePool.length ? muzzlePool[0].mesh : null;
 }
 
 // Pemanasan pra-game (core/preload.js): pinjam 1 sprite darah dari pool supaya
@@ -198,7 +270,10 @@ export function spawnBloodBurst(x, y, z, dirx, dirz, n, power = 1, spread = 2.1,
 }
 
 // --- Animasi ledakan (membesar + memudar + kilat cahaya meredup) ---
+// Sekaligus meluruhkan pool KILAT MONCONG: menumpang updater yang sudah ada
+// supaya urutan blok updateGame (kontrak) tidak bertambah.
 export function updateExplosions(dt) {
+    updateMuzzleFlashes(dt);
     for (let i = explosions.length - 1; i >= 0; i--) {
         const e = explosions[i];
         e.life -= dt * 3;
@@ -213,6 +288,25 @@ export function updateExplosions(dt) {
             explosions.splice(i, 1);
         }
     }
+}
+
+// --- Kilat moncong (pool tetap): SANGAT singkat (~70 ms) + MENGEMBANG sedikit
+// sambil memudar; menumpang loop ledakan supaya tak ada updater baru. ---
+export function updateMuzzleFlashes(dt) {
+    for (let i = 0; i < muzzlePool.length; i++) {
+        const f = muzzlePool[i];
+        if (f.life <= 0) continue;
+        f.life -= dt * 14;                       // umur ~0.07 dtk = letusan, bukan lampu
+        const k = Math.max(0, f.life);
+        f.mesh.scale.setScalar(f.s0 * (1 + (1 - k) * 0.55));
+        f.mesh.material.opacity = k;
+        if (f.life <= 0) f.mesh.visible = false;
+    }
+}
+
+// Pool tetap: cukup disembunyikan saat reset (tanpa dispose)
+export function resetMuzzleFlashes() {
+    muzzlePool.forEach(f => { f.life = 0; f.mesh.visible = false; });
 }
 
 // --- Percikan darah (pool tetap): muncrat keluar (kecepatan + gravitasi),

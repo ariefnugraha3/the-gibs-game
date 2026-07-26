@@ -15,7 +15,7 @@ import { buildAmmoMesh, AMMO_WEAPONS } from '../entities/ammoPickups.js';
 import { buildBarrelMesh } from '../entities/barrels.js';
 import { buildCrateMesh } from '../entities/crates.js';
 import { buildRobotMesh, disposeRobot } from '../entities/robots.js';
-import { borrowBloodSprite } from '../entities/effects.js';
+import { borrowBloodSprite, borrowMuzzleFlash } from '../entities/effects.js';
 import { avatarGroup } from '../entities/playerAvatar.js';
 import { buildHeliFlameSprite } from '../entities/helicopter.js';
 
@@ -109,6 +109,19 @@ export async function warmupAll() {
         bspr.visible = true;
     }
 
+    // Kilat moncong robot pinjaman dari pool (2026-07-27): unggah TEKSTURNYA
+    // sekarang, bukan pada tembakan robot A/B pertama.
+    const mzf = borrowMuzzleFlash();
+    let mzfState = null;
+    if (mzf) {
+        mzfState = { visible: mzf.visible, opacity: mzf.material.opacity, scale: mzf.scale.x };
+        warm.add(mzf);
+        mzf.position.set(-22, 4, -60);
+        mzf.scale.setScalar(3);
+        mzf.material.opacity = 0.5;
+        mzf.visible = true;
+    }
+
     // AVATAR player (2026-07-18): render NYATA di depan viewCam supaya SEMUA
     // tekstur/materialnya terunggah SEKARANG — menghilangkan stutter saat avatar
     // pertama TAMPIL turun dari heli di cutscene intro (di sana ia visible=false
@@ -144,6 +157,13 @@ export async function warmupAll() {
         bspr.visible = bsprState.visible;
         bspr.material.opacity = bsprState.opacity;
         scene.add(bspr);                   // kembali ke induk semula (scene root)
+    }
+    if (mzf) {
+        mzf.visible = mzfState.visible;
+        mzf.material.opacity = mzfState.opacity;
+        mzf.scale.setScalar(mzfState.scale);
+        mzf.rotation.set(-Math.PI / 2, 0, 0);   // pose rebah pool seperti semula
+        scene.add(mzf);
     }
     if (avatarGroup) {
         (avParent || scene).add(avatarGroup);   // kembali ke induk semula (biasanya scene)

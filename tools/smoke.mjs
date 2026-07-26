@@ -351,6 +351,64 @@ const zB2 = mkBot('B', -30, 0); zB2.aiming = true; zB2.moving = false;
 for (let i = 0; i < 30; i++) robotsMod.animateRobotRig(zB2, 0.05);
 T('B membidik: kanan naik, kiri tetap di bawah', zB2.rig.armR.rotation.x < -1.2 && zB2.rig.armL.rotation.x > -0.6);
 
+// --- 5g2. TEMBAKAN A/B DIPERTAJAM (2026-07-27): kilat moncong (pool TETAP,
+//     TANPA PointLight), kunci bidik (mata menyala), recoil TEREDAM (memantul,
+//     bukan satu bump), badan MENYERAP hentakan, kuda-kuda menembak. ---
+{
+    const lightsBefore = (() => { let n = 0; scene.traverse(o => { if (o.isLight) n++; }); return n; })();
+    const zS = zB2, rS = zS.rig;
+    zS.aiming = true; zS.moving = false; zS.fireCd = 1;
+    for (let i = 0; i < 40; i++) robotsMod.animateRobotRig(zS, 1 / 60);
+    const eyeIdle = rS.eyeMat.emissiveIntensity;
+    T('kuda-kuda MENEMBAK: kaki terpentang (bukan berdiri kaku)',
+        Math.abs(rS.thighL.rotation.x) > 0.1 && Math.abs(rS.thighR.rotation.x) > 0.1);
+    zS.fireCd = 0.1;                                   // hampir menembak = KUNCI BIDIK
+    for (let i = 0; i < 6; i++) robotsMod.animateRobotRig(zS, 1 / 60);
+    T('KUNCI BIDIK: mata menyala menjelang menembak (' + eyeIdle.toFixed(2)
+        + ' -> ' + rS.eyeMat.emissiveIntensity.toFixed(2) + ')', rS.eyeMat.emissiveIntensity > eyeIdle + 0.4);
+    // --- Tembak: kilat + recoil badan
+    const nF0 = effectsMod.muzzleFlashDebug();
+    robotsMod.fireRobotBullet(zS);
+    T('menembak MEMUNCULKAN kilat moncong (dulu tak ada sama sekali)',
+        effectsMod.muzzleFlashDebug() === nF0 + 1);
+    // Bukti "pantulan teredam" (bukan satu bump sinus): laras harus MELEWATI
+    // garis pose bidiknya di KEDUA arah. Bump sinus lama selalu satu arah saja
+    // (hanya menendang naik lalu kembali), jadi menghitung "balikan arah" tidak
+    // cukup — sway napas kecil pun menghasilkannya.
+    const armBase = rS.armR.rotation.x;
+    let maxEye = 0, minZ = 0, maxTwist = 0, over = 0, under = 0;
+    for (let i = 0; i < 30 && zS.recoilT > 0; i++) {
+        robotsMod.animateRobotRig(zS, 1 / 60);
+        maxEye = Math.max(maxEye, rS.eyeMat.emissiveIntensity);
+        minZ = Math.min(minZ, rS.inner.position.z);
+        maxTwist = Math.max(maxTwist, Math.abs(rS.inner.rotation.y));
+        over = Math.max(over, rS.armR.rotation.x - armBase);
+        under = Math.min(under, rS.armR.rotation.x - armBase);
+    }
+    T('RECOIL memantul TEREDAM: laras melewati garis bidik di KEDUA arah ('
+        + under.toFixed(2) + ' / +' + over.toFixed(2) + ')', under < -0.1 && over > 0.02);
+    T('BADAN menyerap hentakan: torso terdorong mundur + memuntir',
+        minZ < -0.3 && maxTwist > 0.05);
+    T('mata MENYAMBAR saat meletus (' + maxEye.toFixed(2) + '×)', maxEye > 2.5);
+    // --- Kilat = pool TETAP: padam sendiri & TIDAK menambah lampu (invarian
+    //     "jumlah PointLight konstan" — kilat sengaja tanpa lampu).
+    for (let i = 0; i < 40; i++) effectsMod.updateExplosions(1 / 60);
+    T('kilat moncong padam sendiri (pool tetap, tak menumpuk)', effectsMod.muzzleFlashDebug() === 0);
+    for (let i = 0; i < 12; i++) robotsMod.fireRobotBullet(zS);   // lebih banyak dari ukuran pool
+    const lightsAfter = (() => { let n = 0; scene.traverse(o => { if (o.isLight) n++; }); return n; })();
+    T('kilat moncong TIDAK menambah PointLight (' + lightsBefore + ' -> ' + lightsAfter + ')',
+        lightsAfter === lightsBefore);
+    T('pool kilat dibatasi (spam tembakan tak melebihi kapasitas)', effectsMod.muzzleFlashDebug() <= 10);
+    // --- Pulih bersih: mata & badan kembali TEPAT ke netral
+    zS.aiming = false; zS.recoilT = 0;
+    for (let i = 0; i < 200; i++) robotsMod.animateRobotRig(zS, 1 / 60);
+    T('pulih: mata kembali TEPAT 1 & torso kembali netral',
+        rS.eyeMat.emissiveIntensity === 1 && Math.abs(rS.inner.position.z) < 1e-3
+        && Math.abs(rS.inner.rotation.y) < 1e-3);
+    effectsMod.resetMuzzleFlashes();
+    while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
+}
+
 // --- 5i. IDLE per kelas (2026-07-14, spesifikasi user): BADAN & KAKI DIAM,
 //     kepala celingak-celinguk; gestur khas kelas (C angkat-turun tangan,
 //     B gosok senapan, A juggle senapan). ---

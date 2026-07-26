@@ -12,7 +12,7 @@ import { rand, clamp, segPointDist2 } from '../utils/math.js';
 import { playSFX, sfxRobotBite, sfxHit, sfxMelee, sfxRobotShot, startBattleMusic } from '../utils/sfx.js';
 import { crosshair, flashDamage, showHitDir, showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
-import { spawnBloodBurst, explodeAt, spawnGroundPuff } from './effects.js';
+import { spawnBloodBurst, explodeAt, spawnGroundPuff, spawnMuzzleFlash } from './effects.js';
 import { spawnCorpse, bisectCorpse, gibRobot, spawnGibs, spawnBloodDecal } from './gore.js';
 import { spawnDrop } from './drops.js';
 import { startPlayerDeath, isPlayerDying } from '../core/game.js';
@@ -35,6 +35,7 @@ const CLASS_LOOK = {
 const EYE_RED = 0xff2020;
 
 export const CLAW_TIME = 0.4;   // durasi animasi sabetan (mekanik jeda cakar dari CFG)
+export const RECOIL_T = 0.25;   // durasi hentakan tembakan robot A/B (visual; dipakai fireRobotBullet + rig)
 // Pose diam senapan di tangan (dipakai saat build + dikembalikan usai juggle idle A)
 const GUN_IDLE_Y = -3.9, GUN_IDLE_RX = Math.PI / 2;
 
@@ -290,22 +291,58 @@ export function animateRobotRig(z, dt) {
     // (kiri tetap di bawah); A: DUA lengan bersenapan naik, recoil bergantian
     // sesuai laras yang menembak. =====
     if (z.ranged) {
+        // ===== MENEMBAK (DIPERTAJAM 2026-07-27) =====
+        // Dulu: lengan naik ke pose bidik + SATU bump sinus di rotasi lengan.
+        // Tembakannya tak punya letusan, badannya tak menyerap apa pun, dan
+        // kakinya tetap berdiri lurus — hasilnya "patung yang menyemburkan
+        // bola". Sekarang: KUNCI BIDIK (ayunan mereda + mata menyala menjelang
+        // menembak = telegraf), RECOIL TEREDAM (pantulan meluruh, bukan satu
+        // bump), SELURUH BADAN menyerap hentakan (torso terdorong mundur +
+        // memuntir menjauhi laras yang meletus + kepala tersentak), dan KUDA-
+        // KUDA menembak (kaki terpentang, lutut menekuk, condong ke laras).
         z.aimT = (z.aimT || 0) + ((z.aiming ? 1 : 0) - (z.aimT || 0)) * Math.min(1, dt * 8);
         if (z.recoilT > 0) z.recoilT -= dt;
         const s = Math.sin(z.phase);
-        const swing = z.moving === false ? s * 0.05 : s * 0.35;   // ayunan saat jalan / sway kecil
+        const A = z.aimT;
+        // KUNCI BIDIK: 0.3 dtk terakhir sebelum tembakan berikutnya, ayunan
+        // napas mereda (laras "mengunci") — pemain punya isyarat untuk mencari
+        // perlindungan. 0 saat cooldown masih panjang atau belum membidik.
+        const lock = A * clamp(1 - (z.fireCd || 0) / 0.3, 0, 1);
+        const swing = (z.moving === false ? s * 0.05 : s * 0.35) * (1 - 0.85 * lock);
         const AIM = -1.52;                                        // lengan mengacung horizontal
-        const kick = z.recoilT > 0 ? Math.sin(Math.PI * (1 - z.recoilT / 0.25)) * 0.38 : 0;
+        // RECOIL: hentakan TAJAM lalu pantulan teredam (dulu satu bump sinus
+        // yang naik-turun kalem). u = 0 tepat saat meletus -> 1 saat pulih.
+        const u = z.recoilT > 0 ? 1 - z.recoilT / RECOIL_T : 1;
+        const env = z.recoilT > 0 ? Math.exp(-5.5 * u) : 0;       // selubung peluruhan
+        const kick = 0.46 * env * Math.cos(u * 15);               // ayunan laras teredam
+        const fired = z.recoilSide === -1 ? -1 : 1;               // laras yang meletus (A: bergantian)
         // Kanan: selalu bersenapan (B & A) — naik saat membidik + recoil miliknya
-        r.armR.rotation.x = (-0.12 - swing) * (1 - z.aimT) + AIM * z.aimT
-            - (z.recoilSide !== -1 ? kick : 0);
+        r.armR.rotation.x = (-0.12 - swing) * (1 - A) + AIM * A - (fired > 0 ? kick : kick * 0.25);
         r.armR.rotation.z = 0;
         // Kiri: A = senapan kedua (ikut mengacung, recoil saat gilirannya);
         // B = TETAP DI BAWAH (hanya mengayun mengikuti langkah).
         r.armL.rotation.x = z.kind === 'A'
-            ? (-0.12 + swing) * (1 - z.aimT) + AIM * z.aimT - (z.recoilSide === -1 ? kick : 0)
+            ? (-0.12 + swing) * (1 - A) + AIM * A - (fired < 0 ? kick : kick * 0.25)
             : -0.12 + swing;
         r.armL.rotation.z = 0;
+        // MATA: pendar naik saat mengunci bidik, lalu MENYAMBAR terang tepat
+        // saat meletus — denyutnya menandai ritme tembakan dari kejauhan.
+        // Di-SNAP ke 1 tepat saat mereda: `aimT` meluruh eksponensial (tak pernah
+        // benar-benar 0), jadi tanpa snap pendar diam tertinggal di 1+1e-13.
+        if (r.eyeMat) {
+            const ei = 1 + 1.1 * lock + 2.4 * env;
+            r.eyeMat.emissiveIntensity = ei < 1.001 ? 1 : ei;
+        }
+        // KUDA-KUDA menembak: kaki terpentang & lutut menekuk saat berdiri
+        // membidik (kaki dilurus-damping oleh blok "berdiri" di atas, jadi
+        // penulisan di sini yang menang). Tidak diterapkan saat berjalan.
+        if (z.moving === false && A > 0.05) {
+            r.thighR.rotation.x = -0.30 * A; r.shinR.rotation.x = 0.34 * A;   // kaki belakang menopang
+            r.thighL.rotation.x = 0.22 * A; r.shinL.rotation.x = 0.16 * A;    // kaki depan menjejak
+        }
+        // Simpan selubung recoil utk blok penyerapan badan di bawah (setelah
+        // rantai cakar, yang untuk robot ranged selalu masuk cabang damping).
+        z._recEnv = env; z._recSide = fired;
     }
 
     // ===== SERANGAN CAKAR 3 FASE (overhaul 2026-07-13; menimpa pose jalan) =====
@@ -390,11 +427,31 @@ export function animateRobotRig(z, dt) {
         r.inner.rotation.y += (0 - r.inner.rotation.y) * d2;
         r.inner.position.z += (0 - r.inner.position.z) * d2;
         r.head.rotation.x += (0 - r.head.rotation.x) * d2;
-        // Mata kembali ke pendar normal (pose jalan tak menulisnya).
-        if (r.eyeMat && r.eyeMat.emissiveIntensity !== 1) {
+        // Mata kembali ke pendar normal (pose jalan tak menulisnya) — KECUALI
+        // robot penembak, yang pendar matanya dikemudikan blok menembak di atas.
+        if (r.eyeMat && !z.ranged && r.eyeMat.emissiveIntensity !== 1) {
             r.eyeMat.emissiveIntensity += (1 - r.eyeMat.emissiveIntensity) * d2;
             if (Math.abs(r.eyeMat.emissiveIntensity - 1) < 0.01) r.eyeMat.emissiveIntensity = 1;
         }
+    }
+
+    // ===== PENYERAPAN HENTAKAN BADAN penembak (2026-07-27) =====
+    // DI SINI, bukan di blok menembak: rantai cakar di atas selalu masuk cabang
+    // damping untuk robot ranged (windT/clawT-nya tak pernah > 0) dan akan
+    // menghapus nilai apa pun yang ditulis lebih dulu. Torso TERDORONG MUNDUR,
+    // MEMUNTIR menjauhi laras yang meletus, dan kepala tersentak — massa badan
+    // ikut menerima tolakan, bukan cuma lengannya.
+    if (z.ranged) {
+        const env = z._recEnv || 0;
+        if (env > 0.001) {
+            const sd = z._recSide || 1;
+            r.inner.position.z = -1.15 * env;          // lokal +z = arah hadap -> mundur
+            r.inner.rotation.x = -0.13 * env;          // dada terangkat menahan tolakan
+            r.inner.rotation.y = 0.16 * env * sd;      // memuntir menjauhi laras yang meletus
+            r.head.rotation.x = -0.10 * env;           // kepala tersentak ke atas
+        }
+        // Condong ke laras saat mengunci bidik (agresif, bukan berdiri tegak).
+        if (z.aimT > 0.05 && env <= 0.001) r.inner.rotation.x = 0.07 * z.aimT;
     }
 }
 
@@ -757,8 +814,14 @@ export function fireRobotBullet(z, tx, ty, tz, monasDmg = 0) {
     if (pd < 400) playSFX(sfxRobotShot, Math.max(0.15, 0.6 * (1 - pd / 400)));
     // RECOIL: hentakan laras NAIK sesaat pada lengan yang menembak
     // (animateRobotRig) — BUKAN lagi overlay cakar (dulu tampak "mencakar ke bawah").
-    z.recoilT = 0.25;
+    z.recoilT = RECOIL_T;
     z.recoilSide = side;
+    // KILAT MONCONG (2026-07-27): dulu tak ada sama sekali — bola plasma muncul
+    // dari udara. Pool tetap di effects.js (TANPA PointLight: jumlah lampu wajib
+    // konstan), ditaruh di titik dunia moncong yang meletus & diputar ke arah
+    // tembak. Kelas A (dua laras besar) berkilat lebih besar dari B.
+    spawnMuzzleFlash(_ebPos.x, _ebPos.y, _ebPos.z, Math.atan2(dx / d, dz / d),
+        (z.kind === 'A' ? 5.2 : 4.0) * (z.scl || 1));
 }
 
 // Gerak & hit peluru MUSUH -> player. Sweep segmen (anti-tunnel peluru cepat);
