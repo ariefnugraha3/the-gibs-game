@@ -8,9 +8,9 @@ import {
     player, keys, mouse, bullets, robots, isPaused, isGameOver, stats,
     GEO, MAT, _dir, _tip, _v3, _sRight, _sUp, _kickEuler
 } from '../core/state.js';
-import { scene, camera } from '../core/renderer.js';
+import { scene, camera, addCamShake } from '../core/renderer.js';
 import { aimPoint } from '../core/input.js';   // batas jarak peluru = titik kursor (2026-07-16)
-import { avatarGunTip } from './playerAvatar.js';
+import { avatarGunTip, flashSwordBlade } from './playerAvatar.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
 import {
@@ -21,9 +21,11 @@ import { crosshair, showPickup, medkitBar, medkitBarFill } from '../core/dom.js'
 import { updateUI } from '../core/hud.js';
 import { stamina, staExhausted, drainStamina, dodgeActive } from './player.js';
 import { killRobot } from './robots.js';
-import { spawnBloodBurst } from './effects.js';   // muncratan coolant robot yang selamat dari sabetan
+import { spawnBloodBurst, spawnGroundPuff } from './effects.js';   // muncratan coolant + kilat benturan melee
+import { spawnGibs } from './gore.js';   // serpihan logam benturan melee
 import { spawnDrop, MEDKIT_MAT } from './drops.js';
 import { crateMeleeHit } from './crates.js';   // tebasan pedang memecah peti persediaan
+import { addHitStop } from '../core/timeScale.js';   // HIT-STOP saat sabetan mengenai
 import { buildGrenadeMesh, buildRocketMesh } from './grenades.js';   // peluru Grenade Launcher (Lv1-2 granat Mk2, Lv3 roket)
 
 // ----- Status senjata (live export; reassign hanya di modul ini) -----
@@ -50,6 +52,11 @@ export const MELEE_TIME = 0.45;   // durasi ayunan (animasi; cooldown & range da
 // ditekan (character otomatis MENGHADAP robot itu), atau ke arah kursor bila tak
 // ada robot dekat. Dipakai doMeleeHit (kerucut hit) + playerAvatar (hadap badan).
 export let meleeDirX = 0, meleeDirZ = -1;
+// ARAH AYUNAN BERGANTIAN (2026-07-27): +1 = sabetan ATAS kanan→kiri (pose lama),
+// -1 = BACKHAND kiri→kanan. Dibalik tiap `tryMelee`, dibaca playerAvatar untuk
+// MENCERMINKAN busurnya — dua tebasan beruntun tak lagi kelihatan sama persis.
+// Anatomis tetap benar: pedang selalu di tangan KANAN, yang berubah arah sapuan.
+export let meleeSide = 1;
 export let gunRecoil = 0;   // kickback senjata (visual; 1 saat menembak -> meluruh dt·6; dibaca playerAvatar utk hentakan laras naik)
 let gunHeat = 0;        // "panas laras" 0..1: naik tiap tembakan, dingin saat jeda —
                         // memperbesar spread saat menembak beruntun (bloom recoil)
@@ -970,6 +977,7 @@ export function tryMelee() {
     if (player.isReloading) cancelReload();       // F membatalkan reload (+ suaranya) lalu memukul
     drainStamina(CFG.stamina.meleeCost);
     pickMeleeDir();   // auto-hadap robot terdekat (atau kursor) — arah tebasan
+    meleeSide = -meleeSide;   // gantian: sabetan atas <-> backhand
     meleeT = MELEE_TIME; meleeCd = CFG.melee.cooldownSec; meleeHitDone = false;
     // (2026-07-19) Suara PINDAH ke momen sabetan (doMeleeHit, 45% ayunan):
     // KENA musuh = player-melee-attack-hit, LUPUT = player-melee-attack.
@@ -1023,6 +1031,25 @@ export function doMeleeHit() {
         crosshair.classList.add('hit');
         setTimeout(() => crosshair.classList.remove('hit'), 80);
         updateUI();
+        // ===== BENTURAN TERASA (2026-07-27) — dulu sabetan cuma "menembus"
+        // musuh tanpa umpan balik apa pun. Tiga lapis, dipicu TEPAT di frame
+        // bilah menyapu (doMeleeHit dipanggil di 45% ayunan): =====
+        // 1. HIT-STOP: waktu global nyaris BEKU sesaat (core/timeScale.js) —
+        //    ayunan player, robot, darah & gib ikut berhenti bersama, jadi
+        //    terbaca sebagai SATU momen tumbukan yang berbobot.
+        addHitStop(0.075, 0.06);
+        // 2. Guncangan kamera kecil (jauh lebih kecil dari ledakan/boss).
+        addCamShake(2.2);
+        // 3. Kilat percik + serpihan logam di titik sapuan bilah (± jangkauan
+        //    melee ke arah tebasan, setinggi dada) — pool yang sudah ada.
+        const hx = camera.position.x + dirx * CFG.melee.range * 0.8;
+        const hz = camera.position.z + dirz * CFG.melee.range * 0.8;
+        const hy = camera.position.y - 2;
+        spawnGroundPuff(hx, hz, 0xffd28a, 3.4, hy);
+        spawnGibs(hx, hy, hz, 4, dirx, dirz, 0.85, 0x9aa1a8, hy - 8, 0x14171a);
+        // 4. KILAT BILAH: sisi pedang berpendar sekejap (playerAvatar meluruhkan
+        //    emissive-nya per frame — material Phong, uniform saja, tanpa recompile).
+        flashSwordBlade();
     }
 }
 

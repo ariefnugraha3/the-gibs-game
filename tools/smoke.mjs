@@ -87,6 +87,8 @@ class Euler { constructor() { this.x = 0; this.y = 0; this.z = 0; } set(x = 0, y
 class Color {
     constructor(h = 0) { this._h = typeof h === 'object' ? h._h : h; }
     offsetHSL() { return this; } setHex(h) { this._h = h; return this; } getHex() { return this._h; } set() { return this; }
+    // setRGB dipakai kilat bilah pedang (playerAvatar.flashSwordBlade)
+    setRGB(r, g, b) { this._h = ((r * 255 & 255) << 16) | ((g * 255 & 255) << 8) | (b * 255 & 255); return this; }
 }
 class Obj3D {
     constructor() {
@@ -531,6 +533,99 @@ robots.splice(robots.indexOf(zFrontM), 1); scene.remove(zFrontM.mesh);
 robots.splice(0, robots.length);
 for (const z of savedR) robots.push(z);            // pulihkan isi array semula
 wMod.updateWeaponTimers(0.5);   // selesaikan ayunan -> meleeT <= 0 (jangan cemari tes avatar berikut)
+
+// --- 6b2. BENTURAN MELEE TERASA (2026-07-27): sabetan BERGANTIAN arah (busur
+//     bercermin), HIT-STOP global saat mengenai (core/timeScale.js) + kilat
+//     bilah; cakar robot C ikut: telegraf MATA menyala, kaki menopang/menolak,
+//     terjangan lebih dalam, getaran pasca-hantam. ---
+{
+    const tsMod = await import(R('src/core/timeScale.js'));
+    // Seksi 6b memanggil doMeleeHit yang MENGENAI robot -> hit-stop tersisa
+    // menyala (di game ia diluruhkan updateGame; harness belum memanggilnya).
+    // Mulai dari kondisi bersih supaya assert di bawah menguji hal yang benar.
+    tsMod.resetTimeScale();
+    // swordPivot = satu-satunya anak upperG ber-euler 'YXZ'
+    const upperT = avMod.avatarGroup.children[0];
+    const swPivot = upperT.children.find(c => c.rotation && c.rotation.order === 'YXZ');
+    T('swordPivot terjangkau utk uji busur', !!swPivot);
+    const savedR2 = robots.splice(0, robots.length);
+    // resetWeapons() belum boleh dipakai di sini (initWeapons baru dipanggil di
+    // seksi 6c) -> habiskan cooldown lewat timer-nya sendiri, config-driven.
+    const clearMeleeCd = () => wMod.updateWeaponTimers((cfgMod.CFG.melee.cooldownSec || 1) + 0.1);
+    const swingArc = () => {                      // satu ayunan penuh -> rentang yaw bilah
+        playerMod.resetPlayerState();             // stamina penuh
+        clearMeleeCd();                           // batalkan cooldown ayunan sebelumnya
+        wMod.tryMelee();
+        let lo = Infinity, hi = -Infinity, n = 0;
+        while (wMod.meleeT > 0 && n++ < 200) {
+            wMod.updateWeaponTimers(1 / 60);
+            avMod.updatePlayerAvatar(1 / 60);
+            lo = Math.min(lo, swPivot.rotation.y); hi = Math.max(hi, swPivot.rotation.y);
+        }
+        return { lo, hi, side: wMod.meleeSide };
+    };
+    const a1 = swingArc(), a2 = swingArc();
+    T('tebasan BERGANTIAN arah (meleeSide ' + a1.side + ' -> ' + a2.side + ')', a1.side === -a2.side);
+    T('busur tebasan BERCERMIN (bukan animasi sama diulang)',
+        Math.abs((a1.hi - a1.lo) - (a2.hi - a2.lo)) < 0.02
+        && Math.abs(a1.hi + a2.lo) < 0.3 && Math.abs(a1.lo + a2.hi) < 0.3);
+    T('busur tetap lebar (>200°)', (a1.hi - a1.lo) > Math.PI * 200 / 180);
+    // --- HIT-STOP: hanya saat KENA, dan pulih TEPAT ke 1
+    T('skala waktu diam = TEPAT 1 (frame normal tak tersentuh)', tsMod.globalTimeScale() === 1);
+    playerMod.resetPlayerState(); clearMeleeCd();
+    camera.position.set(0, 11.4, 0);
+    wMod.tryMelee(); wMod.doMeleeHit();          // LUPUT (belum ada robot sama sekali)
+    T('sabetan LUPUT tidak memicu hit-stop', tsMod.globalTimeScale() === 1);
+    clearMeleeCd();                               // tuntaskan ayunan luput itu dulu
+    const zHit = mkBot('C', 0, -(cfgMod.CFG.melee.range * 0.6)); robots.push(zHit);
+    zHit.hp = 99999;                              // bertahan supaya bukan jalur kill
+    playerMod.resetPlayerState(); clearMeleeCd();
+    wMod.tryMelee(); wMod.doMeleeHit();          // KENA
+    const hitScale = tsMod.globalTimeScale();
+    T('sabetan KENA memicu HIT-STOP (skala ' + hitScale.toFixed(2) + ')', hitScale < 0.5);
+    T('kilat bilah menyala saat mengenai', avMod.bladeFlashDebug() > 0.5);
+    let stopFrames = 0;
+    for (let i = 0; i < 60; i++) {
+        tsMod.updateTimeScale(1 / 60); avMod.updatePlayerAvatar(1 / 60);
+        if (tsMod.globalTimeScale() < 1) stopFrames++;
+    }
+    T('HIT-STOP singkat lalu pulih TEPAT ke 1 (' + stopFrames + ' frame)',
+        stopFrames > 0 && stopFrames < 20 && tsMod.globalTimeScale() === 1);
+    T('kilat bilah padam kembali TEPAT 0', avMod.bladeFlashDebug() === 0);
+    // --- CAKAR ROBOT C: mata, kaki, terjangan, getaran
+    const zc = zHit, rg = zc.rig;
+    zc.clawSide = 1; zc.clawT = 0; zc.windT = zc.windDur = cfgMod.CFG.robot.clawWindupSec || 0.5;
+    let maxEye = 0, maxLeg = 0;
+    for (let i = 0; i < 30 && zc.windT > 0; i++) {
+        zc.windT -= 1 / 60;
+        robotsMod.animateRobotRig(zc, 1 / 60);
+        maxEye = Math.max(maxEye, rg.eyeMat.emissiveIntensity);
+        maxLeg = Math.max(maxLeg, Math.abs(rg.thighR.rotation.x), Math.abs(rg.thighL.rotation.x));
+    }
+    T('ancang-ancang: MATA robot MENYALA sbg telegraf (' + maxEye.toFixed(2) + '×)', maxEye > 2);
+    T('ancang-ancang: KAKI ikut memuat (bukan cuma badan atas)', maxLeg > 0.25);
+    zc.windT = 0; zc.clawT = robotsMod.CLAW_TIME;
+    let maxLunge = 0, prevArm = rg.armR.rotation.x, flips = 0, prevD = 0;
+    for (let i = 0; i < 40 && zc.clawT > 0; i++) {
+        robotsMod.animateRobotRig(zc, 1 / 60);
+        maxLunge = Math.max(maxLunge, rg.inner.position.z);
+        maxLeg = Math.max(maxLeg, Math.abs(rg.thighR.rotation.x), Math.abs(rg.thighL.rotation.x));
+        const d = rg.armR.rotation.x - prevArm;
+        if (prevD !== 0 && Math.sign(d) !== Math.sign(prevD)) flips++;
+        if (d !== 0) prevD = d;
+        prevArm = rg.armR.rotation.x;
+    }
+    T('sabetan: TERJANGAN maju nyata (' + maxLunge.toFixed(2) + ' u)', maxLunge > 2);
+    T('sabetan: kaki MENOLAK (ayunan paha besar)', maxLeg > 0.5);
+    T('pasca-hantam: badan BERGETAR teredam (' + flips + ' balikan)', flips >= 2);
+    for (let i = 0; i < 90; i++) { zc.clawT = 0; zc.windT = 0; robotsMod.animateRobotRig(zc, 1 / 60); }
+    T('mata kembali TEPAT ke pendar normal (1) setelah serangan', rg.eyeMat.emissiveIntensity === 1);
+    // bersih-bersih: kembalikan isi array robot & state melee
+    robots.splice(0, robots.length); scene.remove(zHit.mesh);
+    for (const z of savedR2) robots.push(z);
+    playerMod.resetPlayerState(); clearMeleeCd(); tsMod.resetTimeScale();
+    for (let i = 0; i < 5; i++) avMod.updatePlayerAvatar(0.1);
+}
 
 // --- 6c. Batas jarak peluru = titik kursor (2026-07-16): peluru distempel
 //     maxDist (jarak pivot->aimPoint saat menembak), mati TEPAT di batas

@@ -6,7 +6,7 @@
 
 import { CFG } from '../core/config.js';
 import { player, robots, bullets, enemyBullets, addScore, stats, _dir, godMode, dodgeInvuln, GEO, MAT } from '../core/state.js';
-import { scene, camera } from '../core/renderer.js';
+import { scene, camera, addCamShake } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { rand, clamp, segPointDist2 } from '../utils/math.js';
 import { playSFX, sfxRobotBite, sfxHit, sfxMelee, sfxRobotShot, startBattleMusic } from '../utils/sfx.js';
@@ -16,6 +16,7 @@ import { spawnBloodBurst, explodeAt, spawnGroundPuff } from './effects.js';
 import { spawnCorpse, bisectCorpse, gibRobot, spawnGibs, spawnBloodDecal } from './gore.js';
 import { spawnDrop } from './drops.js';
 import { startPlayerDeath, isPlayerDying } from '../core/game.js';
+import { addHitStop } from '../core/timeScale.js';   // HIT-STOP saat cakar mendarat
 
 // Ceritanya: tentara mesin pemberontak yang menyerbu Jakarta. Dibangun
 // prosedural dari primitif murah (silinder + elipsoid + kotak, tanpa file
@@ -217,7 +218,9 @@ export function buildRobotMesh(cls = 'C') {
         // muzzle = ujung laras senapan KANAN, muzzleL = KIRI (kelas A saja);
         // null utk lengan cakar — titik spawn peluru musuh. gunR/gunL = grup
         // senapan (utk animasi juggle idle kelas A); null utk lengan cakar.
-        rig: { inner, thighL: legL.hip, thighR: legR.hip, shinL: legL.knee, shinR: legR.knee, armL, armR, head: headG, muzzle: aR.mz, muzzleL: aL.mz, gunR: aR.gun, gunL: aL.gun }
+        // eyeMat = material MATA/antena merah (instance per robot — aman dinyalakan
+        // sendiri): berdenyar saat ancang-ancang cakar (telegraf, 2026-07-27).
+        rig: { inner, thighL: legL.hip, thighR: legR.hip, shinL: legL.knee, shinR: legR.knee, armL, armR, head: headG, muzzle: aR.mz, muzzleL: aL.mz, gunR: aR.gun, gunL: aL.gun, eyeMat: eye }
     };
 }
 
@@ -319,6 +322,14 @@ export function animateRobotRig(z, dt) {
     const offArm = z.clawSide > 0 ? r.armL : r.armR;
     const sSide = z.clawSide > 0 ? 1 : -1;    // sisi puntiran torso
     const zOut = z.clawSide > 0 ? -1 : 1;     // arah "keluar" rotation.z lengan itu
+    // Kaki penopang: saat menyerang, kaki BERHENTI melangkah dan menopang —
+    // sisi lengan penyerang menahan di belakang, sisi seberang menjejak ke depan
+    // (2026-07-27; sebelumnya kaki tetap memakai pose jalan sehingga serangan
+    // terlihat "dari pinggang ke atas" saja).
+    const legBack = sSide > 0 ? r.thighR : r.thighL;
+    const legFwd = sSide > 0 ? r.thighL : r.thighR;
+    const shinBack = sSide > 0 ? r.shinR : r.shinL;
+    const shinFwd = sSide > 0 ? r.shinL : r.shinR;
     if (z.windT > 0) {
         const k = 1 - z.windT / (z.windDur || 0.5);
         const e = 1 - Math.pow(1 - Math.min(1, k * 1.35), 3);   // easeOut: cepat tercocok lalu MENAHAN
@@ -330,6 +341,13 @@ export function animateRobotRig(z, dt) {
         r.inner.rotation.x = -0.14 * e;                         // condong sedikit ke belakang
         r.inner.position.y += (-0.55 * e - r.inner.position.y) * Math.min(1, dt * 10); // kuda-kuda merunduk
         r.head.rotation.x = 0.2 * e;                            // kepala menunduk mengincar
+        // KAKI MEMUAT: kaki belakang menekuk dalam (per menekan pegas), kaki
+        // depan melangkah sedikit ke depan menahan berat.
+        legBack.rotation.x = 0.55 * e; shinBack.rotation.x = 0.95 * e;
+        legFwd.rotation.x = -0.35 * e; shinFwd.rotation.x = 0.30 * e;
+        // MATA MENYALA makin terang menjelang sabetan = telegraf yang terbaca
+        // dari jauh (bukan cuma pose lengan).
+        if (r.eyeMat) r.eyeMat.emissiveIntensity = 1 + 2.2 * e;
     } else if (z.clawT > 0) {
         z.clawT -= dt;
         const k = 1 - Math.max(0, z.clawT) / CLAW_TIME;
@@ -340,18 +358,29 @@ export function animateRobotRig(z, dt) {
             offArm.rotation.x = -0.4 + 0.75 * s;                // kontra: mengayun ke belakang
             r.inner.rotation.y = sSide * (0.42 - 0.87 * s);     // untwist menghentak melewati tengah
             r.inner.rotation.x = -0.14 + 0.46 * s;              // menghentak condong ke depan
-            r.inner.position.z = 1.7 * s;                       // LUNGE maju (lokal +z = arah hadap)
+            r.inner.position.z = 2.6 * s;                       // TERJANGAN maju (dulu 1.7 — kurang komit)
             r.inner.position.y += (-0.8 - r.inner.position.y) * Math.min(1, dt * 14);
             r.head.rotation.x = 0.2 - 0.1 * s;
+            // KAKI MENOLAK: kaki belakang meluruskan (mendorong badan maju),
+            // kaki depan menahan pendaratan terjangan.
+            legBack.rotation.x = 0.55 - 1.05 * s; shinBack.rotation.x = 0.95 - 0.75 * s;
+            legFwd.rotation.x = -0.35 - 0.35 * s; shinFwd.rotation.x = 0.30 + 0.55 * s;
+            if (r.eyeMat) r.eyeMat.emissiveIntensity = 3.2 - 2.2 * s;   // padam lagi setelah menyabet
         } else {
             const s = (k - 0.38) / 0.62, ss = s * s * (3 - 2 * s);   // smoothstep settle
-            atkArm.rotation.x = 0.3 + (-1.15 - 0.3) * ss;
+            // GETARAN PASCA-HANTAM: badan bergetar teredam sesaat setelah cakar
+            // mendarat — massa logamnya terasa (dulu langsung mulus pulih).
+            const j = Math.exp(-7 * s) * Math.sin(s * 26) * 0.12;
+            atkArm.rotation.x = 0.3 + (-1.15 - 0.3) * ss + j;
             atkArm.rotation.z = zOut * -0.55 * (1 - ss);
-            offArm.rotation.x = 0.35 + (-1.15 - 0.35) * ss;
+            offArm.rotation.x = 0.35 + (-1.15 - 0.35) * ss - j;
             r.inner.rotation.y = sSide * -0.45 * (1 - ss);
-            r.inner.rotation.x = 0.32 * (1 - ss);
-            r.inner.position.z = 1.7 * (1 - ss);
-            r.head.rotation.x = 0.1 * (1 - ss);
+            r.inner.rotation.x = 0.32 * (1 - ss) + j * 0.5;
+            r.inner.position.z = 2.6 * (1 - ss);
+            r.head.rotation.x = 0.1 * (1 - ss) + j;
+            legBack.rotation.x = -0.5 * (1 - ss); shinBack.rotation.x = 0.2 * (1 - ss);
+            legFwd.rotation.x = -0.7 * (1 - ss); shinFwd.rotation.x = 0.85 * (1 - ss);
+            if (r.eyeMat) r.eyeMat.emissiveIntensity = 1 + (1 - ss);
         }
     } else {
         // Di luar serangan: luruskan sisa puntiran/lunge/tunduk dengan halus
@@ -361,6 +390,11 @@ export function animateRobotRig(z, dt) {
         r.inner.rotation.y += (0 - r.inner.rotation.y) * d2;
         r.inner.position.z += (0 - r.inner.position.z) * d2;
         r.head.rotation.x += (0 - r.head.rotation.x) * d2;
+        // Mata kembali ke pendar normal (pose jalan tak menulisnya).
+        if (r.eyeMat && r.eyeMat.emissiveIntensity !== 1) {
+            r.eyeMat.emissiveIntensity += (1 - r.eyeMat.emissiveIntensity) * d2;
+            if (Math.abs(r.eyeMat.emissiveIntensity - 1) < 0.01) r.eyeMat.emissiveIntensity = 1;
+        }
     }
 }
 
@@ -821,6 +855,18 @@ export function updateRobots(dt, step) {
                             // DARAH MERAH player muncrat menjauhi si pencakar
                             spawnBloodBurst(camera.position.x, camera.position.y - 3, camera.position.z,
                                 wdx, wdz, 7, 0.9, 1.6, PLAYER_BLOOD_HEX);
+                            // ===== BENTURAN CAKAR TERASA (2026-07-27): sama seperti
+                            // sabetan pedang player — HIT-STOP singkat + guncangan +
+                            // percik logam di titik sentuh, supaya cakar yang mendarat
+                            // punya BOBOT (dulu hanya kilat merah HUD). Hit-stop di sini
+                            // lebih pendek dari milik player: robot memukul jauh lebih
+                            // sering, jeda panjang akan terasa tersendat. =====
+                            addHitStop(0.05, 0.12);
+                            addCamShake(2.6);
+                            const cx = camera.position.x - wdx * 0.35, cz = camera.position.z - wdz * 0.35;
+                            const cy = camera.position.y - 3;
+                            spawnGroundPuff(cx, cz, 0xffc27a, 2.8, cy);
+                            spawnGibs(cx, cy, cz, 3, -wdx, -wdz, 0.7, 0x9aa1a8, cy - 8, 0x14171a);
                             updateUI();
                             flashDamage();
                             showHitDir(attackerAngle(z.mesh.position.x, z.mesh.position.z));

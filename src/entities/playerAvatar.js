@@ -21,7 +21,7 @@ import { camera, viewCam } from '../core/renderer.js';
 import { GEO, player, robots, isPaused } from '../core/state.js';
 import { aimPoint } from '../core/input.js';
 import { eyeHCur, dodgeActive, dodgeProgress, dodgeDirX, dodgeDirZ } from './player.js';
-import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim, meleeDirX, meleeDirZ } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
+import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim, meleeDirX, meleeDirZ, meleeSide } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
 
 export let avatarGroup = null;
 export let avatarGunTip = null;   // Object3D ujung laras (dibaca weapons.js)
@@ -78,6 +78,7 @@ let props = null, propKey = '';   // prop senjata/medkit aktif (show/hide per fr
 let armorNodes = null, armorKey = -1;   // overlay ARMOR kumulatif (ikuti player.armorLvl)
 let swordPivot = null;            // pivot ayunan pedang (di bahu kanan; tampil saat melee)
 let swooshGrp = null, swooshMat = null;   // kipas JEJAK tebasan (opacity ~ kecepatan ayunan)
+let swordBladeMat = null, bladeFlash = 0;   // material BILAH + sisa kilat benturan (2026-07-27)
 const _qT = new THREE.Quaternion(), _tumbleAxis = new THREE.Vector3();   // salto dodge
 const _qR = new THREE.Quaternion(), _rollAxis = new THREE.Vector3();     // guling ke bahu (kematian)
 const _wp = new THREE.Vector3();                                         // titik dunia (lepas senjata)
@@ -476,6 +477,7 @@ export function initPlayerAvatar(sc) {
     box(0.16, 0.22, 0.6, dark, 0, -0.35, 0.85, swordPivot);      // gagang
     box(0.72, 0.14, 0.2, gun, 0, -0.35, 1.25, swordPivot);       // pelindung tangan
     box(0.11, 0.42, 3.6, steel, 0, -0.35, 3.1, swordPivot, true);   // bilah (pipih memanjang ke depan)
+    swordBladeMat = steel;   // dipakai kilat benturan (flashSwordBlade) — material INI hanya milik bilah
     swordPivot.visible = false;
     // Kipas JEJAK tebasan (swoosh): sektor cincin horizontal setinggi dada yang
     // MEMBUNTUTI bilah selama fase tebas — menjual kecepatan ayunan dari kamera
@@ -547,6 +549,13 @@ export function showMoveMarker(x, y, z) {
 export function hideMoveMarker() {
     if (marker) marker.visible = false;
 }
+
+// KILAT BILAH (2026-07-27): dipanggil weapons.doMeleeHit saat sabetan MENGENAI.
+// Hanya menaikkan sisa kilat; peluruhannya (emissive → hitam lagi) dilakukan per
+// frame di cabang melee updatePlayerAvatar. Material `steel` ini EKSKLUSIF milik
+// bilah (tak dipakai bagian avatar lain), dan emissive = uniform → tanpa recompile.
+export function flashSwordBlade() { bladeFlash = 1; }
+export const bladeFlashDebug = () => bladeFlash;
 
 // Mulai animasi kematian (dipanggil startPlayerDeath di game.js): tubuh roboh
 // ke arah (dirx,dirz) = arah datangnya dorongan damage terakhir. Posisi telapak
@@ -1163,13 +1172,19 @@ export function updatePlayerAvatar(dt) {
         rTx = arm.rx; rTy = arm.ry; rTz = arm.rz;
         lTx = arm.lx; lTy = arm.ly; lTz = arm.lz;
     } else if (inMelee) {
-        // ===== Sabetan PEDANG LINCAH (overhaul 2026-07-12): 3 fase —
-        // ANCANG (menyentak ke kanan-atas + badan memuntir kanan) -> TEBAS
-        // (easeIn kubik = MELEDAK, busur lebar + menerjang maju + merendah +
-        // pinggang memuntir kiri + jejak swoosh) -> RECOVERY (mengendur).
-        // Seluruh ayunan = rotasi swordPivot; tangan kanan MENGIKUTI gagang. =====
+        // ===== Sabetan PEDANG (overhaul 2026-07-12; DIPERTAJAM 2026-07-27) =====
+        // 4 fase: ANCANG (menyentak ke belakang-atas) -> TEBAS (easeIn kubik =
+        // MELEDAK, busur ~245° + menerjang maju + merendah + pinggang memuntir +
+        // jejak swoosh) -> IKUT-TERUS/settle (bilah melewati sasaran lalu ditahan
+        // dgn pantulan kecil — "berat"nya terasa) -> RECOVERY.
+        // BARU 2026-07-27: (a) arah busur BERGANTIAN tiap tebasan (`meleeSide`:
+        // +1 sabetan atas kanan→kiri, -1 BACKHAND kiri→kanan — pedang tetap di
+        // tangan kanan, hanya sapuannya dicerminkan); (b) fase settle dgn
+        // pantulan teredam menggantikan recovery datar; (c) kilat bilah saat
+        // mengenai (flashSwordBlade dari doMeleeHit). =====
+        const M = meleeSide || 1;                            // cermin busur
         const k = 1 - Math.max(0, meleeT) / MELEE_TIME;      // 0..1 sepanjang ayunan
-        const A0 = 0.18, A1 = 0.52;
+        const A0 = 0.18, A1 = 0.52, A2 = 0.74;
         let yaw, pitch, roll, twist, lunge, swOp = 0;
         if (k < A0) {
             const t = k / A0, e = 1 - (1 - t) * (1 - t);     // easeOut: sentakan ancang
@@ -1184,16 +1199,30 @@ export function updatePlayerAvatar(dt) {
             lunge = -0.4 + 2.8 * e;                          // MENERJANG maju
             meleeDip = 0.9 * e;
             swOp = t * t * 0.55;                             // jejak makin pekat = makin cepat
+        } else if (k < A2) {
+            // IKUT-TERUS: bilah sudah melewati sasaran, momentum DITAHAN otot —
+            // sedikit melewati batas lalu memantul balik (teredam). Inilah yang
+            // membuat tebasan terasa BERBOBOT alih-alih berhenti begitu saja.
+            const t = (k - A1) / (A2 - A1), d = Math.exp(-4.2 * t);
+            const ov = 0.30 * d * Math.cos(t * 13);          // pantulan meluruh
+            yaw = -2.6 - 0.22 * d + ov;
+            pitch = -0.1 + 0.06 * d;
+            roll = -0.5 + 0.12 * d;
+            twist = -0.45 + 0.08 * d;
+            lunge = 2.4 - 0.35 * (1 - d);
+            meleeDip = 0.9 - 0.12 * (1 - d);
+            swOp = Math.max(0, 0.55 * (1 - t / 0.45));       // jejak memudar
         } else {
-            const t = (k - A1) / (1 - A1), e = t * t * (3 - 2 * t);   // smoothstep pulih
-            yaw = -2.6 + 2.0 * e;
-            pitch = -0.1 - 0.2 * (1 - e);
-            roll = -0.5 * (1 - e);
-            twist = -0.45 * (1 - e);
-            lunge = 2.4 * (1 - e);
-            meleeDip = 0.9 * (1 - e);
-            swOp = Math.max(0, 0.55 * (1 - t / 0.3));        // jejak memudar cepat
+            const t = (k - A2) / (1 - A2), e = t * t * (3 - 2 * t);   // smoothstep pulih
+            yaw = -2.52 + 2.52 * e;
+            pitch = -0.1 * (1 - e);
+            roll = -0.38 * (1 - e);
+            twist = -0.37 * (1 - e);
+            lunge = 2.05 * (1 - e);
+            meleeDip = 0.78 * (1 - e);
         }
+        // Cermin: yaw/roll/twist berganti tanda; pitch (menukik) tetap.
+        yaw *= M; roll *= M; twist *= M;
         swordPivot.rotation.set(pitch, yaw, roll);
         // Dinamika BADAN: puntiran pinggang + terjangan maju (sumbu hadap lokal)
         // + merendah — visual murni, posisi logika player tak tersentuh.
@@ -1205,7 +1234,7 @@ export function updatePlayerAvatar(dt) {
         swooshGrp.visible = swOp > 0.02;
         if (swooshGrp.visible) {
             swooshMat.opacity = swOp;
-            swooshGrp.rotation.y = yaw - Math.PI / 2;
+            swooshGrp.rotation.y = yaw - M * Math.PI / 2;   // kipas membuntuti sisi yang baru dilewati
         }
         // Titik gagang lokal (0,-0.35,0.95) diputar pitch (X) lalu yaw (Y)
         // (order euler pivot 'YXZ' — cocok; roll diabaikan, offsetnya kecil):
@@ -1222,6 +1251,13 @@ export function updatePlayerAvatar(dt) {
         lTz = GUARD_L.z + Math.abs(twist) * 0.6;
     }
     if (!inMelee && swooshGrp && swooshGrp.visible) swooshGrp.visible = false;
+    // Kilat bilah benturan meluruh TANPA SYARAT (bukan di dalam cabang melee):
+    // ayunan bisa habis sementara kilatnya belum padam — kalau peluruhannya ikut
+    // cabang, bilah tertinggal menyala sampai tebasan berikutnya.
+    if (bladeFlash > 0) {
+        bladeFlash = Math.max(0, bladeFlash - dt * 7);
+        if (swordBladeMat) swordBladeMat.emissive.setRGB(bladeFlash, bladeFlash * 0.85, bladeFlash * 0.55);
+    }
     placeArm('R', rTx, rTy, rTz);
     placeArm('L', lTx, lTy, lTz);
 

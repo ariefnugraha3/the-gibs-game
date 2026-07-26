@@ -28,6 +28,7 @@ import { clearCampaignSave, loadCampaignStage } from './saveGame.js';
 import { campaignJumpToStage } from '../scenes/campaign/utility/transition.js';
 import { stopMusic } from '../utils/sfx.js';
 import { startDeathCine, updateDeathCine, endDeathCine, resetDeathCine } from './deathCine.js';
+import { updateTimeScale, resetTimeScale } from './timeScale.js';
 
 // ===== Sekuens KEMATIAN player (2026-07-12; DIDRAMATISASI 2026-07-26): HP habis
 // TIDAK langsung layar GAME OVER — dunia masuk SLOW MOTION, kamera mendekat &
@@ -64,6 +65,7 @@ export function startPlayerDeath(dirx = 0, dirz = 1) {
 // default = dt supaya pemanggil lama/uji tetap sah).
 export function updateGame(dt, step, T, dtReal = dt) {
     if (isGameOver || isPaused) return;
+    updateTimeScale(dtReal);   // luruhkan HIT-STOP melee (waktu NYATA)
 
     // Sekuens kematian: hitung mundur -> layar GAME OVER. Selama itu dunia
     // (darah/gib/robot/peluru) tetap berjalan DALAM SLOW MOTION, tapi SEMUA
@@ -154,7 +156,8 @@ export function resetGame(atCurrentStage = false) {
     resetStats();          // statistik run baru
     configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG
     playerDeathT = -1;     // batalkan sekuens kematian yang mungkin berjalan
-    resetDeathCine();      // skala waktu/kamera/warna/overlay layar kembali normal
+    resetDeathCine();      // kamera/warna/overlay layar kembali normal
+    resetTimeScale();      // batalkan hit-stop yang mungkin sedang beku
     resetAvatarDeath();    // bangkit dari pose runtuh + senjata kembali ke tangan
     releaseInputs();
     resetWeapons();        // batalkan reload/ganti/melee; kembali ke rifle
