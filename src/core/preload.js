@@ -10,8 +10,10 @@
 import { GEO, MAT } from './state.js';
 import { scene, viewCam, renderer, composer, postFxOn } from './renderer.js';
 import { buildGrenadeMesh, buildRocketMesh } from '../entities/grenades.js';
-import { buildMagMesh, buildMedkitMesh, buildLootMesh } from '../entities/drops.js';
+import { buildMedkitMesh, buildLootMesh } from '../entities/drops.js';
+import { buildAmmoMesh, AMMO_WEAPONS } from '../entities/ammoPickups.js';
 import { buildBarrelMesh } from '../entities/barrels.js';
+import { buildCrateMesh } from '../entities/crates.js';
 import { buildRobotMesh, disposeRobot } from '../entities/robots.js';
 import { borrowBloodSprite } from '../entities/effects.js';
 import { avatarGroup } from '../entities/playerAvatar.js';
@@ -67,10 +69,13 @@ export async function warmupAll() {
     put(new THREE.Mesh(GEO.bullet, MAT.enemyBullet), -10).scale.setScalar(1.05);   // peluru robot ranged (warm shader biru)
     put(buildGrenadeMesh(0.7), -8);    // peluru Grenade Launcher Lv1-2 (mesh Mk2 bersama — hangatkan agar tembakan pertama tak nge-hitch)
     put(buildRocketMesh(0.7), -6);     // peluru ROKET launcher Lv3 (geo/mat bersama, Lambert/Basic)
-    put(buildMagMesh(), -4);           // drop magazen (geo/mat bersama)
+    // Amunisi PER-SENJATA (2026-07-26): keempat jenis punya mesh sendiri — semua
+    // dihangatkan supaya drop pertama tiap jenis tak nge-hitch.
+    AMMO_WEAPONS.forEach((w, i) => put(buildAmmoMesh(w), -4 + i * 3));
     put(buildMedkitMesh(), 0);         // drop medkit (mat bersama)
     put(buildLootMesh(), 18);          // chip loot/uang amber (geo/mat bersama)
     put(buildBarrelMesh(), -18);       // barel peledak (geo/mat bersama)
+    put(buildCrateMesh(), 22);         // peti persediaan yang bisa dihancurkan (geo/mat bersama)
     // Trio visual ledakan + cincin debu: material per-instance PERSIS seperti
     // explodeAt/spawnGroundPuff (toneMapped true & false = dua program berbeda).
     const boomMats = [

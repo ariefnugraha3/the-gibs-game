@@ -382,18 +382,10 @@ function catalog() {
         // lihat weaponItem; pistol null bila tak dimiliki = tak pernah dijual).
         ...WEAPON_ORDER.map(weaponItem).filter(Boolean),
     ];
-    // Campaign: sembunyikan item khusus Survival (Monas) + terapkan PENGALI HARGA
-    // campaign (CFG.shop.campaignPriceMul, 2026-07-22). Ekonomi campaign 13-stage
-    // memakai UANG dari LOOT robot (CFG.drops.loot) yang jauh lebih kecil daripada
-    // skor-per-kill Survival — harga campaign diskalakan supaya WAJAR (player tak
-    // langsung bisa beli banyak di stage awal, tetap fun & balance). Survival TAK
-    // tersentuh (pengali hanya berlaku saat shopCtx.mode === 'campaign').
-    if (shopCtx && shopCtx.mode === 'campaign') {
-        const out = items.filter(it => !SURVIVAL_ONLY.has(it.id));
-        const mul = CFG.shop.campaignPriceMul;
-        if (mul && mul !== 1) for (const it of out) it.cost = Math.round(it.cost * mul);
-        return out;
-    }
+    // Campaign: cuma sembunyikan item khusus Survival (Monas). HARGA SAMA dengan
+    // Survival — pengali `CFG.shop.campaignPriceMul` DIHAPUS 2026-07-26 (permintaan
+    // user: harga campaign = harga survival); satu daftar harga untuk kedua mode.
+    if (shopCtx && shopCtx.mode === 'campaign') return items.filter(it => !SURVIVAL_ONLY.has(it.id));
     return items;
 }
 

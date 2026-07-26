@@ -12,25 +12,28 @@
 //                  pintu ruang komputer TERKUNCI (merah) TERBUKA (hijau).
 //   2. 'download': datangi SUPER KOMPUTER (kanan-bawah), MENEMPEL → mulai unduh.
 //   3. 'downloading': UNDUH 10 dtk (bar progress; gerak DIBEKUKAN via
-//                  cinematicActive). Selesai → 20 robot tambahan (10 C, 5 B,
-//                  5 A) spawn di ruang bertanda X.
+//                  cinematicActive). Selesai → 20 robot tambahan (SEMUA kelas C
+//                  sejak 2026-07-26) + HORDE spawn di ruang bertanda X.
 //   4. 'clear2'  : BUNUH SEMUA robot gelombang-2 lalu KEMBALI ke TANGGA → selesai
 //                  (transisi ke stage 2). LIFT rusak: peringatan saat didekati.
 
 import { CFG, CAMP_M } from '../../../core/config.js';
-import { player, drops, _v3, keys, setCinematicActive } from '../../../core/state.js';
+import { player, _v3, keys, setCinematicActive } from '../../../core/state.js';
 import { scene, camera } from '../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
 import { rand } from '../../../utils/math.js';
 import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../utils/collision.js';
 import { makeNavGrid } from '../../../utils/pathfind.js';
+import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { setS1FlickerLight } from '../../../world/decor.js';
-import { applyLightPreset } from '../../../world/lighting.js';
+import { applyLightPreset, registerStageLight, precompileStageLightSets } from '../../../world/lighting.js';
 import { hideStageMsg, showStageMsg, showDownloadBar, setDownloadProgress, hideDownloadBar } from '../../../core/dom.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { NADE_R } from '../../../entities/grenades.js';
 import { clearMoveTarget } from '../../../entities/player.js';
-import { buildMedkitMesh, buildMagMesh } from '../../../entities/drops.js';
+import { spawnAmmoDrop, spawnMedkitDrop } from '../../../entities/drops.js';
+import { buildFuturisticBenchMesh } from '../../../entities/futuristicBench.js';
+import { buildFuturisticPlanterMesh } from '../../../entities/futuristicPlanter.js';
 import { buildFuturisticDeskMesh } from '../../../entities/futuristicDesk.js';
 import { buildFuturisticChairMesh } from '../../../entities/futuristicChair.js';
 import { buildFuturisticCupboardMesh } from '../../../entities/futuristicCupboard.js';
@@ -42,6 +45,7 @@ import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill, spawnSwarm } from '../utility/common.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
+import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../entities/crates.js';
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot, setDoorLocked } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
@@ -148,6 +152,128 @@ const S1_DOORS = [
     { c0: 3, r0: 39, c1: 4, r1: 39, dir: 'ns' },     // lower hall <-> X hall
     { c0: 39, r0: 43, c1: 39, r1: 45, dir: 'ew', locked: true },   // === RUANG KOMPUTER (TERKUNCI) ===
 ];
+// PERABOT TAMBAHAN per-ruangan (2026-07-26): [kind, c, r, sx, sy, sz].
+// Ditempel dinding/sudut supaya ruangan terasa dipakai TANPA menyumbat jalur —
+// smoke test memverifikasi mulut pintu tetap lapang & nav tetap terhubung.
+const S1_FURNITURE = [
+    // ruang TANGGA (start)
+    ['cupboard', 7, 5, 6, 15, 20], ['bench', 5, 6, 16, 6, 6],
+    // conference W
+    ['cupboard', 17, 1, 34, 15, 8], ['planter', 10, 1, 8, 11, 8], ['console', 19, 5, 10, 7, 12],
+    // conference E
+    ['cupboard', 28, 3, 6, 15, 26], ['planter', 22, 5, 8, 11, 8], ['bench', 24, 6, 20, 6, 7],
+    // supply room W
+    ['cupboard', 30, 5, 6, 15, 30], ['desk', 35, 9, 22, 7, 12], ['box', 33, 15, 14, 9, 14],
+    // east-1 (open office)
+    ['cupboard', 40, 3, 6, 15, 30], ['meeting', 45, 14, 34, 7, 20], ['planter', 41, 8, 8, 11, 8],
+    // office W
+    ['cupboard', 1, 12, 6, 15, 30], ['sofa', 6, 15, 18, 6, 14], ['planter', 1, 9, 8, 11, 8],
+    // central hall
+    ['cupboard', 20, 16, 6, 15, 30], ['desk', 11, 13, 22, 7, 12],
+    ['box', 15, 9, 14, 9, 14], ['bench', 12, 18, 18, 6, 7],
+    // toilet
+    ['stall', 26, 14, 2, 15, 20], ['sink', 22, 13, 10, 8, 4],
+    // office SW
+    ['cupboard', 1, 23, 6, 15, 26], ['desk', 6, 22, 20, 7, 12], ['planter', 2, 27, 8, 11, 8],
+    // office SE-mid
+    ['cupboard', 22, 21, 6, 15, 26], ['meeting', 25, 27, 34, 7, 18], ['box', 28, 19, 12, 9, 12],
+    // big east-mid
+    ['cupboard', 30, 21, 6, 15, 34], ['desk', 41, 22, 22, 7, 12],
+    ['box', 35, 19, 14, 9, 14], ['planter', 47, 19, 8, 11, 8], ['sofa', 46, 24, 18, 6, 14],
+    // small rooms
+    ['cupboard', 9, 26, 6, 15, 20], ['box', 13, 22, 12, 9, 12],
+    ['cupboard', 16, 26, 6, 15, 20], ['desk', 17, 22, 18, 7, 10],
+    // big lower hall
+    ['cupboard', 1, 33, 6, 15, 40], ['meeting', 26, 36, 40, 7, 20],
+    ['box', 12, 31, 14, 9, 14], ['box', 34, 36, 14, 9, 14],
+    ['planter', 36, 31, 8, 11, 8], ['sofa', 2, 35, 18, 6, 14],
+    // east lower
+    ['cupboard', 48, 33, 6, 15, 30], ['box', 41, 36, 14, 9, 14],
+    // X hall (arena gelombang-2 — tetap lapang, hanya pinggirnya diisi)
+    ['cupboard', 1, 44, 6, 15, 36], ['box', 24, 41, 14, 9, 14],
+    ['box', 31, 47, 14, 9, 14], ['bench', 20, 45, 20, 6, 7],
+    // ruang super komputer
+    ['cupboard', 41, 45, 6, 15, 24], ['box', 46, 47, 12, 9, 12],
+
+    // === PEMADATAN LANJUTAN (2026-07-26 pass 2, permintaan user: ruangan masih
+    // terasa kosong). Sama aturannya: menempel dinding/sudut, menjauhi mulut
+    // pintu, titik spawn, marker objektif & jalur objektif. ===
+    // ruang TANGGA (start)
+    ['bench', 1, 4, 7, 6, 18],
+    // conference W
+    ['console', 18, 6, 16, 7, 8], ['planter', 12, 1, 8, 11, 8], ['bench', 16, 2, 18, 6, 7],
+    // conference E
+    ['planter', 21, 6, 8, 11, 8], ['bench', 28, 5, 7, 6, 18],
+    // supply room W
+    ['box', 30, 1, 14, 9, 14], ['cupboard', 37, 1, 20, 15, 6], ['box', 30, 15, 14, 9, 14],
+    ['bench', 33, 1, 18, 6, 7], ['planter', 33, 16, 8, 11, 8],
+    // east-1 (open office)
+    ['desk', 41, 1, 22, 7, 12], ['cupboard', 47, 16, 20, 15, 6], ['planter', 48, 2, 8, 11, 8],
+    ['console', 44, 1, 16, 7, 8], ['box', 40, 14, 14, 9, 14],
+    // office W
+    ['desk', 2, 14, 22, 7, 12], ['cupboard', 5, 13, 20, 15, 6],
+    // central hall
+    ['desk', 10, 8, 22, 7, 12], ['cupboard', 16, 17, 6, 15, 20], ['box', 17, 10, 14, 9, 14],
+    ['planter', 11, 11, 8, 11, 8], ['bench', 13, 17, 18, 6, 7],
+    // toilet
+    ['stall', 22, 8, 10, 15, 2], ['sink', 28, 8, 10, 8, 4], ['stall', 22, 16, 10, 15, 2],
+    // office SW
+    ['desk', 6, 20, 22, 7, 12], ['cupboard', 2, 26, 20, 15, 6], ['box', 2, 21, 14, 9, 14],
+    ['planter', 6, 25, 8, 11, 8],
+    // office SE-mid
+    ['desk', 23, 18, 22, 7, 12], ['cupboard', 27, 18, 20, 15, 6], ['planter', 27, 28, 8, 11, 8],
+    // big east-mid
+    ['desk', 31, 18, 22, 7, 12], ['cupboard', 47, 18, 20, 15, 6], ['box', 47, 21, 14, 9, 14],
+    ['sofa', 47, 25, 18, 6, 14], ['planter', 32, 26, 8, 11, 8], ['desk', 32, 22, 22, 7, 12],
+    ['bench', 44, 27, 18, 6, 7],
+    // small rooms
+    ['desk', 13, 27, 22, 7, 12], ['cupboard', 13, 23, 20, 15, 6],
+    ['cupboard', 17, 28, 20, 15, 6], ['desk', 17, 23, 22, 7, 12],
+    // big lower hall
+    ['desk', 5, 30, 22, 7, 12], ['cupboard', 34, 38, 20, 15, 6], ['box', 8, 30, 14, 9, 14],
+    ['sofa', 30, 30, 18, 6, 14], ['planter', 9, 38, 8, 11, 8], ['meeting', 37, 35, 34, 7, 18],
+    ['bench', 36, 32, 18, 6, 7], ['desk', 3, 36, 22, 7, 12], ['box', 3, 33, 14, 9, 14],
+    // east lower
+    ['desk', 47, 30, 22, 7, 12], ['cupboard', 40, 37, 6, 15, 20], ['box', 42, 30, 14, 9, 14],
+    // X hall (arena gelombang-2 — tetap lapang di tengah, hanya pinggirnya)
+    ['box', 1, 47, 14, 9, 14], ['cupboard', 37, 40, 20, 15, 6], ['planter', 37, 48, 8, 11, 8],
+    ['box', 34, 40, 14, 9, 14], ['bench', 34, 48, 18, 6, 7], ['box', 7, 40, 14, 9, 14],
+    // ruang super komputer
+    ['console', 48, 41, 8, 7, 16], ['box', 43, 40, 14, 9, 14],
+
+    // --- pass 3: sisa sudut & pinggir ruangan besar yang masih melompong ---
+    ['planter', 2, 4, 8, 11, 8],                                                   // ruang tangga
+    ['cupboard', 31, 16, 20, 15, 6], ['box', 30, 7, 14, 9, 14],                    // supply room W
+    ['desk', 37, 3, 22, 7, 12], ['box', 37, 14, 14, 9, 14],
+    ['cupboard', 48, 15, 6, 15, 20], ['box', 40, 5, 14, 9, 14],                    // east-1
+    ['bench', 48, 5, 7, 6, 18], ['desk', 42, 2, 22, 7, 12],
+    ['box', 2, 11, 14, 9, 14],                                                     // office W
+    ['cupboard', 14, 17, 6, 15, 20], ['sofa', 18, 17, 18, 6, 14],                  // central hall
+    ['box', 18, 11, 14, 9, 14], ['desk', 15, 10, 22, 7, 12],
+    ['stall', 28, 16, 10, 15, 2], ['sink', 23, 8, 10, 8, 4],                       // toilet
+    ['sofa', 2, 24, 18, 6, 14], ['box', 6, 23, 14, 9, 14],                         // office SW
+    ['box', 22, 19, 14, 9, 14], ['bench', 28, 27, 7, 6, 18],                       // office SE-mid
+    ['cupboard', 48, 19, 6, 15, 20], ['box', 30, 27, 14, 9, 14],                   // big east-mid
+    ['desk', 33, 18, 22, 7, 12], ['planter', 45, 18, 8, 11, 8], ['box', 47, 22, 14, 9, 14],
+    ['box', 11, 28, 14, 9, 14], ['planter', 9, 21, 8, 11, 8],                      // small room 1
+    ['box', 16, 24, 14, 9, 14],                                                    // small room 2
+    ['cupboard', 38, 37, 6, 15, 20], ['box', 1, 36, 14, 9, 14],                    // big lower hall
+    ['desk', 10, 30, 22, 7, 12], ['planter', 29, 30, 8, 11, 8], ['box', 14, 30, 14, 9, 14],
+    ['bench', 14, 38, 18, 6, 7], ['sofa', 24, 30, 18, 6, 14], ['box', 20, 30, 14, 9, 14],
+    ['planter', 48, 38, 8, 11, 8], ['box', 43, 30, 14, 9, 14], ['bench', 40, 35, 7, 6, 18],   // east lower
+    ['box', 35, 40, 14, 9, 14], ['planter', 35, 48, 8, 11, 8], ['box', 8, 40, 14, 9, 14],     // X hall (pinggir)
+    ['bench', 31, 40, 18, 6, 7], ['box', 27, 40, 14, 9, 14], ['cupboard', 27, 48, 20, 15, 6],
+    ['planter', 48, 47, 8, 11, 8],                                                 // ruang super komputer
+    // X hall lagi: KRAT PENUTUP di pinggir arena (tengah tetap lapang untuk horde)
+    ['box', 29, 40, 14, 9, 14], ['cupboard', 29, 48, 20, 15, 6], ['planter', 25, 40, 8, 11, 8],
+    ['box', 18, 40, 14, 9, 14], ['bench', 21, 48, 18, 6, 7], ['sofa', 2, 46, 18, 6, 14],
+    ['box', 36, 47, 14, 9, 14],
+];
+
+export const s1FurnitureDbg = () => S1_FURNITURE;   // smoke test (kepadatan & tumpang tindih)
+let s1StaticBatch = [];                              // mesh perabot hasil penggabungan
+export const s1StaticBatchDbg = () => s1StaticBatch; // smoke test (jumlah draw call perabot)
+
 let s1doors = null;
 let s1compDoor = null;   // ref pintu ruang komputer (dibuka saat semua robot tumbang)
 export const s1CompDoorDbg = () => s1compDoor;   // smoke test (status locked)
@@ -260,6 +386,11 @@ export function ensureWorld() {
     buildWorld();         // STAGE 1
     ensureStage3World();  // pre-build stage 3 & 4 juga (warmup compile up-front)
     ensureStage4World();
+    // Lampu stage non-aktif dimatikan (world/lighting.js) supaya shader tak
+    // melooping 57 point light per fragmen; jumlah light jadi berbeda per stage,
+    // maka program tiap konfigurasi DIKOMPILASI SEKARANG (masih di layar loading)
+    // agar transisi stage tetap tanpa hitch.
+    precompileStageLightSets(scene);
 }
 
 export function buildWorld() {
@@ -331,13 +462,17 @@ export function buildWorld() {
     s1compDoor = s1doors.find(d => d.locked) || null;
 
     // --- Furnitur KANTOR: model (entities/futuristic*.js) + blocker footprint ---
+    // PERABOT TIDAK LANGSUNG masuk scene: dikumpulkan lalu DIGABUNG jadi belasan
+    // mesh oleh addMergedStatic (2026-07-26 — lihat utils/meshBatch.js). Piksel
+    // sama persis; yang hilang cuma ribuan draw call + update matriks per frame.
+    const staticProps = [];
     const putModel = (mesh, x, z, sx, sy, sz, standable = true) => {
         blockers.push({
             x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1,
             rad: Math.hypot(sx / 2, sz / 2), top: sy, standable
         });
         mesh.position.set(x, 0, z);
-        scene.add(mesh);
+        staticProps.push(mesh);
     };
     // MEJA kerja: model desk + satu KURSI (dekorasi, TANPA blocker) di sisi depan.
     const deskModel = (c, r, sx, sy, sz, dx = 0, dz = 0) => {
@@ -346,7 +481,7 @@ export function buildWorld() {
         const chair = buildFuturisticChairMesh(Math.min(5, sz * 0.35));
         chair.position.set(x, 0, z + sz * 0.5 + 2);   // majukan KELUAR dari meja
         chair.rotation.y = Math.PI;                     // jok menghadap meja
-        scene.add(chair);
+        staticProps.push(chair);
     };
     // MEJA RAPAT (ruang konferensi/meeting)
     const meetingModel = (c, r, sx, sy, sz, dx = 0, dz = 0) => {
@@ -367,7 +502,7 @@ export function buildWorld() {
             const off = -longLen / 2 + unit * (i + 0.5);
             const cab = buildFuturisticCupboardMesh(along ? unit : shortLen, sy, along ? shortLen : unit);
             cab.position.set(along ? x + off : x, 0, along ? z : z + off);
-            scene.add(cab);
+            staticProps.push(cab);
         }
     };
     // PROP MODEL generik (crate/sofa/stall/sink) dari cell + blocker footprint.
@@ -380,7 +515,7 @@ export function buildWorld() {
         const p = s1Cell(c, r);
         const m = buildFuturisticConsoleMesh(sx, sy, sz);
         m.position.set(p.x + dx, top, p.z + dz);
-        scene.add(m);
+        staticProps.push(m);
     };
 
     // Conference W (c9-19 r1-6): meja rapat panjang
@@ -431,6 +566,23 @@ export function buildWorld() {
     // X hall (c1-38 r40-48): arena gelombang-2 — sebagian besar TERBUKA (2 krat cover)
     propModel(buildFuturisticCrateMesh, 8, 42, 16, 9, 16);
     propModel(buildFuturisticCrateMesh, 14, 46, 16, 9, 16);
+
+    // === PERABOT TAMBAHAN (2026-07-26, permintaan user: ruangan terasa kosong) ===
+    // Dipadatkan lewat tabel S1_FURNITURE, tapi SEMUA ditempel ke dinding/sudut:
+    // koridor, mulut pintu, titik spawn robot & marker objektif dibiarkan bersih.
+    // Semua masuk `blockers` (pejal ke player DAN robot) dan ikut bake nav di
+    // akhir buildWorld, jadi robot memutarinya alih-alih menembusnya.
+    const FURN = {
+        desk: deskModel, meeting: meetingModel, cupboard: cupboardModel,
+        box: (c, r, sx, sy, sz) => propModel(buildFuturisticCrateMesh, c, r, sx, sy, sz),
+        sofa: (c, r, sx, sy, sz) => propModel(buildFuturisticSofaMesh, c, r, sx, sy, sz),
+        bench: (c, r, sx, sy, sz) => propModel(buildFuturisticBenchMesh, c, r, sx, sy, sz),
+        planter: (c, r, sx, sy, sz) => propModel(buildFuturisticPlanterMesh, c, r, sx, sy, sz),
+        console: (c, r, sx, sy, sz) => propModel(buildFuturisticConsoleMesh, c, r, sx, sy, sz),
+        stall: (c, r, sx, sy, sz) => propModel(buildFuturisticStallMesh, c, r, sx, sy, sz),
+        sink: (c, r, sx, sy, sz) => propModel(buildFuturisticSinkMesh, c, r, sx, sy, sz),
+    };
+    for (const [kind, c, r, sx, sy, sz] of S1_FURNITURE) FURN[kind](c, r, sx, sy, sz);
 
     // === SUPER KOMPUTER (ruang C, c40-48 r40-48): rak server + terminal unduh.
     // Player HARUS MENEMPEL di sel SELATAN komputer (`S1_COMP`, ber-marker) —
@@ -484,6 +636,7 @@ export function buildWorld() {
     s1ExitLight = new THREE.PointLight(0xff5040, 0.85, 200, 2);
     s1ExitLight.position.set(fp.x, S1.H - 8, fp.z);
     scene.add(s1ExitLight);
+    registerStageLight('campaign-1', s1ExitLight);
 
     // --- Pencahayaan PER-RUANGAN: titik lampu TETAP (dibuat saat build → shader
     // compile sekali; hanya intensity yang dianimasikan). Mulai MATI, menyala saat
@@ -494,6 +647,7 @@ export function buildWorld() {
         const L = new THREE.PointLight(color, 0, dist, 2);
         L.position.set(p.x, S1.H - 3, p.z);
         scene.add(L);
+        registerStageLight('campaign-1', L);
         const lm = {
             L, base: inten, on: false, k: 0,
             x0: S1.x0 + c0 * S1.CELL, x1: S1.x0 + (c1 + 1) * S1.CELL,
@@ -532,6 +686,10 @@ export function buildWorld() {
         d.cx >= lm.x0 - 1.5 * S1.CELL && d.cx <= lm.x1 + 1.5 * S1.CELL &&
         d.cz >= lm.z0 - 1.5 * S1.CELL && d.cz <= lm.z1 + 1.5 * S1.CELL);
 
+    // GABUNG semua perabot statis jadi belasan mesh (draw call + update matriks
+    // turun drastis; blockers/nav TIDAK tersentuh karena berasal dari tabel).
+    s1StaticBatch = addMergedStatic(scene, staticProps);
+
     // Bake nav-grid TERAKHIR (semua blockers terisi): dinding dari grid, furnitur
     // dari resolve. Radius sampel 3 (< badan 3.5) agar celah sempit tetap lewat-able.
     const half = S1.CELL / 2;
@@ -564,13 +722,15 @@ export function placeRobots() {
     }
 }
 
-// ===== ROBOT GELOMBANG 2: 20 tambahan (10 C, 5 B, 5 A) di ruang X (kiri-bawah).
-// Dipicu SETELAH unduh data selesai (updateMode → spawnWave2). =====
+// ===== ROBOT GELOMBANG 2: 20 tambahan di ruang X (kiri-bawah). Dipicu SETELAH
+// unduh data selesai (updateMode → spawnWave2). SEMUA KELAS C (2026-07-26,
+// permintaan user: stage 1 hanya berisi robot kelas C — penembak B/A baru
+// muncul mulai stage 2). =====
 const S1_WAVE2 = [
     ['C', 4, 41], ['C', 4, 45], ['C', 8, 46], ['C', 12, 41], ['C', 12, 45],
     ['C', 16, 42], ['C', 16, 46], ['C', 6, 43], ['C', 14, 43], ['C', 10, 41],
-    ['B', 3, 43], ['B', 10, 47], ['B', 17, 44], ['B', 13, 47], ['B', 5, 47],
-    ['A', 9, 44], ['A', 15, 41], ['A', 17, 47], ['A', 11, 43], ['A', 8, 42],
+    ['C', 3, 43], ['C', 10, 47], ['C', 17, 44], ['C', 13, 47], ['C', 5, 47],
+    ['C', 9, 44], ['C', 15, 41], ['C', 17, 47], ['C', 11, 43], ['C', 8, 42],
 ];
 export function spawnWave2() {
     for (const [cls, c, r] of S1_WAVE2) {
@@ -582,18 +742,16 @@ export function spawnWave2() {
     }
 }
 
-// ===== SUPPLY ROOM (W, kanan-atas): 4 ammo + 2 medkit (tak kedaluwarsa) =====
+// ===== SUPPLY ROOM (W, kanan-atas): 4 paket amunisi + 2 medkit (tak kedaluwarsa).
+// Amunisi kini PER-SENJATA (2026-07-26): tiap paket menyebut senjatanya sendiri.
+// Stage 1 = awal campaign (player baru punya pistol), jadi condong ke pistol
+// tapi tetap menyediakan jenis lain untuk yang sudah belanja di shop. =====
 export function placeSupplies() {
-    const put = (type, c, r, dx = 0, dz = 0) => {
-        const p = s1Cell(c, r);
-        const mesh = type === 'mag' ? buildMagMesh() : buildMedkitMesh();
-        mesh.position.set(p.x + dx, 1, p.z + dz);
-        scene.add(mesh);
-        drops.push({ mesh, type, timer: 1e9 });
-    };
-    put('mag', 31, 3); put('mag', 33, 4);
-    put('mag', 35, 3); put('mag', 37, 5);      // 4 ammo
-    put('medkit', 32, 6); put('medkit', 36, 7); // 2 medkit
+    const put = (w, c, r) => { const p = s1Cell(c, r); spawnAmmoDrop(p.x, p.z, w, 1e9); };
+    const med = (c, r) => { const p = s1Cell(c, r); spawnMedkitDrop(p.x, p.z, 1e9); };
+    put('pistol', 31, 3); put('pistol', 35, 3);
+    put('rifle', 33, 4); put('shotgun', 37, 5);
+    med(32, 6); med(36, 7);
 }
 
 // ===== BAREL PELEDAK (SECOND-IMPROVEMENT point 2): tong eksplosif di ruang
@@ -604,6 +762,37 @@ export function placeSupplies() {
 const S1_BARRELS = [[18, 31], [26, 31], [24, 44], [31, 45], [40, 22]];
 export function placeBarrels() {
     for (const [c, r] of S1_BARRELS) { const p = s1Cell(c, r); spawnBarrel(p.x, p.z, 0); }
+}
+
+// ===== PETI PERSEDIAAN (2026-07-26, permintaan user): ditembak/ditebas sampai
+// pecah, berpeluang berisi amunisi / uang / medkit (entities/crates.js). SETIAP
+// RUANGAN kebagian minimal satu supaya player punya alasan MASUK ke tiap ruangan,
+// bukan cuma melintasi koridor menuju objektif. Pejal ke player saja (bukan nav),
+// jadi menghancurkannya tak pernah perlu bake-ulang nav-grid. =====
+// JUMLAH DIPERBANYAK 2026-07-26 (pass 2, permintaan user: "jangan cuma 1 per
+// ruangan") — ruangan besar dapat 3-6 peti, ruangan kecil 2-3.
+const S1_CRATES = [
+    [6, 5],                        // ruang tangga (start)
+    [10, 5], [18, 2], [14, 1],     // conference W
+    [26, 5], [27, 1],              // conference E
+    [34, 9], [34, 14], [31, 1], [30, 14],       // supply room W
+    [42, 14], [46, 2], [48, 3], [40, 13],       // east-1
+    [6, 9], [7, 16],               // office W
+    [11, 17], [19, 9], [20, 19], [11, 10],      // central hall
+    [26, 15], [27, 8],             // toilet
+    [6, 27], [7, 18], [1, 28],     // office SW
+    [23, 27], [28, 20],            // office SE-mid
+    [31, 20], [46, 27], [48, 28], [48, 22], [43, 28],   // big east-mid
+    [10, 22], [10, 28],            // small room 1
+    [19, 22], [20, 28],            // small room 2
+    [3, 31], [36, 37], [1, 30], [7, 38], [32, 38], [28, 30],   // big lower hall
+    [46, 36], [48, 37],            // east lower
+    [30, 42], [5, 47], [1, 42], [2, 48], [33, 40],      // X hall
+    [41, 41], [46, 40],            // ruang super komputer
+];
+export const s1CrateCount = S1_CRATES.length;   // smoke test
+export function placeCrates() {
+    for (const [c, r] of S1_CRATES) { const p = s1Cell(c, r); spawnCrate(p.x, p.z, 0); }
 }
 
 // ===== HORDE (SECOND-IMPROVEMENT point 3): gerombolan kelas C yang LANGSUNG
@@ -621,6 +810,7 @@ export function spawnStage1Horde() {
 
 export const stage1Scene = {
     id: 'campaign-1',
+    lightsKey: 'campaign-1',   // set lampu yang menyala (world/lighting.js)
 
     // Masuk stage 1 = mulai campaign (start pertama ATAU restart setelah mati).
     enter() {
@@ -629,6 +819,7 @@ export const stage1Scene = {
         placeRobots();            // robot GELOMBANG 1 stage 1 (50 kelas C; stage 2 robotnya sendiri di stage2.enter)
         placeSupplies();          // supply room: 4 ammo + 2 medkit
         resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
+        resetCrates(); placeCrates();     // peti persediaan (isi loot) di tiap ruangan
         applyLightPreset(scene, 'indoor');
         enterCityEnv();
         // Reset ALUR ke awal: fase clear1, unduh 0, pintu komputer TERKUNCI lagi.
@@ -742,6 +933,7 @@ export const stage1Scene = {
         resolve(pos, player.radius, feetY);
         resolveDoors(s1doors, pos, player.radius, true);   // pintu TERKUNCI memblok player
         resolveBarrelBlock(pos, player.radius);            // barel peledak pejal ke player
+        resolveCrateBlock(pos, player.radius);             // peti persediaan pejal ke player
         slideWalk(stage1Walk, pos, oldX, oldZ, player.radius);
         // Trigger SELESAI = ruang TANGGA (T). Aktif hanya bila semua objektif tuntas.
         if (pos.x >= S1.x0 + S1_FINISH.c0 * S1.CELL

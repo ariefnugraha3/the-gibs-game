@@ -26,22 +26,23 @@
 //                   AKTIF (hijau). Capai 'o' → beginStageTransition(stage4).
 
 import { CFG, CAMP_M } from '../../../core/config.js';
-import { player, robots, drops, _v3, bullets, stats, addScore } from '../../../core/state.js';
+import { player, robots, _v3, bullets, stats, addScore } from '../../../core/state.js';
 import { scene, camera, addCamShake } from '../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
 import { rand, segPointDist2 } from '../../../utils/math.js';
 import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../utils/collision.js';
 import { makeNavGrid } from '../../../utils/pathfind.js';
-import { applyLightPreset } from '../../../world/lighting.js';
+import { addMergedStatic } from '../../../utils/meshBatch.js';
+import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { PAL } from '../../../world/palette.js';
 import { showStageMsg, showPickup } from '../../../core/dom.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { updateUI } from '../../../core/hud.js';
 import { NADE_R } from '../../../entities/grenades.js';
 import { disposeRobot, queueBoom } from '../../../entities/robots.js';
-import { spawnBloodBurst, explodeAt } from '../../../entities/effects.js';
+import { spawnBloodBurst, explodeAt, spawnGroundPuff } from '../../../entities/effects.js';
 import { spawnGibs, spawnBloodDecal } from '../../../entities/gore.js';
-import { buildMedkitMesh, buildMagMesh } from '../../../entities/drops.js';
+import { spawnAmmoDrop, spawnMedkitDrop } from '../../../entities/drops.js';
 import { buildFuturisticDeskMesh } from '../../../entities/futuristicDesk.js';
 import { buildFuturisticChairMesh } from '../../../entities/futuristicChair.js';
 import { buildFuturisticCupboardMesh } from '../../../entities/futuristicCupboard.js';
@@ -49,8 +50,14 @@ import { buildFuturisticCrateMesh } from '../../../entities/futuristicCrate.js';
 import { buildFuturisticMeetingTableMesh } from '../../../entities/futuristicMeetingTable.js';
 import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
+import { buildFuturisticBenchMesh } from '../../../entities/futuristicBench.js';
+import { buildFuturisticPlanterMesh } from '../../../entities/futuristicPlanter.js';
+import { buildFuturisticSofaMesh } from '../../../entities/futuristicSofa.js';
+import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.js';
+import { buildFuturisticRubbleMesh } from '../../../entities/futuristicRubble.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill } from '../utility/common.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
+import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../entities/crates.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
@@ -138,10 +145,80 @@ const S3_DOORS = [
     { c0: 11, r0: 21, c1: 11, r1: 22, dir: 'ew' },   // SUPPLY (W) <-> tengah-bawah
     { c0: 32, r0: 21, c1: 32, r1: 22, dir: 'ew' },   // tengah-bawah <-> toilet (R)
 ];
+// PERABOT TAMBAHAN per-ruangan (2026-07-26): [kind, c, r, sx, sy, sz]. Ditempel
+// dinding/sudut supaya ruangan terasa dipakai TANPA menyumbat jalur — mulut
+// pintu, bukaan PINTU BLAST (c18-21), pintu keluar 'o', titik spawn robot dan
+// area kerja 4 mesin dibiarkan bersih. Ruang PABRIK X sengaja tetap lapang
+// (arena akhir) — hanya pinggirnya yang diisi.
+const S3_FURNITURE = [
+    // ruang TANGGA (kiri-atas)
+    ['cupboard', 6, 3, 6, 15, 20], ['desk', 2, 7, 14, 7, 10],
+    // ruang B
+    ['cupboard', 8, 1, 6, 15, 20], ['planter', 18, 2, 8, 11, 8], ['box', 12, 7, 12, 9, 12],
+    // ruang C
+    ['cupboard', 29, 2, 6, 15, 24], ['planter', 20, 7, 8, 11, 8], ['box', 27, 3, 12, 9, 12],
+    // ruang D
+    ['cupboard', 31, 2, 6, 15, 24], ['box', 37, 2, 12, 9, 12], ['desk', 33, 7, 18, 7, 10],
+    // area LIFT
+    ['cupboard', 12, 15, 6, 15, 16],
+    // chamber tengah
+    ['cupboard', 28, 12, 6, 15, 24], ['desk', 20, 13, 20, 7, 12],
+    ['box', 16, 19, 12, 9, 12], ['planter', 22, 19, 8, 11, 8],
+    // tengah-bawah (jalur ke pintu blast)
+    ['cupboard', 31, 24, 6, 15, 26], ['desk', 17, 27, 20, 7, 12],
+    ['box', 24, 22, 12, 9, 12], ['bench', 13, 25, 16, 6, 7],
+    // ruang SUPPLY (W)
+    ['cupboard', 10, 26, 6, 15, 20], ['box', 5, 22, 12, 9, 12],
+    // toilet (R)
+    ['stall', 37, 22, 2, 15, 10], ['sink', 33, 27, 10, 8, 4],
+    // PABRIK X — hanya pinggir (arena akhir tetap lapang)
+    ['cupboard', 1, 31, 6, 15, 20], ['box', 10, 38, 14, 9, 14], ['planter', 17, 31, 8, 11, 8],
+    ['cupboard', 38, 31, 6, 15, 20], ['box', 29, 38, 14, 9, 14], ['planter', 22, 31, 8, 11, 8],
+
+    // === PEMADATAN LANJUTAN (2026-07-26 pass 2, permintaan user: ruangan masih
+    // terasa kosong). Menempel dinding/sudut; bukaan PINTU BLAST, pintu keluar,
+    // hatch mesin, titik spawn & jalur supply tetap bersih. ===
+    ['cupboard', 5, 1, 20, 15, 6], ['rubble', 2, 10, 12, 9, 12],                   // ruang tangga
+    ['desk', 10, 1, 22, 7, 12], ['cupboard', 16, 1, 20, 15, 6], ['box', 13, 1, 14, 9, 14],     // ruang B
+    ['planter', 9, 8, 8, 11, 8], ['sofa', 17, 4, 18, 6, 14],
+    ['cupboard', 28, 1, 20, 15, 6], ['box', 20, 6, 14, 9, 14], ['planter', 23, 1, 8, 11, 8],   // ruang C
+    ['cupboard', 38, 8, 6, 15, 20], ['box', 37, 1, 14, 9, 14], ['bench', 32, 1, 18, 6, 7],     // ruang D
+    ['box', 12, 11, 14, 9, 14], ['console', 12, 18, 16, 7, 8],                     // area LIFT
+    ['desk', 14, 15, 22, 7, 12], ['cupboard', 15, 19, 6, 15, 20], ['box', 27, 11, 14, 9, 14],  // chamber tengah
+    ['console', 27, 20, 16, 7, 8], ['planter', 28, 15, 8, 11, 8], ['sofa', 16, 11, 18, 6, 14],
+    ['desk', 29, 21, 22, 7, 12], ['cupboard', 14, 28, 20, 15, 6], ['box', 30, 25, 14, 9, 14],  // tengah-bawah
+    ['bench', 16, 21, 18, 6, 7], ['planter', 26, 27, 8, 11, 8], ['sofa', 25, 21, 18, 6, 14],
+    ['cupboard', 1, 22, 6, 15, 20], ['box', 1, 25, 14, 9, 14],                     // ruang SUPPLY (W)
+    ['stall', 38, 21, 10, 15, 2], ['sink', 38, 28, 10, 8, 4],                      // toilet (R)
+    ['box', 1, 37, 14, 9, 14], ['cupboard', 1, 33, 6, 15, 20], ['rubble', 16, 30, 12, 9, 12],  // PABRIK X barat (pinggir)
+    ['box', 12, 30, 14, 9, 14], ['planter', 8, 38, 8, 11, 8],
+    ['box', 37, 30, 14, 9, 14], ['cupboard', 37, 38, 20, 15, 6], ['rubble', 23, 38, 12, 9, 12],// PABRIK X timur (pinggir)
+    ['box', 26, 30, 14, 9, 14], ['planter', 32, 30, 8, 11, 8],
+
+    // --- pass 3: chamber tengah, jalur bawah & pinggiran pabrik yang masih melompong ---
+    ['bench', 8, 8, 7, 6, 18], ['box', 8, 3, 14, 9, 14],                           // ruang B
+    ['box', 11, 11, 14, 9, 14],                                                    // area LIFT
+    ['box', 15, 13, 14, 9, 14], ['cupboard', 15, 17, 6, 15, 20], ['bench', 28, 16, 18, 6, 7], // chamber tengah
+    ['planter', 27, 12, 8, 11, 8], ['desk', 24, 20, 22, 7, 12],
+    ['box', 12, 27, 14, 9, 14], ['cupboard', 31, 27, 6, 15, 20], ['console', 16, 28, 16, 7, 8],// tengah-bawah
+    ['planter', 27, 28, 8, 11, 8], ['desk', 29, 22, 22, 7, 12],
+    ['box', 5, 21, 14, 9, 14], ['bench', 6, 28, 18, 6, 7], ['planter', 3, 24, 8, 11, 8],       // ruang SUPPLY (W)
+    ['box', 36, 21, 14, 9, 14],                                                    // toilet (R)
+    ['box', 1, 35, 14, 9, 14], ['cupboard', 2, 30, 20, 15, 6], ['planter', 15, 30, 8, 11, 8],  // PABRIK X barat
+    ['rubble', 5, 38, 12, 9, 12],
+    ['box', 36, 30, 14, 9, 14], ['cupboard', 35, 38, 20, 15, 6], ['planter', 24, 38, 8, 11, 8],// PABRIK X timur
+    ['rubble', 27, 30, 12, 9, 12],
+];
+
+export const s3FurnitureDbg = () => S3_FURNITURE;   // smoke test (kepadatan & tumpang tindih)
+let s3StaticBatch = [];                              // mesh perabot hasil penggabungan
+export const s3StaticBatchDbg = () => s3StaticBatch; // smoke test (jumlah draw call perabot)
+
 let s3doors = null;
 
 // Lampu per-ruangan.
 let s3Lamps = [];
+export const s3LampsDbg = () => s3Lamps;   // smoke test (rect ruangan)
 let s3HintT = 0;
 
 // ===== DESTRUCTIBLE: PINTU BLAST '+' + 4 MESIN + PINTU KELUAR =====
@@ -153,6 +230,17 @@ let s3Door = null, s3DoorBlocker = null;   // mesh + blocker pintu blast
 let s3DoorCX = 0, s3DoorCZ = 0;
 let s3Machines = [];    // [{group, cx, cz, spawn, hp, alive, spawnT, hitT, eyeMat, blocker}]
 let s3ExitSign = null, s3ExitLight = null, s3ExitDoor = null, s3ExitOpen = false;
+// ===== ANTREAN SPAWN + ANIMASI MUNCUL (2026-07-26, permintaan user) =====
+// Robot TIDAK lagi muncul serentak: satu gelombang di-ANTRE lalu dilepas satu
+// per satu tiap `spawnGapSec` (0.3 dtk) dari tangga / lift / hatch mesin. Tiap
+// robot juga MUNCUL BERANIMASI — mesh-nya tumbuh dari nyaris nol ke skala penuh
+// selama `spawnRiseSec` sambil memancarkan kilat teal + debu di titik keluarnya,
+// jadi tidak "tiba-tiba ada". MURNI VISUAL: hit-test tetap memakai z.scl penuh
+// (robot yang sedang muncul tetap adil ditembak) dan AI-nya jalan seperti biasa.
+let s3Queue = [];    // [{cell, cls}] menunggu giliran spawn
+let s3QueueT = 0;    // hitung mundur ke pelepasan berikutnya
+let s3Rising = [];   // [{z, t, base}] robot yang sedang animasi tumbuh
+export const s3SpawnDbg = () => ({ queued: s3Queue.length, rising: s3Rising.length });
 export const s3Debug = () => ({ phase: s3Phase, doorHp: s3DoorHp, machinesAlive: s3MachinesAlive(), robots: countStageRobots(3), doorFired: s3DoorFired, spawnT: s3SpawnT });
 export const s3DoorDbg = () => ({ hp: s3DoorHp, visible: s3Door ? s3Door.visible : null, blocked: blockers.indexOf(s3DoorBlocker) !== -1 });
 export const s3MachinesDbg = () => s3Machines;
@@ -352,16 +440,17 @@ export function buildWorld() {
     // --- Pintu geser otomatis ---
     s3doors = buildStageDoors(S3_DOORS, s3Cell, S3.CELL, S3.H);
 
-    // --- Furnitur KANTOR ---
+    // --- Furnitur KANTOR (dikumpulkan lalu DIGABUNG, lihat utils/meshBatch.js) ---
+    const staticProps = [];
     const putModel = (mesh, x, z, sx, sy, sz, standable = true) => {
         blockers.push({ x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(sx / 2, sz / 2), top: sy, standable });
-        mesh.position.set(x, 0, z); scene.add(mesh);
+        mesh.position.set(x, 0, z); staticProps.push(mesh);
     };
     const deskModel = (c, r, sx, sy, sz, dx = 0, dz = 0) => {
         const p = s3Cell(c, r), x = p.x + dx, z = p.z + dz;
         putModel(buildFuturisticDeskMesh(sx, sy, sz), x, z, sx, sy, sz, true);
         const chair = buildFuturisticChairMesh(Math.min(5, sz * 0.35));
-        chair.position.set(x, 0, z + sz * 0.5 + 2); chair.rotation.y = Math.PI; scene.add(chair);
+        chair.position.set(x, 0, z + sz * 0.5 + 2); chair.rotation.y = Math.PI; staticProps.push(chair);
     };
     const meetingModel = (c, r, sx, sy, sz) => { const p = s3Cell(c, r); putModel(buildFuturisticMeetingTableMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, true); };
     const cupboardModel = (c, r, sx, sy, sz, dx = 0, dz = 0) => {
@@ -372,7 +461,7 @@ export function buildWorld() {
         for (let i = 0; i < n; i++) {
             const off = -longLen / 2 + unit * (i + 0.5);
             const cab = buildFuturisticCupboardMesh(along ? unit : shortLen, sy, along ? shortLen : unit);
-            cab.position.set(along ? x + off : x, 0, along ? z : z + off); scene.add(cab);
+            cab.position.set(along ? x + off : x, 0, along ? z : z + off); staticProps.push(cab);
         }
     };
     const propModel = (build, c, r, sx, sy, sz, dx = 0, dz = 0) => { const p = s3Cell(c, r); putModel(build(sx, sy, sz), p.x + dx, p.z + dz, sx, sy, sz, true); };
@@ -388,6 +477,21 @@ export function buildWorld() {
     propModel(buildFuturisticSinkMesh, 37, 25, 10, 8, 4);
     // Tengah-bawah (jalur ke pintu blast): krat pinggir (jauh dari bukaan c18-21)
     propModel(buildFuturisticCrateMesh, 15, 24, 14, 9, 14); propModel(buildFuturisticCrateMesh, 28, 26, 14, 9, 14);
+
+    // Perabot TAMBAHAN (2026-07-26) — masuk `blockers` + ikut bake nav (pejal
+    // untuk player DAN robot).
+    const FURN = {
+        desk: deskModel, meeting: meetingModel, cupboard: cupboardModel,
+        box: (c, r, sx, sy, sz) => propModel(buildFuturisticCrateMesh, c, r, sx, sy, sz),
+        bench: (c, r, sx, sy, sz) => propModel(buildFuturisticBenchMesh, c, r, sx, sy, sz),
+        planter: (c, r, sx, sy, sz) => propModel(buildFuturisticPlanterMesh, c, r, sx, sy, sz),
+        stall: (c, r, sx, sy, sz) => propModel(buildFuturisticStallMesh, c, r, sx, sy, sz),
+        sink: (c, r, sx, sy, sz) => propModel(buildFuturisticSinkMesh, c, r, sx, sy, sz),
+        sofa: (c, r, sx, sy, sz) => propModel(buildFuturisticSofaMesh, c, r, sx, sy, sz),
+        console: (c, r, sx, sy, sz) => propModel(buildFuturisticConsoleMesh, c, r, sx, sy, sz),
+        rubble: (c, r, sx, sy, sz) => propModel(buildFuturisticRubbleMesh, c, r, sx, sy, sz),
+    };
+    for (const [kind, c, r, sx, sy, sz] of S3_FURNITURE) FURN[kind](c, r, sx, sy, sz);
 
     // --- TANGGA RUSAK (sumber spawn robot, kiri-atas) + puing ---
     const upF = stairwellUpFootprint(S3.x0 + S3.CELL, S3.z0 + S3.CELL);
@@ -435,6 +539,7 @@ export function buildWorld() {
     s3ExitSign.position.set(exP.x, S3.H - 6, exP.z + 3); scene.add(s3ExitSign);
     s3ExitLight = new THREE.PointLight(0xff5040, 0.9, 240, 2);
     s3ExitLight.position.set(exP.x, S3.H - 8, exP.z + 6); scene.add(s3ExitLight);
+    registerStageLight('campaign-3', s3ExitLight);
 
     // --- Lampu per-ruangan (mati → nyala saat pintu dibuka / rect dimasuki) ---
     s3Lamps = [];
@@ -442,6 +547,7 @@ export function buildWorld() {
         const p = s3Cell(c, r);
         const L = new THREE.PointLight(color, 0, dist, 2);
         L.position.set(p.x, S3.H - 3, p.z); scene.add(L);
+        registerStageLight('campaign-3', L);
         const lm = { L, base: inten, on: false, k: 0, x0: S3.x0 + c0 * S3.CELL, x1: S3.x0 + (c1 + 1) * S3.CELL, z0: S3.z0 + r0 * S3.CELL, z1: S3.z0 + (r1 + 1) * S3.CELL };
         if (!s3Lamps.some(o => o.shroud && o.x0 === lm.x0 && o.z0 === lm.z0 && o.x1 === lm.x1 && o.z1 === lm.z1)) {
             const sh = new THREE.Mesh(new THREE.BoxGeometry(lm.x1 - lm.x0 - 1, S3.H - 0.6, lm.z1 - lm.z0 - 1), new THREE.MeshBasicMaterial({ color: 0x030303, transparent: true, opacity: 1 }));
@@ -463,6 +569,9 @@ export function buildWorld() {
     for (const lm of s3Lamps) lm.doors = s3doors.filter(d =>
         d.cx >= lm.x0 - 1.5 * S3.CELL && d.cx <= lm.x1 + 1.5 * S3.CELL &&
         d.cz >= lm.z0 - 1.5 * S3.CELL && d.cz <= lm.z1 + 1.5 * S3.CELL);
+
+    // GABUNG perabot statis jadi belasan mesh (blockers/nav tak tersentuh).
+    s3StaticBatch = addMergedStatic(scene, staticProps);
 
     // Bake nav-grid (blocker mesin sudah masuk → robot memutar; pintu blast BELUM)
     const half = S3.CELL / 2;
@@ -494,7 +603,48 @@ function s3SpawnChaser(cell, cls) {
     spawnCampaignRobot(_v3.x, _v3.z, 3, cls);
     const z = robots[robots.length - 1];
     z.state = 'chasing'; z.groundY = 0;   // langsung kejar (bukan idle)
+    // Animasi MUNCUL: mulai dari mesh nyaris nol lalu tumbuh (s3TickSpawns) +
+    // kilat teal & debu di titik keluar. Skala logika (z.scl) tak diubah.
+    const base = z.scl || 1;
+    z.mesh.scale.setScalar(base * RISE_MIN);
+    s3Rising.push({ z, t: 0, base });
+    spawnGroundPuff(_v3.x, _v3.z, PAL.tech, 7, 0.6);
+    spawnBloodBurst(_v3.x, 7, _v3.z, 0, 0, 5, 0.7, 6.283, PAL.tech);
 }
+
+const RISE_MIN = 0.12;   // skala awal saat robot mulai "tercetak"
+
+// Lepas antrean spawn (satu robot tiap spawnGapSec) + majukan animasi tumbuh.
+// Dipanggil tiap frame dari updateMode.
+function s3TickSpawns(dt) {
+    const S = CFG.campaign.stage3;
+    if (s3Queue.length) {
+        s3QueueT -= dt;
+        while (s3QueueT < 0 && s3Queue.length) {
+            const e = s3Queue.shift();
+            s3SpawnChaser(e.cell, e.cls);
+            s3QueueT += S.spawnGapSec;
+        }
+    }
+    for (let i = s3Rising.length - 1; i >= 0; i--) {
+        const r = s3Rising[i];
+        // Robot keburu mati saat masih tumbuh: kembalikan skala penuh supaya
+        // mayat/gib-nya tidak kerdil, lalu keluarkan dari daftar.
+        if (r.z.hp <= 0 || robots.indexOf(r.z) < 0) {
+            r.z.mesh.scale.setScalar(r.base);
+            s3Rising.splice(i, 1);
+            continue;
+        }
+        r.t += dt;
+        const k = Math.min(1, r.t / S.spawnRiseSec);
+        const e = 1 - (1 - k) * (1 - k);   // easeOut — cepat di awal, melunak di akhir
+        r.z.mesh.scale.setScalar(r.base * (RISE_MIN + (1 - RISE_MIN) * e));
+        if (k >= 1) { r.z.mesh.scale.setScalar(r.base); s3Rising.splice(i, 1); }
+    }
+}
+
+// Antre satu robot (bukan spawn langsung) — dipakai kedua gelombang.
+function queueSpawn(cell, cls) { s3Queue.push({ cell, cls }); }
 
 // ===== HIT-PELURU DESTRUCTIBLE (pola tankBulletHits): peluru PLAYER (array
 // `bullets`) merusak target lalu dihapus; explosive = damage langsung + boom. =====
@@ -521,15 +671,17 @@ function s3DoorBulletHits() {
         }
     }
 }
-// GELOMBANG robot fase door: 6 dari TANGGA + 6 dari LIFT (langsung chasing).
+// GELOMBANG robot fase door: 6 dari TANGGA + 6 dari LIFT. DIANTRE (bukan
+// serentak) — dilepas satu per satu oleh s3TickSpawns.
 function spawnDoorWave() {
     const n = CFG.campaign.stage3.gateWaveCount;
-    for (let k = 0; k < n; k++) { s3SpawnChaser(S3_STAIRS_SPAWN, randClass3()); s3SpawnChaser(S3_LIFT_SPAWN, randClass3()); }
+    for (let k = 0; k < n; k++) { queueSpawn(S3_STAIRS_SPAWN, randClass3()); queueSpawn(S3_LIFT_SPAWN, randClass3()); }
 }
-// GELOMBANG robot fase machines: machineWaveCount robot PER MESIN yang masih hidup.
+// GELOMBANG robot fase machines: machineWaveCount robot PER MESIN yang masih
+// hidup, keluar berurutan dari hatch tiap mesin (diantre juga).
 function spawnMachineWave() {
     const n = CFG.campaign.stage3.machineWaveCount;
-    for (const m of s3Machines) if (m.alive) for (let k = 0; k < n; k++) s3SpawnChaser(m.spawn, randClass3());
+    for (let k = 0; k < n; k++) for (const m of s3Machines) if (m.alive) queueSpawn(m.spawn, randClass3());
 }
 function s3MachineBulletHits() {
     const R2 = CFG.campaign.stage3.machineHitRadius ** 2;
@@ -557,6 +709,9 @@ function s3DestroyDoor() {
 function s3DestroyMachine(m) {
     m.alive = false;
     if (m.group) m.group.visible = false;
+    // Mesin hancur = berhenti memproduksi: batalkan robot yang masih ANTRE keluar
+    // dari hatch-nya (identitas cell = objek m.spawn yang sama saat di-queue).
+    s3Queue = s3Queue.filter(e => e.cell !== m.spawn);
     const i = blockers.indexOf(m.blocker);
     if (i !== -1) blockers.splice(i, 1);
     addScore(CFG.robot.score.specialKill);
@@ -569,19 +724,16 @@ function s3DestroyMachine(m) {
 
 // SUPPLY: ruang W (6 ammo + 3 medkit) + ruang PABRIK X (DIGANDAKAN: 8 ammo + 4 medkit).
 function placeSupplies() {
-    const put = (type, c, r) => {
-        const p = s3Cell(c, r);
-        const mesh = type === 'mag' ? buildMagMesh() : buildMedkitMesh();
-        mesh.position.set(p.x, 1, p.z); scene.add(mesh);
-        drops.push({ mesh, type, timer: 1e9 });
-    };
-    // W supply (c1-10 r21-28): 6 ammo + 3 medkit
-    put('mag', 3, 22); put('mag', 6, 23); put('mag', 3, 26); put('mag', 8, 27); put('mag', 5, 25); put('mag', 7, 22);
-    put('medkit', 4, 28); put('medkit', 9, 24); put('medkit', 2, 27);
-    // PABRIK X (rows 30-38) DIGANDAKAN: 8 ammo + 4 medkit tersebar
-    put('mag', 10, 31); put('mag', 30, 31); put('mag', 14, 37); put('mag', 26, 37);
-    put('mag', 8, 34); put('mag', 32, 34); put('mag', 6, 31); put('mag', 34, 31);
-    put('medkit', 12, 33); put('medkit', 28, 33); put('medkit', 16, 36); put('medkit', 24, 36);
+    const put = (w, c, r) => { const p = s3Cell(c, r); spawnAmmoDrop(p.x, p.z, w, 1e9); };
+    const med = (c, r) => { const p = s3Cell(c, r); spawnMedkitDrop(p.x, p.z, 1e9); };
+    // W supply (c1-10 r21-28): 6 paket amunisi (campur 4 jenis) + 3 medkit
+    put('rifle', 3, 22); put('shotgun', 6, 23); put('pistol', 3, 26);
+    put('launcher', 8, 27); put('rifle', 5, 25); put('shotgun', 7, 22);
+    med(4, 28); med(9, 24); med(2, 27);
+    // PABRIK X (rows 30-38) DIGANDAKAN: 8 paket amunisi + 4 medkit tersebar
+    put('rifle', 10, 31); put('shotgun', 30, 31); put('rifle', 14, 37); put('pistol', 26, 37);
+    put('launcher', 8, 34); put('rifle', 32, 34); put('shotgun', 6, 31); put('launcher', 34, 31);
+    med(12, 33); med(28, 33); med(16, 36); med(24, 36);
 }
 
 // ===== BAREL PELEDAK (SECOND-IMPROVEMENT point 2): tong eksplosif di ruang pabrik
@@ -592,8 +744,32 @@ export function placeBarrels() {
     for (const [c, r] of S3_BARRELS) { const p = s3Cell(c, r); spawnBarrel(p.x, p.z, 0); }
 }
 
+// ===== PETI PERSEDIAAN (2026-07-26): ditembak/ditebas -> pecah, berpeluang
+// berisi amunisi / uang / medkit. SETIAP RUANGAN kebagian minimal satu supaya
+// player punya alasan masuk ke tiap ruangan. Pejal ke player saja (bukan nav). =====
+// JUMLAH DIPERBANYAK 2026-07-26 (pass 2, permintaan user: "jangan cuma 1 per
+// ruangan") — tiap ruangan 2-4 peti; ruang PABRIK X tetap di pinggir arena.
+const S3_CRATES = [
+    [5, 9], [3, 10],            // ruang tangga
+    [10, 3], [17, 7], [18, 3],  // ruang B
+    [21, 2], [28, 7], [29, 4],  // ruang C
+    [38, 4], [34, 7], [38, 2],  // ruang D
+    [12, 13], [12, 17],         // area lift
+    [17, 13], [26, 18], [28, 19], [15, 12],     // chamber tengah
+    [14, 22], [29, 27], [12, 26], [25, 28],     // tengah-bawah
+    [7, 26], [5, 27],           // ruang SUPPLY (W)
+    [34, 22], [34, 28],         // toilet (R)
+    [8, 31], [15, 37], [2, 38], [4, 30],        // PABRIK X barat
+    [24, 31], [31, 37], [38, 37], [28, 30],     // PABRIK X timur
+];
+export const s3CrateCount = S3_CRATES.length;   // smoke test
+export function placeCrates() {
+    for (const [c, r] of S3_CRATES) { const p = s3Cell(c, r); spawnCrate(p.x, p.z, 0); }
+}
+
 export const stage3Scene = {
     id: 'campaign-3',
+    lightsKey: 'campaign-3',
 
     // Kamera KHUSUS stage 3 (2026-07-21, permintaan user): memandang dari BARAT
     // LAUT (NW) ke TENGGARA (SE) — z dibalik dari default barat daya. Tinggi &
@@ -610,6 +786,7 @@ export const stage3Scene = {
         }
         placeSupplies();
         resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
+        resetCrates(); placeCrates();     // peti persediaan (isi loot) di tiap ruangan
         applyLightPreset(scene, 'indoor');
         enterCityEnv();
         resetRoomLamps(s3Lamps);
@@ -618,6 +795,7 @@ export const stage3Scene = {
         s3Phase = 'door';
         s3DoorFired = false;   // belum menembak pintu -> belum ada gelombang (player boleh berkeliling)
         s3SpawnT = 0;
+        s3Queue = []; s3QueueT = 0; s3Rising = [];   // antrean & animasi spawn bersih
         s3DoorHp = CFG.campaign.stage3.doorHp;
         if (s3Door) s3Door.visible = true;
         if (blockers.indexOf(s3DoorBlocker) === -1) blockers.push(s3DoorBlocker);
@@ -649,6 +827,7 @@ export const stage3Scene = {
         updateRoomLamps(s3Lamps, dt);
         const s3 = CFG.campaign.stage3;
         const pz = camera.position.z;
+        s3TickSpawns(dt);   // lepas antrean spawn (0.3 dtk/robot) + animasi tumbuh
 
         if (s3Phase === 'door') {
             s3DoorBulletHits();
@@ -658,12 +837,13 @@ export const stage3Scene = {
             // `reinforceThreshold` (bukan lagi harus 0) — menyisakan 1 robot TAK LAGI
             // membekukan spawn, jadi player tak bisa aman menghancurkan pintu. Player
             // tetap dapat jeda saat benar-benar membersihkan lapangan (0 < threshold).
-            if (s3DoorFired && countStageRobots(3) < s3.reinforceThreshold) {
+            if (s3DoorFired && !s3Queue.length && countStageRobots(3) < s3.reinforceThreshold) {
                 s3SpawnT -= dt;
                 if (s3SpawnT <= 0) { spawnDoorWave(); s3SpawnT = s3.respawnSec; }
             }
             if (s3DoorHp <= 0) {
                 s3DestroyDoor();
+                s3Queue.length = 0;   // gelombang gerbang STOP (sisa antrean dibatalkan)
                 s3Phase = 'toX';
                 showStageMsg('BLAST DOOR DOWN! Push into the robot factory hall.', 4200);
             }
@@ -680,11 +860,11 @@ export const stage3Scene = {
             // lalu 4 robot PER MESIN hidup. ANTI-CAMP (2026-07-22): gelombang berikut
             // menyala saat sisa robot TURUN DI BAWAH `reinforceThreshold` (bukan 0) —
             // menyisakan 1 robot tak lagi membekukan spawn saat menghancurkan mesin.
-            if (s3MachinesAlive() > 0 && countStageRobots(3) < s3.reinforceThreshold) {
+            if (s3MachinesAlive() > 0 && !s3Queue.length && countStageRobots(3) < s3.reinforceThreshold) {
                 s3SpawnT -= dt;
                 if (s3SpawnT <= 0) { spawnMachineWave(); s3SpawnT = s3.respawnSec; }
             }
-            if (s3MachinesAlive() === 0 && countStageRobots(3) === 0) {
+            if (s3MachinesAlive() === 0 && !s3Queue.length && countStageRobots(3) === 0) {
                 s3Phase = 'done';
                 s3ExitOpen = true;
                 if (s3ExitSign) { s3ExitSign.material.color.setHex(0x2eff6a); s3ExitLight.color.setHex(0x39ff7a); }
@@ -703,6 +883,7 @@ export const stage3Scene = {
         slideWalk(stage3Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, player.radius, feetY);
         resolveBarrelBlock(pos, player.radius);   // barel peledak pejal ke player
+        resolveCrateBlock(pos, player.radius);    // peti persediaan pejal ke player
         slideWalk(stage3Walk, pos, oldX, oldZ, player.radius);
         if (pos.x >= S3.x0 + S3_EXIT.c0 * S3.CELL && pos.x <= S3.x0 + (S3_EXIT.c1 + 1) * S3.CELL
             && pos.z >= S3.z0 + S3_EXIT.r0 * S3.CELL && pos.z <= S3.z0 + (S3_EXIT.r1 + 1) * S3.CELL) {
@@ -746,7 +927,7 @@ export const stage3Scene = {
     hudStatus() {
         switch (s3Phase) {
             case 'door': return `FLOOR 3 — Blast the reinforced door open (HP ${Math.max(0, Math.ceil(s3DoorHp))})`;
-            case 'toX': return 'FLOOR 3 — Push south into the robot factory hall';
+            case 'toX': return 'FLOOR 3 — Push on into the robot factory hall';
             case 'machines': return `FLOOR 3 — Destroy the robot factories: ${s3MachinesAlive()}/4 left | Hostiles: ${countStageRobots(3)}`;
             default: return 'FLOOR 3 — EXIT OPEN — escape the building!';
         }

@@ -100,9 +100,10 @@ memakai hook `activeScene.awardKill`). Campaign stage memakai `campaignAwardKill
 (common.js) → menjatuhkan **LOOT/uang** (chip amber, `CFG.drops.loot` per kelas:
 C/B/A/boss) yang **tersedot ke player (magnet)** dan menambah SKOR = mata uang
 shop (ala Alien Shooter). Survival TAK berubah (skor langsung saat kill). Harga
-shop campaign diskalakan `CFG.shop.campaignPriceMul` (0.5) supaya wajar untuk
-rencana 13 stage — player tak bisa langsung beli banyak di stage awal. Semua
-config-driven (`config/gameplay.json`).
+shop campaign dulu diskalakan `CFG.shop.campaignPriceMul` (0.5), tapi **pengali itu
+DIHAPUS 2026-07-26 (permintaan user): harga campaign = harga survival, satu daftar
+harga untuk kedua mode**; keterjangkauan stage awal disetel lewat nilai loot
+(`CFG.drops.loot`) saja. Semua config-driven (`config/gameplay.json`).
 
 - **#1 Loot:** `entities/drops.js` `spawnLoot`/`buildLootMesh` + cabang `'loot'` di
   `updateDrops` (magnet `lootMagnetMeters`/`lootMagnetSpeed`, pungut `lootPickupRadius`).

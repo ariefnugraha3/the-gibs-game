@@ -1,6 +1,12 @@
-// Item drop: magazen / granat / medkit. Drop acak dari robot mati +
-// persediaan tetap (ditaruh manual oleh stage). Pickup dgn aturan "full-item":
-// item yang player-nya sudah penuh TIDAK dikonsumsi — ditinggal di lantai.
+// Item drop: amunisi PER-SENJATA / medkit / loot-uang. Drop acak dari robot mati
+// + persediaan tetap (ditaruh manual oleh stage) + isi peti yang dipecah
+// (crates.js). Pickup dgn aturan "full-item": item yang player-nya sudah penuh
+// TIDAK dikonsumsi — ditinggal di lantai.
+//
+// AMUNISI PER-SENJATA (2026-07-26, permintaan user): dulu satu item 'mag'
+// mengisi ammo SEMUA senjata sekaligus. Sekarang tiap drop amunisi membawa
+// `d.weapon` ('pistol'|'shotgun'|'rifle'|'launcher') dan HANYA mengisi senjata
+// itu; bentuk meshnya beda-beda per jenis (entities/ammoPickups.js).
 
 import { CFG, CAMP_M } from '../core/config.js';
 import { player, drops, maxAmmoFor, addScore } from '../core/state.js';
@@ -10,6 +16,7 @@ import { playSFX, sfxPickup } from '../utils/sfx.js';
 import { showPickup } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
 import { PAL } from '../world/palette.js';
+import { buildAmmoMesh, AMMO_KINDS, AMMO_WEAPONS } from './ammoPickups.js';
 
 // ----- Medkit (hanya ditaruh manual oleh stage, bukan drop robot) -----
 // Material BERSAMA: Group tidak ditelusuri clearArray, jadi bahan bersama
@@ -32,48 +39,29 @@ export function buildMedkitMesh() {
     return grp;
 }
 
-// ----- Magazen (item ammo): magazen kurva ala rifle, bukan balok polos -----
-// Geometri & material BERSAMA antar instance (Group tidak ditelusuri
-// clearArray, sama seperti medkit) — JANGAN dispose MAG_GEO / MAG_MAT.
-export const MAG_GEO = {
-    seg: new THREE.BoxGeometry(0.95, 1.25, 1.75),          // segmen badan (ditumpuk miring = lengkung)
-    base: new THREE.BoxGeometry(1.2, 0.42, 2.05),          // pelat alas
-    lips: new THREE.BoxGeometry(1.04, 0.42, 1.55),         // bibir pengumpan
-    round: new THREE.CylinderGeometry(0.26, 0.26, 1.05, 8),// selongsong peluru
-    tip: new THREE.ConeGeometry(0.24, 0.55, 8),            // ujung peluru
-};
-export const MAG_MAT = {
-    body: new THREE.MeshLambertMaterial({ color: 0x4d5660, emissive: 0x171c20 }),   // polymer gelap
-    trim: new THREE.MeshLambertMaterial({ color: 0x2b3138, emissive: 0x0b0d10 }),   // alas & bibir
-    brass: new THREE.MeshLambertMaterial({ color: 0xf1c40f, emissive: 0x6e5406 }),  // brass glow (warna khas ammo)
-};
-export function buildMagMesh() {
-    const grp = new THREE.Group();
-    // Badan: 3 segmen dgn ofset-z + tilt progresif = siluet "banana mag"
-    for (const [y, z, rx] of [[2.2, -0.32, 0.10], [1.1, -0.14, 0.26], [0.02, 0.22, 0.42]]) {
-        const s = new THREE.Mesh(MAG_GEO.seg, MAG_MAT.body);
-        s.position.set(0, y, z); s.rotation.x = rx;
-        grp.add(s);
-    }
-    const base = new THREE.Mesh(MAG_GEO.base, MAG_MAT.trim);
-    base.position.set(0, -0.58, 0.52); base.rotation.x = 0.42;
-    grp.add(base);
-    const lips = new THREE.Mesh(MAG_GEO.lips, MAG_MAT.trim);
-    lips.position.set(0, 2.9, -0.42); lips.rotation.x = 0.10;
-    grp.add(lips);
-    // Peluru teratas: selongsong rebah menghadap depan + ujung kerucut
-    const r1 = new THREE.Mesh(MAG_GEO.round, MAG_MAT.brass);
-    r1.position.set(-0.13, 3.28, -0.45); r1.rotation.x = Math.PI / 2;
-    grp.add(r1);
-    const t1 = new THREE.Mesh(MAG_GEO.tip, MAG_MAT.brass);
-    t1.position.set(-0.13, 3.28, -1.25); t1.rotation.x = -Math.PI / 2;
-    grp.add(t1);
-    // Selongsong kedua (kesan double-stack), sedikit lebih rendah & pendek
-    const r2 = new THREE.Mesh(MAG_GEO.round, MAG_MAT.brass);
-    r2.position.set(0.16, 3.12, -0.28); r2.rotation.x = Math.PI / 2;
-    r2.scale.set(0.9, 0.55, 0.9);
-    grp.add(r2);
-    return grp;
+// ----- Amunisi PER-SENJATA: mesh & tabel jenis ada di entities/ammoPickups.js.
+// Taruh satu paket amunisi senjata `w` di (x,z) (dipakai stage/peti/drop robot). -----
+export function spawnAmmoDrop(x, z, w, lifetime) {
+    const [px, pz] = activeScene.clampDropPos(x, z);
+    const mesh = buildAmmoMesh(w);
+    mesh.position.set(px, 1, pz);
+    scene.add(mesh);
+    drops.push({
+        mesh, type: 'ammo', weapon: w,
+        timer: lifetime != null ? lifetime : CFG.drops.lifetimeSec
+    });
+}
+
+// Taruh satu medkit di (x,z) (isi peti / persediaan stage).
+export function spawnMedkitDrop(x, z, lifetime) {
+    const [px, pz] = activeScene.clampDropPos(x, z);
+    const mesh = buildMedkitMesh();
+    mesh.position.set(px, 1, pz);
+    scene.add(mesh);
+    drops.push({
+        mesh, type: 'medkit',
+        timer: lifetime != null ? lifetime : CFG.drops.lifetimeSec
+    });
 }
 
 // ----- LOOT / uang (SECOND-IMPROVEMENT-PLAN point 1, 2026-07-22) -----
@@ -117,16 +105,13 @@ export function spawnLoot(x, z, value, chips = 1) {
 
 // Drop acak saat robot mati. Posisi dijepit oleh scene aktif (survival:
 // ke dalam pagar; campaign: apa adanya) lewat hook clampDropPos.
+// Jenis amunisinya diundi dari senjata yang DIMILIKI player saja — kalau tidak,
+// drop untuk senjata yang belum dibeli jadi mubazir (2026-07-26).
 export function spawnDrop(pos) {
-    const [px, pz] = activeScene.clampDropPos(pos.x, pos.z);
-    if (Math.random() < CFG.drops.magChance) {
-        const magMesh = buildMagMesh();
-        magMesh.position.set(px, 1, pz);
-        scene.add(magMesh);
-        drops.push({ mesh: magMesh, type: 'mag', timer: CFG.drops.lifetimeSec });   // detik
-    }
-    // (Drop granat dihapus 2026-07-11 — granat lempar diganti weapon Grenade
-    // Launcher; amunisinya ikut terisi oleh paket peluru 'mag' di bawah.)
+    if (Math.random() >= CFG.drops.magChance) return;
+    const owned = AMMO_WEAPONS.filter(w => player.owned[w]);
+    const w = owned.length ? owned[Math.floor(Math.random() * owned.length)] : 'pistol';
+    spawnAmmoDrop(pos.x, pos.z, w);
 }
 
 let fullInfoCd = 0;   // jeda pesan "already full" agar tidak spam tiap frame
@@ -170,24 +155,27 @@ export function updateDrops(dt, T) {
         if (dist < player.radius + 2) {
             // Item PENUH tidak diambil (ditinggal untuk nanti) — beri info
             // "already full" di feed, dgn jeda 1.2 dtk agar tidak spam saat
-            // player berdiri di atas item. Tanpa magazen (2026-07-11): drop
-            // 'mag' = PAKET PELURU (+CFG.weapons.<w>.ammoPickup per senjata
-            // yang DIMILIKI, di-cap maxAmmo).
-            const ownedW = ['rifle', 'pistol', 'shotgun', 'launcher'].filter(w => player.owned[w]);
+            // player berdiri di atas item. AMUNISI PER-SENJATA (2026-07-26):
+            // drop 'ammo' membawa d.weapon dan HANYA mengisi senjata itu
+            // (+CFG.weapons.<w>.ammoPickup, di-cap maxAmmoFor); amunisi untuk
+            // senjata yang BELUM dimiliki ditinggal (tak terpakai).
+            const kind = d.type === 'ammo' ? (AMMO_KINDS[d.weapon] || AMMO_KINDS.pistol) : null;
+            const unowned = d.type === 'ammo' && !player.owned[d.weapon];
             const isFull =
-                (d.type === 'mag' && ownedW.every(w => player[w].ammo >= maxAmmoFor(w))) ||
+                (d.type === 'ammo' && (unowned || player[d.weapon].ammo >= maxAmmoFor(d.weapon))) ||
                 (d.type === 'medkit' && player.medkits >= CFG.player.maxMedkits);
             if (isFull) {
                 if (fullInfoCd <= 0) {
                     fullInfoCd = 1.2;
-                    showPickup(d.type === 'mag' ? 'Ammo already full' : 'Medkit already carried', '#b8b8b8');
+                    showPickup(d.type !== 'ammo' ? 'Medkit already carried'
+                        : (unowned ? `${kind.label} — you don't own that weapon`
+                            : `${kind.label} already full`), '#b8b8b8');
                 }
             } else {
-                if (d.type === 'mag') {          // paket peluru: isi senjata yang DIMILIKI
-                    for (const w of ownedW)
-                        player[w].ammo = Math.min(maxAmmoFor(w),
-                            player[w].ammo + CFG.weapons[w].ammoPickup);
-                    showPickup('+Ammo (All Weapons)', '#f1c40f');
+                if (d.type === 'ammo') {         // paket peluru: HANYA senjata jenis ini
+                    const w = d.weapon;
+                    player[w].ammo = Math.min(maxAmmoFor(w), player[w].ammo + CFG.weapons[w].ammoPickup);
+                    showPickup(`+${CFG.weapons[w].ammoPickup} ${kind.label}`, kind.color);
                 } else if (d.type === 'medkit') {
                     // Medkit = item genggam (maks 1). Diambil ke inventori; PAKAI
                     // dgn tombol 4 untuk memulihkan HP (bukan sembuh saat diambil).

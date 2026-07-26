@@ -35,7 +35,7 @@ import { setCineBars, blocker, showCutsceneSkip, hideCutsceneSkip } from '../../
 import { hidePauseMenu } from '../../../core/pauseMenu.js';
 import { releaseInputs } from '../../../core/input.js';
 import { aimPoint } from '../../../core/input.js';
-import { applyLightPreset } from '../../../world/lighting.js';
+import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
 import { PAL } from '../../../world/palette.js';
 import { makeFacadeTex, makeLitTex, makeCityMat, fillBuildingInstances, CITY_PALETTE } from '../../../world/facades.js';
@@ -168,6 +168,7 @@ function buildRoof() {
     const doorLight = new THREE.PointLight(PAL.amber, 0.8, 110, 2);
     doorLight.position.set(DOOR.x, DFH + 4, doorZ + 6);
     g.add(doorLight);
+    registerStageLight('campaign-intro', doorLight);
 
     // --- TANGKI AIR kayu di atas kaki baja (ikonik atap kota) — dikecilkan
     // ~1.9 m radius, tinggi total ~7 m (dulu ~13 m = raksasa). DITUKAR ke sisi
@@ -938,6 +939,7 @@ export function warmupIntro() {
 
 export const introScene = {
     id: 'campaign-intro',
+    lightsKey: 'campaign-intro',
 
     // enter() (via setScene di startGame): bangun dunia atap + SEMUA dunia
     // campaign (agar warmup meng-compile shadernya & transisi ke Stage 1 di akhir

@@ -23,6 +23,7 @@ import { stamina, staExhausted, drainStamina, dodgeActive } from './player.js';
 import { killRobot } from './robots.js';
 import { spawnBloodBurst } from './effects.js';   // muncratan coolant robot yang selamat dari sabetan
 import { spawnDrop, MEDKIT_MAT } from './drops.js';
+import { crateMeleeHit } from './crates.js';   // tebasan pedang memecah peti persediaan
 import { buildGrenadeMesh, buildRocketMesh } from './grenades.js';   // peluru Grenade Launcher (Lv1-2 granat Mk2, Lv3 roket)
 
 // ----- Status senjata (live export; reassign hanya di modul ini) -----
@@ -1012,8 +1013,11 @@ export function doMeleeHit() {
             if (z.state === 'idle') { z.state = 'chasing'; z.groundY = 0; }
         }
     }
+    // PETI persediaan ikut pecah kena tebasan (2026-07-26) — jangkauan & kerucut
+    // depan yang SAMA dgn robot, memakai damage melee yang sama.
+    if (crateMeleeHit(camera.position.x, camera.position.z, dirx, dirz, CFG.melee.range, dmg)) hit = true;
     // Suara sabetan (2026-07-19): berbunyi TEPAT di momen bilah menyapu —
-    // versi "-hit" bila mengenai minimal satu robot, versi biasa bila luput.
+    // versi "-hit" bila mengenai minimal satu robot/peti, versi biasa bila luput.
     playSFX(hit ? sfxMeleeHit : sfxMeleeSwing);
     if (hit) {
         crosshair.classList.add('hit');

@@ -10,6 +10,7 @@ import { rand, clamp } from '../../utils/math.js';
 import { resolveCylinders } from '../../utils/collision.js';
 import { makeNavGrid } from '../../utils/pathfind.js';
 import { waterJets, setWaterTex, setFlameLight, setFlameGlow } from '../../world/decor.js';
+import { registerStageLight } from '../../world/lighting.js';
 import {
     CITY_PALETTE, makeFacadeTex, makeLitTex, makeCityMat, makeBurningCityMat,
     fillBuildingInstances, addFireSprites
@@ -193,6 +194,7 @@ function createMonas() {
     const flameLight = new THREE.PointLight(0xffc36b, 1.1, 420, 2);
     flameLight.position.set(-MONAS_HINGE.x, 80 - MONAS_HINGE.y, 0);
     top.add(flameLight);
+    registerStageLight('survival', flameLight);
     monasFlameLight = flameLight;
     setFlameLight(flameLight);
     const glowTex = makeTexture(64, 64, (g) => {

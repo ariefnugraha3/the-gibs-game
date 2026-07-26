@@ -10,6 +10,7 @@ import { playSFX, sfxExplode } from '../utils/sfx.js';
 import { spawnDrop } from './drops.js';
 import { killRobot } from './robots.js';
 import { detonateBarrelsInRadius } from './barrels.js';   // call-time (circular aman)
+import { crateBlastHits } from './crates.js';             // call-time (circular aman)
 import { updateUI } from '../core/hud.js';
 
 // Pool 3 lampu ledakan, selalu di scene dengan intensity 0:
@@ -134,6 +135,7 @@ export function explodeAt(pos, radius, dmg, sfx) {
     // Rambatan BAREL PELEDAK: barel dalam radius ikut meledak (chain). Antre boom
     // baru diproses di while-loop processPendingBooms yang sama (bukan rekursi).
     detonateBarrelsInRadius(pos.x, pos.z, R);
+    crateBlastHits(pos.x, pos.z, R);   // peti dlm radius ikut pecah (isinya berhamburan)
     updateUI();
 }
 

@@ -10,13 +10,26 @@
         "medkitUseSec": 2,
         "medkitSlowMul": 0.75,
         "deathDelaySec": 3,
-        "hpUpgrades": [150, 200, 250]
+        "hpUpgrades": [
+            150,
+            200,
+            250
+        ]
     },
     "armor": {
         "tiers": [
-            { "reduce": 0.3, "durability": 100 },
-            { "reduce": 0.5, "durability": 200 },
-            { "reduce": 0.7, "durability": 300 }
+            {
+                "reduce": 0.3,
+                "durability": 100
+            },
+            {
+                "reduce": 0.5,
+                "durability": 200
+            },
+            {
+                "reduce": 0.7,
+                "durability": 300
+            }
         ]
     },
     "stamina": {
@@ -49,9 +62,24 @@
         "heatCoolPerSec": 1.4,
         "adsAccuracy": 0.75,
         "ammoUpgrades": [
-            { "pistol": 300, "rifle": 600, "shotgun": 360, "launcher": 30 },
-            { "pistol": 360, "rifle": 700, "shotgun": 420, "launcher": 35 },
-            { "pistol": 430, "rifle": 800, "shotgun": 480, "launcher": 40 }
+            {
+                "pistol": 300,
+                "rifle": 600,
+                "shotgun": 360,
+                "launcher": 30
+            },
+            {
+                "pistol": 360,
+                "rifle": 700,
+                "shotgun": 420,
+                "launcher": 35
+            },
+            {
+                "pistol": 430,
+                "rifle": 800,
+                "shotgun": 480,
+                "launcher": 40
+            }
         ],
         "rifle": {
             "maxAmmo": 500,
@@ -116,11 +144,41 @@
         "stuckSec": 0.4,
         "turnRadPerSec": 9,
         "rangedBulletLife": 120,
-        "score": { "normalKill": 100, "specialKill": 150 },
+        "score": {
+            "normalKill": 100,
+            "specialKill": 150
+        },
         "classes": {
-            "C": { "hp": 60, "speed": 0.7, "armor": 0, "attack": 5, "ranged": false, "scale": 1.0 },
-            "B": { "hp": 90, "speed": 0.75, "armor": 0, "attack": 3, "ranged": true, "rangeMeters": 15, "fireDelaySec": 0.8, "bulletSpeed": 1, "scale": 1.1 },
-            "A": { "hp": 120, "speed": 0.95, "armor": 0, "attack": 6, "ranged": true, "rangeMeters": 16, "fireDelaySec": 0.5, "bulletSpeed": 0.8, "scale": 1.2 }
+            "C": {
+                "hp": 50,
+                "speed": 0.7,
+                "armor": 0,
+                "attack": 5,
+                "ranged": false,
+                "scale": 1.0
+            },
+            "B": {
+                "hp": 90,
+                "speed": 0.75,
+                "armor": 0,
+                "attack": 3,
+                "ranged": true,
+                "rangeMeters": 15,
+                "fireDelaySec": 0.8,
+                "bulletSpeed": 1,
+                "scale": 1.1
+            },
+            "A": {
+                "hp": 120,
+                "speed": 0.95,
+                "armor": 0,
+                "attack": 6,
+                "ranged": true,
+                "rangeMeters": 16,
+                "fireDelaySec": 0.5,
+                "bulletSpeed": 0.8,
+                "scale": 1.2
+            }
         }
     },
     "survival": {
@@ -145,7 +203,11 @@
         "classAChancePerWave": 0.015,
         "classAChanceMax": 0.3,
         "monasMaxHp": 5000,
-        "strengthenMonasStages": [7500, 10000, 12500],
+        "strengthenMonasStages": [
+            7500,
+            10000,
+            12500
+        ],
         "playerAggroMeters": 15,
         "monasLockAggroMeters": 5,
         "monasLockChance": 0.5,
@@ -200,7 +262,9 @@
             "reinforceThreshold": 4,
             "respawnSec": 8,
             "machineFirstWaveSec": 3,
-            "machineHitRadius": 16
+            "machineHitRadius": 16,
+            "spawnGapSec": 0.3,
+            "spawnRiseSec": 0.55
         },
         "bosses": {
             "giant": {
@@ -258,7 +322,12 @@
         "lootMagnetMeters": 12,
         "lootMagnetSpeed": 58,
         "lootPickupRadius": 6,
-        "loot": { "C": 18, "B": 32, "A": 48, "boss": 400 }
+        "loot": {
+            "C": 18,
+            "B": 32,
+            "A": 48,
+            "boss": 400
+        }
     },
     "barrels": {
         "hp": 30,
@@ -266,8 +335,16 @@
         "robotDamage": 120,
         "playerDamage": 55
     },
+    "crates": {
+        "hp": 55,
+        "lootChance": 0.75,
+        "ammoWeight": 5,
+        "moneyWeight": 3,
+        "medkitWeight": 2,
+        "moneyValue": 45,
+        "moneyChips": 3
+    },
     "shop": {
-        "campaignPriceMul": 0.9,
         "ammoCost": 800,
         "healthCost": 600,
         "medkitCost": 800,
@@ -278,18 +355,54 @@
         "rifleCost": 3200,
         "launcherCost": 4000,
         "upgradeCosts": {
-            "pistol": [1000, 2000],
-            "shotgun": [1600, 3200],
-            "rifle": [2000, 4000],
-            "launcher": [2400, 4800]
+            "pistol": [
+                1000,
+                2000
+            ],
+            "shotgun": [
+                1600,
+                3200
+            ],
+            "rifle": [
+                2000,
+                4000
+            ],
+            "launcher": [
+                2400,
+                4800
+            ]
         },
-        "armorCosts": [1200, 2400, 4000],
-        "healthUpCosts": [2000, 4000, 6000],
-        "ammoUpCosts": [1600, 3200, 4800]
+        "armorCosts": [
+            1200,
+            2400,
+            4000
+        ],
+        "healthUpCosts": [
+            2000,
+            4000,
+            6000
+        ],
+        "ammoUpCosts": [
+            1600,
+            3200,
+            4800
+        ]
     },
     "difficulty": {
-        "easy": { "robotHpMul": 0.75, "robotDamageMul": 0.5, "spawnIntervalMul": 1.3 },
-        "normal": { "robotHpMul": 1, "robotDamageMul": 1, "spawnIntervalMul": 1 },
-        "hard": { "robotHpMul": 1.4, "robotDamageMul": 2, "spawnIntervalMul": 0.8 }
+        "easy": {
+            "robotHpMul": 0.75,
+            "robotDamageMul": 0.5,
+            "spawnIntervalMul": 1.3
+        },
+        "normal": {
+            "robotHpMul": 1,
+            "robotDamageMul": 1,
+            "spawnIntervalMul": 1
+        },
+        "hard": {
+            "robotHpMul": 1.4,
+            "robotDamageMul": 2,
+            "spawnIntervalMul": 0.8
+        }
     }
 }

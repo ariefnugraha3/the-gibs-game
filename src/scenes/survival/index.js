@@ -246,6 +246,7 @@ function shopKey(key) {
 
 export const survivalScene = {
     id: 'survival',
+    lightsKey: 'survival',
 
     enter() {
         ensureParkWorld();

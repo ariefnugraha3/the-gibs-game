@@ -19,6 +19,7 @@ import { updateExplosions, updateBloodPool, resetBloodPool, spawnBloodBurst } fr
 import { updateGore, resetGore, spawnBloodDecal } from '../entities/gore.js';
 import { updateDrops } from '../entities/drops.js';
 import { updateBarrels, barrelBulletHits, resetBarrels } from '../entities/barrels.js';
+import { crateBulletHits, resetCrates } from '../entities/crates.js';
 import { updateBullets } from '../entities/bullets.js';
 import { updateRobots, updateEnemyBullets, disposeRobot, resetRobotsFx, PLAYER_BLOOD_HEX } from '../entities/robots.js';
 import { avatarGroup, hideMoveMarker, playAvatarDeath, resetAvatarDeath } from '../entities/playerAvatar.js';
@@ -89,6 +90,7 @@ export function updateGame(dt, step, T) {
     updateBarrels(dt);             // denyut beacon barel peledak
     updateBullets(step);           // maju + mati di dinding scene
     barrelBulletHits();            // peluru player -> barel meledak (SEBELUM sweep robot)
+    crateBulletHits();             // peluru player -> peti persediaan pecah (isi loot)
     updateRobots(dt, step);       // AI scene + serang (cakar/tembak) + rig + hit peluru (+ spawn mayat/gib saat mati)
     if (isGameOver) return;        // Monas runtuh (damageMonas) tetap mengakhiri game seketika
     updateEnemyBullets(dt, step);  // peluru robot ranged -> hit player (bisa memicu sekuens kematian)
@@ -160,6 +162,7 @@ export function resetGame(atCurrentStage = false) {
     resetBloodPool();   // pool tetap, cukup disembunyikan
     resetGore();        // buang mayat + sembunyikan pool gib/genangan darah
     resetBarrels();     // buang barel peledak (ditaruh ulang oleh enter() stage)
+    resetCrates();      // buang peti persediaan (ditaruh ulang oleh enter() stage)
     clearArray(bullets, scene);
     clearArray(enemyBullets, scene);   // peluru robot ranged
     clearArray(grenades, scene);

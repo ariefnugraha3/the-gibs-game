@@ -12,6 +12,7 @@ import {
     waveText, radar, radarCtx, invSlots
 } from './dom.js';
 import { currentWeapon, WEAPON_DEF, medkitMode } from '../entities/weapons.js';
+import { AMMO_KINDS } from '../entities/ammoPickups.js';
 
 export function updateUI() {
     const w = player[currentWeapon];
@@ -208,11 +209,13 @@ export function drawRadar() {
     // Robot
     for (const z of robots)
         plot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z, "#ff4757", 3);
-    // Drops (mag kuning, medkit merah muda, loot/uang amber, lainnya hijau)
+    // Drops — amunisi memakai warna KHAS jenis senjatanya (AMMO_KINDS, 2026-07-26),
+    // medkit merah muda, loot/uang amber, lainnya hijau.
     for (const d of drops)
         plot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z,
-            d.type === 'mag' ? "#f1c40f" : d.type === 'medkit' ? "#ff6b81"
-                : d.type === 'loot' ? "#ffb03b" : "#2ecc71", 2.5);
+            d.type === 'ammo' ? ((AMMO_KINDS[d.weapon] || AMMO_KINDS.pistol).color)
+                : d.type === 'medkit' ? "#ff6b81"
+                    : d.type === 'loot' ? "#ffb03b" : "#2ecc71", 2.5);
 
     // Penanda N — di titik tempat utara SEBENARNYA jatuh di radar. Dgn frame
     // sejajar-layar (SCREEN_UP unit), rumus (-fx, fz)·(R-9) = arah utara dunia

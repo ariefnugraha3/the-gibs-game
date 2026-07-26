@@ -116,7 +116,7 @@ class Sprite extends Obj3D { constructor(m) { super(); this.material = m; this.i
 class Group extends Obj3D { }
 class Scene extends Obj3D { constructor() { super(); this.fog = null; } }
 class PCam extends Obj3D { constructor(fov = 50, aspect = 1) { super(); this.fov = fov; this.aspect = aspect; } updateProjectionMatrix() { } }
-class PLight extends Obj3D { constructor() { super(); this.intensity = 0; this.color = new Color(0xffffff); } }
+class PLight extends Obj3D { constructor() { super(); this.intensity = 0; this.color = new Color(0xffffff); this.isLight = true; this.isPointLight = true; } }
 const geo = (name) => class {
     constructor(...a) { this.args = a; this.type = name; }
     scale() { return this; }
@@ -143,7 +143,7 @@ global.THREE = {
     ConeGeometry: geo('cone'), RingGeometry: geo('ring'), PlaneGeometry: geo('plane'),
     CircleGeometry: geo('circle'), TorusGeometry: geo('torus'), ExtrudeGeometry: geo('extrude'),
     IcosahedronGeometry: geo('ico'), DodecahedronGeometry: geo('dodeca'), EdgesGeometry: geo('edges'),
-    LineSegments: class extends Obj3D { constructor(g, m) { super(); this.geometry = g; this.material = m; } },
+    LineSegments: class extends Obj3D { constructor(g, m) { super(); this.geometry = g; this.material = m; this.isLine = true; this.isLineSegments = true; } },
     Shape: class { moveTo() { } lineTo() { } quadraticCurveTo() { } bezierCurveTo() { } },
     MeshLambertMaterial: Mat, MeshBasicMaterial: Mat, MeshPhongMaterial: Mat, SpriteMaterial: Mat,
     MeshStandardMaterial: Mat, MeshPhysicalMaterial: Mat, LineBasicMaterial: Mat,
@@ -947,12 +947,13 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     for (let t = 0; t <= dl + 1; t += 0.2) s1m.stage1Scene.updateMode(0.2);
     const w2 = robots.filter(z => z.stage === 1);
     const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
-    // SECOND-IMPROVEMENT #3 (2026-07-22): unduh selesai spawn wave-2 (10C/5B/5A) +
-    // HORDE (CFG.campaign.stage1.hordeCount kelas C yang LANGSUNG menyerbu = 'chasing').
+    // SECOND-IMPROVEMENT #3 (2026-07-22): unduh selesai spawn wave-2 (20) + HORDE
+    // (CFG.campaign.stage1.hordeCount kelas C yang LANGSUNG menyerbu = 'chasing').
+    // 2026-07-26 (permintaan user): stage 1 HANYA kelas C — tak ada B/A sama sekali.
     const horde = cfgMod.CFG.campaign.stage1.hordeCount;
-    T('S1 FLOW: unduh selesai -> wave-2 (10C/5B/5A) + HORDE (' + horde + ' C) + kendali dikembalikan',
+    T('S1 FLOW: unduh selesai -> wave-2 SEMUA kelas C + HORDE (' + horde + ' C) + kendali dikembalikan',
         s1m.s1Debug().phase === 'clear2' && stateMod.cinematicActive === false
-        && w2.length === 20 + horde && nC === 10 + horde && nB === 5 && nA === 5);
+        && w2.length === 20 + horde && nC === 20 + horde && nB === 0 && nA === 0);
     T('S1 FLOW: HORDE langsung menyerbu (ada robot chasing di wave-2)',
         horde === 0 || w2.some(z => z.state === 'chasing'));
     // Buang wave-2 -> fase done (tangga aktif).
@@ -1036,8 +1037,10 @@ T('S2 FLOW: injak generator -> restoring + gerak dibekukan (cinematicActive)',
     const w2 = robots.filter(z => z.stage === 2);
     const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
     // Selesai restore -> LANGSUNG 'done' (TAK ada fase clear2 lagi) + wave2 (25).
-    T('S2 FLOW: restore selesai -> DONE LANGSUNG + wave2 bala bantuan (10C/10B/5A) + kendali kembali',
-        s2mod.s2Debug().phase === 'done' && stateMod.cinematicActive === false && w2.length === 25 && nC === 10 && nB === 10 && nA === 5);
+    // 2026-07-26 (permintaan user): stage 2 TANPA kelas A — ruang3 yang dulu A jadi B.
+    T('S2 FLOW: restore selesai -> DONE LANGSUNG + wave2 bala bantuan (10C/15B, 0 A) + kendali kembali',
+        s2mod.s2Debug().phase === 'done' && stateMod.cinematicActive === false
+        && w2.length === 25 && nC === 10 && nB === 15 && nA === 0);
 }
 // ATURAN BARU (2026-07-21): lift bisa dinaiki MESKI robot wave2 masih hidup — TANPA killS2.
 const w2alive = robots.filter(z => z.stage === 2).length;
@@ -1330,14 +1333,33 @@ T('S3 FLOW: TIDAK ada robot sebelum player menembak pintu (biarkan berkeliling)'
 const s3FakeBullet = (px, pz, x, z, dmg) => ({ mesh: { position: { x, y: 8, z } }, px, py: 8, pz, dir: { x: 0, y: 0, z: 1 }, damage: dmg });
 const dpx = s3mod.s3Cell(19.5, 29).x, dpz = s3mod.s3Cell(19.5, 29).z;
 const s3FireDoor = (dmg = 40) => { stateMod.bullets.push(s3FakeBullet(dpx, dpz - 6, dpx, dpz + 4, dmg)); s3mod.stage3Scene.updateMode(0.05); };
+// ANTREAN SPAWN (2026-07-26): robot keluar SATU per SATU tiap spawnGapSec, jadi
+// gelombang tidak lagi lengkap dalam satu tick — tick updateMode sampai antrean
+// habis sebelum menghitung jumlah robot.
+const s3Drain = () => { for (let i = 0; i < 500 && s3mod.s3SpawnDbg().queued; i++) s3mod.stage3Scene.updateMode(cfgMod.CFG.campaign.stage3.spawnGapSec); };
 
 // (1) TEMBAK PINTU pertama -> HP turun + GELOMBANG 6 tangga + 6 lift (12) LANGSUNG chasing
 const hpBefore = s3mod.s3DoorDbg().hp;
 s3FireDoor(40);
-const gspawn = robots.filter(z => z.stage === 3);
-T('S3 FLOW: tembak pintu PERTAMA -> HP turun + GELOMBANG (6+6=12) langsung chasing',
+// Gelombang DIANTRE (2026-07-26): satu tick belum memunculkan semua robot.
+const queuedNow = s3mod.s3SpawnDbg().queued + robots.filter(z => z.stage === 3).length;
+T('S3 FLOW: tembak pintu PERTAMA -> HP turun + gelombang (6+6=12) DIANTRE, bukan serentak',
     s3mod.s3DoorDbg().hp < hpBefore && s3mod.s3Debug().doorFired === true
-    && gspawn.length === s3cfg.gateWaveCount * 2 && gspawn.every(z => z.state === 'chasing'));
+    && queuedNow === s3cfg.gateWaveCount * 2
+    && robots.filter(z => z.stage === 3).length < s3cfg.gateWaveCount * 2);
+// Satu tick sebesar spawnGapSec = TEPAT satu robot baru (jeda 0.3 dtk/robot).
+const beforeOne = robots.filter(z => z.stage === 3).length;
+s3mod.stage3Scene.updateMode(s3cfg.spawnGapSec);
+T('S3 FLOW: antrean melepas 1 robot per spawnGapSec (' + s3cfg.spawnGapSec + ' dtk)',
+    robots.filter(z => z.stage === 3).length === beforeOne + 1);
+// Robot yang baru muncul BERANIMASI tumbuh: skala mesh masih < skala penuhnya.
+const fresh = robots.filter(z => z.stage === 3).pop();
+T('S3 FLOW: robot baru MUNCUL beranimasi (mesh mengecil dulu lalu tumbuh)',
+    s3mod.s3SpawnDbg().rising > 0 && fresh.mesh.scale.x < (fresh.scl || 1));
+s3Drain();
+const gspawn = robots.filter(z => z.stage === 3);
+T('S3 FLOW: antrean habis -> gelombang penuh (6+6=12) langsung chasing + skala pulih',
+    gspawn.length === s3cfg.gateWaveCount * 2 && gspawn.every(z => z.state === 'chasing'));
 
 // robotAI jalan tanpa error
 const zS3 = robots.find(z => z.stage === 3);
@@ -1350,6 +1372,7 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 for (let t = 0; t < s3cfg.respawnSec - 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 const midWait = robots.filter(z => z.stage === 3).length;
 for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+s3Drain();
 T('S3 FLOW: gelombang berikut hanya ~respawnSec (8 dtk) SETELAH ke-12 bersih',
     midWait === 0 && robots.filter(z => z.stage === 3).length === s3cfg.gateWaveCount * 2);
 
@@ -1377,6 +1400,7 @@ T('S3 FLOW: masuk ruang X -> fase machines (4 mesin) TANPA spawn langsung',
 for (let t = 0; t < s3cfg.machineFirstWaveSec - 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 const beforeMW = robots.filter(z => z.stage === 3).length;
 for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+s3Drain();
 T('S3 FLOW: mesin spawn PERTAMA setelah ~machineFirstWaveSec (3 dtk) = 4/mesin (16)',
     beforeMW === 0 && robots.filter(z => z.stage === 3).length === s3cfg.machineWaveCount * 4);
 
@@ -2088,7 +2112,7 @@ stateMod.setGameOver(false);
 // (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 let jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 4 aktif -> STAGE 3
-s3FireDoor();   // stage 3 MULAI kosong; tembak PINTU -> gelombang robot (tangga/lift)
+s3FireDoor(); s3Drain();   // stage 3 MULAI kosong; tembak PINTU -> gelombang robot (tangga/lift)
 T('cheat skip-to-stage-3: pindah ke stage 3 + tembak pintu -> gelombang robot (3-tag)', jr === 3
     && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempatkan ulang oleh helper)
@@ -2139,7 +2163,7 @@ saveMod.saveCampaignStage(3);
 const restartTarget = saveMod.loadCampaignStage() || 1;
 T('restart-stage: target = stage checkpoint (3), BUKAN 1', restartTarget === 3);
 smMod.activeScene.cheatSkipToStage(restartTarget);   // = campaignJumpToStage(3), efek sama dgn resetGame(true)
-s3FireDoor();   // stage 3 kosong; tembak PINTU -> gelombang robot
+s3FireDoor(); s3Drain();   // stage 3 kosong; tembak PINTU -> gelombang robot
 T('restart-stage: mendarat di AWAL stage 3 + tembak pintu -> gelombang robot stage 3',
     smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
@@ -2573,18 +2597,446 @@ const palMod = await import(R('src/world/palette.js'));
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     barMod.resetBarrels(); stateMod.drops.length = 0; goreMod2.resetGore();
 
-    // (e) HARGA CAMPAIGN: shop mode campaign menskalakan harga (campaignPriceMul).
-    //     Uang SETARA harga campaign (< harga survival) -> item TERBELI hanya bila
-    //     shop memakai harga campaign (kalau pakai harga survival -> 'Not enough money').
+    // (e) HARGA SHOP SAMA DI KEDUA MODE (2026-07-26, permintaan user: pengali
+    //     `CFG.shop.campaignPriceMul` DIHAPUS — campaign memakai daftar harga yang
+    //     PERSIS SAMA dengan survival). Diuji lewat perilaku beli & config-driven:
+    //     uang PAS sebesar harga katalog membeli di KEDUA mode, kurang satu koin
+    //     gagal di keduanya. Kunci pengali juga tak boleh muncul lagi di config.
+    const price = cfgMod.CFG.shop.healthCost;
+    const buyHealth = (mode, money) => {
+        shopMod.closeShop();
+        const ctx = { head: 'X', nextLabel: 'x', confirmMsg: 'x', onNext() { } };
+        if (mode === 'campaign') ctx.mode = 'campaign';
+        shopMod.openShop(ctx);
+        stateMod.player.hp = 1;
+        stateMod.setScore(money);
+        return shopMod.shopPurchase('health');
+    };
+    T('harga shop SAMA di campaign & survival (' + price + '): uang pas terbeli, kurang 1 gagal (tanpa campaignPriceMul)',
+        price > 0 && !('campaignPriceMul' in cfgMod.CFG.shop)
+        && buyHealth('campaign', price) === null
+        && buyHealth('survival', price) === null
+        && buyHealth('campaign', price - 1) === 'Not enough money'
+        && buyHealth('survival', price - 1) === 'Not enough money');
     shopMod.closeShop();
-    shopMod.openShop({ mode: 'campaign', head: 'X', nextLabel: 'x', confirmMsg: 'x', onNext() { } });
-    const mul = cfgMod.CFG.shop.campaignPriceMul;
-    stateMod.player.hp = 1;
-    stateMod.setScore(Math.round(cfgMod.CFG.shop.healthCost * mul));
-    T('harga campaign = base × mul (' + mul + ') < survival; item terbeli di harga campaign',
-        mul < 1 && Math.round(cfgMod.CFG.shop.healthCost * mul) < cfgMod.CFG.shop.healthCost
-        && shopMod.shopPurchase('health') === null);
-    shopMod.closeShop();
+}
+
+// === AMUNISI PER-SENJATA + PETI PERSEDIAAN + PERABOT/PETI TIAP RUANGAN
+// (2026-07-26, permintaan user). (a) Item ammo tak lagi mengisi SEMUA senjata:
+// tiap drop membawa d.weapon & mesh sendiri, hanya senjata itu yang terisi.
+// (b) Peti bisa dihancurkan dgn TEMBAK atau TEBAS -> berpeluang berisi loot.
+// (c) Tiap stage 1-3 menaruh peti di SETIAP ruangan + perabot tambahan, TANPA
+// merusak konektivitas nav (robot) maupun kelapangan mulut pintu (player). ===
+{
+    const ammoMod = await import(R('src/entities/ammoPickups.js'));
+    const dropMod2 = await import(R('src/entities/drops.js'));
+    const crateMod = await import(R('src/entities/crates.js'));
+    const P = stateMod.player;
+
+    // (a1) Empat jenis amunisi = empat mesh BERBEDA (bukan sekadar beda warna).
+    const meshes = ammoMod.AMMO_WEAPONS.map(w => ammoMod.buildAmmoMesh(w));
+    const counts = meshes.map(m => m.children.length);
+    T('ammo: 4 jenis (pistol/shotgun/rifle/launcher) punya mesh masing-masing',
+        ammoMod.AMMO_WEAPONS.length === 4
+        && ammoMod.AMMO_WEAPONS.every(w => cfgMod.CFG.weapons[w] && ammoMod.AMMO_KINDS[w].label)
+        && meshes.every(m => m.children.length > 2)
+        && new Set(counts).size > 1);
+
+    // (a2) Memungut ammo pistol HANYA mengisi pistol — senjata lain tak berubah.
+    stateMod.drops.length = 0;
+    P.weapons = ['pistol', 'rifle']; stateMod.syncOwnedFromWeapons();
+    P.pistol.ammo = 0; P.rifle.ammo = 0;
+    camera.position.set(0, cfgMod.CFG.player.eyeHeight, 0);
+    dropMod2.spawnAmmoDrop(0, 0, 'pistol');
+    dropMod2.updateDrops(0.05, 0);
+    T('ammo pistol: HANYA pistol terisi (+ammoPickup), rifle TETAP 0',
+        P.pistol.ammo === cfgMod.CFG.weapons.pistol.ammoPickup && P.rifle.ammo === 0
+        && stateMod.drops.length === 0);
+
+    // (a3) Ammo untuk senjata yang TIDAK dimiliki DITINGGAL di lantai (tak mubazir).
+    dropMod2.spawnAmmoDrop(0, 0, 'shotgun');
+    dropMod2.updateDrops(0.05, 0);
+    T('ammo senjata yang tak dimiliki tak diambil (tetap di lantai)',
+        !P.owned.shotgun && stateMod.drops.length === 1 && stateMod.drops[0].weapon === 'shotgun');
+    stateMod.drops.length = 0;
+
+    // (a4) Ammo penuh juga ditinggal (aturan full-item lama tetap berlaku).
+    P.pistol.ammo = stateMod.maxAmmoFor('pistol');
+    dropMod2.spawnAmmoDrop(0, 0, 'pistol');
+    dropMod2.updateDrops(0.05, 0);
+    T('ammo penuh: item ditinggal di lantai (aturan full-item)', stateMod.drops.length === 1);
+    stateMod.drops.length = 0;
+
+    // (a5) Drop robot mati mengundi jenis dari senjata yang DIMILIKI saja.
+    let allOwned = true;
+    for (let i = 0; i < 30; i++) {
+        stateMod.drops.length = 0;
+        for (let k = 0; k < 80 && !stateMod.drops.length; k++) dropMod2.spawnDrop({ x: 5000, z: 5000 });
+        if (stateMod.drops.length && !P.owned[stateMod.drops[0].weapon]) allOwned = false;
+    }
+    T('drop robot: jenis amunisi selalu dari senjata yang DIMILIKI', allOwned);
+    stateMod.drops.length = 0;
+
+    // (b1) Peti: DITEMBAK sampai hp habis -> pecah + peluru terserap.
+    crateMod.resetCrates();
+    crateMod.spawnCrate(300, 300, 0);
+    T('peti: spawn tercatat', crateMod.crateDebug().count === 1);
+    stateMod.bullets.length = 0;
+    stateMod.drops.length = 0;
+    stateMod.bullets.push({ mesh: { position: { x: 300, y: 8, z: 300 } }, px: 300, py: 8, pz: 280, dir: { x: 0, y: 0, z: 1 }, damage: cfgMod.CFG.crates.hp + 10 });
+    crateMod.crateBulletHits();
+    T('peti: hancur oleh peluru player + peluru terserap',
+        crateMod.crateDebug().count === 0 && stateMod.bullets.length === 0);
+
+    // (b2) Undian isi CONFIG-DRIVEN: lootChance 1 + hanya bobot uang -> pasti loot.
+    const Cbase = { ...cfgMod.CFG.crates };
+    cfgMod.CFG.crates.lootChance = 1; cfgMod.CFG.crates.ammoWeight = 0;
+    cfgMod.CFG.crates.moneyWeight = 1; cfgMod.CFG.crates.medkitWeight = 0;
+    stateMod.drops.length = 0;
+    crateMod.spawnCrate(320, 320, 0);
+    crateMod.breakCrate(crateMod.crates[0]);
+    T('peti: pecah -> menjatuhkan isi (uang) sesuai bobot config',
+        stateMod.drops.length === cfgMod.CFG.crates.moneyChips
+        && stateMod.drops.every(d => d.type === 'loot'));
+    cfgMod.CFG.crates.lootChance = 0;
+    stateMod.drops.length = 0;
+    crateMod.spawnCrate(340, 340, 0);
+    crateMod.breakCrate(crateMod.crates[0]);
+    T('peti: lootChance 0 -> pecah tanpa isi', stateMod.drops.length === 0);
+    Object.assign(cfgMod.CFG.crates, Cbase);
+
+    // (b3) TEBASAN pedang memecah peti (jangkauan + kerucut depan yang sama).
+    stateMod.drops.length = 0;
+    crateMod.spawnCrate(360, 300, 0);
+    const meleeR = cfgMod.CFG.melee.range;
+    const missed = crateMod.crateMeleeHit(360, 300 + meleeR + 60, 0, 1, meleeR, cfgMod.CFG.melee.damage);
+    T('peti: tebasan LUPUT bila peti di luar jangkauan/kerucut',
+        missed === false && crateMod.crateDebug().count === 1);
+    const landed = crateMod.crateMeleeHit(360, 300 - 8, 0, 1, meleeR, cfgMod.CFG.melee.damage * 99);
+    T('peti: tebasan DEPAN dalam jangkauan -> peti pecah',
+        landed === true && crateMod.crateDebug().count === 0);
+
+    // (b4) PEJAL ke player (didorong keluar); TIDAK masuk nav (robot boleh lewat).
+    crateMod.spawnCrate(400, 400, 0);
+    const pp = { x: 401, y: 0, z: 401 };
+    crateMod.resolveCrateBlock(pp, cfgMod.CFG.player.radius);
+    T('peti: pejal ke player (didorong keluar dari titik pusat)',
+        Math.hypot(pp.x - 400, pp.z - 400) > cfgMod.CFG.player.radius);
+    crateMod.resetCrates();
+    T('resetCrates: semua peti dibuang', crateMod.crateDebug().count === 0);
+    stateMod.drops.length = 0; stateMod.bullets.length = 0;
+
+    // ---- (c) penempatan peti + perabot per stage ----
+    const s1c = await import(R('src/scenes/campaign/stages/stage1.js'));
+    const s2c = await import(R('src/scenes/campaign/stages/stage2.js'));
+    const s3c = await import(R('src/scenes/campaign/stages/stage3.js'));
+
+    const posOf = (placeFn) => { crateMod.resetCrates(); placeFn(); const a = crateMod.crates.map(k => ({ x: k.x, z: k.z })); return a; };
+    const s1CratePos = posOf(s1c.placeCrates);
+    const s2CratePos = posOf(s2c.placeCrates);
+    const s3CratePos = posOf(s3c.placeCrates);
+    crateMod.resetCrates();
+
+    // (c1) TIAP rect ruangan (satu lampu = satu ruangan) memuat MINIMAL SATU peti
+    //      -> player punya alasan MASUK ke setiap ruangan, bukan cuma lewat koridor.
+    const covers = (lamps, pos) => lamps.every(lm =>
+        pos.some(k => k.x >= lm.x0 && k.x <= lm.x1 && k.z >= lm.z0 && k.z <= lm.z1));
+    T('peti: SETIAP ruangan stage 1 memuat minimal satu peti', covers(s1c.s1LampsDbg(), s1CratePos));
+    T('peti: SETIAP ruangan stage 2 memuat minimal satu peti', covers(s2c.s2LampsDbg(), s2CratePos));
+    T('peti: SETIAP ruangan stage 3 memuat minimal satu peti', covers(s3c.s3LampsDbg(), s3CratePos));
+
+    // (c2) Tiap peti berdiri di LANTAI & tak tertanam di furnitur (kalau tertanam,
+    //      peti mustahil didekati/dipecah).
+    const onFloor = (pos, walkFn, resolveFn) => pos.every(k => {
+        if (!walkFn(k.x, k.z, 1)) return false;
+        stateMod._v3.set(k.x, 0, k.z);
+        resolveFn(stateMod._v3, 1, 0);
+        return Math.abs(stateMod._v3.x - k.x) + Math.abs(stateMod._v3.z - k.z) < 0.01;
+    });
+    T('peti: semua berdiri di lantai & tak tertanam furnitur (stage 1/2/3)',
+        onFloor(s1CratePos, s1c.stage1Walk, s1c.resolve)
+        && onFloor(s2CratePos, s2c.stage2Walk, s2c.resolve)
+        && onFloor(s3CratePos, s3c.stage3Walk, s3c.resolve));
+
+    // (c3) PERABOT TAMBAHAN tak memutus nav robot: flood-fill nav-grid — region
+    //      terbesar harus mencakup hampir seluruh sel walkable (bukan pecah jadi
+    //      ruangan-ruangan terkunci).
+    const navRegions = (nav) => {
+        const { cols, rows, walk } = nav;
+        const seen = new Uint8Array(cols * rows);
+        let total = 0, biggest = 0;
+        for (let i = 0; i < walk.length; i++) if (walk[i]) total++;
+        for (let i0 = 0; i0 < walk.length; i0++) {
+            if (!walk[i0] || seen[i0]) continue;
+            let n = 0; const q = [i0]; seen[i0] = 1;
+            while (q.length) {
+                const i = q.pop(); n++;
+                const c = i % cols, r = (i - c) / cols;
+                for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const c2 = c + dc, r2 = r + dr;
+                    if (c2 < 0 || r2 < 0 || c2 >= cols || r2 >= rows) continue;
+                    const j = r2 * cols + c2;
+                    if (walk[j] && !seen[j]) { seen[j] = 1; q.push(j); }
+                }
+            }
+            if (n > biggest) biggest = n;
+        }
+        return biggest / Math.max(1, total);
+    };
+    T('perabot tambahan: nav stage 1/2/3 tetap satu region besar (robot tak terkurung)',
+        navRegions(s1c.s1Nav) > 0.97 && navRegions(s2c.s2Nav) > 0.97 && navRegions(s3c.s3Nav) > 0.97);
+
+    // (c4) Peti (pejal ke PLAYER saja) tak menyegel mulut pintu geser: berdiri di
+    //      sel lantai tetangga tiap bukaan pintu stage 1 tak boleh terdorong jauh.
+    crateMod.resetCrates(); s1c.placeCrates();
+    const PR = cfgMod.CFG.player.radius;
+    const DOORCELLS = [[8, 3], [8, 4], [3, 7], [4, 7], [13, 7], [14, 7], [15, 7], [8, 11], [8, 12],
+    [21, 11], [21, 12], [3, 17], [4, 17], [36, 17], [37, 17], [41, 17], [42, 17],
+    [13, 20], [14, 20], [16, 20], [17, 20], [21, 23], [21, 24], [29, 23], [29, 24],
+    [33, 29], [34, 29], [39, 30], [39, 31], [39, 32], [3, 39], [4, 39], [39, 43], [39, 44], [39, 45]];
+    let doorsClear = true;
+    for (const [cc, rr] of DOORCELLS) {
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            if (s1c.s1Wall(cc + dc, rr + dr)) continue;
+            const p = s1c.s1Cell(cc + dc, rr + dr);
+            stateMod._v3.set(p.x, 0, p.z);
+            crateMod.resolveCrateBlock(stateMod._v3, PR);
+            if (Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) > 1e-6) doorsClear = false;
+        }
+    }
+    T('peti: tak ada yang menghalangi sel tetangga mulut pintu geser stage 1', doorsClear);
+    crateMod.resetCrates();
+
+    // ---- (c5..c8) PEMADATAN PERABOT + PETI (2026-07-26 pass 2, permintaan user:
+    //      "ruangan masih terlalu terlihat kosong, taruh lebih banyak box") ----
+    const ROOMS = [
+        { n: 1, m: s1c, S: s1c.S1, cell: s1c.s1Cell, wall: s1c.s1Wall, res: s1c.resolve, lamps: s1c.s1LampsDbg(), furn: s1c.s1FurnitureDbg(), pos: s1CratePos, doors: DOORCELLS },
+        { n: 2, m: s2c, S: s2c.S2, cell: s2c.s2Cell, wall: s2c.s2Wall, res: s2c.resolve, lamps: s2c.s2LampsDbg(), furn: s2c.s2FurnitureDbg(), pos: s2CratePos, doors: [[17, 4], [17, 5], [6, 9], [7, 9], [30, 11], [30, 12], [27, 19], [27, 20], [1, 20], [2, 20], [13, 23], [13, 24], [39, 27], [39, 28], [44, 29], [45, 29]] },
+        { n: 3, m: s3c, S: s3c.S3, cell: s3c.s3Cell, wall: s3c.s3Wall, res: s3c.resolve, lamps: s3c.s3LampsDbg(), furn: s3c.s3FurnitureDbg(), pos: s3CratePos, doors: [[24, 8], [25, 8], [32, 9], [32, 10], [8, 12], [8, 13], [32, 15], [32, 16], [11, 21], [11, 22], [32, 21], [32, 22]] },
+    ];
+    // sel dianggap TERISI perabot bila titik pusatnya terdorong resolve (radius nav 3)
+    const occupied = (st, c, r, rad) => {
+        const p = st.cell(c, r);
+        stateMod._v3.set(p.x, 0, p.z);
+        st.res(stateMod._v3, rad, 0);
+        return Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) > 1e-6;
+    };
+    const rectOf = (st, lm) => ({
+        c0: Math.round((lm.x0 - st.S.x0) / st.S.CELL), c1: Math.round((lm.x1 - st.S.x0) / st.S.CELL) - 1,
+        r0: Math.round((lm.z0 - st.S.z0) / st.S.CELL), r1: Math.round((lm.z1 - st.S.z0) / st.S.CELL) - 1,
+    });
+    // (c5) tiap ruangan cukup terisi: >=5% sel lantainya ditempati perabot, dan
+    //      rata-rata seluruh stage >=12% -> ruangan tak lagi terasa melompong.
+    //      (ambang STRUKTURAL, bukan angka tuning CFG.)
+    let densityOK = true;
+    const densityLog = [];
+    for (const st of ROOMS) {
+        let allFloor = 0, allBusy = 0;
+        for (const lm of st.lamps) {
+            const q = rectOf(st, lm);
+            let floor = 0, busy = 0;
+            for (let r = q.r0; r <= q.r1; r++) for (let c = q.c0; c <= q.c1; c++) {
+                if (st.wall(c, r)) continue;
+                floor++;
+                if (occupied(st, c, r, 3)) busy++;
+            }
+            allFloor += floor; allBusy += busy;
+            if (busy / Math.max(1, floor) < 0.05) { densityOK = false; densityLog.push(`S${st.n} c${q.c0}-${q.c1} r${q.r0}-${q.r1}: ${busy}/${floor}`); }
+        }
+        if (allBusy / allFloor < 0.12) { densityOK = false; densityLog.push(`S${st.n} rata-rata ${(allBusy / allFloor * 100).toFixed(1)}%`); }
+    }
+    if (densityLog.length) console.log('  ruangan terlalu kosong:', densityLog);
+    T('perabot: tiap ruangan stage 1/2/3 terisi >=5% (rata-rata stage >=12%)', densityOK);
+
+    // (c6) peti: MAYORITAS ruangan memuat >=2 peti (bukan cuma 1 per ruangan) dan
+    //      totalnya >= 2x jumlah ruangan.
+    let cratesOK = true;
+    for (const st of ROOMS) {
+        let multi = 0;
+        for (const lm of st.lamps) {
+            const n = st.pos.filter(k => k.x >= lm.x0 && k.x <= lm.x1 && k.z >= lm.z0 && k.z <= lm.z1).length;
+            if (n >= 2) multi++;
+        }
+        if (multi < Math.ceil(st.lamps.length * 0.8) || st.pos.length < st.lamps.length * 2) cratesOK = false;
+    }
+    T('peti: >=80% ruangan tiap stage memuat MINIMAL DUA peti (total >=2x ruangan)', cratesOK);
+
+    // (c7) entri tabel perabot tak saling tumpang tindih (mesh menancap satu sama lain)
+    let overlaps = 0;
+    for (const st of ROOMS) {
+        const bs = st.furn.map(([k, c, r, sx, sy, sz]) => {
+            const p = st.cell(c, r);
+            return { k, c, r, x0: p.x - sx / 2, x1: p.x + sx / 2, z0: p.z - sz / 2, z1: p.z + sz / 2 };
+        });
+        for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+            const a = bs[i], b = bs[j];
+            if (Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 0.5 && Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0) > 0.5) {
+                overlaps++;
+                console.log(`  perabot tumpang tindih S${st.n}: ${a.k}@${a.c},${a.r} x ${b.k}@${b.c},${b.r}`);
+            }
+        }
+    }
+    T('perabot: tak ada entri tabel yang tumpang tindih (stage 1/2/3)', overlaps === 0);
+
+    // (c8) mulut pintu geser stage 2 & 3 juga tetap lapang (perabot & peti) —
+    //      pelengkap (c4) yang cuma menguji stage 1.
+    let mouthOK = true;
+    for (const st of ROOMS) {
+        crateMod.resetCrates();
+        for (const k of st.pos) crateMod.spawnCrate(k.x, k.z, 0);
+        for (const [cc, rr] of st.doors) {
+            for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]]) {
+                const c = cc + dc, r = rr + dr;
+                if (st.wall(c, r)) continue;
+                if (occupied(st, c, r, 3)) { mouthOK = false; console.log(`  perabot menyumbat pintu S${st.n} @${c},${r}`); }
+                const p = st.cell(c, r);
+                stateMod._v3.set(p.x, 0, p.z);
+                crateMod.resolveCrateBlock(stateMod._v3, PR);
+                if (Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) > 1e-6) { mouthOK = false; console.log(`  peti menyumbat pintu S${st.n} @${c},${r}`); }
+            }
+        }
+    }
+    T('mulut pintu geser stage 1/2/3 bebas perabot & peti', mouthOK);
+    crateMod.resetCrates();
+
+    // ---- (c9..c11) PENGGABUNGAN PERABOT STATIS (2026-07-26, keluhan user "agak
+    //      berat"): perabot padat itu digabung jadi belasan mesh oleh
+    //      utils/meshBatch.js. Stub THREE di harness ini TAK punya BufferAttribute,
+    //      jadi jalur yang teruji di sini = pengelompokan material + FALLBACK
+    //      (harus menambahkan SEMUA prop, tak boleh ada yang hilang diam-diam).
+    const batchMod = await import(R('src/utils/meshBatch.js'));
+
+    // (c9) kunci material = PENAMPILAN, bukan uuid: dua material identik dari
+    //      builder berbeda harus segrup, beda warna/emissive/opacity harus pisah.
+    const mkMat = (o) => new THREE.MeshLambertMaterial(o);
+    const kA = batchMod.materialKey(mkMat({ color: 0x3a4046 }));
+    const kB = batchMod.materialKey(mkMat({ color: 0x3a4046 }));
+    const kC = batchMod.materialKey(mkMat({ color: 0x2fb8a6 }));
+    const kD = batchMod.materialKey(mkMat({ color: 0x3a4046, emissive: 0x2fb8a6, emissiveIntensity: 0.7 }));
+    const kE = batchMod.materialKey(mkMat({ color: 0x3a4046, transparent: true, opacity: 0.5 }));
+    T('meshBatch: kunci material dari PENAMPILAN (warna sama segrup; warna/emissive/opacity beda terpisah)',
+        kA === kB && kC !== kA && kD !== kA && kE !== kA);
+
+    // (c9b) material TEMBUS PANDANG tak boleh ikut digabung (sortir transparansi
+    //       three per-OBJEK; kaca yang disatukan bisa salah urutan tumpang tindih).
+    T('meshBatch: material transparan dikecualikan dari penggabungan',
+        batchMod.isBatchableMaterial(mkMat({ color: 0x3a4046 })) === true
+        && batchMod.isBatchableMaterial(mkMat({ color: 0x3a4046, transparent: true, opacity: 0.6 })) === false
+        && batchMod.isBatchableMaterial(null) === false);
+
+    // (c10) fallback (THREE tanpa BufferAttribute, spt harness ini): semua prop
+    //       tetap masuk parent — optimasi tak boleh menelan perabot.
+    T('meshBatch: tanpa dukungan merge, SEMUA prop tetap ditambahkan (tak ada yang hilang)', (() => {
+        if (batchMod.canMerge()) return true;          // di browser jalur merge yang dipakai
+        const parent = new THREE.Group();
+        const props = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
+        const added = batchMod.addMergedStatic(parent, props);
+        return added.length === props.length && parent.children.length === props.length
+            && props.every(p => parent.children.indexOf(p) !== -1)
+            && batchMod.addMergedStatic(parent, []).length === 0;
+    })());
+
+    // (c11) tiap stage benar-benar MENGALIRKAN perabotnya lewat batch (bukan
+    //       scene.add langsung) — kalau wiring-nya putus, daftar ini kosong.
+    const s4c = await import(R('src/scenes/campaign/stages/stage4.js'));
+    T('meshBatch: perabot stage 1/2/3/4 melewati addMergedStatic (batch terisi)',
+        s1c.s1StaticBatchDbg().length > 0 && s2c.s2StaticBatchDbg().length > 0
+        && s3c.s3StaticBatchDbg().length > 0 && s4c.s4StaticBatchDbg().length > 0);
+
+    // (c12) stage 4 memakai mergeObjectInPlace utk prop yang MATERIALNYA masih
+    //       disentuh saat main (mobil/gedung yang memudar = occluder). Fallback-nya
+    //       WAJIB mengembalikan objek yang sama supaya jalur headless & browser
+    //       tanpa dukungan merge tetap menampilkan propnya.
+    T('meshBatch: mergeObjectInPlace fallback mengembalikan objek aslinya (tak menghilangkan prop)', (() => {
+        if (batchMod.canMerge()) return true;
+        const g = new THREE.Group();
+        g.position.set(7, 0, 9);
+        return batchMod.mergeObjectInPlace(g) === g && batchMod.mergeObjectInPlace(null) === null;
+    })());
+
+    // (c12b) KLASIFIKASI penggabungan — ini yang dulu bikin bug: versi pertama
+    //        membuang anak NON-mesh, jadi garis tepi amber krat (LineSegments)
+    //        HILANG dari scene. Sekarang tiap jenis punya nasib eksplisit.
+    const fakeGeo = { attributes: { position: { array: new Float32Array(9), count: 3 }, normal: { array: new Float32Array(9) } } };
+    const lineGeo = { attributes: { position: { array: new Float32Array(6), count: 2 } } };
+    const opaque = { type: 'MeshLambertMaterial' };
+    const cls = batchMod.classifyForBatch;
+    T('meshBatch: klasifikasi — mesh opak digabung; garis/lampu/sprite/instanced/transparan DIPERTAHANKAN',
+        cls({ isMesh: true, geometry: fakeGeo, material: opaque }) === 'merge'
+        && cls({ isMesh: true, geometry: fakeGeo, material: { type: 'M', transparent: true } }) === 'keep'
+        && cls({ isMesh: true, geometry: { attributes: {} }, material: opaque }) === 'keep'
+        && cls({ isMesh: true, isInstancedMesh: true, geometry: fakeGeo, material: opaque }) === 'keep'
+        && cls({ isLine: true, isLineSegments: true, geometry: lineGeo, material: opaque }) === 'mergeLine'
+        && cls({ isLine: true, geometry: lineGeo, material: opaque }) === 'keep'
+        && cls({ isLight: true }) === 'keep'
+        && cls({ isSprite: true }) === 'keep'
+        && cls({ isGroup: true }) === 'skip'
+        && cls(null) === 'skip');
+
+    // (c13) occluder stage 4 (fade) tetap terdaftar & TIDAK kehilangan posisinya —
+    //       mergeObjectInPlace menyalin transform ke grup hasil; kalau itu putus,
+    //       occluder akan menumpuk di origin dan fade-nya salah sasaran.
+    const occ = s4c.occluderDebug();
+    T('stage 4: occluder fade masih terdaftar (' + occ.count + ') & belum ada yang memudar', occ.count > 40 && occ.minF === 1);
+
+    // ---- (c14..c16) LAMPU PER-STAGE (2026-07-26, keluhan user "stage 4 masih agak
+    //      berat"): keempat dunia campaign hidup di SATU scene, jadi 54 lampu
+    //      ruangan/jalan ikut dihitung shader SEKALIGUS (57 point light per fragmen).
+    //      Sekarang hanya lampu stage AKTIF yang `visible`. ----
+    const lightMod = await import(R('src/world/lighting.js'));
+    const before = lightMod.stageLightsDebug();
+    const visibleLightSet = () => {
+        const set = new Set();
+        const walk = (o) => { if (o.visible === false) return; if (o.isPointLight) set.add(o); for (const c of o.children) walk(c); };
+        walk(scene);
+        return set;
+    };
+    const visiblePointLights = () => visibleLightSet().size;
+    // (c14) tiap stage mendaftarkan lampunya & hanya set aktif yang menyala.
+    const perKey = {};
+    let alwaysOn = null;                     // irisan: lampu yang menyala di SEMUA set
+    for (const key of before.keys) {
+        lightMod.setActiveStageLights(key);
+        perKey[key] = { reg: lightMod.stageLightsDebug().visible, scene: visiblePointLights() };
+        const vis = visibleLightSet();
+        alwaysOn = alwaysOn === null ? vis : new Set([...alwaysOn].filter(l => vis.has(l)));
+    }
+    const keysOK = before.keys.length >= 4 && before.total >= 40;
+    const cullOK = Object.values(perKey).every(v => v.reg > 0 && v.reg < before.total * 0.6);
+    if (!cullOK) console.log('  lampu per set:', JSON.stringify(perKey));
+    T('lampu stage: hanya set AKTIF yang menyala (' + before.total + ' terdaftar, '
+        + Object.entries(perKey).map(([k, v]) => k + '=' + v.reg).join(' ') + ')', keysOK && cullOK);
+
+    // (c15) lampu GLOBAL (kolam ledakan effects.js) TIDAK ikut dimatikan — kalau
+    //       ikut, ledakan jadi gelap. Terlihat dari selisih hitungan scene vs registry.
+    //       Diuji sbg IRISAN himpunan: lampu yang menyala di SETIAP set lampu =
+    //       lampu global. Tiap lampu TERDAFTAR pasti mati di minimal satu set (ia
+    //       cuma milik satu kunci), jadi irisan ini memang berisi yang global saja.
+    const alwaysArr = [...(alwaysOn || [])];
+    if (alwaysArr.length < 3) console.log('  lampu: per set =', JSON.stringify(perKey), ' selalu-nyala =', alwaysArr.length);
+    T('lampu global (kolam ledakan, >=3) menyala di SEMUA set lampu — tak ikut dimatikan',
+        alwaysArr.length >= 3);
+
+    // (c16) kunci lampu tiap scene campaign ada (kalau lupa, stage masuk dgn set
+    //       lampu stage sebelumnya = ruangan gelap/ganda).
+    T('scene campaign 1-4 + survival punya lightsKey',
+        s1c.stage1Scene.lightsKey === 'campaign-1' && s2c.stage2Scene.lightsKey === 'campaign-2'
+        && s3c.stage3Scene.lightsKey === 'campaign-3' && s4c.stage4Scene.lightsKey === 'campaign-4');
+    lightMod.setActiveStageLights(before.active || 'campaign-1');
+
+    // (d) TEKS MISI tanpa penunjuk arah (2026-07-26, permintaan user: biar player
+    //     mencarinya sendiri) — sapu string user-facing di semua scene campaign.
+    const DIRW = /\b(north|south|east|west|far-right|far-left|top-left|top-right|bottom-left|bottom-right)\b/i;
+    const dirHits = [];
+    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js']) {
+        const src = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/' + f, 'utf8');
+        for (const line of src.split('\n')) {
+            const isMsg = line.includes('showStageMsg(') || line.includes('showPickup(') || (line.includes('return') && line.includes('FLOOR'));
+            if (isMsg && DIRW.test(line)) dirHits.push(f + ': ' + line.trim().slice(0, 80));
+        }
+    }
+    if (dirHits.length) console.log('  dir-hits:', dirHits);
+    T('teks misi: tanpa penunjuk arah (north/south/east/west/far-right/...)', dirHits.length === 0);
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);
