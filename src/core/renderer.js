@@ -118,6 +118,18 @@ let camShake = 0;
 export function addCamShake(a) { camShake = Math.max(camShake, a); }
 export function resetCamShake() { camShake = 0; }
 
+// ----- DEATH CAM (2026-07-26): selama sekuens kematian player, kamera MENDEKAT
+// ke jasad sambil meng-ORBIT halus dan MEMIRING (dutch angle). Nilainya DIDORONG
+// MASUK oleh sutradaranya (core/deathCine.js → setDeathCam) — pola sama dgn
+// setQualityLightRef, jadi renderer TIDAK mengimpor deathCine (tanpa siklus, dan
+// renderer tetap bebas CFG). Semua netral saat 1/0/0 = matematika lama persis. --
+let dcZoom = 1, dcOrbit = 0, dcTilt = 0;
+export function setDeathCam(zoomMul = 1, orbitRad = 0, tiltRad = 0) {
+    dcZoom = zoomMul; dcOrbit = orbitRad; dcTilt = tiltRad;
+}
+export function resetDeathCam() { dcZoom = 1; dcOrbit = 0; dcTilt = 0; }
+export const deathCamDebug = () => ({ zoom: dcZoom, orbit: dcOrbit, tilt: dcTilt });
+
 // ----- PAN SINEMATIK (2026-07-17, cutscene heli stage 4): scene men-set titik
 // fokus override via setCineFocus(x, z) — followViewCam meng-EASE camFocus ke
 // sana (menggantikan dead-zone/recenter; pan halus "perlahan"), tanpa snap
@@ -220,9 +232,16 @@ export function followViewCam(dt = 0) {
         camFocus.z = clampCentered(camFocus.z, cb.z0 - e.minZ, cb.z1 - e.maxZ);
     }
 
-    viewCam.position.set(camFocus.x + CAM_OFF.x, camFocus.y + CAM_OFF.y, camFocus.z + CAM_OFF.z);
+    // Ofset kamera + modifier DEATH CAM (netral saat 1/0/0): azimuth diputar
+    // `dcOrbit` lalu seluruh ofset diskalakan `dcZoom` (mendekat ke jasad).
+    const co = Math.cos(dcOrbit), so = Math.sin(dcOrbit);
+    const offX = (CAM_OFF.x * co - CAM_OFF.z * so) * dcZoom;
+    const offZ = (CAM_OFF.x * so + CAM_OFF.z * co) * dcZoom;
+    viewCam.position.set(camFocus.x + offX, camFocus.y + CAM_OFF.y * dcZoom, camFocus.z + offZ);
     // Target sedikit di bawah titik fokus -> lebih banyak dunia terlihat ke atas layar.
     viewCam.lookAt(camFocus.x, camFocus.y - 8, camFocus.z);
+    // Dutch angle: MIRING di sumbu pandang (setelah lookAt) — hanya saat mati.
+    if (dcTilt) viewCam.rotateZ(dcTilt);
     // Guncangan sinematik: jitter posisi acak yang meluruh (Monas runtuh).
     if (camShake > 0.05) {
         viewCam.position.x += (Math.random() - 0.5) * camShake;

@@ -72,6 +72,22 @@ export function flashDamage() {
     setTimeout(() => damageEl.style.opacity = 0, 120);
 }
 
+// ===== SEKUENS KEMATIAN (2026-07-26) =====
+// Overlay "pandangan menutup" #deathFx: opasitas 0..1 ditulis PER FRAME oleh
+// core/deathCine.js (bukan transition CSS) supaya kurva hentakan→surut mulus.
+const deathFxEl = document.getElementById('deathFx');
+export function setDeathFx(k) {
+    if (deathFxEl) deathFxEl.style.opacity = Math.max(0, Math.min(1, k));
+}
+// Warna dunia LURUH: filter CSS di kanvas WebGL (saturasi/terang/kontras).
+// Hanya kanvas — teks layar GAME OVER tetap tajam. k = 0 melepas filter.
+export function setDeathGrade(k, canvas) {
+    if (!canvas || !canvas.style) return;
+    canvas.style.filter = k > 0
+        ? `saturate(${(1 - 0.86 * k).toFixed(3)}) brightness(${(1 - 0.34 * k).toFixed(3)}) contrast(${(1 + 0.18 * k).toFixed(3)})`
+        : '';
+}
+
 // Indikator ARAH serangan (IMPROVEMENT-PLAN #8): baji merah di tepi layar,
 // diputar ke sudut penyerang relatif hadap kamera (0 = depan, + = searah
 // jarum jam; hitung dgn attackerAngle di entities/robots.js). SATU elemen

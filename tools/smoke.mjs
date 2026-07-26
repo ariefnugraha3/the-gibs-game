@@ -719,15 +719,75 @@ T('kembali Lv1: prop dasar tanpa error', true);
 
 // --- 12. Sekuens kematian: gore + jeda -> baru GAME OVER ---
 const gameMod = await import(R('src/core/game.js'));
+const cineMod = await import(R('src/core/deathCine.js'));
+const sfxM = await import(R('src/utils/sfx.js'));
 stateMod.setPaused(false);
 player.hp = 1;   // satu peluru (attack B per config) pasti mematikan
 camera.position.set(300, 11.4, 300);
+avMod.updatePlayerAvatar(0.016);   // satu frame HIDUP dulu (pose genggam terisi)
+sfxM.startBattleMusic();           // musik battle harus SURUT selama sekuens
 const zK = mkBot('B', 300, 330);
 robotsMod.fireRobotBullet(zK);
 for (let i = 0; i < 2000 && enemyBullets.length; i++) robotsMod.updateEnemyBullets(0.016, 1);
 T('HP habis -> sekuens kematian (BUKAN game over instan)',
     gameMod.isPlayerDying() && stateMod.isGameOver === false && player.hp <= 0);
-for (let i = 0; i < 20; i++) avMod.updatePlayerAvatar(0.05);   // animasi roboh berjalan tanpa error
+
+// --- 12b. KEMATIAN DRAMATIS (2026-07-26): slow motion + keruntuhan 4 fase +
+// senjata terlepas + death cam + layar menutup. Durasi fase dibaca dari modul
+// (avatarDeathTiming) dan angka rasa dari CFG.player.death — bukan hardcode. ---
+const DCFG = cfgMod.CFG.player.death || {};
+const HPI = Math.PI / 2;
+const gunGrpTest = avMod.avatarGunTip.parent;   // grup senjata (induk moncong)
+T('mati -> sutradara sinematik aktif, TANPA sentakan skala waktu di frame 0',
+    cineMod.deathCineDebug().active === true && cineMod.deathTimeScale() === 1);
+avMod.updatePlayerAvatar(1 / 60);   // frame pertama pose mati = saat senjata dilepas
+T('senjata TERLEPAS ke ruang scene (bukan sekadar disembunyikan)',
+    gunGrpTest.parent === scene && avMod.avatarDeathDebug().gunFlying === true);
+// Jalankan seperti main.animate: dunia+tubuh pakai dt terskala, sutradara dtReal.
+// Berhenti setelah tubuh DIAM dan senjata MENDARAT (senjata jatuh sedikit lebih lama).
+const seq = [];
+let dbg = avMod.avatarDeathDebug(), prevFall = dbg.fall;
+let minScale = 1, arch = 0, hipLow = 0, maxFall = 0, osc = 0, prevD = 0, sunk = false;
+for (let i = 0; i < 400 && gameMod.isPlayerDying()
+    && (dbg.phase !== 'still' || !dbg.gunLanded); i++) {
+    const sc = cineMod.deathTimeScale();
+    minScale = Math.min(minScale, sc);
+    gameMod.updateGame(sc / 60, sc, i, 1 / 60);
+    avMod.updatePlayerAvatar(sc / 60);
+    dbg = avMod.avatarDeathDebug();
+    if (seq[seq.length - 1] !== dbg.phase) seq.push(dbg.phase);
+    arch = Math.min(arch, dbg.fall);          // paling melengkung ke BELAKANG
+    hipLow = Math.min(hipLow, dbg.sink);      // pinggul paling rendah
+    maxFall = Math.max(maxFall, dbg.fall);
+    if (dbg.phase === 'settle') {             // pantulan = arah perubahan berbalik
+        const d = dbg.fall - prevFall;
+        if (prevD !== 0 && Math.sign(d) !== Math.sign(prevD)) osc++;
+        if (d !== 0) prevD = d;
+    }
+    if (dbg.sink < -0.5) sunk = true;
+    prevFall = dbg.fall;
+}
+T('urutan fase: impact -> buckle -> fall -> settle -> still (' + seq.join('>') + ')',
+    seq.join('>') === 'impact>buckle>fall>settle>still');
+T('slow motion tertahan di CFG.player.death.slowMoScale (' + minScale.toFixed(2) + ')',
+    Math.abs(minScale - (DCFG.slowMoScale != null ? DCFG.slowMoScale : 0.45)) < 1e-9);
+T('fase hentak: punggung MELENGKUNG ke belakang dulu (' + arch.toFixed(2) + ' rad)', arch < -0.2);
+T('fase buckle: pinggul AMBRUK lalu naik lagi ke tinggi berbaring', sunk && hipLow < -1.5);
+T('overshoot roboh melewati 90° lalu memantul (max ' + maxFall.toFixed(2) + ', ' + osc + ' balikan)',
+    maxFall > HPI + 0.05 && osc >= 2);
+T('pose akhir: jasad rebah TEPAT rata + DI ATAS lantai (bukan separuh tenggelam)',
+    Math.abs(avMod.avatarDeathDebug().fall - HPI) < 0.01
+    && Math.abs(avMod.avatarDeathDebug().sink - avMod.avatarDeathTiming().lieY) < 0.01);
+T('senjata yang terlempar MENDARAT di lantai', avMod.avatarDeathDebug().gunLanded === true);
+const dcam = rendererMod.deathCamDebug();
+T('death cam: mendekat (zoom ' + dcam.zoom.toFixed(2) + ') + orbit + miring, tak melebihi camZoom',
+    dcam.zoom < 1 && dcam.zoom >= 1 - (DCFG.camZoom != null ? DCFG.camZoom : 0.42) - 1e-9
+    && dcam.orbit > 0 && dcam.tilt > 0);
+T('layar: pandangan MENUTUP + warna dunia luruh',
+    parseFloat(global.document.getElementById('deathFx').style.opacity) > 0.2
+    && /saturate\(0\./.test(rendererMod.renderer.domElement.style.filter || ''));
+T('musik SURUT (bukan terpotong): volume < penuh, konteks masih battle',
+    sfxM.musicDebug() === 'battle' && sfxM.musicVolNow() < sfxM.getMusicVolume() * 0.5);
 T('avatar TETAP tampil saat mati (roboh biasa, bukan meledak)', avMod.avatarGroup.visible === true);
 // SELEBRASI robot selama sekuens kematian: stop menyerang, lengan ke langit, melompat
 zB.fireCd = 0; zA.fireCd = 0; zB.losOK = true; zA.losOK = true;
@@ -744,6 +804,25 @@ const deathTicks = Math.ceil(((cfgMod.CFG.player.deathDelaySec || 2) + 0.5) / 0.
 for (let i = 0; i < deathTicks && gameMod.isPlayerDying(); i++) gameMod.updateGame(0.1, 6, i * 100);
 T('layar GAME OVER muncul setelah jedanya habis', stateMod.isGameOver === true && !gameMod.isPlayerDying());
 T('peluru musuh meleset pada player yang sudah tumbang', true);
+// --- 12c. GAME OVER: slow motion & letterbox DILEPAS, tapi framing jasad
+// DIBEKUKAN (kalau kamera di-reset di sini ia meletik mundur di depan panel
+// yang cuma 80% opak). Baru resetDeathCine (dipanggil resetGame) memulihkan. ---
+T('game over: slow motion dilepas (skala waktu kembali 1)', cineMod.deathTimeScale() === 1);
+T('game over: framing jasad DIBEKUKAN (kamera tetap dekat/miring)',
+    rendererMod.deathCamDebug().zoom < 1 && rendererMod.deathCamDebug().tilt > 0);
+T('stopMusic memulihkan volume track yang ter-duck',
+    Math.abs(sfxM.bgMusic.volume - sfxM.getMusicVolume()) < 1e-9
+    && Math.abs(sfxM.bgMusicAlt.volume - sfxM.getMusicVolume()) < 1e-9);
+cineMod.resetDeathCine();
+avMod.resetAvatarDeath();
+T('resetDeathCine: kamera/layar/warna kembali normal',
+    rendererMod.deathCamDebug().zoom === 1 && rendererMod.deathCamDebug().tilt === 0
+    && parseFloat(global.document.getElementById('deathFx').style.opacity) === 0
+    && !rendererMod.renderer.domElement.style.filter);
+T('resetAvatarDeath: senjata kembali KE TANGAN di ofset terkalibrasi',
+    gunGrpTest.parent !== scene && gunGrpTest.position.x === 0.65
+    && gunGrpTest.position.y === 7.5 && gunGrpTest.position.z === 1.2
+    && gunGrpTest.rotation.x === 0 && avMod.avatarDeathDebug().phase === 'none');
 
 // --- 13. ARMOR: reduksi damage % + durability terima damage BASE + hancur ---
 stateMod.setGameOver(false);

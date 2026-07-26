@@ -34,7 +34,13 @@ let phase = 0, lastX = 0, lastZ = 0;
 // Rantai hadap manusiawi: kaki (root) -> puntiran pinggang (upperG) -> toleh kepala (headG)
 let aimYaw = 0, legYaw = 0, twistCur = 0, headYawCur = 0;
 let gaitSign = 1, backped = false, realign = false;   // arah siklus langkah + histeresis backpedal + turn-in-place
-let deathT = -1, deathDirX = 0, deathDirZ = 1;        // animasi ROBOH kematian (>= 0 = berjalan); arah jatuh
+// ===== KEMATIAN DRAMATIS 4 FASE (2026-07-26) — lihat poseDeath() di bawah =====
+let deathT = -1, deathDirX = 0, deathDirZ = 1;        // jam animasi (>= 0 = berjalan); arah jatuh
+let deathPhase = 'none';                              // 'impact'|'buckle'|'fall'|'settle'|'still'
+let deathSpin = 1;                                    // sisi puntiran badan saat dihentak (acak per kematian)
+let deathHand0 = null;                                // posisi telapak saat ajal (agar fase hentak tak "teleport")
+let gunFly = null;                                    // senjata TERLEPAS: balistik + tumbling di ruang scene
+let dbgFall = 0, dbgRoll = 0, dbgSink = 0;            // nilai kurva terakhir (utk avatarDeathDebug)
 let marker = null, markerT = 0;
 // ===== IDLE AFK bertahap (2026-07-14) =====
 let afkT = 0, afkMode = 'none', afkPoseT = 0;        // detik menganggur; mode aktif; waktu dalam mode
@@ -68,6 +74,8 @@ let armorNodes = null, armorKey = -1;   // overlay ARMOR kumulatif (ikuti player
 let swordPivot = null;            // pivot ayunan pedang (di bahu kanan; tampil saat melee)
 let swooshGrp = null, swooshMat = null;   // kipas JEJAK tebasan (opacity ~ kecepatan ayunan)
 const _qT = new THREE.Quaternion(), _tumbleAxis = new THREE.Vector3();   // salto dodge
+const _qR = new THREE.Quaternion(), _rollAxis = new THREE.Vector3();     // guling ke bahu (kematian)
+const _wp = new THREE.Vector3();                                         // titik dunia (lepas senjata)
 const _segDir = new THREE.Vector3(), _yUnit = new THREE.Vector3(0, 1, 0);
 
 // Bahu (ruang avatarGroup) — pangkal lengan tertarik.
@@ -482,14 +490,35 @@ export function hideMoveMarker() {
     if (marker) marker.visible = false;
 }
 
-// Mulai animasi kematian "biasa" (dipanggil startPlayerDeath di game.js):
-// tubuh ROBOH ke arah (dirx,dirz) = arah datangnya dorongan damage terakhir.
+// Mulai animasi kematian (dipanggil startPlayerDeath di game.js): tubuh roboh
+// ke arah (dirx,dirz) = arah datangnya dorongan damage terakhir. Posisi telapak
+// SAAT INI dibekukan sebagai titik awal fase hentakan (tanpa itu tangan
+// "teleport" dari grip senjata ke pose terlempar di frame pertama).
 export function playAvatarDeath(dirx, dirz) {
     const d = Math.hypot(dirx, dirz);
     deathDirX = d > 1e-4 ? dirx / d : 0;
     deathDirZ = d > 1e-4 ? dirz / d : 1;
     deathT = 0;
+    deathPhase = 'impact';
+    deathSpin = Math.random() < 0.5 ? -1 : 1;
+    deathHand0 = handL && handR
+        ? { lx: handL.position.x, ly: handL.position.y, lz: handL.position.z,
+            rx: handR.position.x, ry: handR.position.y, rz: handR.position.z }
+        : null;
 }
+// Fase animasi kematian — dibaca sutradara core/deathCine.js untuk memicu
+// isyarat (debu/darah/guncangan/bunyi) TEPAT saat badan menghantam lantai.
+export const avatarDeathPhase = () => deathPhase;
+// Debug/uji: sudut roboh & guling tak terbaca dari quaternion di harness stub,
+// jadi nilai terakhir yang dihitung poseDeath diekspos di sini.
+export const avatarDeathDebug = () => ({
+    t: deathT, phase: deathPhase, fall: dbgFall, roll: dbgRoll, sink: dbgSink,
+    gunFlying: !!gunFly, gunLanded: !!(gunFly && gunFly.landed),
+});
+// Durasi tiap fase (konstanta visual) — dipakai uji supaya tak menebak stempel waktu.
+export const avatarDeathTiming = () => ({
+    impact: D_IMPACT, buckle: D_BUCKLE, fall: D_FALL, settle: D_SETTLE, total: D_TOTAL, lieY: LIE_Y,
+});
 
 // ===== FAST-ROPE / RAPPEL (2026-07-17, cutscene intro): pose meluncur turun
 // dari tali heli — badan tegak MENGGANTUNG, KEDUA tangan meraih tali di ATAS
@@ -542,10 +571,213 @@ function poseRappel(dt) {
     }
 }
 
+// ===== KEMATIAN DRAMATIS (2026-07-26; menggantikan roboh-90°-lalu-diam) =====
+// EMPAT FASE, dijalankan dari jam `deathT` (detik animasi = dt ber-slow-motion,
+// jadi seluruh keruntuhan ikut melambat bersama dunia):
+//   impact (D_IMPACT) — badan DIHENTAK: punggung melengkung ke BELAKANG melawan
+//     arah jatuh, kepala tersentak, kedua lengan terlempar ke atas, jinjit
+//     terangkat sedikit, badan terputar; SENJATA TERLEPAS terbang (releaseGun).
+//   buckle (D_BUCKLE) — lutut MENYERAH: pinggul turun ~2 unit, kaki menekuk
+//     asimetris (satu lutut jatuh lebih dulu), torso melipat ke depan, kepala
+//     tertunduk, satu tangan MENGGAPAI lantai mencoba menahan.
+//   fall (D_FALL)   — GRAVITASI: sudut roboh dipercepat (easeIn) sampai 90° +
+//     overshoot, badan diangkat ke ketinggian berbaring (LIE_Y) supaya jasad
+//     REBAH DI ATAS lantai (bukan separuh tenggelam seperti versi lama), mulai
+//     terguling ke satu bahu. Akhir fase = HANTAMAN (isyarat FX di deathCine).
+//   settle (D_SETTLE) — PANTULAN teredam: sudut/tinggi/lutut/lengan bergetar
+//     dgn amplitudo meluruh (e^-5.5u), kepala terkulai ke samping, satu embusan
+//     napas terakhir di dada; lalu 'still' = pose akhir persis, diam total.
+// Semua amplitudo = konstanta VISUAL (bukan CFG) sesuai aturan proyek.
+const D_IMPACT = 0.13, D_BUCKLE = 0.34, D_FALL = 0.26, D_SETTLE = 0.52;
+const D_TOTAL = D_IMPACT + D_BUCKLE + D_FALL + D_SETTLE;
+const LIE_Y = 1.25;          // tinggi garis-tengah badan saat berbaring rata
+// Root avatar ADA DI KAKI (pivot lama), jadi "pinggul ambruk" hanya bisa
+// dinyatakan dgn menurunkan root — dan itu ikut menenggelamkan sepatu. BUCKLE_Y
+// dijaga sedangkal pose jongkok AFK (-1.7) supaya kaki tidak terbenam di lantai;
+// kesan lutut menyerah datang dari tekukan lutut + torso melipat, bukan dari
+// dalamnya penurunan.
+const BUCKLE_Y = -2.0;
+const HALF_PI = Math.PI / 2;
+const lerp = (a, b, t) => a + (b - a) * t;
+// Target telapak (ruang upperG) per tahap — dijaga <= ~3.7 unit dari bahu supaya
+// segmen lengan tidak melar (placeArm merenggangkan silinder bila di luar jangkauan).
+const DH_THROWN = { lx: -3.5, ly: 11.4, lz: -1.1, rx: 3.4, ry: 11.2, rz: -0.9 };   // terlempar ke atas
+const DH_BRACE = { lx: -2.9, ly: 7.2, lz: -0.4, rx: 2.6, ry: 6.4, rz: 1.9 };       // menggapai lantai
+const DH_LIMP = { lx: -2.3, ly: 5.5, lz: 0.2, rx: 2.4, ry: 5.6, rz: 0.7 };         // terkulai di sisi badan
+const mixHands = (a, b, t) => ({
+    lx: lerp(a.lx, b.lx, t), ly: lerp(a.ly, b.ly, t), lz: lerp(a.lz, b.lz, t),
+    rx: lerp(a.rx, b.rx, t), ry: lerp(a.ry, b.ry, t), rz: lerp(a.rz, b.rz, t),
+});
+
+// Lepaskan senjata dari tangan: gunGrp DIPINDAH ke scene (mesh & material yang
+// SAMA — tanpa alokasi/material baru, jadi tak ada recompile shader) lalu jatuh
+// balistik + tumbling. resetAvatarDeath mengembalikannya ke upperG.
+function releaseGun(feetY) {
+    if (gunFly || !gunGrpRef || !avatarGroup) return;
+    const sc = avatarGroup.parent;
+    if (!sc) return;
+    gunGrpRef.getWorldPosition(_wp);
+    sc.add(gunGrpRef);                      // add memindah induk (lepas dari upperG)
+    gunGrpRef.position.copy(_wp);
+    gunGrpRef.rotation.set(0, legYaw, 0);
+    const sx = deathDirZ, sz = -deathDirX;  // vektor samping arah jatuh
+    const side = (Math.random() - 0.5) * 2;
+    gunFly = {
+        vx: deathDirX * 15 + sx * side * 11, vy: 29, vz: deathDirZ * 15 + sz * side * 11,
+        wx: 6 + Math.random() * 4, wy: 3 + Math.random() * 3, wz: 5 + Math.random() * 4,
+        restY: feetY + 0.45, bounced: false, landed: false,
+    };
+}
+
+function updateGunFly(dt) {
+    if (!gunFly || gunFly.landed || !gunGrpRef) return;
+    const g = (CFG.player && CFG.player.gravity) || 70;
+    gunFly.vy -= g * dt;
+    gunGrpRef.position.x += gunFly.vx * dt;
+    gunGrpRef.position.y += gunFly.vy * dt;
+    gunGrpRef.position.z += gunFly.vz * dt;
+    gunGrpRef.rotation.x += gunFly.wx * dt;
+    gunGrpRef.rotation.y += gunFly.wy * dt;
+    gunGrpRef.rotation.z += gunFly.wz * dt;
+    if (gunGrpRef.position.y > gunFly.restY) return;
+    gunGrpRef.position.y = gunFly.restY;
+    if (!gunFly.bounced) {                  // memantul sekali lemah lalu terhenti
+        gunFly.bounced = true;
+        gunFly.vy = -gunFly.vy * 0.3;
+        gunFly.vx *= 0.42; gunFly.vz *= 0.42;
+        gunFly.wx *= 0.4; gunFly.wy *= 0.55; gunFly.wz *= 0.4;
+        return;
+    }
+    gunFly.landed = true;
+    // Terhenti MIRING di lantai (laras horizontal, badan senjata rebah ke sisi).
+    gunGrpRef.rotation.set(0.05, gunGrpRef.rotation.y, 1.35 * (deathSpin > 0 ? 1 : -1));
+}
+
+function poseDeath(dt, feetY) {
+    deathT += dt;
+    const t = deathT;
+    // --- Fase + progres lokal
+    let ph, u;
+    if (t < D_IMPACT) { ph = 'impact'; u = t / D_IMPACT; }
+    else if (t < D_IMPACT + D_BUCKLE) { ph = 'buckle'; u = (t - D_IMPACT) / D_BUCKLE; }
+    else if (t < D_IMPACT + D_BUCKLE + D_FALL) { ph = 'fall'; u = (t - D_IMPACT - D_BUCKLE) / D_FALL; }
+    else if (t < D_TOTAL) { ph = 'settle'; u = (t - D_IMPACT - D_BUCKLE - D_FALL) / D_SETTLE; }
+    else { ph = 'still'; u = 1; }
+    deathPhase = ph;
+
+    // --- Kurva pose per fase
+    let fall, sink, spin, roll, torsoX, headP, headY, hipLx, hipRx, kneeLx, kneeRx;
+    let hand = DH_LIMP, handMix = 1, jig = 0;
+    if (ph === 'impact') {
+        // s = 0 -> 1 (ease-out) dan BERTAHAN di puncak sampai akhir fase: nilai
+        // akhirnya PERSIS sama dgn nilai awal fase buckle, jadi lengkungan
+        // punggung "menahan" sekejap alih-alih meletik balik ke pose netral.
+        const s = Math.sin(u * HALF_PI);
+        fall = -0.30 * s;                           // MELENGKUNG ke belakang, melawan arah jatuh
+        sink = 0.4 * s;                             // terangkat jinjit
+        spin = 0.42 * s * deathSpin;
+        roll = 0;
+        torsoX = -0.62 * s; headP = -0.62 * s; headY = 0;
+        hipLx = -0.14 * s; hipRx = 0.10 * s; kneeLx = 0.10; kneeRx = 0.06;
+        hand = DH_THROWN; handMix = smoothstep(u * 1.6);   // dari pose grip (deathHand0)
+    } else if (ph === 'buckle') {
+        const e = smoothstep(u);
+        // Dari lengkungan ke belakang (-0.30, akhir fase hentak) MELEWATI tegak
+        // lalu tersungkur ke depan — e² = tahan dulu, baru menukik (jatuh berlutut).
+        fall = lerp(-0.30, 0.42, e * e);
+        sink = lerp(0.4, BUCKLE_Y, e);              // pinggul AMBRUK
+        spin = deathSpin * lerp(0.42, 0.18, e);
+        roll = 0;
+        torsoX = lerp(-0.62, 0.52, e); headP = lerp(-0.62, 0.55, e); headY = 0.22 * e * deathSpin;
+        hipLx = -0.14 - 0.55 * e; hipRx = 0.10 + 0.42 * e;
+        kneeLx = 0.10 + 1.55 * e; kneeRx = 0.06 + 1.02 * e;   // satu lutut menyerah lebih dulu
+        hand = mixHands(DH_THROWN, DH_BRACE, e); handMix = 1;
+    } else if (ph === 'fall') {
+        const a = u * u;                            // easeIn: makin cepat (gravitasi)
+        fall = lerp(0.42, HALF_PI + 0.14, a);
+        sink = lerp(BUCKLE_Y, LIE_Y, a);            // naik ke ketinggian berbaring
+        spin = deathSpin * 0.18;
+        roll = 0.30 * a;
+        torsoX = lerp(0.52, 0.14, a); headP = lerp(0.55, 0.10, a); headY = deathSpin * lerp(0.22, 0.52, a);
+        hipLx = -0.69 + 0.35 * a; hipRx = 0.52 - 0.28 * a;
+        kneeLx = 1.65 - 0.85 * a; kneeRx = 1.08 - 0.62 * a;
+        hand = mixHands(DH_BRACE, DH_LIMP, a); handMix = 1;
+    } else {
+        const d = ph === 'still' ? 0 : Math.exp(-5.5 * u);   // amplitudo pantulan meluruh
+        fall = HALF_PI + 0.14 * d * Math.cos(u * 17);
+        sink = LIE_Y + 0.32 * d * Math.max(0, Math.sin(u * 13));
+        spin = deathSpin * 0.18;
+        roll = 0.30 + 0.12 * (1 - d);               // merebah lebih dalam ke bahu
+        torsoX = 0.06 + 0.08 * d + 0.10 * d * Math.sin(u * 11);   // embusan napas terakhir
+        headP = lerp(0.26, 0.10, d); headY = deathSpin * (0.52 + 0.10 * (1 - d));
+        hipLx = -0.34; hipRx = 0.24;
+        jig = 0.16 * d * Math.sin(u * 21);          // getaran anggota badan
+        kneeLx = 0.80 - 0.18 * (1 - d) + jig; kneeRx = 0.46 - 0.16 * (1 - d) - jig;
+    }
+
+    // --- Root: yaw kaki + puntiran hentakan, lalu ROBOH (sumbu ⟂ arah jatuh),
+    //     lalu GULING ke bahu (sumbu = arah jatuh). Pivot di kaki seperti dulu.
+    dbgFall = fall; dbgRoll = roll; dbgSink = sink;
+    avatarGroup.position.set(camera.position.x, feetY + sink, camera.position.z);
+    avatarGroup.rotation.set(0, legYaw + spin, 0);
+    _tumbleAxis.set(deathDirZ, 0, -deathDirX);
+    _qT.setFromAxisAngle(_tumbleAxis, fall);
+    avatarGroup.quaternion.premultiply(_qT);
+    if (roll) {
+        _rollAxis.set(deathDirX, 0, deathDirZ);
+        _qR.setFromAxisAngle(_rollAxis, roll * deathSpin);
+        avatarGroup.quaternion.premultiply(_qR);
+    }
+
+    // --- Badan atas / kepala / kaki (langsung, bukan lerp: kurva di atas sudah
+    //     mulus). Puntiran pinggang & toleh kepala SISA dari pose hidup di-whip
+    //     ke nol selama hentakan (kalau di-nol-kan seketika, torso "meletik").
+    const twDecay = Math.max(0, 1 - t / (D_IMPACT + D_BUCKLE * 0.6));
+    upperG.rotation.set(torsoX, twistCur * twDecay, 0);
+    upperG.position.y = 0;
+    headG.rotation.y = headY + headYawCur * twDecay;
+    lerpHeadPitch(headP, 1);
+    hipL.rotation.x = hipLx; hipR.rotation.x = hipRx;
+    kneeL.rotation.x = kneeLx; kneeR.rotation.x = kneeRx;
+    hipL.rotation.z = 0; hipR.rotation.z = 0;
+
+    // --- Prop: senjata yang dipegang DILEPAS terbang, sisanya + pedang disembunyikan
+    if (props && propKey !== '__dead') {
+        const held = props[propKey] ? propKey : '';
+        for (const q in props) props[q].visible = q === held;
+        if (swordPivot) swordPivot.visible = false;
+        if (swooshGrp) swooshGrp.visible = false;
+        propKey = '__dead';
+        if (held) releaseGun(feetY);
+        else if (gunGrpRef) gunGrpRef.visible = false;   // mati saat menebas: tak ada yang jatuh
+    }
+    updateGunFly(dt);
+
+    // --- Telapak -> lengan tertarik (fase hentak berangkat dari pose grip asli)
+    let lx = hand.lx, ly = hand.ly, lz = hand.lz, rx = hand.rx, ry = hand.ry, rz = hand.rz;
+    if (handMix < 1 && deathHand0) {
+        lx = lerp(deathHand0.lx, lx, handMix); ly = lerp(deathHand0.ly, ly, handMix); lz = lerp(deathHand0.lz, lz, handMix);
+        rx = lerp(deathHand0.rx, rx, handMix); ry = lerp(deathHand0.ry, ry, handMix); rz = lerp(deathHand0.rz, rz, handMix);
+    }
+    placeArm('R', rx, ry + jig, rz);
+    placeArm('L', lx, ly - jig, lz);
+}
+
 // Dipanggil resetGame: batalkan pose mati + paksa evaluasi ulang prop senjata.
 export function resetAvatarDeath() {
     rappelActive = false;   // batalkan pose rappel intro juga
     deathT = -1;
+    deathPhase = 'none';
+    deathHand0 = null;
+    dbgFall = 0; dbgRoll = 0; dbgSink = 0;
+    // Pitch/roll torso HARUS di-nol-kan di sini: jalur hidup hanya menulis
+    // upperG.rotation.y, jadi sisa lipatan pose runtuh (atau pose rappel) akan
+    // menempel selamanya di badan yang sudah bangkit.
+    if (upperG) { upperG.rotation.x = 0; upperG.rotation.z = 0; upperG.position.y = 0; }
+    // Senjata yang tergeletak di lantai dikembalikan KE TANGAN (induk upperG).
+    if (gunFly && gunGrpRef && upperG) upperG.add(gunGrpRef);
+    gunFly = null;
+    if (gunGrpRef) gunGrpRef.visible = true;
     propKey = '';
     afkT = 0; afkMode = 'none'; afkPoseT = 0;   // batalkan idle AFK
     if (gunGrpRef) { gunGrpRef.position.set(GUN_OFF.x, GUN_OFF.y, GUN_OFF.z); gunGrpRef.rotation.set(0, 0, 0); }
@@ -610,39 +842,10 @@ export function updatePlayerAvatar(dt) {
     // early-return sebelum rantai-hadap/aim (seperti cabang mati). =====
     if (rappelActive) { poseRappel(dt); return; }
 
-    // ===== MATI "BIASA" (2026-07-12): tubuh ROBOH ke arah jatuh (pivot di
-    // kaki, easeIn — makin cepat), senjata lenyap dari tangan, lengan & kaki
-    // LEMAS — tanpa ledakan/gib. Berbaring diam sampai GAME OVER/reset. =====
-    if (deathT >= 0) {
-        deathT += dt;
-        const k = Math.min(1, deathT / 0.6);
-        const th = (Math.PI / 2) * (k * k);   // sudut roboh 0 -> 90° (easeIn)
-        avatarGroup.rotation.set(0, legYaw, 0);
-        _tumbleAxis.set(deathDirZ, 0, -deathDirX);   // sumbu ⟂ arah jatuh -> kepala rebah ke (dirX,dirZ)
-        _qT.setFromAxisAngle(_tumbleAxis, th);
-        avatarGroup.quaternion.premultiply(_qT);
-        // pose lemas: puntiran/toleh mengendur, kaki setengah menekuk asimetris
-        const rel = Math.min(1, dt * 6);
-        upperG.rotation.y += (0 - upperG.rotation.y) * rel;
-        headG.rotation.y += (0 - headG.rotation.y) * rel;
-        if (headG.rotation.x !== 0 || headG.position.y !== 0) lerpHeadPitch(0, rel);   // luruhkan tunduk kepala sisa AFK
-        upperG.position.y += (0 - upperG.position.y) * rel;
-        hipL.rotation.x += (-0.28 - hipL.rotation.x) * rel;
-        hipR.rotation.x += (0.18 - hipR.rotation.x) * rel;
-        kneeL.rotation.x += (0.5 - kneeL.rotation.x) * rel;
-        kneeR.rotation.x += (0.32 - kneeR.rotation.x) * rel;
-        hipL.rotation.z *= 1 - rel; hipR.rotation.z *= 1 - rel;
-        if (props && propKey !== '__dead') {   // senjata/pedang terlepas dari tangan
-            for (const q in props) props[q].visible = false;
-            if (swordPivot) swordPivot.visible = false;
-            if (swooshGrp) swooshGrp.visible = false;
-            propKey = '__dead';
-        }
-        // lengan terkulai di sisi badan (ruang upperG ikut rebah bersama tubuh)
-        placeArm('R', 2.0, 5.4, 0.5);
-        placeArm('L', -2.0, 5.5, 0.3);
-        return;
-    }
+    // ===== MATI (dramatisasi 2026-07-26): keruntuhan 4 fase + senjata terlepas
+    // terbang — early-return sebelum rantai-hadap/aim (avatar TETAP tampil,
+    // tanpa ledakan/gib). Detail kurva ada di poseDeath. =====
+    if (deathT >= 0) { poseDeath(dt, feetY); return; }
 
     // ===== RANTAI HADAP MANUSIAWI (2026-07-12 — menggantikan lookAt seluruh
     // badan): KAKI (root) menghadap ARAH GERAK, TORSO (upperG) memuntir ke

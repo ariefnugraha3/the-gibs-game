@@ -12,6 +12,7 @@ import {
 import { initGrain, bestScoreEl, showFatal } from './core/dom.js';
 import { setScene } from './core/sceneManager.js';
 import { updateGame } from './core/game.js';
+import { deathTimeScale } from './core/deathCine.js';
 import { updateUI, drawRadar } from './core/hud.js';
 import { initInput, updateTopdownAim } from './core/input.js';
 import { initPlayerAvatar, updatePlayerAvatar } from './entities/playerAvatar.js';
@@ -124,7 +125,12 @@ let radarTick = 0;
 
 function animate() {
     requestAnimationFrame(animate);
-    const dt = Math.min(clock.getDelta(), 0.05);   // clamp anti-spike (tab switch)
+    const dtReal = Math.min(clock.getDelta(), 0.05);   // clamp anti-spike (tab switch)
+    // SLOW MOTION kematian (2026-07-26): satu-satunya skala waktu global. 1 =
+    // normal, jadi frame biasa identik dengan sebelumnya. Dunia + tubuh player
+    // memakai dt terskala; sutradara sinematik & hitung mundur GAME OVER pakai
+    // dtReal (lihat core/deathCine.js).
+    const dt = dtReal * deathTimeScale();
     const step = dt * 60;                          // normalisasi ke baseline 60fps
     const T = clock.elapsedTime;
 
@@ -133,7 +139,7 @@ function animate() {
     // tembakan/lemparan frame ini memakai arah kursor terkini).
     updateTopdownAim();
 
-    updateGame(dt, step, T);
+    updateGame(dt, step, T, dtReal);
 
     // Kamera top-down & avatar mengikuti posisi pivot TERBARU (pasca-gerak).
     // Jalan juga saat pause (pose beku konsisten, kontrak lama updateDecor).

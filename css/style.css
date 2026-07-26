@@ -521,6 +521,25 @@ body {
     transition: opacity 0.12s ease-out;
 }
 
+/* ===== SEKUENS KEMATIAN PLAYER (2026-07-26): pandangan MENUTUP berdarah —
+   tepi layar menghitam pekat & pusatnya berkabut merah. TANPA transition:
+   opasitas ditulis per frame oleh core/deathCine.js (dom.setDeathFx) supaya
+   kurvanya (hentakan cepat lalu surut lambat) mulus. z 8 = di atas overlay
+   damage (6), di bawah layar GAME OVER (10). */
+#deathFx {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    pointer-events: none;
+    opacity: 0;
+    background:
+        radial-gradient(ellipse at center,
+            rgba(120, 6, 6, 0) 12%,
+            rgba(84, 4, 4, 0.5) 48%,
+            rgba(30, 0, 0, 0.88) 78%,
+            rgba(4, 0, 0, 0.99) 100%);
+}
+
 #blocker {
     position: absolute;
     inset: 0;

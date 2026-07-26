@@ -9,7 +9,13 @@
         "maxMedkits": 2,
         "medkitUseSec": 2,
         "medkitSlowMul": 0.75,
-        "deathDelaySec": 3,
+        "deathDelaySec": 4,
+        "death": {
+            "slowMoScale": 0.45,
+            "slowMoHoldSec": 1,
+            "camZoom": 0.42,
+            "camShake": 7
+        },
         "hpUpgrades": [
             150,
             200,

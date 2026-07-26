@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - **Serve:** `python -m http.server 8000` (then open http://localhost:8000) — an HTTP server is MANDATORY; `file://` breaks ES modules + the config `fetch`. Internet required for the Three.js r128 CDN scripts.
-- **Test:** `node tools/smoke.mjs` — headless smoke suite (zero deps, stubbed THREE/DOM driving the real `src/` modules), currently 409 asserts. Sections are `// === NAME ===` comments wrapping a `{ … }` scope block; each assert is `T(name, ok)` ([smoke.mjs:188](tools/smoke.mjs#L188)). There is **no per-test filter** — it's a flat sequential script, so run the whole file (comment out sections to isolate one). The `localStorage` stub is a real in-memory Map, so save/checkpoint is testable. Coverage list at the end of MODULES.md.
+- **Test:** `node tools/smoke.mjs` — headless smoke suite (zero deps, stubbed THREE/DOM driving the real `src/` modules), currently 426 asserts. Sections are `// === NAME ===` comments wrapping a `{ … }` scope block; each assert is `T(name, ok)` ([smoke.mjs:188](tools/smoke.mjs#L188)). There is **no per-test filter** — it's a flat sequential script, so run the whole file (comment out sections to isolate one). The `localStorage` stub is a real in-memory Map, so save/checkpoint is testable. Coverage list at the end of MODULES.md.
 - **Lint:** `node --check src/<file>.js` — per touched file (`"type": "module"` makes this work).
 - **Mandatory per gameplay change:** add/adjust smoke asserts → `node tools/smoke.mjs` until green → `node --check` every touched file → sync CLAUDE.md + MODULES.md.
   - Keep asserts **CONFIG-DRIVEN** (read `CFG`, never hardcode tuned numbers). The user hand-tunes `config/gameplay.json` between sessions; a test failing right after a pure config retune almost always means the test hardcoded a number.
@@ -21,7 +21,7 @@ This file holds only what applies to *every* session. The detail lives next door
 | Campaign stages 1–4, cutscenes, doors/stairwells/lifts/interiors, inter-stage shop, save | [docs/campaign.md](docs/campaign.md) |
 | Waves, field shop, Monas objective, wave events, scoring | [docs/survival.md](docs/survival.md) |
 | Robots, weapons, gore, loot/barrels/horde, armor, movement/dodge/stamina | [docs/combat.md](docs/combat.md) |
-| Camera rig, player avatar, HUD, menus, input/pause/cheats, SFX & music | [docs/presentation.md](docs/presentation.md) |
+| Camera rig, player avatar, **the player death sequence**, HUD, menus, input/pause/cheats, SFX & music | [docs/presentation.md](docs/presentation.md) |
 | Starting a new gameplay feature | [SECOND-IMPROVEMENT-PLAN.md](SECOND-IMPROVEMENT-PLAN.md) (current backlog; items 1–3 done 2026-07-22) then [IMPROVEMENT-PLAN.md](IMPROVEMENT-PLAN.md) (older backlog). Update their status tables when you finish an item. |
 | Wrapping this into a Windows `.exe` / Steam | [STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md) |
 
@@ -54,7 +54,7 @@ Load-bearing rules (details in MODULES.md):
 - **Cross-module state = live ESM bindings**: the owning module exports `let` + setters (`isPaused`/`score` in `core/state.js`, `stamina`/`dodgeActive`/`dodgeProgress` in `entities/player.js`, `currentWeapon`/`isAiming`/`switchAnim` in `entities/weapons.js`, `scene`/`camera`/`renderer` in `core/renderer.js`). Circular imports are fine and used (weapons↔player, robots↔effects, stage1↔stage2, game↔input) **as long as bindings are only used inside functions**.
 - **`updateGame()` block order in `core/game.js` is a contract** (matches the old `update()`): scene updateMode → weapon timers → player movement → weapon state → shooting → grenades → explosions → blood → drops → bullets → robots → win check. Bullets must move before the robot sweep hit-test.
 - **The `camera` is a LOGIC PIVOT, not the renderer** (top-down pivot 2026-07-11). Its position = the player's eye-height point and its yaw = the aim direction toward the cursor; every gameplay system (robot targeting, bullet/melee direction, pickups, scene collision, radar, spawn points) reads it and is unchanged from the FPS era. Rendering is done by **`viewCam`** (renderer.js) at a fixed oblique offset `CAM_OFF`, overridable per-scene via `camOffset`. Because the camera looks from the southwest, **screen-up ≠ −z**: the exported ground-plane basis `SCREEN_UP`/`SCREEN_LEFT` is what keeps WASD and the radar screen-relative — never hardcode W=−z/A=−x. Full detail (dead-zone follow, `camBounds`, the avatar rig) → [docs/presentation.md](docs/presentation.md).
-- **Frame order in `animate()`:** `updateTopdownAim` → `updateGame` → `followViewCam` + `updatePlayerAvatar` → decor → render. Decor animation runs every frame **even while paused**.
+- **Frame order in `animate()`:** `updateTopdownAim` → `updateGame` → `followViewCam` + `updatePlayerAvatar` → decor → render. Decor animation runs every frame **even while paused**. **There is exactly ONE global time scale: `deathTimeScale()`** (`core/deathCine.js`) — `animate` computes `dt = dtReal × deathTimeScale()` and passes BOTH (`updateGame(dt, step, T, dtReal)`); it returns 1 unless the player is dying, so normal frames are unchanged. Anything that must ignore slow motion (the death director, the countdown to GAME OVER) uses `dtReal`. Don't add a second time scale.
 
 ## Key mechanics and conventions
 

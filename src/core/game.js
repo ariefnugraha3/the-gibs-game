@@ -15,26 +15,30 @@ import { updateUI } from './hud.js';
 import { updateWeaponTimers, updateWeaponState, updateShooting, resetWeapons } from '../entities/weapons.js';
 import { updatePlayerMovement, resetPlayerState } from '../entities/player.js';
 import { updateGrenades } from '../entities/grenades.js';
-import { updateExplosions, updateBloodPool, resetBloodPool, spawnBloodBurst } from '../entities/effects.js';
-import { updateGore, resetGore, spawnBloodDecal } from '../entities/gore.js';
+import { updateExplosions, updateBloodPool, resetBloodPool } from '../entities/effects.js';
+import { updateGore, resetGore } from '../entities/gore.js';
 import { updateDrops } from '../entities/drops.js';
 import { updateBarrels, barrelBulletHits, resetBarrels } from '../entities/barrels.js';
 import { crateBulletHits, resetCrates } from '../entities/crates.js';
 import { updateBullets } from '../entities/bullets.js';
-import { updateRobots, updateEnemyBullets, disposeRobot, resetRobotsFx, PLAYER_BLOOD_HEX } from '../entities/robots.js';
+import { updateRobots, updateEnemyBullets, disposeRobot, resetRobotsFx } from '../entities/robots.js';
 import { avatarGroup, hideMoveMarker, playAvatarDeath, resetAvatarDeath } from '../entities/playerAvatar.js';
 import { releaseInputs, requestLock } from './input.js';
 import { clearCampaignSave, loadCampaignStage } from './saveGame.js';
 import { campaignJumpToStage } from '../scenes/campaign/utility/transition.js';
 import { stopMusic } from '../utils/sfx.js';
+import { startDeathCine, updateDeathCine, endDeathCine, resetDeathCine } from './deathCine.js';
 
-// ===== Sekuens KEMATIAN player (2026-07-12; revisi "mati biasa"): HP habis
-// TIDAK langsung layar GAME OVER — avatar ROBOH ke arah dorongan damage
-// terakhir (animasi playAvatarDeath di playerAvatar.js: rebah di pivot kaki,
-// senjata terlepas, tubuh lemas) dengan semburan darah sedang + genangan di
-// bawah badan (TANPA gib/ledakan), dunia tetap hidup TANPA kendali player,
-// lalu layar muncul setelah CFG.player.deathDelaySec (2 dtk). Dipicu
-// startPlayerDeath(dirx, dirz) dari semua titik damage player di robots.js. =====
+// ===== Sekuens KEMATIAN player (2026-07-12; DIDRAMATISASI 2026-07-26): HP habis
+// TIDAK langsung layar GAME OVER — dunia masuk SLOW MOTION, kamera mendekat &
+// memiring ke jasad, layar menutup berdarah, dan avatar RUNTUH dalam 4 fase
+// (hentak → lutut menyerah → jatuh → pantulan) sambil senjatanya TERLEPAS
+// terbang. Pembagian tugas: animasi tubuh = poseDeath (entities/playerAvatar.js),
+// lapisan sinematik + isyarat FX/audio = core/deathCine.js, dan modul ini hanya
+// GERBANG-nya (kendali player mati, hitung mundur ke layar GAME OVER). Hitung
+// mundur pakai dtReal (WAKTU NYATA) supaya slow motion tidak memperpanjang jeda
+// CFG.player.deathDelaySec. Dipicu startPlayerDeath(dirx, dirz) dari semua titik
+// damage player di robots.js + tank.js. =====
 let playerDeathT = -1;   // >= 0 = sekuens kematian sedang berjalan
 export function isPlayerDying() { return playerDeathT >= 0; }
 
@@ -47,26 +51,28 @@ export function startPlayerDeath(dirx = 0, dirz = 1) {
     updateUI();
     const dl = Math.hypot(dirx, dirz) || 1;
     const dx = dirx / dl, dz = dirz / dl;
-    playAvatarDeath(dx, dz);   // tubuh roboh searah dorongan (avatar TETAP tampil)
-    // Darah kematian sedang (bukan ledakan): satu semburan searah roboh +
-    // genangan di titik jatuh dan di arah rebah badan (kepala mendarat ~6 unit).
+    playAvatarDeath(dx, dz);   // tubuh runtuh searah dorongan (avatar TETAP tampil)
+    // Sutradara mengambil alih presentasi (slow motion, kamera, layar, darah,
+    // audio) — termasuk semburan & genangan darah pertama di titik jatuh.
     const p = avatarGroup.position;
-    spawnBloodBurst(p.x, p.y + 6, p.z, dx, dz, 12, 1.0, 2.6, PLAYER_BLOOD_HEX);
-    spawnBloodDecal(p.x, p.z, 5, 0x8f1616);
-    spawnBloodDecal(p.x + dx * 6, p.z + dz * 6, 3.5, 0x8f1616);
+    startDeathCine(p.x, p.y, p.z, dx, dz);
 }
 
 // Urutan blok = urutan update() lama — JANGAN diubah tanpa alasan kuat:
 // mis. peluru harus maju SEBELUM hit test robot memakai segmen sweep-nya.
-export function updateGame(dt, step, T) {
+// dtReal = dt SEBELUM skala slow-motion kematian (main.animate mengirimkannya;
+// default = dt supaya pemanggil lama/uji tetap sah).
+export function updateGame(dt, step, T, dtReal = dt) {
     if (isGameOver || isPaused) return;
 
     // Sekuens kematian: hitung mundur -> layar GAME OVER. Selama itu dunia
-    // (darah/gib/robot/peluru) tetap berjalan, tapi SEMUA kendali & update
-    // player (gerak/tembak/timer senjata) dan wave/win-check dilewati.
+    // (darah/gib/robot/peluru) tetap berjalan DALAM SLOW MOTION, tapi SEMUA
+    // kendali & update player (gerak/tembak/timer senjata) dan wave/win-check
+    // dilewati. Sutradara sinematiknya ditick WAKTU NYATA (lihat deathCine.js).
     const dying = playerDeathT >= 0;
     if (dying) {
-        playerDeathT -= dt;
+        updateDeathCine(dtReal);
+        playerDeathT -= dtReal;
         if (playerDeathT <= 0) { playerDeathT = -1; gameOver(false); return; }
     }
 
@@ -104,6 +110,7 @@ export function updateGame(dt, step, T) {
 // default tetap MISSION COMPLETE / GAME OVER.
 export function gameOver(won, title) {
     setGameOver(true);
+    endDeathCine();   // lepas slow motion + letterbox; framing jasad dibekukan (no-op bila menang)
     stopMusic();   // stage berakhir (menang/kalah) -> musik battle/boss berhenti (2026-07-19)
     document.exitPointerLock();
     // MISSION COMPLETE (won, campaign stage 4 selesai) = campaign tamat →
@@ -147,7 +154,8 @@ export function resetGame(atCurrentStage = false) {
     resetStats();          // statistik run baru
     configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG
     playerDeathT = -1;     // batalkan sekuens kematian yang mungkin berjalan
-    resetAvatarDeath();    // bangkit dari pose roboh + prop senjata dievaluasi ulang
+    resetDeathCine();      // skala waktu/kamera/warna/overlay layar kembali normal
+    resetAvatarDeath();    // bangkit dari pose runtuh + senjata kembali ke tangan
     releaseInputs();
     resetWeapons();        // batalkan reload/ganti/melee; kembali ke rifle
     resetPlayerState();    // vy/onGround/stamina + bar stamina

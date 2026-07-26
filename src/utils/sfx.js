@@ -103,9 +103,11 @@ function armMusicRetry() {
 // Ganti track: hentikan yang lama (rewind), mulai yang baru dari awal.
 function playTrack(name, el) {
     if (curTrack === el) { curName = name; return; }
-    if (curTrack) { try { curTrack.pause(); curTrack.currentTime = 0; } catch (e) { } }
+    if (curTrack) { try { curTrack.pause(); curTrack.currentTime = 0; curTrack.volume = musicVol; } catch (e) { } }
     curTrack = el; curName = name;
-    try { curTrack.currentTime = 0; } catch (e) { }
+    // volume dipulihkan ke musicVol: track bisa saja tertinggal ter-DUCK oleh
+    // sekuens kematian sebelumnya (duckMusic menulis .volume per elemen).
+    try { curTrack.currentTime = 0; curTrack.volume = musicVol; } catch (e) { }
     tryPlayMusic();
 }
 // MENU: idempoten — dipanggil initMainMenu (autoplay mungkin ditolak sebelum
@@ -129,11 +131,21 @@ export function startBossMusic() {
 // Hentikan musik apa pun yang menyala (stage berakhir / masuk shop campaign /
 // game over / cutscene boss dimulai). startBattleMusic berikutnya menyala lagi.
 export function stopMusic() {
-    if (curTrack) { try { curTrack.pause(); curTrack.currentTime = 0; } catch (e) { } }
+    if (curTrack) { try { curTrack.pause(); curTrack.currentTime = 0; curTrack.volume = musicVol; } catch (e) { } }
     curTrack = null; curName = null;
+}
+// REDAM musik SEMENTARA tanpa menyentuh slider Settings (k = 1 normal, 0 senyap)
+// — dipakai sekuens kematian player (core/deathCine.js) supaya lagu battle
+// SURUT perlahan alih-alih terpotong mendadak. Volume elemen dipulihkan oleh
+// playTrack/stopMusic, jadi tak ada sisa duck di run berikutnya.
+export function duckMusic(k) {
+    if (!curTrack) return;
+    try { curTrack.volume = Math.max(0, Math.min(1, k)) * musicVol; } catch (e) { }
 }
 // Debug/uji: nama konteks musik yang sedang menyala (null = mati).
 export const musicDebug = () => curName;
+// Debug/uji: volume nyata track yang sedang menyala (-1 = tak ada musik).
+export const musicVolNow = () => curTrack ? curTrack.volume : -1;
 
 // ----- SFX LOOPING (2026-07-19): heli terbang / tank bergerak / turret berputar.
 // Node clone KHUSUS di luar pool playSFX (pool me-reuse node round-robin — node
