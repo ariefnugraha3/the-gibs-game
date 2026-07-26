@@ -2,7 +2,7 @@
 
 ## Repository overview
 
-This repository is a browser game titled "Gibran vs Robot 3D (DOOM FPS)".
+This repository is a browser game titled "Gibran vs Robot 3D" — a **top-down shooter** (Alien Shooter-style; pivoted from FPS on 2026-07-11).
 
 - `index.html` — DOM overlay + CDN `<script>` tags (Three.js r128 global) + module entry.
 - `src/` — the whole game as ES modules (core/, utils/, world/, entities/, scenes/). **The module catalog and interface contracts are documented in `MODULES.md` — read it first.**
@@ -18,6 +18,7 @@ This repository is a browser game titled "Gibran vs Robot 3D (DOOM FPS)".
 - `THREE` is a global from CDN scripts (r128) — modules never import it.
 - All user-facing UI text must be **English** (permanent user rule); code comments are Indonesian.
 - Architecture rules (scene hooks, CFG usage, live-binding state ownership, update order) are at the top of `MODULES.md` and in `CLAUDE.md`.
+- `CLAUDE.md` holds only the rules that apply to every session; the per-system detail lives in `docs/` — `campaign.md`, `survival.md`, `combat.md`, `presentation.md`. Read the one matching your task instead of all of them.
 
 ## Editing guidance
 
