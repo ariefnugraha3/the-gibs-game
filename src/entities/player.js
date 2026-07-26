@@ -7,9 +7,10 @@
 
 import { CFG } from '../core/config.js';
 import { player, keys, robots, setDodgeInvuln } from '../core/state.js';
-import { camera, SCREEN_UP, SCREEN_LEFT } from '../core/renderer.js';
+import { camera, SCREEN_UP, SCREEN_LEFT, addCamShake } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
-import { playSFX, sfxFootstep, sfxRobotStep } from '../utils/sfx.js';
+import { playSFX, sfxFootstep, sfxRobotStep, sfxMeleeSwing } from '../utils/sfx.js';
+import { spawnGroundPuff } from './effects.js';   // sirkular aman: dipakai di dalam fungsi
 import { staminaFill } from '../core/dom.js';
 import { medkitMode } from './weapons.js';
 import { showMoveMarker, hideMoveMarker } from './playerAvatar.js';
@@ -30,6 +31,29 @@ const _fwd = new THREE.Vector3();   // sementara: arah hadap utk dodge mundur
 
 let footT = 0;    // irama langkah kaki player (detik antar langkah)
 let zStepT = 0;   // irama langkah robot (satu suara global, bukan per robot)
+
+// ----- Profil kecepatan GULINGAN (dirombak 2026-07-27) -------------------
+// Dulu `(1 - dodgeProgress)` linier: paling cepat TEPAT di frame pertama lalu
+// melandai — terasa "didorong", bukan "melecut", dan tak sinkron dgn animasi.
+// Sekarang mengikuti fase animasi gulingan (playerAvatar): TAHAN sesaat
+// (mengumpulkan tenaga) → LEDAKAN → meluncur berhenti tegas.
+// JARAK TOTAL DIJAGA PERSIS: profil dinormalisasi supaya luasnya = 0.5, yaitu
+// luas kurva `(1 - p)` yang lama — jadi `CFG.dodge.speed` hasil tuning user
+// TIDAK berubah artinya, hanya distribusi waktunya. Puncaknya jadi ~1,6× lebih
+// tinggi dari dulu (itulah "ledakan"-nya), tapi total perpindahan sama.
+function dodgeSpeedShape(p) {
+    const rise = Math.min(1, Math.max(0, (p - 0.08) / 0.10));   // 0.08→0.18 melecut
+    const fall = 1 - Math.min(1, Math.max(0, (p - 0.18) / 0.82));
+    return rise * rise * (3 - 2 * rise) * fall * fall;          // smoothstep naik, kuadrat turun
+}
+const DODGE_SHAPE_AREA = (() => {   // integral numerik sekali saat modul dimuat
+    let s = 0; const N = 2000;
+    for (let i = 0; i < N; i++) s += dodgeSpeedShape((i + 0.5) / N);
+    return s / N;
+})();
+const DODGE_SPEED_NORM = 0.5 / DODGE_SHAPE_AREA;   // 0.5 = luas profil (1-p) lama
+// Debug/uji: profil + normalisasinya (assert jarak total di smoke).
+export const dodgeShapeDebug = () => ({ area: DODGE_SHAPE_AREA, norm: DODGE_SPEED_NORM });
 
 // ----- Kecepatan DIREKSIONAL relatif arah bidik/kursor (2026-07-12): berlari
 // SEARAH kursor = kecepatan penuh; menyamping = ×strafeWeight (0.5); MUNDUR
@@ -82,6 +106,11 @@ export function tryDodge() {
     dodgeCd = CFG.dodge.cooldownSec;   // jeda anti-spam (dari MULAI dodge)
     setDodgeInvuln(true);              // i-frame: kebal sepanjang animasi tumble
     clearMoveTarget();                 // dodge membatalkan gerak klik-kanan
+    // Tolakan kaki: debu terhambur di titik pijak + desing badan membelah udara
+    // (2026-07-27 — gulingan lama tak berbunyi & tak berjejak sama sekali).
+    const fy = camera.position.y - eyeHCur;
+    spawnGroundPuff(camera.position.x, camera.position.z, 0xb8a58c, 4.5, fy + 0.5);
+    playSFX(sfxMeleeSwing, 0.32);
 }
 
 // ===== Gerak klik-kanan "move to point" (kontrol top-down 2026-07-11) =====
@@ -149,10 +178,20 @@ export function updatePlayerMovement(dt, step) {
         // playerAvatar membaca dodgeProgress; i-frame mati saat progress penuh.
         dodgeT -= dt;
         dodgeProgress = Math.min(1, 1 - Math.max(0, dodgeT) / CFG.dodge.durationSec);
-        const spd = CFG.dodge.speed * (1 - dodgeProgress) * step;   // meluruh 1 -> 0
+        // Profil "tahan → ledakan → berhenti" (dodgeSpeedShape di atas); jarak
+        // total identik dgn profil linier lama karena sudah dinormalisasi.
+        const spd = CFG.dodge.speed * DODGE_SPEED_NORM * dodgeSpeedShape(dodgeProgress) * step;
         camera.position.x += dodgeDirX * spd;
         camera.position.z += dodgeDirZ * spd;
-        if (dodgeT <= 0) { dodgeActive = false; dodgeProgress = 1; setDodgeInvuln(false); }
+        if (dodgeT <= 0) {
+            dodgeActive = false; dodgeProgress = 1; setDodgeInvuln(false);
+            // MENDARAT: debu di titik jatuh + hentakan kaki + getar kamera kecil
+            // (kecil — dodge sering dipakai, jangan bikin pusing).
+            const ly = camera.position.y - eyeHCur;
+            spawnGroundPuff(camera.position.x, camera.position.z, 0xb8a58c, 5.5, ly + 0.6);
+            playSFX(sfxFootstep, 0.55);
+            addCamShake(1.4);
+        }
     } else {
         const moveSpeed = player.speed * medkitMul * step;   // kecepatan dasar (dikali arah-relatif-kursor di bawah)
         if (keyMove) {

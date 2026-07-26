@@ -440,6 +440,76 @@ T('dodge aktif', playerMod.dodgeActive === true);
 for (let i = 0; i < 12; i++) { playerMod.updatePlayerMovement(0.05, 3); avMod.updatePlayerAvatar(0.05); }
 T('salto selesai tanpa throw', playerMod.dodgeActive === false);
 
+// --- 6a. GULINGAN TEMPUR (dirombak 2026-07-27): profil kecepatan "tahan →
+// ledakan → berhenti" + tubuh MELENGKUNG/asimetris + fase RECOVER mendarat.
+// Semua config-driven dari CFG.dodge (user sering me-retune speed/durationSec). ---
+{
+    const DG = cfgMod.CFG.dodge;
+    // Jarak dodge MURNI (berhenti persis saat dodge selesai) pada satu frame rate.
+    const rollOnce = (fps) => {
+        playerMod.resetPlayerState();
+        avMod.resetAvatarDeath();
+        camera.position.set(0, cfgMod.CFG.player.eyeHeight, 0);
+        playerMod.tryDodge();
+        const x0 = camera.position.x, z0 = camera.position.z;
+        const dt = 1 / fps, step = 60 / fps;
+        let peak = 0, first = -1, n = 0;
+        const trace = [];
+        while (playerMod.dodgeActive && n++ < 500) {
+            const px = camera.position.x, pz = camera.position.z;
+            playerMod.updatePlayerMovement(dt, step);
+            avMod.updatePlayerAvatar(dt);
+            const sp = Math.hypot(camera.position.x - px, camera.position.z - pz);
+            if (first < 0) first = sp;
+            peak = Math.max(peak, sp);
+            const d = avMod.avatarDodgeDebug();
+            trace.push({ p: playerMod.dodgeProgress, sp, ...d });
+        }
+        return { dist: Math.hypot(camera.position.x - x0, camera.position.z - z0), peak, first, trace };
+    };
+    const r60 = rollOnce(60), r30 = rollOnce(30), r144 = rollOnce(144);
+    // Jarak = integral kontinu profil (speed × luas 0.5 × durasi × 60) — angka
+    // tuning user TETAP berarti sama; profil lama justru frame-rate dependent.
+    const want = DG.speed * 0.5 * DG.durationSec * 60;
+    T('jarak guling = nilai tuning CFG.dodge (' + r60.dist.toFixed(1) + ' vs ' + want.toFixed(1) + ')',
+        Math.abs(r60.dist - want) / want < 0.02);
+    T('jarak guling SAMA di 30/60/144 fps (frame-rate independent)',
+        Math.abs(r30.dist - r144.dist) / want < 0.02 && Math.abs(r60.dist - r144.dist) / want < 0.02);
+    T('profil MELECUT: puncak jauh di atas frame pertama (tahan dulu, baru meledak)',
+        r60.first < r60.peak * 0.2 && r60.peak > DG.speed * 1.3);
+    // --- Pose: yang dulu hilang = badan tak pernah menggulung (kaku berputar)
+    const tr = r60.trace;
+    const maxTorso = Math.max(...tr.map(s => s.torso));
+    const minTorso = Math.min(...tr.map(s => s.torso));
+    T('tubuh MENGGULUNG: torso melipat ke lutut di udara (' + maxTorso.toFixed(2) + ' rad)', maxTorso > 0.8);
+    T('antisipasi: torso melengkung ke BELAKANG dulu saat memuat tenaga', minTorso < -0.15);
+    const air = tr.filter(s => s.p > 0.3 && s.p < 0.6);
+    T('kaki ASIMETRIS selama menggulung (bukan dua kaki identik)',
+        air.some(s => Math.abs(s.hipL - s.hipR) > 0.15 && Math.abs(s.kneeL - s.kneeR) > 0.15));
+    const feetY0 = camera.position.y - cfgMod.CFG.player.eyeHeight;
+    T('MERENDAH saat memuat & saat lutut meredam pendaratan',
+        tr.some(s => s.p < 0.2 && s.y < feetY0 - 0.4) && tr[tr.length - 1].y < feetY0 - 0.8);
+    // --- Fase RECOVER: berjalan SETELAH dodge (i-frame sudah mati) lalu bersih
+    T('RECOVER pendaratan mulai setelah dodge selesai', avMod.avatarDodgeDebug().land > 0);
+    for (let i = 0; i < 40; i++) { playerMod.updatePlayerMovement(1 / 60, 1); avMod.updatePlayerAvatar(1 / 60); }
+    const after = avMod.avatarDodgeDebug();
+    T('RECOVER selesai bersih: torso kembali TEPAT 0 (tak ada sisa tunduk)',
+        after.land <= 0 && after.torso === 0 && Math.abs(after.y - (camera.position.y - cfgMod.CFG.player.eyeHeight)) < 1e-9);
+    // --- Sisi bahu tumpuan BERGANTIAN utk guling maju/mundur murni
+    const sides = [];
+    for (let i = 0; i < 4; i++) {
+        playerMod.resetPlayerState();
+        playerMod.tryDodge();                    // tanpa WASD = guling mundur murni
+        avMod.updatePlayerAvatar(1 / 60);
+        sides.push(avMod.avatarDodgeDebug().side);
+        while (playerMod.dodgeActive) { playerMod.updatePlayerMovement(1 / 60, 1); avMod.updatePlayerAvatar(1 / 60); }
+    }
+    T('guling maju/mundur murni BERGANTIAN bahu (' + sides.join(',') + ')',
+        sides[0] === -sides[1] && sides[1] === -sides[2] && sides[2] === -sides[3]);
+    playerMod.resetPlayerState();
+    avMod.resetAvatarDeath();
+}
+
 // --- 6b. Melee AUTO-TARGET (2026-07-16): tekan F -> character otomatis MENGHADAP
 //     robot terjangkau TERDEKAT (walau kursor ke arah lain) & menebas kerucut ke
 //     arah itu; robot di sisi berlawanan (arah kursor) SELAMAT. Kamera stub bidik -z. ---

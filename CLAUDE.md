@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - **Serve:** `python -m http.server 8000` (then open http://localhost:8000) — an HTTP server is MANDATORY; `file://` breaks ES modules + the config `fetch`. Internet required for the Three.js r128 CDN scripts.
-- **Test:** `node tools/smoke.mjs` — headless smoke suite (zero deps, stubbed THREE/DOM driving the real `src/` modules), currently 426 asserts. Sections are `// === NAME ===` comments wrapping a `{ … }` scope block; each assert is `T(name, ok)` ([smoke.mjs:188](tools/smoke.mjs#L188)). There is **no per-test filter** — it's a flat sequential script, so run the whole file (comment out sections to isolate one). The `localStorage` stub is a real in-memory Map, so save/checkpoint is testable. Coverage list at the end of MODULES.md.
+- **Test:** `node tools/smoke.mjs` — headless smoke suite (zero deps, stubbed THREE/DOM driving the real `src/` modules), currently 436 asserts. Sections are `// === NAME ===` comments wrapping a `{ … }` scope block; each assert is `T(name, ok)` ([smoke.mjs:188](tools/smoke.mjs#L188)). There is **no per-test filter** — it's a flat sequential script, so run the whole file (comment out sections to isolate one). The `localStorage` stub is a real in-memory Map, so save/checkpoint is testable. Coverage list at the end of MODULES.md.
 - **Lint:** `node --check src/<file>.js` — per touched file (`"type": "module"` makes this work).
 - **Mandatory per gameplay change:** add/adjust smoke asserts → `node tools/smoke.mjs` until green → `node --check` every touched file → sync CLAUDE.md + MODULES.md.
   - Keep asserts **CONFIG-DRIVEN** (read `CFG`, never hardcode tuned numbers). The user hand-tunes `config/gameplay.json` between sessions; a test failing right after a pure config retune almost always means the test hardcoded a number.
@@ -31,7 +31,7 @@ This file holds only what applies to *every* session. The detail lives next door
 
 Browser **TOP-DOWN SHOOTER** (Alien Shooter-style; **pivoted from FPS on 2026-07-11** — see the "camera is a logic pivot" rule below): "Gibran vs Robot 3D", Three.js r128.
 
-**Controls: WASD = screen-axis movement, mouse = virtual aim cursor (bullets follow it), LMB = shoot/use, RMB = move-to-cursor-point (WASD cancels), 1/2/3 = the three weapon slots, Q cycles weapons, 4 = use a medkit instantly, F melee, Shift dodge/evade (brief-invincible tumble). Crouch, jump, ADS, sprint (replaced by the dodge), R/reload (magazine system removed) and the thrown grenade (replaced by the Grenade Launcher weapon) do not exist** — all removed in the 2026-07-11 pivot. Their code is mostly still present but **dormant**; don't re-wire it.
+**Controls: WASD = screen-axis movement, mouse = virtual aim cursor (bullets follow it), LMB = shoot/use, RMB = move-to-cursor-point (WASD cancels), 1/2/3 = the three weapon slots, Q cycles weapons, 4 = use a medkit instantly, F melee, Shift dodge/evade (brief-invincible **combat roll** — animation rewritten 2026-07-27, see docs/presentation.md). Crouch, jump, ADS, sprint (replaced by the dodge), R/reload (magazine system removed) and the thrown grenade (replaced by the Grenade Launcher weapon) do not exist** — all removed in the 2026-07-11 pivot. Their code is mostly still present but **dormant**; don't re-wire it.
 
 **All user-facing UI text MUST be in English — permanent user rule (2026-07-05), no exceptions, applies to every future change.** Code comments are in Indonesian.
 

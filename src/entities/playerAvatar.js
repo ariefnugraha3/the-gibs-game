@@ -41,6 +41,11 @@ let deathSpin = 1;                                    // sisi puntiran badan saa
 let deathHand0 = null;                                // posisi telapak saat ajal (agar fase hentak tak "teleport")
 let gunFly = null;                                    // senjata TERLEPAS: balistik + tumbling di ruang scene
 let dbgFall = 0, dbgRoll = 0, dbgSink = 0;            // nilai kurva terakhir (utk avatarDeathDebug)
+// ===== GULINGAN TEMPUR (dodge) =====
+let dodgeSide = 1;        // +1/-1 bahu tumpuan gulingan (dipilih saat dodge mulai)
+let dodgeSideAlt = 1;     // penggilir sisi utk guling maju/mundur murni
+let dodgePrev = false;    // dodgeActive frame lalu (deteksi mulai/selesai)
+let landT = 0;            // sisa detik fase RECOVER pendaratan (setelah dodge)
 let marker = null, markerT = 0;
 // ===== IDLE AFK bertahap (2026-07-14) =====
 let afkT = 0, afkMode = 'none', afkPoseT = 0;        // detik menganggur; mode aktif; waktu dalam mode
@@ -105,6 +110,59 @@ const TIPS = {
 // Target tangan saat TUCK dodge & tangan kiri saat sabetan pedang (ruang upperG).
 const TUCK = { L: { x: -0.95, y: 7.2, z: 0.95 }, R: { x: 0.95, y: 7.0, z: 0.95 } };
 const GUARD_L = { x: -1.7, y: 7.9, z: 1.3 };
+
+// ===== GULINGAN TEMPUR (dodge, dirombak 2026-07-27) =====================
+// Versi lama: badan KAKU diputar 360° ber-smoothstep + kaki menekuk — dari atas
+// hanya terbaca "berputar 360 derajat" (keluhan user). Sekarang gulingan punya
+// ANTISIPASI, LEDAKAN, TUBUH MELENGKUNG, MIRING LEWAT SATU BAHU, dan MENDARAT
+// yang diredam — semuanya turunan dari `dodgeProgress` (0..1) sehingga otomatis
+// ikut `CFG.dodge.durationSec` tanpa konstanta waktu tambahan.
+//   coil   p<0.14  : merendah mengumpulkan tenaga, badan melengkung ke BELAKANG,
+//                    tangan turun ke belakang — belum berputar sama sekali.
+//   launch ~0.14-0.30: kaki MELECUT, badan terangkat, putaran mulai menggigit.
+//   air    ~0.30-0.68: TUCK terketat (lutut ke dada + torso melipat), putaran di
+//                    laju PUNCAK — mayoritas 360° terjadi di sini.
+//   extend ~0.68-0.88: membuka, kaki menjulur mencari lantai, tangan depan
+//                    MENJANGKAU tanah, putaran menuntaskan 360°.
+//   plant  p>0.88  : kaki mendarat, lutut MEREDAM (badan merendah), torso
+//                    tertunduk ke depan lalu ditegakkan oleh fase RECOVER
+//                    (timer sendiri, berjalan SETELAH dodge & i-frame usai).
+// Sudut putar TETAP 360° penuh — itu yang menjamin badan mulai & selesai TEGAK
+// menghadap kursor tanpa 'pop'; yang berubah adalah DISTRIBUSI waktunya.
+const smootherstep = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * t * (t * (t * 6 - 15) + 10); };
+const bump = (t, a, b) => { const u = (t - a) / (b - a); return u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u); };
+const clamp01 = (t) => t < 0 ? 0 : t > 1 ? 1 : t;
+const DODGE_ROT_A = 0.10, DODGE_ROT_B = 0.88;   // jendela putaran di dalam p
+const DODGE_BANK = 0.62;    // miring maks lewat bahu (rad) — inti kesan "guling", bukan "salto"
+const DODGE_AIR = 3.4;      // tinggi busur melayang (unit)
+const DODGE_PIV = 5.2;      // tinggi pivot pinggang (dipertahankan dari versi lama)
+const LAND_DUR = 0.22;      // detik fase RECOVER setelah dodge selesai
+// Semua kurva fase dalam SATU tempat: dipakai blok lengan, rotasi, dan kaki.
+function dodgeCurves(p) {
+    const rot = smootherstep((p - DODGE_ROT_A) / (DODGE_ROT_B - DODGE_ROT_A));   // 0..1, ledakan di tengah
+    return {
+        rot,
+        coil: bump(p, 0, 0.16),                       // antisipasi merendah
+        tuck: Math.sin(Math.PI * clamp01((p - 0.06) / 0.78)),   // melengkung di udara
+        // MENDARAT: NAIK monoton ke 1 di p=1 (bukan bump yang balik ke 0) —
+        // ia harus menyambung MULUS ke fase RECOVER yang mulai dari bobot penuh.
+        // tuck tepat mencapai 0 di p=0.84, persis saat plant mulai: tak ada
+        // jendela kosong dan tak ada dua kurva yang bertabrakan.
+        plant: smoothstep((p - 0.84) / 0.16),
+        open: clamp01((p - 0.68) / 0.32),             // membuka menjelang mendarat
+    };
+}
+// Pose telapak per fase (ruang upperG; jarak dari bahu dijaga <= ~3.6 unit).
+const DA_COIL = { lx: -1.9, ly: 6.6, lz: -0.5, rx: 1.9, ry: 6.4, rz: -0.4 };      // menarik ke belakang-bawah
+const DA_TUCK = { lx: TUCK.L.x, ly: TUCK.L.y, lz: TUCK.L.z, rx: TUCK.R.x, ry: TUCK.R.y, rz: TUCK.R.z };
+const DA_REACH = { lx: -1.5, ly: 6.8, lz: 1.0, rx: 2.4, ry: 6.0, rz: 1.5 };       // tangan depan meraih lantai
+const DA_BALANCE = { lx: -2.9, ly: 7.4, lz: 0.2, rx: 2.9, ry: 7.2, rz: 0.6 };     // mengembang menjaga imbang
+// Campur 4 pose sesuai bobot fase (coil → tuck → reach → balance).
+function mixHands3(coilP, tuckP, reachP, balP, C) {
+    const a = mixHands(coilP, tuckP, C.tuck);        // coil -> tuck (naik bersama envelope tuck)
+    const b = mixHands(a, reachP, C.open * (1 - C.plant));
+    return mixHands(b, balP, C.plant);
+}
 
 // ===== Pemisahan badan ATAS/BAWAH (2026-07-12) =====
 const MAX_TWIST = 1.05;    // puntiran pinggang maks (~60°) — batas anatomi torso vs kaki
@@ -515,6 +573,15 @@ export const avatarDeathDebug = () => ({
     t: deathT, phase: deathPhase, fall: dbgFall, roll: dbgRoll, sink: dbgSink,
     gunFlying: !!gunFly, gunLanded: !!(gunFly && gunFly.landed),
 });
+// Debug/uji GULINGAN: pose rig tak terbaca dari quaternion di harness stub, dan
+// pivot kaki bukan ekspor publik — jadi nilai pose diambil dari sini.
+export const avatarDodgeDebug = () => ({
+    side: dodgeSide, land: landT,
+    torso: upperG ? upperG.rotation.x : 0,
+    hipL: hipL ? hipL.rotation.x : 0, hipR: hipR ? hipR.rotation.x : 0,
+    kneeL: kneeL ? kneeL.rotation.x : 0, kneeR: kneeR ? kneeR.rotation.x : 0,
+    y: avatarGroup ? avatarGroup.position.y : 0,
+});
 // Durasi tiap fase (konstanta visual) — dipakai uji supaya tak menebak stempel waktu.
 export const avatarDeathTiming = () => ({
     impact: D_IMPACT, buckle: D_BUCKLE, fall: D_FALL, settle: D_SETTLE, total: D_TOTAL, lieY: LIE_Y,
@@ -770,6 +837,7 @@ export function resetAvatarDeath() {
     deathPhase = 'none';
     deathHand0 = null;
     dbgFall = 0; dbgRoll = 0; dbgSink = 0;
+    landT = 0; dodgePrev = false;   // batalkan sisa fase pendaratan gulingan
     // Pitch/roll torso HARUS di-nol-kan di sini: jalur hidup hanya menulis
     // upperG.rotation.y, jadi sisa lipatan pose runtuh (atau pose rappel) akan
     // menempel selamanya di badan yang sudah bangkit.
@@ -1058,6 +1126,20 @@ export function updatePlayerAvatar(dt) {
         recC = Math.cos(a); recS = Math.sin(a);
     }
 
+    // ----- GULINGAN: pilih SISI BAHU tumpuan sekali di awal + jam fase RECOVER.
+    // Guling tempur menyerong lewat satu bahu; sisinya = sisi arah gulingan
+    // relatif arah bidik (menyamping = bahu terdepan), dan untuk guling
+    // maju/mundur murni sisinya BERGANTIAN tiap dodge supaya dua gulingan
+    // berturut-turut tak terlihat identik. Tanda ± murni estetis. -----
+    if (dodgeActive && !dodgePrev) {
+        const cr = Math.sin(aimYaw) * dodgeDirZ - Math.cos(aimYaw) * dodgeDirX;
+        dodgeSide = Math.abs(cr) > 0.25 ? -Math.sign(cr) : (dodgeSideAlt = -dodgeSideAlt);
+        landT = 0;
+    } else if (!dodgeActive && dodgePrev) {
+        landT = LAND_DUR;   // dodge selesai -> mulai fase pendaratan/bangkit
+    }
+    dodgePrev = dodgeActive;
+
     // ----- Target tangan (ruang avatarGroup) -> lengan tertarik. Titik genggam
     // DIPUTAR dgn pitch recoil yang sama (rotasi X di pangkal gunGrp) sehingga
     // telapak tetap MENEMPEL di grip/forend yang terangkat — tangan depan naik
@@ -1071,9 +1153,15 @@ export function updatePlayerAvatar(dt) {
         lTz = GUN_OFF.z + G.L.y * recS + G.L.z * recC;
     let meleeDip = 0;   // merendah kuda-kuda saat menebas (dipakai blok kaki di bawah)
     if (dodgeActive) {
-        // TUCK: kedua tangan merapat ke dada selama salto.
-        rTx = TUCK.R.x; rTy = TUCK.R.y; rTz = TUCK.R.z;
-        lTx = TUCK.L.x; lTy = TUCK.L.y; lTz = TUCK.L.z;
+        // LENGAN GULINGAN (2026-07-27): bukan lagi TUCK datar sepanjang animasi —
+        // MENGAYUN mengikuti fase: mengumpulkan tenaga di bawah-belakang (coil) →
+        // MERAPAT ke dada (udara) → tangan depan MENJANGKAU LANTAI (extend) →
+        // MENGEMBANG menjaga keseimbangan (plant). Kurva fase dihitung di
+        // dodgeCurves() supaya blok kaki/rotasi di bawah memakai angka yang sama.
+        const C = dodgeCurves(dodgeProgress);
+        const arm = mixHands3(DA_COIL, DA_TUCK, DA_REACH, DA_BALANCE, C);
+        rTx = arm.rx; rTy = arm.ry; rTz = arm.rz;
+        lTx = arm.lx; lTy = arm.ly; lTz = arm.lz;
     } else if (inMelee) {
         // ===== Sabetan PEDANG LINCAH (overhaul 2026-07-12): 3 fase —
         // ANCANG (menyentak ke kanan-atas + badan memuntir kanan) -> TEBAS
@@ -1138,32 +1226,70 @@ export function updatePlayerAvatar(dt) {
     placeArm('L', lTx, lTy, lTz);
 
     if (dodgeActive) {
-        // ===== SALTO dodge: putaran 360° di sekitar PINGGANG (bukan kaki) +
-        // busur lompatan + kaki TUCK. Sudut pakai smoothstep -> lepas landas &
-        // mendarat kalem, berputar cepat di udara; 360° penuh = mulai & selesai
-        // tegak menghadap kursor (tanpa 'pop'). =====
+        // ===== GULINGAN TEMPUR (dirombak 2026-07-27 — lihat blok konstanta
+        // "GULINGAN TEMPUR" di atas): putaran 360° di sekitar PINGGANG, tapi
+        // waktunya DIPADATKAN ke tengah (smootherstep di jendela 0.10-0.88) dan
+        // badan tidak lagi kaku — ia MELENGKUNG (torso melipat), MIRING lewat
+        // satu bahu (bank), kakinya asimetris, dan mendaratnya diredam. =====
         const p = dodgeProgress;
-        const e = p * p * (3 - 2 * p);              // smoothstep 0..1
-        const th = e * Math.PI * 2;
+        const C = dodgeCurves(p);
+        const th = C.rot * Math.PI * 2;
         _tumbleAxis.set(dodgeDirZ, 0, -dodgeDirX);  // sumbu horizontal ⟂ arah gulingan
         const al = Math.hypot(_tumbleAxis.x, _tumbleAxis.z);
         if (al > 1e-4) {
             _tumbleAxis.multiplyScalar(1 / al);
             _qT.setFromAxisAngle(_tumbleAxis, th);
             avatarGroup.quaternion.premultiply(_qT);   // putaran ruang-dunia SETELAH hadap
+            // MIRING LEWAT BAHU: guling tempur nyata tidak lurus melewati kepala,
+            // ia menyerong di atas SATU bahu. Sumbu = arah gulingan itu sendiri,
+            // amplitudo 0 di awal & akhir (mendarat tetap rata).
+            const bank = DODGE_BANK * Math.sin(Math.PI * C.rot) * dodgeSide;
+            if (bank) {
+                _rollAxis.set(dodgeDirX, 0, dodgeDirZ);
+                _qR.setFromAxisAngle(_rollAxis, bank);
+                avatarGroup.quaternion.premultiply(_qR);
+            }
             // Geser origin (kaki) mengelilingi pivot pinggang setinggi PIV ->
             // badan berputar pada pusat massanya, bukan terseret di lantai.
-            const PIV = 5.2, s = Math.sin(th), c = Math.cos(th);
-            avatarGroup.position.x -= PIV * s * dodgeDirX;
-            avatarGroup.position.z -= PIV * s * dodgeDirZ;
-            avatarGroup.position.y = feetY + PIV * (1 - c) + Math.sin(Math.PI * p) * 2.2;
+            const s = Math.sin(th), c = Math.cos(th);
+            avatarGroup.position.x -= DODGE_PIV * s * dodgeDirX;
+            avatarGroup.position.z -= DODGE_PIV * s * dodgeDirZ;
+            // Tinggi: busur melayang + MERENDAH saat mengumpulkan tenaga (coil)
+            // dan saat lutut MEREDAM hentakan mendarat (plant).
+            avatarGroup.position.y = feetY + DODGE_PIV * (1 - c)
+                + DODGE_AIR * Math.sin(Math.PI * clamp01((p - 0.10) / 0.80))
+                - 0.95 * C.coil - 1.15 * C.plant;
         }
-        // Tuck: paha terlipat + lutut menekuk saat di udara, terbuka lagi
-        // menjelang mendarat (envelope sinus).
-        const tuck = Math.sin(Math.PI * Math.min(1, p * 1.12));
-        hipL.rotation.x = -1.7 * tuck; hipR.rotation.x = -1.7 * tuck;
-        kneeL.rotation.x = 2.15 * tuck; kneeR.rotation.x = 2.15 * tuck;
-        hipL.rotation.z = 0; hipR.rotation.z = 0;
+        // TORSO: melengkung ke belakang saat memuat, MELIPAT ke lutut di udara,
+        // tertunduk ke depan saat mendarat. Inilah yang membedakan "tubuh
+        // menggulung" dari "patung berputar".
+        upperG.rotation.x = -0.32 * C.coil + 1.00 * C.tuck + 0.45 * C.plant;
+        upperG.position.y = -0.35 * C.tuck;
+        // KEPALA: dagu merapat ke dada sepanjang gulingan (melindungi leher),
+        // lalu mendongak kembali ke garis bidik saat mendarat.
+        lerpHeadPitch(0.62 * C.tuck - 0.22 * C.plant, 1);
+        // KAKI asimetris: kaki dalam (sisi bahu tumpuan) menekuk lebih rapat dan
+        // menjulur lebih dulu; kaki luar menyusul -> tidak lagi seperti boneka.
+        const inn = dodgeSide > 0 ? 1 : 0;   // 1 = kaki kiri jadi kaki dalam
+        const tIn = C.tuck, tOut = Math.sin(Math.PI * clamp01((p - 0.02) / 0.80));
+        const hipIn = -1.95 * tIn - 0.55 * C.coil + 0.65 * C.plant;
+        const hipOut = -1.45 * tOut - 0.35 * C.coil - 0.50 * C.plant;
+        const kneeIn = 2.35 * tIn + 0.85 * C.coil + 0.95 * C.plant;
+        const kneeOut = 1.85 * tOut + 0.60 * C.coil + 1.25 * C.plant;
+        hipL.rotation.x = inn ? hipIn : hipOut;
+        hipR.rotation.x = inn ? hipOut : hipIn;
+        kneeL.rotation.x = inn ? kneeIn : kneeOut;
+        kneeR.rotation.x = inn ? kneeOut : kneeIn;
+        hipL.rotation.z = 0.16 * C.tuck * dodgeSide; hipR.rotation.z = 0.16 * C.tuck * dodgeSide;
+        // SENJATA DIDEKAP: selama menggulung, senapan ditarik menyilang di dada
+        // (kalau dibiarkan di GUN_OFF ia menancap ke lantai saat badan terbalik).
+        if (gunGrpRef) {
+            gunGrpRef.position.set(
+                GUN_OFF.x + (0.15 - GUN_OFF.x) * C.tuck,
+                GUN_OFF.y + (6.9 - GUN_OFF.y) * C.tuck,
+                GUN_OFF.z + (0.85 - GUN_OFF.z) * C.tuck);
+            gunGrpRef.rotation.set(-0.35 * C.tuck, 0.6 * C.tuck, 0);
+        }
     } else if (moving) {
         // ===== GAIT TERARAH (2026-07-12): siklus mengikuti arah gerak RELATIF
         // HADAP KAKI — komponen sejajar = ayunan pinggul maju/mundur (fase
@@ -1200,6 +1326,29 @@ export function updatePlayerAvatar(dt) {
         hipL.rotation.z *= damp; hipR.rotation.z *= damp;
         upperG.position.y *= damp;
     }
+    // ===== RECOVER pendaratan gulingan (2026-07-27): LAND_DUR detik SETELAH
+    // dodge selesai — i-frame sudah mati, jadi pemulihan memang rentan (itu
+    // memang harganya). Bukan overlay aditif melainkan CROSSFADE ke pose normal:
+    // di w=1 pose = mendarat berlutut (sambung mulus dgn frame terakhir dodge),
+    // lalu larut ke gait/idle biasa — kaki tetap bisa langsung melangkah. =====
+    if (landT > 0) {
+        landT -= dt;
+        const w = Math.max(0, landT) / LAND_DUR;
+        const we = smoothstep(w);
+        const inn = dodgeSide > 0 ? 1 : 0;
+        const hIn = 0.65, hOut = -0.50, kIn = 0.95, kOut = 1.25;   // = pose 'plant' penuh
+        const bl = (cur, tgt) => cur * (1 - we) + tgt * we;
+        hipL.rotation.x = bl(hipL.rotation.x, inn ? hIn : hOut);
+        hipR.rotation.x = bl(hipR.rotation.x, inn ? hOut : hIn);
+        kneeL.rotation.x = bl(kneeL.rotation.x, inn ? kIn : kOut);
+        kneeR.rotation.x = bl(kneeR.rotation.x, inn ? kOut : kIn);
+        // Torso & tinggi badan DITULIS (bukan di-blend): jalur hidup tak pernah
+        // menyentuh upperG.rotation.x, jadi sisa tunduk pose guling harus
+        // diluruhkan eksplisit ke 0 di sini — kalau tidak ia menempel selamanya.
+        upperG.rotation.x = 0.45 * we;
+        avatarGroup.position.y = feetY - 1.15 * we;   // = kedalaman redam akhir fase plant
+    }
+
     // Kuda-kuda MELEE (menimpa pose kaki): kaki kiri melangkah menekuk ke depan,
     // kaki kanan menolak di belakang — mengikuti envelope merendah sabetan.
     if (inMelee && !dodgeActive && meleeDip > 0.01) {

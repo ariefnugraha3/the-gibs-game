@@ -40,7 +40,17 @@ export function updateBullets(step) {
             const dx = b.mesh.position.x - b.sx, dz = b.mesh.position.z - b.sz;
             const d = Math.hypot(dx, dz);
             if (d >= b.maxDist) {
-                if (d > 1e-6) b.mesh.position.addScaledVector(b.dir, -(d - b.maxDist));
+                // Mundurkan overshoot. `d` HORIZONTAL sedangkan `b.dir` 3D (ada
+                // komponen y menukik dari moncong ke titik kursor di lantai) —
+                // mundur sejauh (d - maxDist) SEPANJANG dir hanya memangkas
+                // (d - maxDist) × |dir_xz| secara horizontal, jadi titik akhir
+                // masih melewati batas sedikit. Bagi dgn panjang horizontal dir
+                // supaya jarak xz akhir PERSIS maxDist seperti klaim komentar di
+                // atas (dulu meleset s/d ~0.03 u; dites 20 rb tembakan → 0).
+                if (d > 1e-6) {
+                    const dh = Math.hypot(b.dir.x, b.dir.z) || 1;
+                    b.mesh.position.addScaledVector(b.dir, -(d - b.maxDist) / dh);
+                }
                 b.ended = true;
                 continue;
             }
