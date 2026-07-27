@@ -2799,8 +2799,39 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         let heliHigh0 = 0, heliLowAtDrop = 1e9, heliHighEnd = 0;
         let avatarFirstShownPhase = null, avatarHiddenPhase = null, dust = 0;
         let last = null, n = 0;
+        // --- Pengukur KEMULUSAN (2026-07-27): lompatan per-frame kamera/pivot/kabut
+        //     + busur azimut yang DI-UNWRAP (untuk menguji "tidak berputar-putar").
+        let maxAzStep = 0, maxHStep = 0, maxPivStep = 0, maxFogStep = 0;
+        let azUnwrap = 0, azMin = 0, azMax = 0, azRev = 0, azDir = 0;
+        let pAz = null, pH = null, pPiv = null, pFog = null, fadeAtEnd = null;
         while (introMod.introDebug().active && n++ < 4000) {
             introMod.introScene.updateMode(1 / 60);
+            // Kemulusan diukur HANYA selama cutscene masih hidup: frame terakhir
+            // memulihkan kabut global Stage 1 (pergantian scene) — itu potongan
+            // yang memang ditutup TIRAI hitam, bukan batas shot.
+            if (introMod.introDebug().active) {
+                const o = introMod.introScene.camOffset;
+                const a = azOf(o), h = o.y;
+                const d2 = introMod.introDebug();
+                const piv = [d2.pivotX, d2.pivotY, d2.pivotZ];
+                if (pAz != null) {
+                    let da = a - pAz;                       // beda sudut TERPENDEK
+                    if (da > 180) da -= 360; else if (da < -180) da += 360;
+                    maxAzStep = Math.max(maxAzStep, Math.abs(da));
+                    azUnwrap += da;
+                    azMin = Math.min(azMin, azUnwrap); azMax = Math.max(azMax, azUnwrap);
+                    if (Math.abs(da) > 0.02) {              // arah putar (abaikan derau)
+                        const dir = Math.sign(da);
+                        if (azDir && dir !== azDir) azRev++;
+                        azDir = dir;
+                    }
+                    maxHStep = Math.max(maxHStep, Math.abs(h - pH));
+                    maxPivStep = Math.max(maxPivStep, Math.hypot(piv[0] - pPiv[0], piv[1] - pPiv[1], piv[2] - pPiv[2]));
+                    maxFogStep = Math.max(maxFogStep, Math.abs(scene.fog.far - pFog));
+                }
+                pAz = a; pH = h; pPiv = piv; pFog = scene.fog.far;
+                if (introMod.introDebug().phase === 'wait') fadeAtEnd = domSkipMod.cineFadeDebug();
+            }
             const d = introMod.introDebug();
             if (d.phase && d.phase !== last) {
                 seen.push(d.phase);
@@ -2818,6 +2849,7 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
             if (avatarFirstShownPhase && !d.avatarShown && !avatarHiddenPhase) avatarHiddenPhase = d.phase;
             dust = Math.max(dust, stateMod.explosions.length);
         }
+        const camEnd = { ...introMod.introScene.camOffset };   // sudut kamera saat cutscene tutup
         // --- KONTRAK NARASI (empat pesan yang tak boleh hilang)
         T('INTRO NARASI 1: datang naik HELIKOPTER dari langit tinggi (' + heliHigh0.toFixed(0) + ' u)',
             heliHigh0 > 150);
@@ -2836,8 +2868,37 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         T('INTRO: shot baru terpasang (establish/flare/land) — ' + seen.length + ' shot',
             seen.includes('establish') && seen.includes('flare') && seen.includes('land'));
         const azs = cam.map(c => c[0]), hs = cam.map(c => c[2]), ds = cam.map(c => c[1]);
-        T('INTRO KAMERA: sudut BERVARIASI antar shot (azimut ' + (Math.max(...azs) - Math.min(...azs)).toFixed(0)
-            + '° span) — dulu satu sudut gameplay sepanjang cutscene', Math.max(...azs) - Math.min(...azs) > 120);
+        // --- SINEMATOGRAFI KAMERA (dirombak lagi 2026-07-27, permintaan user:
+        //     "transisi antar scene masih terlihat kasar & tiba-tiba" + "gerak kamera
+        //     360 derajat ketika helicopter di atas gedung terlihat berlebihan").
+        //     (1) SATU BUSUR: azimut di-UNWRAP (span mentah 0..360 dulu lolos hanya
+        //     karena melewati 0) harus menyapu sudut yang berarti tapi tidak sampai
+        //     mengelilingi gedung, dan TANPA pembalikan arah putar — papan lama
+        //     menyapu +105° lalu BERBALIK −195° (~300°, 1 pembalikan) = terbaca
+        //     persis sebagai 'kamera berputar mengelilingi gedung'.
+        const azSpan = azMax - azMin;
+        T('INTRO KAMERA: SATU busur pelan (' + azSpan.toFixed(0) + '°), bukan mengelilingi gedung',
+            azSpan > 40 && azSpan < 150);
+        T('INTRO KAMERA: busur SEARAH — tanpa pembalikan arah putar (' + azRev + ' pembalikan)',
+            azRev === 0);
+        //     (2) TANPA POTONGAN KASAR: sudut/tinggi/pivot/kabut berubah MULUS antar
+        //     frame (peredaman settleCam/settlePivot). Dulu batas shot 1→2 meloncat 6°
+        //     azimut dan batas fly→flare memindahkan titik fokus ~59 unit dalam SATU frame.
+        T('INTRO KAMERA: tak ada lompatan sudut di batas shot (maks ' + maxAzStep.toFixed(2) + '°/frame)',
+            maxAzStep < 1.2);
+        T('INTRO KAMERA: tak ada lompatan tinggi/kabut di batas shot (tinggi ' + maxHStep.toFixed(1)
+            + ', kabut ' + maxFogStep.toFixed(1) + ' /frame)', maxHStep < 35 && maxFogStep < 60);
+        T('INTRO KAMERA: titik fokus berpindah MULUS antar shot (maks ' + maxPivStep.toFixed(1) + ' unit/frame)',
+            maxPivStep < 14);
+        //     (3) SERAH-TERIMA: shot penutup = kamera gameplay, jadi Stage 1 tak
+        //     menjentikkan sudut saat scene berganti (dulu 225° -> 315° satu frame).
+        T('INTRO KAMERA: shot penutup MENDARAT di sudut gameplay (serah-terima ke Stage 1 tanpa jentikan)',
+            Math.abs(camEnd.x - rendererMod.CAM_OFF_DEFAULT.x) < 4
+            && Math.abs(camEnd.y - rendererMod.CAM_OFF_DEFAULT.y) < 4
+            && Math.abs(camEnd.z - rendererMod.CAM_OFF_DEFAULT.z) < 4);
+        //     (4) TIRAI: layar sudah HITAM sebelum scene berganti, dibuka lagi sesudahnya.
+        T('INTRO TIRAI: fade ke hitam sebelum pindah ke Stage 1, dibuka lagi sesudahnya',
+            !!fadeAtEnd && fadeAtEnd.opacity === 1 && domSkipMod.cineFadeDebug().opacity === 0);
         T('INTRO KAMERA: ketinggian & jarak BERVARIASI (tinggi ' + Math.min(...hs).toFixed(0) + '..'
             + Math.max(...hs).toFixed(0) + ', jarak ' + Math.min(...ds).toFixed(0) + '..' + Math.max(...ds).toFixed(0) + ')',
             Math.max(...hs) > Math.min(...hs) * 4 && Math.max(...ds) > Math.min(...ds) * 2.5);

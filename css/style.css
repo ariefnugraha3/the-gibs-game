@@ -1370,6 +1370,17 @@ body {
 #cineBot { bottom: 0; transform: translateY(101%); }
 #cineTop.on, #cineBot.on { transform: translateY(0); }
 
+/* Tirai FADE sinematik (2026-07-27): layar-penuh, DI ATAS letterbox, di BAWAH
+   layar loading & blocker. Opasitas + durasinya di-set dom.setCineFade. */
+#cineFade {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    opacity: 0;
+    z-index: 27;
+    pointer-events: none;
+}
+
 body.cine #barsHud, body.cine #statsHud, body.cine #radar, body.cine #waveText,
 body.cine #pickupFeed, body.cine #aimCursor, body.cine #hitDir,
 body.cine #medkitBar, body.cine #stageMsg {

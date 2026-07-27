@@ -17,9 +17,9 @@
 //   7 land       KETUKAN — menjejak dek, debu meledak, kamera rapat & diam sesaat
 //   8 ropeUp     tali digulung, kamera MUNDUR & meninggi (player mengecil)
 //   9 heliLeave  heli MENUNDUK + MIRING lalu menderu pergi; kamera LEBAR
-//  10 walk       kamera MENGORBIT player (300°→240°) sambil merapat, ia menuju pintu
+//  10 walk       busur menutup sambil merapat, player menuju pintu
 //  11 enter      dorongan terakhir ke ambang pintu; player ditelan gedung
-//  12 wait       ambang kosong sejenak -> Stage 1
+//  12 wait       ambang kosong sejenak -> TIRAI ke hitam -> Stage 1
 //
 // APA YANG DIROMBAK 2026-07-27: versi lama memakai SATU sudut kamera — persis
 // sudut gameplay (oblique barat-daya, jarak 100, tinggi 116) — sepanjang
@@ -30,6 +30,23 @@
 // pernah dipakai cutscene. Ditambah: shot pembuka kota, manuver flare, ketukan
 // pendaratan, debu downwash rotor, beacon berkedip, dan heli yang bermanuver
 // (bank/dongak/tunduk) alih-alih meluncur kaku.
+//
+// PASS KEDUA 2026-07-27 (permintaan user: "transisi antar scene masih terlihat
+// kasar dan terlihat tiba-tiba" + "gerak kamera 360 derajat ketika helicopter di
+// atas gedung terlihat berlebihan") — empat perbaikan, semuanya dijaga assert
+// "INTRO KAMERA"/"INTRO TIRAI" di smoke:
+//   (1) SATU BUSUR SEARAH 75°, bukan orbit. Papan lama menyapu +105° lalu
+//       BERBALIK −195° (~300° dgn pembalikan di tengah) = terbaca persis sebagai
+//       "kamera mengelilingi gedung". Azimut kini dinyatakan sbg SIMPANGAN dari
+//       sudut gameplay yang menyusut 75°→0° (lihat papan SHOT).
+//   (2) KAMERA & KABUT DIREDAM (`settleCam`): shot menulis ke TARGET, camOff
+//       mengejarnya — tiap patahan di batas shot luruh mulus & kamera punya bobot.
+//   (3) TITIK FOKUS DIREDAM saat avatar belum tampil (`settlePivot`): peralihan
+//       "menempel heli di langit" → "titik turun di atap" dulu terjadi dalam SATU
+//       frame (lompatan vertikal ~59 unit) — inilah sentakan terbesar versi lama.
+//   (4) TIRAI HITAM (`dom.setCineFade`) membuka & menutup cutscene, dan shot
+//       penutup MENDARAT persis di kamera gameplay (`CAM_OFF_DEFAULT`) sehingga
+//       serah-terima ke Stage 1 tak lagi menjentikkan sudut 90° dalam satu frame.
 //
 // Scene NON-GAMEPLAY (seperti campaignShopScene): semua hook gameplay no-op;
 // state.cinematicActive membekukan kendali player + input (kecuali Esc = pause),
@@ -54,10 +71,10 @@
 // dibangun jauh dari stage (x~150000) & DIBUANG saat cutscene selesai.
 
 import { CFG, CAMP_M } from '../../../core/config.js';
-import { scene, camera, viewCam, renderer, composer, postFxOn, addCamShake, setCineFocus, followViewCam } from '../../../core/renderer.js';
+import { scene, camera, viewCam, renderer, composer, postFxOn, addCamShake, setCineFocus, followViewCam, CAM_OFF_DEFAULT } from '../../../core/renderer.js';
 import { setScene } from '../../../core/sceneManager.js';
 import { setCinematicActive, setPaused } from '../../../core/state.js';
-import { setCineBars, blocker, showCutsceneSkip, hideCutsceneSkip } from '../../../core/dom.js';
+import { setCineBars, setCineFade, blocker, showCutsceneSkip, hideCutsceneSkip } from '../../../core/dom.js';
 import { hidePauseMenu } from '../../../core/pauseMenu.js';
 import { releaseInputs } from '../../../core/input.js';
 import { aimPoint } from '../../../core/input.js';
@@ -182,21 +199,61 @@ const easeIn = (k) => k * k;
 // bahasa kamera, bukan tiga angka XYZ. Azimut = arah KAMERA BERADA dari titik
 // fokus (derajat); default gameplay = 315°, jarak 100, tinggi 116.
 const camOff = { x: -70.7, y: 116, z: 70.7 };     // objek MUTABLE yang dibaca renderer
+// ----- PEREDAM KAMERA (2026-07-27, permintaan user: "transisi antar scene masih
+// terlihat kasar dan terlihat tiba-tiba"). Sebelumnya `setShotCam` MENULIS
+// LANGSUNG ke camOff, jadi tiap batas shot mewarisi apa pun ketaksinambungan
+// papan shot (dan shot 1→2 memang meninggalkan patahan 6°). Sekarang shot
+// menulis ke TARGET dan camOff MENGEJARNYA dgn peredaman eksponensial: setiap
+// patahan sekecil apa pun jadi luruh mulus, dan kamera punya BOBOT (ia tak
+// pernah berhenti/mulai persis di frame batas). Kabut ikut diredam dgn cara yang
+// sama supaya tebalnya tak menyentak saat shot berganti. -----
+const camTarget = { x: -70.7, y: 116, z: 70.7, near: 900, far: 2550 };
+const CAM_SETTLE = 3.6;     // 1/detik — konstanta waktu ~0,28 dtk (bobot, bukan lag)
+const PIVOT_SETTLE = 4.2;   // peredam titik fokus (hanya saat avatar belum tampil)
+// Tirai hitam pembuka/penutup (dom.setCineFade → transisi CSS, nol kerja per frame).
+const FADE_IN_SEC = 1.1;    // dari hitam saat frame pertama cutscene tampil
+const FADE_OUT_SEC = 0.9;   // ke hitam SEBELUM scene berganti ke Stage 1
+const FADE_BACK_SEC = 0.7;  // dari hitam lagi setelah Stage 1 + tutorial tampil
 function setShotCam(azDeg, dist, height, fogNear, fogFar) {
     const a = azDeg * Math.PI / 180;
-    camOff.x = Math.sin(a) * dist;
-    camOff.z = Math.cos(a) * dist;
-    camOff.y = height;
+    camTarget.x = Math.sin(a) * dist;
+    camTarget.z = Math.cos(a) * dist;
+    camTarget.y = height;
     // KABUT ikut per-shot (2026-07-27): near/far fog = uniform, jadi menganimasi-
     // kannya GRATIS. Shot tinggi/lebar butuh kabut longgar supaya kota terbaca;
     // shot setinggi atap butuh kabut TEBAL supaya pinggiran kota + tepi hamparan
     // larut jadi haze. Tanpa ini satu setelan fog mustahil melayani keduanya.
-    if (fogNear != null && scene && scene.fog) { scene.fog.near = fogNear; scene.fog.far = fogFar; }
+    if (fogNear != null) { camTarget.near = fogNear; camTarget.far = fogFar; }
+}
+// Dekatkan camOff & kabut ke targetnya. `snap` = tulis seketika (frame pertama
+// cutscene + warm-up, di mana peredaman justru salah).
+function settleCam(dt, snap) {
+    const k = snap ? 1 : 1 - Math.exp(-CAM_SETTLE * dt);
+    camOff.x += (camTarget.x - camOff.x) * k;
+    camOff.y += (camTarget.y - camOff.y) * k;
+    camOff.z += (camTarget.z - camOff.z) * k;
+    if (scene && scene.fog) {
+        scene.fog.near += (camTarget.near - scene.fog.near) * k;
+        scene.fog.far += (camTarget.far - scene.fog.far) * k;
+    }
 }
 // Interpolasi antar dua setelan kamera + kabutnya (gerakan di dalam shot).
 function shotCam(A, B, k) {
     setShotCam(lerp(A[0], B[0], k), lerp(A[1], B[1], k), lerp(A[2], B[2], k),
         lerp(A[3], B[3], k), lerp(A[4], B[4], k));
+}
+// ----- TITIK FOKUS (pivot) yang diredam. Dipakai HANYA di shot-shot saat avatar
+// masih tersembunyi (establish..rope): di sana pivot boleh melayang bebas, dan
+// perpindahan "menempel heli di langit" -> "titik turun di atap" dulu terjadi
+// dalam SATU frame = lompatan vertikal ~29 unit yang terbaca sebagai sentakan.
+// Sejak fase descend pivot = posisi AVATAR, jadi ia ditulis PERSIS (tanpa
+// peredaman) — kalau tidak, avatar akan tertinggal dari talinya sendiri. -----
+function settlePivot(dt, tx, ty, tz) {
+    const k = 1 - Math.exp(-PIVOT_SETTLE * dt);
+    camera.position.set(
+        camera.position.x + (tx - camera.position.x) * k,
+        camera.position.y + (ty - camera.position.y) * k,
+        camera.position.z + (tz - camera.position.z) * k);
 }
 // Papan shot: [azimut°, jarak, tinggi, fogNear, fogFar].
 // fogFar SELALU <= CITY_FILL — kabut habis sebelum isian kota habis, jadi tepi
@@ -208,19 +265,41 @@ function shotCam(A, B, k) {
 // SELURUH cutscene 0° langit: horizon selalu di atas tepi frame, jadi menambah
 // bulan/bintang saja tak akan pernah terlihat.
 const CINE_BAR_FRAC = 0.13;   // = tinggi #cineTop di css/style.css — jaga tetap sinkron
+
+// ===== BUSUR AZIMUT TUNGGAL (dirombak 2026-07-27, permintaan user: "gerak
+// kamera 360 derajat ketika helicopter di atas gedung terlihat berlebihan").
+// Papan lama menyapu +105° (315→60) lalu BERBALIK ARAH −195° (60→225): total
+// ~300° dgn satu pembalikan di tengah — dari kamera top-down itu terbaca persis
+// sebagai "mengelilingi gedung". Sekarang SELURUH cutscene = SATU busur pelan
+// SEARAH ~75°, tanpa pembalikan, dan ia MENDARAT TEPAT di sudut gameplay.
+//
+// Azimut tiap shot dinyatakan sbg SIMPANGAN dari sudut kamera gameplay
+// (`CAM_OFF_DEFAULT` renderer.js — satu sumber kebenaran, jangan salin angkanya):
+// simpangan menyusut 75° → 0°, jadi shot terakhir ('door') LITERAL sama dengan
+// kamera gameplay. Itu yang menghapus "jentikan" 90° saat serah-terima ke Stage 1
+// — dulu cutscene berakhir di 225° lalu Stage 1 memulihkan 315° dalam satu frame.
+// (Pola yang sama dipakai cutscene pembuka Survival.)
+const GAMEPLAY_AZ = (Math.atan2(CAM_OFF_DEFAULT.x, CAM_OFF_DEFAULT.z) * 180 / Math.PI + 360) % 360;
+const GAMEPLAY_DIST = Math.hypot(CAM_OFF_DEFAULT.x, CAM_OFF_DEFAULT.z);
+const az = (delta) => GAMEPLAY_AZ + delta;   // simpangan → azimut absolut
+// Tinggi flare/hover/rope DITAHAN RENDAH: letterbox sinematik memakan
+// CINE_BAR_FRAC layar teratas (= 6.5° dari setengah-FOV 25°), jadi sebuah shot
+// baru memperlihatkan LANGIT bila tinggi/jarak < tan(18.5°) ≈ 0.33. Ketiganya di
+// bawah itu → bulan + bintang benar-benar masuk frame.
 const SHOT = {
-    //          azimut jarak tinggi fogNear fogFar
-    establish: [315, 260, 620, 900, 2550],   // nyaris tegak lurus dari atas: hamparan kota, heli sebutir
-    flyEnd: [355, 300, 150, 380, 2300],   // crane TURUN ke ketinggian heli — laju terasa
-    flare: [25, 180, 46, 240, 1900],   // rendah di depan heli saat mendongak — heli & bulan melawan langit
-    hover: [45, 155, 40, 230, 1850],   // menggantung mantap di atas dek, horizon malam di belakangnya
-    rope: [60, 122, 22, 210, 1750],   // HERO ANGLE rendah: menatap NAIK sepanjang tali ke langit
-    descendEnd: [15, 95, 85, 240, 1900],   // ikut turun bersama player, atap naik ke frame
-    land: [15, 88, 80, 240, 1900],   // ketukan pendaratan (rapat)
-    pullBack: [345, 210, 150, 300, 2050],   // mundur saat tali ditarik naik
-    wide: [300, 430, 100, 520, 2500],   // LEBAR & RENDAH: heli menanjak melawan langit malam berbintang
-    walkEnd: [240, 150, 95, 260, 1950],   // akhir ORBIT mengelilingi player
-    door: [225, 100, 78, 230, 1800],   // dorong masuk ke ambang pintu
+    //             azimut     jarak tinggi fogNear fogFar
+    establish: [az(75), 260, 620, 900, 2550],   // nyaris tegak lurus dari atas: hamparan kota, heli sebutir
+    establishEnd: [az(70), 260, 620, 900, 2550],   // hanyut pelan (= titik MULAI shot 2, tanpa patahan)
+    flyEnd: [az(65), 300, 150, 380, 2300],   // crane TURUN ke ketinggian heli — laju terasa
+    flare: [az(55), 180, 46, 240, 1900],   // rendah di depan heli saat mendongak — heli & bulan melawan langit
+    hover: [az(47), 155, 40, 230, 1850],   // menggantung mantap di atas dek, horizon malam di belakangnya
+    rope: [az(40), 122, 22, 210, 1750],   // HERO ANGLE rendah: menatap NAIK sepanjang tali ke langit
+    descendEnd: [az(33), 95, 85, 240, 1900],   // ikut turun bersama player, atap naik ke frame
+    land: [az(29), 88, 80, 240, 1900],   // ketukan pendaratan (rapat)
+    pullBack: [az(22), 210, 150, 300, 2050],   // mundur saat tali ditarik naik
+    wide: [az(15), 430, 100, 520, 2500],   // LEBAR & RENDAH: heli menanjak melawan langit malam berbintang
+    walkEnd: [az(7), 150, 100, 260, 1950],   // busur menutup selagi player melangkah
+    door: [az(0), GAMEPLAY_DIST, CAM_OFF_DEFAULT.y, 230, 1800],   // = KAMERA GAMEPLAY (serah-terima mulus)
 };
 
 // ===== Bangun dunia ATAP (sekali, guard `built`) — deck beton + parapet +
@@ -1169,7 +1248,9 @@ export function beginIntro() {
     // Keduanya kini ditunda ke frame PERTAMA updateMode (animate() baru berjalan
     // setelah hideLoading, jadi frame pertama = cutscene benar-benar tampil).
     setShotCam(...SHOT.establish);   // frame pertama = shot pembuka (kamera + kabutnya)
-    cine = { phase: 'establish', t: 0, bob: 0, washT: 0, live: false };
+    settleCam(0, true);              // SNAP: frame pertama tak boleh "menyusul" dari sudut lama
+    setCineFade(1);                  // layar HITAM sampai frame pertama benar-benar tampil
+    cine = { phase: 'establish', t: 0, bob: 0, washT: 0, live: false, fading: false };
     stepT = 0.12;                  // langkah pertama cepat terdengar saat fase walk mulai
 }
 
@@ -1247,13 +1328,15 @@ export function warmupIntro() {
     // TERGAMBAR, jadi tanpa frame ini tekstur bulan+halo baru naik ke GPU saat
     // shot 'flare' berjalan (= hitch di tengah cutscene). Kamera diletakkan pada
     // azimut berlawanan bulan & sangat rendah supaya bulan pasti masuk frustum.
-    const ox = camOff.x, oy = camOff.y, oz = camOff.z;
+    const ox = camTarget.x, oy = camTarget.y, oz = camTarget.z;
     setShotCam(MOON_AZ - 180, 200, 18);
+    settleCam(0, true);   // warm-up butuh sudutnya SEKARANG (peredaman tak berlaku di sini)
     camera.position.set(DROP.x, ROOF_Y + eyeH, DROP.z);
     positionIntroSky();
     followViewCam();
     render();
-    camOff.x = ox; camOff.y = oy; camOff.z = oz;
+    camTarget.x = ox; camTarget.y = oy; camTarget.z = oz;
+    settleCam(0, true);
     camera.position.set(sx, sy, sz);
     positionIntroSky();
     followViewCam();
@@ -1302,6 +1385,9 @@ export const introScene = {
             cine.live = true;
             heliSnd = playLoopSFX(sfxHeli, 0.5);   // deru heli sepanjang cutscene (2026-07-19)
             showCutsceneSkip(skipIntro);           // tombol SKIP kanan-bawah (2026-07-19; SPACE juga)
+            // BUKA TIRAI: frame pertama cutscene benar-benar tampil → fade IN dari
+            // hitam (dulu cutscene MUNCUL begitu saja begitu layar loading tertutup).
+            setCineFade(1); setCineFade(0, FADE_IN_SEC);
         }
         const I = CFG.campaign.intro;
         cine.t += dt;
@@ -1319,8 +1405,9 @@ export const introScene = {
             const e = easeIn(k);                               // pelan lalu menambah laju
             flyHeli(e * 0.18);                                 // baru 18% lintasan di akhir shot
             updateHelicopter(heli, dt);
-            setShotCam(SHOT.establish[0] + k * 6, SHOT.establish[1], SHOT.establish[2],
-                SHOT.establish[3], SHOT.establish[4]);   // hanyut halus
+            // Hanyut pelan ke `establishEnd` — yang PERSIS titik mulai shot 2, jadi
+            // batas shot 1→2 tak lagi menyimpan patahan azimut (dulu 6°).
+            shotCam(SHOT.establish, SHOT.establishEnd, smooth(k));
             followHeliPivot();
             if (k >= 1) { cine.phase = 'fly'; cine.t = 0; }
 
@@ -1335,7 +1422,7 @@ export const introScene = {
             flyHeli(0.18 + 0.82 * e);                          // sisa lintasan, decel ke hover
             heli.parts.group.rotation.z = 0.16 * (1 - e);      // bank MIRING, diluruskan saat tiba
             updateHelicopter(heli, dt);
-            shotCam(SHOT.establish, SHOT.flyEnd, smooth(k));   // CRANE turun
+            shotCam(SHOT.establishEnd, SHOT.flyEnd, smooth(k));   // CRANE turun
             followHeliPivot();
             if (k >= 1) { cine.phase = 'flare'; cine.t = 0; }
 
@@ -1352,7 +1439,9 @@ export const introScene = {
             updateHelicopter(heli, dt);
             shotCam(SHOT.flyEnd, SHOT.flare, smooth(k));
             washRoof(dt, k * 0.9);
-            camera.position.set(DROP.x, DESC_TOP_FEET + eyeH, DROP.z);
+            // Pivot BERALIH dari "menempel heli di langit" ke titik turun di atap —
+            // DIREDAM (dulu satu frame = sentakan vertikal ~29 unit di batas shot).
+            settlePivot(dt, DROP.x, DESC_TOP_FEET + eyeH, DROP.z);
             if (k >= 1) { cine.phase = 'hover'; cine.t = 0; heli.parts.group.rotation.x = 0; }
 
         } else if (cine.phase === 'hover') {
@@ -1362,7 +1451,7 @@ export const introScene = {
             updateHelicopter(heli, dt);
             shotCam(SHOT.flare, SHOT.hover, smooth(Math.min(1, cine.t / (I.hoverSec || 1.2))));
             washRoof(dt, 1);
-            camera.position.set(DROP.x, DESC_TOP_FEET + eyeH, DROP.z);
+            settlePivot(dt, DROP.x, DESC_TOP_FEET + eyeH, DROP.z);   // sisa peralihan pivot meluruh
             if (cine.t >= (I.hoverSec || 1.2)) { cine.phase = 'rope'; cine.t = 0; }
 
         } else if (cine.phase === 'rope') {
@@ -1374,6 +1463,9 @@ export const introScene = {
             const k = Math.min(1, cine.t / (I.ropeSec || 1));
             shotCam(SHOT.hover, SHOT.rope, smooth(k));
             washRoof(dt, 1);
+            // Fase terakhir sebelum avatar tampil: pivot dipaku PERSIS di titik
+            // turun supaya frame pertama 'descend' (yang menulis pivot langsung)
+            // menyambung tanpa loncatan.
             camera.position.set(DROP.x, DESC_TOP_FEET + eyeH, DROP.z);
             layRope(heli.parts.group.position.y + 2, BELLY_Y - ROOF_Y, k);
             if (k >= 1) {
@@ -1460,10 +1552,10 @@ export const introScene = {
             }
 
         } else if (cine.phase === 'walk') {
-            // ===== SHOT 10 — "MENUJU PINTU": kamera MENGORBIT player (azimut
-            // 300°→240°) sambil merapat dari lebar ke dekat. Satu gerakan ini
-            // yang paling terasa "hidup": latar kota bergeser di belakangnya
-            // selagi ia melangkah, alih-alih dek yang diam total.
+            // ===== SHOT 10 — "MENUJU PINTU": busur kamera menutup (simpangan 15°
+            // → 7° dari sudut gameplay) sambil merapat dari lebar ke dekat. Latar
+            // kota tetap bergeser pelan di belakangnya selagi ia melangkah —
+            // gerakan yang sama, tapi tak lagi memutari gedung (permintaan user).
             updateHelicopter(heli, dt);
             const k = Math.min(1, cine.t / (I.walkSec || 2.6));
             const e = smooth(k);
@@ -1491,10 +1583,22 @@ export const introScene = {
 
         } else if (cine.phase === 'wait') {
             // Ambang pintu kosong sejenak (gema langkah menghilang di dalam) ->
-            // cutscene berakhir -> Stage 1.
+            // TIRAI TURUN -> cutscene berakhir -> Stage 1. Fade-nya dimulai
+            // FADE_OUT_SEC sebelum akhir supaya layar sudah hitam saat scene
+            // benar-benar berganti (dulu: potong mentah ke dunia Stage 1).
             updateHelicopter(heli, dt);
-            if (cine.t >= (I.doorDelaySec != null ? I.doorDelaySec : 2)) finishIntro();
+            const endT = (I.doorDelaySec != null ? I.doorDelaySec : 2);
+            if (!cine.fading && cine.t >= Math.max(0, endT - FADE_OUT_SEC)) {
+                cine.fading = true;
+                setCineFade(1, FADE_OUT_SEC);
+            }
+            if (cine.t >= endT) finishIntro();
         }
+        // Kamera & kabut MENGEJAR target shot (peredaman) — satu titik terapan
+        // untuk SEMUA fase, jadi tak ada batas shot yang bisa lolos tanpa diredam.
+        // Dilewati bila finishIntro baru saja berjalan di frame ini: ia sudah
+        // MEMULIHKAN kabut global Stage 1 dan tak boleh ditimpa lagi.
+        if (cine) settleCam(dt, false);
     },
 
     // Hook gameplay = no-op (tak ada dunia gameplay/robot di cutscene)
@@ -1541,6 +1645,9 @@ function finishIntro() {
     setPaused(true);
     hidePauseMenu();                          // pastikan #instructions (tutorial), bukan menu jeda
     if (blocker) blocker.style.display = 'flex';
+    // Dunia Stage 1 + tutorial sudah terpasang di balik tirai → BUKA lagi. Kalau
+    // cutscene di-SKIP layar memang belum hitam, dan fade dari 0 ke 0 = no-op.
+    setCineFade(0, FADE_BACK_SEC);
 }
 
 // Buang seluruh dunia atap + heli + tali (cutscene sekali-jalan; tak diputar

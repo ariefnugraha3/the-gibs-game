@@ -129,6 +129,21 @@ export function setCineBars(on) {
     if (document.body && document.body.classList) document.body.classList.toggle('cine', !!on);
 }
 
+// TIRAI FADE sinematik (2026-07-27, permintaan user: "transisi antar scene masih
+// terlihat kasar dan terlihat tiba-tiba"). `k` = opasitas hitam 0..1; `sec` = 0
+// menulis seketika, > 0 menyerahkan animasinya ke transisi CSS (gratis, tak
+// menambah kerja per frame — cutscene cukup memanggilnya sekali per beat).
+export function setCineFade(k, sec = 0) {
+    const el = document.getElementById('cineFade');
+    if (!el) return;
+    el.style.transition = sec > 0 ? `opacity ${sec}s ease-in-out` : 'none';
+    el.style.opacity = String(k);
+}
+export const cineFadeDebug = () => {
+    const el = document.getElementById('cineFade');
+    return el ? { opacity: parseFloat(el.style.opacity || '0'), transition: el.style.transition || '' } : null;
+};
+
 // ===== Tombol SKIP CUTSCENE (2026-07-19, permintaan user): tombol kanan-bawah
 // yang tampil selama cutscene (intro campaign & tank-boss stage 4). Dibuat
 // LAZY (sekali) via JS supaya index.html tak perlu berubah; style inline.
