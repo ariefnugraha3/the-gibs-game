@@ -1,8 +1,10 @@
 // SCENE menu (DOM murni, sebelum dunia 3D dibangun): MENU UTAMA (#mainMenu,
 // z-index 32: Start Game / Settings / Credits / Exit) -> layar pilih mode
-// (#modeSelect, z-index 30) + baris difficulty + cutscene pembuka (z-index 20,
-// khusus Survival). Dunia baru dibangun SETELAH mode dipilih — onPick(mode)
-// memanggil startGame; difficulty diterapkan ke CFG TEPAT sebelum itu.
+// (#modeSelect, z-index 30) + baris difficulty. Dunia baru dibangun SETELAH mode
+// dipilih — onPick(mode) memanggil startGame; difficulty diterapkan ke CFG TEPAT
+// sebelum itu. Cutscene pembuka KEDUA MODE sekarang adegan 3D di dalam engine
+// (campaign: cutscenes/intro.js, survival: survival/cutscenes/monasIntro.js) —
+// SLIDESHOW DOM 4 slide `#cutscene` + `initCutscene()` DIHAPUS 2026-07-27.
 
 import { applyDifficulty } from '../core/config.js';
 import { setDifficulty } from '../core/state.js';
@@ -37,9 +39,8 @@ export function initMenu(onPick) {
         setDifficulty(diff);
         document.getElementById('modeSelect').style.display = 'none';
         document.getElementById('continuePrompt').style.display = 'none';
-        // Cutscene pembuka bertema Monas -> hanya untuk Survival; Campaign
-        // langsung ke layar mulai (blocker) di bawahnya.
-        if (mode === 'campaign') document.getElementById('cutscene').style.display = 'none';
+        // Cutscene pembuka kedua mode diputar OTOMATIS oleh startGame setelah
+        // layar loading (adegan 3D, bukan slideshow) — tak ada overlay DOM lagi.
         onPick(mode, { stage });
     }
 
@@ -76,8 +77,6 @@ export function initMenu(onPick) {
         document.getElementById('modeSelect').style.display = 'none';
         document.getElementById('mainMenu').style.display = 'flex';
     });
-
-    initCutscene();
 }
 
 // Menu utama: Start Game menyingkap #modeSelect; Settings/Credits membuka
@@ -165,49 +164,4 @@ function exitGame() {
         'justify-content:center;background:#000;color:#ffb84d;font-family:Arial;' +
         'font-size:26px;letter-spacing:2px;text-align:center;padding:20px;">' +
         'Thanks for playing Gibran vs Robot.<br>You may now close this tab.</div>';
-}
-
-// Slideshow pembuka 4 slide (DOM/CSS murni — tak menyentuh state game;
-// finish() hanya menyingkap blocker yang klik-nya meminta PointerLock).
-function initCutscene() {
-    const cutscene = document.getElementById('cutscene');
-    const slides = cutscene.querySelectorAll('.slide');
-    const caption = document.getElementById('cutsceneCaption');
-    const nextBtn = document.getElementById('nextBtn');
-    const skipBtn = document.getElementById('skipBtn');
-    const dotsWrap = document.getElementById('cutsceneDots');
-
-    const captions = [
-        "Jakarta has fallen... a citizen flees from the rogue robots.",
-        "But he is not alone — an entire army of machines marches in.",
-        "He runs toward Monas, the last place of refuge.",
-        "Facing the machine army, he stops and turns around..."
-    ];
-
-    slides.forEach(() => {
-        const d = document.createElement('div');
-        d.className = 'dot';
-        dotsWrap.appendChild(d);
-    });
-    const dots = dotsWrap.querySelectorAll('.dot');
-
-    let idx = 0;
-    function show(i) {
-        slides.forEach((s, n) => s.classList.toggle('active', n === i));
-        dots.forEach((d, n) => d.classList.toggle('on', n === i));
-        caption.textContent = captions[i];
-        nextBtn.textContent = (i === slides.length - 1) ? "START ⚔️" : "Next ▶";
-    }
-
-    function finish() {
-        cutscene.style.display = 'none';  // blocker di bawahnya muncul -> klik untuk pointerlock
-    }
-
-    nextBtn.addEventListener('click', () => {
-        if (idx < slides.length - 1) show(++idx);
-        else finish();
-    });
-    skipBtn.addEventListener('click', finish);
-
-    show(0);
 }

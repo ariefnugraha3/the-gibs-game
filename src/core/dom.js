@@ -165,6 +165,21 @@ export function triggerCutsceneSkip() {
     return true;
 }
 
+// ===== TAKARIR CUTSCENE (2026-07-27, cutscene pembuka SURVIVAL): satu baris
+// narasi di atas pita letterbox bawah — subtitle film, BUKAN slide. Elemen
+// `#cineCaption` SENGAJA tidak ikut daftar `body.cine` yang memudarkan HUD
+// (justru harus terlihat selama mode sinematik). Teks WAJIB English. =====
+export function showCineCaption(text) {
+    const el = document.getElementById('cineCaption');
+    if (!el) return;
+    el.innerText = text;
+    el.classList.add('on');
+}
+export function hideCineCaption() {
+    const el = document.getElementById('cineCaption');
+    if (el) el.classList.remove('on');
+}
+
 export function showStageMsg(text, dur = 4200) {
     stageMsgEl.innerText = text;
     stageMsgEl.style.opacity = 1;

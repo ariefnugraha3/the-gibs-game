@@ -25,6 +25,9 @@ import { initWeapons, updateWeaponVisuals } from './entities/weapons.js';
 import { resetPlayerState } from './entities/player.js';
 import { initMenu } from './scenes/menu.js';
 import { survivalScene } from './scenes/survival/index.js';
+import {
+    survivalIntroScene, beginSurvivalIntro, warmupSurvivalIntro
+} from './scenes/survival/cutscenes/monasIntro.js';
 import { stage1Scene } from './scenes/campaign/stages/stage1.js';
 import { introScene, beginIntro, warmupIntro } from './scenes/campaign/cutscenes/intro.js';
 import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';
@@ -78,8 +81,20 @@ export async function startGame(mode, opts = {}) {
         // ensureCampaignWorlds) sehingga warmup tetap meng-compile shadernya &
         // transisi ke Stage 1 di akhir cutscene instan; beginIntro() (di bawah,
         // setelah avatar/senjata ter-init) menyalakan mesin sinematiknya.
+        //
+        // CUTSCENE PEMBUKA SURVIVAL (2026-07-27, permintaan user — menggantikan
+        // slideshow DOM 4 slide yang lama): mode Survival pun kini diawali adegan
+        // sinematik 3D (`survivalIntroScene`, survival/cutscenes/monasIntro.js) di
+        // dalam TAMAN MONAS yang sebenarnya. Pola persis intro campaign:
+        // setScene di sini (dunia + panggung robot dibangun di balik layar
+        // loading), beginSurvivalIntro() di bawah setelah avatar/senjata ter-init,
+        // warmupSurvivalIntro() setelah warmupAll; cutscene sendiri yang menyerahkan
+        // ke `survivalScene` (Wave 1) di akhir. Survival tak punya "Continue",
+        // jadi selalu diputar; restart setelah mati TIDAK memutarnya lagi
+        // (resetGame memakai activeScene = survivalScene).
         const playIntro = mode === 'campaign' && !(opts.stage > 1);
-        if (mode !== 'campaign') setScene(survivalScene);
+        const playSurvIntro = mode !== 'campaign';
+        if (mode !== 'campaign') setScene(survivalIntroScene);
         else if (playIntro) setScene(introScene);
         else { setScene(stage1Scene); if (opts.stage > 1) campaignJumpToStage(opts.stage); }
         await loadingStep(60, 'Preparing weapons…');
@@ -99,11 +114,13 @@ export async function startGame(mode, opts = {}) {
         // ter-init (beginIntro menyembunyikan avatar & spawn heli) tapi SEBELUM
         // warmupAll — supaya heli/tali ikut ter-compile shadernya (tanpa hitch).
         if (playIntro) beginIntro();
+        if (playSurvIntro) beginSurvivalIntro();   // idem utk cutscene pembuka Survival
         await loadingStep(85, 'Warming up the renderer…');
         await warmupAll();         // kompilasi shader + unggah tekstur (lihat preload.js)
         // INTRO: render KOTA latar dari semua sudut kamera cutscene MASIH di balik
         // layar loading → semua buffer/tekstur kota terunggah → cutscene tanpa lag.
         if (playIntro) { warmupIntro(); await loadingStep(98, 'Preparing the city…'); }
+        if (playSurvIntro) { warmupSurvivalIntro(); await loadingStep(98, 'Preparing the park…'); }
 
         hideLoading();
         bestScoreEl.innerText = `Best: ${highScore}`;

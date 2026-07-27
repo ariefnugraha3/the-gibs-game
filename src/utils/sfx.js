@@ -32,6 +32,9 @@ export const sfxTankMG = new Audio('assets/sounds/boss-tank/tank-machine-gun.mp3
 export const sfxTankMortar = new Audio('assets/sounds/boss-tank/tank-mortar-shot.mp3');        // tembakan mortar tank
 export const sfxTankMove = new Audio('assets/sounds/boss-tank/tank-moving.mp3');               // tank bergerak (LOOP)
 export const sfxTankTurret = new Audio('assets/sounds/boss-tank/tank-turret-rotate.mp3');      // rotasi turret (LOOP)
+// Klip yang sebelumnya menganggur di disk, dipakai sejak 2026-07-27 oleh cutscene
+// pembuka SURVIVAL: derap "mesin mendarat" saat pasukan robot melompati pagar taman.
+export const sfxRobotSpawn = new Audio('assets/sounds/robot-spawn.mp3');
 
 // ----- MUSIK LATAR (DIROMBAK 2026-07-19, permintaan user): 3 KONTEKS -----
 // 1. MENU  (bg-music-main-menu): menyala di main menu (initMainMenu), BERHENTI
@@ -176,7 +179,7 @@ export function stopLoopSFX(n) {
 export function preloadAllSFX() {
     const all = [sfxShoot, sfxShotgun, sfxEmpty, sfxSwitch, sfxExplode, sfxReload, sfxHit,
         sfxPistol, sfxPickup, sfxPurchase, sfxMelee, sfxThrow, sfxNadeRoll,
-        sfxRobotBite, sfxFootstep, sfxRobotStep,
+        sfxRobotBite, sfxFootstep, sfxRobotStep, sfxRobotSpawn,
         sfxLauncherShot, sfxRocketShot, sfxRocketExplode, sfxHeal,
         sfxMeleeSwing, sfxMeleeHit, sfxRobotShot, sfxHeli,
         sfxTankExplode, sfxTankBlast, sfxTankIncoming, sfxTankMG,

@@ -81,7 +81,7 @@ class V3 {
     applyQuaternion() { return this; }
     crossVectors() { return this; }
 }
-class Quat { set() { return this; } copy() { return this; } setFromAxisAngle() { return this; } setFromEuler() { return this; } premultiply() { return this; } setFromUnitVectors() { return this; } }
+class Quat { set() { return this; } copy() { return this; } setFromAxisAngle() { return this; } setFromEuler() { return this; } premultiply() { return this; } multiply() { return this; } setFromUnitVectors() { return this; } }
 class Matrix4 { setPosition() { return this; } compose() { return this; } }
 class Euler { constructor() { this.x = 0; this.y = 0; this.z = 0; } set(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; return this; } copy(e) { this.x = e.x; this.y = e.y; this.z = e.z; return this; } }
 class Color {
@@ -126,6 +126,13 @@ const geo = (name) => class {
     scale() { return this; }
     rotateX() { return this; } rotateY() { return this; } rotateZ() { return this; }
     translate() { return this; } center() { return this; } clone() { return this; }
+    // Celah harness 2026-07-27 (dunia taman survival baru benar-benar dibangun
+    // sejak cutscene pembuka Survival diuji): dedaunan pohon memanggil
+    // computeVertexNormals + membaca atribut posisi geometri.
+    computeVertexNormals() { return this; }
+    setAttribute() { return this; }
+    getAttribute() { return { count: 0, array: new Float32Array(0), setXYZ() { }, needsUpdate: false }; }
+    dispose() { }
 };
 class Mat {
     constructor(o = {}) {
@@ -2799,6 +2806,241 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     s1mod.stage1Scene.enter = realS1Enter;   // pulihkan
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     stateMod.setCinematicActive(false);
+}
+
+// --- 17e. CUTSCENE PEMBUKA SURVIVAL "THE LAST STAND AT MONAS" (2026-07-27,
+// permintaan user: slideshow DOM 4 slide diganti adegan SINEMATIK 3D sekelas
+// intro campaign). Diuji sebagai KONTRAK NARASI (empat pesan cerita slideshow
+// lama) + bahasa kamera (shot berganti sudut + POTONGAN/cut) + serah-terima ke
+// Wave 1. Semua durasi dibaca dari CFG.survival.intro (config-driven). ---
+{
+    const mi = await import(R('src/scenes/survival/cutscenes/monasIntro.js'));
+    const svMod = await import(R('src/scenes/survival/index.js'));
+    const worldMod = await import(R('src/scenes/survival/world.js'));
+    const domSk = await import(R('src/core/dom.js'));
+    const sfxM2 = await import(R('src/utils/sfx.js'));
+    const lightM = await import(R('src/world/lighting.js'));
+    const SI = cfgMod.CFG.survival.intro;
+    const realSvEnter = svMod.survivalScene.enter;
+    let svEntered = 0;
+    svMod.survivalScene.enter = () => { svEntered++; };   // spy: deteksi serah-terima ke Wave 1
+
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    domSk.hideCutsceneSkip();
+    let svEnterOk = true;
+    try { smMod.setScene(mi.survivalIntroScene); } catch (e) { svEnterOk = false; console.log(e); }
+    const M0 = mi.survIntroMetrics();
+    T('SURV INTRO: enter() membangun taman + panggung robot tanpa error, cutscene belum aktif',
+        svEnterOk && mi.survIntroDebug().active === false
+        && mi.survIntroDebug().army === Math.max(6, Math.floor(SI.hordeCount))
+        && mi.survIntroDebug().chasers === 4);
+    // PASUKAN: menunggu DI LUAR pagar, mendarat DI DALAM pagar (config-driven:
+    // batas dari world.PARK, bukan angka hardcode).
+    const PK = worldMod.PARK;
+    T('SURV INTRO: pasukan menunggu di LUAR pagar & titik mendaratnya DI DALAM pagar',
+        M0.spawns.length > 0
+        && M0.spawns.every(p => Math.abs(p.x) > PK.hx || Math.abs(p.z) > PK.hz)
+        && M0.lands.every(p => Math.abs(p.x) < PK.hx && Math.abs(p.z) < PK.hz));
+    // LINTASAN LARI menyusuri Jalan Silang + pelataran = pita yang world.js
+    // TIDAK pernah menanami pohon; jadi walau pohon ditanam ACAK tiap build,
+    // player tak pernah menembus batang. Diuji terhadap treeColliders NYATA.
+    const segDist = (p, a, b) => {
+        const vx = b.x - a.x, vz = b.z - a.z;
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.z - a.z) * vz) / (vx * vx + vz * vz || 1)));
+        return Math.hypot(p.x - (a.x + vx * t), p.z - (a.z + vz * t));
+    };
+    const treeClear = worldMod.treeColliders.every(tr => {
+        for (let i = 1; i < M0.path.length; i++)
+            if (segDist(tr, M0.path[i - 1], M0.path[i]) < tr.r + cfgMod.CFG.player.radius) return false;
+        return true;
+    });
+    T('SURV INTRO: lintasan lari BEBAS POHON (' + worldMod.treeColliders.length
+        + ' pohon acak) & berakhir tepat di titik spawn survival',
+        treeClear && Math.abs(M0.path[M0.path.length - 1].x) < 1
+        && Math.abs(M0.path[M0.path.length - 1].z - 120) < 1);
+    let warmOk = true;
+    try { mi.warmupSurvivalIntro(); } catch (e) { warmOk = false; console.log(e); }
+    T('SURV INTRO: warmupSurvivalIntro (render taman dari semua sudut shot) jalan tanpa error', warmOk);
+
+    stateMod.setPaused(true);
+    const svBlocker = global.document.getElementById('blocker');
+    sfxM2.stopMusic();
+    mi.beginSurvivalIntro();
+    const b0 = mi.survIntroDebug();
+    T('SURV INTRO: beginSurvivalIntro -> AUTO-PLAY (unpause + tutorial disembunyikan) + sinematik ON + shot pembuka',
+        stateMod.cinematicActive === true && stateMod.isPaused === false
+        && svBlocker.style.display === 'none' && b0.phase === 'city'
+        && Math.abs(b0.heroX - b0.start.x) < 1 && Math.abs(b0.heroZ - b0.start.z) < 1);
+    T('SURV INTRO: tombol SKIP belum terdaftar saat masih di balik layar loading',
+        domSk.triggerCutsceneSkip() === false && mi.survIntroDebug().phase === 'city');
+    // Urutan NYATA main.js: beginSurvivalIntro() lalu warmupSurvivalIntro() (masih
+    // di balik loading) — pemanasan tidak boleh merusak keadaan cutscene.
+    let warmOk2 = true;
+    try { mi.warmupSurvivalIntro(); } catch (e) { warmOk2 = false; console.log(e); }
+    T('SURV INTRO: pemanasan SETELAH begin (urutan main.js) tak merusak fase/fokus cutscene',
+        warmOk2 && mi.survIntroDebug().phase === 'city'
+        && Math.abs(mi.survIntroDebug().heroX - b0.start.x) < 1);
+    // Kamera shot pembuka: nyaris dari atas (tinggi) & jauh — bukan sudut gameplay.
+    const camCity = { ...mi.survivalIntroScene.camOffset };
+    const camAz1 = (Math.atan2(camCity.x, camCity.z) * 180 / Math.PI + 360) % 360;
+    T('SURV INTRO SHOT 1 (KOTA): kamera nyaris dari atas & jauh (tinggi '
+        + camCity.y.toFixed(0) + ', jarak ' + Math.hypot(camCity.x, camCity.z).toFixed(0) + ')',
+        camCity.y > 400 && Math.hypot(camCity.x, camCity.z) > 180);
+
+    // Putar SELURUH cutscene sambil merekam: urutan fase, sudut kamera per shot,
+    // takarir, jejak lari, keadaan pasukan, POTONGAN kamera, dan debu.
+    const seen = [], caps = [], cam = [];
+    const azOf = (o) => { const a = Math.atan2(o.x, o.z) * 180 / Math.PI; return a < 0 ? a + 360 : a; };
+    let last = null, lastCap = null, n = 0;
+    let vaultSeen = 0, marchSeen = 0, insideEnd = 0, dust = 0, cuts = 0;
+    let heroTravel = 0, chaseBehind = true, hx = b0.heroX, hz = b0.heroZ;
+    let cityHeroOut = 0, cityMonasOut = 0, refugeMonasOut = 0, frameChecks = 0;
+    let fx = rendererMod.camFocusPos().x, fz = rendererMod.camFocusPos().z;
+    let musicAtHorde = null;
+    while (mi.survIntroDebug().active && n++ < 4000) {
+        mi.survivalIntroScene.updateMode(1 / 60, 1);
+        rendererMod.followViewCam(1 / 60);   // animate() melakukannya tiap frame -> camFocus nyata
+        const d = mi.survIntroDebug();
+        if (d.phase && d.phase !== last) { seen.push(d.phase); cam.push([azOf(mi.survivalIntroScene.camOffset), Math.hypot(mi.survivalIntroScene.camOffset.x, mi.survivalIntroScene.camOffset.z), mi.survivalIntroScene.camOffset.y]); last = d.phase; }
+        if (d.caption && d.caption !== lastCap) { caps.push(d.caption); lastCap = d.caption; }
+        if (d.phase === 'horde' && musicAtHorde === null) musicAtHorde = sfxM2.musicDebug();
+        vaultSeen = Math.max(vaultSeen, d.armyVaulting);
+        marchSeen = Math.max(marchSeen, d.armyMarching);
+        insideEnd = Math.max(insideEnd, d.armyInside);   // frame terakhir = cast sudah dibuang
+        dust = Math.max(dust, stateMod.explosions.length);
+        if (d.heroX != null) {
+            heroTravel += Math.hypot(d.heroX - hx, d.heroZ - hz);
+            hx = d.heroX; hz = d.heroZ;
+            // Pengejar SELALU di belakang player: jaraknya ke pelataran Monas
+            // (tujuan) harus lebih BESAR dari jarak player -> mengejar, tak menyalip.
+            const dHero = Math.hypot(hx - d.plaza.x, hz - d.plaza.z);
+            for (const c of d.chasePos)
+                if (Math.hypot(c.x - d.plaza.x, c.z - d.plaza.z) < dHero - 1) chaseBehind = false;
+        }
+        const cf = rendererMod.camFocusPos();
+        if (Math.hypot(cf.x - fx, cf.z - fz) > 100) cuts++;   // POTONGAN (cut), bukan pan
+        // FRAMING NYATA (proyeksi 4 sudut layar viewCam ke tanah, renderer.
+        // groundViewExtents): subjek shot benar-benar MASUK FRAME. Tapak = AABB
+        // trapesium & letterbox memakan 13% atas/bawah -> minta margin 0.8.
+        if (d.phase === 'city' || d.phase === 'refuge') {
+            const ex = rendererMod.groundViewExtents(cf.y, 0), mg = 0.8;
+            const inFrame = (px, pz) => (px - cf.x) > ex.minX * mg && (px - cf.x) < ex.maxX * mg
+                && (pz - cf.z) > ex.minZ * mg && (pz - cf.z) < ex.maxZ * mg;
+            frameChecks++;
+            if (d.phase === 'city') {
+                if (!inFrame(d.heroX, d.heroZ)) cityHeroOut++;
+                if (!inFrame(0, 0)) cityMonasOut++;          // Monas di origin
+            } else if (!inFrame(0, 0)) refugeMonasOut++;
+        }
+        // FRAMING NYATA (proyeksi 4 sudut layar viewCam ke tanah, renderer.
+        // groundViewExtents): subjek shot benar-benar MASUK FRAME. Tapak = AABB
+        // trapesium & letterbox memakan 13% atas/bawah -> minta margin 0.8.
+        if (d.phase === 'city' || d.phase === 'refuge') {
+            const ex = rendererMod.groundViewExtents(cf.y, 0), mg = 0.8;
+            const inFrame = (px, pz) => (px - cf.x) > ex.minX * mg && (px - cf.x) < ex.maxX * mg
+                && (pz - cf.z) > ex.minZ * mg && (pz - cf.z) < ex.maxZ * mg;
+            frameChecks++;
+            if (d.phase === 'city') {
+                if (!inFrame(d.heroX, d.heroZ)) cityHeroOut++;
+                if (!inFrame(0, 0)) cityMonasOut++;          // Monas di origin
+            } else if (!inFrame(0, 0)) refugeMonasOut++;
+        }
+        fx = cf.x; fz = cf.z;
+    }
+
+    // --- KONTRAK NARASI (empat pesan cerita slideshow lama yang wajib bertahan)
+    T('SURV INTRO NARASI 1: warga BERLARI dikejar robot (menempuh '
+        + heroTravel.toFixed(0) + ' dari ' + M0.pathLen.toFixed(0) + ' unit lintasan)',
+        heroTravel > M0.pathLen * 0.9 && chaseBehind === true);
+    T('SURV INTRO NARASI 2: SATU PASUKAN robot melompati pagar & melangkah masuk ('
+        + vaultSeen + ' lompat serentak, ' + insideEnd + ' di dalam pagar)',
+        vaultSeen > 3 && marchSeen > 5 && insideEnd === M0.spawns.length);
+    const dEnd = mi.survIntroDebug();
+    T('SURV INTRO NARASI 3: ia berlari ke MONAS — berhenti TEPAT di pelataran (titik spawn survival)',
+        Math.abs(hx - 0) < 1.5 && Math.abs(hz - 120) < 1.5);
+    T('SURV INTRO NARASI 4: BERHENTI lalu BERBALIK menghadapi pasukan sebelum cutscene berakhir',
+        seen.indexOf('arrive') < seen.indexOf('turn') && seen.indexOf('turn') < seen.indexOf('stand')
+        && seen[seen.length - 1] === 'settle');
+    T('SURV INTRO NARASI: urutan beat benar (kota -> lari -> dikejar -> pasukan -> Monas -> berhenti -> serah-terima)',
+        seen.join(',') === 'city,flee,pursuit,horde,refuge,arrive,turn,stand,settle');
+    // SHOT 9: kamera diserahkan TEPAT di sudut gameplay (CAM_OFF_DEFAULT) — tanpa
+    // ini sudut kamera menjentik saat layar tutorial (blocker 60% hitam) muncul.
+    const camEnd = mi.survivalIntroScene.camOffset, CD = rendererMod.CAM_OFF_DEFAULT;
+    T('SURV INTRO: shot terakhir menyerahkan kamera TEPAT di sudut gameplay (tanpa jentikan)',
+        Math.abs(camEnd.x - CD.x) < 0.5 && Math.abs(camEnd.y - CD.y) < 0.5
+        && Math.abs(camEnd.z - CD.z) < 0.5
+        && Math.abs(scene.fog.far - lightM.LIGHT_PRESETS.outdoor.fogFar) < 1);
+    // Takarir = KEENAM pesan cerita, urut, dan English (ASCII) — bukan slide lagi.
+    T('SURV INTRO TAKARIR: keenam narasi tampil urut & English, tanpa emoji slide lama ('
+        + caps.length + ' takarir)',
+        caps.length === 6 && caps.join(' ') === M0.captions.join(' ')
+        && caps.every(c => !/[\u{1F300}-\u{1FAFF}]/u.test(c))
+        && caps[0].includes('JAKARTA HAS FALLEN') && caps[2].includes('army of machines')
+        && caps[3].includes('Monas') && caps[5].includes('I WILL FIGHT'));
+
+    // --- SINEMATOGRAFI: tiap shot punya sudut/jarak/tinggi sendiri + ada CUT
+    const azs = cam.map(c => c[0]), ds = cam.map(c => c[1]), hs = cam.map(c => c[2]);
+    T('SURV INTRO KAMERA: sudut BERVARIASI antar shot (azimut span '
+        + (Math.max(...azs) - Math.min(...azs)).toFixed(0) + '°)',
+        Math.max(...azs) - Math.min(...azs) > 120);
+    T('SURV INTRO KAMERA: ketinggian & jarak BERVARIASI (tinggi ' + Math.min(...hs).toFixed(0)
+        + '..' + Math.max(...hs).toFixed(0) + ', jarak ' + Math.min(...ds).toFixed(0)
+        + '..' + Math.max(...ds).toFixed(0) + ')',
+        Math.max(...hs) > Math.min(...hs) * 4 && Math.max(...ds) > Math.min(...ds) * 2.5);
+    T('SURV INTRO KAMERA: ada POTONGAN (cut) antar shot, bukan cuma pan lambat (' + cuts + ' cut)',
+        cuts >= 3);
+    // SHOT 1 memandang MONAS (fokus di antara monumen & titik masuk player), bukan
+    // membuntuti player — kalau memfokus player, arah pandangnya membelakangi Monas.
+    T('SURV INTRO SHOT 1: fokus kamera memandang Monas (monumen masuk frame pembuka)',
+        camAz1 > 20 && camAz1 < 130);
+    T('SURV INTRO SHOT 1 FRAMING: Monas DAN player sama-sama di dalam tapak-pandang '
+        + 'sepanjang shot pembuka (' + frameChecks + ' frame diperiksa)',
+        frameChecks > 100 && cityHeroOut === 0 && cityMonasOut === 0);
+    T('SURV INTRO SHOT 5 FRAMING: Monas benar-benar di frame saat "tempat berlindung terakhir"',
+        refugeMonasOut === 0);
+    T('SURV INTRO: debu langkah + hentakan pendaratan pasukan tersapu (' + dust + ' puff puncak)',
+        dust > 5);
+    T('SURV INTRO MUSIK: menyala saat pasukan tiba, lalu DIHENTIKAN di akhir '
+        + '(gameplay tetap "musik saat peluru pertama kena")',
+        musicAtHorde === 'battle' && sfxM2.musicDebug() === null);
+
+    // --- Serah-terima: scene Survival (Wave 1) + tutorial "Click to Start"
+    T('SURV INTRO: selesai -> scene Survival (sinematik OFF) + tutorial ditampilkan (pause+blocker)',
+        svEntered === 1 && stateMod.cinematicActive === false
+        && smMod.activeScene === svMod.survivalScene && dEnd.active === false
+        && stateMod.isPaused === true && svBlocker.style.display === 'flex');
+    T('SURV INTRO: aktor cutscene DIBUANG di akhir (tak jadi entitas gameplay)',
+        dEnd.army === 0 && dEnd.chasers === 0 && robots.length === 0);
+
+    // --- SKIP (tombol kanan-bawah / SPACE): dari fase mana pun -> langsung Wave 1
+    smMod.setScene(mi.survivalIntroScene);
+    mi.beginSurvivalIntro();
+    for (let i = 0; i < 10; i++) mi.survivalIntroScene.updateMode(0.1, 6);
+    const preSkip = mi.survIntroDebug();
+    const svViaBtn = domSk.triggerCutsceneSkip();
+    if (!svViaBtn) mi.skipSurvivalIntro();
+    T('SURV INTRO SKIP: tombol SKIP terdaftar setelah cutscene tampil, skip -> Wave 1 + tutorial',
+        preSkip.active === true && svViaBtn === true && svEntered === 2
+        && smMod.activeScene === svMod.survivalScene && stateMod.cinematicActive === false
+        && stateMod.isPaused === true && mi.survIntroDebug().army === 0);
+
+    svMod.survivalScene.enter = realSvEnter;   // pulihkan
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    stateMod.setCinematicActive(false);
+}
+
+// --- 17e2. SLIDESHOW LAMA BENAR-BENAR DIHAPUS (2026-07-27): cutscene survival
+// TIDAK BOLEH kembali berbentuk "presentasi" DOM — tak ada overlay `#cutscene`,
+// tak ada `.slide`/emoji aktor di CSS, dan menu.js tak lagi punya slideshow. ---
+{
+    const html = fs.readFileSync(ROOT + '/index.html', 'utf8');
+    const css = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
+    const menuSrc = fs.readFileSync(ROOT + '/src/scenes/menu.js', 'utf8');
+    T('SURV INTRO: slideshow DOM lama dihapus (tanpa #cutscene/.slide/initCutscene) & takarir sinematik ada',
+        !html.includes('id="cutscene"') && !html.includes('cutsceneDots')
+        && !css.includes('#cutscene') && !css.includes('.slide')
+        && !/function initCutscene/.test(menuSrc) && !/initCutscene\(\);/.test(menuSrc)
+        && html.includes('id="cineCaption"') && css.includes('#cineCaption'));
 }
 
 // --- Slider volume Settings (2026-07-19; revisi: nilai ABSOLUT 0..1 — slider

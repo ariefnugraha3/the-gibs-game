@@ -85,6 +85,9 @@
          perlahan dari atas & bawah selama mode sinematik (dom.setCineBars) -->
     <div id="cineTop"></div>
     <div id="cineBot"></div>
+    <!-- Takarir narasi cutscene (2026-07-27): satu baris di atas pita bawah,
+         dikendalikan dom.showCineCaption/hideCineCaption. Teks selalu English. -->
+    <div id="cineCaption"></div>
     <div id="damage"></div>
     <!-- SEKUENS KEMATIAN (2026-07-26): pandangan MENUTUP berdarah — opasitas
          dikemudikan per frame oleh core/deathCine.js lewat dom.setDeathFx -->
@@ -216,50 +219,6 @@
                 <button id="cpYes" class="menuBtn">Yes, Continue</button>
                 <button id="cpNo" class="menuBtn">No, New Game</button>
             </div>
-        </div>
-    </div>
-
-    <div id="cutscene">
-        <!-- Slide 1: orang dikejar robot -->
-        <div class="slide active">
-            <div class="scene">
-                <div class="actor run" style="left: 22%;">🏃</div>
-                <div class="actor march" style="left: 58%;">🤖</div>
-            </div>
-        </div>
-        <!-- Slide 2: kerumunan robot -->
-        <div class="slide">
-            <div class="scene">
-                <div class="crowd" style="left: 50%; transform: translateX(-50%);">
-                    <span class="march">🤖</span><span class="march" style="animation-delay:.2s">🤖</span><span class="march" style="animation-delay:.4s">🤖</span><span class="march" style="animation-delay:.1s">🤖</span><span class="march" style="animation-delay:.3s">🤖</span>
-                </div>
-            </div>
-        </div>
-        <!-- Slide 3: orang berlari ke arah Monas dikejar robot -->
-        <div class="slide">
-            <div class="scene">
-                <div class="monas"></div>
-                <div class="actor run flip" style="left: 30%;">🏃</div>
-                <div class="actor march" style="left: 64%;">🤖</div>
-                <div class="actor march" style="left: 76%; animation-delay:.3s">🤖</div>
-            </div>
-        </div>
-        <!-- Slide 4: player menghadang robot + balon dialog -->
-        <div class="slide">
-            <div class="scene">
-                <div class="bubble">I WILL FIGHT</div>
-                <div class="actor" style="left: 34%;">🧍</div>
-                <div class="crowd" style="left: 62%;">
-                    <span class="march">🤖</span><span class="march" style="animation-delay:.3s">🤖</span><span class="march" style="animation-delay:.15s">🤖</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="caption" id="cutsceneCaption"></div>
-        <div class="controls">
-            <button id="skipBtn">Skip ⏭</button>
-            <div class="dots" id="cutsceneDots"></div>
-            <button id="nextBtn">Next ▶</button>
         </div>
     </div>
 

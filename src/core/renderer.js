@@ -61,7 +61,10 @@ export function setQualityLightRef(l) { dirLightRef = l; }
 // frame) menerapkan override scene aktif atau memulihkan default utk scene lain,
 // sekaligus memutakhirkan basis layar SCREEN_UP/LEFT. Jarak horizontal (~100) &
 // tinggi (116) dijaga agar pitch/zoom tetap — hanya arah pandang yang berputar. --
-const CAM_OFF_DEFAULT = { x: -70.7, y: 116, z: 70.7 };   // barat daya (memandang timur laut)
+// DIEKSPOR sejak 2026-07-27: cutscene pembuka Survival meng-EASE ofsetnya ke
+// sudut gameplay ini di shot terakhir supaya serah-terima ke gameplay tak
+// "menjentik" (satu sumber kebenaran — jangan salin angkanya ke modul lain).
+export const CAM_OFF_DEFAULT = { x: -70.7, y: 116, z: 70.7 };   // barat daya (memandang timur laut)
 const CAM_OFF = { x: -70.7, y: 116, z: 70.7 };           // AKTIF (di-set dari scene)
 
 // Basis LAYAR di bidang tanah (dunia), diturunkan dari azimuth CAM_OFF AKTIF: arah
@@ -135,9 +138,16 @@ export const deathCamDebug = () => ({ zoom: dcZoom, orbit: dcOrbit, tilt: dcTilt
 // sana (menggantikan dead-zone/recenter; pan halus "perlahan"), tanpa snap
 // >400. setCineFocus(null) mengembalikan kamera ke mode normal (fokus kembali
 // mengejar pivot player). -----
+// `snap` (2026-07-27, cutscene pembuka SURVIVAL): titik fokus DIPINDAH SEKETIKA
+// alih-alih di-ease — inilah "POTONGAN" (cut) film antar shot; tanpa ini setiap
+// perpindahan sudut pandang selalu jadi pan lambat 1.5/dtk. Default false =
+// perilaku lama (pan halus) byte-identik untuk cutscene stage 4.
 const CINE_PAN_RATE = 1.5;   // laju ease eksponensial pan sinematik (per detik)
 let cineFocus = null;
-export function setCineFocus(x, z) { cineFocus = (x == null) ? null : { x, z }; }
+export function setCineFocus(x, z, snap = false) {
+    cineFocus = (x == null) ? null : { x, z };
+    if (snap && cineFocus && camFocusReady) { camFocus.x = x; camFocus.z = z; }
+}
 
 // ----- BATAS ARENA KAMERA (2026-07-17): hook scene opsional `camBounds()`
 // mengembalikan rect dunia {x0,x1,z0,z1,groundY} yang TIDAK BOLEH dilewati

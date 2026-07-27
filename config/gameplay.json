@@ -226,7 +226,20 @@
         "monasFogDurationSec": 60,
         "monasCollapseTrembleSec": 1.4,
         "monasCollapseToppleSec": 2.2,
-        "monasCollapseSettleSec": 1.6
+        "monasCollapseSettleSec": 1.6,
+        "intro": {
+            "citySec": 2.8,
+            "fleeSec": 3.0,
+            "pursuitSec": 1.8,
+            "hordeSec": 4.2,
+            "refugeSec": 2.2,
+            "arriveSec": 1.8,
+            "turnSec": 2.6,
+            "standSec": 3.4,
+            "settleSec": 1.4,
+            "hordeCount": 28,
+            "hordeSpeed": 0.6
+        }
     },
     "campaign": {
         "robotSpeedScale": 1,

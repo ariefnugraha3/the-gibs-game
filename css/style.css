@@ -1048,207 +1048,6 @@ body {
     z-index: 99;
 }
 
-/* ----- Cutscene / slideshow pembuka ----- */
-#cutscene {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 50% 30%, #2a0d0d, #000 80%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    z-index: 20;
-    color: #fff;
-    font-family: Arial, sans-serif;
-    overflow: hidden;
-}
-
-#cutscene .slide {
-    display: none;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    animation: fadeIn 0.6s ease;
-}
-
-#cutscene .slide.active {
-    display: flex;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-/* Panggung adegan */
-.scene {
-    position: relative;
-    width: 80vw;
-    max-width: 720px;
-    height: 46vh;
-    max-height: 380px;
-    background: linear-gradient(#1a0f0a 0%, #3a1f12 60%, #120a06 100%);
-    border: 3px solid #7a2b2b;
-    border-radius: 12px;
-    box-shadow: 0 0 40px rgba(255, 60, 0, 0.35), inset 0 -40px 60px rgba(0,0,0,0.6);
-    overflow: hidden;
-}
-
-/* Tanah */
-.scene::after {
-    content: "";
-    position: absolute;
-    left: 0; right: 0; bottom: 0;
-    height: 26%;
-    background: linear-gradient(#241712, #0c0705);
-    box-shadow: inset 0 6px 12px rgba(0,0,0,0.6);
-}
-
-.actor {
-    position: absolute;
-    bottom: 16%;
-    font-size: clamp(40px, 8vw, 80px);
-    filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7));
-    z-index: 2;
-}
-
-.actor.flip { transform: scaleX(-1); }
-
-.run { animation: bob 0.4s ease-in-out infinite alternate; }
-@keyframes bob {
-    from { transform: translateY(0); }
-    to   { transform: translateY(-10px); }
-}
-.run.flip { animation: bobFlip 0.4s ease-in-out infinite alternate; }
-@keyframes bobFlip {
-    from { transform: scaleX(-1) translateY(0); }
-    to   { transform: scaleX(-1) translateY(-10px); }
-}
-
-.march { animation: march 0.9s ease-in-out infinite alternate; }
-@keyframes march {
-    from { transform: rotate(-6deg); }
-    to   { transform: rotate(6deg); }
-}
-
-/* Monas (monumen) digambar dengan CSS */
-.monas {
-    position: absolute;
-    bottom: 22%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 26px;
-    height: 55%;
-    background: linear-gradient(#d8c9a0, #8a7a55);
-    z-index: 1;
-}
-.monas::before {
-    content: "🔥";
-    position: absolute;
-    top: -34px; left: 50%;
-    transform: translateX(-50%);
-    font-size: 30px;
-}
-.monas::after {
-    content: "";
-    position: absolute;
-    bottom: 0; left: 50%;
-    transform: translateX(-50%);
-    width: 90px;
-    height: 22px;
-    background: linear-gradient(#b8a878, #6a5a3a);
-}
-
-.crowd {
-    position: absolute;
-    bottom: 16%;
-    display: flex;
-    gap: 4px;
-    font-size: clamp(34px, 6vw, 64px);
-    filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7));
-    z-index: 2;
-}
-
-/* Balon dialog */
-.bubble {
-    position: absolute;
-    top: 12%;
-    left: 50%;
-    transform: translateX(-50%) scale(0);
-    background: #fff;
-    color: #c0392b;
-    font-weight: 900;
-    font-size: clamp(20px, 4vw, 38px);
-    letter-spacing: 1px;
-    padding: 14px 26px;
-    border-radius: 16px;
-    white-space: nowrap;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.6);
-    z-index: 3;
-}
-.slide.active .bubble { animation: pop 0.5s 0.4s ease forwards; }
-@keyframes pop {
-    0%   { transform: translateX(-50%) scale(0); }
-    70%  { transform: translateX(-50%) scale(1.15); }
-    100% { transform: translateX(-50%) scale(1); }
-}
-.bubble::after {
-    content: "";
-    position: absolute;
-    bottom: -16px; left: 30%;
-    border: 10px solid transparent;
-    border-top-color: #fff;
-}
-
-#cutscene .caption {
-    margin-top: 22px;
-    font-size: clamp(16px, 2.4vw, 24px);
-    max-width: 720px;
-    line-height: 1.4;
-    text-shadow: 2px 2px 4px #000;
-    min-height: 2.4em;
-}
-
-#cutscene .controls {
-    margin-top: 18px;
-    display: flex;
-    gap: 14px;
-    align-items: center;
-}
-
-#cutscene .dots { display: flex; gap: 8px; }
-#cutscene .dot {
-    width: 11px; height: 11px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.25);
-}
-#cutscene .dot.on { background: #ff6b3a; }
-
-#cutscene button {
-    font-family: Arial, sans-serif;
-    font-size: 18px;
-    font-weight: bold;
-    color: #fff;
-    background: #c0392b;
-    border: none;
-    border-radius: 8px;
-    padding: 10px 22px;
-    cursor: pointer;
-    box-shadow: 0 4px 0 #7a1f15;
-    transition: transform 0.08s, background 0.15s;
-}
-#cutscene button:hover { background: #e0503e; }
-#cutscene button:active { transform: translateY(3px); box-shadow: 0 1px 0 #7a1f15; }
-#cutscene #skipBtn {
-    background: transparent;
-    box-shadow: none;
-    color: #aaa;
-    font-weight: normal;
-    font-size: 15px;
-    text-decoration: underline;
-}
-#cutscene #skipBtn:hover { color: #fff; }
-
 /* Pilihan kualitas grafis di layar mulai (hilang setelah game pertama dimulai) */
 #qualityRow { margin-top: 24px; }
 #qualityRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; }
@@ -1578,3 +1377,25 @@ body.cine #medkitBar, body.cine #stageMsg {
     transition: opacity 0.6s ease;
     pointer-events: none;
 }
+
+/* TAKARIR NARASI CUTSCENE (2026-07-27, cutscene pembuka Survival): satu baris
+   subtitle duduk PERSIS di atas pita letterbox bawah (13vh) — bukan panel/slide.
+   SENGAJA di luar daftar body.cine di atas: justru harus terlihat saat sinematik. */
+#cineCaption {
+    position: fixed;
+    left: 8vw;
+    right: 8vw;
+    bottom: 15.4vh;
+    text-align: center;
+    font-size: clamp(15px, 1.9vw, 23px);
+    line-height: 1.45;
+    letter-spacing: 0.04em;
+    color: #f2e8d6;
+    text-shadow: 0 2px 10px #000, 0 0 26px rgba(0, 0, 0, 0.85);
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.85s ease, transform 0.85s ease;
+    pointer-events: none;
+    z-index: 27;
+}
+#cineCaption.on { opacity: 1; transform: translateY(0); }
