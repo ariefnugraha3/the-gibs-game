@@ -3637,6 +3637,29 @@ const palMod = await import(R('src/world/palette.js'));
             cyl >= 4 && !!inner && inner.position.y === 0);
     }
 
+    // PASS 2045 (2026-07-28, permintaan user: "buat agar mobil-mobil itu terlihat
+    // sedikit lebih futuristis ... tapi jangan terlalu futuristis yang aneh").
+    // Yang dijaga = dua isyarat DESAIN yang menggantikan siluet kotak lama, bukan
+    // bentuk fiksi: (1) KACA MIRING (dulu greenhouse berdinding tegak lurus =
+    // terbaca mobil kotak tahun 90-an), (2) BATANG LAMPU selebar bodi + muka
+    // tertutup tanpa gril (bahasa desain EV yang sudah umum sejak 2020-an).
+    for (const nm of ['Sedan', 'SUV']) {
+        const g = styleGroups.find(e => e[0] === nm)[1];
+        let tilted = 0, bodyW = 0, barW = 0;
+        g.traverse(o => {
+            if (!o.isMesh || !o.geometry || o.geometry.type !== 'box') return;
+            const a = o.geometry.args;
+            if (o.material && o.material.transparent && Math.abs(o.rotation.z) > 0.2) tilted++;
+            if (a[0] > 4) bodyW = Math.max(bodyW, a[2]);        // balok terpanjang = bodi
+            const em = o.material && o.material.emissive && o.material.emissive.getHex
+                ? o.material.emissive.getHex() : 0;
+            if (em && a[0] < 0.2) barW = Math.max(barW, a[2]);  // pelat lampu tipis & menyala
+        });
+        T('mobil ' + nm + ': kaca MIRING + batang lampu selebar bodi (' + tilted
+            + ' panel kaca miring, lampu ' + (bodyW ? (barW / bodyW * 100).toFixed(0) : '?')
+            + '% lebar bodi)', tilted >= 1 && bodyW > 0 && barW > bodyW * 0.85);
+    }
+
     // Rombak prop low-poly 2026-07-16: PROP & kendaraan BERULANG wajib ringan
     // (maks 25 mesh/model, penjaga "tidak berat ketika render"). PENGECUALIAN:
     // HELIKOPTER = aset HERO cutscene (SATU instance, bukan prop berulang) yang

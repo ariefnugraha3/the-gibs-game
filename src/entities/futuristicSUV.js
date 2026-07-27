@@ -51,9 +51,10 @@ export class FuturisticSUV {
         const tailMat = new THREE.MeshLambertMaterial({ color: PAL.hazard, emissive: PAL.hazard, emissiveIntensity: 0.7 * glow });
         const accentMat = new THREE.MeshLambertMaterial({ color: PAL.tech, emissive: PAL.tech, emissiveIntensity: 0.6 * glow });
 
-        const mk = (geo, mat, x, y, z) => {
+        const mk = (geo, mat, x, y, z, rz) => {
             const m = new THREE.Mesh(geo, mat);
             m.position.set(x, y, z);
+            if (rz) m.rotation.z = rz;
             m.castShadow = true; m.receiveShadow = true;
             this.group.add(m);
             return m;
@@ -61,33 +62,43 @@ export class FuturisticSUV {
 
         // --- Bodi "2 kotak" SUV (tinggi, ground clearance jelas) ---
         mk(new THREE.BoxGeometry(4.4, 1.0, 1.84), bodyMat, 0, 1.0, 0);          // bodi utama (y 0.5..1.5)
-        mk(new THREE.BoxGeometry(2.9, 0.55, 1.70), glassMat, -0.3, 1.775, 0);   // greenhouse kaca (y 1.5..2.05)
-        mk(new THREE.BoxGeometry(2.7, 0.10, 1.60), bodyMat, -0.3, 2.10, 0);     // pelat atap
-        mk(new THREE.BoxGeometry(2.4, 0.07, 0.08), trimMat, -0.3, 2.19, 0.62);  // rel atap kiri
-        mk(new THREE.BoxGeometry(2.4, 0.07, 0.08), trimMat, -0.3, 2.19, -0.62); // rel atap kanan
+        mk(new THREE.BoxGeometry(2.55, 0.55, 1.70), glassMat, -0.35, 1.775, 0); // greenhouse kaca (y 1.5..2.05)
+        mk(new THREE.BoxGeometry(2.4, 0.10, 1.60), bodyMat, -0.35, 2.10, 0);    // pelat atap
+        mk(new THREE.BoxGeometry(2.4, 0.07, 0.08), trimMat, -0.35, 2.19, 0.62); // rel atap kiri
+        mk(new THREE.BoxGeometry(2.4, 0.07, 0.08), trimMat, -0.35, 2.19, -0.62);// rel atap kanan
+        // KACA DEPAN REBAH (2026-07-28): greenhouse lama berdinding tegak lurus —
+        // siluetnya kotak sabun. Panel miring ini yang membuatnya terbaca modern.
+        mk(new THREE.BoxGeometry(0.84, 0.06, 1.52), glassMat, 1.15, 1.775, 0, -0.742);
+        // Spoiler atap belakang + POD SENSOR (mengemudi otonom) di tepi depan atap
+        mk(new THREE.BoxGeometry(0.22, 0.10, 1.55), bodyMat, -1.60, 2.16, 0);
+        mk(new THREE.BoxGeometry(0.32, 0.12, 0.36), trimMat, 0.55, 2.21, 0);
 
         // --- Bumper + lampu + aksen (depan = +X) ---
+        // Dua headlight terpisah DIGANTI satu BATANG LAMPU selebar bodi (bahasa
+        // desain EV yang sudah umum); bar teal tetap satu-satunya aksen tech.
         mk(new THREE.BoxGeometry(0.25, 0.40, 1.90), trimMat, 2.28, 0.55, 0);    // bumper depan
         mk(new THREE.BoxGeometry(0.25, 0.40, 1.90), trimMat, -2.28, 0.55, 0);   // bumper belakang
         mk(new THREE.BoxGeometry(0.05, 0.10, 1.30), accentMat, 2.33, 1.10, 0);  // bar grille teal (satu-satunya aksen)
-        mk(new THREE.BoxGeometry(0.06, 0.14, 0.50), headMat, 2.32, 1.32, 0.55); // headlight kiri
-        mk(new THREE.BoxGeometry(0.06, 0.14, 0.50), headMat, 2.32, 1.32, -0.55);// headlight kanan
-        mk(new THREE.BoxGeometry(0.06, 0.14, 1.50), tailMat, -2.32, 1.32, 0);   // strip taillight
+        mk(new THREE.BoxGeometry(0.06, 0.13, 1.72), headMat, 2.32, 1.32, 0);    // batang lampu depan
+        mk(new THREE.BoxGeometry(0.06, 0.14, 1.72), tailMat, -2.32, 1.32, 0);   // batang lampu belakang
+
+        // --- Cladding bawah pintu (di ANTARA roda supaya tak menembus ban) ---
+        mk(new THREE.BoxGeometry(2.0, 0.16, 0.07), trimMat, -0.05, 0.62, 0.94);
+        mk(new THREE.BoxGeometry(2.0, 0.16, 0.07), trimMat, -0.05, 0.62, -0.94);
 
         // --- Roda: poros Z (tegak), menapak y=0, menonjol keluar sisi bodi ---
         // Bodi setengah-lebar 0.92; roda di z ±0.98 (span 0.81..1.15) -> terlihat.
+        // Hub diperbesar 0.18 -> 0.30 = TUTUP RODA AERO; tetap silinder.
         const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.34, 12);
         wheelGeo.rotateX(Math.PI / 2);                                           // poros Y -> Z
-        const hubGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.36, 8);
+        const hubGeo = new THREE.CylinderGeometry(0.30, 0.30, 0.36, 10);
         hubGeo.rotateX(Math.PI / 2);
         for (const x of [1.5, -1.5]) for (const z of [0.98, -0.98]) {
             this.wheels.push(mk(wheelGeo, tireMat, x, 0.45, z));                 // r 0.45 -> menapak y=0
             mk(hubGeo, hubMat, x, 0.45, z);
         }
-
-        // Ban serep di pintu belakang (poros X = menghadap ke belakang)
-        const spare = mk(wheelGeo, tireMat, -2.46, 1.15, 0);
-        spare.rotation.y = Math.PI / 2;
+        // (BAN SEREP pintu belakang DIHAPUS 2026-07-28 — ban serep tergantung di
+        //  tailgate justru isyarat RETRO; SUV listrik 2045 tak punya.)
     }
 
     // Kompat API lama (TIDAK dipanggil game — mobil statis).
