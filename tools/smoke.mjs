@@ -117,7 +117,9 @@ class Mesh extends Obj3D { constructor(g, m) { super(); this.geometry = g; this.
 class Sprite extends Obj3D { constructor(m) { super(); this.material = m; this.isSprite = true; } }
 class Group extends Obj3D { }
 class Scene extends Obj3D { constructor() { super(); this.fog = null; } }
-class PCam extends Obj3D { constructor(fov = 50, aspect = 1) { super(); this.fov = fov; this.aspect = aspect; } updateProjectionMatrix() { } }
+// near/far disimpan 2026-07-27 (celah harness): assert kubah langit intro perlu
+// membandingkan jarak kubah dengan far-plane kamera yang SEBENARNYA.
+class PCam extends Obj3D { constructor(fov = 50, aspect = 1, near = 1, far = 2000) { super(); this.fov = fov; this.aspect = aspect; this.near = near; this.far = far; } updateProjectionMatrix() { } }
 class PLight extends Obj3D { constructor() { super(); this.intensity = 0; this.color = new Color(0xffffff); this.isLight = true; this.isPointLight = true; } }
 const geo = (name) => class {
     constructor(...a) { this.args = a; this.type = name; }
@@ -150,7 +152,10 @@ global.THREE = {
     MeshLambertMaterial: Mat, MeshBasicMaterial: Mat, MeshPhongMaterial: Mat, SpriteMaterial: Mat,
     MeshStandardMaterial: Mat, MeshPhysicalMaterial: Mat, LineBasicMaterial: Mat,
     CanvasTexture: class { constructor() { this.repeat = { set() { } }; this.offset = { set() { } }; } },
-    Fog: class { }, WebGLRenderer: class {
+    // Fog dulu kelas kosong -> keadaan kabut mustahil diuji. Diisi 2026-07-27
+    // (celah harness) supaya assert KABUT intro membaca scene.fog yang NYATA.
+    Fog: class { constructor(c, n, f) { this.color = new Color(c); this.near = n; this.far = f; } },
+    WebGLRenderer: class {
         constructor() { this.domElement = fakeEl(); this.shadowMap = {}; }
         setPixelRatio() { } setSize() { } getPixelRatio() { return 1; } compile() { } render() { }
     },
@@ -2527,15 +2532,15 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     const domSkipMod = await import(R('src/core/dom.js'));
     domSkipMod.hideCutsceneSkip();   // bersihkan callback skip tersisa dari tes lain
     introMod.beginIntro();
-    T('INTRO: beginIntro -> AUTO-PLAY (unpause + blocker/tutorial DISEMBUNYIKAN) + sinematik ON + fase fly',
+    T('INTRO: beginIntro -> AUTO-PLAY (unpause + blocker/tutorial DISEMBUNYIKAN) + sinematik ON + shot pembuka',
         stateMod.cinematicActive === true && stateMod.isPaused === false
         && introBlocker.style.display === 'none'
-        && introMod.introDebug().phase === 'fly' && introMod.introDebug().avatarShown === false);
+        && introMod.introDebug().phase === 'establish' && introMod.introDebug().avatarShown === false);
     // BUG FIX 2026-07-20: beginIntro dipanggil main.js MASIH di balik layar
     // loading — tombol SKIP (dan deru heli) TIDAK boleh menyala di beginIntro;
     // keduanya ditunda ke frame PERTAMA updateMode (cutscene benar-benar tampil).
     T('INTRO (2026-07-20): tombol SKIP belum terdaftar saat masih di balik layar loading',
-        domSkipMod.triggerCutsceneSkip() === false && introMod.introDebug().phase === 'fly');
+        domSkipMod.triggerCutsceneSkip() === false && introMod.introDebug().phase === 'establish');
 
     // Helper: jalankan updateMode hingga fase = target (atau cutscene selesai)
     const run = (target, max = 500) => {
@@ -2546,16 +2551,30 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         return introMod.introDebug().phase === target;
     };
 
-    // SCENE 1: HELIKOPTER MENYUSURI langit malam — melintas jauh (kamera ikut heli).
-    // Fase fly+approach DIGABUNG (transisi mulus 2026-07-17): sampel di TENGAH fly
-    // (~separuh flySec, masih dalam porsi "ikut heli" sebelum blend framing tali).
+    // SHOT 1 "KOTA" (2026-07-27): pandangan nyaris tegak lurus dari atas —
+    // kamera TINGGI & jauh, heli baru merayap sedikit (18% lintasan).
     const h0 = introMod.introDebug();
+    const camEstablish = { ...introMod.introScene.camOffset };
+    T('INTRO SHOT 1 (KOTA): kamera nyaris dari atas & jauh (tinggi '
+        + camEstablish.y.toFixed(0) + ', jarak ' + Math.hypot(camEstablish.x, camEstablish.z).toFixed(0) + ')',
+        camEstablish.y > 400 && Math.hypot(camEstablish.x, camEstablish.z) > 180);
+    run('fly');
+    const hFlyStart = introMod.introDebug();
+    // Fraksi lintasan yang ditempuh selama shot pembuka (0 = diam, 1 = sampai).
+    const flyFrac = (hFlyStart.heliX - h0.heliX) / (h0.drop.x - h0.heliX);
+    T('INTRO SHOT 1: heli baru merayap sedikit (' + (flyFrac * 100).toFixed(0)
+        + '% lintasan) — skala kota sempat terbaca', flyFrac > 0.05 && flyFrac < 0.35);
+    // SHOT 2 "APPROACH": heli menderu mendekat + kamera CRANE TURUN (tinggi kamera
+    // berkurang drastis) — inilah bahasa kamera yang dulu tak ada sama sekali.
     const flyFrames = Math.floor((I.flySec * 0.5) / 0.1);
     for (let i = 0; i < flyFrames; i++) introMod.introScene.updateMode(0.1);
     const hFly = introMod.introDebug();
-    T('INTRO SCENE 1: heli MENYUSURI langit (melintas jauh mendatar, kamera mengikuti)',
+    const camFly = introMod.introScene.camOffset;
+    T('INTRO SHOT 2 (APPROACH): heli MENYUSURI langit + pivot mengikutinya',
         hFly.phase === 'fly' && (hFly.heliX - h0.heliX) > 600
         && Math.abs(hFly.pivotX - hFly.heliX) < 40 && Math.abs(hFly.pivotZ - hFly.heliZ) < 40);
+    T('INTRO SHOT 2: kamera CRANE TURUN dari shot pembuka (tinggi '
+        + camEstablish.y.toFixed(0) + ' -> ' + camFly.y.toFixed(0) + ')', camFly.y < camEstablish.y - 100);
 
     // SCENE 2: approach -> heli SAMPAI di atas atap (menggantung) -> tali -> turun
     run('descend');
@@ -2571,6 +2590,11 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     // PERGI — player menontonnya). BARU kemudian jalan ke pintu.
     run('ropeUp');
     const ru = introMod.introDebug();
+    // SHOT 3 "FLARE" + SHOT 7 "KETUKAN" (BARU 2026-07-27) sudah dilalui di atas;
+    // di sini pastikan kamera benar-benar BERPINDAH SUDUT antar shot (bukan satu
+    // sudut gameplay sepanjang cutscene seperti versi lama).
+    T('INTRO SHOT: kamera turun ke HERO ANGLE rendah saat tali/turun (tinggi < 120)',
+        introMod.introScene.camOffset.y < 120);
     T('INTRO (2026-07-18): setelah turun -> fase ropeUp (avatar berdiri di titik turun, pose rappel dilepas)',
         ru.phase === 'ropeUp' && ru.avatarShown === true && avMod.rappelDebug().active === false
         && Math.abs(ru.pivotY - (ru.roofY + ru.eyeH)) < 1);
@@ -2612,6 +2636,144 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         s1entered && stateMod.cinematicActive === false
         && smMod.activeScene === s1mod.stage1Scene && introMod.introDebug().active === false
         && stateMod.isPaused === true && introBlocker.style.display === 'flex');
+
+    // --- 17d2. SINEMATOGRAFI INTRO (OVERHAUL 2026-07-27) + KONTRAK NARASI.
+    // Yang WAJIB dijaga apa pun perubahan sinematiknya (permintaan user):
+    // datang naik HELIKOPTER -> TURUN di atas gedung -> helikopter PERGI ->
+    // player MASUK ke dalam gedung. Diperiksa sebagai URUTAN, bukan potongan.
+    {
+        smMod.setScene(introMod.introScene);
+        introMod.beginIntro();
+        const seen = [];            // urutan fase
+        const cam = [];             // [az, jarak, tinggi] per fase
+        const azOf = (o) => { let a = Math.atan2(o.x, o.z) * 180 / Math.PI; return a < 0 ? a + 360 : a; };
+        let heliHigh0 = 0, heliLowAtDrop = 1e9, heliHighEnd = 0;
+        let avatarFirstShownPhase = null, avatarHiddenPhase = null, dust = 0;
+        let last = null, n = 0;
+        while (introMod.introDebug().active && n++ < 4000) {
+            introMod.introScene.updateMode(1 / 60);
+            const d = introMod.introDebug();
+            if (d.phase && d.phase !== last) {
+                seen.push(d.phase);
+                cam.push([azOf(introMod.introScene.camOffset),
+                    Math.hypot(introMod.introScene.camOffset.x, introMod.introScene.camOffset.z),
+                    introMod.introScene.camOffset.y]);
+                last = d.phase;
+            }
+            if (d.heliY != null) {
+                if (seen.length <= 2) heliHigh0 = Math.max(heliHigh0, d.heliY);          // datang dari langit
+                if (d.phase === 'rope' || d.phase === 'descend') heliLowAtDrop = Math.min(heliLowAtDrop, d.heliY);
+                if (d.phase === 'walk' || d.phase === 'enter') heliHighEnd = Math.max(heliHighEnd, d.heliY);
+            }
+            if (d.avatarShown && !avatarFirstShownPhase) avatarFirstShownPhase = d.phase;
+            if (avatarFirstShownPhase && !d.avatarShown && !avatarHiddenPhase) avatarHiddenPhase = d.phase;
+            dust = Math.max(dust, stateMod.explosions.length);
+        }
+        // --- KONTRAK NARASI (empat pesan yang tak boleh hilang)
+        T('INTRO NARASI 1: datang naik HELIKOPTER dari langit tinggi (' + heliHigh0.toFixed(0) + ' u)',
+            heliHigh0 > 150);
+        T('INTRO NARASI 2: player TURUN di atas gedung (avatar muncul saat fase turun-tali)',
+            avatarFirstShownPhase === 'descend');
+        T('INTRO NARASI 3: HELIKOPTER PERGI (turun ke ' + heliLowAtDrop.toFixed(0)
+            + ' u lalu menanjak lagi ke ' + heliHighEnd.toFixed(0) + ' u)',
+            heliLowAtDrop < 60 && heliHighEnd > heliLowAtDrop + 100);
+        T('INTRO NARASI 4: player MASUK ke dalam gedung (avatar disembunyikan di akhir)',
+            avatarHiddenPhase === 'wait' && seen.indexOf('enter') < seen.indexOf('wait'));
+        T('INTRO NARASI: urutan beat benar (turun -> heli pergi -> jalan -> masuk)',
+            seen.indexOf('descend') < seen.indexOf('heliLeave')
+            && seen.indexOf('heliLeave') < seen.indexOf('walk')
+            && seen.indexOf('walk') < seen.indexOf('enter'));
+        // --- SINEMATOGRAFI: shot baru + RAGAM sudut (versi lama: satu sudut saja)
+        T('INTRO: shot baru terpasang (establish/flare/land) — ' + seen.length + ' shot',
+            seen.includes('establish') && seen.includes('flare') && seen.includes('land'));
+        const azs = cam.map(c => c[0]), hs = cam.map(c => c[2]), ds = cam.map(c => c[1]);
+        T('INTRO KAMERA: sudut BERVARIASI antar shot (azimut ' + (Math.max(...azs) - Math.min(...azs)).toFixed(0)
+            + '° span) — dulu satu sudut gameplay sepanjang cutscene', Math.max(...azs) - Math.min(...azs) > 120);
+        T('INTRO KAMERA: ketinggian & jarak BERVARIASI (tinggi ' + Math.min(...hs).toFixed(0) + '..'
+            + Math.max(...hs).toFixed(0) + ', jarak ' + Math.min(...ds).toFixed(0) + '..' + Math.max(...ds).toFixed(0) + ')',
+            Math.max(...hs) > Math.min(...hs) * 4 && Math.max(...ds) > Math.min(...ds) * 2.5);
+        T('INTRO: DEBU downwash rotor + hentakan mendarat tersapu di atap (' + dust + ' puff puncak)', dust > 5);
+        T('INTRO: cutscene tetap berakhir di Stage 1', smMod.activeScene === s1mod.stage1Scene
+            && introMod.introDebug().active === false && stateMod.cinematicActive === false);
+    }
+
+    // --- 17d3. LATAR INTRO: LANGIT MALAM + KABUT BATAS (2026-07-27, permintaan
+    // user: "background kosong di batas luar area ... buat jadi langit malam, ada
+    // bulan dan bintang ... batas ujung area diberi kabut tebal ... TAPI JANGAN
+    // MEMPERBERAT"). Tiga hal yang diuji: (1) isi kota benar-benar mencapai
+    // pinggir, (2) kabut SELALU habis sebelum isian kota habis -> tepi dunia
+    // mustahil terlihat, (3) langit malamnya benar-benar MASUK FRAME dan hanya
+    // memakai 2 objek gambar.
+    {
+        smMod.setScene(introMod.introScene);   // bangun ulang dunia intro (sudah dibuang di 17d2)
+        const SK = introMod.introSkyDebug();
+        const CS2 = introMod.cityDebug();
+
+        // (1) ISIAN KOTA SAMPAI PINGGIR — dulu berhenti di dz -1150 / |dx| 1980
+        // sementara hamparannya ±2700: cincin luarnya dataran kosong.
+        T('INTRO LATAR: isi kota menjangkau pinggir area (reach ' + CS2.reach.toFixed(0)
+            + ' dari target ' + CS2.fill + ')', CS2.reach >= CS2.fill * 0.95);
+        T('INTRO LATAR: hamparan tanah jauh lebih lebar dari isian (tepi dunia di luar jangkauan pandang)',
+            CS2.plane / 2 > CS2.fill * 1.2);
+        T('INTRO LATAR: kepadatan kampung ikut naik bersama luas (rumah ' + CS2.houses + ')',
+            CS2.houses > 1200);
+        T('INTRO LATAR: menara tetap "tidak terlalu banyak" & yang JANGKUNG tetap sedikit ('
+            + CS2.towers + ' menara, ' + CS2.crowns + ' bermahkota)',
+            CS2.towers > 20 && CS2.towers < 200 && CS2.crowns > 0 && CS2.crowns < 40);
+
+        // (2) KABUT: warnanya HARUS sama dgn pita horizon kubah (kalau beda, ada
+        // "garis tepi dunia"), dan far-nya TIDAK PERNAH melewati isian kota.
+        T('INTRO KABUT: warna kabut = warna pita horizon langit (tanah larut ke langit tanpa sambungan)',
+            SK.fogHex != null && SK.fogHex === SK.horizonHex);
+        const domeKids = SK.domeChildren;   // dibaca SEBELUM cutscene (dunia dibuang di akhir)
+        introMod.beginIntro();
+        let fogMax = 0, fogMin = 1e9, skyMax = -99, moonSeen = 0, domeFar = 0, frames = 0;
+        // Geometri frame: setengah-FOV vertikal kamera RENDER dikurangi bagian
+        // yang ditutup letterbox -> berapa derajat LANGIT tersisa di atas horizon.
+        const vHalf = rendererMod.viewCam.fov / 2;
+        const barDeg = rendererMod.viewCam.fov * SK.barFrac;
+        const hHalf = Math.atan(Math.tan(vHalf * Math.PI / 180) * (16 / 9)) * 180 / Math.PI;
+        for (let i = 0; i < 4000 && introMod.introDebug().active; i++) {
+            introMod.introScene.updateMode(1 / 60);
+            frames++;
+            fogMax = Math.max(fogMax, scene.fog.far); fogMin = Math.min(fogMin, scene.fog.far);
+            const off = introMod.introScene.camOffset;
+            const pitch = Math.atan2(off.y, Math.hypot(off.x, off.z)) * 180 / Math.PI;
+            const sky = (vHalf - barDeg) - pitch;          // >0 = ada langit di frame
+            skyMax = Math.max(skyMax, sky);
+            let look = (Math.atan2(off.x, off.z) * 180 / Math.PI + 360) % 360;
+            look = (look + 180) % 360;                     // arah PANDANG kamera
+            const dAz = Math.abs(((SK.moonAz - look + 540) % 360) - 180);
+            if (sky > SK.moonEl && dAz < hHalf) moonSeen++;
+            domeFar = Math.max(domeFar, introMod.introSkyDebug().skyToCam);
+        }
+        T('INTRO KABUT: far kabut TAK PERNAH melewati isian kota (' + fogMax.toFixed(0)
+            + ' <= ' + CS2.fill + ') — dataran kosong & tepi dunia selalu tertelan haze',
+            frames > 100 && fogMax <= CS2.fill);
+        T('INTRO KABUT: tetap bisa melihat (far terkecil ' + fogMin.toFixed(0)
+            + ' masih jauh di luar dek atap) + BERUBAH per shot, bukan satu setelan',
+            fogMin > 600 && fogMax > fogMin * 1.2);
+
+        // (3) LANGIT MALAM benar-benar terlihat — dulu 0° langit di SEMUA shot
+        // (horizon selalu di atas tepi frame), jadi bulan/bintang mustahil tampak.
+        T('INTRO LANGIT: ada shot yang benar-benar memperlihatkan LANGIT di atas horizon ('
+            + skyMax.toFixed(1) + '° setelah letterbox)', skyMax > 3);
+        T('INTRO LANGIT: BULAN masuk frame pada shot-shot inti (' + moonSeen + ' frame)',
+            moonSeen > 60);
+        T('INTRO LANGIT: bintang terlukis di kubah (' + SK.stars + ' bintang) + bulan terpasang',
+            SK.stars > 400 && SK.hasMoon === true);
+        T('INTRO LANGIT: bulan di dalam kubah (jarak ' + SK.moonDist + ' < radius ' + SK.skyRadius
+            + ') & rendah di atas horizon (' + SK.moonEl + '°)',
+            SK.moonDist < SK.skyRadius && SK.moonEl > 0 && SK.moonEl < 15);
+        T('INTRO LANGIT: kubah + bulan MENGIKUTI kamera — sisi terjauh kubah ('
+            + (domeFar + SK.skyRadius).toFixed(0) + ') tetap di dalam far-plane '
+            + rendererMod.viewCam.far, domeFar + SK.skyRadius < rendererMod.viewCam.far);
+        // TIDAK MEMPERBERAT (permintaan user): langit malam = 2 objek gambar saja
+        // (bola bulan + halo). Bintang/haze/pijar kota semuanya DILUKIS ke tekstur
+        // kubah yang sudah ada, jadi nol tambahan draw call & nol biaya per frame.
+        T('INTRO LANGIT: hanya 2 objek gambar tambahan (bulan + halo), sisanya dilukis ke tekstur kubah',
+            domeKids === 2);
+    }
 
     // SKIP CUTSCENE (2026-07-19, tombol kanan-bawah / SPACE): putar ulang intro
     // lalu skipIntro() di tengah fase fly -> langsung finish (Stage 1 + tutorial,
