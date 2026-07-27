@@ -244,6 +244,39 @@ function shopKey(key) {
     return false;
 }
 
+// ----- SILUET MONAS = satu-satunya penghalang PELURU di taman (satu sumber
+// kebenaran, dipakai `bulletBlocked` DAN garis-tembak robot penembak). Dasar
+// lebar (44) di bawah menyempit ke obelisk tipis di ketinggian mata; pohon, bak
+// air mancur & pagar TIDAK memblok peluru sama sekali. -----
+const MONAS_TOP = 64;
+const monasHalfAt = (y) => (y < 2 ? 22 : y < 5 ? 20 : y < 8 ? 15 : 8);
+
+// Ruas (x1,z1)->(x2,z2) di ketinggian y memotong siluet Monas? (uji slab
+// segmen-vs-AABB, eksak & murah). Dipakai gerbang tembak robot B/A: TANPA ini
+// mereka memakai LOS nav-grid yang ikut memblok pohon/bak — padahal peluru
+// menembusnya (bugfix 2026-07-27, sejalan dgn perbaikan campaign).
+export function monasShotBlocked(x1, z1, x2, z2, y) {
+    if (y < 0 || y > MONAS_TOP) return false;
+    const h = monasHalfAt(y);
+    let t0 = 0, t1 = 1;
+    const dx = x2 - x1, dz = z2 - z1;
+    if (Math.abs(dx) < 1e-6) { if (x1 <= -h || x1 >= h) return false; }
+    else {
+        let a = (-h - x1) / dx, b = (h - x1) / dx;
+        if (a > b) { const t = a; a = b; b = t; }
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+    }
+    if (Math.abs(dz) < 1e-6) { if (z1 <= -h || z1 >= h) return false; }
+    else {
+        let a = (-h - z1) / dz, b = (h - z1) / dz;
+        if (a > b) { const t = a; a = b; b = t; }
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+    }
+    return t0 <= t1;
+}
+
 export const survivalScene = {
     id: 'survival',
     lightsKey: 'survival',
@@ -380,8 +413,8 @@ export const survivalScene = {
     // di baliknya (dulu terhalang tembok tak terlihat selebar dasar).
     bulletBlocked(b) {
         const y = b.mesh.position.y;
-        if (y < 0 || y > 64) return false;                   // di atas obelisk -> lewat
-        const h = y < 2 ? 22 : y < 5 ? 20 : y < 8 ? 15 : 8;  // undakan/teras/pelataran/obelisk
+        if (y < 0 || y > MONAS_TOP) return false;            // di atas obelisk -> lewat
+        const h = monasHalfAt(y);
         return Math.abs(b.mesh.position.x) < h && Math.abs(b.mesh.position.z) < h;
     },
 
@@ -475,14 +508,24 @@ export const survivalScene = {
         // hanya bila garis pandang bebas — kalau terhalang tetap merapat lewat
         // waypoint) untuk KEDUA target (player MAUPUN Monas — 2026-07-12: tak lagi
         // menempel ke Monas); melee: nempel Monas (6) / jangkauan cakar (player).
-        const stopD = z.ranged && aim.direct ? (z.range || 70) * 0.95
+        // GARIS TEMBAK != GARIS JALAN (bugfix 2026-07-27, laporan user): dulu
+        // penembak B/A memakai `aim.direct` = LOS NAV-GRID, yang ikut memblok
+        // pohon & bak air mancur — padahal peluru MENEMBUS keduanya. Akibatnya
+        // penembak mengitari pohon seperti robot melee. Kini gerbangnya
+        // `monasShotBlocked` (siluet Monas = satu-satunya penghalang peluru);
+        // peluru yang DITUJUKAN ke Monas memang menghantamnya, jadi saat
+        // atkMonas garis tembak selalu dianggap bebas.
+        const shotOK = !z.ranged ? aim.direct
+            : atkMonas || !monasShotBlocked(z.mesh.position.x, z.mesh.position.z,
+                tx, tz, z.mesh.position.y + 8 * (z.scl || 1));
+        const stopD = z.ranged && shotOK ? (z.range || 70) * 0.95
             : atkMonas ? 6
                 : player.radius + CFG.robot.stopRange * (z.reachMul || 1);
-        z.moving = !aim.direct || distT > stopD;
-        z.losOK = aim.direct;   // gerbang tembak robots.js (jangan menembak tembus penghalang)
+        z.moving = !shotOK || distT > stopD;
+        z.losOK = shotOK;   // gerbang tembak robots.js (jangan menembak tembus Monas)
         // Stance MEMBIDIK (animasi lengan senapan terangkat, animateRobotRig):
-        // berdiri di radius tembak dgn garis pandang bebas = mengacungkan senjata.
-        if (z.ranged) z.aiming = !z.moving && aim.direct;
+        // berdiri di radius tembak dgn garis tembak bebas = mengacungkan senjata.
+        if (z.ranged) z.aiming = !z.moving && shotOK;
         if (z.moving) {
             const ang = turnToward(z,
                 Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);

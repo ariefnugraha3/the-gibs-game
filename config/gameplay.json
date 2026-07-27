@@ -341,9 +341,7 @@
         "magChance": 0.05,
         "lifetimeSec": 20,
         "lootLifetimeSec": 16,
-        "lootMagnetMeters": 12,
-        "lootMagnetSpeed": 58,
-        "lootPickupRadius": 6,
+        "lootPickupRadius": 9,
         "loot": {
             "C": 18,
             "B": 32,
@@ -359,12 +357,15 @@
     },
     "crates": {
         "hp": 55,
-        "lootChance": 0.75,
-        "ammoWeight": 5,
-        "moneyWeight": 3,
-        "medkitWeight": 2,
-        "moneyValue": 45,
-        "moneyChips": 3
+        "lootChance": 1,
+        "ammoWeight": 30,
+        "moneyWeight": 50,
+        "medkitWeight": 20,
+        "moneyTiers": [
+            { "value": 8, "chips": 1, "weight": 50 },
+            { "value": 16, "chips": 2, "weight": 30 },
+            { "value": 24, "chips": 3, "weight": 20 }
+        ]
     },
     "shop": {
         "ammoCost": 800,

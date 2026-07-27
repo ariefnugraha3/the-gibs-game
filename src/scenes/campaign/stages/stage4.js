@@ -698,6 +698,22 @@ export function buildWorld() {
 // smoke test lewat roadsideDebug(). Murni dekor: TANPA blocker/nav. Sisi
 // SELATAN (arah kamera) = occluder (memudar saat menutup entitas); sisi UTARA
 // (= KIRI jalan arah timur, kini paling bervariasi) + skyline = latar. ===
+// Pose SATU bidang atap PELANA rumah kampung (bubungan sepanjang sumbu X) di
+// sisi `rs` (+1 = paruh +z, -1 = paruh -z). Diekspor karena TANDA ROTASINYA
+// PERNAH TERBALIK (bugfix 2026-07-27, laporan user "ada bangunan yang atapnya
+// terbalik"): dgn `rotation.x = -rs*angle` kedua bidang justru TERANGKAT di
+// tepi tiris dan MELESAK di bubungan — atap "V"/kupu-kupu, dan garis
+// bubungannya bahkan jatuh DI BAWAH puncak dinding sehingga dinding menyembul
+// menembus atap. Tanda yang benar `+rs*angle`: ujung dekat pusat (bubungan)
+// NAIK, ujung luar (tiris) TURUN. `y` dinaikkan sebesar `drop` supaya tirisnya
+// mendarat TEPAT di puncak dinding (tak menggantung, tak menembus).
+// Rotasi X di THREE: y' = y − z_lokal·sin(rot) — dipakai smoke test.
+export function gableRoofPose(hgt, d, rs, angle = 0.5) {
+    const len = d * 0.62;                       // panjang bidang miring
+    const drop = Math.sin(angle) * len / 2;     // beda tinggi bubungan <-> tiris
+    return { len, drop, y: hgt + drop, z: rs * d * 0.24, rot: rs * angle };
+}
+
 function buildRoadside(staticProps) {
     const RX0 = ROAD.x0 + 20, RX1 = SQ.x0 - 26, LEN = RX1 - RX0;
     const NX0 = PARK.x1 + 30;   // dekor sisi UTARA mulai TIMUR parkiran (zona parkiran bebas dekor)
@@ -803,9 +819,10 @@ function buildRoadside(staticProps) {
             body.position.y = hgt / 2; body.castShadow = true; body.receiveShadow = true; G.add(body);
             const rMat = lam(pick(roofCols));
             for (const rs of [-1, 1]) {   // atap PELANA (bubungan sepanjang X)
-                const slope = new THREE.Mesh(new THREE.BoxGeometry(w + 6, 1.4, d * 0.62), rMat);
-                slope.position.set(0, hgt + 3.4, rs * d * 0.24);
-                slope.rotation.x = -rs * 0.5;
+                const rp = gableRoofPose(hgt, d, rs);
+                const slope = new THREE.Mesh(new THREE.BoxGeometry(w + 6, 1.4, rp.len), rMat);
+                slope.position.set(0, rp.y, rp.z);
+                slope.rotation.x = rp.rot;
                 slope.castShadow = true; G.add(slope);
             }
             const door = new THREE.Mesh(new THREE.BoxGeometry(5, 9, 0.6), lam(PAL.wood));

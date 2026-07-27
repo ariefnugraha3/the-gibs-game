@@ -1845,6 +1845,31 @@ T('S4: roadside occluders terdaftar (sistem fade objek penghalang aktif)', s4mod
 // footprint terklaim harus bebas zona gameplay (roadsideDebug).
 T('S4: dekor roadside tak menyentuh zona gameplay (parkiran/jalan/alun-alun)',
     s4mod.roadsideDebug().count > 30 && s4mod.roadsideDebug().clear === true);
+{   // ATAP PELANA rumah kampung TIDAK BOLEH TERBALIK (bugfix 2026-07-27, laporan
+    // user): tanda `rotation.x` pernah negatif sehingga tepi TIRIS terangkat dan
+    // BUBUNGAN melesak (atap "V") sampai di bawah puncak dinding. Uji pose murni
+    // (rotasi X THREE: y' = y − z_lokal·sin(rot)) utk kedua paruh atap.
+    const HG = 15, DP = 30;
+    let gableOk = true, ridgeMeet = true, eaveOk = true;
+    let prevRidgeY = null, prevRidgeZ = null;
+    for (const rs of [-1, 1]) {
+        const p = s4mod.gableRoofPose(HG, DP, rs);
+        const yAt = (zl) => p.y - zl * Math.sin(p.rot);
+        const zAt = (zl) => p.z + zl * Math.cos(p.rot);
+        const ridgeY = yAt(-rs * p.len / 2), eaveY = yAt(rs * p.len / 2);   // ujung dalam vs luar
+        if (!(ridgeY > eaveY + 1)) gableOk = false;                         // bubungan HARUS di atas tiris
+        if (Math.abs(eaveY - HG) > 0.01) eaveOk = false;                    // tiris mendarat di puncak dinding
+        if (!(ridgeY > HG)) gableOk = false;                                // bubungan tak boleh di bawah atap dinding
+        const rz = zAt(-rs * p.len / 2);
+        if (Math.abs(rz) > DP * 0.06) ridgeMeet = false;                    // ujung bubungan bertemu di tengah
+        if (prevRidgeY !== null && (Math.abs(prevRidgeY - ridgeY) > 1e-6
+            || Math.abs(prevRidgeZ + rz) > DP * 0.12)) ridgeMeet = false;   // kedua paruh simetris
+        prevRidgeY = ridgeY; prevRidgeZ = rz;
+    }
+    T('S4 atap pelana rumah: bubungan DI ATAS tiris (tidak terbalik)', gableOk);
+    T('S4 atap pelana rumah: tiris mendarat tepat di puncak dinding (tak menembus/menggantung)', eaveOk);
+    T('S4 atap pelana rumah: kedua paruh bertemu simetris di garis bubungan', ridgeMeet);
+}
 {   // KORIDOR JALAN RAYA tetap tembus (2026-07-19: rongsokan dipadatkan): di
     // tiap sampel x sepanjang jalan harus ada z bebas blocker utk player.
     let corridorOk = true;
@@ -3183,6 +3208,7 @@ const palMod = await import(R('src/world/palette.js'));
     styleGroups.push(['SUV', (await import(R('src/entities/futuristicSUV.js'))).buildFuturisticSUVMesh(7, null)]);
     styleGroups.push(['Helicopter', (await import(R('src/entities/helicopter.js'))).buildHelicopterMesh().group]);
     styleGroups.push(['Barrel', (await import(R('src/entities/barrels.js'))).buildBarrelMesh()]);
+    styleGroups.push(['SupplyCrate', (await import(R('src/entities/crates.js'))).buildCrateMesh()]);
 
     let neonOk = true, emisOk = true, badNeon = '', badEmis = '';
     for (const [name, g] of styleGroups) {
@@ -3252,15 +3278,26 @@ const palMod = await import(R('src/world/palette.js'));
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     stateMod.drops.length = 0; barMod.resetBarrels();
 
-    // (a) spawnLoot -> drop 'loot' bernilai; magnet + pungut -> +SKOR
+    // (a) spawnLoot -> drop 'loot' bernilai; uang DIAM di tempat (magnet DIHAPUS
+    //     2026-07-27, permintaan user) -> baru terpungut saat PLAYER mendatanginya.
     camera.position.set(0, 11.4, 0);
     stateMod.setScore(0);
     const lootC = cfgMod.CFG.drops.loot.C;
     dropsMod.spawnLoot(60, 0, lootC, 1);
     T('spawnLoot: 1 drop tipe loot bernilai C (' + lootC + ')', stateMod.drops.length === 1
         && stateMod.drops[0].type === 'loot' && stateMod.drops[0].value === lootC);
-    for (let i = 0; i < 400 && stateMod.drops.length; i++) dropsMod.updateDrops(0.05, i * 0.05);
-    T('loot tersedot magnet + terpungut -> skor = nilai C', stateMod.drops.length === 0 && stateMod.score === lootC);
+    const lootPos = { x: stateMod.drops[0].mesh.position.x, z: stateMod.drops[0].mesh.position.z };
+    for (let i = 0; i < 40; i++) dropsMod.updateDrops(0.05, i * 0.05);
+    T('loot TIDAK bergerak ke player (tanpa magnet) & tak terpungut dari jauh',
+        stateMod.drops.length === 1 && stateMod.score === 0
+        && Math.abs(stateMod.drops[0].mesh.position.x - lootPos.x) < 1e-6
+        && Math.abs(stateMod.drops[0].mesh.position.z - lootPos.z) < 1e-6);
+    T('config: kunci magnet loot sudah dihapus dari CFG.drops',
+        cfgMod.CFG.drops.lootMagnetMeters === undefined && cfgMod.CFG.drops.lootMagnetSpeed === undefined);
+    camera.position.set(lootPos.x, 11.4, lootPos.z);   // player MENDATANGI uangnya
+    dropsMod.updateDrops(0.05, 0);
+    T('loot terpungut saat player melewatinya -> skor = nilai C',
+        stateMod.drops.length === 0 && stateMod.score === lootC);
 
     // (b) campaignAwardKill: killRobot campaign TANPA skor langsung, jatuhkan loot A
     smMod.activeScene.awardKill = comMod2.campaignAwardKill;
@@ -3401,15 +3438,93 @@ const palMod = await import(R('src/world/palette.js'));
     stateMod.drops.length = 0;
     crateMod.spawnCrate(320, 320, 0);
     crateMod.breakCrate(crateMod.crates[0]);
-    T('peti: pecah -> menjatuhkan isi (uang) sesuai bobot config',
-        stateMod.drops.length === cfgMod.CFG.crates.moneyChips
-        && stateMod.drops.every(d => d.type === 'loot'));
+    const mTiers = cfgMod.CFG.crates.moneyTiers;
+    T('peti: pecah -> menjatuhkan isi (uang) sesuai tier config',
+        stateMod.drops.length > 0 && stateMod.drops.every(d => d.type === 'loot')
+        && mTiers.some(t => (t.chips || 1) === stateMod.drops.length
+            && t.value === stateMod.drops.reduce((s, d) => s + d.value, 0)));
     cfgMod.CFG.crates.lootChance = 0;
     stateMod.drops.length = 0;
     crateMod.spawnCrate(340, 340, 0);
     crateMod.breakCrate(crateMod.crates[0]);
     T('peti: lootChance 0 -> pecah tanpa isi', stateMod.drops.length === 0);
     Object.assign(cfgMod.CFG.crates, Cbase);
+
+    // (b2b) SEBARAN ISI (2026-07-27, permintaan user: peti SELALU berisi —
+    // uang/ammo/medkit menurut bobot). Statistik dibandingkan dgn peluang yang
+    // DITURUNKAN dari CFG (bukan angka hardcode) + toleransi longgar, jadi tetap
+    // hijau kalau user me-retune bobotnya.
+    {
+        const C = cfgMod.CFG.crates;
+        const pk = C.ammoWeight + C.moneyWeight + C.medkitWeight;
+        P.weapons = ['pistol', 'rifle', 'shotgun']; stateMod.syncOwnedFromWeapons();
+        const N = 3000;
+        crateMod.resetCrates();
+        const kind = { money: 0, ammo: 0, medkit: 0 };
+        const tierHit = new Map(C.moneyTiers.map(t => [t.value, 0]));
+        const perWeapon = {};
+        let empty = 0, badValue = 0, unowned = 0;
+        for (let i = 0; i < N; i++) {
+            stateMod.drops.length = 0;
+            crateMod.spawnCrate(2000 + i, 2000, 0);
+            crateMod.breakCrate(crateMod.crates[0]);
+            const d = stateMod.drops[0];
+            if (!d) { empty++; continue; }
+            if (d.type === 'loot') {
+                kind.money++;
+                const v = stateMod.drops.reduce((s, e) => s + e.value, 0);
+                const t = C.moneyTiers.find(e => e.value === v && (e.chips || 1) === stateMod.drops.length);
+                if (t) tierHit.set(v, tierHit.get(v) + 1); else badValue++;
+            } else if (d.type === 'ammo') {
+                kind.ammo++;
+                perWeapon[d.weapon] = (perWeapon[d.weapon] || 0) + 1;
+                if (!P.owned[d.weapon]) unowned++;
+            } else kind.medkit++;
+        }
+        stateMod.drops.length = 0; crateMod.resetCrates();
+        const near = (got, want, tol = 0.05) => Math.abs(got / N - want) <= tol;
+        T('peti: 100% berisi (lootChance ' + C.lootChance + ' -> tak pernah kosong)', empty === 0);
+        T('peti: sebaran jenis isi mengikuti bobot CFG (uang/ammo/medkit)',
+            near(kind.money, C.moneyWeight / pk) && near(kind.ammo, C.ammoWeight / pk)
+            && near(kind.medkit, C.medkitWeight / pk));
+        const tw = C.moneyTiers.reduce((s, t) => s + t.weight, 0);
+        T('peti: nilai uang selalu salah satu tier CFG (value+chips cocok)', badValue === 0);
+        T('peti: sebaran tier uang mengikuti bobot tier CFG',
+            C.moneyTiers.every(t => Math.abs(tierHit.get(t.value) / (kind.money || 1) - t.weight / tw) <= 0.06));
+        const wk = Object.keys(perWeapon);
+        T('peti: ammo HANYA dari senjata yang dimiliki, seragam per jenis (3 slot -> ~33,33%)',
+            unowned === 0 && wk.length === P.weapons.length
+            && wk.every(w => Math.abs(perWeapon[w] / (kind.ammo || 1) - 1 / P.weapons.length) <= 0.06));
+        P.weapons = ['pistol', 'rifle']; stateMod.syncOwnedFromWeapons();
+    }
+
+    // (b2c) TAMPILAN "bisa dihancurkan" (2026-07-27, permintaan user): peti wajib
+    // membawa bagian ber-animasi (tutup menganga + cincin sasaran + beacon) dan
+    // memberi UMPAN BALIK saat dipukul — sentakan lalu meluruh kembali normal.
+    {
+        const cm = crateMod.buildCrateMesh();
+        let nm = 0; cm.traverse(o => { if (o.isMesh) nm++; });
+        T('peti: mesh membawa bagian ber-animasi (tutup/cincin/beacon) & tetap low-poly (' + nm + ' mesh)',
+            !!cm.userData.lid && !!cm.userData.ring && !!cm.userData.beacon && nm <= 25);
+
+        crateMod.resetCrates();
+        crateMod.spawnCrate(500, 500, 0);
+        const cr = crateMod.crates[0];
+        crateMod.updateCrates(0.016);
+        const lidY0 = cr.lid.position.y, ringZ0 = cr.ring.rotation.z;
+        stateMod.bullets.length = 0;
+        stateMod.bullets.push({ mesh: { position: { x: 500, y: 8, z: 500 } }, px: 500, py: 8, pz: 480, dir: { x: 0, y: 0, z: 1 }, damage: cfgMod.CFG.crates.hp * 0.5 });
+        crateMod.crateBulletHits();
+        crateMod.updateCrates(0.016);
+        T('peti: kena tembak -> tersentak + tutup MENGANGA (umpan balik rusak)',
+            cr.hit > 0 && cr.mesh.scale.x > 1 && cr.lid.position.y > lidY0 && cr.lid.rotation.z > 0);
+        for (let i = 0; i < 40; i++) crateMod.updateCrates(0.05);
+        T('peti: sentakan meluruh kembali normal & cincin sasaran berputar',
+            cr.hit === 0 && Math.abs(cr.mesh.scale.x - 1) < 1e-6 && cr.ring.rotation.z > ringZ0);
+        crateMod.resetCrates();
+        crateMod.updateCrates(0.016);   // tanpa peti = no-op (tak melempar)
+        stateMod.bullets.length = 0;
+    }
 
     // (b3) TEBASAN pedang memecah peti (jangkauan + kerucut depan yang sama).
     stateMod.drops.length = 0;
@@ -3743,6 +3858,64 @@ const palMod = await import(R('src/world/palette.js'));
     }
     if (dirHits.length) console.log('  dir-hits:', dirHits);
     T('teks misi: tanpa penunjuk arah (north/south/east/west/far-right/...)', dirHits.length === 0);
+}
+
+// === GARIS TEMBAK != GARIS JALAN untuk robot PENEMBAK B/A (bugfix 2026-07-27,
+// laporan user): penembak dulu memakai LOS NAV-GRID (`aim.direct`) yang ikut
+// memblok FURNITUR/pohon — padahal peluru robot hanya diblok dinding+pintu
+// (campaign) / siluet Monas (survival). Akibatnya robot ranged di balik meja
+// mengitari meja seperti robot melee C, bukan berdiri menembak. ===
+{
+    const comMod3 = await import(R('src/scenes/campaign/utility/common.js'));
+    const pfMod = await import(R('src/utils/pathfind.js'));
+    const survMod2 = await import(R('src/scenes/survival/index.js'));
+
+    // (a) CAMPAIGN — "meja" = sel nav TAK-BOLEH-JALAN antara robot & player,
+    //     tapi ruangan tetap terhubung (A* punya jalan memutar).
+    const grid = pfMod.makeNavGrid(-200, -200, 20, 30, 20,
+        (x, z) => !(x > 20 && x < 45 && z > -60 && z < 60));
+    T('uji: nav-grid memang MEMBLOK jalan lurus robot->player (meja di tengah)',
+        pfMod.gridLOS(grid, 60, 0, 0, 0) === false);
+
+    let losClear = true;
+    const stg = { walkable: () => true, resolve: () => { }, nav: grid, los: () => losClear };
+    camera.position.set(0, cfgMod.CFG.player.eyeHeight, 0);
+    while (robots.length) robots.pop();
+    const zR = mkBot('B', 60, 0);       // 60 unit < 0.95×range B (jarak berhenti tembak)
+    zR.speed = 1; zR.state = 'chasing';
+    T('uji: robot penembak berada DI DALAM radius tembaknya', 60 < zR.range * 0.95);
+
+    // Nilai awal SENGAJA dibalik: lulus hanya bila AI benar-benar menulisnya.
+    zR.losOK = false; zR.moving = true; zR.aiming = false;
+    comMod3.campaignRobotAI(zR, 0.016, 1, stg);
+    T('penembak: garis TEMBAK bebas -> DIAM di tempat menembaki player (tak mengitari meja)',
+        zR.losOK === true && zR.moving === false && zR.aiming === true
+        && zR.mesh.position.x === 60 && zR.mesh.position.z === 0);
+
+    losClear = false;                   // dinding/pintu (bukan meja) menutup garis tembak
+    comMod3.campaignRobotAI(zR, 0.016, 1, stg);
+    T('penembak: garis TEMBAK tertutup -> bergerak mencari sudut (losOK false)',
+        zR.losOK === false && zR.moving === true
+        && (zR.mesh.position.x !== 60 || zR.mesh.position.z !== 0));
+
+    // Stage 4 (outdoor, TANPA hook los & bulletBlocked selalu false): garis tembak
+    // dianggap selalu bebas -> penembak tetap berdiri walau nav terhalang.
+    const zR4 = mkBot('B', 60, 0);
+    zR4.speed = 1; zR4.state = 'chasing'; zR4.losOK = false; zR4.moving = true;
+    comMod3.campaignRobotAI(zR4, 0.016, 1, { walkable: () => true, resolve: () => { }, nav: grid });
+    T('penembak stage outdoor (tanpa hook los): garis tembak bebas -> diam menembak',
+        zR4.losOK === true && zR4.moving === false);
+    while (robots.length) robots.pop();
+
+    // (b) SURVIVAL — penghalang peluru HANYA siluet Monas (pohon/bak menembus).
+    const mb = survMod2.monasShotBlocked;
+    T('survival: garis tembak menembus PUSAT Monas = terblokir',
+        mb(100, 0, -100, 0, 10) === true);
+    T('survival: garis tembak jauh dari Monas = bebas',
+        mb(100, 200, 100, -200, 10) === false);
+    T('survival: siluet bertingkat — lewat di samping obelisk bebas di ketinggian mata, terblokir di dasar lebar',
+        mb(12, 200, 12, -200, 10) === false && mb(12, 200, 12, -200, 1) === true);
+    T('survival: di atas puncak Monas = tak pernah memblok', mb(0, 200, 0, -200, 999) === false);
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

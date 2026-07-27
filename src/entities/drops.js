@@ -8,7 +8,7 @@
 // `d.weapon` ('pistol'|'shotgun'|'rifle'|'launcher') dan HANYA mengisi senjata
 // itu; bentuk meshnya beda-beda per jenis (entities/ammoPickups.js).
 
-import { CFG, CAMP_M } from '../core/config.js';
+import { CFG } from '../core/config.js';
 import { player, drops, maxAmmoFor, addScore } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
@@ -65,8 +65,10 @@ export function spawnMedkitDrop(x, z, lifetime) {
 }
 
 // ----- LOOT / uang (SECOND-IMPROVEMENT-PLAN point 1, 2026-07-22) -----
-// Chip kredit amber yang JATUH dari robot mati (campaign) lalu TERSEDOT ke player
-// (magnet) dan menambah SKOR = mata uang shop. Campaign kini TAK memberi skor
+// Chip kredit amber yang JATUH dari robot mati (campaign), DIAM di tempat
+// jatuhnya (magnet DIHAPUS 2026-07-27 atas permintaan user — player harus
+// mendatangi uangnya sendiri), dan menambah SKOR = mata uang shop saat
+// dilewati. Campaign kini TAK memberi skor
 // saat kill (killRobot: hook activeScene.awardKill -> campaignAwardKill menaruh
 // loot); player harus MELOOT untuk dapat uang belanja (ala Alien Shooter).
 // Geo/material BERSAMA (JANGAN dispose). Amber = aksen manusia GIBS-2045.
@@ -90,7 +92,8 @@ export function buildLootMesh() {
 }
 
 // Taruh loot senilai `value` (dipecah `chips` keping) di (x,z) — dipakai
-// campaignAwardKill (common.js). Keping tersebar sedikit + magnet ke player.
+// campaignAwardKill (common.js). Keping tersebar sedikit di sekitar titik jatuh
+// dan TETAP DI SANA sampai player melewatinya (lootPickupRadius).
 export function spawnLoot(x, z, value, chips = 1) {
     const [px, pz] = activeScene.clampDropPos(x, z);
     const per = Math.max(1, Math.round(value / chips));
@@ -124,18 +127,16 @@ export function updateDrops(dt, T) {
         const d = drops[i];
         d.timer -= dt;
 
-        // LOOT (uang): berputar pipih + TERSEDOT ke player (magnet) -> ambil =
-        // +value ke SKOR (mata uang shop campaign). Ditangani penuh di sini.
+        // LOOT (uang): berputar pipih DI TEMPAT -> ambil = +value ke SKOR (mata
+        // uang shop campaign). Ditangani penuh di sini.
+        // TANPA MAGNET (2026-07-27, permintaan user): dulu keping loot TERSEDOT
+        // ke player begitu masuk radius lootMagnetMeters. Sekarang uang DIAM di
+        // tempat jatuhnya — player harus mendatangi & MELEWATINYA sendiri
+        // (lootMagnetMeters/lootMagnetSpeed dihapus dari config).
         if (d.type === 'loot') {
             d.spin += 5 * dt; d.mesh.rotation.y = d.spin;
-            const dxl = camera.position.x - d.mesh.position.x, dzl = camera.position.z - d.mesh.position.z;
-            const distL = Math.hypot(dxl, dzl);
-            const magR = CFG.drops.lootMagnetMeters * CAMP_M;
-            if (distL < magR && distL > 1e-3) {   // makin dekat makin cepat tersedot
-                const pull = CFG.drops.lootMagnetSpeed * (0.4 + 0.6 * (1 - distL / magR));
-                d.mesh.position.x += dxl / distL * pull * dt;
-                d.mesh.position.z += dzl / distL * pull * dt;
-            }
+            const distL = Math.hypot(camera.position.x - d.mesh.position.x,
+                camera.position.z - d.mesh.position.z);
             d.mesh.position.y = 2 + Math.sin(T * 4 + i) * 0.4;
             if (distL < CFG.drops.lootPickupRadius) {
                 addScore(d.value);

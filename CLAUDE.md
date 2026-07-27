@@ -38,7 +38,7 @@ Browser **TOP-DOWN SHOOTER** (Alien Shooter-style; **pivoted from FPS on 2026-07
 **Two game modes** picked on the `#modeSelect` screen at load (plus an EASY/NORMAL/HARD difficulty row — `applyDifficulty` recomputes CFG from the pristine `CFG_BASE`, per-difficulty high scores):
 
 - **Survival** — round-based waves defending the Monas monument; robots prioritize the Monument over the player; clearing a wave opens the Field Shop. Score = shop currency. Opens with a **9-shot in-engine cinematic** in the park (`survival/cutscenes/monasIntro.js` — replaced the old DOM slideshow on 2026-07-27; its four story beats are a smoke-tested contract). → [docs/survival.md](docs/survival.md)
-- **Campaign** — a linear 4-stage mode (intro helicopter cutscene → three abandoned-office floors → an outdoor highway/alun-alun finale with a tank boss), with a shop scene between stages. Kills drop **loot** that magnets to the player and becomes the shop currency. → [docs/campaign.md](docs/campaign.md)
+- **Campaign** — a linear 4-stage mode (intro helicopter cutscene → three abandoned-office floors → an outdoor highway/alun-alun finale with a tank boss), with a shop scene between stages. Kills drop **loot** that stays where it falls (the player must walk over it) and becomes the shop currency. → [docs/campaign.md](docs/campaign.md)
 
 ## Architecture (refactored 2026-07-05 into ES modules)
 

@@ -19,7 +19,7 @@ import { updateExplosions, updateBloodPool, resetBloodPool, resetMuzzleFlashes }
 import { updateGore, resetGore } from '../entities/gore.js';
 import { updateDrops } from '../entities/drops.js';
 import { updateBarrels, barrelBulletHits, resetBarrels } from '../entities/barrels.js';
-import { crateBulletHits, resetCrates } from '../entities/crates.js';
+import { crateBulletHits, updateCrates, resetCrates } from '../entities/crates.js';
 import { updateBullets } from '../entities/bullets.js';
 import { updateRobots, updateEnemyBullets, disposeRobot, resetRobotsFx } from '../entities/robots.js';
 import { avatarGroup, hideMoveMarker, playAvatarDeath, resetAvatarDeath } from '../entities/playerAvatar.js';
@@ -96,6 +96,7 @@ export function updateGame(dt, step, T, dtReal = dt) {
     updateBloodPool(dt);           // pudarkan percikan darah
     updateDrops(dt, T);            // bob item + pickup + kedaluwarsa (+ magnet loot)
     updateBarrels(dt);             // denyut beacon barel peledak
+    updateCrates(dt);              // denyut penanda + sentakan/rusak peti persediaan
     updateBullets(step);           // maju + mati di dinding scene
     barrelBulletHits();            // peluru player -> barel meledak (SEBELUM sweep robot)
     crateBulletHits();             // peluru player -> peti persediaan pecah (isi loot)

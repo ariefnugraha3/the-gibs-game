@@ -127,16 +127,28 @@ export function campaignRobotAI(z, dt, step, stage) {
     // selain itu menuju waypoint agar memutari tembok/median. Gerak memakai
     // heading berlaju-putar-terbatas (turnToward) -> belokan melengkung alami.
     const aim = navAim(z, stage.nav, camera.position.x, camera.position.z, dt, step);
+    // GARIS TEMBAK != GARIS JALAN (bugfix 2026-07-27, laporan user): dulu
+    // penembak B/A memakai `aim.direct` — LOS NAV-GRID setebal badan robot, yang
+    // ikut memblok FURNITUR (meja/lemari). Akibatnya robot ranged di balik meja
+    // mengira tembakannya terhalang lalu MENGITARI meja seperti robot melee C,
+    // padahal peluru robot HANYA diblok dinding & pintu tertutup
+    // (`bulletBlocked` stage 1-3; stage 4 outdoor tak memblok apa pun). Kini
+    // gerbangnya = hook `stage.los` — predikat yang SAMA dengan peluru — jadi
+    // penembak berdiri diam menembaki player melewati meja di depannya.
+    // Tanpa hook los (stage 4) = garis tembak selalu bebas.
+    const shotOK = !z.ranged ? aim.direct
+        : (stage.los ? stage.los(z.mesh.position.x, z.mesh.position.z,
+            camera.position.x, camera.position.z) : true);
     // PENEMBAK (B/A): berhenti di radius tembaknya (0.95×range) bila garis
-    // pandang bebas, lalu menembak dari tempat (gerbang tembak = z.losOK di
+    // TEMBAK bebas, lalu menembak dari tempat (gerbang tembak = z.losOK di
     // robots.js); melee merapat sampai jangkauan cakar seperti biasa.
-    const stopD = z.ranged && aim.direct ? (z.range || 70) * 0.95
+    const stopD = z.ranged && shotOK ? (z.range || 70) * 0.95
         : player.radius + CFG.robot.stopRange * (z.reachMul || 1);
-    z.moving = !aim.direct || distToEye > stopD;
-    z.losOK = aim.direct;
+    z.moving = !shotOK || distToEye > stopD;
+    z.losOK = shotOK;
     // Stance MEMBIDIK (lengan senapan terangkat, animateRobotRig): berdiri di
-    // radius tembak dgn garis pandang bebas = mengacungkan senjata.
-    if (z.ranged) z.aiming = !z.moving && aim.direct;
+    // radius tembak dgn garis tembak bebas = mengacungkan senjata.
+    if (z.ranged) z.aiming = !z.moving && shotOK;
     if (z.moving) {
         const ang = turnToward(z,
             Math.atan2(aim.z - z.mesh.position.z, aim.x - z.mesh.position.x), dt);
