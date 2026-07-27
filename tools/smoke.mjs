@@ -930,17 +930,134 @@ const drive = (dx, dz, frames) => {
 };
 camera.position.set(500, 11.4, 500);
 const AIM_N = Math.PI;   // menghadap -z (grup menghadap +Z -> yaw pi)
+// Puntiran-balik bahu siklus lari (2026-07-27) adalah OSILASI HIASAN di atas
+// rantai-hadap — dikurangkan dulu supaya assert di bawah menguji rantai-aim
+// murni (bukan fase langkah yang kebetulan sedang di mana).
+const twistOf = () => avMod.avatarGroup.children[0].rotation.y - avMod.avatarGaitDebug().counter;
 drive(0, -3, 60);        // maju SEARAH bidikan
 T('maju: kaki & torso lurus ke kursor',
-    ad(avMod.avatarGroup.rotation.y, AIM_N) < 0.12 && Math.abs(avMod.avatarGroup.children[0].rotation.y) < 0.12);
+    ad(avMod.avatarGroup.rotation.y, AIM_N) < 0.12 && Math.abs(twistOf()) < 0.12);
 drive(3, 0, 60);         // strafe kanan (90° dari bidikan)
-const rootY = avMod.avatarGroup.rotation.y, twistY = avMod.avatarGroup.children[0].rotation.y;
+const rootY = avMod.avatarGroup.rotation.y, twistY = twistOf();
 T('strafe: kaki menghadap arah gerak (dijepit) + puntiran torso menutup sisanya (root '
     + rootY.toFixed(2) + ' twist ' + twistY.toFixed(2) + ')',
     ad(rootY, AIM_N) > 0.35 && Math.abs(twistY) > 0.35 && ad(rootY + twistY, AIM_N) < 0.2);
 drive(0, 3, 60);         // mundur MEMBELAKANGI bidikan (backpedal)
 T('backpedal: kaki TIDAK berbalik membelakangi kursor',
     ad(avMod.avatarGroup.rotation.y, AIM_N) < 0.3);
+
+// --- 11a. SIKLUS LARI MANUSIAWI (dirombak 2026-07-27, permintaan user: gait
+//     lama "masih terlihat sangat kaku"). Yang diuji = sifat-sifat yang
+//     MEMBEDAKANNYA dari kurva lama (pinggul sinus + lutut setengah-sinus):
+//     lutut tak pernah terbalik, kaki TUMPU ikut menekuk (peredaman), badan
+//     ber-BOB 2× per siklus langkah, kepala distabilkan, senjata berdenyut &
+//     tangan menempel padanya, kadens naik mengikuti kecepatan. ---
+{
+    const sample = (dx, dz, n, dt = 0.05) => {
+        const out = [];
+        for (let i = 0; i < n; i++) {
+            camera.position.x += dx; camera.position.z += dz;
+            inputMod.aimPoint.set(camera.position.x, 0, camera.position.z - 100000);
+            avMod.updatePlayerAvatar(dt);
+            const g = avMod.avatarGaitDebug(), d = avMod.avatarDodgeDebug();
+            out.push({ ...g, hipL: d.hipL, hipR: d.hipR, kneeL: d.kneeL, kneeR: d.kneeR, y: d.y });
+        }
+        return out;
+    };
+    camera.position.set(500, 11.4, 500);
+    const run = sample(0, -3, 80);   // lari MAJU searah bidikan (60 unit/dtk)
+
+    T('lari: lutut TIDAK PERNAH terbalik (sendi lutut hanya menekuk satu arah)',
+        run.every(s => s.kneeL >= -1e-9 && s.kneeR >= -1e-9));
+
+    // Kurva LAMA menempelkan puncak tekukan lutut TEPAT di pinggul paling MAJU
+    // (knee = max(0,−sin), hip = sin) — kaki depan menekuk saat seharusnya
+    // MENJULUR menjemput lantai. Kurva baru: di pinggul paling maju lutut
+    // nyaris LURUS (menjemput tapak), puncaknya pindah ke tengah ayunan.
+    const fwdMost = run.reduce((a, b) => (b.hipL < a.hipL ? b : a), run[0]);
+    T('lari: di langkah paling MAJU lutut menjulur (bukan menekuk spt kurva lama)',
+        fwdMost.kneeL < 0.25);
+    const deepest = run.reduce((a, b) => (b.bob < a.bob ? b : a), run[0]);
+    T('lari: di titik badan TERENDAH, kaki tumpu MEREDAM (lutut menekuk, bukan lurus)',
+        Math.min(deepest.kneeL, deepest.kneeR) > 0.1);
+
+    // Lutut ayunan jauh lebih dalam dari lutut tumpu = tumit menendang ke pantat.
+    const maxKnee = run.reduce((m, s) => Math.max(m, s.kneeL, s.kneeR), 0);
+    T('lari: ayunan mengangkat tumit tinggi (tekukan lutut puncak ' + maxKnee.toFixed(2) + ')',
+        maxKnee > 0.9 && maxKnee > Math.min(deepest.kneeL, deepest.kneeR) * 1.8);
+
+    // BOB: selalu <= 0 (turun dari tinggi berdiri, tak pernah melayang) dan
+    // menyentuh dasar DUA KALI per siklus langkah (satu per tapak).
+    const bobs = run.map(s => s.bob);
+    T('lari: bob badan selalu turun (tak pernah melayang di atas tinggi berdiri)',
+        bobs.every(b => b <= 1e-9) && Math.min(...bobs) < -0.3);
+    let dips = 0;
+    for (let i = 1; i < run.length - 1; i++)
+        if (bobs[i] < bobs[i - 1] && bobs[i] <= bobs[i + 1] && bobs[i] < -0.3) dips++;
+    const cycles = run.filter((s, i) => i > 0 && s.phase < run[i - 1].phase).length;
+    T('lari: bob berfrekuensi 2× langkah (' + dips + ' tapak / ' + cycles + ' siklus)',
+        cycles >= 2 && dips >= cycles * 2 - 1);
+
+    T('lari: KEPALA distabilkan berlawanan bob badan (pandangan tetap datar)',
+        run.every(s => s.bob >= -1e-9 || (s.headY > 0 && s.headY < -s.bob)));
+
+    // Senjata berdenyut (inersia) & TELAPAK TANGAN ikut — selisih tangan-senjata
+    // jauh lebih stabil daripada denyut senjatanya sendiri = tangan menempel.
+    const gunSpan = Math.max(...run.map(s => s.gunY)) - Math.min(...run.map(s => s.gunY));
+    T('lari: senjata berdenyut karena inersia (rentang ' + gunSpan.toFixed(2) + ')', gunSpan > 0.15);
+    // Telapak MENEMPEL: tiap kali senjata bergerak naik/turun, tangan bergerak
+    // ke arah yang SAMA (anchor genggam digeser ofset yang sama + ikut diputar
+    // pitch senjata) — bukan tangan diam sementara senapan melayang.
+    let agree = 0, tested = 0;
+    for (let i = 1; i < run.length; i++) {
+        const dg = run[i].gunY - run[i - 1].gunY, dh = run[i].handRY - run[i - 1].handRY;
+        if (Math.abs(dg) > 0.01) { tested++; if (dg * dh > 0) agree++; }
+    }
+    T('lari: TELAPAK TANGAN mengikuti denyut senjata (tetap menempel di grip, ' + agree + '/' + tested + ')',
+        tested > 10 && agree === tested);
+
+    // Kadens & intensitas ikut kecepatan: langkah pelan = runK & laju fase kecil.
+    const dPhase = (a) => a.reduce((s, v, i) => i ? s + Math.abs(wrap(v.phase - a[i - 1].phase)) : 0, 0);
+    const wrap = (d) => Math.abs(d) > Math.PI ? d - Math.sign(d) * Math.PI * 2 : d;
+    camera.position.set(500, 11.4, 500);
+    const slow = sample(0, -0.6, 80);
+    T('lari: kadens & intensitas naik mengikuti kecepatan',
+        run[run.length - 1].runK > slow[slow.length - 1].runK + 0.3 && dPhase(run) > dPhase(slow) * 1.2);
+
+    // Condong badan mengikuti arah lari (maju condong depan, backpedal ke belakang).
+    camera.position.set(500, 11.4, 500);
+    const back = sample(0, 3, 60);
+    T('lari: badan CONDONG ke arah lari (maju + / backpedal −)',
+        run[run.length - 1].lean > 0.05 && back[back.length - 1].lean < -0.05);
+
+    // BERHENTI: semua kanal baru (condong torso, bob, denyut senjata) luruh ke 0
+    // — kalau tidak, avatar diam akan tampak "membeku sambil lari".
+    for (let i = 0; i < 60; i++) {
+        inputMod.aimPoint.set(camera.position.x, 0, camera.position.z - 100000);
+        avMod.updatePlayerAvatar(0.05);
+    }
+    const idle = avMod.avatarGaitDebug();
+    T('berhenti: condong/bob/denyut senjata luruh ke 0 (tak membeku dalam pose lari)',
+        idle.runK === 0 && idle.bob === 0 && idle.gunY === 0 && idle.lean === 0
+        && Math.abs(avMod.avatarGroup.children[0].rotation.x) < 0.01);
+
+    // LARI SAMBIL MENEMBAK: recoil hidup -> denyut senjata & puntiran bahu
+    // DIPADAMKAN (senapan ditahan di garis bidik) walau kaki tetap berlari.
+    camera.position.set(500, 11.4, 500);
+    const calm = sample(0, -3, 40);
+    stateMod.mouse.isDown = true; player.lastShot = 0;
+    wMod.updateShooting();               // gunRecoil = 1
+    stateMod.mouse.isDown = false;
+    const hot = sample(0, -3, 1)[0];
+    const calmAt = calm.find(s => Math.abs(Math.sin(s.phase) - Math.sin(hot.phase)) < 0.35) || calm[calm.length - 1];
+    T('lari sambil MENEMBAK: denyut senjata & puntiran bahu diredam (senapan ditahan di garis bidik)',
+        wMod.gunRecoil > 0.5 && Math.abs(hot.gunY) < Math.abs(calmAt.gunY) * 0.6
+        && Math.abs(hot.counter) <= Math.abs(calmAt.counter) + 1e-9);
+    while (stateMod.bullets.length) { scene.remove(stateMod.bullets[0].mesh); stateMod.bullets.splice(0, 1); }
+    // Padamkan recoil + pose lari (recoil sisa memblok AFK di uji berikutnya).
+    for (let i = 0; i < 20; i++) wMod.updateWeaponState(0.05);
+    for (let i = 0; i < 20; i++) avMod.updatePlayerAvatar(0.05);
+}
 
 // --- 11b. Varian prop Lv3 (currentWeapon default 'rifle' -> Gatling) ---
 player.weaponLvl.rifle = 3;

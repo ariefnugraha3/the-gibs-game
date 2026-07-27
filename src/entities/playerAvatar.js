@@ -165,6 +165,41 @@ function mixHands3(coilP, tuckP, reachP, balP, C) {
     return mixHands(b, balP, C.plant);
 }
 
+// ===== SIKLUS LARI MANUSIAWI (dirombak 2026-07-27, permintaan user: gait lama
+// "masih terlihat sangat kaku") ==========================================
+// Versi lama: pinggul = sinus murni, lutut = setengah sinus (hanya menekuk di
+// separuh siklus), bob kecil di torso — dari atas terbaca sebagai BONEKA YANG
+// DIGESER: kaki tumpu selalu lurus (tak ada peredaman benturan), badan tak
+// punya berat, dan senapan diam mati di depan dada.
+//
+// Kurva baru meniru siklus lari nyata. Sudut fase `th` dipilih sehingga
+// `sin(th)` = "seberapa MAJU" kaki itu:
+//   th = +π/2  kaki paling DEPAN    -> tapak mendarat (heel strike), lutut lurus
+//   th ≈ +2.80 mid-stance           -> lutut MEREDAM, badan paling rendah
+//   th = −π/2  kaki paling BELAKANG -> tolakan (toe-off), lutut nyaris lurus
+//   th ≈ −0.65 tengah AYUNAN        -> tumit menendang ke pantat (tekukan puncak)
+// Puncak peredaman SENGAJA disetel di th≈2.80 supaya jatuh tepat bersamaan
+// dengan titik terendah bob badan (bob berfrekuensi 2× fase langkah) — lutut
+// menekuk PERSIS saat berat badan turun, bukan di waktu acak.
+// Dua "bump" gaussian melingkar dijumlahkan jadi kurva lutut; bump ayunan
+// SENGAJA asimetris (sempit di sisi tolakan, lebar di sisi jangkauan) supaya
+// lutut lurus saat menolak lalu menekuk dalam saat kaki melayang — itu yang
+// membedakan lari dari "kaki diayun-ayun".
+const TAU = Math.PI * 2;
+const angBump = (a, c, wLo, wHi) => {
+    const dd = wrapPI(a - c);
+    const d = dd / (dd < 0 ? wLo : wHi);
+    return Math.exp(-d * d);
+};
+// Satu kaki: [sudut pinggul, sudut lutut]. Konvensi rig: rotation.x pinggul
+// POSITIF = kaki ke BELAKANG, rotation.x lutut POSITIF = tumit terangkat.
+function legCycle(th, ah, ak) {
+    const hip = -ah * (Math.sin(th) + 0.14);        // +0.14 = bias condong khas lari
+    const knee = ak * (angBump(th, -0.65, 0.55, 1.05)          // tekukan BESAR di ayunan
+        + 0.44 * angBump(th, 2.80, 0.60, 0.90));               // peredaman saat menapak
+    return [hip, knee];
+}
+
 // ===== Pemisahan badan ATAS/BAWAH (2026-07-12) =====
 const MAX_TWIST = 1.05;    // puntiran pinggang maks (~60°) — batas anatomi torso vs kaki
 const HEAD_TWIST = 0.62;   // toleh EKSTRA kepala di atas puntiran torso (~35°)
@@ -584,6 +619,15 @@ export const avatarDeathDebug = () => ({
 });
 // Debug/uji GULINGAN: pose rig tak terbaca dari quaternion di harness stub, dan
 // pivot kaki bukan ekspor publik — jadi nilai pose diambil dari sini.
+// Nilai kurva SIKLUS LARI frame terakhir (smoke test 2026-07-27): fase langkah,
+// intensitas lari, bob badan, puntiran-balik bahu, dan denyut senjata.
+let gaitDbg = { phase: 0, runK: 0, bob: 0, counter: 0, gunY: 0, gunX: 0, lean: 0 };
+export const avatarGaitDebug = () => ({
+    ...gaitDbg,
+    headY: headG ? headG.position.y : 0,
+    handRY: handR ? handR.position.y : 0,
+});
+
 export const avatarDodgeDebug = () => ({
     side: dodgeSide, land: landT,
     torso: upperG ? upperG.rotation.x : 0,
@@ -1103,6 +1147,60 @@ export function updatePlayerAvatar(dt) {
     headYawCur = approachAngle(headYawCur, hdTarget, dt * 24);
     headG.rotation.y = headYawCur;
 
+    // ===== SIKLUS LARI: hitung SEMUA kurvanya DI SINI (sebelum blok prop &
+    // target tangan) karena senjata + telapak ikut berdenyut bersama badan.
+    // Semuanya murni visual — arah tembak tetap dari `camera`, posisi logika
+    // player tak tersentuh. Rincian kurva kaki ada di legCycle() di atas.
+    // Yang ditambahkan dibanding gait lama:
+    //   1. LUTUT dua-puncak (ayunan + peredaman menapak) — kaki tumpu tak lagi
+    //      lurus kaku sepanjang langkah.
+    //   2. BOB BADAN 2× frekuensi langkah, TERDALAM tepat di mid-stance = berat
+    //      badan yang dulu hilang; kepala DISTABILKAN ~setengahnya (refleks
+    //      manusia menjaga pandangan tetap datar).
+    //   3. CONDONG seluruh badan ke arah lari (poros di kaki) + miring ke dalam
+    //      saat menyamping; torso menambah condong sendiri.
+    //   4. BAHU MELAWAN PINGGUL — karena KEDUA tangan memegang senjata, puntiran
+    //      balik torso inilah pengganti ayunan lengan (dan ia mengayunkan
+    //      senapan kiri-kanan seperti orang berlari sungguhan).
+    //   5. SENJATA BERDENYUT karena INERSIA: tertinggal naik saat badan turun +
+    //      moncong mengangguk; ANCHOR GENGGAM digeser dgn ofset yang sama
+    //      sehingga telapak tetap menempel di grip/forend.
+    //   6. LARI SAMBIL MENEMBAK: begitu senjata meletus (`gunRecoil`), denyut
+    //      senjata & puntiran bahu DIPADAMKAN ~70% — kaki tetap berlari tapi
+    //      senapan DITAHAN stabil di garis bidik. =====
+    const FIRE = clamp01(gunRecoil * 2.2);   // 1 = baru saja melepas tembakan
+    let runK = 0, bodyBob = 0, leanF = 0, leanS = 0, torsoPitch = 0, torsoCounter = 0;
+    let gunDX = 0, gunDY = 0, gunPitch = 0;
+    let hipXL = 0, hipXR = 0, kneeXL = 0, kneeXR = 0, hipZ = 0;
+    if (moving && !dodgeActive) {
+        const relL = wrapPI(moveYawNow - legYaw);
+        const fComp = Math.cos(relL), lComp = Math.sin(relL);
+        runK = clamp01((sp - 8) / 62);                       // 0 = merayap, 1 = lari penuh
+        phase += dt * gaitSign * (6.5 + 9.0 * runK);         // kadens ikut kecepatan
+        phase = ((phase % TAU) + TAU) % TAU;                 // jaga presisi sin() jangka panjang
+        const dirAmp = Math.max(0.32, Math.abs(fComp));      // menyamping = langkah lebih pendek
+        const legL = legCycle(phase, (0.30 + 0.50 * runK) * dirAmp, (0.50 + 1.05 * runK) * dirAmp);
+        const legR = legCycle(phase + Math.PI, (0.30 + 0.50 * runK) * dirAmp, (0.50 + 1.05 * runK) * dirAmp);
+        hipXL = legL[0]; kneeXL = legL[1];
+        hipXR = legR[0]; kneeXR = legR[1];
+        const sw = Math.sin(phase);
+        // Bidang FRONTAL: shuffle menyamping (kedua kaki membuka ke sisi gerak,
+        // perilaku lama) + sedikit CROSSOVER (kaki mengayun mendekat ke garis
+        // tengah badan) supaya langkahnya tidak terlihat seperti rel sejajar.
+        hipZ = sw * ((0.24 + 0.30 * runK) * lComp + 0.07 * dirAmp);
+        bodyBob = -(0.28 + 0.62 * runK) * dirAmp * (0.5 + 0.5 * Math.cos(2 * phase));
+        leanF = (0.05 + 0.13 * runK) * fComp;                // condong ke arah lari
+        leanS = -(0.04 + 0.09 * runK) * lComp;               // miring ke dalam saat menyamping
+        torsoPitch = (0.03 + 0.11 * runK) * Math.max(0, fComp) * (1 - 0.55 * FIRE);
+        torsoCounter = -(0.05 + 0.11 * runK) * sw * (1 - 0.7 * FIRE);
+        const steady = 1 - 0.7 * FIRE;                       // menembak = senjata ditahan
+        gunDY = -bodyBob * 0.42 * steady;                    // inersia: senapan tertinggal naik
+        gunDX = (0.07 + 0.13 * runK) * sw * steady;
+        gunPitch = -(0.02 + 0.07 * runK) * Math.cos(2 * phase) * steady;
+    }
+    gaitDbg.phase = phase; gaitDbg.runK = runK; gaitDbg.bob = bodyBob;
+    gaitDbg.counter = torsoCounter; gaitDbg.gunY = gunDY; gaitDbg.gunX = gunDX; gaitDbg.lean = leanF;
+
     // Prop terlihat = medkit saat medkitMode, selain itu senjata aktif — dengan
     // VARIAN LEVEL 3 (2026-07-12): senjata yang di-upgrade sampai Lv3 di shop
     // memakai bentuk 'X3' (Desert Eagle / combat shotgun / Gatling / roket bahu).
@@ -1127,11 +1225,17 @@ export function updatePlayerAvatar(dt) {
     // CFG.weapons.<w>.cameraKick (shotgun/launcher menghentak lebih); gunRecoil
     // = 1 saat menembak lalu meluruh (weapons.updateWeaponState). cos/sin pitch
     // disimpan utk memutar TITIK GENGGAM di bawah — tangan ikut hentakan.
+    // DENYUT LARI ikut lewat kanal yang SAMA (prop, bukan gunGrp): pitch
+    // ditambahkan ke sudut recoil sehingga anchor genggam di bawah otomatis
+    // ikut berputar, dan geseran (gunDX/gunDY) ditulis ke posisi prop lalu
+    // dijumlahkan ke target tangan. gunGrp & avatarGunTip TIDAK bergerak —
+    // titik spawn peluru + kilat muzzle tetap terkalibrasi (invarian).
     let recC = 1, recS = 0;
     if (props && props[key]) {
         const wc = CFG.weapons[base];   // config per senjata DASAR (varian Lv3 tak punya entri CFG)
-        const a = -gunRecoil * ((wc && wc.cameraKick) || 0) * 6;
+        const a = -gunRecoil * ((wc && wc.cameraKick) || 0) * 6 + gunPitch;
         props[key].rotation.x = a;
+        props[key].position.set(gunDX, gunDY, 0);
         recC = Math.cos(a); recS = Math.sin(a);
     }
 
@@ -1154,11 +1258,11 @@ export function updatePlayerAvatar(dt) {
     // telapak tetap MENEMPEL di grip/forend yang terangkat — tangan depan naik
     // paling terasa (dekat moncong), tangan pelatuk nyaris diam (dekat pangkal). -----
     const G = GRIPS[key] || GRIPS.rifle;
-    let rTx = GUN_OFF.x + G.R.x,
-        rTy = GUN_OFF.y + G.R.y * recC - G.R.z * recS,
+    let rTx = GUN_OFF.x + gunDX + G.R.x,
+        rTy = GUN_OFF.y + gunDY + G.R.y * recC - G.R.z * recS,
         rTz = GUN_OFF.z + G.R.y * recS + G.R.z * recC;
-    let lTx = GUN_OFF.x + G.L.x,
-        lTy = GUN_OFF.y + G.L.y * recC - G.L.z * recS,
+    let lTx = GUN_OFF.x + gunDX + G.L.x,
+        lTy = GUN_OFF.y + gunDY + G.L.y * recC - G.L.z * recS,
         lTz = GUN_OFF.z + G.L.y * recS + G.L.z * recC;
     let meleeDip = 0;   // merendah kuda-kuda saat menebas (dipakai blok kaki di bawah)
     if (dodgeActive) {
@@ -1327,25 +1431,22 @@ export function updatePlayerAvatar(dt) {
             gunGrpRef.rotation.set(-0.35 * C.tuck, 0.6 * C.tuck, 0);
         }
     } else if (moving) {
-        // ===== GAIT TERARAH (2026-07-12): siklus mengikuti arah gerak RELATIF
-        // HADAP KAKI — komponen sejajar = ayunan pinggul maju/mundur (fase
-        // DIPUTAR TERBALIK saat backpedal -> kaki benar-benar melangkah mundur),
-        // komponen menyamping = kedua pinggul membuka-menutup bersama
-        // (side-shuffle nyata, bukan "jalan maju menghadap lain"). =====
-        phase += dt * gaitSign * Math.min(13, 4 + sp * 0.12);
-        const relL = wrapPI(moveYawNow - legYaw);
-        const fComp = Math.cos(relL), lComp = Math.sin(relL);
-        const s = Math.sin(phase);
-        const amp = Math.min(0.62, sp * 0.012);
-        const ampF = amp * Math.max(0.3, Math.abs(fComp));   // ayunan sejajar hadap kaki
-        const ampL = amp * 0.85 * lComp;                     // shuffle menyamping
-        hipL.rotation.x = s * ampF;
-        hipR.rotation.x = -s * ampF;
-        kneeL.rotation.x = Math.max(0, -s) * ampF * 1.1;   // lutut menekuk saat kaki mengayun balik
-        kneeR.rotation.x = Math.max(0, s) * ampF * 1.1;
-        hipL.rotation.z = s * ampL;   // kedua kaki membuka/menutup BERSAMA ke sisi gerak
-        hipR.rotation.z = s * ampL;
-        upperG.position.y = Math.sin(phase * 2) * amp * 0.22;   // bob halus badan atas
+        // ===== GAIT TERARAH (2026-07-12; KURVA DIROMBAK 2026-07-27): siklus
+        // mengikuti arah gerak RELATIF HADAP KAKI — komponen sejajar = ayunan
+        // pinggul maju/mundur (fase DIPUTAR TERBALIK saat backpedal -> kaki
+        // benar-benar melangkah mundur), komponen menyamping = kedua pinggul
+        // membuka-menutup bersama (side-shuffle nyata). Nilainya dihitung di
+        // blok "SIKLUS LARI" di atas (senjata & tangan memakai angka yang sama).
+        hipL.rotation.x = hipXL; hipR.rotation.x = hipXR;
+        kneeL.rotation.x = kneeXL; kneeR.rotation.x = kneeXR;
+        hipL.rotation.z = hipZ; hipR.rotation.z = hipZ;
+        upperG.position.y = bodyBob * 0.22;          // torso ikut tertekan di titik terberat
+        upperG.rotation.x = torsoPitch;              // condong ke depan saat lari
+        upperG.rotation.y = twistCur + torsoCounter; // BAHU melawan ayunan pinggul
+        avatarGroup.position.y += bodyBob;           // bob badan (poros kaki)
+        if (leanF) avatarGroup.rotateX(leanF);       // condong ke arah lari
+        if (leanS) avatarGroup.rotateZ(leanS);       // miring ke dalam saat menyamping
+        headG.position.y -= bodyBob * 0.55;          // KEPALA distabilkan (pandangan tetap datar)
     } else if (realign) {
         // Seret langkah kecil saat kaki menyesuaikan hadap (turn-in-place) —
         // kaki tak boleh berputar diam-diam tanpa melangkah.
@@ -1355,12 +1456,14 @@ export function updatePlayerAvatar(dt) {
         kneeL.rotation.x = Math.max(0, -s) * 0.2; kneeR.rotation.x = Math.max(0, s) * 0.2;
         hipL.rotation.z *= 0.85; hipR.rotation.z *= 0.85;
         upperG.position.y *= Math.max(0, 1 - dt * 8);
+        upperG.rotation.x *= Math.max(0, 1 - dt * 8);   // luruhkan condong lari
     } else {
         const damp = Math.max(0, 1 - dt * 10);
         hipL.rotation.x *= damp; hipR.rotation.x *= damp;
         kneeL.rotation.x *= damp; kneeR.rotation.x *= damp;
         hipL.rotation.z *= damp; hipR.rotation.z *= damp;
         upperG.position.y *= damp;
+        upperG.rotation.x *= damp;                      // luruhkan condong lari
     }
     // ===== RECOVER pendaratan gulingan (2026-07-27): LAND_DUR detik SETELAH
     // dodge selesai — i-frame sudah mati, jadi pemulihan memang rentan (itu
@@ -1378,9 +1481,10 @@ export function updatePlayerAvatar(dt) {
         hipR.rotation.x = bl(hipR.rotation.x, inn ? hOut : hIn);
         kneeL.rotation.x = bl(kneeL.rotation.x, inn ? kIn : kOut);
         kneeR.rotation.x = bl(kneeR.rotation.x, inn ? kOut : kIn);
-        // Torso & tinggi badan DITULIS (bukan di-blend): jalur hidup tak pernah
-        // menyentuh upperG.rotation.x, jadi sisa tunduk pose guling harus
-        // diluruhkan eksplisit ke 0 di sini — kalau tidak ia menempel selamanya.
+        // Torso & tinggi badan DITULIS (bukan di-blend) supaya sisa tunduk pose
+        // guling pasti luruh ke 0 — landT berjalan SETELAH blok gait, jadi ia
+        // menang atas condong lari selama 0,22 dtk pemulihan itu (disengaja:
+        // baru mendarat memang belum tegak berlari).
         upperG.rotation.x = 0.45 * we;
         avatarGroup.position.y = feetY - 1.15 * we;   // = kedalaman redam akhir fase plant
     }
