@@ -260,6 +260,19 @@
             "enterSec": 0.9,
             "doorDelaySec": 2.0
         },
+        "tankIntro": {
+            "openSec": 0.8,
+            "surveySec": 2.6,
+            "tremorSec": 2.0,
+            "revealSec": 2.2,
+            "lockSec": 1.7,
+            "fireSec": 0.55,
+            "shellSec": 0.45,
+            "crashSec": 1.9,
+            "advanceSec": 2.8,
+            "faceOffSec": 1.4,
+            "panBackSec": 2.2
+        },
         "doors": {
             "closeDelaySec": 3.0
         },

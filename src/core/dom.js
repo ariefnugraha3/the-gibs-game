@@ -194,6 +194,12 @@ export function hideCineCaption() {
     const el = document.getElementById('cineCaption');
     if (el) el.classList.remove('on');
 }
+// Debug/uji: teks takarir yang SEDANG tampil (null = tersembunyi) — dipakai
+// assert cutscene untuk memastikan takarir benar-benar dilepas di akhir.
+export const cineCaptionDebug = () => {
+    const el = document.getElementById('cineCaption');
+    return el && el.classList && el.classList.contains('on') ? (el.innerText || '') : null;
+};
 
 export function showStageMsg(text, dur = 4200) {
     stageMsgEl.innerText = text;

@@ -45,6 +45,7 @@ import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
 import { buildFuturisticRubbleMesh } from '../../../entities/futuristicRubble.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill } from '../utility/common.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
+import { spawnSmashBuilding, smashBuilding, updateSmashBuilding, resetSmashBuilding, smashBuildingDebug } from '../../../entities/smashBuilding.js';
 import { exitCityEnv } from '../utility/cityscape.js';
 import { campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
@@ -77,10 +78,37 @@ const HELI_POS = S4_END;
 const BOSS_POS = { x: S4_END.x - 90, z: S4_END.z };
 const WRECK_CLEAR = 58;
 export const S4_BOSS = BOSS_POS;   // utk smoke test
+// RUKO YANG DITEROBOS TANK (2026-07-28, permintaan user: "bangunan itu hancur
+// ketika ditabrak oleh tank agar lebih dramatis — sekarang tank hanya berjalan
+// melewatinya"). Sebuah bangunan latar memang berdiri di jalur masuk tank, tapi
+// ia bagian dari gedung latar INSTANCED yang ditaruh acak, jadi tank menembusnya
+// begitu saja. Sekarang: SATU ruko dua lantai berdiri di titik ini sebagai objek
+// tersendiri yang bisa hancur (entities/smashBuilding.js), dan lintasan masuk
+// tank di cutscenes/tankBossIntro.js DITURUNKAN dari titik ini — jadi tabrakannya
+// selalu tepat di tengah muka bangunan, bukan kebetulan. `hz` dipilih supaya muka
+// utaranya tersentuh PERSIS di batas shot telegraf->reveal: bangunan meledak di
+// ujung telegraf, lalu tank menerobos keluar dari puingnya ke dalam frame.
+// z = SQ.z0 − 74 = sejajar baris gedung latar terdekat, DI LUAR zona gameplay.
+export const S4_SMASH = { x: S4_END.x + 20, z: SQ.z0 - 74, hx: 35, hz: 24 };
+// KORIDOR MASUK TANK (2026-07-28, laporan lanjutan user: "kok tanknya masih
+// berjalan menembus sebuah bangunan itu?"). Menaruh SATU ruko yang bisa hancur
+// ternyata belum cukup: jalur masuk tank masih dilewati (a) gedung latar
+// INSTANCED baris "utara alun" yang ditaruh ACAK di z SQ.z0−90..−200, (b) pohon
+// keliling alun, (c) pagar hedge utara, dan (d) KIOS di ring utara — semuanya
+// ditembus begitu saja karena murni dekor tanpa kolisi. Sekarang seluruh koridor
+// ini jadi ZONA BEBAS-DEKOR (masuk DECOR_ZONES): tak ada gedung/pohon/prop yang
+// boleh berdiri di dalamnya, pagar utara DIBELAH di sini, dan SATU-SATUNYA yang
+// berdiri di jalur tank adalah ruko yang memang dirancang untuk HANCUR. Terbaca
+// sebagai jalan kecil dari utara yang bermuara ke alun-alun.
+export const S4_LANE = {
+    x0: S4_SMASH.x - 46, x1: S4_SMASH.x + 52,
+    z0: SQ.z0 - 360, z1: S4_END.z - 110,   // z0 = titik lahir tank (SQ.z0−330) + margin lambung
+};
 
 const blockers = [];      // cover pejal (mobil/bus/pembatas/kontainer/bangunan)
 let navGrid = null;
 let built = false;
+let smashRuko = null;     // ruko yang diterobos tank di cutscene (entities/smashBuilding.js)
 
 // === ZONA GAMEPLAY BEBAS-DEKOR (2026-07-19, permintaan user): gedung/pohon/
 // dekor roadside DILARANG berdiri di area parkiran, koridor jalan raya
@@ -91,8 +119,15 @@ const DECOR_ZONES = [
     { x0: PARK.x0 - 6, x1: PARK.x1 + 6, z0: PARK.z0 - 6, z1: PARK.z1 + 6 },
     { x0: ROAD.x0 - 6, x1: SQ.x0 + 6, z0: ROAD.cz - ROAD.hz - 2, z1: ROAD.cz + ROAD.hz + 2 },
     { x0: SQ.x0 - 6, x1: SQ.x1 + 6, z0: SQ.z0 - 6, z1: SQ.z1 + 6 },
+    S4_LANE,   // koridor masuk tank (2026-07-28) — hanya ruko yang boleh berdiri di sini
 ];
 const decorRects = [];
+// Footprint PROP eksplisit (mkPropDecor/mkPropCover — bangku/planter/kios/puing).
+// Prop ini ditaruh dgn koordinat tetap, TIDAK lewat claimDecor, jadi dulu tak ada
+// yang mencegah salah satunya berdiri di koridor masuk tank (kios ring utara
+// memang begitu). Dicatat di sini supaya smoke bisa menjaganya.
+const propRects = [];
+export const s4PropRects = () => propRects.map(r => ({ ...r }));
 function clearOfZones(x0, x1, z0, z1) {
     return DECOR_ZONES.every(zn => x1 < zn.x0 || x0 > zn.x1 || z1 < zn.z0 || z0 > zn.z1);
 }
@@ -106,6 +141,9 @@ function claimDecor(x0, x1, z0, z1) {
 export const roadsideDebug = () => ({
     count: decorRects.length,
     clear: decorRects.every(r => clearOfZones(r.x0, r.x1, r.z0, r.z1)),
+    // Footprint mentah (2026-07-28): assert koridor tank memeriksanya LANGSUNG
+    // terhadap S4_LANE, jadi jaminannya tak bergantung pada isi DECOR_ZONES.
+    rects: decorRects.map(r => ({ ...r })),
 });
 
 // Bangun dunia SEKALI (guard `built`) — dipanggil enter() DAN `stage1.enter`
@@ -384,7 +422,14 @@ export function buildWorld() {
         const m = new THREE.Mesh(new THREE.BoxGeometry(5, 13, 5), pillarMat);
         m.position.set(cx, 6.5, cz); m.castShadow = true; staticProps.push(m);
     };
-    hedge((SQ.x0 + SQ.x1) / 2, SQ.z0 - 4, SQ.x1 - SQ.x0 + 14, 6);                         // utara
+    // UTARA: DIBELAH dua dgn CELAH di koridor masuk tank (2026-07-28) — dulu satu
+    // pita utuh selebar kompleks, dan tank menembusnya begitu saja saat masuk.
+    // Celahnya = mulut jalan kecil dari utara (tempat ruko yang diterobos berdiri).
+    {
+        const nx0 = SQ.x0 - 7, nx1 = SQ.x1 + 7;
+        hedge((nx0 + S4_LANE.x0) / 2, SQ.z0 - 4, S4_LANE.x0 - nx0, 6);
+        hedge((S4_LANE.x1 + nx1) / 2, SQ.z0 - 4, nx1 - S4_LANE.x1, 6);
+    }
     hedge((SQ.x0 + SQ.x1) / 2, SQ.z1 + 4, SQ.x1 - SQ.x0 + 14, 6);                         // selatan
     hedge(SQ.x1 + 4, (SQ.z0 + SQ.z1) / 2, 6, SQ.z1 - SQ.z0);                              // timur
     hedge(SQ.x0 - 4, (SQ.z0 - ROAD.hz - 6) / 2, 6, (-ROAD.hz - 6) - SQ.z0);               // barat (utara bukaan)
@@ -601,16 +646,20 @@ export function buildWorld() {
     //     = COVER pejal (blocker, dijauhkan dari koridor supaya konektivitas
     //     union START->END tak putus — diverifikasi flood-fill smoke); bangku &
     //     planter/kios = DEKORASI alun-alun TANPA blocker (nav tak berubah). ---
+    const noteProp = (x, z, sx, sz) => propRects.push(
+        { x0: x - sx / 2, x1: x + sx / 2, z0: z - sz / 2, z1: z + sz / 2 });
     const mkPropCover = (build, x, z, sx, sy, sz, standable, yaw = 0) => {
         const m = build(sx, sy, sz);
         m.position.set(x, 0, z); if (yaw) m.rotation.y = yaw;
         staticProps.push(m);
+        noteProp(x, z, sx, sz);
         addBlockerBox(x, z, sx / 2, sz / 2, sy, standable);
     };
     const mkPropDecor = (build, x, z, sx, sy, sz, yaw = 0) => {
         const m = build(sx, sy, sz);
         m.position.set(x, 0, z); if (yaw) m.rotation.y = yaw;
         staticProps.push(m);
+        noteProp(x, z, sx, sz);
     };
     // ALUN-ALUN: dekorasi TANPA blocker (arena duel tank harus lapang) — TENGAH
     // LAPANGAN WAJIB KOSONG (2026-07-19, permintaan user: hanya heli penjemput
@@ -622,7 +671,9 @@ export function buildWorld() {
     mkPropDecor(buildFuturisticPlanterMesh, ALUN.x1 - 24, ALUN.z0 + 24, 26, 34, 26);
     mkPropDecor(buildFuturisticPlanterMesh, ALUN.x0 + 24, ALUN.z1 - 24, 26, 34, 26);
     mkPropDecor(buildFuturisticPlanterMesh, ALUN.x1 - 24, ALUN.z1 - 24, 26, 34, 26);
-    mkPropDecor(buildFuturisticStallMesh, S4_END.x, SQ.z0 + RING_W + 18, 44, 40, 28);
+    // Kios DIGESER ke timur 2026-07-28: dulu tepat di tengah ring utara = PERSIS
+    // di koridor masuk tank, jadi tank melewatinya seperti hantu.
+    mkPropDecor(buildFuturisticStallMesh, S4_END.x + 140, SQ.z0 + RING_W + 18, 44, 40, 28);
     // Jalan: PUING runtuhan (cover) menempel tembok UTARA (lajur selatan terbuka).
     mkPropCover(buildFuturisticRubbleMesh, OX + 1500, OZ - 24, 40, 14, 24, true);
 
@@ -669,6 +720,19 @@ export function buildWorld() {
     // lapangan dipindah ke 2 tiang di sudut ring (lengan menyorot ke dalam).
     addLamp(SQ.x0 + 24, SQ.z0 + 24, 0xbfe4ff, 0.7, 620, -Math.PI / 4);
     addLamp(SQ.x1 - 24, SQ.z1 - 24, 0xbfe4ff, 0.7, 620, Math.PI * 0.75);
+
+    // RUKO YANG DITEROBOS TANK (2026-07-28): di-claim & dibangun SEBELUM
+    // buildRoadside supaya gedung latar instanced & pohon tak pernah berdiri di
+    // footprint-nya. SENGAJA TIDAK masuk `staticProps` (bagian-bagiannya bergerak
+    // saat hancur — batching akan melasnya jadi satu mesh) dan TIDAK masuk
+    // `blockers`/nav: ia berdiri di luar area boleh-jalan, jadi menghancurkannya
+    // mustahil mengubah kolisi atau pathing.
+    // (footprint-nya sudah dilindungi zona S4_LANE; claim ini sabuk pengaman
+    //  kalau lane-nya suatu saat dipersempit)
+    claimDecor(S4_SMASH.x - S4_SMASH.hx, S4_SMASH.x + S4_SMASH.hx,
+        S4_SMASH.z - S4_SMASH.hz, S4_SMASH.z + S4_SMASH.hz);
+    smashRuko = spawnSmashBuilding(S4_SMASH.x, S4_SMASH.z, 0,
+        { w: S4_SMASH.hx * 2 - 4, d: S4_SMASH.hz * 2 - 4, h: 34 });
 
     buildRoadside(staticProps);   // gedung/toko/rumah/warung/pohon/pagar/JPO Jakarta di kiri-kanan jalan (dekor)
 
@@ -1016,6 +1080,8 @@ export const currentHeli = () => intro.currentHeli();
 export const arenaDebug = () => ({ locked: arenaLocked, alun: { ...ALUN }, sq: { ...SQ } });
 // Debug/uji cutscene: delegasi ke modul cutscene (fase + geometri bangkai)
 export const cineDebug = () => intro.cineDebug();
+// Debug/uji: status ruko yang diterobos tank (utuh / runtuh / puing menetap)
+export const smashDebug = () => smashBuildingDebug(smashRuko);
 
 // Buka gerbang alun-alun: mesh disembunyikan + blocker dicabut dari daftar
 // (dipulihkan lagi di enter()). Nav-grid TIDAK dibangun ulang (lihat catatan).
@@ -1030,7 +1096,12 @@ function openGate() {
 // balik ke stage4 lewat setTank (bossSpawned=true + ref tank utk duel).
 const intro = createTankBossIntro({
     SQ, HELI_POS, BOSS_POS, WRECK_CLEAR, S4_START, blockers, openGate,
-    setTank: (t) => { tank = t; bossSpawned = true; }
+    setTank: (t) => { tank = t; bossSpawned = true; },
+    // RUKO YANG DITEROBOS (2026-07-28): titik + ukurannya menentukan LINTASAN
+    // masuk tank di cutscene (garis TANK_FIRE→S4_SMASH diperpanjang ke utara),
+    // dan `smash(dirX, dirZ)` merobohkannya saat moncong tank menyentuh mukanya.
+    SMASH: S4_SMASH,
+    smash: (dirX, dirZ) => smashBuilding(smashRuko, dirX, dirZ),
 });
 
 function onBossDown() {
@@ -1064,6 +1135,7 @@ export const stage4Scene = {
         // Reset CUTSCENE + heli: buang heli/bangkai lama + blocker-nya, batalkan
         // sinematik yang mungkin berjalan (restart/cheat) — cutscenes/tankBossIntro.js.
         intro.reset();
+        resetSmashBuilding(smashRuko);   // ruko yang diterobos tank berdiri utuh lagi (restart/cheat)
         // Pasang lagi gerbang alun-alun (mesh + blocker — dicabut openGate saat run sebelumnya)
         if (roadGate) roadGate.visible = true;
         if (gateBlocker && !blockers.includes(gateBlocker)) blockers.push(gateBlocker);
@@ -1092,6 +1164,7 @@ export const stage4Scene = {
     // bangkai) -> duel; tank hancur -> MISSION COMPLETE setelah jeda singkat.
     updateMode(dt) {
         updateOccluders(dt);   // objek penghalang -> semi-transparan (2026-07-18)
+        updateSmashBuilding(smashRuko, dt);   // puing ruko yang diterobos tank (no-op setelah menetap)
         intro.update(dt);      // heli penjemput + mesin cutscene tank-boss (cutscenes/tankBossIntro.js)
         // updateTank dipanggil JUGA selama cutscene (2026-07-19, permintaan
         // user — SFX cutscene lengkap): fase 'cine' early-return SETELAH
@@ -1160,6 +1233,13 @@ export const stage4Scene = {
     },
 
     groundHeight(x, z, feetY) { return blockersGroundHeight(x, z, feetY, blockers); },
+
+    // Hook kamera per-scene (renderer.applySceneCamOffset membacanya TIAP FRAME
+    // sebagai PROPERTI — getter ini karenanya sah). Selama CUTSCENE tank-boss,
+    // sinematografinya (sudut/jarak/tinggi tiap shot) datang dari
+    // cutscenes/tankBossIntro.js; di luar cutscene ia mengembalikan null =
+    // renderer memakai CAM_OFF_DEFAULT (kamera gameplay) seperti biasa.
+    get camOffset() { return intro.camOffset(); },
 
     // Hook opsional kamera (renderer.followViewCam, 2026-07-17): selama duel
     // boss terkunci, tepi tapak-pandang kamera TIDAK BOLEH melewati batas

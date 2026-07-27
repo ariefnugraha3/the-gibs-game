@@ -1176,7 +1176,16 @@ export function updatePlayerAvatar(dt) {
         const relL = wrapPI(moveYawNow - legYaw);
         const fComp = Math.cos(relL), lComp = Math.sin(relL);
         runK = clamp01((sp - 8) / 62);                       // 0 = merayap, 1 = lari penuh
-        phase += dt * gaitSign * (6.5 + 9.0 * runK);         // kadens ikut kecepatan
+        // KADENS: naik mengikuti kecepatan, tapi PUNCAKNYA DIPATOK 13 rad/dtk
+        // (= 2,07 siklus/dtk) — angka yang sama dengan kurva lama. Perombakan
+        // 2026-07-27 sempat menaikkannya ke 15,5 dan user langsung menangkapnya:
+        // "movement speed-nya terasa lebih cepat" padahal CFG.player.speed tak
+        // pernah disentuh. Kaki yang berputar lebih cepat dari laju sebenarnya =
+        // FOOT SLIDING (telapak menggeser tiap langkah) DAN membuat laju terbaca
+        // lebih tinggi dari yang sesungguhnya. Bob + condong badan (di bawah)
+        // sengaja DIPERTAHANKAN: keduanya menghidupkan gait tanpa berbohong soal
+        // kecepatan. Player berlari 90 unit/dtk -> runK = 1 -> tepat 13.
+        phase += dt * gaitSign * (6.0 + 7.0 * runK);
         phase = ((phase % TAU) + TAU) % TAU;                 // jaga presisi sin() jangka panjang
         const dirAmp = Math.max(0.32, Math.abs(fComp));      // menyamping = langkah lebih pendek
         const legL = legCycle(phase, (0.30 + 0.50 * runK) * dirAmp, (0.50 + 1.05 * runK) * dirAmp);

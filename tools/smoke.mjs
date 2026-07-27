@@ -1024,6 +1024,25 @@ T('backpedal: kaki TIDAK berbalik membelakangi kursor',
     T('lari: kadens & intensitas naik mengikuti kecepatan',
         run[run.length - 1].runK > slow[slow.length - 1].runK + 0.3 && dPhase(run) > dPhase(slow) * 1.2);
 
+    // KADENS PADA LAJU LARI SEBENARNYA (2026-07-28, laporan user: "movement
+    // speed-nya terasa lebih cepat" setelah gait dirombak — padahal
+    // CFG.player.speed tak pernah disentuh; yang naik cuma kadensnya, 13 -> 15,5
+    // rad/dtk). Kaki yang berputar lebih cepat dari laju = FOOT SLIDING dan
+    // membuat kecepatan TERBACA lebih tinggi dari yang sesungguhnya. Diuji pada
+    // laju lari NYATA (config-driven: CFG.player.speed x 60 unit/dtk); pita
+    // 1,9-2,15 siklus/dtk mematok kadens ke nilai kurva lama (2,07).
+    {
+        const DT = 0.05, SPD = cfgMod.CFG.player.speed * 60;
+        camera.position.set(500, 11.4, 500);
+        const full = sample(0, -SPD * DT, 80, DT);
+        let adv = 0;
+        for (let i = 1; i < full.length; i++) adv += Math.abs(wrap(full[i].phase - full[i - 1].phase));
+        const cps = adv / (2 * Math.PI) / ((full.length - 1) * DT);
+        T('lari: kadens pada laju lari SEBENARNYA (' + SPD.toFixed(0) + ' unit/dtk) tetap '
+            + cps.toFixed(2) + ' siklus/dtk — kaki tak mendahului laju (foot sliding)',
+            full[full.length - 1].runK === 1 && cps > 1.9 && cps < 2.15);
+    }
+
     // Condong badan mengikuti arah lari (maju condong depan, backpedal ke belakang).
     camera.position.set(500, 11.4, 500);
     const back = sample(0, 3, 60);
@@ -2085,28 +2104,228 @@ T('S4: semua robot mati -> HELI penjemput menunggu di pusat alun (tank belum mun
 T('S4 cutscene: menginjak ring road -> sinematik aktif + input player dibekukan',
     s4mod.cineDebug().active && stateMod.cinematicActive === true);
 {
-    // pan kamera: setCineFocus override -> followViewCam meng-ease fokus ke heli
-    camera.position.set(s4mod.S4_GATE.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_GATE.z);
-    for (let i = 0; i < 12; i++) s4mod.stage4Scene.updateMode(0.1);   // lewati fase freeze -> panIn
-    for (let i = 0; i < 3; i++) rendererMod.followViewCam(0.1);
-    const f0 = Math.hypot(rendererMod.camFocusPos().x - s4mod.S4_END.x, rendererMod.camFocusPos().z - s4mod.S4_END.z);
-    for (let i = 0; i < 30; i++) rendererMod.followViewCam(0.1);
-    const f1 = Math.hypot(rendererMod.camFocusPos().x - s4mod.S4_END.x, rendererMod.camFocusPos().z - s4mod.S4_END.z);
-    T('S4 cutscene: kamera bergeser perlahan ke pusat alun (fokus mendekati heli)',
-        f1 < f0 && f1 < 30);
-}
-{
-    let sawTankCine = false, frames = 0;
-    while (!s4mod.cineDebug().done && frames < 300) {
-        s4mod.stage4Scene.updateMode(0.1);
-        const tnow = s4mod.currentTank();
-        if (tnow && tnow.phase === 'cine') sawTankCine = true;
-        frames++;
+    // ===== CUTSCENE TANK-BOSS — DIROMBAK 2026-07-27 (permintaan user: "buat agar
+    // jauh lebih dramatis, jauh lebih cinematic ... SEPERTI FILM BOX OFFICE").
+    // Papan 11 shot dgn azimut/jarak/tinggi sendiri (hook stage4Scene.camOffset ->
+    // tankBossIntro.camOffset()), TIGA potongan film, telegraf getaran sebelum
+    // reveal, gerak lambat hit-stop, heli yang mencoba kabur lalu JATUH, takarir,
+    // dan serah-terima kamera TEPAT di sudut gameplay. Durasi shot dari CFG.
+    const tsMod4 = await import(R('src/core/timeScale.js'));
+    const dom4 = await import(R('src/core/dom.js'));
+    const azOf4 = (o) => { const a = Math.atan2(o.x, o.z) * 180 / Math.PI; return a < 0 ? a + 360 : a; };
+    const camOff4 = () => s4mod.stage4Scene.camOffset;
+    const HX = s4mod.S4_END.x, HZ = s4mod.S4_END.z;
+    const P4 = { x: camera.position.x, z: camera.position.z };   // tempat player berdiri saat cutscene mulai
+    const fogBefore = { near: scene.fog.near, far: scene.fog.far };
+    const D0 = s4mod.cineDebug();
+    const smashPre = s4mod.smashDebug();          // ruko masih UTUH sebelum tank masuk
+    let smashPhase = null, smashTankZ = 0;        // fase & posisi tank saat ruko roboh
+    const seen4 = [], caps4 = [], shot4 = [], spd4 = [];
+    let last4 = null, lastCap4 = null, n4 = 0, sawTankCine = false;
+    let cuts4 = 0, maxCamStep = 0, maxFocusStep = 0, tsMin = 1, tsAtFire = 1;
+    let hMin = 1e9, hMax = -1e9, dMin = 1e9, dMax = -1e9, azMin = 1e9, azMax = -1e9;
+    let heliLift = -99, fogMin = 1e9, focusMinHeli = 1e9, focusEndPlayer = 99;
+    let tremorFar = 1e9, tremorSteps = 0, boundaryJump = 0, revealAt = -1;
+    let prevCam = { ...camOff4() }, prevFoc = { ...D0.focus }, prevTP = null;
+    const DT4 = 1 / 60;
+    while (s4mod.cineDebug().active && n4++ < 4000) {
+        s4mod.stage4Scene.updateMode(DT4);
+        const d = s4mod.cineDebug(), t4 = s4mod.currentTank(), c4 = camOff4() || prevCam;
+        if (t4 && t4.phase === 'cine') sawTankCine = true;
+        if (!d.active) break;   // frame terakhir: cutscene sudah ditutup (hook kamera dilepas)
+        if (d.phase !== last4) {
+            seen4.push(d.phase);
+            shot4.push([azOf4(c4), Math.hypot(c4.x, c4.z), c4.y]);
+            if (d.phase === 'reveal') revealAt = spd4.length;
+            last4 = d.phase;
+        }
+        if (d.caption && d.caption !== lastCap4) { caps4.push(d.caption); lastCap4 = d.caption; }
+        {   // rentang sudut/jarak/tinggi diukur PER FRAME (puncak crane ada di
+            // tengah shot, bukan di batas shot)
+            const a4 = azOf4(c4), r4 = Math.hypot(c4.x, c4.z);
+            azMin = Math.min(azMin, a4); azMax = Math.max(azMax, a4);
+            dMin = Math.min(dMin, r4); dMax = Math.max(dMax, r4);
+            hMin = Math.min(hMin, c4.y); hMax = Math.max(hMax, c4.y);
+        }
+        // POTONGAN vs gerak: langkah per frame yang besar hanya boleh terjadi di CUT
+        const cs = Math.hypot(c4.x - prevCam.x, c4.y - prevCam.y, c4.z - prevCam.z);
+        const fs4 = Math.hypot(d.focus.x - prevFoc.x, d.focus.z - prevFoc.z);
+        if (cs > 60) cuts4++;
+        else { maxCamStep = Math.max(maxCamStep, cs); maxFocusStep = Math.max(maxFocusStep, fs4); }
+        prevCam = { x: c4.x, y: c4.y, z: c4.z }; prevFoc = { x: d.focus.x, z: d.focus.z };
+        // Telegraf: selama 'tremor' tank sudah ADA & menderu, tapi masih JAUH di utara
+        if (d.phase === 'tremor' && t4) {
+            tremorSteps++;
+            tremorFar = Math.min(tremorFar, Math.hypot(t4.parts.group.position.x - HX, t4.parts.group.position.z - HZ));
+        }
+        // Laju masuk tank: satu garis MENERUS lintas batas tremor->reveal
+        if (t4 && (d.phase === 'tremor' || d.phase === 'reveal')) {
+            const tp = t4.parts.group.position;
+            if (prevTP) spd4.push(Math.hypot(tp.x - prevTP.x, tp.z - prevTP.z));
+            prevTP = { x: tp.x, z: tp.z };
+        }
+        if (!smashPhase && s4mod.smashDebug().smashed) {   // frame RUKO ROBOH
+            smashPhase = d.phase;
+            smashTankZ = t4 ? t4.parts.group.position.z : 0;
+        }
+        if (d.heliY != null) heliLift = Math.max(heliLift, d.heliY);
+        fogMin = Math.min(fogMin, scene.fog.far);
+        tsMin = Math.min(tsMin, tsMod4.globalTimeScale());
+        if (d.phase === 'shell') tsAtFire = Math.min(tsAtFire, tsMod4.globalTimeScale());
+        focusMinHeli = Math.min(focusMinHeli, Math.hypot(d.focus.x - HX, d.focus.z - HZ));
+        focusEndPlayer = Math.hypot(d.focus.x - P4.x, d.focus.z - P4.z);
     }
-    T('S4 cutscene: tank masuk dari utara -> heli DIHANCURKAN -> selesai, kontrol pulih',
+    if (revealAt > 1 && revealAt < spd4.length)
+        boundaryJump = Math.abs(spd4[revealAt] - spd4[revealAt - 1]);
+    const camEnd4 = { ...prevCam }, CD4 = rendererMod.CAM_OFF_DEFAULT;
+    const s4t = s4mod.currentTank();
+
+    // --- KONTRAK NARASI (empat beat yang wajib bertahan apa pun perubahannya)
+    T('S4 CUTSCENE NARASI: heli menunggu -> TANK dari utara -> heli HANCUR -> parkir di BOSS_POS, kontrol pulih',
         s4mod.cineDebug().done && sawTankCine && s4heli.wrecked
         && stateMod.cinematicActive === false
-        && s4mod.currentTank() != null && s4mod.currentTank().phase === 'battle');
+        && s4t != null && s4t.phase === 'battle'
+        && Math.hypot(s4t.parts.group.position.x - s4mod.S4_BOSS.x,
+            s4t.parts.group.position.z - s4mod.S4_BOSS.z) < 6);
+    T('S4 CUTSCENE: papan 11 shot berjalan URUT (' + seen4.length + ' beat)',
+        seen4.join(',') === 'open,survey,tremor,reveal,lock,fire,shell,crash,advance,faceOff,panBack');
+    // Telegraf: penonton MENDENGAR & MERASAKAN tank sebelum melihatnya — versi
+    // lama men-spawn tank tepat di depan mata tanpa persiapan apa pun.
+    T('S4 CUTSCENE TELEGRAF: tank sudah menderu jauh di utara selama fase tremor (terdekat '
+        + tremorFar.toFixed(0) + ' unit dari heli)',
+        tremorSteps > 30 && tremorFar > 200);
+    T('S4 CUTSCENE: laju masuk tank MENERUS di batas tremor->reveal (lonjakan '
+        + boundaryJump.toFixed(3) + ' vs laju puncak ' + Math.max(...spd4).toFixed(2) + ')',
+        spd4.length > 60 && boundaryJump < Math.max(...spd4) * 0.15);
+    // --- SINEMATOGRAFI: tiap shot punya sudut/jarak/tinggi sendiri (dulu SATU
+    //     sudut gameplay sepanjang cutscene — yang berubah cuma titik fokus).
+    T('S4 CUTSCENE KAMERA: sudut/jarak/tinggi BERVARIASI (tinggi ' + hMin.toFixed(0)
+        + '-' + hMax.toFixed(0) + ', jarak ' + dMin.toFixed(0) + '-' + dMax.toFixed(0)
+        + ', azimut ' + (azMax - azMin).toFixed(0) + '° span) — dulu SATU sudut gameplay',
+        azMax - azMin > 90 && hMin < 40 && hMax > 200 && dMin < 110 && dMax > 250);
+    T('S4 CUTSCENE KAMERA: EMPAT potongan film, sisanya bergerak MULUS (' + cuts4
+        + ' cut; maks ' + maxCamStep.toFixed(2) + ' unit/frame kamera, '
+        + maxFocusStep.toFixed(2) + ' fokus)',
+        cuts4 === 4 && maxCamStep < 12 && maxFocusStep < 12);
+    T('S4 CUTSCENE KAMERA: fokus menyapu player -> heli -> kembali ke player (terdekat ke heli '
+        + focusMinHeli.toFixed(1) + ', akhir ke player ' + focusEndPlayer.toFixed(1) + ')',
+        focusMinHeli < 20 && focusEndPlayer < 8);
+    T('S4 CUTSCENE KAMERA: shot penutup MENDARAT di sudut gameplay & hook dilepas (serah-terima tanpa jentikan)',
+        Math.abs(camEnd4.x - CD4.x) < 2.5 && Math.abs(camEnd4.y - CD4.y) < 2.5
+        && Math.abs(camEnd4.z - CD4.z) < 2.5 && s4mod.stage4Scene.camOffset === null);
+    // --- BEAT BARU: heli MENCOBA KABUR lalu jatuh, gerak lambat, laras ke player
+    T('S4 CUTSCENE: heli MENCOBA lepas landas (naik ' + heliLift.toFixed(1)
+        + ' unit) lalu JATUH menghantam pelataran',
+        heliLift > 10 && Math.abs(s4heli.parts.group.position.y + 1.2) < 0.01);
+    T('S4 CUTSCENE: GERAK LAMBAT (hit-stop global) menyala di tembakan & hantaman ('
+        + tsAtFire.toFixed(2) + 'x)',
+        tsAtFire < 0.6 && tsMin < 0.4);
+    {
+        const g = s4t.parts.group.position;
+        const wantP = Math.atan2(P4.x - g.x, P4.z - g.z);
+        let err = (s4t.turretYaw - wantP) % (Math.PI * 2);
+        if (err > Math.PI) err -= Math.PI * 2; if (err < -Math.PI) err += Math.PI * 2;
+        T('S4 CUTSCENE: laras MENGUNCI PLAYER di akhir (bukan bangkai heli)', Math.abs(err) < 0.2);
+    }
+    T('S4 CUTSCENE: kabut per-shot menebal saat shot rendah lalu DIPULIHKAN (min far '
+        + fogMin.toFixed(0) + ' -> ' + scene.fog.far.toFixed(0) + ')',
+        fogMin < fogBefore.far * 0.75 && Math.abs(scene.fog.far - fogBefore.far) < 1
+        && Math.abs(scene.fog.near - fogBefore.near) < 1);
+    T('S4 CUTSCENE TAKARIR: takarir English tampil urut & hilang di akhir (' + caps4.length + ')',
+        caps4.length === 5 && caps4.every(c => /^[\x20-\x7E]+$/.test(c))
+        && caps4[1].includes('Something heavy') && caps4[4].includes('WAR TANK')
+        && dom4.cineCaptionDebug() === null);
+    // --- RUKO YANG DITEROBOS (2026-07-28, permintaan user: "tank itu kan
+    //     menabrak sebuah bangunan ... buat agar bangunan itu hancur ... karena
+    //     sekarang tank hanya berjalan melewatinya"). Bangunan berdiri TEPAT di
+    //     lintasan masuk tank (lintasannya DITURUNKAN dari titik bangunan), roboh
+    //     saat moncong menyentuh mukanya, dan puingnya mendarat lalu menetap.
+    {
+        const SM = s4mod.S4_SMASH;
+        const CD5 = s4mod.cineDebug();
+        // Lintasan masuk BENAR-BENAR melewati bangunan (jarak titik-ke-segmen)
+        const A = CD5.tankFrom, B = CD5.tankFire;
+        const vx = B.x - A.x, vz = B.z - A.z;
+        const tt = Math.max(0, Math.min(1, ((SM.x - A.x) * vx + (SM.z - A.z) * vz) / (vx * vx + vz * vz)));
+        const off = Math.hypot(A.x + vx * tt - SM.x, A.z + vz * tt - SM.z);
+        // Lintasannya DITURUNKAN dari posisi bangunan, bukan kebetulan sejajar:
+        // geser bangunannya, lintasan tank ikut bergeser supaya tetap menabraknya.
+        const tbiMod = await import(R('src/scenes/campaign/cutscenes/tankBossIntro.js'));
+        const probe = (shift) => tbiMod.createTankBossIntro({
+            SQ: s4mod.arenaDebug().sq, HELI_POS: s4mod.S4_END, BOSS_POS: s4mod.S4_BOSS,
+            WRECK_CLEAR: CD5.wreckClear, S4_START: s4mod.S4_START,
+            blockers: [], openGate() { }, setTank() { }, smash() { },
+            SMASH: { x: SM.x + shift, z: SM.z, hx: SM.hx, hz: SM.hz },
+        }).cineDebug();
+        const missOf = (dbg, px, pz) => {
+            const a = dbg.tankFrom, b = dbg.tankFire;
+            const ux = b.x - a.x, uz = b.z - a.z;
+            const u = Math.max(0, Math.min(1, ((px - a.x) * ux + (pz - a.z) * uz) / (ux * ux + uz * uz)));
+            return Math.hypot(a.x + ux * u - px, a.z + uz * u - pz);
+        };
+        const moved = probe(90);
+        T('S4 RUKO: lintasan masuk tank DITURUNKAN dari posisi bangunan (meleset '
+            + off.toFixed(2) + ' unit; digeser 90 -> meleset ' + missOf(moved, SM.x + 90, SM.z).toFixed(2) + ')',
+            off < 1 && missOf(moved, SM.x + 90, SM.z) < 1
+            && Math.abs(moved.tankFrom.x - CD5.tankFrom.x) > 20);
+        T('S4 RUKO: utuh sebelum cutscene -> DITEROBOS saat moncong menyentuh mukanya (fase '
+            + smashPhase + ', z ' + smashTankZ.toFixed(0) + ' vs muka ' + (SM.z - SM.hz).toFixed(0) + ')',
+            smashPre && smashPre.smashed === false && smashPhase != null
+            && Math.abs(smashTankZ - (SM.z - SM.hz - 18)) < 6);
+        // KORIDOR MASUK TANK BEBAS DEKOR (2026-07-28, laporan lanjutan user: "kok
+        // tanknya masih berjalan menembus sebuah bangunan itu?"). Menaruh satu ruko
+        // yang bisa hancur belum cukup — jalur tank masih dilewati gedung latar
+        // INSTANCED (ditaruh acak), pohon keliling alun, pagar hedge utara, dan KIOS
+        // ring utara; semuanya dekor tanpa kolisi, jadi tank menembusnya seperti
+        // hantu. Sekarang koridornya zona bebas-dekor & pagarnya dibelah, jadi
+        // SATU-SATUNYA yang berdiri di jalur tank adalah ruko yang memang hancur.
+        {
+            const LN = s4mod.S4_LANE, A = CD5.tankFrom, B = CD5.tankFire;
+            const inLane = (r) => r.x0 >= LN.x0 && r.x1 <= LN.x1 && r.z0 >= LN.z0 && r.z1 <= LN.z1;
+            const hits = (r, q) => !(r.x1 < q.x0 || r.x0 > q.x1 || r.z1 < q.z0 || r.z0 > q.z1);
+            // (a) lane benar-benar MENYELIMUTI lintasan tank (+ setengah lebar lambung)
+            let covered = true;
+            const HALF = 14;
+            for (let i = 0; i <= 40; i++) {
+                const u = i / 40;
+                const px = A.x + (B.x - A.x) * u, pz = A.z + (B.z - A.z) * u;
+                if (!inLane({ x0: px - HALF, x1: px + HALF, z0: pz - HALF, z1: pz + HALF })) covered = false;
+            }
+            // (b) TAK ADA dekor/prop yang berdiri di dalam lane — gedung latar & pohon
+            //     lewat claimDecor (ditolak zona), kios/bangku/planter lewat propRects.
+            const RD = s4mod.roadsideDebug();
+            const inside = RD.rects.concat(s4mod.s4PropRects()).filter(r => hits(r, LN));
+            T('S4 RUKO: koridor masuk tank BEBAS dekor — hanya ruko yang berdiri di jalur ('
+                + inside.length + ' dekor/prop di lane dari ' + (RD.count + s4mod.s4PropRects().length)
+                + ', lintasan terselimuti: ' + covered + ')',
+                covered && inside.length === 0 && RD.clear === true);
+        }
+        // Bangunan MURNI DEKOR: berdiri di luar area boleh-jalan & tak pernah jadi
+        // blocker -> menghancurkannya mustahil mengubah kolisi/pathing robot.
+        stateMod._v3.set(SM.x, 0, SM.z);
+        const before = { x: stateMod._v3.x, z: stateMod._v3.z };
+        s4mod.stage4Scene.playerCollide(stateMod._v3, SM.x, SM.z, 0);
+        T('S4 RUKO: murni DEKOR (di luar area boleh-jalan, bukan blocker/nav)',
+            s4mod.stage4Walk(SM.x, SM.z, 0) === false
+            && Math.abs(stateMod._v3.x - before.x) < 1e-6 && Math.abs(stateMod._v3.z - before.z) < 1e-6);
+        // Endapkan puing (tahan serangan tank supaya blok ini deterministik).
+        const tk5 = s4mod.currentTank(), cdSave = tk5.cd;
+        tk5.cd = 9999;
+        for (let i = 0; i < 180; i++) s4mod.stage4Scene.updateMode(1 / 60);
+        tk5.cd = cdSave;
+        const sd = s4mod.smashDebug();
+        T('S4 RUKO: seluruh puing MENDARAT & menetap jadi reruntuhan rendah ('
+            + sd.resting + '/' + sd.parts + ' bagian, puncak ' + sd.maxY.toFixed(0)
+            + ' dari ' + sd.top.toFixed(0) + ')',
+            sd.smashed && sd.resting === sd.parts && sd.active === false
+            && sd.maxY < sd.top * 0.45);
+        // Puing dilempar CEPAT tapi RENDAH -> mendarat di kaki bangunan, tidak
+        // berhamburan masuk kompleks alun-alun (arena duel harus tetap bersih).
+        T('S4 RUKO: puing tak berhamburan masuk kompleks alun-alun (terjauh '
+            + sd.maxZ.toFixed(0) + ' vs tepi utara ' + s4mod.arenaDebug().sq.z0.toFixed(0) + ')',
+            sd.maxZ < s4mod.arenaDebug().sq.z0 - 5);
+    }
+    tsMod4.resetTimeScale();   // jangan bocorkan hit-stop ke blok uji berikutnya
 }
 // API BERKOBAR (2026-07-18): bangkai heli MENYALA sepanjang sisa Stage 4 (lidah
 // api dianimasikan updateHelicopter). Cairan/gib heli HITAM, BUKAN coolant hijau.
@@ -3387,6 +3606,7 @@ const palMod = await import(R('src/world/palette.js'));
     styleGroups.push(['Helicopter', (await import(R('src/entities/helicopter.js'))).buildHelicopterMesh().group]);
     styleGroups.push(['Barrel', (await import(R('src/entities/barrels.js'))).buildBarrelMesh()]);
     styleGroups.push(['SupplyCrate', (await import(R('src/entities/crates.js'))).buildCrateMesh()]);
+    styleGroups.push(['SmashRuko', (await import(R('src/entities/smashBuilding.js'))).buildSmashRukoMesh().group]);
 
     let neonOk = true, emisOk = true, badNeon = '', badEmis = '';
     for (const [name, g] of styleGroups) {
@@ -3423,7 +3643,7 @@ const palMod = await import(R('src/world/palette.js'));
     // SENGAJA dibuat lebih detail oleh user (2026-07-22) — diberi cap SENDIRI
     // yang longgar (`MESH_CAP`), tetap dijaga agar tak tumbuh liar. Cek palet
     // (neon/emissive) di atas TETAP berlaku penuh untuk heli.
-    const MESH_CAP = { Helicopter: 70 };
+    const MESH_CAP = { Helicopter: 70, SmashRuko: 30 };
     let heaviest = '', heavyN = 0, allLite = true, offender = '';
     for (const [name, g] of styleGroups) {
         let n = 0;
