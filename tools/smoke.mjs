@@ -1372,10 +1372,106 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
         doorIdle && zDoor.state === 'chasing');
 }
 
+// === MINIGAME HACK "ICE BREACH" (2026-07-28, permintaan user: hacking tidak
+// lagi sekadar menunggu bar progress) — helper bersama utk section S1 & S3 di
+// bawah. Papan sirkuit N×N: putar chip sampai PORT (kiri-tengah) tersambung ke
+// DATA CORE (kanan-tengah). Generator menggambar jalur solusi lebih dulu, jadi
+// papan SELALU bisa dipecahkan; `hackDebug().tiles[i].ok` = chip jalur sudah di
+// orientasi solusi. ===
+const hackMod = await import(R('src/scenes/campaign/utility/hackMinigame.js'));
+// Putar tiap chip JALUR ke orientasi solusinya (maks 3 klik per chip).
+function solveHack() {
+    for (const t of hackMod.hackDebug().tiles) {
+        if (!t.path) continue;
+        for (let g = 0; g < 4 && !hackMod.hackDebug().tiles[t.i].ok; g++) hackMod.hackRotate(t.i);
+    }
+    return hackMod.hackDebug();
+}
+// Modal menutup setelah banner ACCESS GRANTED (setTimeout) — poll spt uji shop.
+// Titik (x,z) berada DI LUAR tapak-pandang kamera? (sama seperti uji modul:
+// rect = titik fokus kamera + groundViewExtents; margin modul membuatnya lebih
+// longgar lagi, jadi assert ini konservatif.)
+function offCamera(x, z) {
+    const f = rendererMod.camFocusPos();
+    const e = rendererMod.groundViewExtents(f.y, 0);
+    return x < f.x + e.minX || x > f.x + e.maxX || z < f.z + e.minZ || z > f.z + e.maxZ;
+}
+async function waitHackClosed() {
+    for (let i = 0; i < 400 && hackMod.hackDebug().open; i++) await new Promise(r => setTimeout(r, 10));
+    stateMod.setPaused(false);   // harness tak punya pointerlockchange yang me-resume
+}
+{
+    const HK = cfgMod.CFG.campaign.hack;
+    let lastResult = null, wins = 0;
+    const openBoard = (size) => hackMod.beginHackMinigame({
+        head: 'TEST TERMINAL', sub: 'test', size,
+        onSuccess: () => { lastResult = 'ok'; wins++; },
+        onFail: (why) => { lastResult = why; },
+    });
+    // (a) GENERATOR selalu menghasilkan papan yang BISA dipecahkan, untuk tiap
+    //     ukuran papan yang mungkin (gridMin..gridMax) — jalur solusi digambar
+    //     lebih dulu, chip pengecoh & rotasi acak menyusul.
+    let genOk = true, startsUnsolved = true, startsWrong = true, boards = 0;
+    for (let size = HK.gridMin; size <= HK.gridMax; size++) {
+        for (let n = 0; n < 6; n++) {
+            openBoard(size);
+            const d0 = hackMod.hackDebug();
+            if (d0.solved) startsUnsolved = false;
+            if (!d0.tiles.filter(t => t.path).every(t => !t.ok)) startsWrong = false;
+            if (d0.size !== size || !solveHack().solved) genOk = false;
+            await waitHackClosed();
+            boards++;
+        }
+    }
+    T('HACK: generator SELALU solvable (' + boards + ' papan, ukuran gridMin..gridMax config)', genOk);
+    T('HACK: papan dibuka BELUM terpecahkan & tiap chip jalur mulai salah orientasi',
+        startsUnsolved && startsWrong);
+    T('HACK: papan terpecahkan -> onSuccess dipanggil sekali per papan', wins === boards && lastResult === 'ok');
+    T('HACK: ukuran papan naik bertahap gridMin -> gridMax (config-driven)',
+        hackMod.hackGridSize(0) === HK.gridMin && hackMod.hackGridSize(9) === HK.gridMax
+        && hackMod.hackGridSize(1) >= hackMod.hackGridSize(0));
+    // (b) Rotasi 4x = kembali ke orientasi semula; chip MATI tak bisa diklik.
+    openBoard(HK.gridMin);
+    const pi = hackMod.hackDebug().tiles.findIndex(t => t.path);
+    const rot0 = hackMod.hackDebug().tiles[pi].rot;
+    for (let i = 0; i < 4; i++) hackMod.hackRotate(pi);
+    const rot4 = hackMod.hackDebug().tiles[pi].rot;
+    hackMod.hackRotate(pi, -1);   // klik kanan = putar balik
+    T('HACK: 4x putar kembali ke orientasi semula; klik-kanan memutar berlawanan',
+        rot4 === rot0 && hackMod.hackDebug().tiles[pi].rot === ((rot0 + 3) & 3));
+    const dead = hackMod.hackDebug().tiles.find(t => t.mask === 0);
+    T('HACK: chip MATI (tanpa jalur) tidak bisa diputar', !dead || hackMod.hackRotate(dead.i) === false);
+    // (c) Modal = scene: shopActive() menekan menu jeda, tombol gameplay ditelan,
+    //     ESC = ABORT (scene sebelumnya dipulihkan seketika, tanpa enter()).
+    const prevOfHack = hackMod.hackDebug().open ? smMod.activeScene.prev : null;
+    T('HACK: scene modal aktif -> shopActive() true & tombol gameplay ditelan',
+        smMod.activeScene.id === 'campaign-hack' && smMod.activeScene.shopActive() === true
+        && smMod.activeScene.shopKey('w') === true);
+    T('HACK: modal tak bisa dibuka dua kali', openBoard(HK.gridMin) === false);
+    lastResult = null;
+    smMod.activeScene.shopKey('escape');
+    T('HACK: ESC = ABORT -> onFail("abort") + scene sebelumnya dipulihkan seketika',
+        lastResult === 'abort' && hackMod.hackDebug().open === false
+        && smMod.activeScene === prevOfHack);
+    stateMod.setPaused(false);
+    // (d) ICE TRACE habis -> LOCKED OUT -> onFail('fail').
+    lastResult = null;
+    openBoard(HK.gridMin);
+    T('HACK: hitung mundur ICE TRACE = CFG.campaign.hack.traceSec', hackMod.hackDebug().traceMax === HK.traceSec);
+    hackMod.hackTick(HK.traceSec * 0.5);
+    T('HACK: ICE TRACE berkurang selama bermain', hackMod.hackDebug().traceLeft < HK.traceSec);
+    hackMod.hackTick(HK.traceSec);
+    T('HACK: ICE TRACE habis -> LOCKED OUT (rotasi tak lagi diterima)',
+        hackMod.hackDebug().phase === 'lost' && hackMod.hackRotate(pi) === false);
+    await waitHackClosed();
+    T('HACK: LOCKED OUT -> onFail("fail") & modal menutup sendiri',
+        lastResult === 'fail' && hackMod.hackDebug().open === false);
+}
+
 // --- ALUR STAGE 1 (2026-07-20, ROMBAK TOTAL): clear1 (bunuh 50 robot) -> BUKA
-// ruang komputer -> download 10 dtk (gerak beku) -> spawn 20 robot wave-2
-// (10C/5B/5A) di ruang X -> clear2 -> done (tangga aktif). Config-driven
-// (downloadSec). Mulai dari state built section sebelumnya (fase clear1). ---
+// ruang komputer -> MINIGAME HACK (2026-07-28, dulu bar unduh 10 dtk) -> spawn
+// 20 robot wave-2 + horde di ruang X -> clear2 -> done (tangga aktif).
+// Mulai dari state built section sebelumnya (fase clear1). ---
 {
     const s1m = await import(R('src/scenes/campaign/stages/stage1.js'));
     // Fase awal = clear1 + pintu ruang komputer TERKUNCI (merah).
@@ -1386,22 +1482,65 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     s1m.stage1Scene.updateMode(0.1);
     T('S1 FLOW: semua robot wave-1 tumbang -> fase download + pintu komputer TERBUKA',
         s1m.s1Debug().phase === 'download' && s1m.s1CompDoorDbg().locked === false);
-    // Player MENEMPEL komputer -> fase downloading + kendali dibekukan (cinematicActive).
+    // Player MENEMPEL komputer -> MINIGAME HACK terbuka sebagai SCENE MODAL
+    // (game di-pause; scene stage 1 disimpan untuk dipulihkan).
     const cp = s1m.s1Cell(s1m.S1_COMP.c, s1m.S1_COMP.r);
     camera.position.set(cp.x, cfgMod.CFG.player.eyeHeight, cp.z);
+    const sceneBeforeHack = smMod.activeScene;   // dipulihkan APA ADANYA saat modal ditutup
     s1m.stage1Scene.updateMode(0.1);
-    T('S1 FLOW: menempel komputer -> mengunduh + gerak dibekukan (cinematicActive)',
-        s1m.s1Debug().phase === 'downloading' && stateMod.cinematicActive === true);
-    // Jalankan updateMode sampai unduh (downloadSec) selesai -> 20 robot wave-2 spawn.
-    const dl = cfgMod.CFG.campaign.stage1.downloadSec;
-    for (let t = 0; t <= dl + 1; t += 0.2) s1m.stage1Scene.updateMode(0.2);
+    const H1 = hackMod.hackDebug();
+    T('S1 HACK: menempel komputer -> MINIGAME terbuka (scene modal `campaign-hack`, game di-pause)',
+        s1m.s1Debug().phase === 'downloading' && H1.open === true && H1.phase === 'play'
+        && smMod.activeScene.id === 'campaign-hack' && stateMod.isPaused === true);
+    T('S1 HACK: papan ' + H1.size + 'x' + H1.size + ' (gridMin config) BELUM terpecahkan & tiap chip jalur mulai SALAH',
+        H1.size === cfgMod.CFG.campaign.hack.gridMin && H1.solved === false
+        && H1.tiles.some(t => t.path) && H1.tiles.filter(t => t.path).every(t => !t.ok));
+    // === ALARM (2026-07-28, permintaan user): ICE TRACE habis -> "ALARM
+    // TRIGGERED" -> modal ditutup -> HORDE kelas C muncul DI LUAR LAYAR dan
+    // langsung memburu player -> terminal TERKUNCI alarmCooldownSec detik. ===
+    const HKC = cfgMod.CFG.campaign.hack;
+    rendererMod.followViewCam(0.016);   // camFocus mengikuti posisi player terkini
+    hackMod.hackTick(HKC.traceSec + 0.1);
+    T('S1 ALARM: ICE TRACE habis -> banner alarm (belum menutup)', hackMod.hackDebug().phase === 'lost');
+    await waitHackClosed();
+    const alarmBots = robots.filter(z => z.stage === 1);
+    T('S1 ALARM: hack gagal -> HORDE `alarmHordeCount` kelas C LANGSUNG memburu player',
+        alarmBots.length === HKC.alarmHordeCount
+        && alarmBots.every(z => z.kind === 'C' && z.state === 'chasing'));
+    T('S1 ALARM: SEMUA robot alarm muncul DI LUAR pandangan kamera (tak ada yang "pop" di layar)',
+        alarmBots.every(z => offCamera(z.mesh.position.x, z.mesh.position.z)));
+    T('S1 ALARM: terminal terkunci cooldown `alarmCooldownSec` & fase kembali ke download',
+        s1m.s1Debug().phase === 'download' && s1m.s1Debug().hackCd === HKC.alarmCooldownSec);
+    s1m.stage1Scene.updateMode(0.1);   // player MASIH menempel terminal
+    T('S1 ALARM: selama cooldown puzzle TIDAK bisa dibuka lagi',
+        hackMod.hackDebug().open === false && s1m.s1Debug().hackCd > 0);
+    // Bereskan horde + tunggu cooldown habis.
+    for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 1) { scene.remove(robots[i].mesh); robots.splice(i, 1); }
+    for (let t = 0; t <= HKC.alarmCooldownSec + 1; t += 0.5) s1m.stage1Scene.updateMode(0.5);
+    T('S1 ALARM: cooldown habis -> terminal siap di-hack lagi', s1m.s1Debug().hackCd === 0);
+    // Menjauh lalu kembali (pemicu terisi ulang) -> puzzle terbuka lagi.
+    const sp1 = s1m.s1Cell(s1m.S1_START.c, s1m.S1_START.r);
+    camera.position.set(sp1.x, cfgMod.CFG.player.eyeHeight, sp1.z);
+    s1m.stage1Scene.updateMode(0.1);
+    camera.position.set(cp.x, cfgMod.CFG.player.eyeHeight, cp.z);
+    s1m.stage1Scene.updateMode(0.1);
+    T('S1 ALARM: setelah cooldown + menjauh, menempel terminal membuka puzzle lagi',
+        hackMod.hackDebug().open === true && s1m.s1Debug().phase === 'downloading');
+    // Puzzle dipecahkan -> banner ACCESS GRANTED -> modal menutup sendiri.
+    const solvedDbg = solveHack();
+    T('S1 HACK: papan bisa dipecahkan (port -> core tersambung) -> ACCESS GRANTED',
+        solvedDbg.solved === true && solvedDbg.phase === 'won');
+    await waitHackClosed();
+    T('S1 HACK: modal menutup -> scene sebelumnya DIPULIHKAN tanpa enter() (fase lanjut ke clear2, bukan reset ke clear1)',
+        hackMod.hackDebug().open === false && smMod.activeScene === sceneBeforeHack
+        && s1m.s1Debug().phase === 'clear2');
     const w2 = robots.filter(z => z.stage === 1);
     const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
     // SECOND-IMPROVEMENT #3 (2026-07-22): unduh selesai spawn wave-2 (20) + HORDE
     // (CFG.campaign.stage1.hordeCount kelas C yang LANGSUNG menyerbu = 'chasing').
     // 2026-07-26 (permintaan user): stage 1 HANYA kelas C — tak ada B/A sama sekali.
     const horde = cfgMod.CFG.campaign.stage1.hordeCount;
-    T('S1 FLOW: unduh selesai -> wave-2 SEMUA kelas C + HORDE (' + horde + ' C) + kendali dikembalikan',
+    T('S1 FLOW: hack sukses -> wave-2 SEMUA kelas C + HORDE (' + horde + ' C) + kendali dikembalikan',
         s1m.s1Debug().phase === 'clear2' && stateMod.cinematicActive === false
         && w2.length === 20 + horde && nC === 20 + horde && nB === 0 && nA === 0);
     T('S1 FLOW: HORDE langsung menyerbu (ada robot chasing di wave-2)',
@@ -1829,10 +1968,13 @@ stateMod.setCinematicActive(false);
 const s3Term = (i) => s3mod.s3HackDbg().terms[i];
 const s3Active = () => { const d = s3mod.s3HackDbg(); return d.idx < 5 ? d.terms[d.order[d.idx]] : null; };
 const s3StandAt = (t) => camera.position.set(t.sx, cfgMod.CFG.player.eyeHeight, t.sz);
-const s3RunHack = () => {
+// Satu siklus hack penuh: berdiri di terminal giliran -> MINIGAME terbuka ->
+// pecahkan puzzle -> tunggu modal menutup (stage kembali aktif).
+const s3RunHack = async () => {
     s3StandAt(s3Active());
-    s3mod.stage3Scene.updateMode(0.05);                                   // masuk jangkauan -> mulai
-    for (let i = 0; i < 600 && s3mod.s3Debug().hacking; i++) s3mod.stage3Scene.updateMode(0.05);
+    s3mod.stage3Scene.updateMode(0.05);   // masuk jangkauan -> minigame terbuka
+    solveHack();
+    await waitHackClosed();
 };
 const s3Drain = () => { for (let i = 0; i < 800 && s3mod.s3SpawnDbg().queued; i++) s3mod.stage3Scene.updateMode(cfgMod.CFG.campaign.stage3.spawnGapSec); };
 const s3KillAll = () => { for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 3) { scene.remove(robots[i].mesh); robots.splice(i, 1); } };
@@ -1864,20 +2006,72 @@ T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)
         s3mod.s3Debug().hacking === false && s3mod.s3Debug().hacked === 0 && s3Count() === 0);
 }
 
-// (3) HACK #1: membekukan kendali player, makan hackSec, lalu melepas SATU
-//     gelombang (gateWaveCount dari tangga + gateWaveCount dari lift).
+// (2b) BATAL: puzzle yang dibatalkan meninggalkan terminal TETAP belum ter-hack,
+//      dan pemicunya tidak boleh langsung terbuka lagi selagi player masih
+//      menempel — harus MENJAUH dulu (s3HackArmed).
 {
     const act = s3Active();
     s3StandAt(act);
     s3mod.stage3Scene.updateMode(0.05);
-    const frozen = stateMod.cinematicActive;
-    let ticks = 0;
-    for (let i = 0; i < 600 && s3mod.s3Debug().hacking; i++) { s3mod.stage3Scene.updateMode(0.05); ticks++; }
-    const secs = ticks * 0.05;
-    T('S3 HACK: menempel terminal HIJAU -> hack membekukan kendali & makan hackSec ('
-        + secs.toFixed(2) + ' vs ' + s3cfg.hackSec + ' dtk)',
-        frozen === true && Math.abs(secs - s3cfg.hackSec) < 0.2
-        && stateMod.cinematicActive === false && s3mod.s3Debug().hacked === 1);
+    const opened = hackMod.hackDebug().open;
+    smMod.activeScene.shopKey('escape');       // ABORT
+    stateMod.setPaused(false);
+    s3mod.stage3Scene.updateMode(0.05);        // masih menempel terminal yang sama
+    T('S3 HACK: batal -> terminal tetap belum ter-hack & puzzle TIDAK terbuka lagi di tempat',
+        opened === true && hackMod.hackDebug().open === false && s3mod.s3Debug().hacked === 0
+        && s3mod.s3Debug().hacking === false && s3Count() === 0);
+    camera.position.set(act.sx + 400, cfgMod.CFG.player.eyeHeight, act.sz);   // menjauh
+    s3mod.stage3Scene.updateMode(0.05);
+    T('S3 HACK: pemicu terisi ulang setelah player menjauh dari terminal',
+        s3mod.s3Debug().armed === true && hackMod.hackDebug().open === false);
+}
+
+// (2c) ALARM: ICE TRACE habis -> horde kelas C dari LUAR LAYAR + terminal
+//      terkunci `alarmCooldownSec` detik (waktu untuk membereskan mereka).
+{
+    const HK3 = cfgMod.CFG.campaign.hack;
+    const act = s3Active();
+    s3StandAt(act);
+    rendererMod.followViewCam(0.016);
+    s3mod.stage3Scene.updateMode(0.05);          // minigame terbuka
+    hackMod.hackTick(HK3.traceSec + 0.1);        // ICE TRACE habis
+    await waitHackClosed();
+    const bots = robots.filter(z => z.stage === 3);
+    T('S3 ALARM: hack gagal -> HORDE `alarmHordeCount` kelas C memburu player, SEMUA di luar pandangan kamera',
+        bots.length === HK3.alarmHordeCount && bots.every(z => z.kind === 'C' && z.state === 'chasing')
+        && bots.every(z => offCamera(z.mesh.position.x, z.mesh.position.z)));
+    s3mod.stage3Scene.updateMode(0.05);          // masih menempel terminal
+    T('S3 ALARM: terminal terkunci cooldown & puzzle tak bisa dibuka lagi selama itu',
+        s3mod.s3Debug().hackCd > 0 && s3mod.s3Debug().hacked === 0
+        && hackMod.hackDebug().open === false);
+    // Bereskan horde, MENJAUH, lalu tunggu cooldown habis: keduanya syarat
+    // (pemicu terisi ulang saat menjauh, kunci alarm lepas saat cooldown 0).
+    s3KillAll();
+    camera.position.set(act.sx + 400, cfgMod.CFG.player.eyeHeight, act.sz);
+    for (let t = 0; t <= HK3.alarmCooldownSec + 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+    T('S3 ALARM: horde dibereskan + menjauh + cooldown habis -> terminal siap di-hack lagi',
+        s3mod.s3Debug().hackCd === 0 && s3mod.s3Debug().armed === true && s3Count() === 0);
+}
+
+// (3) HACK #1: menempel terminal HIJAU membuka MINIGAME (scene modal, game
+//     di-pause); memecahkannya melepas SATU gelombang (gateWaveCount dari
+//     tangga + gateWaveCount dari lift).
+{
+    const act = s3Active();
+    s3StandAt(act);
+    s3mod.stage3Scene.updateMode(0.05);
+    const H = hackMod.hackDebug();
+    T('S3 HACK: menempel terminal HIJAU -> MINIGAME terbuka (scene modal, game di-pause, stage 3 disimpan)',
+        H.open === true && H.phase === 'play' && s3mod.s3Debug().hacking === true
+        && smMod.activeScene.id === 'campaign-hack' && stateMod.isPaused === true);
+    T('S3 HACK: judul papan menyebut terminal giliran & ukurannya config-driven (gridMin..gridMax)',
+        H.size >= cfgMod.CFG.campaign.hack.gridMin && H.size <= cfgMod.CFG.campaign.hack.gridMax
+        && H.size === hackMod.hackGridSize(0));
+    solveHack();
+    await waitHackClosed();
+    T('S3 HACK: puzzle terpecahkan -> scene stage 3 dipulihkan & terminal tercatat ter-hack',
+        hackMod.hackDebug().open === false && smMod.activeScene === s3mod.stage3Scene
+        && s3mod.s3Debug().hacking === false && s3mod.s3Debug().hacked === 1);
     const queued = s3mod.s3SpawnDbg().queued + s3Count();
     T('S3 HACK: hack SELESAI -> satu gelombang (6+6=12) diantre, langsung mengejar',
         queued === s3cfg.gateWaveCount * 2);
@@ -1885,10 +2079,10 @@ T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)
     T('S3 HACK: gelombang penuh keluar & semuanya chasing',
         s3Count() === s3cfg.gateWaveCount * 2 && robots.filter(z => z.stage === 3).every(z => z.state === 'chasing'));
     // Layar terminal yang baru selesai jadi KUNING, giliran pindah ke yang berikutnya.
-    const H = s3mod.s3HackDbg();
+    const HD = s3mod.s3HackDbg();
     T('S3 HACK: layar terminal yang selesai jadi KUNING & giliran pindah (1 hijau baru)',
-        H.terms[H.order[0]].hex === 0xffd23b && H.terms.filter(t => t.hex === 0x2eff6a).length === 1
-        && H.terms[H.order[1]].hex === 0x2eff6a);
+        HD.terms[HD.order[0]].hex === 0xffd23b && HD.terms.filter(t => t.hex === 0x2eff6a).length === 1
+        && HD.terms[HD.order[1]].hex === 0x2eff6a);
 }
 
 // (4) TIDAK ADA respawn otomatis: habisi gelombang lalu tunggu lama — tetap kosong
@@ -1911,7 +2105,7 @@ T('S3 HACK: gelombang TIDAK respawn sendiri — sunyi sampai hack berikutnya (tu
 }
 
 // (6) Hack sisa terminal -> setelah yang KE-5 pintu MEMBUKA (naik), rambu HIJAU.
-for (let k = 1; k < 5; k++) { s3RunHack(); s3KillAll(); s3mod.s3SpawnDbg().queued && s3Drain(); s3KillAll(); }
+for (let k = 1; k < 5; k++) { await s3RunHack(); s3KillAll(); s3mod.s3SpawnDbg().queued && s3Drain(); s3KillAll(); }
 T('S3 HACK: kelima terminal selesai -> semua layar KUNING',
     s3mod.s3Debug().hacked === 5 && s3mod.s3HackDbg().terms.every(t => t.hex === 0xffd23b));
 s3mod.stage3Scene.updateMode(0.05);
@@ -2870,7 +3064,7 @@ stateMod.setGameOver(false);
 // (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 let jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 4 aktif -> STAGE 3
-s3RunHack(); s3Drain();   // stage 3 MULAI kosong; HACK terminal -> gelombang robot (tangga/lift)
+await s3RunHack(); s3Drain();   // stage 3 MULAI kosong; HACK terminal (minigame) -> gelombang robot
 T('cheat skip-to-stage-3: pindah ke stage 3 + hack terminal -> gelombang robot (3-tag)', jr === 3
     && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempatkan ulang oleh helper)
@@ -2921,8 +3115,8 @@ saveMod.saveCampaignStage(3);
 const restartTarget = saveMod.loadCampaignStage() || 1;
 T('restart-stage: target = stage checkpoint (3), BUKAN 1', restartTarget === 3);
 smMod.activeScene.cheatSkipToStage(restartTarget);   // = campaignJumpToStage(3), efek sama dgn resetGame(true)
-s3RunHack(); s3Drain();   // stage 3 kosong; HACK terminal -> gelombang robot
-T('restart-stage: mendarat di AWAL stage 3 + tembak pintu -> gelombang robot stage 3',
+await s3RunHack(); s3Drain();   // stage 3 kosong; HACK terminal (minigame) -> gelombang robot
+T('restart-stage: mendarat di AWAL stage 3 + hack terminal -> gelombang robot stage 3',
     smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 // MISSION COMPLETE (gameOver win) menghapus checkpoint (campaign tamat = New Game)

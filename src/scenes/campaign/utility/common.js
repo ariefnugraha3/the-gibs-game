@@ -4,7 +4,7 @@
 
 import { CFG, CAMP_M } from '../../../core/config.js';
 import { player, robots } from '../../../core/state.js';
-import { scene, camera } from '../../../core/renderer.js';
+import { scene, camera, camFocusPos, groundViewExtents } from '../../../core/renderer.js';
 import { buildRobotMesh, reachForScale } from '../../../entities/robots.js';
 import { spawnLoot } from '../../../entities/drops.js';
 import { navAim, turnToward } from '../../../utils/pathfind.js';
@@ -81,6 +81,77 @@ export function spawnSwarm(spots, stage, cellFn, walkFn, resolveFn, scratch, cls
             spawnCampaignRobot(scratch.x, scratch.z, stage, cls, true);   // active = langsung menyerbu
         }
     }
+}
+
+// ===== SPAWN DI LUAR PANDANGAN KAMERA (2026-07-28, alarm hack gagal) =====
+// Player TIDAK BOLEH melihat robot "muncul begitu saja" di layar: titik spawn
+// harus di luar TAPAK-PANDANG kamera. `groundViewExtents` (renderer.js) memberi
+// ofset min/maks tapak pandang relatif titik fokus kamera — di luar rect itu
+// (+ margin) = di luar layar. Kandidat dicari pada CINCIN di sekitar player,
+// arah demi arah (urutan diacak) supaya horde datang dari berbagai sisi, bukan
+// menumpuk di satu titik. Titik yang tak lolos `walkable` dilewati, jadi ini
+// aman di gedung indoor (robot lalu mengejar lewat nav-grid stage).
+// o: { walkable(x,z,r), resolve?(pos,r,feetY), scratch (Vector3),
+//      minUnits?, maxUnits?, margin? }
+export function offscreenSpawnPoints(count, o) {
+    const out = [];
+    if (count <= 0) return out;
+    const f = camFocusPos();
+    const e = groundViewExtents(f.y, 0);
+    const m = o.margin != null ? o.margin : 24;
+    const rx0 = f.x + e.minX - m, rx1 = f.x + e.maxX + m;
+    const rz0 = f.z + e.minZ - m, rz1 = f.z + e.maxZ + m;
+    const offscreen = (x, z) => x < rx0 || x > rx1 || z < rz0 || z > rz1;
+    const rMin = o.minUnits != null ? o.minUnits : 120;
+    const rMax = o.maxUnits != null ? o.maxUnits : 60 * CAMP_M;
+    const DIRS = 24;
+    const order = [];
+    for (let i = 0; i < DIRS; i++) order.push(i);
+    for (let i = order.length - 1; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        [order[i], order[j]] = [order[j], order[i]];
+    }
+    const a0 = Math.random() * 6.283;
+    const px = camera.position.x, pz = camera.position.z;
+    // Dua sapuan: sapuan pertama satu titik per arah (menyebar), sapuan kedua
+    // mengisi sisa bila arah yang lolos lebih sedikit dari jumlah yang diminta.
+    for (let pass = 0; pass < 2 && out.length < count; pass++) {
+        for (const i of order) {
+            if (out.length >= count) break;
+            const ang = a0 + (i / DIRS) * 6.283 + (pass ? 0.13 : 0);
+            const dx = Math.sin(ang), dz = Math.cos(ang);
+            for (let rad = rMin; rad <= rMax; rad += 14) {
+                const x = px + dx * rad, z = pz + dz * rad;
+                if (!offscreen(x, z)) continue;
+                o.scratch.set(x, 0, z);
+                if (o.resolve) o.resolve(o.scratch, 4, 0);
+                if (!o.walkable(o.scratch.x, o.scratch.z, 4)) continue;
+                if (!offscreen(o.scratch.x, o.scratch.z)) continue;   // resolve bisa menariknya kembali ke layar
+                out.push({ x: o.scratch.x, z: o.scratch.z });
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+// HORDE ALARM (2026-07-28, permintaan user): hack yang GAGAL karena ICE TRACE
+// habis menyalakan alarm — sekelompok robot kelas C muncul DI LUAR LAYAR lalu
+// LANGSUNG menyerbu player (persis horde stage 1/3). Kembalikan jumlah yang
+// benar-benar di-spawn. `fallbackSpots` (sel [[c,r,n]]) dipakai HANYA bila
+// titik luar-layar yang sah kurang — mis. player terpojok di ruangan kecil.
+export function spawnAlarmHorde(stage, o) {
+    const n = o.count | 0;
+    if (n <= 0) return 0;
+    const pts = offscreenSpawnPoints(n, o);
+    for (const p of pts) spawnCampaignRobot(p.x, p.z, stage, o.cls || 'C', true);
+    const left = n - pts.length;
+    if (left > 0 && o.fallbackSpots && o.fallbackSpots.length && o.cellFn) {
+        const per = Math.floor(left / o.fallbackSpots.length), rem = left % o.fallbackSpots.length;
+        const spots = o.fallbackSpots.map((a, i) => [a[0], a[1], per + (i < rem ? 1 : 0)]);
+        spawnSwarm(spots, stage, o.cellFn, o.walkable, o.resolve, o.scratch, o.cls || 'C');
+    }
+    return n;
 }
 
 // AI robot campaign generik. `stage` menyuplai:

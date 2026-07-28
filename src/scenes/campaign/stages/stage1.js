@@ -11,14 +11,18 @@
 //   1. 'clear1'  : spawn di TANGGA. 50 robot KELAS C tersebar — BUNUH SEMUA →
 //                  pintu ruang komputer TERKUNCI (merah) TERBUKA (hijau).
 //   2. 'download': datangi SUPER KOMPUTER (kanan-bawah), MENEMPEL → mulai unduh.
-//   3. 'downloading': UNDUH 10 dtk (bar progress; gerak DIBEKUKAN via
-//                  cinematicActive). Selesai → 20 robot tambahan (SEMUA kelas C
-//                  sejak 2026-07-26) + HORDE spawn di ruang bertanda X.
+//   3. 'downloading': MINIGAME HACK "ICE BREACH" (2026-07-28 — MENGGANTIKAN bar
+//                  progress 10 dtk yang lama): scene modal berisi puzzle sirkuit
+//                  (utility/hackMinigame.js); game DI-PAUSE selama puzzle.
+//                  BERHASIL → 20 robot tambahan (SEMUA kelas C sejak 2026-07-26)
+//                  + HORDE spawn di ruang bertanda X. GAGAL/BATAL → kembali ke
+//                  fase 'download'; player harus MENJAUH dulu sebelum bisa
+//                  memicunya lagi (s1CompArmed).
 //   4. 'clear2'  : BUNUH SEMUA robot gelombang-2 lalu KEMBALI ke TANGGA → selesai
 //                  (transisi ke stage 2). LIFT rusak: peringatan saat didekati.
 
 import { CFG, CAMP_M } from '../../../core/config.js';
-import { player, _v3, keys, setCinematicActive } from '../../../core/state.js';
+import { player, _v3, setCinematicActive } from '../../../core/state.js';
 import { scene, camera } from '../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
 import { rand } from '../../../utils/math.js';
@@ -27,10 +31,10 @@ import { makeNavGrid } from '../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { setS1FlickerLight } from '../../../world/decor.js';
 import { applyLightPreset, registerStageLight, precompileStageLightSets } from '../../../world/lighting.js';
-import { hideStageMsg, showStageMsg, showDownloadBar, setDownloadProgress, hideDownloadBar } from '../../../core/dom.js';
+import { hideStageMsg, showStageMsg } from '../../../core/dom.js';
+import { beginHackMinigame, hackGridSize, isHackOpen } from '../utility/hackMinigame.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { NADE_R } from '../../../entities/grenades.js';
-import { clearMoveTarget } from '../../../entities/player.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../entities/drops.js';
 import { buildFuturisticBenchMesh } from '../../../entities/futuristicBench.js';
 import { buildFuturisticPlanterMesh } from '../../../entities/futuristicPlanter.js';
@@ -43,7 +47,7 @@ import { buildFuturisticSofaMesh } from '../../../entities/futuristicSofa.js';
 import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill, spawnSwarm } from '../utility/common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill, spawnSwarm, spawnAlarmHorde } from '../utility/common.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../entities/crates.js';
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../utility/interior.js';
@@ -289,11 +293,12 @@ let s1LiftT = 0;                            // rate-limit peringatan lift rusak
 
 // ===== STATE MACHINE ALUR STAGE 1 =====
 let s1Phase = 'clear1';   // clear1 | download | downloading | clear2 | done
-let s1DlT = 0;            // timer unduh (dtk)
 let s1CompPos = null;     // {x,z} dunia sel BERDIRI (selatan komputer) — trigger unduh
+let s1CompArmed = true;   // pemicu hack "terisi": jadi false setelah dipakai, terisi lagi saat player MENJAUH
+let s1HackCd = 0;         // COOLDOWN alarm (dtk): terminal terkunci setelah hack GAGAL
 let s1LiftPos = null;     // {x,z} dunia lift
 let s1Marker = null, s1MarkerMat = null;   // marker lantai "berdiri di sini" + material (denyut)
-export const s1Debug = () => ({ phase: s1Phase, dlT: s1DlT });   // smoke test
+export const s1Debug = () => ({ phase: s1Phase, hacking: isHackOpen(), armed: s1CompArmed, hackCd: s1HackCd });   // smoke test
 
 const blockers = [];   // furnitur/undakan/lift/rak pejal {x,z,hx,hz,ax*,az*,top,standable}
 let built = false;
@@ -808,6 +813,25 @@ export function spawnStage1Horde() {
     spawnSwarm(spots, 1, s1Cell, stage1Walk, resolve, _v3, 'C');
 }
 
+// ===== ALARM HACK GAGAL (2026-07-28, permintaan user) =====
+// ICE TRACE minigame habis → alarm gedung menyala: `alarmHordeCount` robot
+// kelas C muncul DI LUAR PANDANGAN KAMERA lalu langsung memburu player, dan
+// terminalnya TERKUNCI `alarmCooldownSec` detik supaya player punya waktu
+// membereskan mereka dulu. Jangkar horde ruang X = cadangan bila titik luar-layar
+// yang sah kurang (mis. player terpojok di ruangan kecil).
+function s1AlarmHorde() {
+    const H = CFG.campaign.hack;
+    s1HackCd = H.alarmCooldownSec || 0;
+    s1CompArmed = false;
+    spawnAlarmHorde(1, {
+        count: H.alarmHordeCount || 0, walkable: stage1Walk, resolve, scratch: _v3,
+        minUnits: H.alarmSpawnMinUnits, maxUnits: H.alarmSpawnMaxUnits,
+        cellFn: s1Cell, fallbackSpots: S1_HORDE_ANCHORS,
+    });
+    showStageMsg('ALARM TRIGGERED — the vault locked you out and a hunter squad is closing in! '
+        + `Clear them out; the terminal reboots in ${Math.round(s1HackCd)}s.`, 5000);
+}
+
 export const stage1Scene = {
     id: 'campaign-1',
     lightsKey: 'campaign-1',   // set lampu yang menyala (world/lighting.js)
@@ -823,9 +847,8 @@ export const stage1Scene = {
         applyLightPreset(scene, 'indoor');
         enterCityEnv();
         // Reset ALUR ke awal: fase clear1, unduh 0, pintu komputer TERKUNCI lagi.
-        s1Phase = 'clear1'; s1DlT = 0;
+        s1Phase = 'clear1'; s1CompArmed = true; s1HackCd = 0;
         setCinematicActive(false);
-        hideDownloadBar();
         if (s1compDoor) setDoorLocked(s1compDoor, true);
         // Lampu ruangan MATI (menyala saat dimasuki); start room pra-nyala.
         resetRoomLamps(s1Lamps);
@@ -876,27 +899,36 @@ export const stage1Scene = {
                 showStageMsg('All robots destroyed — the server room is unlocked. Download the data.', 4600);
             }
         } else if (s1Phase === 'download') {
-            // Player MENEMPEL terminal komputer → mulai unduh (bekukan gerak).
-            if (s1CompPos && Math.hypot(px - s1CompPos.x, pz - s1CompPos.z) < s1.computerRange) {
-                s1Phase = 'downloading'; s1DlT = 0;
-                clearMoveTarget();
-                keys.w = keys.a = keys.s = keys.d = false;   // lepas tombol tahan (tak drift saat unfreeze)
-                setCinematicActive(true);   // bekukan SEMUA kendali player (dunia tetap jalan)
-                showDownloadBar();
-                showStageMsg('Downloading data — hold position.', 2400);
-            }
-        } else if (s1Phase === 'downloading') {
-            s1DlT += dt;
-            const k = Math.min(1, s1DlT / s1.downloadSec);
-            setDownloadProgress(k);
-            if (k >= 1) {
-                s1Phase = 'clear2';
-                setCinematicActive(false);   // kembalikan kendali
-                hideDownloadBar();
-                if (s1Marker) s1Marker.visible = false;   // marker tak perlu lagi
-                spawnWave2();                // 20 robot tambahan di ruang X (10C/5B/5A)
-                spawnStage1Horde();          // + HORDE kelas C langsung menyerbu (SECOND-IMPROVEMENT #3)
-                showStageMsg('Data secured! A HORDE of robots swarms in — fight your way back to the stairs!', 5200);
+            // Player MENEMPEL terminal komputer → buka MINIGAME HACK (scene modal;
+            // game di-pause selama puzzle). Pemicu harus "terisi" ulang dengan
+            // MENJAUH sekali, supaya batal/gagal tidak langsung membuka puzzle lagi.
+            if (s1HackCd > 0) s1HackCd = Math.max(0, s1HackCd - dt);   // cooldown alarm berjalan
+            const near = s1CompPos && Math.hypot(px - s1CompPos.x, pz - s1CompPos.z) < s1.computerRange;
+            if (!near) s1CompArmed = true;
+            else if (s1CompArmed && s1HackCd <= 0) {
+                s1CompArmed = false;
+                s1Phase = 'downloading';
+                beginHackMinigame({
+                    head: 'MAINFRAME — DATA VAULT',
+                    sub: 'The vault firewall is a live circuit. Rotate the chips so the ingress '
+                        + 'port links to the data core, then the download runs itself.',
+                    size: hackGridSize(0),
+                    onSuccess: () => {
+                        s1Phase = 'clear2';
+                        if (s1Marker) s1Marker.visible = false;   // marker tak perlu lagi
+                        spawnWave2();                // 20 robot tambahan di ruang X
+                        spawnStage1Horde();          // + HORDE kelas C langsung menyerbu (SECOND-IMPROVEMENT #3)
+                        showStageMsg('Data secured! A HORDE of robots swarms in — fight your way back to the stairs!', 5200);
+                    },
+                    onFail: (why) => {
+                        s1Phase = 'download';
+                        if (why === 'abort') {
+                            showStageMsg('Breach aborted — step away from the terminal and try again.', 3600);
+                        } else {
+                            s1AlarmHorde();   // ICE TRACE habis → alarm + horde + cooldown
+                        }
+                    },
+                });
             }
         } else if (s1Phase === 'clear2') {
             if (n === 0) {
@@ -999,8 +1031,10 @@ export const stage1Scene = {
         const n = countStageRobots(1);
         switch (s1Phase) {
             case 'clear1': return `FLOOR 2 — Robots: ${n} | Destroy ALL robots to unlock the server room`;
-            case 'download': return 'FLOOR 2 — Server room unlocked — reach the terminal and download the data';
-            case 'downloading': return `FLOOR 2 — Downloading data... ${Math.round(Math.min(1, s1DlT / CFG.campaign.stage1.downloadSec) * 100)}%`;
+            case 'download': return s1HackCd > 0
+                ? `FLOOR 2 — ALARM! Terminal rebooting: ${Math.ceil(s1HackCd)}s | Hostiles: ${n}`
+                : 'FLOOR 2 — Server room unlocked — reach the terminal and download the data';
+            case 'downloading': return 'FLOOR 2 — Breaching the vault firewall…';
             case 'clear2': return `FLOOR 2 — Hostiles inbound! Robots: ${n} | Fight back to the stairs`;
             default: return 'FLOOR 2 — Area secured — return to the stairs to descend';
         }

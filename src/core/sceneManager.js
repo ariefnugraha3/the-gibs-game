@@ -18,3 +18,15 @@ export function setScene(s, opts = {}) {
     if (s.lightsKey) setActiveStageLights(s.lightsKey);
     s.enter(opts);
 }
+
+// KEMBALI ke scene yang sedang berjalan setelah sebuah scene MODAL (minigame
+// hack, campaign/utility/hackMinigame.js) — sengaja TIDAK memanggil enter():
+// enter() sebuah stage me-reset seluruh stage itu (robot, supply, posisi player,
+// fase), padahal player hanya "keluar sebentar" ke layar puzzle dan dunia stage
+// harus tetap persis seperti saat ia ditinggalkan. exit() modal tetap dipanggil.
+export function resumeScene(s) {
+    if (!s) return;
+    if (activeScene && activeScene.exit) activeScene.exit();
+    activeScene = s;
+    if (s.lightsKey) setActiveStageLights(s.lightsKey);
+}

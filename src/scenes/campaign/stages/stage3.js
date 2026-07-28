@@ -18,6 +18,12 @@
 //                   DIACAK tiap masuk stage. Layar terminal = rambu status: MERAH
 //                   belum giliran, HIJAU giliran sekarang, KUNING sudah selesai.
 //                   Pintu blast punya lampu sendiri: MERAH terkunci, HIJAU terbuka.
+//                   MENEMPEL terminal HIJAU membuka MINIGAME "ICE BREACH"
+//                   (utility/hackMinigame.js — 2026-07-28, menggantikan bar
+//                   progress hackSec): puzzle sirkuit di scene modal, game
+//                   di-PAUSE selama dimainkan. Papan makin besar tiap dua
+//                   terminal. Batal/kehabisan ICE TRACE = terminal tetap belum
+//                   ter-hack; player harus MENJAUH dulu sebelum mencoba lagi.
 //                   Tiap hack SELESAI melepas GELOMBANG robot (6 dari TANGGA + 6
 //                   dari LIFT, gateWaveCount, kelas ACAK C50/B25/A25, LANGSUNG
 //                   mengejar ke mana pun player berada). Gelombang itu TIDAK
@@ -32,7 +38,7 @@
 //                   AKTIF (hijau). Capai 'o' → beginStageTransition(stage4).
 
 import { CFG, CAMP_M } from '../../../core/config.js';
-import { player, robots, _v3, bullets, stats, addScore, keys, setCinematicActive } from '../../../core/state.js';
+import { player, robots, _v3, bullets, stats, addScore, setCinematicActive } from '../../../core/state.js';
 import { scene, camera, addCamShake } from '../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
 import { rand, segPointDist2 } from '../../../utils/math.js';
@@ -41,7 +47,8 @@ import { makeNavGrid } from '../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { PAL } from '../../../world/palette.js';
-import { showStageMsg, showPickup, showDownloadBar, setDownloadProgress, hideDownloadBar } from '../../../core/dom.js';
+import { showStageMsg, showPickup } from '../../../core/dom.js';
+import { beginHackMinigame, hackGridSize } from '../utility/hackMinigame.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { updateUI } from '../../../core/hud.js';
 import { NADE_R } from '../../../entities/grenades.js';
@@ -61,10 +68,9 @@ import { buildFuturisticPlanterMesh } from '../../../entities/futuristicPlanter.
 import { buildFuturisticSofaMesh } from '../../../entities/futuristicSofa.js';
 import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.js';
 import { buildFuturisticRubbleMesh } from '../../../entities/futuristicRubble.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill } from '../utility/common.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill, spawnAlarmHorde } from '../utility/common.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../entities/crates.js';
-import { clearMoveTarget } from '../../../entities/player.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
@@ -258,9 +264,11 @@ let s3DoorSign = null, s3DoorLight = null;   // rambu status pintu: MERAH terkun
 // ===== TERMINAL HACK (2026-07-28) =====
 // `s3Terms` = [{def, group, cx, cz, sx, sz, screens[], blocker}]; `s3HackOrder` =
 // urutan ACAK indeks terminal (diacak tiap enter); `s3HackIdx` = berapa yang sudah
-// selesai (= indeks giliran berikutnya); `s3Hacking`/`s3HackT` = proses berjalan.
+// selesai (= indeks giliran berikutnya); `s3Hacking` = MINIGAME hack sedang
+// terbuka; `s3HackArmed` = pemicu siap (terisi ulang saat player menjauh).
 let s3Terms = [];
-let s3HackOrder = [], s3HackIdx = 0, s3Hacking = false, s3HackT = 0;
+let s3HackOrder = [], s3HackIdx = 0, s3Hacking = false, s3HackArmed = true;
+let s3HackCd = 0;   // COOLDOWN alarm (dtk): terminal terkunci setelah hack GAGAL
 let s3Machines = [];    // [{group, cx, cz, spawn, hp, alive, spawnT, hitT, eyeMat, blocker}]
 let s3ExitSign = null, s3ExitLight = null, s3ExitDoor = null, s3ExitOpen = false;
 // ===== ANTREAN SPAWN + ANIMASI MUNCUL (2026-07-26, permintaan user) =====
@@ -276,8 +284,7 @@ let s3Rising = [];   // [{z, t, base}] robot yang sedang animasi tumbuh
 export const s3SpawnDbg = () => ({ queued: s3Queue.length, rising: s3Rising.length });
 export const s3Debug = () => ({
     phase: s3Phase, machinesAlive: s3MachinesAlive(), robots: countStageRobots(3), spawnT: s3SpawnT,
-    hacked: s3HackIdx, hackTotal: S3_TERMINALS.length, hacking: s3Hacking,
-    hackK: s3Hacking ? Math.min(1, s3HackT / (CFG.campaign.stage3.hackSec || 5)) : 0,
+    hacked: s3HackIdx, hackTotal: S3_TERMINALS.length, hacking: s3Hacking, armed: s3HackArmed, hackCd: s3HackCd,
 });
 export const s3DoorDbg = () => ({
     open: s3DoorOpen, k: s3DoorK, visible: s3Door ? s3Door.visible : null,
@@ -837,9 +844,8 @@ function s3ActiveTerm() {
 // giliran pindah ke terminal berikutnya. TIDAK ada respawn otomatis — gelombang
 // berikutnya baru ada setelah hack berikutnya SELESAI (permintaan user).
 function s3FinishHack() {
-    s3Hacking = false; s3HackT = 0;
-    setCinematicActive(false);
-    hideDownloadBar();
+    s3Hacking = false;
+    s3HackArmed = true;   // giliran pindah ke terminal LAIN = pemicu baru (tak perlu menjauh)
     s3HackIdx++;
     s3PaintTerminals();
     spawnDoorWave();
@@ -849,6 +855,25 @@ function s3FinishHack() {
     }
     updateUI();
 }
+// ===== ALARM HACK GAGAL (2026-07-28, permintaan user) =====
+// ICE TRACE minigame habis → alarm lantai pabrik menyala: `alarmHordeCount`
+// robot kelas C muncul DI LUAR PANDANGAN KAMERA lalu langsung memburu player,
+// dan terminalnya TERKUNCI `alarmCooldownSec` detik — player harus membereskan
+// mereka dulu. Sel TANGGA & LIFT jadi cadangan bila titik luar-layar kurang.
+function s3AlarmHorde() {
+    const H = CFG.campaign.hack;
+    s3HackCd = H.alarmCooldownSec || 0;
+    s3HackArmed = false;
+    spawnAlarmHorde(3, {
+        count: H.alarmHordeCount || 0, walkable: stage3Walk, resolve, scratch: _v3,
+        minUnits: H.alarmSpawnMinUnits, maxUnits: H.alarmSpawnMaxUnits,
+        cellFn: s3Cell,
+        fallbackSpots: [[S3_STAIRS_SPAWN.c, S3_STAIRS_SPAWN.r], [S3_LIFT_SPAWN.c, S3_LIFT_SPAWN.r]],
+    });
+    showStageMsg('ALARM TRIGGERED — the terminal locked you out and a hunter squad is inbound! '
+        + `Clear them out; it reboots in ${Math.round(s3HackCd)}s.`, 5000);
+}
+
 // Kelima terminal beres → PINTU BLAST TERBUKA (naik ke plafon), rambu jadi HIJAU.
 function s3OpenDoor() {
     s3DoorOpen = true;
@@ -957,9 +982,8 @@ export const stage3Scene = {
         if (blockers.indexOf(s3DoorBlocker) === -1) blockers.push(s3DoorBlocker);
         // TERMINAL HACK: proses dibatalkan, urutan DIACAK ULANG (Fisher-Yates),
         // semua layar dicat ulang menurut urutan baru.
-        s3Hacking = false; s3HackT = 0; s3HackIdx = 0;
+        s3Hacking = false; s3HackArmed = true; s3HackCd = 0; s3HackIdx = 0;
         setCinematicActive(false);
-        hideDownloadBar();
         s3HackOrder = s3Terms.map((_, i) => i);
         for (let i = s3HackOrder.length - 1; i > 0; i--) {
             const j = (Math.random() * (i + 1)) | 0;
@@ -1002,20 +1026,31 @@ export const stage3Scene = {
             // sebuah hack SELESAI, dan tak ada yang menyusul sampai hack
             // berikutnya beres (permintaan user — menggantikan respawn anti-camp
             // yang dulu berjalan selama player menembaki pintu).
-            if (s3Hacking) {
-                s3HackT += dt;
-                const k = Math.min(1, s3HackT / (s3.hackSec || 5));
-                setDownloadProgress(k);
-                if (k >= 1) s3FinishHack();
-            } else {
+            // MINIGAME HACK (2026-07-28): menempel terminal HIJAU membuka scene
+            // modal puzzle sirkuit (utility/hackMinigame.js) — game DI-PAUSE
+            // selama puzzle, jadi tak ada yang perlu di-tick di sini. Pemicu
+            // "terisi" ulang hanya setelah player MENJAUH sekali, supaya batal/
+            // gagal tidak langsung membuka puzzle lagi di tempat.
+            if (!s3Hacking) {
+                if (s3HackCd > 0) s3HackCd = Math.max(0, s3HackCd - dt);   // cooldown alarm berjalan
                 const act = s3ActiveTerm();
-                if (act && Math.hypot(camera.position.x - act.sx, pz - act.sz) < (s3.hackRange || 13)) {
-                    s3Hacking = true; s3HackT = 0;
-                    clearMoveTarget();
-                    keys.w = keys.a = keys.s = keys.d = false;   // lepas tombol tahan (tak drift saat unfreeze)
-                    setCinematicActive(true);                     // bekukan kendali player (dunia tetap jalan)
-                    showDownloadBar('HACKING TERMINAL');
-                    showStageMsg('Hacking the terminal — hold position!', 2400);
+                const near = act && Math.hypot(camera.position.x - act.sx, pz - act.sz) < (s3.hackRange || 13);
+                if (!near) s3HackArmed = true;
+                else if (s3HackArmed && s3HackCd <= 0) {
+                    s3HackArmed = false;
+                    s3Hacking = true;
+                    beginHackMinigame({
+                        head: `TERMINAL ${s3HackIdx + 1} / ${S3_TERMINALS.length} — ${act.def.room}`,
+                        sub: 'Reroute the door bus: rotate the chips until the ingress port '
+                            + 'links to the data core. Every breach unlocks part of the blast door.',
+                        size: hackGridSize(s3HackIdx),
+                        onSuccess: s3FinishHack,
+                        onFail: (why) => {
+                            s3Hacking = false;
+                            if (why === 'abort') showStageMsg('Breach aborted — step away from the terminal and try again.', 3600);
+                            else s3AlarmHorde();   // ICE TRACE habis → alarm + horde + cooldown
+                        },
+                    });
                 }
             }
             if (s3HackIdx >= S3_TERMINALS.length && !s3DoorOpen) {
@@ -1112,10 +1147,8 @@ export const stage3Scene = {
     hudStatus() {
         switch (s3Phase) {
             case 'door': {
-                if (s3Hacking) {
-                    const k = Math.min(1, s3HackT / (CFG.campaign.stage3.hackSec || 5));
-                    return `FLOOR 3 — Hacking terminal... ${Math.round(k * 100)}%`;
-                }
+                if (s3Hacking) return 'FLOOR 3 — Breaching the terminal…';
+                if (s3HackCd > 0) return `FLOOR 3 — ALARM! Terminal rebooting: ${Math.ceil(s3HackCd)}s | Hostiles: ${countStageRobots(3)}`;
                 const act = s3ActiveTerm();
                 return `FLOOR 3 — Hack the terminals: ${s3HackIdx}/${S3_TERMINALS.length}`
                     + (act ? ` | Next: ${act.def.room}` : '')

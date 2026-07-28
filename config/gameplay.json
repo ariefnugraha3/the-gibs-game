@@ -276,6 +276,16 @@
         "doors": {
             "closeDelaySec": 3.0
         },
+        "hack": {
+            "gridMin": 4,
+            "gridMax": 5,
+            "traceSec": 60,
+            "decoyChance": 0.55,
+            "alarmHordeCount": 10,
+            "alarmCooldownSec": 30,
+            "alarmSpawnMinUnits": 150,
+            "alarmSpawnMaxUnits": 420
+        },
         "stage1": {
             "downloadSec": 10,
             "computerRange": 10,

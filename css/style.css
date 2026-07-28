@@ -1410,3 +1410,212 @@ body.cine #medkitBar, body.cine #stageMsg {
     z-index: 27;
 }
 #cineCaption.on { opacity: 1; transform: translateY(0); }
+
+/* ---------- MINIGAME HACK "ICE BREACH" (2026-07-28) — scene MODAL yang
+   menggantikan bar progress hacking di Stage 1 & Stage 3. Latar OPAK (dunia 3D
+   tak terlihat, seperti campaign shop). Palet mengikuti GIBS 2045: dasar hangat
+   gelap, aksen teal PAL.tech (#2fb8a6) utk sirkuit mati/standby, AMBER
+   PAL.amber (#ffb03b) utk jalur yang SUDAH teraliri daya. Tanpa neon cyan/
+   magenta. ---------- */
+#hackOverlay {
+    position: absolute;
+    inset: 0;
+    z-index: 13;                    /* di atas shop; di bawah loading & blocker */
+    display: none;                  /* -> flex saat hack dibuka */
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+    color: #e6ded0;
+    background:
+        repeating-linear-gradient(0deg, rgba(47, 184, 166, 0.05) 0 1px, transparent 1px 3px),
+        radial-gradient(circle at 50% 42%, #17201f, #0b0e10 72%);
+    cursor: default;
+}
+.hackPanel {
+    position: relative;
+    width: min(760px, 94vw);
+    max-height: 94vh;
+    padding: 20px 26px 18px;
+    background: rgba(16, 20, 22, 0.92);
+    border: 1px solid rgba(47, 184, 166, 0.45);
+    border-radius: 10px;
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 176, 59, 0.08) inset;
+    overflow: hidden;
+}
+/* Sapuan cahaya halus di kepala panel (murni dekor) */
+.hackGlow {
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #2fb8a6, transparent);
+    opacity: 0.75;
+}
+.hackHead {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.hackTag {
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 0.32em;
+    color: #0b0e10;
+    background: #2fb8a6;
+    padding: 3px 9px;
+    border-radius: 3px;
+}
+.hackTitle {
+    font-size: 17px;
+    font-weight: bold;
+    letter-spacing: 0.18em;
+    color: #ffb03b;
+    text-transform: uppercase;
+}
+.hackSub {
+    margin: 8px 0 16px;
+    font-size: 13px;
+    line-height: 1.5;
+    letter-spacing: 0.03em;
+    color: #9fb0ad;
+}
+/* Baris utama: PORT — papan chip — CORE */
+.hackBody {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+}
+.hackPort, .hackCore {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    width: 74px;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: #6f807d;
+    text-align: center;
+}
+.hackJack {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid #2a4b47;
+    background: #16211f;
+}
+.hackPort.on .hackJack, .hackCore.on .hackJack {
+    border-color: #ffb03b;
+    background: #ffb03b;
+    box-shadow: 0 0 16px rgba(255, 176, 59, 0.75);
+}
+.hackPort.on, .hackCore.on { color: #ffb03b; }
+.hackCore.on { animation: hackPulse 0.9s ease-in-out infinite; }
+@keyframes hackPulse { 50% { opacity: 0.6; } }
+.hackGrid {
+    display: grid;
+    gap: 5px;
+    flex: 0 0 auto;
+    padding: 7px;
+    background: rgba(6, 10, 10, 0.7);
+    border: 1px solid rgba(47, 184, 166, 0.22);
+    border-radius: 8px;
+}
+.hackTile {
+    width: min(9.2vh, 62px);
+    height: min(9.2vh, 62px);
+    background: rgba(47, 184, 166, 0.05);
+    border: 1px solid rgba(47, 184, 166, 0.16);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.hackTile:hover { background: rgba(255, 176, 59, 0.1); border-color: rgba(255, 176, 59, 0.45); }
+.hackTile.dead { cursor: default; background: rgba(255, 255, 255, 0.02); }
+.hackTile.dead:hover { background: rgba(255, 255, 255, 0.02); border-color: rgba(47, 184, 166, 0.16); }
+/* Chip = pembungkus yang DIPUTAR (transisi halus tiap klik) */
+.hackChip {
+    width: 100%;
+    height: 100%;
+    transition: transform 0.16s ease-out;
+}
+.hackChip svg { width: 100%; height: 100%; display: block; }
+.hackChip .pipe {
+    fill: none;
+    stroke: #1d3d39;
+    stroke-width: 20;
+    stroke-linecap: round;
+}
+.hackChip .core {
+    fill: none;
+    stroke: #2fb8a6;
+    stroke-width: 8;
+    stroke-linecap: round;
+}
+.hackChip .node { fill: #2fb8a6; }
+.hackChip .dead { fill: rgba(255, 255, 255, 0.06); }
+/* Chip yang SUDAH teraliri daya dari port: amber + berpendar */
+.hackTile.on { background: rgba(255, 176, 59, 0.12); border-color: rgba(255, 176, 59, 0.5); }
+.hackTile.on .hackChip .core { stroke: #ffb03b; }
+.hackTile.on .hackChip .node { fill: #ffe0a8; }
+.hackTile.on .hackChip svg { filter: drop-shadow(0 0 5px rgba(255, 176, 59, 0.65)); }
+/* Kaki panel: hitung mundur ICE TRACE, petunjuk, tombol batal */
+.hackFoot {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+}
+.hackTrace { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.18em; color: #6f807d; }
+.hackTraceShell {
+    display: inline-block;
+    width: 132px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.hackTraceFill {
+    display: block;
+    height: 100%;
+    width: 100%;
+    background: #2fb8a6;
+    transition: width 0.1s linear;
+}
+.hackTraceFill.warn { background: #d9552f; }
+.hackTraceNum { color: #e6ded0; min-width: 34px; }
+.hackHint { flex: 1; text-align: center; font-size: 11px; letter-spacing: 0.06em; color: #6f807d; }
+.hackAbort {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 0.14em;
+    color: #ffb03b;
+    background: rgba(255, 176, 59, 0.08);
+    border: 1px solid rgba(255, 176, 59, 0.45);
+    border-radius: 4px;
+    padding: 8px 14px;
+    cursor: pointer;
+}
+.hackAbort:hover { background: rgba(255, 176, 59, 0.2); }
+/* Banner hasil (ACCESS GRANTED / LOCKED OUT) menutupi panel sesaat */
+.hackBanner {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(20px, 3.4vw, 40px);
+    font-weight: bold;
+    letter-spacing: 0.28em;
+    background: rgba(8, 11, 12, 0.88);
+}
+.hackBanner.on { display: flex; }
+.hackBanner.ok { color: #2eff6a; text-shadow: 0 0 26px rgba(46, 255, 106, 0.5); }
+.hackBanner.bad { color: #ff6b52; text-shadow: 0 0 26px rgba(255, 107, 82, 0.5); }
+/* Banner GAGAL = ALARM (2026-07-28): merah berdenyut, bukan teks diam. */
+.hackBanner.bad { animation: hackAlarm 0.42s steps(1, end) infinite; }
+@keyframes hackAlarm {
+    50% { color: #ffd0c4; background: rgba(60, 12, 8, 0.9); }
+}
