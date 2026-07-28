@@ -1766,80 +1766,163 @@ rendererMod.followViewCam(0.016);
 T('S3 KAMERA: camOffset BARAT LAUT (NW) -> SCREEN_UP menunjuk TENGGARA (x>0, z>0)',
     s3mod.stage3Scene.camOffset.x < 0 && s3mod.stage3Scene.camOffset.z < 0
     && rendererMod.SCREEN_UP.x > 0 && rendererMod.SCREEN_UP.z > 0);
-T('S3: mulai fase door + 0 robot + belum menembak pintu (boleh berkeliling)',
-    s3mod.s3Debug().phase === 'door' && robots.filter(z => z.stage === 3).length === 0 && s3mod.s3Debug().doorFired === false);
+T('S3: mulai fase door + 0 robot + 0 terminal ter-hack (boleh berkeliling)',
+    s3mod.s3Debug().phase === 'door' && robots.filter(z => z.stage === 3).length === 0
+    && s3mod.s3Debug().hacked === 0 && s3mod.s3Debug().hacking === false);
 T('S3: enter menaruh supply (ruang W + ruang X digandakan)', stateMod.drops.length > s3dropsBefore);
-T('S3: PINTU BLAST + terpasang HP penuh + memblok',
-    s3mod.s3DoorDbg().hp === s3cfg.doorHp && s3mod.s3DoorDbg().visible === true && s3mod.s3DoorDbg().blocked === true);
+T('S3: PINTU BLAST terkunci (TAK BISA ditembak) + rambu MERAH + memblok',
+    s3mod.s3DoorDbg().open === false && s3mod.s3DoorDbg().visible === true
+    && s3mod.s3DoorDbg().blocked === true && s3mod.s3DoorDbg().signHex === 0xff3b2e);
 T('S3: 4 MESIN pembuat robot (2 kiri + 2 kanan) semua hidup',
     s3mod.s3MachinesDbg().length === 4 && s3mod.s3MachinesDbg().every(m => m.alive));
 
-// (0) SEBELUM menembak pintu: updateMode lama -> TETAP 0 robot (player boleh berkeliling)
-for (let t = 0; t < 10; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
-T('S3 FLOW: TIDAK ada robot sebelum player menembak pintu (biarkan berkeliling)',
-    robots.filter(z => z.stage === 3).length === 0 && s3mod.s3Debug().doorFired === false);
-
-// fake bullet menyeberang baris pintu + helper "tembak pintu" (picu gelombang)
-const s3FakeBullet = (px, pz, x, z, dmg) => ({ mesh: { position: { x, y: 8, z } }, px, py: 8, pz, dir: { x: 0, y: 0, z: 1 }, damage: dmg });
-const dpx = s3mod.s3Cell(19.5, 29).x, dpz = s3mod.s3Cell(19.5, 29).z;
-const s3FireDoor = (dmg = 40) => { stateMod.bullets.push(s3FakeBullet(dpx, dpz - 6, dpx, dpz + 4, dmg)); s3mod.stage3Scene.updateMode(0.05); };
-// ANTREAN SPAWN (2026-07-26): robot keluar SATU per SATU tiap spawnGapSec, jadi
-// gelombang tidak lagi lengkap dalam satu tick — tick updateMode sampai antrean
-// habis sebelum menghitung jumlah robot.
-const s3Drain = () => { for (let i = 0; i < 500 && s3mod.s3SpawnDbg().queued; i++) s3mod.stage3Scene.updateMode(cfgMod.CFG.campaign.stage3.spawnGapSec); };
-
-// (1) TEMBAK PINTU pertama -> HP turun + GELOMBANG 6 tangga + 6 lift (12) LANGSUNG chasing
-const hpBefore = s3mod.s3DoorDbg().hp;
-s3FireDoor(40);
-// Gelombang DIANTRE (2026-07-26): satu tick belum memunculkan semua robot.
-const queuedNow = s3mod.s3SpawnDbg().queued + robots.filter(z => z.stage === 3).length;
-T('S3 FLOW: tembak pintu PERTAMA -> HP turun + gelombang (6+6=12) DIANTRE, bukan serentak',
-    s3mod.s3DoorDbg().hp < hpBefore && s3mod.s3Debug().doorFired === true
-    && queuedNow === s3cfg.gateWaveCount * 2
-    && robots.filter(z => z.stage === 3).length < s3cfg.gateWaveCount * 2);
-// Satu tick sebesar spawnGapSec = TEPAT satu robot baru (jeda 0.3 dtk/robot).
-const beforeOne = robots.filter(z => z.stage === 3).length;
-s3mod.stage3Scene.updateMode(s3cfg.spawnGapSec);
-T('S3 FLOW: antrean melepas 1 robot per spawnGapSec (' + s3cfg.spawnGapSec + ' dtk)',
-    robots.filter(z => z.stage === 3).length === beforeOne + 1);
-// Robot yang baru muncul BERANIMASI tumbuh: skala mesh masih < skala penuhnya.
-const fresh = robots.filter(z => z.stage === 3).pop();
-T('S3 FLOW: robot baru MUNCUL beranimasi (mesh mengecil dulu lalu tumbuh)',
-    s3mod.s3SpawnDbg().rising > 0 && fresh.mesh.scale.x < (fresh.scl || 1));
-s3Drain();
-const gspawn = robots.filter(z => z.stage === 3);
-T('S3 FLOW: antrean habis -> gelombang penuh (6+6=12) langsung chasing + skala pulih',
-    gspawn.length === s3cfg.gateWaveCount * 2 && gspawn.every(z => z.state === 'chasing'));
-
-// robotAI jalan tanpa error
-const zS3 = robots.find(z => z.stage === 3);
-let s3aiOk = true;
-try { for (let i = 0; i < 5; i++) s3mod.stage3Scene.robotAI(zS3, 0.05, 3); } catch (e) { s3aiOk = false; }
-T('S3: robotAI jalan tanpa error', s3aiOk);
-
-// (2) Habisi ke-12 -> TUNGGU < respawnSec: masih 0; >= respawnSec: gelombang baru (12)
+// === 5 TERMINAL HACK (DIROMBAK 2026-07-28, permintaan user: pintu TIDAK BISA
+// dihancurkan lagi; ia terbuka setelah 5 komputer di 5 ruangan di-hack BERURUTAN
+// dgn urutan ACAK, dan spawn-robot-selama-menembaki-pintu DIHAPUS). ===
+// Denah ruangan (sel) — fakta layout, bukan angka tuning:
+const S3_ROOM_RECT = {
+    'Ruang C': { c0: 19, c1: 29, r0: 1, r1: 7 },
+    'Ruang D': { c0: 30, c1: 38, r0: 1, r1: 7 },
+    'West Wing': { c0: 1, c1: 7, r0: 12, r1: 19 },
+    'East Wing': { c0: 33, c1: 38, r0: 12, r1: 19 },
+    'Supply Room': { c0: 1, c1: 10, r0: 21, r1: 28 },
+};
+{
+    const H = s3mod.s3HackDbg();
+    const rooms = H.terms.map(t => t.room);
+    // (a) satu terminal per ruangan, 2x1 sel, menempel dinding di ujung ruangan.
+    let placeOk = true, wallOk = true, footOk = true;
+    for (const t of H.terms) {
+        const R = S3_ROOM_RECT[t.room];
+        if (!R || t.c < R.c0 || t.c + 1 > R.c1 || t.r < R.r0 || t.r > R.r1) placeOk = false;
+        // dua sel footprint = lantai; sel DI BELAKANG layar = dinding (ujung ruangan)
+        if (s3mod.s3Wall(t.c, t.r) || s3mod.s3Wall(t.c + 1, t.r)) footOk = false;
+        if (!s3mod.s3Wall(t.c, t.r - 1) && !s3mod.s3Wall(t.c, t.r + 1)) wallOk = false;
+    }
+    T('S3 HACK: 5 terminal, satu di tiap ruangan (C, D, West Wing, East Wing, Supply)',
+        H.terms.length === 5 && new Set(rooms).size === 5
+        && Object.keys(S3_ROOM_RECT).every(k => rooms.includes(k)) && placeOk);
+    T('S3 HACK: tiap terminal 2x1 sel di lantai & MENEMPEL dinding (ujung ruangan) + pejal',
+        footOk && wallOk && H.terms.every(t => t.blocked === true));
+    // (b) DUA di antaranya berdiri di ruangan yang dulu KOSONG (kiri lift & kanan
+    //     chamber) — sebelum ini tak ada alasan sama sekali mengunjungi keduanya.
+    T('S3 HACK: dua terminal mengisi ruangan yang dulu kosong (West/East Wing)',
+        rooms.includes('West Wing') && rooms.includes('East Wing'));
+}
+// (c) URUTAN ACAK tiap masuk stage + selalu permutasi sah 0..4.
+{
+    const seenOrders = new Set();
+    let permOk = true;
+    for (let i = 0; i < 8; i++) {
+        smMod.setScene(s3mod.stage3Scene);
+        const o = s3mod.s3HackDbg().order;
+        if (o.length !== 5 || new Set(o).size !== 5 || o.some(v => v < 0 || v > 4)) permOk = false;
+        seenOrders.add(o.join(','));
+    }
+    T('S3 HACK: urutan hack DIACAK tiap masuk stage (' + seenOrders.size + ' urutan berbeda dari 8) & selalu permutasi sah',
+        permOk && seenOrders.size > 1);
+}
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
-for (let t = 0; t < s3cfg.respawnSec - 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
-const midWait = robots.filter(z => z.stage === 3).length;
-for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
-s3Drain();
-T('S3 FLOW: gelombang berikut hanya ~respawnSec (8 dtk) SETELAH ke-12 bersih',
-    midWait === 0 && robots.filter(z => z.stage === 3).length === s3cfg.gateWaveCount * 2);
+stateMod.setCinematicActive(false);
 
-// (2b) ANTI-CAMP (2026-07-22): menyisakan < reinforceThreshold robot TAK membekukan
-// gelombang -> player tak bisa aman camp 1 robot lalu menghancurkan pintu.
-const s3thr = s3cfg.reinforceThreshold;
-while (robots.filter(z => z.stage === 3).length > s3thr - 1) { const i3 = robots.findIndex(z => z.stage === 3); scene.remove(robots[i3].mesh); robots.splice(i3, 1); }
-const s3campBefore = robots.filter(z => z.stage === 3).length;   // = threshold-1
-for (let t = 0; t < s3cfg.respawnSec + 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
-T('S3 FLOW: sisa <reinforceThreshold robot TETAP memicu gelombang (anti-camp door)',
-    s3campBefore === s3thr - 1 && robots.filter(z => z.stage === 3).length > s3campBefore);
+// Helper: terminal yang sedang jadi giliran + jalankan satu hack sampai selesai.
+const s3Term = (i) => s3mod.s3HackDbg().terms[i];
+const s3Active = () => { const d = s3mod.s3HackDbg(); return d.idx < 5 ? d.terms[d.order[d.idx]] : null; };
+const s3StandAt = (t) => camera.position.set(t.sx, cfgMod.CFG.player.eyeHeight, t.sz);
+const s3RunHack = () => {
+    s3StandAt(s3Active());
+    s3mod.stage3Scene.updateMode(0.05);                                   // masuk jangkauan -> mulai
+    for (let i = 0; i < 600 && s3mod.s3Debug().hacking; i++) s3mod.stage3Scene.updateMode(0.05);
+};
+const s3Drain = () => { for (let i = 0; i < 800 && s3mod.s3SpawnDbg().queued; i++) s3mod.stage3Scene.updateMode(cfgMod.CFG.campaign.stage3.spawnGapSec); };
+const s3KillAll = () => { for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 3) { scene.remove(robots[i].mesh); robots.splice(i, 1); } };
+const s3Count = () => robots.filter(z => z.stage === 3).length;
+const s3thr = s3cfg.reinforceThreshold;   // ambang anti-camp (dipakai uji fase machines)
 
-// (3) Hancurkan PINTU (damage besar) -> fase toX + mesh hilang + blocker dilepas
-while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
-s3FireDoor(s3cfg.doorHp + 100);
-T('S3 FLOW: PINTU BLAST HANCUR -> fase toX + mesh hilang + blocker dilepas',
-    s3mod.s3Debug().phase === 'toX' && s3mod.s3DoorDbg().visible === false && s3mod.s3DoorDbg().blocked === false);
+// (0) Berkeliling TANPA menyentuh terminal: tetap 0 robot (tak ada gelombang otomatis)
+for (let t = 0; t < 12; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)',
+    s3Count() === 0 && s3mod.s3Debug().hacked === 0);
+
+// (1) RAMBU LAYAR: tepat SATU hijau (giliran), sisanya merah, belum ada kuning.
+{
+    const H = s3mod.s3HackDbg();
+    const green = H.terms.filter(t => t.hex === 0x2eff6a);
+    T('S3 HACK: rambu layar — tepat 1 HIJAU (giliran), 4 MERAH, 0 KUNING',
+        green.length === 1 && green[0].room === s3Active().room
+        && H.terms.filter(t => t.hex === 0xff3b2e).length === 4
+        && H.terms.filter(t => t.hex === 0xffd23b).length === 0);
+}
+
+// (2) BERURUTAN: berdiri di terminal yang BUKAN giliran tidak memulai hack.
+{
+    const act = s3Active();
+    const other = s3mod.s3HackDbg().terms.find(t => t.room !== act.room);
+    s3StandAt(other);
+    for (let i = 0; i < 20; i++) s3mod.stage3Scene.updateMode(0.05);
+    T('S3 HACK: terminal yang BUKAN gilirannya tidak bisa di-hack (harus berurutan)',
+        s3mod.s3Debug().hacking === false && s3mod.s3Debug().hacked === 0 && s3Count() === 0);
+}
+
+// (3) HACK #1: membekukan kendali player, makan hackSec, lalu melepas SATU
+//     gelombang (gateWaveCount dari tangga + gateWaveCount dari lift).
+{
+    const act = s3Active();
+    s3StandAt(act);
+    s3mod.stage3Scene.updateMode(0.05);
+    const frozen = stateMod.cinematicActive;
+    let ticks = 0;
+    for (let i = 0; i < 600 && s3mod.s3Debug().hacking; i++) { s3mod.stage3Scene.updateMode(0.05); ticks++; }
+    const secs = ticks * 0.05;
+    T('S3 HACK: menempel terminal HIJAU -> hack membekukan kendali & makan hackSec ('
+        + secs.toFixed(2) + ' vs ' + s3cfg.hackSec + ' dtk)',
+        frozen === true && Math.abs(secs - s3cfg.hackSec) < 0.2
+        && stateMod.cinematicActive === false && s3mod.s3Debug().hacked === 1);
+    const queued = s3mod.s3SpawnDbg().queued + s3Count();
+    T('S3 HACK: hack SELESAI -> satu gelombang (6+6=12) diantre, langsung mengejar',
+        queued === s3cfg.gateWaveCount * 2);
+    s3Drain();
+    T('S3 HACK: gelombang penuh keluar & semuanya chasing',
+        s3Count() === s3cfg.gateWaveCount * 2 && robots.filter(z => z.stage === 3).every(z => z.state === 'chasing'));
+    // Layar terminal yang baru selesai jadi KUNING, giliran pindah ke yang berikutnya.
+    const H = s3mod.s3HackDbg();
+    T('S3 HACK: layar terminal yang selesai jadi KUNING & giliran pindah (1 hijau baru)',
+        H.terms[H.order[0]].hex === 0xffd23b && H.terms.filter(t => t.hex === 0x2eff6a).length === 1
+        && H.terms[H.order[1]].hex === 0x2eff6a);
+}
+
+// (4) TIDAK ADA respawn otomatis: habisi gelombang lalu tunggu lama — tetap kosong
+//     sampai hack BERIKUTNYA selesai (menggantikan respawn anti-camp fase door).
+s3KillAll();
+for (let t = 0; t < s3cfg.respawnSec * 3; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+T('S3 HACK: gelombang TIDAK respawn sendiri — sunyi sampai hack berikutnya (tunggu '
+    + (s3cfg.respawnSec * 3) + ' dtk)', s3Count() === 0 && s3mod.s3SpawnDbg().queued === 0);
+
+// (5) PINTU tak bisa ditembak & memblok peluru selagi terkunci.
+{
+    const dpx = s3mod.s3Cell(19.5, 29).x, dpz = s3mod.s3Cell(19.5, 29).z;
+    const shot = { mesh: { position: { x: dpx, y: 8, z: dpz + 4 } }, px: dpx, py: 8, pz: dpz - 6, dir: { x: 0, y: 0, z: 1 }, damage: 9999 };
+    stateMod.bullets.push(shot);
+    s3mod.stage3Scene.updateMode(0.05);
+    T('S3 PINTU: menembaki pintu TIDAK membukanya & peluru TERHALANG (bukan lagi destructible)',
+        s3mod.s3DoorDbg().open === false && s3mod.s3Debug().phase === 'door'
+        && s3mod.stage3Scene.bulletBlocked(shot) === true);
+    stateMod.bullets.length = 0;
+}
+
+// (6) Hack sisa terminal -> setelah yang KE-5 pintu MEMBUKA (naik), rambu HIJAU.
+for (let k = 1; k < 5; k++) { s3RunHack(); s3KillAll(); s3mod.s3SpawnDbg().queued && s3Drain(); s3KillAll(); }
+T('S3 HACK: kelima terminal selesai -> semua layar KUNING',
+    s3mod.s3Debug().hacked === 5 && s3mod.s3HackDbg().terms.every(t => t.hex === 0xffd23b));
+s3mod.stage3Scene.updateMode(0.05);
+T('S3 PINTU: 5/5 ter-hack -> pintu blast TERBUKA (blocker lepas, rambu HIJAU) + fase toX',
+    s3mod.s3Debug().phase === 'toX' && s3mod.s3DoorDbg().open === true
+    && s3mod.s3DoorDbg().blocked === false && s3mod.s3DoorDbg().signHex === 0x2eff6a);
+// Daun pintu NAIK ke plafon (bukan meledak) — meshnya tetap ada, posisinya terangkat.
+for (let i = 0; i < 60; i++) s3mod.stage3Scene.updateMode(0.05);
+T('S3 PINTU: daun pintu NAIK ke plafon (mesh tetap ada, tidak dihancurkan)',
+    s3mod.s3DoorDbg().visible === true && s3mod.s3DoorDbg().k >= 1);
+s3KillAll();
 
 // (4) Masuk ruang X -> fase machines TANPA spawn langsung; >= machineFirstWaveSec -> 16 (4/mesin)
 const xin = s3mod.s3Cell(19.5, 33);
@@ -2787,8 +2870,8 @@ stateMod.setGameOver(false);
 // (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 let jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 4 aktif -> STAGE 3
-s3FireDoor(); s3Drain();   // stage 3 MULAI kosong; tembak PINTU -> gelombang robot (tangga/lift)
-T('cheat skip-to-stage-3: pindah ke stage 3 + tembak pintu -> gelombang robot (3-tag)', jr === 3
+s3RunHack(); s3Drain();   // stage 3 MULAI kosong; HACK terminal -> gelombang robot (tangga/lift)
+T('cheat skip-to-stage-3: pindah ke stage 3 + hack terminal -> gelombang robot (3-tag)', jr === 3
     && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempatkan ulang oleh helper)
 T('cheat skip-to-stage-2: pindah ke stage 2 + 50 robot ditempatkan', jr === 2
@@ -2838,7 +2921,7 @@ saveMod.saveCampaignStage(3);
 const restartTarget = saveMod.loadCampaignStage() || 1;
 T('restart-stage: target = stage checkpoint (3), BUKAN 1', restartTarget === 3);
 smMod.activeScene.cheatSkipToStage(restartTarget);   // = campaignJumpToStage(3), efek sama dgn resetGame(true)
-s3FireDoor(); s3Drain();   // stage 3 kosong; tembak PINTU -> gelombang robot
+s3RunHack(); s3Drain();   // stage 3 kosong; HACK terminal -> gelombang robot
 T('restart-stage: mendarat di AWAL stage 3 + tembak pintu -> gelombang robot stage 3',
     smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }

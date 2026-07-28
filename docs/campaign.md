@@ -139,6 +139,29 @@ The debris is deliberately fast but **low**: it settles at the foot of the build
 **Other pieces:** the tank's entry is one continuous line `TANK_FROM` → `TANK_FIRE` crossed across both `tremor` and `reveal`, so there is no speed break at the shot boundary (measured: 0.05 vs a 3.6 peak); `turretForward()` keeps the gun aligned with the hull on the way in (`turretYaw = hullYaw − π/2`, per the tank.js contract); the per-shot fog is saved in `start()` and restored in `endCutscene`/`reset`; five English captions run through `showCineCaption`; and `faceAction` overrides `aimPoint` so the player avatar turns to watch the action.
 
 Guarded by the `S4 CUTSCENE *` asserts in the smoke suite, which were checked against the old behaviour: removing the camera hook and the hit-stop fails four of them, and flattening the telegraph / the heli lift / the turret lock / the per-shot fog fails four more.
+## Stage 3 objective 1 — hack five terminals (rebuilt 2026-07-28)
+
+The first objective used to be *shoot the blast door until its HP runs out*, with robot waves respawning the whole time you stood there shooting. The user replaced it: the door is now **indestructible** and opens only after you **hack five computers**, one in each of five different rooms.
+
+| # | room | terminal cells | notes |
+| --- | --- | --- | --- |
+| 1 | Ruang C | c24-25, r1 | against the north wall |
+| 2 | Ruang D | c34-35, r1 | against the north wall |
+| 3 | West Wing | c3-4, r12 | **previously an empty room** |
+| 4 | East Wing | c35-36, r12 | **previously an empty room** |
+| 5 | Supply Room | c2-3, r28 | against the south wall |
+
+Two of the five deliberately sit in the rooms that had no lamp and no furniture at all — before this there was no reason to ever walk into either of them.
+
+**Sequential, in a random order.** `enter()` shuffles the order (Fisher-Yates) every time you arrive, so the route differs run to run. Each terminal screen is a status light: **red** = not its turn, **green** = hack this one now, **yellow** = done. Standing at a terminal that is not the current one does nothing. The radar points at the green terminal.
+
+**Hacking** works exactly like the Stage 1 data download: step up to the green terminal (within `hackRange` of its stand cell) and `setCinematicActive(true)` freezes your controls while the `#downloadBar` fills over `hackSec`. The world keeps running — you are a stationary target for whatever is still alive.
+
+**Robots.** Every completed hack releases exactly one wave — `gateWaveCount` from the stairwell plus `gateWaveCount` from the lift, chasing immediately, wherever you are. That wave is **never respawned**: once you clear it the floor stays quiet until the next hack completes. The old anti-camp respawn belonged to the shoot-the-door loop and is gone with it.
+
+**The door.** After the fifth hack the blast door **lifts into the ceiling** (smoothstep, 1.3 s) instead of exploding — the mesh stays. Its own sign + point light go from red to green, mirroring the exit sign. While locked the door now also **stops bullets and blasts** (`s3DoorBlocksSeg`): the doorway cells are floor in the grid, not wall, so shots used to pass straight through — which was harmless only while the door was something you were meant to shoot.
+
+`CFG.campaign.stage3.doorHp` is now **dormant** (kept in the JSON). The machine phase that follows is unchanged.
 **CUTSCENE SKIP BUTTON (2026-07-19, user request):** every cutscene (campaign intro + stage-4 tank-boss intro) shows a bottom-right **"SKIP ▸ [SPACE]"** button — `showCutsceneSkip`/`hideCutsceneSkip`/`triggerCutsceneSkip` in core/dom.js (lazily created `#cutsceneSkip`, inline-styled, one-shot callback). Clicking it or pressing Space/Enter while `cinematicActive` (wired in input.js's cinematic key-swallow branch; not while paused) fires the same skip path — the keyboard route matters because the pointer stays locked during the tank cutscene (cursor hidden). Intro skip = `skipIntro()` (intro.js → `finishIntro`, safe from any phase); **the intro's button (and the heli sound loop) appears only on the cutscene's FIRST `updateMode` frame (`cine.live`, 2026-07-20 bug fix) — `beginIntro` runs while the loading screen is still up, and the button/sound used to show through it** (Space during loading is harmless: no callback registered yet, `triggerCutsceneSkip` no-ops). Tank skip = the controller's `skip()` (tankBossIntro.js — removes an in-flight cinematic shell, spawns the tank if not yet spawned, guarantees the heli is already a burning wreck via a `heliDead` flag, parks the tank at `BOSS_POS`, then `endCutscene()` starts the duel).
 
 ## Campaign save / checkpoint

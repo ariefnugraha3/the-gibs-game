@@ -1,7 +1,8 @@
 // SCENE: Campaign STAGE 3 — "Gedung Terbengkalai" indoor, LANTAI PABRIK ROBOT.
 // DIROMBAK TOTAL 2026-07-21 mengikuti PLAN RESMI user (stage3-v2.csv, 40x40).
-// Legenda plan: '#'=dinding, '-'=pintu geser, '+'=PINTU BLAST yang DIHANCURKAN
-// dengan MENEMBAK (HP CFG.campaign.stage3.doorHp), 'T'=TANGGA rusak (sumber spawn
+// Legenda plan: '#'=dinding, '-'=pintu geser, '+'=PINTU BLAST yang DIBUKA setelah
+// 5 TERMINAL di-hack (2026-07-28 — DULU dihancurkan dgn menembak; CFG.campaign.
+// stage3.doorHp kini DORMAN), 'T'=TANGGA rusak (sumber spawn
 // robot), 'L'=LIFT (titik MASUK/spawn player), 'W'=ruang SUPPLY (6 ammo + 3
 // medkit), 'R'=toilet, 'S'=MESIN PEMBUAT ROBOT (4 buah 2x2, 2 kiri 2 kanan, HP
 // machineHp — dihancurkan dgn menembak), 'X'=ruang PABRIK (arena akhir), 'o'=PINTU
@@ -9,14 +10,19 @@
 // hit-peluru dari grid yang sama; pola stage1/2). Konektivitas BFS-verified.
 //
 // ALUR (state machine `s3Phase`, `s3Debug()`):
-//   1. 'door'     : spawn dari LIFT. Hancurkan PINTU BLAST '+' dgn menembak.
-//                   GELOMBANG robot MULAI hanya SETELAH tembakan PERTAMA ke pintu
-//                   (s3DoorFired; sebelum itu player boleh berkeliling, TAK ADA
-//                   robot): 6 dari TANGGA + 6 dari LIFT (gateWaveCount, kelas ACAK
-//                   C50/B25/A25, LANGSUNG mengejar). ANTI-CAMP (2026-07-22): gelombang
-//                   baru menyala respawnSec (8 dtk) setelah sisa robot TURUN DI BAWAH
-//                   reinforceThreshold (4) — menyisakan 1 robot tak lagi membekukan
-//                   spawn (dulu harus 0). Pintu hancur → gelombang STOP.
+//   1. 'door'     : spawn dari LIFT. **DIROMBAK 2026-07-28 (permintaan user):** PINTU
+//                   BLAST TIDAK BISA DIHANCURKAN lagi. Ia terbuka setelah player
+//                   MENG-HACK 5 KOMPUTER yang tersebar di 5 ruangan (S3_TERMINALS:
+//                   ruang C, ruang D, ruang kiri-lift, ruang kanan-chamber, ruang
+//                   SUPPLY W). Terminal harus di-hack BERURUTAN, dan urutannya
+//                   DIACAK tiap masuk stage. Layar terminal = rambu status: MERAH
+//                   belum giliran, HIJAU giliran sekarang, KUNING sudah selesai.
+//                   Pintu blast punya lampu sendiri: MERAH terkunci, HIJAU terbuka.
+//                   Tiap hack SELESAI melepas GELOMBANG robot (6 dari TANGGA + 6
+//                   dari LIFT, gateWaveCount, kelas ACAK C50/B25/A25, LANGSUNG
+//                   mengejar ke mana pun player berada). Gelombang itu TIDAK
+//                   di-respawn — tak ada robot baru sampai hack BERIKUTNYA selesai.
+//                   Hack ke-5 selesai → pintu MEMBUKA (naik ke plafon) → 'toX'.
 //   2. 'toX'      : robot sisa tetap mengejar; masuk ruang X (lewati bekas pintu).
 //   3. 'machines' : 4 MESIN aktif. JANGAN langsung spawn — TUNDA machineFirstWaveSec
 //                   (3 dtk), lalu GELOMBANG machineWaveCount (4) robot PER MESIN
@@ -26,7 +32,7 @@
 //                   AKTIF (hijau). Capai 'o' → beginStageTransition(stage4).
 
 import { CFG, CAMP_M } from '../../../core/config.js';
-import { player, robots, _v3, bullets, stats, addScore } from '../../../core/state.js';
+import { player, robots, _v3, bullets, stats, addScore, keys, setCinematicActive } from '../../../core/state.js';
 import { scene, camera, addCamShake } from '../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
 import { rand, segPointDist2 } from '../../../utils/math.js';
@@ -35,7 +41,7 @@ import { makeNavGrid } from '../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { PAL } from '../../../world/palette.js';
-import { showStageMsg, showPickup } from '../../../core/dom.js';
+import { showStageMsg, showPickup, showDownloadBar, setDownloadProgress, hideDownloadBar } from '../../../core/dom.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { updateUI } from '../../../core/hud.js';
 import { NADE_R } from '../../../entities/grenades.js';
@@ -58,6 +64,7 @@ import { buildFuturisticRubbleMesh } from '../../../entities/futuristicRubble.js
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill } from '../utility/common.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../entities/crates.js';
+import { clearMoveTarget } from '../../../entities/player.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
 import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
@@ -80,8 +87,27 @@ const S3_STAIRS_SPAWN = { c: 4, r: 6 };          // sumber spawn robot: tangga r
 const S3_LIFT_SPAWN = { c: 10, r: 19 };          // sumber spawn robot: lift (selatan nook)
 export const S3_END = { c: 19, r: 38 };          // PINTU KELUAR 'o' (finish, selatan-tengah)
 const S3_EXIT = { c0: 18, r0: 37, c1: 21, r1: 39 };  // rect trigger keluar gedung
-// PINTU BLAST '+' (dihancurkan dgn tembak): bukaan c18-21 di dinding baris 29.
+// PINTU BLAST '+': bukaan c18-21 di dinding baris 29. **TIDAK LAGI DIHANCURKAN
+// dgn tembak (2026-07-28)** — dibuka oleh 5 terminal hack di bawah.
 const S3_PLUS = { c0: 18, c1: 21, r: 29 };
+// ===== 5 TERMINAL HACK (2026-07-28, permintaan user) =====
+// Tiap terminal 2x1 SEL, menempel dinding di UJUNG ruangannya, satu per ruangan:
+//   `c`,`r` = sel KIRI dari pasangan 2 sel (pasangannya c+1); `face` = arah layar
+//   menghadap (+1 = ke selatan/+z, -1 = ke utara/-z); `stand` = sel tempat player
+//   berdiri (dipakai jarak pemicu hack, `CFG.campaign.stage3.hackRange`).
+// Dua di antaranya sengaja ditaruh di DUA RUANGAN YANG SELAMA INI KOSONG (kiri
+// lift & kanan chamber) — sebelumnya keduanya tanpa perabot & tanpa alasan
+// dikunjungi. Titik-titiknya dipilih bebas dari perabot, peti, barel & supply.
+const S3_TERMINALS = [
+    { room: 'Ruang C', c: 24, r: 1, face: 1, sc: 24.5, sr: 2 },
+    { room: 'Ruang D', c: 34, r: 1, face: 1, sc: 34.5, sr: 2 },
+    { room: 'West Wing', c: 3, r: 12, face: 1, sc: 3.5, sr: 13 },
+    { room: 'East Wing', c: 35, r: 12, face: 1, sc: 35.5, sr: 13 },
+    { room: 'Supply Room', c: 2, r: 28, face: -1, sc: 2.5, sr: 27 },
+];
+// Warna layar terminal = rambu gameplay (bukan dekor): MERAH belum giliran,
+// HIJAU giliran sekarang, KUNING sudah di-hack. Hijau/merah senada rambu EXIT.
+const HACK_LOCKED = 0xff3b2e, HACK_READY = 0x2eff6a, HACK_DONE = 0xffd23b;
 // 4 MESIN PEMBUAT ROBOT (2x2): 2 kiri (c2-3) + 2 kanan (c36-37). cc/cr = sel
 // pojok kiri-atas 2x2; sc/sr = sel tempat robot MUNCUL (di aisle terdekat).
 const S3_MACHINES_DEF = [
@@ -223,11 +249,18 @@ let s3HintT = 0;
 
 // ===== DESTRUCTIBLE: PINTU BLAST '+' + 4 MESIN + PINTU KELUAR =====
 let s3Phase = 'door';   // door | toX | machines | done
-let s3SpawnT = 0;        // timer GELOMBANG (respawn 8 dtk setelah gelombang bersih; fase door & machines)
-let s3DoorFired = false; // player SUDAH menembak PINTU BLAST? (gelombang baru mulai setelahnya)
-let s3DoorHp = 0;
+let s3SpawnT = 0;        // timer GELOMBANG (respawn 8 dtk setelah gelombang bersih; HANYA fase machines)
 let s3Door = null, s3DoorBlocker = null;   // mesh + blocker pintu blast
 let s3DoorCX = 0, s3DoorCZ = 0;
+// PINTU BLAST kini DIBUKA (naik ke plafon), bukan dihancurkan (2026-07-28).
+let s3DoorOpen = false, s3DoorK = 0;
+let s3DoorSign = null, s3DoorLight = null;   // rambu status pintu: MERAH terkunci / HIJAU terbuka
+// ===== TERMINAL HACK (2026-07-28) =====
+// `s3Terms` = [{def, group, cx, cz, sx, sz, screens[], blocker}]; `s3HackOrder` =
+// urutan ACAK indeks terminal (diacak tiap enter); `s3HackIdx` = berapa yang sudah
+// selesai (= indeks giliran berikutnya); `s3Hacking`/`s3HackT` = proses berjalan.
+let s3Terms = [];
+let s3HackOrder = [], s3HackIdx = 0, s3Hacking = false, s3HackT = 0;
 let s3Machines = [];    // [{group, cx, cz, spawn, hp, alive, spawnT, hitT, eyeMat, blocker}]
 let s3ExitSign = null, s3ExitLight = null, s3ExitDoor = null, s3ExitOpen = false;
 // ===== ANTREAN SPAWN + ANIMASI MUNCUL (2026-07-26, permintaan user) =====
@@ -241,8 +274,26 @@ let s3Queue = [];    // [{cell, cls}] menunggu giliran spawn
 let s3QueueT = 0;    // hitung mundur ke pelepasan berikutnya
 let s3Rising = [];   // [{z, t, base}] robot yang sedang animasi tumbuh
 export const s3SpawnDbg = () => ({ queued: s3Queue.length, rising: s3Rising.length });
-export const s3Debug = () => ({ phase: s3Phase, doorHp: s3DoorHp, machinesAlive: s3MachinesAlive(), robots: countStageRobots(3), doorFired: s3DoorFired, spawnT: s3SpawnT });
-export const s3DoorDbg = () => ({ hp: s3DoorHp, visible: s3Door ? s3Door.visible : null, blocked: blockers.indexOf(s3DoorBlocker) !== -1 });
+export const s3Debug = () => ({
+    phase: s3Phase, machinesAlive: s3MachinesAlive(), robots: countStageRobots(3), spawnT: s3SpawnT,
+    hacked: s3HackIdx, hackTotal: S3_TERMINALS.length, hacking: s3Hacking,
+    hackK: s3Hacking ? Math.min(1, s3HackT / (CFG.campaign.stage3.hackSec || 5)) : 0,
+});
+export const s3DoorDbg = () => ({
+    open: s3DoorOpen, k: s3DoorK, visible: s3Door ? s3Door.visible : null,
+    blocked: blockers.indexOf(s3DoorBlocker) !== -1,
+    signHex: s3DoorSign ? s3DoorSign.material.color.getHex() : null,
+});
+// Debug/uji terminal hack: posisi, ruangan, urutan acak & warna layar tiap unit.
+export const s3HackDbg = () => ({
+    order: [...s3HackOrder], idx: s3HackIdx, hacking: s3Hacking,
+    terms: s3Terms.map((t, i) => ({
+        room: t.def.room, c: t.def.c, r: t.def.r, cx: t.cx, cz: t.cz,
+        sx: t.sx, sz: t.sz, state: t.state,
+        hex: t.screens.length ? t.screens[0].material.color.getHex() : null,
+        blocked: blockers.indexOf(t.blocker) !== -1, i,
+    })),
+});
 export const s3MachinesDbg = () => s3Machines;
 
 const blockers = [];
@@ -385,6 +436,41 @@ function buildBlastDoor(w) {
     box(ink, 10, 8, 0.9, 0, H * 0.5, D / 2 + 0.3);
     box(teal, 6, 4, 0.8, 0, H * 0.5, D / 2 + 0.6);
     return g;
+}
+
+// ===== TERMINAL HACK 2x1 sel (2026-07-28) =====
+// Meja konsol menempel dinding + LAYAR MIRING besar yang menghadap ke dalam
+// ruangan. Layar + strip status memakai MeshBasicMaterial SENDIRI per unit
+// (toneMapped off) — warnanya diganti runtime (merah/hijau/kuning) hanya lewat
+// `color.setHex`, jadi TANPA recompile shader. Dibangun sekali bersama dunia.
+// `face` = +1 layar menghadap +z (selatan), -1 menghadap -z.
+function buildHackTerminal(face) {
+    const g = new THREE.Group();
+    const W = S3.CELL * 2 - 3;          // 2 sel (dikurangi sedikit agar tak menempel dinding samping)
+    const D = S3.CELL - 4;
+    const gun = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
+    const steel = new THREE.MeshLambertMaterial({ color: PAL.steel });
+    const ink = new THREE.MeshLambertMaterial({ color: PAL.ink });
+    // Material RAMBU (per-unit — warnanya berbeda antar terminal)
+    const sig = new THREE.MeshBasicMaterial({ color: HACK_LOCKED, toneMapped: false });
+    const box = (mat, sx, sy, sz, x, y, z, rx) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+        m.position.set(x, y, z);
+        if (rx) m.rotation.x = rx;
+        m.castShadow = true; m.receiveShadow = true;
+        g.add(m);
+        return m;
+    };
+    const f = face >= 0 ? 1 : -1;
+    box(gun, W, 9, D, 0, 4.5, 0);                                  // badan konsol
+    box(steel, W + 1.5, 1.2, D + 1.5, 0, 9.4, 0, 0);               // bibir meja
+    box(ink, W - 4, 0.8, D - 5, 0, 10.1, f * 1.5, 0);              // papan ketik gelap
+    box(gun, 3, 11, 3, 0, 15, -f * (D / 2 - 1.5));                 // tiang penyangga layar
+    const screen = box(ink, W - 6, 10, 1.2, 0, 17, -f * (D / 2 - 3), f * 0.32);   // bezel layar (miring)
+    const glow = box(sig, W - 9, 7.4, 0.6, 0, 17.2, -f * (D / 2 - 3.9), f * 0.32); // LAYAR = rambu status
+    const strip = box(sig, W - 4, 1.1, 0.6, 0, 10.9, f * (D / 2 + 0.1));           // strip status di bibir meja
+    void screen;
+    return { group: g, screens: [glow, strip] };
 }
 
 export function buildWorld() {
@@ -570,6 +656,39 @@ export function buildWorld() {
         d.cx >= lm.x0 - 1.5 * S3.CELL && d.cx <= lm.x1 + 1.5 * S3.CELL &&
         d.cz >= lm.z0 - 1.5 * S3.CELL && d.cz <= lm.z1 + 1.5 * S3.CELL);
 
+    // === 5 TERMINAL HACK (2026-07-28) — SEBELUM bake nav supaya robot memutari
+    // konsolnya (perabot pejal WAJIB ikut ter-bake, aturan CLAUDE.md). SENGAJA di
+    // luar `staticProps`: warnanya berubah runtime, jadi tak boleh ikut dilas
+    // addMergedStatic. ===
+    s3Terms = S3_TERMINALS.map(def => {
+        const p = s3Cell(def.c + 0.5, def.r);          // pusat pasangan 2 sel
+        const t = buildHackTerminal(def.face);
+        t.group.position.set(p.x, 0, p.z);
+        scene.add(t.group);
+        const sp = s3Cell(def.sc, def.sr);             // titik BERDIRI (pemicu hack)
+        const blocker = {
+            x: p.x, z: p.z, hx: S3.CELL, hz: S3.CELL / 2,
+            axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(S3.CELL, S3.CELL / 2),
+            top: 11, standable: false,
+        };
+        blockers.push(blocker);
+        return { def, group: t.group, screens: t.screens, cx: p.x, cz: p.z, sx: sp.x, sz: sp.z, blocker, state: 'locked' };
+    });
+
+    // === RAMBU PINTU BLAST (2026-07-28, permintaan user "beri lampu di pintu utama
+    // itu seperti di pintu lain"): papan + PointLight, MERAH selama terkunci dan
+    // HIJAU begitu terbuka. Sengaja BUKAN anak grup pintu — pintunya naik ke
+    // plafon saat membuka, rambunya harus tetap di ambang. ===
+    const sgP = s3Cell((S3_PLUS.c0 + S3_PLUS.c1) / 2, S3_PLUS.r);
+    s3DoorSign = new THREE.Mesh(new THREE.BoxGeometry(16, 4, 1.2),
+        new THREE.MeshBasicMaterial({ color: HACK_LOCKED, toneMapped: false }));
+    s3DoorSign.position.set(sgP.x, S3.H - 6, sgP.z - (S3.CELL / 2 + 2));
+    scene.add(s3DoorSign);
+    s3DoorLight = new THREE.PointLight(HACK_LOCKED, 0.9, 220, 2);
+    s3DoorLight.position.set(sgP.x, S3.H - 8, sgP.z - (S3.CELL / 2 + 5));
+    scene.add(s3DoorLight);
+    registerStageLight('campaign-3', s3DoorLight);
+
     // GABUNG perabot statis jadi belasan mesh (blockers/nav tak tersentuh).
     s3StaticBatch = addMergedStatic(scene, staticProps);
 
@@ -659,17 +778,12 @@ function s3ApplyBulletDamage(b, bx, bz, apply) {
         spawnBloodBurst(bx, 12 + Math.random() * 6, bz, b.dir.x, b.dir.z, 2, 0.5, 1.4, 0xffb24a);
     }
 }
-function s3DoorBulletHits() {
-    if (!s3Door || s3DoorHp <= 0) return;
-    for (let j = bullets.length - 1; j >= 0; j--) {
-        const b = bullets[j], bx = b.mesh.position.x, bz = b.mesh.position.z;
-        if (segHitsRect(b.px, b.pz, bx, bz, s3DoorCX, s3DoorCZ, 30, 9)) {
-            s3DoorFired = true;   // tembakan PERTAMA ke pintu -> gelombang robot mulai (updateMode)
-            s3ApplyBulletDamage(b, bx, bz, (dmg) => { s3DoorHp -= dmg; });
-            scene.remove(b.mesh); bullets.splice(j, 1);
-            if (s3DoorHp <= 0) return;
-        }
-    }
+// PINTU BLAST menghalangi peluru selagi TERTUTUP (2026-07-28). Dulu bukaan '+'
+// bukan dinding di grid — peluru menembusnya begitu saja dan itu tak apa karena
+// pintunya memang sedang DITEMBAK. Sekarang pintunya tak bisa dirusak, jadi ia
+// harus berlaku seperti dinding pejal sampai terbuka.
+function s3DoorBlocksSeg(x0, z0, x1, z1) {
+    return !s3DoorOpen && segHitsRect(x0, z0, x1, z1, s3DoorCX, s3DoorCZ, 30, 9);
 }
 // GELOMBANG robot fase door: 6 dari TANGGA + 6 dari LIFT. DIANTRE (bukan
 // serentak) — dilepas satu per satu oleh s3TickSpawns.
@@ -698,13 +812,52 @@ function s3MachineBulletHits() {
         }
     }
 }
-function s3DestroyDoor() {
-    if (s3Door) s3Door.visible = false;
+// ===== TERMINAL HACK: rambu, pemicu, penyelesaian (2026-07-28) =====
+// Warnai layar tiap terminal menurut urutan acak: KUNING sudah, HIJAU giliran
+// sekarang, MERAH belum. Hanya `color.setHex` material Basic → tanpa recompile.
+function s3PaintTerminals() {
+    s3Terms.forEach(t => { t.state = 'locked'; });
+    for (let k = 0; k < s3HackOrder.length; k++) {
+        const t = s3Terms[s3HackOrder[k]];
+        if (!t) continue;
+        t.state = k < s3HackIdx ? 'done' : (k === s3HackIdx ? 'ready' : 'locked');
+    }
+    for (const t of s3Terms) {
+        const hex = t.state === 'done' ? HACK_DONE : t.state === 'ready' ? HACK_READY : HACK_LOCKED;
+        for (const m of t.screens) m.material.color.setHex(hex);
+    }
+}
+// Terminal yang SEDANG jadi giliran (null bila kelimanya sudah selesai).
+function s3ActiveTerm() {
+    if (s3HackIdx >= s3HackOrder.length) return null;
+    return s3Terms[s3HackOrder[s3HackIdx]] || null;
+}
+// Hack SELESAI: layar jadi kuning, lepas SATU gelombang robot (aturan lama:
+// gateWaveCount dari tangga + gateWaveCount dari lift, langsung mengejar), lalu
+// giliran pindah ke terminal berikutnya. TIDAK ada respawn otomatis — gelombang
+// berikutnya baru ada setelah hack berikutnya SELESAI (permintaan user).
+function s3FinishHack() {
+    s3Hacking = false; s3HackT = 0;
+    setCinematicActive(false);
+    hideDownloadBar();
+    s3HackIdx++;
+    s3PaintTerminals();
+    spawnDoorWave();
+    const left = S3_TERMINALS.length - s3HackIdx;
+    if (left > 0) {
+        showStageMsg(`TERMINAL BREACHED (${s3HackIdx}/${S3_TERMINALS.length}) — hostiles inbound! Find the next terminal.`, 4200);
+    }
+    updateUI();
+}
+// Kelima terminal beres → PINTU BLAST TERBUKA (naik ke plafon), rambu jadi HIJAU.
+function s3OpenDoor() {
+    s3DoorOpen = true;
     const i = blockers.indexOf(s3DoorBlocker);
     if (i !== -1) blockers.splice(i, 1);
-    explodeAt(new THREE.Vector3(s3DoorCX, 10, s3DoorCZ), 24, 1, undefined);
-    spawnGibs(s3DoorCX, 12, s3DoorCZ, 12, 1, 0, 2, 0x3d444c, 0.4, 0x141210);
-    addCamShake(7);
+    if (s3DoorSign) s3DoorSign.material.color.setHex(HACK_READY);
+    if (s3DoorLight) s3DoorLight.color.setHex(HACK_READY);
+    spawnGroundPuff(s3DoorCX, s3DoorCZ, PAL.tech, 12, 2);
+    addCamShake(4);
 }
 function s3DestroyMachine(m) {
     m.alive = false;
@@ -793,12 +946,26 @@ export const stage3Scene = {
         if (s3Lamps[0]) { const st = s3Lamps[0]; st.on = true; st.k = 1; st.L.intensity = st.base; if (st.shroud) { st.shroud.visible = false; st.shroud.material.opacity = 0; } }
         // RESET destructibles
         s3Phase = 'door';
-        s3DoorFired = false;   // belum menembak pintu -> belum ada gelombang (player boleh berkeliling)
         s3SpawnT = 0;
         s3Queue = []; s3QueueT = 0; s3Rising = [];   // antrean & animasi spawn bersih
-        s3DoorHp = CFG.campaign.stage3.doorHp;
-        if (s3Door) s3Door.visible = true;
+        // PINTU BLAST: tertutup lagi, rambu MERAH (tak lagi punya HP — dibuka
+        // oleh 5 terminal hack, bukan ditembak).
+        s3DoorOpen = false; s3DoorK = 0;
+        if (s3Door) { s3Door.visible = true; s3Door.position.y = 0; }
+        if (s3DoorSign) s3DoorSign.material.color.setHex(HACK_LOCKED);
+        if (s3DoorLight) s3DoorLight.color.setHex(HACK_LOCKED);
         if (blockers.indexOf(s3DoorBlocker) === -1) blockers.push(s3DoorBlocker);
+        // TERMINAL HACK: proses dibatalkan, urutan DIACAK ULANG (Fisher-Yates),
+        // semua layar dicat ulang menurut urutan baru.
+        s3Hacking = false; s3HackT = 0; s3HackIdx = 0;
+        setCinematicActive(false);
+        hideDownloadBar();
+        s3HackOrder = s3Terms.map((_, i) => i);
+        for (let i = s3HackOrder.length - 1; i > 0; i--) {
+            const j = (Math.random() * (i + 1)) | 0;
+            [s3HackOrder[i], s3HackOrder[j]] = [s3HackOrder[j], s3HackOrder[i]];
+        }
+        s3PaintTerminals();
         for (const m of s3Machines) {
             m.hp = CFG.campaign.stage3.machineHp; m.alive = true; m.hitT = 0;
             if (m.group) m.group.visible = true;
@@ -812,7 +979,7 @@ export const stage3Scene = {
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
         camera.quaternion.set(0, 1, 0, 0);
         player.vy = 0; player.onGround = true;
-        showStageMsg('Arrived by lift. BLAST THROUGH THE REINFORCED DOOR to reach the robot factory!', 5200);
+        showStageMsg('Arrived by lift. The blast door is LOCKED — hack all 5 terminals to open it. Follow the GREEN screens.', 5600);
         updateUI();
     },
 
@@ -830,22 +997,31 @@ export const stage3Scene = {
         s3TickSpawns(dt);   // lepas antrean spawn (0.3 dtk/robot) + animasi tumbuh
 
         if (s3Phase === 'door') {
-            s3DoorBulletHits();
-            // GELOMBANG robot MULAI hanya SETELAH tembakan PERTAMA ke pintu (biarkan
-            // player berkeliling dulu). 6 dari tangga + 6 dari lift. ANTI-CAMP
-            // (2026-07-22): gelombang berikut menyala saat sisa robot TURUN DI BAWAH
-            // `reinforceThreshold` (bukan lagi harus 0) — menyisakan 1 robot TAK LAGI
-            // membekukan spawn, jadi player tak bisa aman menghancurkan pintu. Player
-            // tetap dapat jeda saat benar-benar membersihkan lapangan (0 < threshold).
-            if (s3DoorFired && !s3Queue.length && countStageRobots(3) < s3.reinforceThreshold) {
-                s3SpawnT -= dt;
-                if (s3SpawnT <= 0) { spawnDoorWave(); s3SpawnT = s3.respawnSec; }
+            // === HACK 5 TERMINAL, BERURUTAN & URUTAN ACAK (2026-07-28) ===
+            // TIDAK ADA gelombang otomatis di fase ini: robot HANYA muncul saat
+            // sebuah hack SELESAI, dan tak ada yang menyusul sampai hack
+            // berikutnya beres (permintaan user — menggantikan respawn anti-camp
+            // yang dulu berjalan selama player menembaki pintu).
+            if (s3Hacking) {
+                s3HackT += dt;
+                const k = Math.min(1, s3HackT / (s3.hackSec || 5));
+                setDownloadProgress(k);
+                if (k >= 1) s3FinishHack();
+            } else {
+                const act = s3ActiveTerm();
+                if (act && Math.hypot(camera.position.x - act.sx, pz - act.sz) < (s3.hackRange || 13)) {
+                    s3Hacking = true; s3HackT = 0;
+                    clearMoveTarget();
+                    keys.w = keys.a = keys.s = keys.d = false;   // lepas tombol tahan (tak drift saat unfreeze)
+                    setCinematicActive(true);                     // bekukan kendali player (dunia tetap jalan)
+                    showDownloadBar('HACKING TERMINAL');
+                    showStageMsg('Hacking the terminal — hold position!', 2400);
+                }
             }
-            if (s3DoorHp <= 0) {
-                s3DestroyDoor();
-                s3Queue.length = 0;   // gelombang gerbang STOP (sisa antrean dibatalkan)
+            if (s3HackIdx >= S3_TERMINALS.length && !s3DoorOpen) {
+                s3OpenDoor();
                 s3Phase = 'toX';
-                showStageMsg('BLAST DOOR DOWN! Push into the robot factory hall.', 4200);
+                showStageMsg('ALL TERMINALS BREACHED — the blast door is open. Push into the factory hall!', 4600);
             }
         } else if (s3Phase === 'toX') {
             if (pz > S3.z0 + 30 * S3.CELL) {   // masuk ruang X (lewati baris pintu 29)
@@ -870,6 +1046,12 @@ export const stage3Scene = {
                 if (s3ExitSign) { s3ExitSign.material.color.setHex(0x2eff6a); s3ExitLight.color.setHex(0x39ff7a); }
                 showStageMsg('ALL FACTORIES DESTROYED — the EXIT is open. Get out!', 4800);
             }
+        }
+        // PINTU BLAST MEMBUKA: daun pintu naik ke plafon (bukan meledak).
+        if (s3DoorOpen && s3DoorK < 1) {
+            s3DoorK = Math.min(1, s3DoorK + dt / 1.3);
+            const e = s3DoorK * s3DoorK * (3 - 2 * s3DoorK);   // smoothstep
+            if (s3Door) s3Door.position.y = S3.H * e;
         }
         // Kilat sensor mesin tertembak (merah → putih, memudar)
         for (const m of s3Machines) if (m.alive && m.hitT > 0 && m.eyeMat) {
@@ -896,10 +1078,13 @@ export const stage3Scene = {
 
     bulletBlocked(b) {
         return (b.mesh.position.y < S3.H && s3SegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z))
+            || s3DoorBlocksSeg(b.px, b.pz, b.mesh.position.x, b.mesh.position.z)
             || doorClampShot(s3doors, b);
     },
 
-    blastBlocked(x0, z0, x1, z1, y) { return doorBlocksShot(s3doors, x0, z0, x1, z1, y); },
+    blastBlocked(x0, z0, x1, z1, y) {
+        return doorBlocksShot(s3doors, x0, z0, x1, z1, y) || s3DoorBlocksSeg(x0, z0, x1, z1);
+    },
 
     grenadeCollide(g, oldGX, oldGZ) {
         if (!stage3Walk(g.mesh.position.x, g.mesh.position.z, NADE_R)) {
@@ -926,7 +1111,16 @@ export const stage3Scene = {
 
     hudStatus() {
         switch (s3Phase) {
-            case 'door': return `FLOOR 3 — Blast the reinforced door open (HP ${Math.max(0, Math.ceil(s3DoorHp))})`;
+            case 'door': {
+                if (s3Hacking) {
+                    const k = Math.min(1, s3HackT / (CFG.campaign.stage3.hackSec || 5));
+                    return `FLOOR 3 — Hacking terminal... ${Math.round(k * 100)}%`;
+                }
+                const act = s3ActiveTerm();
+                return `FLOOR 3 — Hack the terminals: ${s3HackIdx}/${S3_TERMINALS.length}`
+                    + (act ? ` | Next: ${act.def.room}` : '')
+                    + ` | Hostiles: ${countStageRobots(3)}`;
+            }
             case 'toX': return 'FLOOR 3 — Push on into the robot factory hall';
             case 'machines': return `FLOOR 3 — Destroy the robot factories: ${s3MachinesAlive()}/4 left | Hostiles: ${countStageRobots(3)}`;
             default: return 'FLOOR 3 — EXIT OPEN — escape the building!';
@@ -940,7 +1134,13 @@ export const stage3Scene = {
             let best = null, bd = 1e9;
             for (const m of s3Machines) if (m.alive) { const d = Math.hypot(m.cx - camera.position.x, m.cz - camera.position.z); if (d < bd) { bd = d; best = m; } }
             if (best) { tx = best.cx; tz = best.cz; col = '#ff5040'; }
-        } else { tx = s3DoorCX; tz = s3DoorCZ; col = '#ff5040'; }
+        } else {
+            // Fase door: tunjuk TERMINAL yang sedang jadi giliran (hijau) — kalau
+            // kelimanya sudah beres, tunjuk pintu blast yang kini terbuka.
+            const act = s3ActiveTerm();
+            if (act) { tx = act.cx; tz = act.cz; col = '#2eff6a'; }
+            else { tx = s3DoorCX; tz = s3DoorCZ; col = '#2eff6a'; }
+        }
         if (tx != null) plot(tx - camera.position.x, tz - camera.position.z, col, 5, true);
     },
 };

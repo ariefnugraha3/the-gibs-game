@@ -290,6 +290,8 @@
             "liftRange": 26
         },
         "stage3": {
+            "hackSec": 5,
+            "hackRange": 13,
             "doorHp": 1500,
             "machineHp": 1000,
             "gateWaveCount": 6,
