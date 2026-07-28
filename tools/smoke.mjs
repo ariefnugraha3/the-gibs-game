@@ -73,6 +73,8 @@ class V3 {
     sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
     multiplyScalar(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
     addScaledVector(v, s) { this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this; }
+    // Celah harness 2026-07-28: rig tangan senjata (updateWeaponVisuals) memakai lerp.
+    lerp(v, a) { this.x += (v.x - this.x) * a; this.y += (v.y - this.y) * a; this.z += (v.z - this.z) * a; return this; }
     length() { return Math.hypot(this.x, this.y, this.z); }
     normalize() { const l = this.length() || 1; return this.multiplyScalar(1 / l); }
     distanceTo(v) { return Math.hypot(this.x - v.x, this.y - v.y, this.z - v.z); }
@@ -767,6 +769,127 @@ scene.remove(stateMod.bullets[0].mesh); stateMod.bullets.length = 0;
 player.weaponLvl.launcher = 1;                                // pulihkan level
 wMod.startSwitch(prevWpn);                                    // kembalikan senjata semula
 for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);
+
+// === 6e. HENTAKAN TEMBAKAN SINEMATIK (2026-07-28, permintaan user: "animasi
+// menembak terlalu sederhana — buat lebih nyata & sinematik"). Dulu tembakan
+// hanya = kilat di ujung laras + moncong naik linier. Sekarang SATU kurva
+// teredam menggerakkan SELURUH badan (laras, torso, bahu, kepala, lutut,
+// dorongan mundur), ditambah selongsong terlempar, kerucut semburan, asap/debu
+// senjata berat, dan muzzle-climb yang menumpuk selama rentetan.
+// Semua amplitudo = CFG.weapons.recoil.* × cameraKick senjata (config-driven). ===
+{
+    const RCFG = cfgMod.CFG.weapons.recoil;
+    // (a) BENTUK KURVA: snap naik lalu MEMANTUL MELEWATI garis bidik (nilai
+    //     NEGATIF) sebelum reda — inilah beda "settle" sinematik vs peluruhan
+    //     linier lama. Diuji lewat fungsi murni yang diekspor avatar.
+    const cs = [];
+    for (let u = 0; u <= 1.0001; u += 0.02) cs.push(avMod.fireCurveAt(u));
+    const peak = Math.max(...cs), trough = Math.min(...cs);
+    T('TEMBAK: kurva hentakan = SNAP naik (puncak ~1 di awal) lalu MEMANTUL ke NEGATIF (settle), mulai & selesai 0',
+        avMod.fireCurveAt(0) === 0 && avMod.fireCurveAt(1) === 0
+        && peak > 0.95 && trough < -0.02 && cs.indexOf(peak) < cs.length * 0.3);
+
+    // (b) Satu tembakan senapan: jam hentakan terisi (durasi config-driven dari
+    //     kadens senjata), amplitudo = cameraKick senjata itu.
+    wMod.startSwitch('rifle');
+    for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);
+    player.rifle.ammo = 200;
+    stateMod.bullets.length = 0;
+    wMod.resetWeapons(); wMod.startSwitch('rifle');
+    for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);
+    player.rifle.ammo = 200;
+    const casings0 = effectsMod.shellCasingDebug();
+    stateMod.mouse.isDown = true; player.lastShot = 0;
+    wMod.updateShooting();
+    stateMod.mouse.isDown = false;
+    const FA = wMod.fireAnimDebug();
+    const rk = cfgMod.CFG.weapons.rifle.cameraKick;
+    const expDur = Math.max(RCFG.durMin, Math.min(RCFG.durMax, cfgMod.CFG.weapons.rifle.fireDelayMs / 1000 * RCFG.durMul));
+    T('TEMBAK: letusan mengisi jam hentakan — kick = cameraKick senjata, durasi dari kadensnya (config)',
+        FA.t === 0 && Math.abs(FA.kick - rk) < 1e-9 && Math.abs(FA.dur - expDur) < 1e-9
+        && (FA.side === 1 || FA.side === -1));
+    T('TEMBAK: kilat moncong menyala (lampu + KERUCUT semburan) & besarnya ikut kick senjata',
+        wMod.muzzleDebug().intensity > 3 && wMod.muzzleDebug().cone === true);
+    // Kilat = LETUSAN, bukan lampu: bintang api MENGEMBANG sambil memudar dan
+    // kerucut semburan padam DULUAN, keduanya lewat updateWeaponVisuals.
+    wMod.updateWeaponVisuals(0.01);
+    const mz1 = wMod.muzzleDebug();
+    for (let i = 0; i < 40; i++) { wMod.updateWeaponState(0.01); wMod.updateWeaponVisuals(0.01); }
+    const mz2 = wMod.muzzleDebug();
+    T('TEMBAK: kilat + kerucut padam sendiri dalam sepersekian detik (letusan, bukan lampu menyala)',
+        mz1.coneOpacity > 0 && mz2.intensity === 0 && mz2.cone === false && mz2.coneOpacity === 0);
+    T('TEMBAK: SELONGSONG terlempar dari port ejeksi', effectsMod.shellCasingDebug() === casings0 + 1);
+
+    // (c) Badan ikut menghentak: laras NAIK (pitch negatif) & MUNDUR, torso
+    //     tertolak ke belakang, badan meredam turun, bahu terpuntir.
+    //     (Tembakan BARU — loop peluruhan kilat di atas sudah menghabiskan jam
+    //     hentakan tembakan sebelumnya.)
+    stateMod.mouse.isDown = true; player.lastShot = 0; wMod.updateShooting(); stateMod.mouse.isDown = false;
+    wMod.updateWeaponState(0.02);        // jam maju spt urutan updateGame
+    avMod.updatePlayerAvatar(0.02);
+    const F1 = avMod.avatarFireDebug();
+    T('TEMBAK: hentakan menggerakkan SELURUH badan — laras naik & mundur, torso ke belakang, badan meredam, bahu terpuntir',
+        F1.k > 0 && F1.pitch < 0 && F1.push < 0 && F1.torso < 0 && F1.dip < 0 && Math.abs(F1.twist) > 0);
+    // Skala amplitudo BENAR-BENAR dari config (uji mutasi: mengubah gunPitch
+    // di JSON harus mengubah sudutnya, bukan angka yang dihardcode di kode).
+    T('TEMBAK: amplitudo tiap kanal = CFG.weapons.recoil.* × cameraKick (config-driven)',
+        Math.abs(F1.pitch + (F1.k * rk * RCFG.gunPitch + F1.climb * RCFG.climbPitch)) < 1e-9
+        && Math.abs(F1.push + F1.k * rk * RCFG.gunPush) < 1e-9
+        && Math.abs(F1.torso + F1.k * rk * RCFG.torso) < 1e-9);
+
+    // (d) MUZZLE CLIMB: rentetan menumpuk (dibatasi 1) lalu reda saat pelatuk
+    //     dilepas — dengan laju peluruhan dari config.
+    const stack1 = wMod.fireAnimDebug().stack;
+    for (let i = 0; i < 6; i++) { stateMod.mouse.isDown = true; player.lastShot = 0; wMod.updateShooting(); stateMod.mouse.isDown = false; }
+    const stackHi = wMod.fireAnimDebug().stack;
+    for (let i = 0; i < 60; i++) wMod.updateWeaponState(0.05);   // 3 dtk tanpa menembak
+    T('TEMBAK: muzzle-climb MENUMPUK selama rentetan (maks 1) lalu reda saat berhenti menembak',
+        stackHi > stack1 && stackHi <= 1 && wMod.fireAnimDebug().stack === 0);
+
+    // (e) Frame TANPA tembakan = netral TOTAL (tak ada sisa pose yang menempel).
+    avMod.updatePlayerAvatar(0.02);
+    const F0 = avMod.avatarFireDebug();
+    T('TEMBAK: tanpa letusan aktif SEMUA kanal hentakan tepat 0 (frame biasa tak tersentuh)',
+        F0.k === 0 && F0.pitch === 0 && F0.push === 0 && F0.torso === 0 && F0.dip === 0 && F0.shove === 0);
+
+    // (f) Senjata BERAT (kick >= heavyKick): asap moncong + debu lantai; senapan
+    //     ringan tidak (kalau tidak, layar penuh asap saat rentetan).
+    const exp0 = stateMod.explosions.length;
+    stateMod.mouse.isDown = true; player.lastShot = 0; wMod.updateShooting(); stateMod.mouse.isDown = false;
+    const expLight = stateMod.explosions.length - exp0;
+    wMod.startSwitch('shotgun');
+    for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);
+    player.shotgun.ammo = 20;
+    const exp1 = stateMod.explosions.length;
+    stateMod.mouse.isDown = true; player.lastShot = 0; wMod.updateShooting(); stateMod.mouse.isDown = false;
+    T('TEMBAK: senjata BERAT (kick >= heavyKick) menyemburkan asap moncong + debu lantai; senapan ringan tidak',
+        cfgMod.CFG.weapons.shotgun.cameraKick >= RCFG.heavyKick && expLight === 0
+        && stateMod.explosions.length - exp1 === 2);
+    for (const e of stateMod.explosions.splice(0)) scene.remove(e.mesh);
+
+    // (g) Selongsong JATUH & mendarat (balistik + pantul), lalu pool bisa direset.
+    const cs0 = effectsMod.shellCasingDebug();
+    for (let i = 0; i < 90; i++) effectsMod.updateShellCasings(0.02);
+    T('TEMBAK: selongsong terbang lalu HABIS umurnya (pool tetap, tak menumpuk)',
+        cs0 > 0 && effectsMod.shellCasingDebug() === 0);
+
+    // (h) GATE: saat dodge/melee hentakan tembakan TIDAK ikut menempel di badan
+    //     (pose gulingan tak boleh ditumpangi hentakan).
+    stateMod.mouse.isDown = true; player.lastShot = 0; wMod.updateShooting(); stateMod.mouse.isDown = false;
+    wMod.updateWeaponState(0.02);
+    playerMod.tryDodge();
+    avMod.updatePlayerAvatar(0.02);
+    T('TEMBAK: hentakan DIPADAMKAN selama gulingan (pose dodge tak ditumpangi)',
+        avMod.avatarFireDebug().pitch === 0 && avMod.avatarFireDebug().push === 0);
+    for (let i = 0; i < 40 && playerMod.dodgeActive; i++) playerMod.updatePlayerMovement(0.05, 3);
+    for (let i = 0; i < 5; i++) { wMod.updateWeaponState(0.2); avMod.updatePlayerAvatar(0.1); }
+    effectsMod.resetShellCasings();
+    for (const e of stateMod.explosions.splice(0)) scene.remove(e.mesh);
+    stateMod.bullets.splice(0).forEach(b => scene.remove(b.mesh));
+    wMod.resetWeapons();
+    wMod.startSwitch(prevWpn);
+    for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);
+}
 for (let i = 0; i < 5; i++) wMod.updateWeaponState(0.2);      // luruhkan gunRecoil
 
 // --- 7. Kecepatan direksional relatif kursor. Kamera barat daya (2026-07-16):

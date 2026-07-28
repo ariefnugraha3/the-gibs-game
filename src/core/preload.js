@@ -15,7 +15,7 @@ import { buildAmmoMesh, AMMO_WEAPONS } from '../entities/ammoPickups.js';
 import { buildBarrelMesh } from '../entities/barrels.js';
 import { buildCrateMesh } from '../entities/crates.js';
 import { buildRobotMesh, disposeRobot } from '../entities/robots.js';
-import { borrowBloodSprite, borrowMuzzleFlash } from '../entities/effects.js';
+import { borrowBloodSprite, borrowMuzzleFlash, borrowShellCasing } from '../entities/effects.js';
 import { avatarGroup } from '../entities/playerAvatar.js';
 import { buildHeliFlameSprite } from '../entities/helicopter.js';
 
@@ -122,6 +122,19 @@ export async function warmupAll() {
         mzf.visible = true;
     }
 
+    // Selongsong peluru pinjaman dari pool (2026-07-28): program Lambert
+    // TRANSPARAN-nya beda dari Lambert opak biasa — tanpa ini, tembakan PERTAMA
+    // (yang melontarkan selongsong pertama) menanggung kompilasinya.
+    const csg = borrowShellCasing();
+    let csgState = null;
+    if (csg) {
+        csgState = { visible: csg.visible, opacity: csg.material.opacity };
+        warm.add(csg);
+        csg.position.set(-26, 4, -60);
+        csg.material.opacity = 0.6;
+        csg.visible = true;
+    }
+
     // AVATAR player (2026-07-18): render NYATA di depan viewCam supaya SEMUA
     // tekstur/materialnya terunggah SEKARANG — menghilangkan stutter saat avatar
     // pertama TAMPIL turun dari heli di cutscene intro (di sana ia visible=false
@@ -164,6 +177,12 @@ export async function warmupAll() {
         mzf.scale.setScalar(mzfState.scale);
         mzf.rotation.set(-Math.PI / 2, 0, 0);   // pose rebah pool seperti semula
         scene.add(mzf);
+    }
+    if (csg) {
+        csg.visible = csgState.visible;
+        csg.material.opacity = csgState.opacity;
+        csg.rotation.set(0, 0, 0);
+        scene.add(csg);                    // kembali ke induk semula (scene root)
     }
     if (avatarGroup) {
         (avParent || scene).add(avatarGroup);   // kembali ke induk semula (biasanya scene)

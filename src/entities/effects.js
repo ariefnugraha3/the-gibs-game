@@ -45,6 +45,18 @@ const MUZZLE_COUNT = 10;
 const muzzlePool = [];
 let nextMuzzle = 0;
 
+// ===== SELONGSONG PELURU TERLEMPAR (2026-07-28) =====
+// Detail sinematik tembakan player: tiap letusan MELONTARKAN selongsong kuningan
+// dari port ejeksi ke KANAN-belakang senjata, berputar di udara, memantul sekali
+// di lantai, lalu memudar. Pool TETAP (dibuat sekali, `visible=false` saat idle)
+// — nol alokasi per tembakan, dan karena senapan bisa memuntahkan 8 tembakan/dtk
+// jumlahnya sengaja lega. Ukurannya SENGAJA dilebih-lebihkan (~13 cm) supaya
+// terbaca dari kamera top-down; selongsong seukuran aslinya tak akan terlihat.
+const CASING_COUNT = 20;
+const CASING_G = 150;      // gravitasi selongsong (unit/dtk²) — busur pendek & cepat
+const casingPool = [];
+let nextCasing = 0;
+
 export function initEffects(sc) {
     for (let i = 0; i < 3; i++) {
         const l = new THREE.PointLight(0xff8a3d, 0, 260, 2);
@@ -109,6 +121,86 @@ export function initEffects(sc) {
         sc.add(m);
         muzzlePool.push({ mesh: m, life: 0, s0: 1 });
     }
+
+    // Selongsong: SATU geometri bersama, material per-entri (opasitas memudar
+    // sendiri-sendiri) — program GPU sama, jadi tetap satu kali kompilasi.
+    const casingGeo = new THREE.CylinderGeometry(0.2, 0.22, 1.0, 6);
+    for (let i = 0; i < CASING_COUNT; i++) {
+        const m = new THREE.Mesh(casingGeo, new THREE.MeshLambertMaterial({
+            color: 0xc79a3a, emissive: 0x2a1c06, transparent: true, opacity: 1
+        }));
+        m.visible = false;
+        sc.add(m);
+        casingPool.push({ mesh: m, life: 0, vx: 0, vy: 0, vz: 0, sx: 0, sy: 0, sz: 0, gy: 0, rest: false });
+    }
+}
+
+// Lontarkan satu selongsong dari (x,y,z). (dirX,dirZ) = arah HADAP senjata;
+// selongsong keluar ke KANAN + sedikit ke belakang & atas, lalu berputar.
+// `power` menskalakan kecepatan (shotgun melempar lebih jauh).
+export function spawnShellCasing(x, y, z, dirX, dirZ, power = 1) {
+    if (!casingPool.length) return;
+    const c = casingPool[nextCasing++ % casingPool.length];
+    const rx = -dirZ, rz = dirX;                       // vektor KANAN dari arah hadap
+    const sp = (10 + Math.random() * 6) * power;
+    c.vx = rx * sp - dirX * 3 + (Math.random() - 0.5) * 3;
+    c.vz = rz * sp - dirZ * 3 + (Math.random() - 0.5) * 3;
+    c.vy = (12 + Math.random() * 6) * power;
+    c.sx = (Math.random() - 0.5) * 26;                 // kecepatan putar (tumbling)
+    c.sy = (Math.random() - 0.5) * 26;
+    c.sz = (Math.random() - 0.5) * 26;
+    c.rest = false;
+    c.life = 1;
+    c.gy = (activeScene && activeScene.groundHeight) ? activeScene.groundHeight(x, z, y) : 0;
+    c.mesh.position.set(x, y, z);
+    c.mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+    c.mesh.material.opacity = 1;
+    c.mesh.visible = true;
+}
+
+// Debug/uji: jumlah selongsong yang sedang terbang/tergeletak.
+export const shellCasingDebug = () => casingPool.reduce((n, c) => n + (c.life > 0 ? 1 : 0), 0);
+
+// Pemanasan pra-game (core/preload.js): pinjam SATU selongsong supaya program
+// Lambert-transparannya ikut terkompilasi sebelum tembakan pertama.
+export function borrowShellCasing() {
+    return casingPool.length ? casingPool[0].mesh : null;
+}
+
+// Selongsong: balistik + tumbling, memantul di lantai lalu diam & memudar.
+// Menumpang loop ledakan (tanpa updater baru); entri idle langsung dilewati.
+export function updateShellCasings(dt) {
+    for (let i = 0; i < casingPool.length; i++) {
+        const c = casingPool[i];
+        if (c.life <= 0) continue;
+        c.life -= dt * 0.7;                                   // ~1,4 dtk umur
+        if (!c.rest) {
+            c.vy -= CASING_G * dt;
+            const p = c.mesh.position;
+            p.x += c.vx * dt; p.y += c.vy * dt; p.z += c.vz * dt;
+            c.mesh.rotation.x += c.sx * dt;
+            c.mesh.rotation.y += c.sy * dt;
+            c.mesh.rotation.z += c.sz * dt;
+            if (p.y <= c.gy + 0.22) {                          // menyentuh lantai
+                p.y = c.gy + 0.22;
+                if (c.vy < -14) {                              // masih deras -> MEMANTUL
+                    c.vy = -c.vy * 0.34;
+                    c.vx *= 0.55; c.vz *= 0.55;
+                    c.sx *= 0.5; c.sy *= 0.5; c.sz *= 0.5;
+                } else {                                       // diam: rebah di lantai
+                    c.rest = true;
+                    c.mesh.rotation.set(Math.PI / 2, c.mesh.rotation.y, 0);
+                }
+            }
+        }
+        if (c.life < 0.35) c.mesh.material.opacity = Math.max(0, c.life / 0.35);
+        if (c.life <= 0) { c.mesh.visible = false; c.mesh.material.opacity = 1; }
+    }
+}
+
+// Pool tetap: cukup disembunyikan saat reset (tanpa dispose)
+export function resetShellCasings() {
+    casingPool.forEach(c => { c.life = 0; c.rest = false; c.mesh.visible = false; c.mesh.material.opacity = 1; });
 }
 
 // Nyalakan satu kilat moncong di titik dunia (x,y,z). `yaw` = arah tembak
@@ -274,6 +366,7 @@ export function spawnBloodBurst(x, y, z, dirx, dirz, n, power = 1, spread = 2.1,
 // supaya urutan blok updateGame (kontrak) tidak bertambah.
 export function updateExplosions(dt) {
     updateMuzzleFlashes(dt);
+    updateShellCasings(dt);
     for (let i = explosions.length - 1; i >= 0; i--) {
         const e = explosions[i];
         e.life -= dt * 3;

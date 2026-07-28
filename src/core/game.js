@@ -15,7 +15,7 @@ import { updateUI } from './hud.js';
 import { updateWeaponTimers, updateWeaponState, updateShooting, resetWeapons } from '../entities/weapons.js';
 import { updatePlayerMovement, resetPlayerState } from '../entities/player.js';
 import { updateGrenades } from '../entities/grenades.js';
-import { updateExplosions, updateBloodPool, resetBloodPool, resetMuzzleFlashes } from '../entities/effects.js';
+import { updateExplosions, updateBloodPool, resetBloodPool, resetMuzzleFlashes, resetShellCasings } from '../entities/effects.js';
 import { updateGore, resetGore } from '../entities/gore.js';
 import { updateDrops } from '../entities/drops.js';
 import { updateBarrels, barrelBulletHits, resetBarrels } from '../entities/barrels.js';
@@ -172,7 +172,8 @@ export function resetGame(atCurrentStage = false) {
     robots.length = 0;
     resetRobotsFx();   // antrean ledakan (peluru Grenade Launcher) yang belum terproses
     resetBloodPool();   // pool tetap, cukup disembunyikan
-    resetMuzzleFlashes();   // kilat moncong robot (pool tetap) ikut dipadamkan
+    resetMuzzleFlashes();
+    resetShellCasings();   // selongsong yang masih tergeletak dari run sebelumnya
     resetGore();        // buang mayat + sembunyikan pool gib/genangan darah
     resetBarrels();     // buang barel peledak (ditaruh ulang oleh enter() stage)
     resetCrates();      // buang peti persediaan (ditaruh ulang oleh enter() stage)

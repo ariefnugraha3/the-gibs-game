@@ -19,9 +19,9 @@ import {
 } from '../utils/sfx.js';
 import { crosshair, showPickup, medkitBar, medkitBarFill } from '../core/dom.js';
 import { updateUI } from '../core/hud.js';
-import { stamina, staExhausted, drainStamina, dodgeActive } from './player.js';
+import { stamina, staExhausted, drainStamina, dodgeActive, eyeHCur } from './player.js';
 import { killRobot } from './robots.js';
-import { spawnBloodBurst, spawnGroundPuff } from './effects.js';   // muncratan coolant + kilat benturan melee
+import { spawnBloodBurst, spawnGroundPuff, spawnShellCasing } from './effects.js';   // muncratan coolant + kilat benturan melee + selongsong
 import { spawnGibs } from './gore.js';   // serpihan logam benturan melee
 import { spawnDrop, MEDKIT_MAT } from './drops.js';
 import { crateMeleeHit } from './crates.js';   // tebasan pedang memecah peti persediaan
@@ -58,6 +58,30 @@ export let meleeDirX = 0, meleeDirZ = -1;
 // Anatomis tetap benar: pedang selalu di tangan KANAN, yang berubah arah sapuan.
 export let meleeSide = 1;
 export let gunRecoil = 0;   // kickback senjata (visual; 1 saat menembak -> meluruh dt·6; dibaca playerAvatar utk hentakan laras naik)
+// ===== HENTAKAN TEMBAKAN SINEMATIK (2026-07-28, permintaan user: "animasi
+// menembak terlalu sederhana") =====
+// `gunRecoil` (di atas) DIPERTAHANKAN apa adanya — rig FPS dorman, slide pistol
+// & pump shotgun masih membacanya. Yang BARU adalah JAM TEMBAKAN di bawah:
+// playerAvatar memakainya untuk mengevaluasi satu kurva hentakan teredam
+// (naik SNAP -> memantul MELEWATI garis bidik -> reda), bukan lagi peluruhan
+// linier yang cuma mengangkat moncong.
+//   shotT      detik sejak letusan terakhir (-1 = tak ada animasi berjalan)
+//   shotDur    panjang animasi letusan itu (diturunkan dari fireDelayMs senjata)
+//   shotKick   amplitudo = CFG.weapons.<w>.cameraKick senjata yang meletus
+//   shotSide   ±1 acak per tembakan: moncong terlempar sedikit ke kiri/kanan
+//              (dua tembakan beruntun tak pernah identik)
+//   recoilStack  AKUMULASI muzzle-climb tembakan beruntun (0..1): rentetan
+//              panjang menaikkan laras makin tinggi lalu reda saat pelatuk
+//              dilepas — ini yang membuat rentetan terasa "liar" seperti film.
+export let shotT = -1, shotDur = 0.2, shotKick = 0, shotSide = 1, recoilStack = 0;
+export const fireAnimDebug = () => ({ t: shotT, dur: shotDur, kick: shotKick, side: shotSide, stack: recoilStack });
+// Debug/uji: keadaan kilat moncong (lampu SATU-SATUNYA + kerucut semburan).
+export const muzzleDebug = () => ({
+    intensity: muzzleFlash ? muzzleFlash.intensity : 0,
+    cone: !!(flashCone && flashCone.visible),
+    coneOpacity: flashCone ? flashCone.material.opacity : 0,
+    scale: flashScale,
+});
 let gunHeat = 0;        // "panas laras" 0..1: naik tiap tembakan, dingin saat jeda —
                         // memperbesar spread saat menembak beruntun (bloom recoil)
 let gunBobT = 0;        // fase goyangan senjata saat berjalan (visual)
@@ -73,6 +97,7 @@ export let gunMesh = null, pistolMesh = null, shotgunMesh = null, launcherMesh =
 let medkitHandMesh = null;                            // tangan+medkit (tombol 4)
 let mkLid = null, mkWorkHand = null;                  // tutup berengsel + tangan kanan penekan (animasi channel)
 let muzzleFlash = null, muzzlePoint = null, muzzleSprite = null;
+let flashCone = null, flashScale = 3.2;   // KERUCUT semburan moncong + besar kilat tembakan terakhir
 let leftHand, leftForearm, rightArm, gunMagMesh, boltHandle;
 let pistolSlide, pistolMagMesh, pistolMuzzle, rifleMuzzle;
 let pLeftHand, pLeftForearm;
@@ -681,6 +706,22 @@ export function initWeapons() {
     muzzleSprite.renderOrder = 9;
     avatarGunTip.add(muzzleSprite);
 
+    // KERUCUT SEMBURAN (2026-07-28): gas panas yang menyembur KE DEPAN laras —
+    // bintang api rebah di atas saja terbaca "stiker", kerucut ini memberinya
+    // arah & kedalaman dari sudut top-down. Dibuat SEKALI di sini (anak
+    // avatarGunTip, ikut dirender saat warm-up avatar) — opacity 0 saat idle.
+    // Material aditif tanpa depth-write, sama keluarga program dgn kilat.
+    const coneGeo = new THREE.ConeGeometry(0.55, 2.6, 10, 1, true);
+    coneGeo.rotateX(Math.PI / 2);      // sumbu kerucut menghadap +Z (arah laras)
+    coneGeo.translate(0, 0, 1.3);      // pangkal tepat di ujung laras
+    flashCone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({
+        color: 0xffca7a, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false
+    }));
+    flashCone.position.set(0, 0.3, 0.35);
+    flashCone.renderOrder = 9;
+    avatarGunTip.add(flashCone);
+
     gunMesh.position.set(3, -2.5, -6);
     fpsHolder.add(gunMesh);
     scene.add(camera);   // pivot player tetap anggota scene (transform dunia valid)
@@ -1092,11 +1133,15 @@ export function updateWeaponTimers(dt) {
 // --- Recoil & muzzle flash decay + posisi z senjata (visual) ---
 export function updateWeaponState(dt) {
     gunRecoil = Math.max(0, gunRecoil - dt * 6);
+    // Jam animasi letusan + peluruhan muzzle-climb (config-driven).
+    const RC = CFG.weapons.recoil || {};
+    if (shotT >= 0) { shotT += dt; if (shotT > shotDur) shotT = -1; }
+    recoilStack = Math.max(0, recoilStack - dt * (RC.climbDecayPerSec || 1.8));
     gunHeat = Math.max(0, gunHeat - dt * CFG.weapons.heatCoolPerSec);   // laras mendingin saat jeda menembak
     const def = WEAPON_DEF[currentWeapon];
     // ADS sedikit lebih dekat; melee mendorong senjata ke depan (ayunan)
     def.mesh.position.z = def.baseZ + aimT * 0.8 + gunRecoil * def.kick - 1.9 * meleeS;
-    if (muzzleFlash.intensity > 0) muzzleFlash.intensity = Math.max(0, muzzleFlash.intensity - dt * 30);
+    if (muzzleFlash.intensity > 0) muzzleFlash.intensity = Math.max(0, muzzleFlash.intensity - dt * 42);   // kilat SINGKAT (letusan, bukan lampu)
 }
 
 // Damage efektif sebuah senjata = base CFG × level upgrade shop Survival
@@ -1219,8 +1264,7 @@ export function updateShooting() {
         wpn.ammo--;
         player.lastShot = Date.now();
         gunRecoil = 1;
-        muzzleFlash.intensity = 4;
-        muzzleSprite.rotation.z = Math.random() * 6.28;   // roll acak tiap tembakan
+        fireBurstFx(wcfg, isLauncher);   // hentakan + kilat + selongsong + guncang kamera
         updateUI();
     } else if (mouse.isDown && emptyReady && switchAnim < 0
         && meleeT <= 0 && wpn.ammo === 0) {
@@ -1232,11 +1276,82 @@ export function updateShooting() {
     if (!mouse.isDown) emptyReady = true;
 }
 
+// ===== LETUSAN SINEMATIK (2026-07-28) =====
+// Satu tempat untuk SEMUA yang terjadi pada saat pelatuk ditarik, di luar
+// peluru itu sendiri: jam hentakan badan (dibaca playerAvatar), kilat moncong
+// berlapis (lampu + bintang api + KERUCUT semburan), selongsong terlempar,
+// asap & debu untuk senjata BERAT, dan guncangan kamera kecil. Semuanya
+// config-driven lewat `CFG.weapons.recoil` × `cameraKick` senjata, jadi pistol
+// mencuit sementara shotgun/launcher benar-benar MENGHENTAK.
+function fireBurstFx(wcfg, isLauncher) {
+    const RC = CFG.weapons.recoil || {};
+    const kick = (wcfg && wcfg.cameraKick) || 0.015;
+    // Jam animasi: panjangnya mengikuti kadens senjata (senapan cepat = hentakan
+    // pendek yang saling menimpa; shotgun = hentakan panjang yang sempat reda).
+    shotT = 0;
+    shotDur = Math.max(RC.durMin || 0.17,
+        Math.min(RC.durMax || 0.5, ((wcfg && wcfg.fireDelayMs) || 200) / 1000 * (RC.durMul || 1.7)));
+    shotKick = kick;
+    shotSide = Math.random() < 0.5 ? -1 : 1;
+    recoilStack = Math.min(1, recoilStack + (RC.climbPerShot || 0.3));
+
+    // --- Kilat moncong: lampu (SATU-SATUNYA, jumlah lampu tetap) + bintang api
+    //     + kerucut semburan yang memanjang ke depan laras. ---
+    muzzleFlash.intensity = 3 + kick * (RC.flashFromKick || 180);
+    muzzleSprite.rotation.z = Math.random() * 6.28;                 // roll acak tiap tembakan
+    flashScale = 3.2 * (0.85 + kick * 22 + Math.random() * 0.35);   // besar kilat per senjata
+    if (flashCone) {
+        flashCone.visible = true;
+        flashCone.rotation.z = Math.random() * 6.28;
+        const cw = 0.7 + kick * 14;                 // LEBAR semburan (x/y); PANJANG (z) dianimasikan per frame
+        flashCone.scale.set(cw, cw, 1);
+    }
+
+    // --- Selongsong terlempar dari port ejeksi (launcher tidak punya). ---
+    if (!isLauncher && avatarGunTip) {
+        avatarGunTip.getWorldPosition(_tip);
+        camera.getWorldDirection(_dir);
+        const n = Math.hypot(_dir.x, _dir.z) || 1;
+        spawnShellCasing(_tip.x - _dir.x / n * 2.5, _tip.y + 0.6, _tip.z - _dir.z / n * 2.5,
+            _dir.x / n, _dir.z / n, 0.85 + kick * 12);
+    }
+
+    // --- LARAS MEMBARA: saat `gunHeat` (bloom spread rentetan panjang) mendekati
+    //     puncak, sesekali sesapan asap tipis mengepul dari moncong — rentetan
+    //     panjang jadi terbaca, memakai sistem panas yang memang sudah ada. ---
+    if (gunHeat > (RC.heatSmoke || 0.75) && Math.random() < 0.3 && avatarGunTip) {
+        avatarGunTip.getWorldPosition(_tip);
+        spawnGroundPuff(_tip.x, _tip.z, 0x9a8f7e, 3, _tip.y + 1.2);
+    }
+
+    // --- Senjata BERAT (kick di atas ambang config): asap moncong + debu lantai
+    //     yang tersapu semburan + guncangan kamera lebih terasa. ---
+    if (kick >= (RC.heavyKick || 0.02) && avatarGunTip) {
+        avatarGunTip.getWorldPosition(_tip);
+        spawnGroundPuff(_tip.x, _tip.z, 0x9a8f7e, 5, _tip.y + 0.4);       // asap moncong
+        spawnGroundPuff(_tip.x, _tip.z, 0x8f8579, 9, camera.position.y - eyeHCur + 0.5);   // debu tersapu di lantai
+    }
+    addCamShake(kick * (RC.camShake || 26));
+}
+
 // ----- Visual senjata per frame: ADS, bob, ganti, melee, rig reload -----
 // Arah tembak/granat tetap dari pusat kamera -> tidak mengubah mekanik.
 // Berjalan tiap frame BAHKAN saat pause (kontrak lama updateDecor).
 export function updateWeaponVisuals(dt) {
-    if (muzzleSprite) muzzleSprite.material.opacity = Math.min(1, muzzleFlash.intensity / 3);
+    // Kilat moncong: opasitas mengikuti intensitas lampu, TAPI besarnya MENGEMBANG
+    // lalu mengecil (letusan yang "meledak" keluar, bukan gambar statis yang
+    // sekadar memudar) — dan kerucut semburan memanjang cepat lalu padam duluan.
+    if (muzzleSprite) {
+        const k = Math.min(1, muzzleFlash.intensity / 3);
+        muzzleSprite.material.opacity = k;
+        muzzleSprite.scale.setScalar(flashScale / 3.2 * (1.25 - 0.45 * k));
+    }
+    if (flashCone) {
+        const kc = Math.min(1, Math.max(0, (muzzleFlash.intensity - 1.2) / 3));
+        flashCone.material.opacity = kc * 0.85;
+        if (kc <= 0 && flashCone.visible) flashCone.visible = false;
+        else if (kc > 0) flashCone.scale.z = (0.9 + flashScale * 0.09) * (1.7 - 0.7 * kc);
+    }
 
     aimT += ((isAiming ? 1 : 0) - aimT) * Math.min(1, dt * 12);
     const fov = BASE_FOV / (1 + (AIM_ZOOM - 1) * aimT);
@@ -1411,4 +1526,9 @@ export function resetWeapons() {
     gunRotX = 0; gunRotZ = 0;
     gunHeat = 0;
     emptyReady = true;
+    // Hentakan tembakan: jam & akumulasi muzzle-climb kembali netral, kilat padam.
+    gunRecoil = 0; shotT = -1; shotKick = 0; recoilStack = 0;
+    if (muzzleFlash) muzzleFlash.intensity = 0;
+    if (flashCone) { flashCone.visible = false; flashCone.material.opacity = 0; }
+    if (muzzleSprite) { muzzleSprite.material.opacity = 0; muzzleSprite.scale.setScalar(1); }
 }

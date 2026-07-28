@@ -33,6 +33,43 @@ On contact, time drops to ~6% for ~75 ms (player) or ~12% for ~50 ms (robot — 
 
 Curve continuity matters here for the same reason as the roll: every phase hands off at matching values, and anything the living/walk pose doesn't write (`eyeMat.emissiveIntensity`, `bladeFlash`) must be driven back to its exact rest value rather than left where the animation stopped.
 
+## Gunfire — cinematic recoil (rewritten 2026-07-28)
+
+Firing used to be two things: a flash sprite at the muzzle, and `props.rotation.x = -gunRecoil × cameraKick × 6` — the barrel rose and fell **linearly** and nothing else on the body moved. Guns had no weight. The rewrite keeps every gameplay number untouched (fire rate, spread, heat, damage) and changes only what the shot *looks* like.
+
+### One damped curve drives the whole body
+
+`weapons.js` now runs a **shot clock** — `shotT` / `shotDur` / `shotKick` / `shotSide` (+ `recoilStack`) — instead of a single decaying scalar. `playerAvatar.fireCurve(u)` evaluates it:
+
+- `u < 0.15` — smoothstep **snap** to 1 (about two frames: the punch),
+- afterwards — `e^{−4.4v}·cos(2.3πv)`, a damped oscillator that **crosses zero**, so the muzzle dips *below* the aim line before settling. Same principle as the sword's follow-through and the robot's recoil bounce; a linear decay can never read as mass.
+
+The signed value feeds **every** channel from one place, so no body part runs on its own timer:
+
+| channel | what it does |
+| --- | --- |
+| `gunPitch` | barrel kicks up, then bounces through the line |
+| `gunPush` | weapon travels back along the barrel axis — **both grip anchors move with it**, so the hands stay welded to the gun |
+| `gunYaw` | muzzle is thrown sideways by `shotSide` (±1, random per shot) — no two shots are identical |
+| `torso` / `twist` | upper body is shoved back and the shoulders wind away from the recoil |
+| `headNod` | chin dips (via `lerpHeadPitch`, which also corrects the neck) |
+| `bodyDip` / `kneeFlex` | the stance absorbs — body drops, knees fold |
+| `shove` | heavy weapons physically push the avatar back a step (quarter strength for light ones) |
+
+`recoilStack` is the **muzzle climb**: every shot adds `climbPerShot`, capped at 1, decaying at `climbDecayPerSec`. A long burst walks the barrel higher and higher and settles when the trigger is released — the reason sustained rifle fire now feels like it's fighting you. The whole overlay is written **last** in `updatePlayerAvatar` and is purely additive, so it rides on top of the idle/run/land pose without disturbing it, and it is suppressed entirely during a roll, a melee swing or the death sequence. Every channel is exactly 0 when no shot is live, so ordinary frames are byte-identical to before — except `lerpHeadPitch`, which is stateful and therefore gets driven back to exactly 0 by `fireHeadCur`.
+
+### What leaves the barrel
+
+- **Layered muzzle flash.** The single flat star sprite now expands as it fades (a blast, not a decal) and is joined by a **cone of gas** shooting forward along the barrel — the flat sprite alone read as a sticker from the top-down angle. Both live on `avatarGunTip`, so they are compiled during the avatar's warm-up render. The flash **PointLight is still the only one** — its intensity scales with the weapon and decays faster (`×42`).
+- **Shell casings** (`effects.js`, fixed pool of 20, borrowed by `preload.warmupAll`): ejected right-and-back from the port, tumbling, arcing under their own gravity, **bouncing once** off the scene's ground height, then resting and fading. Deliberately oversized (~13 cm) — a real casing is invisible from this camera. The launcher ejects none.
+- **Heavy-weapon blast** (`cameraKick ≥ heavyKick`, i.e. shotgun + launcher): a smoke ring at the muzzle plus **dust kicked off the floor** at the player's feet height, so the shot disturbs the world and not just the screen.
+- **Barrel smoke** wisps from the muzzle once `gunHeat` passes `heatSmoke` — the existing spread-bloom heat finally has a visual.
+- **Camera shake** per shot, `cameraKick × camShake` (≈0.3 units for the rifle, ≈0.8 for the shotgun) through the same `addCamShake` the explosions use.
+
+**Toned down twice on 2026-07-28.** First pass cut the gun-side channels ~45% (`gunPitch` 7.5→4.2, `gunPush` 30→17, `gunYaw` 2.6→1.2, `twist` 2.6→1.3, `bodyDip` 14→8, `climbPitch` 4→2, `camShake` 26→17). The backward body push was raised in that same pass and the user rejected it outright — the whole avatar visibly lurching backwards on every shot looked absurd — so `torso` and `shove` were cut hard instead: **`torso` 3.4→1.6, `shove` 22→8, `shoveLightMul` 0.3**. The backward jolt is now a *nudge*, which is the point: **1.1° / 0.03 units for the rifle, 2.8° / 0.24 units for the shotgun** — enough to feel the shoulder absorb the shot, never enough to shift the character. If it ever needs re-tuning again, those two keys are the whole knob; do not scale them up to "sell" the recoil.
+
+All amplitudes live in `CFG.weapons.recoil` and are multiplied by each weapon's existing `cameraKick`, so the pistol snaps, the rifle chatters, and the shotgun and launcher genuinely heave. Guarded by the `TEMBAK:` asserts in the smoke suite (curve shape including the negative overshoot, config-driven amplitude per channel, casing ejected/landed, heavy-only smoke, climb accumulation and decay, neutrality when idle, suppression during a roll).
+
 ## Run cycle (rewritten 2026-07-27)
 
 The first gait was four lines: hip = a pure sine, knee = `max(0, ∓sin)`, a small torso bob. From the top-down camera it read as **a doll being slid along the floor** — the user's words were "masih terlihat sangat kaku". Three things were missing, and all three are what the eye actually uses to recognise a running human.
@@ -48,7 +85,7 @@ The first gait was four lines: hip = a pure sine, knee = `max(0, ∓sin)`, a sma
 
 The swing bump is deliberately **asymmetric** (narrow toward toe-off, wide toward the plant) so the knee stays straight while pushing off and folds deep while the foot is in the air.
 
-**2. The body had no weight.** `bodyBob` runs at **2× the step frequency** with its minimum exactly at mid-stance — the same instant the absorption bump peaks, so the knee bends precisely as the weight drops. It is written to `avatarGroup.position.y` (pivot = the feet) and is always ≤ 0, so the avatar never floats above its standing height. The **head is counter-stabilised** by 55% of the bob (`headG.position.y`), the reflex that keeps a runner's gaze level. The whole body also **leans into the travel direction** (`rotateX`/`rotateZ` on the root, applied after the yaw), and the torso adds its own forward pitch.
+**2. The body had no weight.** `bodyBob` runs at **2× the step frequency** with its minimum exactly at mid-stance — the same instant the absorption bump peaks, so the knee bends precisely as the weight drops. It is written to `avatarGroup.position.y` (pivot = the feet) and is always ≤ 0, so the avatar never floats above its standing height. The **head is counter-stabilised** by 55% of the bob (`headG.position.y`), the reflex that keeps a runner's gaze level. The whole body also **leans into the travel direction** (`rotateX`/`rotateZ` on the root, applied after the yaw), and the torso adds its own forward pitch. **Halved on 2026-07-28** (user: *"terlalu over condongnya"*) — root and torso together used to stack ~18° at full sprint, which read as charging head-first; they now stack ~10° (root `0.05+0.13·runK` → `0.03+0.07·runK`, torso `0.03+0.11·runK` → `0.02+0.05·runK`). Still clearly a run, but the head no longer outruns the feet. Visual-only constants, so they stay in code; the smoke assert is about *direction* (forward when advancing, backward when backpedalling), not magnitude, so it survives retunes like this.
 
 **3. Both hands are on the weapon, so there is no arm swing to give.** The substitute is **shoulder-vs-pelvis counter-rotation**: `upperG.rotation.y = twistCur + torsoCounter`, where `torsoCounter` opposes the leg swing — and since the weapon is a child of `upperG`, that is what swings the rifle left and right. On top of it the weapon gets its own **inertia bounce**: it lags upward as the body drops, and the muzzle nods. The bounce goes through `props[key].position/rotation` — the same channel recoil already uses — so **`gunGrp` and `avatarGunTip` never move and the bullet spawn point stays calibrated**. The grip anchors receive the identical offset and pitch, so the palms stay welded to the grip and forend.
 

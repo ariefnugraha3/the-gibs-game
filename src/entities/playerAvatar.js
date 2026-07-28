@@ -21,7 +21,7 @@ import { camera, viewCam } from '../core/renderer.js';
 import { GEO, player, robots, isPaused } from '../core/state.js';
 import { aimPoint } from '../core/input.js';
 import { eyeHCur, dodgeActive, dodgeProgress, dodgeDirX, dodgeDirZ } from './player.js';
-import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim, meleeDirX, meleeDirZ, meleeSide } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
+import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim, meleeDirX, meleeDirZ, meleeSide, shotT, shotDur, shotKick, shotSide, recoilStack } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
 
 export let avatarGroup = null;
 export let avatarGunTip = null;   // Object3D ujung laras (dibaca weapons.js)
@@ -47,6 +47,7 @@ let dodgeSideAlt = 1;     // penggilir sisi utk guling maju/mundur murni
 let dodgePrev = false;    // dodgeActive frame lalu (deteksi mulai/selesai)
 let landT = 0;            // sisa detik fase RECOVER pendaratan (setelah dodge)
 let marker = null, markerT = 0;
+let fireHeadCur = 0;   // anggukan kepala hentakan tembakan frame lalu (agar kembali TEPAT ke 0)
 // ===== IDLE AFK bertahap (2026-07-14) =====
 let afkT = 0, afkMode = 'none', afkPoseT = 0;        // detik menganggur; mode aktif; waktu dalam mode
 let lastAimX = 0, lastAimZ = 0;                       // deteksi gerak kursor (aim)
@@ -133,6 +134,28 @@ const GUARD_L = { x: -1.7, y: 7.9, z: 1.3 };
 const smootherstep = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * t * (t * (t * 6 - 15) + 10); };
 const bump = (t, a, b) => { const u = (t - a) / (b - a); return u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u); };
 const clamp01 = (t) => t < 0 ? 0 : t > 1 ? 1 : t;
+
+// ===== KURVA HENTAKAN TEMBAKAN (2026-07-28, permintaan user: animasi menembak
+// dibuat SINEMATIK) =====
+// Bentuknya OSILATOR TEREDAM, bukan peluruhan linier:
+//   u < ATTACK  -> SNAP naik (smoothstep, ~2 frame) = letusan yang menghentak
+//   u >= ATTACK -> exp(-decay) × cos(...) = badan MEMANTUL melewati garis bidik
+//                  ke KEDUA arah lalu reda (moncong sempat MENUKIK di bawah
+//                  garis sebelum diam — inilah "settle" khas senjata film).
+// Nilai baliknya BERTANDA (-1..1) dan dipakai SATU sumber untuk semua kanal:
+// laras, torso, bahu, kepala, lutut, dan geser badan — jadi seluruh tubuh
+// bergerak dalam satu ritme, bukan tiap bagian punya timer sendiri.
+const FIRE_ATTACK = 0.15;
+function fireCurve(u) {
+    if (u <= 0 || u >= 1) return 0;
+    if (u < FIRE_ATTACK) { const t = u / FIRE_ATTACK; return t * t * (3 - 2 * t); }
+    const v = (u - FIRE_ATTACK) / (1 - FIRE_ATTACK);
+    return Math.exp(-4.4 * v) * Math.cos(v * Math.PI * 2.3);
+}
+// Debug/uji: nilai kurva + kanal hentakan frame terakhir (dibaca smoke test).
+const fireDbg = { k: 0, pitch: 0, push: 0, torso: 0, twist: 0, dip: 0, shove: 0, climb: 0 };
+export const avatarFireDebug = () => ({ ...fireDbg });
+export const fireCurveAt = (u) => fireCurve(u);
 const DODGE_ROT_A = 0.10, DODGE_ROT_B = 0.88;   // jendela putaran di dalam p
 const DODGE_BANK = 0.62;    // miring maks lewat bahu (rad) — inti kesan "guling", bukan "salto"
 const DODGE_AIR = 3.4;      // tinggi busur melayang (unit)
@@ -1198,9 +1221,14 @@ export function updatePlayerAvatar(dt) {
         // tengah badan) supaya langkahnya tidak terlihat seperti rel sejajar.
         hipZ = sw * ((0.24 + 0.30 * runK) * lComp + 0.07 * dirAmp);
         bodyBob = -(0.28 + 0.62 * runK) * dirAmp * (0.5 + 0.5 * Math.cos(2 * phase));
-        leanF = (0.05 + 0.13 * runK) * fComp;                // condong ke arah lari
+        leanF = (0.03 + 0.07 * runK) * fComp;                // condong ke arah lari (dikurangi 2026-07-28)
         leanS = -(0.04 + 0.09 * runK) * lComp;               // miring ke dalam saat menyamping
-        torsoPitch = (0.03 + 0.11 * runK) * Math.max(0, fComp) * (1 - 0.55 * FIRE);
+        // CONDONG DIKURANGI ~45% (2026-07-28, permintaan user: "terlalu over
+        // condongnya"). Dulu badan+torso menumpuk ~18° di lari penuh sehingga
+        // avatar terlihat menyeruduk ke depan; kini ~10° total: masih terbaca
+        // sebagai berlari (bukan berjalan tegak seperti sebelum gait dirombak),
+        // tapi kepala tak lagi mendahului kaki. Torso 0.11 -> 0.05, badan 0.13 -> 0.07.
+        torsoPitch = (0.02 + 0.05 * runK) * Math.max(0, fComp) * (1 - 0.55 * FIRE);
         torsoCounter = -(0.05 + 0.11 * runK) * sw * (1 - 0.7 * FIRE);
         const steady = 1 - 0.7 * FIRE;                       // menembak = senjata ditahan
         gunDY = -bodyBob * 0.42 * steady;                    // inersia: senapan tertinggal naik
@@ -1239,12 +1267,42 @@ export function updatePlayerAvatar(dt) {
     // ikut berputar, dan geseran (gunDX/gunDY) ditulis ke posisi prop lalu
     // dijumlahkan ke target tangan. gunGrp & avatarGunTip TIDAK bergerak —
     // titik spawn peluru + kilat muzzle tetap terkalibrasi (invarian).
+    // ===== HENTAKAN TEMBAKAN (ROMBAK 2026-07-28) =====
+    // Dulu: `props.rotation.x = -gunRecoil × cameraKick × 6` — moncong naik lalu
+    // turun linier, selesai. Sekarang SATU kurva teredam `fireCurve` (bertanda)
+    // memberi makan SEMUA kanal di bawah, dan sebuah AKUMULATOR `recoilStack`
+    // menaikkan laras makin tinggi selama rentetan (muzzle climb) lalu reda.
+    // Kanal: (1) laras MENGHENTAK NAIK + memantul turun, (2) senjata MUNDUR di
+    // sumbu laras, (3) moncong terlempar ke samping ±acak per tembakan,
+    // (4) torso ditolak KE BELAKANG, (5) bahu terpuntir, (6) kepala mengangguk,
+    // (7) badan MEREDAM turun + lutut menekuk, (8) senjata BERAT MENDORONG
+    // seluruh badan mundur selangkah. Semua amplitudo = CFG.weapons.recoil.*
+    // × `cameraKick` senjata → pistol mencuit, shotgun/launcher menghentak.
+    const RC = CFG.weapons.recoil || {};
+    const fireK = shotT >= 0 && shotDur > 0 ? fireCurve(shotT / shotDur) : 0;
+    const fireAmp = fireK * (shotKick || 0);
+    const climb = (recoilStack || 0) * (shotKick || 0);
+    const canFireAnim = !dodgeActive && !inMelee && deathT < 0;
+    const fA = canFireAnim ? fireAmp : 0, fC = canFireAnim ? climb : 0;
+    const gunPush = -fA * (RC.gunPush || 26);                 // mundur di sumbu laras
+    fireDbg.k = fireK; fireDbg.climb = fC;
+    fireDbg.pitch = -(fA * (RC.gunPitch || 6.5) + fC * (RC.climbPitch || 4));
+    fireDbg.push = gunPush;
+    fireDbg.torso = -fA * (RC.torso || 3.2);
+    fireDbg.twist = fA * (RC.twist || 2.4) * (shotSide || 1);
+    fireDbg.dip = -fA * (RC.bodyDip || 12);
+    // DORONGAN MUNDUR (dinaikkan 2026-07-28, permintaan user: hentakan badan ke
+    // BELAKANG kurang terasa sementara gerak lain berlebihan): senjata berat
+    // memakai kekuatan penuh, senjata ringan `shoveLightMul` — keduanya config.
+    fireDbg.shove = fA * (RC.shove || 40)
+        * (shotKick >= (RC.heavyKick || 0.02) ? 1 : (RC.shoveLightMul || 0.45));
+
     let recC = 1, recS = 0;
     if (props && props[key]) {
-        const wc = CFG.weapons[base];   // config per senjata DASAR (varian Lv3 tak punya entri CFG)
-        const a = -gunRecoil * ((wc && wc.cameraKick) || 0) * 6 + gunPitch;
+        const a = fireDbg.pitch + gunPitch;
         props[key].rotation.x = a;
-        props[key].position.set(gunDX, gunDY, 0);
+        props[key].rotation.y = fA * (RC.gunYaw || 2.4) * (shotSide || 1);   // moncong terlempar ke samping
+        props[key].position.set(gunDX, gunDY, gunPush);
         recC = Math.cos(a); recS = Math.sin(a);
     }
 
@@ -1269,10 +1327,10 @@ export function updatePlayerAvatar(dt) {
     const G = GRIPS[key] || GRIPS.rifle;
     let rTx = GUN_OFF.x + gunDX + G.R.x,
         rTy = GUN_OFF.y + gunDY + G.R.y * recC - G.R.z * recS,
-        rTz = GUN_OFF.z + G.R.y * recS + G.R.z * recC;
+        rTz = GUN_OFF.z + gunPush + G.R.y * recS + G.R.z * recC;
     let lTx = GUN_OFF.x + gunDX + G.L.x,
         lTy = GUN_OFF.y + gunDY + G.L.y * recC - G.L.z * recS,
-        lTz = GUN_OFF.z + G.L.y * recS + G.L.z * recC;
+        lTz = GUN_OFF.z + gunPush + G.L.y * recS + G.L.z * recC;
     let meleeDip = 0;   // merendah kuda-kuda saat menebas (dipakai blok kaki di bawah)
     if (dodgeActive) {
         // LENGAN GULINGAN (2026-07-27): bukan lagi TUCK datar sepanjang animasi —
@@ -1506,6 +1564,32 @@ export function updatePlayerAvatar(dt) {
         hipR.rotation.x = 0.35 * meleeDip;
         kneeR.rotation.x = 0.95 * meleeDip;
         hipL.rotation.z *= 0.8; hipR.rotation.z *= 0.8;
+    }
+
+    // ===== OVERLAY HENTAKAN SELURUH BADAN (2026-07-28) =====
+    // Ditulis PALING AKHIR & bersifat ADITIF supaya menumpang pose apa pun yang
+    // sudah dihitung (idle / gait / pemulihan gulingan) tanpa merusaknya. Ini
+    // bagian yang membuat tembakan terasa "berat": bukan cuma senjata yang
+    // bergerak — torso ditolak ke belakang, bahu terpuntir, kepala mengangguk,
+    // lutut meredam, dan senjata BERAT benar-benar MENDORONG badan mundur
+    // selangkah. Semua kanal memakai SATU kurva (`fireDbg`, dihitung di atas),
+    // jadi tak ada bagian tubuh yang bergerak di ritme sendiri.
+    // `fireHeadCur` menjaga anggukan kepala kembali TEPAT ke nol saat hentakan
+    // habis (lerpHeadPitch itu stateful — ia juga mengoreksi posisi leher).
+    if (fireDbg.k !== 0 || fireHeadCur !== 0) {
+        upperG.rotation.x += fireDbg.torso;     // torso tertolak ke BELAKANG
+        upperG.rotation.y += fireDbg.twist;     // bahu terpuntir ke sisi hentakan
+        avatarGroup.position.y += fireDbg.dip;  // badan MEREDAM (lutut memendek)
+        if (fireDbg.shove) {                    // senjata berat mendorong badan mundur
+            avatarGroup.position.x -= Math.sin(aimYaw) * fireDbg.shove;
+            avatarGroup.position.z -= Math.cos(aimYaw) * fireDbg.shove;
+        }
+        const flex = fireDbg.dip * (RC.kneeFlex || 0.9);   // dip negatif -> lutut menekuk
+        hipL.rotation.x += flex * 0.35; hipR.rotation.x += flex * 0.35;
+        kneeL.rotation.x -= flex * 0.8; kneeR.rotation.x -= flex * 0.8;
+        const nod = fireDbg.k * (shotKick || 0) * (RC.headNod || 1.8);
+        fireHeadCur = nod;
+        lerpHeadPitch(nod, 1);
     }
 
     if (marker && marker.visible) {

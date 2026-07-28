@@ -67,6 +67,28 @@
         "heatPerShot": 0.22,
         "heatCoolPerSec": 1.4,
         "adsAccuracy": 0.75,
+        "recoil": {
+            "durMul": 1.7,
+            "durMin": 0.17,
+            "durMax": 0.5,
+            "gunPitch": 4.2,
+            "gunPush": 17,
+            "gunYaw": 1.2,
+            "torso": 1.6,
+            "twist": 1.3,
+            "headNod": 1.3,
+            "bodyDip": 8,
+            "kneeFlex": 0.9,
+            "shove": 8,
+            "shoveLightMul": 0.3,
+            "climbPerShot": 0.22,
+            "climbDecayPerSec": 1.8,
+            "climbPitch": 2,
+            "camShake": 17,
+            "flashFromKick": 180,
+            "heavyKick": 0.02,
+            "heatSmoke": 0.75
+        },
         "ammoUpgrades": [
             {
                 "pistol": 300,
