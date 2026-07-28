@@ -89,3 +89,36 @@ A crate blocks a circle of `CR` 6.6 + the player radius, which is wider than a 1
 ## Stamina
 
 **Stamina** (`CFG.stamina`): SPRINT REMOVED 2026-07-11 — stamina is now spent only by the **dodge** (`CFG.dodge.staminaCost` 20) and **melee** (15/swing); it just regens (12/s) otherwise. Draining to 0 sets `staExhausted` (blocks dodge/melee) until it recovers to `recoverThreshold` 20 (hysteresis). `drainStamina(n)` centralizes the drain+exhaust. (`adsDrainPerSec` was removed 2026-07-22 — ADS removed.)
+
+## Robot walk cycle (rewritten 2026-07-28)
+
+The chase animation was four lines — hip = a pure sine, knee = `max(0, ∓sin)`, arms mirroring the hips, and a body bob of `abs(sin)`. The user's verdict was *"seperti boneka yang tidak natural"*, and the diagnosis is the same one the player's gait got in July: **the feet were sliding**. At class C's speed the old cadence produced a ~14-unit stride on a 5.7-unit leg — nearly 2.5× the distance the foot could actually cover, so every step scrubbed across the floor. On top of that the knee bent at the wrong moment and the bob pushed the body *up*.
+
+**What changed**
+
+1. **Cadence comes from real speed.** `phase += dt · (10 + speed·10) · gaitVar / mass` puts the stride at ~1.2× the foot's reach instead of 2.4×. The smoke suite asserts this ratio from `CFG.robot.classes.*.speed` and the rig's own hip height, so a speed retune can't quietly reintroduce sliding.
+2. **The knee is built from two circular gaussian bumps** (`angBumpR`) instead of a clipped sine: a **deep fold (~1.15 rad) at mid-swing** so the foot clears the ground, and a **shallow absorption (~0.42–0.7 rad) at mid-stance**. It is now nearly straight exactly where it should be — at the plant and at toe-off.
+3. **Ankles exist.** `mkLeg` gained an `ankle` pivot (the foot used to be a mesh bolted to the shin), so the foot **pushes off** at toe-off and **flattens** to meet the ground at the plant.
+4. **The body drops onto the supporting leg**, twice per cycle, and the depth is *derived from geometry*: `−2.7·(1−cos(kneeStance))` — exactly how much the leg shortens when its knee folds. Inventing a bob amplitude is what buries feet in the floor; tying it to the knee angle keeps contact honest at any tuning, and it is always ≤ 0 (the old `abs(sin)` launched the body upward).
+5. **Lateral weight transfer.** The body shifts and rolls toward whichever leg is carrying it. For a two-legged machine this is the single strongest "it has mass" cue from a top-down camera — without it a walk reads as a slide no matter how good the legs are.
+6. **Shoulders counter the hips** and the torso **leans into the chase** (`z._gaitLean` / `z._gaitTwist`). These are handed to the claw chain as its *damping target*, so an attack now settles **back into the walk** instead of erasing it — decaying to zero would have wiped the lean every frame.
+7. **The head is stabilised** against the bob (55%, same reflex as the player's) and sways gently — the sensor keeps tracking you while the body pounds along underneath.
+8. **Banking into turns.** Yaw change per frame is measured and damped into a body roll, so a robot changing direction leans instead of pivoting like a turret.
+9. **Per-unit variation.** `gaitVar` (0.88–1.14, assigned lazily on the first animated frame so every spawn path gets it) scales cadence and stride. A pack of twelve no longer marches in perfect lockstep — the thing that most made them read as copies of one puppet.
+10. **Footstep audio lands on the footfall.** `animateRobotRig` raises `z.stepPulse` exactly when a foot plants; `player.js` waits for that pulse from the nearest chasing robot instead of firing on a blind 0.55 s timer (still rate-limited to ~3/s, still one sound for the whole horde).
+
+**Stiffened the same day** (user: *"terlalu lincah, coba dibikin agak kaku sedikit"*) — the first pass moved like a sprinting athlete. The fix was to trade cadence for stride and take the springiness out of the joints, not to undo the rewrite:
+
+| | before | after |
+| --- | --- | --- |
+| steps/sec (class C) | 5.4 | **3.95** |
+| hip swing | 34° | **44°** (longer, planted strides) |
+| knee fold at mid-swing | 72° | **50°** (leg stays tense) |
+| stance flexion → body drop | 0.42 rad | **0.34 rad** (drop shrinks with it, automatically) |
+| forward lean, arm swing, head sway | — | all roughly halved |
+
+The hip curve also gained a **`|sin|^0.8` shaping** that flattens the swing peaks, so the leg reaches the end of its stride and *holds* for a beat before reversing — servo, not pendulum. Ankles were stiffened too. The anti-sliding invariant survives all of it: stride is still ~1.35× foot reach, and the smoke suite now *measures* that reach from the animated pose instead of copying the formula, so it keeps holding through future retunes.
+
+Heavier classes get it for free: `mass` (= class scale) slows the cadence and deepens the roll, so B and A stomp where C scurries.
+
+Guarded by the `ROBOT JALAN` / `ROBOT BELOK` / `ROBOT BERHENTI` asserts — stride-vs-reach, knee timing at plant/toe-off/mid-swing, ankle push-off, bob sign and depth, lateral shift direction, head counter-motion, two step pulses per cycle, per-unit variation, banking sign, and every channel returning to neutral when the robot stops. All of them fail on the old curve.

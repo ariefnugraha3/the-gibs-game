@@ -290,16 +290,24 @@ export function updatePlayerMovement(dt, step) {
     // Langkah robot: HEMAT PERFORMA — cuma SATU playSFX tiap ~0.55 dtk dari
     // robot bergerak terdekat, volume mengecil dgn jarak. Cukup sebagai
     // penanda "ada yang mendekat" tanpa membebani audio/CPU per robot.
+    // DISINKRONKAN KE KAKI MENDARAT (2026-07-28): dulu bunyinya dilepas tiap
+    // 0,55 dtk apa pun pose kakinya, jadi tak pernah cocok dgn langkah yang
+    // terlihat. Kini animasi (`animateRobotRig`) menyalakan `z.stepPulse` TEPAT
+    // saat telapak menapak; di sini kita menunggu denyut itu dari robot terdekat.
+    // Pemindaian tetap hemat: hanya berjalan setelah jeda minimum habis.
     zStepT -= dt;
     if (zStepT <= 0) {
-        zStepT = 0.55;
-        let nd = 120;   // radius dengar
+        let nd = 120, nz = null;   // radius dengar
         for (let zi = 0; zi < robots.length; zi++) {
             const zz = robots[zi];
             if (zz.state !== 'chasing' || zz.moving === false) continue;
             const d = Math.hypot(zz.mesh.position.x - camera.position.x, zz.mesh.position.z - camera.position.z);
-            if (d < nd) nd = d;
+            if (d < nd) { nd = d; nz = zz; }
         }
-        if (nd < 120) playSFX(sfxRobotStep, Math.max(0.08, 0.5 * (1 - nd / 120)));
+        if (nz && nz.stepPulse > 0.6) {
+            nz.stepPulse = 0;
+            zStepT = 0.34;   // jeda minimum: hentakan berikutnya menunggu kaki berikutnya
+            playSFX(sfxRobotStep, Math.max(0.08, 0.5 * (1 - nd / 120)));
+        } else if (!nz) zStepT = 0.3;   // tak ada yang mengejar: jangan pindai tiap frame
     }
 }

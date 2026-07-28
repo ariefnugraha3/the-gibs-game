@@ -467,6 +467,135 @@ zIdleC.state = 'chasing'; zIdleC.moving = true;
 for (let i = 0; i < 60; i++) robotsMod.animateRobotRig(zIdleC, 0.05);
 T('keluar idle: pindaian kepala meluruh', Math.abs(zIdleC.rig.head.rotation.y) < 0.05);
 
+// === SIKLUS JALAN ROBOT (ROMBAK TOTAL 2026-07-28, permintaan user: gerak robot
+// "sangat simple, seperti boneka yang tidak natural"). Kurva lama = pinggul
+// sinus murni + lutut max(0,-sin) + bob abs(sin) yang mendorong badan NAIK +
+// kadens yang membuat langkah 2,4x lebih panjang dari jangkauan kaki (foot
+// sliding). Semua assert di bawah GAGAL pada kurva lama = uji mutasi. ===
+{
+    const CC = cfgMod.CFG.robot.classes.C;
+    const mkWalker = (cls) => {
+        const b = robotsMod.buildRobotMesh(cls);
+        const C = cfgMod.CFG.robot.classes[cls];
+        return {
+            rig: b.rig, mesh: b.group, state: 'chasing', moving: true, phase: 0, kind: cls,
+            speed: C.speed, scl: C.scale, ranged: !!C.ranged,
+            windT: 0, clawT: 0, clawSide: 1, fireCd: 0, aimT: 0, recoilT: 0, stepPulse: 0,
+        };
+    };
+    const zW = mkWalker('C');
+    zW.gaitVar = 1;                       // kunci variasi acak supaya kurva bisa diuji eksak
+    const rW = zW.rig;
+    // Sampel pose pada SUDUT LANGKAH tertentu: dt=0 => fase tak maju, pose
+    // ditulis dari `z.phase` apa adanya.
+    const at = (ph) => {
+        zW.phase = ph;
+        robotsMod.animateRobotRig(zW, 0);
+        return {
+            hipL: rW.thighL.rotation.x, kneeL: rW.shinL.rotation.x,
+            ankL: rW.ankleL ? rW.ankleL.rotation.x : 0,
+            bob: rW.inner.position.y, px: rW.inner.position.x, rz: rW.inner.rotation.z,
+            headY: rW.head.position.y,
+        };
+    };
+
+    T('ROBOT RIG: pivot PERGELANGAN KAKI ada (telapak bisa menjejak, bukan mesh kaku di betis)',
+        !!(rW.ankleL && rW.ankleR && rW.ankleL.parent === rW.shinL));
+
+    // (a) ANTI FOOT SLIDING: panjang langkah harus sepadan jangkauan kaki.
+    //     Kadens & ayunan dari kode, laju & panjang kaki dari CFG/geometri rig.
+    const speedU = CC.speed * 60;                                  // unit/dtk (gerak dikali `step`)
+    const ph0 = zW.phase = 0;
+    robotsMod.animateRobotRig(zW, 0.1);
+    const cad = (zW.phase - ph0) / 0.1;                            // rad/dtk terukur
+    const strideStep = speedU * Math.PI / cad;                     // jarak per LANGKAH
+    const legLen = rW.thighL.position.y;                           // pinggul ke lantai (geometri rig)
+    // Pose di sudut langkah kunci: mendarat / tengah ayunan / menolak.
+    const plant = at(Math.PI / 2), swing = at(0.15), toe = at(Math.PI * 1.5);
+    // Jangkauan telapak DIUKUR dari pose nyata (bukan menyalin rumus kode):
+    // sudut pinggul saat mendarat + saat menolak x panjang kaki. Tahan retune.
+    const reach = legLen * (Math.abs(Math.sin(plant.hipL)) + Math.abs(Math.sin(toe.hipL)));
+    T('ROBOT JALAN: langkah SEPADAN jangkauan kaki (' + strideStep.toFixed(1) + ' vs '
+        + reach.toFixed(1) + ' unit) — tak lagi menggeser di lantai',
+        strideStep < reach * 1.5);
+    T('ROBOT JALAN: kaki mengayun LEBAR (langkah panjang & mantap, bukan mencincang)',
+        Math.abs(plant.hipL) > 0.5 && Math.abs(toe.hipL) > 0.5);
+
+    // (b) LUTUT di saat yang BENAR: lurus saat mendarat & menolak, melipat dalam
+    //     di tengah ayunan (kurva lama justru menekuk saat kaki di belakang).
+    // Bentuk kurva (relatif), BUKAN besaran mutlak: seberapa tegang kaki robot
+    // itu selera (user menurunkannya 2026-07-28 agar "agak kaku"); yang WAJIB
+    // tetap benar adalah WAKTU-nya — lutut melipat di tengah ayunan, lurus saat
+    // mendarat & menolak (kurva lama justru menekuk saat kaki di belakang).
+    T('ROBOT JALAN: lutut LURUS saat mendarat & menolak, MELIPAT di tengah ayunan ('
+        + plant.kneeL.toFixed(2) + ' / ' + toe.kneeL.toFixed(2) + ' / ' + swing.kneeL.toFixed(2) + ')',
+        swing.kneeL > plant.kneeL + 0.35 && swing.kneeL > toe.kneeL + 0.35
+        && plant.kneeL < 0.35 && toe.kneeL < 0.5
+        && plant.hipL < -0.3 && toe.hipL > 0.3);
+    T('ROBOT JALAN: PERGELANGAN MENJEJAK saat menolak & mendatar menyongsong pendaratan',
+        at(4.55).ankL > 0.15 && plant.ankL < 0.05);
+
+    // (c) BOB: 2x per siklus, TEPAT saat kaki menopang, dan TIDAK PERNAH positif
+    //     (kurva lama abs(sin) selalu >= 0 = badan melenting ke ATAS).
+    const bStanceR = at(0).bob, bStanceL = at(Math.PI).bob, bMid = at(Math.PI / 2).bob;
+    T('ROBOT JALAN: berat JATUH tiap kaki menopang (2x/siklus, sedalam lutut memendek) & badan TAK PERNAH melenting ke atas',
+        bStanceR < -0.2 && bStanceL < -0.2 && bMid <= 0 && Math.abs(bMid) < Math.abs(bStanceR) * 0.2);
+
+    // (d) OLENG LATERAL: massa berpindah ke kaki tumpu (geser + miring ke sisi itu).
+    const wR = at(0), wL = at(Math.PI);
+    T('ROBOT JALAN: massa BERPINDAH ke kaki tumpu (badan bergeser + miring ke sisi itu)',
+        wR.px > 0.05 && wR.rz < -0.01 && wL.px < -0.05 && wL.rz > 0.01);
+
+    // (e) KEPALA distabilkan melawan bob (sensor tetap mengincar, tak terguncang).
+    T('ROBOT JALAN: kepala DISTABILKAN melawan bob (naik saat badan turun)',
+        wR.headY > 10.3 + 0.03 && at(Math.PI / 2).headY < wR.headY - 0.03);
+
+    // (f) HENTAKAN KAKI: tepat 2 denyut per siklus (dipakai sinkron SFX langkah).
+    zW.phase = 0; zW.stepPulse = 0; zW._stepBeat = undefined;
+    robotsMod.animateRobotRig(zW, 1 / 240);              // frame pertama menyalakan denyut awal
+    let beats = 0, prev = zW.stepPulse;
+    const cyc = Math.PI * 2 / cad;                       // detik per siklus
+    for (let t = 0; t < cyc * 2; t += 1 / 240) {
+        robotsMod.animateRobotRig(zW, 1 / 240);
+        if (zW.stepPulse > prev) beats++;
+        prev = zW.stepPulse;
+    }
+    T('ROBOT JALAN: denyut hentakan kaki = 2 per siklus (' + beats + ' dalam 2 siklus) — SFX langkah bisa disinkronkan',
+        beats === 4);
+
+    // (g) CONDONG mengejar: rantai cakar kini meluruh MENUJU pose jalan, bukan
+    //     ke nol (kalau ke nol, condong badan terhapus tiap frame).
+    for (let i = 0; i < 40; i++) robotsMod.animateRobotRig(zW, 1 / 60);
+    T('ROBOT JALAN: badan CONDONG mengejar & bahu memuntir (tak dihapus rantai serangan)',
+        rW.inner.rotation.x > 0.03 && Math.abs(rW.inner.rotation.y) > 0.005);
+
+    // (h) VARIASI PER UNIT: kerumunan tak melangkah serentak.
+    const vars = new Set();
+    for (let i = 0; i < 10; i++) { const zv = mkWalker('C'); robotsMod.animateRobotRig(zv, 1 / 60); vars.add(zv.gaitVar); }
+    T('ROBOT JALAN: tiap unit punya kadens & langkah sendiri (' + vars.size + '/10 berbeda) — bukan barisan boneka serentak',
+        vars.size >= 8 && [...vars].every(v => v >= 0.88 && v <= 1.15));
+
+    // (j) MIRING SAAT BERBELOK: badan tertinggal ke sisi luar belokan (bukan
+    //     berputar tegak seperti turret), dan sisinya mengikuti arah putaran.
+    const zT = mkWalker('C');
+    for (let i = 0; i < 25; i++) { zT.mesh.rotation.y += 0.06; robotsMod.animateRobotRig(zT, 1 / 60); }
+    const bankCW = zT._bank;
+    for (let i = 0; i < 50; i++) { zT.mesh.rotation.y -= 0.06; robotsMod.animateRobotRig(zT, 1 / 60); }
+    const bankCCW = zT._bank;
+    for (let i = 0; i < 90; i++) robotsMod.animateRobotRig(zT, 1 / 60);   // berhenti berbelok
+    T('ROBOT BELOK: badan MIRING ke sisi luar belokan (' + bankCW.toFixed(3) + ' / '
+        + bankCCW.toFixed(3) + ') lalu tegak lagi saat lurus',
+        Math.abs(bankCW) > 0.02 && bankCW * bankCCW < 0 && Math.abs(zT._bank) < 0.01);
+
+    // (i) BERHENTI: SEMUA kanal gait baru kembali netral (tak membeku menjejak).
+    zW.moving = false;
+    for (let i = 0; i < 120; i++) robotsMod.animateRobotRig(zW, 0.05);
+    T('ROBOT BERHENTI: pergelangan/oleng/kepala/condong kembali netral (tak membeku di pose langkah)',
+        Math.abs(rW.ankleL.rotation.x) < 0.01 && Math.abs(rW.inner.position.x) < 0.01
+        && Math.abs(rW.inner.rotation.z) < 0.01 && Math.abs(rW.head.position.y - 10.3) < 0.01
+        && Math.abs(rW.inner.rotation.x) < 0.01);
+}
+
 // --- 5d. Burst warna merah (darah player) tak melempar ---
 effectsMod.spawnBloodBurst(0, 5, 0, 1, 0, 5, 1, 1.6, 0xb51a1a);
 T('spawnBloodBurst param warna OK', true);

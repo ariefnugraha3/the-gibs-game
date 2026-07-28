@@ -173,8 +173,13 @@ export function buildRobotMesh(cls = 'C') {
         const knee = new THREE.Group(); knee.position.set(0, -3.0, 0); hip.add(knee);
         mk(RG.kneePad, joint, 0, 0.12, 0.28, knee, false);
         mk(RG.shin, metal, 0, -1.35, 0, knee);
-        mk(RG.foot, dark, 0, -2.5, 0.5, knee, false);
-        return { hip, knee };
+        // PIVOT PERGELANGAN (2026-07-28): telapak dulu mesh langsung di betis =
+        // kaku seperti bidak catur. Kini ia anak grup `ankle` di titik yang SAMA
+        // (geometri dunia identik saat rotasi 0) sehingga telapak bisa MENJEJAK
+        // saat menolak & MENDATAR saat mendarat.
+        const ankle = new THREE.Group(); ankle.position.set(0, -2.5, 0); knee.add(ankle);
+        mk(RG.foot, dark, 0, 0, 0.5, ankle, false);
+        return { hip, knee, ankle };
     };
     const legL = mkLeg(-1.0), legR = mkLeg(1.0);
 
@@ -221,9 +226,21 @@ export function buildRobotMesh(cls = 'C') {
         // senapan (utk animasi juggle idle kelas A); null utk lengan cakar.
         // eyeMat = material MATA/antena merah (instance per robot — aman dinyalakan
         // sendiri): berdenyar saat ancang-ancang cakar (telegraf, 2026-07-27).
-        rig: { inner, thighL: legL.hip, thighR: legR.hip, shinL: legL.knee, shinR: legR.knee, armL, armR, head: headG, muzzle: aR.mz, muzzleL: aL.mz, gunR: aR.gun, gunL: aL.gun, eyeMat: eye }
+        rig: { inner, thighL: legL.hip, thighR: legR.hip, shinL: legL.knee, shinR: legR.knee, ankleL: legL.ankle, ankleR: legR.ankle, armL, armR, head: headG, muzzle: aR.mz, muzzleL: aL.mz, gunR: aR.gun, gunL: aL.gun, eyeMat: eye }
     };
 }
+
+// ===== KURVA GAIT ROBOT (2026-07-28) =====
+// Sudut langkah `th` melingkar: hip = -sin(th)xSW, jadi th=+pi/2 kaki paling
+// DEPAN (mendarat), th=pi melintas di bawah badan MENOPANG, th=3pi/2 paling
+// BELAKANG (menolak), th=0 melintas di bawah badan MENGAYUN (di udara).
+// `angBumpR` = bump gaussian MELINGKAR - dipakai menyusun lutut dari dua
+// puncak terpisah (lipatan dalam saat mengayun + peredaman saat menopang),
+// menggantikan `Math.max(0, -sin)` yang menekuk lutut di saat yang salah.
+const TAU_R = Math.PI * 2;
+const wrapAngR = (a) => { a %= TAU_R; if (a > Math.PI) a -= TAU_R; else if (a < -Math.PI) a += TAU_R; return a; };
+const angBumpR = (th, c, w) => { const d = wrapAngR(th - c); return Math.exp(-(d * d) / (2 * w * w)); };
+const HEAD_BASE_Y = 10.3;   // headG.position.y saat dibangun (dipulihkan tiap frame)
 
 // Animasi jalan/lompat prosedural pada pivot rig robot manusia.
 // Rig dibangun menghadap +Z dan grup di-lookAt ke player, jadi sumbu lateral
@@ -231,6 +248,18 @@ export function buildRobotMesh(cls = 'C') {
 export function animateRobotRig(z, dt) {
     const r = z.rig;
     if (!r) return;
+    // ===== MIRING SAAT BERBELOK (2026-07-28) =====
+    // Robot dulu berputar seperti turret: yaw grup berubah, badannya tetap tegak
+    // kaku. Kini massa badan TERTINGGAL ke sisi luar belokan (bank), diredam
+    // supaya belokan kecil tak menggoyang. Dipakai bersama oleng langkah di
+    // bawah. Dihitung dari perubahan yaw NYATA grup, jadi ikut jalur AI mana pun.
+    if (dt > 0 && z.mesh) {
+        const yawNow = z.mesh.rotation.y;
+        const dy = wrapAngR(yawNow - (z._prevYaw !== undefined ? z._prevYaw : yawNow));
+        z._prevYaw = yawNow;
+        const target = clamp(-(dy / dt) * 0.055, -0.2, 0.2);
+        z._bank = (z._bank || 0) + (target - (z._bank || 0)) * Math.min(1, dt * 7);
+    }
     if (z.state === 'jumping') {
         // Pose melompat: paha terangkat, lutut menekuk, lengan terangkat tinggi.
         r.thighL.rotation.x = -1.1; r.thighR.rotation.x = -1.1;
@@ -259,6 +288,20 @@ export function animateRobotRig(z, dt) {
         r.shinL.rotation.x += (0 - r.shinL.rotation.x) * damp;
         r.shinR.rotation.x += (0 - r.shinR.rotation.x) * damp;
         r.inner.position.y += (0 - r.inner.position.y) * damp;
+        // Kanal gait baru (2026-07-28) ikut luruh - kalau tidak, robot yang
+        // berhenti membeku miring / menjejak di pose langkah terakhirnya.
+        if (r.ankleL) {
+            r.ankleL.rotation.x += (0 - r.ankleL.rotation.x) * damp;
+            r.ankleR.rotation.x += (0 - r.ankleR.rotation.x) * damp;
+        }
+        r.inner.position.x += (0 - r.inner.position.x) * damp;
+        r.head.position.y += (HEAD_BASE_Y - r.head.position.y) * damp;
+        r.inner.rotation.z = z._bank || 0;   // berbelok di tempat tetap MIRING
+        if (!z.ranged) {
+            r.armL.rotation.z += (0 - r.armL.rotation.z) * damp;
+            r.armR.rotation.z += (0 - r.armR.rotation.z) * damp;
+        }
+        z._gaitLean = 0; z._gaitTwist = 0; z._gaitHeadX = 0;   // target damping rantai cakar
         z.phase += dt * 1.5;
         const s2 = Math.sin(z.phase);
         if (!z.ranged) {
@@ -267,21 +310,91 @@ export function animateRobotRig(z, dt) {
         }
         r.head.rotation.z = s2 * 0.04;
     } else {
-        // Berjalan: kaki & lengan berayun bergantian + bob badan + kepala oleng.
-        z.phase += dt * (5 + z.speed * 6);
-        const s = Math.sin(z.phase);
-        const SW = 0.55, KN = 0.7, AR = 0.35;   // amplitudo paha / lutut / lengan
-        r.thighL.rotation.x = -s * SW;
-        r.thighR.rotation.x = s * SW;
-        r.shinL.rotation.x = Math.max(0, -s) * KN;   // lutut menekuk saat kaki mengayun balik
-        r.shinR.rotation.x = Math.max(0, s) * KN;
+        // ===== SIKLUS JALAN - ROMBAK TOTAL 2026-07-28 (permintaan user: gerak
+        // robot "sangat simple, seperti boneka yang tidak natural") =====
+        // Yang lama: pinggul sinus murni, lutut `max(0, -sin)`, bob `abs(sin)`
+        // yang MENDORONG BADAN NAIK, dan kadens yang membuat langkah sepanjang
+        // ~14 unit padahal kakinya cuma 5,7 unit - telapak menggeser di lantai
+        // (FOOT SLIDING), penyebab utama kesan "boneka digeser". Sekarang:
+        //  (1) KADENS dari laju NYATA sehingga panjang langkah sepadan kaki;
+        //  (2) LUTUT dari dua bump (lipat dalam saat mengayun, meredam saat
+        //      menopang) - bukan lagi menekuk di saat yang salah;
+        //  (3) PERGELANGAN menjejak saat menolak & mendatar saat mendarat;
+        //  (4) BOB 2x frekuensi langkah dan SELALU <= 0 (berat JATUH saat
+        //      menopang, bukan melenting ke atas);
+        //  (5) OLENG LATERAL - massa berpindah ke kaki tumpu (badan miring &
+        //      bergeser ke sisi itu): ini yang membuat mesin berkaki dua terbaca
+        //      BERAT, bukan melayang;
+        //  (6) BAHU MELAWAN PINGGUL + condong ke depan saat mengejar;
+        //  (7) KEPALA distabilkan melawan bob (sensor tetap mengincar) + oleng;
+        //  (8) VARIASI PER UNIT (`gaitVar`) - kerumunan tak lagi melangkah
+        //      SERENTAK seperti barisan boneka yang sama.
+        if (z.gaitVar === undefined) z.gaitVar = 0.88 + Math.random() * 0.26;
+        const mass = z.scl || 1;                       // kelas B/A lebih besar = lebih berat
+        const runK = clamp((z.speed - 0.5) / 0.5, 0, 1);
+        // LANGKAH DIPERBERAT 2026-07-28 (permintaan user: "terlalu lincah, bikin
+        // agak kaku sedikit"): kadens DITURUNKAN dan panjang langkah DINAIKKAN —
+        // hasilnya langkah panjang & mantap, bukan kaki yang mencincang cepat.
+        // Rasio langkah:jangkauan kaki tetap dijaga (uji anti foot-sliding).
+        z.phase += dt * (7.5 + z.speed * 7) * z.gaitVar / mass;
+        if (z.phase > TAU_R) z.phase -= TAU_R;         // jaga presisi sin() jangka panjang
+        const ph = z.phase;
+        const SW = (0.68 + 0.2 * runK) * z.gaitVar;    // ayunan pinggul (langkah lebih panjang)
+        const KN_SWING = 0.8 + 0.18 * runK;            // lipatan lutut di tengah ayunan (KAKI LEBIH TEGANG)
+        const KN_STANCE = 0.34 + 0.2 * runK;           // peredaman lutut saat menopang (lebih kaku)
+        // Satu kaki: hip + lutut + pergelangan dari sudut langkah `th`.
+        const leg = (th, hip, knee, ankle) => {
+            // Pangkat < 1 MERATAKAN puncak ayunan: kaki mencapai ujung langkah
+            // lalu SEDIKIT MENAHAN sebelum berbalik — ciri aktuator servo, bukan
+            // ayunan sinus yang mengalir terus (bagian dari "agak kaku").
+            const sw = Math.sin(th);
+            hip.rotation.x = -Math.sign(sw) * Math.pow(Math.abs(sw), 0.8) * SW;
+            const k = KN_SWING * angBumpR(th, 0.15, 0.8) + KN_STANCE * angBumpR(th, Math.PI, 0.75);
+            knee.rotation.x = k;
+            if (ankle) ankle.rotation.x = -0.28 * k                        // telapak ikut lutut
+                + 0.26 * angBumpR(th, 4.55, 0.55)                          // MENJEJAK saat menolak (diperkaku)
+                - 0.15 * angBumpR(th, 1.62, 0.5);                          // MENDATAR menyongsong pendaratan
+        };
+        leg(ph, r.thighL, r.shinL, r.ankleL);
+        leg(ph + Math.PI, r.thighR, r.shinR, r.ankleR);
+        // Berat JATUH tiap kaki menopang (2x per siklus) - selalu <= 0, dan
+        // BESARNYA DITURUNKAN DARI GEOMETRI: badan hanya boleh turun sejauh kaki
+        // tumpu benar-benar MEMENDEK saat lututnya meredam (betis 2,7 unit di
+        // ruang lokal rig; skala kelas ada di grup luar, jadi jangan dikali
+        // `mass` lagi). Angka bob yang dikarang bebas akan menenggelamkan telapak
+        // ke dalam lantai - inilah kenapa ia diikat ke sudut lutut.
+        const kStance = KN_STANCE * (angBumpR(ph, Math.PI, 0.75) + angBumpR(ph + Math.PI, Math.PI, 0.75));
+        const bob = -2.7 * (1 - Math.cos(kStance));
+        r.inner.position.y = bob;
+        // OLENG LATERAL ke kaki tumpu (kaki kanan di +x menopang saat cos(ph)=1).
+        const wt = Math.cos(ph);
+        r.inner.position.x = wt * (0.18 + 0.14 * runK);
+        r.inner.rotation.z = -wt * (0.045 + 0.045 * runK) * mass + (z._bank || 0);
+        // BAHU melawan pinggul + CONDONG mengejar (dititipkan ke z._gait* supaya
+        // rantai cakar di bawah meluruh KE pose ini, bukan ke nol - kalau ke nol
+        // ia menghapus condong/puntiran ini tiap frame).
+        z._gaitTwist = -Math.sin(ph) * (0.04 + 0.04 * runK);
+        z._gaitLean = 0.03 + 0.07 * runK;              // lebih TEGAP (dulu menyeruduk ke depan)
+        z._gaitHeadX = -0.02 - 0.03 * runK;            // kepala tetap mengincar walau badan condong
+        // KEPALA: distabilkan melawan bob + oleng halus mengikuti langkah.
+        r.head.position.y = HEAD_BASE_Y - bob * 0.4;   // sensor ikut sedikit terguncang (kaku)
+        r.head.rotation.z = Math.sin(ph) * 0.03 + Math.sin(ph * 0.5) * 0.025;
         if (!z.ranged) {
-            r.armL.rotation.x = -1.15 + s * AR;      // pose dasar melee: lengan menjulur ke depan
-            r.armR.rotation.x = -1.15 - s * AR;
+            // Lengan cakar: mengayun TERTINGGAL sedikit di belakang kaki (inersia
+            // lengan mesin) + mengembang keluar di puncak ayunan.
+            const sw = Math.sin(ph - 0.55);
+            const AR = 0.15 + 0.12 * runK;             // ayunan lengan diredam (cakar ditahan siaga)
+            r.armL.rotation.x = -1.15 + sw * AR;
+            r.armR.rotation.x = -1.15 - sw * AR;
+            r.armL.rotation.z = 0.05 + sw * 0.04;
+            r.armR.rotation.z = -0.05 + sw * 0.04;
         }
-        r.head.rotation.z = Math.sin(z.phase * 0.5) * 0.08;
-        r.inner.position.y = Math.abs(s) * 1.2;
+        // HENTAKAN KAKI: tandai saat telapak MENDARAT (th melewati pi/2 & 3pi/2)
+        // supaya suara langkah (player.js) jatuh TEPAT di kaki yang menapak.
+        const beat = Math.floor((ph + Math.PI / 2) / Math.PI) & 1;
+        if (z._stepBeat !== beat) { z._stepBeat = beat; z.stepPulse = 1; }
     }
+    if (z.stepPulse > 0) z.stepPulse = Math.max(0, z.stepPulse - dt * 5);
 
     // ===== Lengan robot PENEMBAK (2026-07-12): menggantung + ayun saat jalan,
     // TERANGKAT MENGACUNGKAN senapan saat membidik (z.aiming di-set scene AI;
@@ -422,11 +535,14 @@ export function animateRobotRig(z, dt) {
     } else {
         // Di luar serangan: luruskan sisa puntiran/lunge/tunduk dengan halus
         // (walk/idle tidak menulis inner.rotation & head.rotation.x).
+        // Luruh MENUJU pose jalan (bukan nol): sejak gait 2026-07-28 menulis
+        // condong badan / puntiran bahu lewat `z._gait*`, meluruhkan ke nol akan
+        // menghapusnya tiap frame - serangan kini mereda KE pose berjalan.
         const d2 = Math.min(1, dt * 7);
-        r.inner.rotation.x += (0 - r.inner.rotation.x) * d2;
-        r.inner.rotation.y += (0 - r.inner.rotation.y) * d2;
+        r.inner.rotation.x += ((z._gaitLean || 0) - r.inner.rotation.x) * d2;
+        r.inner.rotation.y += ((z._gaitTwist || 0) - r.inner.rotation.y) * d2;
         r.inner.position.z += (0 - r.inner.position.z) * d2;
-        r.head.rotation.x += (0 - r.head.rotation.x) * d2;
+        r.head.rotation.x += ((z._gaitHeadX || 0) - r.head.rotation.x) * d2;
         // Mata kembali ke pendar normal (pose jalan tak menulisnya) — KECUALI
         // robot penembak, yang pendar matanya dikemudikan blok menembak di atas.
         if (r.eyeMat && !z.ranged && r.eyeMat.emissiveIntensity !== 1) {
