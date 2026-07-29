@@ -1062,7 +1062,13 @@ export function placeBarrels() {
 // COMPLETE saat tank hancur (tanpa trigger finish — stasiun dihapus). ---
 let bossSpawned = false, bossDefeated = false;
 let tank = null, exitHintT = 0, winT = 0, winFired = false;
-const WIN_DELAY_SEC = 2.5;   // jeda visual ledakan tank -> layar MISSION COMPLETE
+// Jeda visual ledakan tank -> layar MISSION COMPLETE. DINAIKKAN 2026-07-29
+// bersama sekuens mati sinematik tank (cook-off -> turret terlempar -> mendarat
+// -> bangkai membara, ~2,8 dtk): layar kemenangan tak boleh memotong klimaks.
+// 5 DETIK (permintaan user, iterasi kedua): sekuensnya selesai ~2,8 dtk, sisanya
+// SENGAJA dibiarkan kosong supaya player sempat MENIKMATI bangkai yang membara
+// sebelum layar kemenangan menutup adegan.
+const WIN_DELAY_SEC = 5;
 // KUNCI ARENA BOSS (2026-07-17): true begitu player menginjak lapangan ALUN
 // selagi tank hidup — playerCollide menjepit player di dalam lapangan &
 // camBounds membatasi kamera; dilepas saat boss kalah / enter() ulang.

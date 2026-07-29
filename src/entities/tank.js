@@ -87,6 +87,7 @@ import {
     sfxTankMG, sfxTankMortar, sfxTankBlast, sfxTankExplode,
     sfxTankIncoming, sfxTankMove, sfxTankTurret
 } from '../utils/sfx.js';
+import { addHitStop } from '../core/timeScale.js';   // slow-mo sekuens mati (sumber pelambatan RESMI)
 import { updateUI } from '../core/hud.js';
 import { flashDamage, showHitDir } from '../core/dom.js';
 import { startPlayerDeath } from '../core/game.js';
@@ -382,6 +383,9 @@ export function buildTankMesh() {
     return {
         group, turret, tracks, wheels, mgMuzzle, cannonMuzzle, mortarMuzzle,
         cannonFlash, mortarGlow, paintMats,
+        // Material strip/lensa SENSOR merah (di-share seluruh bodi) — killTank
+        // memadamkannya: "mata" tank ikut mati bersama tanknya (2026-07-29).
+        sensorMat: glass,
         // warna dasar tiap material cat (urutan = paintMats) — acuan kilat
         // tertembak applyHitFlash agar tint memudar kembali PERSIS ke asal
         paintBase: paintMats.map(m => m.color.getHex())
@@ -406,6 +410,9 @@ export function spawnTank({ homeX, homeZ, wallX, faceX, arena, avoid }) {
         hp: B.hp, maxHp: B.hp, score: B.score,
         phase: 'spawn', spawnT: 0, wallSmashed: false, dead: false, deathT: 0,
         hitT: 0,   // kilat tertembak (1 saat kena -> pudar HIT_FLASH_SEC)
+        // SEKUENS MATI SINEMATIK (2026-07-29): fase sutradara + benda-bebas turret.
+        deathPhase: null, turretFly: null, blowT: 0, charK: 0,
+        deathX: 0, deathZ: 0, deathFxT: 0, burnT: 0,
         // Siklus serangan
         attackIdx: -1, cd: 1.4, aiming: false,
         blastPending: false, pendingId: 0,
@@ -438,8 +445,14 @@ export function disposeTank(tank) {
     stopTankAudio(tank);   // loop gerak/turret mati bersama tank (2026-07-19)
     tank.shells.forEach(s => scene.remove(s.mesh));
     tank.mortars.forEach(m => { stopLoopSFX(m.snd); scene.remove(m.mesh); });
-    tank.parts.group.traverse(o => { if (o.isMesh && o.material && o.material.dispose) o.material.dispose(); });
+    const dispose = (root) => root.traverse(o => { if (o.isMesh && o.material && o.material.dispose) o.material.dispose(); });
+    // TURRET yang sudah TERLEPAS (sekuens mati 2026-07-29) bukan anak group lagi
+    // -> harus dibuang sendiri, kalau tidak ia tertinggal melayang di scene.
+    const tur = tank.parts.turret;
+    if (tur && tur.parent !== tank.parts.group) { dispose(tur); scene.remove(tur); }
+    dispose(tank.parts.group);
     scene.remove(tank.parts.group);
+    tank.turretFly = null;
     tank.parts = null;
 }
 
@@ -1162,8 +1175,41 @@ function clearTankProjectiles(tank) {
     for (let i = enemyBullets.length - 1; i >= 0; i--) { scene.remove(enemyBullets[i].mesh); enemyBullets.splice(i, 1); }
 }
 
-// ===== KEMATIAN: ledakan besar berantai + serpihan + turret terangkat, lalu
-// bangkai membara. stage4 mendeteksi tank.dead → MISSION COMPLETE. =====
+// ===== KEMATIAN SINEMATIK — DIROMBAK 2026-07-29 (permintaan user: ledakan lama
+// "kurang dramatis", ide user: "turretnya lepas dan terlempar ke sisi tank").
+// Bukan lagi satu ledakan + turret yang sekadar naik-miring di tempat, melainkan
+// SUTRADARA 3 BEAT (fase di tank.deathPhase, dijalankan updateDeath):
+//
+//   1. 'cook'  COOK-OFF (DEATH_COOK_SEC): tank BELUM meledak besar — badan
+//              berguncang makin keras di tempat, cat MENGHITAM bertahap (dulu
+//              hangus seketika di frame kill), semburan api + asap hitam dari
+//              celah, letupan amunisi kecil di dalam, guncangan kamera menanjak.
+//              Beat "detik-detik sebelum" inilah yang dulu tidak ada.
+//   2. 'fly'   TURRET TERLEPAS: bola api besar di cincin turret, turret
+//              DI-REPARENT ke scene (jadi benda bebas) lalu DILONTARKAN ke SISI
+//              lambung (tegak lurus moncong, memilih sisi MENJAUHI player supaya
+//              tak menutupi layar) sambil JUNGKIR (rotation.x/z) dan menyeret
+//              asap; lambung MENGHENTAK turun lalu bergoyang teredam sampai
+//              menetap miring. Slow-motion pendek (addHitStop — sumber
+//              pelambatan RESMI, bukan skala waktu kedua) menahan momen itu.
+//              Turret MEMANTUL sekali saat mendarat lalu REBAH ke samping.
+//   3. 'wreck' BANGKAI MEMBARA: api menyembur dari lubang cincin yang menganga
+//              (letupan makin jarang selama WRECK_BURN_SEC) lalu tinggal asap.
+//
+// Turret yang sudah lepas BUKAN anak group lagi -> disposeTank membuangnya
+// sendiri. Semua FX menumpang pool yang sudah ada (explodeAt/gib/puff/sprite
+// darah) — tanpa material atau lampu baru, jadi aturan "no mid-game shader
+// recompile" tetap aman. stage4 mendeteksi tank.dead → MISSION COMPLETE. =====
+const DEATH_COOK_SEC = 0.65;    // lama beat cook-off sebelum turret terlepas
+const TURRET_GRAV = 150;        // gravitasi turret terlempar (unit/detik^2)
+const TURRET_VY = 86;           // dorongan vertikal saat turret terlepas
+const TURRET_VSIDE = 23;        // dorongan menyamping (mendarat PERSIS di samping lambung)
+const TURRET_REST_Y = 7.5;      // tinggi pivot turret saat rebah menyamping di tanah
+const TURRET_BOUNCES = 1;       // pantulan sebelum rebah (logam berat: sekali)
+const WRECK_BURN_SEC = 3.2;     // lama bangkai masih meletup-letup
+const CHAR_HEX = 0x20211c;      // cat bangkai hangus (tujuan tint applyChar)
+const WRECK_TILT = 0.06;        // kemiringan akhir lambung (suspensi ambruk)
+
 function killTank(tank) {
     tank.dead = true; tank.hp = 0; tank.deathT = 0;
     hideZap();   // listrik padam bersama tank
@@ -1173,29 +1219,208 @@ function killTank(tank) {
     // loot sepanjang run. Boss tank pun tak menambah skor langsung (mengakhiri game).
     stats.kills++;
     const p = tank.parts, px = p.group.position.x, pz = p.group.position.z;
-    // gelapkan cat (bangkai hangus)
-    p.paintMats.forEach(m => m.color && m.color.setHex(0x20211c));
-    // ledakan besar + serpihan logam ke segala arah — suara khusus
-    // boss-tank/tank-explode (2026-07-19) lewat param sfx explodeAt.
-    explodeAt(new THREE.Vector3(px, 16, pz), 30, 1, sfxTankExplode);
-    spawnGibs(px, 18, pz, 14, 1, 0, 2.2, 0x3d444c, 0.4, TANK_FLUID);
-    spawnGibs(px, 14, pz, 10, -1, 0.4, 1.8, 0x20211c, 0.4, TANK_FLUID);
-    spawnBloodDecal(px, pz, 8, TANK_FLUID);
-    addCamShake(9);
+    tank.deathPhase = 'cook';
+    tank.deathX = px; tank.deathZ = pz;   // titik acuan guncangan (badan di-jitter di sekitarnya)
+    tank.charK = 0; tank.deathFxT = 0; tank.burnT = 0;
+    // Tembakan pemungkas terasa BERBOBOT: sentakan pendek (hit-stop) + kilat
+    // ledakan dalam di dek mesin — BUKAN lagi bola api pamungkas (itu jatah
+    // beat 2 saat turret terlepas, supaya klimaksnya tidak terbuang di sini).
+    addHitStop(0.12, 0.35);
+    // "Mata" tank PADAM (strip sensor merah) + sisa glow moncong dinolkan —
+    // tanpa ini bola charge/kilat terakhir menempel menyala di bangkai selamanya
+    // (updateTank tak lagi meluruhkannya setelah mati).
+    if (p.sensorMat && p.sensorMat.emissive) p.sensorMat.emissive.setHex(0x140505);
+    p.cannonFlash.material.opacity = 0;
+    p.mortarGlow.material.opacity = 0;
+    explodeAt(new THREE.Vector3(px + 12, 18, pz), 10, 1);
+    spawnGibs(px, 18, pz, 6, 1, 0, 1.4, 0x3d444c, 0.4, TANK_FLUID);
+    addCamShake(5);
     updateUI();
 }
 
-function updateDeath(tank, dt) {
+// Tint SEMUA cat dari warna dasar menuju CHAR_HEX sebesar k (0 = asli, 1 =
+// hangus). Sama seperti applyHitFlash: hanya mengubah NILAI warna material yang
+// sudah ada, tanpa material/shader baru.
+function applyChar(tank, k) {
     const p = tank.parts;
+    const cr = CHAR_HEX >> 16 & 255, cg = CHAR_HEX >> 8 & 255, cb = CHAR_HEX & 255;
+    for (let i = 0; i < p.paintMats.length; i++) {
+        const base = p.paintBase[i];
+        const br = base >> 16 & 255, bg = base >> 8 & 255, bb = base & 255;
+        const r = Math.round(br + (cr - br) * k);
+        const g = Math.round(bg + (cg - bg) * k);
+        const b = Math.round(bb + (cb - bb) * k);
+        p.paintMats[i].color.setHex(r << 16 | g << 8 | b);
+    }
+}
+
+function updateDeath(tank, dt) {
     tank.deathT += dt;
-    // beberapa kepulan asap/ledakan susulan ~1.6 dtk; turret TERANGKAT & MIRING
-    // (terlempar dari cincin — rest y baru = 21 pasca-overhaul Tiger)
-    p.turret.position.y += (24.5 - p.turret.position.y) * Math.min(1, dt * 2);
-    p.turret.rotation.z += (0.32 - p.turret.rotation.z) * Math.min(1, dt * 2);
-    if (tank.deathT < 1.8 && Math.random() < 0.25) {
-        const px = p.group.position.x + (Math.random() - 0.5) * 30;
-        const pz = p.group.position.z + (Math.random() - 0.5) * 18;
-        spawnGroundPuff(px, pz, 0x2a2622, 6 + Math.random() * 5, 8 + Math.random() * 10);
-        if (Math.random() < 0.4) explodeAt(new THREE.Vector3(px, 12, pz), 8, 1);
+    // Cat MENGHITAM sepanjang cook-off (dulu langsung hangus di frame kill —
+    // matinya jadi terbaca "terbakar dari dalam", bukan tukar warna sekejap).
+    if (tank.charK < 1) {
+        tank.charK = Math.min(1, tank.charK + dt / DEATH_COOK_SEC);
+        applyChar(tank, tank.charK);
+    }
+    if (tank.deathPhase === 'cook') { updateCookOff(tank, dt); return; }
+    updateTurretFly(tank, dt);   // no-op setelah turret rebah
+    updateWreck(tank, dt);
+}
+
+// --- BEAT 1: cook-off. Badan berguncang makin keras + api/asap menyembur dari
+// celah + letupan amunisi di dalam; berakhir dengan turret TERLEPAS. ---
+function updateCookOff(tank, dt) {
+    const p = tank.parts, g = p.group;
+    const t = tank.deathT, k = clamp(t / DEATH_COOK_SEC, 0, 1);
+    const amp = 0.5 + 2.2 * k;
+    g.position.x = tank.deathX + Math.sin(t * 61) * amp;
+    g.position.z = tank.deathZ + Math.cos(t * 53) * amp * 0.6;
+    g.rotation.z = Math.sin(t * 47) * 0.035 * k;
+    // turret TERANGKAT sedikit & bergetar di cincinnya (tekanan dari dalam)
+    p.turret.position.y = 21 + k * 1.6 + Math.sin(t * 39) * 0.5 * k;
+    p.turret.rotation.z = Math.sin(t * 31) * 0.05 * k;
+    tank.deathFxT -= dt;
+    if (tank.deathFxT <= 0) {
+        tank.deathFxT = 0.07;
+        const bx = g.position.x + rand(-16, 16), bz = g.position.z + rand(-10, 10);
+        spawnBloodBurst(bx, 20 + Math.random() * 6, bz, rand(-1, 1), rand(-1, 1), 2, 0.8 + k, 3.0, 0xffb24a);   // percik api
+        spawnGroundPuff(bx, bz, 0x2a2622, 4 + Math.random() * 4, 18 + Math.random() * 8);                        // asap hitam naik
+        if (Math.random() < 0.35) explodeAt(new THREE.Vector3(bx, 18, bz), 7, 1);                                // letupan amunisi
+    }
+    addCamShake(1 + 2.4 * k);
+    if (t >= DEATH_COOK_SEC) blowTurret(tank);
+}
+
+// --- BEAT 2 (KLIMAKS): turret LEPAS dari cincin dan terlempar ke SISI lambung.
+// Turret di-reparent ke scene (transform dunia dipertahankan) supaya bisa
+// terbang bebas, arah lontar = tegak lurus moncong hull, sisi yang MENJAUHI
+// player (biar tidak melayang menutupi layar). Lambung menghentak turun. ---
+function blowTurret(tank) {
+    const p = tank.parts, g = p.group;
+    const px = g.position.x, pz = g.position.z;
+    tank.deathPhase = 'fly';
+    tank.blowT = 0;
+    // Arah moncong hull (-X lokal) -> sumbu SAMPING = tegak lurusnya; pilih sisi
+    // yang menjauhi player.
+    const fx = -Math.cos(tank.hullYaw), fz = Math.sin(tank.hullYaw);
+    let sx = -fz, sz = fx;
+    if (sx * (camera.position.x - px) + sz * (camera.position.z - pz) > 0) { sx = -sx; sz = -sz; }
+    // Lepas dari hull: pertahankan posisi/orientasi DUNIA lalu jadi benda bebas.
+    g.updateMatrixWorld(true);
+    p.turret.getWorldPosition(_wp);
+    const worldYaw = tank.hullYaw + p.turret.rotation.y;
+    scene.add(p.turret);   // THREE.add otomatis melepasnya dari group
+    p.turret.position.copy(_wp);
+    p.turret.rotation.set(0, worldYaw, 0);
+    p.turret.scale.setScalar(TANK_SCALE);
+    const spread = rand(-8, 8);   // sedikit variasi sepanjang badan (tak selalu segaris)
+    tank.turretFly = {
+        vx: sx * TURRET_VSIDE + fx * spread, vz: sz * TURRET_VSIDE + fz * spread,
+        vy: TURRET_VY, sx, sz,
+        spinX: rand(2.6, 4.2) * (Math.random() < 0.5 ? -1 : 1),
+        spinZ: rand(3.0, 5.0) * (Math.random() < 0.5 ? -1 : 1),
+        bounces: TURRET_BOUNCES, trailT: 0, landed: false, restK: 0,
+        restZ: 0   // arah rebah dipilih saat MENDARAT (searah jungkir terakhir)
+    };
+    // BOLA API pamungkas di mulut cincin + hujan serpihan ke segala arah.
+    explodeAt(new THREE.Vector3(px, 22, pz), 34, 1, sfxTankExplode);
+    explodeAt(new THREE.Vector3(px + rand(-8, 8), 30, pz + rand(-6, 6)), 12, 1);
+    spawnGibs(px, 24, pz, 16, sx, sz, 2.6, 0x3d444c, 0.4, TANK_FLUID);
+    spawnGibs(px, 18, pz, 10, -sx, -sz, 2.0, CHAR_HEX, 0.4, TANK_FLUID);
+    spawnBloodBurst(px, 26, pz, sx, sz, 6, 1.6, 6.283, 0xffb24a);   // semburan api 360°
+    spawnGroundPuff(px, pz, 0xcbbfa6, 16, 2);
+    spawnBloodDecal(px, pz, 8, TANK_FLUID);
+    addCamShake(14);
+    addHitStop(0.5, 0.25);   // GERAK LAMBAT menahan momen turret melayang
+    // (deathX/deathZ SENGAJA tidak ditimpa: guncangan cook-off men-jitter posisi
+    // lambung, dan bangkai harus menetap di titik matinya yang SEBENARNYA —
+    // bukan bergeser sejauh simpangan getaran terakhir.)
+}
+
+// Lipat sudut ke (-π, π] (dipakai saat turret mendarat — lihat di bawah)
+function wrapPi(a) {
+    a %= Math.PI * 2;
+    if (a > Math.PI) a -= Math.PI * 2;
+    if (a < -Math.PI) a += Math.PI * 2;
+    return a;
+}
+
+// Turret bebas: balistik + jungkir + jejak asap; mendarat -> memantul sekali,
+// lalu REBAH ke samping (lerp ke pose istirahat). Selesai rebah = no-op.
+function updateTurretFly(tank, dt) {
+    const f = tank.turretFly;
+    if (!f) return;
+    const m = tank.parts.turret;
+    if (f.landed) {
+        if (f.restK >= 1) return;
+        f.restK = Math.min(1, f.restK + dt * 3);
+        const a = f.restK;
+        m.position.y += (TURRET_REST_Y - m.position.y) * a;
+        m.rotation.x += (0 - m.rotation.x) * a;
+        m.rotation.z += (f.restZ - m.rotation.z) * a;
+        if (f.restK >= 1) tank.deathPhase = 'wreck';   // turret sudah rebah -> tinggal bangkai membara
+        return;
+    }
+    f.vy -= TURRET_GRAV * dt;
+    m.position.x += f.vx * dt;
+    m.position.y += f.vy * dt;
+    m.position.z += f.vz * dt;
+    m.rotation.x += f.spinX * dt;
+    m.rotation.z += f.spinZ * dt;
+    f.trailT -= dt;
+    if (f.trailT <= 0) {
+        f.trailT = 0.05;
+        spawnGroundPuff(m.position.x, m.position.z, 0x2a2622, 3.5, m.position.y);
+        spawnBloodBurst(m.position.x, m.position.y, m.position.z, -f.vx, -f.vz, 1, 0.6, 2.4, 0xffb24a);
+    }
+    if (f.vy < 0 && m.position.y <= TURRET_REST_Y) {
+        m.position.y = TURRET_REST_Y;
+        const heavy = f.bounces <= 0;
+        spawnGroundPuff(m.position.x, m.position.z, 0xcbbfa6, heavy ? 14 : 10, 1.5);
+        spawnGibs(m.position.x, 6, m.position.z, heavy ? 8 : 5, f.sx, f.sz, 1.4, CHAR_HEX, 0.4, TANK_FLUID);
+        playSFX(sfxTankBlast);   // HANTAMAN logam berat ke aspal
+        addCamShake(heavy ? 7 : 4);
+        if (heavy) {
+            spawnBloodDecal(m.position.x, m.position.z, 6, TANK_FLUID);
+            addHitStop(0.1, 0.45);   // sentakan pendek: bobot turret mendarat
+            f.landed = true;
+            f.spinX = 0; f.spinZ = 0;
+            // Sudut jungkir DILIPAT ke (-π, π] dulu: tanpa ini lerp ke pose
+            // istirahat harus memutar balik beberapa putaran penuh (turret
+            // terlihat "diputar mundur"). Arah rebah = searah jungkir terakhir.
+            m.rotation.x = wrapPi(m.rotation.x);
+            m.rotation.z = wrapPi(m.rotation.z);
+            f.restZ = m.rotation.z >= 0 ? 1.35 : -1.35;
+        } else {
+            f.bounces--;
+            f.vy = -f.vy * 0.32;     // pantulan logam: pendek, tidak melenting
+            f.vx *= 0.45; f.vz *= 0.45;
+            f.spinX *= 0.5; f.spinZ *= 0.5;
+        }
+    }
+}
+
+// --- BEAT 3: lambung. Menghentak turun lalu bergoyang teredam sampai menetap
+// miring (suspensi ambruk), sementara api menyembur dari lubang cincin yang
+// menganga — makin jarang selama WRECK_BURN_SEC, sesudahnya tinggal asap. ---
+function updateWreck(tank, dt) {
+    const p = tank.parts, g = p.group;
+    tank.blowT += dt;
+    const tk = tank.blowT;
+    const damp = Math.exp(-tk * 3);
+    g.position.x = tank.deathX; g.position.z = tank.deathZ;
+    g.position.y = -1.0 * (1 - Math.exp(-tk * 6)) + Math.sin(tk * 14) * 1.6 * damp;
+    g.rotation.z = WRECK_TILT * (1 - damp) + Math.sin(tk * 11 + 0.6) * 0.09 * damp;
+    g.rotation.x = Math.sin(tk * 9) * 0.05 * damp;
+    tank.burnT -= dt;
+    if (tank.burnT <= 0) {
+        const burning = tk < WRECK_BURN_SEC;
+        tank.burnT = burning ? 0.16 + tk * 0.12 : 0.5;   // letupan MAKIN JARANG lalu tinggal asap
+        const bx = tank.deathX + rand(-14, 14), bz = tank.deathZ + rand(-9, 9);
+        spawnGroundPuff(bx, bz, 0x2a2622, 6 + Math.random() * 6, 16 + Math.random() * 14);   // kolom asap
+        if (burning) {
+            spawnBloodBurst(tank.deathX, 22, tank.deathZ, rand(-1, 1), rand(-1, 1), 2, 1.0, 2.2, 0xffb24a);
+            if (Math.random() < 0.35) explodeAt(new THREE.Vector3(bx, 18, bz), 8, 1);
+        }
     }
 }

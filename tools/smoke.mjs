@@ -3686,14 +3686,50 @@ s4tank.shells.push({ mesh: new THREE.Mesh(), dirx: 1, dirz: 0, speed: 7, tx: 9e9
 s4tank.mortars.push({ mesh: new THREE.Mesh(), vx: 0, vz: 0, vy: 50, g: 90, landY: 5, tLeft: 5, trailT: 1, life: 300, id: 998 });
 enemyBullets.push({ mesh: new THREE.Mesh(), dir: new THREE.Vector3(1, 0, 0), speed: 4, life: 100, dmg: 5, monasDmg: 0, px: 0, py: 0, pz: 0 });
 // hancurkan tank (HP habis) -> updateMode -> jeda singkat -> MISSION COMPLETE
+const s4hullX = s4tank.parts.group.position.x, s4hullZ = s4tank.parts.group.position.z;
+const s4paint0 = s4tank.parts.paintMats[0].color.getHex();   // cat sebelum menghangus
 s4tank.hp = 0;
 s4mod.stage4Scene.updateMode(0.1);
 T('S4: tank HANCUR saat HP habis', s4tank.dead === true);
 T('S4: proyektil tank (shell/mortar/peluru MG) LENYAP saat tank hancur (tak melukai player)',
     s4tank.shells.length === 0 && s4tank.mortars.length === 0 && enemyBullets.length === 0);
 T('S4: belum menang PERSIS saat tank hancur (jeda ledakan dulu)', stateMod.isGameOver === false);
-for (let i = 0; i < 40 && !stateMod.isGameOver; i++) s4mod.stage4Scene.updateMode(0.1);   // > jeda win
+// ===== SEKUENS MATI SINEMATIK (2026-07-29, permintaan user: ledakan lama
+// "kurang dramatis"; idenya: turret LEPAS dan terlempar ke sisi tank). Kontrak
+// 3 beat: 'cook' (cook-off, turret masih terpasang) -> 'fly' (turret jadi benda
+// bebas yang dilontarkan ke SISI lambung) -> 'wreck' (lambung ambruk membara). =====
+s4mod.stage4Scene.updateMode(0.1);   // 1 frame sekuens (0,2 dtk < cook-off) — masih beat 1
+T('S4 MATI SINEMATIK beat 1: COOK-OFF dulu — turret MASIH di lambung, cat baru sebagian menghangus',
+    s4tank.deathPhase === 'cook' && s4tank.parts.turret.parent === s4tank.parts.group
+    && s4tank.turretFly === null && s4tank.charK > 0 && s4tank.charK < 1);
+const s4turret = s4tank.parts.turret;
+// > jeda win (WIN_DELAY_SEC naik ke 5 dtk pada 2026-07-29 — permintaan user:
+// beri waktu MENIKMATI bangkai membara sebelum layar MISSION COMPLETE)
+let s4winFrames = 0;
+for (let i = 0; i < 90 && !stateMod.isGameOver; i++) { s4mod.stage4Scene.updateMode(0.1); s4winFrames++; }
+T('S4: MISSION COMPLETE menunggu ~5 dtk penuh (bukan potong sekuens mati; '
+    + (s4winFrames * 0.1).toFixed(1) + ' dtk)', s4winFrames * 0.1 > 4.5);
 T('S4: hancurkan tank -> MISSION COMPLETE (gameOver win, tanpa trigger stasiun)', stateMod.isGameOver === true);
+{
+    const f = s4tank.turretFly, tp = s4turret.position;
+    const dxT = tp.x - s4hullX, dzT = tp.z - s4hullZ, distT = Math.hypot(dxT, dzT);
+    T('S4 MATI SINEMATIK beat 2: TURRET TERLEPAS jadi benda bebas (di scene, bukan anak lambung)',
+        s4turret.parent === scene && s4turret.parent !== s4tank.parts.group && f != null);
+    T('S4 MATI SINEMATIK beat 2: turret mendarat DI SISI lambung lalu REBAH (jarak '
+        + distT.toFixed(0) + ', y ' + tp.y.toFixed(1) + ')',
+        f.landed === true && f.restK >= 1 && tp.y < 12
+        && distT > 20 && distT < 80 && (dxT * f.sx + dzT * f.sz) > 15);
+    T('S4 MATI SINEMATIK: arah lontar turret MENJAUHI player (tak melayang menutupi layar)',
+        f.sx * (camera.position.x - s4hullX) + f.sz * (camera.position.z - s4hullZ) <= 0);
+    const g4 = s4tank.parts.group;
+    T('S4 MATI SINEMATIK beat 3: lambung AMBRUK — menghentak turun & menetap miring (fase wreck)',
+        s4tank.deathPhase === 'wreck' && g4.position.y < -0.5 && Math.abs(g4.rotation.z) > 0.01
+        && Math.abs(g4.position.x - s4hullX) < 0.001 && Math.abs(g4.position.z - s4hullZ) < 0.001);
+    const hex4 = s4tank.parts.paintMats[0].color.getHex();
+    T('S4 MATI SINEMATIK: cat bangkai HANGUS penuh (bertahap selama cook-off, bukan seketika)',
+        s4tank.charK === 1 && hex4 !== s4paint0
+        && (hex4 >> 16 & 255) < (s4paint0 >> 16 & 255) && (hex4 >> 16 & 255) < 60);
+}
 stateMod.setGameOver(false);
 
 // --- 17b. CHEAT skip-to-stage-N (2026-07-14): lompat LANGSUNG ke stage campaign
@@ -3721,6 +3757,11 @@ rendererMod.renderer.compile = function () { rcCount++; return _rc.apply(this, a
 smMod.activeScene.cheatSkipToStage(4);
 T('cheat jump memanggil renderer.compile (warm shader stage baru)', rcCount > 0);
 rendererMod.renderer.compile = _rc;
+// TURRET yang TERLEPAS saat tank mati bukan anak group lagi -> disposeTank
+// (dipanggil stage4.enter) harus membuangnya SENDIRI, kalau tidak ia tertinggal
+// melayang di scene sepanjang run berikutnya (2026-07-29).
+T('S4 MATI SINEMATIK: turret yang terlepas ikut dibuang saat stage 4 di-enter ulang',
+    !scene.children.includes(s4turret) && s4turret.parent !== scene);
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 
 // --- 17b2. CHEAT give-weapon-N (2026-07-29, permintaan user): 2 = Shotgun,
