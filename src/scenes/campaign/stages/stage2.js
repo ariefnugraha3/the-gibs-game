@@ -16,10 +16,17 @@
 //                    from the warehouse" + 20 robot penjaga (berbagai kelas) spawn
 //                    di gudang.
 //   3. 'collect'   : ambil 3 komponen (acak di rak @; berdiri di TIMUR rak).
+//                    Tiap komponen = satu benda BERNAMA (REPAIR_PARTS: POWER
+//                    HARNESS / CONTROL BOARD / COOLANT PUMP).
 //   4. 'restore'   : kembali ke generator, INJAK kotak bermarker.
-//   5. 'restoring' : PULIHKAN 10 dtk (bar progress; gerak DIBEKUKAN). Selesai →
-//                    langsung 'done' + 25 robot bala bantuan (10 C ruang1, 10 B
-//                    ruang2, 5 B ruang3) spawn.
+//   5. 'installing': MINIGAME PERBAIKAN "FIELD REPAIR" (2026-07-29, MENGGANTIKAN
+//                    bar progress 10 dtk — utility/repairMinigame.js): scene
+//                    modal berisi TIGA papan berurutan, satu per komponen tadi
+//                    (kabel / chip / katup), TANPA hitung mundur. Batal (ESC) =
+//                    balik ke 'restore' dengan kemajuan TERSIMPAN (s2Installed)
+//                    dan pemicu baru terisi lagi setelah player MENJAUH. Selesai
+//                    → langsung 'done' + 25 robot bala bantuan (10 C ruang1,
+//                    10 B ruang2, 5 B ruang3) spawn.
 //   6. 'done'      : lift SUDAH BERDAYA — player TIDAK wajib membunuh bala bantuan
 //                    (2026-07-21, permintaan user): tinggal capai LIFT → stage
 //                    selesai (transisi ke stage 3). Boleh lari melewati robot.
@@ -34,7 +41,11 @@ import { makeNavGrid } from '../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { PAL } from '../../../world/palette.js';
-import { showStageMsg, hideStageMsg, showPickup, showDownloadBar, setDownloadProgress, hideDownloadBar } from '../../../core/dom.js';
+// showDownloadBar/setDownloadProgress TAK dipakai lagi sejak bar "RESTORING
+// GENERATOR" diganti minigame (2026-07-29); hideDownloadBar tetap dipanggil di
+// enter() sebagai pembersih.
+import { showStageMsg, hideStageMsg, showPickup, hideDownloadBar } from '../../../core/dom.js';
+import { beginRepairMinigame, REPAIR_PARTS } from '../utility/repairMinigame.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { updateUI } from '../../../core/hud.js';
 import { NADE_R } from '../../../entities/grenades.js';
@@ -250,14 +261,17 @@ let s2HallLamp = null;
 let s2HintT = 0, s2LiftT = 0;
 
 // ===== STATE MACHINE ALUR STAGE 2 =====
-let s2Phase = 'clear1';   // clear1 | goGen | collect | restore | restoring | done
-let s2RestT = 0;          // timer pulih generator
+let s2Phase = 'clear1';   // clear1 | goGen | collect | restore | installing | done
 let s2GenPos = null;      // {x,z} dunia kotak berdiri generator
 let s2LiftPos = null;     // {x,z} dunia pusat lift (peringatan)
 let s2Marker = null, s2MarkerMat = null;   // marker kotak pulih generator
-let s2Components = [];    // [{col,row,mx,mz,got,marker,mat}] — 3 komponen acak di rak
+let s2Components = [];    // [{col,row,mx,mz,got,part,marker,mat}] — 3 komponen acak di rak
 let s2CompGot = 0;
-export const s2Debug = () => ({ phase: s2Phase, restT: s2RestT, comp: s2CompGot });
+let s2Installed = 0;      // komponen yang SUDAH terpasang di minigame (tahan ABORT)
+let s2GenArmed = true;    // pemicu kotak generator (harus MENJAUH dulu sesudah batal)
+export const s2Debug = () => ({
+    phase: s2Phase, comp: s2CompGot, installed: s2Installed, armed: s2GenArmed
+});
 export const s2ComponentsDbg = () => s2Components;   // smoke test (posisi komponen)
 
 const blockers = [];
@@ -764,15 +778,21 @@ function pickComponents() {
         S2_SHELF_COLS.slice(4, 8),    // tengah (c17,21,25,29)
         S2_SHELF_COLS.slice(8, 12),   // kanan (c33,37,41,45) — sisi pintu masuk
     ];
-    for (const zone of zones) {
+    // Tiap zona memegang SATU benda bernama (REPAIR_PARTS) — benda inilah yang
+    // nanti punya papan minigame-nya sendiri saat generator dipasang.
+    zones.forEach((zone, zi) => {
         const col = zone[Math.floor(rand(0, zone.length))];
         const row = S2_SHELF_R1;   // ujung paling DALAM rak (baris terbawah)
         const mp = s2Cell(col + 1, row);   // sel TIMUR rak (tempat player berdiri)
         const mk = buildStandMarker(0x39d0ff);   // marker komponen (teal terang)
         mk.group.position.set(mp.x, 0, mp.z);
         scene.add(mk.group);
-        s2Components.push({ col, row, mx: mp.x, mz: mp.z, got: false, marker: mk.group, mat: mk.fillMat });
-    }
+        s2Components.push({
+            col, row, mx: mp.x, mz: mp.z, got: false,
+            part: REPAIR_PARTS[zi % REPAIR_PARTS.length],
+            marker: mk.group, mat: mk.fillMat
+        });
+    });
 }
 
 export const stage2Scene = {
@@ -797,7 +817,7 @@ export const stage2Scene = {
         applyLightPreset(scene, 'indoor');
         enterCityEnv();
         // Reset ALUR
-        s2Phase = 'clear1'; s2RestT = 0;
+        s2Phase = 'clear1'; s2Installed = 0; s2GenArmed = true;
         setCinematicActive(false);
         hideDownloadBar();
         // marker generator + komponen bersih
@@ -855,37 +875,45 @@ export const stage2Scene = {
                 if (Math.hypot(px - cmp.mx, pz - cmp.mz) < s2.componentRange) {
                     cmp.got = true; s2CompGot++;
                     if (cmp.marker) cmp.marker.visible = false;
-                    showPickup(`Generator component ${s2CompGot}/3 recovered`, '#39d0ff');
+                    showPickup(`${cmp.part.label} recovered (${s2CompGot}/3)`, '#39d0ff');
                 }
             }
             if (s2CompGot >= 3) {
                 s2Phase = 'restore';
                 if (s2Marker) s2Marker.visible = true;
-                showStageMsg('All 3 components recovered — return to the generator and restore it.', 5000);
+                showStageMsg('All 3 components recovered — return to the generator and install them.', 5000);
             }
         } else if (s2Phase === 'restore') {
-            // Injak kotak bermarker → mulai pulih (bekukan gerak)
-            if (s2GenPos && Math.hypot(px - s2GenPos.x, pz - s2GenPos.z) < s2.genRestoreRange) {
-                s2Phase = 'restoring'; s2RestT = 0;
+            // Injak kotak bermarker → MINIGAME PERBAIKAN (3 papan, satu per
+            // komponen; 2026-07-29, MENGGANTIKAN bar progress restoreSec).
+            // Pemicu harus "terisi" ulang dgn MENJAUH sekali (spt terminal stage
+            // 1), supaya ABORT tak langsung membuka modal lagi di tempat.
+            const near = s2GenPos && Math.hypot(px - s2GenPos.x, pz - s2GenPos.z) < s2.genRestoreRange;
+            if (!near) s2GenArmed = true;
+            else if (s2GenArmed) {
+                s2GenArmed = false;
+                s2Phase = 'installing';
                 clearMoveTarget();
                 keys.w = keys.a = keys.s = keys.d = false;
-                setCinematicActive(true);
-                showDownloadBar('RESTORING GENERATOR…');
                 if (s2Marker) s2Marker.visible = false;
-                showStageMsg('Restoring generator — hold position.', 2400);
-            }
-        } else if (s2Phase === 'restoring') {
-            s2RestT += dt;
-            const k = Math.min(1, s2RestT / s2.restoreSec);
-            setDownloadProgress(k);
-            if (k >= 1) {
-                // Selesai: lift BERDAYA. Bala bantuan datang tapi player TIDAK wajib
-                // membunuh semua (2026-07-21, permintaan user) — langsung 'done'.
-                s2Phase = 'done';
-                setCinematicActive(false);
-                hideDownloadBar();
-                spawnWave2();
-                showStageMsg('Generator online — the elevator is powered! Reinforcements inbound — reach the lift and escape!', 5600);
+                beginRepairMinigame({
+                    head: 'GENERATOR — FIELD REPAIR',
+                    startIndex: s2Installed,          // kemajuan bertahan setelah ABORT
+                    onProgress: (k) => { s2Installed = k; },
+                    onSuccess: () => {
+                        // Selesai: lift BERDAYA. Bala bantuan datang tapi player TIDAK
+                        // wajib membunuh semua (2026-07-21, permintaan user) — 'done'.
+                        s2Phase = 'done';
+                        s2Installed = REPAIR_PARTS.length;
+                        spawnWave2();
+                        showStageMsg('Generator online — the elevator is powered! Reinforcements inbound — reach the lift and escape!', 5600);
+                    },
+                    onFail: () => {
+                        s2Phase = 'restore';
+                        if (s2Marker) s2Marker.visible = true;
+                        showStageMsg(`Repair aborted — ${s2Installed}/3 installed. Step away, then back onto the marker to carry on.`, 3800);
+                    },
+                });
             }
         }
 
@@ -969,14 +997,14 @@ export const stage2Scene = {
             case 'clear1': return `FLOOR 2 — Robots: ${n} | Destroy ALL robots to power the generator`;
             case 'goGen': return 'FLOOR 2 — Find the generator and begin repairs';
             case 'collect': return `FLOOR 2 — Recover generator components: ${s2CompGot}/3 (storage warehouse)`;
-            case 'restore': return 'FLOOR 2 — Return to the generator and step on the marker to restore it';
-            case 'restoring': return `FLOOR 2 — Restoring generator... ${Math.round(Math.min(1, s2RestT / CFG.campaign.stage2.restoreSec) * 100)}%`;
+            case 'restore': return `FLOOR 2 — Step on the marker at the generator to fit the components (${s2Installed}/3 installed)`;
+            case 'installing': return `FLOOR 2 — Fitting components... ${s2Installed}/3`;
             default: return 'FLOOR 2 — Generator restored! Board the elevator to escape';
         }
     },
 
     // Landmark radar: objektif saat ini (generator saat clear1/goGen/restore/
-    // restoring; komponen saat collect; lift saat done).
+    // installing; komponen saat collect; lift saat done).
     radarLandmarks(plot) {
         let tx, tz, col;
         if (s2Phase === 'collect') {

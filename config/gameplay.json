@@ -308,6 +308,10 @@
             "alarmSpawnMinUnits": 150,
             "alarmSpawnMaxUnits": 420
         },
+        "repair": {
+            "count": { "easy": 3, "normal": 4, "hard": 5 },
+            "valveSteps": 6
+        },
         "stage1": {
             "downloadSec": 10,
             "computerRange": 10,

@@ -1619,3 +1619,276 @@ body.cine #medkitBar, body.cine #stageMsg {
 @keyframes hackAlarm {
     50% { color: #ffd0c4; background: rgba(60, 12, 8, 0.9); }
 }
+
+/* ---------- MINIGAME PERBAIKAN GENERATOR "FIELD REPAIR" (2026-07-29) — scene
+   MODAL yang menggantikan bar "RESTORING GENERATOR" 10 dtk di Stage 2. TIGA
+   papan berurutan, satu per komponen yang dikumpulkan player; TANPA hitung
+   mundur. Palet mengikuti GIBS 2045 (dasar hangat gelap + teal #2fb8a6 + amber
+   #ffb03b); warna KABEL adalah sinyal gameplay dan punya mode AMAN BUTA WARNA
+   (Okabe-Ito + lambang bentuk) lewat tombol COLOR MODE. ---------- */
+#repairOverlay {
+    position: absolute;
+    inset: 0;
+    z-index: 13;                    /* setara #hackOverlay: di atas shop, di bawah loading & blocker */
+    display: none;                  /* -> flex saat modal dibuka */
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+    color: #e6ded0;
+    background:
+        repeating-linear-gradient(0deg, rgba(47, 184, 166, 0.05) 0 1px, transparent 1px 3px),
+        radial-gradient(circle at 50% 42%, #17201f, #0b0e10 72%);
+    cursor: default;
+}
+.repPanel {
+    position: relative;
+    width: min(880px, 95vw);
+    max-height: 94vh;
+    padding: 20px 26px 18px;
+    background: rgba(16, 20, 22, 0.92);
+    border: 1px solid rgba(47, 184, 166, 0.45);
+    border-radius: 10px;
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 176, 59, 0.08) inset;
+    overflow: hidden;
+}
+.repGlow {
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #ffb03b, transparent);
+    opacity: 0.75;
+}
+.repHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.repTag {
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 0.32em;
+    color: #0b0e10;
+    background: #ffb03b;
+    padding: 3px 9px;
+    border-radius: 3px;
+}
+.repTitle {
+    font-size: 17px;
+    font-weight: bold;
+    letter-spacing: 0.18em;
+    color: #ffb03b;
+    text-transform: uppercase;
+}
+.repStep { margin-left: auto; font-size: 11px; letter-spacing: 0.2em; color: #2fb8a6; }
+.repSub {
+    margin: 8px 0 14px;
+    font-size: 13px;
+    line-height: 1.5;
+    letter-spacing: 0.03em;
+    color: #9fb0ad;
+}
+.repBoard {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: min(46vh, 330px);
+    padding: 10px;
+    background: rgba(6, 10, 10, 0.7);
+    border: 1px solid rgba(47, 184, 166, 0.22);
+    border-radius: 8px;
+}
+/* ----- Papan 1: KABEL (POWER HARNESS) ----- */
+.repWires {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+    height: min(42vh, 300px);
+}
+/* gap 0 DISENGAJA: pusat tiap baris grid harus tepat di (i+0.5)/n tinggi kolom,
+   karena kabel SVG (viewBox 0..100, preserveAspectRatio none) memakai rumus itu.
+   Jarak antar-pin dibuat dgn margin pin, yang tidak menggeser pusat barisnya. */
+.repCol { display: grid; gap: 0; flex: 0 0 auto; }
+.repLines { flex: 1 1 auto; min-width: 90px; }
+/* overflow visible: kabel HIDUP (yang sedang diseret) boleh keluar kotak SVG
+   sampai ke kursor yang berada di atas kolom pin. */
+.repLines svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.repWire { fill: none; stroke-width: 4; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.repWire.live { stroke-dasharray: 6 5; opacity: 0.85; }
+.repPin {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 3px 0;
+    padding: 4px 8px;
+    background: rgba(47, 184, 166, 0.05);
+    border: 1px solid rgba(47, 184, 166, 0.18);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.repColR .repPin { flex-direction: row-reverse; }
+.repPin:hover { background: rgba(255, 176, 59, 0.1); border-color: rgba(255, 176, 59, 0.45); }
+.repPin.sel { border-color: #ffb03b; box-shadow: 0 0 12px rgba(255, 176, 59, 0.4) inset; }
+.repPin.linked { background: rgba(255, 176, 59, 0.08); }
+.repPin.bad { border-color: #ff6b52; background: rgba(255, 107, 82, 0.16); }
+.repPin.dragging { border-color: #ffb03b; opacity: 0.7; }
+.repJack {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 1;
+    color: #0b0e10;
+}
+.repPin.linked .repJack { box-shadow: 0 0 12px currentColor; }
+.repPinLbl { font-size: 10px; letter-spacing: 0.14em; color: #9fb0ad; min-width: 52px; }
+.repColR .repPinLbl { text-align: right; }
+/* ----- Papan 2: CHIP (CONTROL BOARD) ----- */
+.repChipWrap {
+    --u: min(3.1vh, 24px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+}
+.repChipSect { display: flex; flex-direction: column; gap: 7px; align-items: center; }
+.repChipLbl { font-size: 10px; letter-spacing: 0.22em; color: #6f807d; }
+.repSockets, .repTray {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: calc(var(--u) * 4);
+    padding: 8px;
+    border-radius: 6px;
+}
+.repSockets {
+    background:
+        repeating-linear-gradient(0deg, rgba(47, 184, 166, 0.09) 0 1px, transparent 1px var(--u)),
+        repeating-linear-gradient(90deg, rgba(47, 184, 166, 0.09) 0 1px, transparent 1px var(--u)),
+        rgba(47, 184, 166, 0.04);
+    border: 1px solid rgba(47, 184, 166, 0.25);
+}
+.repTray { background: rgba(255, 255, 255, 0.03); border: 1px dashed rgba(255, 176, 59, 0.25); }
+.repSocket {
+    box-sizing: border-box;
+    border: 1px dashed rgba(47, 184, 166, 0.6);
+    border-radius: 3px;
+    background: rgba(47, 184, 166, 0.06);
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+}
+.repSocket:hover { border-color: #ffb03b; background: rgba(255, 176, 59, 0.1); }
+.repSocket.filled { border-style: solid; border-color: rgba(255, 176, 59, 0.7); }
+.repSocket.bad { border-color: #ff6b52; background: rgba(255, 107, 82, 0.18); }
+.repChip {
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(160deg, #3a3a34, #23231f);
+    border: 1px solid #55524a;
+    border-radius: 3px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+    overflow: hidden;
+}
+.repChip.seated { width: 100%; height: 100%; border-color: rgba(255, 176, 59, 0.8); }
+.repChip.sel { border-color: #ffb03b; box-shadow: 0 0 14px rgba(255, 176, 59, 0.5); }
+.repChip:hover { border-color: #ffb03b; }
+/* ----- Seret & lepas (2026-07-29): berdampingan dgn jalur klik ----- */
+.repPin, .repChip { cursor: grab; }
+.repPin:active, .repChip:active { cursor: grabbing; }
+.repChip.dragging { opacity: 0.28; }        /* sumber diredupkan selagi diseret */
+.repGhost {                                  /* chip bayangan yang ikut kursor */
+    position: fixed;
+    z-index: 5;
+    transform: translate(-50%, -50%);
+    opacity: 0.9;
+    pointer-events: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7);
+    border-color: #ffb03b;
+}
+.repChipDot {
+    position: absolute;
+    left: 4px; top: 4px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #ffb03b;
+}
+.repChipId { font-size: 9px; letter-spacing: 0.1em; color: #8d8a80; }
+/* ----- Papan 3: KATUP (COOLANT PUMP) ----- */
+.repValves { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.repGear { color: #4b5b58; font-size: 20px; }
+.repValve {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 6px;
+    background: rgba(47, 184, 166, 0.05);
+    border: 1px solid rgba(47, 184, 166, 0.2);
+    border-radius: 7px;
+}
+.repValve.ok { border-color: rgba(46, 255, 106, 0.55); background: rgba(46, 255, 106, 0.08); }
+.repDial { width: min(11vh, 84px); height: min(11vh, 84px); cursor: pointer; }
+.repDial svg { width: 100%; height: 100%; display: block; }
+.repDialBg { fill: rgba(6, 10, 10, 0.85); stroke: #2a4b47; stroke-width: 2; }
+.repTick { stroke: #4b5b58; stroke-width: 3; }
+.repTarget { fill: #2eff6a; }
+.repNeedle { stroke: #ffb03b; stroke-width: 6; stroke-linecap: round; }
+.repValve.ok .repNeedle { stroke: #2eff6a; }
+.repHub { fill: #ffb03b; }
+.repValve.ok .repHub { fill: #2eff6a; }
+.repValveBtns { display: flex; align-items: center; gap: 5px; }
+.repValveLbl { font-size: 10px; letter-spacing: 0.14em; color: #6f807d; min-width: 20px; text-align: center; }
+.repValveBtn {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: bold;
+    color: #ffb03b;
+    background: rgba(255, 176, 59, 0.08);
+    border: 1px solid rgba(255, 176, 59, 0.4);
+    border-radius: 4px;
+    width: 24px;
+    height: 22px;
+    cursor: pointer;
+}
+.repValveBtn:hover { background: rgba(255, 176, 59, 0.2); }
+/* ----- Kaki panel ----- */
+.repFoot { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+.repHint { flex: 1; text-align: center; font-size: 11px; letter-spacing: 0.06em; color: #6f807d; }
+.repCb, .repAbort {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 0.12em;
+    border-radius: 4px;
+    padding: 8px 14px;
+    cursor: pointer;
+}
+.repCb { color: #2fb8a6; background: rgba(47, 184, 166, 0.08); border: 1px solid rgba(47, 184, 166, 0.45); }
+.repCb:hover { background: rgba(47, 184, 166, 0.2); }
+.repAbort { color: #ffb03b; background: rgba(255, 176, 59, 0.08); border: 1px solid rgba(255, 176, 59, 0.45); }
+.repAbort:hover { background: rgba(255, 176, 59, 0.2); }
+/* Banner antar-komponen / selesai (menutupi panel sesaat) */
+.repBanner {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 20px;
+    font-size: clamp(18px, 2.8vw, 34px);
+    font-weight: bold;
+    letter-spacing: 0.22em;
+    background: rgba(8, 11, 12, 0.88);
+}
+.repBanner.on { display: flex; }
+.repBanner.ok { color: #2eff6a; text-shadow: 0 0 26px rgba(46, 255, 106, 0.5); }

@@ -4,11 +4,14 @@
 // pointer-lock (tombol seperti G/D ikut ter-lock selama main). Saat konsol
 // terbuka, game DI-PAUSE & input.js menelan tombol gameplay. Perintah:
 // "god-mode" + Enter = TOGGLE kebal player & Monas; "more-money" + Enter =
-// +100000 skor (mata uang shop Survival). Teks UI English (aturan permanen).
+// +100000 skor (mata uang shop Survival); "give-weapon-N" = senjata level maks
+// (2026-07-29). Teks UI English (aturan permanen).
 
-import { setPaused, godMode, setGodMode, addScore } from './state.js';
+import { setPaused, godMode, setGodMode, addScore, player, syncOwnedFromWeapons, maxAmmoFor } from './state.js';
+import { CFG } from './config.js';
 import { updateUI } from './hud.js';
 import { activeScene } from './sceneManager.js';
+import { WEAPON_DEF, refreshOwnedWeapon, startSwitch } from '../entities/weapons.js';
 
 let open = false, buffer = '', inputEl = null, feedbackEl = null, boxEl = null, wired = false;
 
@@ -62,6 +65,46 @@ function setFeedback(text, ok = true) {
     feedbackEl.style.color = ok ? '#7fe0a0' : '#ff6b6b';
 }
 
+// ----- CHEAT SENJATA "give-weapon-N" (2026-07-29, permintaan user) -----
+// N = nomor senjata (1 pistol / 2 shotgun / 3 rifle / 4 launcher); yang bisa
+// diberikan hanya 2/3/4 — pistol sudah selalu dibawa. Senjata datang di LEVEL
+// MAKSIMUM (`CFG.weapons.maxWeaponLevel`, config-driven) dengan kolam peluru
+// penuh; khusus launcher, level maks itulah yang menjadikannya ROCKET LAUNCHER
+// (weapons.js: `isRocket` = launcher lvl >= 3).
+const GIVE_WEAPON = { 2: 'shotgun', 3: 'rifle', 4: 'launcher' };
+
+export function giveCheatWeapon(w) {
+    if (!WEAPON_DEF[w]) return null;
+    const maxLvl = CFG.weapons.maxWeaponLevel || 1;
+    const had = !!player.owned[w];
+    let dropped = null;
+    if (!had) {
+        const W = player.weapons;
+        // Slot penuh (maxWeapons): cheat TIDAK memunculkan dialog "pilih yang
+        // diganti" seperti shop — buang PISTOL dulu (bawaan, paling lemah),
+        // baru slot terakhir bila pistol sudah tak ada.
+        if (W.length >= CFG.weapons.maxWeapons) {
+            const di = W.indexOf('pistol') >= 0 ? W.indexOf('pistol') : W.length - 1;
+            dropped = W[di];
+            W.splice(di, 1);
+        }
+        W.push(w);
+        syncOwnedFromWeapons();
+    }
+    player.weaponLvl[w] = maxLvl;
+    player[w].ammo = maxAmmoFor(w);
+    refreshOwnedWeapon();   // senjata aktif & lastWeapon tetap sah + segarkan HUD
+    startSwitch(w);         // langsung dipegang (animasi jalan begitu konsol ditutup)
+    return {
+        weapon: w, lvl: maxLvl, had, dropped,
+        slot: player.weapons.indexOf(w) + 1,
+        label: w === 'launcher' && maxLvl >= 3 ? 'Rocket Launcher' : WEAPON_DEF[w].name,
+    };
+}
+
+// Diekspor supaya smoke bisa menjalankan perintah tanpa mensimulasikan ketikan.
+export function runCheatCommand(cmd) { runCommand(cmd); }
+
 function runCommand(cmd) {
     const c = cmd.toLowerCase();
     if (c === 'god-mode') {
@@ -71,6 +114,16 @@ function runCommand(cmd) {
         addScore(100000);       // +100000 skor = mata uang shop Survival
         updateUI();             // segarkan angka MONEY di HUD
         setFeedback('+100000 score - buy anything in the Field Shop!');
+    } else if (/^give-weapon-\d+$/.test(c)) {
+        const w = GIVE_WEAPON[parseInt(c.slice('give-weapon-'.length), 10)];
+        if (!w) {
+            setFeedback('No such weapon - use give-weapon-2 (Shotgun), -3 (Assault Rifle) or -4 (Rocket Launcher)', false);
+        } else {
+            const r = giveCheatWeapon(w);
+            setFeedback(`${r.label} Lv${r.lvl} ${r.had ? 'restocked' : 'added'} in slot ${r.slot} (ammo full)`
+                + (r.dropped ? ` - dropped ${WEAPON_DEF[r.dropped].name}` : '')
+                + ' - close the console, it is already drawn');
+        }
     } else if (/^skip-to-wave-\d+$/.test(c)) {
         // Lompat langsung ke wave n (Survival). Scene aktif yang mendukung punya
         // hook cheatSkipToWave (hanya survivalScene) -> bersihkan lapangan +

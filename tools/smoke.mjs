@@ -1720,6 +1720,308 @@ async function waitHackClosed() {
         lastResult === 'fail' && hackMod.hackDebug().open === false);
 }
 
+// === MINIGAME PERBAIKAN GENERATOR "FIELD REPAIR" (2026-07-29, permintaan user:
+// menyalakan generator stage 2 jangan cuma bar progress) — TIGA papan, satu per
+// komponen yang dikumpulkan player, TANPA hitung mundur. Bagian ini menguji
+// MODEL MURNI (buildRepairGame/applyX — cepat, tanpa DOM/timer) lalu perilaku
+// MODAL-nya; integrasi ke alur stage ada di section S2 di bawah. ===
+const repMod = await import(R('src/scenes/campaign/utility/repairMinigame.js'));
+// Penyelesai per tipe: MEMBUKTIKAN papan bisa diselesaikan pemain dengan
+// prosedur wajar (kabel: cocokkan warna; chip: cocokkan ukuran; katup: kiri->
+// kanan, karena memutar katup i tak pernah menyentuh katup di kirinya).
+// `viaDrag` = selesaikan lewat jalur SERET (applyWireDrop/applyChipDrop) alih-alih
+// klik ujung-ke-ujung — keduanya harus sama-sama menuntaskan papan (2026-07-29).
+function solveRepairModel(g, viaDrag = false) {
+    if (g.type === 'wires') {
+        for (let j = 0; j < g.n; j++) {
+            if (viaDrag) repMod.applyWireDrop(g, 'l', g.right[j], 'r', j);
+            else { repMod.applyWirePick(g, 'l', g.right[j]); repMod.applyWirePick(g, 'r', j); }
+        }
+    } else if (g.type === 'chips') {
+        for (let ci = 0; ci < g.n; ci++) {
+            const c = g.chips[ci];
+            const si = g.sockets.findIndex(s => s.fill < 0 && s.w === c.w && s.h === c.h);
+            if (viaDrag) repMod.applyChipDrop(g, ci, 'socket', si);
+            else { repMod.applyChipPick(g, 'chip', ci); repMod.applyChipPick(g, 'socket', si); }
+        }
+    } else {
+        for (let i = 0; i < g.n; i++) {
+            const need = ((g.target[i] - g.pos[i]) % g.steps + g.steps) % g.steps;
+            for (let k = 0; k < need; k++) repMod.applyValveTurn(g, i, 1);
+        }
+    }
+    return repMod.repairIsSolved(g);
+}
+// Papan MODAL yang sedang terbuka, diselesaikan lewat API klik (bukan model).
+function solveOpenRepairBoard() {
+    const g = repMod.repairDebug().game;
+    if (!g) return false;
+    if (g.type === 'wires') {
+        for (let j = 0; j < g.n; j++) { repMod.repairWirePick('l', g.right[j]); repMod.repairWirePick('r', j); }
+    } else if (g.type === 'chips') {
+        for (let ci = 0; ci < g.n; ci++) {
+            const c = g.chips[ci];
+            if (c.at >= 0) continue;
+            const si = g.sockets.findIndex(s => s.fill < 0 && s.w === c.w && s.h === c.h);
+            repMod.repairChipPick('chip', ci); repMod.repairChipPick('socket', si);
+        }
+    } else {
+        for (let i = 0; i < g.n; i++) {
+            const need = ((g.target[i] - g.pos[i]) % g.steps + g.steps) % g.steps;
+            for (let k = 0; k < need; k++) repMod.repairValveTurn(i, 1);
+        }
+    }
+    return true;
+}
+// Tunggu papan berikutnya (banner antar-komponen pakai setTimeout) / modal tutup.
+async function waitRepairNext(idx) {
+    for (let i = 0; i < 300; i++) {
+        const d = repMod.repairDebug();
+        if (!d.open || (d.phase === 'play' && d.index === idx)) return d;
+        await new Promise(r => setTimeout(r, 10));
+    }
+    return repMod.repairDebug();
+}
+async function waitRepairClosed() {
+    for (let i = 0; i < 300 && repMod.repairDebug().open; i++) await new Promise(r => setTimeout(r, 10));
+    stateMod.setPaused(false);   // harness tak punya pointerlockchange yang me-resume
+}
+{
+    const RC = cfgMod.CFG.campaign.repair;
+    // (a) Jumlah elemen papan = CFG.campaign.repair.count[difficulty] (3/4/5).
+    T('REPAIR: jumlah elemen papan config-driven per difficulty (easy/normal/hard)',
+        repMod.repairCount('easy') === RC.count.easy
+        && repMod.repairCount('normal') === RC.count.normal
+        && repMod.repairCount('hard') === RC.count.hard
+        && RC.count.easy <= RC.count.normal && RC.count.normal <= RC.count.hard);
+    // (b) SETIAP papan, SETIAP tipe, SETIAP difficulty: tak pernah terbuka dalam
+    //     keadaan selesai DAN selalu bisa diselesaikan (permintaan user).
+    let solvable = true, startsUnsolved = true, boards = 0, dragBoards = 0, dragSolvable = true;
+    for (const diff of ['easy', 'normal', 'hard']) {
+        const n = repMod.repairCount(diff);
+        for (const part of repMod.REPAIR_PARTS) {
+            for (let k = 0; k < 12; k++) {
+                const g = repMod.buildRepairGame(part.type, n);
+                if (g.n !== n) solvable = false;
+                if (repMod.repairIsSolved(g)) startsUnsolved = false;
+                // Selang-seling: separuh papan diselesaikan lewat KLIK, separuh
+                // lewat SERET — dua-duanya jalur resmi sejak 2026-07-29.
+                const viaDrag = k % 2 === 1 && part.type !== 'valves';
+                if (!solveRepairModel(g, viaDrag)) { solvable = false; if (viaDrag) dragSolvable = false; }
+                if (viaDrag) dragBoards++;
+                boards++;
+            }
+        }
+    }
+    T('REPAIR: SEMUA papan (' + boards + ': 3 tipe x 3 difficulty) DIJAMIN bisa diselesaikan', solvable);
+    T('REPAIR DRAG: papan kabel & chip juga tuntas lewat SERET saja (' + dragBoards + ' papan)',
+        dragSolvable && dragBoards > 0);
+    T('REPAIR: papan tak pernah dibuka dalam keadaan sudah selesai', startsUnsolved);
+    // (c) KABEL: hanya pasangan warna yang sama boleh tersambung; klik ulang melepas.
+    {
+        const g = repMod.buildRepairGame('wires', 3);
+        const good = g.right[0];                       // kiri `good` = pasangan sah bus 0
+        const bad = (good + 1) % g.n;
+        repMod.applyWirePick(g, 'l', bad);
+        const rej = repMod.applyWirePick(g, 'r', 0);   // ujung `bad` tetap terpilih
+        const stillSel = !!g.sel && g.sel.i === bad;
+        repMod.applyWirePick(g, 'l', good);
+        const ok = repMod.applyWirePick(g, 'r', 0);
+        const unl = repMod.applyWirePick(g, 'l', good);
+        T('REPAIR KABEL: sambungan beda warna DITOLAK (pilihan bertahan), warna sama tersambung, klik ulang melepas',
+            rej === 'reject' && stillSel && ok === 'link' && unl === 'unlink'
+            && g.links[good] === -1 && !repMod.repairIsSolved(g));
+    }
+    // (d) CHIP: ukuran chip semuanya BEDA (bijektif) & soket salah ukuran menolak.
+    {
+        const g = repMod.buildRepairGame('chips', 5);
+        const key = (o) => o.w + 'x' + o.h;
+        const uniq = new Set(g.chips.map(key)).size === g.n && new Set(g.sockets.map(key)).size === g.n;
+        const ci = 0, wrong = g.sockets.findIndex(s => s.w !== g.chips[ci].w || s.h !== g.chips[ci].h);
+        const right = g.sockets.findIndex(s => s.w === g.chips[ci].w && s.h === g.chips[ci].h);
+        repMod.applyChipPick(g, 'chip', ci);
+        const rej = repMod.applyChipPick(g, 'socket', wrong);   // chip tetap terpilih
+        const stillSel = g.sel === ci;
+        const ok = repMod.applyChipPick(g, 'socket', right);
+        T('REPAIR CHIP: tiap ukuran unik (1 chip = 1 soket); soket salah ukuran menolak (chip tetap terpilih)',
+            uniq && rej === 'reject' && stillSel && ok === 'link' && g.chips[ci].at === right);
+    }
+    // (d2) SERET: aturan tolaknya sama dgn klik, dan menyeret chip ke BAKI
+    //      mencabutnya dari soket. Seret ke sisi yang sama = bukan aksi.
+    {
+        const gw = repMod.buildRepairGame('wires', 4);
+        const okDrop = repMod.applyWireDrop(gw, 'l', gw.right[0], 'r', 0);
+        const badDrop = repMod.applyWireDrop(gw, 'l', gw.right[1], 'r', 2);   // pasangan salah
+        const sameSide = repMod.applyWireDrop(gw, 'l', 0, 'l', 1);
+        const gc = repMod.buildRepairGame('chips', 4);
+        const c0 = gc.chips[0];
+        const fit = gc.sockets.findIndex(s => s.w === c0.w && s.h === c0.h);
+        const wrong = gc.sockets.findIndex(s => s.w !== c0.w || s.h !== c0.h);
+        const rejSize = repMod.applyChipDrop(gc, 0, 'socket', wrong);
+        const seat = repMod.applyChipDrop(gc, 0, 'socket', fit);
+        const occ = repMod.applyChipDrop(gc, 1, 'socket', fit);              // soket sudah terisi
+        const lift = repMod.applyChipDrop(gc, 0, 'tray', -1);
+        T('REPAIR DRAG: seret menolak pasangan/ukuran salah & soket terisi; ke BAKI = mencabut chip',
+            okDrop === 'link' && gw.links[gw.right[0]] === 0 && badDrop === 'reject' && sameSide === 'none'
+            && rejSize === 'reject' && seat === 'link' && occ === 'reject'
+            && lift === 'unlink' && gc.chips[0].at === -1 && gc.sockets[fit].fill === -1);
+    }
+    // (e) KATUP: bergigi ke KANAN saja — dasar prosedur kiri->kanan yang menjamin
+    //     solusi selalu tercapai. valveSteps config-driven.
+    {
+        const g = repMod.buildRepairGame('valves', 4);
+        const before = g.pos.slice();
+        repMod.applyValveTurn(g, 2, 1);
+        const leftUntouched = g.pos[0] === before[0] && g.pos[1] === before[1];
+        const rightTurned = g.pos[2] === (before[2] + 1) % g.steps && g.pos[3] === (before[3] + 1) % g.steps;
+        repMod.applyValveTurn(g, 2, -1);
+        T('REPAIR KATUP: memutar katup ikut memutar SEMUA katup di KANANNYA, tak menyentuh yang di kiri',
+            g.steps === RC.valveSteps && leftUntouched && rightTurned
+            && g.pos.every((v, i) => v === before[i]));
+    }
+    // (e2) SERET SUNGGUHAN LEWAT EVENT DOM. fakeEl global tak menyimpan anak &
+    //      listener, jadi bagian ini menukar `document` sementara dengan mini-DOM
+    //      PEREKAM (anak + listener nyata) lalu benar-benar menjalankan urutan
+    //      mousedown -> mousemove -> mouseup. HARUS sebelum blok (f): listener
+    //      document dipasang SEKALI (`docWired`) saat modal pertama kali dibuka.
+    {
+        const realDoc = global.document;
+        const docLs = {};
+        const rEl = (cls = '') => {
+            const e = {
+                className: cls, style: {}, children: [], parentNode: null, _ls: {}, _html: '',
+                classList: { add() { }, remove() { }, toggle() { }, contains: () => false },
+                innerText: '', value: '', dataset: {},
+                addEventListener(t, f) { (e._ls[t] = e._ls[t] || []).push(f); },
+                removeEventListener() { },
+                appendChild(c) { e.children.push(c); c.parentNode = e; return c; },
+                removeChild(c) { const i = e.children.indexOf(c); if (i >= 0) e.children.splice(i, 1); return c; },
+                setAttribute() { }, querySelectorAll: () => [], querySelector: () => null,
+                getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+            };
+            // innerHTML = '' HARUS mengosongkan anak (renderBoard mengandalkannya)
+            Object.defineProperty(e, 'innerHTML', { get: () => e._html, set(v) { e._html = v; e.children.length = 0; } });
+            return e;
+        };
+        const ids = new Map();
+        global.document = {
+            getElementById: (id) => { if (!ids.has(id)) ids.set(id, rEl(id)); return ids.get(id); },
+            createElement: () => rEl(),
+            addEventListener(t, f) { (docLs[t] = docLs[t] || []).push(f); },
+            removeEventListener() { }, exitPointerLock() { },
+            body: { appendChild() { }, requestPointerLock: () => ({ catch() { } }) },
+            pointerLockElement: null, documentElement: rEl(), fullscreenElement: null,
+        };
+        const ev = (x, y) => ({ clientX: x, clientY: y, button: 0, preventDefault() { } });
+        const fire = (el, type, e) => { for (const f of (el && el._ls[type]) || []) f(e); };
+        const fireDoc = (type, e) => { for (const f of docLs[type] || []) f(e); };
+        const find = (el, cls, out = []) => {   // telusuri pohon mini-DOM
+            if (!el) return out;
+            if (el.className && el.className.split(' ').includes(cls)) out.push(el);
+            for (const c of el.children) find(c, cls, out);
+            return out;
+        };
+        let dragResult = null;
+        repMod.beginRepairMinigame({
+            head: 'DRAG TEST', parts: [repMod.REPAIR_PARTS[0]],   // hanya papan KABEL
+            onSuccess: () => { dragResult = 'ok'; }, onFail: (w) => { dragResult = w; },
+        });
+        const boardOf = () => global.document.getElementById('repBoard');
+        const pinsL = () => find(boardOf(), 'repCol')[0].children;
+        const pinsR = () => find(boardOf(), 'repColR')[0].children;
+        const g0 = repMod.repairDebug().game;
+        const rj = 0, li = g0.right[rj];                       // pasangan warna yang SAH
+        // (1) tekan-lepas TANPA gerak = bukan seret (tak menyambung apa pun;
+        //     jalur klik-lah yang bekerja, dan `click` tidak kita kirim di sini)
+        fire(pinsL()[li], 'mousedown', ev(10, 10));
+        fire(pinsR()[rj], 'mouseup', ev(10, 10));
+        fireDoc('mouseup', ev(10, 10));
+        const noDrag = repMod.repairDebug().game.links[li] === -1;
+        // (2) seret sungguhan: tekan di pin kiri, geser jauh, lepas di pin kanan
+        fire(pinsL()[li], 'mousedown', ev(10, 10));
+        fireDoc('mousemove', ev(60, 30));                      // > DRAG_SLOP -> mulai menyeret
+        const dragging = repMod.repairDebug().dragging === true;
+        fire(pinsR()[rj], 'mouseup', ev(60, 30));              // papan dibangun ulang di sini
+        fireDoc('mouseup', ev(60, 30));
+        const linked = repMod.repairDebug().game.links[li] === rj;
+        const cleared = repMod.repairDebug().dragging === false;
+        T('REPAIR DRAG DOM: mousedown->mousemove->mouseup benar-benar menyambung kabel; klik tanpa gerak bukan seret',
+            noDrag && dragging && linked && cleared);
+        smMod.activeScene.shopKey('escape');
+        stateMod.setPaused(false);
+        // Papan CHIP: seret dari baki ke soket, lalu seret balik ke baki.
+        repMod.beginRepairMinigame({
+            head: 'DRAG TEST', parts: [repMod.REPAIR_PARTS[1]],   // hanya papan CHIP
+            onSuccess: () => { dragResult = 'ok'; }, onFail: (w) => { dragResult = w; },
+        });
+        const gc2 = repMod.repairDebug().game;
+        const ci = 0, c0 = gc2.chips[ci];
+        const si = gc2.sockets.findIndex(s => s.w === c0.w && s.h === c0.h);
+        const trayChip = () => find(boardOf(), 'repTray')[0].children[ci];
+        fire(trayChip(), 'mousedown', ev(20, 20));
+        fireDoc('mousemove', ev(90, 70));                       // ghost chip mengikuti kursor
+        const ghosted = repMod.repairDebug().dragging === true;
+        fire(find(boardOf(), 'repSocket')[si], 'mouseup', ev(90, 70));
+        fireDoc('mouseup', ev(90, 70));
+        const seated = repMod.repairDebug().game.chips[ci].at === si;
+        // ...dan menyeretnya balik ke area baki = mencabut chip dari soket.
+        fire(find(find(boardOf(), 'repSocket')[si], 'repChip')[0], 'mousedown', ev(90, 70));
+        fireDoc('mousemove', ev(20, 20));
+        fire(find(boardOf(), 'repTray')[0], 'mouseup', ev(20, 20));
+        fireDoc('mouseup', ev(20, 20));
+        const lifted = repMod.repairDebug().game.chips[ci].at === -1;
+        T('REPAIR DRAG DOM: chip diseret dari baki ke soket, lalu diseret balik ke baki',
+            ghosted && seated && lifted);
+        smMod.activeScene.shopKey('escape');
+        stateMod.setPaused(false);
+        global.document = realDoc;
+        T('REPAIR DRAG DOM: modal ditutup bersih setelah uji seret', dragResult === 'abort' && !repMod.isRepairOpen());
+    }
+    // (f) MODAL = scene: pause, shopActive, tombol gameplay ditelan, ESC = ABORT,
+    //     tak bisa dibuka dua kali, dan kemajuan `startIndex` dihormati.
+    let result = null, progress = [];
+    const openRepair = (startIndex = 0) => repMod.beginRepairMinigame({
+        head: 'TEST GENERATOR', startIndex,
+        onProgress: (k) => progress.push(k),
+        onSuccess: () => { result = 'ok'; },
+        onFail: (why) => { result = why; },
+    });
+    const prevOfRep = smMod.activeScene;
+    openRepair(1);
+    T('REPAIR MODAL: scene `campaign-repair` + game di-pause + shopActive & tombol gameplay ditelan',
+        smMod.activeScene.id === 'campaign-repair' && repMod.isRepairOpen() === true
+        && stateMod.isPaused === true && smMod.activeScene.shopActive() === true
+        && smMod.activeScene.shopKey('w') === true && smMod.activeScene.groundHeight(0, 0, 7) === 7);
+    T('REPAIR MODAL: startIndex melanjutkan dari komponen yang belum terpasang',
+        repMod.repairDebug().index === 1 && repMod.repairDebug().part === repMod.REPAIR_PARTS[1].id
+        && repMod.repairDebug().total === repMod.REPAIR_PARTS.length);
+    T('REPAIR MODAL: tak bisa dibuka dua kali', openRepair(0) === false);
+    {   // Papan komponen 2 = CONTROL BOARD: seret & klik hidup BERDAMPINGAN.
+        const g = repMod.repairDebug().game;
+        const c0 = g.chips[0];
+        const fit = g.sockets.findIndex(s => s.w === c0.w && s.h === c0.h);
+        const dropped = repMod.repairChipDrop(0, 'socket', fit);
+        const seated = g.chips[0].at === fit;
+        const clicked = repMod.repairChipPick('socket', fit);   // klik = cabut lagi
+        T('REPAIR MODAL: seret (repairChipDrop) & klik (repairChipPick) sama-sama hidup di papan yang sama',
+            dropped === true && seated && clicked === true && g.chips[0].at === -1);
+    }
+    // Tombol COLOR MODE: palet aman buta warna bisa dinyalakan/dimatikan.
+    const cb0 = repMod.repairColorblind();
+    const cb1 = repMod.repairToggleColorblind();
+    T('REPAIR: tombol COLOR MODE menukar palet aman buta warna (tersimpan)',
+        cb1 === !cb0 && repMod.repairColorblind() === cb1
+        && (localStorage.getItem('gibsRepairColorblind') === (cb1 ? '1' : '0')));
+    repMod.repairToggleColorblind();
+    smMod.activeScene.shopKey('escape');
+    T('REPAIR MODAL: ESC = ABORT -> onFail("abort") + scene sebelumnya dipulihkan seketika',
+        result === 'abort' && repMod.isRepairOpen() === false && smMod.activeScene === prevOfRep);
+    stateMod.setPaused(false);
+    // TANPA hitung mundur (beda dari ICE BREACH): tak ada jalur kalah sama sekali.
+    T('REPAIR: modal TANPA timer — tak ada state kalah (phase idle setelah ditutup)',
+        repMod.repairDebug().phase === 'idle' && repMod.repairDebug().open === false);
+}
+
 // --- ALUR STAGE 1 (2026-07-20, ROMBAK TOTAL): clear1 (bunuh 50 robot) -> BUKA
 // ruang komputer -> MINIGAME HACK (2026-07-28, dulu bar unduh 10 dtk) -> spawn
 // 20 robot wave-2 + horde di ruang X -> clear2 -> done (tangga aktif).
@@ -1866,21 +2168,51 @@ T('S2 FLOW: dekati generator -> collect + 20 penjaga gudang + 3 komponen',
     T('S2 FLOW: 3 komponen di UJUNG PALING DALAM rak (baris terbawah) + tersebar 3 zona',
         comps.length === 3 && deepRow && zonesHit.size === 3);
 }
+T('S2 FLOW: tiap komponen = satu benda BERNAMA (papan minigame-nya sendiri)',
+    s2mod.s2ComponentsDbg().every((c, i) => c.part && c.part.id === repMod.REPAIR_PARTS[i].id));
 for (const cmp of s2mod.s2ComponentsDbg()) { camera.position.set(cmp.mx, EY2, cmp.mz); s2mod.stage2Scene.updateMode(0.1); }
 T('S2 FLOW: 3 komponen terkumpul (berdiri timur rak) -> restore', s2mod.s2Debug().phase === 'restore' && s2mod.s2Debug().comp === 3);
 killS2();   // "bunuh" 20 penjaga (isolasi supaya cek komposisi wave2 bersih)
+// INJAK MARKER -> MINIGAME "FIELD REPAIR" (2026-07-29, MENGGANTIKAN bar restoreSec
+// 10 dtk): 3 papan berurutan (satu per komponen), TANPA timer. ABORT di tengah
+// menyimpan kemajuan & pemicunya baru terisi lagi setelah player MENJAUH.
 camera.position.set(s2GenC.x, EY2, s2GenC.z); s2mod.stage2Scene.updateMode(0.1);
-T('S2 FLOW: injak generator -> restoring + gerak dibekukan (cinematicActive)',
-    s2mod.s2Debug().phase === 'restoring' && stateMod.cinematicActive === true);
+T('S2 FLOW: injak marker generator -> MINIGAME FIELD REPAIR (scene modal, game di-pause)',
+    s2mod.s2Debug().phase === 'installing' && repMod.isRepairOpen() === true
+    && smMod.activeScene.id === 'campaign-repair' && stateMod.isPaused === true
+    && repMod.repairDebug().index === 0 && repMod.repairDebug().n === repMod.repairCount());
 {
-    const rs = cfgMod.CFG.campaign.stage2.restoreSec;
-    for (let t = 0; t <= rs + 1; t += 0.2) s2mod.stage2Scene.updateMode(0.2);
+    // Papan 1 selesai -> stage mencatat 1/3, papan 2 (komponen kedua) muncul.
+    solveOpenRepairBoard();
+    const d1 = await waitRepairNext(1);
+    T('S2 FLOW: papan komponen 1 selesai -> kemajuan tercatat & papan komponen 2 muncul',
+        d1.open === true && d1.index === 1 && d1.part === repMod.REPAIR_PARTS[1].id
+        && s2mod.s2Debug().installed === 1);
+    // ABORT di tengah: kembali ke 'restore' TANPA kehilangan kemajuan; pemicu mati
+    // sampai player menjauh (kalau tidak, modal langsung terbuka lagi di tempat).
+    smMod.activeScene.shopKey('escape');
+    stateMod.setPaused(false);
+    s2mod.stage2Scene.updateMode(0.1);
+    T('S2 FLOW: ABORT -> balik ke restore, kemajuan 1/3 tersimpan, pemicu belum terisi',
+        repMod.isRepairOpen() === false && smMod.activeScene === s2mod.stage2Scene
+        && s2mod.s2Debug().phase === 'restore' && s2mod.s2Debug().installed === 1
+        && s2mod.s2Debug().armed === false);
+    // Menjauh -> pemicu terisi; kembali menginjak marker -> LANJUT dari komponen 2.
+    camera.position.set(s2GenC.x + 200, EY2, s2GenC.z); s2mod.stage2Scene.updateMode(0.1);
+    camera.position.set(s2GenC.x, EY2, s2GenC.z); s2mod.stage2Scene.updateMode(0.1);
+    T('S2 FLOW: menjauh lalu kembali -> minigame LANJUT dari komponen 2 (bukan mengulang)',
+        repMod.isRepairOpen() === true && repMod.repairDebug().index === 1);
+    solveOpenRepairBoard();
+    await waitRepairNext(2);
+    solveOpenRepairBoard();
+    await waitRepairClosed();
     const w2 = robots.filter(z => z.stage === 2);
     const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
-    // Selesai restore -> LANGSUNG 'done' (TAK ada fase clear2 lagi) + wave2 (25).
+    // 3 papan selesai -> LANGSUNG 'done' (TAK ada fase clear2 lagi) + wave2 (25).
     // 2026-07-26 (permintaan user): stage 2 TANPA kelas A — ruang3 yang dulu A jadi B.
-    T('S2 FLOW: restore selesai -> DONE LANGSUNG + wave2 bala bantuan (10C/15B, 0 A) + kendali kembali',
-        s2mod.s2Debug().phase === 'done' && stateMod.cinematicActive === false
+    T('S2 FLOW: 3 komponen terpasang -> DONE LANGSUNG + wave2 bala bantuan (10C/15B, 0 A) + kendali kembali',
+        s2mod.s2Debug().phase === 'done' && s2mod.s2Debug().installed === 3
+        && repMod.isRepairOpen() === false && stateMod.cinematicActive === false
         && w2.length === 25 && nC === 10 && nB === 15 && nA === 0);
 }
 // ATURAN BARU (2026-07-21): lift bisa dinaiki MESKI robot wave2 masih hidup — TANPA killS2.
@@ -3337,6 +3669,65 @@ smMod.activeScene.cheatSkipToStage(4);
 T('cheat jump memanggil renderer.compile (warm shader stage baru)', rcCount > 0);
 rendererMod.renderer.compile = _rc;
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+
+// --- 17b2. CHEAT give-weapon-N (2026-07-29, permintaan user): 2 = Shotgun,
+// 3 = Assault Rifle, 4 = Rocket Launcher. Senjata datang di LEVEL MAKSIMUM
+// (CFG.weapons.maxWeaponLevel — config-driven; level maks itulah yang membuat
+// launcher jadi ROKET) dgn peluru penuh, langsung terpegang. Slot penuh =>
+// PISTOL dilepas (cheat tak memunculkan dialog "pilih pengganti" ala shop). ---
+{
+    const cheatMod = await import(R('src/core/cheatConsole.js'));
+    const MAXL = cfgMod.CFG.weapons.maxWeaponLevel, MAXW = cfgMod.CFG.weapons.maxWeapons;
+    const snap = {
+        weapons: player.weapons.slice(), lvl: { ...player.weaponLvl }, cur: wMod.currentWeapon,
+        ammo: { shotgun: player.shotgun.ammo, rifle: player.rifle.ammo, launcher: player.launcher.ammo },
+    };
+    player.weapons = ['pistol']; stateMod.syncOwnedFromWeapons();
+    player.weaponLvl = { rifle: 1, pistol: 1, shotgun: 1, launcher: 1 };
+    player.shotgun.ammo = 0; player.rifle.ammo = 0; player.launcher.ammo = 0;
+
+    cheatMod.runCheatCommand('give-weapon-2');
+    T('cheat give-weapon-2: SHOTGUN level maks + peluru penuh masuk slot berikutnya',
+        player.owned.shotgun === true && player.weapons[1] === 'shotgun'
+        && player.weaponLvl.shotgun === MAXL && player.shotgun.ammo === stateMod.maxAmmoFor('shotgun'));
+    cheatMod.runCheatCommand('give-weapon-3');
+    T('cheat give-weapon-3: ASSAULT RIFLE level maks + peluru penuh',
+        player.owned.rifle === true && player.weapons[2] === 'rifle'
+        && player.weaponLvl.rifle === MAXL && player.rifle.ammo === stateMod.maxAmmoFor('rifle'));
+    const slotsFull = player.weapons.length === MAXW;
+    cheatMod.runCheatCommand('give-weapon-4');
+    T('cheat give-weapon-4: slot penuh -> PISTOL dilepas, launcher masuk (jumlah slot tetap maxWeapons)',
+        slotsFull && player.weapons.length === MAXW && player.owned.launcher === true
+        && player.owned.pistol === false && player.weaponLvl.launcher === MAXL
+        && player.launcher.ammo === stateMod.maxAmmoFor('launcher'));
+    // Langsung TERPEGANG + rondenya benar-benar ROKET (bukan granat Mk2).
+    for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);   // selesaikan animasi ganti
+    stateMod.bullets.length = 0;
+    stateMod.mouse.isDown = true; player.lastShot = 0;
+    wMod.updateShooting();
+    stateMod.mouse.isDown = false;
+    T('cheat give-weapon-4 = ROCKET LAUNCHER: langsung dipegang & rondenya roket (userData.rocket)',
+        wMod.currentWeapon === 'launcher' && stateMod.bullets.length === 1
+        && stateMod.bullets[0].mesh.userData.rocket === true && stateMod.bullets[0].explosive === true);
+    for (const b of stateMod.bullets.splice(0)) scene.remove(b.mesh);
+    // Idempoten (tak menggandakan slot) + nomor tak dikenal diabaikan.
+    const before = player.weapons.slice();
+    cheatMod.runCheatCommand('give-weapon-2');
+    const dup = player.weapons.filter(w => w === 'shotgun').length;
+    cheatMod.runCheatCommand('give-weapon-9');
+    T('cheat give-weapon: senjata yang sudah dibawa tak menggandakan slot; nomor tak dikenal tak mengubah apa pun',
+        dup === 1 && player.weapons.length === before.length
+        && player.weapons.every((w, i) => w === before[i]));
+
+    player.weapons = snap.weapons; stateMod.syncOwnedFromWeapons();
+    player.weaponLvl = snap.lvl;
+    player.shotgun.ammo = snap.ammo.shotgun; player.rifle.ammo = snap.ammo.rifle;
+    player.launcher.ammo = snap.ammo.launcher;
+    wMod.refreshOwnedWeapon();
+    wMod.startSwitch(snap.cur);
+    for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);   // selesaikan animasi ganti (switchAnim -> -1)
+    for (let i = 0; i < 5; i++) wMod.updateWeaponState(0.2);     // luruhkan gunRecoil (gate AFK avatar)
+}
 
 // --- 17c. SAVE GAME / checkpoint Campaign (2026-07-15): simpan nomor stage
 // terakhir yang di-enter di localStorage → Continue dari titik-mulai stage itu.
