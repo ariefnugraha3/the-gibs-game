@@ -1554,6 +1554,59 @@ s2mod.buildWorld();
 T('S2: START & GENERATOR berada di LANTAI (bukan dinding)',
     !s2mod.s2Wall(s2mod.S2_START.c, s2mod.S2_START.r) && !s2mod.s2Wall(s2mod.S2_GEN.c, s2mod.S2_GEN.r));
 T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
+{   // --- REVISI DENAH USER 2026-07-29 (baris 6): ruang kanan-atas dipotong jadi
+    //     RUANG GENERATOR tertutup (c40-48 r1-5) + ruang besar di bawahnya, dgn
+    //     SATU mulut pintu c43-44. Yang dijaga: pintunya benar-benar ada, ruang
+    //     generator HANYA bisa dimasuki lewat pintu itu, dan tak ada entri tabel
+    //     (perabot/spawn/barel/peti) yang tertinggal di dalam dinding baru. ---
+    const D = s2mod.s2SpawnDbg();
+    const gate = D.doors.find(d => d.r0 === 6 && d.r1 === 6 && d.c0 === 43 && d.c1 === 44);
+    const a = s2mod.s2Cell(43, 6), b = s2mod.s2Cell(44, 6);
+    const built = s2mod.s2DoorsDbg().find(d =>
+        Math.hypot(d.cx - (a.x + b.x) / 2, d.cz - (a.z + b.z) / 2) < 1);
+    T('S2 DENAH: mulut pintu di depan generator (c43-44 r6) punya PINTU GESER',
+        !!gate && !!built && s2mod.s2DoorsDbg().length === D.doors.length);
+    // BFS dari START dgn KEDUA sel pintu ditutup -> sel generator tak terjangkau
+    // (kalau terjangkau berarti masih ada celah lain = dinding barunya bocor).
+    const grid = s2mod.s2grid;
+    const seen = grid.map(row => row.map(() => false));
+    const shut = new Set(['43,6', '44,6']);
+    const q = [[s2mod.S2_START.c, s2mod.S2_START.r]];
+    seen[s2mod.S2_START.r][s2mod.S2_START.c] = true;
+    while (q.length) {
+        const [c, r] = q.shift();
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nc = c + dc, nr = r + dr;
+            if (nc < 0 || nr < 0 || nc >= 50 || nr >= 50) continue;
+            if (grid[nr][nc] !== 0 || seen[nr][nc] || shut.has(nc + ',' + nr)) continue;
+            seen[nr][nc] = true; q.push([nc, nr]);
+        }
+    }
+    let chamber = 0, sealed = 0;
+    for (let r = 1; r <= 5; r++) for (let c = 40; c <= 48; c++) {
+        if (s2mod.s2Wall(c, r)) continue;
+        chamber++; if (!seen[r][c]) sealed++;
+    }
+    T('S2 DENAH: ruang generator (' + chamber + ' sel) HANYA bisa dimasuki lewat pintu itu',
+        chamber > 0 && sealed === chamber && !seen[s2mod.S2_GEN.r][s2mod.S2_GEN.c]);
+    // Sapuan tabel: tak satu pun entri di sel DINDING, dan tak ada titik spawn
+    // yang tepat di MULUT PINTU (robot/barel/peti menyumbat daun pintu).
+    const stray = [], atDoor = [];
+    for (const [k, c, r] of s2mod.s2FurnitureDbg()) if (s2mod.s2Wall(c, r)) stray.push(`furn ${k}@${c},${r}`);
+    const doorCells = new Set();
+    for (const d of D.doors)
+        for (let r = d.r0; r <= d.r1; r++) for (let c = d.c0; c <= d.c1; c++) doorCells.add(c + ',' + r);
+    for (const key of ['wave1', 'guards', 'wave2', 'barrels', 'crates']) {
+        for (const [c, r] of D[key]) {
+            if (s2mod.s2Wall(c, r)) stray.push(`${key}@${c},${r}`);
+            if (doorCells.has(c + ',' + r)) atDoor.push(`${key}@${c},${r}`);
+        }
+    }
+    if (stray.length) console.log('  entri denah stage 2 di dalam DINDING:', stray);
+    if (atDoor.length) console.log('  entri denah stage 2 di MULUT PINTU:', atDoor);
+    T('S2 DENAH: tak ada perabot/spawn/barel/peti yang jatuh di sel DINDING', stray.length === 0);
+    T('S2 DENAH: tak ada titik spawn robot/barel/peti tepat di MULUT PINTU', atDoor.length === 0);
+}
 
 // Jumlah robot STAGE 1 = 40 (2026-07-19 malam, permintaan user — dulu 30)
 {
@@ -4973,7 +5026,7 @@ const palMod = await import(R('src/world/palette.js'));
     //      "ruangan masih terlalu terlihat kosong, taruh lebih banyak box") ----
     const ROOMS = [
         { n: 1, m: s1c, S: s1c.S1, cell: s1c.s1Cell, wall: s1c.s1Wall, res: s1c.resolve, lamps: s1c.s1LampsDbg(), furn: s1c.s1FurnitureDbg(), pos: s1CratePos, doors: DOORCELLS },
-        { n: 2, m: s2c, S: s2c.S2, cell: s2c.s2Cell, wall: s2c.s2Wall, res: s2c.resolve, lamps: s2c.s2LampsDbg(), furn: s2c.s2FurnitureDbg(), pos: s2CratePos, doors: [[17, 4], [17, 5], [6, 9], [7, 9], [30, 11], [30, 12], [27, 19], [27, 20], [1, 20], [2, 20], [13, 23], [13, 24], [39, 27], [39, 28], [44, 29], [45, 29]] },
+        { n: 2, m: s2c, S: s2c.S2, cell: s2c.s2Cell, wall: s2c.s2Wall, res: s2c.resolve, lamps: s2c.s2LampsDbg(), furn: s2c.s2FurnitureDbg(), pos: s2CratePos, doors: [[43, 6], [44, 6], [17, 4], [17, 5], [6, 9], [7, 9], [30, 11], [30, 12], [27, 19], [27, 20], [1, 20], [2, 20], [13, 23], [13, 24], [39, 27], [39, 28], [44, 29], [45, 29]] },
         { n: 3, m: s3c, S: s3c.S3, cell: s3c.s3Cell, wall: s3c.s3Wall, res: s3c.resolve, lamps: s3c.s3LampsDbg(), furn: s3c.s3FurnitureDbg(), pos: s3CratePos, doors: [[24, 8], [25, 8], [32, 9], [32, 10], [8, 12], [8, 13], [32, 15], [32, 16], [11, 21], [11, 22], [32, 21], [32, 22]] },
     ];
     // sel dianggap TERISI perabot bila titik pusatnya terdorong resolve (radius nav 3)

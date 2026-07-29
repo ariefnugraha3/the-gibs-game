@@ -95,6 +95,12 @@ const S2_SHELF_R0 = 33, S2_SHELF_R1 = 44;        // baris rak gudang
 
 // DENAH RESMI (stage2-v3.csv, 50x50). '#'=dinding, '.'=lantai (pintu = lantai +
 // pintu geser S2_DOORS). JANGAN ubah tanpa update S2_DOORS/robot + tes ulang.
+// REVISI USER 2026-07-29 (baris 6): dinding baru c40-42 & c45-48 memotong ruang
+// kanan-atas jadi DUA — RUANG GENERATOR tertutup (c40-48 r1-5, berisi mesin +
+// kotak pulih) dan ruang besar di bawahnya (r7-28) — dengan satu MULUT PINTU
+// c43-44 tepat di depan generator (pintu geser di S2_DOORS). Semua yang
+// mengikuti denah ikut disesuaikan: pintu, perabot yang tadinya di baris 6,
+// titik spawn robot gelombang-1, lampu+selubung per-ruangan, dan peti.
 const S2_MAP = [
     '##################################################',   // 0
     '#.......#........#.....................#.........#',   // 1
@@ -102,7 +108,7 @@ const S2_MAP = [
     '#.......#........#.........#...........#.........#',   // 3
     '#.......#..................#...........#.........#',   // 4
     '#.......#..................#...........#.........#',   // 5
-    '#.......#........#######################.........#',   // 6
+    '#.......#........##########################..#####',   // 6
     '#.............................#........#.........#',   // 7
     '#.............................#........#.........#',   // 8
     '######..#.....................#........#.........#',   // 9
@@ -151,6 +157,7 @@ const S2_MAP = [
 // PINTU geser (8, persis dari plan '-'). dir 'ew'=celah dinding VERTIKAL /
 // 'ns'=celah dinding HORIZONTAL. Semua jamb sudah diverifikasi dinding.
 const S2_DOORS = [
+    { c0: 43, r0: 6, c1: 44, r1: 6, dir: 'ns' },     // ruang GENERATOR (r1-5) <-> ruang besar bawahnya (revisi denah user 2026-07-29)
     { c0: 17, r0: 4, c1: 17, r1: 5, dir: 'ew' },     // upper-center <-> cols9-16 area
     { c0: 6, r0: 9, c1: 7, r1: 9, dir: 'ns' },       // T-area <-> center hall
     { c0: 30, r0: 11, c1: 30, r1: 12, dir: 'ew' },   // center hall <-> R-toilet/center-right
@@ -202,7 +209,9 @@ const S2_FURNITURE = [
     ['cupboard', 28, 1, 20, 15, 6], ['box', 28, 4, 14, 9, 14], ['bench', 37, 1, 18, 6, 7],     // ruang SUPPLY
     ['stall', 31, 7, 10, 15, 2], ['sink', 38, 7, 10, 8, 4], ['stall', 31, 17, 10, 15, 2],      // toilet
     ['desk', 41, 3, 22, 7, 12], ['cupboard', 47, 3, 20, 15, 6], ['box', 47, 26, 14, 9, 14],    // ruang generator
-    ['console', 42, 26, 16, 7, 8], ['planter', 41, 6, 8, 11, 8], ['bench', 47, 6, 18, 6, 7],
+    // planter(41,6) & bench(47,6) DIPINDAH ke dalam ruang generator: baris 6 kini
+    // DINDING (revisi denah user 2026-07-29), jadi keduanya akan tertanam tembok.
+    ['console', 42, 26, 16, 7, 8], ['planter', 42, 5, 8, 11, 8], ['bench', 46, 5, 18, 6, 7],
     ['box', 41, 23, 14, 9, 14],
     ['desk', 10, 21, 22, 7, 12], ['cupboard', 3, 28, 20, 15, 6], ['box', 5, 21, 14, 9, 14],    // lower-left (ruang 2)
     ['planter', 8, 28, 8, 11, 8],
@@ -241,14 +250,28 @@ const S2_FURNITURE = [
     ['desk', 10, 9, 22, 7, 12], ['box', 28, 15, 14, 9, 14], ['bench', 10, 13, 18, 6, 7],
     ['sofa', 26, 9, 18, 6, 14],
     ['stall', 37, 7, 10, 15, 2], ['box', 31, 8, 14, 9, 14],                        // toilet
-    ['box', 40, 24, 14, 9, 14], ['cupboard', 48, 24, 6, 15, 20], ['planter', 40, 6, 8, 11, 8], // ruang generator
-    ['bench', 48, 6, 7, 6, 18],
+    // planter(40,6) & bench(48,6) juga DIPINDAH turun ke ruang besar di bawah
+    // dinding baru (baris 6 = tembok sejak revisi denah user 2026-07-29).
+    ['box', 40, 24, 14, 9, 14], ['cupboard', 48, 24, 6, 15, 20], ['planter', 40, 8, 8, 11, 8], // ruang generator
+    ['bench', 46, 8, 18, 6, 7],
     ['box', 7, 21, 14, 9, 14], ['cupboard', 6, 28, 20, 15, 6], ['desk', 3, 23, 22, 7, 12],     // lower-left (ruang 2)
     ['box', 16, 23, 14, 9, 14], ['sofa', 23, 27, 18, 6, 14],                       // center-lower (ruang 1)
     ['box', 28, 26, 14, 9, 14], ['planter', 31, 28, 8, 11, 8],                     // lower-center-right
 ];
 
 export const s2FurnitureDbg = () => S2_FURNITURE;   // smoke test (kepadatan & tumpang tindih)
+export const s2DoorsDbg = () => s2doors;            // smoke test (pintu terbangun sesuai denah)
+// Semua sel yang DIPILIH TANGAN dari denah (spawn & barel). Diekspor supaya smoke
+// bisa menjaga: tak satu pun jatuh di sel DINDING atau di MULUT PINTU — persis
+// kelas bug yang muncul saat denah diubah (revisi baris 6, 2026-07-29).
+export const s2SpawnDbg = () => ({
+    wave1: S2_ROBOTS.map(([c, r]) => [c, r]),
+    guards: S2_GUARDS.map(([, c, r]) => [c, r]),
+    wave2: S2_WAVE2.map(([, c, r]) => [c, r]),
+    barrels: S2_BARRELS.map(([c, r]) => [c, r]),
+    crates: S2_CRATES.map(([c, r]) => [c, r]),
+    doors: S2_DOORS,
+});
 let s2StaticBatch = [];                              // mesh perabot hasil penggabungan
 export const s2StaticBatchDbg = () => s2StaticBatch; // smoke test (jumlah draw call perabot)
 
@@ -639,12 +662,16 @@ export function buildWorld() {
     addLamp(22, 3, 0xffd9a0, 0.85, 300, 18, 1, 26, 5);       // 3 upper-center
     addLamp(33, 3, 0xbfe4ff, 0.9, 320, 28, 1, 38, 5);        // 4 W supply (dingin)
     addLamp(35, 12, 0xffe2b8, 0.85, 340, 31, 7, 38, 17);     // 5 R toilet
-    addLamp(44, 9, 0xbfe4ff, 0.9, 560, 40, 1, 48, 28);       // 6 generator room (dingin, besar)
-    addLamp(6, 24, 0xffc890, 0.85, 320, 1, 21, 12, 28);      // 7 lower-left (room2)
-    addLamp(19, 24, 0xffe2b8, 0.85, 360, 14, 21, 26, 28);    // 8 center-lower (room1)
-    addLamp(32, 24, 0xbfe4ff, 0.85, 360, 27, 21, 38, 28);    // 9 lower-center-right
-    addLamp(14, 39, 0xffc07a, 0.9, 640, 1, 30, 24, 48);      // 10 warehouse W (gudang)
-    addLamp(37, 39, 0xffc07a, 0.9, 640, 25, 30, 48, 48);     // 11 warehouse E
+    // Ruang kanan-atas kini DUA ruangan (revisi denah user 2026-07-29): masing-
+    // masing dapat lampu + SELUBUNG sendiri seperti ruangan lain, jadi ruang
+    // generator tetap gelap sampai player benar-benar masuk lewat pintunya.
+    addLamp(44, 3, 0xbfe4ff, 0.9, 320, 40, 1, 48, 5);        // 6 ruang GENERATOR (r1-5, dingin)
+    addLamp(44, 14, 0xbfe4ff, 0.9, 560, 40, 7, 48, 28);      // 7 ruang besar bawah generator (dingin)
+    addLamp(6, 24, 0xffc890, 0.85, 320, 1, 21, 12, 28);      // 8 lower-left (room2)
+    addLamp(19, 24, 0xffe2b8, 0.85, 360, 14, 21, 26, 28);    // 9 center-lower (room1)
+    addLamp(32, 24, 0xbfe4ff, 0.85, 360, 27, 21, 38, 28);    // 10 lower-center-right
+    addLamp(14, 39, 0xffc07a, 0.9, 640, 1, 30, 24, 48);      // 11 warehouse W (gudang)
+    addLamp(37, 39, 0xffc07a, 0.9, 640, 25, 30, 48, 48);     // 12 warehouse E
     for (const lm of s2Lamps) lm.doors = s2doors.filter(d =>
         d.cx >= lm.x0 - 1.5 * S2.CELL && d.cx <= lm.x1 + 1.5 * S2.CELL &&
         d.cz >= lm.z0 - 1.5 * S2.CELL && d.cz <= lm.z1 + 1.5 * S2.CELL);
@@ -663,8 +690,11 @@ export function buildWorld() {
 }
 
 // ===== ROBOT GELOMBANG 1: 50 KELAS C tersebar di gedung kantor (bukan gudang) =====
+// [44,6] dulu = tengah ruang kanan-atas; sel itu kini MULUT PINTU generator
+// (revisi denah user 2026-07-29) -> digeser ke (44,4), DI DALAM ruang generator
+// (di selatan mesin), supaya empat robot ini tidak spawn menumpuk di pintu.
 const S2_ROBOTS = [
-    [4, 12, 3], [12, 3, 3], [22, 3, 4], [33, 3, 3], [44, 6, 4], [44, 14, 3],
+    [4, 12, 3], [12, 3, 3], [22, 3, 4], [33, 3, 3], [44, 4, 4], [44, 14, 3],
     [44, 24, 3], [20, 11, 5], [24, 15, 4], [35, 11, 3], [35, 15, 3],
     [20, 23, 5], [31, 23, 4], [6, 24, 3],
 ];
@@ -752,7 +782,8 @@ const S2_CRATES = [
     [25, 2], [25, 5],              // upper-center
     [34, 4], [37, 5],              // ruang SUPPLY
     [36, 11], [32, 17],            // toilet
-    [42, 8], [46, 20], [40, 7], [48, 8], [40, 21],              // ruang generator
+    [42, 4], [46, 4],              // ruang GENERATOR tertutup (r1-5; revisi denah user 2026-07-29)
+    [42, 8], [46, 20], [40, 7], [48, 8], [40, 21],              // ruang besar di bawah generator
     [10, 26], [12, 27], [2, 27],   // lower-left (ruang 2)
     [18, 26], [26, 23], [15, 28],  // center-lower (ruang 1)
     [30, 26], [38, 22], [29, 28],  // lower-center-right
