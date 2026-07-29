@@ -10,7 +10,7 @@ import {
 } from '../core/state.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { aimPoint } from '../core/input.js';   // batas jarak peluru = titik kursor (2026-07-16)
-import { avatarGunTip, flashSwordBlade } from './playerAvatar.js';
+import { avatarGunTip, flashMeleeBlades } from './playerAvatar.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
 import {
@@ -1088,9 +1088,10 @@ export function doMeleeHit() {
         const hy = camera.position.y - 2;
         spawnGroundPuff(hx, hz, 0xffd28a, 3.4, hy);
         spawnGibs(hx, hy, hz, 4, dirx, dirz, 0.85, 0x9aa1a8, hy - 8, 0x14171a);
-        // 4. KILAT BILAH: sisi pedang berpendar sekejap (playerAvatar meluruhkan
-        //    emissive-nya per frame — material Phong, uniform saja, tanpa recompile).
-        flashSwordBlade();
+        // 4. KILAT BILAH: sisi KEDUA pisau berpendar sekejap (playerAvatar
+        //    meluruhkan emissive-nya per frame — material Phong, uniform saja,
+        //    tanpa recompile).
+        flashMeleeBlades();
     }
 }
 

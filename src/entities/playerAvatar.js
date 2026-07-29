@@ -13,8 +13,9 @@
 // melayang di dada. `avatarGunTip` TETAP di ofset terkalibrasi (0,0.15,4.5) di
 // dalam gunGrp = titik spawn peluru + induk kilat muzzle (weapons.js) — JANGAN
 // digeser. Juga: penanda "move to point", SALTO dodge (flip 360° di pinggang +
-// tuck), dan SABETAN PEDANG melee (pivot pedang di bahu kanan; tangan kanan
-// mengikuti gagangnya).
+// tuck), dan TEBASAN DUA PISAU BELATI melee (overhaul 2026-07-29 — satu pivot
+// pisau per bahu, kedua tangan mengikuti gagangnya; menggantikan sabetan pedang
+// tunggal: "tentara zaman modern tidak mengibaskan pedang").
 
 import { CFG } from '../core/config.js';
 import { camera, viewCam } from '../core/renderer.js';
@@ -77,9 +78,11 @@ function lerpHeadPitch(target, k) {
 export function afkDebug() { return { t: afkT, mode: afkMode }; }
 let props = null, propKey = '';   // prop senjata/medkit aktif (show/hide per frame)
 let armorNodes = null, armorKey = -1;   // overlay ARMOR kumulatif (ikuti player.armorLvl)
-let swordPivot = null;            // pivot ayunan pedang (di bahu kanan; tampil saat melee)
-let swooshGrp = null, swooshMat = null;   // kipas JEJAK tebasan (opacity ~ kecepatan ayunan)
-let swordBladeMat = null, bladeFlash = 0;   // material BILAH + sisa kilat benturan (2026-07-27)
+// DUA PISAU BELATI (overhaul 2026-07-29, menggantikan pedang tunggal): satu
+// pivot tebasan per bahu + satu kipas jejak per pisau (opacity ~ kecepatan).
+let knifeR = null, knifeL = null;
+let swooshR = null, swooshL = null, swooshMatR = null, swooshMatL = null;
+let bladeMat = null, bladeFlash = 0;   // material BILAH (di-share dua pisau) + sisa kilat benturan (2026-07-27)
 const _qT = new THREE.Quaternion(), _tumbleAxis = new THREE.Vector3();   // salto dodge
 const _qR = new THREE.Quaternion(), _rollAxis = new THREE.Vector3();     // guling ke bahu (kematian)
 const _wp = new THREE.Vector3();                                         // titik dunia (lepas senjata)
@@ -109,9 +112,13 @@ const TIPS = {
     default: { x: 0, y: 0.15, z: 4.5 },
     launcher3: { x: 0.95, y: 2.45, z: 2.6 },
 };
-// Target tangan saat TUCK dodge & tangan kiri saat sabetan pedang (ruang upperG).
+// Target tangan saat TUCK dodge & tangan kiri saat jaga (ruang upperG).
 const TUCK = { L: { x: -0.95, y: 7.2, z: 0.95 }, R: { x: 0.95, y: 7.0, z: 0.95 } };
 const GUARD_L = { x: -1.7, y: 7.9, z: 1.3 };
+// TITIK GENGGAM pisau belati di ruang LOKAL pivot bahu (2026-07-29): telapak
+// tangan ditempatkan persis di sini tiap frame (dihitung manual — lihat
+// knifeHandTarget), dan mesh pisaunya di-parent ke sub-grup di titik ini.
+const KNIFE_GRIP = { y: -0.55, z: 1.15 };
 
 // ===== GULINGAN TEMPUR (dodge, dirombak 2026-07-27) =====================
 // Versi lama: badan KAKU diputar 360° ber-smoothstep + kaki menekuk — dari atas
@@ -524,32 +531,65 @@ export function initPlayerAvatar(sc) {
     for (const k in props) props[k].visible = false;
     pRifle.visible = true; propKey = 'rifle';
 
-    // ----- PEDANG melee: PIVOT di bahu kanan — seluruh ayunan = rotasi pivot
-    // ini; bilah memanjang +Z. Tangan kanan mengikuti titik gagang (dihitung
-    // manual di updatePlayerAvatar). Tampil hanya selama sabetan (meleeT > 0). -----
+    // ----- DUA PISAU BELATI melee (OVERHAUL 2026-07-29, permintaan user:
+    // "mengibaskan pedang aneh untuk tentara zaman modern") — menggantikan
+    // pedang tunggal di bahu kanan. SATU PIVOT PER BAHU; seluruh tebasan =
+    // rotasi pivot itu. Pisaunya sendiri di-parent lewat sub-grup `kg` yang
+    // DUDUK DI TITIK GENGGAM (KNIFE_GRIP), sehingga (a) telapak tangan tetap
+    // bisa dihitung manual seperti dulu, dan (b) pisau tangan belakang bisa
+    // dibalik jadi GENGGAMAN TERBALIK (icepick — pegangan pisau tempur) TANPA
+    // menggeser titik genggamnya. Tampil hanya selama sabetan (meleeT > 0).
+    // MEKANIK SERANGAN TIDAK DISENTUH: damage/range/durasi/stamina/kerucut
+    // semuanya tetap milik weapons.js — modul ini murni visual. -----
     const steel = mat(0xc9d3dc, 60);
-    swordPivot = new THREE.Group();
-    swordPivot.position.set(SHOULDER.R.x, SHOULDER.R.y, SHOULDER.R.z);
-    upperG.add(swordPivot);
-    swordPivot.rotation.order = 'YXZ';   // yaw dulu baru pitch — cocok dgn hitung manual titik gagang
-    box(0.16, 0.22, 0.6, dark, 0, -0.35, 0.85, swordPivot);      // gagang
-    box(0.72, 0.14, 0.2, gun, 0, -0.35, 1.25, swordPivot);       // pelindung tangan
-    box(0.11, 0.42, 3.6, steel, 0, -0.35, 3.1, swordPivot, true);   // bilah (pipih memanjang ke depan)
-    swordBladeMat = steel;   // dipakai kilat benturan (flashSwordBlade) — material INI hanya milik bilah
-    swordPivot.visible = false;
-    // Kipas JEJAK tebasan (swoosh): sektor cincin horizontal setinggi dada yang
-    // MEMBUNTUTI bilah selama fase tebas — menjual kecepatan ayunan dari kamera
-    // top-down. Dibuat sekali (hidden; warmup preload mengompilasi shadernya).
-    swooshMat = new THREE.MeshBasicMaterial({
-        color: 0xd8ecf4, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false
-    });
-    const swooshMesh = new THREE.Mesh(new THREE.RingGeometry(1.4, 4.9, 20, 1, 0, 1.25), swooshMat);
-    swooshMesh.rotation.x = -Math.PI / 2;
-    swooshGrp = new THREE.Group();
-    swooshGrp.position.set(SHOULDER.R.x, 7.7, SHOULDER.R.z);
-    swooshGrp.add(swooshMesh);
-    swooshGrp.visible = false;
-    upperG.add(swooshGrp);
+    bladeMat = steel;   // kilat benturan (flashMeleeBlades) — material INI hanya milik bilah
+    const buildKnife = (sh, reverse) => {
+        const piv = new THREE.Group();
+        piv.position.set(sh.x, sh.y, sh.z);
+        piv.rotation.order = 'YXZ';   // yaw dulu baru pitch — cocok dgn hitung manual titik genggam
+        upperG.add(piv);
+        const kg = new THREE.Group();                  // sub-grup DI TITIK GENGGAM
+        kg.position.set(0, KNIFE_GRIP.y, KNIFE_GRIP.z);
+        if (reverse) kg.rotation.x = Math.PI;          // genggaman TERBALIK (icepick)
+        piv.add(kg);
+        // Belati militer: pommel + gagang berlilit + guard kecil + bilah pipih
+        // ber-alur darah + ujung clip-point. Semua relatif TITIK GENGGAM.
+        box(0.17, 0.2, 0.16, dark, 0, 0, -0.36, kg);         // pommel
+        box(0.18, 0.23, 0.62, dark, 0, 0, 0, kg);            // gagang
+        box(0.2, 0.25, 0.1, rubber, 0, 0, -0.14, kg);        // lilitan karet
+        box(0.2, 0.25, 0.1, rubber, 0, 0, 0.14, kg);
+        box(0.46, 0.14, 0.14, gun, 0, 0, 0.4, kg);           // guard menyilang
+        box(0.09, 0.32, 1.5, steel, 0, 0, 1.22, kg, true);   // bilah pipih
+        box(0.11, 0.08, 1.0, dark, 0, 0.02, 1.15, kg);       // alur darah (fuller)
+        const tipGeo = new THREE.ConeGeometry(0.22, 0.6, 4);
+        tipGeo.rotateX(Math.PI / 2); tipGeo.scale(0.4, 1, 1);   // kerucut dipipihkan = ujung clip-point
+        mk(tipGeo, steel, 0, 0, 2.24, kg, false);
+        piv.visible = false;
+        return piv;
+    };
+    knifeR = buildKnife(SHOULDER.R, false);   // tangan kanan: genggaman normal
+    knifeL = buildKnife(SHOULDER.L, true);    // tangan kiri: genggaman TERBALIK
+    // Kipas JEJAK tebasan (swoosh) — SATU PER PISAU (dulu satu untuk pedang):
+    // sektor cincin horizontal setinggi dada yang MEMBUNTUTI bilahnya masing-
+    // masing, jadi silangan X-nya terbaca dari kamera top-down. Lebih pendek &
+    // lebih sempit dari kipas pedang (jangkauan pisau memang lebih dekat).
+    // Dibuat sekali (hidden; warmup preload mengompilasi shadernya).
+    const mkSwoosh = (sh) => {
+        const m = new THREE.MeshBasicMaterial({
+            color: 0xd8ecf4, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false
+        });
+        const mesh = new THREE.Mesh(new THREE.RingGeometry(1.0, 3.3, 16, 1, 0, 1.0), m);
+        mesh.rotation.x = -Math.PI / 2;
+        const grp = new THREE.Group();
+        grp.position.set(sh.x, 7.7, sh.z);
+        grp.add(mesh);
+        grp.visible = false;
+        upperG.add(grp);
+        return { grp, m };
+    };
+    const swR = mkSwoosh(SHOULDER.R), swL = mkSwoosh(SHOULDER.L);
+    swooshR = swR.grp; swooshMatR = swR.m;
+    swooshL = swL.grp; swooshMatL = swL.m;
 
     // ===== OVERLAY ARMOR (2026-07-13): tiga set KUMULATIF mengikuti
     // player.armorLvl (item shop Survival) — tiap tier menambah lapisan di atas
@@ -608,11 +648,67 @@ export function hideMoveMarker() {
     if (marker) marker.visible = false;
 }
 
-// KILAT BILAH (2026-07-27): dipanggil weapons.doMeleeHit saat sabetan MENGENAI.
-// Hanya menaikkan sisa kilat; peluruhannya (emissive → hitam lagi) dilakukan per
-// frame di cabang melee updatePlayerAvatar. Material `steel` ini EKSKLUSIF milik
-// bilah (tak dipakai bagian avatar lain), dan emissive = uniform → tanpa recompile.
-export function flashSwordBlade() { bladeFlash = 1; }
+// Tampilkan/sembunyikan PERLENGKAPAN MELEE (dua pisau + dua kipas jejak).
+// Dipakai cabang melee, rappel, dan kematian — satu titik supaya tak ada pisau
+// yang tertinggal menempel di tangan mayat/pemanjat tali.
+function showMeleeGear(on) {
+    if (knifeR) knifeR.visible = on;
+    if (knifeL) knifeL.visible = on;
+    if (!on) { if (swooshR) swooshR.visible = false; if (swooshL) swooshL.visible = false; }
+}
+
+// ===== KOREOGRAFI SATU TEBASAN PISAU (2026-07-29) =====
+// `u` = kemajuan tebasan pisau ITU (bukan kemajuan animasi melee): u < 0 = masih
+// ANCANG (ditarik ke sisi tangannya), 0..1 = TEBASAN, u > 1 = IKUT-TERUS.
+// `s` = arah sapuan (+1 = dari sisi kanan menyapu ke kiri, -1 = kebalikannya) —
+// dicerminkan oleh `meleeSide` sehingga dua serangan berturut-turut tak identik.
+// `down` = tebasan MENURUN (pisau depan) / MENAIK (pisau belakang); pasangan
+// menurun+menaik dari dua tangan itulah yang membentuk SILANGAN X.
+// Kurva tebasan = easeIn KUADRAT: pelan mengancang lalu MELEDAK, sehingga bilah
+// menyapu titik tengah sekitar 70% tebasan = tepat di momen hit (45% ayunan).
+function knifeArc(u, s, down) {
+    const p0 = down ? -0.60 : 0.46, p1 = down ? 0.40 : -0.34;   // pitch awal -> akhir
+    const Y0 = 1.42, Y1 = -1.48, R0 = 0.5, R1 = -0.58;          // yaw & roll awal -> akhir
+    if (u <= 0) {   // ANCANG: menyentak ke sisi tangannya sendiri (siap meledak)
+        const a = clamp01(1 + u * 2.2);
+        return { yaw: Y0 * s * a, pitch: p0 * a, roll: R0 * s * a, sw: 0 };
+    }
+    if (u >= 1) {   // IKUT-TERUS: melewati batas lalu memantul balik teredam
+        const t = u - 1, d = Math.exp(-5.5 * t);
+        const ov = 0.26 * d * Math.cos(t * 14);
+        return {
+            yaw: (Y1 - 0.2 * d + ov) * s,
+            pitch: p1 * (1 - 0.25 * (1 - d)),
+            roll: R1 * s * (1 - 0.2 * (1 - d)),
+            sw: Math.max(0, 0.5 * (1 - t / 0.5)),
+        };
+    }
+    const e = u * u;
+    return {
+        yaw: (Y0 + (Y1 - Y0) * e) * s,
+        pitch: p0 + (p1 - p0) * e,
+        roll: (R0 + (R1 - R0) * e) * s,
+        sw: e * 0.5,
+    };
+}
+
+// Titik genggam pisau (KNIFE_GRIP di ruang pivot) diputar pitch (X) lalu yaw (Y)
+// — urutan euler pivot 'YXZ', roll diabaikan (ofsetnya kecil) — lalu digeser ke
+// bahu: inilah target telapak tangan supaya tangan MENEMPEL di gagang.
+function knifeHandTarget(sh, pitch, yaw) {
+    const gy0 = KNIFE_GRIP.y, gz0 = KNIFE_GRIP.z;
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const y1 = gy0 * cp - gz0 * sp, z1 = gy0 * sp + gz0 * cp;
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    return { x: sh.x + z1 * sy, y: sh.y + y1, z: sh.z + z1 * cy };
+}
+
+// KILAT BILAH (2026-07-27; sejak 2026-07-29 = KEDUA bilah pisau, material `steel`
+// di-share): dipanggil weapons.doMeleeHit saat sabetan MENGENAI. Hanya menaikkan
+// sisa kilat; peluruhannya (emissive → hitam lagi) dilakukan per frame di
+// updatePlayerAvatar. Material ini EKSKLUSIF milik bilah (tak dipakai bagian
+// avatar lain), dan emissive = uniform → tanpa recompile.
+export function flashMeleeBlades() { bladeFlash = 1; }
 export const bladeFlashDebug = () => bladeFlash;
 
 // Mulai animasi kematian (dipanggil startPlayerDeath di game.js): tubuh roboh
@@ -705,11 +801,10 @@ function poseRappel(dt) {
     // KEDUA tangan meraih tali di ATAS kepala (dekat pusat badan = garis tali)
     placeArm('R', 0.7, 12.0 + s * 0.25, 1.3);
     placeArm('L', -0.7, 12.2 - s * 0.25, 1.1);
-    // Sembunyikan prop senjata/pedang (kedua tangan di tali)
+    // Sembunyikan prop senjata + pisau melee (kedua tangan di tali)
     if (props && propKey !== '__rappel') {
         for (const q in props) props[q].visible = false;
-        if (swordPivot) swordPivot.visible = false;
-        if (swooshGrp) swooshGrp.visible = false;
+        showMeleeGear(false);
         propKey = '__rappel';
     }
 }
@@ -884,12 +979,11 @@ function poseDeath(dt, feetY) {
     kneeL.rotation.x = kneeLx; kneeR.rotation.x = kneeRx;
     hipL.rotation.z = 0; hipR.rotation.z = 0;
 
-    // --- Prop: senjata yang dipegang DILEPAS terbang, sisanya + pedang disembunyikan
+    // --- Prop: senjata yang dipegang DILEPAS terbang, sisanya + pisau disembunyikan
     if (props && propKey !== '__dead') {
         const held = props[propKey] ? propKey : '';
         for (const q in props) props[q].visible = q === held;
-        if (swordPivot) swordPivot.visible = false;
-        if (swooshGrp) swooshGrp.visible = false;
+        showMeleeGear(false);
         propKey = '__dead';
         if (held) releaseGun(feetY);
         else if (gunGrpRef) gunGrpRef.visible = false;   // mati saat menebas: tak ada yang jatuh
@@ -1241,14 +1335,14 @@ export function updatePlayerAvatar(dt) {
     // Prop terlihat = medkit saat medkitMode, selain itu senjata aktif — dengan
     // VARIAN LEVEL 3 (2026-07-12): senjata yang di-upgrade sampai Lv3 di shop
     // memakai bentuk 'X3' (Desert Eagle / combat shotgun / Gatling / roket bahu).
-    // Selama sabetan melee (meleeT > 0): senjata disembunyikan, PEDANG tampil.
+    // Selama sabetan melee (meleeT > 0): senjata disembunyikan, DUA PISAU tampil.
     const base = medkitMode ? 'medkit' : currentWeapon;
     const key = !medkitMode && props && props[base + '3']
         && ((player.weaponLvl && player.weaponLvl[base]) || 1) >= 3 ? base + '3' : base;
     const showKey = inMelee ? '__melee' : key;
     if (props && showKey !== propKey) {
         for (const k in props) props[k].visible = !inMelee && k === key;
-        if (swordPivot) swordPivot.visible = inMelee;
+        showMeleeGear(inMelee);   // dua pisau belati keluar HANYA selama sabetan
         // Moncong per prop: default = ofset kalibrasi lama (JANGAN geser);
         // launcher3 = ujung tabung roket di bahu (kilat & spawn roket pindah ke sana).
         const tp = TIPS[key] || TIPS.default;
@@ -1343,91 +1437,91 @@ export function updatePlayerAvatar(dt) {
         rTx = arm.rx; rTy = arm.ry; rTz = arm.rz;
         lTx = arm.lx; lTy = arm.ly; lTz = arm.lz;
     } else if (inMelee) {
-        // ===== Sabetan PEDANG (overhaul 2026-07-12; DIPERTAJAM 2026-07-27) =====
-        // 4 fase: ANCANG (menyentak ke belakang-atas) -> TEBAS (easeIn kubik =
-        // MELEDAK, busur ~245° + menerjang maju + merendah + pinggang memuntir +
-        // jejak swoosh) -> IKUT-TERUS/settle (bilah melewati sasaran lalu ditahan
-        // dgn pantulan kecil — "berat"nya terasa) -> RECOVERY.
-        // BARU 2026-07-27: (a) arah busur BERGANTIAN tiap tebasan (`meleeSide`:
-        // +1 sabetan atas kanan→kiri, -1 BACKHAND kiri→kanan — pedang tetap di
-        // tangan kanan, hanya sapuannya dicerminkan); (b) fase settle dgn
-        // pantulan teredam menggantikan recovery datar; (c) kilat bilah saat
-        // mengenai (flashSwordBlade dari doMeleeHit). =====
-        const M = meleeSide || 1;                            // cermin busur
+        // ===== TEBASAN DUA PISAU BELATI — OVERHAUL 2026-07-29 (permintaan user:
+        // "mengibaskan pedang itu aneh untuk tentara zaman modern"). Menggantikan
+        // sabetan pedang tunggal (2026-07-12, dipertajam 2026-07-27). =====
+        // MEKANIK SERANGAN TIDAK BERUBAH SAMA SEKALI — damage, jangkauan, durasi
+        // (MELEE_TIME), biaya stamina, dan kerucut area semuanya milik weapons.js
+        // dan tidak disentuh; yang diganti HANYA koreografinya. Ambang fase
+        // (A0/A1/A2) pun DIPERTAHANKAN supaya momen hit (45% ayunan) tetap jatuh
+        // tepat saat bilah menyapu sasaran.
+        //   * SILANG X: pisau tangan DEPAN menebas MENURUN keluar→dalam, pisau
+        //     tangan satunya MENYUSUL (offset KNIFE_LAG) menebas MENAIK ke arah
+        //     berlawanan — dari kamera top-down terbaca huruf X, bukan satu
+        //     busur pedang.
+        //   * `meleeSide` mencerminkan SELURUH koreografi (arah sapuan + tangan
+        //     mana yang memimpin), jadi dua serangan berturut-turut tetap tak
+        //     identik — kontrak lama 2026-07-27 dipertahankan.
+        //   * Badan tetap MENERJANG + merendah + pinggang memuntir dgn kurva yang
+        //     sama seperti dulu (bobot serangannya tidak dikurangi).
+        const M = meleeSide || 1;                            // cermin koreografi
         const k = 1 - Math.max(0, meleeT) / MELEE_TIME;      // 0..1 sepanjang ayunan
         const A0 = 0.18, A1 = 0.52, A2 = 0.74;
-        let yaw, pitch, roll, twist, lunge, swOp = 0;
+        const KNIFE_LAG = 0.12;                              // jeda pisau kedua (pembentuk X)
+        // --- Dinamika BADAN (kurva lama, tak diubah) ---
+        let twist, lunge;
         if (k < A0) {
             const t = k / A0, e = 1 - (1 - t) * (1 - t);     // easeOut: sentakan ancang
-            yaw = 1.7 * e; pitch = -0.55 * e; roll = 0.35 * e;
             twist = 0.3 * e; lunge = -0.4 * e;               // condong mundur tipis
         } else if (k < A1) {
             const t = (k - A0) / (A1 - A0), e = t * t * t;   // easeIn kubik: akselerasi keras
-            yaw = 1.7 - 4.3 * e;                             // 1.7 -> -2.6 (busur ~245°)
-            pitch = -0.55 + 0.45 * e;                        // menukik melewati sasaran
-            roll = 0.35 - 0.85 * e;
             twist = 0.3 - 0.75 * e;                          // pinggang ikut memuntir
             lunge = -0.4 + 2.8 * e;                          // MENERJANG maju
             meleeDip = 0.9 * e;
-            swOp = t * t * 0.55;                             // jejak makin pekat = makin cepat
         } else if (k < A2) {
-            // IKUT-TERUS: bilah sudah melewati sasaran, momentum DITAHAN otot —
-            // sedikit melewati batas lalu memantul balik (teredam). Inilah yang
-            // membuat tebasan terasa BERBOBOT alih-alih berhenti begitu saja.
             const t = (k - A1) / (A2 - A1), d = Math.exp(-4.2 * t);
-            const ov = 0.30 * d * Math.cos(t * 13);          // pantulan meluruh
-            yaw = -2.6 - 0.22 * d + ov;
-            pitch = -0.1 + 0.06 * d;
-            roll = -0.5 + 0.12 * d;
             twist = -0.45 + 0.08 * d;
             lunge = 2.4 - 0.35 * (1 - d);
             meleeDip = 0.9 - 0.12 * (1 - d);
-            swOp = Math.max(0, 0.55 * (1 - t / 0.45));       // jejak memudar
         } else {
             const t = (k - A2) / (1 - A2), e = t * t * (3 - 2 * t);   // smoothstep pulih
-            yaw = -2.52 + 2.52 * e;
-            pitch = -0.1 * (1 - e);
-            roll = -0.38 * (1 - e);
             twist = -0.37 * (1 - e);
             lunge = 2.05 * (1 - e);
             meleeDip = 0.78 * (1 - e);
         }
-        // Cermin: yaw/roll/twist berganti tanda; pitch (menukik) tetap.
-        yaw *= M; roll *= M; twist *= M;
-        swordPivot.rotation.set(pitch, yaw, roll);
+        twist *= M;
+        // --- Dua tebasan pisau. Tangan PEMIMPIN = kanan saat M=+1, kiri saat
+        // M=-1; ia menebas MENURUN mulai A0, pasangannya MENAIK mulai A0+lag.
+        // `s` (arah sapuan) berlawanan antar tangan DAN ikut bercermin dgn M.
+        const dur = A1 - A0;
+        const leadR = M > 0;
+        const uR = ((k - A0) - (leadR ? 0 : KNIFE_LAG)) / dur;
+        const uL = ((k - A0) - (leadR ? KNIFE_LAG : 0)) / dur;
+        const aR = knifeArc(uR, M, leadR);      // s = +M
+        const aL = knifeArc(uL, -M, !leadR);    // s = -M (menyapu berlawanan)
+        knifeR.rotation.set(aR.pitch, aR.yaw, aR.roll);
+        knifeL.rotation.set(aL.pitch, aL.yaw, aL.roll);
         // Dinamika BADAN: puntiran pinggang + terjangan maju (sumbu hadap lokal)
         // + merendah — visual murni, posisi logika player tak tersentuh.
         avatarGroup.rotateY(twist);
         avatarGroup.translateZ(lunge);
         avatarGroup.position.y = feetY - meleeDip * 0.55;
-        // Jejak swoosh membuntuti bilah (sektor mulai tepat di sudut bilah,
-        // membentang ke sisi yang baru dilewati ayunan).
-        swooshGrp.visible = swOp > 0.02;
-        if (swooshGrp.visible) {
-            swooshMat.opacity = swOp;
-            swooshGrp.rotation.y = yaw - M * Math.PI / 2;   // kipas membuntuti sisi yang baru dilewati
-        }
-        // Titik gagang lokal (0,-0.35,0.95) diputar pitch (X) lalu yaw (Y)
-        // (order euler pivot 'YXZ' — cocok; roll diabaikan, offsetnya kecil):
-        const gy0 = -0.35, gz0 = 0.95;
-        const cy = Math.cos(pitch), sy = Math.sin(pitch);
-        const y1 = gy0 * cy - gz0 * sy, z1 = gy0 * sy + gz0 * cy;
-        const cyw = Math.cos(yaw), syw = Math.sin(yaw);
-        rTx = SHOULDER.R.x + z1 * syw;
-        rTy = SHOULDER.R.y + y1;
-        rTz = SHOULDER.R.z + z1 * cyw;
-        // Tangan kiri DINAMIS menyeimbangkan: mengayun berlawanan puntiran badan.
-        lTx = GUARD_L.x - twist * 1.3;
-        lTy = GUARD_L.y + meleeDip * 0.3;
-        lTz = GUARD_L.z + Math.abs(twist) * 0.6;
+        // Jejak swoosh: satu per pisau, membuntuti bilahnya masing-masing
+        // (sektor mulai di sudut bilah, membentang ke sisi yang baru dilewati).
+        const lay = (grp, m, arc, s) => {
+            grp.visible = arc.sw > 0.02;
+            if (!grp.visible) return;
+            m.opacity = arc.sw;
+            grp.rotation.y = arc.yaw - s * Math.PI / 2;
+        };
+        lay(swooshR, swooshMatR, aR, M);
+        lay(swooshL, swooshMatL, aL, -M);
+        // Telapak MENEMPEL di gagang masing-masing pisau.
+        const hR = knifeHandTarget(SHOULDER.R, aR.pitch, aR.yaw);
+        const hL = knifeHandTarget(SHOULDER.L, aL.pitch, aL.yaw);
+        rTx = hR.x; rTy = hR.y; rTz = hR.z;
+        lTx = hL.x; lTy = hL.y; lTz = hL.z;
     }
-    if (!inMelee && swooshGrp && swooshGrp.visible) swooshGrp.visible = false;
+    if (!inMelee) {
+        if (swooshR && swooshR.visible) swooshR.visible = false;
+        if (swooshL && swooshL.visible) swooshL.visible = false;
+    }
     // Kilat bilah benturan meluruh TANPA SYARAT (bukan di dalam cabang melee):
     // ayunan bisa habis sementara kilatnya belum padam — kalau peluruhannya ikut
     // cabang, bilah tertinggal menyala sampai tebasan berikutnya.
     if (bladeFlash > 0) {
         bladeFlash = Math.max(0, bladeFlash - dt * 7);
-        if (swordBladeMat) swordBladeMat.emissive.setRGB(bladeFlash, bladeFlash * 0.85, bladeFlash * 0.55);
+        if (bladeMat) bladeMat.emissive.setRGB(bladeFlash, bladeFlash * 0.85, bladeFlash * 0.55);
     }
     placeArm('R', rTx, rTy, rTz);
     placeArm('L', lTx, lTy, lTz);

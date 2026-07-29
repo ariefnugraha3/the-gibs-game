@@ -745,32 +745,70 @@ wMod.updateWeaponTimers(0.5);   // selesaikan ayunan -> meleeT <= 0 (jangan cema
     // menyala (di game ia diluruhkan updateGame; harness belum memanggilnya).
     // Mulai dari kondisi bersih supaya assert di bawah menguji hal yang benar.
     tsMod.resetTimeScale();
-    // swordPivot = satu-satunya anak upperG ber-euler 'YXZ'
+    // ===== DUA PISAU BELATI (OVERHAUL 2026-07-29, permintaan user: pedang
+    // diganti — "tentara zaman modern tidak mengibaskan pedang"). Pivot tebasan
+    // = anak upperG ber-euler 'YXZ'; kini ADA DUA (bahu kanan + bahu kiri),
+    // urutan pembuatan: kanan lalu kiri. MEKANIKNYA tidak berubah — assert
+    // damage/kerucut/durasi/stamina di seksi 5e/5h/6b tetap berlaku apa adanya. =====
     const upperT = avMod.avatarGroup.children[0];
-    const swPivot = upperT.children.find(c => c.rotation && c.rotation.order === 'YXZ');
-    T('swordPivot terjangkau utk uji busur', !!swPivot);
+    const pivots = upperT.children.filter(c => c.rotation && c.rotation.order === 'YXZ');
+    const kR = pivots[0], kL = pivots[1];
+    T('DUA pisau belati (dua pivot tebasan, bukan satu pedang)', pivots.length === 2 && !!kR && !!kL);
+    T('pisau tangan kiri dipegang GENGGAMAN TERBALIK (icepick)',
+        !!kL && kL.children[0].rotation.x === Math.PI && kR.children[0].rotation.x === 0);
+    T('pisau DISEMBUNYIKAN saat tidak menebas', kR.visible === false && kL.visible === false);
     const savedR2 = robots.splice(0, robots.length);
     // resetWeapons() belum boleh dipakai di sini (initWeapons baru dipanggil di
     // seksi 6c) -> habiskan cooldown lewat timer-nya sendiri, config-driven.
     const clearMeleeCd = () => wMod.updateWeaponTimers((cfgMod.CFG.melee.cooldownSec || 1) + 0.1);
-    const swingArc = () => {                      // satu ayunan penuh -> rentang yaw bilah
+    const swingArc = () => {                      // satu ayunan penuh -> jejak kedua pisau
         playerMod.resetPlayerState();             // stamina penuh
         clearMeleeCd();                           // batalkan cooldown ayunan sebelumnya
         wMod.tryMelee();
-        let lo = Infinity, hi = -Infinity, n = 0;
+        const M = wMod.meleeSide;
+        const tr = [];
+        let n = 0, bothOut = true;
         while (wMod.meleeT > 0 && n++ < 200) {
             wMod.updateWeaponTimers(1 / 60);
             avMod.updatePlayerAvatar(1 / 60);
-            lo = Math.min(lo, swPivot.rotation.y); hi = Math.max(hi, swPivot.rotation.y);
+            tr.push({ ry: kR.rotation.y, rp: kR.rotation.x, ly: kL.rotation.y, lp: kL.rotation.x });
+            // Frame TERAKHIR ayunan bisa jatuh setelah meleeT habis (pisau sudah
+            // disarungkan lagi) — hanya frame yang masih menebas yang diuji.
+            if (wMod.meleeT > 0 && (!kR.visible || !kL.visible)) bothOut = false;
         }
-        return { lo, hi, side: wMod.meleeSide };
+        const ys = (key) => tr.map(s => s[key]);
+        // Indeks frame saat tiap pisau MELEWATI titik tengah (yaw berbalik tanda
+        // terhadap arah sapuannya) = momen bilah menyapu sasaran.
+        const cross = (key, s) => { const a = ys(key); for (let i = 0; i < a.length; i++) if (a[i] * s < 0) return i; return 1e9; };
+        return {
+            side: M, bothOut,
+            rLo: Math.min(...ys('ry')), rHi: Math.max(...ys('ry')),
+            lLo: Math.min(...ys('ly')), lHi: Math.max(...ys('ly')),
+            rSweep: tr[tr.length - 1].ry - tr[0].ry,
+            lSweep: tr[tr.length - 1].ly - tr[0].ly,
+            rPitch: tr[tr.length - 1].rp, lPitch: tr[tr.length - 1].lp,
+            rCross: cross('ry', M), lCross: cross('ly', -M),
+        };
     };
     const a1 = swingArc(), a2 = swingArc();
     T('tebasan BERGANTIAN arah (meleeSide ' + a1.side + ' -> ' + a2.side + ')', a1.side === -a2.side);
-    T('busur tebasan BERCERMIN (bukan animasi sama diulang)',
-        Math.abs((a1.hi - a1.lo) - (a2.hi - a2.lo)) < 0.02
-        && Math.abs(a1.hi + a2.lo) < 0.3 && Math.abs(a1.lo + a2.hi) < 0.3);
-    T('busur tetap lebar (>200°)', (a1.hi - a1.lo) > Math.PI * 200 / 180);
+    T('KEDUA pisau keluar sepanjang tebasan', a1.bothOut && a2.bothOut);
+    // SILANG X: dua pisau menyapu ke arah BERLAWANAN, satu menebas MENURUN
+    // (pitch berakhir positif) sementara satunya MENAIK (pitch berakhir negatif).
+    T('SILANG X: dua pisau menyapu berlawanan arah, satu menurun & satu menaik',
+        a1.rSweep * a1.lSweep < 0 && a1.rPitch * a1.lPitch < 0
+        && a2.rSweep * a2.lSweep < 0 && a2.rPitch * a2.lPitch < 0);
+    // Pisau kedua MENYUSUL (bukan dua tangan bergerak identik serentak) — itulah
+    // yang membuat silangannya terbaca sebagai DUA tebasan, bukan satu.
+    T('pisau kedua MENYUSUL pisau pemimpin (' + a1.rCross + ' vs ' + a1.lCross + ' frame)',
+        a1.rCross < a1.lCross && a2.lCross < a2.rCross);
+    // Tangan PEMIMPIN + arah sapuan ikut BERCERMIN tiap serangan (kontrak lama
+    // 2026-07-27: dua serangan berturut-turut tak boleh identik).
+    T('koreografi BERCERMIN tiap serangan (pemimpin & arah sapuan bertukar)',
+        a1.rSweep * a2.rSweep < 0 && a1.lSweep * a2.lSweep < 0
+        && Math.abs(a1.rHi + a2.rLo) < 0.3 && Math.abs(a1.rLo + a2.rHi) < 0.3);
+    T('busur tiap pisau tetap lebar (>150°)',
+        (a1.rHi - a1.rLo) > Math.PI * 150 / 180 && (a1.lHi - a1.lLo) > Math.PI * 150 / 180);
     // --- HIT-STOP: hanya saat KENA, dan pulih TEPAT ke 1
     T('skala waktu diam = TEPAT 1 (frame normal tak tersentuh)', tsMod.globalTimeScale() === 1);
     playerMod.resetPlayerState(); clearMeleeCd();
