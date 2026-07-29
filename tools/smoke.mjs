@@ -1541,9 +1541,71 @@ T('Ammo Capacity bertingkat sampai III (rifle & launcher ikut tier terakhir)',
     && stateMod.maxAmmoFor('launcher') === auT[auT.length - 1].launcher
     && typeof shopMod.shopPurchase('ammoup') === 'string');   // tier ke-4 = Maxed
 shopMod.closeShop();
-// overlay armor avatar: toggle visibilitas per level tanpa error
-avMod.updatePlayerAvatar(0.05);
-T('overlay armor avatar jalan (lvl ' + player.armorLvl + ')', true);
+
+// --- 13d. OVERLAY ARMOR AVATAR — DIROMBAK 2026-07-30 (permintaan user: versi
+// lama "flat, membosankan, antar tier tak kelihatan beda"). Kontrak baru:
+// (a) tetap KUMULATIF per tier; (b) tiap tier MELEBARKAN siluet (yang terbaca
+// dari kamera top-down) & menambah pelat, bukan cuma detail kecil; (c) tier III
+// satu-satunya yang BERCAHAYA (sel daya exo) dan denyutnya <= EMISSIVE_MAX;
+// (d) durability kritis = sel daya BERKEDIP sekarat; (e) tier NAIK memicu
+// animasi PEMASANGAN (pelat mengunci + kilat) yang pulang TEPAT ke nilai
+// istirahat; tier TURUN/PECAH tidak memicu apa pun. ---
+{
+    const palA = await import(R('src/world/palette.js'));
+    const wear = (lvl) => {
+        player.armorLvl = lvl;
+        player.armorMax = lvl > 0 ? AT[lvl - 1].durability : 0;
+        player.armor = player.armorMax;
+        avMod.updatePlayerAvatar(1 / 60);
+        return avMod.armorFxDebug();
+    };
+    const d0 = wear(0), d1 = wear(1), d2 = wear(2), d3 = wear(3);
+    T('overlay armor: tiga set terisi & KUMULATIF (polos ' + d0.worn + ' -> '
+        + d1.worn + ' -> ' + d2.worn + ' -> ' + d3.worn + ' pelat)',
+        d0.worn === 0 && d1.worn === d1.plates[0]
+        && d2.worn === d1.plates[0] + d1.plates[1]
+        && d3.worn === d1.plates.reduce((a, b) => a + b, 0)
+        && d1.plates.every(n => n >= 8));
+    T('overlay armor: tiap tier MELEBARKAN siluet (span ' + d1.span.toFixed(2)
+        + ' -> ' + d2.span.toFixed(2) + ' -> ' + d3.span.toFixed(2) + ')',
+        d2.span > d1.span + 0.15 && d3.span >= d2.span);
+    // Tier III = satu-satunya yang bercahaya, dan denyutnya hidup (berubah antar
+    // frame) tapi tak pernah melewati batas emissive palette.
+    const glowTrace = [];
+    for (let i = 0; i < 90; i++) { avMod.updatePlayerAvatar(1 / 60); glowTrace.push(avMod.armorFxDebug().glow); }
+    const gMin = Math.min(...glowTrace), gMax = Math.max(...glowTrace);
+    T('overlay armor III: sel daya exo BERDENYUT (' + gMin.toFixed(2) + '..' + gMax.toFixed(2)
+        + ') & <= EMISSIVE_MAX', gMax - gMin > 0.1 && gMax <= palA.EMISSIVE_MAX);
+    T('overlay armor: tier di bawah III TIDAK bercahaya-denyut (nilai tetap)',
+        (() => { wear(2); const a = avMod.armorFxDebug().glow; avMod.updatePlayerAvatar(1 / 60); return avMod.armorFxDebug().glow === a; })());
+    // Durability kritis -> sel daya BERKEDIP sekarat (jatuh jauh lebih dalam).
+    wear(3);
+    const failTrace = [];
+    player.armor = player.armorMax * 0.1;
+    for (let i = 0; i < 90; i++) { avMod.updatePlayerAvatar(1 / 60); failTrace.push(avMod.armorFxDebug().glow); }
+    T('overlay armor III: durability kritis -> sel daya BERKEDIP sekarat ('
+        + Math.min(...failTrace).toFixed(2) + ' vs ' + gMin.toFixed(2) + ')',
+        Math.min(...failTrace) < gMin * 0.6);
+    // Animasi PEMASANGAN saat tier NAIK: pelat mengunci (skala > 1) + kilat,
+    // lalu pulang TEPAT ke skala 1 & emissive 0.
+    wear(1);
+    for (let i = 0; i < 60; i++) avMod.updatePlayerAvatar(1 / 60);   // tuntaskan animasi tier 1
+    player.armorLvl = 3; player.armorMax = AT[2].durability; player.armor = player.armorMax;
+    avMod.updatePlayerAvatar(1 / 60);
+    const eq = avMod.armorFxDebug();
+    T('overlay armor: tier NAIK memicu animasi PEMASANGAN (pelat mengunci, skala '
+        + eq.scale.toFixed(2) + ' + kilat)', eq.equip > 0 && eq.scale > 1.01 && eq.flash !== 0);
+    for (let i = 0; i < 60; i++) avMod.updatePlayerAvatar(1 / 60);
+    const eqEnd = avMod.armorFxDebug();
+    T('overlay armor: animasi pemasangan pulang TEPAT ke istirahat (skala 1, kilat 0)',
+        eqEnd.equip === 0 && eqEnd.scale === 1 && eqEnd.flash === 0);
+    // Tier TURUN / armor PECAH: tanpa animasi pemasangan (FX pecahnya di robots.js).
+    player.armorLvl = 0; player.armor = player.armorMax = 0;
+    avMod.updatePlayerAvatar(1 / 60);
+    const brk = avMod.armorFxDebug();
+    T('overlay armor: armor PECAH tak memicu animasi pemasangan & semua pelat lenyap',
+        brk.equip === 0 && brk.worn === 0 && brk.scale === 1 && brk.flash === 0);
+}
 
 // --- 14. Runtuhnya Monas: kontrak API + durasi fase config-driven ---
 // (world.js penuh butuh InstancedMesh/Matrix4 — di luar cakupan stub; di sini
@@ -3859,6 +3921,50 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     wMod.startSwitch(snap.cur);
     for (let i = 0; i < 12; i++) wMod.updateWeaponTimers(0.1);   // selesaikan animasi ganti (switchAnim -> -1)
     for (let i = 0; i < 5; i++) wMod.updateWeaponState(0.2);     // luruhkan gunRecoil (gate AFK avatar)
+}
+
+// --- 17b3. CHEAT give-armor-N (2026-07-30, permintaan user): N = tier armor
+// (CFG.armor.tiers — jumlah tier & nilainya CONFIG-DRIVEN). Efek = mengenakan
+// tier itu dgn durability PENUH, seperti membelinya di Field Shop, TAPI tanpa
+// gerbang harga/tier: cheat boleh MENURUNKAN tier & boleh dipakai berulang utk
+// repair penuh. Armor yang diberikan harus benar-benar berfungsi (memotong
+// `reduce` dari damage, durability menerima damage BASE penuh). ---
+{
+    const cheatMod = await import(R('src/core/cheatConsole.js'));
+    const AT2 = cfgMod.CFG.armor.tiers;
+    const snapA = { lvl: player.armorLvl, armor: player.armor, max: player.armorMax, hp: player.hp };
+    stateMod.setGodMode(false);
+    player.armorLvl = 0; player.armor = 0; player.armorMax = 0;
+
+    cheatMod.runCheatCommand('give-armor-1');
+    T('cheat give-armor-1: armor tier 1 terpakai dgn durability PENUH (config-driven)',
+        player.armorLvl === 1 && player.armor === AT2[0].durability && player.armorMax === AT2[0].durability);
+    cheatMod.runCheatCommand('give-armor-3');
+    T('cheat give-armor-3: langsung lompat ke tier 3 (tanpa harus lewat 1/2)',
+        player.armorLvl === 3 && player.armor === AT2[2].durability && player.armorMax === AT2[2].durability);
+    // Beda dari SHOP: cheat boleh MENURUNKAN tier (shop menolak tier lebih rendah).
+    cheatMod.runCheatCommand('give-armor-2');
+    T('cheat give-armor: boleh MENURUNKAN tier (shop menolaknya, cheat tidak)',
+        player.armorLvl === 2 && player.armorMax === AT2[1].durability);
+    // Armornya benar-benar bekerja: HP dipotong `reduce`, durability kena BASE penuh.
+    player.hp = 100;
+    const dur0 = player.armor;
+    robotsMod.damagePlayerHp(20);
+    T('cheat give-armor: armor pemberian cheat BENAR-BENAR memotong damage (reduce tier)',
+        Math.abs(player.hp - (100 - 20 * (1 - AT2[1].reduce))) < 1e-9
+        && Math.abs(player.armor - (dur0 - 20)) < 1e-9);
+    // Dipakai lagi = REPAIR penuh (durability kembali ke maks tier itu).
+    cheatMod.runCheatCommand('give-armor-2');
+    T('cheat give-armor: dipakai lagi = REPAIR penuh', player.armor === AT2[1].durability);
+    // Tier di luar CFG.armor.tiers diabaikan (tak mengubah apa pun).
+    const beforeA = { lvl: player.armorLvl, armor: player.armor, max: player.armorMax };
+    cheatMod.runCheatCommand('give-armor-' + (AT2.length + 6));
+    cheatMod.runCheatCommand('give-armor-0');
+    T('cheat give-armor: tier tak dikenal tak mengubah apa pun',
+        player.armorLvl === beforeA.lvl && player.armor === beforeA.armor && player.armorMax === beforeA.max);
+
+    player.armorLvl = snapA.lvl; player.armor = snapA.armor; player.armorMax = snapA.max;
+    player.hp = snapA.hp;
 }
 
 // --- 17c. SAVE GAME / checkpoint Campaign (2026-07-15): simpan nomor stage

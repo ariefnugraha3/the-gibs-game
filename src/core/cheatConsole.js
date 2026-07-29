@@ -5,7 +5,8 @@
 // terbuka, game DI-PAUSE & input.js menelan tombol gameplay. Perintah:
 // "god-mode" + Enter = TOGGLE kebal player & Monas; "more-money" + Enter =
 // +100000 skor (mata uang shop Survival); "give-weapon-N" = senjata level maks
-// (2026-07-29). Teks UI English (aturan permanen).
+// (2026-07-29); "give-armor-N" = pakai armor tier N durability penuh
+// (2026-07-30). Teks UI English (aturan permanen).
 
 import { setPaused, godMode, setGodMode, addScore, player, syncOwnedFromWeapons, maxAmmoFor } from './state.js';
 import { CFG } from './config.js';
@@ -102,6 +103,25 @@ export function giveCheatWeapon(w) {
     };
 }
 
+// ----- CHEAT ARMOR "give-armor-N" (2026-07-30, permintaan user) -----
+// N = tier armor (1/2/3 = CFG.armor.tiers — jumlah tier & nilainya CONFIG-DRIVEN,
+// tidak dihardcode di sini). Efeknya = MENGENAKAN tier itu dgn durability PENUH,
+// sama seperti membelinya di Field Shop (`armorTierItem.apply`, survival/shop.js),
+// TAPI tanpa gerbang harga/tier: cheat boleh MENURUNKAN tier (shop menolak tier
+// lebih rendah dari yang dipakai) dan boleh dipakai berulang utk REPAIR penuh.
+// Overlay pelat di avatar mengikuti sendiri (playerAvatar membaca player.armorLvl
+// tiap frame lewat cache armorKey), jadi tak ada yang perlu dipanggil di sini.
+export function giveCheatArmor(tier) {
+    const T = (CFG.armor && CFG.armor.tiers) || [];
+    const t = T[tier - 1];
+    if (!t) return null;
+    const prev = player.armorLvl || 0;
+    player.armorLvl = tier;
+    player.armor = player.armorMax = t.durability;
+    updateUI();   // bar ARMOR muncul/terisi di HUD
+    return { tier, prev, durability: t.durability, reduce: t.reduce || 0 };
+}
+
 // Diekspor supaya smoke bisa menjalankan perintah tanpa mensimulasikan ketikan.
 export function runCheatCommand(cmd) { runCommand(cmd); }
 
@@ -123,6 +143,17 @@ function runCommand(cmd) {
             setFeedback(`${r.label} Lv${r.lvl} ${r.had ? 'restocked' : 'added'} in slot ${r.slot} (ammo full)`
                 + (r.dropped ? ` - dropped ${WEAPON_DEF[r.dropped].name}` : '')
                 + ' - close the console, it is already drawn');
+        }
+    } else if (/^give-armor-\d+$/.test(c)) {
+        const n = parseInt(c.slice('give-armor-'.length), 10);
+        const r = giveCheatArmor(n);
+        if (!r) {
+            const max = ((CFG.armor && CFG.armor.tiers) || []).length || 1;
+            setFeedback('No such armor tier - use give-armor-1..' + max, false);
+        } else {
+            setFeedback(`Armor Level ${r.tier} equipped - blocks ${Math.round(r.reduce * 100)}%`
+                + ` of incoming damage, durability ${r.durability}/${r.durability}`
+                + (r.prev && r.prev !== r.tier ? ` (replaced Level ${r.prev})` : ''));
         }
     } else if (/^skip-to-wave-\d+$/.test(c)) {
         // Lompat langsung ke wave n (Survival). Scene aktif yang mendukung punya

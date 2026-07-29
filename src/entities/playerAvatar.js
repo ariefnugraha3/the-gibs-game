@@ -78,6 +78,13 @@ function lerpHeadPitch(target, k) {
 export function afkDebug() { return { t: afkT, mode: afkMode }; }
 let props = null, propKey = '';   // prop senjata/medkit aktif (show/hide per frame)
 let armorNodes = null, armorKey = -1;   // overlay ARMOR kumulatif (ikuti player.armorLvl)
+// ARMOR DIROMBAK 2026-07-30: material pelat (kilat saat dipasang) + SATU material
+// sel daya exo tier III (emissiveIntensity didenyutkan) + jam kedua animasinya.
+let armorPlateMats = null, armorGlowMat = null;
+let armorEquipT = 0, armorPulse = 0;
+const ARMOR_EQUIP_SEC = 0.5;    // lama animasi "pelat MENGUNCI ke badan"
+const ARMOR_FAIL_FRAC = 0.3;    // durability di bawah ini = sel daya BERKEDIP sekarat
+const ARMOR_EMIS_MAX = 0.9;     // batas emissive (palette EMISSIVE_MAX)
 // DUA PISAU BELATI (overhaul 2026-07-29, menggantikan pedang tunggal): satu
 // pivot tebasan per bahu + satu kipas jejak per pisau (opacity ~ kecepatan).
 let knifeR = null, knifeL = null;
@@ -591,40 +598,109 @@ export function initPlayerAvatar(sc) {
     swooshR = swR.grp; swooshMatR = swR.m;
     swooshL = swL.grp; swooshMatL = swL.m;
 
-    // ===== OVERLAY ARMOR (2026-07-13): tiga set KUMULATIF mengikuti
-    // player.armorLvl (item shop Survival) — tiap tier menambah lapisan di atas
-    // tier sebelumnya: makin tinggi makin sangar, tetap tentara manusia (pelat
-    // baja + trim + aksen merah, BUKAN robot). Pelat kaki di-parent ke pivot
-    // pinggul/lutut (ikut melangkah); dibuat sekali & disembunyikan (warmup
-    // preload mengompilasi shader-nya; Phong = program sama). Saat armor pecah
-    // (durability 0) semua lapisan lenyap + pecahan pelat via gib (robots.js). =====
-    const aPlate = mat(0x6a7178, 32), aTrim = mat(0x373d44, 22), aRed = mat(0x8e2f23, 26);
+    // ===== OVERLAY ARMOR — DIROMBAK 2026-07-30 (permintaan user: versi lama
+    // "flat, membosankan, antar tier tidak kelihatan beda"). Tetap TIGA SET
+    // KUMULATIF mengikuti player.armorLvl (shop Survival / cheat give-armor-N)
+    // dan tetap TENTARA MANUSIA berpelat baja — BUKAN robot — tapi kini tiap
+    // tier punya SILUET & LIVERY sendiri yang terbaca dari kamera TOP-DOWN
+    // (yang tampak dari atas: bahu, punggung, pinggul, kepala):
+    //   I   PLATE CARRIER — pelat dada BERTINGKAT (lip atas menyorong + pelat
+    //       perut miring + yoke tulang selangka) & tutup bahu bersirap tipis;
+    //       siluet masih sesempit badan polos, hanya jelas "berpelat".
+    //   II  ASSAULT RIG — pauldron BERSIRAP TIGA yang mengembang keluar (bahu
+    //       jauh lebih LEBAR dari atas), ridge ransel + dua kanister punggung,
+    //       TASSET (rok pelat) yang melebarkan pinggul, greave, sayap pelipis
+    //       helm, dan livery MERAH-PUTIH (marka nasional, hemat — palette #3).
+    //   III EXO FRAME — pelat luar lebih GELAP, gorget leher + sayap kerah,
+    //       UNIT DAYA TULANG BELAKANG dgn empat SEL DAYA AMBER MENYALA di
+    //       punggung, mahkota pauldron ber-trim amber + titik daya, inti dada
+    //       amber, VISOR amber, jambul tegak: SATU-SATUNYA tier yang bercahaya.
+    // Dua lapis animasi di `updateArmorFx`: (a) PEMASANGAN — saat tier NAIK
+    // seluruh pelat MENGUNCI ke badan (skala 1.18 → 1) dgn kilat amber;
+    // (b) SEL DAYA tier III berdenyut lambat dan BERKEDIP SEKARAT saat
+    // durability < ARMOR_FAIL_FRAC (isyarat armor hampir pecah).
+    // Semua material dibuat SEKALI di sini (Phong = program shader yang sama,
+    // warmup preload mengompilasinya) dan animasinya hanya menulis UNIFORM
+    // (emissive/emissiveIntensity) → tanpa recompile di tengah permainan.
+    // Pelat kaki di-parent ke pivot pinggul/lutut (ikut melangkah). Saat armor
+    // pecah (durability 0) semua lapisan lenyap + pecahan pelat via gib
+    // (robots.js). =====
+    const aPlate = mat(0x6a7178, 32),   // pelat baja terang (tier I & II)
+        aTrim = mat(0x373d44, 22),      // trim/bayangan
+        aDark = mat(0x4a5057, 30),      // pelat luar tier III (nada lebih gelap)
+        aRed = mat(0x8e2f23, 26),       // marka merah
+        aWhite = mat(0xd8d2c4, 24),     // marka putih (merah-putih, hemat)
+        aAmber = mat(0xc8862c, 18);     // trim amber (tidak menyala)
+    // Sel daya / visor exo: SATU material menyala, di-share semua bagian
+    // bercahaya tier III — denyutnya = satu penulisan uniform per frame.
+    const aGlow = new THREE.MeshPhongMaterial({
+        color: 0x3a2c14, emissive: 0xffb03b, emissiveIntensity: 0.5,
+        shininess: 40, specular: 0x1c1a16,
+    });
+    armorPlateMats = [aPlate, aTrim, aDark, aRed, aWhite, aAmber];
+    armorGlowMat = aGlow;
     armorNodes = [[], [], []];
     const reg = (lv, node) => { node.visible = false; armorNodes[lv].push(node); return node; };
-    // --- SET 1 (Armor I): pelat dada + tutup bahu + pelindung paha ---
-    reg(0, box(1.9, 1.5, 0.34, aPlate, 0, 8.3, 1.22, upperG));
-    reg(0, mk(ellip(0.68, 1.1, 0.72, 1.05, 8, 6), aPlate, SHOULDER.L.x - 0.12, SHOULDER.L.y + 0.42, SHOULDER.L.z, upperG, false));
-    reg(0, mk(ellip(0.68, 1.1, 0.72, 1.05, 8, 6), aPlate, SHOULDER.R.x + 0.12, SHOULDER.R.y + 0.42, SHOULDER.R.z, upperG, false));
-    reg(0, box(0.62, 1.5, 0.34, aPlate, -0.06, -1.3, 0.5, hipL));
-    reg(0, box(0.62, 1.5, 0.34, aPlate, 0.06, -1.3, 0.5, hipR));
-    // --- SET 2 (Armor II, + di atas Set 1): bibir pauldron besar, pelat
-    // punggung menutup ransel, pelat sabuk, pelindung tulang kering, alis helm ---
-    reg(1, mk(ellip(0.85, 1.18, 0.5, 1.12, 8, 6), aTrim, SHOULDER.L.x - 0.18, SHOULDER.L.y + 0.78, SHOULDER.L.z, upperG, false));
-    reg(1, mk(ellip(0.85, 1.18, 0.5, 1.12, 8, 6), aTrim, SHOULDER.R.x + 0.18, SHOULDER.R.y + 0.78, SHOULDER.R.z, upperG, false));
-    reg(1, box(1.85, 2.0, 0.25, aPlate, 0, 8.3, -1.78, upperG));
-    reg(1, box(1.5, 0.55, 0.4, aPlate, 0, 5.95, 0.85, avatarGroup));
-    reg(1, box(0.56, 1.3, 0.3, aPlate, 0, -1.35, 0.5, kneeL));
-    reg(1, box(0.56, 1.3, 0.3, aPlate, 0, -1.35, 0.5, kneeR));
-    reg(1, box(1.6, 0.4, 0.35, aTrim, 0, 11.02, 0.88, headG));
-    // --- SET 3 (Armor III, + di atas Set 1+2): kerah pelindung leher, jalur
-    // merah dada, trim pauldron merah, pelat pipi helm, JAMBUL crest merah ---
-    reg(2, cyl(1.0, 1.2, 0.6, aTrim, 0, 9.6, 0, upperG, 0));
-    reg(2, box(0.46, 1.44, 0.12, aRed, 0, 8.3, 1.42, upperG));
-    reg(2, box(1.0, 0.22, 1.2, aRed, SHOULDER.L.x - 0.18, SHOULDER.L.y + 1.08, SHOULDER.L.z, upperG));
-    reg(2, box(1.0, 0.22, 1.2, aRed, SHOULDER.R.x + 0.18, SHOULDER.R.y + 1.08, SHOULDER.R.z, upperG));
-    reg(2, box(0.34, 0.66, 0.9, aPlate, -1.12, 10.55, 0.08, headG));
-    reg(2, box(0.34, 0.66, 0.9, aPlate, 1.12, 10.55, 0.08, headG));
-    reg(2, box(0.16, 0.34, 1.5, aRed, 0, 11.52, -0.05, headG));
+    // Pelat BERSUDUT: box + rotasi opsional (siluet bersirap, bukan slab datar).
+    const plate = (lv, w, h, d, m, x, y, z, parent, rx, ry, rz) => {
+        const b = box(w, h, d, m, x, y, z, parent);
+        if (rx) b.rotation.x = rx; if (ry) b.rotation.y = ry; if (rz) b.rotation.z = rz;
+        return reg(lv, b);
+    };
+    const SH = [{ s: -1, p: SHOULDER.L }, { s: 1, p: SHOULDER.R }];
+    // --- SET 1 (Armor I) — PLATE CARRIER: dada bertingkat + sirap bahu + paha ---
+    plate(0, 1.9, 1.4, 0.34, aPlate, 0, 8.35, 1.22, upperG);                    // pelat dada utama
+    plate(0, 1.9, 0.42, 0.3, aTrim, 0, 9.08, 1.12, upperG, -0.55);              // lip atas menyorong keluar
+    plate(0, 1.62, 0.5, 0.3, aPlate, 0, 7.5, 1.16, upperG, 0.38);               // pelat perut miring
+    plate(0, 0.72, 0.5, 0.28, aTrim, -0.78, 9.3, 0.95, upperG, 0, 0, 0.55);     // yoke selangka kiri
+    plate(0, 0.72, 0.5, 0.28, aTrim, 0.78, 9.3, 0.95, upperG, 0, 0, -0.55);     // yoke selangka kanan
+    for (const { s, p } of SH) {
+        plate(0, 1.2, 0.3, 1.3, aPlate, p.x + s * 0.16, p.y + 0.5, p.z, upperG, 0, 0, -s * 0.26);   // sirap bahu bawah
+        plate(0, 0.98, 0.28, 1.1, aTrim, p.x + s * 0.1, p.y + 0.8, p.z, upperG, 0, 0, -s * 0.2);    // sirap bahu atas
+    }
+    plate(0, 0.62, 1.5, 0.34, aPlate, -0.06, -1.3, 0.5, hipL);                  // pelindung paha
+    plate(0, 0.62, 1.5, 0.34, aPlate, 0.06, -1.3, 0.5, hipR);
+    plate(0, 0.5, 0.2, 0.12, aAmber, 0.52, 8.85, 1.45, upperG);                 // tab identitas amber
+    // --- SET 2 (Armor II, + di atas Set 1) — ASSAULT RIG ---
+    for (const { s, p } of SH) {   // PAULDRON bersirap TIGA, mengembang keluar
+        plate(1, 1.55, 0.34, 1.45, aPlate, p.x + s * 0.42, p.y + 0.62, p.z, upperG, 0, 0, -s * 0.34);
+        plate(1, 1.38, 0.32, 1.3, aTrim, p.x + s * 0.32, p.y + 0.98, p.z, upperG, 0, 0, -s * 0.28);
+        plate(1, 1.12, 0.3, 1.1, aPlate, p.x + s * 0.2, p.y + 1.28, p.z, upperG, 0, 0, -s * 0.22);
+    }
+    plate(1, 1.85, 2.0, 0.25, aPlate, 0, 8.3, -1.78, upperG);                   // pelat punggung menutup ransel
+    plate(1, 0.68, 2.3, 0.5, aTrim, 0, 8.5, -2.02, upperG);                     // ridge tengah ransel
+    reg(1, cyl(0.3, 0.3, 1.5, aPlate, -0.95, 8.2, -2.05, upperG, 0));           // kanister kiri
+    reg(1, cyl(0.3, 0.3, 1.5, aPlate, 0.95, 8.2, -2.05, upperG, 0));            // kanister kanan
+    plate(1, 1.45, 0.75, 0.4, aPlate, 0, 5.95, 0.85, avatarGroup);              // TASSET tengah
+    plate(1, 0.8, 0.9, 0.36, aTrim, -1.0, 5.8, 0.7, avatarGroup, 0, 0, 0.3);    // tasset sisi (pinggul melebar)
+    plate(1, 0.8, 0.9, 0.36, aTrim, 1.0, 5.8, 0.7, avatarGroup, 0, 0, -0.3);
+    plate(1, 0.56, 1.3, 0.3, aPlate, 0, -1.35, 0.5, kneeL);                     // greave
+    plate(1, 0.56, 1.3, 0.3, aPlate, 0, -1.35, 0.5, kneeR);
+    plate(1, 1.6, 0.4, 0.35, aTrim, 0, 11.02, 0.88, headG);                     // alis helm
+    plate(1, 0.3, 0.5, 0.75, aPlate, -1.02, 10.85, 0.15, headG, 0, 0.3, 0);     // sayap pelipis
+    plate(1, 0.3, 0.5, 0.75, aPlate, 1.02, 10.85, 0.15, headG, 0, -0.3, 0);
+    plate(1, 0.44, 1.25, 0.12, aRed, -0.42, 8.35, 1.44, upperG);                // livery MERAH-PUTIH
+    plate(1, 0.44, 1.25, 0.12, aWhite, 0.02, 8.35, 1.44, upperG);
+    // --- SET 3 (Armor III, + di atas Set 1+2) — EXO FRAME (bercahaya) ---
+    reg(2, cyl(1.02, 1.24, 0.62, aDark, 0, 9.62, 0, upperG, 0));                // gorget leher
+    plate(2, 0.9, 0.7, 0.3, aDark, -0.92, 9.95, 0.15, upperG, 0, 0, 0.6);       // sayap kerah
+    plate(2, 0.9, 0.7, 0.3, aDark, 0.92, 9.95, 0.15, upperG, 0, 0, -0.6);
+    plate(2, 0.62, 2.7, 0.62, aDark, 0, 8.6, -2.25, upperG);                    // UNIT DAYA tulang belakang
+    for (let i = 0; i < 4; i++)                                                 // empat SEL DAYA menyala
+        plate(2, 0.34, 0.34, 0.34, aGlow, 0, 7.5 + i * 0.72, -2.6, upperG);
+    for (const { s, p } of SH) {
+        plate(2, 0.36, 0.55, 1.35, aDark, p.x + s * 0.24, p.y + 1.58, p.z, upperG, 0, 0, -s * 0.18);   // mahkota pauldron
+        plate(2, 1.05, 0.16, 1.2, aAmber, p.x + s * 0.44, p.y + 1.4, p.z, upperG, 0, 0, -s * 0.28);    // trim amber tepi
+        plate(2, 0.5, 0.12, 0.5, aGlow, p.x + s * 0.72, p.y + 1.3, p.z + 0.5, upperG);                 // titik daya
+    }
+    plate(2, 0.5, 0.5, 0.16, aGlow, 0, 8.62, 1.58, upperG);                     // inti dada amber (di atas livery II)
+    plate(2, 0.16, 1.5, 0.12, aAmber, -0.74, 8.3, 1.54, upperG);                // rel trim dada
+    plate(2, 0.16, 1.5, 0.12, aAmber, 0.74, 8.3, 1.54, upperG);
+    plate(2, 0.34, 0.66, 0.9, aDark, -1.14, 10.55, 0.08, headG);                // pelat pipi helm
+    plate(2, 0.34, 0.66, 0.9, aDark, 1.14, 10.55, 0.08, headG);
+    plate(2, 1.15, 0.2, 0.12, aGlow, 0, 10.62, 1.12, headG);                    // VISOR amber (di depan lensa goggle)
+    plate(2, 0.18, 0.5, 1.7, aDark, 0, 11.5, -0.15, headG, 0.15);               // jambul tegak
+    plate(2, 0.1, 0.2, 1.5, aAmber, 0, 11.78, -0.12, headG, 0.15);
 
     sc.add(avatarGroup);
 
@@ -647,6 +723,69 @@ export function showMoveMarker(x, y, z) {
 export function hideMoveMarker() {
     if (marker) marker.visible = false;
 }
+
+// ===== ANIMASI OVERLAY ARMOR (2026-07-30) — dua lapis, keduanya hanya menulis
+// UNIFORM material (emissive/emissiveIntensity) + skala node, jadi tak ada
+// material/shader baru di tengah permainan:
+//   (a) PEMASANGAN: begitu tier NAIK, seluruh pelat yang aktif MENGUNCI ke badan
+//       (skala 1.18 → 1, easeOut) sambil seluruh cat pelat berkilat AMBER.
+//   (b) SEL DAYA exo (tier III): berdenyut lambat; begitu durability tinggal
+//       < ARMOR_FAIL_FRAC ia BERKEDIP tak beraturan = armor hampir pecah.
+// Nilai akhir keduanya dikembalikan TEPAT ke nilai istirahat (kilat → 0) —
+// aturan yang sama dengan kilat bilah & mata robot: apa pun yang tidak ditulis
+// pose normal harus dipulangkan sendiri, kalau tidak sisanya menempel selamanya.
+function clearArmorFlash() {
+    if (armorPlateMats) for (const m of armorPlateMats) m.emissive.setRGB(0, 0, 0);
+}
+function updateArmorFx(dt, lvl) {
+    if (armorEquipT > 0) {
+        armorEquipT = Math.max(0, armorEquipT - dt / ARMOR_EQUIP_SEC);
+        const k = armorEquipT;                 // 1 → 0
+        const s = 1 + 0.18 * k * k;            // menghentak masuk lalu duduk rapat
+        for (let i = 0; i < armorNodes.length; i++)
+            if (i < lvl) for (const n of armorNodes[i]) n.scale.setScalar(s);
+        for (const m of armorPlateMats) m.emissive.setRGB(k * 0.55, k * 0.34, k * 0.1);
+        if (armorEquipT === 0) {
+            for (let i = 0; i < armorNodes.length; i++)
+                for (const n of armorNodes[i]) n.scale.setScalar(1);
+            clearArmorFlash();
+        }
+    }
+    if (!armorGlowMat) return;
+    if (lvl < 3) { armorGlowMat.emissiveIntensity = 0.5; return; }   // tier <3: bagian bercahaya tersembunyi
+    armorPulse += dt;
+    let k = 0.5 + 0.22 * Math.sin(armorPulse * 2.2);                 // denyut daya
+    const dur = player.armorMax > 0 ? player.armor / player.armorMax : 0;
+    if (dur < ARMOR_FAIL_FRAC) {
+        // Kedip sekarat: dua sinus berbeda laju -> padam-nyala tak beraturan.
+        const f = Math.sin(armorPulse * 17) * Math.sin(armorPulse * 6.3);
+        k *= 0.3 + 0.7 * Math.max(0, f);
+    }
+    armorGlowMat.emissiveIntensity = Math.min(ARMOR_EMIS_MAX, k);
+}
+// Lebar siluet overlay armor (jarak-x terjauh pelat yang TAMPAK dari sumbu
+// badan, ruang avatarGroup) — dipakai smoke utk membuktikan tiap tier benar-benar
+// MELEBARKAN siluet dari kamera top-down, bukan cuma menambah detail kecil.
+function armorSpanX() {
+    let m = 0;
+    if (!armorNodes) return 0;
+    for (const set of armorNodes) for (const n of set) {
+        if (!n.visible) continue;
+        let x = 0, p = n;
+        while (p && p !== avatarGroup) { x += p.position.x; p = p.parent; }
+        m = Math.max(m, Math.abs(x));
+    }
+    return m;
+}
+export const armorFxDebug = () => ({
+    lvl: armorKey, equip: armorEquipT,
+    glow: armorGlowMat ? armorGlowMat.emissiveIntensity : 0,
+    flash: armorPlateMats ? armorPlateMats[0].emissive.getHex() : 0,
+    scale: armorNodes && armorNodes[0][0] ? armorNodes[0][0].scale.x : 1,
+    plates: armorNodes ? armorNodes.map(a => a.length) : [],
+    worn: armorNodes ? armorNodes.reduce((n, set) => n + set.filter(o => o.visible).length, 0) : 0,
+    span: armorSpanX(),
+});
 
 // Tampilkan/sembunyikan PERLENGKAPAN MELEE (dua pisau + dua kipas jejak).
 // Dipakai cabang melee, rappel, dan kematian — satu titik supaya tak ada pisau
@@ -1072,9 +1211,14 @@ export function updatePlayerAvatar(dt) {
     const aLvl = player.armorLvl || 0;
     if (armorNodes && aLvl !== armorKey) {
         for (let s = 0; s < armorNodes.length; s++)
-            for (const n of armorNodes[s]) n.visible = s < aLvl;
+            for (const n of armorNodes[s]) { n.visible = s < aLvl; n.scale.setScalar(1); }
+        // TIER NAIK = animasi PEMASANGAN (2026-07-30). Tier TURUN/PECAH tidak:
+        // pecahnya sudah punya FX sendiri (gib pelat + bunyi, robots.js).
+        armorEquipT = (armorKey >= 0 && aLvl > armorKey) ? 1 : 0;
+        if (armorEquipT === 0) clearArmorFlash();
         armorKey = aLvl;
     }
+    if (armorNodes) updateArmorFx(dt, aLvl);
 
     // ===== FAST-ROPE intro (2026-07-17): pose meluncur turun dari tali —
     // early-return sebelum rantai-hadap/aim (seperti cabang mati). =====
