@@ -78,7 +78,9 @@ export function spawnSwarm(spots, stage, cellFn, walkFn, resolveFn, scratch, cls
             scratch.set(p.x + (Math.random() - 0.5) * 14, 0, p.z + (Math.random() - 0.5) * 14);
             if (resolveFn) resolveFn(scratch, 4, 0);
             if (walkFn && !walkFn(scratch.x, scratch.z, 4)) scratch.set(p.x, 0, p.z);
-            spawnCampaignRobot(scratch.x, scratch.z, stage, cls, true);   // active = langsung menyerbu
+            // `cls` boleh FUNGSI (2026-07-30): diundi ULANG per robot -> satu
+            // gerombolan bisa bercampur kelas (stage 3 memakai classMix-nya).
+            spawnCampaignRobot(scratch.x, scratch.z, stage, typeof cls === 'function' ? cls() : cls, true);   // active = langsung menyerbu
         }
     }
 }
@@ -136,7 +138,7 @@ export function offscreenSpawnPoints(count, o) {
 }
 
 // HORDE ALARM (2026-07-28, permintaan user): hack yang GAGAL karena ICE TRACE
-// habis menyalakan alarm — sekelompok robot kelas C muncul DI LUAR LAYAR lalu
+// habis menyalakan alarm — sekelompok robot muncul DI LUAR LAYAR lalu
 // LANGSUNG menyerbu player (persis horde stage 1/3). Kembalikan jumlah yang
 // benar-benar di-spawn. `fallbackSpots` (sel [[c,r,n]]) dipakai HANYA bila
 // titik luar-layar yang sah kurang — mis. player terpojok di ruangan kecil.
@@ -144,12 +146,15 @@ export function spawnAlarmHorde(stage, o) {
     const n = o.count | 0;
     if (n <= 0) return 0;
     const pts = offscreenSpawnPoints(n, o);
-    for (const p of pts) spawnCampaignRobot(p.x, p.z, stage, o.cls || 'C', true);
+    // `o.cls` boleh FUNGSI pengundi kelas (2026-07-30) — diundi per robot, jadi
+    // satu skuad bisa bercampur kelas alih-alih seragam kelas C.
+    const pick = () => (typeof o.cls === 'function' ? o.cls() : (o.cls || 'C'));
+    for (const p of pts) spawnCampaignRobot(p.x, p.z, stage, pick(), true);
     const left = n - pts.length;
     if (left > 0 && o.fallbackSpots && o.fallbackSpots.length && o.cellFn) {
         const per = Math.floor(left / o.fallbackSpots.length), rem = left % o.fallbackSpots.length;
         const spots = o.fallbackSpots.map((a, i) => [a[0], a[1], per + (i < rem ? 1 : 0)]);
-        spawnSwarm(spots, stage, o.cellFn, o.walkable, o.resolve, o.scratch, o.cls || 'C');
+        spawnSwarm(spots, stage, o.cellFn, o.walkable, o.resolve, o.scratch, o.cls || 'C');   // fungsi pengundi diteruskan apa adanya
     }
     return n;
 }

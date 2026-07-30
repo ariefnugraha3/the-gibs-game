@@ -719,8 +719,19 @@ export function buildWorld() {
     blockers.push(s3DoorBlocker);
 }
 
-// ===== ROBOT SPAWN (langsung mengejar) + kelas acak C50/B25/A25 =====
-function randClass3() { const r = Math.random(); return r < 0.5 ? 'C' : r < 0.75 ? 'B' : 'A'; }
+// ===== ROBOT SPAWN (langsung mengejar) + kelas ACAK BERBOBOT =====
+// Campuran kelas = CFG.campaign.stage3.classMix (2026-07-30, permintaan user:
+// C 70% / B 20% / A 10% — sebelumnya hardcode C50/B25/A25). Bobotnya
+// dinormalkan, jadi user boleh menaruh angka apa pun di config (tak harus
+// berjumlah 1) dan urutan undiannya tetap C -> B -> A.
+function randClass3() {
+    const M = (CFG.campaign.stage3 && CFG.campaign.stage3.classMix) || {};
+    const wC = M.C != null ? M.C : 0.7, wB = M.B != null ? M.B : 0.2, wA = M.A != null ? M.A : 0.1;
+    const total = wC + wB + wA;
+    if (!(total > 0)) return 'C';
+    const r = Math.random() * total;
+    return r < wC ? 'C' : r < wC + wB ? 'B' : 'A';
+}
 function s3SpawnChaser(cell, cls) {
     const p = s3Cell(cell.c, cell.r);
     _v3.set(p.x + rand(-5, 5), 0, p.z + rand(-5, 5));
@@ -866,6 +877,7 @@ function s3AlarmHorde() {
     s3HackArmed = false;
     spawnAlarmHorde(3, {
         count: H.alarmHordeCount || 0, walkable: stage3Walk, resolve, scratch: _v3,
+        cls: randClass3,   // skuad alarm ikut classMix stage 3 (dulu seragam kelas C)
         minUnits: H.alarmSpawnMinUnits, maxUnits: H.alarmSpawnMaxUnits,
         cellFn: s3Cell,
         fallbackSpots: [[S3_STAIRS_SPAWN.c, S3_STAIRS_SPAWN.r], [S3_LIFT_SPAWN.c, S3_LIFT_SPAWN.r]],

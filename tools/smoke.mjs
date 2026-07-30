@@ -2763,8 +2763,10 @@ T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)
         s3mod.s3Debug().armed === true && hackMod.hackDebug().open === false);
 }
 
-// (2c) ALARM: ICE TRACE habis -> horde kelas C dari LUAR LAYAR + terminal
-//      terkunci `alarmCooldownSec` detik (waktu untuk membereskan mereka).
+// (2c) ALARM: ICE TRACE habis -> horde dari LUAR LAYAR + terminal terkunci
+//      `alarmCooldownSec` detik (waktu untuk membereskan mereka). Sejak
+//      2026-07-30 kelas skuadnya IKUT `classMix` stage 3 (dulu seragam kelas C),
+//      jadi yang diuji = semua kelas berasal dari daftar classMix.
 {
     const HK3 = cfgMod.CFG.campaign.hack;
     const act = s3Active();
@@ -2774,8 +2776,10 @@ T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)
     hackMod.hackTick(HK3.traceSec + 0.1);        // ICE TRACE habis
     await waitHackClosed();
     const bots = robots.filter(z => z.stage === 3);
-    T('S3 ALARM: hack gagal -> HORDE `alarmHordeCount` kelas C memburu player, SEMUA di luar pandangan kamera',
-        bots.length === HK3.alarmHordeCount && bots.every(z => z.kind === 'C' && z.state === 'chasing')
+    const mixKeys = Object.keys(cfgMod.CFG.campaign.stage3.classMix);
+    T('S3 ALARM: hack gagal -> HORDE `alarmHordeCount` (kelas dari classMix) memburu player, SEMUA di luar pandangan kamera',
+        bots.length === HK3.alarmHordeCount
+        && bots.every(z => mixKeys.includes(z.kind) && z.state === 'chasing')
         && bots.every(z => offCamera(z.mesh.position.x, z.mesh.position.z)));
     s3mod.stage3Scene.updateMode(0.05);          // masih menempel terminal
     T('S3 ALARM: terminal terkunci cooldown & puzzle tak bisa dibuka lagi selama itu',
@@ -2874,6 +2878,51 @@ const s3mCampBefore = robots.filter(z => z.stage === 3).length;   // = threshold
 for (let t = 0; t < s3cfg.respawnSec + 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 T('S3 FLOW: sisa <reinforceThreshold robot TETAP memicu gelombang (anti-camp machines)',
     s3mCampBefore === s3thr - 1 && robots.filter(z => z.stage === 3).length > s3mCampBefore);
+
+// (4c) CAMPURAN KELAS ROBOT = CFG.campaign.stage3.classMix (2026-07-30,
+// permintaan user: C 70% / B 20% / A 10%; sebelumnya hardcode C50/B25/A25).
+// Undiannya berurut C -> B -> A atas bobot yang DINORMALKAN, jadi menembak
+// Math.random ke TENGAH tiap pita wajib menghasilkan kelas pita itu — uji EKSAK
+// (bukan statistik) dan otomatis ikut bila user me-retune bobotnya.
+{
+    const MIX = s3cfg.classMix;
+    const tot = MIX.C + MIX.B + MIX.A;
+    const bands = [
+        ['C', MIX.C * 0.5 / tot],
+        ['B', (MIX.C + MIX.B * 0.5) / tot],
+        ['A', (MIX.C + MIX.B + MIX.A * 0.5) / tot],
+    ];
+    T('S3 classMix ada di config & bobotnya positif (C ' + MIX.C + ' / B ' + MIX.B + ' / A ' + MIX.A + ')',
+        tot > 0 && MIX.C > 0 && MIX.B > 0 && MIX.A > 0);
+    const realRand = Math.random;
+    let mixOk = true; const got = [];
+    for (const [want, r] of bands) {
+        // Antrean spawn gelombang SEBELUMNYA (kelasnya diundi dgn acak asli)
+        // harus dituntaskan & dibersihkan dulu, kalau tidak ia bocor ke hitungan.
+        s3Drain(); s3KillAll();
+        Math.random = () => r;   // tembak ke tengah pita kelas `want`
+        for (let t = 0; t < s3cfg.respawnSec + 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+        s3Drain();
+        Math.random = realRand;
+        const kinds = robots.filter(z => z.stage === 3).map(z => z.kind);
+        got.push(want + '->' + (kinds[0] || '-') + '×' + kinds.length);
+        if (!kinds.length || !kinds.every(k => k === want)) mixOk = false;
+    }
+    T('S3: kelas robot yang spawn mengikuti bobot classMix (' + got.join(' ') + ')', mixOk);
+    // Kelas TERUMUM (bobot terbesar) juga yang paling sering keluar pada undian
+    // acak sungguhan — jaring pengaman kalau urutan pita tertukar.
+    s3KillAll();
+    const tally = { C: 0, B: 0, A: 0 };
+    for (let i = 0; i < 40; i++) {
+        for (let t = 0; t < s3cfg.respawnSec + 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
+        s3Drain();
+        for (const z of robots) if (z.stage === 3) tally[z.kind] = (tally[z.kind] || 0) + 1;
+        s3KillAll();
+    }
+    const top = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
+    const wantTop = MIX.C >= MIX.B && MIX.C >= MIX.A ? 'C' : (MIX.B >= MIX.A ? 'B' : 'A');
+    T('S3: kelas dgn bobot TERBESAR paling sering keluar (' + JSON.stringify(tally) + ')', top === wantTop);
+}
 
 // (5) Hancurkan 4 MESIN (HP 0) -> hancur; habisi robot -> fase done (EXIT aktif)
 for (const m of s3mod.s3MachinesDbg()) m.hp = 0;

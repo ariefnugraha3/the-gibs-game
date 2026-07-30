@@ -337,7 +337,8 @@
             "machineFirstWaveSec": 3,
             "machineHitRadius": 16,
             "spawnGapSec": 0.3,
-            "spawnRiseSec": 0.55
+            "spawnRiseSec": 0.55,
+            "classMix": { "C": 0.7, "B": 0.2, "A": 0.1 }
         },
         "bosses": {
             "giant": {
