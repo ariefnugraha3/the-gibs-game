@@ -271,7 +271,9 @@
             "enabled": true,
             "fadeInSec": 1.1,
             "holdSec": 7.8,
-            "fadeOutSec": 1.1
+            "fadeOutSec": 1.1,
+            "readSecPerWord": 0.28,
+            "maxHoldSec": 20
         },
         "intro": {
             "establishSec": 2.6,

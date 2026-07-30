@@ -92,18 +92,21 @@
     <!-- Takarir narasi cutscene (2026-07-27): satu baris di atas pita bawah,
          dikendalikan dom.showCineCaption/hideCineCaption. Teks selalu English. -->
     <div id="cineCaption"></div>
-    <!-- PROLOG SINEMATIK campaign (2026-07-30): montase 9 era (2028→2045) yang
-         diputar SEBELUM intro heli pada start campaign baru. Kanvasnya digambar
-         prosedural per frame oleh scenes/campaign/cutscenes/prologue.js; teksnya
-         (tahun/judul/narasi) di DOM agar tipografinya tajam. Teks selalu English. -->
+    <!-- PROLOG SINEMATIK campaign (2026-07-30; jadi SCENE IN-ENGINE "war room"
+         2026-08-04): sembilan era (2028→2045) kini diproyeksikan sebagai HOLOGRAM
+         di atas holotable di dalam mesin THREE (scenes/campaign/cutscenes/
+         prologue.js), bukan lagi digambar di <canvas> 2D — kanvas prolog & seluruh
+         seni 2D-nya DIHAPUS. Yang tersisa di DOM hanyalah TAKARIR-nya (tahun/judul/
+         narasi) supaya tipografinya tajam; lapisan ini transparan & melayang di
+         atas render 3D. Teks selalu English.
+         TIDAK ADA penghitung slide di sini — elemen "NN / 09" dibuang 2026-08-03
+         karena itu justru yang membuat prolog terbaca sebagai slideshow. -->
     <div id="prologue">
-        <canvas id="prologueCanvas"></canvas>
         <div id="prologueText">
             <div id="prologueYear"></div>
             <div id="prologueTitle"></div>
             <div id="prologueBody"></div>
         </div>
-        <div id="prologueCounter"></div>
     </div>
     <div id="damage"></div>
     <!-- SEKUENS KEMATIAN (2026-07-26): pandangan MENUTUP berdarah — opasitas

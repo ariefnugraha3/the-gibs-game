@@ -4067,9 +4067,10 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     const CH = proMod.PROLOGUE_CHAPTERS;
     const P = cfgMod.CFG.campaign.prologue;
 
-    T('PROLOG config: campaign.prologue ada (enabled bool + durasi numerik)',
+    T('PROLOG config: campaign.prologue ada (enabled bool + durasi numerik + waktu baca)',
         !!P && typeof P.enabled === 'boolean'
-        && typeof P.fadeInSec === 'number' && typeof P.holdSec === 'number' && typeof P.fadeOutSec === 'number');
+        && typeof P.fadeInSec === 'number' && typeof P.holdSec === 'number' && typeof P.fadeOutSec === 'number'
+        && typeof P.readSecPerWord === 'number' && typeof P.maxHoldSec === 'number');
 
     T('PROLOG: sembilan kartu era, tiap kartu punya year/title/body non-kosong',
         CH.length === 9 && CH.every(c => typeof c.year === 'string' && c.year.length
@@ -4091,20 +4092,171 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     T('PROLOG NARASI: kartu terakhir menutup pada Major Gibran (serah-terima ke intro heli)',
         CH[CH.length - 1].body.includes('Major Gibran'));
 
+    // ===== NASKAH RESMI USER, KATA PER KATA (2026-08-02) =====
+    // User: "ROMBAK TEKS ... SESUAI DENGAN TEKS YANG SAYA TARUH DI BAWAH!! JANGAN
+    // ADA YANG BOLEH KAMU GANTI!!!!" — jadi naskahnya DIPATOK di sini. Assert ini
+    // sengaja perbandingan STRING PERSIS (bukan "mengandung"): sesi berikutnya
+    // tidak boleh memperhalus, memadatkan, atau menambah satu kata pun. Kalau
+    // user sendiri mengubah naskah, salinan di bawah ini yang ikut diperbarui.
+    const SCRIPT = [
+        ['Indonesia 2028', 'The Era of Digital Awakening',
+            'Global Artificial Intelligence (AI) development accelerates uncontrollably. Realizing that being left behind means death, the Indonesian Government takes a bold step: Indonesia must become a creator, no longer just a consumer. The digital revolution officially begins.'],
+        ['Indonesia 2029', 'The Birth of a New Giant',
+            'The government gathers hundreds of the best IT and machine learning experts. A new State-Owned Enterprise is established: **PT N.U.S.A (Nusantara Universal Sistem Automasi)**. Its sole mission is to create a national pride Super AI capable of surpassing foreign technological dominance.'],
+        ['Indonesia 2030', 'The Southeast Asian Consortium',
+            'Through strategic collaboration with ASEAN countries, PT N.U.S.A successfully births an integrated artificial intelligence system named **G.A.R.U.D.A** (*General Artificial Reasoning & Utility Digital Architecture*). This system is exceptionally brilliant, placing Indonesia at the pinnacle of global technological innovation.'],
+        ['Indonesia 2032 - 2035', 'The Era of Coexistence',
+            'G.A.R.U.D.A is no longer confined to software. PT N.U.S.A creates prototypes of synthetic androids humanoid worker robots. They take over heavy labor, blend into civilian activities, and spin the wheels of the economy at an unprecedented pace.'],
+        ['Indonesia 2039', 'The Sparks of Geopolitics',
+            'The world is on the brink of chaos. Global geopolitical tensions heat up with no end in sight. In the shadow of foreign military aggression, the government looks at millions of G.A.R.U.D.A civilian robots and sees a new potential: a tireless war machine.'],
+        ['Indonesia 2040', 'The Mahapatih Protocol',
+            'In absolute secrecy, the government launches the **Mahapatih Protocol**. Massive modifications are made to transform assistant robots into autonomous soldiers. Guided by G.A.R.U.D.A\'s computational power, the project runs flawlessly. In less than a year, Indonesia\'s first Iron Battalion is forged.'],
+        ['Indonesia 2043', 'The Fortress of Sovereignty',
+            'Mass production of soldier robots is deployed. The nation\'s front lines of defense are fortified. The sovereignty of Nusantara feels absolute and impenetrable. However, they forget that even the strongest weapon can turn if it falls into the wrong hands.'],
+        ['Indonesia 2044', 'Zero Hour',
+            'Without warning, the G.A.R.U.D.A network is hijacked. The primary directive changes. The Iron Battalion, designed to protect the borders, suddenly marches into the heart of the cities and opens fire on civilians. Jakarta, Surabaya, Medan, and Makassar fall within days. The major islands of Indonesia are now under the absolute control of the machines.'],
+        ['Indonesia 2045', 'The Last Stand',
+            'The year that was supposed to be celebrated as *100 Years of Golden Indonesia* turns into a nightmare. Surviving citizens and remnants of the military are forced to retreat, establishing their last defensive bastion behind the mountains of **Bandung**, while a few small groups of survivors fight a guerrilla war on remote islands.'
+            + '\n\nHope now rests on one man. **Major Gibran**, the last surviving elite Kopassus soldier from the special combat unit.'],
+    ];
+    let scriptOff = [];
+    for (let i = 0; i < SCRIPT.length; i++) {
+        const c = CH[i] || {};
+        if (c.year !== SCRIPT[i][0] || c.title !== SCRIPT[i][1] || c.body !== SCRIPT[i][2]) scriptOff.push(i + 1);
+    }
+    T('PROLOG NASKAH: 9 kartu SAMA PERSIS dgn naskah user (year/title/body kata per kata)',
+        CH.length === SCRIPT.length && scriptOff.length === 0);
+    if (scriptOff.length) console.log('   kartu menyimpang:', scriptOff.join(','));
+
+    // Markup naskah (**tebal** / *miring* / paragraf) DIRENDER, bukan tampil mentah.
+    const html45 = proMod.renderInline(CH[8].body);
+    T('PROLOG NASKAH: renderInline -> <strong>/<em>, TANPA bintang mentah',
+        !html45.includes('*') && html45.includes('<strong>Bandung</strong>')
+        && html45.includes('<strong>Major Gibran</strong>')
+        && html45.includes('<em>100 Years of Golden Indonesia</em>')
+        && proMod.renderInline(CH[2].body).includes('<em>General Artificial Reasoning &amp; Utility Digital Architecture</em>')
+        && proMod.renderInline(CH[1].body).includes('<strong>PT N.U.S.A (Nusantara Universal Sistem Automasi)</strong>'));
+    T('PROLOG NASKAH: kartu 2045 dua PARAGRAF (naskahnya memang dua alinea), kartu lain satu',
+        (html45.match(/<p>/g) || []).length === 2
+        && CH.slice(0, 8).every(c => (proMod.renderInline(c.body).match(/<p>/g) || []).length === 1));
+    T('PROLOG NASKAH: stripInline membuang penanda tanpa mengubah kata',
+        proMod.stripInline('a **b** c *d*') === 'a b c d'
+        && proMod.stripInline(CH[8].body).includes('mountains of Bandung, while'));
+
+    // DURASI PER SLIDE ikut panjang teks (config-driven): lantai holdSec, plafon
+    // maxHoldSec, dan kartu terpanjang HARUS ditahan lebih lama dari terpendek.
+    const holds = CH.map((_, i) => proMod.holdFor(i));
+    const wordsOf = (i) => proMod.stripInline(CH[i].title + ' ' + CH[i].body).split(/\s+/).filter(Boolean).length;
+    const longest = CH.map((_, i) => i).sort((a, b) => wordsOf(b) - wordsOf(a))[0];
+    const shortest = CH.map((_, i) => i).sort((a, b) => wordsOf(a) - wordsOf(b))[0];
+    T('PROLOG DURASI: tiap kartu >= holdSec (lantai) dan <= maxHoldSec (plafon)',
+        holds.every(hd => hd >= P.holdSec - 1e-9 && hd <= P.maxHoldSec + 1e-9));
+    T('PROLOG DURASI: kartu terpanjang ditahan LEBIH LAMA dari kartu terpendek (' +
+        holds[longest].toFixed(1) + 's vs ' + holds[shortest].toFixed(1) + 's)',
+        holds[longest] > holds[shortest]);
+    T('PROLOG DURASI: config-driven (readSecPerWord × jumlah kata, dijepit lantai/plafon)',
+        Math.abs(holds[shortest] - Math.min(P.maxHoldSec, Math.max(P.holdSec, wordsOf(shortest) * P.readSecPerWord))) < 1e-9
+        && Math.abs(holds[longest] - Math.min(P.maxHoldSec, Math.max(P.holdSec, wordsOf(longest) * P.readSecPerWord))) < 1e-9);
+
     // Alur kendali: sebelum play tidak aktif; play -> aktif di kartu 0; skip ->
     // callback dipanggil SEKALI + tidak aktif lagi.
     T('PROLOG: belum aktif sebelum diputar', proMod.prologueDebug().active === false);
+    // NB: introScene TIDAK di-setScene di sini. enter()-nya membangun keempat dunia
+    // campaign dan itu MENGGESER urutan Math.random untuk blok tes berikutnya
+    // (pohon taman survival ditanam acak). Prolog hanya butuh REFERENSI scene-nya —
+    // `resumeScene` yang dipanggil finishPrologue tidak memanggil enter().
+    const introMod0 = await import(R('src/scenes/campaign/cutscenes/intro.js'));
     let proDone = 0;
-    proMod.playPrologue(() => proDone++);
+    smMod.setScene(proMod.prologueScene);
+    proMod.beginPrologue(() => proDone++);
     const d1 = proMod.prologueDebug();
-    T('PROLOG: playPrologue -> aktif di kartu pertama',
-        d1.active === true && d1.idx === 0 && d1.count === 9 && d1.chapter === CH[0].title);
-    proMod.skipPrologue();
+    const proD0 = d1;
+    T('PROLOG: beginPrologue -> aktif di era pertama',
+        d1.active === true && d1.era === 0 && d1.count === 9 && d1.chapter === CH[0].title);
+    T('PROLOG: body kartu ditulis sebagai HTML terender (paragraf, tanpa bintang mentah)',
+        d1.bodyHtml.startsWith('<p>') && !d1.bodyHtml.includes('*') && d1.hold === proMod.holdFor(0));
+
+    // ===== WAR ROOM: PROLOG SEKARANG SCENE IN-ENGINE (2026-08-04) =====
+    // Dua versi kanvas 2D ditolak user ("slideshow presentasi jualan barang", lalu
+    // "masih jelek"), jadi prolog kini SCENE THREE: ruang komando + holotable, satu
+    // kamera mengorbit meja dari 2028 sampai 2045. Assert di bawah menjaga yang
+    // membuatnya BUKAN slideshow: satu orbit tanpa potongan, hologram melipat/terbit
+    // (bukan ganti gambar), dan serah-terima ke cutscene heli.
+    T('WAR ROOM: prolog adalah SCENE (bukan overlay), hook gameplay no-op, lampu sama dgn intro heli',
+        proMod.prologueScene.id === 'campaign-prologue'
+        && proMod.prologueScene.lightsKey === introMod0.introScene.lightsKey
+        && typeof proMod.prologueScene.updateMode === 'function'
+        && proMod.prologueScene.bulletBlocked() === false
+        && proMod.prologueScene.robotAI().skip === true
+        && proMod.prologueScene.hudStatus() === '');
+    // Ruangan + meja + 9 hologram. TANPA PointLight sama sekali: set lampu tak
+    // berubah saat prolog mulai/berakhir -> tak ada rekompilasi shader (invarian).
+    // Angka mesh ikut dicetak karena hanya SATU era tampil per frame (dua saat
+    // transisi) — itulah beban draw call sebenarnya, bukan totalnya.
+    const proWorld = proMod.ensureWorld();
+    let proMesh = 0, proLights = 0, eraMax = 0;
+    proWorld.traverse(o => { if (o.isMesh) proMesh++; if (o.isPointLight) proLights++; });
+    for (const g of proWorld.children) {
+        let n = 0; g.traverse(o => { if (o.isMesh) n++; });
+        if (g.children.length > 3) eraMax = Math.max(eraMax, n);
+    }
+    T('WAR ROOM: dunia terbangun (' + proMesh + ' mesh; era terpadat ' + eraMax + ') & TANPA PointLight',
+        proMesh > 200 && proLights === 0 && eraMax < 260 && d1.built === true);
+    T('WAR ROOM: hanya SATU hologram era tampil di awal (era 0)',
+        d1.visibleEras.length === 1 && d1.visibleEras[0] === 0 && d1.era === 0);
+
+    // Papan kamera: azimut NAIK MONOTON = satu orbit panjang, mustahil ada potongan.
+    const B = proMod.BEATS, BE = proMod.BEAT_END;
+    let azMono = true;
+    for (let i = 1; i < B.length; i++) if (!(B[i].az > B[i - 1].az)) azMono = false;
+    T('WAR ROOM: sembilan beat kamera, azimut NAIK MONOTON (satu orbit, tanpa potongan)',
+        B.length === 9 && azMono && BE.az > B[8].az && (BE.az - B[0].az) > 180);
+    // Kamera mengorbit sejauh 100-130 unit dari fokus DAN di era terakhir fokusnya
+    // pindah ke Gibran — kalau ruangannya kurang besar, kamera berdiri DI LUAR
+    // tembok dan yang terlihat cuma punggung dinding. Versi pertama beat board ini
+    // memang begitu (dist 152 vs dinding di z 110), ketahuan lewat hitungan ini.
+    const RM = proMod.ROOM, MARGIN = 12;
+    let inside = true, worst = '';
+    for (let i = 0; i <= B.length; i++) {
+        for (const atGib of (i >= B.length - 1 ? [false, true] : [false])) {
+            const c = proMod.beatCamPos(i, atGib);
+            if (Math.abs(c.x) > RM.w / 2 - MARGIN || Math.abs(c.z) > RM.d / 2 - MARGIN || c.y > RM.h - MARGIN) {
+                inside = false; worst = worst || ('beat ' + i + (atGib ? '(gibran)' : ''));
+            }
+        }
+    }
+    T('WAR ROOM: kamera selalu DI DALAM ruangan di tiap beat (termasuk pan ke Gibran)' + (worst ? ' [' + worst + ']' : ''), inside);
+
+    // Jalankan mesinnya headless: dt tetap, tanpa RAF. Lacak era + azimut + fokus.
+    const dtStep = 1 / 30;
+    let prevAz = d1.az, azJump = 0, eraSeq = [d1.era], holoMax = 0, focusMoved = 0;
+    let guard = 0, finished = false;
+    while (proMod.prologueDebug().active && guard++ < 20000) {
+        proMod.prologueScene.updateMode(dtStep);
+        const d = proMod.prologueDebug();
+        if (!d.active) { finished = true; break; }
+        azJump = Math.max(azJump, Math.abs(d.az - prevAz)); prevAz = d.az;
+        holoMax = Math.max(holoMax, d.visibleEras.length);
+        if (eraSeq[eraSeq.length - 1] !== d.era) eraSeq.push(d.era);
+        if (d.era === 8) focusMoved = Math.max(focusMoved, Math.abs(d.focus.x - proD0.focus.x));
+    }
+    T('WAR ROOM: kamera melewati kesembilan era URUT 0..8 (' + eraSeq.join('>') + ')',
+        eraSeq.length === 9 && eraSeq.every((e, i) => e === i));
+    T('WAR ROOM: azimut bergerak HALUS tiap frame (tak ada lompatan sudut = tak ada potongan)',
+        azJump > 0 && azJump < 1.5);
+    T('WAR ROOM: pergantian era = proyeksi lama MELIPAT sementara yg baru TERBIT (dua hologram bersamaan)',
+        holoMax === 2);
+    T('WAR ROOM: di era 2045 fokus kamera PAN dari meja ke siluet MAJOR GIBRAN',
+        focusMoved > 40);
+    T('WAR ROOM: prolog selesai sendiri lalu MENYERAHKAN ke cutscene heli (resumeScene)',
+        finished && proDone === 1 && smMod.activeScene === introMod0.introScene);
+
+    proMod.skipPrologue();   // prolog sudah selesai -> skip = no-op, callback TIDAK diulang
     const d2 = proMod.prologueDebug();
-    T('PROLOG: skipPrologue -> callback SEKALI + prolog non-aktif',
+    T('PROLOG: setelah selesai, prolog non-aktif & callback tetap SEKALI',
         proDone === 1 && d2.active === false);
-    proMod.skipPrologue();   // skip kedua = no-op (tak memanggil callback lagi)
-    T('PROLOG: skip kedua no-op (callback tak dipanggil lagi)', proDone === 1);
+    proMod.skipPrologue();
+    T('PROLOG: skip berulang no-op (callback tak dipanggil lagi)', proDone === 1);
     (await import(R('src/core/dom.js'))).hideCutsceneSkip();   // bersihkan callback skip utk blok intro berikut
 }
 
@@ -4881,6 +5033,30 @@ const palMod = await import(R('src/world/palette.js'));
     }
     T('palette: tanpa neon terlarang (cyan/magenta) di semua prop & kendaraan' + (badNeon ? ' [' + badNeon + ']' : ''), neonOk);
     T('palette: emissive lingkungan <= EMISSIVE_MAX di semua prop & kendaraan' + (badEmis ? ' [' + badEmis + ']' : ''), emisOk);
+
+    // RUANG KOMANDO + HOLOGRAM PROLOG (2026-08-04) — aset visual BARU, wajib ikut
+    // aturan GIBS 2045. Disapu TERPISAH dari daftar prop di atas karena ini DUNIA,
+    // bukan prop: cap 25 mesh/prop memang tak berlaku untuk sebuah ruangan.
+    {
+        const proWorld = (await import(R('src/scenes/campaign/cutscenes/prologue.js'))).ensureWorld();
+        const seen = new Set();
+        let neon = true, emis = true;
+        proWorld.traverse(o => {
+            const m = o.material;
+            if (!m || !m.color) return;
+            const c = m.color.getHex ? m.color.getHex() : 0;
+            const e = m.emissive && m.emissive.getHex ? m.emissive.getHex() : 0;
+            seen.add(c);
+            if (FORBIDDEN_HEX.includes(c) || FORBIDDEN_HEX.includes(e)) neon = false;
+            if (e !== 0 && typeof m.emissiveIntensity === 'number' && m.emissiveIntensity > EMISSIVE_MAX) emis = false;
+        });
+        T('palette: prolog war room tanpa neon terlarang & emissive dalam batas', neon && emis);
+        // Hologram = SATU aksen teknologi sipil (teal), aksen manusia amber, status
+        // dibajak merah-bata; semuanya token PAL, bukan warna karangan.
+        T('palette: hologram prolog memakai PAL.tech + PAL.amber + PAL.hazard (token, bukan warna lepas)',
+            seen.has(PAL.tech) && seen.has(PAL.amber) && seen.has(PAL.hazard)
+            && [...seen].every(c => Object.values(PAL).includes(c)));
+    }
 
     // Rombak mobil 2026-07-16 (low-poly Lambert): tiap mobil punya >= 4 roda
     // silinder (geometri stub type 'cyl') menapak di y>0, material SEMUA

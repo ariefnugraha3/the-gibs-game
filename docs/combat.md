@@ -122,3 +122,25 @@ The hip curve also gained a **`|sin|^0.8` shaping** that flattens the swing peak
 Heavier classes get it for free: `mass` (= class scale) slows the cadence and deepens the roll, so B and A stomp where C scurries.
 
 Guarded by the `ROBOT JALAN` / `ROBOT BELOK` / `ROBOT BERHENTI` asserts — stride-vs-reach, knee timing at plant/toe-off/mid-swing, ankle push-off, bob sign and depth, lateral shift direction, head counter-motion, two step pulses per cycle, per-unit variation, banking sign, and every channel returning to neutral when the robot stops. All of them fail on the old curve.
+
+## Collision model — sweeps, hug-and-slide, robot separation
+
+> Extracted from CLAUDE.md on 2026-07-30 when that file was slimmed down again. The short rules stay there; this is the mechanism.
+
+**Collisions are distance checks, not physics.** Robot-hit, pickup and blast all use `distanceTo` radii.
+
+**Bullet-vs-robot is a swept-segment check** (`segPointDist2`, prev→current position). On the spawn frame the segment starts at the player's EYE, so a point-blank shot can never tunnel past the target.
+
+**Survival collision:** Monas is a solid AABB resolved PER-AXIS (`resolveMonas` in survival/world.js — `MONAS_HALF` 22, base 44×44): it hugs-and-slides, it is NOT a full revert, so the player never sticks to the corner — the same fix the campaign walls got. Trees and the fountain are solid cylinders (`resolveObstacles`); the park edge is a fence clamp. **`bulletBlocked` follows the real Monas silhouette height-by-height** — base 44 wide down low, the thin obelisk ~16 wide at eye height, nothing at all above y 64 — so bullets pass through the empty air beside the obelisk and hit robots standing behind it. **Do NOT revert it to a flat 44-wide column**; that was the old behavior and it ate shots that visually had a clear lane.
+
+**Campaign collision:** walkable-union tests (the `stage1Walk` grid / `highwayWalk`) with per-axis `slideWalk` (hug walls, don't stick), plus rotated-AABB `resolveBlockers` for medians, wrecks and furniture — blockers with standable tops are walkable on top.
+
+**Robot bodies are solid to the player only**, pushed out at `CFG.robot.bodyBlockRadius` 7.5 — deliberately *below* the claw-stop distance 8.0, so a robot that has stopped to attack doesn't shove the player away every frame.
+
+**Robots also collide with EACH OTHER** — `separateRobots()` in robots.js, run once per frame at the very end of `updateRobots`, after all movement:
+
+- Any two robots closer than the sum of their separation radii (`CFG.robot.separationRadius` 4.0 × scale) are pushed apart along the connecting line by `CFG.robot.separationRelax` (0.5) × overlap. That is a soft, converging push — no jitter — **not** a hard snap out to the full radius.
+- The radius is **kept ≤ half a grid cell's usable width** so two robots still fit through a 1-cell corridor. Raising it past that wedges the pair and blocks the corridor.
+- `'idle'` (dormant campaign) robots are **ANCHORS**: they push others but never move themselves. `'jumping'` (fence-vault) robots are skipped entirely — the vault arc owns their position.
+- Net effect: robots stop stacking on a single point, and when the player is surrounded the ones that can't fit the front ring get pushed outward and WAIT behind it.
+- **Every pushed robot is then re-clamped to walkable space via the `activeScene.clampRobot(z, oldX, oldZ)` hook.** Without it the push shoves robots THROUGH walls: each scene's ordinary per-frame wall-resolve reverts to the frame's *start* position, which the separation push has already moved inside the wall. So `separateRobots` snapshots each robot's valid pre-separation position and passes it as the hug-slide fallback. Implementations: survival = fence clamp + `resolveMonas` + `resolveObstacles`; campaign = `campaignClampRobot` in campaign/utility/common.js (`stage.resolve` furniture + per-axis `stage.walkable` slide).

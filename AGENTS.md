@@ -8,7 +8,8 @@ This repository is a browser game titled "Gibran vs Robot 3D" — a **top-down s
 - `src/` — the whole game as ES modules (core/, utils/, world/, entities/, scenes/). **The module catalog and interface contracts are documented in `MODULES.md` — read it first.**
 - `css/style.css` — all styling.
 - `config/gameplay.json` — every tunable gameplay constant (max ammo/hp, speeds, stamina, wave difficulty, ...). Loaded at boot into `CFG`.
-- `assets/sounds/*.mp3` — sound effects. (`assets/visuals/robot.glb` exists but is unused — robots are procedural.)
+- `assets/sounds/*.mp3` — sound effects + the three music tracks; `assets/fonts/` — Courier Prime (cutscene/HUD text). There are **no 3D model assets** — every robot, prop and building is procedural geometry built in code.
+- `tools/smoke.mjs` — the headless test suite (see below).
 - `package.json` — metadata only (`"type": "module"` for Node tooling). No dependencies, no build system.
 
 ## What agents should know
@@ -31,4 +32,6 @@ This repository is a browser game titled "Gibran vs Robot 3D" — a **top-down s
 ## Running the project
 
 - Serve the repository folder with a static HTTP server and open `index.html` via `http://localhost:...`.
-- Syntax check: `node --check src/<file>.js`.
+- Test: `node tools/smoke.mjs` — headless suite (zero deps, stubbed THREE/DOM driving the real `src/` modules). Must print `0 fail`. The `[postfx] … CDN tidak termuat` line is expected in Node, not a failure. No per-test filter; run the whole file.
+- Syntax check: `node --check src/<file>.js` — per touched file.
+- Every gameplay change: add/adjust smoke asserts (keep them **config-driven** — read `CFG`, never hardcode tuned numbers) → smoke green → `node --check` → update `MODULES.md`.

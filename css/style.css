@@ -1411,39 +1411,41 @@ body.cine #medkitBar, body.cine #stageMsg {
 }
 #cineCaption.on { opacity: 1; transform: translateY(0); }
 
-/* ===== PROLOG SINEMATIK campaign (2026-07-30) — overlay layar-penuh yang
-   diputar SEBELUM intro heli: montase 9 kartu era 2028→2045. DI ATAS letterbox +
-   cineFade (z 27) tapi di BAWAH tombol SKIP (z 60). Kanvasnya menggambar seni +
-   letterbox + grade; teks di DOM utk tipografi tajam. Semua teks English. */
+/* ===== PROLOG SINEMATIK campaign (2026-07-30; SCENE IN-ENGINE sejak 2026-08-04)
+   — lapisan TAKARIR untuk prolog "war room" yang dirender mesin THREE. DI ATAS
+   letterbox + cineFade (z 27) tapi di BAWAH tombol SKIP (z 60).
+   PENTING: latarnya TRANSPARAN dan `pointer-events: none` — dulu lapisan ini opak
+   (#000) karena seluruh prolog digambar di <canvas> 2D di dalamnya; kanvas itu
+   sudah dihapus, dan latar hitam di sini akan MENUTUPI render 3D-nya.
+   Semua teks English. */
 #prologue {
     display: none;
     position: fixed;
     inset: 0;
     z-index: 44;
-    background: #000;
+    background: transparent;
+    pointer-events: none;
     overflow: hidden;
     font-family: Arial, sans-serif;
 }
 
-#prologueCanvas {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    display: block;
-}
-
-/* Blok teks duduk di kiri-bawah, di dalam pita letterbox (bar 11% tinggi). */
+/* Takarir cerita duduk di kiri-bawah, di dalam pita letterbox (bar 11% tinggi).
+   2026-08-03: ketiga barisnya dihanyutkan per frame oleh JS (parallax berlawanan
+   arah kamera) — bukan blok statis seperti slide, maka `will-change` di bawah. */
 #prologueText {
     position: absolute;
     left: 8vw;
     right: 8vw;
-    bottom: 15vh;
-    max-width: 780px;
+    bottom: 14vh;
+    /* 2026-08-02: naskah resmi user jauh lebih panjang (kartu 2044/2045 sampai
+       dua paragraf) — blok teks dilebarkan supaya tetap duduk di dalam pita
+       letterbox tanpa menutupi diorama. */
+    max-width: 900px;
     pointer-events: none;
 }
 
 #prologueYear {
+    will-change: transform, opacity;
     font-size: clamp(13px, 1.5vw, 18px);
     font-weight: 700;
     letter-spacing: 0.42em;
@@ -1453,6 +1455,7 @@ body.cine #medkitBar, body.cine #stageMsg {
 }
 
 #prologueTitle {
+    will-change: transform, opacity;
     font-size: clamp(24px, 3.6vw, 46px);
     font-weight: 800;
     letter-spacing: 0.02em;
@@ -1463,25 +1466,39 @@ body.cine #medkitBar, body.cine #stageMsg {
 }
 
 #prologueBody {
-    font-size: clamp(14px, 1.75vw, 21px);
-    line-height: 1.6;
+    will-change: transform, opacity;
+    font-size: clamp(13px, 1.6vw, 20px);
+    line-height: 1.58;
     letter-spacing: 0.01em;
     color: #d8cdba;
     text-shadow: 0 2px 12px #000;
 }
 
-/* Penghitung kartu "03 / 09" di kanan-atas, di dalam pita atas. */
-#prologueCounter {
-    position: absolute;
-    top: 4.4vh;
-    right: 8vw;
-    font-size: clamp(12px, 1.3vw, 16px);
-    font-weight: 700;
-    letter-spacing: 0.34em;
-    color: #cdb98f;
-    text-shadow: 0 2px 8px #000;
-    pointer-events: none;
+/* Naskah prolog ditulis dengan markup: paragraf, **tebal** (entitas cerita:
+   PT N.U.S.A / G.A.R.U.D.A / Mahapatih Protocol / Bandung / Major Gibran) dan
+   *miring* (judul/istilah). renderInline() yang mengubahnya jadi tag ini. */
+#prologueBody p {
+    margin: 0 0 0.62em;
 }
+
+#prologueBody p:last-child {
+    margin-bottom: 0;
+}
+
+#prologueBody strong {
+    color: #f4ecdd;
+    font-weight: 700;
+}
+
+#prologueBody em {
+    font-style: italic;
+    color: #e7dcc7;
+}
+
+/* CATATAN 2026-08-03: blok #prologueCounter ("03 / 09") DIHAPUS bersama elemennya
+   di index.html. Penghitung slide adalah penanda paling khas presentasi — game
+   tidak pernah memberi tahu pemain "slide ke berapa dari berapa". Jangan
+   ditambahkan lagi. */
 
 /* ---------- MINIGAME HACK "ICE BREACH" (2026-07-28) — scene MODAL yang
    menggantikan bar progress hacking di Stage 1 & Stage 3. Latar OPAK (dunia 3D

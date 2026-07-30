@@ -4,7 +4,7 @@
 // dipenggal dgn await loadingStep() agar overlay & bar sempat dilukis browser.
 
 import { loadConfig, CFG } from './core/config.js';
-import { setMode, configurePlayer, isPaused, isGameOver, highScore, setPaused } from './core/state.js';
+import { setMode, configurePlayer, isPaused, isGameOver, highScore } from './core/state.js';
 import {
     initRenderer, initQualityUI, scene, camera, viewCam, renderer, composer, postFxOn,
     followViewCam
@@ -30,7 +30,7 @@ import {
 } from './scenes/survival/cutscenes/monasIntro.js';
 import { stage1Scene } from './scenes/campaign/stages/stage1.js';
 import { introScene, beginIntro, warmupIntro } from './scenes/campaign/cutscenes/intro.js';
-import { playPrologue } from './scenes/campaign/cutscenes/prologue.js';
+import { prologueScene, beginPrologue, warmupPrologue } from './scenes/campaign/cutscenes/prologue.js';
 import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
@@ -123,26 +123,31 @@ export async function startGame(mode, opts = {}) {
         if (playIntro) { warmupIntro(); await loadingStep(98, 'Preparing the city…'); }
         if (playSurvIntro) { warmupSurvivalIntro(); await loadingStep(98, 'Preparing the park…'); }
 
-        hideLoading();
-        bestScoreEl.innerText = `Best: ${highScore}`;
-        updateUI();
-
-        // PROLOG SINEMATIK (2026-07-30): campaign start BARU membuka dgn montase
-        // 9 era (2028→2045) SEBELUM cutscene heli. beginIntro() sudah mempersenjatai
-        // mesin heli & unpause; kita BEKUKAN lagi (setPaused true) supaya heli
-        // menunggu di layar hitam, lalu putar prolog DI ATAS (overlay opak, RAF
-        // sendiri). Saat prolog selesai/di-skip → unpause → frame LIVE pertama heli
-        // membuka dari layar hitam yang SAMA (mulus). Harus di-set SEBELUM animate()
-        // agar frame updateGame pertama tak sempat menjalankan mesin heli.
+        // PROLOG SINEMATIK (2026-07-30; jadi SCENE IN-ENGINE "war room" 2026-08-04):
+        // campaign start BARU membuka dgn 9 era (2028→2045) SEBELUM cutscene heli.
+        // Dulu overlay canvas 2D dgn RAF sendiri + game dibekukan; kini SCENE THREE
+        // sungguhan (ruang komando + holotable) yang dipasang SEBELUM introScene
+        // menjalankan mesinnya. Urutannya penting: introScene sudah dipasang di atas
+        // (dunia campaign terbangun, fog asli tersimpan) dan beginIntro() sudah
+        // mempersenjatai + memanaskan heli — prolog tinggal "menyela" sebagai scene
+        // aktif, lalu MENGEMBALIKANNYA lewat resumeScene(introScene) saat selesai
+        // (resume, BUKAN setScene, supaya introScene.enter() tak jalan dua kali).
         const showPrologue = playIntro && !!(CFG.campaign && CFG.campaign.prologue && CFG.campaign.prologue.enabled);
         // Diagnostik: kalau start campaign TAPI prolog dilewati, cetak sebabnya —
         // biasanya CFG.campaign.prologue undefined = gameplay.json lama di cache.
         if (playIntro && !showPrologue) console.warn('[prologue] dilewati — CFG.campaign.prologue =', CFG.campaign && CFG.campaign.prologue);
-        if (showPrologue) setPaused(true);
+        if (showPrologue) {
+            setScene(prologueScene);   // ruang komando dibangun di enter()
+            beginPrologue();           // persenjatai mesin orbit (frame pertama muncul setelah hideLoading)
+            warmupPrologue();          // render tiap sudut beat MASIH di balik layar loading
+            await loadingStep(99, 'Powering up the war room…');
+        }
+
+        hideLoading();
+        bestScoreEl.innerText = `Best: ${highScore}`;
+        updateUI();
 
         animate();
-
-        if (showPrologue) playPrologue(() => setPaused(false));
     } catch (e) {
         // startGame kini async: tanpa catch, error init cuma jadi unhandled
         // rejection sunyi — tampilkan layar fatal seperti kegagalan config.
