@@ -267,6 +267,12 @@
         "robotSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,
+        "prologue": {
+            "enabled": true,
+            "fadeInSec": 1.1,
+            "holdSec": 7.8,
+            "fadeOutSec": 1.1
+        },
         "intro": {
             "establishSec": 2.6,
             "flySec": 5.0,

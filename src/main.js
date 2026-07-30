@@ -3,8 +3,8 @@
 // render. Urutan init di dalam startGame tetap mengikuti init() lama — hanya
 // dipenggal dgn await loadingStep() agar overlay & bar sempat dilukis browser.
 
-import { loadConfig } from './core/config.js';
-import { setMode, configurePlayer, isPaused, isGameOver, highScore } from './core/state.js';
+import { loadConfig, CFG } from './core/config.js';
+import { setMode, configurePlayer, isPaused, isGameOver, highScore, setPaused } from './core/state.js';
 import {
     initRenderer, initQualityUI, scene, camera, viewCam, renderer, composer, postFxOn,
     followViewCam
@@ -30,6 +30,7 @@ import {
 } from './scenes/survival/cutscenes/monasIntro.js';
 import { stage1Scene } from './scenes/campaign/stages/stage1.js';
 import { introScene, beginIntro, warmupIntro } from './scenes/campaign/cutscenes/intro.js';
+import { playPrologue } from './scenes/campaign/cutscenes/prologue.js';
 import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
@@ -125,7 +126,23 @@ export async function startGame(mode, opts = {}) {
         hideLoading();
         bestScoreEl.innerText = `Best: ${highScore}`;
         updateUI();
+
+        // PROLOG SINEMATIK (2026-07-30): campaign start BARU membuka dgn montase
+        // 9 era (2028→2045) SEBELUM cutscene heli. beginIntro() sudah mempersenjatai
+        // mesin heli & unpause; kita BEKUKAN lagi (setPaused true) supaya heli
+        // menunggu di layar hitam, lalu putar prolog DI ATAS (overlay opak, RAF
+        // sendiri). Saat prolog selesai/di-skip → unpause → frame LIVE pertama heli
+        // membuka dari layar hitam yang SAMA (mulus). Harus di-set SEBELUM animate()
+        // agar frame updateGame pertama tak sempat menjalankan mesin heli.
+        const showPrologue = playIntro && !!(CFG.campaign && CFG.campaign.prologue && CFG.campaign.prologue.enabled);
+        // Diagnostik: kalau start campaign TAPI prolog dilewati, cetak sebabnya —
+        // biasanya CFG.campaign.prologue undefined = gameplay.json lama di cache.
+        if (playIntro && !showPrologue) console.warn('[prologue] dilewati — CFG.campaign.prologue =', CFG.campaign && CFG.campaign.prologue);
+        if (showPrologue) setPaused(true);
+
         animate();
+
+        if (showPrologue) playPrologue(() => setPaused(false));
     } catch (e) {
         // startGame kini async: tanpa catch, error init cuma jadi unhandled
         // rejection sunyi — tampilkan layar fatal seperti kegagalan config.

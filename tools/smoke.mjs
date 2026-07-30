@@ -4057,6 +4057,57 @@ stateMod.setGameOver(false);
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
 
+// --- 17c-bis. PROLOG SINEMATIK campaign (2026-07-30): montase 9 kartu era
+// (2028->2045) yang diputar SEBELUM intro heli pada start campaign baru. Modul
+// DOM/canvas murni (bukan scene) — kita uji KONTRAK NARASI (urutan + entitas
+// kunci) + alur kendali (play -> aktif; skip -> callback + non-aktif). Durasi
+// dari CFG.campaign.prologue (config-driven). ---
+{
+    const proMod = await import(R('src/scenes/campaign/cutscenes/prologue.js'));
+    const CH = proMod.PROLOGUE_CHAPTERS;
+    const P = cfgMod.CFG.campaign.prologue;
+
+    T('PROLOG config: campaign.prologue ada (enabled bool + durasi numerik)',
+        !!P && typeof P.enabled === 'boolean'
+        && typeof P.fadeInSec === 'number' && typeof P.holdSec === 'number' && typeof P.fadeOutSec === 'number');
+
+    T('PROLOG: sembilan kartu era, tiap kartu punya year/title/body non-kosong',
+        CH.length === 9 && CH.every(c => typeof c.year === 'string' && c.year.length
+            && typeof c.title === 'string' && c.title.length
+            && typeof c.body === 'string' && c.body.length > 20));
+
+    // Tahun KRONOLOGIS naik (ambil 4-digit pertama tiap `year`: "2032–2035"->2032)
+    const years = CH.map(c => parseInt((c.year.match(/\d{4}/) || [0])[0], 10));
+    let chrono = true;
+    for (let i = 1; i < years.length; i++) if (!(years[i] > years[i - 1])) chrono = false;
+    T('PROLOG NARASI: tahun urut kronologis 2028->2045 (' + years.join(',') + ')',
+        chrono && years[0] === 2028 && years[years.length - 1] === 2045);
+
+    // ENTITAS KUNCI storyline (title+body gabungan) — kontrak yang tak boleh hilang.
+    const blob = CH.map(c => c.title + ' ' + c.body).join(' ');
+    const beats = ['N.U.S.A', 'G.A.R.U.D.A', 'Mahapatih Protocol', 'Iron Battalion', 'Zero Hour', 'Bandung', 'Major Gibran'];
+    const missing = beats.filter(b => !blob.includes(b));
+    T('PROLOG NARASI: entitas kunci hadir (' + beats.join(' / ') + ')', missing.length === 0);
+    T('PROLOG NARASI: kartu terakhir menutup pada Major Gibran (serah-terima ke intro heli)',
+        CH[CH.length - 1].body.includes('Major Gibran'));
+
+    // Alur kendali: sebelum play tidak aktif; play -> aktif di kartu 0; skip ->
+    // callback dipanggil SEKALI + tidak aktif lagi.
+    T('PROLOG: belum aktif sebelum diputar', proMod.prologueDebug().active === false);
+    let proDone = 0;
+    proMod.playPrologue(() => proDone++);
+    const d1 = proMod.prologueDebug();
+    T('PROLOG: playPrologue -> aktif di kartu pertama',
+        d1.active === true && d1.idx === 0 && d1.count === 9 && d1.chapter === CH[0].title);
+    proMod.skipPrologue();
+    const d2 = proMod.prologueDebug();
+    T('PROLOG: skipPrologue -> callback SEKALI + prolog non-aktif',
+        proDone === 1 && d2.active === false);
+    proMod.skipPrologue();   // skip kedua = no-op (tak memanggil callback lagi)
+    T('PROLOG: skip kedua no-op (callback tak dipanggil lagi)', proDone === 1);
+    (await import(R('src/core/dom.js'))).hideCutsceneSkip();   // bersihkan callback skip utk blok intro berikut
+}
+
 // --- 17d. INTRO CUTSCENE campaign (2026-07-17): start campaign BARU diawali
 // cutscene penurunan HELIKOPTER di ATAP gedung sebelum Stage 1. Scene NON-
 // gameplay (cinematicActive membekukan kontrol); mesin BERBASIS TIMER (durasi

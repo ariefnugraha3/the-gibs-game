@@ -92,6 +92,19 @@
     <!-- Takarir narasi cutscene (2026-07-27): satu baris di atas pita bawah,
          dikendalikan dom.showCineCaption/hideCineCaption. Teks selalu English. -->
     <div id="cineCaption"></div>
+    <!-- PROLOG SINEMATIK campaign (2026-07-30): montase 9 era (2028→2045) yang
+         diputar SEBELUM intro heli pada start campaign baru. Kanvasnya digambar
+         prosedural per frame oleh scenes/campaign/cutscenes/prologue.js; teksnya
+         (tahun/judul/narasi) di DOM agar tipografinya tajam. Teks selalu English. -->
+    <div id="prologue">
+        <canvas id="prologueCanvas"></canvas>
+        <div id="prologueText">
+            <div id="prologueYear"></div>
+            <div id="prologueTitle"></div>
+            <div id="prologueBody"></div>
+        </div>
+        <div id="prologueCounter"></div>
+    </div>
     <div id="damage"></div>
     <!-- SEKUENS KEMATIAN (2026-07-26): pandangan MENUTUP berdarah — opasitas
          dikemudikan per frame oleh core/deathCine.js lewat dom.setDeathFx -->
