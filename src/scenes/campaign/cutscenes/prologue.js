@@ -1,6 +1,8 @@
-// SCENE: PROLOG campaign — "TEKS DI ATAS HITAM" (ROMBAK TOTAL 2026-07-31,
-// permintaan user: "daripada pakai cutscene seperti itu, saya ingin ubah menjadi
-// menampilkan teks saja ... hanya tampilkan teks dengan background hitam pekat").
+// SCENE: PROLOG campaign — "TEKS + ILUSTRASI DI ATAS HITAM" (ROMBAK TOTAL
+// 2026-07-31, permintaan user: "daripada pakai cutscene seperti itu, saya ingin
+// ubah menjadi menampilkan teks saja ... hanya tampilkan teks dengan background
+// hitam pekat"; ILUSTRASI SVG kolom kanan menyusul di hari yang sama —
+// "BUATKAN ILUSTRASINYA SESUAI DENGAN DIALOG CHAPTERSNYA" → prologueArt.js).
 // Diputar PALING AWAL, SEBELUM cutscene heli (cutscenes/intro.js), HANYA pada
 // start campaign BARU (gerbang `playIntro` di main.js).
 //
@@ -37,8 +39,11 @@
 // frame dari selubung `phaseAt`; innerHTML digambar ulang HANYA saat fase
 // berganti / huruf bertambah (penjaga `textKey` — bukan 60x per detik).
 // TATA LETAK (2026-07-31, permintaan user): teks menempati SETENGAH KIRI layar
-// (#prologueText, css/style.css); SETENGAH KANAN = wadah kosong `#prologueArt`
-// yang disiapkan utk OBJEK ILUSTRASI (akan diisi user) — latar tetap hitam pekat.
+// (#prologueText, css/style.css); SETENGAH KANAN = `#prologueArt` berisi
+// ILUSTRASI SVG PER ERA (prologueArt.js — line-art palet GIBS 2045 sesuai isi
+// naskah tiap chapter; latar tetap hitam pekat). SVG-nya ditukar hanya saat
+// GANTI era; opacity-nya = selubung fade SATU ERA PENUH (`artAlphaAt`) — masuk
+// bersama fase tahun, bertahan selama judul+isi, padam bersama fade-out isi.
 // Overlay baru DITAMPILKAN pada frame live pertama (SETELAH hideLoading):
 // z-index #prologue (44) di ATAS layar loading (40), jadi menampilkannya lebih
 // awal akan menimpa layar loading.
@@ -74,6 +79,9 @@ import { setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip } from '..
 import { setCineFocus } from '../../../core/renderer.js';
 import { releaseInputs } from '../../../core/input.js';
 import { playSFX, sfxSwitch } from '../../../utils/sfx.js';
+import {
+    showPrologueArt, setPrologueArtAlpha, resetPrologueArt, prologueArtDebug
+} from './prologueArt.js';
 import { introScene } from './intro.js';
 
 // ===== DATA ERA (teks WAJIB English; komentar Indonesia). Tiap kartu:
@@ -304,6 +312,22 @@ function renderPhase(i, phase, nChars) {
     };
 }
 
+// Selubung fade ILUSTRASI = satu ERA penuh (bukan per fase): masuk bersama
+// fade-in tahun, bertahan sepanjang judul + isi, padam bersama fade-out isi —
+// kolom kiri berganti-ganti fase sementara ilustrasinya tetap menemani era itu.
+function artAlphaAt(i, t) {
+    const c = cfg();
+    const inF = Math.max(0.05, num(c.yearFadeSec, 0.5));
+    const outF = Math.max(0.05, num(c.bodyFadeSec, 0.5));
+    const total = chapterTotal(i);
+    if (t < inF) return smooth(t / inF);
+    return clamp01(smooth((total - t) / outF));   // 1 di tengah, turun di ujung era
+}
+function syncArt(t, i) {
+    showPrologueArt(i);
+    setPrologueArtAlpha(artAlphaAt(i, t));
+}
+
 // Satu-satunya jalan masuk per frame: gambar ulang bila isi berubah (penjaga
 // `textKey`), lalu tulis opacity fase aktif (murah — satu properti style).
 function syncText(t, i) {
@@ -331,6 +355,8 @@ export const prologueDebug = () => ({
     hold: cine ? holdFor(cine.era) : 0,
     // Isi yang benar-benar tergambar di layar hitam (dibaca assert).
     text: textInfo,
+    // Ilustrasi kolom kanan (era SVG yang sedang terpasang — dibaca assert).
+    art: prologueArtDebug(),
     outro: !!(cine && cine.outro),
 });
 
@@ -344,8 +370,10 @@ export function beginPrologue(onDone) {
     setCineBars(true);
     cine = { era: 0, t: 0, total: 0, live: false, outro: false, outroT: 0 };
     textKey = '';
+    resetPrologueArt();
     syncText(0, 0);            // era selalu dibuka oleh FASE TAHUN
-    console.info('[prologue] teks di atas hitam — ' + PROLOGUE_CHAPTERS.length + ' era (2028–2045)');
+    syncArt(0, 0);             // ilustrasi era pertama terpasang (alpha 0, ikut fade-in)
+    console.info('[prologue] teks + ilustrasi di atas hitam — ' + PROLOGUE_CHAPTERS.length + ' era (2028–2045)');
 }
 
 export function skipPrologue() { if (cine) finishPrologue(); }
@@ -387,6 +415,7 @@ function enterEra(i) {
     cine.era = i; cine.t = 0;
     textKey = '';
     syncText(0, i);
+    syncArt(0, i);             // ilustrasi ikut berganti (masuk lewat fade-in era)
     if (i > 0) playSFX(sfxSwitch, 0.35);   // klik halus tiap ganti era
 }
 
@@ -424,12 +453,14 @@ export const prologueScene = {
         if (cine.outro) {
             cine.outroT += dt;
             syncText(chapterTotal(8) + cine.outroT, 8);
+            syncArt(chapterTotal(8) + cine.outroT, 8);   // ilustrasi ikut padam
             if (cine.outroT >= num(c.fadeOutSec, 0.5)) finishPrologue();
             return;
         }
 
         cine.t += dt; cine.total += dt;
         syncText(cine.t, cine.era);
+        syncArt(cine.t, cine.era);
 
         if (cine.t >= chapterTotal(cine.era)) {
             if (cine.era + 1 < PROLOGUE_CHAPTERS.length) enterEra(cine.era + 1);
@@ -464,6 +495,7 @@ function finishPrologue() {
     removeClick();
     hideCutsceneSkip();
     showOverlay(false);
+    resetPrologueArt();        // bersihkan SVG ilustrasi dari DOM
     setCineFade(1);
     resumeScene(introScene);
     const cb = doneCb; doneCb = null;

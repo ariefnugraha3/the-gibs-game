@@ -1484,9 +1484,12 @@ body.cine #medkitBar, body.cine #stageMsg {
     pointer-events: none;
 }
 
-/* SETENGAH KANAN: wadah ILUSTRASI — sengaja KOSONG (user yang akan mengisinya).
-   Latarnya ikut hitam #prologue; konten apa pun yang dimasukkan akan berdiri
-   di tengah kolom ini. Jangan dihapus meski kosong. */
+/* SETENGAH KANAN: ILUSTRASI SVG PER ERA (2026-07-31, permintaan user "BUATKAN
+   ILUSTRASINYA SESUAI DIALOG CHAPTERSNYA") — diisi & ditukar oleh
+   scenes/campaign/cutscenes/prologueArt.js tiap ganti era; opacity wadah
+   ditulis JS per frame (selubung fade satu era penuh), jangan diberi
+   transition. Latar tetap hitam #prologue — SVG-nya transparan (line-art
+   teal/amber/hazard palet GIBS 2045). */
 #prologueArt {
     width: 50%;
     height: 100%;
@@ -1494,7 +1497,28 @@ body.cine #medkitBar, body.cine #stageMsg {
     align-items: center;
     justify-content: center;
     pointer-events: none;
+    opacity: 0;
 }
+
+#prologueArt svg {
+    width: min(44vw, 70vh);
+    max-width: 540px;
+    height: auto;
+    display: block;
+}
+
+/* Animasi aksen ilustrasi — murah (compositor), tak disentuh JS per frame.
+   aPulse = denyut node/cahaya; aBlink = kedip peringatan/glitch; aScan =
+   garis pemindai lini perakitan; aSpin = roda ekonomi berputar. */
+#prologueArt .aPulse { animation: artPulse 2.4s ease-in-out infinite; }
+#prologueArt .aBlink { animation: artBlink 1.2s steps(2, start) infinite; }
+#prologueArt .aScan  { animation: artScan 2.6s ease-in-out infinite alternate; }
+#prologueArt .aSpin  { animation: artSpin 9s linear infinite; transform-box: fill-box; transform-origin: center; }
+
+@keyframes artPulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@keyframes artBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@keyframes artScan  { from { transform: translateY(-40px); } to { transform: translateY(38px); } }
+@keyframes artSpin  { to { transform: rotate(360deg); } }
 
 #prologueYear {
     font-size: clamp(42px, 7vw, 96px);

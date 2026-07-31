@@ -126,7 +126,8 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   `#crosshair` stays hidden with its JS writes intact.
 - Barrels/crates are solid to the player only and stay **out of the nav grid**;
   furniture is the opposite (in `blockers` AND nav).
-- The campaign prologue is **text-only on a pitch-black screen** and its script is the
+- The campaign prologue is **DOM-only on a pitch-black screen** — typed text on the left,
+  a per-era SVG illustration on the right (`prologueArt.js`) — and its script is the
   user's **word for word** (exact-string smoke assert).
 - Dormant-but-kept systems (reload, ADS, crouch, jump, sprint, thrown grenade, medkit
   channel) must stay unreachable — don't re-wire, don't delete.

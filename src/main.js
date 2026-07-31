@@ -126,8 +126,9 @@ export async function startGame(mode, opts = {}) {
         // PROLOG (2026-07-30; ROMBAK TOTAL jadi TEKS DI ATAS HITAM 2026-07-31,
         // permintaan user — panggung 3D "ruang meeting" dihapus seluruhnya):
         // campaign start BARU membuka dgn 9 era (2028→2045) SEBELUM cutscene heli.
-        // Kini scene teks murni (overlay `#prologue` opak hitam, tanpa dunia THREE,
-        // tanpa warmup). Urutannya penting: introScene sudah dipasang di atas
+        // Kini scene DOM murni (overlay `#prologue` opak hitam: teks diketik di
+        // kolom kiri + ILUSTRASI SVG per era di kolom kanan [prologueArt.js];
+        // tanpa dunia THREE, tanpa warmup). Urutannya penting: introScene sudah dipasang di atas
         // (dunia campaign terbangun, fog asli tersimpan) dan beginIntro() sudah
         // mempersenjatai + memanaskan heli — prolog tinggal "menyela" sebagai scene
         // aktif, lalu MENGEMBALIKANNYA lewat resumeScene(introScene) saat selesai

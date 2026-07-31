@@ -4285,12 +4285,48 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         && proMod.shotCamPos === undefined && proMod.BEATS === undefined
         && proMod.prologueScene.camOffset === undefined
         && scene.children.length === sceneKidsBefore);
+
+    // ===== ILUSTRASI PER ERA (2026-07-31, permintaan user "BUATKAN ILUSTRASINYA
+    // SESUAI DIALOG CHAPTERSNYA") — kolom KANAN `#prologueArt` diisi SVG line-art
+    // oleh prologueArt.js. Kontrak: 9 SVG UNIK, motif terpatok URUT mengikuti
+    // chapters (kota digital → N.U.S.A → garuda → koeksistensi → jet → mahapatih
+    // → benteng → zero hour → pertahanan terakhir), tiap SVG membawa data-era/
+    // data-motif, dan SEMUA warnanya anggota palet resmi ART_COLORS (turunan
+    // token PAL — tanpa neon terlarang). Medium DOM-SVG (BUKAN kanvas/THREE):
+    // selama prolog `skipRender` mematikan render 3D, jadi DOM satu-satunya
+    // yang tampil. =====
+    const artMod = await import(R('src/scenes/campaign/cutscenes/prologueArt.js'));
+    {
+        const M = artMod.ART_MOTIFS;
+        const want = ['city', 'nusa', 'garuda', 'coexist', 'jets', 'mahapatih', 'fortress', 'zerohour', 'laststand'];
+        T('ILUSTRASI: 9 SVG unik, satu per era, motif URUT sesuai naskah (' + M.join('>') + ')',
+            M.length === 9 && CH.length === 9
+            && JSON.stringify(M) === JSON.stringify(want)
+            && new Set(want.map((_, i) => artMod.prologueArtSvg(i))).size === 9
+            && want.every((m, i) => {
+                const sv = artMod.prologueArtSvg(i);
+                return sv.startsWith('<svg') && sv.includes('viewBox="0 0 400 400"')
+                    && sv.includes('data-era="' + i + '"') && sv.includes('data-motif="' + m + '"');
+            }));
+        // Sapuan palet: tiap hex 6-digit di SVG wajib anggota ART_COLORS.
+        let offPal = '';
+        for (let i = 0; i < 9; i++)
+            for (const hx of (artMod.prologueArtSvg(i).match(/#[0-9a-fA-F]{6}\b/g) || []))
+                if (!artMod.ART_COLORS.includes(hx.toLowerCase())) offPal = offPal || (i + ':' + hx);
+        T('ILUSTRASI: semua warna dari palet resmi GIBS 2045 (tanpa neon)' + (offPal ? ' [' + offPal + ']' : ''),
+            !offPal && !artMod.ART_COLORS.includes('#00ffff') && !artMod.ART_COLORS.includes('#ff00ff')
+            && artMod.ART_COLORS.length >= 6);
+    }
     // Overlay `#prologue` BELUM boleh tampil selagi layar loading masih menutup
     // (z-index overlay 44 > loading 40) — frame live pertama yang menampilkannya.
     const wrapEl = document.getElementById('prologue');
     const bodyEl = document.getElementById('prologueBody');
+    const artElS = document.getElementById('prologueArt');
     T('LAYAR HITAM: overlay belum tampil sebelum frame live pertama (masih di balik loading)',
         wrapEl.style.display !== 'flex');
+    T('ILUSTRASI: SVG era pertama sudah terpasang sejak beginPrologue (alpha masih 0 — ikut fade-in)',
+        String(artElS.innerHTML).includes('data-motif="city"') && Number(artElS.style.opacity) === 0
+        && proMod.prologueDebug().art.era === 0);
 
     // ===== KLIK KIRI = SKIP FASE (v8, 2026-07-31 — dulu klik = maju-cepat satu
     // ERA via `advanceEra`+rush, keduanya DIHAPUS). `advancePhase` melompat ke
@@ -4320,6 +4356,7 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     // dan BUKTI kamera tak pernah disentuh.
     const dtStep = 1 / 30;
     let eraSeq = [proMod.prologueDebug().era], guard = 0, finished = false, alphaHi = 0;
+    let artSeq = [proMod.prologueDebug().art.era], artAlphaHi = 0, artMotifOk = true;
     let overlayOn = false, sawStrong = false, sawEm = false, sawCaret = false, rawStars = false;
     const typedFull = new Set();     // era yang naskahnya sempat tampil UTUH
     const charCountOff = new Set();  // era yang jumlah huruf ketikannya melenceng
@@ -4331,6 +4368,12 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         if (wrapEl.style.display === 'flex') overlayOn = true;
         alphaHi = Math.max(alphaHi, d.text.alpha);
         if (eraSeq[eraSeq.length - 1] !== d.era) eraSeq.push(d.era);
+        // Ilustrasi: era SVG terpasang mengikuti era teks + benar-benar menyala.
+        artAlphaHi = Math.max(artAlphaHi, Number(artElS.style.opacity) || 0);
+        if (artSeq[artSeq.length - 1] !== d.art.era) {
+            artSeq.push(d.art.era);
+            if (!String(artElS.innerHTML).includes('data-motif="' + artMod.ART_MOTIFS[d.art.era] + '"')) artMotifOk = false;
+        }
         // Urutan fase yang SUNGGUH tampil, per era.
         const sq = phaseSeq.get(d.text.era) || [];
         if (sq[sq.length - 1] !== d.text.phase) { sq.push(d.text.phase); phaseSeq.set(d.text.era, sq); }
@@ -4353,6 +4396,10 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     }
     T('LAYAR HITAM: overlay #prologue tampil selama prolog & disembunyikan setelahnya',
         overlayOn && wrapEl.style.display === 'none');
+    T('ILUSTRASI: kesembilan SVG tampil URUT mengikuti era (' + artSeq.join('>') + '), motif cocok, menyala penuh',
+        artSeq.length === 9 && artSeq.every((e, i) => e === i) && artMotifOk && artAlphaHi > 0.99);
+    T('ILUSTRASI: dibersihkan dari DOM setelah prolog selesai (innerHTML kosong, alpha 0)',
+        String(artElS.innerHTML) === '' && Number(artElS.style.opacity) === 0);
     T('PROLOG: melewati kesembilan era URUT 0..8 (' + eraSeq.join('>') + ')',
         eraSeq.length === 9 && eraSeq.every((e, i) => e === i));
     // INTI rombakan: prolog TIDAK menyentuh kamera sama sekali (dulu memasang
