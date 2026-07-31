@@ -3,7 +3,7 @@
 Ide-ide untuk membuat **Campaign** lebih seru — bergaya _Alien Shooter_ dan game sejenisnya.
 Fokus: fitur yang **nyambung dengan sistem yang sudah ada** (bukan tempelan), diurutkan dari dampak-tertinggi.
 
-> Catatan: ini brainstorm/backlog, belum diimplementasi. Baca [CLAUDE.md](CLAUDE.md) + [MODULES.md](MODULES.md) sebelum mengerjakan salah satu item. Update tabel status di bawah saat selesai.
+> Catatan: ini brainstorm/backlog, belum diimplementasi. Baca [CLAUDE.md](../CLAUDE.md) + [MODULES.md](MODULES.md) sebelum mengerjakan salah satu item. Update tabel status di bawah saat selesai.
 
 ---
 

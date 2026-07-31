@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - **Serve:** `python -m http.server 8000` (then open http://localhost:8000) — an HTTP server is MANDATORY; `file://` breaks ES modules + the config `fetch`. Internet required for the Three.js r128 CDN scripts.
-- **Test:** `node tools/smoke.mjs` — headless smoke suite (zero deps, stubbed THREE/DOM driving the real `src/` modules), ~5600 lines and 700+ asserts. It prints `<n> pass, <m> fail`; the count grows every session, so **never assert on the total**. Sections are numbered `// --- 12b. NAME ---` comments (a few older ones use `// === NAME ===`), often wrapping a `{ … }` scope block to keep locals out of the shared top-level namespace; each assert is `T(name, ok)` ([smoke.mjs:204](tools/smoke.mjs#L204)). The `[postfx] … CDN tidak termuat` line it prints is expected (no network in Node), not a failure. There is **no per-test filter** — it's a flat sequential script, so run the whole file (comment out sections to isolate one). The `localStorage` stub is a real in-memory Map, so save/checkpoint is testable. Coverage list at the end of MODULES.md.
+- **Test:** `node tools/smoke.mjs` — headless smoke suite (zero deps, stubbed THREE/DOM driving the real `src/` modules), ~5900 lines and 750+ asserts (as of 2026-07-31). If `node` is not on PATH (non-login shells), use the VS Code server binary: `~/.vscode-server/bin/<hash>/node`. It prints `<n> pass, <m> fail`; the count grows every session, so **never assert on the total**. Sections are numbered `// --- 12b. NAME ---` comments (a few older ones use `// === NAME ===`), often wrapping a `{ … }` scope block to keep locals out of the shared top-level namespace; each assert is `T(name, ok)` ([smoke.mjs:204](tools/smoke.mjs#L204)). The `[postfx] … CDN tidak termuat` line it prints is expected (no network in Node), not a failure. There is **no per-test filter** — it's a flat sequential script, so run the whole file (comment out sections to isolate one). The `localStorage` stub is a real in-memory Map, so save/checkpoint is testable. Coverage list at the end of docs/MODULES.md.
 - **Lint:** `node --check src/<file>.js` — per touched file (`"type": "module"` makes this work).
-- **Mandatory per gameplay change:** add/adjust smoke asserts → `node tools/smoke.mjs` until green → `node --check` every touched file → sync CLAUDE.md + MODULES.md.
+- **Mandatory per gameplay change:** add/adjust smoke asserts → `node tools/smoke.mjs` until green → `node --check` every touched file → sync CLAUDE.md + docs/MODULES.md.
   - Keep asserts **CONFIG-DRIVEN** (read `CFG`, never hardcode tuned numbers). The user hand-tunes `config/gameplay.json` between sessions; a test failing right after a pure config retune almost always means the test hardcoded a number.
   - A missing stub method (fakeEl/THREE) is a harness gap, not a game bug — extend the stub.
 
@@ -17,13 +17,13 @@ This file holds only what applies to *every* session. The detail lives next door
 
 | Working on… | Read |
 | --- | --- |
-| Any module, export, scene hook, config key, or adding a stage | [MODULES.md](MODULES.md) — the authoritative catalog |
+| Any module, export, scene hook, config key, or adding a stage | [MODULES.md](docs/MODULES.md) — the authoritative catalog |
 | Campaign stages 1–4, cutscenes, doors/stairwells/lifts/interiors, inter-stage shop, save | [docs/campaign.md](docs/campaign.md) |
 | Waves, field shop, Monas objective, wave events, scoring | [docs/survival.md](docs/survival.md) |
 | Robots, weapons, gore, loot/barrels/horde, armor, movement/dodge/stamina, **the collision model** | [docs/combat.md](docs/combat.md) |
 | Camera rig, player avatar, **the player death sequence**, HUD, menus, input/pause/cheats, SFX & music | [docs/presentation.md](docs/presentation.md) |
-| Starting a new gameplay feature | [SECOND-IMPROVEMENT-PLAN.md](SECOND-IMPROVEMENT-PLAN.md) (current backlog; items 1–3 done 2026-07-22) then [IMPROVEMENT-PLAN.md](IMPROVEMENT-PLAN.md) (older backlog). Update their status tables when you finish an item. |
-| Wrapping this into a Windows `.exe` / Steam | [STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md) |
+| Starting a new gameplay feature | [SECOND-IMPROVEMENT-PLAN.md](docs/SECOND-IMPROVEMENT-PLAN.md) (current backlog; items 1–3 done 2026-07-22) then [IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md) (older backlog). Update their status tables when you finish an item. |
+| Wrapping this into a Windows `.exe` / Steam | [STEAM-DESKTOP-PLAN.md](docs/STEAM-DESKTOP-PLAN.md) |
 
 [AGENTS.md](AGENTS.md) is the condensed repo overview for non-Claude agents — keep it in sync with the rules below.
 
@@ -44,7 +44,7 @@ Browser **TOP-DOWN SHOOTER** (Alien Shooter-style; **pivoted from FPS on 2026-07
 
 The old single-file `index.html` was split into **ES modules under `src/`** with a **scene system**. There is still **no build step, no npm dependencies, no framework** — plain static files; Three.js r128 + post-processing examples come from CDN `<script>` tags as the global `THREE` (modules do NOT import it). `package.json` is metadata-only (`"type": "module"` for Node tooling).
 
-**→ The complete module catalog, every export, the scene interface contract, the config key table, and the how-to-add-a-stage recipe live in [MODULES.md](MODULES.md). Read it before hunting through files.**
+**→ The complete module catalog, every export, the scene interface contract, the config key table, and the how-to-add-a-stage recipe live in [MODULES.md](docs/MODULES.md). Read it before hunting through files.**
 
 **`src/utils/` is the shared layer every scene and entity leans on** — reach for it before writing a new helper: `pathfind.js` (nav grid + grid-LOS + A* + `navAim`/`turnToward` — all robot chasing), `collision.js` (`slideWalk`/`resolveBlockers`/`blockersGroundHeight`/`resolveCylinders` — the hug-and-slide primitives), `meshBatch.js` (static decor welding), `textures.js` (procedural canvas textures + normal maps), `sfx.js` (every sound + the three music tracks + volume state), `math.js` (`rand`/`clamp`/`smooth`/`segPointDist`).
 
@@ -91,7 +91,7 @@ Each of these was a specific user decision; reverting one is a regression. Detai
 
 - **ART STYLE = "GIBS 2045"** (single source of truth: [src/world/palette.js](src/world/palette.js)) — theme "Jakarta 2045, mildly futuristic, NOT cyberpunk". Rules: (1) warm dusty base materials (`PAL.gunmetal/ink/steel/panel/concrete` — no pure black, no cold blue-black); (2) ONE civic-tech accent, faded TEAL `PAL.tech` (all screens/strips/touchpads) — pure cyan `0x00ffff`, magenta `0xff00ff`, and neon underglow are BANNED (`FORBIDDEN_HEX`); (3) human/player accent = AMBER `PAL.amber` (matches the HUD) + sparse red-white `PAL.hazard`/`PAL.white`; (4) environment emissiveIntensity ≤ `EMISSIVE_MAX` 0.9 (combat FX exempt); (5) gameplay signal colors are reserved (robot eye red, class armor C/B/A, coolant green, player blood red, enemy plasma blue, EXIT green) — never use them for decor. All 14 `futuristic*` props, both stage-4 car palettes, and the boss tank paint follow it; **the smoke suite enforces the no-neon + emissive-cap rules by material sweep** — new visual assets MUST use PAL tokens.
 - Keep the project a **static, buildless site**: no bundlers, frameworks, or npm dependencies (package.json stays metadata-only). It must run from a plain HTTP server.
-- Follow the architecture rules at the top of [MODULES.md](MODULES.md) (scene hooks instead of mode if-else; CFG for tunables; live-binding state ownership; updateGame block order) and update MODULES.md whenever modules/exports/config keys change.
+- Follow the architecture rules at the top of [MODULES.md](docs/MODULES.md) (scene hooks instead of mode if-else; CFG for tunables; live-binding state ownership; updateGame block order) and update docs/MODULES.md whenever modules/exports/config keys change.
 - Preserve the controls and core mechanics listed in the Overview unless the user asks for gameplay changes.
 - If you edit an indoor room layout, re-verify grid connectivity (BFS over floor cells from the stage's start cell) and that no furniture blocker parks in front of a doorway.
 - When you add a mechanic, put its prose in the matching `docs/` file and leave at most a one-line pointer here — this file is loaded into every session, so it stays lean.

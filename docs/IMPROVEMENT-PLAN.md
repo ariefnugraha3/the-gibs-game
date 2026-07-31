@@ -6,7 +6,7 @@
 > eksekusi" di bawah setiap kali satu item selesai.
 >
 > **WAJIB dibaca sebelum menyentuh kode: [MODULES.md](MODULES.md) (katalog modul +
-> kontrak scene + resep tambah stage) dan [CLAUDE.md](CLAUDE.md) (aturan arsitektur).**
+> kontrak scene + resep tambah stage) dan [CLAUDE.md](../CLAUDE.md) (aturan arsitektur).**
 > Rencana port desktop/Steam terpisah di [STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md).
 
 ## Aturan besi (pelanggaran = PR ditolak)
@@ -36,7 +36,7 @@
 | 1 | Varian perilaku robot (runner/brute/exploder) | P1 | Sedang | **SELESAI 2026-07-07** |
 | 2 | Boss di akhir campaign stage 2 | P1 | Sedang | **SELESAI 2026-07-07** |
 | 3 | Shop antar-wave (survival) | P2 | Sedang-besar | **SELESAI 2026-07-07** |
-| 4 | Musik + ambience | P3 | Kecil (butuh aset dari user) | TODO (dikecualikan user) |
+| 4 | Musik + ambience | P3 | Kecil (butuh aset dari user) | **SELESAI (2026-07-19** — 3 konteks musik [menu/battle/boss] + slider volume; lihat "SFX & music" di presentation.md**)** |
 | 5 | Shotgun (senjata ke-3) | P4 | Besar (refactor weapons) | **SELESAI 2026-07-07** |
 | 6 | Monas ber-HP (objektif survival) | P4 | Sedang | **SELESAI 2026-07-07** |
 | 7 | Campaign Stage 3 (Monas malam hari) | P5 | Sedang | **SELESAI 2026-07-07** |

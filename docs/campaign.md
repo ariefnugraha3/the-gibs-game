@@ -25,11 +25,19 @@
 
 > Extracted verbatim from CLAUDE.md on 2026-07-26 when that file was slimmed down.
 > Read before touching any campaign stage, cutscene, interior utility, or the inter-stage shop.
-> Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](../MODULES.md).
+> Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](MODULES.md).
+
+**Where the code lives:** stages = `src/scenes/campaign/stages/stage{1..4}.js`; cutscenes =
+`src/scenes/campaign/cutscenes/{prologue,intro,tankBossIntro}.js`; shared campaign plumbing =
+`src/scenes/campaign/utility/` — `common.js` (robot AI/clamp/awardKill/spawnSwarm),
+`transition.js` (inter-stage loading+shop, `campaignJumpToStage`), `doors.js` (sliding doors),
+`stairwell.js`/`lift.js`, `interior.js` (floor/wall materials), `cityscape.js` (decor ring),
+`hackMinigame.js` (ICE BREACH) and `repairMinigame.js` (FIELD REPAIR). The tank boss is
+`src/entities/tank.js`; the checkpoint save is `src/core/saveGame.js`.
 
 ## Story prologue (2026-07-30; TOTAL REWORK to text-on-black 2026-07-31, user request)
 
-On a FRESH campaign start (the same `playIntro` gate as the heli intro — not "Continue"/restart/cheat) the game opens with a **STORY PROLOGUE** (`scenes/campaign/cutscenes/prologue.js`) that plays BEFORE the helicopter intro: **nine eras, 2028→2045** (`PROLOGUE_CHAPTERS`, exported for the smoke contract): 2028 Digital Awakening → 2029 birth of **PT N.U.S.A** → 2030 **G.A.R.U.D.A** consortium → 2032 - 2035 coexistence (androids) → 2039 geopolitics → 2040 **Mahapatih Protocol** (the **Iron Battalion**) → 2043 Fortress of Sovereignty → 2044 **Zero Hour** (the network is hijacked, cities fall) → 2045 Last Stand behind **Bandung**, hope resting on **Major Gibran** (the hand-off to the heli intro that flies him in). All text is English.
+On a FRESH campaign start (the same `playIntro` gate as the heli intro — not "Continue"/restart/cheat) the game opens with a **STORY PROLOGUE** (`scenes/campaign/cutscenes/prologue.js`) that plays BEFORE the helicopter intro: **nine eras, 2028→2045** (`PROLOGUE_CHAPTERS`, exported for the smoke contract): 2028 Digital Awakening → 2029 birth of **PT N.U.S.A** → 2030 **G.A.R.U.D.A** consortium → 2032 coexistence (androids) → 2039 geopolitics → 2040 **Mahapatih Protocol** (the **Iron Battalion**) → 2043 Fortress of Sovereignty → 2044 **Zero Hour** (the network is hijacked, cities fall) → 2045 Last Stand behind **Bandung**, hope resting on **Major Gibran** (the hand-off to the heli intro that flies him in). All text is English.
 
 ### It is TEXT ONLY on a PITCH-BLACK screen (2026-07-31, total rework)
 

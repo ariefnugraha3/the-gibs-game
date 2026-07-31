@@ -2,7 +2,15 @@
 
 > Extracted verbatim from CLAUDE.md on 2026-07-26 when that file was slimmed down.
 > Read before touching robots, weapons, gore, drops/economy, armor, or player movement.
-> Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](../MODULES.md).
+> Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](MODULES.md).
+
+**Where the code lives:** `src/entities/` — `robots.js` (classes, AI glue, claw/shoot,
+separation, `killRobot`, `damagePlayerHp`), `weapons.js` (WEAPON_DEF, firing, melee, medkit),
+`bullets.js`, `player.js` (movement/dodge/stamina), `gore.js`, `effects.js` (blood/explosions/
+muzzle flash pools), `drops.js` + `ammoPickups.js`, `barrels.js`, `crates.js`, `tank.js`
+(stage-4 boss), `grenades.js` (dormant thrower + the launcher round mesh). Robot pathing:
+`src/utils/pathfind.js`; collision primitives: `src/utils/collision.js`. Config namespaces:
+`CFG.robot/weapons/melee/dodge/stamina/movement/armor/grenade/drops/barrels/crates`.
 
 ## Campaign economy — loot/money, explosive barrels, horde
 

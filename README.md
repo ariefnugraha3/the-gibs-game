@@ -12,10 +12,21 @@ python -m http.server 8000
 
 then open <http://localhost:8000>. Internet connection needed (Three.js from CDN).
 
+**Controls:** WASD move · mouse aim · left-click shoot · right-click move-to-point ·
+1/2/3 weapon slots · Q cycle weapons · 4 medkit · F melee · Shift dodge roll ·
+Esc pause · backtick cheat console.
+
+## Test
+
+```
+node tools/smoke.mjs          # headless suite, zero deps — must end "<N> pass, 0 fail"
+node --check src/<file>.js    # syntax check a file
+```
+
 ## Tweak the gameplay
 
 Edit `config/gameplay.json` — max HP, ammo, movement speed, stamina, grenade physics, wave difficulty, etc. Reload the page to apply.
 
 ## Code layout
 
-Everything is documented in [MODULES.md](MODULES.md) (module catalog + scene interface + config keys). Architecture notes for AI assistants: [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md), with per-system detail split into [docs/campaign.md](docs/campaign.md), [docs/survival.md](docs/survival.md), [docs/combat.md](docs/combat.md) and [docs/presentation.md](docs/presentation.md). Desktop/Steam port plan: [STEAM-DESKTOP-PLAN.md](STEAM-DESKTOP-PLAN.md). Gameplay roadmap: [SECOND-IMPROVEMENT-PLAN.md](SECOND-IMPROVEMENT-PLAN.md) (current) / [IMPROVEMENT-PLAN.md](IMPROVEMENT-PLAN.md) (older).
+Everything is documented in [MODULES.md](docs/MODULES.md) (module catalog + scene interface + config keys). Architecture notes for AI assistants: [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md), with per-system detail split into [docs/campaign.md](docs/campaign.md), [docs/survival.md](docs/survival.md), [docs/combat.md](docs/combat.md) and [docs/presentation.md](docs/presentation.md). Desktop/Steam port plan: [STEAM-DESKTOP-PLAN.md](docs/STEAM-DESKTOP-PLAN.md). Gameplay roadmap: [SECOND-IMPROVEMENT-PLAN.md](docs/SECOND-IMPROVEMENT-PLAN.md) (current) / [IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md) (older).

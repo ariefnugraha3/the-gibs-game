@@ -1,7 +1,7 @@
 # Rencana: Konversi ke Desktop Windows (.exe) & Publikasi ke Steam
 
 > Dokumen rencana untuk mengubah **Gibran vs Robot 3D** (game browser statis,
-> lihat [CLAUDE.md](CLAUDE.md)) menjadi aplikasi desktop Windows yang bisa dijual di
+> lihat [CLAUDE.md](../CLAUDE.md)) menjadi aplikasi desktop Windows yang bisa dijual di
 > **Steam** (dan itch.io versi desktop), tanpa menulis ulang game.
 >
 > Status: **rencana/belum dieksekusi.** Dibuat 2026-07-04. Perbarui bagian "Status
@@ -38,7 +38,7 @@
 ## 1. Analisis kelayakan
 
 Game ini kandidat ideal untuk dibungkus:
-- **Satu file** [index.html](index.html) (inline CSS + DOM + seluruh `<script>`), tanpa
+- **Satu file** [index.html](../index.html) (inline CSS + DOM + seluruh `<script>`), tanpa
   build system/framework. Wadah tinggal memuat 1 halaman.
 - Aset lokal minimal: `assets/sounds/*.mp3`. (`assets/visuals/robot.glb` tidak dipakai.)
 - Render pakai WebGL + Three.js → di Electron memakai Chromium yang **sama** dengan
@@ -84,7 +84,7 @@ referensi library relatif (`vendor/...`), keduanya jalan.
 
 ## 3. Perubahan kode WAJIB: bundle CDN → lokal
 
-Saat ini `<head>` [index.html](index.html) memuat 9 skrip dari CDN. Semua harus diunduh
+Saat ini `<head>` [index.html](../index.html) memuat 9 skrip dari CDN. Semua harus diunduh
 ke `vendor/` dan referensinya diubah jadi relatif. Daftar persis (versi harus tetap
 **three r128 / 0.128.0** — game dikalibrasi untuk API r128):
 
@@ -250,7 +250,7 @@ Claude bisa **menghasilkan file VDF & skrip**; **login/upload pakai kredensial u
 - Electron: <https://www.electronjs.org/> · electron-builder: <https://www.electron.build/>
 - Steam SDK di Electron: `steamworks.js` <https://github.com/ceifa/steamworks.js>
 - three.js r128 (lisensi MIT) — untuk `vendor/`
-- Konteks arsitektur game: [CLAUDE.md](CLAUDE.md)
+- Konteks arsitektur game: [CLAUDE.md](../CLAUDE.md)
 
 ---
 

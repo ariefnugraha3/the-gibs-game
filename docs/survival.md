@@ -2,7 +2,13 @@
 
 > Extracted verbatim from CLAUDE.md on 2026-07-26 when that file was slimmed down.
 > Read before touching waves, the field shop, the Monas objective, or wave events.
-> Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](../MODULES.md).
+> Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](MODULES.md).
+
+**Where the code lives:** `src/scenes/survival/index.js` (the scene: wave machine, Monas
+HP/collapse driver, robot AI, cheats), `src/scenes/survival/shop.js` (the field-shop modal +
+catalog + undo), `src/scenes/survival/world.js` (park world, Monas mesh + collapse animation,
+fog canopy), `src/scenes/survival/cutscenes/monasIntro.js` (the opening cinematic). Config
+namespace: `CFG.survival.*` (+ `CFG.shop.*` prices).
 
 ## Mode overview
 

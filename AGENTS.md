@@ -1,37 +1,142 @@
 # AGENTS
 
+Onboarding guide for AI agents (and humans) working on this repository. It condenses the
+rules in [CLAUDE.md](CLAUDE.md) — on any conflict, **CLAUDE.md wins**; keep the two in sync.
+
 ## Repository overview
 
-This repository is a browser game titled "Gibran vs Robot 3D" — a **top-down shooter** (Alien Shooter-style; pivoted from FPS on 2026-07-11).
+"Gibran vs Robot 3D" — a browser **top-down shooter** (Alien Shooter-style; pivoted from
+FPS on 2026-07-11). Three.js r128, plain ES modules, **no build step, no npm dependencies,
+no framework**. Two modes:
 
-- `index.html` — DOM overlay + CDN `<script>` tags (Three.js r128 global) + module entry.
-- `src/` — the whole game as ES modules (core/, utils/, world/, entities/, scenes/). **The module catalog and interface contracts are documented in `MODULES.md` — read it first.**
-- `css/style.css` — all styling.
-- `config/gameplay.json` — every tunable gameplay constant (max ammo/hp, speeds, stamina, wave difficulty, ...). Loaded at boot into `CFG`.
-- `assets/sounds/*.mp3` — sound effects + the three music tracks; `assets/fonts/` — Courier Prime, 4 faces, OFL (**the font of ALL game text since 2026-07-31** — declared via `@font-face` in style.css; Arial is gone, no CDN webfont). There are **no 3D model assets** — every robot, prop and building is procedural geometry built in code.
+- **Survival** — round-based waves defending the Monas monument; a Field Shop opens
+  between waves; score = shop currency. Detail: [docs/survival.md](docs/survival.md).
+- **Campaign** — 4 linear stages (text prologue → helicopter intro cutscene → three
+  indoor office floors → an outdoor finale with a tank boss), an inter-stage shop, loot
+  as currency, hacking/repair minigames, a stage checkpoint save.
+  Detail: [docs/campaign.md](docs/campaign.md).
+
+**Controls:** WASD = screen-axis movement · mouse = virtual aim cursor · LMB = shoot ·
+RMB = move-to-point · 1/2/3 = weapon slots · Q = cycle weapons · 4 = use medkit instantly ·
+F = melee (dual knives) · Shift = dodge roll (brief invincibility). Crouch, jump, ADS,
+sprint, reload and the thrown grenade **do not exist** — their code is dormant on purpose;
+never re-wire it.
+
+## File layout
+
+- `index.html` — DOM overlays + CDN `<script>` tags (Three.js r128 as the **global**
+  `THREE` — modules never import it) + the module entry.
+- `src/main.js` — boot → menu → `startGame(mode)` → the `animate()` frame loop.
+- `src/core/` — engine/orchestration: config, state, renderer, input, HUD, scene manager,
+  preload/warm-up, save, pause menu, cheat console, death director, time scale.
+- `src/entities/` — shared gameplay systems: player, avatar, weapons, bullets, robots,
+  tank boss, gore, effects, drops/ammo/crates/barrels, helicopter, procedural props.
+- `src/scenes/` — one file per scene: `campaign/{stages,cutscenes,utility}/`,
+  `survival/{,cutscenes/}`, `menu.js`. Adding a stage = one new file + wiring
+  (recipe in docs/MODULES.md).
+- `src/utils/` — pure helpers usable anywhere: `pathfind.js` (nav grid + A* + LOS),
+  `collision.js` (hug-and-slide primitives), `meshBatch.js` (static decor welding),
+  `textures.js` (procedural canvas textures), `sfx.js` (all audio + music), `math.js`.
+- `src/world/` — shared world pieces: lighting sets, sky, decor registry, building
+  facades, and **`palette.js` — the art-style single source of truth (PAL tokens)**.
+- `css/style.css` — all styling; `@font-face` Courier Prime (`assets/fonts/`, OFL) is the
+  ONLY UI font — no CDN webfonts.
+- `config/gameplay.json` — **every tunable gameplay number**, loaded into `CFG` at boot.
+- `assets/sounds/` — SFX + three music tracks. There are **no 3D model assets** — every
+  robot, prop and building is procedural geometry built in code.
 - `tools/smoke.mjs` — the headless test suite (see below).
-- `package.json` — metadata only (`"type": "module"` for Node tooling). No dependencies, no build system.
+- `package.json` — metadata only (`"type": "module"`). No dependencies.
 
-## What agents should know
+## Documentation map — read on demand
 
-- There is **no package manager, bundler, or framework** — plain static ES modules. Keep it that way.
-- The game **must be served over HTTP** (`python -m http.server 8000`); ES modules + config fetch do not work from `file://`.
-- `THREE` is a global from CDN scripts (r128) — modules never import it.
-- All user-facing UI text must be **English** (permanent user rule); code comments are Indonesian.
-- Architecture rules (scene hooks, CFG usage, live-binding state ownership, update order) are at the top of `MODULES.md` and in `CLAUDE.md`.
-- `CLAUDE.md` holds only the rules that apply to every session; the per-system detail lives in `docs/` — `campaign.md`, `survival.md`, `combat.md`, `presentation.md`. Read the one matching your task instead of all of them.
+| Working on… | Read |
+| --- | --- |
+| Any module, export, scene hook, config key, adding a stage | [MODULES.md](docs/MODULES.md) — the authoritative catalog |
+| Campaign stages, cutscenes (incl. the text prologue), doors/lifts, minigames, shop, save | [docs/campaign.md](docs/campaign.md) |
+| Waves, field shop, Monas objective, wave events, scoring | [docs/survival.md](docs/survival.md) |
+| Robots, weapons, gore, loot/barrels/crates, armor, movement/dodge/stamina, collision | [docs/combat.md](docs/combat.md) |
+| Camera rig, avatar, death sequence, HUD, menus, input/pause/cheats, SFX & music | [docs/presentation.md](docs/presentation.md) |
+| New gameplay feature backlog | [SECOND-IMPROVEMENT-PLAN.md](docs/SECOND-IMPROVEMENT-PLAN.md), then [IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md) — update their status tables when finishing an item |
+| Windows `.exe` / Steam port | [STEAM-DESKTOP-PLAN.md](docs/STEAM-DESKTOP-PLAN.md) |
+
+## Running & testing
+
+```bash
+python -m http.server 8000     # serve — MANDATORY (ES modules + config fetch fail on file://)
+                               # open http://localhost:8000 (internet needed: Three.js CDN)
+node tools/smoke.mjs           # headless smoke suite — must end "<N> pass, 0 fail"
+node --check src/<file>.js     # syntax check every touched file
+```
+
+- If `node` is not on PATH (common in non-login shells), a working binary ships with the
+  VS Code server: `~/.vscode-server/bin/<hash>/node`.
+- The smoke suite has **zero dependencies** — stubbed THREE/DOM/Audio drive the REAL
+  `src/` modules. The `[postfx] … CDN tidak termuat` line it prints is expected in Node,
+  not a failure. The `localStorage` stub is a real in-memory Map (save/checkpoint testable).
+- It is a **flat sequential script**: no per-test filter — run the whole file, or comment
+  out a section (`// --- 12b. NAME ---` blocks) to isolate one. The assert count grows
+  every session — **never assert on the total**.
+
+## Mandatory workflow for every gameplay change
+
+1. Add/adjust smoke asserts for the new mechanic — **config-driven** (read `CFG`, never
+   hardcode tuned numbers; the user hand-tunes `gameplay.json` between sessions, and a
+   test failing right after a pure config retune almost always means the test hardcoded
+   a number).
+2. `node tools/smoke.mjs` until green.
+3. `node --check` every touched file.
+4. Sync `CLAUDE.md` + `docs/MODULES.md` (+ the matching `docs/` file and this file if rules
+   changed).
+
+A missing stub method (fakeEl/THREE) is a **harness gap, not a game bug** — extend the
+stub in `tools/smoke.mjs` instead of working around it in game code.
+
+## Architecture rules (digest — full text in CLAUDE.md + docs/MODULES.md)
+
+- **Scene hooks, never mode if-else.** All mode/stage-specific behavior goes through the
+  `activeScene.*` interface (contract table in docs/MODULES.md). Shared systems must not know
+  which mode is running.
+- **All tuning numbers live in `config/gameplay.json`** → `CFG`. Read `CFG.x.y` **inside
+  functions only** (config is not loaded when modules evaluate). Visual-only values
+  (animation amplitudes, colors, FOV) intentionally stay in code.
+- **Cross-module state = live ESM bindings**: the owning module exports `let` + setters;
+  circular imports are fine **as long as bindings are only used inside functions**.
+- **`updateGame()` block order in core/game.js is a contract** — bullets must move before
+  the robot sweep hit-test. Don't reorder.
+- **One global time scale**: `globalTimeScale()` (core/timeScale.js). A new slowdown
+  source becomes a factor inside it — never a second multiplier in the render loop.
+- **The `camera` object is the player LOGIC PIVOT, not the render camera** — rendering
+  uses `viewCam`. Never hardcode screen directions: use `SCREEN_UP`/`SCREEN_LEFT`.
+- **Frame-rate independence**: multiply motion by `step` (= dt·60), decrement timers by
+  `dt`; fire rates use real `Date.now()` time.
+
+## Invariants — deliberate decisions, do not "clean up"
+
+The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-choices-do-not-clean-up); highlights:
+
+- **No mid-game shader recompiles**: fixed FX pools, constant PointLight counts, every
+  lazily-revealed mesh added to `core/preload.js` warm-up.
+- **Art style "GIBS 2045"** (`src/world/palette.js`): PAL tokens only, no neon
+  cyan/magenta, environment emissive ≤ 0.9 — enforced by smoke material sweeps.
+- **All user-facing UI text is ENGLISH** (permanent user rule); code comments are
+  Indonesian.
+- Collision resolves are **per-axis hug-and-slide, never a full revert**; robots pushed
+  by separation must be re-clamped via `activeScene.clampRobot`.
+- Robots show **no damage feedback**; the radar has **no sweep/gradient**;
+  `#crosshair` stays hidden with its JS writes intact.
+- Barrels/crates are solid to the player only and stay **out of the nav grid**;
+  furniture is the opposite (in `blockers` AND nav).
+- The campaign prologue is **text-only on a pitch-black screen** and its script is the
+  user's **word for word** (exact-string smoke assert).
+- Dormant-but-kept systems (reload, ADS, crouch, jump, sprint, thrown grenade, medkit
+  channel) must stay unreachable — don't re-wire, don't delete.
 
 ## Editing guidance
 
-- Keep changes compatible with a static, buildless page.
-- New mode/stage behavior goes through the scene interface (see MODULES.md), not if-else in shared systems.
-- New tuning numbers go into `config/gameplay.json`, not hardcoded constants.
-- Preserve the game controls and core mechanics unless the user asks for gameplay changes.
-- Update `MODULES.md` when adding/renaming modules, exports, scene hooks, or config keys.
-
-## Running the project
-
-- Serve the repository folder with a static HTTP server and open `index.html` via `http://localhost:...`.
-- Test: `node tools/smoke.mjs` — headless suite (zero deps, stubbed THREE/DOM driving the real `src/` modules). Must print `0 fail`. The `[postfx] … CDN tidak termuat` line is expected in Node, not a failure. No per-test filter; run the whole file.
-- Syntax check: `node --check src/<file>.js` — per touched file.
-- Every gameplay change: add/adjust smoke asserts (keep them **config-driven** — read `CFG`, never hardcode tuned numbers) → smoke green → `node --check` → update `MODULES.md`.
+- Keep the project a **static, buildless site** — no bundlers, frameworks, or npm deps.
+- New tuning numbers → `config/gameplay.json`; new mode/stage behavior → scene hooks.
+- Preserve the controls and core mechanics unless the user explicitly asks for changes.
+- If you edit an indoor room layout, re-verify grid connectivity (BFS over floor cells)
+  and door clearance; the smoke suite has stage-connectivity asserts.
+- Update `docs/MODULES.md` whenever modules/exports/scene hooks/config keys change, and put
+  new mechanic prose in the matching `docs/` file (CLAUDE.md stays lean).

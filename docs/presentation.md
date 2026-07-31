@@ -2,7 +2,14 @@
 
 > Extracted verbatim from CLAUDE.md on 2026-07-26 when that file was slimmed down.
 > Read before touching the camera rig, the player avatar, the HUD, menus, input, or sound.
-> Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](../MODULES.md).
+> Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](MODULES.md).
+
+**Where the code lives:** `src/core/` — `renderer.js` (viewCam/CAM_OFF/followViewCam/quality/
+death cam), `preload.js` (loading + shader warm-up), `input.js` (pointer lock, keys, aim
+cursor, cutscene skip), `hud.js` + `dom.js` (HUD writes + overlay helpers incl. cine bars/
+fade/caption/SKIP button), `pauseMenu.js`, `cheatConsole.js`, `deathCine.js` + `timeScale.js`.
+The avatar is `src/entities/playerAvatar.js`; menus are `src/scenes/menu.js`; all audio is
+`src/utils/sfx.js`.
 
 ## Camera pivot vs viewCam, and the player avatar
 
@@ -176,6 +183,19 @@ Tuning lives in `CFG.player.death` (`slowMoScale`, `slowMoHoldSec`, `camZoom`, `
 ## Rendering pipeline
 
 **Rendering:** sRGB + ACES (exposure 1.1 = brightness knob) + PCFSoft shadows following the player pivot (`updateShadowFollow(camera)`); composer **RenderPass(scene, `viewCam`)** → UnrealBloom → GammaCorrection → FXAA with null-fallback if CDN fails (fallback renders `renderer.render(scene, viewCam)`). The 2026-07-10 FPS viewmodel layer/pass was REMOVED in the top-down pivot (rigs are simply hidden inside `fpsHolder`; the visible gun is the avatar's). `viewCam` is a scene member (so preload's warm group parented to it renders); stage 1's ceiling mesh is `visible=false` so the camera sees into the building over its walls (grenade ceiling-bounce physics unaffected). hard-bloom materials set `toneMapped: false`; instanced meshes set `frustumCulled = false` (r128 doesn't merge instance bounds); city/facade recipes shared in `world/facades.js`; all textures procedural canvas (`makeTexture`/`makeNormalMap` — normal maps stay linear).
+
+**`skipRender` (2026-07-31):** a scene that covers the whole screen with an OPAQUE DOM
+overlay (currently only the text prologue) may set `skipRender: true` — `animate()`
+(main.js) then returns before `composer.render()`/`renderer.render()` while that scene is
+active. The update pipeline (including `updateMode`) still runs every frame; only the draw
+is skipped, because rendering the world behind solid black is pure GPU waste.
+
+**Cutscene SKIP wiring (`core/dom.js` + `core/input.js`):** a cutscene calls
+`showCutsceneSkip(cb)` to show the on-screen SKIP button; SPACE/Enter during play also
+fire the same callback via `triggerCutsceneSkip()` (input.js keydown). The callback is
+one-shot (cleared after firing); every cutscene must call `hideCutsceneSkip()` when it
+ends or is skipped. Used by the campaign prologue, the heli intro, the Survival intro and
+the tank-boss cutscene.
 
 ## HUD
 
