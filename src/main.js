@@ -123,10 +123,11 @@ export async function startGame(mode, opts = {}) {
         if (playIntro) { warmupIntro(); await loadingStep(98, 'Preparing the city…'); }
         if (playSurvIntro) { warmupSurvivalIntro(); await loadingStep(98, 'Preparing the park…'); }
 
-        // PROLOG SINEMATIK (2026-07-30; jadi SCENE IN-ENGINE "war room" 2026-08-04):
+        // PROLOG SINEMATIK (2026-07-30; jadi SCENE IN-ENGINE 2026-08-04, latarnya RUANG
+        // MEETING sejak 2026-07-31):
         // campaign start BARU membuka dgn 9 era (2028→2045) SEBELUM cutscene heli.
         // Dulu overlay canvas 2D dgn RAF sendiri + game dibekukan; kini SCENE THREE
-        // sungguhan (ruang komando + holotable) yang dipasang SEBELUM introScene
+        // sungguhan (ruang meeting + meja rapat) yang dipasang SEBELUM introScene
         // menjalankan mesinnya. Urutannya penting: introScene sudah dipasang di atas
         // (dunia campaign terbangun, fog asli tersimpan) dan beginIntro() sudah
         // mempersenjatai + memanaskan heli — prolog tinggal "menyela" sebagai scene
@@ -137,10 +138,10 @@ export async function startGame(mode, opts = {}) {
         // biasanya CFG.campaign.prologue undefined = gameplay.json lama di cache.
         if (playIntro && !showPrologue) console.warn('[prologue] dilewati — CFG.campaign.prologue =', CFG.campaign && CFG.campaign.prologue);
         if (showPrologue) {
-            setScene(prologueScene);   // ruang komando dibangun di enter()
+            setScene(prologueScene);   // ruang meeting dibangun di enter()
             beginPrologue();           // persenjatai mesin orbit (frame pertama muncul setelah hideLoading)
             warmupPrologue();          // render tiap sudut beat MASIH di balik layar loading
-            await loadingStep(99, 'Powering up the war room…');
+            await loadingStep(99, 'Powering up the briefing room…');
         }
 
         hideLoading();

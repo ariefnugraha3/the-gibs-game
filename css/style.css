@@ -1,8 +1,43 @@
+/* ============ Font utama: Courier Prime (assets/fonts/, lisensi OFL).
+   Menggantikan Arial di SELURUH UI (2026-07-31, permintaan user). Empat face
+   didaftarkan agar font-weight:bold / font-style:italic pakai file aslinya,
+   bukan synthetic bold dari browser. font-display:block supaya teks tidak
+   sempat ter-render dengan fallback lalu melompat (FOUT) — semua teks UI
+   muncul di atas layar loading/menu, jadi jeda swap-nya tidak terlihat. ============ */
+@font-face {
+    font-family: 'Courier Prime';
+    src: url('../assets/fonts/CourierPrime-Regular.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+}
+@font-face {
+    font-family: 'Courier Prime';
+    src: url('../assets/fonts/CourierPrime-Italic.ttf') format('truetype');
+    font-weight: 400;
+    font-style: italic;
+    font-display: block;
+}
+@font-face {
+    font-family: 'Courier Prime';
+    src: url('../assets/fonts/CourierPrime-Bold.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: block;
+}
+@font-face {
+    font-family: 'Courier Prime';
+    src: url('../assets/fonts/CourierPrime-BoldItalic.ttf') format('truetype');
+    font-weight: 700;
+    font-style: italic;
+    font-display: block;
+}
+
 body {
     margin: 0;
     overflow: hidden;
     background: #000;
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     user-select: none;
 }
 
@@ -131,7 +166,7 @@ body {
 }
 
 #medkitBarLabel {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 12px;
     font-weight: bold;
     letter-spacing: 3px;
@@ -165,7 +200,7 @@ body {
 }
 
 #downloadBarLabel {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 15px;
     font-weight: bold;
     letter-spacing: 4px;
@@ -190,7 +225,7 @@ body {
 }
 
 #downloadBarPct {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 12px;
     font-weight: bold;
     letter-spacing: 2px;
@@ -566,7 +601,7 @@ body {
     max-width: min(560px, 92vw);
     box-shadow: 0 16px 50px rgba(0, 0, 0, 0.65);
     text-align: center;
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
 }
 
 #instructions .startTitle {
@@ -681,7 +716,7 @@ body {
 }
 
 .pauseBtn {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 20px;
     font-weight: bold;
     letter-spacing: 1px;
@@ -785,7 +820,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 22px;
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     cursor: wait;
 }
 
@@ -831,7 +866,7 @@ body {
     flex-direction: column;
     z-index: 30;
     color: #fff;
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
 }
 
 #modeSelect h1 {
@@ -885,7 +920,7 @@ body {
     flex-direction: column;
     z-index: 32;
     color: #fff;
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
 }
 
 #mainMenu h1 {
@@ -916,7 +951,7 @@ body {
 }
 
 .menuBtn {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 20px;
     font-weight: bold;
     letter-spacing: 1px;
@@ -978,7 +1013,7 @@ body {
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.72);
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
 }
 
 .cpBox {
@@ -1052,7 +1087,7 @@ body {
 #qualityRow { margin-top: 24px; }
 #qualityRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; }
 .qbtn {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 14px;
     font-weight: bold;
     color: #ccc;
@@ -1072,7 +1107,7 @@ body {
 .volRow { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; }
 .volRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; width: 150px; text-align: right; }
 .volRow input[type="range"] { width: 200px; accent-color: #e0503e; cursor: pointer; }
-.volVal { font-size: 13px; color: #ccc; width: 46px; text-align: left; font-family: Arial, sans-serif; font-weight: bold; }
+.volVal { font-size: 13px; color: #ccc; width: 46px; text-align: left; font-family: 'Courier Prime', 'Courier New', monospace; font-weight: bold; }
 
 /* ---------- Indikator arah serangan (baji merah di tepi layar, diputar
    showHitDir ke sudut penyerang; mask menyisakan cincin luar saja) ---------- */
@@ -1102,7 +1137,7 @@ body {
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.55);
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     color: #e8eef4;
 }
 /* Campaign = SHOP SCENE terpisah (2026-07-14): latar OPAK, stage tak terlihat. */
@@ -1198,7 +1233,7 @@ body {
     flex-wrap: wrap;
 }
 .shopTab {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 13px;
     font-weight: bold;
     letter-spacing: 2px;
@@ -1245,7 +1280,7 @@ body {
 .shopScore { font-size: 18px; font-weight: bold; color: #9fd8a2; }
 .shopHint { font-size: 12px; color: #7f93a6; letter-spacing: 0.5px; }
 .shopNext {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 16px;
     font-weight: bold;
     letter-spacing: 1px;
@@ -1273,7 +1308,7 @@ body {
 .shopReplaceMsg b { color: #ffd27a; }
 .shopReplaceBtns { display: flex; flex-direction: column; gap: 10px; }
 .shopReplaceBtn {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 15px;
     font-weight: bold;
     color: #0b0f14;
@@ -1287,7 +1322,7 @@ body {
 .shopReplaceBtn:hover { filter: brightness(1.08); }
 .shopReplaceBtn:active { transform: translateY(2px); }
 .shopReplaceCancel {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 14px;
     font-weight: bold;
     color: #cfd8e3;
@@ -1304,7 +1339,7 @@ body {
 /* Prompt konfirmasi "Are you ready?" sebelum mulai wave (Yes hijau / No abu) */
 .shopConfirmBtns { display: flex; gap: 14px; justify-content: center; margin-top: 6px; }
 .shopConfirmYes {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 16px;
     font-weight: bold;
     letter-spacing: 1px;
@@ -1320,7 +1355,7 @@ body {
 .shopConfirmYes:hover { filter: brightness(1.08); }
 .shopConfirmYes:active { transform: translateY(2px); }
 .shopConfirmNo {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 16px;
     font-weight: bold;
     color: #e8eef4;
@@ -1338,7 +1373,7 @@ body {
 #diffRow { margin: 2px 0 18px; }
 #diffRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; }
 .dbtn {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
     font-size: 14px;
     font-weight: bold;
     color: #ccc;
@@ -1426,7 +1461,7 @@ body.cine #medkitBar, body.cine #stageMsg {
     background: transparent;
     pointer-events: none;
     overflow: hidden;
-    font-family: Arial, sans-serif;
+    font-family: 'Courier Prime', 'Courier New', monospace;
 }
 
 /* Takarir cerita duduk di kiri-bawah, di dalam pita letterbox (bar 11% tinggi).

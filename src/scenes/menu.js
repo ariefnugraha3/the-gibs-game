@@ -161,7 +161,8 @@ function exitGame() {
     // Fallback bila browser menolak menutup tab: layar perpisahan sederhana.
     document.body.innerHTML =
         '<div style="position:fixed;inset:0;display:flex;align-items:center;' +
-        'justify-content:center;background:#000;color:#ffb84d;font-family:Arial;' +
+        'justify-content:center;background:#000;color:#ffb84d;' +
+        "font-family:'Courier Prime','Courier New',monospace;" +
         'font-size:26px;letter-spacing:2px;text-align:center;padding:20px;">' +
         'Thanks for playing Gibran vs Robot.<br>You may now close this tab.</div>';
 }

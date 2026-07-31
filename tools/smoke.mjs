@@ -13,16 +13,26 @@ import { fileURLToPath } from 'url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..').split(path.sep).join('/');
 
 // ---------- Stub browser ----------
-const ctx2d = new Proxy({}, {
+// CELAH HARNESS 2026-07-31: `measureText` dulu selalu mengembalikan width 1, jadi
+// tata letak teks apa pun "muat" dan logika bungkus-baris/auto-kecilkan-font layar
+// prolog tak pernah benar-benar dijalankan. Stub ini kini MENYIMPAN `font` yang
+// sedang di-set dan mengukur lebar ala MONOSPACE (Courier = 0.6 em per karakter) —
+// pendekatan yang cukup untuk menguji pembungkusan baris, bukan untuk render.
+const ctx2d = new Proxy({ font: '10px monospace' }, {
     get: (t, k) => {
+        if (k === 'font') return t.font;
         if (k === 'createRadialGradient' || k === 'createLinearGradient') return () => ({ addColorStop() { } });
         if (k === 'getImageData') return (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) });
         if (k === 'createImageData') return (w, h) => ({ data: new Uint8ClampedArray((w | 0) * (h | 0) * 4) });
-        if (k === 'measureText') return () => ({ width: 1 });
+        if (k === 'measureText') return (txt) => {
+            const m = /(\d+(?:\.\d+)?)px/.exec(String(t.font || ''));
+            const px = m ? parseFloat(m[1]) : 10;
+            return { width: String(txt == null ? '' : txt).length * px * 0.6 };
+        };
         if (k === 'canvas') return { width: 64, height: 64 };
         return () => { };
     },
-    set: () => true
+    set: (t, k, v) => { if (k === 'font') t.font = v; return true; }
 });
 function fakeEl() {
     return {
@@ -4067,10 +4077,17 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     const CH = proMod.PROLOGUE_CHAPTERS;
     const P = cfgMod.CFG.campaign.prologue;
 
-    T('PROLOG config: campaign.prologue ada (enabled bool + durasi numerik + waktu baca)',
+    // v7 (2026-07-31): model durasi berganti dari "tahan sekian detik per kata" jadi
+    // URUTAN TIGA FASE (tahun -> judul -> ketik isi -> jeda), jadi kuncinya pun ganti.
+    // `readSecPerWord`/`maxHoldSec` sengaja DIHAPUS dari config: keduanya tak lagi
+    // punya arti, dan membiarkan kunci mati di JSON yang di-tuning user itu menyesatkan.
+    T('PROLOG config: campaign.prologue ada (enabled + fade + urutan tahun/judul/ketik)',
         !!P && typeof P.enabled === 'boolean'
         && typeof P.fadeInSec === 'number' && typeof P.holdSec === 'number' && typeof P.fadeOutSec === 'number'
-        && typeof P.readSecPerWord === 'number' && typeof P.maxHoldSec === 'number');
+        && typeof P.yearFadeSec === 'number' && typeof P.yearHoldSec === 'number'
+        && typeof P.titleFadeSec === 'number' && typeof P.titleHoldSec === 'number'
+        && typeof P.typeCps === 'number' && P.typeCps > 0 && typeof P.tailSec === 'number'
+        && P.readSecPerWord === undefined && P.maxHoldSec === undefined);
 
     T('PROLOG: sembilan kartu era, tiap kartu punya year/title/body non-kosong',
         CH.length === 9 && CH.every(c => typeof c.year === 'string' && c.year.length
@@ -4143,20 +4160,52 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         proMod.stripInline('a **b** c *d*') === 'a b c d'
         && proMod.stripInline(CH[8].body).includes('mountains of Bandung, while'));
 
-    // DURASI PER SLIDE ikut panjang teks (config-driven): lantai holdSec, plafon
-    // maxHoldSec, dan kartu terpanjang HARUS ditahan lebih lama dari terpendek.
+    // ===== URUTAN TIGA FASE per era (v7, 2026-07-31, permintaan user) =====
+    // 1. tahun fade in -> tahan 3 dtk -> fade out
+    // 2. judul fade in -> tahan 3 dtk -> fade out
+    // 3. isi DIKETIK huruf per huruf -> diam ~5 dtk -> era berikutnya
+    // Semua durasinya dihitung dari config, jadi assert WAJIB membaca CFG (user
+    // me-retune JSON antar sesi) dan tak boleh mematok angka.
+    const chars = CH.map((_, i) => proMod.stripInline(CH[i].body).replace(/\s+/g, ' ').trim().length);
     const holds = CH.map((_, i) => proMod.holdFor(i));
-    const wordsOf = (i) => proMod.stripInline(CH[i].title + ' ' + CH[i].body).split(/\s+/).filter(Boolean).length;
-    const longest = CH.map((_, i) => i).sort((a, b) => wordsOf(b) - wordsOf(a))[0];
-    const shortest = CH.map((_, i) => i).sort((a, b) => wordsOf(a) - wordsOf(b))[0];
-    T('PROLOG DURASI: tiap kartu >= holdSec (lantai) dan <= maxHoldSec (plafon)',
-        holds.every(hd => hd >= P.holdSec - 1e-9 && hd <= P.maxHoldSec + 1e-9));
-    T('PROLOG DURASI: kartu terpanjang ditahan LEBIH LAMA dari kartu terpendek (' +
+    const longest = CH.map((_, i) => i).sort((a, b) => chars[b] - chars[a])[0];
+    const shortest = CH.map((_, i) => i).sort((a, b) => chars[a] - chars[b])[0];
+    T('PROLOG DURASI: fase isi = mengetik + jeda akhir, config-driven (typeCps ' + P.typeCps + ', tail ' + P.tailSec + 's)',
+        holds.every((hd, i) => Math.abs(hd - Math.max(P.holdSec, chars[i] / P.typeCps + P.tailSec)) < 1e-9));
+    T('PROLOG DURASI: era ber-naskah terpanjang tetap lebih lama dari terpendek (' +
         holds[longest].toFixed(1) + 's vs ' + holds[shortest].toFixed(1) + 's)',
         holds[longest] > holds[shortest]);
-    T('PROLOG DURASI: config-driven (readSecPerWord × jumlah kata, dijepit lantai/plafon)',
-        Math.abs(holds[shortest] - Math.min(P.maxHoldSec, Math.max(P.holdSec, wordsOf(shortest) * P.readSecPerWord))) < 1e-9
-        && Math.abs(holds[longest] - Math.min(P.maxHoldSec, Math.max(P.holdSec, wordsOf(longest) * P.readSecPerWord))) < 1e-9);
+    T('PROLOG DURASI: total era = fase tahun + fase judul + fase isi',
+        CH.every((_, i) => Math.abs(proMod.chapterTotal(i) - (proMod.yearSpan() + proMod.titleSpan() + proMod.holdFor(i))) < 1e-9)
+        && Math.abs(proMod.yearSpan() - (2 * P.yearFadeSec + P.yearHoldSec)) < 1e-9
+        && Math.abs(proMod.titleSpan() - (2 * P.titleFadeSec + P.titleHoldSec)) < 1e-9);
+
+    // `phaseAt` = kontrak urutannya, diuji langsung tanpa kanvas.
+    {
+        const yS = proMod.yearSpan(), tS = proMod.titleSpan();
+        const at = (t) => proMod.phaseAt(0, t);
+        T('URUTAN 1: era dibuka FASE TAHUN — fade in dari 0, penuh saat ditahan, redup lagi di ujung',
+            at(0).phase === 'year' && at(0).alpha < 0.02
+            && at(P.yearFadeSec + P.yearHoldSec / 2).phase === 'year'
+            && at(P.yearFadeSec + P.yearHoldSec / 2).alpha > 0.999
+            && at(yS - 0.02).alpha < 0.02);
+        T('URUTAN 2: lalu FASE JUDUL dgn pola sama (fade in - tahan ' + P.titleHoldSec + 's - fade out)',
+            at(yS + 0.02).phase === 'title'
+            && at(yS + P.titleFadeSec + P.titleHoldSec / 2).alpha > 0.999
+            && at(yS + tS - 0.02).phase === 'title' && at(yS + tS - 0.02).alpha < 0.02);
+        T('URUTAN 3: FASE ISI mulai KOSONG lalu bertambah huruf demi huruf pada typeCps',
+            at(yS + tS).phase === 'body' && at(yS + tS).chars === 0
+            && at(yS + tS + 1).chars === Math.floor(P.typeCps)
+            && at(yS + tS + 2).chars === Math.floor(2 * P.typeCps));
+        T('URUTAN 3: mengetik SELESAI penuh, tak ada huruf yang terlewat',
+            CH.every((_, i) => proMod.phaseAt(i, proMod.yearSpan() + proMod.titleSpan() + proMod.typeSecFor(i)).chars === chars[i]));
+        T('URUTAN 4: setelah huruf terakhir masih ada jeda ~' + P.tailSec + 's sebelum era berikutnya',
+            CH.every((_, i) => proMod.chapterTotal(i) - (proMod.yearSpan() + proMod.titleSpan() + proMod.typeSecFor(i)) >= P.tailSec - 1e-9));
+        // Kecepatan ketik = tuas keterbacaan yang diminta user ("jangan terlalu cepat
+        // agar orang bodoh pun bisa membacanya"). Dipatok ke CFG, bukan angka mati.
+        T('URUTAN: kecepatan ketik masuk akal utk dibaca (' + P.typeCps + ' huruf/detik ≈ ' + Math.round(P.typeCps * 60 / 5) + ' kata/menit)',
+            P.typeCps >= 10 && P.typeCps <= 30);
+    }
 
     // Alur kendali: sebelum play tidak aktif; play -> aktif di kartu 0; skip ->
     // callback dipanggil SEKALI + tidak aktif lagi.
@@ -4173,8 +4222,13 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     const proD0 = d1;
     T('PROLOG: beginPrologue -> aktif di era pertama',
         d1.active === true && d1.era === 0 && d1.count === 9 && d1.chapter === CH[0].title);
-    T('PROLOG: body kartu ditulis sebagai HTML terender (paragraf, tanpa bintang mentah)',
-        d1.bodyHtml.startsWith('<p>') && !d1.bodyHtml.includes('*') && d1.hold === proMod.holdFor(0));
+    // v6 (2026-07-31): naskah TIDAK lagi jadi takarir DOM — ia digambar ke LAYAR di
+    // dinding ruangan. Yang dijaga: isi layar = naskah user apa adanya (tanpa bintang
+    // mentah), dan penanda **tebal**/*miring* terbaca sebagai GAYA, bukan dibuang.
+    T('LAYAR: era pertama tergambar di layar ruangan (tahun+judul+badan, tanpa bintang mentah)',
+        d1.screen.era === 0 && d1.screen.year === CH[0].year && d1.screen.title === CH[0].title
+        && d1.screen.text === proMod.stripInline(CH[0].body).replace(/\s+/g, ' ').trim()
+        && !d1.screen.text.includes('*') && d1.hold === proMod.holdFor(0));
 
     // ===== WAR ROOM: PROLOG SEKARANG SCENE IN-ENGINE (2026-08-04) =====
     // Dua versi kanvas 2D ditolak user ("slideshow presentasi jualan barang", lalu
@@ -4205,51 +4259,201 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     T('WAR ROOM: hanya SATU hologram era tampil di awal (era 0)',
         d1.visibleEras.length === 1 && d1.visibleEras[0] === 0 && d1.era === 0);
 
-    // Papan kamera: azimut NAIK MONOTON = satu orbit panjang, mustahil ada potongan.
-    const B = proMod.BEATS, BE = proMod.BEAT_END;
-    let azMono = true;
-    for (let i = 1; i < B.length; i++) if (!(B[i].az > B[i - 1].az)) azMono = false;
-    T('WAR ROOM: sembilan beat kamera, azimut NAIK MONOTON (satu orbit, tanpa potongan)',
-        B.length === 9 && azMono && BE.az > B[8].az && (BE.az - B[0].az) > 180);
-    // Kamera mengorbit sejauh 100-130 unit dari fokus DAN di era terakhir fokusnya
-    // pindah ke Gibran — kalau ruangannya kurang besar, kamera berdiri DI LUAR
-    // tembok dan yang terlihat cuma punggung dinding. Versi pertama beat board ini
-    // memang begitu (dist 152 vs dinding di z 110), ketahuan lewat hitungan ini.
-    const RM = proMod.ROOM, MARGIN = 12;
-    let inside = true, worst = '';
-    for (let i = 0; i <= B.length; i++) {
-        for (const atGib of (i >= B.length - 1 ? [false, true] : [false])) {
-            const c = proMod.beatCamPos(i, atGib);
-            if (Math.abs(c.x) > RM.w / 2 - MARGIN || Math.abs(c.z) > RM.d / 2 - MARGIN || c.y > RM.h - MARGIN) {
-                inside = false; worst = worst || ('beat ' + i + (atGib ? '(gibran)' : ''));
-            }
-        }
+    // ===== SHOT TUNGGAL (v6, 2026-07-31: "kameranya jangan bergerak") =====
+    // Papan sembilan beat + orbit DIHAPUS. Kamera diam di depan proyeksi (az 0 =
+    // sisi +z) menghadap lurus ke layar di dinding utara; yang berubah sepanjang
+    // prolog hanya hologram di meja dan teks di layar.
+    const RM = proMod.ROOM, TB = proMod.TABLE, SH = proMod.SHOT, SC = proMod.SCREEN, MARGIN = 6;
+    const cam0 = proMod.shotCamPos();
+    T('SHOT: papan beat/orbit sudah TIDAK ADA lagi (satu shot terkunci)',
+        proMod.BEATS === undefined && proMod.BEAT_END === undefined && typeof SH.dist === 'number');
+    T('SHOT: kamera DI DALAM ruangan, di antara daun meja dan plafon (y ' + cam0.y + ')',
+        Math.abs(cam0.x) <= RM.w / 2 - MARGIN && Math.abs(cam0.z) <= RM.d / 2 - MARGIN
+        && cam0.y > TB.top + 2 && cam0.y < RM.h - MARGIN);
+    // Kamera berdiri di sisi BERLAWANAN dgn layar, segaris dgn pusat meja: itu arti
+    // "menyorot dari depan proyeksi tepat ke arah layar di belakangnya".
+    const scrZ = -RM.d / 2 + 2.3;
+    T('SHOT: kamera menghadap LURUS ke layar — di seberangnya (z ' + cam0.z.toFixed(0) + ' vs layar ' + scrZ.toFixed(0) + '), segaris pusat meja',
+        cam0.z > 0 && scrZ < 0 && Math.abs(cam0.x) < 0.001 && SH.az === 0);
+    // Sudut pandang: hologram TIDAK boleh menimpa layar. Puncak proyeksi (HOLO_R
+    // tertinggi x HOLO_FIT, di atas daun meja) diproyeksikan dari lensa ke bidang
+    // layar; hasilnya harus jatuh DI BAWAH tepi bawah layar. Inilah alasan HOLO_FIT
+    // turun 0.47 -> 0.30 saat kamera dikunci.
+    let holoTopLocal = 0;
+    for (const g of proWorld.children) {
+        if (!g.children || g.children.length < 10) continue;
+        g.traverse(o => {
+            if (!o.isMesh || !o.geometry || !o.geometry.args) return;
+            let py = o.position.y, par = o.parent;
+            while (par && par !== g) { py += par.position.y; par = par.parent; }
+            holoTopLocal = Math.max(holoTopLocal, py + (o.geometry.args[1] || 0) / 2);
+        });
     }
-    T('WAR ROOM: kamera selalu DI DALAM ruangan di tiap beat (termasuk pan ke Gibran)' + (worst ? ' [' + worst + ']' : ''), inside);
+    const holoTop = TB.top + 0.25 + holoTopLocal * proMod.HOLO_FIT;
+    const yOcc = cam0.y + (holoTop - cam0.y) * ((cam0.z - scrZ) / cam0.z);
+    T('SHOT: siluet hologram (puncak ' + holoTop.toFixed(1) + ') jatuh di BAWAH layar (' + yOcc.toFixed(1) + ' < ' + (SC.y - SC.h / 2) + ') = teks tak tertimpa',
+        holoTop < cam0.y && yOcc < SC.y - SC.h / 2);
+    // Layar harus muat di dinding: di bawah rusuk plafon, di atas lambris.
+    T('SHOT: layar briefing muat di dinding (y ' + (SC.y - SC.h / 2) + '..' + (SC.y + SC.h / 2) + ', plafon ' + RM.h + ')',
+        SC.y - SC.h / 2 >= 8 && SC.y + SC.h / 2 <= RM.h - 1 && SC.w < RM.w - 8);
 
-    // Jalankan mesinnya headless: dt tetap, tanpa RAF. Lacak era + azimut + fokus.
+    // Hologram berdiri DI ATAS DAUN MEJA: seluruh tapaknya (posisi mesh + setengah
+    // ukuran geometrinya, dikali HOLO_FIT) harus muat di daun meja.
+    let fitOk = true, fitBad = '';
+    for (const g of proWorld.children) {
+        if (!g.children || g.children.length < 10) continue;         // hanya grup era
+        let mx = 0, mz = 0;
+        g.traverse(o => {
+            if (!o.isMesh || !o.geometry || !o.geometry.args) return;
+            const a2 = o.geometry.args;
+            const hx = o.geometry.type === 'box' ? a2[0] / 2 : Math.max(a2[0], a2[1]);
+            const hz = o.geometry.type === 'box' ? a2[2] / 2 : Math.max(a2[0], a2[1]);
+            let px = o.position.x, pz = o.position.z, par = o.parent;
+            while (par && par !== g) { px += par.position.x; pz += par.position.z; par = par.parent; }
+            mx = Math.max(mx, Math.abs(px) + hx); mz = Math.max(mz, Math.abs(pz) + hz);
+        });
+        const wx = mx * proMod.HOLO_FIT, wz = mz * proMod.HOLO_FIT;
+        if (wx > TB.len / 2 || wz > TB.wid / 2) { fitOk = false; fitBad = fitBad || (wx.toFixed(1) + 'x' + wz.toFixed(1)); }
+    }
+    T('RUANG MEETING: tapak kesembilan hologram muat di daun meja (HOLO_FIT)' + (fitBad ? ' [' + fitBad + ' vs ' + (TB.len / 2) + 'x' + (TB.wid / 2) + ']' : ''), fitOk);
+
+    // Ruangan KOSONG dari sosok manusia (2026-07-31), dan tak ada apa pun setinggi
+    // manusia yang berdiri di depan lensa. Kursi dikecualikan: puncaknya di bawah
+    // garis pandang, jadi ia membingkai bawah frame.
+    const people = [], chairs = [];
+    let chairTop = 0;
+    for (const g of proWorld.children) {
+        if (!g.children || g.children.length < 4 || g.children.length > 6) continue;
+        let top = 0, meshes = 0;
+        g.traverse(o => {
+            if (!o.isMesh || !o.geometry || !o.geometry.args) return;
+            meshes++;
+            top = Math.max(top, o.position.y + (o.geometry.args[1] || 0) / 2);
+        });
+        if (meshes !== g.children.length) continue;
+        if (top > 9.5) people.push(g.position);
+        else { chairs.push(g.position); chairTop = Math.max(chairTop, top); }
+    }
+    let blocked = '';
+    for (const q of people) {
+        const vx = q.x - cam0.x, vz = q.z - cam0.z;
+        if (vz < 0 && Math.hypot(vx, vz) < 14) blocked = blocked || ('(' + q.x + ',' + q.z + ')');
+    }
+    // 2026-07-31, permintaan user "hilangkan orang/robot di ruangan itu": ruangannya
+    // KOSONG dari sosok manusia (termasuk Gibran — user memilih hapus SEMUA). Robot
+    // hanya boleh ada sebagai isi hologram di atas meja. Pemeriksaan "menutup lensa"
+    // tetap dipertahankan sebagai jaring pengaman kalau suatu saat figur ditambah lagi.
+    T('RUANG MEETING: ruangan KOSONG dari sosok setinggi manusia (' + people.length + ') & tak ada yg menutup lensa' + (blocked ? ' [' + blocked + ']' : ''),
+        people.length === 0 && !blocked);
+    // Perabot yang membuatnya terbaca sebagai RUANG MEETING, bukan aula: meja rapat
+    // panjang + kursi mengelilinginya (kursi sengaja pendek supaya boleh berdiri di
+    // depan lensa dan justru membingkai bawah frame).
+    let hasTop = false;
+    for (const o of proWorld.children)
+        if (o.isMesh && o.geometry && o.geometry.type === 'box' && o.geometry.args[0] === TB.len && o.geometry.args[2] === TB.wid)
+            hasTop = true;
+    T('RUANG MEETING: ada daun meja rapat ' + TB.len + 'x' + TB.wid + ' + >=12 kursi mengelilinginya (' + chairs.length + ')',
+        hasTop && chairs.length >= 12 && chairs.every(c => Math.abs(c.x) <= TB.len / 2 + 12 && Math.abs(c.z) <= TB.wid / 2 + 12));
+    // Kursi boleh berdiri di depan lensa HANYA karena ia lebih pendek dari kamera
+    // terendah — kalau sandarannya ditinggikan, ia mulai memotong hologram.
+    T('RUANG MEETING: puncak kursi (' + chairTop.toFixed(1) + ') di bawah lensa (' + SH.h + ')',
+        chairTop > 0 && chairTop < SH.h - 1.1);
+
+    // Jalankan mesinnya headless: dt tetap, tanpa RAF. Yang dilacak sekarang bukan
+    // gerak kamera (tak ada lagi) melainkan BUKTI DIAMNYA + isi layar per era.
     const dtStep = 1 / 30;
-    let prevAz = d1.az, azJump = 0, eraSeq = [d1.era], holoMax = 0, focusMoved = 0;
-    let guard = 0, finished = false;
+    let eraSeq = [d1.era], holoMax = 0;
+    let guard = 0, finished = false, camMoved = 0, screens = [d1.screen.era], alphaHi = 0;
+    let allFit = true, minPx = Infinity, maxLines = 0;
+    const typedFull = new Set();     // era yang naskahnya sempat tampil UTUH
+    const charCountOff = new Set();  // era yang jumlah huruf ketikannya melenceng
+    const phaseSeq = new Map();      // era -> urutan fase yang benar-benar tampil
     while (proMod.prologueDebug().active && guard++ < 20000) {
         proMod.prologueScene.updateMode(dtStep);
         const d = proMod.prologueDebug();
         if (!d.active) { finished = true; break; }
-        azJump = Math.max(azJump, Math.abs(d.az - prevAz)); prevAz = d.az;
+        // Setiap penyimpangan az/jarak/tinggi/fokus dari shot awal = kamera bergerak.
+        camMoved = Math.max(camMoved, Math.abs(d.az - SH.az), Math.abs(d.dist - SH.dist),
+            Math.abs(d.height - SH.h), Math.abs(d.focus.x - proD0.focus.x), Math.abs(d.focus.z - proD0.focus.z));
         holoMax = Math.max(holoMax, d.visibleEras.length);
+        alphaHi = Math.max(alphaHi, d.screenAlpha);
         if (eraSeq[eraSeq.length - 1] !== d.era) eraSeq.push(d.era);
-        if (d.era === 8) focusMoved = Math.max(focusMoved, Math.abs(d.focus.x - proD0.focus.x));
+        if (screens[screens.length - 1] !== d.screen.era) screens.push(d.screen.era);
+        // Urutan fase yang SUNGGUH tampil di layar, per era.
+        const sq = phaseSeq.get(d.screen.era) || [];
+        if (sq[sq.length - 1] !== d.screen.phase) { sq.push(d.screen.phase); phaseSeq.set(d.screen.era, sq); }
+        // Ukuran/jumlah baris hanya bermakna saat FASE ISI.
+        if (d.screen.phase === 'body') {
+            allFit = allFit && d.screen.fit;
+            minPx = Math.min(minPx, d.screen.px); maxLines = Math.max(maxLines, d.screen.lines);
+            // PERSIS sama, bukan sekadar sama panjang: `shown` kini isi layar yang
+            // BENAR-BENAR tergambar, jadi ini bukti tiap huruf naskah muncul.
+            if (d.screen.shown === d.screen.text) typedFull.add(d.screen.era);
+            // Penghitung ketikan HARUS sepanjang naskah polosnya. Kalau tokenizer
+            // memecah kata di batas markup lagi, keduanya melenceng dan ketikan
+            // berhenti sebelum huruf terakhir — persis bug 2026-07-31.
+            if (d.screen.chars !== d.screen.text.length) charCountOff.add(d.screen.era);
+        }
     }
     T('WAR ROOM: kamera melewati kesembilan era URUT 0..8 (' + eraSeq.join('>') + ')',
         eraSeq.length === 9 && eraSeq.every((e, i) => e === i));
-    T('WAR ROOM: azimut bergerak HALUS tiap frame (tak ada lompatan sudut = tak ada potongan)',
-        azJump > 0 && azJump < 1.5);
+    // INTI permintaan user v6: kamera TIDAK BERGERAK, sedetik pun. Bukan "gerak
+    // halus" — nol. Kalau ada yang menambah orbit/napas/pan lagi, ini yang gagal.
+    T('SHOT: kamera TIDAK BERGERAK sama sekali sepanjang prolog (simpangan ' + camMoved.toExponential(1) + ')',
+        camMoved < 1e-9);
     T('WAR ROOM: pergantian era = proyeksi lama MELIPAT sementara yg baru TERBIT (dua hologram bersamaan)',
         holoMax === 2);
-    T('WAR ROOM: di era 2045 fokus kamera PAN dari meja ke siluet MAJOR GIBRAN',
-        focusMoved > 40);
+    // Layar ikut berganti era, urut, dan teksnya benar-benar menyala (opacity naik).
+    T('LAYAR: isi layar ikut berganti URUT 0..8 (' + screens.join('>') + ') & teksnya menyala',
+        screens.length === 9 && screens.every((e, i) => e === i) && alphaHi > 0.99);
+    // Naskah user panjangnya tak seragam (2045 hampir 2x era terpendek) dan TIDAK
+    // BOLEH dipotong: font badan mengecil otomatis sampai muat. Assert ini menjaga
+    // kedua sisinya — semua era muat, DAN fontnya tak mengecil sampai tak terbaca.
+    T('LAYAR: kesembilan era MUAT di kanvas layar tanpa terpotong (font terkecil ' + minPx + 'px, baris terbanyak ' + maxLines + ')',
+        allFit === true && minPx >= 24 && maxLines >= 3);
+    // Bukti urutan itu benar-benar DIJALANKAN, bukan cuma benar di atas kertas:
+    // tiap era harus menampilkan tahun -> judul -> isi, dalam urutan itu, sekali jalan.
+    const seqOk = [...phaseSeq.values()].every(q => q.length === 3 && q[0] === 'year' && q[1] === 'title' && q[2] === 'body');
+    T('URUTAN: kesembilan era benar-benar tampil TAHUN -> JUDUL -> ISI di layar (' + phaseSeq.size + ' era)',
+        phaseSeq.size === 9 && seqOk);
+    T('URUTAN: naskah tiap era diketik UTUH — huruf terakhir pun muncul (' + typedFull.size + '/9 era)',
+        typedFull.size === 9);
+    T('URUTAN: jumlah huruf ketikan == panjang naskah polos di kesembilan era',
+        charCountOff.size === 0);
     T('WAR ROOM: prolog selesai sendiri lalu MENYERAHKAN ke cutscene heli (resumeScene)',
         finished && proDone === 1 && smMod.activeScene === introMod0.introScene);
+
+    // ===== SERAH-TERIMA KE CUTSCENE HELI: dua bug 2026-07-31 yang dilaporkan user
+    // ("di awal scene malah langsung menyorot gedung, harusnya mengikuti helikopter").
+    {
+        const rnd = await import(R('src/core/renderer.js'));
+        const dbg = introMod0.introDebug();
+        // (1) PANGGUNG PROLOG BERDIRI DI ATAS DUNIA ATAP INTRO. `PRO.x` dulu 150000,
+        //     sama persis dgn `IX` intro.js — gedung atap & kota latarnya menembus
+        //     ruang meeting, dan sebaliknya. Jaraknya kini harus melebihi `camera.far`
+        //     (4000) supaya kedua dunia mustahil saling terlihat.
+        const gap = Math.min(Math.abs(proMod.PRO.x - dbg.drop.x), Math.abs(proMod.PRO.x - dbg.door.x));
+        T('SERAH-TERIMA: panggung prolog tak menumpuk dunia atap intro (jarak ' + gap.toFixed(0) + ' u > camera.far)',
+            gap > 4000);
+        // (2) `beginIntro()` memasang `setCineFocus(null)` supaya kamera MEMBUNTUTI
+        //     pivot (yang menempel heli). Prolog menimpanya dgn fokus tetap di meja
+        //     dan dulu tak pernah melepasnya — `resumeScene` TIDAK memanggil beginIntro
+        //     lagi, jadi cutscene heli dibuka dgn fokus terkunci di panggung prolog:
+        //     kamera menyorot gedung diam alih-alih mengikuti heli. Uji PERILAKU:
+        //     pindahkan pivot jauh; dgn fokus lepas, followViewCam menjepretnya (snap).
+        //     Diputar 30 frame, bukan satu: `viewCam` juga menerima jitter ACAK dari
+        //     `camShake` sisa blok tes lain, dan satu frame membuat assert ini
+        //     kadang-gagal tanpa sebab. Tiga puluh frame cukup untuk shake meluruh
+        //     DAN untuk fokus meng-ease penuh ke pivot yang diam — hasilnya
+        //     deterministik, sementara kasus bug tetap melenceng puluhan ribu unit.
+        rnd.camera.position.set(dbg.drop.x, 20, dbg.drop.z);
+        for (let n = 0; n < 30; n++) rnd.followViewCam(1 / 60);
+        const off = introMod0.introScene.camOffset;
+        const dx = Math.abs(rnd.viewCam.position.x - (dbg.drop.x + off.x));
+        const dz = Math.abs(rnd.viewCam.position.z - (dbg.drop.z + off.z));
+        T('SERAH-TERIMA: fokus sinematik prolog DILEPAS — kamera kembali membuntuti pivot heli (simpangan ' + dx.toFixed(1) + ')',
+            dx < 1 && dz < 1);
+    }
 
     proMod.skipPrologue();   // prolog sudah selesai -> skip = no-op, callback TIDAK diulang
     const d2 = proMod.prologueDebug();
@@ -5771,6 +5975,41 @@ const palMod = await import(R('src/world/palette.js'));
     T('survival: siluet bertingkat — lewat di samping obelisk bebas di ketinggian mata, terblokir di dasar lebar',
         mb(12, 200, 12, -200, 10) === false && mb(12, 200, 12, -200, 1) === true);
     T('survival: di atas puncak Monas = tak pernah memblok', mb(0, 200, 0, -200, 999) === false);
+}
+
+// === FONT UI = COURIER PRIME (2026-07-31, permintaan user) — Arial dihapus
+// TOTAL dari CSS maupun JS; font di-host lokal (assets/fonts/, tanpa CDN). ===
+{
+    const cssF = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
+    const htmlF = fs.readFileSync(ROOT + '/index.html', 'utf8');
+    const hudF = fs.readFileSync(ROOT + '/src/core/hud.js', 'utf8');
+    const menuF = fs.readFileSync(ROOT + '/src/scenes/menu.js', 'utf8');
+
+    // Empat face didaftarkan (400/700 x normal/italic) supaya browser tak
+    // membuat bold/italic sintetis.
+    const faces = cssF.match(/@font-face\s*\{[^}]*\}/g) || [];
+    T('font: 4 @font-face Courier Prime terdaftar',
+        faces.length === 4 && faces.every(f => f.includes("'Courier Prime'")));
+    for (const file of ['Regular', 'Italic', 'Bold', 'BoldItalic']) {
+        T(`font: face ${file} menunjuk file lokal yang ADA`,
+            cssF.includes(`../assets/fonts/CourierPrime-${file}.ttf`)
+            && fs.existsSync(ROOT + `/assets/fonts/CourierPrime-${file}.ttf`));
+    }
+    T('font: body memakai Courier Prime',
+        /body\s*\{[^}]*font-family:\s*'Courier Prime'/.test(cssF));
+
+    // Tidak boleh ada sisa Arial di mana pun kecuali komentar penjelas CSS.
+    const arialCss = cssF.split('\n').filter(l => l.includes('Arial') && !l.trim().startsWith('Menggantikan'));
+    T('font: NOL deklarasi Arial tersisa di CSS', arialCss.length === 0);
+    T('font: NOL Arial di index.html / hud.js / menu.js',
+        !htmlF.includes('Arial') && !hudF.includes('Arial') && !menuF.includes('Arial'));
+    T('font: penanda N radar (canvas) pakai Courier Prime',
+        /radarCtx\.font\s*=\s*'bold 9px "Courier Prime"/.test(hudF));
+
+    // Aturan static-buildless: font ikut repo, bukan dari jaringan.
+    T('font: tidak memakai webfont CDN',
+        !cssF.includes('fonts.googleapis') && !htmlF.includes('fonts.googleapis')
+        && !htmlF.includes('fonts.gstatic'));
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

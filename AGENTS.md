@@ -8,7 +8,7 @@ This repository is a browser game titled "Gibran vs Robot 3D" — a **top-down s
 - `src/` — the whole game as ES modules (core/, utils/, world/, entities/, scenes/). **The module catalog and interface contracts are documented in `MODULES.md` — read it first.**
 - `css/style.css` — all styling.
 - `config/gameplay.json` — every tunable gameplay constant (max ammo/hp, speeds, stamina, wave difficulty, ...). Loaded at boot into `CFG`.
-- `assets/sounds/*.mp3` — sound effects + the three music tracks; `assets/fonts/` — Courier Prime (cutscene/HUD text). There are **no 3D model assets** — every robot, prop and building is procedural geometry built in code.
+- `assets/sounds/*.mp3` — sound effects + the three music tracks; `assets/fonts/` — Courier Prime, 4 faces, OFL (**the font of ALL game text since 2026-07-31** — declared via `@font-face` in style.css; Arial is gone, no CDN webfont). There are **no 3D model assets** — every robot, prop and building is procedural geometry built in code.
 - `tools/smoke.mjs` — the headless test suite (see below).
 - `package.json` — metadata only (`"type": "module"` for Node tooling). No dependencies, no build system.
 
