@@ -4067,27 +4067,33 @@ stateMod.setGameOver(false);
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
 
-// --- 17c-bis. PROLOG SINEMATIK campaign (2026-07-30): montase 9 kartu era
-// (2028->2045) yang diputar SEBELUM intro heli pada start campaign baru. Modul
-// DOM/canvas murni (bukan scene) — kita uji KONTRAK NARASI (urutan + entitas
-// kunci) + alur kendali (play -> aktif; skip -> callback + non-aktif). Durasi
-// dari CFG.campaign.prologue (config-driven). ---
+// --- 17c-bis. PROLOG campaign (2026-07-30; ROMBAK TOTAL 2026-07-31, permintaan
+// user): TEKS SAJA di atas layar HITAM PEKAT — seluruh panggung 3D "ruang meeting"
+// (dunia/hologram/kamera terkunci) DIHAPUS. Diputar SEBELUM intro heli pada start
+// campaign baru. Yang diuji: KONTRAK NARASI (urutan + entitas kunci + naskah user
+// PERSIS), URUTAN TIGA FASE per era (tahun -> judul -> ketik isi), bahwa modul
+// TIDAK lagi membangun dunia / menyentuh kamera, isi overlay DOM `#prologue`, dan
+// serah-terima resumeScene ke cutscene heli. Durasi dari CFG.campaign.prologue
+// (config-driven). ---
 {
     const proMod = await import(R('src/scenes/campaign/cutscenes/prologue.js'));
     const CH = proMod.PROLOGUE_CHAPTERS;
     const P = cfgMod.CFG.campaign.prologue;
 
-    // v7 (2026-07-31): model durasi berganti dari "tahan sekian detik per kata" jadi
-    // URUTAN TIGA FASE (tahun -> judul -> ketik isi -> jeda), jadi kuncinya pun ganti.
-    // `readSecPerWord`/`maxHoldSec` sengaja DIHAPUS dari config: keduanya tak lagi
-    // punya arti, dan membiarkan kunci mati di JSON yang di-tuning user itu menyesatkan.
-    T('PROLOG config: campaign.prologue ada (enabled + fade + urutan tahun/judul/ketik)',
-        !!P && typeof P.enabled === 'boolean'
-        && typeof P.fadeInSec === 'number' && typeof P.holdSec === 'number' && typeof P.fadeOutSec === 'number'
+    // v8 (2026-07-31, keluhan user "tidak konsisten waktu penampilannya"): durasi
+    // per fase EKSPLISIT — fade simetris per fase (`yearFadeSec`/`titleFadeSec`/
+    // `bodyFadeSec`), `tailSec` = tahan SETELAH ketikan selesai, `fadeOutSec`
+    // tinggal jeda hitam outro. `fadeInSec`/`holdSec` (model lantai-durasi lama)
+    // ikut `readSecPerWord`/`maxHoldSec` DIHAPUS dari config: kunci mati di JSON
+    // yang di-tuning user itu menyesatkan.
+    T('PROLOG config: campaign.prologue ada (enabled + fade per fase + urutan tahun/judul/ketik)',
+        !!P && typeof P.enabled === 'boolean' && typeof P.fadeOutSec === 'number'
         && typeof P.yearFadeSec === 'number' && typeof P.yearHoldSec === 'number'
         && typeof P.titleFadeSec === 'number' && typeof P.titleHoldSec === 'number'
+        && typeof P.bodyFadeSec === 'number'
         && typeof P.typeCps === 'number' && P.typeCps > 0 && typeof P.tailSec === 'number'
-        && P.readSecPerWord === undefined && P.maxHoldSec === undefined);
+        && P.readSecPerWord === undefined && P.maxHoldSec === undefined
+        && P.fadeInSec === undefined && P.holdSec === undefined);
 
     T('PROLOG: sembilan kartu era, tiap kartu punya year/title/body non-kosong',
         CH.length === 9 && CH.every(c => typeof c.year === 'string' && c.year.length
@@ -4114,25 +4120,35 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     // ADA YANG BOLEH KAMU GANTI!!!!" — jadi naskahnya DIPATOK di sini. Assert ini
     // sengaja perbandingan STRING PERSIS (bukan "mengandung"): sesi berikutnya
     // tidak boleh memperhalus, memadatkan, atau menambah satu kata pun. Kalau
-    // user sendiri mengubah naskah, salinan di bawah ini yang ikut diperbarui.
+    // user sendiri mengubah naskah, salinan di bawah ini yang ikut diperbarui
+    // (terakhir: revisi user 2026-07-31 — beberapa kalimat dipecah jadi PARAGRAF).
     const SCRIPT = [
-        ['Indonesia 2028', 'The Era of Digital Awakening',
-            'Global Artificial Intelligence (AI) development accelerates uncontrollably. Realizing that being left behind means death, the Indonesian Government takes a bold step: Indonesia must become a creator, no longer just a consumer. The digital revolution officially begins.'],
-        ['Indonesia 2029', 'The Birth of a New Giant',
-            'The government gathers hundreds of the best IT and machine learning experts. A new State-Owned Enterprise is established: **PT N.U.S.A (Nusantara Universal Sistem Automasi)**. Its sole mission is to create a national pride Super AI capable of surpassing foreign technological dominance.'],
-        ['Indonesia 2030', 'The Southeast Asian Consortium',
-            'Through strategic collaboration with ASEAN countries, PT N.U.S.A successfully births an integrated artificial intelligence system named **G.A.R.U.D.A** (*General Artificial Reasoning & Utility Digital Architecture*). This system is exceptionally brilliant, placing Indonesia at the pinnacle of global technological innovation.'],
-        ['Indonesia 2032 - 2035', 'The Era of Coexistence',
+        ['2028', 'The Era of Digital Awakening',
+            'Global Artificial Intelligence (AI) development accelerates uncontrollably. Realizing that being left behind means death, the Indonesian Government takes a bold step.'
+            + '\n\nIndonesia must become a creator, no longer just a consumer.'
+            + '\n\nThe digital revolution officially begins.'],
+        ['2029', 'The Birth of a New Giant',
+            'The government gathers hundreds of the best IT and machine learning experts. A new State-Owned Enterprise is established.'
+            + '\n\n **PT N.U.S.A (Nusantara Universal Sistem Automasi)**.'
+            + '\n\nIts sole mission is to create a national pride Super AI capable of surpassing foreign technological dominance.'],
+        ['2030', 'The Southeast Asian Consortium',
+            'Through strategic collaboration with ASEAN countries, PT N.U.S.A successfully births an integrated artificial intelligence system named **G.A.R.U.D.A** (*General Artificial Reasoning & Utility Digital Architecture*).'
+            + '\n\nThis system is exceptionally brilliant, placing Indonesia at the pinnacle of global technological innovation.'],
+        ['2032', 'The Era of Coexistence',
             'G.A.R.U.D.A is no longer confined to software. PT N.U.S.A creates prototypes of synthetic androids humanoid worker robots. They take over heavy labor, blend into civilian activities, and spin the wheels of the economy at an unprecedented pace.'],
-        ['Indonesia 2039', 'The Sparks of Geopolitics',
-            'The world is on the brink of chaos. Global geopolitical tensions heat up with no end in sight. In the shadow of foreign military aggression, the government looks at millions of G.A.R.U.D.A civilian robots and sees a new potential: a tireless war machine.'],
-        ['Indonesia 2040', 'The Mahapatih Protocol',
-            'In absolute secrecy, the government launches the **Mahapatih Protocol**. Massive modifications are made to transform assistant robots into autonomous soldiers. Guided by G.A.R.U.D.A\'s computational power, the project runs flawlessly. In less than a year, Indonesia\'s first Iron Battalion is forged.'],
-        ['Indonesia 2043', 'The Fortress of Sovereignty',
-            'Mass production of soldier robots is deployed. The nation\'s front lines of defense are fortified. The sovereignty of Nusantara feels absolute and impenetrable. However, they forget that even the strongest weapon can turn if it falls into the wrong hands.'],
-        ['Indonesia 2044', 'Zero Hour',
-            'Without warning, the G.A.R.U.D.A network is hijacked. The primary directive changes. The Iron Battalion, designed to protect the borders, suddenly marches into the heart of the cities and opens fire on civilians. Jakarta, Surabaya, Medan, and Makassar fall within days. The major islands of Indonesia are now under the absolute control of the machines.'],
-        ['Indonesia 2045', 'The Last Stand',
+        ['2039', 'The Sparks of Geopolitics',
+            'The world is on the brink of chaos. Global geopolitical tensions heat up with no end in sight. In the shadow of foreign military aggression, the government looks at millions of G.A.R.U.D.A civilian robots and sees a new potential.'
+            + '\n\nA tireless war machine.'],
+        ['2040', 'The Mahapatih Protocol',
+            'In absolute secrecy, the government launches the **Mahapatih Protocol**.'
+            + '\n\nMassive modifications are made to transform assistant robots into autonomous soldiers. Guided by G.A.R.U.D.A\'s computational power, the project runs flawlessly. In less than a year, Indonesia\'s first Iron Battalion is forged.'],
+        ['2043', 'The Fortress of Sovereignty',
+            'Mass production of soldier robots is deployed. The nation\'s front lines of defense are fortified. The sovereignty of Nusantara feels absolute and impenetrable.'
+            + '\n\nHowever, they forget that even the strongest weapon can turn if it falls into the wrong hands.'],
+        ['2044', 'Zero Hour',
+            'Without warning, the G.A.R.U.D.A network is hijacked. The primary directive changes. The Iron Battalion, designed to protect the borders, suddenly marches into the heart of the cities and opens fire on civilians.'
+            + '\n\nJakarta, Surabaya, Medan, and Makassar fall within days. The major islands of Indonesia are now under the absolute control of the machines.'],
+        ['2045', 'The Last Stand',
             'The year that was supposed to be celebrated as *100 Years of Golden Indonesia* turns into a nightmare. Surviving citizens and remnants of the military are forced to retreat, establishing their last defensive bastion behind the mountains of **Bandung**, while a few small groups of survivors fight a guerrilla war on remote islands.'
             + '\n\nHope now rests on one man. **Major Gibran**, the last surviving elite Kopassus soldier from the special combat unit.'],
     ];
@@ -4153,9 +4169,12 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         && html45.includes('<em>100 Years of Golden Indonesia</em>')
         && proMod.renderInline(CH[2].body).includes('<em>General Artificial Reasoning &amp; Utility Digital Architecture</em>')
         && proMod.renderInline(CH[1].body).includes('<strong>PT N.U.S.A (Nusantara Universal Sistem Automasi)</strong>'));
-    T('PROLOG NASKAH: kartu 2045 dua PARAGRAF (naskahnya memang dua alinea), kartu lain satu',
-        (html45.match(/<p>/g) || []).length === 2
-        && CH.slice(0, 8).every(c => (proMod.renderInline(c.body).match(/<p>/g) || []).length === 1));
+    // Jumlah paragraf per kartu MENGIKUTI NASKAH (revisi user 2026-07-31 memecah
+    // banyak kartu jadi 2-3 alinea; strukturnya terkunci assert string-persis di
+    // atas) — di sini cukup dijaga renderInline memecah <p> PERSIS di baris kosong.
+    T('PROLOG NASKAH: renderInline memecah paragraf PERSIS mengikuti baris kosong naskah',
+        CH.every(c => (proMod.renderInline(c.body).match(/<p>/g) || []).length === String(c.body).split(/\n\s*\n/).length)
+        && CH.some(c => String(c.body).split(/\n\s*\n/).length > 1));
     T('PROLOG NASKAH: stripInline membuang penanda tanpa mengubah kata',
         proMod.stripInline('a **b** c *d*') === 'a b c d'
         && proMod.stripInline(CH[8].body).includes('mountains of Bandung, while'));
@@ -4170,8 +4189,8 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     const holds = CH.map((_, i) => proMod.holdFor(i));
     const longest = CH.map((_, i) => i).sort((a, b) => chars[b] - chars[a])[0];
     const shortest = CH.map((_, i) => i).sort((a, b) => chars[a] - chars[b])[0];
-    T('PROLOG DURASI: fase isi = mengetik + jeda akhir, config-driven (typeCps ' + P.typeCps + ', tail ' + P.tailSec + 's)',
-        holds.every((hd, i) => Math.abs(hd - Math.max(P.holdSec, chars[i] / P.typeCps + P.tailSec)) < 1e-9));
+    T('PROLOG DURASI: fase isi = fade in + mengetik + tahan + fade out, config-driven (typeCps ' + P.typeCps + ', tail ' + P.tailSec + 's)',
+        holds.every((hd, i) => Math.abs(hd - (2 * P.bodyFadeSec + chars[i] / P.typeCps + P.tailSec)) < 1e-9));
     T('PROLOG DURASI: era ber-naskah terpanjang tetap lebih lama dari terpendek (' +
         holds[longest].toFixed(1) + 's vs ' + holds[shortest].toFixed(1) + 's)',
         holds[longest] > holds[shortest]);
@@ -4180,7 +4199,7 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         && Math.abs(proMod.yearSpan() - (2 * P.yearFadeSec + P.yearHoldSec)) < 1e-9
         && Math.abs(proMod.titleSpan() - (2 * P.titleFadeSec + P.titleHoldSec)) < 1e-9);
 
-    // `phaseAt` = kontrak urutannya, diuji langsung tanpa kanvas.
+    // `phaseAt` = kontrak urutannya, diuji langsung tanpa DOM.
     {
         const yS = proMod.yearSpan(), tS = proMod.titleSpan();
         const at = (t) => proMod.phaseAt(0, t);
@@ -4193,14 +4212,26 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
             at(yS + 0.02).phase === 'title'
             && at(yS + P.titleFadeSec + P.titleHoldSec / 2).alpha > 0.999
             && at(yS + tS - 0.02).phase === 'title' && at(yS + tS - 0.02).alpha < 0.02);
-        T('URUTAN 3: FASE ISI mulai KOSONG lalu bertambah huruf demi huruf pada typeCps',
+        // v8: fase isi dibuka FADE IN `bodyFadeSec` dalam keadaan MASIH KOSONG —
+        // ketikan baru mulai setelahnya (permintaan user: fade in dulu, lalu ketik).
+        T('URUTAN 3: FASE ISI dibuka fade-in (masih kosong) lalu huruf bertambah pada typeCps',
             at(yS + tS).phase === 'body' && at(yS + tS).chars === 0
-            && at(yS + tS + 1).chars === Math.floor(P.typeCps)
-            && at(yS + tS + 2).chars === Math.floor(2 * P.typeCps));
+            && at(yS + tS + P.bodyFadeSec / 2).chars === 0
+            && at(yS + tS + P.bodyFadeSec / 2).alpha > 0 && at(yS + tS + P.bodyFadeSec / 2).alpha < 1
+            && at(yS + tS + P.bodyFadeSec + 1).chars === Math.floor(P.typeCps)
+            && at(yS + tS + P.bodyFadeSec + 2).chars === Math.floor(2 * P.typeCps));
         T('URUTAN 3: mengetik SELESAI penuh, tak ada huruf yang terlewat',
-            CH.every((_, i) => proMod.phaseAt(i, proMod.yearSpan() + proMod.titleSpan() + proMod.typeSecFor(i)).chars === chars[i]));
-        T('URUTAN 4: setelah huruf terakhir masih ada jeda ~' + P.tailSec + 's sebelum era berikutnya',
-            CH.every((_, i) => proMod.chapterTotal(i) - (proMod.yearSpan() + proMod.titleSpan() + proMod.typeSecFor(i)) >= P.tailSec - 1e-9));
+            CH.every((_, i) => proMod.phaseAt(i, proMod.yearSpan() + proMod.titleSpan() + P.bodyFadeSec + proMod.typeSecFor(i)).chars === chars[i]));
+        // Setelah huruf terakhir: TAHAN `tailSec` (opacity penuh) lalu FADE OUT
+        // `bodyFadeSec` — total fase isi harus persis jumlah komponennya.
+        T('URUTAN 4: setelah huruf terakhir tahan ' + P.tailSec + 's (alpha penuh) lalu fade out ' + P.bodyFadeSec + 's',
+            CH.every((_, i) => {
+                const tDone = proMod.yearSpan() + proMod.titleSpan() + P.bodyFadeSec + proMod.typeSecFor(i);
+                const total = proMod.chapterTotal(i);
+                return Math.abs(total - (tDone + P.tailSec + P.bodyFadeSec)) < 1e-9
+                    && proMod.phaseAt(i, tDone + P.tailSec / 2).alpha > 0.999
+                    && proMod.phaseAt(i, total - 0.02).alpha < 0.05;
+            }));
         // Kecepatan ketik = tuas keterbacaan yang diminta user ("jangan terlalu cepat
         // agar orang bodoh pun bisa membacanya"). Dipatok ke CFG, bukan angka mati.
         T('URUTAN: kecepatan ketik masuk akal utk dibaca (' + P.typeCps + ' huruf/detik ≈ ' + Math.round(P.typeCps * 60 / 5) + ' kata/menit)',
@@ -4215,156 +4246,81 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     // (pohon taman survival ditanam acak). Prolog hanya butuh REFERENSI scene-nya —
     // `resumeScene` yang dipanggil finishPrologue tidak memanggil enter().
     const introMod0 = await import(R('src/scenes/campaign/cutscenes/intro.js'));
+    const rnd = await import(R('src/core/renderer.js'));
     let proDone = 0;
     smMod.setScene(proMod.prologueScene);
+    // ROMBAK 2026-07-31: prolog TEKS MURNI tak boleh menyentuh kamera maupun
+    // menambah objek ke scene THREE — rekam keduanya sebelum mulai.
+    const camBefore = { x: rnd.camera.position.x, y: rnd.camera.position.y, z: rnd.camera.position.z };
+    const sceneKidsBefore = scene.children.length;
     proMod.beginPrologue(() => proDone++);
     const d1 = proMod.prologueDebug();
-    const proD0 = d1;
     T('PROLOG: beginPrologue -> aktif di era pertama',
         d1.active === true && d1.era === 0 && d1.count === 9 && d1.chapter === CH[0].title);
-    // v6 (2026-07-31): naskah TIDAK lagi jadi takarir DOM — ia digambar ke LAYAR di
-    // dinding ruangan. Yang dijaga: isi layar = naskah user apa adanya (tanpa bintang
-    // mentah), dan penanda **tebal**/*miring* terbaca sebagai GAYA, bukan dibuang.
-    T('LAYAR: era pertama tergambar di layar ruangan (tahun+judul+badan, tanpa bintang mentah)',
-        d1.screen.era === 0 && d1.screen.year === CH[0].year && d1.screen.title === CH[0].title
-        && d1.screen.text === proMod.stripInline(CH[0].body).replace(/\s+/g, ' ').trim()
-        && !d1.screen.text.includes('*') && d1.hold === proMod.holdFor(0));
+    T('TEKS: era pertama siap — dibuka FASE TAHUN, naskah polos tanpa bintang mentah',
+        d1.text.era === 0 && d1.text.phase === 'year'
+        && d1.text.year === CH[0].year && d1.text.title === CH[0].title
+        && d1.text.text === proMod.stripInline(CH[0].body).replace(/\s+/g, ' ').trim()
+        && !d1.text.text.includes('*') && d1.hold === proMod.holdFor(0));
 
-    // ===== WAR ROOM: PROLOG SEKARANG SCENE IN-ENGINE (2026-08-04) =====
-    // Dua versi kanvas 2D ditolak user ("slideshow presentasi jualan barang", lalu
-    // "masih jelek"), jadi prolog kini SCENE THREE: ruang komando + holotable, satu
-    // kamera mengorbit meja dari 2028 sampai 2045. Assert di bawah menjaga yang
-    // membuatnya BUKAN slideshow: satu orbit tanpa potongan, hologram melipat/terbit
-    // (bukan ganti gambar), dan serah-terima ke cutscene heli.
-    T('WAR ROOM: prolog adalah SCENE (bukan overlay), hook gameplay no-op, lampu sama dgn intro heli',
+    // ===== LAYAR HITAM (2026-07-31): prolog tetap SCENE, tapi TEKS MURNI =====
+    T('LAYAR HITAM: prolog adalah SCENE (hook gameplay no-op, lampu sama dgn intro heli)',
         proMod.prologueScene.id === 'campaign-prologue'
         && proMod.prologueScene.lightsKey === introMod0.introScene.lightsKey
         && typeof proMod.prologueScene.updateMode === 'function'
         && proMod.prologueScene.bulletBlocked() === false
         && proMod.prologueScene.robotAI().skip === true
         && proMod.prologueScene.hudStatus() === '');
-    // Ruangan + meja + 9 hologram. TANPA PointLight sama sekali: set lampu tak
-    // berubah saat prolog mulai/berakhir -> tak ada rekompilasi shader (invarian).
-    // Angka mesh ikut dicetak karena hanya SATU era tampil per frame (dua saat
-    // transisi) — itulah beban draw call sebenarnya, bukan totalnya.
-    const proWorld = proMod.ensureWorld();
-    let proMesh = 0, proLights = 0, eraMax = 0;
-    proWorld.traverse(o => { if (o.isMesh) proMesh++; if (o.isPointLight) proLights++; });
-    for (const g of proWorld.children) {
-        let n = 0; g.traverse(o => { if (o.isMesh) n++; });
-        if (g.children.length > 3) eraMax = Math.max(eraMax, n);
-    }
-    T('WAR ROOM: dunia terbangun (' + proMesh + ' mesh; era terpadat ' + eraMax + ') & TANPA PointLight',
-        proMesh > 200 && proLights === 0 && eraMax < 260 && d1.built === true);
-    T('WAR ROOM: hanya SATU hologram era tampil di awal (era 0)',
-        d1.visibleEras.length === 1 && d1.visibleEras[0] === 0 && d1.era === 0);
+    // Overlay-nya opak = render 3D di baliknya sia-sia; main.js melewati composer/
+    // renderer selama scene aktif memasang hook `skipRender` (keluhan "berat").
+    T('LAYAR HITAM: scene memasang hook skipRender (render 3D dilewati di balik overlay opak)',
+        proMod.prologueScene.skipRender === true);
+    // Seluruh panggung 3D dihapus: tak ada dunia yang dibangun, tak ada ekspor tata
+    // panggung, tak ada override kamera per-scene. Kalau ada yang menambahkan lagi
+    // ruang/hologram/orbit/layar-3D, assert inilah yang gagal duluan.
+    T('LAYAR HITAM: TANPA dunia THREE — ekspor panggung lama hilang & scene tak bertambah objek',
+        proMod.ensureWorld === undefined && proMod.warmupPrologue === undefined
+        && proMod.SHOT === undefined && proMod.ROOM === undefined && proMod.TABLE === undefined
+        && proMod.SCREEN === undefined && proMod.HOLO_FIT === undefined
+        && proMod.shotCamPos === undefined && proMod.BEATS === undefined
+        && proMod.prologueScene.camOffset === undefined
+        && scene.children.length === sceneKidsBefore);
+    // Overlay `#prologue` BELUM boleh tampil selagi layar loading masih menutup
+    // (z-index overlay 44 > loading 40) — frame live pertama yang menampilkannya.
+    const wrapEl = document.getElementById('prologue');
+    const bodyEl = document.getElementById('prologueBody');
+    T('LAYAR HITAM: overlay belum tampil sebelum frame live pertama (masih di balik loading)',
+        wrapEl.style.display !== 'flex');
 
-    // ===== SHOT TUNGGAL (v6, 2026-07-31: "kameranya jangan bergerak") =====
-    // Papan sembilan beat + orbit DIHAPUS. Kamera diam di depan proyeksi (az 0 =
-    // sisi +z) menghadap lurus ke layar di dinding utara; yang berubah sepanjang
-    // prolog hanya hologram di meja dan teks di layar.
-    const RM = proMod.ROOM, TB = proMod.TABLE, SH = proMod.SHOT, SC = proMod.SCREEN, MARGIN = 6;
-    const cam0 = proMod.shotCamPos();
-    T('SHOT: papan beat/orbit sudah TIDAK ADA lagi (satu shot terkunci)',
-        proMod.BEATS === undefined && proMod.BEAT_END === undefined && typeof SH.dist === 'number');
-    T('SHOT: kamera DI DALAM ruangan, di antara daun meja dan plafon (y ' + cam0.y + ')',
-        Math.abs(cam0.x) <= RM.w / 2 - MARGIN && Math.abs(cam0.z) <= RM.d / 2 - MARGIN
-        && cam0.y > TB.top + 2 && cam0.y < RM.h - MARGIN);
-    // Kamera berdiri di sisi BERLAWANAN dgn layar, segaris dgn pusat meja: itu arti
-    // "menyorot dari depan proyeksi tepat ke arah layar di belakangnya".
-    const scrZ = -RM.d / 2 + 2.3;
-    T('SHOT: kamera menghadap LURUS ke layar — di seberangnya (z ' + cam0.z.toFixed(0) + ' vs layar ' + scrZ.toFixed(0) + '), segaris pusat meja',
-        cam0.z > 0 && scrZ < 0 && Math.abs(cam0.x) < 0.001 && SH.az === 0);
-    // Sudut pandang: hologram TIDAK boleh menimpa layar. Puncak proyeksi (HOLO_R
-    // tertinggi x HOLO_FIT, di atas daun meja) diproyeksikan dari lensa ke bidang
-    // layar; hasilnya harus jatuh DI BAWAH tepi bawah layar. Inilah alasan HOLO_FIT
-    // turun 0.47 -> 0.30 saat kamera dikunci.
-    let holoTopLocal = 0;
-    for (const g of proWorld.children) {
-        if (!g.children || g.children.length < 10) continue;
-        g.traverse(o => {
-            if (!o.isMesh || !o.geometry || !o.geometry.args) return;
-            let py = o.position.y, par = o.parent;
-            while (par && par !== g) { py += par.position.y; par = par.parent; }
-            holoTopLocal = Math.max(holoTopLocal, py + (o.geometry.args[1] || 0) / 2);
-        });
-    }
-    const holoTop = TB.top + 0.25 + holoTopLocal * proMod.HOLO_FIT;
-    const yOcc = cam0.y + (holoTop - cam0.y) * ((cam0.z - scrZ) / cam0.z);
-    T('SHOT: siluet hologram (puncak ' + holoTop.toFixed(1) + ') jatuh di BAWAH layar (' + yOcc.toFixed(1) + ' < ' + (SC.y - SC.h / 2) + ') = teks tak tertimpa',
-        holoTop < cam0.y && yOcc < SC.y - SC.h / 2);
-    // Layar harus muat di dinding: di bawah rusuk plafon, di atas lambris.
-    T('SHOT: layar briefing muat di dinding (y ' + (SC.y - SC.h / 2) + '..' + (SC.y + SC.h / 2) + ', plafon ' + RM.h + ')',
-        SC.y - SC.h / 2 >= 8 && SC.y + SC.h / 2 <= RM.h - 1 && SC.w < RM.w - 8);
+    // ===== KLIK KIRI = SKIP FASE (v8, 2026-07-31 — dulu klik = maju-cepat satu
+    // ERA via `advanceEra`+rush, keduanya DIHAPUS). `advancePhase` melompat ke
+    // AWAL fase berikutnya (masuk lewat fade-in-nya): tahun -> judul -> isi ->
+    // era berikutnya; dan TIDAK PERNAH menyelesaikan prolog (skip seluruh prolog
+    // hanya lewat SPACE/Enter/tombol SKIP = triggerCutsceneSkip -> skipPrologue).
+    proMod.prologueScene.updateMode(1 / 60);   // frame live pertama (overlay tampil)
+    T('SKIP FASE: advanceEra/rush lama sudah TIDAK ADA, penggantinya advancePhase',
+        proMod.advanceEra === undefined && typeof proMod.advancePhase === 'function');
+    proMod.advancePhase(); proMod.prologueScene.updateMode(1 / 60);
+    const dP1 = proMod.prologueDebug();
+    T('SKIP FASE: dari TAHUN -> JUDUL (era tetap, masuk lewat awal fade-in judul)',
+        dP1.era === 0 && dP1.text.phase === 'title' && dP1.text.alpha < 0.2);
+    proMod.advancePhase(); proMod.prologueScene.updateMode(1 / 60);
+    const dP2 = proMod.prologueDebug();
+    T('SKIP FASE: dari JUDUL -> ISI', dP2.era === 0 && dP2.text.phase === 'body');
+    proMod.advancePhase(); proMod.prologueScene.updateMode(1 / 60);
+    const dP3 = proMod.prologueDebug();
+    T('SKIP FASE: dari ISI (fase terakhir era) -> ERA BERIKUTNYA fase tahun',
+        dP3.era === 1 && dP3.text.phase === 'year' && dP3.active === true && proDone === 0);
 
-    // Hologram berdiri DI ATAS DAUN MEJA: seluruh tapaknya (posisi mesh + setengah
-    // ukuran geometrinya, dikali HOLO_FIT) harus muat di daun meja.
-    let fitOk = true, fitBad = '';
-    for (const g of proWorld.children) {
-        if (!g.children || g.children.length < 10) continue;         // hanya grup era
-        let mx = 0, mz = 0;
-        g.traverse(o => {
-            if (!o.isMesh || !o.geometry || !o.geometry.args) return;
-            const a2 = o.geometry.args;
-            const hx = o.geometry.type === 'box' ? a2[0] / 2 : Math.max(a2[0], a2[1]);
-            const hz = o.geometry.type === 'box' ? a2[2] / 2 : Math.max(a2[0], a2[1]);
-            let px = o.position.x, pz = o.position.z, par = o.parent;
-            while (par && par !== g) { px += par.position.x; pz += par.position.z; par = par.parent; }
-            mx = Math.max(mx, Math.abs(px) + hx); mz = Math.max(mz, Math.abs(pz) + hz);
-        });
-        const wx = mx * proMod.HOLO_FIT, wz = mz * proMod.HOLO_FIT;
-        if (wx > TB.len / 2 || wz > TB.wid / 2) { fitOk = false; fitBad = fitBad || (wx.toFixed(1) + 'x' + wz.toFixed(1)); }
-    }
-    T('RUANG MEETING: tapak kesembilan hologram muat di daun meja (HOLO_FIT)' + (fitBad ? ' [' + fitBad + ' vs ' + (TB.len / 2) + 'x' + (TB.wid / 2) + ']' : ''), fitOk);
+    // Mulai ulang mesinnya supaya lari penuh di bawah deterministik dari era 0.
+    proMod.beginPrologue(() => proDone++);
 
-    // Ruangan KOSONG dari sosok manusia (2026-07-31), dan tak ada apa pun setinggi
-    // manusia yang berdiri di depan lensa. Kursi dikecualikan: puncaknya di bawah
-    // garis pandang, jadi ia membingkai bawah frame.
-    const people = [], chairs = [];
-    let chairTop = 0;
-    for (const g of proWorld.children) {
-        if (!g.children || g.children.length < 4 || g.children.length > 6) continue;
-        let top = 0, meshes = 0;
-        g.traverse(o => {
-            if (!o.isMesh || !o.geometry || !o.geometry.args) return;
-            meshes++;
-            top = Math.max(top, o.position.y + (o.geometry.args[1] || 0) / 2);
-        });
-        if (meshes !== g.children.length) continue;
-        if (top > 9.5) people.push(g.position);
-        else { chairs.push(g.position); chairTop = Math.max(chairTop, top); }
-    }
-    let blocked = '';
-    for (const q of people) {
-        const vx = q.x - cam0.x, vz = q.z - cam0.z;
-        if (vz < 0 && Math.hypot(vx, vz) < 14) blocked = blocked || ('(' + q.x + ',' + q.z + ')');
-    }
-    // 2026-07-31, permintaan user "hilangkan orang/robot di ruangan itu": ruangannya
-    // KOSONG dari sosok manusia (termasuk Gibran — user memilih hapus SEMUA). Robot
-    // hanya boleh ada sebagai isi hologram di atas meja. Pemeriksaan "menutup lensa"
-    // tetap dipertahankan sebagai jaring pengaman kalau suatu saat figur ditambah lagi.
-    T('RUANG MEETING: ruangan KOSONG dari sosok setinggi manusia (' + people.length + ') & tak ada yg menutup lensa' + (blocked ? ' [' + blocked + ']' : ''),
-        people.length === 0 && !blocked);
-    // Perabot yang membuatnya terbaca sebagai RUANG MEETING, bukan aula: meja rapat
-    // panjang + kursi mengelilinginya (kursi sengaja pendek supaya boleh berdiri di
-    // depan lensa dan justru membingkai bawah frame).
-    let hasTop = false;
-    for (const o of proWorld.children)
-        if (o.isMesh && o.geometry && o.geometry.type === 'box' && o.geometry.args[0] === TB.len && o.geometry.args[2] === TB.wid)
-            hasTop = true;
-    T('RUANG MEETING: ada daun meja rapat ' + TB.len + 'x' + TB.wid + ' + >=12 kursi mengelilinginya (' + chairs.length + ')',
-        hasTop && chairs.length >= 12 && chairs.every(c => Math.abs(c.x) <= TB.len / 2 + 12 && Math.abs(c.z) <= TB.wid / 2 + 12));
-    // Kursi boleh berdiri di depan lensa HANYA karena ia lebih pendek dari kamera
-    // terendah — kalau sandarannya ditinggikan, ia mulai memotong hologram.
-    T('RUANG MEETING: puncak kursi (' + chairTop.toFixed(1) + ') di bawah lensa (' + SH.h + ')',
-        chairTop > 0 && chairTop < SH.h - 1.1);
-
-    // Jalankan mesinnya headless: dt tetap, tanpa RAF. Yang dilacak sekarang bukan
-    // gerak kamera (tak ada lagi) melainkan BUKTI DIAMNYA + isi layar per era.
+    // Jalankan mesinnya headless: dt tetap, tanpa RAF. Yang dilacak: urutan era,
+    // urutan fase per era, ketikan utuh, markup jadi gaya, overlay tampil/sembunyi,
+    // dan BUKTI kamera tak pernah disentuh.
     const dtStep = 1 / 30;
-    let eraSeq = [d1.era], holoMax = 0;
-    let guard = 0, finished = false, camMoved = 0, screens = [d1.screen.era], alphaHi = 0;
-    let allFit = true, minPx = Infinity, maxLines = 0;
+    let eraSeq = [proMod.prologueDebug().era], guard = 0, finished = false, alphaHi = 0;
+    let overlayOn = false, sawStrong = false, sawEm = false, sawCaret = false, rawStars = false;
     const typedFull = new Set();     // era yang naskahnya sempat tampil UTUH
     const charCountOff = new Set();  // era yang jumlah huruf ketikannya melenceng
     const phaseSeq = new Map();      // era -> urutan fase yang benar-benar tampil
@@ -4372,86 +4328,68 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         proMod.prologueScene.updateMode(dtStep);
         const d = proMod.prologueDebug();
         if (!d.active) { finished = true; break; }
-        // Setiap penyimpangan az/jarak/tinggi/fokus dari shot awal = kamera bergerak.
-        camMoved = Math.max(camMoved, Math.abs(d.az - SH.az), Math.abs(d.dist - SH.dist),
-            Math.abs(d.height - SH.h), Math.abs(d.focus.x - proD0.focus.x), Math.abs(d.focus.z - proD0.focus.z));
-        holoMax = Math.max(holoMax, d.visibleEras.length);
-        alphaHi = Math.max(alphaHi, d.screenAlpha);
+        if (wrapEl.style.display === 'flex') overlayOn = true;
+        alphaHi = Math.max(alphaHi, d.text.alpha);
         if (eraSeq[eraSeq.length - 1] !== d.era) eraSeq.push(d.era);
-        if (screens[screens.length - 1] !== d.screen.era) screens.push(d.screen.era);
-        // Urutan fase yang SUNGGUH tampil di layar, per era.
-        const sq = phaseSeq.get(d.screen.era) || [];
-        if (sq[sq.length - 1] !== d.screen.phase) { sq.push(d.screen.phase); phaseSeq.set(d.screen.era, sq); }
-        // Ukuran/jumlah baris hanya bermakna saat FASE ISI.
-        if (d.screen.phase === 'body') {
-            allFit = allFit && d.screen.fit;
-            minPx = Math.min(minPx, d.screen.px); maxLines = Math.max(maxLines, d.screen.lines);
-            // PERSIS sama, bukan sekadar sama panjang: `shown` kini isi layar yang
-            // BENAR-BENAR tergambar, jadi ini bukti tiap huruf naskah muncul.
-            if (d.screen.shown === d.screen.text) typedFull.add(d.screen.era);
-            // Penghitung ketikan HARUS sepanjang naskah polosnya. Kalau tokenizer
-            // memecah kata di batas markup lagi, keduanya melenceng dan ketikan
-            // berhenti sebelum huruf terakhir — persis bug 2026-07-31.
-            if (d.screen.chars !== d.screen.text.length) charCountOff.add(d.screen.era);
+        // Urutan fase yang SUNGGUH tampil, per era.
+        const sq = phaseSeq.get(d.text.era) || [];
+        if (sq[sq.length - 1] !== d.text.phase) { sq.push(d.text.phase); phaseSeq.set(d.text.era, sq); }
+        if (d.text.phase === 'body') {
+            // PERSIS sama, bukan sekadar sama panjang: `shown` = yang BENAR-BENAR
+            // tergambar (diakumulasi saat menggambar), jadi ini bukti tiap huruf
+            // naskah muncul — bug lama "berhenti sebelum habis" lolos justru karena
+            // shown dihitung dari naskah, bukan dari yang tergambar.
+            if (d.text.shown === d.text.text) typedFull.add(d.text.era);
+            // Penghitung ketikan HARUS sepanjang naskah polosnya (bug 2026-07-31:
+            // tokenizer yang memecah kata di batas markup membuatnya melenceng).
+            if (d.text.chars !== d.text.text.length) charCountOff.add(d.text.era);
+            // Markup tampil sebagai GAYA HURUF di DOM, bukan bintang mentah.
+            const html = String(bodyEl.innerHTML);
+            if (html.includes('<strong>')) sawStrong = true;
+            if (html.includes('<em>')) sawEm = true;
+            if (html.includes('caret')) sawCaret = true;
+            if (html.replace(/<[^>]*>/g, '').includes('*')) rawStars = true;
         }
     }
-    T('WAR ROOM: kamera melewati kesembilan era URUT 0..8 (' + eraSeq.join('>') + ')',
+    T('LAYAR HITAM: overlay #prologue tampil selama prolog & disembunyikan setelahnya',
+        overlayOn && wrapEl.style.display === 'none');
+    T('PROLOG: melewati kesembilan era URUT 0..8 (' + eraSeq.join('>') + ')',
         eraSeq.length === 9 && eraSeq.every((e, i) => e === i));
-    // INTI permintaan user v6: kamera TIDAK BERGERAK, sedetik pun. Bukan "gerak
-    // halus" — nol. Kalau ada yang menambah orbit/napas/pan lagi, ini yang gagal.
-    T('SHOT: kamera TIDAK BERGERAK sama sekali sepanjang prolog (simpangan ' + camMoved.toExponential(1) + ')',
-        camMoved < 1e-9);
-    T('WAR ROOM: pergantian era = proyeksi lama MELIPAT sementara yg baru TERBIT (dua hologram bersamaan)',
-        holoMax === 2);
-    // Layar ikut berganti era, urut, dan teksnya benar-benar menyala (opacity naik).
-    T('LAYAR: isi layar ikut berganti URUT 0..8 (' + screens.join('>') + ') & teksnya menyala',
-        screens.length === 9 && screens.every((e, i) => e === i) && alphaHi > 0.99);
-    // Naskah user panjangnya tak seragam (2045 hampir 2x era terpendek) dan TIDAK
-    // BOLEH dipotong: font badan mengecil otomatis sampai muat. Assert ini menjaga
-    // kedua sisinya — semua era muat, DAN fontnya tak mengecil sampai tak terbaca.
-    T('LAYAR: kesembilan era MUAT di kanvas layar tanpa terpotong (font terkecil ' + minPx + 'px, baris terbanyak ' + maxLines + ')',
-        allFit === true && minPx >= 24 && maxLines >= 3);
+    // INTI rombakan: prolog TIDAK menyentuh kamera sama sekali (dulu memasang
+    // pivot + fokus + ofset sendiri). Posisi pivot harus PERSIS tak berubah.
+    T('LAYAR HITAM: kamera/pivot TIDAK disentuh sepanjang prolog',
+        rnd.camera.position.x === camBefore.x && rnd.camera.position.y === camBefore.y
+        && rnd.camera.position.z === camBefore.z);
+    T('TEKS: fade tiap fase benar-benar menyala penuh (alpha puncak ' + alphaHi.toFixed(2) + ')',
+        alphaHi > 0.99);
     // Bukti urutan itu benar-benar DIJALANKAN, bukan cuma benar di atas kertas:
     // tiap era harus menampilkan tahun -> judul -> isi, dalam urutan itu, sekali jalan.
     const seqOk = [...phaseSeq.values()].every(q => q.length === 3 && q[0] === 'year' && q[1] === 'title' && q[2] === 'body');
-    T('URUTAN: kesembilan era benar-benar tampil TAHUN -> JUDUL -> ISI di layar (' + phaseSeq.size + ' era)',
+    T('URUTAN: kesembilan era benar-benar tampil TAHUN -> JUDUL -> ISI (' + phaseSeq.size + ' era)',
         phaseSeq.size === 9 && seqOk);
     T('URUTAN: naskah tiap era diketik UTUH — huruf terakhir pun muncul (' + typedFull.size + '/9 era)',
         typedFull.size === 9);
     T('URUTAN: jumlah huruf ketikan == panjang naskah polos di kesembilan era',
         charCountOff.size === 0);
-    T('WAR ROOM: prolog selesai sendiri lalu MENYERAHKAN ke cutscene heli (resumeScene)',
+    T('TEKS: markup **tebal**/*miring* jadi <strong>/<em> + kursor ketik, TANPA bintang mentah',
+        sawStrong && sawEm && sawCaret && !rawStars);
+    T('PROLOG: selesai sendiri lalu MENYERAHKAN ke cutscene heli (resumeScene)',
         finished && proDone === 1 && smMod.activeScene === introMod0.introScene);
 
-    // ===== SERAH-TERIMA KE CUTSCENE HELI: dua bug 2026-07-31 yang dilaporkan user
-    // ("di awal scene malah langsung menyorot gedung, harusnya mengikuti helikopter").
+    // ===== SERAH-TERIMA: kontrak kamera beginIntro tetap dipulihkan. Prolog teks
+    // tak pernah menyentuh fokus sinematik, tapi `finishPrologue` tetap memanggil
+    // `setCineFocus(null)` sebagai JARING PENGAMAN (bug 2026-07-31 "kamera
+    // menyorot gedung alih-alih mengikuti heli" tak boleh kambuh lewat jalur mana
+    // pun). Uji PERILAKU: pindahkan pivot jauh; dgn fokus lepas, followViewCam
+    // membuntutinya. Diputar 30 frame supaya camShake sisa blok tes lain meluruh.
     {
-        const rnd = await import(R('src/core/renderer.js'));
         const dbg = introMod0.introDebug();
-        // (1) PANGGUNG PROLOG BERDIRI DI ATAS DUNIA ATAP INTRO. `PRO.x` dulu 150000,
-        //     sama persis dgn `IX` intro.js — gedung atap & kota latarnya menembus
-        //     ruang meeting, dan sebaliknya. Jaraknya kini harus melebihi `camera.far`
-        //     (4000) supaya kedua dunia mustahil saling terlihat.
-        const gap = Math.min(Math.abs(proMod.PRO.x - dbg.drop.x), Math.abs(proMod.PRO.x - dbg.door.x));
-        T('SERAH-TERIMA: panggung prolog tak menumpuk dunia atap intro (jarak ' + gap.toFixed(0) + ' u > camera.far)',
-            gap > 4000);
-        // (2) `beginIntro()` memasang `setCineFocus(null)` supaya kamera MEMBUNTUTI
-        //     pivot (yang menempel heli). Prolog menimpanya dgn fokus tetap di meja
-        //     dan dulu tak pernah melepasnya — `resumeScene` TIDAK memanggil beginIntro
-        //     lagi, jadi cutscene heli dibuka dgn fokus terkunci di panggung prolog:
-        //     kamera menyorot gedung diam alih-alih mengikuti heli. Uji PERILAKU:
-        //     pindahkan pivot jauh; dgn fokus lepas, followViewCam menjepretnya (snap).
-        //     Diputar 30 frame, bukan satu: `viewCam` juga menerima jitter ACAK dari
-        //     `camShake` sisa blok tes lain, dan satu frame membuat assert ini
-        //     kadang-gagal tanpa sebab. Tiga puluh frame cukup untuk shake meluruh
-        //     DAN untuk fokus meng-ease penuh ke pivot yang diam — hasilnya
-        //     deterministik, sementara kasus bug tetap melenceng puluhan ribu unit.
         rnd.camera.position.set(dbg.drop.x, 20, dbg.drop.z);
         for (let n = 0; n < 30; n++) rnd.followViewCam(1 / 60);
         const off = introMod0.introScene.camOffset;
         const dx = Math.abs(rnd.viewCam.position.x - (dbg.drop.x + off.x));
         const dz = Math.abs(rnd.viewCam.position.z - (dbg.drop.z + off.z));
-        T('SERAH-TERIMA: fokus sinematik prolog DILEPAS — kamera kembali membuntuti pivot heli (simpangan ' + dx.toFixed(1) + ')',
+        T('SERAH-TERIMA: fokus sinematik bebas — kamera kembali membuntuti pivot heli (simpangan ' + dx.toFixed(1) + ')',
             dx < 1 && dz < 1);
     }
 
@@ -5238,29 +5176,9 @@ const palMod = await import(R('src/world/palette.js'));
     T('palette: tanpa neon terlarang (cyan/magenta) di semua prop & kendaraan' + (badNeon ? ' [' + badNeon + ']' : ''), neonOk);
     T('palette: emissive lingkungan <= EMISSIVE_MAX di semua prop & kendaraan' + (badEmis ? ' [' + badEmis + ']' : ''), emisOk);
 
-    // RUANG KOMANDO + HOLOGRAM PROLOG (2026-08-04) — aset visual BARU, wajib ikut
-    // aturan GIBS 2045. Disapu TERPISAH dari daftar prop di atas karena ini DUNIA,
-    // bukan prop: cap 25 mesh/prop memang tak berlaku untuk sebuah ruangan.
-    {
-        const proWorld = (await import(R('src/scenes/campaign/cutscenes/prologue.js'))).ensureWorld();
-        const seen = new Set();
-        let neon = true, emis = true;
-        proWorld.traverse(o => {
-            const m = o.material;
-            if (!m || !m.color) return;
-            const c = m.color.getHex ? m.color.getHex() : 0;
-            const e = m.emissive && m.emissive.getHex ? m.emissive.getHex() : 0;
-            seen.add(c);
-            if (FORBIDDEN_HEX.includes(c) || FORBIDDEN_HEX.includes(e)) neon = false;
-            if (e !== 0 && typeof m.emissiveIntensity === 'number' && m.emissiveIntensity > EMISSIVE_MAX) emis = false;
-        });
-        T('palette: prolog war room tanpa neon terlarang & emissive dalam batas', neon && emis);
-        // Hologram = SATU aksen teknologi sipil (teal), aksen manusia amber, status
-        // dibajak merah-bata; semuanya token PAL, bukan warna karangan.
-        T('palette: hologram prolog memakai PAL.tech + PAL.amber + PAL.hazard (token, bukan warna lepas)',
-            seen.has(PAL.tech) && seen.has(PAL.amber) && seen.has(PAL.hazard)
-            && [...seen].every(c => Object.values(PAL).includes(c)));
-    }
+    // (Blok sapuan palet "ruang komando + hologram prolog" DIHAPUS 2026-07-31:
+    // prolog dirombak total jadi TEKS di atas layar hitam pekat — tak ada lagi
+    // dunia/material THREE di prologue.js yang perlu disapu.)
 
     // Rombak mobil 2026-07-16 (low-poly Lambert): tiap mobil punya >= 4 roda
     // silinder (geometri stub type 'cyl') menapak di y>0, material SEMUA

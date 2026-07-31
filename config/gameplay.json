@@ -269,15 +269,14 @@
         "cullDistance": 1500,
         "prologue": {
             "enabled": true,
-            "fadeInSec": 1.1,
-            "holdSec": 7.8,
-            "fadeOutSec": 1.1,
-            "yearFadeSec": 0.8,
+            "fadeOutSec": 0.5,
+            "yearFadeSec": 0.5,
             "yearHoldSec": 3,
-            "titleFadeSec": 0.8,
-            "titleHoldSec": 3,
+            "titleFadeSec": 0.5,
+            "titleHoldSec": 4,
+            "bodyFadeSec": 0.5,
             "typeCps": 20,
-            "tailSec": 5
+            "tailSec": 3
         },
         "intro": {
             "establishSec": 2.6,

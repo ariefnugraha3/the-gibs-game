@@ -1446,67 +1446,95 @@ body.cine #medkitBar, body.cine #stageMsg {
 }
 #cineCaption.on { opacity: 1; transform: translateY(0); }
 
-/* ===== PROLOG SINEMATIK campaign (2026-07-30; SCENE IN-ENGINE sejak 2026-08-04)
-   — lapisan TAKARIR untuk prolog "war room" yang dirender mesin THREE. DI ATAS
-   letterbox + cineFade (z 27) tapi di BAWAH tombol SKIP (z 60).
-   PENTING: latarnya TRANSPARAN dan `pointer-events: none` — dulu lapisan ini opak
-   (#000) karena seluruh prolog digambar di <canvas> 2D di dalamnya; kanvas itu
-   sudah dihapus, dan latar hitam di sini akan MENUTUPI render 3D-nya.
+/* ===== PROLOG campaign (ROMBAK TOTAL 2026-07-31, permintaan user): TEKS SAJA di
+   atas layar HITAM PEKAT — seluruh panggung 3D "ruang meeting" dihapus. Lapisan
+   ini kembali OPAK (#000) dan MENUTUPI render 3D dgn sengaja. `pointer-events:
+   none` — klik jatuh ke document (handler skip-fase prologue.js). DI ATAS
+   letterbox + cineFade (z 27) & layar loading (z 40), di BAWAH tombol SKIP
+   (z 60). display di-set 'flex' oleh prologue.js saat mulai.
+   TATA LETAK DUA KOLOM (2026-07-31, permintaan user): flex row — #prologueText
+   menempati SETENGAH KIRI layar, #prologueArt SETENGAH KANAN (wadah kosong utk
+   objek ilustrasi yang akan diisi user; latar keseluruhan tetap hitam pekat).
    Semua teks English. */
 #prologue {
     display: none;
     position: fixed;
     inset: 0;
     z-index: 44;
-    background: transparent;
+    background: #000;
     pointer-events: none;
     overflow: hidden;
     font-family: 'Courier Prime', 'Courier New', monospace;
 }
 
-/* Takarir cerita duduk di kiri-bawah, di dalam pita letterbox (bar 11% tinggi).
-   2026-08-03: ketiga barisnya dihanyutkan per frame oleh JS (parallax berlawanan
-   arah kamera) — bukan blok statis seperti slide, maka `will-change` di bawah. */
+/* SETENGAH KIRI: kolom teks, konten di tengah secara vertikal. Hanya SATU dari
+   tahun/judul/isi yang tampil pada satu waktu (fase berurutan), jadi ketiganya
+   boleh ditumpuk — elemen kosong tak memakan tinggi. Opacity tiap fase ditulis
+   per frame oleh JS (selubung fade phaseAt), jangan diberi transition. */
 #prologueText {
-    position: absolute;
-    left: 8vw;
-    right: 8vw;
-    bottom: 14vh;
-    /* 2026-08-02: naskah resmi user jauh lebih panjang (kartu 2044/2045 sampai
-       dua paragraf) — blok teks dilebarkan supaya tetap duduk di dalam pita
-       letterbox tanpa menutupi diorama. */
-    max-width: 900px;
+    width: 50%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 0 3vw;
+    box-sizing: border-box;
+    text-align: center;
+    pointer-events: none;
+}
+
+/* SETENGAH KANAN: wadah ILUSTRASI — sengaja KOSONG (user yang akan mengisinya).
+   Latarnya ikut hitam #prologue; konten apa pun yang dimasukkan akan berdiri
+   di tengah kolom ini. Jangan dihapus meski kosong. */
+#prologueArt {
+    width: 50%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     pointer-events: none;
 }
 
 #prologueYear {
-    will-change: transform, opacity;
-    font-size: clamp(13px, 1.5vw, 18px);
+    font-size: clamp(42px, 7vw, 96px);
     font-weight: 700;
-    letter-spacing: 0.42em;
+    letter-spacing: 0.28em;
+    /* letter-spacing menambah jarak SETELAH huruf terakhir — geser balik separuhnya
+       supaya tahun tetap terlihat di tengah optik */
+    padding-left: 0.28em;
     color: #ffb03b;
-    text-shadow: 0 2px 10px #000;
-    margin-bottom: 10px;
+    opacity: 0;
 }
 
 #prologueTitle {
-    will-change: transform, opacity;
-    font-size: clamp(24px, 3.6vw, 46px);
+    font-size: clamp(26px, 4.2vw, 58px);
     font-weight: 800;
-    letter-spacing: 0.02em;
-    line-height: 1.05;
+    letter-spacing: 0.04em;
+    line-height: 1.12;
     color: #f4ecdd;
-    text-shadow: 0 3px 18px #000, 0 0 34px rgba(0, 0, 0, 0.8);
-    margin-bottom: 16px;
+    opacity: 0;
 }
 
 #prologueBody {
-    will-change: transform, opacity;
-    font-size: clamp(13px, 1.6vw, 20px);
-    line-height: 1.58;
+    width: 100%;
+    max-width: 560px;    /* kolom baca nyaman di dalam setengah-kiri */
+    font-size: clamp(15px, 1.8vw, 23px);
+    line-height: 1.7;
     letter-spacing: 0.01em;
     color: #d8cdba;
-    text-shadow: 0 2px 12px #000;
+    text-align: left;
+    opacity: 0;
+}
+
+/* kursor blok mesin ketik (disisipkan bodyHtmlUpTo selagi mengetik) */
+#prologueBody .caret {
+    display: inline-block;
+    width: 0.55em;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: -0.12em;
+    background: #ffb03b;
 }
 
 /* Naskah prolog ditulis dengan markup: paragraf, **tebal** (entitas cerita:

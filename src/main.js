@@ -10,7 +10,7 @@ import {
     followViewCam
 } from './core/renderer.js';
 import { initGrain, bestScoreEl, showFatal } from './core/dom.js';
-import { setScene } from './core/sceneManager.js';
+import { setScene, activeScene } from './core/sceneManager.js';
 import { updateGame } from './core/game.js';
 import { globalTimeScale } from './core/timeScale.js';
 import { updateUI, drawRadar } from './core/hud.js';
@@ -30,7 +30,7 @@ import {
 } from './scenes/survival/cutscenes/monasIntro.js';
 import { stage1Scene } from './scenes/campaign/stages/stage1.js';
 import { introScene, beginIntro, warmupIntro } from './scenes/campaign/cutscenes/intro.js';
-import { prologueScene, beginPrologue, warmupPrologue } from './scenes/campaign/cutscenes/prologue.js';
+import { prologueScene, beginPrologue } from './scenes/campaign/cutscenes/prologue.js';
 import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
@@ -123,12 +123,11 @@ export async function startGame(mode, opts = {}) {
         if (playIntro) { warmupIntro(); await loadingStep(98, 'Preparing the city…'); }
         if (playSurvIntro) { warmupSurvivalIntro(); await loadingStep(98, 'Preparing the park…'); }
 
-        // PROLOG SINEMATIK (2026-07-30; jadi SCENE IN-ENGINE 2026-08-04, latarnya RUANG
-        // MEETING sejak 2026-07-31):
+        // PROLOG (2026-07-30; ROMBAK TOTAL jadi TEKS DI ATAS HITAM 2026-07-31,
+        // permintaan user — panggung 3D "ruang meeting" dihapus seluruhnya):
         // campaign start BARU membuka dgn 9 era (2028→2045) SEBELUM cutscene heli.
-        // Dulu overlay canvas 2D dgn RAF sendiri + game dibekukan; kini SCENE THREE
-        // sungguhan (ruang meeting + meja rapat) yang dipasang SEBELUM introScene
-        // menjalankan mesinnya. Urutannya penting: introScene sudah dipasang di atas
+        // Kini scene teks murni (overlay `#prologue` opak hitam, tanpa dunia THREE,
+        // tanpa warmup). Urutannya penting: introScene sudah dipasang di atas
         // (dunia campaign terbangun, fog asli tersimpan) dan beginIntro() sudah
         // mempersenjatai + memanaskan heli — prolog tinggal "menyela" sebagai scene
         // aktif, lalu MENGEMBALIKANNYA lewat resumeScene(introScene) saat selesai
@@ -138,10 +137,9 @@ export async function startGame(mode, opts = {}) {
         // biasanya CFG.campaign.prologue undefined = gameplay.json lama di cache.
         if (playIntro && !showPrologue) console.warn('[prologue] dilewati — CFG.campaign.prologue =', CFG.campaign && CFG.campaign.prologue);
         if (showPrologue) {
-            setScene(prologueScene);   // ruang meeting dibangun di enter()
-            beginPrologue();           // persenjatai mesin orbit (frame pertama muncul setelah hideLoading)
-            warmupPrologue();          // render tiap sudut beat MASIH di balik layar loading
-            await loadingStep(99, 'Powering up the briefing room…');
+            setScene(prologueScene);   // scene teks — tak ada dunia yang dibangun
+            beginPrologue();           // teks era pertama disiapkan; tampil setelah hideLoading
+            await loadingStep(99, 'Preparing the briefing…');
         }
 
         hideLoading();
@@ -197,6 +195,10 @@ function animate() {
         if (radarTick++ & 1) drawRadar();
     }
 
+    // Scene yang menutup seluruh layar dgn overlay DOM opak (prolog teks) memasang
+    // hook `skipRender` — render 3D dilewati: menggambar kota ber-bloom di balik
+    // hitam pekat hanya membebani GPU (2026-07-31, keluhan "kok terasa berat").
+    if (activeScene && activeScene.skipRender) return;
     if (composer && postFxOn) composer.render();   // bloom + gamma + FXAA (RenderPass = viewCam)
     else renderer.render(scene, viewCam);          // tier rendah / CDN post-fx gagal
 }
