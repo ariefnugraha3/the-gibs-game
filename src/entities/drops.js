@@ -141,6 +141,9 @@ export function updateDrops(dt, T) {
             if (distL < CFG.drops.lootPickupRadius) {
                 addScore(d.value);
                 if (lootSndCd <= 0) { lootSndCd = 0.12; playSFX(sfxPickup, 0.5); }
+                // Uang memakai feed pickup yang sama dgn ammo/medkit agar
+                // player langsung melihat nilai yang baru masuk ke MONEY.
+                showPickup(`+${d.value} MONEY`, '#ffb03b');
                 updateUI();
                 scene.remove(d.mesh); drops.splice(i, 1);
                 continue;

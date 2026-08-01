@@ -185,8 +185,8 @@ function rollCrateLoot(x, z) {
 }
 
 // Nilai uang peti diundi dari TANGGA `CFG.crates.moneyTiers` (2026-07-27):
-// tiap tier = { value, chips, weight } — default 8 (50%) / 16 (30%) / 24 (20%),
-// dijatuhkan sbg `chips` keping loot bernilai sama (8 per keping) supaya
+// tiap tier = { value, chips, weight } — default 10 (50%) / 20 (30%) / 25 (20%),
+// dijatuhkan sbg `chips` keping loot bernilai sama supaya
 // pembagian value/chips di spawnLoot selalu BULAT (tak ada uang hilang saat
 // dibulatkan). Fallback ke moneyValue/moneyChips lama bila tabelnya kosong.
 function spawnCrateMoney(x, z) {

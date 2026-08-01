@@ -64,7 +64,7 @@ The first crate design was a solid wooden box that read as static furniture, so 
 
 Contents roll from `CFG.crates`: `lootChance` is now **1, so a crate ALWAYS drops something**, then `ammoWeight`/`moneyWeight`/`medkitWeight` pick the kind (weights, not probabilities — easier to retune); the shipped 30/50/20 means **money 50% / ammo 30% / medkit 20%**.
 
-- **Money** — `spawnCrateMoney` rolls the `moneyTiers` table (`{value, chips, weight}`): **8 (50%) / 16 (30%) / 24 (20%)**, dropped as 1/2/3 loot chips worth 8 each so `value / chips` in `spawnLoot` is always exact.
+- **Money** — `spawnCrateMoney` rolls the `moneyTiers` table (`{value, chips, weight}`): **10 (50%) / 20 (30%) / 25 (20%)**, dropped as 1/2/5 loot chips so `value / chips` in `spawnLoot` is always exact.
 - **Ammo** — a UNIFORM draw over the weapons the player OWNS, so nothing is ever wasted; with the three weapon slots (`CFG.weapons.maxWeapons`) that is exactly 33.33% per type.
 - **Medkit** — `spawnMedkitDrop`.
 

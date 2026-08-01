@@ -406,13 +406,13 @@
     },
     "drops": {
         "magChance": 0.05,
-        "lifetimeSec": 20,
-        "lootLifetimeSec": 16,
+        "lifetimeSec": 40,
+        "lootLifetimeSec": 30,
         "lootPickupRadius": 9,
         "loot": {
-            "C": 18,
-            "B": 32,
-            "A": 48,
+            "C": 20,
+            "B": 35,
+            "A": 50,
             "boss": 400
         }
     },
@@ -429,9 +429,9 @@
         "moneyWeight": 50,
         "medkitWeight": 20,
         "moneyTiers": [
-            { "value": 8, "chips": 1, "weight": 50 },
-            { "value": 16, "chips": 2, "weight": 30 },
-            { "value": 24, "chips": 3, "weight": 20 }
+            { "value": 10, "chips": 1, "weight": 50 },
+            { "value": 20, "chips": 2, "weight": 30 },
+            { "value": 25, "chips": 5, "weight": 20 }
         ]
     },
     "shop": {
