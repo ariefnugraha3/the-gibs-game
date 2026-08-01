@@ -11,6 +11,11 @@ import { setDifficulty } from '../core/state.js';
 import { loadCampaignStage, clearCampaignSave } from '../core/saveGame.js';
 import { startMenuMusic, stopMusic, getMusicVolume, setMusicVolume, getSFXVolume, setSFXVolume } from '../utils/sfx.js';
 
+// Campaign baru menahan musik menu sepanjang loading + prolog; intro heli yang
+// mematikannya pada frame live pertama. Continue dan Survival tetap memakai
+// perilaku lama: musik berhenti begitu mode dipilih.
+export const keepMenuMusicFor = (mode, stage) => mode === 'campaign' && stage === 1;
+
 export function initMenu(onPick) {
     initMainMenu();
     // --- Pilihan difficulty (localStorage; default normal). applyDifficulty
@@ -32,7 +37,7 @@ export function initMenu(onPick) {
     function beginMode(mode, stage) {
         if (picked) return;   // jaga-jaga klik ganda
         picked = true;
-        stopMusic();   // musik main-menu BERHENTI saat mode Campaign/Survival diklik (2026-07-19)
+        if (!keepMenuMusicFor(mode, stage)) stopMusic();
         // Terapkan difficulty SEBELUM dunia/entitas dibangun: CFG dimutasi
         // dari CFG_BASE + high score dimuat per-difficulty.
         applyDifficulty(diff);

@@ -24,10 +24,10 @@
 // Semuanya CONFIG-DRIVEN (config/gameplay.json → campaign.prologue); `typeCps`
 // tetap SATU-SATUNYA tuas kecepatan ketik. `fadeInSec`/`holdSec` (lantai durasi
 // lama) DIHAPUS dari config — durasinya kini eksplisit per fase.
-// KONTROL (2026-07-31): KLIK KIRI = skip FASE yang sedang tampil ke fase
-// berikutnya (tahun→judul→isi→era berikutnya; lompat ke AWAL fase tujuan jadi
-// tetap masuk lewat fade-in-nya); tombol SKIP / SPACE / Enter = lompati SELURUH
-// prolog langsung ke cutscene heli (jalur `triggerCutsceneSkip` di input.js).
+// KONTROL (revisi 2026-08-01): KLIK KIRI = tahun→judul→isi. Saat BODY masih
+// diketik, klik pertama menampilkan seluruh sisanya tanpa pindah era; klik
+// berikutnya baru maju ke era berikutnya. SKIP / SPACE / Enter = lompati
+// SELURUH prolog langsung ke cutscene heli (`triggerCutsceneSkip` di input.js).
 //
 // ===== PENYAJIAN =====
 // Teks ditulis ke overlay DOM `#prologue` (index.html) yang kini OPAK HITAM
@@ -40,8 +40,9 @@
 // berganti / huruf bertambah (penjaga `textKey` — bukan 60x per detik).
 // TATA LETAK (2026-07-31, permintaan user): teks menempati SETENGAH KIRI layar
 // (#prologueText, css/style.css); SETENGAH KANAN = `#prologueArt` berisi
-// ILUSTRASI SVG PER ERA (prologueArt.js — line-art palet GIBS 2045 sesuai isi
-// naskah tiap chapter; latar tetap hitam pekat). SVG-nya ditukar hanya saat
+// TABLEAU ASCII PER ERA (prologueArt.js — SVG hanya wadah; seluruh bentuk yang
+// terlihat tersusun dari glyph monospace berlapis sesuai isi tiap chapter).
+// SVG-nya ditukar hanya saat
 // GANTI era; opacity-nya = selubung fade SATU ERA PENUH (`artAlphaAt`) — masuk
 // bersama fase tahun, bertahan selama judul+isi, padam bersama fade-out isi.
 // Overlay baru DITAMPILKAN pada frame live pertama (SETELAH hideLoading):
@@ -78,9 +79,9 @@ import { setCinematicActive } from '../../../core/state.js';
 import { setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip } from '../../../core/dom.js';
 import { setCineFocus } from '../../../core/renderer.js';
 import { releaseInputs } from '../../../core/input.js';
-import { playSFX, sfxSwitch } from '../../../utils/sfx.js';
 import {
-    showPrologueArt, setPrologueArtAlpha, resetPrologueArt, prologueArtDebug
+    showPrologueArt, setPrologueArtAlpha, setPrologueArtPhase,
+    resetPrologueArt, prologueArtDebug
 } from './prologueArt.js';
 import { introScene } from './intro.js';
 
@@ -133,7 +134,7 @@ export const PROLOGUE_CHAPTERS = [
     {
         year: '2045', title: 'The Last Stand',
         body: 'The year that was supposed to be celebrated as *100 Years of Golden Indonesia* turns into a nightmare. Surviving citizens and remnants of the military are forced to retreat, establishing their last defensive bastion behind the mountains of **Bandung**, while a few small groups of survivors fight a guerrilla war on remote islands.'
-            + '\n\nHope now rests on one man. **Major Gibran**, the last surviving elite Kopassus soldier from the special combat unit.',
+            + '\n\nHope now rests on one man. **Major Gibran**, the last surviving elite soldier from the special combat unit.',
     },
 ];
 
@@ -325,6 +326,9 @@ function artAlphaAt(i, t) {
 }
 function syncArt(t, i) {
     showPrologueArt(i);
+    // Tableau ASCII membuka lapisannya mengikuti ritme narasi: siluet saat
+    // tahun, subjek saat judul, detail penuh ketika isi mulai diketik.
+    setPrologueArtPhase(phaseAt(i, t).phase);
     setPrologueArtAlpha(artAlphaAt(i, t));
 }
 
@@ -397,17 +401,23 @@ function removeClick() {
     clickHandler = null;
 }
 
-// KLIK KIRI: skip FASE yang sedang tampil ke fase berikutnya (2026-07-31,
-// permintaan user — dulu klik = maju-cepat satu ERA penuh). Tahun → judul,
-// judul → isi, isi (fase terakhir era) → era berikutnya (era terakhir → outro,
-// BUKAN finish langsung: seluruh-prolog di-skip hanya lewat SPACE/Enter/SKIP).
-// Lompatannya ke AWAL fase tujuan, jadi fase baru tetap masuk lewat fade-in-nya.
+// KLIK KIRI: tahun → judul → isi. Khusus fase ISI, klik pertama selagi mesin
+// ketik belum selesai menampilkan SELURUH naskah seketika; baru klik berikutnya
+// maju ke era berikutnya (era terakhir → outro). Jadi pemain tak bisa tanpa
+// sengaja melewatkan isi hanya karena ingin mempercepat ketikannya.
 export function advancePhase() {
     if (!cine || cine.outro) return;
     const ph = phaseAt(cine.era, cine.t);
     if (ph.phase === 'year') cine.t = yearSpan();
     else if (ph.phase === 'title') cine.t = yearSpan() + titleSpan();
-    else if (cine.era + 1 < PROLOGUE_CHAPTERS.length) enterEra(cine.era + 1);
+    else if (ph.chars < charsOf(cine.era)) {
+        const bodyFade = num(cfg().bodyFadeSec, 0.5);
+        cine.t = yearSpan() + titleSpan() + bodyFade + typeSecFor(cine.era);
+        // Respons klik harus tampak pada event yang sama, tanpa menunggu frame RAF.
+        syncText(cine.t, cine.era);
+        syncArt(cine.t, cine.era);
+        return;
+    } else if (cine.era + 1 < PROLOGUE_CHAPTERS.length) enterEra(cine.era + 1);
     else { cine.outro = true; cine.outroT = 0; }
 }
 
@@ -416,7 +426,6 @@ function enterEra(i) {
     textKey = '';
     syncText(0, i);
     syncArt(0, i);             // ilustrasi ikut berganti (masuk lewat fade-in era)
-    if (i > 0) playSFX(sfxSwitch, 0.35);   // klik halus tiap ganti era
 }
 
 export const prologueScene = {

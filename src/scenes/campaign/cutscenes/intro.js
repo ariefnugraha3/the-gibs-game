@@ -84,7 +84,7 @@ import { PAL } from '../../../world/palette.js';
 import { makeFacadeTex, makeLitTex, makeCityMat, fillBuildingInstances, CITY_PALETTE } from '../../../world/facades.js';
 import { setEmbersVisible } from '../../../world/sky.js';
 import { skyDome } from '../../../world/decor.js';
-import { playLoopSFX, stopLoopSFX, playSFX, sfxHeli, sfxFootstep, getSFXScale } from '../../../utils/sfx.js';
+import { playLoopSFX, stopLoopSFX, playSFX, sfxHeli, sfxFootstep, getSFXScale, stopMusic } from '../../../utils/sfx.js';
 import { spawnHelicopter, updateHelicopter, disposeHelicopter } from '../../../entities/helicopter.js';
 import { spawnGroundPuff } from '../../../entities/effects.js';   // debu downwash rotor + hentakan mendarat
 import { avatarGroup, setAvatarRappel } from '../../../entities/playerAvatar.js';
@@ -1382,6 +1382,9 @@ export const introScene = {
         if (!cine.live) {
             // Frame pertama cutscene TAMPIL (layar loading sudah ditutup — lihat
             // catatan `live` di beginIntro): BARU nyalakan deru heli + tombol SKIP.
+            // Musik menu sengaja terus menyala selama loading + prolog dan baru
+            // berhenti tepat ketika gambar cutscene heli mulai tampil.
+            stopMusic();
             cine.live = true;
             heliSnd = playLoopSFX(sfxHeli, 0.5);   // deru heli sepanjang cutscene (2026-07-19)
             showCutsceneSkip(skipIntro);           // tombol SKIP kanan-bawah (2026-07-19; SPACE juga)

@@ -37,8 +37,9 @@ export const sfxTankTurret = new Audio('assets/sounds/boss-tank/tank-turret-rota
 export const sfxRobotSpawn = new Audio('assets/sounds/robot-spawn.mp3');
 
 // ----- MUSIK LATAR (DIROMBAK 2026-07-19, permintaan user): 3 KONTEKS -----
-// 1. MENU  (bg-music-main-menu): menyala di main menu (initMainMenu), BERHENTI
-//    saat player mengklik mode Campaign/Survival (menu.beginMode).
+// 1. MENU  (bg-music-main-menu): menyala di main menu. Untuk Campaign BARU,
+//    musik diteruskan sepanjang loading + prolog dan baru berhenti pada frame
+//    live pertama intro heli. Continue/Survival berhenti saat mode dipilih.
 // 2. BATTLE (bg-music-in-game / -2, dipilih ACAK tiap mulai): TIDAK menyala
 //    saat stage dimulai — baru menyala saat player BERHASIL MENEMBAK robot
 //    pertama kali (trigger di robots.js, idempoten); BERHENTI saat stage
@@ -185,8 +186,12 @@ export function preloadAllSFX() {
         sfxTankExplode, sfxTankBlast, sfxTankIncoming, sfxTankMG,
         sfxTankMortar, sfxTankMove, sfxTankTurret];
     all.forEach(a => { try { a.load(); } catch (e) { /* klip hilang: abaikan */ } });
-    // Musik latar (4 track): fetch dini, TANPA prime (loop — jangan sampai terdengar)
+    // Musik latar (4 track): fetch dini, TANPA prime (loop — jangan sampai terdengar).
+    // Jangan panggil load() pada track yang SEDANG bermain: browser akan
+    // menginterupsi playback-nya. Ini penting saat musik menu dipertahankan
+    // sepanjang loading Campaign baru menuju prolog.
     for (const m of [bgMusic, bgMusicAlt, bgMusicMenu, bgMusicBoss]) {
+        if (m === curTrack) continue;
         try { m.load(); } catch (e) { }
     }
     all.forEach(a => {

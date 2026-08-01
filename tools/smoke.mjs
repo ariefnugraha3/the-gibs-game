@@ -2591,7 +2591,7 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 }
 
 // --- 16e. MUSIK LATAR (DIROMBAK 2026-07-19, permintaan user — 3 KONTEKS):
-// MENU (bg-music-main-menu; berhenti saat pilih mode di beginMode), BATTLE
+// MENU (bertahan sepanjang prolog campaign baru, berhenti saat intro heli live), BATTLE
 // (bg-music-in-game / -2 dipilih ACAK; menyala saat tembakan player pertama
 // KENA robot [robots.js], BUKAN saat stage mulai; berhenti saat masuk shop
 // campaign / game over / reset), BOSS (bg-music-boss-fight; menyala saat duel
@@ -2624,7 +2624,20 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         sfxMod.musicDebug() === null && tracks.every(m => m.paused !== false));
     sfxMod.startMenuMusic();
     T('Music: startMenuMusic menyalakan track menu', sfxMod.musicDebug() === 'menu' && played === 3);
+    let activeMenuLoads = 0;
+    const realMenuLoad = sfxMod.bgMusicMenu.load;
+    sfxMod.bgMusicMenu.load = () => { activeMenuLoads++; };
+    sfxMod.preloadAllSFX();
+    T('Music: preload loading tidak memanggil load() ulang pada track menu aktif (playback tak terputus)',
+        activeMenuLoads === 0 && sfxMod.musicDebug() === 'menu'
+        && sfxMod.bgMusicMenu.paused === false);
+    sfxMod.bgMusicMenu.load = realMenuLoad;
     sfxMod.stopMusic();
+    const menuMusicMod = await import(R('src/scenes/menu.js'));
+    T('Music: hanya Campaign baru menahan musik menu utk prolog; Continue/Survival tetap berhenti saat dipilih',
+        menuMusicMod.keepMenuMusicFor('campaign', 1) === true
+        && menuMusicMod.keepMenuMusicFor('campaign', 2) === false
+        && menuMusicMod.keepMenuMusicFor('survival', 1) === false);
     // Scene gameplay TIDAK lagi menyalakan musik di enter() — trigger battle
     // music satu-satunya = peluru player mengenai robot (robots.js).
     const sceneFiles = ['src/scenes/survival/index.js', 'src/scenes/campaign/stages/stage1.js',
@@ -4150,7 +4163,7 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
             + '\n\nJakarta, Surabaya, Medan, and Makassar fall within days. The major islands of Indonesia are now under the absolute control of the machines.'],
         ['2045', 'The Last Stand',
             'The year that was supposed to be celebrated as *100 Years of Golden Indonesia* turns into a nightmare. Surviving citizens and remnants of the military are forced to retreat, establishing their last defensive bastion behind the mountains of **Bandung**, while a few small groups of survivors fight a guerrilla war on remote islands.'
-            + '\n\nHope now rests on one man. **Major Gibran**, the last surviving elite Kopassus soldier from the special combat unit.'],
+            + '\n\nHope now rests on one man. **Major Gibran**, the last surviving elite soldier from the special combat unit.'],
     ];
     let scriptOff = [];
     for (let i = 0; i < SCRIPT.length; i++) {
@@ -4253,10 +4266,13 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     // menambah objek ke scene THREE — rekam keduanya sebelum mulai.
     const camBefore = { x: rnd.camera.position.x, y: rnd.camera.position.y, z: rnd.camera.position.z };
     const sceneKidsBefore = scene.children.length;
+    const proSfx = await import(R('src/utils/sfx.js'));
+    proSfx.startMenuMusic();
     proMod.beginPrologue(() => proDone++);
     const d1 = proMod.prologueDebug();
     T('PROLOG: beginPrologue -> aktif di era pertama',
-        d1.active === true && d1.era === 0 && d1.count === 9 && d1.chapter === CH[0].title);
+        d1.active === true && d1.era === 0 && d1.count === 9 && d1.chapter === CH[0].title
+        && proSfx.musicDebug() === 'menu');
     T('TEKS: era pertama siap — dibuka FASE TAHUN, naskah polos tanpa bintang mentah',
         d1.text.era === 0 && d1.text.phase === 'year'
         && d1.text.year === CH[0].year && d1.text.title === CH[0].title
@@ -4308,6 +4324,14 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
                 return sv.startsWith('<svg') && sv.includes('viewBox="0 0 400 400"')
                     && sv.includes('data-era="' + i + '"') && sv.includes('data-motif="' + m + '"');
             }));
+        // SVG hanya wadah layout; tableau wajib tersusun dari glyph <text>.
+        T('ILUSTRASI ASCII: sembilan tableau padat glyph, tanpa primitif gambar',
+            want.every((_, i) => {
+                const sv = artMod.prologueArtSvg(i);
+                const textNodes = (sv.match(/<text\b/g) || []).length;
+                return sv.includes('data-medium="ascii"') && textNodes >= 40
+                    && !/<(?:path|rect|circle|ellipse|polygon|polyline|line)\b/.test(sv);
+            }));
         // Sapuan palet: tiap hex 6-digit di SVG wajib anggota ART_COLORS.
         let offPal = '';
         for (let i = 0; i < 9; i++)
@@ -4326,27 +4350,39 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
         wrapEl.style.display !== 'flex');
     T('ILUSTRASI: SVG era pertama sudah terpasang sejak beginPrologue (alpha masih 0 — ikut fade-in)',
         String(artElS.innerHTML).includes('data-motif="city"') && Number(artElS.style.opacity) === 0
-        && proMod.prologueDebug().art.era === 0);
+        && proMod.prologueDebug().art.era === 0 && proMod.prologueDebug().art.medium === 'ascii'
+        && artElS.dataset.phase === 'year');
 
     // ===== KLIK KIRI = SKIP FASE (v8, 2026-07-31 — dulu klik = maju-cepat satu
     // ERA via `advanceEra`+rush, keduanya DIHAPUS). `advancePhase` melompat ke
-    // AWAL fase berikutnya (masuk lewat fade-in-nya): tahun -> judul -> isi ->
-    // era berikutnya; dan TIDAK PERNAH menyelesaikan prolog (skip seluruh prolog
+    // AWAL fase berikutnya: tahun -> judul -> isi. Di fase isi, klik pertama
+    // menuntaskan mesin ketik; klik kedua baru maju ke era berikutnya. Ia TIDAK
+    // PERNAH menyelesaikan prolog (skip seluruh prolog
     // hanya lewat SPACE/Enter/tombol SKIP = triggerCutsceneSkip -> skipPrologue).
     proMod.prologueScene.updateMode(1 / 60);   // frame live pertama (overlay tampil)
     T('SKIP FASE: advanceEra/rush lama sudah TIDAK ADA, penggantinya advancePhase',
         proMod.advanceEra === undefined && typeof proMod.advancePhase === 'function');
+    const prologueSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/cutscenes/prologue.js', 'utf8');
+    T('PROLOG AUDIO: pergantian era hening (tidak meminjam SFX switch senjata)',
+        !prologueSrc.includes('sfxSwitch') && !prologueSrc.includes('playSFX('));
     proMod.advancePhase(); proMod.prologueScene.updateMode(1 / 60);
     const dP1 = proMod.prologueDebug();
     T('SKIP FASE: dari TAHUN -> JUDUL (era tetap, masuk lewat awal fade-in judul)',
-        dP1.era === 0 && dP1.text.phase === 'title' && dP1.text.alpha < 0.2);
+        dP1.era === 0 && dP1.text.phase === 'title' && dP1.text.alpha < 0.2
+        && dP1.art.phase === 'title' && artElS.dataset.phase === 'title');
     proMod.advancePhase(); proMod.prologueScene.updateMode(1 / 60);
     const dP2 = proMod.prologueDebug();
-    T('SKIP FASE: dari JUDUL -> ISI', dP2.era === 0 && dP2.text.phase === 'body');
-    proMod.advancePhase(); proMod.prologueScene.updateMode(1 / 60);
+    T('SKIP FASE: dari JUDUL -> ISI', dP2.era === 0 && dP2.text.phase === 'body'
+        && dP2.art.phase === 'body' && artElS.dataset.phase === 'body');
+    proMod.advancePhase();
     const dP3 = proMod.prologueDebug();
-    T('SKIP FASE: dari ISI (fase terakhir era) -> ERA BERIKUTNYA fase tahun',
-        dP3.era === 1 && dP3.text.phase === 'year' && dP3.active === true && proDone === 0);
+    T('SKIP FASE: klik saat BODY masih mengetik langsung menampilkan naskah UTUH, era belum berpindah',
+        dP3.era === 0 && dP3.text.phase === 'body' && dP3.text.shown === dP3.text.text
+        && !String(bodyEl.innerHTML).includes('caret') && dP3.active === true && proDone === 0);
+    proMod.advancePhase(); proMod.prologueScene.updateMode(1 / 60);
+    const dP4 = proMod.prologueDebug();
+    T('SKIP FASE: setelah BODY sudah utuh, klik berikutnya baru maju ke ERA BERIKUTNYA',
+        dP4.era === 1 && dP4.text.phase === 'year' && dP4.active === true && proDone === 0);
 
     // Mulai ulang mesinnya supaya lari penuh di bawah deterministik dari era 0.
     proMod.beginPrologue(() => proDone++);
@@ -4421,7 +4457,8 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     T('TEKS: markup **tebal**/*miring* jadi <strong>/<em> + kursor ketik, TANPA bintang mentah',
         sawStrong && sawEm && sawCaret && !rawStars);
     T('PROLOG: selesai sendiri lalu MENYERAHKAN ke cutscene heli (resumeScene)',
-        finished && proDone === 1 && smMod.activeScene === introMod0.introScene);
+        finished && proDone === 1 && smMod.activeScene === introMod0.introScene
+        && proSfx.musicDebug() === 'menu');
 
     // ===== SERAH-TERIMA: kontrak kamera beginIntro tetap dipulihkan. Prolog teks
     // tak pernah menyentuh fokus sinematik, tapi `finishPrologue` tetap memanggil
@@ -4497,17 +4534,23 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     stateMod.setPaused(true);   // keadaan pra-cutscene (layar mulai)
     const introBlocker = global.document.getElementById('blocker');
     const domSkipMod = await import(R('src/core/dom.js'));
+    const introSfx = await import(R('src/utils/sfx.js'));
+    introSfx.startMenuMusic();
     domSkipMod.hideCutsceneSkip();   // bersihkan callback skip tersisa dari tes lain
     introMod.beginIntro();
     T('INTRO: beginIntro -> AUTO-PLAY (unpause + blocker/tutorial DISEMBUNYIKAN) + sinematik ON + shot pembuka',
         stateMod.cinematicActive === true && stateMod.isPaused === false
         && introBlocker.style.display === 'none'
-        && introMod.introDebug().phase === 'establish' && introMod.introDebug().avatarShown === false);
+        && introMod.introDebug().phase === 'establish' && introMod.introDebug().avatarShown === false
+        && introSfx.musicDebug() === 'menu');
     // BUG FIX 2026-07-20: beginIntro dipanggil main.js MASIH di balik layar
     // loading — tombol SKIP (dan deru heli) TIDAK boleh menyala di beginIntro;
     // keduanya ditunda ke frame PERTAMA updateMode (cutscene benar-benar tampil).
     T('INTRO (2026-07-20): tombol SKIP belum terdaftar saat masih di balik layar loading',
         domSkipMod.triggerCutsceneSkip() === false && introMod.introDebug().phase === 'establish');
+    introMod.introScene.updateMode(1 / 60);
+    T('INTRO MUSIC: musik menu berhenti tepat pada frame live pertama cutscene heli',
+        introSfx.musicDebug() === null && introSfx.bgMusicMenu.paused === true);
 
     // Helper: jalankan updateMode hingga fase = target (atau cutscene selesai)
     const run = (target, max = 500) => {
