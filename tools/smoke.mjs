@@ -3219,7 +3219,7 @@ T('KAMERA: scene non-stage-3 -> SCREEN_UP kembali default TIMUR LAUT (x>0, z<0)'
 // pusat alun-alun; union tembus — gerbang = blocker, bukan union), robot
 // 13-spot + supply (semua di BARAT gerbang = alun steril), robotAI, GERBANG
 // tertutup selagi robot hidup, dan ALUR: bunuh semua -> gerbang terbuka +
-// boss muncul -> bunuh boss -> MISSION COMPLETE (jeda singkat, tanpa trigger). ---
+// boss muncul -> bunuh boss -> animasi wreck -> jeda 3 dtk -> outro -> MISSION COMPLETE. ---
 s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya tak membangun ulang)
 // PRE-BUILD konsistensi loading (2026-07-16): ensureWorld idempoten — panggilan
 // kedua TIDAK membangun ulang dunia (jumlah anak scene tetap), guard `built` set.
@@ -4104,24 +4104,62 @@ while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.s
     s4calm();
 }
 // MENANG selagi tank hidup = belum (tak ada trigger finish; menang murni dari
-// kematian tank + jeda WIN_DELAY singkat di updateMode).
+// kematian tank + cutscene radio penutup).
 stateMod.setGameOver(false);
 T('S4: belum MISSION COMPLETE selagi tank hidup', stateMod.isGameOver === false);
+const expectedS4OutroDialogue = [
+    {
+        key: 'gibranCall',
+        speaker: 'Major Gibran',
+        text: 'Command, this is Major Gibran. Do you read me, over? Extraction chopper is destroyed. I repeat, chopper has been shot down!',
+    },
+    {
+        key: 'commandNoExfil',
+        speaker: 'Command',
+        text: 'Copy that, Major. That explains why we lost their transponder. Bad news, Major. we can’t deploy a secondary exfil team to your position. You’ll have to make your way back to Headquarters on your own. How you do it is up to you.',
+    },
+    {
+        key: 'gibranShock',
+        speaker: 'Major Gibran',
+        text: 'Say again, Command?! Are you out of your mind?! HQ is in Bandung! that’s over a hundred kilometers from Jakarta through heavily occupied territory!',
+    },
+    {
+        key: 'commandFinal',
+        speaker: 'Command',
+        text: 'We have no choice, Major. Our forces are stretched paper-thin. You’re on your own out there.',
+    },
+    {
+        key: 'gibranAccepts',
+        speaker: 'Major Gibran',
+        text: "Damn it... Fine. I'll figure something out.",
+    },
+];
+T('S4 OUTRO DIALOG: lima naskah Major Gibran/Command dipatok PERSIS',
+    JSON.stringify(s4mod.TANK_BOSS_OUTRO_DIALOGUE) === JSON.stringify(expectedS4OutroDialogue));
+const S4OUTCFG = cfgMod.CFG.campaign.tankOutro;
+T('S4 OUTRO: durasi shot/fade config-driven dan valid',
+    S4OUTCFG.preCutsceneDelaySec === 3 && S4OUTCFG.tankShotMinSec > 0
+    && S4OUTCFG.radioPushSec > 0 && S4OUTCFG.fadeSec > 0);
 // PROYEKTIL LENYAP saat tank hancur (2026-07-18): shell/mortar terbang + peluru
 // MG (enemyBullets) dibuang seketika supaya bangkai tak bisa lagi melukai player.
 while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
 s4tank.shells.push({ mesh: new THREE.Mesh(), dirx: 1, dirz: 0, speed: 7, tx: 9e9, tz: 0, travelled: 0, dist: 9e9, life: 220, id: 999 });   // seed shell terbang (mock, jauh dari mendarat)
 s4tank.mortars.push({ mesh: new THREE.Mesh(), vx: 0, vz: 0, vy: 50, g: 90, landY: 5, tLeft: 5, trailT: 1, life: 300, id: 998 });
 enemyBullets.push({ mesh: new THREE.Mesh(), dir: new THREE.Vector3(1, 0, 0), speed: 4, life: 100, dmg: 5, monasDmg: 0, px: 0, py: 0, pz: 0 });
-// hancurkan tank (HP habis) -> updateMode -> jeda singkat -> MISSION COMPLETE
+// hancurkan tank (HP habis) -> animasi hancur penuh -> jeda gameplay -> cutscene outro
 const s4hullX = s4tank.parts.group.position.x, s4hullZ = s4tank.parts.group.position.z;
 const s4paint0 = s4tank.parts.paintMats[0].color.getHex();   // cat sebelum menghangus
+stateMod.keys.w = stateMod.keys.d = true;
 s4tank.hp = 0;
 s4mod.stage4Scene.updateMode(0.1);
 T('S4: tank HANCUR saat HP habis', s4tank.dead === true);
 T('S4: proyektil tank (shell/mortar/peluru MG) LENYAP saat tank hancur (tak melukai player)',
     s4tank.shells.length === 0 && s4tank.mortars.length === 0 && enemyBullets.length === 0);
-T('S4: belum menang PERSIS saat tank hancur (jeda ledakan dulu)', stateMod.isGameOver === false);
+T('S4 OUTRO DELAY: ledakan tank BELUM memulai cutscene atau membekukan player',
+    stateMod.isGameOver === false && stateMod.cinematicActive === false
+    && stateMod.keys.w === true && stateMod.keys.d === true
+    && !s4mod.outroCineDebug().active && s4mod.stage4Scene.camOffset === null
+    && !s4mod.outroDelayDebug().armed && dom4.stageRadioDialogueDebug() === null);
 // ===== SEKUENS MATI SINEMATIK (2026-07-29, permintaan user: ledakan lama
 // "kurang dramatis"; idenya: turret LEPAS dan terlempar ke sisi tank). Kontrak
 // 3 beat: 'cook' (cook-off, turret masih terpasang) -> 'fly' (turret jadi benda
@@ -4131,13 +4169,112 @@ T('S4 MATI SINEMATIK beat 1: COOK-OFF dulu — turret MASIH di lambung, cat baru
     s4tank.deathPhase === 'cook' && s4tank.parts.turret.parent === s4tank.parts.group
     && s4tank.turretFly === null && s4tank.charK > 0 && s4tank.charK < 1);
 const s4turret = s4tank.parts.turret;
-// > jeda win (WIN_DELAY_SEC naik ke 5 dtk pada 2026-07-29 — permintaan user:
-// beri waktu MENIKMATI bangkai membara sebelum layar MISSION COMPLETE)
-let s4winFrames = 0;
-for (let i = 0; i < 90 && !stateMod.isGameOver; i++) { s4mod.stage4Scene.updateMode(0.1); s4winFrames++; }
-T('S4: MISSION COMPLETE menunggu ~5 dtk penuh (bukan potong sekuens mati; '
-    + (s4winFrames * 0.1).toFixed(1) + ' dtk)', s4winFrames * 0.1 > 4.5);
-T('S4: hancurkan tank -> MISSION COMPLETE (gameOver win, tanpa trigger stasiun)', stateMod.isGameOver === true);
+// Biarkan animasi tank selesai DULU dalam kamera gameplay. Countdown outro 3
+// detik baru dipersenjatai pada frame yang mencapai fase wreck.
+let s4DeathFrames = 0;
+while (s4tank.deathPhase !== 'wreck' && s4DeathFrames++ < 200) {
+    s4mod.stage4Scene.updateMode(0.1);
+}
+T('S4 OUTRO DELAY: animasi tank selesai penuh sebelum countdown 3 detik dimulai',
+    s4tank.deathPhase === 'wreck' && s4mod.outroDelayDebug().armed
+    && Math.abs(s4mod.outroDelayDebug().remaining - S4OUTCFG.preCutsceneDelaySec) < 0.001
+    && !s4mod.outroCineDebug().active && !stateMod.cinematicActive);
+let s4PreCineElapsed = 0;
+while (s4mod.outroDelayDebug().remaining > 0.11 && s4PreCineElapsed < 10) {
+    s4mod.stage4Scene.updateMode(0.1);
+    s4PreCineElapsed += 0.1;
+}
+T('S4 OUTRO DELAY: hampir 3 detik setelah wreck masih kamera gameplay + kontrol bebas',
+    s4PreCineElapsed >= S4OUTCFG.preCutsceneDelaySec - 0.2
+    && !s4mod.outroCineDebug().active && !stateMod.cinematicActive
+    && stateMod.keys.w === true && stateMod.keys.d === true);
+for (let i = 0; i < 5 && !s4mod.outroCineDebug().active; i++) s4mod.stage4Scene.updateMode(0.05);
+T('S4 OUTRO SCENE 1: setelah delay barulah close-up dimulai + input dilepas',
+    s4mod.outroCineDebug().active && s4mod.outroCineDebug().phase === 'tank'
+    && stateMod.cinematicActive && stateMod.keys.w === false && stateMod.keys.d === false
+    && s4mod.stage4Scene.camOffset !== null);
+// Scene 1 menahan close-up bangkai selama tankShotMinSec, lalu cut ke Scene 2.
+let s4OutroTankFrames = 0;
+while (s4mod.outroCineDebug().phase === 'tank' && s4OutroTankFrames++ < 200) {
+    s4mod.stage4Scene.updateMode(0.1);
+}
+T('S4 OUTRO SCENE 1: close-up ditahan sampai tank menjadi bangkai wreck',
+    s4tank.deathPhase === 'wreck' && s4mod.outroCineDebug().phase === 'radio'
+    && (s4OutroTankFrames * 0.1 + 0.2) >= S4OUTCFG.tankShotMinSec);
+T('S4 OUTRO SCENE 2: dialog pertama dibuka dari body kosong + caret setelah cut kamera',
+    s4mod.outroDialogueDebug().key === 'gibranCall'
+    && s4mod.outroDialogueDebug().shown === '' && s4mod.outroDialogueDebug().typing
+    && dom4.stageRadioDialogueDebug()?.speaker === 'Major Gibran'
+    && dom4.stageRadioDialogueDebug()?.text === '' && dom4.stageRadioDialogueDebug()?.typing);
+avMod.updatePlayerAvatar(1 / 60);
+const s4RadioPose = avMod.avatarRadioDebug();
+T('S4 OUTRO POSE: tangan kiri di telinga, tangan kanan lebih rendah memegang laras turun',
+    s4RadioPose.active && s4RadioPose.leftY > 10 && s4RadioPose.rightY < s4RadioPose.leftY - 2
+    && s4RadioPose.gunPitch > 0.5 && s4RadioPose.gesture === 'gibranCall');
+s4mod.stage4Scene.updateMode(1.1 / Math.max(1, S4DLGCFG.cps));
+T('S4 OUTRO TYPEWRITER: dialog radio mulai tepat satu karakter',
+    s4mod.outroDialogueDebug().chars === 1
+    && s4mod.outroDialogueDebug().shown === expectedS4OutroDialogue[0].text.slice(0, 1));
+
+const s4OutroSeen = ['gibranCall'], s4OutroPartial = new Set(['gibranCall']);
+const s4GestureTrace = {};
+function sampleS4Gesture() {
+    const g = avMod.avatarRadioDebug();
+    if (!g.active || !g.gesture) return;
+    const trace = s4GestureTrace[g.gesture] || (s4GestureTrace[g.gesture] = {
+        samples: 0,
+        torsoMin: Infinity, torsoMax: -Infinity,
+        headMin: Infinity, headMax: -Infinity,
+        bodyMin: Infinity, bodyMax: -Infinity,
+        gunMin: Infinity, gunMax: -Infinity,
+    });
+    trace.samples++;
+    trace.torsoMin = Math.min(trace.torsoMin, g.torsoPitch);
+    trace.torsoMax = Math.max(trace.torsoMax, g.torsoPitch);
+    trace.headMin = Math.min(trace.headMin, g.headYaw);
+    trace.headMax = Math.max(trace.headMax, g.headYaw);
+    trace.bodyMin = Math.min(trace.bodyMin, g.bodyY);
+    trace.bodyMax = Math.max(trace.bodyMax, g.bodyY);
+    trace.gunMin = Math.min(trace.gunMin, g.gunPitch);
+    trace.gunMax = Math.max(trace.gunMax, g.gunPitch);
+}
+sampleS4Gesture();
+let s4OutroLast = 'gibranCall', s4OutroFrames = 0, s4OutroFade = false;
+while (!stateMod.isGameOver && s4OutroFrames++ < 5000) {
+    s4mod.stage4Scene.updateMode(1 / 30);
+    avMod.updatePlayerAvatar(1 / 30);
+    sampleS4Gesture();
+    const od = s4mod.outroDialogueDebug();
+    if (od.key && od.key !== s4OutroLast) { s4OutroSeen.push(od.key); s4OutroLast = od.key; }
+    if (od.key && od.chars > 0 && od.chars < od.text.length) s4OutroPartial.add(od.key);
+    if (s4mod.outroCineDebug().phase === 'fade') {
+        s4OutroFade = dom4.cineFadeDebug()?.opacity === 1 && dom4.stageRadioDialogueDebug() === null;
+    }
+}
+T('S4 OUTRO DIALOG: lima transmisi tampil berurutan di Scene 2',
+    s4OutroSeen.join(',') === expectedS4OutroDialogue.map(line => line.key).join(','));
+T('S4 OUTRO TYPEWRITER: SEMUA dialog melewati body parsial huruf-per-huruf',
+    expectedS4OutroDialogue.every(line => s4OutroPartial.has(line.key)));
+const s4GestureKeys = expectedS4OutroDialogue.map(line => line.key);
+T('S4 OUTRO AKTING: kelima dialog mengaktifkan gestur tubuhnya masing-masing',
+    s4GestureKeys.every(key => s4GestureTrace[key]?.samples > 5));
+T('S4 OUTRO AKTING: tubuh tetap bergerak sepanjang setiap transmisi, bukan pose mematung',
+    s4GestureKeys.every(key => {
+        const g = s4GestureTrace[key];
+        return g && (g.torsoMax - g.torsoMin) + (g.headMax - g.headMin)
+            + (g.bodyMax - g.bodyMin) > 0.015;
+    }));
+T('S4 OUTRO AKTING: shock condong menantang, kabar buruk merunduk, akhir menurunkan senjata',
+    s4GestureTrace.gibranShock.torsoMax > s4GestureTrace.commandNoExfil.torsoMax + 0.05
+    && s4GestureTrace.commandFinal.bodyMin < s4GestureTrace.gibranCall.bodyMin - 0.05
+    && s4GestureTrace.gibranAccepts.gunMax > s4GestureTrace.gibranCall.gunMax + 0.02);
+T('S4 OUTRO FADE: sesudah dialog panel hilang dan layar fade-out hitam', s4OutroFade);
+T('S4 OUTRO SELESAI: fade membuka MISSION COMPLETE hijau dan seluruh state sinematik bersih',
+    stateMod.isGameOver === true && s4mod.outroCineDebug().done
+    && !s4mod.outroCineDebug().active && stateMod.cinematicActive === false
+    && avMod.avatarRadioDebug().active === false && dom4.stageRadioDialogueDebug() === null
+    && dom4.cineFadeDebug()?.opacity === 0 && dom4.gameOverTitle.innerText === 'MISSION COMPLETE'
+    && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)');
 {
     const f = s4tank.turretFly, tp = s4turret.position;
     const dxT = tp.x - s4hullX, dzT = tp.z - s4hullZ, distT = Math.hypot(dxT, dzT);

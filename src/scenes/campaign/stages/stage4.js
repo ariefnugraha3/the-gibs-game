@@ -15,7 +15,7 @@
 // dalam rumput ALUN (tak bisa keluar, bahkan tak bisa mundur ke ring road)
 // dan tepi tapak-pandang kamera dijepit di dalam kompleks SQ (alun + ring)
 // lewat hook scene `camBounds` (renderer.followViewCam); bebas lagi saat
-// boss hancur.
+// boss hancur; cutscene radio penutup selesai sebelum layar kemenangan hijau.
 
 import { CFG } from '../../../core/config.js';
 import { player, robots, drops, _v3 } from '../../../core/state.js';
@@ -50,7 +50,8 @@ import { exitCityEnv } from '../utility/cityscape.js';
 import { campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
 import { createTankBossIntro, TANK_BOSS_DIALOGUE } from '../cutscenes/tankBossIntro.js';
-export { TANK_BOSS_DIALOGUE };
+import { createTankBossOutro, TANK_BOSS_OUTRO_DIALOGUE } from '../cutscenes/tankBossOutro.js';
+export { TANK_BOSS_DIALOGUE, TANK_BOSS_OUTRO_DIALOGUE };
 
 // Dunia ditaruh ~120 km dari origin (jauh dari gedung stage 1/2/3). Skala 1 m ≈ 7 u.
 const OX = 120000, OZ = 0;
@@ -1060,16 +1061,9 @@ export function placeBarrels() {
 // SEMUA robot mati — SPAWN DI TENGAH ALUN-ALUN (2026-07-17: menggelinding dari
 // sisi timur lapangan ke pusat; wallX ditaruh di BARAT home agar fase smash
 // dinding tank TIDAK pernah terpicu) bersamaan GERBANG ring terbuka; MISSION
-// COMPLETE saat tank hancur (tanpa trigger finish — stasiun dihapus). ---
+// tank hancur memulai cutscene penutup (tanpa trigger finish — stasiun dihapus). ---
 let bossSpawned = false, bossDefeated = false;
-let tank = null, exitHintT = 0, winT = 0, winFired = false;
-// Jeda visual ledakan tank -> layar MISSION COMPLETE. DINAIKKAN 2026-07-29
-// bersama sekuens mati sinematik tank (cook-off -> turret terlempar -> mendarat
-// -> bangkai membara, ~2,8 dtk): layar kemenangan tak boleh memotong klimaks.
-// 5 DETIK (permintaan user, iterasi kedua): sekuensnya selesai ~2,8 dtk, sisanya
-// SENGAJA dibiarkan kosong supaya player sempat MENIKMATI bangkai yang membara
-// sebelum layar kemenangan menutup adegan.
-const WIN_DELAY_SEC = 5;
+let tank = null, exitHintT = 0, winFired = false, outroDelayT = -1;
 // KUNCI ARENA BOSS (2026-07-17): true begitu player menginjak lapangan ALUN
 // selagi tank hidup — playerCollide menjepit player di dalam lapangan &
 // camBounds membatasi kamera; dilepas saat boss kalah / enter() ulang.
@@ -1088,6 +1082,9 @@ export const arenaDebug = () => ({ locked: arenaLocked, alun: { ...ALUN }, sq: {
 // Debug/uji cutscene: delegasi ke modul cutscene (fase + geometri bangkai)
 export const cineDebug = () => intro.cineDebug();
 export const tankDialogueDebug = () => intro.dialogueDebug();
+export const outroCineDebug = () => outro.cineDebug();
+export const outroDialogueDebug = () => outro.dialogueDebug();
+export const outroDelayDebug = () => ({ armed: outroDelayT >= 0, remaining: Math.max(0, outroDelayT) });
 // Debug/uji: status ruko yang diterobos tank (utuh / runtuh / puing menetap)
 export const smashDebug = () => smashBuildingDebug(smashRuko);
 
@@ -1112,12 +1109,24 @@ const intro = createTankBossIntro({
     smash: (dirX, dirZ) => smashBuilding(smashRuko, dirX, dirZ),
 });
 
+// Cutscene penutup: close-up bangkai -> pose radio Gibran -> fade -> layar
+// kemenangan hijau. Stage 4 tetap menjadi pemilik keputusan game-over.
+const outro = createTankBossOutro({
+    getTank: () => tank,
+    onComplete: () => {
+        if (winFired) return;
+        winFired = true;
+        gameOver(true);
+    },
+});
+
 function onBossDown() {
     bossDefeated = true;
     arenaLocked = false;   // arena terbuka lagi — player bebas berkeliling
     stopMusic();           // boss tumbang -> musik boss-fight berhenti (2026-07-19)
-    winT = WIN_DELAY_SEC;
-    showStageMsg('THE TANK IS DESTROYED — THE TOWN SQUARE IS FREE!');
+    // Cutscene tidak dimulai di frame ledakan. Countdown baru dipersenjatai
+    // setelah animasi tank mencapai bangkai akhir (`deathPhase === 'wreck'`).
+    outroDelayT = -1;
     updateUI();
 }
 
@@ -1138,11 +1147,12 @@ export const stage4Scene = {
             }
         }
         if (tank) { disposeTank(tank); tank = null; }
-        bossSpawned = false; bossDefeated = false; exitHintT = 0; winT = 0; winFired = false;
+        bossSpawned = false; bossDefeated = false; exitHintT = 0; winFired = false; outroDelayT = -1;
         arenaLocked = false;
         // Reset CUTSCENE + heli: buang heli/bangkai lama + blocker-nya, batalkan
         // sinematik yang mungkin berjalan (restart/cheat) — cutscenes/tankBossIntro.js.
         intro.reset();
+        outro.reset();
         resetSmashBuilding(smashRuko);   // ruko yang diterobos tank berdiri utuh lagi (restart/cheat)
         // Pasang lagi gerbang alun-alun (mesh + blocker — dicabut openGate saat run sebelumnya)
         if (roadGate) roadGate.visible = true;
@@ -1169,7 +1179,7 @@ export const stage4Scene = {
     // ALUR AKHIR (2026-07-17): semua robot mati -> gerbang terbuka + HELI
     // penjemput menunggu di pusat (heliArrives) -> player menginjak ring road
     // -> CUTSCENE (tank datang dari utara, menghancurkan heli, parkir di depan
-    // bangkai) -> duel; tank hancur -> MISSION COMPLETE setelah jeda singkat.
+    // bangkai) -> duel; tank hancur -> cutscene radio penutup -> layar hijau.
     updateMode(dt) {
         updateOccluders(dt);   // objek penghalang -> semi-transparan (2026-07-18)
         updateSmashBuilding(smashRuko, dt);   // puing ruko yang diterobos tank (no-op setelah menetap)
@@ -1183,10 +1193,16 @@ export const stage4Scene = {
         // Cutscene SELESAI (tank sudah diserahkan lewat setTank) -> jalankan DUEL.
         if (tank && intro.isDone() && !intro.isActive()) {
             if (tank.dead && !bossDefeated) onBossDown();
-            if (bossDefeated && !winFired) {
-                winT -= dt;
-                if (winT <= 0) { winFired = true; gameOver(true); }   // MISSION COMPLETE
+            if (bossDefeated && !outro.isActive() && !outro.isDone() && !winFired
+                && tank.deathPhase === 'wreck') {
+                if (outroDelayT < 0) {
+                    outroDelayT = Math.max(0, CFG.campaign.tankOutro.preCutsceneDelaySec);
+                } else {
+                    outroDelayT = Math.max(0, outroDelayT - dt);
+                    if (outroDelayT <= 0) outro.start();
+                }
             }
+            if (outro.isActive()) outro.update(dt);
             updateUI();   // refresh HP bar tank
         }
     },
@@ -1247,7 +1263,7 @@ export const stage4Scene = {
     // sinematografinya (sudut/jarak/tinggi tiap shot) datang dari
     // cutscenes/tankBossIntro.js; di luar cutscene ia mengembalikan null =
     // renderer memakai CAM_OFF_DEFAULT (kamera gameplay) seperti biasa.
-    get camOffset() { return intro.camOffset(); },
+    get camOffset() { return outro.camOffset() || intro.camOffset(); },
 
     // Hook opsional kamera (renderer.followViewCam, 2026-07-17): selama duel
     // boss terkunci, tepi tapak-pandang kamera TIDAK BOLEH melewati batas

@@ -162,11 +162,16 @@ Sistem bersama memanggil hook ini pada `activeScene` — **scene baru wajib meng
 
 - **Current override — `campaign/cutscenes/intro.js` (three-scene re-cut, 2026-08-01):** this supersedes the legacy 12-shot entry above. Exports `INTRO_DIALOGUE`, `beginIntro`, `skipIntro`, `warmupIntro`, `introDebug`, `introMetrics`, and `introScene`. Runtime order is `briefing` (scene 1, front-right close-up + exact bottom-box typewriter + configured 3-second hold) → `landing`/`exit` (scene 2, right-side close-up + slow touchdown + actual sliding door + avatar steps out) → `run`/`enter` (scene 3, front close-up + camera tracking Gibran into the rooftop door) → `stage1Scene`. The old rope/rappel/heli-departure phases are no longer reachable. Camera shots are relative to `HELI_YAW`; `warmupIntro` pre-renders the three angles. `introDebug()` now includes `{scene, dialogueChars, dialogueShown, dialogueVisible, doorOpen, heliYaw, cabinExit, roofExit}` in addition to the existing transform fields. `entities/helicopter.js` now returns `parts.rightDoor`, tracks `doorOpen`, and exports `setHelicopterDoor(heli,k)` (0 closed..1 open); Stage 4 remains closed by default.
 
+- **campaign/cutscenes/tankBossOutro.js** — post-boss cutscene controller. Exports `TANK_BOSS_OUTRO_DIALOGUE` (five exact `{key,speaker,text}` records) and `createTankBossOutro({getTank,onComplete})` → `{start,update,reset,isActive,isDone,camOffset,cineDebug,dialogueDebug}`. Stage 4 waits for the tank's real `deathPhase==='wreck'`, then runs `tankOutro.preCutsceneDelaySec` outside the controller so camera and control remain gameplay. When the delay expires, `start()` releases held inputs, freezes controls, and opens Scene 1 on the settled wreck for `tankShotMinSec`; Scene 2 enables the avatar radio pose and runs every body through `CFG.campaign.dialogue.{cps,holdSec}`, forwarding the active dialogue key and typed fraction as gesture inputs. The final hold enters `fade` for `tankOutro.fadeSec`, then cleans the camera/fade/dialogue/pose and calls `onComplete` (Stage 4 supplies `gameOver(true)`). `stage4.js` re-exports the script as `TANK_BOSS_OUTRO_DIALOGUE`, exposes `outroDelayDebug()`/`outroCineDebug()`/`outroDialogueDebug()`, updates it while active, resets it on stage entry, and gives its `camOffset()` priority over the intro controller.
+- **playerAvatar.js radio-pose additions** — `setAvatarRadioPose(on,yaw=0,gesture='gibranCall',progress=0)` and `avatarRadioDebug()`. While active, `updatePlayerAvatar` takes an early cinematic branch: root faces `yaw`, left hand is fake-IK'd to the left earpiece, right hand stays on the active weapon grip, and the weapon remains low with positive pitch so the muzzle points down. Five keyed performances animate torso/head/stance/weapon motion for the urgent call, Command listening, shocked protest, bad-news slump, and final acceptance; `progress` synchronizes the emphatic change with the typewriter. `resetAvatarDeath()` clears this state. The rig creates no new runtime meshes/materials.
+
 ## config/gameplay.json — kunci tuning
 
 **Hack config correction (2026-08-01):** `campaign.hack.gridMin` and `gridMax` were removed and replaced by `campaign.hack.gridSize` (currently 5). This single value controls every ICE BREACH board.
 
 **Current `campaign.intro` keys (supersedes the legacy key list still preserved in the historical row below):** `dialogueCps`, `dialogueHoldSec`, `sceneFadeSec`, `landingSec`, `doorOpenSec`, `exitSec`, `runSec`, `enterSec`. During `briefing`, the heli interpolates `BRIEF_START → LAND`; `scene1Fade` then fades out for `sceneFadeSec`, cuts to the right-side shot under black, and starts Scene 2 with a fade-in of the same configured duration.
+
+**Current `campaign.tankOutro` keys:** `preCutsceneDelaySec` (gameplay pause after the tank first reaches `wreck`, before any cinematic freeze), `tankShotMinSec` (minimum Scene-1 wreck close-up), `radioPushSec` (duration of the slow Scene-2 camera push), and `fadeSec` (black fade before green MISSION COMPLETE). Spoken timing remains centralized in `campaign.dialogue.{cps,holdSec}`.
 
 | Seksi | Kunci |
 |---|---|
@@ -190,6 +195,10 @@ Sistem bersama memanggil hook ini pada `activeScene` — **scene baru wajib meng
 Catatan: nilai visual murni (FOV, amplitudo animasi, warna) sengaja BUKAN di JSON. (Sistem magazen + reload dihapus 2026-07-11 — rig animasi reload di weapons.js dorman.)
 
 ## Menjalankan & menguji
+
+### Addendum Stage 4 boss outro (2026-08-01)
+
+`campaign/cutscenes/tankBossOutro.js` exports `TANK_BOSS_OUTRO_DIALOGUE` plus `createTankBossOutro({getTank,onComplete})`. Stage 4 re-exports the script and exposes `outroDelayDebug()`/`outroCineDebug()`/`outroDialogueDebug()`. Tank death finishes its animation and remains in gameplay for `tankOutro.preCutsceneDelaySec` after reaching `wreck`; only then does Scene 1 begin and freeze input. The controller cuts to five keyed, continuously animated avatar radio performances synchronized to their shared-typewriter bodies, fades black, cleans every cinematic override, and only then invokes Stage 4's `gameOver(true)` callback. Its camera override has priority over `tankBossIntro.camOffset()` while active. `playerAvatar.js` adds `setAvatarRadioPose(on,yaw,gesture,progress)` and `avatarRadioDebug()`; reset clears the pose.
 
 ### Addendum Stage 1 radio (2026-08-01)
 

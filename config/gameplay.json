@@ -305,6 +305,12 @@
             "faceOffSec": 1.4,
             "panBackSec": 2.2
         },
+        "tankOutro": {
+            "preCutsceneDelaySec": 3.0,
+            "tankShotMinSec": 3.0,
+            "radioPushSec": 3.0,
+            "fadeSec": 0.8
+        },
         "doors": {
             "closeDelaySec": 3.0
         },

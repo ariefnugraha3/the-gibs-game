@@ -53,6 +53,15 @@ let fireHeadCur = 0;   // anggukan kepala hentakan tembakan frame lalu (agar kem
 let afkT = 0, afkMode = 'none', afkPoseT = 0;        // detik menganggur; mode aktif; waktu dalam mode
 let lastAimX = 0, lastAimZ = 0;                       // deteksi gerak kursor (aim)
 let gunGrpRef = null;                                 // grup senjata (utk digeletakkan saat rebahan)
+// Pose sinematik radio Stage 4 outro: tangan kiri menekan earpiece, tangan
+// kanan tetap menggenggam senjata dengan laras diturunkan. State-nya dimiliki
+// avatar supaya cutscene tidak perlu menyentuh node rig internal satu per satu.
+let radioPoseActive = false, radioPoseYaw = 0, radioPoseGesture = 'gibranCall';
+let radioPoseProgress = 0, radioPoseT = 0;
+let radioPoseDbg = {
+    active: false, yaw: 0, gesture: '', progress: 0, t: 0,
+    leftY: 0, rightY: 0, gunPitch: 0, torsoPitch: 0, headYaw: 0, bodyY: 0,
+};
 const AFK_WAVE = 30, AFK_CROUCH = 60, AFK_LIE = 90, AFK_WAVE_DUR = 5;   // ambang tahap (detik)
 const smoothstep = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 // Titik genggam prop (ruang avatarGroup) dari GRIPS lokal + pitch senjata
@@ -1142,6 +1151,12 @@ function poseDeath(dt, feetY) {
 // Dipanggil resetGame: batalkan pose mati + paksa evaluasi ulang prop senjata.
 export function resetAvatarDeath() {
     rappelActive = false;   // batalkan pose rappel intro juga
+    radioPoseActive = false;
+    radioPoseGesture = 'gibranCall'; radioPoseProgress = 0; radioPoseT = 0;
+    radioPoseDbg = {
+        active: false, yaw: 0, gesture: '', progress: 0, t: 0,
+        leftY: 0, rightY: 0, gunPitch: 0, torsoPitch: 0, headYaw: 0, bodyY: 0,
+    };
     deathT = -1;
     deathPhase = 'none';
     deathHand0 = null;
@@ -1197,6 +1212,142 @@ function placeArm(side, hx, hy, hz) {
     }
 }
 
+// Cutscene penutup Stage 4 mengaktifkan pose ini selama shot komunikasi radio.
+// `gesture` = key dialog aktif; `progress` = progres huruf 0..1. Keduanya membuat
+// tubuh benar-benar berakting mengikuti isi percakapan, bukan mematung dalam
+// satu pose radio sepanjang Scene 2.
+export function setAvatarRadioPose(on, yaw = 0, gesture = 'gibranCall', progress = 0) {
+    const active = !!on;
+    if (!active || gesture !== radioPoseGesture) radioPoseT = 0;
+    radioPoseActive = active;
+    radioPoseYaw = yaw;
+    radioPoseGesture = gesture;
+    radioPoseProgress = Math.max(0, Math.min(1, progress));
+    radioPoseDbg.active = radioPoseActive;
+    radioPoseDbg.yaw = yaw;
+    radioPoseDbg.gesture = active ? gesture : '';
+    radioPoseDbg.progress = radioPoseProgress;
+}
+export const avatarRadioDebug = () => ({ ...radioPoseDbg });
+
+function poseRadio(dt) {
+    radioPoseT += dt;
+    const base = currentWeapon;
+    const key = props && props[base + '3']
+        && ((player.weaponLvl && player.weaponLvl[base]) || 1) >= 3 ? base + '3' : base;
+    const G = GRIPS[key] || GRIPS.rifle;
+    const t = radioPoseT, p = radioPoseProgress;
+    const breathe = Math.sin(t * 2.15), slow = Math.sin(t * 1.15);
+    let torsoPitch = 0.04, torsoYaw = 0, torsoRoll = 0;
+    let headYaw = -0.08, headPitch = 0.08, bodyY = 0;
+    let gunLower = 0, gunLift = 0, stance = 0.04;
+
+    // Lima bahasa tubuh yang berbeda, mengikuti siapa yang sedang berbicara.
+    // Gerak kecil berbasis waktu menjaga napas/berat tubuh tetap hidup; progres
+    // body memberi kurva emosi yang sinkron dengan kalimat yang sedang diketik.
+    if (radioPoseGesture === 'gibranCall') {
+        // Laporan darurat: condong ke radio, pandangan menyapu area jatuh heli.
+        torsoPitch = 0.075 + breathe * 0.018;
+        torsoYaw = slow * 0.045;
+        headYaw = -0.1 + Math.sin(t * 1.45) * 0.11;
+        headPitch = 0.015 + breathe * 0.025;
+        bodyY = -0.025 + breathe * 0.025;
+        gunLift = 0.05 + Math.sin(t * 2.8) * 0.025;
+        stance = 0.08;
+    } else if (radioPoseGesture === 'commandNoExfil') {
+        // Mendengarkan kabar buruk: berat pindah kaki, kepala pelan menoleh.
+        torsoPitch = 0.015 + breathe * 0.012;
+        torsoYaw = -0.055 + slow * 0.028;
+        torsoRoll = slow * 0.022;
+        headYaw = -0.18 + Math.sin(t * 0.82) * 0.055;
+        headPitch = 0.065 + breathe * 0.016;
+        bodyY = -0.07 + breathe * 0.018;
+        gunLower = 0.08;
+        stance = -0.045;
+    } else if (radioPoseGesture === 'gibranShock') {
+        // Terkejut lalu marah: badan tersentak mundur, maju menantang, kepala
+        // menggeleng cepat; senjata ikut terangkat tetapi laras tetap ke bawah.
+        const confront = smoothstep((p - 0.12) / 0.38);
+        torsoPitch = -0.09 + confront * 0.21 + breathe * 0.022;
+        torsoYaw = Math.sin(t * 3.7) * 0.065;
+        torsoRoll = Math.sin(t * 4.4) * 0.028;
+        headYaw = Math.sin(t * 5.6) * (0.15 - p * 0.035);
+        headPitch = -0.055 + confront * 0.045 + breathe * 0.02;
+        bodyY = -0.025 - Math.sin(Math.min(1, p * 2) * Math.PI) * 0.07;
+        gunLift = 0.16 + Math.sin(t * 3.4) * 0.035;
+        stance = 0.12;
+    } else if (radioPoseGesture === 'commandFinal') {
+        // Perintah final: bahu turun, dagu jatuh, tubuh menyerap kenyataan.
+        torsoPitch = 0.025 + breathe * 0.01;
+        torsoYaw = -0.035 + slow * 0.018;
+        torsoRoll = -0.035 + slow * 0.012;
+        headYaw = -0.11 + Math.sin(t * 0.7) * 0.028;
+        headPitch = 0.15 + p * 0.055 + breathe * 0.012;
+        bodyY = -0.14 - p * 0.06 + breathe * 0.012;
+        gunLower = 0.15 + p * 0.08;
+        stance = -0.025;
+    } else if (radioPoseGesture === 'gibranAccepts') {
+        // Menerima keadaan: napas berat, tunduk, lalu satu anggukan tegas.
+        const nod = Math.sin(Math.min(1, p * 1.45) * Math.PI);
+        torsoPitch = 0.055 + p * 0.035 + breathe * 0.012;
+        torsoYaw = slow * 0.018;
+        torsoRoll = slow * 0.012;
+        headYaw = -0.035 + slow * 0.018;
+        headPitch = 0.22 + nod * 0.11 + breathe * 0.012;
+        bodyY = -0.2 + breathe * 0.012;
+        gunLower = 0.25 + p * 0.1;
+        stance = 0.03;
+    }
+
+    const gunPitch = 0.9 + gunLower * 0.18;   // selalu positif: laras tetap ke tanah
+    const gx = 1.35, gy = 6.9 - gunLower + gunLift, gz = 0.45;
+
+    avatarGroup.rotation.set(0, radioPoseYaw, 0);
+    avatarGroup.position.y += bodyY;
+    upperG.rotation.set(torsoPitch, torsoYaw, torsoRoll);
+    upperG.position.y = bodyY * 0.18;
+    headG.rotation.y = headYaw;
+    lerpHeadPitch(headPitch, Math.min(1, dt * 12));
+
+    // Berdiri tenang: sisa gait/dodge dari frame duel diluruhkan seketika agar
+    // close-up tidak menangkap kaki atau torso dalam pose tempur yang membeku.
+    hipL.rotation.set(stance, 0, 0.045 + slow * 0.018);
+    hipR.rotation.set(-stance * 0.55, 0, -0.045 - slow * 0.018);
+    kneeL.rotation.set(Math.max(0, stance) * 0.8 + 0.06, 0, 0);
+    kneeR.rotation.set(Math.max(0, -stance) * 0.65 + 0.08, 0, 0);
+
+    if (props) {
+        for (const k in props) props[k].visible = k === key;
+        showMeleeGear(false);
+        propKey = '__radio';
+    }
+    if (gunGrpRef) {
+        gunGrpRef.visible = true;
+        gunGrpRef.position.set(gx, gy, gz);
+        gunGrpRef.rotation.set(0, 0, 0);
+    }
+    if (props && props[key]) {
+        props[key].position.set(0, 0, 0);
+        props[key].rotation.set(gunPitch, 0, 0);
+    }
+
+    // Telapak kiri tepat di telinga kiri; telapak kanan tetap pada grip senjata
+    // yang kini menggantung rendah. Anchor kanan mengikuti pitch prop sehingga
+    // tangan tidak tampak terlepas dari senjata di close-up.
+    const lx = -0.92 + torsoYaw * 0.2, ly = 10.72 + bodyY * 0.12, lz = 0.02 + headYaw * 0.08;
+    const c = Math.cos(gunPitch), s = Math.sin(gunPitch);
+    const rx = gx + G.R.x;
+    const ry = gy + G.R.y * c - G.R.z * s;
+    const rz = gz + G.R.y * s + G.R.z * c;
+    placeArm('L', lx, ly, lz);
+    placeArm('R', rx, ry, rz);
+    radioPoseDbg = {
+        active: true, yaw: radioPoseYaw, gesture: radioPoseGesture,
+        progress: radioPoseProgress, t: radioPoseT,
+        leftY: ly, rightY: ry, gunPitch, torsoPitch, headYaw, bodyY,
+    };
+}
+
 // Per frame dari animate() — SETELAH updateGame (pakai posisi pivot & aim
 // terbaru); jalan juga saat pause (pose beku, konsisten dgn kontrak decor).
 export function updatePlayerAvatar(dt) {
@@ -1228,6 +1379,10 @@ export function updatePlayerAvatar(dt) {
     // terbang — early-return sebelum rantai-hadap/aim (avatar TETAP tampil,
     // tanpa ledakan/gib). Detail kurva ada di poseDeath. =====
     if (deathT >= 0) { poseDeath(dt, feetY); return; }
+
+    // ===== RADIO CUTSCENE Stage 4: pose komunikasi mengambil alih aim/gait/AFK
+    // selama dialog penutup, tetapi posisi root + armor tetap diperbarui di atas.
+    if (radioPoseActive) { poseRadio(dt); return; }
 
     // ===== RANTAI HADAP MANUSIAWI (2026-07-12 — menggantikan lookAt seluruh
     // badan): KAKI (root) menghadap ARAH GERAK, TORSO (upperG) memuntir ke
