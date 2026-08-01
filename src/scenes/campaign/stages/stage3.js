@@ -20,9 +20,8 @@
 //                   Pintu blast punya lampu sendiri: MERAH terkunci, HIJAU terbuka.
 //                   MENEMPEL terminal HIJAU membuka MINIGAME "ICE BREACH"
 //                   (utility/hackMinigame.js — 2026-07-28, menggantikan bar
-//                   progress hackSec): puzzle sirkuit di scene modal, game
-//                   di-PAUSE selama dimainkan. Papan makin besar tiap dua
-//                   terminal. Batal/kehabisan ICE TRACE = terminal tetap belum
+//                   progress hackSec): puzzle sirkuit 5x5 di scene modal, game
+//                   di-PAUSE selama dimainkan. Batal/kehabisan ICE TRACE = terminal tetap belum
 //                   ter-hack; player harus MENJAUH dulu sebelum mencoba lagi.
 //                   Tiap hack SELESAI melepas GELOMBANG robot (6 dari TANGGA + 6
 //                   dari LIFT, gateWaveCount, kelas ACAK C50/B25/A25, LANGSUNG
@@ -47,8 +46,10 @@ import { makeNavGrid } from '../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { PAL } from '../../../world/palette.js';
-import { showStageMsg, showPickup } from '../../../core/dom.js';
-import { beginHackMinigame, hackGridSize } from '../utility/hackMinigame.js';
+import {
+    showStageMsg, showPickup, showStageRadioDialogue, hideStageRadioDialogue,
+} from '../../../core/dom.js';
+import { beginHackMinigame } from '../utility/hackMinigame.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { updateUI } from '../../../core/hud.js';
 import { NADE_R } from '../../../entities/grenades.js';
@@ -96,6 +97,29 @@ const S3_EXIT = { c0: 18, r0: 37, c1: 21, r1: 39 };  // rect trigger keluar gedu
 // PINTU BLAST '+': bukaan c18-21 di dinding baris 29. **TIDAK LAGI DIHANCURKAN
 // dgn tembak (2026-07-28)** — dibuka oleh 5 terminal hack di bawah.
 const S3_PLUS = { c0: 18, c1: 21, r: 29 };
+// Naskah dialog milik user; isi dan tanda bacanya dipatok persis oleh smoke.
+export const S3_DIALOGUE = Object.freeze({
+    stageStart: Object.freeze({
+        speaker: 'Major Gibran',
+        text: "I need to get out of this building, ASAP, but the main doors are locked down. I'll have to find a terminal to hack the system and force them open.",
+    }),
+    firstHack: Object.freeze({
+        speaker: 'Major Gibran',
+        text: 'Damn it, a multi-stage lock. Looks like there are four more terminals I need to hack.',
+    }),
+    allHacked: Object.freeze({
+        speaker: 'Major Gibran',
+        text: 'That did it! Doors are unlocked. Time to move!',
+    }),
+    enterLobby: Object.freeze({
+        speaker: 'Major Gibran',
+        text: "They've set up a production unit right in the main lobby?! I can't leave this active. I need to destroy it before heading to the LZ!",
+    }),
+    inactiveTerminal: Object.freeze({
+        speaker: 'Major Gibran',
+        text: 'Hm this computer is not working',
+    }),
+});
 // ===== 5 TERMINAL HACK (2026-07-28, permintaan user) =====
 // Tiap terminal 2x1 SEL, menempel dinding di UJUNG ruangannya, satu per ruangan:
 //   `c`,`r` = sel KIRI dari pasangan 2 sel (pasangannya c+1); `face` = arah layar
@@ -269,6 +293,9 @@ let s3DoorSign = null, s3DoorLight = null;   // rambu status pintu: MERAH terkun
 let s3Terms = [];
 let s3HackOrder = [], s3HackIdx = 0, s3Hacking = false, s3HackArmed = true;
 let s3HackCd = 0;   // COOLDOWN alarm (dtk): terminal terkunci setelah hack GAGAL
+let s3InactiveDialogueArmed = true;
+let s3DialogueCurrent = null, s3DialogueQueue = [], s3DialogueSeen = new Set();
+let s3DialogueT = 0, s3DialogueChars = 0;
 let s3Machines = [];    // [{group, cx, cz, spawn, hp, alive, spawnT, hitT, eyeMat, blocker}]
 let s3ExitSign = null, s3ExitLight = null, s3ExitDoor = null, s3ExitOpen = false;
 // ===== ANTREAN SPAWN + ANIMASI MUNCUL (2026-07-26, permintaan user) =====
@@ -302,9 +329,79 @@ export const s3HackDbg = () => ({
     })),
 });
 export const s3MachinesDbg = () => s3Machines;
+export const s3DialogueDebug = () => ({
+    key: s3DialogueCurrent ? s3DialogueCurrent.key : null,
+    speaker: s3DialogueCurrent ? s3DialogueCurrent.speaker : '',
+    text: s3DialogueCurrent ? s3DialogueCurrent.text : '',
+    chars: s3DialogueChars,
+    shown: s3DialogueCurrent ? s3DialogueCurrent.text.slice(0, s3DialogueChars) : '',
+    typing: !!s3DialogueCurrent && s3DialogueChars < s3DialogueCurrent.text.length,
+    queued: s3DialogueQueue.map(line => line.key),
+    seen: [...s3DialogueSeen],
+    inactiveArmed: s3InactiveDialogueArmed,
+});
 
 const blockers = [];
 let built = false;
+
+function renderS3Dialogue() {
+    if (!s3DialogueCurrent) { hideStageRadioDialogue(); return; }
+    const line = s3DialogueCurrent;
+    s3DialogueChars = Math.max(0, Math.min(line.text.length, s3DialogueChars | 0));
+    showStageRadioDialogue(
+        line.speaker,
+        line.text.slice(0, s3DialogueChars),
+        s3DialogueChars < line.text.length,
+    );
+}
+
+function beginNextS3Dialogue() {
+    s3DialogueCurrent = s3DialogueQueue.shift() || null;
+    s3DialogueT = 0;
+    s3DialogueChars = 0;
+    renderS3Dialogue();
+}
+
+function queueS3Dialogue(key, repeatable = false) {
+    const line = S3_DIALOGUE[key];
+    if (!line) return false;
+    if (!repeatable && s3DialogueSeen.has(key)) return false;
+    if (repeatable && (s3DialogueCurrent?.key === key || s3DialogueQueue.some(q => q.key === key))) return false;
+    if (!repeatable) s3DialogueSeen.add(key);
+    s3DialogueQueue.push({ key, speaker: line.speaker, text: line.text });
+    if (!s3DialogueCurrent) beginNextS3Dialogue();
+    return true;
+}
+
+function resetS3Dialogue() {
+    s3DialogueCurrent = null;
+    s3DialogueQueue = [];
+    s3DialogueSeen = new Set();
+    s3DialogueT = 0;
+    s3DialogueChars = 0;
+    s3InactiveDialogueArmed = true;
+    hideStageRadioDialogue();
+}
+
+function updateS3Dialogue(dt) {
+    if (!s3DialogueCurrent) return;
+    const dialogue = CFG.campaign.dialogue;
+    const cps = Math.max(1, dialogue.cps);
+    const holdSec = Math.max(0, dialogue.holdSec);
+    s3DialogueT += dt;
+    while (s3DialogueCurrent) {
+        const lineSec = s3DialogueCurrent.text.length / cps + holdSec;
+        if (s3DialogueT < lineSec) {
+            s3DialogueChars = Math.floor(s3DialogueT * cps);
+            renderS3Dialogue();
+            return;
+        }
+        s3DialogueChars = s3DialogueCurrent.text.length;
+        renderS3Dialogue();
+        s3DialogueT -= lineSec;
+        beginNextS3Dialogue();
+    }
+}
 
 export function ensureWorld() { if (!built) { built = true; buildWorld(); } }
 export const worldBuilt = () => built;
@@ -860,6 +957,8 @@ function s3FinishHack() {
     s3HackIdx++;
     s3PaintTerminals();
     spawnDoorWave();
+    if (s3HackIdx === 1) queueS3Dialogue('firstHack');
+    if (s3HackIdx === S3_TERMINALS.length) queueS3Dialogue('allHacked');
     const left = S3_TERMINALS.length - s3HackIdx;
     if (left > 0) {
         showStageMsg(`TERMINAL BREACHED (${s3HackIdx}/${S3_TERMINALS.length}) — hostiles inbound! Find the next terminal.`, 4200);
@@ -996,6 +1095,7 @@ export const stage3Scene = {
         // semua layar dicat ulang menurut urutan baru.
         s3Hacking = false; s3HackArmed = true; s3HackCd = 0; s3HackIdx = 0;
         setCinematicActive(false);
+        resetS3Dialogue();
         s3HackOrder = s3Terms.map((_, i) => i);
         for (let i = s3HackOrder.length - 1; i > 0; i--) {
             const j = (Math.random() * (i + 1)) | 0;
@@ -1016,8 +1116,13 @@ export const stage3Scene = {
         camera.quaternion.set(0, 1, 0, 0);
         player.vy = 0; player.onGround = true;
         showStageMsg('Arrived by lift. The blast door is LOCKED — hack all 5 terminals to open it. Follow the GREEN screens.', 5600);
+        queueS3Dialogue('stageStart');
         updateUI();
     },
+
+    // Saat modal hack mengambil alih, sembunyikan panel tanpa mereset progres
+    // ketik/antrean; resumeScene akan melanjutkannya pada frame Stage 3 berikut.
+    exit() { hideStageRadioDialogue(); },
 
     restartScene: () => stage1Scene,
     cheatSkipToStage: (n) => campaignJumpToStage(n),
@@ -1028,6 +1133,7 @@ export const stage3Scene = {
     updateMode(dt) {
         updateStageDoors(s3doors, dt);
         updateRoomLamps(s3Lamps, dt);
+        updateS3Dialogue(dt);
         const s3 = CFG.campaign.stage3;
         const pz = camera.position.z;
         s3TickSpawns(dt);   // lepas antrean spawn (0.3 dtk/robot) + animasi tumbuh
@@ -1046,7 +1152,15 @@ export const stage3Scene = {
             if (!s3Hacking) {
                 if (s3HackCd > 0) s3HackCd = Math.max(0, s3HackCd - dt);   // cooldown alarm berjalan
                 const act = s3ActiveTerm();
-                const near = act && Math.hypot(camera.position.x - act.sx, pz - act.sz) < (s3.hackRange || 13);
+                const hackRange = s3.hackRange || 13;
+                const near = act && Math.hypot(camera.position.x - act.sx, pz - act.sz) < hackRange;
+                const lockedNear = s3Terms.find(t => t.state === 'locked'
+                    && Math.hypot(camera.position.x - t.sx, pz - t.sz) < hackRange);
+                if (!lockedNear) s3InactiveDialogueArmed = true;
+                else if (s3InactiveDialogueArmed) {
+                    s3InactiveDialogueArmed = false;
+                    queueS3Dialogue('inactiveTerminal', true);
+                }
                 if (!near) s3HackArmed = true;
                 else if (s3HackArmed && s3HackCd <= 0) {
                     s3HackArmed = false;
@@ -1055,7 +1169,6 @@ export const stage3Scene = {
                         head: `TERMINAL ${s3HackIdx + 1} / ${S3_TERMINALS.length} — ${act.def.room}`,
                         sub: 'Reroute the door bus: rotate the chips until the ingress port '
                             + 'links to the data core. Every breach unlocks part of the blast door.',
-                        size: hackGridSize(s3HackIdx),
                         onSuccess: s3FinishHack,
                         onFail: (why) => {
                             s3Hacking = false;
@@ -1075,6 +1188,7 @@ export const stage3Scene = {
                 s3Phase = 'machines';
                 s3SpawnT = s3.machineFirstWaveSec;   // JANGAN langsung spawn — tunda 3 dtk dulu
                 showStageMsg('ROBOT FACTORIES ONLINE — destroy all 4 machines!', 4600);
+                queueS3Dialogue('enterLobby');
             }
         } else if (s3Phase === 'machines') {
             s3MachineBulletHits();

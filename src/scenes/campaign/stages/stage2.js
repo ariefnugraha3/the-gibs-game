@@ -9,12 +9,12 @@
 // gelombang-2 (kelas C / B / A).
 //
 // ALUR GAMEPLAY (state machine `s2Phase`):
-//   1. 'clear1'    : spawn di TANGGA RUSAK (pesan: cari lift). Lift butuh daya:
-//                    dekati lift → "The elevator has no power — restore the
-//                    generator". BUNUH 50 robot KELAS C → generator bisa dipulihkan.
+//   1. 'clear1'    : spawn di TANGGA RUSAK → monolog kondisi tangga. Lift butuh
+//                    daya: pertama kali mendekat → monolog lift mati. BUNUH 50
+//                    robot KELAS C → generator bisa dipulihkan.
 //   2. 'goGen'     : datangi GENERATOR (X, kanan-atas) → "collect 3 components
-//                    from the warehouse" + 20 robot penjaga (berbagai kelas) spawn
-//                    di gudang.
+//                    from the warehouse" + monolog pemeriksaan generator + 20
+//                    robot penjaga (berbagai kelas) spawn di gudang.
 //   3. 'collect'   : ambil 3 komponen (acak di rak @; berdiri di TIMUR rak).
 //                    Tiap komponen = satu benda BERNAMA (REPAIR_PARTS: POWER
 //                    HARNESS / CONTROL BOARD / COOLANT PUMP).
@@ -25,8 +25,8 @@
 //                    (kabel / chip / katup), TANPA hitung mundur. Batal (ESC) =
 //                    balik ke 'restore' dengan kemajuan TERSIMPAN (s2Installed)
 //                    dan pemicu baru terisi lagi setelah player MENJAUH. Selesai
-//                    → langsung 'done' + 25 robot bala bantuan (10 C ruang1,
-//                    10 B ruang2, 5 B ruang3) spawn.
+//                    → langsung 'done' + monolog generator pulih + 25 robot bala
+//                    bantuan (10 C ruang1, 10 B ruang2, 5 B ruang3) spawn.
 //   6. 'done'      : lift SUDAH BERDAYA — player TIDAK wajib membunuh bala bantuan
 //                    (2026-07-21, permintaan user): tinggal capai LIFT → stage
 //                    selesai (transisi ke stage 3). Boleh lari melewati robot.
@@ -44,7 +44,10 @@ import { PAL } from '../../../world/palette.js';
 // showDownloadBar/setDownloadProgress TAK dipakai lagi sejak bar "RESTORING
 // GENERATOR" diganti minigame (2026-07-29); hideDownloadBar tetap dipanggil di
 // enter() sebagai pembersih.
-import { showStageMsg, hideStageMsg, showPickup, hideDownloadBar } from '../../../core/dom.js';
+import {
+    showStageMsg, hideStageMsg, showPickup, hideDownloadBar,
+    showStageRadioDialogue, hideStageRadioDialogue,
+} from '../../../core/dom.js';
 import { beginRepairMinigame, REPAIR_PARTS } from '../utility/repairMinigame.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { updateUI } from '../../../core/hud.js';
@@ -89,6 +92,26 @@ export const S2_START = { c: 5, r: 2 };          // spawn di ruang TANGGA RUSAK 
 // LIFT (titik SELESAI): nook kiri-tengah (sel L c9-10 r15-19 + lorong c11).
 export const S2_LIFT = { c0: 9, r0: 15, c1: 11, r1: 19 };
 export const S2_GEN = { c: 44, r: 3 };           // sel BERDIRI generator (kotak pulih) — mesin 2 sel di utara (44,1)
+// Naskah dialog milik user. Quote pembungkus tidak menjadi bagian body panel;
+// kata dan tanda baca di dalamnya dipertahankan persis serta dipatok smoke.
+export const S2_DIALOGUE = Object.freeze({
+    stageStart: Object.freeze({
+        speaker: 'Major Gibran',
+        text: 'Damn it! The stairs are completely destroyed... Looks like I need an alternate route. Maybe that elevator works.',
+    }),
+    liftDead: Object.freeze({
+        speaker: 'Major Gibran',
+        text: "The elevator's out of power. I need to find a generator and bring it back online. Intel mentioned there's one on this floor.",
+    }),
+    inspectGenerator: Object.freeze({
+        speaker: 'Major Gibran',
+        text: "I'm gonna need to scavenge a few parts to patch up this generator.",
+    }),
+    generatorRestored: Object.freeze({
+        speaker: 'Major Gibran',
+        text: "Generator's back online! Time to head back to the elevator.",
+    }),
+});
 // Gudang (@) = bawah; penjaga & komponen di sini. Rak = kolom @ (12 kolom, tiap 4 sel).
 const S2_SHELF_COLS = [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45];
 const S2_SHELF_R0 = 33, S2_SHELF_R1 = 44;        // baris rak gudang
@@ -292,12 +315,83 @@ let s2Components = [];    // [{col,row,mx,mz,got,part,marker,mat}] — 3 kompone
 let s2CompGot = 0;
 let s2Installed = 0;      // komponen yang SUDAH terpasang di minigame (tahan ABORT)
 let s2GenArmed = true;    // pemicu kotak generator (harus MENJAUH dulu sesudah batal)
+let s2DialogueCurrent = null;
+let s2DialogueQueue = [];
+let s2DialogueSeen = new Set();
+let s2DialogueT = 0, s2DialogueChars = 0;
 export const s2Debug = () => ({
     phase: s2Phase, comp: s2CompGot, installed: s2Installed, armed: s2GenArmed
 });
 export const s2ComponentsDbg = () => s2Components;   // smoke test (posisi komponen)
+export const s2DialogueDebug = () => ({
+    key: s2DialogueCurrent ? s2DialogueCurrent.key : null,
+    speaker: s2DialogueCurrent ? s2DialogueCurrent.speaker : '',
+    text: s2DialogueCurrent ? s2DialogueCurrent.text : '',
+    chars: s2DialogueChars,
+    shown: s2DialogueCurrent ? s2DialogueCurrent.text.slice(0, s2DialogueChars) : '',
+    typing: !!s2DialogueCurrent && s2DialogueChars < s2DialogueCurrent.text.length,
+    queued: s2DialogueQueue.map(line => line.key),
+    seen: [...s2DialogueSeen],
+});
 
 const blockers = [];
+
+function renderS2Dialogue() {
+    if (!s2DialogueCurrent) { hideStageRadioDialogue(); return; }
+    const line = s2DialogueCurrent;
+    s2DialogueChars = Math.max(0, Math.min(line.text.length, s2DialogueChars | 0));
+    showStageRadioDialogue(
+        line.speaker,
+        line.text.slice(0, s2DialogueChars),
+        s2DialogueChars < line.text.length,
+    );
+}
+
+function beginNextS2Dialogue() {
+    s2DialogueCurrent = s2DialogueQueue.shift() || null;
+    s2DialogueT = 0;
+    s2DialogueChars = 0;
+    renderS2Dialogue();
+}
+
+function queueS2Dialogue(key) {
+    const line = S2_DIALOGUE[key];
+    if (!line || s2DialogueSeen.has(key)) return false;
+    s2DialogueSeen.add(key);
+    s2DialogueQueue.push({ key, speaker: line.speaker, text: line.text });
+    if (!s2DialogueCurrent) beginNextS2Dialogue();
+    return true;
+}
+
+function resetS2Dialogue(clearSeen = false) {
+    s2DialogueCurrent = null;
+    s2DialogueQueue = [];
+    s2DialogueT = 0;
+    s2DialogueChars = 0;
+    if (clearSeen) s2DialogueSeen = new Set();
+    hideStageRadioDialogue();
+}
+
+function updateS2Dialogue(dt) {
+    if (!s2DialogueCurrent) return;
+    const dialogue = CFG.campaign.dialogue;
+    const cps = Math.max(1, dialogue.cps);
+    const holdSec = Math.max(0, dialogue.holdSec);
+    s2DialogueT += dt;
+    while (s2DialogueCurrent) {
+        const typeSec = s2DialogueCurrent.text.length / cps;
+        const lineSec = typeSec + holdSec;
+        if (s2DialogueT < lineSec) {
+            s2DialogueChars = Math.floor(s2DialogueT * cps);
+            renderS2Dialogue();
+            return;
+        }
+        s2DialogueChars = s2DialogueCurrent.text.length;
+        renderS2Dialogue();
+        s2DialogueT -= lineSec;
+        beginNextS2Dialogue();
+    }
+}
 
 function buildS2Grid() {
     s2grid = S2_MAP.map(row => [...row].map(ch => (ch === '#' ? 1 : 0)));
@@ -850,6 +944,7 @@ export const stage2Scene = {
         // Reset ALUR
         s2Phase = 'clear1'; s2Installed = 0; s2GenArmed = true;
         setCinematicActive(false);
+        resetS2Dialogue(true);
         hideDownloadBar();
         // marker generator + komponen bersih
         if (s2Marker) s2Marker.visible = false;
@@ -868,9 +963,15 @@ export const stage2Scene = {
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
         camera.quaternion.set(0, 1, 0, 0);
         player.vy = 0; player.onGround = true;
-        showStageMsg('The stairs are wrecked — find the elevator to escape (destroy the robots to power it).', 5200);
+        hideStageMsg();
+        queueS2Dialogue('stageStart');
         updateUI();
     },
+
+    // Modal repair memanggil exit() sebelum resumeScene mengembalikan stage ini.
+    // Sembunyikan panel, tetapi pertahankan posisi ketik + antrean agar dialog
+    // yang belum tuntas dapat lanjut setelah modal ditutup.
+    exit() { hideStageRadioDialogue(); },
 
     // Mati di stage 2 -> campaign SELALU mengulang dari stage 1
     restartScene: () => stage1Scene,
@@ -882,6 +983,7 @@ export const stage2Scene = {
     updateMode(dt) {
         updateStageDoors(s2doors, dt);
         updateRoomLamps(s2Lamps, dt);
+        updateS2Dialogue(dt);
         const s2 = CFG.campaign.stage2;
         const px = camera.position.x, pz = camera.position.z;
         const n = countStageRobots(2);
@@ -897,7 +999,7 @@ export const stage2Scene = {
                 s2Phase = 'collect';
                 spawnGuards();
                 pickComponents();
-                showStageMsg('The generator needs 3 components — search the storage warehouse for them.', 5200);
+                queueS2Dialogue('inspectGenerator');
             }
         } else if (s2Phase === 'collect') {
             // Ambil komponen: berdiri di TIMUR rak bermarker
@@ -937,7 +1039,7 @@ export const stage2Scene = {
                         s2Phase = 'done';
                         s2Installed = REPAIR_PARTS.length;
                         spawnWave2();
-                        showStageMsg('Generator online — the elevator is powered! Reinforcements inbound — reach the lift and escape!', 5600);
+                        queueS2Dialogue('generatorRestored');
                     },
                     onFail: () => {
                         s2Phase = 'restore';
@@ -959,7 +1061,8 @@ export const stage2Scene = {
         if (s2LiftPos && Math.hypot(px - s2LiftPos.x, pz - s2LiftPos.z) < s2.liftRange
             && s2Phase !== 'done' && Date.now() - s2LiftT > 4200) {
             s2LiftT = Date.now();
-            showStageMsg('The elevator has no power — restore the generator first.', 2600);
+            if (!s2DialogueSeen.has('liftDead')) queueS2Dialogue('liftDead');
+            else showStageMsg('The elevator has no power — restore the generator first.', 2600);
         }
 
         // Kedip lampu hall SETELAH menyala

@@ -1416,6 +1416,47 @@ body {
     pointer-events: none;
 }
 
+/* Briefing radio pada scene 1 intro campaign. Panel lebar-rendah ini sengaja
+   berbeda dari subtitle Survival: tiga paragraf tetap terbaca tanpa menutupi
+   close-up heli, sementara garis amber mengikatnya ke UI manusia GIBS 2045. */
+#introDialogue {
+    display: none;
+    position: fixed;
+    left: clamp(24px, 6vw, 100px);
+    right: clamp(24px, 6vw, 100px);
+    bottom: 15.8vh;
+    max-width: 1180px;
+    margin: 0 auto;
+    box-sizing: border-box;
+    padding: clamp(15px, 2.1vh, 24px) clamp(18px, 2.7vw, 36px);
+    border: 1px solid rgba(224, 155, 51, 0.42);
+    border-left: 5px solid #d49738;
+    background: rgba(7, 9, 11, 0.91);
+    box-shadow: 0 14px 42px rgba(0, 0, 0, 0.72), inset 0 0 32px rgba(224, 155, 51, 0.035);
+    color: #f2eadb;
+    font-size: clamp(13px, 1.42vw, 20px);
+    line-height: 1.52;
+    letter-spacing: 0.018em;
+    white-space: pre-wrap;
+    text-align: left;
+    pointer-events: none;
+    z-index: 26;
+}
+#introDialogue.on { display: block; }
+#introDialogueCaret {
+    display: inline-block;
+    margin-left: 2px;
+    color: #e0a246;
+    animation: introDialogueBlink 0.72s steps(1, end) infinite;
+}
+@keyframes introDialogueBlink { 50% { opacity: 0; } }
+@media (max-height: 650px) {
+    #introDialogue { font-size: clamp(11px, 1.2vw, 15px); line-height: 1.35; padding-top: 11px; padding-bottom: 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #introDialogueCaret { animation: none; }
+}
+
 body.cine #barsHud, body.cine #statsHud, body.cine #radar, body.cine #waveText,
 body.cine #pickupFeed, body.cine #aimCursor, body.cine #hitDir,
 body.cine #medkitBar, body.cine #stageMsg {
@@ -1445,6 +1486,70 @@ body.cine #medkitBar, body.cine #stageMsg {
     z-index: 27;
 }
 #cineCaption.on { opacity: 1; transform: translateY(0); }
+
+/* Transmisi radio in-game Stage 1. Panel tetap di atas letterbox dan HUD yang
+   dimudarkan selama beat sinematik, tetapi tidak menghalangi pandangan tengah. */
+#stageRadioDialogue {
+    display: none;
+    position: fixed;
+    left: clamp(24px, 7vw, 118px);
+    right: clamp(24px, 7vw, 118px);
+    bottom: 15.6vh;
+    max-width: 1080px;
+    margin: 0 auto;
+    box-sizing: border-box;
+    padding: clamp(14px, 2vh, 22px) clamp(18px, 2.5vw, 32px);
+    border: 1px solid rgba(224, 155, 51, 0.42);
+    border-left: 5px solid #d49738;
+    background: rgba(7, 9, 11, 0.93);
+    box-shadow: 0 14px 42px rgba(0, 0, 0, 0.72), inset 0 0 30px rgba(224, 155, 51, 0.035);
+    color: #f2eadb;
+    text-align: left;
+    pointer-events: none;
+    z-index: 28;
+}
+#stageRadioSpeaker {
+    margin-bottom: 7px;
+    color: #e0a246;
+    font-size: clamp(12px, 1.15vw, 16px);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+#stageRadioText {
+    font-size: clamp(14px, 1.55vw, 21px);
+    line-height: 1.5;
+    letter-spacing: 0.018em;
+}
+#stageRadioDialogue.typing #stageRadioText::after {
+    content: '|';
+    display: inline-block;
+    margin-left: 2px;
+    color: #e0a246;
+    animation: stageRadioCaretBlink 0.72s steps(1, end) infinite;
+}
+/* Sinyal radio Pilot rusak tepat sebelum heli dihantam tank. */
+#stageRadioDialogue.distorted {
+    animation: stageRadioStatic 0.11s steps(2, end) infinite;
+    border-color: rgba(255, 176, 59, 0.7);
+}
+#stageRadioDialogue.distorted #stageRadioText {
+    text-shadow: -2px 0 rgba(255, 76, 56, 0.65), 2px 0 rgba(47, 184, 166, 0.55);
+}
+@keyframes stageRadioStatic {
+    0%, 100% { transform: translate(0, 0); filter: none; }
+    35% { transform: translate(-1px, 0); filter: contrast(1.25); }
+    70% { transform: translate(1px, 1px); filter: brightness(1.18); }
+}
+@keyframes stageRadioCaretBlink { 50% { opacity: 0; } }
+@media (max-height: 650px) {
+    #stageRadioDialogue { bottom: 14.6vh; padding-top: 11px; padding-bottom: 11px; }
+    #stageRadioText { font-size: clamp(12px, 1.3vw, 16px); line-height: 1.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #stageRadioDialogue.typing #stageRadioText::after,
+    #stageRadioDialogue.distorted { animation: none; }
+}
 
 /* ===== PROLOG campaign (ROMBAK TOTAL 2026-07-31, permintaan user): TEKS SAJA di
    atas layar HITAM PEKAT — seluruh panggung 3D "ruang meeting" dihapus. Lapisan
@@ -1728,22 +1833,59 @@ body.cine #medkitBar, body.cine #stageMsg {
     gap: 14px;
 }
 .hackPort, .hackCore {
+    position: relative;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 7px;
+    justify-content: center;
     width: 74px;
+    height: 20px;
     font-size: 10px;
     letter-spacing: 0.16em;
     color: #6f807d;
     text-align: center;
 }
+.hackPort span, .hackCore span {
+    position: absolute;
+    top: 29px;
+    left: 50%;
+    width: 92px;
+    transform: translateX(-50%);
+}
 .hackJack {
+    position: relative;
+    z-index: 3;
     width: 20px;
     height: 20px;
     border-radius: 50%;
     border: 2px solid #2a4b47;
     background: #16211f;
+}
+/* Kabel eksternal memperjelas titik masuk/keluar jalur pada baris tengah. */
+.hackLead {
+    position: absolute;
+    z-index: 2;
+    top: 50%;
+    width: 50px;
+    height: 18px;
+    transform: translateY(-50%);
+    background: #1d3d39;
+    pointer-events: none;
+}
+.hackLead::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 6px;
+    height: 6px;
+    background: #2fb8a6;
+    box-shadow: 0 0 9px rgba(47, 184, 166, 0.35);
+}
+.hackLeadIn { left: calc(50% + 8px); }
+.hackLeadOut { right: calc(50% + 8px); }
+.hackPort.on .hackLead::after, .hackCore.on .hackLead::after {
+    background: #ffb03b;
+    box-shadow: 0 0 12px rgba(255, 176, 59, 0.72);
 }
 .hackPort.on .hackJack, .hackCore.on .hackJack {
     border-color: #ffb03b;
@@ -1754,6 +1896,8 @@ body.cine #medkitBar, body.cine #stageMsg {
 .hackCore.on { animation: hackPulse 0.9s ease-in-out infinite; }
 @keyframes hackPulse { 50% { opacity: 0.6; } }
 .hackGrid {
+    position: relative;
+    z-index: 1;
     display: grid;
     gap: 5px;
     flex: 0 0 auto;
@@ -1763,8 +1907,8 @@ body.cine #medkitBar, body.cine #stageMsg {
     border-radius: 8px;
 }
 .hackTile {
-    width: min(9.2vh, 62px);
-    height: min(9.2vh, 62px);
+    width: min(9.2vh, 10.2vw, 62px);
+    height: min(9.2vh, 10.2vw, 62px);
     background: rgba(47, 184, 166, 0.05);
     border: 1px solid rgba(47, 184, 166, 0.16);
     border-radius: 5px;

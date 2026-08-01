@@ -13,8 +13,9 @@
 // sudah dipanaskan -> spawn tanpa recompile). Hidung = +Z lokal (yaw di
 // spawnHelicopter mengarahkannya).
 //
-// API (scene-agnostik, dipakai stage4):
+// API (scene-agnostik, dipakai stage4 + intro campaign):
 //   spawnHelicopter(x, z, yaw) -> heli {parts, wrecked, ...}
+//   setHelicopterDoor(heli, k)  — geser pintu kanan, k 0 tertutup..1 terbuka
 //   updateHelicopter(heli, dt) — rotor berputar CEPAT saat utuh (+ debu
 //     downwash tipis); saat bangkai: asap hitam + bara membubung terus.
 //   blastHelicopter(heli)     — ledakan besar: bilah rotor terlempar sbg gib,
@@ -111,6 +112,13 @@ export function buildHelicopterMesh() {
     mk(new THREE.BoxGeometry(11.6, 3.4, 8), glass, 0, 12.2, 1.5, group, 0, 0, 0, true);                 // jendela pintu kiri-kanan
     mk(new THREE.BoxGeometry(11.7, 0.3, 8.1), dark, 0, 13.9, 1.5, group, 0, 0, 0, true);                // bingkai jendela atas
     mk(new THREE.BoxGeometry(11.7, 0.3, 8.1), dark, 0, 10.5, 1.5, group, 0, 0, 0, true);                // bingkai jendela bawah
+
+    // Pintu geser kanan (+X lokal). Grup terpisah membuat cutscene intro dapat
+    // membuka akses kabin sungguhan tanpa membongkar model atau mengganti shader.
+    const rightDoor = new THREE.Group();
+    group.add(rightDoor);
+    mk(new THREE.BoxGeometry(0.5, 7.1, 7.8), body, 5.85, 10.9, 1.4, rightDoor);
+    mk(new THREE.BoxGeometry(0.56, 3.0, 6.2), glass, 5.88, 12.5, 1.4, rightDoor, 0, 0, 0, true);
     
     mk(new THREE.BoxGeometry(11.4, 1.6, 13), stripe, 0, 8.2, 1.5, group, 0, 0, 0, true);                // strip amber keliling bawah
     mk(new THREE.BoxGeometry(11.5, 0.2, 13.1), tech, 0, 9.0, 1.5, group, 0, 0, 0, true);                // garis neon di atas strip amber
@@ -186,7 +194,7 @@ export function buildHelicopterMesh() {
         mk(new THREE.BoxGeometry(0.4, 1.2, 2), dark, side * 5.6, 1.3, -8, group, 0, 0, 0, true);                     
     }
 
-    return { group, rotor, tailRotor, beacon, beaconM, glassMat: glass, paintMats };
+    return { group, rotor, tailRotor, rightDoor, beacon, beaconM, glassMat: glass, paintMats };
 }
 
 // Buat + tempatkan heli menghadap `yaw` (hidung = +Z lokal diputar yaw).
@@ -195,7 +203,16 @@ export function spawnHelicopter(x, z, yaw = 0) {
     parts.group.position.set(x, 0, z);
     parts.group.rotation.y = yaw;
     scene.add(parts.group);
-    return { parts, wrecked: false, washT: 0.3, burnT: 0 };
+    return { parts, wrecked: false, doorOpen: 0, washT: 0.3, burnT: 0 };
+}
+
+// Pintu meluncur ke arah ekor (-Z lokal); clamp membuat API aman dipanggil
+// langsung oleh scene mana pun dan mempertahankan keadaan tertutup di Stage 4.
+export function setHelicopterDoor(heli, k) {
+    if (!heli || !heli.parts || !heli.parts.rightDoor) return;
+    const open = Math.max(0, Math.min(1, k));
+    heli.doorOpen = open;
+    heli.parts.rightDoor.position.z = -8.6 * open;
 }
 
 export function updateHelicopter(heli, dt) {

@@ -201,6 +201,47 @@ export const cineCaptionDebug = () => {
     return el && el.classList && el.classList.contains('on') ? (el.innerText || '') : null;
 };
 
+// ===== DIALOG RADIO STAGE 1 (2026-08-01): panel speaker + isi transmisi di
+// atas letterbox. Kontrol urutan/durasinya tetap milik scene Stage 1. =====
+export function showStageRadioDialogue(speaker, text, typing = false, distorted = false) {
+    const root = document.getElementById('stageRadioDialogue');
+    const who = document.getElementById('stageRadioSpeaker');
+    const body = document.getElementById('stageRadioText');
+    if (who) who.innerText = speaker;
+    if (body) body.innerText = text;
+    if (root) {
+        root.style.display = 'block';
+        root.classList.toggle('typing', !!typing);
+        root.classList.toggle('distorted', !!distorted);
+        root.dataset.typing = typing ? '1' : '0';
+        root.dataset.distorted = distorted ? '1' : '0';
+    }
+}
+export function hideStageRadioDialogue() {
+    const root = document.getElementById('stageRadioDialogue');
+    const who = document.getElementById('stageRadioSpeaker');
+    const body = document.getElementById('stageRadioText');
+    if (root) {
+        root.style.display = 'none';
+        root.classList.remove('typing');
+        root.classList.remove('distorted');
+        root.dataset.typing = '0';
+        root.dataset.distorted = '0';
+    }
+    if (who) who.innerText = '';
+    if (body) body.innerText = '';
+}
+export const stageRadioDialogueDebug = () => {
+    const root = document.getElementById('stageRadioDialogue');
+    if (!root || root.style.display !== 'block') return null;
+    return {
+        speaker: document.getElementById('stageRadioSpeaker')?.innerText || '',
+        text: document.getElementById('stageRadioText')?.innerText || '',
+        typing: root.dataset.typing === '1',
+        distorted: root.dataset.distorted === '1',
+    };
+};
+
 export function showStageMsg(text, dur = 4200) {
     stageMsgEl.innerText = text;
     stageMsgEl.style.opacity = 1;

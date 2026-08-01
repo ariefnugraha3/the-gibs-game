@@ -267,6 +267,10 @@
         "robotSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,
+        "dialogue": {
+            "cps": 28,
+            "holdSec": 2
+        },
         "prologue": {
             "enabled": true,
             "fadeOutSec": 0.5,
@@ -279,19 +283,14 @@
             "tailSec": 3
         },
         "intro": {
-            "establishSec": 2.6,
-            "flySec": 5.0,
-            "approachSec": 2.2,
-            "flareSec": 1.4,
-            "hoverSec": 1.2,
-            "ropeSec": 1.0,
-            "descendSec": 3.0,
-            "landSec": 0.8,
-            "ropeUpSec": 1.4,
-            "heliLeaveSec": 2.8,
-            "walkSec": 4.0,
-            "enterSec": 0.9,
-            "doorDelaySec": 2.0
+            "dialogueCps": 28,
+            "dialogueHoldSec": 3.0,
+            "sceneFadeSec": 0.5,
+            "landingSec": 4.0,
+            "doorOpenSec": 1.1,
+            "exitSec": 2.2,
+            "runSec": 4.2,
+            "enterSec": 1.1
         },
         "tankIntro": {
             "openSec": 0.8,
@@ -310,8 +309,7 @@
             "closeDelaySec": 3.0
         },
         "hack": {
-            "gridMin": 4,
-            "gridMax": 5,
+            "gridSize": 5,
             "traceSec": 60,
             "decoyChance": 0.55,
             "alarmHordeCount": 10,

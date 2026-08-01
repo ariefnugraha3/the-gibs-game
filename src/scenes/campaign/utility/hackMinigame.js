@@ -4,7 +4,7 @@
 //   - Stage 1: super komputer ruang server (dulu bar "DOWNLOADING DATA" 10 dtk).
 //   - Stage 3: kelima terminal pembuka pintu blast (dulu bar "HACKING TERMINAL").
 //
-// PUZZLE: papan chip sirkuit N×N. Tiap chip punya jalur (trace) yang bisa
+// PUZZLE: papan chip sirkuit tetap 5×5. Tiap chip punya jalur (trace) yang bisa
 // DIPUTAR (klik kiri = searah jarum jam, klik kanan = berlawanan). Tugas player:
 // menyambung PORT INGRESS di tepi kiri ke DATA CORE di tepi kanan menjadi satu
 // rangkaian tak terputus. Papan selalu SOLVABLE — generator menggambar jalur
@@ -44,7 +44,7 @@ const LOCK_FALLBACK_MS = 900;
 // --- state modul (satu papan aktif; modal tak pernah bertumpuk) ---
 let open = false;
 let phase = 'idle';       // idle | play | won | lost
-let N = 4;
+let N = 5;
 let tiles = [];           // [{mask, rot, sol, spin}] — sol = mask BENAR (null utk chip pengecoh),
                           // spin = penghitung putaran KUMULATIF (visual: 3->0 tetap berputar maju)
 let powerOn = [];         // hasil BFS daya terakhir (per sel)
@@ -58,6 +58,7 @@ let tickTimer = 0, finishTimer = 0;
 let headText = '', subText = '';
 // Referensi DOM (dibangun ulang tiap kali modal dibuka — papan kecil, murah)
 let tileEls = [], gridEl = null, coreEl = null, bannerEl = null;
+let ingressLeadEl = null, coreLeadEl = null;
 let traceFillEl = null, traceNumEl = null;
 
 const overlayEl = () => document.getElementById('hackOverlay');
@@ -171,11 +172,10 @@ function computePower() {
     solved = powerOn[goal] && !!(eff(goal) & (1 << 1));
 }
 
-// Ukuran papan untuk hack ke-`step` (0 = yang pertama). Naik bertahap tiap dua
-// terminal, dijepit gridMin..gridMax (config-driven).
-export function hackGridSize(step = 0) {
-    const H = CFG.campaign.hack;
-    return Math.max(H.gridMin, Math.min(H.gridMax, H.gridMin + Math.floor(step / 2)));
+// Semua terminal membaca satu ukuran papan tetap dari config. Parameter `step`
+// dipertahankan hanya agar pemanggil lama tetap kompatibel.
+export function hackGridSize(_step = 0) {
+    return CFG.campaign.hack.gridSize;
 }
 
 // ===================== TAMPILAN =====================
@@ -203,9 +203,11 @@ function render() {
         + `<span class="hackTitle">${headText}</span></div>`
         + `<div class="hackSub">${subText}</div>`
         + '<div class="hackBody">'
-        + '<div class="hackPort on"><div class="hackJack"></div><span>INGRESS</span></div>'
+        + '<div class="hackPort on"><div class="hackJack"></div>'
+        + '<div class="hackLead hackLeadIn" id="hackIngressLead"></div><span>INGRESS</span></div>'
         + '<div class="hackGrid" id="hackGrid"></div>'
-        + '<div class="hackCore" id="hackCore"><div class="hackJack"></div><span>DATA CORE</span></div>'
+        + '<div class="hackCore" id="hackCore"><div class="hackJack"></div>'
+        + '<div class="hackLead hackLeadOut" id="hackCoreLead"></div><span>DATA CORE</span></div>'
         + '</div>'
         + '<div class="hackFoot">'
         + '<div class="hackTrace"><span class="hackTraceLbl">ICE TRACE</span>'
@@ -218,6 +220,8 @@ function render() {
         + '</div>';
     gridEl = document.getElementById('hackGrid');
     coreEl = document.getElementById('hackCore');
+    ingressLeadEl = document.getElementById('hackIngressLead');
+    coreLeadEl = document.getElementById('hackCoreLead');
     bannerEl = document.getElementById('hackBanner');
     traceFillEl = document.getElementById('hackTraceFill');
     traceNumEl = document.getElementById('hackTraceNum');
@@ -256,6 +260,8 @@ function paint() {
         if (t.cell.classList) t.cell.classList.toggle('on', !!powerOn[i]);
     }
     if (coreEl && coreEl.classList) coreEl.classList.toggle('on', solved);
+    if (ingressLeadEl) ingressLeadEl.dataset.powered = 'true';
+    if (coreLeadEl) coreLeadEl.dataset.powered = solved ? 'true' : 'false';
     paintTrace();
 }
 
@@ -340,6 +346,7 @@ function finish(result) {
     const root = overlayEl();
     if (root) { root.style.display = 'none'; root.innerHTML = ''; }
     tileEls = []; gridEl = coreEl = bannerEl = traceFillEl = traceNumEl = null;
+    ingressLeadEl = coreLeadEl = null;
     const c = cb; cb = null;
     if (prevScene) resumeScene(prevScene);
     prevScene = null;
@@ -363,7 +370,6 @@ function resumePlay() {
 
 // Dipanggil stage saat player menempel terminal. opts:
 //   head/sub  : judul & instruksi (English)
-//   size      : lebar papan (pakai hackGridSize)
 //   onSuccess : puzzle terpecahkan
 //   onFail    : 'abort' (player membatalkan) atau 'fail' (ICE TRACE habis)
 export function beginHackMinigame(opts = {}) {
@@ -384,6 +390,13 @@ export const isHackOpen = () => open;
 export const hackDebug = () => ({
     open, phase, size: N, moves, solved,
     traceLeft, traceMax,
+    externalLinks: {
+        row: (N - 1) >> 1,
+        ingressToLeftTile: !!ingressLeadEl,
+        rightTileToCore: !!coreLeadEl,
+        ingressPowered: !!ingressLeadEl,
+        corePowered: !!coreLeadEl && solved,
+    },
     tiles: tiles.map((t, i) => ({
         i, mask: t.mask, rot: t.rot, path: t.sol !== null,
         ok: t.sol === null ? true : rotM(t.mask, t.rot) === t.sol,
@@ -409,7 +422,8 @@ export const hackScene = {
         subText = o.sub || 'Connect the ingress port to the data core.';
         moves = 0;
         traceMax = traceLeft = CFG.campaign.hack.traceSec;
-        buildPuzzle(o.size || hackGridSize(0));
+        // Abaikan `opts.size` dari caller lama: semua terminal wajib 5x5.
+        buildPuzzle(hackGridSize());
         open = true;
         phase = 'play';
         setPaused(true);

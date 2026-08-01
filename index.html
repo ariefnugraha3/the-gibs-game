@@ -89,9 +89,19 @@
          cutscene (dom.setCineFade) — supaya perpindahan ke/dari gameplay tidak
          terasa "terpotong tiba-tiba". -->
     <div id="cineFade"></div>
+    <!-- Kotak dialog briefing INTRO campaign: teks misi diketik huruf demi
+         huruf oleh cutscenes/intro.js. Diletakkan di atas letterbox bawah dan
+         di bawah tirai fade agar ikut lenyap saat transisi ke Stage 1. -->
+    <div id="introDialogue"><span id="introDialogueText"></span><span id="introDialogueCaret">|</span></div>
     <!-- Takarir narasi cutscene (2026-07-27): satu baris di atas pita bawah,
          dikendalikan dom.showCineCaption/hideCineCaption. Teks selalu English. -->
     <div id="cineCaption"></div>
+    <!-- Radio dialogue Stage 1: tampil setelah data mainframe diamankan. Speaker
+         dipisah dari isi transmisi agar percakapan Pilot/Gibran mudah dibaca. -->
+    <div id="stageRadioDialogue">
+        <div id="stageRadioSpeaker"></div>
+        <div id="stageRadioText"></div>
+    </div>
     <!-- PROLOG campaign (ROMBAK TOTAL 2026-07-31, permintaan user): TEKS SAJA di
          atas layar HITAM PEKAT — panggung 3D "ruang meeting"/hologram dihapus
          seluruhnya dari prologue.js. Overlay ini opak hitam; fase aktif tiap era

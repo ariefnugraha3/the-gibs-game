@@ -120,6 +120,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   cyan/magenta, environment emissive ≤ 0.9 — enforced by smoke material sweeps.
 - **All user-facing UI text is ENGLISH** (permanent user rule); code comments are
   Indonesian.
+- **Every spoken-dialogue box uses a character-by-character typewriter reveal**;
+  speaker labels may appear immediately, while speed and full-text hold are config-driven.
+  Narration captions and short HUD/status messages are not dialogue boxes.
 - Collision resolves are **per-axis hug-and-slide, never a full revert**; robots pushed
   by separation must be re-clamped via `activeScene.clampRobot`.
 - Robots show **no damage feedback**; the radar has **no sweep/gradient**;

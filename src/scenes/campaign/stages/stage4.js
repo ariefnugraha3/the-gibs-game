@@ -49,7 +49,8 @@ import { spawnSmashBuilding, smashBuilding, updateSmashBuilding, resetSmashBuild
 import { exitCityEnv } from '../utility/cityscape.js';
 import { campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
-import { createTankBossIntro } from '../cutscenes/tankBossIntro.js';
+import { createTankBossIntro, TANK_BOSS_DIALOGUE } from '../cutscenes/tankBossIntro.js';
+export { TANK_BOSS_DIALOGUE };
 
 // Dunia ditaruh ~120 km dari origin (jauh dari gedung stage 1/2/3). Skala 1 m ≈ 7 u.
 const OX = 120000, OZ = 0;
@@ -1086,6 +1087,7 @@ export const currentHeli = () => intro.currentHeli();
 export const arenaDebug = () => ({ locked: arenaLocked, alun: { ...ALUN }, sq: { ...SQ } });
 // Debug/uji cutscene: delegasi ke modul cutscene (fase + geometri bangkai)
 export const cineDebug = () => intro.cineDebug();
+export const tankDialogueDebug = () => intro.dialogueDebug();
 // Debug/uji: status ruko yang diterobos tank (utuh / runtuh / puing menetap)
 export const smashDebug = () => smashBuildingDebug(smashRuko);
 

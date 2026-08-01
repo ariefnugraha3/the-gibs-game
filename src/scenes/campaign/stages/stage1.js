@@ -14,11 +14,14 @@
 //   3. 'downloading': MINIGAME HACK "ICE BREACH" (2026-07-28 — MENGGANTIKAN bar
 //                  progress 10 dtk yang lama): scene modal berisi puzzle sirkuit
 //                  (utility/hackMinigame.js); game DI-PAUSE selama puzzle.
-//                  BERHASIL → 20 robot tambahan (SEMUA kelas C sejak 2026-07-26)
-//                  + HORDE spawn di ruang bertanda X. GAGAL/BATAL → kembali ke
+//                  BERHASIL → transmisi radio Pilot lalu Maj. Gibran; kontrol
+//                  dibekukan dan wave-2 belum muncul selama percakapan.
+//                  Setelah transmisi: 20 robot tambahan (SEMUA kelas C sejak
+//                  2026-07-26) + HORDE spawn di ruang bertanda X. GAGAL/BATAL → kembali ke
 //                  fase 'download'; player harus MENJAUH dulu sebelum bisa
 //                  memicunya lagi (s1CompArmed).
-//   4. 'clear2'  : BUNUH SEMUA robot gelombang-2 lalu KEMBALI ke TANGGA → selesai
+//   4. 'radio'   : tampilkan percakapan Pilot → Maj. Gibran secara berurutan.
+//   5. 'clear2'  : BUNUH SEMUA robot gelombang-2 lalu KEMBALI ke TANGGA → selesai
 //                  (transisi ke stage 2). LIFT rusak: peringatan saat didekati.
 
 import { CFG, CAMP_M } from '../../../core/config.js';
@@ -31,8 +34,11 @@ import { makeNavGrid } from '../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { setS1FlickerLight } from '../../../world/decor.js';
 import { applyLightPreset, registerStageLight, precompileStageLightSets } from '../../../world/lighting.js';
-import { hideStageMsg, showStageMsg } from '../../../core/dom.js';
-import { beginHackMinigame, hackGridSize, isHackOpen } from '../utility/hackMinigame.js';
+import {
+    hideStageMsg, showStageMsg, setCineBars,
+    showStageRadioDialogue, hideStageRadioDialogue,
+} from '../../../core/dom.js';
+import { beginHackMinigame, isHackOpen } from '../utility/hackMinigame.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { NADE_R } from '../../../entities/grenades.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../entities/drops.js';
@@ -78,6 +84,19 @@ export const S1_FINISH = { c0: 1, r0: 1, c1: 5, r1: 3 };
 // player harus MENEMPEL untuk memicu unduh; komputernya sendiri 1 sel di UTARA.
 export const S1_COMP = { c: 44, r: 43 };  // sel berdiri (selatan komputer) — trigger + marker
 export const S1_LIFT = { c: 9, r: 18 };   // LIFT rusak (nook kiri-tengah)
+
+// Naskah milik user: dipisah dari state/timer supaya urutan dan teks lengkapnya
+// dapat dipatok smoke test tanpa menyalin string dari DOM.
+export const S1_RADIO_DIALOGUE = Object.freeze([
+    Object.freeze({
+        speaker: 'Pilot',
+        text: "Major, incoming! We're taking heavy mortar fire on the roof! We can't hold position! Relocating extraction to the town square! You need to fight your way down the building and get the hell out of there!",
+    }),
+    Object.freeze({
+        speaker: 'Maj. Gibran',
+        text: "Damn it!! Can't anything just go according to plan?! Solid copy. Just clear that secondary LZ and don't miss me.",
+    }),
+]);
 
 // DENAH RESMI (stage1-v2.csv). 50x50. '#'=dinding, '.'=lantai (pintu '-'=lantai).
 // JANGAN ubah tanpa update S1_DOORS + robot/furnitur + tes ulang (smoke test).
@@ -292,13 +311,19 @@ let s1HintT = 0;                            // rate-limit pesan "belum boleh kel
 let s1LiftT = 0;                            // rate-limit peringatan lift rusak
 
 // ===== STATE MACHINE ALUR STAGE 1 =====
-let s1Phase = 'clear1';   // clear1 | download | downloading | clear2 | done
+let s1Phase = 'clear1';   // clear1 | download | downloading | radio | clear2 | done
 let s1CompPos = null;     // {x,z} dunia sel BERDIRI (selatan komputer) — trigger unduh
 let s1CompArmed = true;   // pemicu hack "terisi": jadi false setelah dipakai, terisi lagi saat player MENJAUH
 let s1HackCd = 0;         // COOLDOWN alarm (dtk): terminal terkunci setelah hack GAGAL
+let s1RadioIndex = -1;    // 0=Pilot, 1=Maj. Gibran; -1 saat tidak aktif
+let s1RadioT = 0;         // waktu mengetik + hold baris aktif (detik)
+let s1RadioChars = 0;     // jumlah karakter yang sudah terlihat
 let s1LiftPos = null;     // {x,z} dunia lift
 let s1Marker = null, s1MarkerMat = null;   // marker lantai "berdiri di sini" + material (denyut)
-export const s1Debug = () => ({ phase: s1Phase, hacking: isHackOpen(), armed: s1CompArmed, hackCd: s1HackCd });   // smoke test
+export const s1Debug = () => ({
+    phase: s1Phase, hacking: isHackOpen(), armed: s1CompArmed, hackCd: s1HackCd,
+    radioIndex: s1RadioIndex, radioT: s1RadioT, radioChars: s1RadioChars,
+});   // smoke test
 
 const blockers = [];   // furnitur/undakan/lift/rak pejal {x,z,hx,hz,ax*,az*,top,standable}
 let built = false;
@@ -832,6 +857,70 @@ function s1AlarmHorde() {
         + `Clear them out; the terminal reboots in ${Math.round(s1HackCd)}s.`, 5000);
 }
 
+function showS1RadioLine(index, chars) {
+    const line = S1_RADIO_DIALOGUE[index];
+    if (!line) return;
+    s1RadioChars = Math.max(0, Math.min(line.text.length, chars | 0));
+    showStageRadioDialogue(
+        line.speaker,
+        line.text.slice(0, s1RadioChars),
+        s1RadioChars < line.text.length,
+    );
+}
+
+// Sesudah data diamankan, beri ruang untuk percakapan sebelum musuh menyerbu.
+// Dunia tetap hidup, tetapi wave-2 sengaja belum dibuat dan kontrol player beku.
+function beginS1Radio() {
+    s1Phase = 'radio';
+    s1RadioIndex = 0;
+    s1RadioT = 0;
+    s1RadioChars = 0;
+    setCinematicActive(true);
+    setCineBars(true);
+    hideStageMsg();
+    showS1RadioLine(0, 0);
+}
+
+function finishS1Radio() {
+    hideStageRadioDialogue();
+    setCineBars(false);
+    setCinematicActive(false);
+    s1RadioIndex = -1;
+    s1RadioT = 0;
+    s1RadioChars = 0;
+    s1Phase = 'clear2';
+    spawnWave2();                // 20 robot tambahan di ruang X
+    spawnStage1Horde();          // + HORDE kelas C langsung menyerbu
+    showStageMsg('Data secured! A HORDE of robots swarms in — fight your way back to the stairs!', 5200);
+}
+
+function updateS1Radio(dt) {
+    const dialogue = CFG.campaign.dialogue;
+    const cps = Math.max(1, dialogue.cps);
+    const holdSec = Math.max(0, dialogue.holdSec);
+    s1RadioT += dt;
+    // Satu frame/debug tick panjang tetap boleh melintasi lebih dari satu baris
+    // tanpa merusak urutan atau menampilkan teks penuh secara mendadak.
+    while (s1Phase === 'radio') {
+        const line = S1_RADIO_DIALOGUE[s1RadioIndex];
+        const typeSec = line.text.length / cps;
+        const lineSec = typeSec + holdSec;
+        if (s1RadioT < lineSec) {
+            showS1RadioLine(s1RadioIndex, Math.floor(s1RadioT * cps));
+            return;
+        }
+        showS1RadioLine(s1RadioIndex, line.text.length);
+        s1RadioT -= lineSec;
+        s1RadioIndex++;
+        if (s1RadioIndex >= S1_RADIO_DIALOGUE.length) {
+            finishS1Radio();
+            return;
+        }
+        s1RadioChars = 0;
+        showS1RadioLine(s1RadioIndex, 0);
+    }
+}
+
 export const stage1Scene = {
     id: 'campaign-1',
     lightsKey: 'campaign-1',   // set lampu yang menyala (world/lighting.js)
@@ -848,7 +937,10 @@ export const stage1Scene = {
         enterCityEnv();
         // Reset ALUR ke awal: fase clear1, unduh 0, pintu komputer TERKUNCI lagi.
         s1Phase = 'clear1'; s1CompArmed = true; s1HackCd = 0;
+        s1RadioIndex = -1; s1RadioT = 0; s1RadioChars = 0;
         setCinematicActive(false);
+        setCineBars(false);
+        hideStageRadioDialogue();
         if (s1compDoor) setDoorLocked(s1compDoor, true);
         // Lampu ruangan MATI (menyala saat dimasuki); start room pra-nyala.
         resetRoomLamps(s1Lamps);
@@ -912,13 +1004,9 @@ export const stage1Scene = {
                     head: 'MAINFRAME — DATA VAULT',
                     sub: 'The vault firewall is a live circuit. Rotate the chips so the ingress '
                         + 'port links to the data core, then the download runs itself.',
-                    size: hackGridSize(0),
                     onSuccess: () => {
-                        s1Phase = 'clear2';
                         if (s1Marker) s1Marker.visible = false;   // marker tak perlu lagi
-                        spawnWave2();                // 20 robot tambahan di ruang X
-                        spawnStage1Horde();          // + HORDE kelas C langsung menyerbu (SECOND-IMPROVEMENT #3)
-                        showStageMsg('Data secured! A HORDE of robots swarms in — fight your way back to the stairs!', 5200);
+                        beginS1Radio();
                     },
                     onFail: (why) => {
                         s1Phase = 'download';
@@ -930,6 +1018,8 @@ export const stage1Scene = {
                     },
                 });
             }
+        } else if (s1Phase === 'radio') {
+            updateS1Radio(dt);
         } else if (s1Phase === 'clear2') {
             if (n === 0) {
                 s1Phase = 'done';
@@ -1035,6 +1125,7 @@ export const stage1Scene = {
                 ? `FLOOR 2 — ALARM! Terminal rebooting: ${Math.ceil(s1HackCd)}s | Hostiles: ${n}`
                 : 'FLOOR 2 — Server room unlocked — reach the terminal and download the data';
             case 'downloading': return 'FLOOR 2 — Breaching the vault firewall…';
+            case 'radio': return 'FLOOR 2 — Data secured | Incoming transmission…';
             case 'clear2': return `FLOOR 2 — Hostiles inbound! Robots: ${n} | Fight back to the stairs`;
             default: return 'FLOOR 2 — Area secured — return to the stairs to descend';
         }
@@ -1043,7 +1134,7 @@ export const stage1Scene = {
     // Landmark radar: objektif saat ini (komputer SE saat clear1/download, tangga
     // NW saat clear2/done). Warna = merah bila belum siap / hijau-teal bila siap.
     radarLandmarks(plot) {
-        if (s1Phase === 'clear1' || s1Phase === 'download' || s1Phase === 'downloading') {
+        if (s1Phase === 'clear1' || s1Phase === 'download' || s1Phase === 'downloading' || s1Phase === 'radio') {
             if (s1CompPos) plot(s1CompPos.x - camera.position.x, s1CompPos.z - camera.position.z,
                 s1Phase === 'clear1' ? '#ff5040' : '#7fe3ff', 5, true);
         } else {

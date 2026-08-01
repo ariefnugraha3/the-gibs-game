@@ -1789,7 +1789,7 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
 
 // === MINIGAME HACK "ICE BREACH" (2026-07-28, permintaan user: hacking tidak
 // lagi sekadar menunggu bar progress) — helper bersama utk section S1 & S3 di
-// bawah. Papan sirkuit N×N: putar chip sampai PORT (kiri-tengah) tersambung ke
+// bawah. Papan sirkuit tetap 5×5: putar chip sampai PORT (kiri-tengah) tersambung ke
 // DATA CORE (kanan-tengah). Generator menggambar jalur solusi lebih dulu, jadi
 // papan SELALU bisa dipecahkan; `hackDebug().tiles[i].ok` = chip jalur sudah di
 // orientasi solusi. ===
@@ -1823,30 +1823,42 @@ async function waitHackClosed() {
         onSuccess: () => { lastResult = 'ok'; wins++; },
         onFail: (why) => { lastResult = why; },
     });
-    // (a) GENERATOR selalu menghasilkan papan yang BISA dipecahkan, untuk tiap
-    //     ukuran papan yang mungkin (gridMin..gridMax) — jalur solusi digambar
-    //     lebih dulu, chip pengecoh & rotasi acak menyusul.
+    // (a) GENERATOR selalu menghasilkan papan yang BISA dipecahkan pada ukuran
+    //     tetap gridSize; jalur solusi digambar sebelum chip pengecoh/rotasi.
     let genOk = true, startsUnsolved = true, startsWrong = true, boards = 0;
-    for (let size = HK.gridMin; size <= HK.gridMax; size++) {
-        for (let n = 0; n < 6; n++) {
-            openBoard(size);
-            const d0 = hackMod.hackDebug();
-            if (d0.solved) startsUnsolved = false;
-            if (!d0.tiles.filter(t => t.path).every(t => !t.ok)) startsWrong = false;
-            if (d0.size !== size || !solveHack().solved) genOk = false;
-            await waitHackClosed();
-            boards++;
-        }
+    let linksOk = true, poweredCoreOk = true;
+    for (let n = 0; n < 12; n++) {
+        // Caller lama sengaja meminta ukuran berbeda; modal wajib mengabaikannya.
+        openBoard(n % 2 ? HK.gridSize - 1 : HK.gridSize + 2);
+        const d0 = hackMod.hackDebug();
+        if (d0.solved) startsUnsolved = false;
+        if (!d0.tiles.filter(t => t.path).every(t => !t.ok)) startsWrong = false;
+        const ext = d0.externalLinks;
+        if (!ext || !ext.ingressToLeftTile || !ext.rightTileToCore
+            || !ext.ingressPowered || ext.corePowered
+            || ext.row !== ((HK.gridSize - 1) >> 1)) linksOk = false;
+        const done = solveHack();
+        if (d0.size !== HK.gridSize || !done.solved) genOk = false;
+        if (!done.externalLinks || !done.externalLinks.corePowered) poweredCoreOk = false;
+        await waitHackClosed();
+        boards++;
     }
-    T('HACK: generator SELALU solvable (' + boards + ' papan, ukuran gridMin..gridMax config)', genOk);
+    T('HACK: generator SELALU solvable (' + boards + ' papan tetap gridSize config)', genOk);
     T('HACK: papan dibuka BELUM terpecahkan & tiap chip jalur mulai salah orientasi',
         startsUnsolved && startsWrong);
     T('HACK: papan terpecahkan -> onSuccess dipanggil sekali per papan', wins === boards && lastResult === 'ok');
-    T('HACK: ukuran papan naik bertahap gridMin -> gridMax (config-driven)',
-        hackMod.hackGridSize(0) === HK.gridMin && hackMod.hackGridSize(9) === HK.gridMax
-        && hackMod.hackGridSize(1) >= hackMod.hackGridSize(0));
+    T('HACK: SEMUA terminal memakai satu ukuran gridSize (caller tak bisa override)',
+        hackMod.hackGridSize(0) === HK.gridSize && hackMod.hackGridSize(99) === HK.gridSize);
+    T('HACK: kabel luar menghubungkan INGRESS/CORE ke tile baris tengah dan mengikuti daya',
+        linksOk && poweredCoreOk);
+    const hackSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/utility/hackMinigame.js', 'utf8');
+    const hackCss = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
+    T('HACK UI: kabel INGRESS dan DATA CORE punya markup + arah visual eksplisit',
+        hackSrc.includes('id="hackIngressLead"') && hackSrc.includes('id="hackCoreLead"')
+        && hackCss.includes('.hackLeadIn') && hackCss.includes('.hackLeadOut')
+        && hackCss.includes('.hackLead::after'));
     // (b) Rotasi 4x = kembali ke orientasi semula; chip MATI tak bisa diklik.
-    openBoard(HK.gridMin);
+    openBoard(HK.gridSize);
     const pi = hackMod.hackDebug().tiles.findIndex(t => t.path);
     const rot0 = hackMod.hackDebug().tiles[pi].rot;
     for (let i = 0; i < 4; i++) hackMod.hackRotate(pi);
@@ -1862,7 +1874,7 @@ async function waitHackClosed() {
     T('HACK: scene modal aktif -> shopActive() true & tombol gameplay ditelan',
         smMod.activeScene.id === 'campaign-hack' && smMod.activeScene.shopActive() === true
         && smMod.activeScene.shopKey('w') === true);
-    T('HACK: modal tak bisa dibuka dua kali', openBoard(HK.gridMin) === false);
+    T('HACK: modal tak bisa dibuka dua kali', openBoard(HK.gridSize) === false);
     lastResult = null;
     smMod.activeScene.shopKey('escape');
     T('HACK: ESC = ABORT -> onFail("abort") + scene sebelumnya dipulihkan seketika',
@@ -1871,7 +1883,7 @@ async function waitHackClosed() {
     stateMod.setPaused(false);
     // (d) ICE TRACE habis -> LOCKED OUT -> onFail('fail').
     lastResult = null;
-    openBoard(HK.gridMin);
+    openBoard(HK.gridSize);
     T('HACK: hitung mundur ICE TRACE = CFG.campaign.hack.traceSec', hackMod.hackDebug().traceMax === HK.traceSec);
     hackMod.hackTick(HK.traceSec * 0.5);
     T('HACK: ICE TRACE berkurang selama bermain', hackMod.hackDebug().traceLeft < HK.traceSec);
@@ -2186,11 +2198,13 @@ async function waitRepairClosed() {
 }
 
 // --- ALUR STAGE 1 (2026-07-20, ROMBAK TOTAL): clear1 (bunuh 50 robot) -> BUKA
-// ruang komputer -> MINIGAME HACK (2026-07-28, dulu bar unduh 10 dtk) -> spawn
-// 20 robot wave-2 + horde di ruang X -> clear2 -> done (tangga aktif).
+// ruang komputer -> MINIGAME HACK (2026-07-28, dulu bar unduh 10 dtk) -> RADIO
+// Pilot lalu Maj. Gibran (2026-08-01) -> spawn 20 robot wave-2 + horde di
+// ruang X -> clear2 -> done (tangga aktif).
 // Mulai dari state built section sebelumnya (fase clear1). ---
 {
     const s1m = await import(R('src/scenes/campaign/stages/stage1.js'));
+    const domS1 = await import(R('src/core/dom.js'));
     // Fase awal = clear1 + pintu ruang komputer TERKUNCI (merah).
     T('S1 FLOW: fase clear1 + pintu ruang komputer TERKUNCI',
         s1m.s1Debug().phase === 'clear1' && s1m.s1CompDoorDbg() && s1m.s1CompDoorDbg().locked === true);
@@ -2209,8 +2223,8 @@ async function waitRepairClosed() {
     T('S1 HACK: menempel komputer -> MINIGAME terbuka (scene modal `campaign-hack`, game di-pause)',
         s1m.s1Debug().phase === 'downloading' && H1.open === true && H1.phase === 'play'
         && smMod.activeScene.id === 'campaign-hack' && stateMod.isPaused === true);
-    T('S1 HACK: papan ' + H1.size + 'x' + H1.size + ' (gridMin config) BELUM terpecahkan & tiap chip jalur mulai SALAH',
-        H1.size === cfgMod.CFG.campaign.hack.gridMin && H1.solved === false
+    T('S1 HACK: papan ' + H1.size + 'x' + H1.size + ' (gridSize config) BELUM terpecahkan & tiap chip jalur mulai SALAH',
+        H1.size === cfgMod.CFG.campaign.hack.gridSize && H1.solved === false
         && H1.tiles.some(t => t.path) && H1.tiles.filter(t => t.path).every(t => !t.ok));
     // === ALARM (2026-07-28, permintaan user): ICE TRACE habis -> "ALARM
     // TRIGGERED" -> modal ditutup -> HORDE kelas C muncul DI LUAR LAYAR dan
@@ -2248,16 +2262,63 @@ async function waitRepairClosed() {
     T('S1 HACK: papan bisa dipecahkan (port -> core tersambung) -> ACCESS GRANTED',
         solvedDbg.solved === true && solvedDbg.phase === 'won');
     await waitHackClosed();
-    T('S1 HACK: modal menutup -> scene sebelumnya DIPULIHKAN tanpa enter() (fase lanjut ke clear2, bukan reset ke clear1)',
+    T('S1 HACK: modal menutup -> scene sebelumnya DIPULIHKAN tanpa enter() (fase lanjut ke radio, bukan reset ke clear1)',
         hackMod.hackDebug().open === false && smMod.activeScene === sceneBeforeHack
-        && s1m.s1Debug().phase === 'clear2');
+        && s1m.s1Debug().phase === 'radio');
+    const expectedS1Radio = [
+        {
+            speaker: 'Pilot',
+            text: "Major, incoming! We're taking heavy mortar fire on the roof! We can't hold position! Relocating extraction to the town square! You need to fight your way down the building and get the hell out of there!",
+        },
+        {
+            speaker: 'Maj. Gibran',
+            text: "Damn it!! Can't anything just go according to plan?! Solid copy. Just clear that secondary LZ and don't miss me.",
+        },
+    ];
+    T('S1 RADIO: naskah Pilot -> Maj. Gibran dipatok PERSIS kata dan tanda bacanya',
+        JSON.stringify(s1m.S1_RADIO_DIALOGUE) === JSON.stringify(expectedS1Radio));
+    T('S1 RADIO: Pilot tampil pertama dengan body KOSONG + caret ketik; kontrol beku dan wave-2 BELUM spawn',
+        stateMod.cinematicActive === true && robots.filter(z => z.stage === 1).length === 0
+        && domS1.stageRadioDialogueDebug().speaker === expectedS1Radio[0].speaker
+        && domS1.stageRadioDialogueDebug().text === ''
+        && domS1.stageRadioDialogueDebug().typing === true);
+    const dialogueCfg = cfgMod.CFG.campaign.dialogue;
+    const radioCps = Math.max(1, dialogueCfg.cps);
+    const radioHold = Math.max(0, dialogueCfg.holdSec);
+    const pilotTypeSec = expectedS1Radio[0].text.length / radioCps;
+    T('S1 RADIO: tuning typewriter global valid dan config-driven', dialogueCfg.cps > 0 && dialogueCfg.holdSec > 0);
+    s1m.stage1Scene.updateMode(1.1 / radioCps);
+    T('S1 RADIO TYPEWRITER: teks benar-benar muncul HURUF-PER-HURUF, bukan langsung penuh',
+        s1m.s1Debug().radioIndex === 0 && s1m.s1Debug().radioChars === 1
+        && domS1.stageRadioDialogueDebug().text === expectedS1Radio[0].text.slice(0, 1)
+        && domS1.stageRadioDialogueDebug().typing === true);
+    s1m.stage1Scene.updateMode(pilotTypeSec - 1.1 / radioCps);
+    T('S1 RADIO TYPEWRITER: naskah Pilot akhirnya tampil UTUH lalu caret berhenti selama hold',
+        s1m.s1Debug().radioIndex === 0
+        && domS1.stageRadioDialogueDebug().text === expectedS1Radio[0].text
+        && domS1.stageRadioDialogueDebug().typing === false);
+    s1m.stage1Scene.updateMode(radioHold * 0.5);
+    T('S1 RADIO: teks lengkap ditahan selama campaign.dialogue.holdSec sebelum ganti speaker',
+        s1m.s1Debug().radioIndex === 0
+        && domS1.stageRadioDialogueDebug().text === expectedS1Radio[0].text);
+    s1m.stage1Scene.updateMode(radioHold * 0.5 + 0.001);
+    T('S1 RADIO: setelah Pilot, Maj. Gibran mulai mengetik sebagai baris kedua',
+        s1m.s1Debug().radioIndex === 1
+        && domS1.stageRadioDialogueDebug().speaker === expectedS1Radio[1].speaker
+        && expectedS1Radio[1].text.startsWith(domS1.stageRadioDialogueDebug().text)
+        && domS1.stageRadioDialogueDebug().text.length < expectedS1Radio[1].text.length
+        && domS1.stageRadioDialogueDebug().typing === true);
+    s1m.stage1Scene.updateMode(expectedS1Radio[1].text.length / radioCps + radioHold);
+    T('S1 RADIO: dialog selesai -> panel hilang, kontrol pulih, baru masuk clear2',
+        s1m.s1Debug().phase === 'clear2' && s1m.s1Debug().radioIndex === -1
+        && domS1.stageRadioDialogueDebug() === null && stateMod.cinematicActive === false);
     const w2 = robots.filter(z => z.stage === 1);
     const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
     // SECOND-IMPROVEMENT #3 (2026-07-22): unduh selesai spawn wave-2 (20) + HORDE
     // (CFG.campaign.stage1.hordeCount kelas C yang LANGSUNG menyerbu = 'chasing').
     // 2026-07-26 (permintaan user): stage 1 HANYA kelas C — tak ada B/A sama sekali.
     const horde = cfgMod.CFG.campaign.stage1.hordeCount;
-    T('S1 FLOW: hack sukses -> wave-2 SEMUA kelas C + HORDE (' + horde + ' C) + kendali dikembalikan',
+    T('S1 FLOW: radio selesai -> wave-2 SEMUA kelas C + HORDE (' + horde + ' C) + kendali dikembalikan',
         s1m.s1Debug().phase === 'clear2' && stateMod.cinematicActive === false
         && w2.length === 20 + horde && nC === 20 + horde && nB === 0 && nA === 0);
     T('S1 FLOW: HORDE langsung menyerbu (ada robot chasing di wave-2)',
@@ -2272,6 +2333,46 @@ async function waitRepairClosed() {
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s2dropsBefore = stateMod.drops.length;
 smMod.setScene(s2mod.stage2Scene);   // enter() menempatkan robot+supply stage 2 sendiri (2026-07-21)
+const domS2 = await import(R('src/core/dom.js'));
+const S2DLGCFG = cfgMod.CFG.campaign.dialogue;
+const expectedS2Dialogue = {
+    stageStart: {
+        speaker: 'Major Gibran',
+        text: 'Damn it! The stairs are completely destroyed... Looks like I need an alternate route. Maybe that elevator works.',
+    },
+    liftDead: {
+        speaker: 'Major Gibran',
+        text: "The elevator's out of power. I need to find a generator and bring it back online. Intel mentioned there's one on this floor.",
+    },
+    inspectGenerator: {
+        speaker: 'Major Gibran',
+        text: "I'm gonna need to scavenge a few parts to patch up this generator.",
+    },
+    generatorRestored: {
+        speaker: 'Major Gibran',
+        text: "Generator's back online! Time to head back to the elevator.",
+    },
+};
+const finishS2Dialogue = () => {
+    const d = s2mod.s2DialogueDebug();
+    if (d.key) s2mod.stage2Scene.updateMode(
+        d.text.length / Math.max(1, S2DLGCFG.cps) + Math.max(0, S2DLGCFG.holdSec) + 0.01,
+    );
+};
+T('S2 DIALOG: empat naskah + label Major Gibran dipatok PERSIS',
+    JSON.stringify(s2mod.S2_DIALOGUE) === JSON.stringify(expectedS2Dialogue));
+T('S2 DIALOG START: masuk stage langsung membuka speaker dengan body kosong + caret',
+    s2mod.s2DialogueDebug().key === 'stageStart'
+    && s2mod.s2DialogueDebug().shown === '' && s2mod.s2DialogueDebug().typing === true
+    && domS2.stageRadioDialogueDebug().speaker === 'Major Gibran'
+    && domS2.stageRadioDialogueDebug().text === '' && domS2.stageRadioDialogueDebug().typing === true);
+s2mod.stage2Scene.updateMode(1.1 / Math.max(1, S2DLGCFG.cps));
+T('S2 DIALOG TYPEWRITER: dialog start muncul tepat satu karakter lebih dulu',
+    s2mod.s2DialogueDebug().chars === 1
+    && s2mod.s2DialogueDebug().shown === expectedS2Dialogue.stageStart.text.slice(0, 1));
+finishS2Dialogue();
+T('S2 DIALOG START: teks mencapai utuh, melewati hold config, lalu panel bersih',
+    s2mod.s2DialogueDebug().key === null && domS2.stageRadioDialogueDebug() === null);
 const nStage2 = robots.filter(z => z.stage === 2).length;
 T('S2: placeRobots menaruh 50 robot GELOMBANG-1 (kelas C) tagged stage 2 (' + nStage2 + ')',
     nStage2 === 50 && nStage2 === s2mod.s2Wave1Count && robots.filter(z => z.stage === 2).every(z => z.kind === 'C'));
@@ -2313,6 +2414,13 @@ const s2GenC = s2mod.s2Cell(s2mod.S2_GEN.c, s2mod.S2_GEN.r);
 const s2LiftC = s2mod.s2Cell((s2mod.S2_LIFT.c0 + s2mod.S2_LIFT.c1) / 2, (s2mod.S2_LIFT.r0 + s2mod.S2_LIFT.r1) / 2);
 const killS2 = () => { for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 2) { scene.remove(robots[i].mesh); robots.splice(i, 1); } };
 // LIFT DITOLAK selagi belum 'done' (fase clear1, robot hidup)
+camera.position.set(s2LiftC.x, EY2, s2LiftC.z);
+s2mod.stage2Scene.updateMode(0.01);
+T('S2 DIALOG LIFT MATI: pertama kali menemukan lift memicu naskah yang tepat',
+    s2mod.s2DialogueDebug().key === 'liftDead'
+    && s2mod.s2DialogueDebug().text === expectedS2Dialogue.liftDead.text
+    && s2mod.s2DialogueDebug().shown === '');
+finishS2Dialogue();
 stateMod._v3.set(s2LiftC.x, 0, s2LiftC.z);
 s2mod.stage2Scene.playerCollide(stateMod._v3, s2LiftC.x, s2LiftC.z, 0);
 T('S2: LIFT DITOLAK selagi belum selesai (fase clear1)', smMod.activeScene === s2mod.stage2Scene);
@@ -2321,6 +2429,11 @@ T('S2 FLOW: wave1 (50 C) tumbang -> fase goGen', s2mod.s2Debug().phase === 'goGe
 camera.position.set(s2GenC.x, EY2, s2GenC.z); s2mod.stage2Scene.updateMode(0.1);
 T('S2 FLOW: dekati generator -> collect + 20 penjaga gudang + 3 komponen',
     s2mod.s2Debug().phase === 'collect' && robots.filter(z => z.stage === 2).length === 20 && s2mod.s2ComponentsDbg().length === 3);
+T('S2 DIALOG GENERATOR: pemeriksaan pertama generator memicu kebutuhan mencari parts',
+    s2mod.s2DialogueDebug().key === 'inspectGenerator'
+    && s2mod.s2DialogueDebug().text === expectedS2Dialogue.inspectGenerator.text
+    && s2mod.s2DialogueDebug().shown === '');
+finishS2Dialogue();
 {   // 3 komponen di UJUNG PALING DALAM rak (baris terbawah, terjauh dari pintu
     // masuk gudang) + tersebar 1 per ZONA kiri/tengah/kanan → player wajib
     // menyusuri seluruh gudang & hadapi semua penjaga (2026-07-21, permintaan user).
@@ -2377,6 +2490,15 @@ T('S2 FLOW: injak marker generator -> MINIGAME FIELD REPAIR (scene modal, game d
         s2mod.s2Debug().phase === 'done' && s2mod.s2Debug().installed === 3
         && repMod.isRepairOpen() === false && stateMod.cinematicActive === false
         && w2.length === 25 && nC === 10 && nB === 15 && nA === 0);
+    T('S2 DIALOG GENERATOR PULIH: sukses repair memicu arahan kembali ke elevator',
+        s2mod.s2DialogueDebug().key === 'generatorRestored'
+        && s2mod.s2DialogueDebug().text === expectedS2Dialogue.generatorRestored.text
+        && s2mod.s2DialogueDebug().shown === '');
+    finishS2Dialogue();
+    T('S2 DIALOG: keempat event hanya tampil sekali dan antrean selesai bersih',
+        s2mod.s2DialogueDebug().key === null && s2mod.s2DialogueDebug().queued.length === 0
+        && Object.keys(expectedS2Dialogue).every(key => s2mod.s2DialogueDebug().seen.includes(key))
+        && domS2.stageRadioDialogueDebug() === null);
 }
 // ATURAN BARU (2026-07-21): lift bisa dinaiki MESKI robot wave2 masih hidup — TANPA killS2.
 const w2alive = robots.filter(z => z.stage === 2).length;
@@ -2658,6 +2780,50 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s3dropsBefore = stateMod.drops.length;
 smMod.setScene(s3mod.stage3Scene);   // enter(): reset destructibles + supply (TANPA placeRobots — robot via gelombang)
 const s3cfg = cfgMod.CFG.campaign.stage3;
+const domS3 = await import(R('src/core/dom.js'));
+const S3DLGCFG = cfgMod.CFG.campaign.dialogue;
+const expectedS3Dialogue = {
+    stageStart: {
+        speaker: 'Major Gibran',
+        text: "I need to get out of this building, ASAP, but the main doors are locked down. I'll have to find a terminal to hack the system and force them open.",
+    },
+    firstHack: {
+        speaker: 'Major Gibran',
+        text: 'Damn it, a multi-stage lock. Looks like there are four more terminals I need to hack.',
+    },
+    allHacked: {
+        speaker: 'Major Gibran',
+        text: 'That did it! Doors are unlocked. Time to move!',
+    },
+    enterLobby: {
+        speaker: 'Major Gibran',
+        text: "They've set up a production unit right in the main lobby?! I can't leave this active. I need to destroy it before heading to the LZ!",
+    },
+    inactiveTerminal: {
+        speaker: 'Major Gibran',
+        text: 'Hm this computer is not working',
+    },
+};
+const finishS3Dialogue = () => {
+    for (let guard = 0; guard < 10 && s3mod.s3DialogueDebug().key; guard++) {
+        const d = s3mod.s3DialogueDebug();
+        s3mod.stage3Scene.updateMode(
+            d.text.length / Math.max(1, S3DLGCFG.cps) + Math.max(0, S3DLGCFG.holdSec) + 0.01,
+        );
+    }
+};
+T('S3 DIALOG: lima naskah + label Major Gibran dipatok PERSIS',
+    JSON.stringify(s3mod.S3_DIALOGUE) === JSON.stringify(expectedS3Dialogue));
+T('S3 DIALOG START: masuk stage langsung membuka body kosong + caret typewriter',
+    s3mod.s3DialogueDebug().key === 'stageStart' && s3mod.s3DialogueDebug().shown === ''
+    && s3mod.s3DialogueDebug().typing === true
+    && domS3.stageRadioDialogueDebug().speaker === 'Major Gibran'
+    && domS3.stageRadioDialogueDebug().text === '' && domS3.stageRadioDialogueDebug().typing === true);
+s3mod.stage3Scene.updateMode(1.1 / Math.max(1, S3DLGCFG.cps));
+T('S3 DIALOG TYPEWRITER: dialog stage-start muncul satu karakter lebih dulu',
+    s3mod.s3DialogueDebug().chars === 1
+    && s3mod.s3DialogueDebug().shown === expectedS3Dialogue.stageStart.text.slice(0, 1));
+finishS3Dialogue();
 // KAMERA khusus stage 3 (2026-07-21, permintaan user): memandang dari BARAT LAUT
 // (NW→SE). followViewCam menerapkan `camOffset` (z<0) → SCREEN_UP (basis atas layar)
 // menunjuk TENGGARA (x>0,z>0), basis WASD/radar ikut berputar.
@@ -2721,6 +2887,7 @@ const S3_ROOM_RECT = {
     T('S3 HACK: urutan hack DIACAK tiap masuk stage (' + seenOrders.size + ' urutan berbeda dari 8) & selalu permutasi sah',
         permOk && seenOrders.size > 1);
 }
+finishS3Dialogue();   // enter() terakhir mengantre ulang dialog pembuka
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 stateMod.setCinematicActive(false);
 
@@ -2761,9 +2928,26 @@ T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)
     const act = s3Active();
     const other = s3mod.s3HackDbg().terms.find(t => t.room !== act.room);
     s3StandAt(other);
-    for (let i = 0; i < 20; i++) s3mod.stage3Scene.updateMode(0.05);
+    s3mod.stage3Scene.updateMode(1.1 / Math.max(1, S3DLGCFG.cps));
+    s3mod.stage3Scene.updateMode(1.1 / Math.max(1, S3DLGCFG.cps));
     T('S3 HACK: terminal yang BUKAN gilirannya tidak bisa di-hack (harus berurutan)',
         s3mod.s3Debug().hacking === false && s3mod.s3Debug().hacked === 0 && s3Count() === 0);
+    T('S3 DIALOG TERMINAL MATI: terminal merah menampilkan naskah exact lewat typewriter',
+        s3mod.s3DialogueDebug().key === 'inactiveTerminal'
+        && s3mod.s3DialogueDebug().text === expectedS3Dialogue.inactiveTerminal.text
+        && s3mod.s3DialogueDebug().chars === 1 && s3mod.s3DialogueDebug().typing === true);
+    finishS3Dialogue();
+    camera.position.set(other.sx + 400, cfgMod.CFG.player.eyeHeight, other.sz);
+    s3mod.stage3Scene.updateMode(0.05);
+    s3StandAt(other);
+    s3mod.stage3Scene.updateMode(0.05);
+    T('S3 DIALOG TERMINAL MATI: menjauh lalu mencoba lagi mengaktifkan dialog kembali tanpa spam frame',
+        s3mod.s3DialogueDebug().key === 'inactiveTerminal'
+        && s3mod.s3DialogueDebug().queued.length === 0
+        && s3mod.s3DialogueDebug().inactiveArmed === false);
+    finishS3Dialogue();
+    camera.position.set(other.sx + 400, cfgMod.CFG.player.eyeHeight, other.sz);
+    s3mod.stage3Scene.updateMode(0.05);
 }
 
 // (2b) BATAL: puzzle yang dibatalkan meninggalkan terminal TETAP belum ter-hack,
@@ -2828,14 +3012,18 @@ T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)
     T('S3 HACK: menempel terminal HIJAU -> MINIGAME terbuka (scene modal, game di-pause, stage 3 disimpan)',
         H.open === true && H.phase === 'play' && s3mod.s3Debug().hacking === true
         && smMod.activeScene.id === 'campaign-hack' && stateMod.isPaused === true);
-    T('S3 HACK: judul papan menyebut terminal giliran & ukurannya config-driven (gridMin..gridMax)',
-        H.size >= cfgMod.CFG.campaign.hack.gridMin && H.size <= cfgMod.CFG.campaign.hack.gridMax
-        && H.size === hackMod.hackGridSize(0));
+    T('S3 HACK: judul papan menyebut terminal giliran & ukurannya selalu gridSize',
+        H.size === cfgMod.CFG.campaign.hack.gridSize && H.size === hackMod.hackGridSize(0));
     solveHack();
     await waitHackClosed();
     T('S3 HACK: puzzle terpecahkan -> scene stage 3 dipulihkan & terminal tercatat ter-hack',
         hackMod.hackDebug().open === false && smMod.activeScene === s3mod.stage3Scene
         && s3mod.s3Debug().hacking === false && s3mod.s3Debug().hacked === 1);
+    T('S3 DIALOG HACK #1: sukses pertama mengantre dialog multi-stage lock exact',
+        s3mod.s3DialogueDebug().key === 'firstHack'
+        && s3mod.s3DialogueDebug().text === expectedS3Dialogue.firstHack.text
+        && s3mod.s3DialogueDebug().typing === true);
+    finishS3Dialogue();
     const queued = s3mod.s3SpawnDbg().queued + s3Count();
     T('S3 HACK: hack SELESAI -> satu gelombang (6+6=12) diantre, langsung mengejar',
         queued === s3cfg.gateWaveCount * 2);
@@ -2869,9 +3057,19 @@ T('S3 HACK: gelombang TIDAK respawn sendiri — sunyi sampai hack berikutnya (tu
 }
 
 // (6) Hack sisa terminal -> setelah yang KE-5 pintu MEMBUKA (naik), rambu HIJAU.
-for (let k = 1; k < 5; k++) { await s3RunHack(); s3KillAll(); s3mod.s3SpawnDbg().queued && s3Drain(); s3KillAll(); }
+// Hack #5 dipisahkan agar dialognya diuji PERSIS setelah callback sukses, sebelum
+// antrean robot ditiriskan (yang juga memajukan jam typewriter beberapa detik).
+for (let k = 1; k < 4; k++) { await s3RunHack(); s3KillAll(); s3mod.s3SpawnDbg().queued && s3Drain(); s3KillAll(); }
+await s3RunHack();
 T('S3 HACK: kelima terminal selesai -> semua layar KUNING',
     s3mod.s3Debug().hacked === 5 && s3mod.s3HackDbg().terms.every(t => t.hex === 0xffd23b));
+T('S3 DIALOG 5/5: hack terakhir memicu dialog pintu terbuka exact',
+    s3mod.s3DialogueDebug().key === 'allHacked'
+    && s3mod.s3DialogueDebug().text === expectedS3Dialogue.allHacked.text
+    && s3mod.s3DialogueDebug().typing === true);
+s3KillAll();
+s3mod.s3SpawnDbg().queued && s3Drain();
+s3KillAll();
 s3mod.stage3Scene.updateMode(0.05);
 T('S3 PINTU: 5/5 ter-hack -> pintu blast TERBUKA (blocker lepas, rambu HIJAU) + fase toX',
     s3mod.s3Debug().phase === 'toX' && s3mod.s3DoorDbg().open === true
@@ -2880,6 +3078,7 @@ T('S3 PINTU: 5/5 ter-hack -> pintu blast TERBUKA (blocker lepas, rambu HIJAU) + 
 for (let i = 0; i < 60; i++) s3mod.stage3Scene.updateMode(0.05);
 T('S3 PINTU: daun pintu NAIK ke plafon (mesh tetap ada, tidak dihancurkan)',
     s3mod.s3DoorDbg().visible === true && s3mod.s3DoorDbg().k >= 1);
+finishS3Dialogue();
 s3KillAll();
 
 // (4) Masuk ruang X -> fase machines TANPA spawn langsung; >= machineFirstWaveSec -> 16 (4/mesin)
@@ -2888,6 +3087,10 @@ camera.position.set(xin.x, cfgMod.CFG.player.eyeHeight, xin.z);
 s3mod.stage3Scene.updateMode(0.1);
 T('S3 FLOW: masuk ruang X -> fase machines (4 mesin) TANPA spawn langsung',
     s3mod.s3Debug().phase === 'machines' && s3mod.s3Debug().machinesAlive === 4 && robots.filter(z => z.stage === 3).length === 0);
+T('S3 DIALOG LOBBY: masuk lobby memicu dialog production unit exact lewat typewriter',
+    s3mod.s3DialogueDebug().key === 'enterLobby'
+    && s3mod.s3DialogueDebug().text === expectedS3Dialogue.enterLobby.text
+    && s3mod.s3DialogueDebug().typing === true);
 for (let t = 0; t < s3cfg.machineFirstWaveSec - 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 const beforeMW = robots.filter(z => z.stage === 3).length;
 for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
@@ -3162,10 +3365,35 @@ T('S4: tank boss BELUM muncul selagi masih ada robot', s4mod.currentTank() == nu
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 s4mod.stage4Scene.updateMode(0.1);
 const s4heli = s4mod.currentHeli();
+const dom4 = await import(R('src/core/dom.js'));
+const S4DLGCFG = cfgMod.CFG.campaign.dialogue;
+const expectedS4Dialogue = {
+    heliArrival: {
+        speaker: 'Pilot',
+        text: "Major, we’re at the LZ! Hurry, we're running out of time! Get in so we can fall back to Bandung and upload that file! Put an end to this madness once and for all!",
+    },
+    tankReveal: {
+        speaker: 'Pilot',
+        text: 'Wait... what the hell is THAT?! Is that a—',
+    },
+    pilotCutoff: {
+        speaker: 'Pilot',
+        text: 'GET OUT OF THE—',
+        distorted: true,
+    },
+    gibranReaction: {
+        speaker: 'Major Gibran',
+        text: 'DAMN IT!! That metal bastard took out our exfil... I’m taking that tank down!',
+    },
+};
 T('S4: semua robot mati -> HELI penjemput menunggu di pusat alun (tank belum muncul)',
     s4heli != null && s4mod.currentTank() == null && !s4heli.wrecked
     && s4heli.parts.group.position.x === s4mod.S4_END.x
     && s4heli.parts.group.position.z === s4mod.S4_END.z);
+T('S4 DIALOG: empat naskah Pilot/Gibran dipatok PERSIS',
+    JSON.stringify(s4mod.TANK_BOSS_DIALOGUE) === JSON.stringify(expectedS4Dialogue));
+T('S4 DIALOG HELI: heli mendarat belum membuka dialog sebelum player menyentuh ring',
+    s4mod.tankDialogueDebug().key === null && dom4.stageRadioDialogueDebug() === null);
 {
     const r0 = s4heli.parts.rotor.rotation.y;
     s4mod.stage4Scene.updateMode(0.1);
@@ -3173,12 +3401,14 @@ T('S4: semua robot mati -> HELI penjemput menunggu di pusat alun (tank belum mun
 }
 // GERBANG kini terbuka: posisi yang sama tidak lagi terdorong. CATATAN: collide
 // DI DALAM rect SQ ini sekaligus = "player menginjak ring road" -> CUTSCENE mulai.
+const s4FogBeforeCutscene = { near: scene.fog.near, far: scene.fog.far };
 {
     // fokus kamera dipanaskan ke pivot dulu (di game nyata fokus selalu
     // membuntuti player) — supaya pan sinematik diukur dari posisi wajar
     camera.position.set(s4mod.S4_GATE.x, cfgMod.CFG.player.eyeHeight, s4mod.S4_GATE.z);
     rendererMod.followViewCam(0.1);   // snap: fokus = pivot di gerbang
     stateMod._v3.set(s4mod.S4_GATE.x, 0, s4mod.S4_GATE.z);
+    stateMod.keys.w = stateMod.keys.d = true;   // bukti start() benar-benar melepas input tahan
     s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_GATE.x - 40, s4mod.S4_GATE.z, 0);
     T('S4: gerbang TERBUKA setelah semua robot mati (player bisa lewat)',
         Math.abs(stateMod._v3.x - s4mod.S4_GATE.x) < 1e-6);
@@ -3188,7 +3418,18 @@ T('S4: semua robot mati -> HELI penjemput menunggu di pusat alun (tank belum mun
 // heli (hancur), maju ke DEPAN bangkai, pan balik, kontrol pulih. Mesin
 // berbasis TIMER -> deterministik headless.
 T('S4 cutscene: menginjak ring road -> sinematik aktif + input player dibekukan',
-    s4mod.cineDebug().active && stateMod.cinematicActive === true);
+    s4mod.cineDebug().active && stateMod.cinematicActive === true
+    && stateMod.keys.w === false && stateMod.keys.d === false);
+T('S4 DIALOG RING: SETELAH player dibekukan, cutscene membuka Pilot dengan body kosong + caret',
+    s4mod.cineDebug().phase === 'open' && s4mod.tankDialogueDebug().key === 'heliArrival'
+    && s4mod.tankDialogueDebug().shown === '' && s4mod.tankDialogueDebug().typing === true
+    && dom4.stageRadioDialogueDebug().speaker === 'Pilot'
+    && dom4.stageRadioDialogueDebug().text === '' && dom4.stageRadioDialogueDebug().typing === true);
+s4mod.stage4Scene.updateMode(1.1 / Math.max(1, S4DLGCFG.cps));
+T('S4 DIALOG RING: panggilan LZ mulai diketik huruf-per-huruf setelah cutscene aktif',
+    s4mod.cineDebug().active && stateMod.cinematicActive
+    && s4mod.tankDialogueDebug().chars === 1
+    && s4mod.tankDialogueDebug().shown === expectedS4Dialogue.heliArrival.text.slice(0, 1));
 {
     // ===== CUTSCENE TANK-BOSS — DIROMBAK 2026-07-27 (permintaan user: "buat agar
     // jauh lebih dramatis, jauh lebih cinematic ... SEPERTI FILM BOX OFFICE").
@@ -3197,17 +3438,17 @@ T('S4 cutscene: menginjak ring road -> sinematik aktif + input player dibekukan'
     // reveal, gerak lambat hit-stop, heli yang mencoba kabur lalu JATUH, takarir,
     // dan serah-terima kamera TEPAT di sudut gameplay. Durasi shot dari CFG.
     const tsMod4 = await import(R('src/core/timeScale.js'));
-    const dom4 = await import(R('src/core/dom.js'));
     const azOf4 = (o) => { const a = Math.atan2(o.x, o.z) * 180 / Math.PI; return a < 0 ? a + 360 : a; };
     const camOff4 = () => s4mod.stage4Scene.camOffset;
     const HX = s4mod.S4_END.x, HZ = s4mod.S4_END.z;
     const P4 = { x: camera.position.x, z: camera.position.z };   // tempat player berdiri saat cutscene mulai
-    const fogBefore = { near: scene.fog.near, far: scene.fog.far };
+    const fogBefore = s4FogBeforeCutscene;
     const D0 = s4mod.cineDebug();
     const smashPre = s4mod.smashDebug();          // ruko masih UTUH sebelum tank masuk
     let smashPhase = null, smashTankZ = 0;        // fase & posisi tank saat ruko roboh
-    const seen4 = [], caps4 = [], shot4 = [], spd4 = [];
-    let last4 = null, lastCap4 = null, n4 = 0, sawTankCine = false;
+    const seen4 = [], dialogue4 = [], shot4 = [], spd4 = [];
+    const partialDialogue4 = new Set(), dialoguePhase4 = {};
+    let last4 = null, lastDialogue4 = null, n4 = 0, sawTankCine = false, sawDistorted4 = false;
     let cuts4 = 0, maxCamStep = 0, maxFocusStep = 0, tsMin = 1, tsAtFire = 1;
     let hMin = 1e9, hMax = -1e9, dMin = 1e9, dMax = -1e9, azMin = 1e9, azMax = -1e9;
     let heliLift = -99, fogMin = 1e9, focusMinHeli = 1e9, focusEndPlayer = 99;
@@ -3225,7 +3466,15 @@ T('S4 cutscene: menginjak ring road -> sinematik aktif + input player dibekukan'
             if (d.phase === 'reveal') revealAt = spd4.length;
             last4 = d.phase;
         }
-        if (d.caption && d.caption !== lastCap4) { caps4.push(d.caption); lastCap4 = d.caption; }
+        const dlg4 = s4mod.tankDialogueDebug();
+        if (dlg4.key && dlg4.key !== lastDialogue4) {
+            dialogue4.push(dlg4.key);
+            dialoguePhase4[dlg4.key] = d.phase;
+            lastDialogue4 = dlg4.key;
+        } else if (!dlg4.key) lastDialogue4 = null;
+        if (dlg4.key && dlg4.chars > 0 && dlg4.chars < dlg4.text.length) partialDialogue4.add(dlg4.key);
+        if (dlg4.key === 'pilotCutoff' && dlg4.distorted
+            && dom4.stageRadioDialogueDebug()?.distorted) sawDistorted4 = true;
         {   // rentang sudut/jarak/tinggi diukur PER FRAME (puncak crane ada di
             // tengah shot, bukan di batas shot)
             const a4 = azOf4(c4), r4 = Math.hypot(c4.x, c4.z);
@@ -3317,10 +3566,17 @@ T('S4 cutscene: menginjak ring road -> sinematik aktif + input player dibekukan'
         + fogMin.toFixed(0) + ' -> ' + scene.fog.far.toFixed(0) + ')',
         fogMin < fogBefore.far * 0.75 && Math.abs(scene.fog.far - fogBefore.far) < 1
         && Math.abs(scene.fog.near - fogBefore.near) < 1);
-    T('S4 CUTSCENE TAKARIR: takarir English tampil urut & hilang di akhir (' + caps4.length + ')',
-        caps4.length === 5 && caps4.every(c => /^[\x20-\x7E]+$/.test(c))
-        && caps4[1].includes('Something heavy') && caps4[4].includes('WAR TANK')
-        && dom4.cineCaptionDebug() === null);
+    T('S4 CUTSCENE DIALOG: panggilan LZ -> tank reveal -> radio terpotong -> reaksi Gibran tampil URUT',
+        dialogue4.join(',') === 'heliArrival,tankReveal,pilotCutoff,gibranReaction'
+        && dialoguePhase4.heliArrival === 'open'
+        && dialoguePhase4.tankReveal === 'reveal'
+        && dialoguePhase4.pilotCutoff === 'fire'
+        && dialoguePhase4.gibranReaction === 'crash');
+    T('S4 CUTSCENE DIALOG: semua body benar-benar melewati fase typewriter parsial',
+        ['heliArrival', 'tankReveal', 'pilotCutoff', 'gibranReaction'].every(k => partialDialogue4.has(k)));
+    T('S4 CUTSCENE RADIO: GET OUT OF THE— terdistorsi, lalu panel/sinyal terputus bersih saat duel',
+        sawDistorted4 && s4mod.tankDialogueDebug().key === null
+        && dom4.stageRadioDialogueDebug() === null && dom4.cineCaptionDebug() === null);
     // --- RUKO YANG DITEROBOS (2026-07-28, permintaan user: "tank itu kan
     //     menabrak sebuah bangunan ... buat agar bangunan itu hancur ... karena
     //     sekarang tank hanya berjalan melewatinya"). Bangunan berdiri TEPAT di
@@ -4486,13 +4742,10 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     (await import(R('src/core/dom.js'))).hideCutsceneSkip();   // bersihkan callback skip utk blok intro berikut
 }
 
-// --- 17d. INTRO CUTSCENE campaign (2026-07-17): start campaign BARU diawali
-// cutscene penurunan HELIKOPTER di ATAP gedung sebelum Stage 1. Scene NON-
-// gameplay (cinematicActive membekukan kontrol); mesin BERBASIS TIMER (durasi
-// dari CFG.campaign.intro): SCENE 1 heli terbang menuju atap -> hover -> tali
-// menjuntai -> character TURUN tali -> BERJALAN ke pintu -> MASUK -> 2 dtk
-// (doorDelaySec) -> Stage 1. Config-driven; stage1.enter di-spy (deteksi transisi
-// tanpa menempatkan robot). ---
+// --- 17d. INTRO CUTSCENE campaign, re-cut tiga adegan (2026-08-01):
+// SCENE 1 briefing typewriter dari depan-kanan heli -> SCENE 2 landing + pintu
+// kanan terbuka + Gibran keluar -> SCENE 3 tracking run ke pintu gedung ->
+// Stage 1. Semua timing dari CFG.campaign.intro; stage1.enter di-spy. ---
 {
     const introMod = await import(R('src/scenes/campaign/cutscenes/intro.js'));
     const s1mod = await import(R('src/scenes/campaign/stages/stage1.js'));
@@ -4525,351 +4778,133 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     // 2026-07-19 (permintaan user): heli hover DITURUNKAN ½ (128 -> 64) + LANDMARK
     // JAKARTA (Monas, Bundaran HI, Stadion GBK) terpasang di latar kota, jauh dari atap.
     const IM = introMod.introMetrics();
-    T('INTRO: ketinggian hover heli diturunkan (HOVER_Y < 55)', IM.hoverY < 55 && IM.hoverY > 25);
+    T('INTRO SCENE 1: heli briefing berada di udara di atas rooftop',
+        IM.briefY > introMod.introDebug().roofY + 30);
     T('INTRO: landmark Jakarta (Monas/Bundaran HI/GBK) terpasang jauh dari atap hero',
         ['monas', 'bundaranHI', 'gbk'].every(k => IM.landmarks[k] && IM.landmarks[k].r > 0
             && Math.hypot(IM.landmarks[k].x - introMod.introDebug().drop.x,
                 IM.landmarks[k].z - introMod.introDebug().drop.z) > 250));
 
-    stateMod.setPaused(true);   // keadaan pra-cutscene (layar mulai)
-    const introBlocker = global.document.getElementById('blocker');
-    const domSkipMod = await import(R('src/core/dom.js'));
-    const introSfx = await import(R('src/utils/sfx.js'));
-    introSfx.startMenuMusic();
-    domSkipMod.hideCutsceneSkip();   // bersihkan callback skip tersisa dari tes lain
-    introMod.beginIntro();
-    T('INTRO: beginIntro -> AUTO-PLAY (unpause + blocker/tutorial DISEMBUNYIKAN) + sinematik ON + shot pembuka',
-        stateMod.cinematicActive === true && stateMod.isPaused === false
-        && introBlocker.style.display === 'none'
-        && introMod.introDebug().phase === 'establish' && introMod.introDebug().avatarShown === false
-        && introSfx.musicDebug() === 'menu');
-    // BUG FIX 2026-07-20: beginIntro dipanggil main.js MASIH di balik layar
-    // loading — tombol SKIP (dan deru heli) TIDAK boleh menyala di beginIntro;
-    // keduanya ditunda ke frame PERTAMA updateMode (cutscene benar-benar tampil).
-    T('INTRO (2026-07-20): tombol SKIP belum terdaftar saat masih di balik layar loading',
-        domSkipMod.triggerCutsceneSkip() === false && introMod.introDebug().phase === 'establish');
-    introMod.introScene.updateMode(1 / 60);
-    T('INTRO MUSIC: musik menu berhenti tepat pada frame live pertama cutscene heli',
-        introSfx.musicDebug() === null && introSfx.bgMusicMenu.paused === true);
-
-    // Helper: jalankan updateMode hingga fase = target (atau cutscene selesai)
-    const run = (target, max = 500) => {
-        let n = 0;
-        while (introMod.introDebug().active && introMod.introDebug().phase !== target && n < max) {
-            introMod.introScene.updateMode(0.1); n++;
-        }
-        return introMod.introDebug().phase === target;
-    };
-
-    // SHOT 1 "KOTA" (2026-07-27): pandangan nyaris tegak lurus dari atas —
-    // kamera TINGGI & jauh, heli baru merayap sedikit (18% lintasan).
-    const h0 = introMod.introDebug();
-    const camEstablish = { ...introMod.introScene.camOffset };
-    T('INTRO SHOT 1 (KOTA): kamera nyaris dari atas & jauh (tinggi '
-        + camEstablish.y.toFixed(0) + ', jarak ' + Math.hypot(camEstablish.x, camEstablish.z).toFixed(0) + ')',
-        camEstablish.y > 400 && Math.hypot(camEstablish.x, camEstablish.z) > 180);
-    run('fly');
-    const hFlyStart = introMod.introDebug();
-    // Fraksi lintasan yang ditempuh selama shot pembuka (0 = diam, 1 = sampai).
-    const flyFrac = (hFlyStart.heliX - h0.heliX) / (h0.drop.x - h0.heliX);
-    T('INTRO SHOT 1: heli baru merayap sedikit (' + (flyFrac * 100).toFixed(0)
-        + '% lintasan) — skala kota sempat terbaca', flyFrac > 0.05 && flyFrac < 0.35);
-    // SHOT 2 "APPROACH": heli menderu mendekat + kamera CRANE TURUN (tinggi kamera
-    // berkurang drastis) — inilah bahasa kamera yang dulu tak ada sama sekali.
-    const flyFrames = Math.floor((I.flySec * 0.5) / 0.1);
-    for (let i = 0; i < flyFrames; i++) introMod.introScene.updateMode(0.1);
-    const hFly = introMod.introDebug();
-    const camFly = introMod.introScene.camOffset;
-    T('INTRO SHOT 2 (APPROACH): heli MENYUSURI langit + pivot mengikutinya',
-        hFly.phase === 'fly' && (hFly.heliX - h0.heliX) > 600
-        && Math.abs(hFly.pivotX - hFly.heliX) < 40 && Math.abs(hFly.pivotZ - hFly.heliZ) < 40);
-    T('INTRO SHOT 2: kamera CRANE TURUN dari shot pembuka (tinggi '
-        + camEstablish.y.toFixed(0) + ' -> ' + camFly.y.toFixed(0) + ')', camFly.y < camEstablish.y - 100);
-
-    // SCENE 2: approach -> heli SAMPAI di atas atap (menggantung) -> tali -> turun
-    run('descend');
-    introMod.introScene.updateMode(0.1);   // 1 frame descend agar setAvatarRappel(true) terpanggil
-    const dTop = introMod.introDebug();
-    const rap0 = avMod.rappelDebug();
-    T('INTRO SCENE 2 (turun tali): fase descend -> avatar TAMPIL dari ketinggian tali + POSE RAPPEL aktif',
-        dTop.phase === 'descend' && dTop.avatarShown === true
-        && dTop.pivotY > dTop.roofY + dTop.eyeH + 18   // margin diturunkan (HOVER_Y 48, 2026-07-19 — heli menggantung rendah)
-        && Math.abs(dTop.heliX - dTop.drop.x) < 40 && rap0.active === true);
-    // (2026-07-18) SEBELUM berjalan ke pintu: fase ropeUp (heli menarik naik tali,
-    // avatar berdiri di titik turun, rappel dilepas) lalu heliLeave (heli TERBANG
-    // PERGI — player menontonnya). BARU kemudian jalan ke pintu.
-    run('ropeUp');
-    const ru = introMod.introDebug();
-    // SHOT 3 "FLARE" + SHOT 7 "KETUKAN" (BARU 2026-07-27) sudah dilalui di atas;
-    // di sini pastikan kamera benar-benar BERPINDAH SUDUT antar shot (bukan satu
-    // sudut gameplay sepanjang cutscene seperti versi lama).
-    T('INTRO SHOT: kamera turun ke HERO ANGLE rendah saat tali/turun (tinggi < 120)',
-        introMod.introScene.camOffset.y < 120);
-    T('INTRO (2026-07-18): setelah turun -> fase ropeUp (avatar berdiri di titik turun, pose rappel dilepas)',
-        ru.phase === 'ropeUp' && ru.avatarShown === true && avMod.rappelDebug().active === false
-        && Math.abs(ru.pivotY - (ru.roofY + ru.eyeH)) < 1);
-    run('heliLeave');
-    for (let i = 0; i < Math.floor((I.heliLeaveSec || 2.8) / 0.1) - 2; i++) introMod.introScene.updateMode(0.1);
-    const hlv = introMod.introDebug();
-    T('INTRO (2026-07-18): heli TERBANG PERGI (menanjak + menjauh dari titik turun) sebelum player berjalan',
-        hlv.heliY > ru.roofY + 180 && Math.hypot(hlv.heliX - ru.drop.x, hlv.heliZ - ru.drop.z) > 300);
-    run('walk');
-    const dBot = introMod.introDebug();
-    T('INTRO SCENE 2 (turun tali): akhir -> fase walk, pivot (avatar) di lantai atap + pose rappel dilepas',
-        dBot.phase === 'walk' && Math.abs(dBot.pivotY - (dBot.roofY + dBot.eyeH)) < 1
-        && avMod.rappelDebug().active === false);
-
-    // SCENE 2: BERJALAN dari titik turun ke PINTU gedung (di sisi KIRI/-x — ditukar
-    // dgn tangki air 2026-07-18 agar konsisten Stage 1 yang tangganya di kiri-atas)
-    const w0 = introMod.introDebug();
-    T('INTRO (2026-07-18): pintu bulkhead pindah ke sisi KIRI (barat, door.x < drop.x)',
-        w0.door.x < w0.drop.x);
-    run('enter');
-    const w1 = introMod.introDebug();
-    T('INTRO SCENE 2 (jalan ke pintu): pivot bergerak dari titik turun MENUJU pintu',
-        w1.phase === 'enter'
-        && Math.abs(w1.pivotX - w1.door.x) < Math.abs(w0.pivotX - w0.door.x)
-        && Math.abs(w1.pivotZ - w1.door.z) < Math.abs(w0.pivotZ - w0.door.z));
-
-    // SCENE 2: MASUK pintu -> fase wait, avatar hilang (masuk gedung)
-    run('wait');
-    T('INTRO SCENE 2 (masuk pintu): fase wait + avatar disembunyikan (masuk gedung)',
-        introMod.introDebug().phase === 'wait' && introMod.introDebug().avatarShown === false);
-
-    // JEDA 2 DETIK (doorDelaySec) setelah masuk pintu -> baru berakhir (config-driven)
-    const preSteps = Math.max(1, Math.floor((I.doorDelaySec - 0.05) / 0.1));
-    for (let i = 0; i < preSteps; i++) introMod.introScene.updateMode(0.1);
-    T('INTRO: belum berakhir sebelum doorDelaySec habis (jeda ' + I.doorDelaySec + ' dtk)',
-        I.doorDelaySec > 0 && !s1entered && stateMod.cinematicActive === true);
-    for (let i = 0; i < 6; i++) introMod.introScene.updateMode(0.1);   // lewati sisa jeda
-    T('INTRO: doorDelaySec habis -> cutscene selesai -> Stage 1 (sinematik OFF) + tutorial ditampilkan (pause+blocker)',
-        s1entered && stateMod.cinematicActive === false
-        && smMod.activeScene === s1mod.stage1Scene && introMod.introDebug().active === false
-        && stateMod.isPaused === true && introBlocker.style.display === 'flex');
-
-    // --- 17d2. SINEMATOGRAFI INTRO (OVERHAUL 2026-07-27) + KONTRAK NARASI.
-    // Yang WAJIB dijaga apa pun perubahan sinematiknya (permintaan user):
-    // datang naik HELIKOPTER -> TURUN di atas gedung -> helikopter PERGI ->
-    // player MASUK ke dalam gedung. Diperiksa sebagai URUTAN, bukan potongan.
+    // --- INTRO TIGA ADEGAN (2026-08-01): briefing typewriter -> landing +
+    // keluar lewat pintu kanan -> tracking run ke gedung. Naskah dipatok persis.
     {
+        const expectedDialogue = `Listen up, Major Gibran. Intel confirms a master server inside N.U.S.A. headquarters holds the kill-switch protocol for these machines.
+
+Your objective is to extract that data. But stay sharp—thermal scans show the building is still crawling with hostiles.
+
+We’re initiating a rooftop insertion. Breach the server room, secure the payload, and get back to the roof for immediate exfil.`;
+        const domIntro = await import(R('src/core/dom.js'));
+        const introSfx3 = await import(R('src/utils/sfx.js'));
+        const introBlocker3 = global.document.getElementById('blocker');
+        const runUntil = (phase, max = 1000) => {
+            let n = 0;
+            while (introMod.introDebug().active && introMod.introDebug().phase !== phase && n++ < max) {
+                introMod.introScene.updateMode(0.05);
+            }
+            return introMod.introDebug().phase === phase;
+        };
+        const localShot = (shot, yaw) => {
+            const a = shot[0] * Math.PI / 180;
+            const wx = Math.sin(a) * shot[1], wz = Math.cos(a) * shot[1];
+            return { x: wx * Math.cos(yaw) - wz * Math.sin(yaw), z: wx * Math.sin(yaw) + wz * Math.cos(yaw) };
+        };
+
+        T('INTRO 3 SCENE: naskah briefing tersimpan STRING-PERSIS (paragraf + tanda baca utuh)',
+            introMod.INTRO_DIALOGUE === expectedDialogue);
+        T('INTRO 3 SCENE: seluruh durasi baru config-driven dan hold dialog tepat 3 detik',
+            ['dialogueCps', 'dialogueHoldSec', 'sceneFadeSec', 'landingSec', 'doorOpenSec', 'exitSec', 'runSec', 'enterSec']
+                .every(k => Number.isFinite(I[k]) && I[k] > 0)
+            && I.dialogueHoldSec === 3 && I.sceneFadeSec === 0.5);
+        const shots = introMod.introMetrics().shots;
+        const syaw = introMod.introMetrics().heliYaw;
+        const sfr = localShot(shots.frontRight, syaw), sr = localShot(shots.right, syaw), sf = localShot(shots.front, syaw);
+        T('INTRO KAMERA: shot 1 depan-kanan, shot 2 kanan, shot 3 depan RELATIF terhadap yaw heli',
+            sfr.x > 20 && sfr.z > 20 && sr.x > 40 && Math.abs(sr.z) < 1 && Math.abs(sf.x) < 1 && sf.z > 40);
+
+        stateMod.setPaused(true);
+        introSfx3.startMenuMusic();
+        domIntro.hideCutsceneSkip();
+        introMod.beginIntro();
+        let d = introMod.introDebug();
+        const briefingStartDist = Math.hypot(d.heliX - d.drop.x, d.heliZ - d.drop.z);
+        T('INTRO SCENE 1: beginIntro auto-play, avatar tersembunyi, dialog belum bocor di balik loading',
+            d.active && d.scene === 1 && d.phase === 'briefing' && !d.avatarShown && !d.dialogueVisible
+            && stateMod.cinematicActive && !stateMod.isPaused && introBlocker3.style.display === 'none'
+            && introSfx3.musicDebug() === 'menu' && domIntro.triggerCutsceneSkip() === false);
+
+        introMod.introScene.updateMode(1 / 60);
+        d = introMod.introDebug();
+        T('INTRO SCENE 1: frame live menampilkan kotak dialog + menghentikan musik menu + mengaktifkan skip',
+            d.dialogueVisible && introSfx3.musicDebug() === null && introSfx3.bgMusicMenu.paused === true);
+        for (let i = 0; i < 10; i++) introMod.introScene.updateMode(0.05);
+        d = introMod.introDebug();
+        T('INTRO SCENE 1: typewriter menampilkan prefix satu-per-satu, belum langsung penuh',
+            d.dialogueChars > 0 && d.dialogueChars < expectedDialogue.length
+            && d.dialogueShown === expectedDialogue.slice(0, d.dialogueChars));
+        T('INTRO SCENE 1: helikopter benar-benar TERBANG MAJU menuju gedung selama briefing',
+            Math.hypot(d.heliX - d.drop.x, d.heliZ - d.drop.z) < briefingStartDist - 0.5
+            && Math.abs(d.heliYaw - introMod.introMetrics().heliYaw) < 0.001);
+        while (introMod.introDebug().phase === 'briefing'
+            && introMod.introDebug().dialogueChars < expectedDialogue.length) introMod.introScene.updateMode(0.05);
+        d = introMod.introDebug();
+        T('INTRO SCENE 1: seluruh briefing akhirnya tampil utuh dan tetap di scene 1',
+            d.phase === 'briefing' && d.scene === 1 && d.dialogueShown === expectedDialogue);
+        for (let t = 0; t < Math.max(0, I.dialogueHoldSec - 0.15); t += 0.05) introMod.introScene.updateMode(0.05);
+        T('INTRO SCENE 1: setelah teks lengkap masih menunggu dialogueHoldSec sebelum landing',
+            introMod.introDebug().phase === 'briefing');
+        runUntil('scene1Fade');
+        T('INTRO TRANSISI 1→2: scene 1 fade-out ke hitam selama sceneFadeSec',
+            introMod.introDebug().scene === 1 && domIntro.cineFadeDebug().opacity === 1
+            && domIntro.cineFadeDebug().transition.includes(I.sceneFadeSec + 's'));
+        runUntil('landing');
+        T('INTRO TRANSISI 1→2: scene 2 dimulai dengan fade-in selama sceneFadeSec',
+            introMod.introDebug().scene === 2 && domIntro.cineFadeDebug().opacity === 0
+            && domIntro.cineFadeDebug().transition.includes(I.sceneFadeSec + 's'));
+
+        const landTop = introMod.introDebug().heliY;
+        for (let t = 0; t < I.landingSec * 0.5; t += 0.05) introMod.introScene.updateMode(0.05);
+        d = introMod.introDebug();
+        T('INTRO SCENE 2: close-up kanan mengiringi heli mendarat perlahan',
+            d.scene === 2 && d.phase === 'landing' && d.heliY < landTop && d.heliY > d.roofY);
+        runUntil('exit');
+        for (let t = 0; t < I.doorOpenSec * 0.7; t += 0.05) introMod.introScene.updateMode(0.05);
+        d = introMod.introDebug();
+        T('INTRO SCENE 2: pintu kanan heli bergeser terbuka dan Major Gibran mulai keluar',
+            d.scene === 2 && d.phase === 'exit' && d.doorOpen > 0.2 && d.doorSlideZ < -1 && d.avatarShown === true
+            && Math.hypot(d.pivotX - d.cabinExit.x, d.pivotZ - d.cabinExit.z) < 20);
+        runUntil('run');
+        const runStart = introMod.introDebug();
+        for (let t = 0; t < I.runSec * 0.55; t += 0.05) introMod.introScene.updateMode(0.05);
+        d = introMod.introDebug();
+        T('INTRO SCENE 3: kamera tracking close-up depan mengikuti Gibran berlari menuju pintu',
+            d.scene === 3 && d.phase === 'run' && d.avatarShown
+            && Math.hypot(d.pivotX - d.door.x, d.pivotZ - d.door.z)
+                < Math.hypot(runStart.pivotX - runStart.door.x, runStart.pivotZ - runStart.door.z));
+        runUntil('enter');
+        let fadeSeen = false;
+        while (introMod.introDebug().active) {
+            introMod.introScene.updateMode(0.05);
+            fadeSeen ||= domIntro.cineFadeDebug().opacity === 1;
+        }
+        T('INTRO SCENE 3: Gibran masuk gedung, tirai turun, lalu Stage 1 dimulai',
+            s1entered && fadeSeen && smMod.activeScene === s1mod.stage1Scene
+            && !stateMod.cinematicActive && stateMod.isPaused && introBlocker3.style.display === 'flex'
+            && !introMod.introDebug().dialogueVisible && introMod.introDebug().dialogueShown === '');
+
+        // Jalur SKIP tetap aman dari scene mana pun.
         smMod.setScene(introMod.introScene);
         introMod.beginIntro();
-        const seen = [];            // urutan fase
-        const cam = [];             // [az, jarak, tinggi] per fase
-        const azOf = (o) => { let a = Math.atan2(o.x, o.z) * 180 / Math.PI; return a < 0 ? a + 360 : a; };
-        let heliHigh0 = 0, heliLowAtDrop = 1e9, heliHighEnd = 0;
-        let avatarFirstShownPhase = null, avatarHiddenPhase = null, dust = 0;
-        let last = null, n = 0;
-        // --- Pengukur KEMULUSAN (2026-07-27): lompatan per-frame kamera/pivot/kabut
-        //     + busur azimut yang DI-UNWRAP (untuk menguji "tidak berputar-putar").
-        let maxAzStep = 0, maxHStep = 0, maxPivStep = 0, maxFogStep = 0;
-        let azUnwrap = 0, azMin = 0, azMax = 0, azRev = 0, azDir = 0;
-        let pAz = null, pH = null, pPiv = null, pFog = null, fadeAtEnd = null;
-        while (introMod.introDebug().active && n++ < 4000) {
-            introMod.introScene.updateMode(1 / 60);
-            // Kemulusan diukur HANYA selama cutscene masih hidup: frame terakhir
-            // memulihkan kabut global Stage 1 (pergantian scene) — itu potongan
-            // yang memang ditutup TIRAI hitam, bukan batas shot.
-            if (introMod.introDebug().active) {
-                const o = introMod.introScene.camOffset;
-                const a = azOf(o), h = o.y;
-                const d2 = introMod.introDebug();
-                const piv = [d2.pivotX, d2.pivotY, d2.pivotZ];
-                if (pAz != null) {
-                    let da = a - pAz;                       // beda sudut TERPENDEK
-                    if (da > 180) da -= 360; else if (da < -180) da += 360;
-                    maxAzStep = Math.max(maxAzStep, Math.abs(da));
-                    azUnwrap += da;
-                    azMin = Math.min(azMin, azUnwrap); azMax = Math.max(azMax, azUnwrap);
-                    if (Math.abs(da) > 0.02) {              // arah putar (abaikan derau)
-                        const dir = Math.sign(da);
-                        if (azDir && dir !== azDir) azRev++;
-                        azDir = dir;
-                    }
-                    maxHStep = Math.max(maxHStep, Math.abs(h - pH));
-                    maxPivStep = Math.max(maxPivStep, Math.hypot(piv[0] - pPiv[0], piv[1] - pPiv[1], piv[2] - pPiv[2]));
-                    maxFogStep = Math.max(maxFogStep, Math.abs(scene.fog.far - pFog));
-                }
-                pAz = a; pH = h; pPiv = piv; pFog = scene.fog.far;
-                if (introMod.introDebug().phase === 'wait') fadeAtEnd = domSkipMod.cineFadeDebug();
-            }
-            const d = introMod.introDebug();
-            if (d.phase && d.phase !== last) {
-                seen.push(d.phase);
-                cam.push([azOf(introMod.introScene.camOffset),
-                    Math.hypot(introMod.introScene.camOffset.x, introMod.introScene.camOffset.z),
-                    introMod.introScene.camOffset.y]);
-                last = d.phase;
-            }
-            if (d.heliY != null) {
-                if (seen.length <= 2) heliHigh0 = Math.max(heliHigh0, d.heliY);          // datang dari langit
-                if (d.phase === 'rope' || d.phase === 'descend') heliLowAtDrop = Math.min(heliLowAtDrop, d.heliY);
-                if (d.phase === 'walk' || d.phase === 'enter') heliHighEnd = Math.max(heliHighEnd, d.heliY);
-            }
-            if (d.avatarShown && !avatarFirstShownPhase) avatarFirstShownPhase = d.phase;
-            if (avatarFirstShownPhase && !d.avatarShown && !avatarHiddenPhase) avatarHiddenPhase = d.phase;
-            dust = Math.max(dust, stateMod.explosions.length);
-        }
-        const camEnd = { ...introMod.introScene.camOffset };   // sudut kamera saat cutscene tutup
-        // --- KONTRAK NARASI (empat pesan yang tak boleh hilang)
-        T('INTRO NARASI 1: datang naik HELIKOPTER dari langit tinggi (' + heliHigh0.toFixed(0) + ' u)',
-            heliHigh0 > 150);
-        T('INTRO NARASI 2: player TURUN di atas gedung (avatar muncul saat fase turun-tali)',
-            avatarFirstShownPhase === 'descend');
-        T('INTRO NARASI 3: HELIKOPTER PERGI (turun ke ' + heliLowAtDrop.toFixed(0)
-            + ' u lalu menanjak lagi ke ' + heliHighEnd.toFixed(0) + ' u)',
-            heliLowAtDrop < 60 && heliHighEnd > heliLowAtDrop + 100);
-        T('INTRO NARASI 4: player MASUK ke dalam gedung (avatar disembunyikan di akhir)',
-            avatarHiddenPhase === 'wait' && seen.indexOf('enter') < seen.indexOf('wait'));
-        T('INTRO NARASI: urutan beat benar (turun -> heli pergi -> jalan -> masuk)',
-            seen.indexOf('descend') < seen.indexOf('heliLeave')
-            && seen.indexOf('heliLeave') < seen.indexOf('walk')
-            && seen.indexOf('walk') < seen.indexOf('enter'));
-        // --- SINEMATOGRAFI: shot baru + RAGAM sudut (versi lama: satu sudut saja)
-        T('INTRO: shot baru terpasang (establish/flare/land) — ' + seen.length + ' shot',
-            seen.includes('establish') && seen.includes('flare') && seen.includes('land'));
-        const azs = cam.map(c => c[0]), hs = cam.map(c => c[2]), ds = cam.map(c => c[1]);
-        // --- SINEMATOGRAFI KAMERA (dirombak lagi 2026-07-27, permintaan user:
-        //     "transisi antar scene masih terlihat kasar & tiba-tiba" + "gerak kamera
-        //     360 derajat ketika helicopter di atas gedung terlihat berlebihan").
-        //     (1) SATU BUSUR: azimut di-UNWRAP (span mentah 0..360 dulu lolos hanya
-        //     karena melewati 0) harus menyapu sudut yang berarti tapi tidak sampai
-        //     mengelilingi gedung, dan TANPA pembalikan arah putar — papan lama
-        //     menyapu +105° lalu BERBALIK −195° (~300°, 1 pembalikan) = terbaca
-        //     persis sebagai 'kamera berputar mengelilingi gedung'.
-        const azSpan = azMax - azMin;
-        T('INTRO KAMERA: SATU busur pelan (' + azSpan.toFixed(0) + '°), bukan mengelilingi gedung',
-            azSpan > 40 && azSpan < 150);
-        T('INTRO KAMERA: busur SEARAH — tanpa pembalikan arah putar (' + azRev + ' pembalikan)',
-            azRev === 0);
-        //     (2) TANPA POTONGAN KASAR: sudut/tinggi/pivot/kabut berubah MULUS antar
-        //     frame (peredaman settleCam/settlePivot). Dulu batas shot 1→2 meloncat 6°
-        //     azimut dan batas fly→flare memindahkan titik fokus ~59 unit dalam SATU frame.
-        T('INTRO KAMERA: tak ada lompatan sudut di batas shot (maks ' + maxAzStep.toFixed(2) + '°/frame)',
-            maxAzStep < 1.2);
-        T('INTRO KAMERA: tak ada lompatan tinggi/kabut di batas shot (tinggi ' + maxHStep.toFixed(1)
-            + ', kabut ' + maxFogStep.toFixed(1) + ' /frame)', maxHStep < 35 && maxFogStep < 60);
-        T('INTRO KAMERA: titik fokus berpindah MULUS antar shot (maks ' + maxPivStep.toFixed(1) + ' unit/frame)',
-            maxPivStep < 14);
-        //     (3) SERAH-TERIMA: shot penutup = kamera gameplay, jadi Stage 1 tak
-        //     menjentikkan sudut saat scene berganti (dulu 225° -> 315° satu frame).
-        T('INTRO KAMERA: shot penutup MENDARAT di sudut gameplay (serah-terima ke Stage 1 tanpa jentikan)',
-            Math.abs(camEnd.x - rendererMod.CAM_OFF_DEFAULT.x) < 4
-            && Math.abs(camEnd.y - rendererMod.CAM_OFF_DEFAULT.y) < 4
-            && Math.abs(camEnd.z - rendererMod.CAM_OFF_DEFAULT.z) < 4);
-        //     (4) TIRAI: layar sudah HITAM sebelum scene berganti, dibuka lagi sesudahnya.
-        T('INTRO TIRAI: fade ke hitam sebelum pindah ke Stage 1, dibuka lagi sesudahnya',
-            !!fadeAtEnd && fadeAtEnd.opacity === 1 && domSkipMod.cineFadeDebug().opacity === 0);
-        T('INTRO KAMERA: ketinggian & jarak BERVARIASI (tinggi ' + Math.min(...hs).toFixed(0) + '..'
-            + Math.max(...hs).toFixed(0) + ', jarak ' + Math.min(...ds).toFixed(0) + '..' + Math.max(...ds).toFixed(0) + ')',
-            Math.max(...hs) > Math.min(...hs) * 4 && Math.max(...ds) > Math.min(...ds) * 2.5);
-        T('INTRO: DEBU downwash rotor + hentakan mendarat tersapu di atap (' + dust + ' puff puncak)', dust > 5);
-        T('INTRO: cutscene tetap berakhir di Stage 1', smMod.activeScene === s1mod.stage1Scene
-            && introMod.introDebug().active === false && stateMod.cinematicActive === false);
+        introMod.introScene.updateMode(0.05);
+        const viaIntroSkip = domIntro.triggerCutsceneSkip();
+        T('INTRO 3 SCENE: tombol SKIP tetap langsung menyerahkan ke Stage 1',
+            viaIntroSkip && smMod.activeScene === s1mod.stage1Scene && !introMod.introDebug().active);
+
+        s1mod.stage1Scene.enter = realS1Enter;
+        while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+        stateMod.setCinematicActive(false);
     }
 
-    // --- 17d3. LATAR INTRO: LANGIT MALAM + KABUT BATAS (2026-07-27, permintaan
-    // user: "background kosong di batas luar area ... buat jadi langit malam, ada
-    // bulan dan bintang ... batas ujung area diberi kabut tebal ... TAPI JANGAN
-    // MEMPERBERAT"). Tiga hal yang diuji: (1) isi kota benar-benar mencapai
-    // pinggir, (2) kabut SELALU habis sebelum isian kota habis -> tepi dunia
-    // mustahil terlihat, (3) langit malamnya benar-benar MASUK FRAME dan hanya
-    // memakai 2 objek gambar.
-    {
-        smMod.setScene(introMod.introScene);   // bangun ulang dunia intro (sudah dibuang di 17d2)
-        const SK = introMod.introSkyDebug();
-        const CS2 = introMod.cityDebug();
 
-        // (1) ISIAN KOTA SAMPAI PINGGIR — dulu berhenti di dz -1150 / |dx| 1980
-        // sementara hamparannya ±2700: cincin luarnya dataran kosong.
-        T('INTRO LATAR: isi kota menjangkau pinggir area (reach ' + CS2.reach.toFixed(0)
-            + ' dari target ' + CS2.fill + ')', CS2.reach >= CS2.fill * 0.95);
-        T('INTRO LATAR: hamparan tanah jauh lebih lebar dari isian (tepi dunia di luar jangkauan pandang)',
-            CS2.plane / 2 > CS2.fill * 1.2);
-        T('INTRO LATAR: kepadatan kampung ikut naik bersama luas (rumah ' + CS2.houses + ')',
-            CS2.houses > 1200);
-        T('INTRO LATAR: menara tetap "tidak terlalu banyak" & yang JANGKUNG tetap sedikit ('
-            + CS2.towers + ' menara, ' + CS2.crowns + ' bermahkota)',
-            CS2.towers > 20 && CS2.towers < 200 && CS2.crowns > 0 && CS2.crowns < 40);
-
-        // (2) KABUT: warnanya HARUS sama dgn pita horizon kubah (kalau beda, ada
-        // "garis tepi dunia"), dan far-nya TIDAK PERNAH melewati isian kota.
-        T('INTRO KABUT: warna kabut = warna pita horizon langit (tanah larut ke langit tanpa sambungan)',
-            SK.fogHex != null && SK.fogHex === SK.horizonHex);
-        const domeKids = SK.domeChildren;   // dibaca SEBELUM cutscene (dunia dibuang di akhir)
-        introMod.beginIntro();
-        let fogMax = 0, fogMin = 1e9, skyMax = -99, moonSeen = 0, domeFar = 0, frames = 0;
-        // Geometri frame: setengah-FOV vertikal kamera RENDER dikurangi bagian
-        // yang ditutup letterbox -> berapa derajat LANGIT tersisa di atas horizon.
-        const vHalf = rendererMod.viewCam.fov / 2;
-        const barDeg = rendererMod.viewCam.fov * SK.barFrac;
-        const hHalf = Math.atan(Math.tan(vHalf * Math.PI / 180) * (16 / 9)) * 180 / Math.PI;
-        for (let i = 0; i < 4000 && introMod.introDebug().active; i++) {
-            introMod.introScene.updateMode(1 / 60);
-            frames++;
-            fogMax = Math.max(fogMax, scene.fog.far); fogMin = Math.min(fogMin, scene.fog.far);
-            const off = introMod.introScene.camOffset;
-            const pitch = Math.atan2(off.y, Math.hypot(off.x, off.z)) * 180 / Math.PI;
-            const sky = (vHalf - barDeg) - pitch;          // >0 = ada langit di frame
-            skyMax = Math.max(skyMax, sky);
-            let look = (Math.atan2(off.x, off.z) * 180 / Math.PI + 360) % 360;
-            look = (look + 180) % 360;                     // arah PANDANG kamera
-            const dAz = Math.abs(((SK.moonAz - look + 540) % 360) - 180);
-            if (sky > SK.moonEl && dAz < hHalf) moonSeen++;
-            domeFar = Math.max(domeFar, introMod.introSkyDebug().skyToCam);
-        }
-        T('INTRO KABUT: far kabut TAK PERNAH melewati isian kota (' + fogMax.toFixed(0)
-            + ' <= ' + CS2.fill + ') — dataran kosong & tepi dunia selalu tertelan haze',
-            frames > 100 && fogMax <= CS2.fill);
-        T('INTRO KABUT: tetap bisa melihat (far terkecil ' + fogMin.toFixed(0)
-            + ' masih jauh di luar dek atap) + BERUBAH per shot, bukan satu setelan',
-            fogMin > 600 && fogMax > fogMin * 1.2);
-
-        // (3) LANGIT MALAM benar-benar terlihat — dulu 0° langit di SEMUA shot
-        // (horizon selalu di atas tepi frame), jadi bulan/bintang mustahil tampak.
-        T('INTRO LANGIT: ada shot yang benar-benar memperlihatkan LANGIT di atas horizon ('
-            + skyMax.toFixed(1) + '° setelah letterbox)', skyMax > 3);
-        T('INTRO LANGIT: BULAN masuk frame pada shot-shot inti (' + moonSeen + ' frame)',
-            moonSeen > 60);
-        T('INTRO LANGIT: bintang terlukis di kubah (' + SK.stars + ' bintang) + bulan terpasang',
-            SK.stars > 400 && SK.hasMoon === true);
-        T('INTRO LANGIT: bulan di dalam kubah (jarak ' + SK.moonDist + ' < radius ' + SK.skyRadius
-            + ') & rendah di atas horizon (' + SK.moonEl + '°)',
-            SK.moonDist < SK.skyRadius && SK.moonEl > 0 && SK.moonEl < 15);
-        T('INTRO LANGIT: kubah + bulan MENGIKUTI kamera — sisi terjauh kubah ('
-            + (domeFar + SK.skyRadius).toFixed(0) + ') tetap di dalam far-plane '
-            + rendererMod.viewCam.far, domeFar + SK.skyRadius < rendererMod.viewCam.far);
-        // TIDAK MEMPERBERAT (permintaan user): langit malam = 2 objek gambar saja
-        // (bola bulan + halo). Bintang/haze/pijar kota semuanya DILUKIS ke tekstur
-        // kubah yang sudah ada, jadi nol tambahan draw call & nol biaya per frame.
-        T('INTRO LANGIT: hanya 2 objek gambar tambahan (bulan + halo), sisanya dilukis ke tekstur kubah',
-            domeKids === 2);
-    }
-
-    // SKIP CUTSCENE (2026-07-19, tombol kanan-bawah / SPACE): putar ulang intro
-    // lalu skipIntro() di tengah fase fly -> langsung finish (Stage 1 + tutorial,
-    // sinematik OFF, dunia atap dibuang) — finishIntro aman dari fase mana pun.
-    smMod.setScene(introMod.introScene);
-    introMod.beginIntro();
-    for (let i = 0; i < 8; i++) introMod.introScene.updateMode(0.1);   // masih di tengah cutscene
-    T('INTRO SKIP: cutscene aktif kembali sebelum di-skip',
-        introMod.introDebug().active === true && stateMod.cinematicActive === true);
-    // Tombol SKIP kini terdaftar (frame pertama updateMode sudah jalan, 2026-07-20)
-    // — klik tombol = jalur skip yang sama dgn SPACE (memanggil skipIntro).
-    const viaBtn = domSkipMod.triggerCutsceneSkip();
-    if (!viaBtn) introMod.skipIntro();   // jaring pengaman agar tes lanjutan tetap jalan
-    T('INTRO SKIP (2026-07-20): tombol SKIP terdaftar setelah cutscene tampil (trigger = skip)', viaBtn === true);
-    T('INTRO SKIP: skipIntro -> langsung Stage 1 + tutorial (sinematik OFF, pause+blocker)',
-        smMod.activeScene === s1mod.stage1Scene && introMod.introDebug().active === false
-        && stateMod.cinematicActive === false && stateMod.isPaused === true
-        && introBlocker.style.display === 'flex');
-
-    // Continue/restart (opts.stage > 1) TIDAK memutar intro — hanya start baru.
-    // (Diverifikasi di main.js: playIntro = campaign && !(opts.stage > 1); di sini
-    // cukup pastikan setScene langsung ke stage tanpa introScene tak error.)
-    s1mod.stage1Scene.enter = realS1Enter;   // pulihkan
-    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
-    stateMod.setCinematicActive(false);
 }
 
 // --- 17e. CUTSCENE PEMBUKA SURVIVAL "THE LAST STAND AT MONAS" (2026-07-27,

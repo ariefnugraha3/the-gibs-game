@@ -38,7 +38,7 @@
 // (masuk telegraf, profil samping, two-shot tembakan, dan potongan tepat di
 // HANTAMAN — memotong pada ledakan adalah tata bahasa film paling tua),
 // telegraf getaran sebelum reveal, gerak lambat hit-stop di tembakan & hantaman,
-// heli yang MENCOBA KABUR lalu jatuh dari udara, dan takarir sinematik.
+// heli yang MENCOBA KABUR lalu jatuh dari udara, dan dialog radio typewriter.
 //
 // Modul ini HANYA menangani cutscene + siklus hidup HELI. Tank yang di-spawn di
 // tengah cutscene diserahkan ke stage4 lewat callback `setTank` (stage4 yang
@@ -52,7 +52,7 @@ import { _v3, GEO, setCinematicActive } from '../../../core/state.js';
 import { scene, camera, addCamShake, setCineFocus, CAM_OFF_DEFAULT } from '../../../core/renderer.js';
 import {
     setCineBars, showStageMsg, showCutsceneSkip, hideCutsceneSkip,
-    showCineCaption, hideCineCaption
+    hideCineCaption, showStageRadioDialogue, hideStageRadioDialogue,
 } from '../../../core/dom.js';
 import { releaseInputs, aimPoint } from '../../../core/input.js';
 import { addHitStop } from '../../../core/timeScale.js';
@@ -118,14 +118,28 @@ const SHOT = {
 const CAM_SETTLE = 4.0;      // 1/detik (konstanta waktu ~0,25 dtk)
 const FOCUS_SETTLE = 3.2;    // titik fokus sedikit lebih malas dari kameranya
 
-// ===== TAKARIR (WAJIB English — aturan permanen user) =====
-const CAP = {
-    survey: 'The extraction bird is waiting. One sprint away.',
-    tremor: 'Something heavy is coming.',
-    lock: 'The pilot spools up. Far too late.',
-    crash: 'The only way home is burning.',
-    faceOff: 'THE WAR TANK HAS TAKEN THE TOWN SQUARE.',
-};
+// Dialog user untuk rangkaian ekstraksi gagal. Arah suara statis/ledakan bukan
+// bagian body; cutoff Pilot diberi distorsi visual, sedangkan ledakan keras dan
+// putusnya rotor tetap berasal dari aksi/audio sinematik yang sudah ada.
+export const TANK_BOSS_DIALOGUE = Object.freeze({
+    heliArrival: Object.freeze({
+        speaker: 'Pilot',
+        text: "Major, we’re at the LZ! Hurry, we're running out of time! Get in so we can fall back to Bandung and upload that file! Put an end to this madness once and for all!",
+    }),
+    tankReveal: Object.freeze({
+        speaker: 'Pilot',
+        text: 'Wait... what the hell is THAT?! Is that a—',
+    }),
+    pilotCutoff: Object.freeze({
+        speaker: 'Pilot',
+        text: 'GET OUT OF THE—',
+        distorted: true,
+    }),
+    gibranReaction: Object.freeze({
+        speaker: 'Major Gibran',
+        text: 'DAMN IT!! That metal bastard took out our exfil... I’m taking that tank down!',
+    }),
+});
 
 // Ketinggian heli saat mencoba lepas landas (fase lock/fire) — ia tertembak DI
 // UDARA lalu JATUH menghantam pelataran di fase crash.
@@ -145,6 +159,74 @@ export function createTankBossIntro(deps) {
     let heliSnd = null;   // loop helicopter-flying selama heli diperlihatkan cutscene (2026-07-19)
     let savedFog = null;  // {near,far} kabut global stage 4 (kabut per-shot dipulihkan di akhir)
     let musicOn = false;  // musik boss sudah dinyalakan? (panBack menyalakannya lebih awal)
+    let dialogueCurrent = null, dialogueQueue = [], dialogueSeen = new Set();
+    let dialogueT = 0, dialogueChars = 0;
+
+    function dialogueDebug() {
+        return {
+            key: dialogueCurrent ? dialogueCurrent.key : null,
+            speaker: dialogueCurrent ? dialogueCurrent.speaker : '',
+            text: dialogueCurrent ? dialogueCurrent.text : '',
+            chars: dialogueChars,
+            shown: dialogueCurrent ? dialogueCurrent.text.slice(0, dialogueChars) : '',
+            typing: !!dialogueCurrent && dialogueChars < dialogueCurrent.text.length,
+            distorted: !!dialogueCurrent?.distorted,
+            queued: dialogueQueue.map(line => line.key),
+            seen: [...dialogueSeen],
+        };
+    }
+
+    function renderDialogue() {
+        if (!dialogueCurrent) { hideStageRadioDialogue(); return; }
+        dialogueChars = Math.max(0, Math.min(dialogueCurrent.text.length, dialogueChars | 0));
+        showStageRadioDialogue(
+            dialogueCurrent.speaker,
+            dialogueCurrent.text.slice(0, dialogueChars),
+            dialogueChars < dialogueCurrent.text.length,
+            !!dialogueCurrent.distorted,
+        );
+    }
+
+    function beginNextDialogue() {
+        dialogueCurrent = dialogueQueue.shift() || null;
+        dialogueT = 0;
+        dialogueChars = 0;
+        renderDialogue();
+    }
+
+    function queueDialogue(key) {
+        const line = TANK_BOSS_DIALOGUE[key];
+        if (!line || dialogueSeen.has(key)) return false;
+        dialogueSeen.add(key);
+        dialogueQueue.push({ key, ...line });
+        if (!dialogueCurrent) beginNextDialogue();
+        return true;
+    }
+
+    function updateDialogue(dt) {
+        if (!dialogueCurrent) return;
+        const D = CFG.campaign.dialogue;
+        const cps = Math.max(1, D.cps), holdSec = Math.max(0, D.holdSec);
+        dialogueT += dt;
+        while (dialogueCurrent) {
+            const lineSec = dialogueCurrent.text.length / cps + holdSec;
+            if (dialogueT < lineSec) {
+                dialogueChars = Math.floor(dialogueT * cps);
+                renderDialogue();
+                return;
+            }
+            dialogueChars = dialogueCurrent.text.length;
+            renderDialogue();
+            dialogueT -= lineSec;
+            beginNextDialogue();
+        }
+    }
+
+    function resetDialogue() {
+        dialogueCurrent = null; dialogueQueue = []; dialogueSeen = new Set();
+        dialogueT = 0; dialogueChars = 0;
+        hideStageRadioDialogue();
+    }
 
     // ----- Kamera & titik fokus sinematik (lihat blok SINEMATOGRAFI di atas) -----
     const camOff = { x: CAM_OFF_DEFAULT.x, y: CAM_OFF_DEFAULT.y, z: CAM_OFF_DEFAULT.z };
@@ -194,12 +276,6 @@ export function createTankBossIntro(deps) {
         setShotCam(...shot);
         aimFocus(fx, fz);
         cine.snap = true;
-    }
-    // Takarir: hanya ditulis saat BERUBAH (DOM tak disentuh tiap frame).
-    function say(text) {
-        if (!cine || cine.caption === text) return;
-        cine.caption = text;
-        showCineCaption(text);
     }
     // Avatar player MENGHADAP aksi (playerAvatar membaca aimPoint utk yaw; input
     // dibekukan cinematicActive, jadi override ini tak melawan kursor player).
@@ -270,6 +346,7 @@ export function createTankBossIntro(deps) {
     // Mulai cutscene (dipicu stage4.playerCollide saat player menginjak ring):
     // freeze input (cinematicActive; Esc tetap = pause) + letterbox.
     function start() {
+        if (cine || cutsceneDone) return false;
         cine = {
             phase: 'open', t: 0, dur: 0, from: null, to: null, shell: null, sFrom: null,
             track: 0, caption: null, snap: true, hitY: 0, landed: false, smashed: false,
@@ -278,6 +355,10 @@ export function createTankBossIntro(deps) {
         releaseInputs();
         setCinematicActive(true);
         setCineBars(true);
+        // Player SUDAH dibekukan sebelum body pertama muncul. Dialog sengaja
+        // dimulai dari kosong pada frame trigger ring, lalu shot survey menunggu
+        // sampai panggilan LZ selesai sebelum tank menyela.
+        queueDialogue('heliArrival');
         // Kamera mulai PERSIS di sudut gameplay & fokus di player: tak ada
         // jentikan di frame pertama (dulu fokus di-ease dari mana pun ia berada).
         setShotCam(...SHOT.open);
@@ -294,6 +375,7 @@ export function createTankBossIntro(deps) {
         musicOn = false;
         heliSnd = playLoopSFX(sfxHeli, 0.55);
         showCutsceneSkip(skip);   // tombol SKIP kanan-bawah (2026-07-19; SPACE — kursor tersembunyi saat pointer lock)
+        return true;
     }
 
     // SKIP cutscene (2026-07-19, tombol kanan-bawah / SPACE): loncat langsung
@@ -309,6 +391,7 @@ export function createTankBossIntro(deps) {
         }
         stopLoopSFX(heliSnd); heliSnd = null;
         tank.parts.group.position.set(BOSS_POS.x, 0, BOSS_POS.z);
+        resetDialogue();
         endCutscene();
     }
 
@@ -423,8 +506,7 @@ export function createTankBossIntro(deps) {
             shotCam(SHOT.openEnd, SHOT.surveyEnd, smooth(k));
             aimFocus(lerp(cine.player.x, HELI_POS.x, smooth(k)), lerp(cine.player.z, HELI_POS.z, smooth(k)));
             faceAction(HELI_POS.x, HELI_POS.z);
-            say(CAP.survey);
-            if (k >= 1) {
+            if (k >= 1 && !dialogueCurrent && !dialogueQueue.length) {
                 // TANK di-spawn SEKARANG (masih jauh di utara, tertelan kabut):
                 // deru mesinnya (loop tank-moving) itulah telegrafnya.
                 spawnCineTank();
@@ -447,8 +529,10 @@ export function createTankBossIntro(deps) {
             cineTracksDust(dt, false);
             tremorDust(dt, 0.4 + k);
             addCamShake(0.5 + 2.4 * k * k);             // getaran menguat -> puncak tepat di reveal
-            say(CAP.tremor);
-            if (k >= 1) next('reveal');
+            if (k >= 1) {
+                queueDialogue('tankReveal');
+                next('reveal');
+            }
 
         } else if (P === 'reveal') {
             // ===== SHOT 4 "TEROBOSAN": SENGAJA TANPA CUT — framing yang sama
@@ -484,13 +568,13 @@ export function createTankBossIntro(deps) {
             aimTurretAtHeli(1.5, dt);
             liftHeli(easeIn(k) * LIFT_Y, k);
             faceAction(HELI_POS.x, HELI_POS.z);
-            say(CAP.lock);
             addCamShake(0.35);
             if (k >= 1) {
                 // CUT ke two-shot lebar: tank & heli sama-sama di frame, jadi
                 // peluru benar-benar TERLIHAT menyeberangi jarak itu.
                 cutTo(SHOT.fireWide, (tank.parts.group.position.x + HELI_POS.x) / 2,
                     (tank.parts.group.position.z + HELI_POS.z) / 2);
+                queueDialogue('pilotCutoff');
                 next('fire');
             }
 
@@ -538,6 +622,11 @@ export function createTankBossIntro(deps) {
                 blastHelicopter(heli); heliDead = true;      // heli MELEDAK HANCUR (+ ledakan besar explodeAt)
                 heli.parts.group.position.y = cine.hitY;     // ...blast men-set y=-1.2; kembalikan, ia JATUH di fase crash
                 stopLoopSFX(heliSnd); heliSnd = null;        // rotor mati bersama helinya (2026-07-19)
+                queueDialogue('gibranReaction');
+                // Ledakan memutus sisa hold radio Pilot dan langsung menyerahkan
+                // panel ke reaksi Gibran; body cutoff sudah sempat diketik utuh
+                // sepanjang fase fire+shell.
+                if (dialogueCurrent?.key === 'pilotCutoff') beginNextDialogue();
                 addCamShake(9);
                 addHitStop(0.34, 0.16);                      // hantaman: dunia nyaris beku sesaat
                 cutTo(SHOT.impact, HELI_POS.x, HELI_POS.z);
@@ -569,7 +658,6 @@ export function createTankBossIntro(deps) {
                 }
             }
             aimTurretAtHeli(0, dt);
-            say(CAP.crash);
             if (k >= 1) {
                 cine.from = { x: tank.parts.group.position.x, z: tank.parts.group.position.z };
                 cine.to = { x: BOSS_POS.x, z: BOSS_POS.z };
@@ -617,7 +705,6 @@ export function createTankBossIntro(deps) {
             // bangkai sampai cutscene selesai — bossnya tak pernah "melihat" kita).
             aimTurretAt(cine.player.x, cine.player.z, 1.9, dt);
             faceAction(BOSS_POS.x, BOSS_POS.z);
-            say(CAP.faceOff);
             if (k >= 1) {
                 hideCineCaption(); cine.caption = null;
                 startBossMusic(); musicOn = true;   // musik duel naik SEBELUM kontrol pulih
@@ -639,7 +726,9 @@ export function createTankBossIntro(deps) {
             aimFocus(lerp(BOSS_POS.x, cine.player.x, e), lerp(BOSS_POS.z, cine.player.z, e));
             faceAction(BOSS_POS.x, BOSS_POS.z);   // player tetap menatap tank
             aimTurretAt(cine.player.x, cine.player.z, 1.9, dt);   // laras TERKUNCI di player sampai duel mulai
-            if (k >= 1) { endCutscene(); return; }
+            // Framing menunggu bila typewriter Gibran belum selesai; boss fight
+            // tidak memotong reaksi terakhir meskipun cps di-retune lebih lambat.
+            if (k >= 1 && !dialogueCurrent && !dialogueQueue.length) { endCutscene(); return; }
         }
 
         // kilat moncong meluruh (updateTank fase 'cine' tak berjalan)
@@ -669,6 +758,7 @@ export function createTankBossIntro(deps) {
         cine = null; cutsceneDone = true;
         hideCutsceneSkip();   // tombol skip hilang bersama cutscene (2026-07-19)
         hideCineCaption();
+        hideStageRadioDialogue();
         setCineFocus(null);
         setCineBars(false);
         setCinematicActive(false);
@@ -692,6 +782,7 @@ export function createTankBossIntro(deps) {
     // Per-frame (dipanggil stage4.updateMode): update rotor/asap heli, picu
     // kedatangan heli saat semua robot mati, jalankan mesin cutscene.
     function update(dt) {
+        updateDialogue(dt);
         if (heli) updateHelicopter(heli, dt);
         if (!heliSpawned) {
             if (countStageRobots(4) === 0) heliArrives();
@@ -715,6 +806,7 @@ export function createTankBossIntro(deps) {
         cine = null;
         restoreFog();
         stopLoopSFX(heliSnd); heliSnd = null;   // loop heli mati bila cutscene dibatalkan (restart/cheat)
+        resetDialogue();
         hideCutsceneSkip();
         hideCineCaption();
         setCineFocus(null); setCineBars(false); setCinematicActive(false);
@@ -723,6 +815,7 @@ export function createTankBossIntro(deps) {
 
     return {
         update, start, reset, skip,
+        dialogueDebug,
         currentHeli: () => heli,
         // Hook kamera per-scene: stage4 mendelegasikan `camOffset` ke sini.
         // null selagi cutscene TIDAK aktif -> renderer memakai CAM_OFF_DEFAULT
