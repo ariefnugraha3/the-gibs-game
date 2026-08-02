@@ -9,7 +9,7 @@
 // GERBANG di mulut ring (GATE_X): TERTUTUP (blocker pejal) selama masih ada
 // robot — robot hanya ada di parkiran+jalan (alun-alun steril); bunuh SEMUA
 // robot -> gerbang terbuka + BOSS TANK muncul menggelinding ke TENGAH
-// alun-alun -> hancurkan tank -> MISSION COMPLETE (tanpa trigger finish).
+// alun-alun -> hancurkan tank -> outro radio -> Field Shop -> Stage 5.
 // KUNCI ARENA BOSS (2026-07-17, permintaan user): begitu player MENGINJAK
 // lapangan alun-alun selagi tank hidup, arena TERKUNCI — player dijepit di
 // dalam rumput ALUN (tak bisa keluar, bahkan tak bisa mundur ke ring road)
@@ -32,7 +32,6 @@ import { makeFacadeTex, makeLitTex, makeCityMat, fillBuildingInstances, CITY_PAL
 import { showStageMsg, showPickup } from '../../../core/dom.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { updateUI } from '../../../core/hud.js';
-import { gameOver } from '../../../core/game.js';
 import { NADE_R } from '../../../entities/grenades.js';
 import { disposeRobot } from '../../../entities/robots.js';
 import { updateTank, disposeTank, resolveTankBlock } from '../../../entities/tank.js';
@@ -47,8 +46,9 @@ import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobo
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { spawnSmashBuilding, smashBuilding, updateSmashBuilding, resetSmashBuilding, smashBuildingDebug } from '../../../entities/smashBuilding.js';
 import { exitCityEnv } from '../utility/cityscape.js';
-import { campaignJumpToStage } from '../utility/transition.js';
+import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
+import { stage5Scene } from './stage5.js';
 import { createTankBossIntro, TANK_BOSS_DIALOGUE } from '../cutscenes/tankBossIntro.js';
 import { createTankBossOutro, TANK_BOSS_OUTRO_DIALOGUE } from '../cutscenes/tankBossOutro.js';
 export { TANK_BOSS_DIALOGUE, TANK_BOSS_OUTRO_DIALOGUE };
@@ -1109,14 +1109,14 @@ const intro = createTankBossIntro({
     smash: (dirX, dirZ) => smashBuilding(smashRuko, dirX, dirZ),
 });
 
-// Cutscene penutup: close-up bangkai -> pose radio Gibran -> fade -> layar
-// kemenangan hijau. Stage 4 tetap menjadi pemilik keputusan game-over.
+// Cutscene penutup: close-up bangkai -> pose radio Gibran -> fade -> Field Shop
+// sebelum perjalanan terakhir ke Bandung di Stage 5.
 const outro = createTankBossOutro({
     getTank: () => tank,
     onComplete: () => {
         if (winFired) return;
         winFired = true;
-        gameOver(true);
+        beginStageTransition(stage5Scene);
     },
 });
 
@@ -1137,7 +1137,7 @@ export const stage4Scene = {
     // Transisi dari stage 3 (tangga keluar). Bangun dunia sekali; bersihkan
     // robot stage 3 tersisa; tempatkan robot + supply stage 4; reset boss.
     enter() {
-        saveCampaignStage(4);   // checkpoint: campaign berada di stage 4 (final)
+        saveCampaignStage(4);   // checkpoint: campaign berada di stage 4
         ensureWorld();   // normalnya sudah dibangun stage1.enter (pre-build) — guard jaga-jaga
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 3) {
@@ -1179,7 +1179,7 @@ export const stage4Scene = {
     // ALUR AKHIR (2026-07-17): semua robot mati -> gerbang terbuka + HELI
     // penjemput menunggu di pusat (heliArrives) -> player menginjak ring road
     // -> CUTSCENE (tank datang dari utara, menghancurkan heli, parkir di depan
-    // bangkai) -> duel; tank hancur -> cutscene radio penutup -> layar hijau.
+    // bangkai) -> duel; tank hancur -> cutscene radio penutup -> Field Shop.
     updateMode(dt) {
         updateOccluders(dt);   // objek penghalang -> semi-transparan (2026-07-18)
         updateSmashBuilding(smashRuko, dt);   // puing ruko yang diterobos tank (no-op setelah menetap)
@@ -1300,7 +1300,7 @@ export const stage4Scene = {
             const frac = Math.max(0, tank.hp / tank.maxHp);
             const blocks = Math.ceil(frac * 10);
             s += ` — TANK ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
-        } else if (bossDefeated) s += ' | MISSION COMPLETE';
+        } else if (bossDefeated) s += ' | EXTRACTION LOST — ROUTE TO BANDUNG REQUIRED';
         else if (intro.isHeliSpawned()) s += ' | Reach the extraction helicopter (east)!';
         else s += ' | Reach the town square (east)';
         return s;

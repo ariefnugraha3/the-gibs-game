@@ -355,6 +355,36 @@
             "spawnRiseSec": 0.55,
             "classMix": { "C": 0.7, "B": 0.2, "A": 0.1 }
         },
+        "stage5": {
+            "openingMinSec": 6,
+            "openingDialogueDelaySec": 0.6,
+            "departureMinSec": 10,
+            "arrivalMinSec": 12,
+            "fadeSec": 0.5,
+            "repairRange": 12,
+            "terminalRange": 12,
+            "boardRange": 14,
+            "routeKm": 120,
+            "trainSpeed": 92,
+            "rideMinSec": 240,
+            "cargoGateSec": 20,
+            "securityGateSec": 75,
+            "roofGateSec": 125,
+            "finalGateSec": 165,
+            "finalDefenseSec": 65,
+            "finalWaveGapSec": 18,
+            "encounters": {
+                "depot": { "C": 7, "B": 3, "A": 2 },
+                "cargo": { "C": 4, "B": 1, "A": 1 },
+                "security": { "C": 3, "B": 2, "A": 1 },
+                "roof": { "C": 5, "B": 2, "A": 1 },
+                "finalWaves": [
+                    { "C": 3, "B": 1, "A": 0 },
+                    { "C": 2, "B": 1, "A": 1 },
+                    { "C": 2, "B": 1, "A": 1 }
+                ]
+            }
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,

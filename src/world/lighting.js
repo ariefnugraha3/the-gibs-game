@@ -47,7 +47,7 @@ export function applyLightPreset(scene, name) {
 }
 
 // ===== LAMPU MILIK STAGE: hanya stage AKTIF yang menyala =====
-// (2026-07-26, keluhan user "stage 4 masih agak berat".) Keempat dunia campaign
+// (2026-07-26, keluhan user "stage 4 masih agak berat".) Kelima dunia campaign
 // + survival hidup berdampingan di SATU scene, jadi SEMUA lampu ruangan/jalannya
 // (18+12+12+12) ikut terhitung sekaligus: three merender maju, shader Lambert/Phong
 // MELOOPING setiap point light untuk SETIAP FRAGMEN — 57 iterasi per piksel walau
@@ -60,7 +60,7 @@ export function applyLightPreset(scene, name) {
 // di sini — selalu menyala.
 //
 // Konsekuensinya jumlah light BERUBAH saat pindah stage = shader rekompilasi. Itu
-// sebabnya `precompileStageLightSets()` (dipanggil sekali setelah keempat dunia
+// sebabnya `precompileStageLightSets()` (dipanggil sekali setelah kelima dunia
 // campaign dibangun) mengompilasi program untuk SETIAP konfigurasi lampu di muka,
 // jadi transisi stage tetap tanpa hitch — aturan "tanpa rekompilasi saat main"
 // tetap dipegang.

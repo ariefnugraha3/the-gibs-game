@@ -6,7 +6,7 @@
 //   2. Cut ke close-up depan-kanan Major Gibran: tangan kiri menekan earpiece,
 //      tangan kanan tetap memegang senjata dengan laras ke bawah. Lima transmisi
 //      radio diketik huruf-per-huruf memakai CFG.campaign.dialogue.
-//   3. Fade-out hitam, lalu callback Stage 4 membuka layar kemenangan hijau.
+//   3. Fade-out hitam, lalu callback Stage 4 membuka transisi ke Field Shop.
 //
 // Modul ini buta terhadap kondisi menang Stage 4: tank + callback akhir di-
 // inject oleh stage4.js. Semua state kamera/dialog/pose dibersihkan oleh reset().

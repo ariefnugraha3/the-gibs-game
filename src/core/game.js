@@ -110,15 +110,16 @@ export function updateGame(dt, step, T, dtReal = dt) {
 }
 
 // title opsional: judul khusus scene (mis. survival 'THE MONUMENT HAS FALLEN');
+// `opts.preserveCampaignSave` mempertahankan checkpoint untuk ending bersambung.
 // default tetap MISSION COMPLETE / GAME OVER.
-export function gameOver(won, title) {
+export function gameOver(won, title, opts = {}) {
     setGameOver(true);
     endDeathCine();   // lepas slow motion + letterbox; framing jasad dibekukan (no-op bila menang)
     stopMusic();   // stage berakhir (menang/kalah) -> musik battle/boss berhenti (2026-07-19)
     document.exitPointerLock();
-    // MISSION COMPLETE (won, campaign stage 4 selesai) = campaign tamat →
-    // hapus checkpoint supaya campaign berikutnya mulai baru (bukan Continue).
-    if (won) clearCampaignSave();
+    // Menang final biasanya menghapus checkpoint. Ending bersambung Stage 5
+    // sengaja mempertahankannya agar Continue/Restart kembali ke checkpoint 5.
+    if (won && !opts.preserveCampaignSave) clearCampaignSave();
     if (score > highScore) setHighScore(score);
     // Campaign selesai = menang; selain itu (HP habis) = kalah.
     gameOverTitle.innerText = title || (won ? 'MISSION COMPLETE' : 'GAME OVER');

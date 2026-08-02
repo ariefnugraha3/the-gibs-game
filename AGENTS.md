@@ -11,8 +11,8 @@ no framework**. Two modes:
 
 - **Survival** — round-based waves defending the Monas monument; a Field Shop opens
   between waves; score = shop currency. Detail: [docs/survival.md](docs/survival.md).
-- **Campaign** — 4 linear stages (text prologue → helicopter intro cutscene → three
-  indoor office floors → an outdoor finale with a tank boss), an inter-stage shop, loot
+- **Campaign** — 5 linear stages (text prologue → helicopter intro cutscene → three
+  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung), an inter-stage shop, loot
   as currency, hacking/repair minigames, a stage checkpoint save.
   Detail: [docs/campaign.md](docs/campaign.md).
 
@@ -30,7 +30,7 @@ never re-wire it.
 - `src/core/` — engine/orchestration: config, state, renderer, input, HUD, scene manager,
   preload/warm-up, save, pause menu, cheat console, death director, time scale.
 - `src/entities/` — shared gameplay systems: player, avatar, weapons, bullets, robots,
-  tank boss, gore, effects, drops/ammo/crates/barrels, helicopter, procedural props.
+  tank boss, gore, effects, drops/ammo/crates/barrels, helicopter, procedural train/scenery, props.
 - `src/scenes/` — one file per scene: `campaign/{stages,cutscenes,utility}/`,
   `survival/{,cutscenes/}`, `menu.js`. Adding a stage = one new file + wiring
   (recipe in docs/MODULES.md).
@@ -137,6 +137,19 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   Left-click during body first reveals all remaining typed text; only a later click
   advances the era. Chapter changes are silent, and menu music continues through the
   prologue before stopping on the heli intro's first live frame.
+- Stage 5 keeps its five-car train arena static in world coordinates. Travel is the
+  illusion of fixed pooled scenery moving and wrapping; never move player/robot physics,
+  allocate scenery per frame, add a boss, or bypass the config-driven minimum ride/final
+  defense gates. Its depot is the frozen 30×50 CSV map: clear combat → hack C1 → open the
+  platform door → repair generator C2 → board; station robot spawning, AI and clamps all
+  reject `SA`/`S`/`T`, so those cells never contain robots.
+  SA shares the normal hall floor material. Depot robots remain hard-frozen until the
+  player's full footprint leaves SA, then chase together. C1/C2 are detailed animated
+  2045 landmarks, and depot/platform freight furniture is solid and nav-baked.
+  Stage 5 entry clears `cineFade` synchronously so the station renders before its delayed
+  opening dialogue; do not make fade cleanup depend on an unpaused gameplay update.
+  The train may move visually in the departure shot, but the station root and destination
+  terminal must never move or join a wrapping scenery pool. `TO BE CONTINUED` preserves checkpoint 5.
 - Dormant-but-kept systems (reload, ADS, crouch, jump, sprint, thrown grenade, medkit
   channel) must stay unreachable — don't re-wire, don't delete.
 

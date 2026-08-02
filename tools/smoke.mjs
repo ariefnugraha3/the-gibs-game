@@ -4240,7 +4240,7 @@ function sampleS4Gesture() {
 }
 sampleS4Gesture();
 let s4OutroLast = 'gibranCall', s4OutroFrames = 0, s4OutroFade = false;
-while (!stateMod.isGameOver && s4OutroFrames++ < 5000) {
+while (!s4mod.outroCineDebug().done && s4OutroFrames++ < 5000) {
     s4mod.stage4Scene.updateMode(1 / 30);
     avMod.updatePlayerAvatar(1 / 30);
     sampleS4Gesture();
@@ -4269,12 +4269,12 @@ T('S4 OUTRO AKTING: shock condong menantang, kabar buruk merunduk, akhir menurun
     && s4GestureTrace.commandFinal.bodyMin < s4GestureTrace.gibranCall.bodyMin - 0.05
     && s4GestureTrace.gibranAccepts.gunMax > s4GestureTrace.gibranCall.gunMax + 0.02);
 T('S4 OUTRO FADE: sesudah dialog panel hilang dan layar fade-out hitam', s4OutroFade);
-T('S4 OUTRO SELESAI: fade membuka MISSION COMPLETE hijau dan seluruh state sinematik bersih',
-    stateMod.isGameOver === true && s4mod.outroCineDebug().done
+T('S4 OUTRO SELESAI: fade membuka FIELD SHOP (bukan MISSION COMPLETE) dan state sinematik bersih',
+    stateMod.isGameOver === false && smMod.activeScene.id === 'campaign-shop'
+    && s4mod.outroCineDebug().done
     && !s4mod.outroCineDebug().active && stateMod.cinematicActive === false
     && avMod.avatarRadioDebug().active === false && dom4.stageRadioDialogueDebug() === null
-    && dom4.cineFadeDebug()?.opacity === 0 && dom4.gameOverTitle.innerText === 'MISSION COMPLETE'
-    && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)');
+    && dom4.cineFadeDebug()?.opacity === 0);
 {
     const f = s4tank.turretFly, tp = s4turret.position;
     const dxT = tp.x - s4hullX, dzT = tp.z - s4hullZ, distT = Math.hypot(dxT, dzT);
@@ -4295,13 +4295,453 @@ T('S4 OUTRO SELESAI: fade membuka MISSION COMPLETE hijau dan seluruh state sinem
         s4tank.charK === 1 && hex4 !== s4paint0
         && (hex4 >> 16 & 255) < (s4paint0 >> 16 & 255) && (hex4 >> 16 & 255) < 60);
 }
+
+// --- 17a-bis. CAMPAIGN STAGE 5 — THE LAST TRAIN TO BANDUNG (2026-08-02).
+// Stage 4 harus meneruskan shop normal ke depot; seluruh pacing/tuning dibaca
+// dari CFG.campaign.stage5. Alur dimainkan end-to-end tanpa mensimulasikan
+// kegagalan combat: depot -> alarm hack C1 -> pintu peron -> repair C2 -> kereta -> 4 encounter ->
+// arrival. Semua dialog tetap benar-benar melewati state typewriter parsial. ---
+const s5mod = await import(R('src/scenes/campaign/stages/stage5.js'));
+const save5Mod = await import(R('src/core/saveGame.js'));
+const crate5Mod = await import(R('src/entities/crates.js'));
+const S5C = cfgMod.CFG.campaign.stage5;
+
+// Tunggu LOADING #1 Field Shop milik transisi outro, lalu gunakan tombol shop
+// sesungguhnya (dua tekan = buka konfirmasi + setuju), bukan cheat.
+for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
+const s5Carry = {
+    money: stateMod.score, hp: player.hp, armor: player.armor,
+    medkits: player.medkits, weapons: player.weapons.join(','),
+};
+T('S5 TRANSISI: outro Stage 4 benar-benar membuka FIELD SHOP sebelum depot',
+    shopMod.isShopOpen() && smMod.activeScene.id === 'campaign-shop');
+smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');
+for (let i = 0; i < 500 && smMod.activeScene !== s5mod.stage5Scene; i++) await new Promise(r => setTimeout(r, 10));
+T('S5 TRANSISI: Start Next Stage dari Field Shop masuk Stage 5 + checkpoint 5',
+    smMod.activeScene === s5mod.stage5Scene && save5Mod.loadCampaignStage() === 5);
+T('S5 TRANSISI FRAME PERTAMA: tirai outro tetap bersih; dunia tampil sebelum dialog opening',
+    dom4.cineFadeDebug()?.opacity === 0
+    && s5mod.stage5DialogueDebug().key === null
+    && dom4.stageRadioDialogueDebug() === null
+    && stateMod.cinematicActive);
+stateMod.setPaused(false);   // harness tidak menerima klik blocker setelah loading
+T('S5 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
+    stateMod.score === s5Carry.money && player.hp === s5Carry.hp
+    && player.armor === s5Carry.armor && player.medkits === s5Carry.medkits
+    && player.weapons.join(',') === s5Carry.weapons);
+
+const expectedS5Dialogue = {
+    opening: { speaker: 'Major Gibran', text: "Walking to Bandung isn't an option. There has to be something in this depot I can use." },
+    discoverTrain: { speaker: 'Major Gibran', text: 'An autonomous military transport... Destination registry: Bandung Logistics Terminal. This could be my way out.' },
+    powerDead: { speaker: 'Major Gibran', text: "The train has no power, and the platform access is locked. I'll need to hack station computer C1 first." },
+    powerBack: { speaker: 'Major Gibran', text: "Generator's back online. The route controls are responding." },
+    routeReady: { speaker: 'Train System', text: 'Route authority overridden. Destination confirmed: Bandung Logistics Terminal.' },
+    letsMove: { speaker: 'Major Gibran', text: "Finally. Let's move." },
+    commandDeparture: { speaker: 'Command', text: "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" },
+    gibranDeparture: { speaker: 'Major Gibran', text: "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." },
+    breach: { speaker: 'Train System', text: 'Security breach detected. Rear coupling compromised.' },
+    breachReply: { speaker: 'Major Gibran', text: "They're boarding the train. Here we go again." },
+    roofWarning: { speaker: 'Command', text: 'Major, multiple hostile signatures are converging on your position.' },
+    roofReply: { speaker: 'Major Gibran', text: 'I can see them. Just keep the route open!' },
+    finalApproach: { speaker: 'Train System', text: 'Final approach initiated. Hostile units detected across multiple cars.' },
+    finalReply: { speaker: 'Major Gibran', text: 'Then I hold this line until we reach Bandung.' },
+    arrivedCommand: { speaker: 'Command', text: 'Major, your signal just crossed into Bandung. Headquarters is standing by.' },
+    arrivedGibran: { speaker: 'Major Gibran', text: "Copy. I'm at the terminal. Tell them I brought the file—and a whole lot of trouble behind me." },
+};
+T('S5 DIALOG: seluruh naskah final tersimpan PERSIS dan urut',
+    JSON.stringify(s5mod.STAGE5_DIALOGUE) === JSON.stringify(expectedS5Dialogue));
+
+const s5Partial = new Set(), s5ShownOrder = [];
+let s5LastKey = null;
+function sampleS5Dialogue() {
+    const d = s5mod.stage5DialogueDebug();
+    if (d.key && d.key !== s5LastKey) { s5ShownOrder.push(d.key); s5LastKey = d.key; }
+    if (d.key && d.chars > 0 && d.chars < d.text.length) s5Partial.add(d.key);
+}
+function tickS5(total, step = 1 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps)) {
+    let left = Math.max(0, total), guard = 0;
+    while (left > 1e-9 && guard++ < 30000) {
+        const dt = Math.min(step, left);
+        s5mod.stage5Scene.updateMode(dt); sampleS5Dialogue(); left -= dt;
+    }
+}
+function drainS5Dialogue() {
+    let guard = 0;
+    sampleS5Dialogue();
+    while (guard++ < 20000) {
+        const d = s5mod.stage5DialogueDebug();
+        if (!d.key && !d.queued.length) break;
+        tickS5(1.01 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps));
+    }
+}
+function killS5(encounter = null) {
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
+        if (z.stage !== 5 || (encounter && z.encounter !== encounter)) continue;
+        robotsMod.disposeRobot(z); scene.remove(z.mesh); robots.splice(i, 1);
+    }
+}
+const s5Mix = (encounter) => {
+    const out = { C: 0, B: 0, A: 0 };
+    for (const z of robots) if (z.stage === 5 && z.encounter === encounter && out[z.kind] != null) out[z.kind]++;
+    return out;
+};
+const sameMix = (got, want) => ['C', 'B', 'A'].every(k => got[k] === (want[k] | 0));
+
+// Dunia/depot: builder, fixed pools, konektivitas union, supply dan spawn aman.
+const s5World = s5mod.stage5WorldDebug();
+const depotBots = robots.filter(z => z.stage === 5 && z.encounter === 'depot');
+const depotMix = s5Mix('depot');
+const expectedS5Map = [
+    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    '#####.........................',
+    '#2222.........................',
+    '#..H..........................',
+    '#.............................',
+    '#.............................',
+    '#.............................',
+    '#.............................',
+    '##########################--##',
+    '#AAAAAAA.....................#',
+    '#AAAAAAA.....................#',
+    '#AAAAAAA.....................#',
+    '#AAAAAAA.....................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.......................#',
+    '#AAAA#.................#######',
+    '#AAAA#.................#....1#',
+    '#AAAA#.................#....1#',
+    '#AAAA#.................#....1#',
+    '#AAAA#.................-....1#',
+    '#AAAA#.................-...H1#',
+    '#AAAA#.................#....1#',
+    '#AAAA#.................#....1#',
+    '#ASSA#.................#....1#',
+    '##############################',
+];
+const s5TokenAt = (x, z) => {
+    const c = Math.floor((x - s5World.depot.x0) / s5World.map.cell);
+    const r = Math.floor((z - s5World.depot.z0) / s5World.map.cell);
+    return s5mod.S5_MAP[r]?.[c] || '#';
+};
+T('S5 CSV CONTRACT: layout 30×50, semua dinding/pintu/C1/C2/H/T/SA persis peta user',
+    JSON.stringify(s5mod.S5_MAP) === JSON.stringify(expectedS5Map)
+    && s5World.map.rows === 50 && s5World.map.cols === 30
+    && s5mod.S5_MAP.flatMap(r => [...r]).filter(t => t === 'H').length === 2
+    && s5mod.S5_MAP.flatMap(r => [...r]).filter(t => t === '-').length === 4);
+T('S5 SA FLOOR: safe area memakai lantai hall yang sama tanpa overlay warna khusus',
+    s5World.map.safeCells > 0 && s5World.map.safeFloorOverlays === 0);
+T('S5 LANDMARK 2045: C1/C2 bukan box basic; mesh detail + bagian animasi dipatok',
+    s5World.landmarks.generatorMeshes >= 45
+    && s5World.landmarks.terminalMeshes >= 90
+    && s5World.landmarks.animatedParts >= 2);
+const s5DepotKinds = new Set(s5World.furniture.depot.map(p => p.kind));
+const s5PlatformKinds = new Set(s5World.furniture.platform.map(p => p.kind));
+T('S5 DEPOT FURNITURE: hall berisi rack/container/workbench/forklift/drum/scale/locker solid',
+    s5World.furniture.depot.length >= 10 && s5DepotKinds.size >= 7
+    && s5World.furniture.depot.every(p => p.solid));
+T('S5 PLATFORM FURNITURE: peron berisi cart/pallet/bench/signal/drum solid',
+    s5World.furniture.platform.length >= 6 && s5PlatformKinds.size >= 5
+    && s5World.furniture.platform.every(p => p.solid));
+let s5FurnitureSolid = true;
+for (const p of [...s5World.furniture.depot, ...s5World.furniture.platform]) {
+    stateMod._v3.set(p.x, 0, p.z); s5mod.resolve(stateMod._v3, 2, 0);
+    if (Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) < 0.01) s5FurnitureSolid = false;
+}
+T('S5 FURNITURE COLLISION: seluruh perabot besar benar-benar masuk blocker/nav contract',
+    s5FurnitureSolid);
+T('S5 WORLD: depot + kereta 5 bagian + 4 pintu + nav terbangun jauh dari rooftop intro',
+    s5World.built && s5World.nav && s5World.train.cars === 5 && s5World.train.doors === 4
+    && s5World.train.x0 < s5World.depot.x1 && s5World.depot.x0 > 150000);
+T('S5 WORLD: seluruh deck kereta terhubung ke depot dan walkable',
+    s5World.carCenters.length === 5
+    && s5World.carCenters.every(p => s5mod.stage5Walk(p.x, p.z, 3))
+    && s5mod.stage5Walk(s5mod.S5_START.x, s5mod.S5_START.z, 3)
+    && s5mod.stage5Walk(s5mod.S5_BOARD.x, s5mod.S5_BOARD.z, 3));
+let s5PlacementOK = true;
+for (const p of [...s5World.supplies, ...s5World.crates]) {
+    if (!s5mod.stage5Walk(p.x, p.z, 1)) s5PlacementOK = false;
+    stateMod._v3.set(p.x, 0, p.z); s5mod.resolve(stateMod._v3, 1, 0);
+    if (Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) > 0.01) s5PlacementOK = false;
+}
+for (const z of depotBots) {
+    if (!s5mod.stage5Walk(z.mesh.position.x, z.mesh.position.z, 2)) s5PlacementOK = false;
+    stateMod._v3.set(z.mesh.position.x, 0, z.mesh.position.z); s5mod.resolve(stateMod._v3, 2, 0);
+    if (Math.hypot(stateMod._v3.x - z.mesh.position.x, stateMod._v3.z - z.mesh.position.z) > 0.01)
+        s5PlacementOK = false;
+}
+T('S5 WORLD: supplies, crates, marker route, dan 12 spawn depot berada di area valid',
+    s5PlacementOK && depotBots.length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
+T('S5 DEPOT: komposisi awal C/B/A mengikuti CFG dan tidak memuat boss',
+    sameMix(depotMix, S5C.encounters.depot)
+    && robots.filter(z => z.stage === 5).every(z => ['C', 'B', 'A'].includes(z.kind))
+    && depotBots.every(z => !['A', 'S', 'T'].includes(s5TokenAt(z.mesh.position.x, z.mesh.position.z)))
+    && depotBots.every(z => z.state === 'idle') && !s5mod.stage5Debug().depotAwake);
+const s5SafeProbe = depotBots[0], s5SafeOld = {
+    x: s5SafeProbe.mesh.position.x, z: s5SafeProbe.mesh.position.z,
+};
+s5SafeProbe.mesh.position.x = s5mod.S5_START.x; s5SafeProbe.mesh.position.z = s5mod.S5_START.z;
+s5mod.stage5Scene.clampRobot(s5SafeProbe, s5SafeOld.x, s5SafeOld.z);
+T('S5 SAFE AREA: robot juga di-clamp keluar dari SA/S, bukan hanya dilarang spawn di sana',
+    !['A', 'S', 'T'].includes(s5TokenAt(s5SafeProbe.mesh.position.x, s5SafeProbe.mesh.position.z)));
+s5SafeProbe.mesh.position.x = s5SafeOld.x; s5SafeProbe.mesh.position.z = s5SafeOld.z;
+const s5SupplyDrops = stateMod.drops.filter(d => s5World.supplies.some(p =>
+    Math.hypot(d.mesh.position.x - p.x, d.mesh.position.z - p.z) < 0.1));
+T('S5 SUPPLY: depot membawa 4 ammo + 2 medkit dan 5 crates (cargo/security/locomotive termasuk)',
+    s5SupplyDrops.filter(d => d.type === 'ammo').length === 4
+    && s5SupplyDrops.filter(d => d.type === 'medkit').length === 2
+    && crate5Mod.crateDebug().count === s5World.crates.length
+    && ['cargo', 'security', 'locomotive'].every(a => s5World.crates.some(p => p.area === a)));
+
+// Opening cinematic: dunia langsung terlihat, establishing beat, lalu typewriter.
+const s5D0 = s5mod.stage5DialogueDebug();
+T('S5 OPENING: cinematic membekukan kontrol tetapi dunia tidak ditutupi fade hitam',
+    s5mod.stage5Debug().phase === 'opening' && stateMod.cinematicActive
+    && dom4.cineFadeDebug()?.opacity === 0 && s5D0.key === null);
+tickS5(S5C.openingDialogueDelaySec * 0.5, 0.05);
+T('S5 OPENING: dialog belum muncul selama establishing beat',
+    s5mod.stage5DialogueDebug().key === null && dom4.stageRadioDialogueDebug() === null);
+tickS5(S5C.openingDialogueDelaySec * 0.5, 0.05);
+T('S5 OPENING: sesudah delay, panel dialog baru muncul dengan body awal kosong',
+    s5mod.stage5DialogueDebug().key === 'opening'
+    && s5mod.stage5DialogueDebug().shown === '');
+tickS5(1.01 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps));
+T('S5 TYPEWRITER: opening menampilkan tepat satu karakter pada tick pertama',
+    s5mod.stage5DialogueDebug().chars === 1
+    && s5mod.stage5DialogueDebug().shown === expectedS5Dialogue.opening.text.slice(0, 1));
+drainS5Dialogue();
+tickS5(S5C.openingMinSec + S5C.fadeSec + 0.2, 0.1);
+T('S5 OPENING: sesudah minimum+fade kontrol kembali dan objective depot aktif',
+    s5mod.stage5Debug().phase === 'clearDepot' && !stateMod.cinematicActive);
+
+const s5HeldBot = depotBots[0];
+const s5HeldPos = { x: s5HeldBot.mesh.position.x, z: s5HeldBot.mesh.position.z };
+const s5HeldAI = s5mod.stage5Scene.robotAI(s5HeldBot, 0.5, 30);
+T('S5 SAFE HOLD: selama player masih di SA semua robot idle dan AI tidak menggeser posisi',
+    !s5mod.stage5Debug().depotAwake && s5HeldAI.chaseDist == null
+    && depotBots.every(z => z.state === 'idle')
+    && s5HeldBot.mesh.position.x === s5HeldPos.x && s5HeldBot.mesh.position.z === s5HeldPos.z);
+const s5OutsideSafe = {
+    x: s5World.depot.x0 + (9 - 0.5) * s5World.map.cell,
+    z: s5World.depot.z0 + (18 - 0.5) * s5World.map.cell,
+};
+camera.position.set(s5OutsideSafe.x, cfgMod.CFG.player.eyeHeight, s5OutsideSafe.z);
+s5mod.stage5Scene.updateMode(0.1);
+const s5AwakeAI = s5mod.stage5Scene.robotAI(s5HeldBot, 0.1, 6);
+T('S5 SAFE HOLD: setelah seluruh badan player keluar SA, semua robot langsung mulai mengejar',
+    s5mod.stage5Debug().depotAwake && s5TokenAt(camera.position.x, camera.position.z) === '.'
+    && depotBots.every(z => z.state === 'chasing') && s5AwakeAI.skip !== true);
+
+// Depot aman -> C1. Generator C2 dan pintu peron belum dapat dilewati.
+killS5('depot'); s5mod.stage5Scene.updateMode(0.1); drainS5Dialogue();
+const s5PlatformDoor0 = s5mod.stage5WorldDebug().station.doors.find(d => d.kind === 'platform');
+T('S5 FLOW: depot aman mengaktifkan hack C1 lebih dulu; C2 dan pintu peron masih terkunci',
+    s5mod.stage5Debug().phase === 'hack' && !s5mod.stage5Debug().platformUnlocked
+    && s5PlatformDoor0.target === 0 && s5PlatformDoor0.open === 0);
+camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 FLOW: berdiri di H generator sebelum hack C1 tidak membuka FIELD REPAIR',
+    s5mod.stage5Debug().phase === 'hack' && !repMod.isRepairOpen());
+stateMod._v3.set(s5World.map.platformDoor.x, 0, s5World.map.platformDoor.z);
+s5mod.resolve(stateMod._v3, 2, 0);
+T('S5 DOOR: pintu peron benar-benar solid sebelum C1 berhasil di-hack',
+    Math.hypot(stateMod._v3.x - s5World.map.platformDoor.x,
+        stateMod._v3.z - s5World.map.platformDoor.z) > 0.01);
+
+// Abort hack, re-arm, lalu sengaja timeout: tepat horde config + cooldown config.
+camera.position.set(s5mod.S5_TERMINAL.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_TERMINAL.z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 HACK C1: H membuka ICE BREACH 5x5 dengan trace config',
+    hackMod.isHackOpen() && hackMod.hackDebug().size === cfgMod.CFG.campaign.hack.gridSize
+    && hackMod.hackDebug().traceMax === cfgMod.CFG.campaign.hack.traceSec);
+smMod.activeScene.shopKey('escape'); stateMod.setPaused(false);
+T('S5 HACK C1: abort memerlukan re-arm dengan menjauh',
+    s5mod.stage5Debug().phase === 'hack' && !s5mod.stage5Debug().hackArmed);
+camera.position.x += S5C.terminalRange * 2 + 10; s5mod.stage5Scene.updateMode(0.1);
+camera.position.set(s5mod.S5_TERMINAL.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_TERMINAL.z);
+s5mod.stage5Scene.updateMode(0.1);
+hackMod.hackTick(cfgMod.CFG.campaign.hack.traceSec + 1);
+await waitHackClosed();
+const s5Alarm = robots.filter(z => z.stage === 5);
+T('S5 HACK C1: trace gagal memicu horde C config di luar layar, di luar SA/T, + cooldown',
+    s5Alarm.length === cfgMod.CFG.campaign.hack.alarmHordeCount
+    && s5Alarm.every(z => z.kind === 'C' && offCamera(z.mesh.position.x, z.mesh.position.z)
+        && !['A', 'S', 'T'].includes(s5TokenAt(z.mesh.position.x, z.mesh.position.z)))
+    && Math.abs(s5mod.stage5Debug().hackCd - cfgMod.CFG.campaign.hack.alarmCooldownSec) < 0.01);
+killS5();
+camera.position.x += S5C.terminalRange * 2 + 10;
+s5mod.stage5Scene.updateMode(cfgMod.CFG.campaign.hack.alarmCooldownSec + 0.1);
+camera.position.set(s5mod.S5_TERMINAL.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_TERMINAL.z);
+s5mod.stage5Scene.updateMode(0.1);
+solveHack(); await waitHackClosed();
+tickS5(0.6, 0.1);
+const s5PlatformDoor1 = s5mod.stage5WorldDebug().station.doors.find(d => d.kind === 'platform');
+stateMod._v3.set(s5World.map.platformDoor.x, 0, s5World.map.platformDoor.z);
+s5mod.resolve(stateMod._v3, 2, 0);
+T('S5 HACK C1: solve membuka pintu peron fisik dan baru mengaktifkan generator C2',
+    s5mod.stage5Debug().phase === 'repair' && s5mod.stage5Debug().platformUnlocked
+    && s5PlatformDoor1.target === 1 && s5PlatformDoor1.open >= 0.74
+    && Math.hypot(stateMod._v3.x - s5World.map.platformDoor.x,
+        stateMod._v3.z - s5World.map.platformDoor.z) < 0.01);
+
+// FIELD REPAIR C2. Abort harus menyimpan 1/3 dan butuh menjauh.
+camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 REPAIR C2: H membuka modal FIELD REPAIR tiga papan dan pause',
+    s5mod.stage5Debug().phase === 'repairing' && repMod.isRepairOpen()
+    && repMod.repairDebug().total === repMod.REPAIR_PARTS.length && stateMod.isPaused);
+solveOpenRepairBoard();
+await waitRepairNext(1);
+smMod.activeScene.shopKey('escape'); stateMod.setPaused(false);
+T('S5 REPAIR C2: abort mempertahankan progres dan pemicu belum re-arm di tempat',
+    smMod.activeScene === s5mod.stage5Scene && s5mod.stage5Debug().phase === 'repair'
+    && s5mod.stage5Debug().repairInstalled === 1 && !s5mod.stage5Debug().repairArmed);
+camera.position.x += S5C.repairRange * 2 + 10; s5mod.stage5Scene.updateMode(0.1);
+camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 REPAIR C2: setelah menjauh modal dibuka ulang dari papan kedua',
+    repMod.isRepairOpen() && repMod.repairDebug().index === 1);
+solveOpenRepairBoard(); await waitRepairNext(2);
+solveOpenRepairBoard(); await waitRepairClosed();
+T('S5 REPAIR C2: tiga papan selesai -> generator hidup dan objective board aktif',
+    s5mod.stage5Debug().phase === 'board'
+    && s5mod.stage5Debug().repairInstalled === repMod.REPAIR_PARTS.length);
+drainS5Dialogue();
+
+// Departure cinematic lalu perjalanan fixed arena/pool.
+camera.position.set(s5mod.S5_BOARD.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_BOARD.z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 DEPARTURE: boarding memulai cinematic freeze + perjalanan',
+    s5mod.stage5Debug().phase === 'departure' && stateMod.cinematicActive);
+const s5StationBeforeMove = s5mod.trainJourneyDebug().station;
+const s5TerminalBeforeMove = s5mod.trainJourneyDebug().terminal;
+tickS5(Math.min(1, S5C.departureMinSec / 3), 0.1);
+const s5DepartureMove = s5mod.stage5Debug();
+const s5StationDuringMove = s5mod.trainJourneyDebug().station;
+T('S5 DEPARTURE: yang bergerak hanya kereta; stasiun tetap persis di koordinat semula',
+    s5DepartureMove.departureShift > 0 && s5StationDuringMove.visible
+    && s5StationDuringMove.x === s5StationBeforeMove.x
+    && s5StationDuringMove.z === s5StationBeforeMove.z);
+drainS5Dialogue();
+tickS5(S5C.departureMinSec + S5C.fadeSec + 0.2, 0.1);
+const s5Pools0 = s5mod.trainJourneyDebug().pools;
+T('S5 DEPARTURE: selesai fade -> cargo, roda/scenery bergerak dan pintu pertama terbuka',
+    s5mod.stage5Debug().phase === 'cargo' && !stateMod.cinematicActive
+    && s5mod.trainJourneyDebug().active && s5mod.trainJourneyDebug().wheelPhase > 0
+    && s5mod.trainJourneyDebug().doors[0].target === 1
+    && s5mod.stage5Debug().departureShift === 0
+    && s5mod.trainJourneyDebug().station.x === s5StationBeforeMove.x
+    && s5mod.trainJourneyDebug().station.z === s5StationBeforeMove.z);
+
+// Cargo -> security -> roof, tiap gate menunggu timer + area bersih.
+camera.position.set(s5World.carCenters[1].x, cfgMod.CFG.player.eyeHeight, s5World.carCenters[1].z);
+tickS5(Math.max(0, S5C.cargoGateSec - s5mod.stage5Debug().rideT) + 0.1, 0.25);
+const cargoMix = s5Mix('cargo');
+T('S5 CARGO: encounter config muncul lewat rear/side boarding dan gate depan tetap terkunci',
+    sameMix(cargoMix, S5C.encounters.cargo) && robots.some(z => z.encounter === 'cargo' && z.trainBoard)
+    && s5mod.trainJourneyDebug().doors[1].target === 0);
+drainS5Dialogue(); killS5('cargo');
+tickS5(Math.max(0, S5C.securityGateSec - s5mod.stage5Debug().rideT) + 0.1, 0.5);
+T('S5 CARGO: pintu security baru terbuka setelah bersih + gate timer',
+    s5mod.stage5Debug().phase === 'security' && s5mod.trainJourneyDebug().doors[1].target === 1);
+camera.position.set(s5World.carCenters[2].x, cfgMod.CFG.player.eyeHeight, s5World.carCenters[2].z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 SECURITY: encounter C/B/A mengikuti CFG', sameMix(s5Mix('security'), S5C.encounters.security));
+killS5('security');
+tickS5(Math.max(0, S5C.roofGateSec - s5mod.stage5Debug().rideT) + 0.1, 0.5);
+T('S5 SECURITY: pintu roof baru terbuka setelah bersih + gate timer',
+    s5mod.stage5Debug().phase === 'roof' && s5mod.trainJourneyDebug().doors[2].target === 1);
+camera.position.set(s5World.carCenters[3].x, cfgMod.CFG.player.eyeHeight, s5World.carCenters[3].z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 ROOF: encounter C/B/A mengikuti CFG', sameMix(s5Mix('roof'), S5C.encounters.roof));
+drainS5Dialogue(); killS5('roof');
+camera.position.set(s5World.carCenters[4].x, cfgMod.CFG.player.eyeHeight, s5World.carCenters[4].z);
+tickS5(Math.max(0, S5C.finalGateSec - s5mod.stage5Debug().rideT) + 0.1, 0.5);
+T('S5 ROOF: locomotive baru terbuka setelah bersih + gate timer',
+    s5mod.stage5Debug().phase === 'finalDefense' && s5mod.trainJourneyDebug().doors[3].target === 1);
+
+// Pertahanan terakhir: wave t=0/18/36, total C/B/A persis CFG; tanpa boss.
+s5mod.stage5Scene.updateMode(0.01); drainS5Dialogue();
+const finalTotal = { C: 0, B: 0, A: 0 };
+for (let wi = 0; wi < S5C.encounters.finalWaves.length; wi++) {
+    if (wi > 0) tickS5(S5C.finalWaveGapSec + 0.01, 0.5);
+    const got = s5Mix('final'), want = S5C.encounters.finalWaves[wi];
+    T(`S5 FINAL WAVE ${wi + 1}: komposisi C/B/A mengikuti CFG pada beat ${wi}×gap`, sameMix(got, want));
+    for (const k of ['C', 'B', 'A']) finalTotal[k] += got[k];
+    killS5('final');
+}
+const finalExpected = S5C.encounters.finalWaves.reduce((o, w) => {
+    for (const k of ['C', 'B', 'A']) o[k] += w[k] | 0; return o;
+}, { C: 0, B: 0, A: 0 });
+T('S5 FINAL: total tiga wave config, tanpa boss entity/HP/music khusus',
+    sameMix(finalTotal, finalExpected) && !robots.some(z => z.stage === 5 && z.kind === 'boss'));
+T('S5 PACING: sebelum rideMinSec arrival terkunci dan jarak HUD tidak pernah 0',
+    s5mod.stage5Debug().rideT < S5C.rideMinSec
+    && s5mod.stage5Debug().phase === 'finalDefense' && s5mod.stage5Debug().distance >= 1);
+const finalWait = Math.max(
+    S5C.finalDefenseSec - s5mod.stage5Debug().finalT,
+    S5C.rideMinSec - s5mod.stage5Debug().rideT,
+) + 0.2;
+tickS5(finalWait, 0.5);
+T('S5 ARRIVAL GATE: baru mulai setelah ride minimum, defense minimum, dan robot habis',
+    s5mod.stage5Debug().phase === 'arrival' && s5mod.stage5Debug().rideT >= S5C.rideMinSec
+    && s5mod.stage5Debug().finalT >= S5C.finalDefenseSec && s5mod.stage5Debug().robots === 0
+    && s5mod.stage5Debug().distance === 0);
+drainS5Dialogue();
+tickS5(S5C.arrivalMinSec + S5C.fadeSec + 0.3, 0.1);
+const s5TrainEnd = s5mod.trainJourneyDebug();
+T('S5 TRAIN POOL: scenery wrap/parallax bergerak tanpa mengubah jumlah pool/mesh',
+    s5TrainEnd.wraps > 0 && JSON.stringify(s5TrainEnd.pools) === JSON.stringify(s5Pools0)
+    && s5TrainEnd.pools.sparks > 0 && s5TrainEnd.phase === 'bandung');
+T('S5 STATION INVARIANT: terminal tujuan juga statis; tidak ikut pool scenery yang wrap',
+    s5TrainEnd.terminal.x === s5TerminalBeforeMove.x
+    && s5TrainEnd.terminal.z === s5TerminalBeforeMove.z);
+T('S5 DIALOG: semua 16 beat tampil sekali, berurutan, dan pernah berada dalam body parsial',
+    s5ShownOrder.join(',') === Object.keys(expectedS5Dialogue).join(',')
+    && Object.keys(expectedS5Dialogue).every(k => s5Partial.has(k))
+    && s5mod.stage5DialogueDebug().seen.join(',') === Object.keys(expectedS5Dialogue).join(','));
+T('S5 COMPLETE: layar hijau TO BE CONTINUED, checkpoint 5 dipertahankan',
+    stateMod.isGameOver && s5mod.stage5Debug().complete
+    && dom4.gameOverTitle.innerText === 'TO BE CONTINUED'
+    && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
+    && save5Mod.loadCampaignStage() === 5);
+
 stateMod.setGameOver(false);
 
 // --- 17b. CHEAT skip-to-stage-N (2026-07-14): lompat LANGSUNG ke stage campaign
 // (tanpa shop). Hook `cheatSkipToStage` di tiap stage → `campaignJumpToStage`
 // (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
-let jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 4 aktif -> STAGE 3
+let jr = smMod.activeScene.cheatSkipToStage(5);
+T('cheat skip-to-stage-5: pindah ke depot + checkpoint/robot Stage 5', jr === 5
+    && smMod.activeScene === s5mod.stage5Scene && save5Mod.loadCampaignStage() === 5
+    && robots.filter(z => z.stage === 5).length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
+jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 5 aktif -> STAGE 3
 await s3RunHack(); s3Drain();   // stage 3 MULAI kosong; HACK terminal (minigame) -> gelombang robot
 T('cheat skip-to-stage-3: pindah ke stage 3 + hack terminal -> gelombang robot (3-tag)', jr === 3
     && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
@@ -4440,7 +4880,9 @@ saveMod.clearCampaignSave();
 T('save: kosong -> loadCampaignStage()=0', saveMod.loadCampaignStage() === 0);
 saveMod.saveCampaignStage(3);
 T('save: tulis 3 -> load 3', saveMod.loadCampaignStage() === 3);
-saveMod.saveCampaignStage(9);   // di luar 1..4 -> dianggap tak valid
+saveMod.saveCampaignStage(5);
+T('save: checkpoint Stage 5 valid untuk Continue', saveMod.loadCampaignStage() === 5);
+saveMod.saveCampaignStage(9);   // di luar 1..5 -> dianggap tak valid
 T('save: nilai invalid (9) dibaca sebagai 0', saveMod.loadCampaignStage() === 0);
 saveMod.clearCampaignSave();
 T('save: clear -> 0', saveMod.loadCampaignStage() === 0);
@@ -4451,10 +4893,18 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 smMod.activeScene.cheatSkipToStage(1);   // stage1.enter -> saveCampaignStage(1)
 T('save: enter stage 1 menulis checkpoint 1', saveMod.loadCampaignStage() === 1);
 // Konsistensi loading antar-stage (2026-07-16): stage1.enter mem-pre-build SEMUA
-// dunia campaign (ensureWorld stage 3 & 4 di dalam guard `built`-nya) sehingga
+// dunia campaign (ensureWorld stage 3/4/5 di dalam guard `built`-nya) sehingga
 // LOADING #2 transisi mana pun tak lagi menanggung build+compile lazy.
-T('campaign: dunia stage 3 & 4 PRE-BUILT saat campaign dimulai (loading konsisten)',
-    s3mod.worldBuilt() && s4mod.worldBuilt());
+const s1PrebuildSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage1.js', 'utf8');
+T('campaign: dunia stage 3/4/5 PRE-BUILT saat campaign dimulai (loading konsisten)',
+    s3mod.worldBuilt() && s4mod.worldBuilt() && s5mod.worldBuilt()
+    && s1PrebuildSrc.includes('ensureStage5World()'));
+saveMod.saveCampaignStage(5);
+const restart5 = saveMod.loadCampaignStage() || 1;
+smMod.activeScene.cheatSkipToStage(restart5);
+T('restart/continue checkpoint 5: mendarat di awal depot dengan encounter awal utuh',
+    restart5 === 5 && smMod.activeScene === s5mod.stage5Scene
+    && robots.filter(z => z.stage === 5).length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
 // Prompt game-over "RESTART STAGE" (2026-07-15): resetGame(true) campaign ulang
 // dari AWAL stage CHECKPOINT (bukan stage 1) via campaignJumpToStage(loadCampaignStage()||1).
 saveMod.saveCampaignStage(3);
@@ -5421,6 +5871,9 @@ const palMod = await import(R('src/world/palette.js'));
     styleGroups.push(['Barrel', (await import(R('src/entities/barrels.js'))).buildBarrelMesh()]);
     styleGroups.push(['SupplyCrate', (await import(R('src/entities/crates.js'))).buildCrateMesh()]);
     styleGroups.push(['SmashRuko', (await import(R('src/entities/smashBuilding.js'))).buildSmashRukoMesh().group]);
+    const trainStyleMod = await import(R('src/entities/train.js'));
+    styleGroups.push(['MilitaryTrain', trainStyleMod.buildMilitaryTrainMesh(0).group]);
+    styleGroups.push(['TrainSceneryPool', trainStyleMod.buildTrainJourneyScenery(0).group]);
 
     let neonOk = true, emisOk = true, badNeon = '', badEmis = '';
     for (const [name, g] of styleGroups) {
@@ -5484,7 +5937,7 @@ const palMod = await import(R('src/world/palette.js'));
     // SENGAJA dibuat lebih detail oleh user (2026-07-22) — diberi cap SENDIRI
     // yang longgar (`MESH_CAP`), tetap dijaga agar tak tumbuh liar. Cek palet
     // (neon/emissive) di atas TETAP berlaku penuh untuk heli.
-    const MESH_CAP = { Helicopter: 70, SmashRuko: 30 };
+    const MESH_CAP = { Helicopter: 70, SmashRuko: 30, MilitaryTrain: 220, TrainSceneryPool: 260 };
     let heaviest = '', heavyN = 0, allLite = true, offender = '';
     for (const [name, g] of styleGroups) {
         let n = 0;
@@ -5999,9 +6452,11 @@ const palMod = await import(R('src/world/palette.js'));
     // (c11) tiap stage benar-benar MENGALIRKAN perabotnya lewat batch (bukan
     //       scene.add langsung) — kalau wiring-nya putus, daftar ini kosong.
     const s4c = await import(R('src/scenes/campaign/stages/stage4.js'));
-    T('meshBatch: perabot stage 1/2/3/4 melewati addMergedStatic (batch terisi)',
+    const s5c2 = await import(R('src/scenes/campaign/stages/stage5.js'));
+    T('meshBatch: perabot stage 1/2/3/4/5 melewati addMergedStatic (batch terisi)',
         s1c.s1StaticBatchDbg().length > 0 && s2c.s2StaticBatchDbg().length > 0
-        && s3c.s3StaticBatchDbg().length > 0 && s4c.s4StaticBatchDbg().length > 0);
+        && s3c.s3StaticBatchDbg().length > 0 && s4c.s4StaticBatchDbg().length > 0
+        && s5c2.stage5StaticBatchDbg().length > 0);
 
     // (c12) stage 4 memakai mergeObjectInPlace utk prop yang MATERIALNYA masih
     //       disentuh saat main (mobil/gedung yang memudar = occluder). Fallback-nya
@@ -6061,7 +6516,7 @@ const palMod = await import(R('src/world/palette.js'));
         const vis = visibleLightSet();
         alwaysOn = alwaysOn === null ? vis : new Set([...alwaysOn].filter(l => vis.has(l)));
     }
-    const keysOK = before.keys.length >= 4 && before.total >= 40;
+    const keysOK = before.keys.length >= 5 && before.total >= 48;
     const cullOK = Object.values(perKey).every(v => v.reg > 0 && v.reg < before.total * 0.6);
     if (!cullOK) console.log('  lampu per set:', JSON.stringify(perKey));
     T('lampu stage: hanya set AKTIF yang menyala (' + before.total + ' terdaftar, '
@@ -6079,16 +6534,17 @@ const palMod = await import(R('src/world/palette.js'));
 
     // (c16) kunci lampu tiap scene campaign ada (kalau lupa, stage masuk dgn set
     //       lampu stage sebelumnya = ruangan gelap/ganda).
-    T('scene campaign 1-4 + survival punya lightsKey',
+    T('scene campaign 1-5 + survival punya lightsKey',
         s1c.stage1Scene.lightsKey === 'campaign-1' && s2c.stage2Scene.lightsKey === 'campaign-2'
-        && s3c.stage3Scene.lightsKey === 'campaign-3' && s4c.stage4Scene.lightsKey === 'campaign-4');
+        && s3c.stage3Scene.lightsKey === 'campaign-3' && s4c.stage4Scene.lightsKey === 'campaign-4'
+        && s5c2.stage5Scene.lightsKey === 'campaign-5');
     lightMod.setActiveStageLights(before.active || 'campaign-1');
 
     // (d) TEKS MISI tanpa penunjuk arah (2026-07-26, permintaan user: biar player
     //     mencarinya sendiri) — sapu string user-facing di semua scene campaign.
     const DIRW = /\b(north|south|east|west|far-right|far-left|top-left|top-right|bottom-left|bottom-right)\b/i;
     const dirHits = [];
-    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js']) {
+    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js', 'stage5.js']) {
         const src = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/' + f, 'utf8');
         for (const line of src.split('\n')) {
             const isMsg = line.includes('showStageMsg(') || line.includes('showPickup(') || (line.includes('return') && line.includes('FLOOR'));
