@@ -13,6 +13,7 @@
 // inject oleh stage4.js. Semua state kamera/dialog/pose dibersihkan oleh reset().
 
 import { CFG } from '../../../core/config.js';
+import { dialogueList } from '../../../core/dialogue.js';
 import { setCinematicActive } from '../../../core/state.js';
 import { scene, camera, setCineFocus, CAM_OFF_DEFAULT } from '../../../core/renderer.js';
 import {
@@ -28,33 +29,7 @@ const smooth = (k) => k * k * (3 - 2 * k);
 
 // Naskah user dipatok kata-per-kata. `key` hanya identitas debug/test dan tidak
 // pernah ikut ditampilkan di layar.
-export const TANK_BOSS_OUTRO_DIALOGUE = Object.freeze([
-    Object.freeze({
-        key: 'gibranCall',
-        speaker: 'Major Gibran',
-        text: 'Command, this is Major Gibran. Do you read me, over? Extraction chopper is destroyed. I repeat, chopper has been shot down!',
-    }),
-    Object.freeze({
-        key: 'commandNoExfil',
-        speaker: 'Command',
-        text: 'Copy that, Major. That explains why we lost their transponder. Bad news, Major. we can’t deploy a secondary exfil team to your position. You’ll have to make your way back to Headquarters on your own. How you do it is up to you.',
-    }),
-    Object.freeze({
-        key: 'gibranShock',
-        speaker: 'Major Gibran',
-        text: 'Say again, Command?! Are you out of your mind?! HQ is in Bandung! that’s over a hundred kilometers from Jakarta through heavily occupied territory!',
-    }),
-    Object.freeze({
-        key: 'commandFinal',
-        speaker: 'Command',
-        text: 'We have no choice, Major. Our forces are stretched paper-thin. You’re on your own out there.',
-    }),
-    Object.freeze({
-        key: 'gibranAccepts',
-        speaker: 'Major Gibran',
-        text: "Damn it... Fine. I'll figure something out.",
-    }),
-]);
+export const TANK_BOSS_OUTRO_DIALOGUE = dialogueList('campaign.tankBossOutro');
 
 export function createTankBossOutro({ getTank, onComplete }) {
     let cine = null, done = false;

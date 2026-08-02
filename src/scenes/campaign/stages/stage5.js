@@ -3,6 +3,7 @@
 // while a fixed scenery pool scrolls past -> arrive at Bandung. No boss.
 
 import { CFG } from '../../../core/config.js';
+import { dialogueMap } from '../../../core/dialogue.js';
 import {
     player, robots, keys, _v3, setCinematicActive,
 } from '../../../core/state.js';
@@ -143,24 +144,7 @@ const CRATE_POINTS = Object.freeze([
 ]);
 
 // Dialog final disimpan sebagai data agar urutan + typewriter dapat dipatok smoke.
-export const STAGE5_DIALOGUE = Object.freeze({
-    opening: Object.freeze({ speaker: 'Major Gibran', text: "Walking to Bandung isn't an option. There has to be something in this depot I can use." }),
-    discoverTrain: Object.freeze({ speaker: 'Major Gibran', text: 'An autonomous military transport... Destination registry: Bandung Logistics Terminal. This could be my way out.' }),
-    powerDead: Object.freeze({ speaker: 'Major Gibran', text: "The train has no power, and the platform access is locked. I'll need to hack station computer C1 first." }),
-    powerBack: Object.freeze({ speaker: 'Major Gibran', text: "Generator's back online. The route controls are responding." }),
-    routeReady: Object.freeze({ speaker: 'Train System', text: 'Route authority overridden. Destination confirmed: Bandung Logistics Terminal.' }),
-    letsMove: Object.freeze({ speaker: 'Major Gibran', text: "Finally. Let's move." }),
-    commandDeparture: Object.freeze({ speaker: 'Command', text: "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" }),
-    gibranDeparture: Object.freeze({ speaker: 'Major Gibran', text: "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." }),
-    breach: Object.freeze({ speaker: 'Train System', text: 'Security breach detected. Rear coupling compromised.' }),
-    breachReply: Object.freeze({ speaker: 'Major Gibran', text: "They're boarding the train. Here we go again." }),
-    roofWarning: Object.freeze({ speaker: 'Command', text: 'Major, multiple hostile signatures are converging on your position.' }),
-    roofReply: Object.freeze({ speaker: 'Major Gibran', text: 'I can see them. Just keep the route open!' }),
-    finalApproach: Object.freeze({ speaker: 'Train System', text: 'Final approach initiated. Hostile units detected across multiple cars.' }),
-    finalReply: Object.freeze({ speaker: 'Major Gibran', text: 'Then I hold this line until we reach Bandung.' }),
-    arrivedCommand: Object.freeze({ speaker: 'Command', text: 'Major, your signal just crossed into Bandung. Headquarters is standing by.' }),
-    arrivedGibran: Object.freeze({ speaker: 'Major Gibran', text: "Copy. I'm at the terminal. Tell them I brought the file—and a whole lot of trouble behind me." }),
-});
+export const STAGE5_DIALOGUE = dialogueMap('campaign.stage5.lines');
 
 let built = false, worldRoot = null, stationRoot = null, train = null, journey = null, navGrid = null;
 let staticBatch = [], generatorScreen = null, terminalScreen = null;

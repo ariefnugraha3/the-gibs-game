@@ -48,6 +48,7 @@
 // Mesin BERBASIS TIMER (deterministik — headless-testable via stage4).
 
 import { CFG } from '../../../core/config.js';
+import { dialogueMap } from '../../../core/dialogue.js';
 import { _v3, GEO, setCinematicActive } from '../../../core/state.js';
 import { scene, camera, addCamShake, setCineFocus, CAM_OFF_DEFAULT } from '../../../core/renderer.js';
 import {
@@ -121,25 +122,7 @@ const FOCUS_SETTLE = 3.2;    // titik fokus sedikit lebih malas dari kameranya
 // Dialog user untuk rangkaian ekstraksi gagal. Arah suara statis/ledakan bukan
 // bagian body; cutoff Pilot diberi distorsi visual, sedangkan ledakan keras dan
 // putusnya rotor tetap berasal dari aksi/audio sinematik yang sudah ada.
-export const TANK_BOSS_DIALOGUE = Object.freeze({
-    heliArrival: Object.freeze({
-        speaker: 'Pilot',
-        text: "Major, we’re at the LZ! Hurry, we're running out of time! Get in so we can fall back to Bandung and upload that file! Put an end to this madness once and for all!",
-    }),
-    tankReveal: Object.freeze({
-        speaker: 'Pilot',
-        text: 'Wait... what the hell is THAT?! Is that a—',
-    }),
-    pilotCutoff: Object.freeze({
-        speaker: 'Pilot',
-        text: 'GET OUT OF THE—',
-        distorted: true,
-    }),
-    gibranReaction: Object.freeze({
-        speaker: 'Major Gibran',
-        text: 'DAMN IT!! That metal bastard took out our exfil... I’m taking that tank down!',
-    }),
-});
+export const TANK_BOSS_DIALOGUE = dialogueMap('campaign.tankBossIntro');
 
 // Ketinggian heli saat mencoba lepas landas (fase lock/fire) — ia tertembak DI
 // UDARA lalu JATUH menghantam pelataran di fase crash.

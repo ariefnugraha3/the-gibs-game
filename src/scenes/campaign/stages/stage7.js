@@ -3,6 +3,7 @@
 // -> pertahanan Gerbang Tol Cisumdawu -> GARUDA LTV-45 menuju Kertajati.
 
 import { CFG } from '../../../core/config.js';
+import { dialogueMap } from '../../../core/dialogue.js';
 import { player, robots, keys, setCinematicActive } from '../../../core/state.js';
 import {
     scene, camera, setCineFocus, CAM_OFF_DEFAULT, addCamShake, SCREEN_UP,
@@ -92,19 +93,7 @@ export const S7_TOLL = Object.freeze(cellPos(106, 36));
 export const S7_VEHICLE = Object.freeze(cellPos(109, 36));
 const VEHICLE_OBJECT = Object.freeze(cellPos(112, 36));
 
-export const STAGE7_DIALOGUE = Object.freeze({
-    openingCommand: Object.freeze({ speaker: 'Command', text: 'Major, the trace has compromised every route around Headquarters. You need to get clear of Bandung before they surround you.' }),
-    openingGibran: Object.freeze({ speaker: 'Major Gibran', text: 'Then I’ll cut through the city and find something with wheels.' }),
-    routeChoice: Object.freeze({ speaker: 'Major Gibran', text: 'The main roads are blocked. I’ll have to choose a route through the city.' }),
-    junctionCommand: Object.freeze({ speaker: 'Command', text: 'Enemy units are converging on the Cisumdawu entrance.' }),
-    junctionGibran: Object.freeze({ speaker: 'Major Gibran', text: 'Then I’m close. Keep the route to Kertajati ready.' }),
-    tollSight: Object.freeze({ speaker: 'Major Gibran', text: 'There it is—the Cisumdawu toll gate. And of course they got here first.' }),
-    vehicleFind: Object.freeze({ speaker: 'Major Gibran', text: 'An armored tactical vehicle... Engine’s intact, fuel cells are still charged.' }),
-    routeCommand: Object.freeze({ speaker: 'Command', text: 'The Cisumdawu corridor leads toward Kertajati. That vehicle may be your only chance of reaching the airfield.' }),
-    routeReply: Object.freeze({ speaker: 'Major Gibran', text: 'Then that’s my route. I’m taking Cisumdawu to Kertajati.' }),
-    warningCommand: Object.freeze({ speaker: 'Command', text: 'Understood. Move fast, Major. Enemy forces are already converging on the toll road.' }),
-    finalGibran: Object.freeze({ speaker: 'Major Gibran', text: 'Let them come. Tell Kertajati I’m on my way.' }),
-});
+export const STAGE7_DIALOGUE = dialogueMap('campaign.stage7.lines');
 
 const ENCOUNTER_POINTS = Object.freeze({
     hqEscape: Object.freeze([[9, 35], [12, 38], [15, 34], [18, 38], [20, 35], [11, 34], [16, 37], [19, 34]]),

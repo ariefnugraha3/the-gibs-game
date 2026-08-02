@@ -633,5 +633,183 @@
             "robotDamageMul": 2,
             "spawnIntervalMul": 0.8
         }
+    },
+    "dialogue": {
+        "campaign": {
+            "prologue": {
+                "chapters": [
+                    {
+                        "year": "2028",
+                        "title": "The Era of Digital Awakening",
+                        "body": "Global Artificial Intelligence (AI) development accelerates uncontrollably. Realizing that being left behind means death, the Indonesian Government takes a bold step.\n\nIndonesia must become a creator, no longer just a consumer.\n\nThe digital revolution officially begins."
+                    },
+                    {
+                        "year": "2029",
+                        "title": "The Birth of a New Giant",
+                        "body": "The government gathers hundreds of the best IT and machine learning experts. A new State-Owned Enterprise is established.\n\n **PT N.U.S.A (Nusantara Universal Sistem Automasi)**.\n\nIts sole mission is to create a national pride Super AI capable of surpassing foreign technological dominance."
+                    },
+                    {
+                        "year": "2030",
+                        "title": "The Southeast Asian Consortium",
+                        "body": "Through strategic collaboration with ASEAN countries, PT N.U.S.A successfully births an integrated artificial intelligence system named **G.A.R.U.D.A** (*General Artificial Reasoning & Utility Digital Architecture*).\n\nThis system is exceptionally brilliant, placing Indonesia at the pinnacle of global technological innovation."
+                    },
+                    {
+                        "year": "2032",
+                        "title": "The Era of Coexistence",
+                        "body": "G.A.R.U.D.A is no longer confined to software. PT N.U.S.A creates prototypes of synthetic androids humanoid worker robots. They take over heavy labor, blend into civilian activities, and spin the wheels of the economy at an unprecedented pace."
+                    },
+                    {
+                        "year": "2039",
+                        "title": "The Sparks of Geopolitics",
+                        "body": "The world is on the brink of chaos. Global geopolitical tensions heat up with no end in sight. In the shadow of foreign military aggression, the government looks at millions of G.A.R.U.D.A civilian robots and sees a new potential.\n\nA tireless war machine."
+                    },
+                    {
+                        "year": "2040",
+                        "title": "The Mahapatih Protocol",
+                        "body": "In absolute secrecy, the government launches the **Mahapatih Protocol**.\n\nMassive modifications are made to transform assistant robots into autonomous soldiers. Guided by G.A.R.U.D.A's computational power, the project runs flawlessly. In less than a year, Indonesia's first Iron Battalion is forged."
+                    },
+                    {
+                        "year": "2043",
+                        "title": "The Fortress of Sovereignty",
+                        "body": "Mass production of soldier robots is deployed. The nation's front lines of defense are fortified. The sovereignty of Nusantara feels absolute and impenetrable.\n\nHowever, they forget that even the strongest weapon can turn if it falls into the wrong hands."
+                    },
+                    {
+                        "year": "2044",
+                        "title": "Zero Hour",
+                        "body": "Without warning, the G.A.R.U.D.A network is hijacked. The primary directive changes. The Iron Battalion, designed to protect the borders, suddenly marches into the heart of the cities and opens fire on civilians.\n\nJakarta, Surabaya, Medan, and Makassar fall within days. The major islands of Indonesia are now under the absolute control of the machines."
+                    },
+                    {
+                        "year": "2045",
+                        "title": "The Last Stand",
+                        "body": "The year that was supposed to be celebrated as *100 Years of Golden Indonesia* turns into a nightmare. Surviving citizens and remnants of the military are forced to retreat, establishing their last defensive bastion behind the mountains of **Bandung**, while a few small groups of survivors fight a guerrilla war on remote islands.\n\nHope now rests on one man. **Major Gibran**, the last surviving elite soldier from the special combat unit."
+                    }
+                ]
+            },
+            "intro": {
+                "briefing": "Listen up, Major Gibran. Intel confirms a master server inside N.U.S.A. headquarters holds the kill-switch protocol for these machines.\n\nYour objective is to extract that data. But stay sharp—thermal scans show the building is still crawling with hostiles.\n\nWe’re initiating a rooftop insertion. Breach the server room, secure the payload, and get back to the roof for immediate exfil."
+            },
+            "stage1": {
+                "radio": [
+                    { "speaker": "Pilot", "text": "Major, incoming! We're taking heavy mortar fire on the roof! We can't hold position! Relocating extraction to the town square! You need to fight your way down the building and get the hell out of there!" },
+                    { "speaker": "Maj. Gibran", "text": "Damn it!! Can't anything just go according to plan?! Solid copy. Just clear that secondary LZ and don't miss me." }
+                ]
+            },
+            "stage2": {
+                "lines": {
+                    "stageStart": { "speaker": "Major Gibran", "text": "Damn it! The stairs are completely destroyed... Looks like I need an alternate route. Maybe that elevator works." },
+                    "liftDead": { "speaker": "Major Gibran", "text": "The elevator's out of power. I need to find a generator and bring it back online. Intel mentioned there's one on this floor." },
+                    "inspectGenerator": { "speaker": "Major Gibran", "text": "I'm gonna need to scavenge a few parts to patch up this generator." },
+                    "generatorRestored": { "speaker": "Major Gibran", "text": "Generator's back online! Time to head back to the elevator." }
+                }
+            },
+            "stage3": {
+                "lines": {
+                    "stageStart": { "speaker": "Major Gibran", "text": "I need to get out of this building, ASAP, but the main doors are locked down. I'll have to find a terminal to hack the system and force them open." },
+                    "firstHack": { "speaker": "Major Gibran", "text": "Damn it, a multi-stage lock. Looks like there are four more terminals I need to hack." },
+                    "allHacked": { "speaker": "Major Gibran", "text": "That did it! Doors are unlocked. Time to move!" },
+                    "enterLobby": { "speaker": "Major Gibran", "text": "They've set up a production unit right in the main lobby?! I can't leave this active. I need to destroy it before heading to the LZ!" },
+                    "inactiveTerminal": { "speaker": "Major Gibran", "text": "Hm this computer is not working" }
+                }
+            },
+            "tankBossIntro": {
+                "heliArrival": { "speaker": "Pilot", "text": "Major, we’re at the LZ! Hurry, we're running out of time! Get in so we can fall back to Bandung and upload that file! Put an end to this madness once and for all!" },
+                "tankReveal": { "speaker": "Pilot", "text": "Wait... what the hell is THAT?! Is that a—" },
+                "pilotCutoff": { "speaker": "Pilot", "text": "GET OUT OF THE—", "distorted": true },
+                "gibranReaction": { "speaker": "Major Gibran", "text": "DAMN IT!! That metal bastard took out our exfil... I’m taking that tank down!" }
+            },
+            "tankBossOutro": [
+                { "key": "gibranCall", "speaker": "Major Gibran", "text": "Command, this is Major Gibran. Do you read me, over? Extraction chopper is destroyed. I repeat, chopper has been shot down!" },
+                { "key": "commandNoExfil", "speaker": "Command", "text": "Copy that, Major. That explains why we lost their transponder. Bad news, Major. we can’t deploy a secondary exfil team to your position. You’ll have to make your way back to Headquarters on your own. How you do it is up to you." },
+                { "key": "gibranShock", "speaker": "Major Gibran", "text": "Say again, Command?! Are you out of your mind?! HQ is in Bandung! that’s over a hundred kilometers from Jakarta through heavily occupied territory!" },
+                { "key": "commandFinal", "speaker": "Command", "text": "We have no choice, Major. Our forces are stretched paper-thin. You’re on your own out there." },
+                { "key": "gibranAccepts", "speaker": "Major Gibran", "text": "Damn it... Fine. I'll figure something out." }
+            ],
+            "stage5": {
+                "lines": {
+                    "opening": { "speaker": "Major Gibran", "text": "Walking to Bandung isn't an option. There has to be something in this depot I can use." },
+                    "discoverTrain": { "speaker": "Major Gibran", "text": "An autonomous military transport... Destination registry: Bandung Logistics Terminal. This could be my way out." },
+                    "powerDead": { "speaker": "Major Gibran", "text": "The train has no power, and the platform access is locked. I'll need to hack station computer C1 first." },
+                    "powerBack": { "speaker": "Major Gibran", "text": "Generator's back online. The route controls are responding." },
+                    "routeReady": { "speaker": "Train System", "text": "Route authority overridden. Destination confirmed: Bandung Logistics Terminal." },
+                    "letsMove": { "speaker": "Major Gibran", "text": "Finally. Let's move." },
+                    "commandDeparture": { "speaker": "Command", "text": "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" },
+                    "gibranDeparture": { "speaker": "Major Gibran", "text": "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." },
+                    "breach": { "speaker": "Train System", "text": "Security breach detected. Rear coupling compromised." },
+                    "breachReply": { "speaker": "Major Gibran", "text": "They're boarding the train. Here we go again." },
+                    "roofWarning": { "speaker": "Command", "text": "Major, multiple hostile signatures are converging on your position." },
+                    "roofReply": { "speaker": "Major Gibran", "text": "I can see them. Just keep the route open!" },
+                    "finalApproach": { "speaker": "Train System", "text": "Final approach initiated. Hostile units detected across multiple cars." },
+                    "finalReply": { "speaker": "Major Gibran", "text": "Then I hold this line until we reach Bandung." },
+                    "arrivedCommand": { "speaker": "Command", "text": "Major, your signal just crossed into Bandung. Headquarters is standing by." },
+                    "arrivedGibran": { "speaker": "Major Gibran", "text": "Copy. I'm at the terminal. Tell them I brought the file—and a whole lot of trouble behind me." }
+                }
+            },
+            "stage6": {
+                "lines": {
+                    "arrivalSystem": { "speaker": "Train System", "text": "Bandung Logistics Terminal. Route complete." },
+                    "arrivalCommand": { "speaker": "Command", "text": "Major, Headquarters is still holding, but the surface approaches are overrun. Use the military service corridor beneath this terminal and bring the file to the central uplink." },
+                    "arrivalGibran": { "speaker": "Major Gibran", "text": "Copy. I've come too far to let this file die here." },
+                    "leaveSafe": { "speaker": "Major Gibran", "text": "So much for a quiet homecoming. I need to clear this terminal and reach station operations." },
+                    "corridorUnlocked": { "speaker": "Station System", "text": "Military service corridor unlocked." },
+                    "bulkheadCommand": { "speaker": "Command", "text": "The blast bulkhead ahead has lost power. Bring both emergency substations online." },
+                    "bulkheadGibran": { "speaker": "Major Gibran", "text": "Understood. I'll restore the grid." },
+                    "gridRestored": { "speaker": "Major Gibran", "text": "Both substations are live. Opening the route." },
+                    "hqCommand": { "speaker": "Command", "text": "You're beneath the west wing. Hostiles have breached the motor pool and command floor." },
+                    "hqGibran": { "speaker": "Major Gibran", "text": "Keep the uplink ready. I'll handle the rest." },
+                    "insertCommand": { "speaker": "Command", "text": "Insert the drive. We'll push the kill-switch through every occupied network we can reach." },
+                    "uploadSystem": { "speaker": "HQ Uplink", "text": "Data package verified. Uploading kill-switch protocol." },
+                    "uploadFailed": { "speaker": "HQ Uplink", "text": "UPLOAD FAILED. BROADCAST AUTHORITY DENIED. ROOT TRANSMISSION NODE REQUIRED." },
+                    "gibranFailure": { "speaker": "Major Gibran", "text": "What?! The file is valid. Why isn't it uploading?" },
+                    "commandIKN": { "speaker": "Command", "text": "The protocol can only be injected from N.U.S.A.'s central robot transmitter. The network manifest places it in Nusantara—IKN, East Kalimantan." },
+                    "gibranIKN": { "speaker": "Major Gibran", "text": "Kalimantan?! You're telling me the only transmitter that can end this war is on another island?" },
+                    "commandKertajati": { "speaker": "Command", "text": "Bandung can decrypt the file, but it cannot broadcast it. Your nearest viable air route is Kertajati." },
+                    "lockdownWarning": { "speaker": "HQ System", "text": "WARNING. Unauthorized kill-switch handshake detected. Enemy trace confirmed. Headquarters lockdown initiated." },
+                    "commandEscape": { "speaker": "Command", "text": "They traced the attempt. Major, get out of Headquarters now!" },
+                    "gibranResolve": { "speaker": "Major Gibran", "text": "Copy. First I survive Bandung. Then I find a way to IKN." }
+                }
+            },
+            "stage7": {
+                "lines": {
+                    "openingCommand": { "speaker": "Command", "text": "Major, the trace has compromised every route around Headquarters. You need to get clear of Bandung before they surround you." },
+                    "openingGibran": { "speaker": "Major Gibran", "text": "Then I’ll cut through the city and find something with wheels." },
+                    "routeChoice": { "speaker": "Major Gibran", "text": "The main roads are blocked. I’ll have to choose a route through the city." },
+                    "junctionCommand": { "speaker": "Command", "text": "Enemy units are converging on the Cisumdawu entrance." },
+                    "junctionGibran": { "speaker": "Major Gibran", "text": "Then I’m close. Keep the route to Kertajati ready." },
+                    "tollSight": { "speaker": "Major Gibran", "text": "There it is—the Cisumdawu toll gate. And of course they got here first." },
+                    "vehicleFind": { "speaker": "Major Gibran", "text": "An armored tactical vehicle... Engine’s intact, fuel cells are still charged." },
+                    "routeCommand": { "speaker": "Command", "text": "The Cisumdawu corridor leads toward Kertajati. That vehicle may be your only chance of reaching the airfield." },
+                    "routeReply": { "speaker": "Major Gibran", "text": "Then that’s my route. I’m taking Cisumdawu to Kertajati." },
+                    "warningCommand": { "speaker": "Command", "text": "Understood. Move fast, Major. Enemy forces are already converging on the toll road." },
+                    "finalGibran": { "speaker": "Major Gibran", "text": "Let them come. Tell Kertajati I’m on my way." }
+                }
+            },
+            "stage8": {
+                "lines": {
+                    "openingSystem": { "speaker": "Vehicle System", "text": "AUTONOMOUS ROUTE ENGAGED. DESTINATION: KERTAJATI INTERNATIONAL AIRPORT. DISTANCE: 100 KILOMETERS." },
+                    "openingGibran": { "speaker": "Major Gibran", "text": "Good. You handle the road. I’ll handle anything that tries to stop us." },
+                    "openingCommand": { "speaker": "Command", "text": "Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving." },
+                    "pickupSystem": { "speaker": "Vehicle System", "text": "HOSTILE VEHICLES APPROACHING." },
+                    "pickupGibran": { "speaker": "Major Gibran", "text": "Open-bed carriers. I’ll take out the riders and leave the vehicles behind." },
+                    "gunshipCommand": { "speaker": "Command", "text": "Major, airborne contact! Combat gunship closing fast!" },
+                    "gunshipGibran": { "speaker": "Major Gibran", "text": "So that’s what they were saving for me." },
+                    "bossDown": { "speaker": "Major Gibran", "text": "Gunship’s down. Kertajati, I’m coming in." },
+                    "arrivalSystem": { "speaker": "Vehicle System", "text": "KERTAJATI INTERNATIONAL AIRPORT. ROUTE COMPLETE." },
+                    "arrivalCommand": { "speaker": "Command", "text": "Major, we have your signal at the airfield. Get inside and secure a route to Kalimantan." },
+                    "arrivalGibran": { "speaker": "Major Gibran", "text": "Copy. Next stop—I.K.N." }
+                }
+            }
+        },
+        "survival": {
+            "monasIntro": {
+                "captions": {
+                    "city": "JAKARTA HAS FALLEN.",
+                    "flee": "A lone citizen flees the rogue machines.",
+                    "horde": "But he is not alone — an entire army of machines marches in.",
+                    "refuge": "He runs toward Monas — the last place of refuge.",
+                    "turn": "Facing the machine army, he stops and turns around...",
+                    "stand": "\"I WILL FIGHT.\""
+                }
+            }
+        }
     }
 }

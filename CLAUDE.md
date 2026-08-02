@@ -37,6 +37,8 @@ Browser **TOP-DOWN SHOOTER** (Alien Shooter-style; **pivoted from FPS on 2026-07
 
 **All spoken dialogue shown in a dialogue box MUST reveal character-by-character (typewriter), never appear fully in one frame — permanent presentation rule (2026-08-01).** Typing speed and the full-text hold must be config-driven. Speaker labels may appear immediately; narration captions and short HUD/status messages are not dialogue boxes and are exempt.
 
+**Dialogue source contract (2026-08-02):** spoken/cinematic dialogue is authored only in `config/gameplay.json` under `dialogue`; scenes use `src/core/dialogue.js` compatibility views. Do not reintroduce dialogue bodies into scene/entity modules. HUD/objective status strings remain separate.
+
 **Two game modes** picked on the `#modeSelect` screen at load (plus an EASY/NORMAL/HARD difficulty row — `applyDifficulty` recomputes CFG from the pristine `CFG_BASE`, per-difficulty high scores):
 
 - **Survival** — round-based waves defending the Monas monument; robots prioritize the Monument over the player; clearing a wave opens the Field Shop. Score = shop currency. Opens with a **9-shot in-engine cinematic** in the park (`survival/cutscenes/monasIntro.js` — replaced the old DOM slideshow on 2026-07-27; its four story beats are a smoke-tested contract). → [docs/survival.md](docs/survival.md)

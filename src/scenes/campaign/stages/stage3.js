@@ -37,6 +37,7 @@
 //                   AKTIF (hijau). Capai 'o' → beginStageTransition(stage4).
 
 import { CFG, CAMP_M } from '../../../core/config.js';
+import { dialogueMap } from '../../../core/dialogue.js';
 import { player, robots, _v3, bullets, stats, addScore, setCinematicActive } from '../../../core/state.js';
 import { scene, camera, addCamShake } from '../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
@@ -98,28 +99,7 @@ const S3_EXIT = { c0: 18, r0: 37, c1: 21, r1: 39 };  // rect trigger keluar gedu
 // dgn tembak (2026-07-28)** — dibuka oleh 5 terminal hack di bawah.
 const S3_PLUS = { c0: 18, c1: 21, r: 29 };
 // Naskah dialog milik user; isi dan tanda bacanya dipatok persis oleh smoke.
-export const S3_DIALOGUE = Object.freeze({
-    stageStart: Object.freeze({
-        speaker: 'Major Gibran',
-        text: "I need to get out of this building, ASAP, but the main doors are locked down. I'll have to find a terminal to hack the system and force them open.",
-    }),
-    firstHack: Object.freeze({
-        speaker: 'Major Gibran',
-        text: 'Damn it, a multi-stage lock. Looks like there are four more terminals I need to hack.',
-    }),
-    allHacked: Object.freeze({
-        speaker: 'Major Gibran',
-        text: 'That did it! Doors are unlocked. Time to move!',
-    }),
-    enterLobby: Object.freeze({
-        speaker: 'Major Gibran',
-        text: "They've set up a production unit right in the main lobby?! I can't leave this active. I need to destroy it before heading to the LZ!",
-    }),
-    inactiveTerminal: Object.freeze({
-        speaker: 'Major Gibran',
-        text: 'Hm this computer is not working',
-    }),
-});
+export const S3_DIALOGUE = dialogueMap('campaign.stage3.lines');
 // ===== 5 TERMINAL HACK (2026-07-28, permintaan user) =====
 // Tiap terminal 2x1 SEL, menempel dinding di UJUNG ruangannya, satu per ruangan:
 //   `c`,`r` = sel KIRI dari pasangan 2 sel (pasangannya c+1); `face` = arah layar

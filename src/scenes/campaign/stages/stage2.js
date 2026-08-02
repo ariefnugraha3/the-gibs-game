@@ -32,6 +32,7 @@
 //                    selesai (transisi ke stage 3). Boleh lari melewati robot.
 
 import { CFG, CAMP_M } from '../../../core/config.js';
+import { dialogueMap } from '../../../core/dialogue.js';
 import { player, robots, _v3, keys, setCinematicActive } from '../../../core/state.js';
 import { scene, camera } from '../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
@@ -94,24 +95,7 @@ export const S2_LIFT = { c0: 9, r0: 15, c1: 11, r1: 19 };
 export const S2_GEN = { c: 44, r: 3 };           // sel BERDIRI generator (kotak pulih) — mesin 2 sel di utara (44,1)
 // Naskah dialog milik user. Quote pembungkus tidak menjadi bagian body panel;
 // kata dan tanda baca di dalamnya dipertahankan persis serta dipatok smoke.
-export const S2_DIALOGUE = Object.freeze({
-    stageStart: Object.freeze({
-        speaker: 'Major Gibran',
-        text: 'Damn it! The stairs are completely destroyed... Looks like I need an alternate route. Maybe that elevator works.',
-    }),
-    liftDead: Object.freeze({
-        speaker: 'Major Gibran',
-        text: "The elevator's out of power. I need to find a generator and bring it back online. Intel mentioned there's one on this floor.",
-    }),
-    inspectGenerator: Object.freeze({
-        speaker: 'Major Gibran',
-        text: "I'm gonna need to scavenge a few parts to patch up this generator.",
-    }),
-    generatorRestored: Object.freeze({
-        speaker: 'Major Gibran',
-        text: "Generator's back online! Time to head back to the elevator.",
-    }),
-});
+export const S2_DIALOGUE = dialogueMap('campaign.stage2.lines');
 // Gudang (@) = bawah; penjaga & komponen di sini. Rak = kolom @ (12 kolom, tiap 4 sel).
 const S2_SHELF_COLS = [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45];
 const S2_SHELF_R0 = 33, S2_SHELF_R1 = 44;        // baris rak gudang

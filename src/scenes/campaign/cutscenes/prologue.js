@@ -74,6 +74,7 @@
 //   prolog sendiri tak pernah menyetelnya.
 
 import { CFG } from '../../../core/config.js';
+import { dialogueList } from '../../../core/dialogue.js';
 import { resumeScene } from '../../../core/sceneManager.js';
 import { setCinematicActive } from '../../../core/state.js';
 import { setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip } from '../../../core/dom.js';
@@ -89,54 +90,7 @@ import { introScene } from './intro.js';
 //   year/title/body — NASKAH RESMI USER, disalin PERSIS (2026-08-02). `year`+`title`
 //     = baris judul naskah dipecah di ':' pertama; `body` = paragrafnya apa adanya.
 // Urutan & entitas = KONTRAK yang diuji smoke. =====
-export const PROLOGUE_CHAPTERS = [
-    {
-        year: '2028', title: 'The Era of Digital Awakening',
-        body: 'Global Artificial Intelligence (AI) development accelerates uncontrollably. Realizing that being left behind means death, the Indonesian Government takes a bold step.'
-            + '\n\nIndonesia must become a creator, no longer just a consumer.'
-            + '\n\nThe digital revolution officially begins.',
-    },
-    {
-        year: '2029', title: 'The Birth of a New Giant',
-        body: 'The government gathers hundreds of the best IT and machine learning experts. A new State-Owned Enterprise is established.'
-            + '\n\n **PT N.U.S.A (Nusantara Universal Sistem Automasi)**.'
-            + '\n\nIts sole mission is to create a national pride Super AI capable of surpassing foreign technological dominance.',
-    },
-    {
-        year: '2030', title: 'The Southeast Asian Consortium',
-        body: 'Through strategic collaboration with ASEAN countries, PT N.U.S.A successfully births an integrated artificial intelligence system named **G.A.R.U.D.A** (*General Artificial Reasoning & Utility Digital Architecture*).'
-            + '\n\nThis system is exceptionally brilliant, placing Indonesia at the pinnacle of global technological innovation.',
-    },
-    {
-        year: '2032', title: 'The Era of Coexistence',
-        body: 'G.A.R.U.D.A is no longer confined to software. PT N.U.S.A creates prototypes of synthetic androids humanoid worker robots. They take over heavy labor, blend into civilian activities, and spin the wheels of the economy at an unprecedented pace.',
-    },
-    {
-        year: '2039', title: 'The Sparks of Geopolitics',
-        body: 'The world is on the brink of chaos. Global geopolitical tensions heat up with no end in sight. In the shadow of foreign military aggression, the government looks at millions of G.A.R.U.D.A civilian robots and sees a new potential.'
-            + '\n\nA tireless war machine.',
-    },
-    {
-        year: '2040', title: 'The Mahapatih Protocol',
-        body: 'In absolute secrecy, the government launches the **Mahapatih Protocol**.'
-            + '\n\nMassive modifications are made to transform assistant robots into autonomous soldiers. Guided by G.A.R.U.D.A\'s computational power, the project runs flawlessly. In less than a year, Indonesia\'s first Iron Battalion is forged.',
-    },
-    {
-        year: '2043', title: 'The Fortress of Sovereignty',
-        body: 'Mass production of soldier robots is deployed. The nation\'s front lines of defense are fortified. The sovereignty of Nusantara feels absolute and impenetrable.'
-            + '\n\nHowever, they forget that even the strongest weapon can turn if it falls into the wrong hands.',
-    },
-    {
-        year: '2044', title: 'Zero Hour',
-        body: 'Without warning, the G.A.R.U.D.A network is hijacked. The primary directive changes. The Iron Battalion, designed to protect the borders, suddenly marches into the heart of the cities and opens fire on civilians.'
-            + '\n\nJakarta, Surabaya, Medan, and Makassar fall within days. The major islands of Indonesia are now under the absolute control of the machines.',
-    },
-    {
-        year: '2045', title: 'The Last Stand',
-        body: 'The year that was supposed to be celebrated as *100 Years of Golden Indonesia* turns into a nightmare. Surviving citizens and remnants of the military are forced to retreat, establishing their last defensive bastion behind the mountains of **Bandung**, while a few small groups of survivors fight a guerrilla war on remote islands.'
-            + '\n\nHope now rests on one man. **Major Gibran**, the last surviving elite soldier from the special combat unit.',
-    },
-];
+export const PROLOGUE_CHAPTERS = dialogueList('campaign.prologue.chapters');
 
 // ===== Markup naskah. Naskah user memakai `**tebal**` dan `*miring*`; keduanya
 // HARUS tampil sebagai penekanan, bukan bintang. `stripInline` = teks polos

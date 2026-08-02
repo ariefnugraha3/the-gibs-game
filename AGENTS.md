@@ -123,6 +123,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - **Every spoken-dialogue box uses a character-by-character typewriter reveal**;
   speaker labels may appear immediately, while speed and full-text hold are config-driven.
   Narration captions and short HUD/status messages are not dialogue boxes.
+- **Dialogue source contract:** spoken/cinematic text lives in `config/gameplay.json`
+  under `dialogue`; scenes read it through `src/core/dialogue.js`. Keep objective/HUD
+  status strings separate from the dialogue data.
 - Collision resolves are **per-axis hug-and-slide, never a full revert**; robots pushed
   by separation must be re-clamped via `activeScene.clampRobot`.
 - Robots show **no damage feedback**; the radar has **no sweep/gradient**;

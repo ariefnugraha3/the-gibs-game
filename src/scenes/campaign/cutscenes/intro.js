@@ -10,6 +10,7 @@
 // serah-terima ke Stage 1. Musik menu berhenti pada frame live pertama intro.
 
 import { CFG, CAMP_M } from '../../../core/config.js';
+import { dialogueText as configDialogueText } from '../../../core/dialogue.js';
 import { scene, camera, viewCam, renderer, composer, postFxOn, addCamShake, setCineFocus, followViewCam, CAM_OFF_DEFAULT } from '../../../core/renderer.js';
 import { setScene } from '../../../core/sceneManager.js';
 import { setCinematicActive, setPaused } from '../../../core/state.js';
@@ -49,13 +50,13 @@ const CABIN_EXIT = localPoint(5.8, 1.5);
 const ROOF_EXIT = localPoint(16, 3.5);
 const DOOR_APPROACH = { x: DOOR.x, z: DOOR.z + 10 };
 
-// Naskah dipatok persis oleh smoke test. Jangan ubah tanda baca, kapitalisasi,
-// apostrof melengkung, em dash, maupun pemisah paragraf.
-export const INTRO_DIALOGUE = `Listen up, Major Gibran. Intel confirms a master server inside N.U.S.A. headquarters holds the kill-switch protocol for these machines.
-
-Your objective is to extract that data. But stay sharp—thermal scans show the building is still crawling with hostiles.
-
-We’re initiating a rooftop insertion. Breach the server room, secure the payload, and get back to the roof for immediate exfil.`;
+// Naskah dibaca dari gameplay.json saat cutscene dimulai. Binding export tetap
+// dipertahankan untuk debug/API lama, tetapi tidak lagi menyimpan teks source.
+export let INTRO_DIALOGUE = '';
+function getIntroDialogue() {
+    INTRO_DIALOGUE = configDialogueText('campaign.intro.briefing');
+    return INTRO_DIALOGUE;
+}
 
 // KOTA (2026-07-18): atap ini = puncak SATU menara di tengah KOTA gedung-gedung
 // & jalanan (bukan lagi void berlatar kobaran api). Jalanan CITY_GROUND unit di
@@ -104,9 +105,10 @@ const dialogueText = document.getElementById('introDialogueText');
 const dialogueCaret = document.getElementById('introDialogueCaret');
 
 function renderDialogue(chars) {
-    const n = Math.max(0, Math.min(INTRO_DIALOGUE.length, chars | 0));
-    if (dialogueText) dialogueText.textContent = INTRO_DIALOGUE.slice(0, n);
-    if (dialogueCaret) dialogueCaret.style.display = n < INTRO_DIALOGUE.length ? 'inline-block' : 'none';
+    const text = getIntroDialogue();
+    const n = Math.max(0, Math.min(text.length, chars | 0));
+    if (dialogueText) dialogueText.textContent = text.slice(0, n);
+    if (dialogueCaret) dialogueCaret.style.display = n < text.length ? 'inline-block' : 'none';
     if (cine) cine.dialogueChars = n;
 }
 function showDialogue(on) {
@@ -306,7 +308,7 @@ const LM_GBK = { x: IX - 900, z: IZ + 700, r: 360 };
 // Debug/uji: ketinggian hover + posisi ketiga landmark (utk smoke test)
 export const introMetrics = () => ({
     briefY: BRIEF_Y,
-    dialogueLength: INTRO_DIALOGUE.length,
+    dialogueLength: getIntroDialogue().length,
     heliYaw: HELI_YAW,
     shots: {
         frontRight: [...INTRO_SHOT.frontRight], right: [...INTRO_SHOT.right], front: [...INTRO_SHOT.front]
@@ -1119,6 +1121,7 @@ function setupThreeSceneIntro() {
 }
 
 export function beginIntro() {
+    getIntroDialogue();
     setupThreeSceneIntro();
 }
 
@@ -1207,7 +1210,8 @@ function updateThreeSceneIntro(dt) {
 
     if (cine.phase === 'briefing') {
         const cps = Math.max(1, I.dialogueCps);
-        const typeSec = INTRO_DIALOGUE.length / cps;
+        const text = getIntroDialogue();
+        const typeSec = text.length / cps;
         const flightSec = typeSec + I.dialogueHoldSec;
         const flightK = smooth(Math.min(1, cine.t / Math.max(0.01, flightSec)));
         cine.bob += dt;
@@ -1222,7 +1226,7 @@ function updateThreeSceneIntro(dt) {
         renderDialogue(Math.floor(cine.t * cps));
         updateHelicopter(heli, dt);
         if (cine.t >= typeSec + I.dialogueHoldSec) {
-            renderDialogue(INTRO_DIALOGUE.length);
+            renderDialogue(text.length);
             showDialogue(false);
             heli.parts.group.rotation.x = 0;
             heli.parts.group.rotation.z = 0;

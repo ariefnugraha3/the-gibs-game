@@ -3,6 +3,7 @@
 // kill-switch upload fails because only N.U.S.A.'s IKN transmitter has root authority.
 
 import { CFG } from '../../../core/config.js';
+import { dialogueMap } from '../../../core/dialogue.js';
 import {
     player, robots, keys, _v3, setCinematicActive,
 } from '../../../core/state.js';
@@ -125,28 +126,7 @@ const CRATE_POINTS = Object.freeze([
 ]);
 
 // Naskah final dipatok sebagai data agar smoke bisa memeriksa teks dan urutan.
-export const STAGE6_DIALOGUE = Object.freeze({
-    arrivalSystem: Object.freeze({ speaker: 'Train System', text: 'Bandung Logistics Terminal. Route complete.' }),
-    arrivalCommand: Object.freeze({ speaker: 'Command', text: 'Major, Headquarters is still holding, but the surface approaches are overrun. Use the military service corridor beneath this terminal and bring the file to the central uplink.' }),
-    arrivalGibran: Object.freeze({ speaker: 'Major Gibran', text: "Copy. I've come too far to let this file die here." }),
-    leaveSafe: Object.freeze({ speaker: 'Major Gibran', text: 'So much for a quiet homecoming. I need to clear this terminal and reach station operations.' }),
-    corridorUnlocked: Object.freeze({ speaker: 'Station System', text: 'Military service corridor unlocked.' }),
-    bulkheadCommand: Object.freeze({ speaker: 'Command', text: 'The blast bulkhead ahead has lost power. Bring both emergency substations online.' }),
-    bulkheadGibran: Object.freeze({ speaker: 'Major Gibran', text: "Understood. I'll restore the grid." }),
-    gridRestored: Object.freeze({ speaker: 'Major Gibran', text: 'Both substations are live. Opening the route.' }),
-    hqCommand: Object.freeze({ speaker: 'Command', text: "You're beneath the west wing. Hostiles have breached the motor pool and command floor." }),
-    hqGibran: Object.freeze({ speaker: 'Major Gibran', text: "Keep the uplink ready. I'll handle the rest." }),
-    insertCommand: Object.freeze({ speaker: 'Command', text: "Insert the drive. We'll push the kill-switch through every occupied network we can reach." }),
-    uploadSystem: Object.freeze({ speaker: 'HQ Uplink', text: 'Data package verified. Uploading kill-switch protocol.' }),
-    uploadFailed: Object.freeze({ speaker: 'HQ Uplink', text: 'UPLOAD FAILED. BROADCAST AUTHORITY DENIED. ROOT TRANSMISSION NODE REQUIRED.' }),
-    gibranFailure: Object.freeze({ speaker: 'Major Gibran', text: "What?! The file is valid. Why isn't it uploading?" }),
-    commandIKN: Object.freeze({ speaker: 'Command', text: "The protocol can only be injected from N.U.S.A.'s central robot transmitter. The network manifest places it in Nusantara—IKN, East Kalimantan." }),
-    gibranIKN: Object.freeze({ speaker: 'Major Gibran', text: "Kalimantan?! You're telling me the only transmitter that can end this war is on another island?" }),
-    commandKertajati: Object.freeze({ speaker: 'Command', text: 'Bandung can decrypt the file, but it cannot broadcast it. Your nearest viable air route is Kertajati.' }),
-    lockdownWarning: Object.freeze({ speaker: 'HQ System', text: 'WARNING. Unauthorized kill-switch handshake detected. Enemy trace confirmed. Headquarters lockdown initiated.' }),
-    commandEscape: Object.freeze({ speaker: 'Command', text: 'They traced the attempt. Major, get out of Headquarters now!' }),
-    gibranResolve: Object.freeze({ speaker: 'Major Gibran', text: 'Copy. First I survive Bandung. Then I find a way to IKN.' }),
-});
+export const STAGE6_DIALOGUE = dialogueMap('campaign.stage6.lines');
 
 const ENCOUNTER_POINTS = Object.freeze({
     terminal: Object.freeze([[13, 12], [18, 13], [23, 12], [14, 22], [21, 21], [24, 29], [14, 34], [20, 37], [24, 41], [12, 42], [22, 17]]),

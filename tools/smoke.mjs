@@ -213,6 +213,16 @@ smMod.setScene({
 let pass = 0, fail = 0;
 const T = (name, ok) => { ok ? pass++ : (fail++, console.log('FAIL:', name)); };
 
+T('DIALOGUE CONFIG: seluruh naskah spoken/cutscene terpusat di gameplay.json',
+    cfgMod.CFG.dialogue
+    && cfgMod.CFG.dialogue.campaign?.prologue?.chapters?.length === 9
+    && cfgMod.CFG.dialogue.campaign?.intro?.briefing?.length > 100
+    && cfgMod.CFG.dialogue.campaign?.stage1?.radio?.length === 2
+    && cfgMod.CFG.dialogue.campaign?.stage2?.lines?.inspectGenerator
+    && cfgMod.CFG.dialogue.campaign?.stage3?.lines?.enterLobby
+    && cfgMod.CFG.dialogue.campaign?.tankBossOutro?.length === 5
+    && cfgMod.CFG.dialogue.survival?.monasIntro?.captions?.stand === '"I WILL FIGHT."');
+
 // --- 1. buildRobotMesh per kelas ---
 for (const cls of ['C', 'B', 'A', 'boss']) {
     const b = robotsMod.buildRobotMesh(cls);
@@ -6315,8 +6325,6 @@ We’re initiating a rooftop insertion. Breach the server room, secure the paylo
             return { x: wx * Math.cos(yaw) - wz * Math.sin(yaw), z: wx * Math.sin(yaw) + wz * Math.cos(yaw) };
         };
 
-        T('INTRO 3 SCENE: naskah briefing tersimpan STRING-PERSIS (paragraf + tanda baca utuh)',
-            introMod.INTRO_DIALOGUE === expectedDialogue);
         T('INTRO 3 SCENE: seluruh durasi baru config-driven dan hold dialog tepat 3 detik',
             ['dialogueCps', 'dialogueHoldSec', 'sceneFadeSec', 'landingSec', 'doorOpenSec', 'exitSec', 'runSec', 'enterSec']
                 .every(k => Number.isFinite(I[k]) && I[k] > 0)
@@ -6332,6 +6340,8 @@ We’re initiating a rooftop insertion. Breach the server room, secure the paylo
         domIntro.hideCutsceneSkip();
         introMod.beginIntro();
         let d = introMod.introDebug();
+        T('INTRO 3 SCENE: naskah briefing tersimpan STRING-PERSIS dari config (paragraf + tanda baca utuh)',
+            introMod.INTRO_DIALOGUE === expectedDialogue);
         const briefingStartDist = Math.hypot(d.heliX - d.drop.x, d.heliZ - d.drop.z);
         T('INTRO SCENE 1: beginIntro auto-play, avatar tersembunyi, dialog belum bocor di balik loading',
             d.active && d.scene === 1 && d.phase === 'briefing' && !d.avatarShown && !d.dialogueVisible

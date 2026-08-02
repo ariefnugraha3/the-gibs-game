@@ -3,6 +3,7 @@
 // Jalan/scenery bergerak dalam fixed pool, gameplay entity tetap stabil.
 
 import { CFG } from '../../../core/config.js';
+import { dialogueMap } from '../../../core/dialogue.js';
 import { player, robots, keys, setCinematicActive } from '../../../core/state.js';
 import {
     scene, camera, setCineFocus, addCamShake, CAM_OFF_DEFAULT,
@@ -65,19 +66,7 @@ export const S8_LANES = Object.freeze([-52.5, -35, -17.5, 0, 17.5, 35, 52.5]);
 export const S8_START = Object.freeze({ x: PLAYER_X, z: S8_LANES[1] });
 export const S8_AIRPORT = Object.freeze({ x: AIRPORT_X, z: 0 });
 
-export const STAGE8_DIALOGUE = Object.freeze({
-    openingSystem: Object.freeze({ speaker: 'Vehicle System', text: 'AUTONOMOUS ROUTE ENGAGED. DESTINATION: KERTAJATI INTERNATIONAL AIRPORT. DISTANCE: 100 KILOMETERS.' }),
-    openingGibran: Object.freeze({ speaker: 'Major Gibran', text: 'Good. You handle the road. I’ll handle anything that tries to stop us.' }),
-    openingCommand: Object.freeze({ speaker: 'Command', text: 'Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving.' }),
-    pickupSystem: Object.freeze({ speaker: 'Vehicle System', text: 'HOSTILE VEHICLES APPROACHING.' }),
-    pickupGibran: Object.freeze({ speaker: 'Major Gibran', text: 'Open-bed carriers. I’ll take out the riders and leave the vehicles behind.' }),
-    gunshipCommand: Object.freeze({ speaker: 'Command', text: 'Major, airborne contact! Combat gunship closing fast!' }),
-    gunshipGibran: Object.freeze({ speaker: 'Major Gibran', text: 'So that’s what they were saving for me.' }),
-    bossDown: Object.freeze({ speaker: 'Major Gibran', text: 'Gunship’s down. Kertajati, I’m coming in.' }),
-    arrivalSystem: Object.freeze({ speaker: 'Vehicle System', text: 'KERTAJATI INTERNATIONAL AIRPORT. ROUTE COMPLETE.' }),
-    arrivalCommand: Object.freeze({ speaker: 'Command', text: 'Major, we have your signal at the airfield. Get inside and secure a route to Kalimantan.' }),
-    arrivalGibran: Object.freeze({ speaker: 'Major Gibran', text: 'Copy. Next stop—I.K.N.' }),
-});
+export const STAGE8_DIALOGUE = dialogueMap('campaign.stage8.lines');
 
 let built = false, worldRoot = null, roadRoot = null, airportRoot = null;
 let tacticalVehicle = null, gunship = null, staticBatch = [];

@@ -44,6 +44,7 @@
 // spawn survival) dan tak ada dunia tambahan yang perlu dibangun/dibuang.
 
 import { CFG } from '../../../core/config.js';
+import { dialogueMap } from '../../../core/dialogue.js';
 import {
     scene, camera, viewCam, renderer, composer, postFxOn,
     addCamShake, setCineFocus, followViewCam, CAM_OFF_DEFAULT
@@ -193,14 +194,7 @@ const smooth = (k) => k * k * (3 - 2 * k);
 // ===== TEKS NARASI (WAJIB English — aturan permanen user). Empat pesan cerita
 // slideshow lama, dipecah jadi enam takarir sinematik yang muncul di atas pita
 // letterbox bawah (dom.showCineCaption). =====
-const CAP = {
-    city: 'JAKARTA HAS FALLEN.',
-    flee: 'A lone citizen flees the rogue machines.',
-    horde: 'But he is not alone — an entire army of machines marches in.',
-    refuge: 'He runs toward Monas — the last place of refuge.',
-    turn: 'Facing the machine army, he stops and turns around...',
-    stand: '"I WILL FIGHT."',
-};
+const CAP = dialogueMap('survival.monasIntro.captions');
 
 let cine = null;          // {phase, t, live, ...} — null = cutscene tak aktif
 let chasers = [];         // robot pengejar (aktor cutscene, BUKAN entitas gameplay)

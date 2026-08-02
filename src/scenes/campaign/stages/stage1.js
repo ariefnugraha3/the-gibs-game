@@ -25,6 +25,7 @@
 //                  (transisi ke stage 2). LIFT rusak: peringatan saat didekati.
 
 import { CFG, CAMP_M } from '../../../core/config.js';
+import { dialogueList } from '../../../core/dialogue.js';
 import { player, _v3, setCinematicActive } from '../../../core/state.js';
 import { scene, camera } from '../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../utils/textures.js';
@@ -91,16 +92,7 @@ export const S1_LIFT = { c: 9, r: 18 };   // LIFT rusak (nook kiri-tengah)
 
 // Naskah milik user: dipisah dari state/timer supaya urutan dan teks lengkapnya
 // dapat dipatok smoke test tanpa menyalin string dari DOM.
-export const S1_RADIO_DIALOGUE = Object.freeze([
-    Object.freeze({
-        speaker: 'Pilot',
-        text: "Major, incoming! We're taking heavy mortar fire on the roof! We can't hold position! Relocating extraction to the town square! You need to fight your way down the building and get the hell out of there!",
-    }),
-    Object.freeze({
-        speaker: 'Maj. Gibran',
-        text: "Damn it!! Can't anything just go according to plan?! Solid copy. Just clear that secondary LZ and don't miss me.",
-    }),
-]);
+export const S1_RADIO_DIALOGUE = dialogueList('campaign.stage1.radio');
 
 // DENAH RESMI (stage1-v2.csv). 50x50. '#'=dinding, '.'=lantai (pintu '-'=lantai).
 // JANGAN ubah tanpa update S1_DOORS + robot/furnitur + tes ulang (smoke test).
