@@ -11,8 +11,8 @@ no framework**. Two modes:
 
 - **Survival** — round-based waves defending the Monas monument; a Field Shop opens
   between waves; score = shop currency. Detail: [docs/survival.md](docs/survival.md).
-- **Campaign** — 5 linear stages (text prologue → helicopter intro cutscene → three
-  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung), an inter-stage shop, loot
+- **Campaign** — 6 linear stages (text prologue → helicopter intro cutscene → three
+  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters), an inter-stage shop, loot
   as currency, hacking/repair minigames, a stage checkpoint save.
   Detail: [docs/campaign.md](docs/campaign.md).
 
@@ -149,7 +149,15 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   Stage 5 entry clears `cineFade` synchronously so the station renders before its delayed
   opening dialogue; do not make fade cleanup depend on an unpaused gameplay update.
   The train may move visually in the departure shot, but the station root and destination
-  terminal must never move or join a wrapping scenery pool. `TO BE CONTINUED` preserves checkpoint 5.
+  terminal must never move or join a wrapping scenery pool. Arrival opens the Field Shop
+  and transitions to Stage 6.
+- Stage 6 is one continuous 76×52 Bandung Terminal→HQ world. Its arrival platform is a
+  safe area that hard-freezes terminal robots until the player's full footprint leaves;
+  Station Operations and both any-order substations then gate the service tunnel and HQ.
+  The command floor must be completely clear before the uplink activates. Upload always
+  stops at the config-driven 92%, reveals IKN as the only valid broadcast site, starts
+  lockdown, and ends on save-preserving `TO BE CONTINUED` at checkpoint 6. It has exactly
+  52 config-driven C/B/A robots and no boss/miniboss/tank/boss HUD/score/music.
 - Dormant-but-kept systems (reload, ADS, crouch, jump, sprint, thrown grenade, medkit
   channel) must stay unreachable — don't re-wire, don't delete.
 

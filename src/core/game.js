@@ -117,8 +117,8 @@ export function gameOver(won, title, opts = {}) {
     endDeathCine();   // lepas slow motion + letterbox; framing jasad dibekukan (no-op bila menang)
     stopMusic();   // stage berakhir (menang/kalah) -> musik battle/boss berhenti (2026-07-19)
     document.exitPointerLock();
-    // Menang final biasanya menghapus checkpoint. Ending bersambung Stage 5
-    // sengaja mempertahankannya agar Continue/Restart kembali ke checkpoint 5.
+    // Menang final biasanya menghapus checkpoint. Ending bersambung Stage 6
+    // sengaja mempertahankannya agar Continue/Restart kembali ke checkpoint 6.
     if (won && !opts.preserveCampaignSave) clearCampaignSave();
     if (score > highScore) setHighScore(score);
     // Campaign selesai = menang; selain itu (HP habis) = kalah.

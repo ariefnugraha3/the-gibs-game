@@ -4302,9 +4302,11 @@ T('S4 OUTRO SELESAI: fade membuka FIELD SHOP (bukan MISSION COMPLETE) dan state 
 // kegagalan combat: depot -> alarm hack C1 -> pintu peron -> repair C2 -> kereta -> 4 encounter ->
 // arrival. Semua dialog tetap benar-benar melewati state typewriter parsial. ---
 const s5mod = await import(R('src/scenes/campaign/stages/stage5.js'));
+const s6mod = await import(R('src/scenes/campaign/stages/stage6.js'));
 const save5Mod = await import(R('src/core/saveGame.js'));
 const crate5Mod = await import(R('src/entities/crates.js'));
 const S5C = cfgMod.CFG.campaign.stage5;
+const S6C = cfgMod.CFG.campaign.stage6;
 
 // Tunggu LOADING #1 Field Shop milik transisi outro, lalu gunakan tombol shop
 // sesungguhnya (dua tekan = buka konfirmasi + setuju), bukan cheat.
@@ -4725,11 +4727,264 @@ T('S5 DIALOG: semua 16 beat tampil sekali, berurutan, dan pernah berada dalam bo
     s5ShownOrder.join(',') === Object.keys(expectedS5Dialogue).join(',')
     && Object.keys(expectedS5Dialogue).every(k => s5Partial.has(k))
     && s5mod.stage5DialogueDebug().seen.join(',') === Object.keys(expectedS5Dialogue).join(','));
-T('S5 COMPLETE: layar hijau TO BE CONTINUED, checkpoint 5 dipertahankan',
-    stateMod.isGameOver && s5mod.stage5Debug().complete
+for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
+T('S5 COMPLETE: arrival membuka FIELD SHOP menuju Stage 6, bukan TO BE CONTINUED',
+    !stateMod.isGameOver && s5mod.stage5Debug().complete
+    && smMod.activeScene.id === 'campaign-shop' && shopMod.isShopOpen()
+    && save5Mod.loadCampaignStage() === 5);
+
+// --- 17a-ter. CAMPAIGN STAGE 6 — FALSE HOMECOMING (2026-08-02).
+// Field Shop -> terminal Bandung -> station control -> tunnel -> substation bebas
+// urutan -> HQ -> command floor -> upload 92% gagal -> lockdown/TBC. ---
+const s6Carry = {
+    money: stateMod.score, hp: player.hp, armor: player.armor,
+    medkits: player.medkits, weapons: player.weapons.join(','),
+};
+smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');
+for (let i = 0; i < 500 && smMod.activeScene !== s6mod.stage6Scene; i++) await new Promise(r => setTimeout(r, 10));
+T('S6 TRANSISI: Start Next Stage dari Field Shop masuk Stage 6 + checkpoint 6',
+    smMod.activeScene === s6mod.stage6Scene && save5Mod.loadCampaignStage() === 6);
+T('S6 TRANSISI FRAME PERTAMA: dunia terlihat sebelum dialog opening dan kontrol cinematic',
+    dom4.cineFadeDebug()?.opacity === 0 && s6mod.stage6DialogueDebug().key === null
+    && dom4.stageRadioDialogueDebug() === null && stateMod.cinematicActive);
+stateMod.setPaused(false);
+T('S6 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
+    stateMod.score === s6Carry.money && player.hp === s6Carry.hp
+    && player.armor === s6Carry.armor && player.medkits === s6Carry.medkits
+    && player.weapons.join(',') === s6Carry.weapons);
+
+const expectedS6Dialogue = {
+    arrivalSystem: { speaker: 'Train System', text: 'Bandung Logistics Terminal. Route complete.' },
+    arrivalCommand: { speaker: 'Command', text: 'Major, Headquarters is still holding, but the surface approaches are overrun. Use the military service corridor beneath this terminal and bring the file to the central uplink.' },
+    arrivalGibran: { speaker: 'Major Gibran', text: "Copy. I've come too far to let this file die here." },
+    leaveSafe: { speaker: 'Major Gibran', text: 'So much for a quiet homecoming. I need to clear this terminal and reach station operations.' },
+    corridorUnlocked: { speaker: 'Station System', text: 'Military service corridor unlocked.' },
+    bulkheadCommand: { speaker: 'Command', text: 'The blast bulkhead ahead has lost power. Bring both emergency substations online.' },
+    bulkheadGibran: { speaker: 'Major Gibran', text: "Understood. I'll restore the grid." },
+    gridRestored: { speaker: 'Major Gibran', text: 'Both substations are live. Opening the route.' },
+    hqCommand: { speaker: 'Command', text: "You're beneath the west wing. Hostiles have breached the motor pool and command floor." },
+    hqGibran: { speaker: 'Major Gibran', text: "Keep the uplink ready. I'll handle the rest." },
+    insertCommand: { speaker: 'Command', text: "Insert the drive. We'll push the kill-switch through every occupied network we can reach." },
+    uploadSystem: { speaker: 'HQ Uplink', text: 'Data package verified. Uploading kill-switch protocol.' },
+    uploadFailed: { speaker: 'HQ Uplink', text: 'UPLOAD FAILED. BROADCAST AUTHORITY DENIED. ROOT TRANSMISSION NODE REQUIRED.' },
+    gibranFailure: { speaker: 'Major Gibran', text: "What?! The file is valid. Why isn't it uploading?" },
+    commandIKN: { speaker: 'Command', text: "The protocol can only be injected from N.U.S.A.'s central robot transmitter. The network manifest places it in Nusantara—IKN, East Kalimantan." },
+    gibranIKN: { speaker: 'Major Gibran', text: "Kalimantan?! You're telling me the only transmitter that can end this war is on another island?" },
+    commandKertajati: { speaker: 'Command', text: 'Bandung can decrypt the file, but it cannot broadcast it. Your nearest viable air route is Kertajati.' },
+    lockdownWarning: { speaker: 'HQ System', text: 'WARNING. Unauthorized kill-switch handshake detected. Enemy trace confirmed. Headquarters lockdown initiated.' },
+    commandEscape: { speaker: 'Command', text: 'They traced the attempt. Major, get out of Headquarters now!' },
+    gibranResolve: { speaker: 'Major Gibran', text: 'Copy. First I survive Bandung. Then I find a way to IKN.' },
+};
+T('S6 DIALOG: seluruh naskah final tersimpan PERSIS dan urut',
+    JSON.stringify(s6mod.STAGE6_DIALOGUE) === JSON.stringify(expectedS6Dialogue));
+
+const s6Partial = new Set(), s6ShownOrder = [];
+let s6LastKey = null;
+function sampleS6Dialogue() {
+    const d = s6mod.stage6DialogueDebug();
+    if (d.key && d.key !== s6LastKey) { s6ShownOrder.push(d.key); s6LastKey = d.key; }
+    if (d.key && d.chars > 0 && d.chars < d.text.length) s6Partial.add(d.key);
+}
+function tickS6(total, step = 1 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps)) {
+    let left = Math.max(0, total), guard = 0;
+    while (left > 1e-9 && guard++ < 30000) {
+        const dt = Math.min(step, left);
+        s6mod.stage6Scene.updateMode(dt); sampleS6Dialogue(); left -= dt;
+    }
+}
+function drainS6Dialogue() {
+    let guard = 0; sampleS6Dialogue();
+    while (guard++ < 30000) {
+        const d = s6mod.stage6DialogueDebug();
+        if (!d.key && !d.queued.length) break;
+        tickS6(1.01 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps));
+    }
+}
+function killS6(encounter = null) {
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
+        if (z.stage !== 6 || (encounter && z.encounter !== encounter)) continue;
+        robotsMod.disposeRobot(z); scene.remove(z.mesh); robots.splice(i, 1);
+    }
+}
+const s6Mix = (encounter) => {
+    const out = { C: 0, B: 0, A: 0 };
+    for (const z of robots) if (z.stage === 6 && z.encounter === encounter && out[z.kind] != null) out[z.kind]++;
+    return out;
+};
+
+const s6World = s6mod.stage6WorldDebug();
+const s6Open = (t) => t !== '#';
+const s6StartCell = (() => {
+    for (let r = 0; r < s6mod.S6_MAP.length; r++) {
+        const c = s6mod.S6_MAP[r].indexOf('S'); if (c >= 0) return { c, r };
+    }
+    return null;
+})();
+const s6SeenCells = new Set();
+const s6Queue = s6StartCell ? [s6StartCell] : [];
+while (s6Queue.length) {
+    const p = s6Queue.shift(), key = p.c + ',' + p.r;
+    if (s6SeenCells.has(key) || !s6Open(s6mod.S6_MAP[p.r]?.[p.c] || '#')) continue;
+    s6SeenCells.add(key);
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) s6Queue.push({ c: p.c + dc, r: p.r + dr });
+}
+const s6OpenCount = s6mod.S6_MAP.reduce((n, row) => n + [...row].filter(s6Open).length, 0);
+T('S6 WORLD: map statis 76×52 dan seluruh platform/tunnel/HQ/data-vault terhubung',
+    s6World.built && s6World.map.cols === 76 && s6World.map.rows === 52
+    && s6SeenCells.size === s6OpenCount && s6World.nav);
+T('S6 WORLD: terminal/tunnel/substation/motor-pool/command/uplink memiliki set dressing solid',
+    ['arrival-train', 'freight-scanner', 'cargo-conveyor', 'pallet-rack', 'dispatch-booth',
+        'maintenance-cart', 'substation-a', 'substation-b', 'armored-vehicle',
+        'blast-barricade', 'military-container', 'operations-table', 'server-rack',
+        'central-uplink'].every(k => s6World.propKinds.includes(k))
+    && s6World.props.filter(p => p.solid).length >= 20);
+T('S6 WORLD: lima pintu fisik, fixed rain/spark pools, fixed lights, dan static batch terbangun',
+    s6World.doors.map(d => d.kind).join(',') === 'operations,tunnel,bulkhead,command,vault'
+    && s6World.pools.rain === 64 && s6World.pools.sparks === 16
+    && s6World.lights >= 10 && s6World.staticBatches > 0);
+let s6PlacementOK = true;
+for (const p of [s6mod.S6_START, s6mod.S6_STATION_CONTROL, s6mod.S6_SUBSTATION_A,
+    s6mod.S6_SUBSTATION_B, s6mod.S6_HQ_ENTRANCE, s6mod.S6_UPLINK,
+    ...s6World.supplies, ...s6World.crates]) {
+    if (!s6mod.stage6Walk(p.x, p.z, 1)) s6PlacementOK = false;
+    stateMod._v3.set(p.x, 0, p.z); s6mod.resolve(stateMod._v3, 1, 0);
+    if (Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) > 0.01) s6PlacementOK = false;
+}
+T('S6 WORLD: start, objective, supplies, dan crates berada di lantai walkable bebas blocker',
+    s6PlacementOK && s6World.supplies.length === 7 && s6World.crates.length === 5);
+const terminalBots6 = robots.filter(z => z.stage === 6 && z.encounter === 'terminal');
+T('S6 TERMINAL: komposisi awal mengikuti CFG, seluruh robot idle, tanpa boss/miniboss',
+    sameMix(s6Mix('terminal'), S6C.encounters.terminal)
+    && terminalBots6.every(z => z.state === 'idle' && ['C', 'B', 'A'].includes(z.kind))
+    && !s6mod.stage6Debug().terminalAwake);
+
+T('S6 OPENING: cinematic tampil di atas dunia tanpa tirai hitam/dialog prematur',
+    s6mod.stage6Debug().phase === 'opening' && stateMod.cinematicActive
+    && dom4.cineFadeDebug()?.opacity === 0 && s6mod.stage6DialogueDebug().key === null);
+tickS6(S6C.openingDialogueDelaySec * 0.5, 0.05);
+T('S6 OPENING: dialog menunggu establishing delay', s6mod.stage6DialogueDebug().key === null);
+tickS6(S6C.openingDialogueDelaySec * 0.5, 0.05);
+T('S6 TYPEWRITER: line pertama muncul kosong lalu mengetik karakter demi karakter',
+    s6mod.stage6DialogueDebug().key === 'arrivalSystem' && s6mod.stage6DialogueDebug().chars === 0);
+tickS6(1.01 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps));
+T('S6 TYPEWRITER: tick pertama berisi tepat satu karakter',
+    s6mod.stage6DialogueDebug().chars === 1
+    && s6mod.stage6DialogueDebug().shown === expectedS6Dialogue.arrivalSystem.text.slice(0, 1));
+drainS6Dialogue(); tickS6(S6C.openingMinSec + S6C.fadeSec + 0.2, 0.1);
+T('S6 OPENING: selesai mengembalikan kontrol dan objective terminal',
+    s6mod.stage6Debug().phase === 'clearTerminal' && !stateMod.cinematicActive);
+
+const s6Held = terminalBots6[0], s6HeldPos = { x: s6Held.mesh.position.x, z: s6Held.mesh.position.z };
+const s6HeldAI = s6mod.stage6Scene.robotAI(s6Held, 0.5, 30);
+T('S6 SAFE HOLD: robot terminal tidak mengejar/menyerang selama player di arrival platform',
+    !s6mod.stage6Debug().terminalAwake && s6HeldAI.chaseDist == null
+    && terminalBots6.every(z => z.state === 'idle')
+    && s6Held.mesh.position.x === s6HeldPos.x && s6Held.mesh.position.z === s6HeldPos.z);
+camera.position.set(s6World.supplies[0].x, cfgMod.CFG.player.eyeHeight, s6World.supplies[0].z);
+s6mod.stage6Scene.updateMode(0.1);
+T('S6 SAFE HOLD: keluar penuh dari platform membangunkan seluruh terminal squad',
+    s6mod.stage6Debug().terminalAwake && terminalBots6.every(z => z.state === 'chasing'));
+killS6('terminal'); s6mod.stage6Scene.updateMode(0.1); drainS6Dialogue();
+T('S6 FLOW: terminal aman membuka Station Operations, tunnel masih terkunci',
+    s6mod.stage6Debug().phase === 'stationControl'
+    && s6mod.stage6WorldDebug().doors.find(d => d.kind === 'operations').target === 1
+    && s6mod.stage6WorldDebug().doors.find(d => d.kind === 'tunnel').target === 0);
+
+camera.position.set(s6mod.S6_STATION_CONTROL.x, cfgMod.CFG.player.eyeHeight, s6mod.S6_STATION_CONTROL.z);
+tickS6(S6C.stationAccessSec * 0.45, 0.1);
+const s6StationPartial = s6mod.stage6Debug().stationAccessT;
+camera.position.set(s6mod.S6_START.x, cfgMod.CFG.player.eyeHeight, s6mod.S6_START.z);
+s6mod.stage6Scene.updateMode(0.1);
+T('S6 STATION CONTROL: menjauh membatalkan channel parsial tanpa membuka tunnel',
+    s6StationPartial > 0 && s6mod.stage6Debug().stationAccessT === 0
+    && !s6mod.stage6Debug().stationAccessed);
+camera.position.set(s6mod.S6_STATION_CONTROL.x, cfgMod.CFG.player.eyeHeight, s6mod.S6_STATION_CONTROL.z);
+tickS6(S6C.stationAccessSec + 0.1, 0.1);
+T('S6 STATION CONTROL: channel config membuka tunnel dan spawn encounter config',
+    s6mod.stage6Debug().phase === 'tunnel' && s6mod.stage6Debug().stationAccessed
+    && s6mod.stage6WorldDebug().doors.find(d => d.kind === 'tunnel').target === 1
+    && sameMix(s6Mix('tunnel'), S6C.encounters.tunnel));
+drainS6Dialogue(); killS6('tunnel');
+camera.position.set(s6mod.S6_SUBSTATION_A.x, cfgMod.CFG.player.eyeHeight, s6mod.S6_HQ_ENTRANCE.z);
+s6mod.stage6Scene.updateMode(0.1);
+T('S6 BULKHEAD: tunnel aman mengaktifkan dua substation tetapi bulkhead tetap tertutup',
+    s6mod.stage6Debug().phase === 'restoreGrid'
+    && s6mod.stage6WorldDebug().doors.find(d => d.kind === 'bulkhead').target === 0);
+drainS6Dialogue();
+
+// Kerjakan B lebih dulu untuk membuktikan urutan bebas.
+camera.position.set(s6mod.S6_SUBSTATION_B.x, cfgMod.CFG.player.eyeHeight, s6mod.S6_SUBSTATION_B.z);
+s6mod.stage6Scene.updateMode(0.1);
+T('S6 SUBSTATION B: memasuki ruang memicu response squad config dan menahan sinkronisasi',
+    sameMix(s6Mix('substationB'), S6C.encounters.substationB)
+    && s6mod.stage6Debug().subProgress.B === 0);
+killS6('substationB'); tickS6(S6C.substationSyncSec + 0.1, 0.1);
+T('S6 SUBSTATION ORDER: B dapat selesai lebih dulu dan bulkhead belum terbuka',
+    s6mod.stage6Debug().substation.B && !s6mod.stage6Debug().substation.A
+    && s6mod.stage6WorldDebug().doors.find(d => d.kind === 'bulkhead').target === 0);
+camera.position.set(s6mod.S6_SUBSTATION_A.x, cfgMod.CFG.player.eyeHeight, s6mod.S6_SUBSTATION_A.z);
+s6mod.stage6Scene.updateMode(0.1);
+T('S6 SUBSTATION A: response squad mengikuti CFG', sameMix(s6Mix('substationA'), S6C.encounters.substationA));
+killS6('substationA'); tickS6(S6C.substationSyncSec + 0.1, 0.1);
+T('S6 GRID: kedua node aktif membuka bulkhead dan memulai perimeter encounter',
+    s6mod.stage6Debug().phase === 'hqPerimeter'
+    && s6mod.stage6Debug().substation.A && s6mod.stage6Debug().substation.B
+    && s6mod.stage6WorldDebug().doors.find(d => d.kind === 'bulkhead').target === 1
+    && sameMix(s6Mix('hqPerimeter'), S6C.encounters.hqPerimeter));
+drainS6Dialogue();
+
+camera.position.set(s6mod.S6_HQ_ENTRANCE.x, cfgMod.CFG.player.eyeHeight, s6mod.S6_HQ_ENTRANCE.z);
+s6mod.stage6Scene.updateMode(0.1); drainS6Dialogue();
+killS6('hqPerimeter'); s6mod.stage6Scene.updateMode(0.1);
+T('S6 HQ: perimeter aman membuka command floor dan spawn encounter config',
+    s6mod.stage6Debug().phase === 'commandFloor'
+    && s6mod.stage6WorldDebug().doors.find(d => d.kind === 'command').target === 1
+    && sameMix(s6Mix('commandFloor'), S6C.encounters.commandFloor));
+killS6('commandFloor'); s6mod.stage6Scene.updateMode(0.1);
+T('S6 COMMAND FLOOR: wave awal habis memicu reinforcement config tepat sekali',
+    s6mod.stage6Debug().reinforcementSpawned
+    && sameMix(s6Mix('commandReinforcement'), S6C.encounters.commandReinforcement));
+killS6('commandReinforcement'); s6mod.stage6Scene.updateMode(0.1);
+T('S6 UPLINK GATE: data vault baru terbuka setelah seluruh command-floor robot habis',
+    s6mod.stage6Debug().phase === 'uploadReady' && s6mod.stage6Debug().robots === 0
+    && s6mod.stage6WorldDebug().doors.find(d => d.kind === 'vault').target === 1);
+
+const s6PoolsBefore = s6mod.stage6WorldDebug().pools;
+camera.position.set(s6mod.S6_UPLINK.x, cfgMod.CFG.player.eyeHeight, s6mod.S6_UPLINK.z);
+s6mod.stage6Scene.updateMode(0.1);
+T('S6 UPLOAD: mendekati uplink memulai cinematic freeze dan dialog briefing',
+    s6mod.stage6Debug().phase === 'upload' && stateMod.cinematicActive
+    && s6mod.stage6DialogueDebug().key === 'insertCommand');
+drainS6Dialogue();
+tickS6(S6C.uploadSec * 0.5, 0.1);
+T('S6 UPLOAD: progress nyata berjalan tetapi belum melewati failure fraction config',
+    s6mod.stage6Debug().uploadProgress > 0
+    && s6mod.stage6Debug().uploadProgress < S6C.uploadFailFraction
+    && !s6mod.stage6Debug().uploadFailed);
+tickS6(S6C.uploadSec * 0.5 + 0.1, 0.1);
+T('S6 UPLOAD FAILED: berhenti tepat pada fraction config, tidak pernah mencapai 100%',
+    s6mod.stage6Debug().uploadFailed
+    && Math.abs(s6mod.stage6Debug().uploadProgress - S6C.uploadFailFraction) < 1e-9
+    && s6mod.stage6Debug().uploadProgress < 1);
+drainS6Dialogue();
+T('S6 LOCKDOWN: warning menutup semua shutters dan mengubah objective sebelum ending',
+    s6mod.stage6Debug().phase === 'lockdown' && s6mod.stage6Debug().lockdown
+    && s6mod.stage6WorldDebug().doors.every(d => d.target === 0));
+tickS6(S6C.lockdownTailSec + S6C.fadeSec + 0.3, 0.1);
+const s6PoolsAfter = s6mod.stage6WorldDebug().pools;
+T('S6 DIALOG: semua 20 beat tampil sekali, urut, dan seluruh body pernah parsial',
+    s6ShownOrder.join(',') === Object.keys(expectedS6Dialogue).join(',')
+    && Object.keys(expectedS6Dialogue).every(k => s6Partial.has(k)));
+T('S6 NO BOSS: seluruh encounter berisi C/B/A biasa tanpa boss entity',
+    !robots.some(z => z.stage === 6 && z.kind === 'boss'));
+T('S6 FIXED POOLS: hujan/sparks tidak menambah mesh sepanjang stage',
+    JSON.stringify(s6PoolsAfter) === JSON.stringify(s6PoolsBefore));
+T('S6 COMPLETE: layar hijau TO BE CONTINUED dan checkpoint 6 dipertahankan',
+    stateMod.isGameOver && s6mod.stage6Debug().complete
     && dom4.gameOverTitle.innerText === 'TO BE CONTINUED'
     && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
-    && save5Mod.loadCampaignStage() === 5);
+    && save5Mod.loadCampaignStage() === 6);
 
 stateMod.setGameOver(false);
 
@@ -4737,7 +4992,11 @@ stateMod.setGameOver(false);
 // (tanpa shop). Hook `cheatSkipToStage` di tiap stage → `campaignJumpToStage`
 // (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
-let jr = smMod.activeScene.cheatSkipToStage(5);
+let jr = smMod.activeScene.cheatSkipToStage(6);
+T('cheat skip-to-stage-6: pindah ke Bandung HQ + checkpoint/robot Stage 6', jr === 6
+    && smMod.activeScene === s6mod.stage6Scene && save5Mod.loadCampaignStage() === 6
+    && robots.filter(z => z.stage === 6).length === Object.values(S6C.encounters.terminal).reduce((a, b) => a + b, 0));
+jr = smMod.activeScene.cheatSkipToStage(5);
 T('cheat skip-to-stage-5: pindah ke depot + checkpoint/robot Stage 5', jr === 5
     && smMod.activeScene === s5mod.stage5Scene && save5Mod.loadCampaignStage() === 5
     && robots.filter(z => z.stage === 5).length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
@@ -4882,7 +5141,9 @@ saveMod.saveCampaignStage(3);
 T('save: tulis 3 -> load 3', saveMod.loadCampaignStage() === 3);
 saveMod.saveCampaignStage(5);
 T('save: checkpoint Stage 5 valid untuk Continue', saveMod.loadCampaignStage() === 5);
-saveMod.saveCampaignStage(9);   // di luar 1..5 -> dianggap tak valid
+saveMod.saveCampaignStage(6);
+T('save: checkpoint Stage 6 valid untuk Continue', saveMod.loadCampaignStage() === 6);
+saveMod.saveCampaignStage(9);   // di luar 1..6 -> dianggap tak valid
 T('save: nilai invalid (9) dibaca sebagai 0', saveMod.loadCampaignStage() === 0);
 saveMod.clearCampaignSave();
 T('save: clear -> 0', saveMod.loadCampaignStage() === 0);
@@ -4893,18 +5154,24 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 smMod.activeScene.cheatSkipToStage(1);   // stage1.enter -> saveCampaignStage(1)
 T('save: enter stage 1 menulis checkpoint 1', saveMod.loadCampaignStage() === 1);
 // Konsistensi loading antar-stage (2026-07-16): stage1.enter mem-pre-build SEMUA
-// dunia campaign (ensureWorld stage 3/4/5 di dalam guard `built`-nya) sehingga
+// dunia campaign (ensureWorld stage 3/4/5/6 di dalam guard `built`-nya) sehingga
 // LOADING #2 transisi mana pun tak lagi menanggung build+compile lazy.
 const s1PrebuildSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage1.js', 'utf8');
-T('campaign: dunia stage 3/4/5 PRE-BUILT saat campaign dimulai (loading konsisten)',
-    s3mod.worldBuilt() && s4mod.worldBuilt() && s5mod.worldBuilt()
-    && s1PrebuildSrc.includes('ensureStage5World()'));
+T('campaign: dunia stage 3/4/5/6 PRE-BUILT saat campaign dimulai (loading konsisten)',
+    s3mod.worldBuilt() && s4mod.worldBuilt() && s5mod.worldBuilt() && s6mod.worldBuilt()
+    && s1PrebuildSrc.includes('ensureStage5World()') && s1PrebuildSrc.includes('ensureStage6World()'));
 saveMod.saveCampaignStage(5);
 const restart5 = saveMod.loadCampaignStage() || 1;
 smMod.activeScene.cheatSkipToStage(restart5);
 T('restart/continue checkpoint 5: mendarat di awal depot dengan encounter awal utuh',
     restart5 === 5 && smMod.activeScene === s5mod.stage5Scene
     && robots.filter(z => z.stage === 5).length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
+saveMod.saveCampaignStage(6);
+const restart6 = saveMod.loadCampaignStage() || 1;
+smMod.activeScene.cheatSkipToStage(restart6);
+T('restart/continue checkpoint 6: mendarat di arrival platform dengan terminal squad utuh',
+    restart6 === 6 && smMod.activeScene === s6mod.stage6Scene
+    && robots.filter(z => z.stage === 6).length === Object.values(S6C.encounters.terminal).reduce((a, b) => a + b, 0));
 // Prompt game-over "RESTART STAGE" (2026-07-15): resetGame(true) campaign ulang
 // dari AWAL stage CHECKPOINT (bukan stage 1) via campaignJumpToStage(loadCampaignStage()||1).
 saveMod.saveCampaignStage(3);
@@ -6453,10 +6720,11 @@ const palMod = await import(R('src/world/palette.js'));
     //       scene.add langsung) — kalau wiring-nya putus, daftar ini kosong.
     const s4c = await import(R('src/scenes/campaign/stages/stage4.js'));
     const s5c2 = await import(R('src/scenes/campaign/stages/stage5.js'));
-    T('meshBatch: perabot stage 1/2/3/4/5 melewati addMergedStatic (batch terisi)',
+    const s6c2 = await import(R('src/scenes/campaign/stages/stage6.js'));
+    T('meshBatch: perabot stage 1/2/3/4/5/6 melewati addMergedStatic (batch terisi)',
         s1c.s1StaticBatchDbg().length > 0 && s2c.s2StaticBatchDbg().length > 0
         && s3c.s3StaticBatchDbg().length > 0 && s4c.s4StaticBatchDbg().length > 0
-        && s5c2.stage5StaticBatchDbg().length > 0);
+        && s5c2.stage5StaticBatchDbg().length > 0 && s6c2.stage6StaticBatchDbg().length > 0);
 
     // (c12) stage 4 memakai mergeObjectInPlace utk prop yang MATERIALNYA masih
     //       disentuh saat main (mobil/gedung yang memudar = occluder). Fallback-nya
@@ -6534,17 +6802,17 @@ const palMod = await import(R('src/world/palette.js'));
 
     // (c16) kunci lampu tiap scene campaign ada (kalau lupa, stage masuk dgn set
     //       lampu stage sebelumnya = ruangan gelap/ganda).
-    T('scene campaign 1-5 + survival punya lightsKey',
+    T('scene campaign 1-6 + survival punya lightsKey',
         s1c.stage1Scene.lightsKey === 'campaign-1' && s2c.stage2Scene.lightsKey === 'campaign-2'
         && s3c.stage3Scene.lightsKey === 'campaign-3' && s4c.stage4Scene.lightsKey === 'campaign-4'
-        && s5c2.stage5Scene.lightsKey === 'campaign-5');
+        && s5c2.stage5Scene.lightsKey === 'campaign-5' && s6c2.stage6Scene.lightsKey === 'campaign-6');
     lightMod.setActiveStageLights(before.active || 'campaign-1');
 
     // (d) TEKS MISI tanpa penunjuk arah (2026-07-26, permintaan user: biar player
     //     mencarinya sendiri) — sapu string user-facing di semua scene campaign.
     const DIRW = /\b(north|south|east|west|far-right|far-left|top-left|top-right|bottom-left|bottom-right)\b/i;
     const dirHits = [];
-    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js', 'stage5.js']) {
+    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js', 'stage5.js', 'stage6.js']) {
         const src = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/' + f, 'utf8');
         for (const line of src.split('\n')) {
             const isMsg = line.includes('showStageMsg(') || line.includes('showPickup(') || (line.includes('return') && line.includes('FLOOR'));

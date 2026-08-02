@@ -385,6 +385,28 @@
                 ]
             }
         },
+        "stage6": {
+            "openingMinSec": 8,
+            "openingDialogueDelaySec": 0.6,
+            "fadeSec": 0.5,
+            "stationControlRange": 12,
+            "stationAccessSec": 2.5,
+            "substationRange": 11,
+            "substationSyncSec": 3,
+            "uplinkRange": 12,
+            "uploadSec": 5,
+            "uploadFailFraction": 0.92,
+            "lockdownTailSec": 3,
+            "encounters": {
+                "terminal": { "C": 7, "B": 3, "A": 1 },
+                "tunnel": { "C": 6, "B": 3, "A": 1 },
+                "substationA": { "C": 3, "B": 2, "A": 0 },
+                "substationB": { "C": 3, "B": 1, "A": 1 },
+                "hqPerimeter": { "C": 5, "B": 3, "A": 2 },
+                "commandFloor": { "C": 4, "B": 2, "A": 1 },
+                "commandReinforcement": { "C": 3, "B": 1, "A": 1 }
+            }
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,

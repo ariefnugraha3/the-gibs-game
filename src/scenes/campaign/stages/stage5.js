@@ -24,10 +24,10 @@ import {
 } from '../utility/common.js';
 import { beginRepairMinigame, REPAIR_PARTS } from '../utility/repairMinigame.js';
 import { beginHackMinigame } from '../utility/hackMinigame.js';
-import { campaignJumpToStage } from '../utility/transition.js';
+import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
-import { gameOver } from '../../../core/game.js';
 import { stage1Scene } from './stage1.js';
+import { stage6Scene } from './stage6.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { exitCityEnv } from '../utility/cityscape.js';
 import { PAL, EMISSIVE_MAX } from '../../../world/palette.js';
@@ -925,7 +925,7 @@ function finishArrival() {
     complete = true; phase = 'complete'; stopTrainLoop();
     hideStageRadioDialogue(); hideCutsceneSkip(); setAvatarRadioPose(false);
     setCineFocus(null); setCineBars(false); setCinematicActive(false); setCineFade(0, 0);
-    gameOver(true, 'TO BE CONTINUED', { preserveCampaignSave: true });
+    beginStageTransition(stage6Scene);
 }
 
 function startArrival() {

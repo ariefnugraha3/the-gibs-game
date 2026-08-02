@@ -1,6 +1,6 @@
 // Scene manager minimal: satu scene aktif dengan lifecycle enter()/exit().
 // "Scene" = objek modul (menu tak lewat sini — DOM murni sebelum game mulai):
-// survival, campaign-stage1..5. Kontrak antarmuka scene lengkap
+// survival, campaign-stage1..6. Kontrak antarmuka scene lengkap
 // terdokumentasi di MODULES.md — sistem bersama (player/peluru/granat/robot)
 // hanya bicara ke scene aktif lewat hook ini, jadi menambah stage baru tidak
 // menyentuh sistem lain.
