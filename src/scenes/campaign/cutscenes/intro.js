@@ -29,7 +29,7 @@ import { spawnGroundPuff } from '../../../entities/effects.js';   // debu downwa
 import { avatarGroup, setAvatarRappel } from '../../../entities/playerAvatar.js';
 import { stage1Scene, ensureWorld as ensureCampaignWorlds } from '../stages/stage1.js';
 
-// Dunia atap ditaruh ~150 km dari origin (jauh dari stage 1-6 di 30k/60k/90k/
+// Dunia atap ditaruh ~150 km dari origin (jauh dari stage 1-7 di 30k/60k/90k/
 // 120k). Deck atap di y=0 (tinggi gedung sekadar visual — kamera di atasnya).
 const IX = 150000, IZ = 0, ROOF_Y = 0;
 const HALF_X = 168, HALF_Z = 150;                 // setengah lebar deck (unit)

@@ -23,10 +23,10 @@ import {
     spawnCampaignRobot, campaignAwardKill, campaignRobotAI, campaignClampRobot,
     countStageRobots,
 } from '../utility/common.js';
-import { campaignJumpToStage } from '../utility/transition.js';
+import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
-import { gameOver } from '../../../core/game.js';
 import { stage1Scene } from './stage1.js';
+import { stage7Scene } from './stage7.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { exitCityEnv } from '../utility/cityscape.js';
 import { PAL, EMISSIVE_MAX } from '../../../world/palette.js';
@@ -854,7 +854,7 @@ function finishStage() {
     complete = true; phase = 'complete'; uploadProgress = CFG.campaign.stage6.uploadFailFraction;
     uploadFailed = true; lockdown = true;
     resetDialogue(); hideInteraction(); cleanupCine(0);
-    gameOver(true, 'TO BE CONTINUED', { preserveCampaignSave: true });
+    beginStageTransition(stage7Scene);
 }
 
 function startUpload() {

@@ -47,6 +47,7 @@ import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities
 import { spawnSmashBuilding, smashBuilding, updateSmashBuilding, resetSmashBuilding, smashBuildingDebug } from '../../../entities/smashBuilding.js';
 import { exitCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
+import { gameOver } from '../../../core/game.js';
 import { stage1Scene } from './stage1.js';
 import { stage5Scene } from './stage5.js';
 import { createTankBossIntro, TANK_BOSS_DIALOGUE } from '../cutscenes/tankBossIntro.js';
@@ -1109,14 +1110,18 @@ const intro = createTankBossIntro({
     smash: (dirX, dirZ) => smashBuilding(smashRuko, dirX, dirZ),
 });
 
-// Cutscene penutup: close-up bangkai -> pose radio Gibran -> fade -> Field Shop
-// sebelum perjalanan terakhir ke Bandung di Stage 5.
+// Cutscene penutup: close-up bangkai -> pose radio Gibran -> fade -> FINISH
+// hijau Stage 4. CONTINUE pada layar itu baru membuka Field Shop, lalu Stage 5.
 const outro = createTankBossOutro({
     getTank: () => tank,
     onComplete: () => {
         if (winFired) return;
         winFired = true;
-        beginStageTransition(stage5Scene);
+        gameOver(true, 'STAGE 4 COMPLETE', {
+            preserveCampaignSave: true,
+            continueLabel: 'CONTINUE',
+            onContinue: () => beginStageTransition(stage5Scene),
+        });
     },
 });
 

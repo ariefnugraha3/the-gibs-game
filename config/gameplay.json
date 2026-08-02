@@ -407,6 +407,31 @@
                 "commandReinforcement": { "C": 3, "B": 1, "A": 1 }
             }
         },
+        "stage7": {
+            "openingMinSec": 6,
+            "openingDialogueDelaySec": 0.5,
+            "fadeSec": 0.5,
+            "routeCommitDepth": 28,
+            "routeSealSec": 0.8,
+            "vehicleRange": 14,
+            "tollDefenseMinSec": 55,
+            "tollWaveGapSec": 16,
+            "outroMinSec": 18,
+            "encounters": {
+                "hqEscape": { "C": 5, "B": 2, "A": 1 },
+                "boulevard": { "C": 4, "B": 4, "A": 2 },
+                "market": { "C": 8, "B": 2, "A": 1 },
+                "residential": { "C": 5, "B": 2, "A": 1 },
+                "junction": { "C": 5, "B": 2, "A": 1 },
+                "underpass": { "C": 7, "B": 2, "A": 1 },
+                "flyover": { "C": 3, "B": 4, "A": 2 },
+                "tollWaves": [
+                    { "C": 5, "B": 1, "A": 0 },
+                    { "C": 3, "B": 2, "A": 1 },
+                    { "C": 2, "B": 2, "A": 1 }
+                ]
+            }
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,

@@ -6,11 +6,15 @@ import { CFG } from './config.js';
 import {
     isPaused, isGameOver, setGameOver, setScore, score, highScore, setHighScore, player,
     robots, bullets, enemyBullets, grenades, explosions, drops, clearArray, configurePlayer,
-    stats, resetStats, mode, cinematicActive
+    stats, resetStats, mode, cinematicActive, stageStats, updateStageStats,
+    resetStageStats, beginStageStats
 } from './state.js';
 import { scene } from './renderer.js';
 import { activeScene, setScene } from './sceneManager.js';
-import { gameOverScreen, gameOverTitle, finalScoreEl, bestScoreEl } from './dom.js';
+import {
+    gameOverScreen, gameOverTitle, finalScoreEl, bestScoreEl,
+    goStageStats, goTotalTime, goLootBoxes,
+} from './dom.js';
 import { updateUI } from './hud.js';
 import { updateWeaponTimers, updateWeaponState, updateShooting, resetWeapons } from '../entities/weapons.js';
 import { updatePlayerMovement, resetPlayerState } from '../entities/player.js';
@@ -64,7 +68,16 @@ export function startPlayerDeath(dirx = 0, dirz = 1) {
 // dtReal = dt SEBELUM skala slow-motion kematian (main.animate mengirimkannya;
 // default = dt supaya pemanggil lama/uji tetap sah).
 export function updateGame(dt, step, T, dtReal = dt) {
-    if (isGameOver || isPaused) return;
+    if (isGameOver) return;
+    // ICE BREACH/FIELD REPAIR adalah bagian dari waktu penyelesaian stage walau
+    // keduanya mem-pause simulasi dunia. Pause menu, loading, dan Field Shop
+    // tetap dikecualikan.
+    if (isPaused) {
+        if (stageStats.active && (activeScene?.id === 'campaign-hack'
+            || activeScene?.id === 'campaign-repair')) updateStageStats(dtReal);
+        return;
+    }
+    updateStageStats(dtReal);    // waktu nyata gameplay/cutscene; hit-stop tak mendistorsinya
     updateTimeScale(dtReal);   // luruhkan HIT-STOP melee (waktu NYATA)
 
     // Sekuens kematian: hitung mundur -> layar GAME OVER. Selama itu dunia
@@ -112,13 +125,20 @@ export function updateGame(dt, step, T, dtReal = dt) {
 // title opsional: judul khusus scene (mis. survival 'THE MONUMENT HAS FALLEN');
 // `opts.preserveCampaignSave` mempertahankan checkpoint untuk ending bersambung.
 // default tetap MISSION COMPLETE / GAME OVER.
+export function formatStageTime(seconds) {
+    const total = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+    const h = Math.floor(total / 3600), m = Math.floor(total / 60) % 60, s = total % 60;
+    const pad = n => String(n).padStart(2, '0');
+    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
 export function gameOver(won, title, opts = {}) {
     setGameOver(true);
     endDeathCine();   // lepas slow motion + letterbox; framing jasad dibekukan (no-op bila menang)
     stopMusic();   // stage berakhir (menang/kalah) -> musik battle/boss berhenti (2026-07-19)
     document.exitPointerLock();
-    // Menang final biasanya menghapus checkpoint. Ending bersambung Stage 6
-    // sengaja mempertahankannya agar Continue/Restart kembali ke checkpoint 6.
+    // Menang final biasanya menghapus checkpoint. Ending bersambung Stage 7
+    // sengaja mempertahankannya agar Continue/Restart kembali ke checkpoint 7.
     if (won && !opts.preserveCampaignSave) clearCampaignSave();
     if (score > highScore) setHighScore(score);
     // Campaign selesai = menang; selain itu (HP habis) = kalah.
@@ -130,32 +150,62 @@ export function gameOver(won, title, opts = {}) {
     const acc = stats.shots > 0 ? Math.round(stats.hits / stats.shots * 100) : 0;
     document.getElementById('goStats').innerText =
         `Kills ${stats.kills} · Accuracy ${acc}%`;
+    // Ringkasan per-stage hanya muncul pada layar FINISH hijau Campaign.
+    // Nilai dibekukan saat gameOver karena updateGame berhenti setelah ini.
+    const showStageSummary = won && stageStats.active;
+    goStageStats.style.display = showStageSummary ? 'grid' : 'none';
+    if (showStageSummary) {
+        goTotalTime.innerText = formatStageTime(stageStats.elapsedSec);
+        goLootBoxes.innerText = String(stageStats.lootBoxesDestroyed);
+    }
     // Prompt game-over: RESTART (campaign = ulang dari AWAL stage yang sedang
     // dimainkan; survival = ulang run) / EXIT TO MAIN MENU (reload → #mainMenu).
     wireGameOverButtons();
-    document.getElementById('goRestart').textContent =
-        mode === 'campaign' ? 'RESTART STAGE' : 'RESTART';
+    goPrimaryAction = typeof opts.onContinue === 'function' ? opts.onContinue : null;
+    document.getElementById('goRestart').textContent = goPrimaryAction
+        ? (opts.continueLabel || 'CONTINUE')
+        : (mode === 'campaign' ? 'RESTART STAGE' : 'RESTART');
     gameOverScreen.style.display = 'flex';
 }
 
 // Rangkai tombol prompt game-over sekali (lazy). Restart = ulang stage sekarang
 // (checkpoint campaign), Exit = kembali ke menu utama (reload — startGame
 // sekali-jalan). Klik bekerja karena pointer sudah di-unlock oleh gameOver.
-let goWired = false;
+let goWired = false, goPrimaryAction = null;
 function wireGameOverButtons() {
     if (goWired) return;
     goWired = true;
-    document.getElementById('goRestart').addEventListener('click', () => resetGame(true));
+    document.getElementById('goRestart').addEventListener('click', activateGameOverPrimary);
     document.getElementById('goExit').addEventListener('click', () => location.reload());
+}
+
+// Tombol utama/SPACE pada overlay. Finish antar-stage menutup overlay TANPA
+// reset player/money/loadout lalu menjalankan callback menuju Field Shop;
+// GAME OVER/final biasa tetap memakai kebijakan restart checkpoint lama.
+export function activateGameOverPrimary() {
+    if (!isGameOver) return false;
+    if (goPrimaryAction) {
+        const action = goPrimaryAction;
+        goPrimaryAction = null;
+        setGameOver(false);
+        gameOverScreen.style.display = 'none';
+        goStageStats.style.display = 'none';
+        action();
+        return true;
+    }
+    resetGame(true);
+    return true;
 }
 
 // atCurrentStage: campaign mengulang dari AWAL stage yang sedang dimainkan
 // (checkpoint tersimpan) alih-alih stage 1 — dipakai prompt/SPACE game-over.
 // Default false = kebijakan restartScene (pause "RESTART GAME" = dari awal).
 export function resetGame(atCurrentStage = false) {
+    goPrimaryAction = null;
     setScore(0);
     stopMusic();           // run baru: musik battle mati sampai tembakan kena pertama (2026-07-19)
     resetStats();          // statistik run baru
+    resetStageStats();     // timer + loot box stage diulang oleh enter scene tujuan
     configurePlayer();     // hp/granat/amunisi/magazen/upgrade kembali ke nilai CFG
     playerDeathT = -1;     // batalkan sekuens kematian yang mungkin berjalan
     resetDeathCine();      // kamera/warna/overlay layar kembali normal
@@ -193,7 +243,11 @@ export function resetGame(atCurrentStage = false) {
         campaignJumpToStage(loadCampaignStage() || 1);
     } else {
         const target = activeScene.restartScene ? activeScene.restartScene() : activeScene;
-        if (target === activeScene) target.enter({ fresh: true });
+        if (target === activeScene) {
+            if (mode === 'campaign' && /^campaign-[1-9][0-9]*$/.test(activeScene?.id || ''))
+                beginStageStats(activeScene.id);
+            target.enter({ fresh: true });
+        }
         else setScene(target, { fresh: true });
     }
 

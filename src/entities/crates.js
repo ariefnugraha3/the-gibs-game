@@ -15,7 +15,7 @@
 
 import { CFG } from '../core/config.js';
 import { scene } from '../core/renderer.js';
-import { bullets, player } from '../core/state.js';
+import { bullets, player, recordLootBoxDestroyed } from '../core/state.js';
 import { rand, segPointDist2 } from '../utils/math.js';
 import { PAL } from '../world/palette.js';
 import { playSFX, sfxMelee } from '../utils/sfx.js';
@@ -208,6 +208,9 @@ export function breakCrate(cr) {
     const i = crates.indexOf(cr);
     if (i < 0) return null;
     crates.splice(i, 1);
+    // Tepat satu kali per peti: splice dilakukan sebelum efek/loot, sehingga
+    // dua sumber damage pada frame yang sama tak dapat menggandakan statistik.
+    recordLootBoxDestroyed();
     spawnGibs(cr.x, cr.y, cr.z, 8, rand(-1, 1), rand(-1, 1), 1.3, PAL.wood, (cr.groundY || 0) + 0.3, 0x2a1c10);
     spawnGroundPuff(cr.x, cr.z, 0x9a7a4a, 8, (cr.groundY || 0) + 0.6);
     playSFX(sfxMelee, 0.55);

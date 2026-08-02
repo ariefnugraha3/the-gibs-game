@@ -1,17 +1,22 @@
 // Scene manager minimal: satu scene aktif dengan lifecycle enter()/exit().
 // "Scene" = objek modul (menu tak lewat sini — DOM murni sebelum game mulai):
-// survival, campaign-stage1..6. Kontrak antarmuka scene lengkap
+// survival, campaign-stage1..7. Kontrak antarmuka scene lengkap
 // terdokumentasi di MODULES.md — sistem bersama (player/peluru/granat/robot)
 // hanya bicara ke scene aktif lewat hook ini, jadi menambah stage baru tidak
 // menyentuh sistem lain.
 
 import { setActiveStageLights } from '../world/lighting.js';
+import { beginStageStats } from './state.js';
 
 export let activeScene = null;
 
 export function setScene(s, opts = {}) {
     if (activeScene && activeScene.exit) activeScene.exit();
     activeScene = s;
+    // Statistik finish screen bersifat PER-STAGE. Modal hack/repair kembali
+    // lewat resumeScene(), dan shop/cutscene tak cocok pola ini, jadi keduanya
+    // tidak pernah mereset timer atau hitungan loot box stage yang aktif.
+    if (/^campaign-[1-9][0-9]*$/.test(s?.id || '')) beginStageStats(s.id);
     // Hanya lampu milik stage ini yang menyala (world/lighting.js) -> shader tak
     // melooping lampu 3 dunia lain tiap fragmen. Scene tanpa `lightsKey` (mis.
     // shop antar-stage) MEMPERTAHANKAN set lampu sebelumnya.

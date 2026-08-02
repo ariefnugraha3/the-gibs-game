@@ -799,6 +799,36 @@ body {
     cursor: default;
 }
 
+#goStageStats {
+    display: none;
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    gap: 10px;
+    margin: 0 0 22px;
+}
+
+#goStageStats span {
+    min-width: 220px;
+    padding: 10px 16px;
+    border: 1px solid rgba(255, 176, 59, 0.55);
+    background: rgba(4, 12, 8, 0.58);
+    color: #cfd8e3;
+    font-size: 15px;
+    letter-spacing: 1.3px;
+    text-align: center;
+}
+
+#goStageStats strong {
+    display: block;
+    margin-top: 5px;
+    color: #ffb03b;
+    font-size: 24px;
+    letter-spacing: 2px;
+}
+
+@media (max-width: 620px) {
+    #goStageStats { grid-template-columns: 1fr; }
+}
+
 #goButtons {
     display: flex;
     flex-direction: column;

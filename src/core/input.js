@@ -5,7 +5,7 @@ import { keys, mouse, isPaused, isGameOver, setPaused, mode, cinematicActive } f
 import { camera, viewCam } from './renderer.js';
 import { blocker, triggerCutsceneSkip } from './dom.js';
 import { activeScene } from './sceneManager.js';
-import { resetGame } from './game.js';
+import { resetGame, activateGameOverPrimary } from './game.js';
 import { showPauseMenu, hidePauseMenu, isPauseMenuOpen } from './pauseMenu.js';
 import { openCheatConsole, closeCheatConsole, forceHideCheatConsole, isCheatConsoleOpen, handleKey } from './cheatConsole.js';
 import {
@@ -206,7 +206,7 @@ export function initInput() {
         // 4 = PAKAI medkit SEKETIKA (2026-07-18) — langsung pulihkan HP, tak perlu
         // equip lalu tahan klik kiri lagi.
         if (key === '4' && !isPaused && !isGameOver) useMedkit();
-        if (e.code === 'Space' && isGameOver) resetGame(true);   // restart stage sekarang (checkpoint campaign)
+        if (e.code === 'Space' && isGameOver) activateGameOverPrimary();
     });
     window.addEventListener('keyup', (e) => {
         const key = e.key.toLowerCase();

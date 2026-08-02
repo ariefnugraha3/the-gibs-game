@@ -11,8 +11,8 @@ no framework**. Two modes:
 
 - **Survival** — round-based waves defending the Monas monument; a Field Shop opens
   between waves; score = shop currency. Detail: [docs/survival.md](docs/survival.md).
-- **Campaign** — 6 linear stages (text prologue → helicopter intro cutscene → three
-  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters), an inter-stage shop, loot
+- **Campaign** — 7 linear stages (text prologue → helicopter intro cutscene → three
+  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters → branching Bandung streets ending at Cisumdawu), an inter-stage shop, loot
   as currency, hacking/repair minigames, a stage checkpoint save.
   Detail: [docs/campaign.md](docs/campaign.md).
 
@@ -129,6 +129,12 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   `#crosshair` stays hidden with its JS writes intact.
 - Barrels/crates are solid to the player only and stay **out of the nav grid**;
   furniture is the opposite (in `blockers` AND nav).
+- Green Campaign finish screens show per-stage total time and destroyed loot boxes.
+  Reset these stats only on an actual `campaign-N` entry/restart; modal minigames and
+  Field Shop transitions preserve them, and red GAME OVER hides the summary.
+- Stage 4 must end its tank outro on the green `STAGE 4 COMPLETE` screen. Its
+  CONTINUE/Space action preserves the whole campaign loadout/checkpoint, then opens the
+  Field Shop; only Start Next Stage enters Stage 5.
 - The campaign prologue is **DOM-only on a pitch-black screen** — typed text on the left,
   a per-era cinematic ASCII tableau on the right (`prologueArt.js`; SVG is only the
   container and every visible mark is a monospace `<text>` glyph). Its phase-driven
@@ -156,8 +162,14 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   Station Operations and both any-order substations then gate the service tunnel and HQ.
   The command floor must be completely clear before the uplink activates. Upload always
   stops at the config-driven 92%, reveals IKN as the only valid broadcast site, starts
-  lockdown, and ends on save-preserving `TO BE CONTINUED` at checkpoint 6. It has exactly
-  52 config-driven C/B/A robots and no boss/miniboss/tank/boss HUD/score/music.
+  lockdown, and opens the Field Shop before Stage 7. It has exactly 52 config-driven
+  C/B/A robots and no boss/miniboss/tank/boss HUD/score/music.
+- Stage 7 is one static 118×72 road network at x≈240000. It commits one of three city
+  routes and then flyover/underpass; prebuilt bollards close unchosen routes, whose robots
+  are never spawned or counted. Each run has 50–54 ordinary robots, then three finite toll
+  waves at 0/16/32 seconds with a 55-second minimum. GARUDA LTV-45 is a procedural hero
+  vehicle with fixed animation state. No boss/miniboss/tank/boss HUD/score/music or
+  infinite respawn; `TO BE CONTINUED` preserves checkpoint 7.
 - Dormant-but-kept systems (reload, ADS, crouch, jump, sprint, thrown grenade, medkit
   channel) must stay unreachable — don't re-wire, don't delete.
 

@@ -4269,12 +4269,28 @@ T('S4 OUTRO AKTING: shock condong menantang, kabar buruk merunduk, akhir menurun
     && s4GestureTrace.commandFinal.bodyMin < s4GestureTrace.gibranCall.bodyMin - 0.05
     && s4GestureTrace.gibranAccepts.gunMax > s4GestureTrace.gibranCall.gunMax + 0.02);
 T('S4 OUTRO FADE: sesudah dialog panel hilang dan layar fade-out hitam', s4OutroFade);
-T('S4 OUTRO SELESAI: fade membuka FIELD SHOP (bukan MISSION COMPLETE) dan state sinematik bersih',
-    stateMod.isGameOver === false && smMod.activeScene.id === 'campaign-shop'
+T('S4 OUTRO SELESAI: fade membuka FINISH SCREEN hijau Stage 4 sebelum Field Shop',
+    stateMod.isGameOver === true && smMod.activeScene === s4mod.stage4Scene
+    && dom4.gameOverScreen.style.display === 'flex'
+    && dom4.gameOverTitle.innerText === 'STAGE 4 COMPLETE'
+    && dom4.goStageStats.style.display === 'grid'
+    && dom4.goTotalTime.innerText.length >= 5 && dom4.goLootBoxes.innerText === '0'
+    && global.document.getElementById('goRestart').textContent === 'CONTINUE'
     && s4mod.outroCineDebug().done
     && !s4mod.outroCineDebug().active && stateMod.cinematicActive === false
     && avMod.avatarRadioDebug().active === false && dom4.stageRadioDialogueDebug() === null
     && dom4.cineFadeDebug()?.opacity === 0);
+const s4FinishCarry = {
+    money: stateMod.score, hp: player.hp, armor: player.armor,
+    medkits: player.medkits, weapons: player.weapons.join(','),
+};
+T('S4 FINISH CONTINUE: tombol utama menutup overlay tanpa reset dan baru membuka Field Shop',
+    gameMod.activateGameOverPrimary() === true && stateMod.isGameOver === false
+    && dom4.gameOverScreen.style.display === 'none'
+    && smMod.activeScene.id === 'campaign-shop'
+    && stateMod.score === s4FinishCarry.money && player.hp === s4FinishCarry.hp
+    && player.armor === s4FinishCarry.armor && player.medkits === s4FinishCarry.medkits
+    && player.weapons.join(',') === s4FinishCarry.weapons);
 {
     const f = s4tank.turretFly, tp = s4turret.position;
     const dxT = tp.x - s4hullX, dzT = tp.z - s4hullZ, distT = Math.hypot(dxT, dzT);
@@ -4303,13 +4319,16 @@ T('S4 OUTRO SELESAI: fade membuka FIELD SHOP (bukan MISSION COMPLETE) dan state 
 // arrival. Semua dialog tetap benar-benar melewati state typewriter parsial. ---
 const s5mod = await import(R('src/scenes/campaign/stages/stage5.js'));
 const s6mod = await import(R('src/scenes/campaign/stages/stage6.js'));
+const s7mod = await import(R('src/scenes/campaign/stages/stage7.js'));
+const tacticalVehicleMod = await import(R('src/entities/tacticalVehicle.js'));
 const save5Mod = await import(R('src/core/saveGame.js'));
 const crate5Mod = await import(R('src/entities/crates.js'));
 const S5C = cfgMod.CFG.campaign.stage5;
 const S6C = cfgMod.CFG.campaign.stage6;
+const S7C = cfgMod.CFG.campaign.stage7;
 
-// Tunggu LOADING #1 Field Shop milik transisi outro, lalu gunakan tombol shop
-// sesungguhnya (dua tekan = buka konfirmasi + setuju), bukan cheat.
+// Finish Stage 4 sudah ditekan di atas. Tunggu LOADING #1 Field Shop, lalu
+// gunakan tombol shop sesungguhnya (dua tekan = buka konfirmasi + setuju).
 for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
 const s5Carry = {
     money: stateMod.score, hp: player.hp, armor: player.armor,
@@ -4980,19 +4999,295 @@ T('S6 NO BOSS: seluruh encounter berisi C/B/A biasa tanpa boss entity',
     !robots.some(z => z.stage === 6 && z.kind === 'boss'));
 T('S6 FIXED POOLS: hujan/sparks tidak menambah mesh sepanjang stage',
     JSON.stringify(s6PoolsAfter) === JSON.stringify(s6PoolsBefore));
-T('S6 COMPLETE: layar hijau TO BE CONTINUED dan checkpoint 6 dipertahankan',
-    stateMod.isGameOver && s6mod.stage6Debug().complete
-    && dom4.gameOverTitle.innerText === 'TO BE CONTINUED'
-    && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
+for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
+T('S6 COMPLETE: lockdown membuka FIELD SHOP menuju Stage 7, bukan TO BE CONTINUED',
+    !stateMod.isGameOver && s6mod.stage6Debug().complete
+    && smMod.activeScene.id === 'campaign-shop' && shopMod.isShopOpen()
     && save5Mod.loadCampaignStage() === 6);
 
+// --- 17a-quater. CAMPAIGN STAGE 7 — BANDUNG LOCKDOWN (2026-08-02).
+// Field Shop -> gerbang HQ -> pilihan 3 distrik -> junction -> pilihan 2 rute
+// -> 3 wave toll Cisumdawu -> GARUDA LTV-45 -> Kertajati/TBC. ---
+const s7Carry = {
+    money: stateMod.score, hp: player.hp, armor: player.armor,
+    medkits: player.medkits, weapons: player.weapons.join(','),
+};
+smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');
+for (let i = 0; i < 500 && smMod.activeScene !== s7mod.stage7Scene; i++) await new Promise(r => setTimeout(r, 10));
+T('S7 TRANSISI: Start Next Stage dari Field Shop masuk Stage 7 + checkpoint 7',
+    smMod.activeScene === s7mod.stage7Scene && save5Mod.loadCampaignStage() === 7);
+T('S7 TRANSISI FRAME PERTAMA: kota terlihat sebelum dialog opening dan kontrol cinematic',
+    dom4.cineFadeDebug()?.opacity === 0 && s7mod.stage7DialogueDebug().key === null
+    && dom4.stageRadioDialogueDebug() === null && stateMod.cinematicActive);
+stateMod.setPaused(false);
+T('S7 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
+    stateMod.score === s7Carry.money && player.hp === s7Carry.hp
+    && player.armor === s7Carry.armor && player.medkits === s7Carry.medkits
+    && player.weapons.join(',') === s7Carry.weapons);
+
+const expectedS7Dialogue = {
+    openingCommand: { speaker: 'Command', text: 'Major, the trace has compromised every route around Headquarters. You need to get clear of Bandung before they surround you.' },
+    openingGibran: { speaker: 'Major Gibran', text: 'Then I’ll cut through the city and find something with wheels.' },
+    routeChoice: { speaker: 'Major Gibran', text: 'The main roads are blocked. I’ll have to choose a route through the city.' },
+    junctionCommand: { speaker: 'Command', text: 'Enemy units are converging on the Cisumdawu entrance.' },
+    junctionGibran: { speaker: 'Major Gibran', text: 'Then I’m close. Keep the route to Kertajati ready.' },
+    tollSight: { speaker: 'Major Gibran', text: 'There it is—the Cisumdawu toll gate. And of course they got here first.' },
+    vehicleFind: { speaker: 'Major Gibran', text: 'An armored tactical vehicle... Engine’s intact, fuel cells are still charged.' },
+    routeCommand: { speaker: 'Command', text: 'The Cisumdawu corridor leads toward Kertajati. That vehicle may be your only chance of reaching the airfield.' },
+    routeReply: { speaker: 'Major Gibran', text: 'Then that’s my route. I’m taking Cisumdawu to Kertajati.' },
+    warningCommand: { speaker: 'Command', text: 'Understood. Move fast, Major. Enemy forces are already converging on the toll road.' },
+    finalGibran: { speaker: 'Major Gibran', text: 'Let them come. Tell Kertajati I’m on my way.' },
+};
+T('S7 DIALOG: seluruh naskah final tersimpan PERSIS dan urut',
+    JSON.stringify(s7mod.STAGE7_DIALOGUE) === JSON.stringify(expectedS7Dialogue));
+
+const s7Partial = new Set(), s7ShownOrder = [];
+let s7LastKey = null;
+function sampleS7Dialogue() {
+    const d = s7mod.stage7DialogueDebug();
+    if (d.key && d.key !== s7LastKey) { s7ShownOrder.push(d.key); s7LastKey = d.key; }
+    if (d.key && d.chars > 0 && d.chars < d.text.length) s7Partial.add(d.key);
+}
+function tickS7(total, step = 1 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps)) {
+    let left = Math.max(0, total), guard = 0;
+    while (left > 1e-9 && guard++ < 40000) {
+        const dt = Math.min(step, left);
+        s7mod.stage7Scene.updateMode(dt); sampleS7Dialogue(); left -= dt;
+    }
+}
+function drainS7Dialogue() {
+    let guard = 0; sampleS7Dialogue();
+    while (guard++ < 40000) {
+        const d = s7mod.stage7DialogueDebug();
+        if (!d.key && !d.queued.length) break;
+        tickS7(1.01 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps));
+    }
+}
+function killS7(encounter = null) {
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
+        if (z.stage !== 7 || (encounter && z.encounter !== encounter)) continue;
+        robotsMod.disposeRobot(z); scene.remove(z.mesh); robots.splice(i, 1);
+    }
+}
+const s7Mix = (encounter) => {
+    const out = { C: 0, B: 0, A: 0 };
+    for (const z of robots) if (z.stage === 7 && z.encounter === encounter && out[z.kind] != null) out[z.kind]++;
+    return out;
+};
+const mixCount = m => Object.values(m).reduce((a, b) => a + b, 0);
+
+const s7World = s7mod.stage7WorldDebug();
+const s7Open = t => t !== '#';
+const s7StartCell = (() => {
+    for (let r = 0; r < s7mod.S7_MAP.length; r++) {
+        const c = s7mod.S7_MAP[r].indexOf('S'); if (c >= 0) return { c, r };
+    }
+    return null;
+})();
+const s7SeenCells = new Set(), s7Queue = s7StartCell ? [s7StartCell] : [];
+while (s7Queue.length) {
+    const p = s7Queue.shift(), key = p.c + ',' + p.r;
+    if (s7SeenCells.has(key) || !s7Open(s7mod.S7_MAP[p.r]?.[p.c] || '#')) continue;
+    s7SeenCells.add(key);
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) s7Queue.push({ c: p.c + dc, r: p.r + dr });
+}
+const s7OpenCount = s7mod.S7_MAP.reduce((n, row) => n + [...row].filter(s7Open).length, 0);
+T('S7 WORLD: map statis 118×72 dan seluruh enam kombinasi cabang terhubung ke toll',
+    s7World.built && s7World.map.cols === 118 && s7World.map.rows === 72
+    && s7SeenCells.size === s7OpenCount && s7World.nav
+    && s7mod.stage7RouteDebug().combinations.length === 6
+    && s7mod.stage7RouteDebug().connectivity.connected
+    && Object.values(s7mod.stage7RouteDebug().connectivity.goals).every(Boolean));
+T('S7 WORLD: identitas Bandung/kota bercabang/toll memiliki set dressing lengkap',
+    ['art-deco', 'ruko', 'market-stall', 'bus-stop', 'abandoned-minibus',
+        'abandoned-suv', 'underpass', 'toll-booth', 'toll-canopy', 'garuda-ltv-45']
+        .every(k => s7World.propKinds.includes(k))
+    && s7World.props.filter(p => p.solid).length >= 15 && s7World.occluders >= 5);
+T('S7 WORLD: fixed rain/ripple/spark/exhaust pools, fixed lights, dan static batch terbangun',
+    s7World.pools.rain === 96 && s7World.pools.ripples === 24
+    && s7World.pools.sparks === 20 && s7World.pools.exhaust === 12
+    && s7World.lights === 14 && s7World.staticBatches > 0);
+let s7PlacementOK = true;
+const s7RouteItems = [
+    ...s7World.commonSupplies, ...s7World.commonCrates,
+    ...Object.values(s7World.routeSupplies).flat(), ...Object.values(s7World.routeCrates).flat(),
+];
+for (const p of [s7mod.S7_START, s7mod.S7_FORK_ONE, s7mod.S7_JUNCTION,
+    s7mod.S7_FORK_TWO, s7mod.S7_TOLL, s7mod.S7_VEHICLE, ...s7RouteItems]) {
+    if (!s7mod.stage7Walk(p.x, p.z, 1)) s7PlacementOK = false;
+}
+T('S7 WORLD: objective, supplies, dan route-specific crates berada di jalan walkable', s7PlacementOK);
+
+const s7VehicleTest = tacticalVehicleMod.buildTacticalVehicleMesh(7);
+let s7VehicleMeshes = 0; s7VehicleTest.group.traverse(o => { if (o.isMesh) s7VehicleMeshes++; });
+tacticalVehicleMod.updateTacticalVehicleVisual(s7VehicleTest, 0.5,
+    { doorOpen: 1, engineOn: true, speed: 60 });
+const s7VehicleRig = tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest);
+T('S7 GARUDA LTV-45: empat roda, pintu, mesin, lampu/dashboard dan wheel phase benar-benar beranimasi',
+    s7VehicleRig.wheels === 4 && s7VehicleRig.doorOpen > 0 && s7VehicleRig.doorYaw < 0
+    && s7VehicleRig.engineOn && s7VehicleRig.wheelPhase > 0
+    && s7VehicleRig.lights.head > 0 && s7VehicleRig.lights.dash > 0
+    && s7VehicleMeshes >= 25);
+tacticalVehicleMod.resetTacticalVehicleVisual(s7VehicleTest);
+T('S7 GARUDA LTV-45: reset mengembalikan pintu/roda/lampu ke state bersih',
+    tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest).doorOpen === 0
+    && tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest).wheelPhase === 0
+    && tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest).lights.head === 0);
+
+const hqBots7 = robots.filter(z => z.stage === 7 && z.encounter === 'hqEscape');
+T('S7 HQ GATE: encounter awal mengikuti CFG, idle selama opening, tanpa boss/miniboss',
+    sameMix(s7Mix('hqEscape'), S7C.encounters.hqEscape)
+    && hqBots7.every(z => z.state === 'idle' && ['C', 'B', 'A'].includes(z.kind)));
+T('S7 OPENING: cinematic tampil tanpa dialog prematur',
+    s7mod.stage7Debug().phase === 'opening' && stateMod.cinematicActive
+    && s7mod.stage7DialogueDebug().key === null && dom4.cineFadeDebug()?.opacity === 0);
+tickS7(S7C.openingDialogueDelaySec * 0.5 + 0.0001, 0.05);
+T('S7 OPENING: dialog menunggu establishing delay', s7mod.stage7DialogueDebug().key === null);
+tickS7(S7C.openingDialogueDelaySec * 0.5, 0.05);
+T('S7 TYPEWRITER: line pertama mulai kosong',
+    s7mod.stage7DialogueDebug().key === 'openingCommand' && s7mod.stage7DialogueDebug().chars === 0);
+tickS7(1.01 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps));
+T('S7 TYPEWRITER: tick pertama menampilkan tepat satu karakter',
+    s7mod.stage7DialogueDebug().chars === 1
+    && s7mod.stage7DialogueDebug().shown === expectedS7Dialogue.openingCommand.text.slice(0, 1));
+drainS7Dialogue(); tickS7(S7C.openingMinSec + S7C.fadeSec + 0.2, 0.1);
+T('S7 OPENING: selesai mengembalikan kontrol dan membangunkan HQ squad',
+    s7mod.stage7Debug().phase === 'hqEscape' && !stateMod.cinematicActive
+    && hqBots7.every(z => z.state === 'chasing'));
+
+killS7('hqEscape'); s7mod.stage7Scene.updateMode(0.1); drainS7Dialogue();
+T('S7 FORK ONE: HQ aman menawarkan tiga rute tanpa spawn robot rute prematur',
+    s7mod.stage7Debug().phase === 'forkOne' && !s7mod.stage7Debug().routeOne
+    && ['boulevard', 'market', 'residential'].every(k => s7mod.stage7Debug().encounters[k] === 0));
+camera.position.set(s7mod.S7_ROUTE_ONE.market.x, cfgMod.CFG.player.eyeHeight,
+    s7mod.S7_ROUTE_ONE.market.z - S7C.routeCommitDepth - 2);
+s7mod.stage7Scene.updateMode(0.1);
+let s7Routes = s7mod.stage7RouteDebug();
+T('S7 ROUTE ONE: memilih market mengunci pilihan, menutup dua entry lain, dan spawn hanya market',
+    s7mod.stage7Debug().phase === 'routeOne' && s7Routes.routeOne === 'market'
+    && sameMix(s7Mix('market'), S7C.encounters.market)
+    && s7mod.stage7Debug().encounters.boulevard === 0 && s7mod.stage7Debug().encounters.residential === 0
+    && s7Routes.gates.find(g => g.name === 'entry-market').target === 0
+    && s7Routes.gates.find(g => g.name === 'entry-boulevard').target === 1
+    && s7Routes.gates.find(g => g.name === 'entry-residential').target === 1);
+killS7('market'); s7mod.stage7Scene.updateMode(0.1);
+T('S7 ROUTE GATE: exit market baru turun setelah encounter rute terpilih habis',
+    s7mod.stage7RouteDebug().gates.find(g => g.name === 'exit-market').target === 0);
+camera.position.set(s7mod.S7_JUNCTION.x, cfgMod.CFG.player.eyeHeight, s7mod.S7_JUNCTION.z);
+s7mod.stage7Scene.updateMode(0.1);
+T('S7 JUNCTION: memasuki merge setelah rute aman spawn encounter junction config',
+    s7mod.stage7Debug().phase === 'junction'
+    && sameMix(s7Mix('junction'), S7C.encounters.junction));
+killS7('junction'); s7mod.stage7Scene.updateMode(0.1); drainS7Dialogue();
+T('S7 FORK TWO: junction aman menawarkan flyover/underpass tanpa spawn prematur',
+    s7mod.stage7Debug().phase === 'forkTwo'
+    && s7mod.stage7Debug().encounters.flyover === 0 && s7mod.stage7Debug().encounters.underpass === 0);
+camera.position.set(s7mod.S7_ROUTE_TWO.underpass.x, cfgMod.CFG.player.eyeHeight,
+    s7mod.S7_ROUTE_TWO.underpass.z + S7C.routeCommitDepth + 2);
+s7mod.stage7Scene.updateMode(0.1);
+s7Routes = s7mod.stage7RouteDebug();
+T('S7 ROUTE TWO: memilih underpass menutup flyover, spawn config, dan tidak membuat robot flyover',
+    s7Routes.routeTwo === 'underpass' && sameMix(s7Mix('underpass'), S7C.encounters.underpass)
+    && s7mod.stage7Debug().encounters.flyover === 0
+    && s7Routes.gates.find(g => g.name === 'entry-flyover').target === 1
+    && s7Routes.gates.find(g => g.name === 'entry-underpass').target === 0);
+killS7('underpass'); s7mod.stage7Scene.updateMode(0.1);
+camera.position.set(s7mod.S7_TOLL.x, cfgMod.CFG.player.eyeHeight, s7mod.S7_TOLL.z);
+s7mod.stage7Scene.updateMode(0.1); drainS7Dialogue(); s7mod.stage7Scene.updateMode(0.1);
+T('S7 TOLL: mencapai plaza sesudah rute aman memulai wave 1 config',
+    s7mod.stage7Debug().phase === 'tollDefense' && s7mod.stage7Debug().tollWave === 1
+    && sameMix(s7Mix('tollWave1'), S7C.encounters.tollWaves[0]));
+
+tickS7(Math.max(0, S7C.tollWaveGapSec - s7mod.stage7Debug().tollT - 0.1), 0.1);
+T('S7 TOLL TIMING: wave 2 belum muncul sebelum gap config', s7mod.stage7Debug().tollWave === 1);
+killS7('tollWave1'); tickS7(0.2, 0.1);
+T('S7 TOLL TIMING: wave 2 muncul pada gap config',
+    s7mod.stage7Debug().tollWave === 2 && sameMix(s7Mix('tollWave2'), S7C.encounters.tollWaves[1]));
+killS7('tollWave2'); tickS7(S7C.tollWaveGapSec, 0.1);
+T('S7 TOLL TIMING: wave 3 muncul pada dua kali gap config',
+    s7mod.stage7Debug().tollWave === 3 && sameMix(s7Mix('tollWave3'), S7C.encounters.tollWaves[2]));
+killS7('tollWave3');
+tickS7(Math.max(0, S7C.tollDefenseMinSec - s7mod.stage7Debug().tollT - 0.1), 0.1);
+T('S7 TOLL MINIMUM: plaza belum selesai sebelum timer minimum', s7mod.stage7Debug().phase === 'tollDefense');
+tickS7(0.2, 0.1);
+T('S7 TOLL COMPLETE: timer minimum + semua wave mati mengaktifkan GARUDA LTV-45',
+    s7mod.stage7Debug().phase === 'vehicleReveal' && s7mod.stage7Debug().tollAlive === 0);
+
+const s7PoolsBefore = s7mod.stage7WorldDebug().pools;
+const s7StaticBefore = JSON.stringify(s7mod.stage7WorldDebug().props);
+camera.position.set(s7mod.S7_VEHICLE.x, cfgMod.CFG.player.eyeHeight, s7mod.S7_VEHICLE.z);
+s7mod.stage7Scene.updateMode(0.1);
+T('S7 OUTRO: mendekati kendaraan membekukan kontrol, fokus ke LTV, dan mulai dialog final',
+    s7mod.stage7Debug().phase === 'outro' && stateMod.cinematicActive
+    && s7mod.stage7DialogueDebug().key === 'vehicleFind');
+drainS7Dialogue(); tickS7(10, 0.1);
+const s7PoolsAfter = s7mod.stage7WorldDebug().pools;
+T('S7 DIALOG: semua 11 beat tampil sekali, urut, dan seluruh body pernah parsial',
+    s7ShownOrder.join(',') === Object.keys(expectedS7Dialogue).join(',')
+    && Object.keys(expectedS7Dialogue).every(k => s7Partial.has(k)));
+T('S7 ROUTE TOTAL: keenam kombinasi menghasilkan 50–54 robot config-driven', (() => {
+    const fixed = mixCount(S7C.encounters.hqEscape) + mixCount(S7C.encounters.junction)
+        + S7C.encounters.tollWaves.reduce((n, w) => n + mixCount(w), 0);
+    const totals = ['boulevard', 'market', 'residential'].flatMap(a =>
+        ['flyover', 'underpass'].map(b => fixed + mixCount(S7C.encounters[a]) + mixCount(S7C.encounters[b])));
+    return Math.min(...totals) === 50 && Math.max(...totals) === 54;
+})());
+T('S7 NO BOSS: stage/encounter tidak membuat boss, miniboss, atau tank',
+    !robots.some(z => z.stage === 7 && z.kind === 'boss')
+    && !fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage7.js', 'utf8').includes('startBossMusic'));
+T('S7 STATIC CITY: props kota/toll tidak berpindah ketika kendaraan berangkat',
+    JSON.stringify(s7mod.stage7WorldDebug().props) === s7StaticBefore);
+T('S7 FIXED POOLS: hujan/ripple/sparks/exhaust tidak menambah mesh sepanjang stage',
+    JSON.stringify(s7PoolsAfter) === JSON.stringify(s7PoolsBefore));
+T('S7 COMPLETE: layar hijau TO BE CONTINUED dan checkpoint 7 dipertahankan',
+    stateMod.isGameOver && s7mod.stage7Debug().complete
+    && dom4.gameOverTitle.innerText === 'TO BE CONTINUED'
+    && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
+    && save5Mod.loadCampaignStage() === 7);
+stateMod.setGameOver(false);
+
+// Jalur skip harus menghasilkan cleanup/state akhir yang sama dengan outro normal.
+s7mod.stage7Scene.enter();
+T('S7 OPENING SKIP: Space/button melepas cinematic tanpa menyisakan dialogue/fade',
+    dom4.triggerCutsceneSkip() === true && s7mod.stage7Debug().phase === 'hqEscape'
+    && !stateMod.cinematicActive && s7mod.stage7DialogueDebug().key === null
+    && dom4.stageRadioDialogueDebug() === null && dom4.cineFadeDebug()?.opacity === 0);
+killS7('hqEscape'); s7mod.stage7Scene.updateMode(0.1); drainS7Dialogue();
+camera.position.set(s7mod.S7_ROUTE_ONE.boulevard.x + S7C.routeCommitDepth + 1,
+    cfgMod.CFG.player.eyeHeight, s7mod.S7_ROUTE_ONE.boulevard.z);
+s7mod.stage7Scene.updateMode(0.1); killS7('boulevard');
+camera.position.set(s7mod.S7_JUNCTION.x, cfgMod.CFG.player.eyeHeight, s7mod.S7_JUNCTION.z);
+s7mod.stage7Scene.updateMode(0.1); killS7('junction'); s7mod.stage7Scene.updateMode(0.1); drainS7Dialogue();
+camera.position.set(s7mod.S7_ROUTE_TWO.flyover.x, cfgMod.CFG.player.eyeHeight,
+    s7mod.S7_ROUTE_TWO.flyover.z - S7C.routeCommitDepth - 1);
+s7mod.stage7Scene.updateMode(0.1); killS7('flyover');
+camera.position.set(s7mod.S7_TOLL.x, cfgMod.CFG.player.eyeHeight, s7mod.S7_TOLL.z);
+s7mod.stage7Scene.updateMode(0.1); drainS7Dialogue(); s7mod.stage7Scene.updateMode(0.1);
+tickS7(S7C.tollDefenseMinSec + 0.2, 0.5);
+killS7('tollWave1'); killS7('tollWave2'); killS7('tollWave3'); s7mod.stage7Scene.updateMode(0.1);
+camera.position.set(s7mod.S7_VEHICLE.x, cfgMod.CFG.player.eyeHeight, s7mod.S7_VEHICLE.z);
+s7mod.stage7Scene.updateMode(0.1);
+const s7OutroSkip = dom4.triggerCutsceneSkip();
+const s7SkipVehicle = s7mod.stage7VehicleDebug();
+T('S7 OUTRO SKIP: state akhir identik — Major boarded, vehicle departed, overlay/pose/audio bersih',
+    s7OutroSkip === true && stateMod.isGameOver && s7mod.stage7Debug().complete
+    && s7SkipVehicle.engineOn && s7SkipVehicle.speed === 72
+    && s7SkipVehicle.position.x > s7mod.S7_VEHICLE.x
+    && !stateMod.cinematicActive && !avMod.avatarRadioDebug().active
+    && avMod.avatarGroup.visible === false && dom4.stageRadioDialogueDebug() === null
+    && dom4.cineFadeDebug()?.opacity === 0 && save5Mod.loadCampaignStage() === 7);
 stateMod.setGameOver(false);
 
 // --- 17b. CHEAT skip-to-stage-N (2026-07-14): lompat LANGSUNG ke stage campaign
 // (tanpa shop). Hook `cheatSkipToStage` di tiap stage → `campaignJumpToStage`
 // (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
-let jr = smMod.activeScene.cheatSkipToStage(6);
+let jr = smMod.activeScene.cheatSkipToStage(7);
+T('cheat skip-to-stage-7: pindah ke Bandung streets + checkpoint/HQ squad Stage 7', jr === 7
+    && smMod.activeScene === s7mod.stage7Scene && save5Mod.loadCampaignStage() === 7
+    && robots.filter(z => z.stage === 7).length === mixCount(S7C.encounters.hqEscape));
+jr = smMod.activeScene.cheatSkipToStage(6);
 T('cheat skip-to-stage-6: pindah ke Bandung HQ + checkpoint/robot Stage 6', jr === 6
     && smMod.activeScene === s6mod.stage6Scene && save5Mod.loadCampaignStage() === 6
     && robots.filter(z => z.stage === 6).length === Object.values(S6C.encounters.terminal).reduce((a, b) => a + b, 0));
@@ -5143,7 +5438,9 @@ saveMod.saveCampaignStage(5);
 T('save: checkpoint Stage 5 valid untuk Continue', saveMod.loadCampaignStage() === 5);
 saveMod.saveCampaignStage(6);
 T('save: checkpoint Stage 6 valid untuk Continue', saveMod.loadCampaignStage() === 6);
-saveMod.saveCampaignStage(9);   // di luar 1..6 -> dianggap tak valid
+saveMod.saveCampaignStage(7);
+T('save: checkpoint Stage 7 valid untuk Continue', saveMod.loadCampaignStage() === 7);
+saveMod.saveCampaignStage(9);   // di luar 1..7 -> dianggap tak valid
 T('save: nilai invalid (9) dibaca sebagai 0', saveMod.loadCampaignStage() === 0);
 saveMod.clearCampaignSave();
 T('save: clear -> 0', saveMod.loadCampaignStage() === 0);
@@ -5154,12 +5451,13 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 smMod.activeScene.cheatSkipToStage(1);   // stage1.enter -> saveCampaignStage(1)
 T('save: enter stage 1 menulis checkpoint 1', saveMod.loadCampaignStage() === 1);
 // Konsistensi loading antar-stage (2026-07-16): stage1.enter mem-pre-build SEMUA
-// dunia campaign (ensureWorld stage 3/4/5/6 di dalam guard `built`-nya) sehingga
+// dunia campaign (ensureWorld stage 3/4/5/6/7 di dalam guard `built`-nya) sehingga
 // LOADING #2 transisi mana pun tak lagi menanggung build+compile lazy.
 const s1PrebuildSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage1.js', 'utf8');
-T('campaign: dunia stage 3/4/5/6 PRE-BUILT saat campaign dimulai (loading konsisten)',
-    s3mod.worldBuilt() && s4mod.worldBuilt() && s5mod.worldBuilt() && s6mod.worldBuilt()
-    && s1PrebuildSrc.includes('ensureStage5World()') && s1PrebuildSrc.includes('ensureStage6World()'));
+T('campaign: dunia stage 3/4/5/6/7 PRE-BUILT saat campaign dimulai (loading konsisten)',
+    s3mod.worldBuilt() && s4mod.worldBuilt() && s5mod.worldBuilt() && s6mod.worldBuilt() && s7mod.worldBuilt()
+    && s1PrebuildSrc.includes('ensureStage5World()') && s1PrebuildSrc.includes('ensureStage6World()')
+    && s1PrebuildSrc.includes('ensureStage7World()'));
 saveMod.saveCampaignStage(5);
 const restart5 = saveMod.loadCampaignStage() || 1;
 smMod.activeScene.cheatSkipToStage(restart5);
@@ -5172,6 +5470,15 @@ smMod.activeScene.cheatSkipToStage(restart6);
 T('restart/continue checkpoint 6: mendarat di arrival platform dengan terminal squad utuh',
     restart6 === 6 && smMod.activeScene === s6mod.stage6Scene
     && robots.filter(z => z.stage === 6).length === Object.values(S6C.encounters.terminal).reduce((a, b) => a + b, 0));
+saveMod.saveCampaignStage(7);
+const restart7 = saveMod.loadCampaignStage() || 1;
+smMod.activeScene.cheatSkipToStage(restart7);
+T('restart/continue checkpoint 7: mendarat di gerbang HQ dengan escape squad utuh',
+    restart7 === 7 && smMod.activeScene === s7mod.stage7Scene
+    && robots.filter(z => z.stage === 7).length === mixCount(S7C.encounters.hqEscape)
+    && stateMod.stageStatsDebug().stageId === 'campaign-7'
+    && stateMod.stageStatsDebug().elapsedSec === 0
+    && stateMod.stageStatsDebug().lootBoxesDestroyed === 0);
 // Prompt game-over "RESTART STAGE" (2026-07-15): resetGame(true) campaign ulang
 // dari AWAL stage CHECKPOINT (bukan stage 1) via campaignJumpToStage(loadCampaignStage()||1).
 saveMod.saveCampaignStage(3);
@@ -5184,9 +5491,32 @@ T('restart-stage: mendarat di AWAL stage 3 + hack terminal -> gelombang robot st
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 // MISSION COMPLETE (gameOver win) menghapus checkpoint (campaign tamat = New Game)
 saveMod.saveCampaignStage(4);
+setMode('campaign');
+stateMod.beginStageStats('campaign-4');
+stateMod.updateStageStats(125.9);
+stateMod.recordLootBoxDestroyed(); stateMod.recordLootBoxDestroyed();
+const statsReturnScene = smMod.activeScene;
+smMod.setScene({ id: 'campaign-hack', enter() { stateMod.setPaused(true); }, exit() { } });
+gameMod.updateGame(0.1, 6, 0, 2);   // puzzle adalah bagian waktu penyelesaian
+smMod.resumeScene(statsReturnScene);
+const afterPuzzleTime = stateMod.stageStatsDebug().elapsedSec;
+gameMod.updateGame(0.1, 6, 0, 3);   // pause biasa pada scene stage tidak dihitung
+stateMod.setPaused(false);
+T('STAGE TIME: ICE BREACH/FIELD REPAIR dihitung, pause biasa dikecualikan',
+    Math.abs(afterPuzzleTime - 127.9) < 1e-9
+    && Math.abs(stateMod.stageStatsDebug().elapsedSec - afterPuzzleTime) < 1e-9);
 gameMod.gameOver(true);
 T('save: MISSION COMPLETE (gameOver win) menghapus checkpoint', saveMod.loadCampaignStage() === 0);
+T('FINISH SCREEN: hijau menampilkan TOTAL TIME mm:ss + LOOT BOXES DESTROYED per-stage',
+    dom4.goStageStats.style.display === 'grid'
+    && dom4.goTotalTime.innerText === '02:07' && dom4.goLootBoxes.innerText === '2'
+    && gameMod.formatStageTime(3661.9) === '1:01:01');
 stateMod.setGameOver(false);
+gameMod.gameOver(false);
+T('GAME OVER merah: ringkasan finish per-stage disembunyikan',
+    dom4.goStageStats.style.display === 'none');
+stateMod.setGameOver(false); stateMod.resetStageStats();
+setMode('survival');
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
 
@@ -6134,6 +6464,7 @@ const palMod = await import(R('src/world/palette.js'));
     styleGroups.push(['MeetingTable', (await import(R('src/entities/futuristicMeetingTable.js'))).buildFuturisticMeetingTableMesh(30, 9, 16)]);
     styleGroups.push(['Sedan', (await import(R('src/entities/futuristicSedan.js'))).buildFuturisticSedanMesh(7, null)]);
     styleGroups.push(['SUV', (await import(R('src/entities/futuristicSUV.js'))).buildFuturisticSUVMesh(7, null)]);
+    styleGroups.push(['TacticalVehicle', (await import(R('src/entities/tacticalVehicle.js'))).buildTacticalVehicleMesh(7).group]);
     styleGroups.push(['Helicopter', (await import(R('src/entities/helicopter.js'))).buildHelicopterMesh().group]);
     styleGroups.push(['Barrel', (await import(R('src/entities/barrels.js'))).buildBarrelMesh()]);
     styleGroups.push(['SupplyCrate', (await import(R('src/entities/crates.js'))).buildCrateMesh()]);
@@ -6204,7 +6535,7 @@ const palMod = await import(R('src/world/palette.js'));
     // SENGAJA dibuat lebih detail oleh user (2026-07-22) — diberi cap SENDIRI
     // yang longgar (`MESH_CAP`), tetap dijaga agar tak tumbuh liar. Cek palet
     // (neon/emissive) di atas TETAP berlaku penuh untuk heli.
-    const MESH_CAP = { Helicopter: 70, SmashRuko: 30, MilitaryTrain: 220, TrainSceneryPool: 260 };
+    const MESH_CAP = { Helicopter: 70, TacticalVehicle: 60, SmashRuko: 30, MilitaryTrain: 220, TrainSceneryPool: 260 };
     let heaviest = '', heavyN = 0, allLite = true, offender = '';
     for (const [name, g] of styleGroups) {
         let n = 0;
@@ -6380,8 +6711,10 @@ const palMod = await import(R('src/world/palette.js'));
     stateMod.drops.length = 0;
 
     // (b1) Peti: DITEMBAK sampai hp habis -> pecah + peluru terserap.
+    stateMod.beginStageStats('campaign-crate-test');
     crateMod.resetCrates();
     crateMod.spawnCrate(300, 300, 0);
+    const shotCrate = crateMod.crates[0];
     T('peti: spawn tercatat', crateMod.crateDebug().count === 1);
     stateMod.bullets.length = 0;
     stateMod.drops.length = 0;
@@ -6389,6 +6722,9 @@ const palMod = await import(R('src/world/palette.js'));
     crateMod.crateBulletHits();
     T('peti: hancur oleh peluru player + peluru terserap',
         crateMod.crateDebug().count === 0 && stateMod.bullets.length === 0);
+    crateMod.breakCrate(shotCrate);   // sudah di-splice: tak boleh terhitung dua kali
+    T('peti: statistik loot box bertambah tepat sekali per breakCrate sukses',
+        stateMod.stageStatsDebug().lootBoxesDestroyed === 1);
 
     // (b2) Undian isi CONFIG-DRIVEN: lootChance 1 + hanya bobot uang -> pasti loot.
     const Cbase = { ...cfgMod.CFG.crates };
@@ -6721,10 +7057,12 @@ const palMod = await import(R('src/world/palette.js'));
     const s4c = await import(R('src/scenes/campaign/stages/stage4.js'));
     const s5c2 = await import(R('src/scenes/campaign/stages/stage5.js'));
     const s6c2 = await import(R('src/scenes/campaign/stages/stage6.js'));
-    T('meshBatch: perabot stage 1/2/3/4/5/6 melewati addMergedStatic (batch terisi)',
+    const s7c2 = await import(R('src/scenes/campaign/stages/stage7.js'));
+    T('meshBatch: perabot stage 1/2/3/4/5/6/7 melewati addMergedStatic (batch terisi)',
         s1c.s1StaticBatchDbg().length > 0 && s2c.s2StaticBatchDbg().length > 0
         && s3c.s3StaticBatchDbg().length > 0 && s4c.s4StaticBatchDbg().length > 0
-        && s5c2.stage5StaticBatchDbg().length > 0 && s6c2.stage6StaticBatchDbg().length > 0);
+        && s5c2.stage5StaticBatchDbg().length > 0 && s6c2.stage6StaticBatchDbg().length > 0
+        && s7c2.stage7StaticBatchDbg().length > 0);
 
     // (c12) stage 4 memakai mergeObjectInPlace utk prop yang MATERIALNYA masih
     //       disentuh saat main (mobil/gedung yang memudar = occluder). Fallback-nya
@@ -6802,17 +7140,18 @@ const palMod = await import(R('src/world/palette.js'));
 
     // (c16) kunci lampu tiap scene campaign ada (kalau lupa, stage masuk dgn set
     //       lampu stage sebelumnya = ruangan gelap/ganda).
-    T('scene campaign 1-6 + survival punya lightsKey',
+    T('scene campaign 1-7 + survival punya lightsKey',
         s1c.stage1Scene.lightsKey === 'campaign-1' && s2c.stage2Scene.lightsKey === 'campaign-2'
         && s3c.stage3Scene.lightsKey === 'campaign-3' && s4c.stage4Scene.lightsKey === 'campaign-4'
-        && s5c2.stage5Scene.lightsKey === 'campaign-5' && s6c2.stage6Scene.lightsKey === 'campaign-6');
+        && s5c2.stage5Scene.lightsKey === 'campaign-5' && s6c2.stage6Scene.lightsKey === 'campaign-6'
+        && s7c2.stage7Scene.lightsKey === 'campaign-7');
     lightMod.setActiveStageLights(before.active || 'campaign-1');
 
     // (d) TEKS MISI tanpa penunjuk arah (2026-07-26, permintaan user: biar player
     //     mencarinya sendiri) — sapu string user-facing di semua scene campaign.
     const DIRW = /\b(north|south|east|west|far-right|far-left|top-left|top-right|bottom-left|bottom-right)\b/i;
     const dirHits = [];
-    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js', 'stage5.js', 'stage6.js']) {
+    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js', 'stage5.js', 'stage6.js', 'stage7.js']) {
         const src = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/' + f, 'utf8');
         for (const line of src.split('\n')) {
             const isMsg = line.includes('showStageMsg(') || line.includes('showPickup(') || (line.includes('return') && line.includes('FLOOR'));

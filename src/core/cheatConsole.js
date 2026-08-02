@@ -167,14 +167,14 @@ function runCommand(cmd) {
             setFeedback('skip-to-wave only works in Survival mode', false);
         }
     } else if (/^skip-to-stage-\d+$/.test(c)) {
-        // Lompat langsung ke stage campaign n (2/3/4/5/6). Scene stage campaign punya
+        // Lompat langsung ke stage campaign n (2/3/4/5/6/7). Scene stage campaign punya
         // hook cheatSkipToStage (transition.js campaignJumpToStage) -> bersihkan
         // robot + setScene(target). Tutup konsol utk main di stage baru.
         const n = parseInt(c.slice('skip-to-stage-'.length), 10);
         if (activeScene && typeof activeScene.cheatSkipToStage === 'function') {
             const applied = activeScene.cheatSkipToStage(n);
             if (applied) setFeedback('Jumped to Stage ' + applied + ' - close the console to play!');
-            else setFeedback('Invalid stage - use skip-to-stage-1..6', false);
+            else setFeedback('Invalid stage - use skip-to-stage-1..7', false);
         } else {
             setFeedback('skip-to-stage only works in Campaign mode', false);
         }

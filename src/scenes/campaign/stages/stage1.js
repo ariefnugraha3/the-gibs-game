@@ -67,6 +67,7 @@ import { ensureWorld as ensureStage3World } from './stage3.js';   // (circular a
 import { ensureWorld as ensureStage4World } from './stage4.js';
 import { ensureWorld as ensureStage5World } from './stage5.js';
 import { ensureWorld as ensureStage6World } from './stage6.js';
+import { ensureWorld as ensureStage7World } from './stage7.js';
 
 // Grid 50 kolom x 50 baris (sel 2 m; PERSEGI 50x50 sesuai plan resmi user).
 // Gedung ~26 km dari jalan raya (stage 2) — kedua dunia hidup berdampingan di
@@ -409,7 +410,7 @@ function buildStandMarker() {
     return { group: g, fillMat };
 }
 
-// Bangun SEMUA dunia campaign (stage 1 sendiri + stage 2/3/4/5/6) SEKALI (guard
+// Bangun SEMUA dunia campaign (stage 1 sendiri + stage 2/3/4/5/6/7) SEKALI (guard
 // `built`). Dipakai stage1.enter() DAN cutscene intro (intro.js).
 export function ensureWorld() {
     if (built) return;
@@ -420,6 +421,7 @@ export function ensureWorld() {
     ensureStage4World();
     ensureStage5World();
     ensureStage6World();
+    ensureStage7World();
     // Lampu stage non-aktif dimatikan (world/lighting.js) supaya shader tak
     // melooping 57 point light per fragmen; jumlah light jadi berbeda per stage,
     // maka program tiap konfigurasi DIKOMPILASI SEKARANG (masih di layar loading)

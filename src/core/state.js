@@ -49,6 +49,35 @@ export const setDifficulty = (name) => {   // dipanggil menu sebelum startGame
 export const stats = { kills: 0, shots: 0, hits: 0 };
 export function resetStats() { stats.kills = 0; stats.shots = 0; stats.hits = 0; }
 
+// ----------- Statistik stage Campaign (finish screen hijau) ----------- //
+// Terpisah dari `stats` karena kills/accuracy adalah statistik satu RUN,
+// sedangkan waktu dan loot box harus kembali nol setiap masuk stage baru.
+// Timer memakai dtReal dari updateGame: hit-stop/slow-motion tidak mengubah
+// catatan waktu. Pause menu/shop/loading tidak dihitung; core/game.js tetap
+// memanggil updater khusus saat modal puzzle hack/repair aktif karena keduanya
+// merupakan bagian dari waktu penyelesaian stage.
+export const stageStats = {
+    stageId: null,
+    active: false,
+    elapsedSec: 0,
+    lootBoxesDestroyed: 0,
+};
+export function beginStageStats(stageId) {
+    stageStats.stageId = stageId || null;
+    stageStats.active = !!stageId;
+    stageStats.elapsedSec = 0;
+    stageStats.lootBoxesDestroyed = 0;
+}
+export function resetStageStats() { beginStageStats(null); }
+export function updateStageStats(dtReal) {
+    if (stageStats.active && Number.isFinite(dtReal) && dtReal > 0)
+        stageStats.elapsedSec += dtReal;
+}
+export function recordLootBoxDestroyed() {
+    if (stageStats.active) stageStats.lootBoxesDestroyed++;
+}
+export const stageStatsDebug = () => ({ ...stageStats });
+
 // ----------- Player & input yang sedang ditekan ----------- //
 // Catatan: konstanta kecepatan dikalibrasi pada 60 fps, lalu dikalikan `step`
 // (delta-time ternormalisasi) agar gerak konsisten di monitor refresh tinggi.

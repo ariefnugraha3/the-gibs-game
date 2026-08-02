@@ -4,6 +4,8 @@
 > Read before touching robots, weapons, gore, drops/economy, armor, or player movement.
 > Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](MODULES.md).
 
+**Loot-box finish statistic (2026-08-02):** a destructible supply crate contributes exactly one to the active Campaign stage's `LOOT BOXES DESTROYED` total when `breakCrate()` successfully removes it. The damage source does not matter (bullet, melee, or blast), empty crates still count as destroyed boxes, and `resetCrates()` cleanup never increments the statistic.
+
 **Where the code lives:** `src/entities/` — `robots.js` (classes, AI glue, claw/shoot,
 separation, `killRobot`, `damagePlayerHp`), `weapons.js` (WEAPON_DEF, firing, melee, medkit),
 `bullets.js`, `player.js` (movement/dodge/stamina), `gore.js`, `effects.js` (blood/explosions/
