@@ -2327,6 +2327,22 @@ async function waitRepairClosed() {
     for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 1) { scene.remove(robots[i].mesh); robots.splice(i, 1); }
     s1m.stage1Scene.updateMode(0.1);
     T('S1 FLOW: wave-2 tumbang -> fase done (tangga jadi aktif)', s1m.s1Debug().phase === 'done');
+    const f1 = {
+        x: s1m.S1.x0 + (s1m.S1_FINISH.c0 + s1m.S1_FINISH.c1 + 1) / 2 * s1m.S1.CELL,
+        z: s1m.S1.z0 + (s1m.S1_FINISH.r0 + s1m.S1_FINISH.r1 + 1) / 2 * s1m.S1.CELL,
+    };
+    stateMod._v3.set(f1.x, 0, f1.z);
+    s1m.stage1Scene.playerCollide(stateMod._v3, f1.x, f1.z, 0);
+    T('S1 COMPLETE: tangga finish membuka layar hijau sebelum Field Shop',
+        stateMod.isGameOver && domS1.gameOverTitle.innerText === 'STAGE 1 COMPLETE');
+    T('S1 COMPLETE CONTINUE: CONTINUE baru membuka scene Field Shop tanpa restart',
+        gameMod.activateGameOverPrimary() && !stateMod.isGameOver
+        && smMod.activeScene.id === 'campaign-shop');
+    for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
+    smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');
+    for (let i = 0; i < 500 && smMod.activeScene !== s2mod.stage2Scene; i++) await new Promise(r => setTimeout(r, 10));
+    T('S1 SHOP: Start Next Stage baru masuk Stage 2', smMod.activeScene === s2mod.stage2Scene);
+    stateMod.setPaused(false);
 }
 
 // Bersihkan robot dari section sebelumnya, masuk scene, tempatkan robot+supply
@@ -2396,8 +2412,8 @@ T('S2: robotAI jalan tanpa error', s2aiOk);
 // TANPA boss (dibuang atas permintaan user): tak ada boss/updateMode di scene
 T('S2: tak ada boss (boss dibuang; updateMode kini animasi pintu, bukan boss)',
     !robots.some(z => z.kind === 'boss') && !/BOSS/.test(s2mod.stage2Scene.hudStatus()));
-// Tangga END (overhaul 2026-07-14): trigger -> pindah ke SHOP SCENE terpisah
-// (`campaign-shop`) via LOADING; setelah loading shop terbuka; "Start Next Stage"
+// Lift END: trigger -> FINISH HIJAU -> SHOP SCENE terpisah (`campaign-shop`)
+// via LOADING; setelah loading shop terbuka; "Start Next Stage"
 // (SPACE x2) -> LOADING -> transisi ke stage 3. Spy enter stage3 agar tak
 // membangun dunianya di harness. Poll (bukan await tetap) supaya tahan MIN_LOADING.
 const s3mod = await import(R('src/scenes/campaign/stages/stage3.js'));
@@ -2503,9 +2519,15 @@ T('S2 FLOW: injak marker generator -> MINIGAME FIELD REPAIR (scene modal, game d
 // ATURAN BARU (2026-07-21): lift bisa dinaiki MESKI robot wave2 masih hidup — TANPA killS2.
 const w2alive = robots.filter(z => z.stage === 2).length;
 stateMod._v3.set(s2LiftC.x, 0, s2LiftC.z);
-s2mod.stage2Scene.playerCollide(stateMod._v3, s2LiftC.x, s2LiftC.z, 0);   // -> setScene(campaignShopScene)
-T('S2: fase done -> LIFT pindah ke SHOP SCENE MESKI wave2 (25) masih hidup (tak wajib dibunuh)',
-    smMod.activeScene.id === 'campaign-shop' && w2alive === 25 && !s3entered);
+s2mod.stage2Scene.playerCollide(stateMod._v3, s2LiftC.x, s2LiftC.z, 0);
+T('S2 COMPLETE: lift membuka layar hijau dulu meski wave2 masih hidup (tak wajib dibunuh)',
+    stateMod.isGameOver && smMod.activeScene === s2mod.stage2Scene
+    && domS2.gameOverTitle.innerText === 'STAGE 2 COMPLETE'
+    && domS2.goStageStats.style.display === 'grid'
+    && !shopMod.isShopOpen() && w2alive === 25 && !s3entered);
+T('S2 COMPLETE CONTINUE: CONTINUE baru membuka scene Field Shop',
+    gameMod.activateGameOverPrimary() && !stateMod.isGameOver
+    && smMod.activeScene.id === 'campaign-shop');
 killS2();   // rapikan sisa robot stage 2 utk section berikutnya
 for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
 stateMod.setScore(0);   // cek KETERSEDIAAN item tanpa beli (uang 0 -> 'Not enough money' vs 'Unknown item')
@@ -3158,16 +3180,21 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 s3mod.stage3Scene.updateMode(0.05);
 T('S3 FLOW: mesin hancur + robot habis -> fase done (PINTU KELUAR AKTIF)', s3mod.s3Debug().phase === 'done');
 
-// (7) Stage 3 EXIT 'o' fase done -> SHOP SCENE -> Start Next Stage -> stage 4
+// (7) Stage 3 EXIT 'o' fase done -> FINISH HIJAU -> SHOP -> stage 4
 const s4mod = await import(R('src/scenes/campaign/stages/stage4.js'));
 const realS4Enter = s4mod.stage4Scene.enter;
 let s4entered = false;
 s4mod.stage4Scene.enter = () => { s4entered = true; };
 const e3 = s3mod.s3Cell(s3mod.S3_END.c, s3mod.S3_END.r);
 stateMod._v3.set(e3.x, 0, e3.z);
-s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);   // -> setScene(campaignShopScene)
-T('S3: fase done -> PINTU KELUAR pindah ke SHOP SCENE terpisah',
-    smMod.activeScene.id === 'campaign-shop' && !s4entered);
+s3mod.stage3Scene.playerCollide(stateMod._v3, e3.x, e3.z, 0);
+T('S3 COMPLETE: pintu keluar membuka layar hijau sebelum Field Shop',
+    stateMod.isGameOver && smMod.activeScene === s3mod.stage3Scene
+    && domS2.gameOverTitle.innerText === 'STAGE 3 COMPLETE'
+    && domS2.goStageStats.style.display === 'grid' && !shopMod.isShopOpen() && !s4entered);
+T('S3 COMPLETE CONTINUE: CONTINUE baru membuka scene Field Shop',
+    gameMod.activateGameOverPrimary() && !stateMod.isGameOver
+    && smMod.activeScene.id === 'campaign-shop');
 for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));   // LOADING #1
 T('S3 SHOP SCENE: shop terbuka', shopMod.isShopOpen());
 smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');   // Start Next Stage -> konfirmasi
@@ -4609,7 +4636,10 @@ s5mod.stage5Scene.updateMode(0.1);
 hackMod.hackTick(cfgMod.CFG.campaign.hack.traceSec + 1);
 await waitHackClosed();
 const s5Alarm = robots.filter(z => z.stage === 5);
-T('S5 HACK C1: trace gagal memicu horde C config di luar layar, di luar SA/T, + cooldown',
+const s5AlarmOff = s5Alarm.filter(z => offCamera(z.mesh.position.x, z.mesh.position.z)).length;
+const s5AlarmSafe = s5Alarm.filter(z => !['A', 'S', 'T'].includes(
+    s5TokenAt(z.mesh.position.x, z.mesh.position.z))).length;
+T(`S5 HACK C1: trace gagal memicu horde C config di luar layar, di luar SA/T, + cooldown [n=${s5Alarm.length},off=${s5AlarmOff},safe=${s5AlarmSafe},cd=${s5mod.stage5Debug().hackCd.toFixed(2)}]`,
     s5Alarm.length === cfgMod.CFG.campaign.hack.alarmHordeCount
     && s5Alarm.every(z => z.kind === 'C' && offCamera(z.mesh.position.x, z.mesh.position.z)
         && !['A', 'S', 'T'].includes(s5TokenAt(z.mesh.position.x, z.mesh.position.z)))
@@ -4746,11 +4776,17 @@ T('S5 DIALOG: semua 16 beat tampil sekali, berurutan, dan pernah berada dalam bo
     s5ShownOrder.join(',') === Object.keys(expectedS5Dialogue).join(',')
     && Object.keys(expectedS5Dialogue).every(k => s5Partial.has(k))
     && s5mod.stage5DialogueDebug().seen.join(',') === Object.keys(expectedS5Dialogue).join(','));
-for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
-T('S5 COMPLETE: arrival membuka FIELD SHOP menuju Stage 6, bukan TO BE CONTINUED',
-    !stateMod.isGameOver && s5mod.stage5Debug().complete
-    && smMod.activeScene.id === 'campaign-shop' && shopMod.isShopOpen()
+T('S5 COMPLETE: arrival membuka layar hijau Stage 5 sebelum Field Shop',
+    stateMod.isGameOver && s5mod.stage5Debug().complete
+    && smMod.activeScene === s5mod.stage5Scene
+    && dom4.gameOverTitle.innerText === 'STAGE 5 COMPLETE'
+    && dom4.goStageStats.style.display === 'grid' && !shopMod.isShopOpen()
     && save5Mod.loadCampaignStage() === 5);
+T('S5 COMPLETE CONTINUE: CONTINUE baru membuka scene Field Shop menuju Stage 6',
+    gameMod.activateGameOverPrimary() && !stateMod.isGameOver
+    && smMod.activeScene.id === 'campaign-shop');
+for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
+T('S5 SHOP: Field Shop terbuka setelah finish screen ditutup', shopMod.isShopOpen());
 
 // --- 17a-ter. CAMPAIGN STAGE 6 — FALSE HOMECOMING (2026-08-02).
 // Field Shop -> terminal Bandung -> station control -> tunnel -> substation bebas
@@ -4999,11 +5035,17 @@ T('S6 NO BOSS: seluruh encounter berisi C/B/A biasa tanpa boss entity',
     !robots.some(z => z.stage === 6 && z.kind === 'boss'));
 T('S6 FIXED POOLS: hujan/sparks tidak menambah mesh sepanjang stage',
     JSON.stringify(s6PoolsAfter) === JSON.stringify(s6PoolsBefore));
-for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
-T('S6 COMPLETE: lockdown membuka FIELD SHOP menuju Stage 7, bukan TO BE CONTINUED',
-    !stateMod.isGameOver && s6mod.stage6Debug().complete
-    && smMod.activeScene.id === 'campaign-shop' && shopMod.isShopOpen()
+T('S6 COMPLETE: lockdown membuka layar hijau Stage 6 sebelum Field Shop',
+    stateMod.isGameOver && s6mod.stage6Debug().complete
+    && smMod.activeScene === s6mod.stage6Scene
+    && dom4.gameOverTitle.innerText === 'STAGE 6 COMPLETE'
+    && dom4.goStageStats.style.display === 'grid' && !shopMod.isShopOpen()
     && save5Mod.loadCampaignStage() === 6);
+T('S6 COMPLETE CONTINUE: CONTINUE baru membuka scene Field Shop menuju Stage 7',
+    gameMod.activateGameOverPrimary() && !stateMod.isGameOver
+    && smMod.activeScene.id === 'campaign-shop');
+for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
+T('S6 SHOP: Field Shop terbuka setelah finish screen ditutup', shopMod.isShopOpen());
 
 // --- 17a-quater. CAMPAIGN STAGE 7 — BANDUNG LOCKDOWN (2026-08-02).
 // Field Shop -> gerbang HQ -> pilihan 3 distrik -> junction -> pilihan 2 rute

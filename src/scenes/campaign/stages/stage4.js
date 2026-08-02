@@ -47,7 +47,6 @@ import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities
 import { spawnSmashBuilding, smashBuilding, updateSmashBuilding, resetSmashBuilding, smashBuildingDebug } from '../../../entities/smashBuilding.js';
 import { exitCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
-import { gameOver } from '../../../core/game.js';
 import { stage1Scene } from './stage1.js';
 import { stage5Scene } from './stage5.js';
 import { createTankBossIntro, TANK_BOSS_DIALOGUE } from '../cutscenes/tankBossIntro.js';
@@ -1117,11 +1116,7 @@ const outro = createTankBossOutro({
     onComplete: () => {
         if (winFired) return;
         winFired = true;
-        gameOver(true, 'STAGE 4 COMPLETE', {
-            preserveCampaignSave: true,
-            continueLabel: 'CONTINUE',
-            onContinue: () => beginStageTransition(stage5Scene),
-        });
+        beginStageTransition(stage5Scene);
     },
 });
 

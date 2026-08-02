@@ -132,9 +132,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - Green Campaign finish screens show per-stage total time and destroyed loot boxes.
   Reset these stats only on an actual `campaign-N` entry/restart; modal minigames and
   Field Shop transitions preserve them, and red GAME OVER hides the summary.
-- Stage 4 must end its tank outro on the green `STAGE 4 COMPLETE` screen. Its
-  CONTINUE/Space action preserves the whole campaign loadout/checkpoint, then opens the
-  Field Shop; only Start Next Stage enters Stage 5.
+- Every Campaign stage must end on its green `STAGE N COMPLETE` screen before any
+  Field Shop transition. CONTINUE/Space preserves the whole campaign loadout/checkpoint
+  and opens the shop; only Start Next Stage enters the following stage.
 - The campaign prologue is **DOM-only on a pitch-black screen** — typed text on the left,
   a per-era cinematic ASCII tableau on the right (`prologueArt.js`; SVG is only the
   container and every visible mark is a monospace `<text>` glyph). Its phase-driven

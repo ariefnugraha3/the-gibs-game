@@ -1,5 +1,5 @@
 // Transisi antar-stage Campaign (2026-07-14, overhaul jadi SHOP SCENE terpisah):
-// mencapai tangga END sebuah stage → LOADING → **SHOP SCENE** (scene tersendiri
+// mencapai tangga END sebuah stage → FINISH HIJAU → LOADING → **SHOP SCENE** (scene tersendiri
 // `campaignShopScene`, bukan overlay di atas stage; latar OPAK) → player belanja
 // & tekan "Start Next Stage" → LOADING → stage berikutnya. Dua layar loading
 // membungkus shop. Memakai ulang shop modal Survival dalam mode 'campaign'
@@ -9,7 +9,8 @@
 
 import { showLoading, loadingStep, hideLoading } from '../../../core/preload.js';
 import { scene, viewCam, renderer, composer, postFxOn } from '../../../core/renderer.js';
-import { setScene } from '../../../core/sceneManager.js';
+import { activeScene, setScene } from '../../../core/sceneManager.js';
+import { gameOver } from '../../../core/game.js';
 import { openShop, closeShop, isShopOpen, requestNextWave } from '../../survival/shop.js';
 import { setPaused, robots, bullets, enemyBullets, grenades, explosions, drops, clearArray } from '../../../core/state.js';
 import { disposeRobot, resetRobotsFx } from '../../../entities/robots.js';
@@ -33,18 +34,24 @@ async function minHold(t0) {
     if (rem > 0) await new Promise(r => setTimeout(r, rem));
 }
 
-// Dipanggil playerCollide sebuah stage saat mencapai tangga END: mulai transisi
-// ke SHOP SCENE. `busy` guard supaya trigger tangga yang berulang (tiap frame
-// sampai pause aktif) tidak menumpuk. setScene mid-frame AMAN: campaignShopScene
-// punya hook gameplay no-op (robotAI skip / bulletBlocked false / dst) sehingga
-// sisa updateGame frame ini tak error, lalu setPaused(true) menghentikan frame
-// berikutnya.
+// SATU-SATUNYA pintu transisi stage Campaign. Setiap stage WAJIB berhenti di
+// layar FINISH hijau dahulu; CONTINUE/Space baru membuka Field Shop. Callback
+// primer gameOver tidak memanggil resetGame, jadi seluruh loadout, money, HP,
+// armor dan checkpoint tetap utuh. `busy` menahan trigger finish per-frame.
 export function beginStageTransition(nextScene) {
-    if (busy) return;
+    if (busy) return false;
     busy = true;
-    stopMusic();   // stage BERAKHIR -> musik battle berhenti (menyala lagi saat tembakan kena pertama di stage berikut, 2026-07-19)
     pendingNext = nextScene;
-    setScene(campaignShopScene, {});
+    const match = /^campaign-(\d+)$/.exec(activeScene?.id || '');
+    const stageNo = match
+        ? Number(match[1])
+        : Math.max(1, Number(nextScene?.id?.split('-')[1] || 2) - 1);
+    gameOver(true, `STAGE ${stageNo} COMPLETE`, {
+        preserveCampaignSave: true,
+        continueLabel: 'CONTINUE',
+        onContinue: () => setScene(campaignShopScene, {}),
+    });
+    return true;
 }
 
 // ===== CHEAT: lompat LANGSUNG ke stage campaign n (2/3/4/5/6/7; 1 juga aman) —

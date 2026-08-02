@@ -140,8 +140,9 @@ export function offscreenSpawnPoints(count, o) {
 // HORDE ALARM (2026-07-28, permintaan user): hack yang GAGAL karena ICE TRACE
 // habis menyalakan alarm — sekelompok robot muncul DI LUAR LAYAR lalu
 // LANGSUNG menyerbu player (persis horde stage 1/3). Kembalikan jumlah yang
-// benar-benar di-spawn. `fallbackSpots` (sel [[c,r,n]]) dipakai HANYA bila
-// titik luar-layar yang sah kurang — mis. player terpojok di ruangan kecil.
+// benar-benar di-spawn. Titik sah dipakai ulang bila jumlah uniknya kurang;
+// `fallbackSpots` (sel [[c,r,n]]) dipakai HANYA bila tak ada satu pun titik
+// luar-layar yang sah — mis. player terpojok di ruangan kecil.
 export function spawnAlarmHorde(stage, o) {
     const n = o.count | 0;
     if (n <= 0) return 0;
@@ -150,7 +151,17 @@ export function spawnAlarmHorde(stage, o) {
     // satu skuad bisa bercampur kelas alih-alih seragam kelas C.
     const pick = () => (typeof o.cls === 'function' ? o.cls() : (o.cls || 'C'));
     for (const p of pts) spawnCampaignRobot(p.x, p.z, stage, pick(), true);
-    const left = n - pts.length;
+    let left = n - pts.length;
+    // Bila hanya sebagian kandidat sah ditemukan, pakai ulang kandidat sah itu
+    // untuk sisanya. Menumpuk sesaat lebih aman daripada memunculkan satu robot
+    // di dalam layar; pemisahan robot merenggangkan gerombolan sesudah spawn.
+    if (left > 0 && pts.length > 0) {
+        for (let i = 0; i < left; i++) {
+            const p = pts[i % pts.length];
+            spawnCampaignRobot(p.x, p.z, stage, pick(), true);
+        }
+        left = 0;
+    }
     if (left > 0 && o.fallbackSpots && o.fallbackSpots.length && o.cellFn) {
         const per = Math.floor(left / o.fallbackSpots.length), rem = left % o.fallbackSpots.length;
         const spots = o.fallbackSpots.map((a, i) => [a[0], a[1], per + (i < rem ? 1 : 0)]);
