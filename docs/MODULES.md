@@ -147,7 +147,7 @@ Sistem bersama memanggil hook ini pada `activeScene` — **scene baru wajib meng
 
 ### src/scenes/
 
-**Credits update (2026-08-02):** `menu.js` exports immutable `MENU_CREDITS` as the single content source. `initCredits()` renders it into the empty `#creditsBody` shell as a responsive production dossier, including creator/direction, Codex-assisted technical work, Three.js, procedural visuals, audio, Courier Prime, playtesters, and the `MADE IN INDONESIA` closing line.
+**Credits update (2026-08-02):** `menu.js` exports immutable `MENU_CREDITS` as the single content source. `initCredits()` renders it into the empty `#creditsBody` shell as a responsive production dossier, including creator/direction, Anthropic Claude and OpenAI Codex as AI development collaborators, Three.js, procedural visuals, audio, Courier Prime, playtesters, and the `MADE IN INDONESIA` closing line.
 
 **Ekstensi campaign 2026-08-02 (menggantikan batas lama yang mungkin masih disebut pada catatan historis di bawah):** `campaignJumpToStage`, checkpoint, Continue/restart, dan cheat `skip-to-stage-N` menerima 1–8. Semua akhir Stage 1–7 memanggil `beginStageTransition(nextScene)`, yang wajib membuka green `STAGE N COMPLETE` dahulu; continuation primer baru membuka Field Shop dan Start Next Stage memasuki tujuan. `gameOver(won,title,opts)` hanya membersihkan save pada kemenangan bila `opts.preserveCampaignSave` tidak aktif; transisi dan endpoint Stage 8 mempertahankan checkpoint.
 

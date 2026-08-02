@@ -24,9 +24,9 @@ export const MENU_CREDITS = Object.freeze({
             wide: true,
         }),
         Object.freeze({
-            role: 'Programming & Technical Design',
-            name: 'Arief Nugraha with OpenAI Codex',
-            detail: 'A collaborative, code-first development process.',
+            role: 'AI Development Collaborators',
+            name: 'Anthropic Claude & OpenAI Codex',
+            detail: 'Development assistance across implementation, iteration, debugging, and documentation.',
         }),
         Object.freeze({
             role: 'Engine & Rendering',

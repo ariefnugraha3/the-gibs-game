@@ -2788,11 +2788,11 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         menuCredits.eyebrow === 'A GIBS 2045 PRODUCTION'
         && menuCredits.groups.length >= 7
         && menuCredits.groups.some(c => c.name === 'Arief Nugraha')
-        && menuCredits.groups.some(c => c.name.includes('OpenAI Codex'))
+        && menuCredits.groups.some(c => c.name.includes('Anthropic Claude')
+            && c.name.includes('OpenAI Codex'))
         && menuCredits.groups.some(c => c.name === 'Three.js r128')
         && menuCredits.footer.includes('MADE IN INDONESIA')
-        && menuHtml.includes('id="creditsBody"')
-        && !menuHtml.includes('Claude Code (Anthropic)'));
+        && menuHtml.includes('id="creditsBody"'));
     // Scene gameplay TIDAK lagi menyalakan musik di enter() — trigger battle
     // music satu-satunya = peluru player mengenai robot (robots.js).
     const sceneFiles = ['src/scenes/survival/index.js', 'src/scenes/campaign/stages/stage1.js',
