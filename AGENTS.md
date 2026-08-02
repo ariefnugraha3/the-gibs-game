@@ -172,12 +172,23 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   infinite respawn; its green complete screen opens the Field Shop before Stage 8.
 - Stage 8 is the coordinate-stable GARUDA gunner arena at x≈270000. Seven lateral
   corridors span both three-lane carriageways and the traversable median; `A/D` are
-  edge-triggered lane snaps while walking/RMB/dodge/melee are scene-gated off. Ten
-  fixed-schedule pickup carriers each mount exactly three ordinary A/B robots; no new
-  ground pursuer may spawn after KM 40. KM 50 is gated by every remaining rider, then
-  the standalone `combatGunship.js` boss (HP live-linked to tank HP) cycles telegraphed
+  edge-triggered lane snaps while walking/RMB/dodge/melee are scene-gated off. The
+  opening announces 100 km, but there is no runtime distance counter. Timed pickup
+  carriers each mount exactly three ordinary A/B robots and keep spawning until the
+  config-driven target of 20 carriers is destroyed. Only then does the standalone
+  `combatGunship.js` boss (HP live-linked to tank HP) arrive and cycle telegraphed
   MG/cannon/three homing missiles. Road scenery wraps from fixed pools, Kertajati is a
-  separate static set, and the final green screen preserves checkpoint 8.
+  separate static set, and the final green screen preserves checkpoint 8. The live lane
+  spacing reads `CFG.campaign.stage8.laneWidth` (default 17.5 = 2.5 m); its gameplay camera scales
+  the original offset uniformly by 1.20. Entry must leave `cineFade` transparent while
+  the post-shop pointer-lock blocker is paused, otherwise the opening appears frozen.
+  GARUDA's normalized final dimensions are 5.20×2.20×2.15 m; pickup carriers are also
+  normalized below lane width, and mounted anchors use the resulting axis scales.
+  GARUDA starts in lane slot 1 on Indonesia's left-hand carriageway. Pickup entry alternates
+  rear/front at the two ends of the 20-module fixed road pool, but every carrier uses
+  lanes 0–2 and faces +X; front entries are slower same-direction traffic. Never spawn one
+  inside the camera footprint or at its combat target; extend X past the road endpoint
+  when `groundViewExtents()+pickupOffscreenMargin` requires it.
 - Dormant-but-kept systems (reload, ADS, crouch, jump, sprint, thrown grenade, medkit
   channel) must stay unreachable — don't re-wire, don't delete.
 

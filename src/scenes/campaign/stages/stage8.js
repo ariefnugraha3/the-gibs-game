@@ -4,7 +4,10 @@
 
 import { CFG } from '../../../core/config.js';
 import { player, robots, keys, setCinematicActive } from '../../../core/state.js';
-import { scene, camera, setCineFocus, addCamShake, CAM_OFF_DEFAULT } from '../../../core/renderer.js';
+import {
+    scene, camera, setCineFocus, addCamShake, CAM_OFF_DEFAULT,
+    groundViewExtents,
+} from '../../../core/renderer.js';
 import {
     showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
@@ -50,21 +53,24 @@ import {
 } from '../../../utils/sfx.js';
 
 const OX = 270000, OZ = 0, PLAYER_X = OX;
-const ROAD_MODULES = 12, MODULE_LEN = 84, ROAD_SPAN = ROAD_MODULES * MODULE_LEN;
+const ROAD_MODULES = 20, MODULE_LEN = 84, ROAD_SPAN = ROAD_MODULES * MODULE_LEN;
 const AIRPORT_X = OX + 1320;
 const ASPHALT_LANES = Object.freeze([0, 1, 2, 4, 5, 6]);
-export const S8_LANES = Object.freeze([-48, -32, -16, 0, 16, 32, 48]);
-export const S8_START = Object.freeze({ x: PLAYER_X, z: S8_LANES[5] });
+const LANE_MULTIPLIERS = Object.freeze([-3, -2, -1, 0, 1, 2, 3]);
+// Public default coordinates; live gameplay tetap membaca laneWidth dari CFG
+// di laneWorldZ() agar retune tidak memerlukan perubahan logika scene.
+export const S8_LANES = Object.freeze([-52.5, -35, -17.5, 0, 17.5, 35, 52.5]);
+// Indonesia berkendara di sisi kiri; arah perjalanan +X berarti carriageway
+// kiri berada di sisi -Z. Mulai di lajur tengah carriageway tersebut.
+export const S8_START = Object.freeze({ x: PLAYER_X, z: S8_LANES[1] });
 export const S8_AIRPORT = Object.freeze({ x: AIRPORT_X, z: 0 });
 
 export const STAGE8_DIALOGUE = Object.freeze({
-    openingSystem: Object.freeze({ speaker: 'Vehicle System', text: 'AUTONOMOUS ROUTE ENGAGED. DESTINATION: KERTAJATI INTERNATIONAL AIRPORT. DISTANCE: 50 KILOMETERS.' }),
+    openingSystem: Object.freeze({ speaker: 'Vehicle System', text: 'AUTONOMOUS ROUTE ENGAGED. DESTINATION: KERTAJATI INTERNATIONAL AIRPORT. DISTANCE: 100 KILOMETERS.' }),
     openingGibran: Object.freeze({ speaker: 'Major Gibran', text: 'Good. You handle the road. I’ll handle anything that tries to stop us.' }),
     openingCommand: Object.freeze({ speaker: 'Command', text: 'Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving.' }),
     pickupSystem: Object.freeze({ speaker: 'Vehicle System', text: 'HOSTILE VEHICLES APPROACHING.' }),
     pickupGibran: Object.freeze({ speaker: 'Major Gibran', text: 'Open-bed carriers. I’ll take out the riders and leave the vehicles behind.' }),
-    km40Command: Object.freeze({ speaker: 'Command', text: 'Ground pursuit is thinning out. Kertajati is ten kilometers ahead.' }),
-    km40Gibran: Object.freeze({ speaker: 'Major Gibran', text: 'Then why does it suddenly feel too quiet?' }),
     gunshipCommand: Object.freeze({ speaker: 'Command', text: 'Major, airborne contact! Combat gunship closing fast!' }),
     gunshipGibran: Object.freeze({ speaker: 'Major Gibran', text: 'So that’s what they were saving for me.' }),
     bossDown: Object.freeze({ speaker: 'Major Gibran', text: 'Gunship’s down. Kertajati, I’m coming in.' }),
@@ -79,13 +85,21 @@ const roadModules = [], pickupPool = [], dustPool = [], stageLights = [];
 let roadWraps = 0, dustCursor = 0;
 
 let phase = 'opening', complete = false, stageElapsed = 0;
-let routeT = 0, distanceKm = 0, waveIndex = 0, pendingVehicles = [];
-let pickupsSpawned = 0, pickupsDestroyed = 0, firstPickupShown = false, km40Shown = false;
-let laneIndex = 5, laneFrom = 5, laneTo = 5, laneT = 1, laneBuffer = 0;
+let groundSpawnT = 0, bossApproachT = 0;
+let pickupsSpawned = 0, pickupsDestroyed = 0, firstPickupShown = false;
+let laneIndex = 1, laneFrom = 1, laneTo = 1, laneT = 1, laneBuffer = 0;
 let aHeld = false, dHeld = false, currentZ = S8_START.z;
 let deathDelayT = 0, cine = null, vehicleLoop = null, rotorLoop = null;
 const cineCam = new THREE.Vector3().copy(CAM_OFF_DEFAULT);
-const driveCam = new THREE.Vector3(-112, 106, 102);
+// Gameplay Stage 8 membutuhkan pandangan lebar untuk membaca carrier dari
+// belakang sekaligus telegraph boss di lajur depan. Semua komponen offset awal
+// dikalikan faktor yang sama agar kamera mundur tepat 20% tanpa mengubah sudut.
+const DRIVE_CAM_PULLBACK = 1.20;
+const driveCam = new THREE.Vector3(
+    -112 * DRIVE_CAM_PULLBACK,
+    106 * DRIVE_CAM_PULLBACK,
+    102 * DRIVE_CAM_PULLBACK,
+);
 const mountPos = new THREE.Vector3();
 
 let dialogueCurrent = null, dialogueQueue = [], dialogueSeen = new Set();
@@ -107,19 +121,24 @@ function signTexture(title, sub) {
 
 function buildRoadModule(index, M) {
     const g = new THREE.Group();
-    g.position.set(OX + (index - ROAD_MODULES / 2) * MODULE_LEN, 0, OZ);
+    g.position.set(OX + (index - (ROAD_MODULES - 1) / 2) * MODULE_LEN, 0, OZ);
+    const laneW = CFG.campaign.stage8.laneWidth;
+    const carriageW = laneW * 3, carriageZ = laneW * 2;
+    const shoulderZ = laneW * 3.5 + 6, railZ = laneW * 3.5 + 13;
     // Dua carriageway dan median yang benar-benar dapat dilintasi player.
-    box(g, M.asphalt, MODULE_LEN + 1, 0.7, 48, 0, -0.22, -32);
-    box(g, M.asphalt, MODULE_LEN + 1, 0.7, 48, 0, -0.22, 32);
-    box(g, M.grass, MODULE_LEN + 1, 0.82, 16, 0, -0.14, 0);
-    box(g, M.shoulder, MODULE_LEN + 1, 0.48, 12, 0, -0.36, -62);
-    box(g, M.shoulder, MODULE_LEN + 1, 0.48, 12, 0, -0.36, 62);
+    box(g, M.asphalt, MODULE_LEN + 1, 0.7, carriageW, 0, -0.22, -carriageZ);
+    box(g, M.asphalt, MODULE_LEN + 1, 0.7, carriageW, 0, -0.22, carriageZ);
+    box(g, M.grass, MODULE_LEN + 1, 0.82, laneW, 0, -0.14, 0);
+    box(g, M.shoulder, MODULE_LEN + 1, 0.48, 12, 0, -0.36, -shoulderZ);
+    box(g, M.shoulder, MODULE_LEN + 1, 0.48, 12, 0, -0.36, shoulderZ);
     // Garis lajur putus-putus dan tepi median.
-    for (const z of [-40, -24, 24, 40]) for (let x = -34; x <= 34; x += 22)
+    for (const z of [-laneW * 2.5, -laneW * 1.5, laneW * 1.5, laneW * 2.5])
+        for (let x = -34; x <= 34; x += 22)
         box(g, M.white, 11, 0.08, 0.7, x, 0.17, z);
-    for (const z of [-8, 8]) box(g, M.amber, MODULE_LEN, 0.09, 0.55, 0, 0.18, z);
+    for (const z of [-laneW * 0.5, laneW * 0.5])
+        box(g, M.amber, MODULE_LEN, 0.09, 0.55, 0, 0.18, z);
     // Guardrail, reflector, tiang dan scenery berganti secara modular.
-    for (const z of [-69, 69]) {
+    for (const z of [-railZ, railZ]) {
         box(g, M.steel, MODULE_LEN, 0.45, 0.55, 0, 3.7, z);
         for (let x = -36; x <= 36; x += 18) box(g, M.steel, 0.55, 7.4, 0.55, x, 0, z);
     }
@@ -144,9 +163,10 @@ function buildRoadModule(index, M) {
     }
     if (index === 2 || index === 7) {
         const gantry = new THREE.Group(); gantry.position.set(0, 0, 0); g.add(gantry);
-        for (const z of [-72, 72]) box(gantry, M.steel, 2, 32, 2, 0, 16, z);
-        box(gantry, M.steel, 2, 2, 146, 0, 31, 0);
-        const s = new THREE.Mesh(new THREE.BoxGeometry(2, 17, 72),
+        const gantryZ = railZ + 3;
+        for (const z of [-gantryZ, gantryZ]) box(gantry, M.steel, 2, 32, 2, 0, 16, z);
+        box(gantry, M.steel, 2, 2, gantryZ * 2 + 2, 0, 31, 0);
+        const s = new THREE.Mesh(new THREE.BoxGeometry(2, 17, laneW * 4.5),
             new THREE.MeshBasicMaterial({ color: PAL.white,
                 map: signTexture(index === 2 ? 'CISUMDAWU' : 'KERTAJATI',
                     index === 2 ? 'AUTONOMOUS CORRIDOR' : 'AIRPORT APPROACH'), toneMapped: false }));
@@ -309,12 +329,11 @@ function resetDialogue() {
     dialogueT = 0; dialogueChars = 0; hideStageRadioDialogue();
 }
 
-function kmPerSec() {
-    const C5 = CFG.campaign.stage5;
-    return C5.routeKm / Math.max(1, C5.rideMinSec);
-}
 function roadSpeed() { return CFG.campaign.stage8.roadSpeed; }
-function laneWorldZ(index) { return OZ + S8_LANES[clamp(index | 0, 0, S8_LANES.length - 1)]; }
+function laneWorldZ(index) {
+    const i = clamp(index | 0, 0, LANE_MULTIPLIERS.length - 1);
+    return OZ + LANE_MULTIPLIERS[i] * CFG.campaign.stage8.laneWidth;
+}
 
 function spawnDust(x, z, burst = false) {
     if (!dustPool.length) return;
@@ -344,8 +363,9 @@ function updateRoad(dt) {
 
 function syncVehicle(dt = 0) {
     if (!tacticalVehicle) return;
-    // Gunner anchor lokal x=-0,62 m; geser body agar anchor tepat di pivot player.
-    tacticalVehicle.group.position.set(PLAYER_X + 0.62 * 7, 0, currentZ);
+    // Gunner anchor lokal x=-0,62 m; scaleX sudah memuat normalisasi panjang,
+    // jadi body tetap tepat di bawah pivot setelah dimensi GARUDA berubah.
+    tacticalVehicle.group.position.set(PLAYER_X + 0.62 * tacticalVehicle.scaleX, 0, currentZ);
     tacticalVehicle.group.rotation.y = 0;
     updateTacticalVehicleVisual(tacticalVehicle, dt, {
         doorOpen: 0, hatchOpen: phase === 'arrival' || phase === 'complete' ? 0 : 1,
@@ -391,10 +411,35 @@ function activePickupCount() { return pickupPool.filter(p => p.active && !p.wrec
 
 function spawnPickup(classes, eventIndex) {
     const p = freePickup(); if (!p) return false;
+    const C = CFG.campaign.stage8;
     resetEnemyPickupVisual(p); p.active = true; p.group.visible = true;
-    p.eventIndex = eventIndex; p.lane = ASPHALT_LANES[pickupsSpawned % ASPHALT_LANES.length];
-    p.targetX = PLAYER_X + 42 + (pickupsSpawned % 3) * 32;
-    p.group.position.set(PLAYER_X + 190 + (pickupsSpawned % 3) * 24, 0, laneWorldZ(p.lane));
+    p.eventIndex = eventIndex;
+    // Entry bergantian dari belakang/depan agar carrier selalu lahir di ujung
+    // fixed road pool, jauh di luar tapak pandang. Semuanya tetap searah +X.
+    const fromRear = pickupsSpawned % 2 === 0;
+    p.entrySide = fromRear ? 'rear' : 'front';
+    const dir = fromRear ? -1 : 1;
+    // Semua carrier menghadap +X. Kendaraan dari ujung depan adalah target
+    // yang lebih lambat dan sedang disusul, bukan kendaraan yang melawan arus.
+    // Karena Indonesia memakai lajur kiri, keduanya masuk di carriageway -Z.
+    const laneSet = [0, 1, 2];
+    const sameSide = pickupPool.filter(q => q.active && !q.wreck
+        && q.entrySide === p.entrySide).length - 1;
+    p.lane = laneSet[(pickupsSpawned / 2 | 0) % laneSet.length];
+    const view = groundViewExtents(camera.position.y, 0);
+    const roadEdge = ROAD_SPAN / 2 - C.pickupEntryInset;
+    p.entryViewEdgeX = PLAYER_X + (fromRear ? view.minX : view.maxX);
+    const outsideView = fromRear
+        ? view.minX - C.pickupOffscreenMargin
+        : view.maxX + C.pickupOffscreenMargin;
+    const entryOffset = fromRear
+        ? Math.min(-roadEdge, outsideView)
+        : Math.max(roadEdge, outsideView);
+    p.entryX = PLAYER_X + entryOffset;
+    p.targetX = PLAYER_X + dir * (C.pickupCombatOffset
+        + Math.max(0, sameSide) * C.pickupCombatSpacing);
+    p.group.position.set(p.entryX, 0, laneWorldZ(p.lane));
+    p.group.rotation.y = 0;
     p.passengers = [];
     for (let i = 0; i < 3; i++) {
         spawnCampaignRobot(p.group.position.x, p.group.position.z, 8, classes[i], true);
@@ -436,38 +481,36 @@ function updatePickups(dt) {
                 resetEnemyPickupVisual(p);
             continue;
         }
-        p.group.position.x += (p.targetX - p.group.position.x) * Math.min(1, dt * 1.45);
+        p.group.position.x += (p.targetX - p.group.position.x)
+            * Math.min(1, dt * C.pickupApproachRate);
         // Sedikit lane weaving, tanpa memakai median.
         p.group.position.z += (laneWorldZ(p.lane) - p.group.position.z) * Math.min(1, dt * 2.2);
         updateEnemyPickupVisual(p, dt, { active: true, wreck: false, speed: C.pickupSpeed });
     }
 }
 
-function scheduleWaves() {
+function updateGroundSpawner(dt) {
     const C = CFG.campaign.stage8;
-    const waves = C.groundWaves || [];
-    while (waveIndex < waves.length && distanceKm >= waves[waveIndex].atKm
-        && distanceKm < C.groundStopKm) {
-        for (const v of waves[waveIndex].vehicles) pendingVehicles.push({ classes: v, eventIndex: waveIndex });
-        waveIndex++;
-    }
-    if (distanceKm >= C.groundStopKm) { pendingVehicles = []; waveIndex = waves.length; }
-    while (pendingVehicles.length && activePickupCount() < C.maxActivePickups && freePickup()) {
-        const q = pendingVehicles[0];
-        if (!spawnPickup(q.classes, q.eventIndex)) break;
-        pendingVehicles.shift();
-    }
+    if (pickupsSpawned >= C.groundPickupTarget) return;
+    groundSpawnT -= dt;
+    if (groundSpawnT > 0 || activePickupCount() >= C.maxActivePickups || !freePickup()) return;
+    const loads = C.groundLoads || [];
+    const classes = loads.length ? loads[pickupsSpawned % loads.length] : ['B', 'B', 'A'];
+    if (spawnPickup(classes, pickupsSpawned)) groundSpawnT = C.groundSpawnGapSec;
 }
 
 function finishOpening(skipped = false) {
     if (skipped) resetDialogue();
-    cleanupCine(CFG.campaign.stage8.fadeSec); phase = 'highway'; routeT = 0; distanceKm = 0;
-    showStageMsg('SURVIVE THE CISUMDAWU PURSUIT — 50 KM TO KERTAJATI', 5000);
+    cleanupCine(CFG.campaign.stage8.fadeSec); phase = 'highway';
+    showStageMsg('SURVIVE THE CISUMDAWU PURSUIT', 5000);
 }
 function startOpening() {
     releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
-    setCinematicActive(true); setCineBars(true); setCineFade(1, 0);
-    cine = { kind: 'opening', t: 0, fadeIn: false,
+    // Scene dimasukkan ketika transisi shop masih pause. Jangan pasang overlay
+    // hitam di enter(): updateMode belum berjalan untuk memudarkannya dan layar
+    // akan tampak freeze sampai pointer-lock dilanjutkan oleh player.
+    setCinematicActive(true); setCineBars(true); setCineFade(0, 0);
+    cine = { kind: 'opening', t: 0, fadeIn: true,
         dialogueStarted: false, fading: false, fadeT: 0 };
     cineCam.set(-135, 88, 92); setCineFocus(PLAYER_X + 12, currentZ, true);
     showCutsceneSkip(() => finishOpening(true));
@@ -502,8 +545,9 @@ function swapToAirport() {
     cine.swapped = true; roadRoot.visible = false; airportRoot.visible = true;
     currentZ = 0; laneIndex = laneFrom = laneTo = 3; laneT = 1;
     camera.position.set(AIRPORT_X - 210, CFG.player.eyeHeight, 0);
-    tacticalVehicle.group.position.set(camera.position.x + 0.62 * 7, 0, 0);
-    setAvatarVehiclePose(true, 10.2); setCineFocus(camera.position.x + 120, 0, true);
+    tacticalVehicle.group.position.set(camera.position.x + 0.62 * tacticalVehicle.scaleX, 0, 0);
+    setAvatarVehiclePose(true, tacticalVehicle.gunnerPoseHeight);
+    setCineFocus(camera.position.x + 120, 0, true);
     setCineFade(0, CFG.campaign.stage8.fadeSec);
     queueDialogue('arrivalSystem'); queueDialogue('arrivalCommand'); queueDialogue('arrivalGibran');
 }
@@ -566,7 +610,7 @@ function updateCine(dt) {
         } else {
             const k = Math.min(1, cine.stageT / Math.max(6, C.arrivalMinSec));
             camera.position.x = AIRPORT_X - 210 + k * 315; camera.position.z = 0;
-            tacticalVehicle.group.position.set(camera.position.x + 0.62 * 7, 0, 0);
+            tacticalVehicle.group.position.set(camera.position.x + 0.62 * tacticalVehicle.scaleX, 0, 0);
             updateTacticalVehicleVisual(tacticalVehicle, dt, {
                 doorOpen: 0, hatchOpen: 1 - Math.min(1, k * 2), engineOn: k < 0.94,
                 speed: roadSpeed() * (1 - k),
@@ -582,17 +626,18 @@ function updateCine(dt) {
 
 function updateJourney(dt) {
     if (phase === 'highway') phase = 'groundPursuit';
-    if (!['groundPursuit', 'bossApproach', 'clearPursuers'].includes(phase)) return;
-    routeT += dt; distanceKm = Math.min(CFG.campaign.stage8.routeKm, routeT * kmPerSec());
-    updateRoad(dt); scheduleWaves(); updatePickups(dt);
-    if (distanceKm >= CFG.campaign.stage8.groundStopKm && !km40Shown) {
-        km40Shown = true; phase = 'bossApproach';
-        queueDialogue('km40Command'); queueDialogue('km40Gibran');
-        showStageMsg('GROUND SPAWNS ENDED — TEN KILOMETERS TO KERTAJATI', 4600);
-    }
-    if (distanceKm >= CFG.campaign.stage8.routeKm) {
-        phase = 'clearPursuers';
-        if (activePursuerCount() === 0) startGunshipIntro();
+    if (!['groundPursuit', 'bossApproach'].includes(phase)) return;
+    updateRoad(dt); updatePickups(dt);
+    if (phase === 'groundPursuit') {
+        updateGroundSpawner(dt);
+        if (pickupsDestroyed >= CFG.campaign.stage8.groundPickupTarget) {
+            phase = 'bossApproach'; bossApproachT = 0;
+            showStageMsg('ALL PURSUIT VEHICLES DESTROYED — AIR CONTACT INBOUND', 4400);
+        }
+    } else {
+        bossApproachT += dt;
+        if (bossApproachT >= CFG.campaign.stage8.bossApproachDelaySec
+            && activePursuerCount() === 0) startGunshipIntro();
     }
 }
 
@@ -618,22 +663,23 @@ function updateBoss(dt) {
 }
 
 function resetStage() {
-    phase = 'opening'; complete = false; stageElapsed = 0; routeT = 0; distanceKm = 0;
-    waveIndex = 0; pendingVehicles = []; pickupsSpawned = 0; pickupsDestroyed = 0;
-    firstPickupShown = false; km40Shown = false; deathDelayT = 0;
-    laneIndex = laneFrom = laneTo = 5; laneT = 1; laneBuffer = 0;
-    aHeld = dHeld = false; currentZ = laneWorldZ(5); roadWraps = 0; dustCursor = 0;
+    phase = 'opening'; complete = false; stageElapsed = 0;
+    groundSpawnT = CFG.campaign.stage8.groundStartDelaySec; bossApproachT = 0;
+    pickupsSpawned = 0; pickupsDestroyed = 0;
+    firstPickupShown = false; deathDelayT = 0;
+    laneIndex = laneFrom = laneTo = 1; laneT = 1; laneBuffer = 0;
+    aHeld = dHeld = false; currentZ = laneWorldZ(1); roadWraps = 0; dustCursor = 0;
     resetDialogue(); stopVehicleLoop(); stopRotorLoop(); stopMusic();
     if (cine) cleanupCine(0);
     roadRoot.visible = true; airportRoot.visible = false;
     for (let i = 0; i < roadModules.length; i++)
-        roadModules[i].position.x = OX + (i - ROAD_MODULES / 2) * MODULE_LEN;
+        roadModules[i].position.x = OX + (i - (ROAD_MODULES - 1) / 2) * MODULE_LEN;
     for (const p of pickupPool) resetEnemyPickupVisual(p);
     for (const d of dustPool) d.visible = false;
     resetCombatGunship(gunship, { active: false });
     resetTacticalVehicleVisual(tacticalVehicle); tacticalVehicle.group.visible = true;
     if (avatarGroup) avatarGroup.visible = true;
-    setAvatarVehiclePose(true, 10.2); setAvatarRadioPose(false);
+    setAvatarVehiclePose(true, tacticalVehicle.gunnerPoseHeight); setAvatarRadioPose(false);
     setCineBars(false); setCineFade(0, 0); syncVehicle(0);
 }
 
@@ -662,19 +708,26 @@ export const stage8DialogueDebug = () => ({
     queued: dialogueQueue.map(x => x.key), seen: [...dialogueSeen],
 });
 export const stage8ConvoyDebug = () => ({
-    waveIndex, pending: pendingVehicles.length, spawned: pickupsSpawned,
-    destroyed: pickupsDestroyed, activePickups: activePickupCount(),
+    spawned: pickupsSpawned, destroyed: pickupsDestroyed,
+    target: CFG.campaign.stage8.groundPickupTarget,
+    remaining: Math.max(0, CFG.campaign.stage8.groundPickupTarget - pickupsDestroyed),
+    spawnTimer: groundSpawnT, activePickups: activePickupCount(),
     activeRiders: activePursuerCount(), maxActive: CFG.campaign.stage8.maxActivePickups,
     pickups: pickupPool.map(enemyPickupDebug),
 });
 export const stage8RoadDebug = () => ({
-    speed: roadSpeed(), routeT, distanceKm, kmPerSec: kmPerSec(), wraps: roadWraps,
+    speed: roadSpeed(), wraps: roadWraps,
+    roadSpan: ROAD_SPAN, pickupEntryInset: CFG.campaign.stage8.pickupEntryInset,
     moduleCount: roadModules.length, modulePositions: roadModules.map(g => g.position.x),
     roadVisible: !!roadRoot?.visible, airportVisible: !!airportRoot?.visible,
     laneIndex, laneFrom, laneTo, laneT, laneBuffer, currentZ,
 });
 export const stage8WorldDebug = () => ({
     built, origin: { x: OX, z: OZ }, airport: { ...S8_AIRPORT },
+    lanePositions: LANE_MULTIPLIERS.map((_, i) => laneWorldZ(i)),
+    gameplayCamera: { x: driveCam.x, y: driveCam.y, z: driveCam.z,
+        distance: Math.hypot(driveCam.x, driveCam.y, driveCam.z),
+        pullback: DRIVE_CAM_PULLBACK },
     pools: { road: roadModules.length, pickups: pickupPool.length, dust: dustPool.length,
         missiles: gunship?.missiles?.length || 0, shells: gunship?.shells?.length || 0 },
     lights: stageLights.length, staticBatches: staticBatch.length,
@@ -682,8 +735,7 @@ export const stage8WorldDebug = () => ({
 });
 export const stage8Debug = () => ({
     phase, objective: stage8Scene.hudStatus(), complete, stageElapsed,
-    routeT, distanceKm, routeKm: CFG.campaign.stage8.routeKm,
-    groundStopKm: CFG.campaign.stage8.groundStopKm,
+    groundSpawnT, bossApproachT,
     laneIndex, currentZ, cinematic: !!cine,
     convoy: stage8ConvoyDebug(), gunship: combatGunshipDebug(gunship),
     vehicle: tacticalVehicleDebug(tacticalVehicle), avatar: avatarVehicleDebug(),
@@ -758,19 +810,17 @@ export const stage8Scene = {
             clamp(z, laneWorldZ(0), laneWorldZ(6))];
     },
     hudStatus() {
-        const km = Math.min(CFG.campaign.stage8.routeKm, Math.max(0, Math.floor(distanceKm)));
+        const target = CFG.campaign.stage8.groundPickupTarget;
         if (phase === 'opening') return 'STAGE 8 — CISUMDAWU KILL ZONE';
         if (phase === 'groundPursuit' || phase === 'highway')
-            return `KERTAJATI ROUTE — KM ${km} / ${CFG.campaign.stage8.routeKm} — PICKUPS ${activePickupCount()} — RIDERS ${activePursuerCount()}`;
+            return `PURSUIT VEHICLES — DESTROYED ${pickupsDestroyed} / ${target} — ACTIVE ${activePickupCount()} — RIDERS ${activePursuerCount()}`;
         if (phase === 'bossApproach')
-            return `FINAL APPROACH — KM ${km} / ${CFG.campaign.stage8.routeKm} — PICKUPS ${activePickupCount()} — RIDERS ${activePursuerCount()}`;
-        if (phase === 'clearPursuers')
-            return `KM ${CFG.campaign.stage8.routeKm} — DESTROY THE LAST PURSUERS: ${activePursuerCount()}`;
-        if (phase === 'gunshipIntro') return `KM ${CFG.campaign.stage8.routeKm} — AIRBORNE CONTACT`;
+            return 'PURSUIT DESTROYED — AIR CONTACT INBOUND';
+        if (phase === 'gunshipIntro') return 'AIRBORNE CONTACT';
         if (phase === 'gunshipBattle' || phase === 'gunshipDeath') {
             const frac = gunship ? Math.max(0, gunship.hp / Math.max(1, gunship.maxHp)) : 0;
             const blocks = Math.ceil(frac * 10);
-            return `KM ${CFG.campaign.stage8.routeKm} — AIR INTERCEPT — GUNSHIP ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
+            return `AIR INTERCEPT — GUNSHIP ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
         }
         if (phase === 'arrival') return 'KERTAJATI INTERNATIONAL AIRPORT — FINAL APPROACH';
         return 'KERTAJATI INTERNATIONAL AIRPORT — ROUTE COMPLETE';

@@ -4,6 +4,18 @@
 
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 
+// Carrier juga harus muat di lajur 2,5 m. Sedikit lebih lebar dari GARUDA
+// untuk ruang tiga rider, tetapi masih menyisakan clearance terhadap marka.
+export const ENEMY_PICKUP_DIMENSIONS = Object.freeze({
+    length: 5.15, width: 2.30, height: 2.25,
+});
+const AUTHORED_DIMENSIONS = Object.freeze({ length: 5.88, width: 2.88, height: 3.08 });
+const MODEL_RATIO = Object.freeze({
+    x: ENEMY_PICKUP_DIMENSIONS.length / AUTHORED_DIMENSIONS.length,
+    y: ENEMY_PICKUP_DIMENSIONS.height / AUTHORED_DIMENSIONS.height,
+    z: ENEMY_PICKUP_DIMENSIONS.width / AUTHORED_DIMENSIONS.width,
+});
+
 function mk(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
@@ -65,11 +77,21 @@ export function buildEnemyPickupMesh(scale = 7) {
         Object.freeze({ x: -1.92, y: 1.62, z: 0 }),
     ]);
 
-    group.scale.setScalar(scale);
+    const scaleX = scale * MODEL_RATIO.x;
+    const scaleY = scale * MODEL_RATIO.y;
+    const scaleZ = scale * MODEL_RATIO.z;
+    group.scale.set(scaleX, scaleY, scaleZ);
     const pickup = {
-        group, wheels, materials: M, passengerOffsets, scale,
+        group, wheels, materials: M, passengerOffsets, scale, scaleX, scaleY, scaleZ,
+        dimensionsMeters: ENEMY_PICKUP_DIMENSIONS,
+        dimensionsWorld: {
+            length: ENEMY_PICKUP_DIMENSIONS.length * scale,
+            width: ENEMY_PICKUP_DIMENSIONS.width * scale,
+            height: ENEMY_PICKUP_DIMENSIONS.height * scale,
+        },
         active: false, wreck: false, wheelPhase: 0, speed: 0, wreckT: 0,
         passengers: [], lane: 0, eventIndex: -1,
+        entrySide: '', entryX: 0, entryViewEdgeX: 0, targetX: 0,
     };
     group.userData.enemyPickup = pickup;
     resetEnemyPickupVisual(pickup);
@@ -81,6 +103,7 @@ export function resetEnemyPickupVisual(pickup) {
     pickup.active = false; pickup.wreck = false; pickup.wheelPhase = 0;
     pickup.speed = 0; pickup.wreckT = 0; pickup.passengers = [];
     pickup.lane = 0; pickup.eventIndex = -1;
+    pickup.entrySide = ''; pickup.entryX = 0; pickup.entryViewEdgeX = 0; pickup.targetX = 0;
     pickup.group.visible = false; pickup.group.rotation.set(0, 0, 0);
     pickup.group.position.y = 0;
     for (const w of pickup.wheels) w.rotation.z = 0;
@@ -115,11 +138,14 @@ export function updateEnemyPickupVisual(pickup, dt, state = {}) {
 
 export function enemyPickupPassengerWorld(pickup, slot, out) {
     const o = pickup.passengerOffsets[slot] || pickup.passengerOffsets[0];
-    // Semua pickup Stage 8 menghadap +X; tidak perlu matriks/alloc per frame.
+    // Carrier dapat masuk dari depan (-X) maupun belakang (+X). Transform
+    // anchor manual tanpa Vector3/matrix baru per frame.
+    const lx = o.x * pickup.scaleX, lz = o.z * pickup.scaleZ;
+    const yaw = pickup.group.rotation.y, cy = Math.cos(yaw), sy = Math.sin(yaw);
     out.set(
-        pickup.group.position.x + o.x * pickup.scale,
-        pickup.group.position.y + o.y * pickup.scale,
-        pickup.group.position.z + o.z * pickup.scale,
+        pickup.group.position.x + lx * cy + lz * sy,
+        pickup.group.position.y + o.y * pickup.scaleY,
+        pickup.group.position.z - lx * sy + lz * cy,
     );
     return out;
 }
@@ -129,7 +155,12 @@ export function enemyPickupDebug(pickup) {
         built: !!pickup, active: !!pickup?.active, wreck: !!pickup?.wreck,
         passengers: pickup?.passengers?.length || 0, lane: pickup?.lane ?? null,
         eventIndex: pickup?.eventIndex ?? -1, wheelPhase: pickup?.wheelPhase || 0,
+        entrySide: pickup?.entrySide || '', entryX: pickup?.entryX || 0,
+        entryViewEdgeX: pickup?.entryViewEdgeX || 0,
+        targetX: pickup?.targetX || 0, yaw: pickup?.group?.rotation?.y || 0,
         speed: pickup?.speed || 0, wreckT: pickup?.wreckT || 0,
+        dimensionsMeters: pickup?.dimensionsMeters ? { ...pickup.dimensionsMeters } : null,
+        dimensionsWorld: pickup?.dimensionsWorld ? { ...pickup.dimensionsWorld } : null,
         anchors: pickup?.passengerOffsets?.length || 0,
         position: pickup ? { x: pickup.group.position.x, y: pickup.group.position.y,
             z: pickup.group.position.z } : null,

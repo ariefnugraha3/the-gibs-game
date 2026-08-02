@@ -7,6 +7,18 @@
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 import { makeTexture } from '../utils/textures.js';
 
+// Dimensi akhir hero vehicle dalam meter. Mesh sumber sengaja dinormalisasi
+// non-uniform sekali saat build supaya seluruh detail/pintu/roda tetap satu rig.
+export const TACTICAL_VEHICLE_DIMENSIONS = Object.freeze({
+    length: 5.20, width: 2.20, height: 2.15,
+});
+const AUTHORED_DIMENSIONS = Object.freeze({ length: 6.01, width: 2.76, height: 2.84 });
+const MODEL_RATIO = Object.freeze({
+    x: TACTICAL_VEHICLE_DIMENSIONS.length / AUTHORED_DIMENSIONS.length,
+    y: TACTICAL_VEHICLE_DIMENSIONS.height / AUTHORED_DIMENSIONS.height,
+    z: TACTICAL_VEHICLE_DIMENSIONS.width / AUTHORED_DIMENSIONS.width,
+});
+
 function dashboardTexture() {
     return makeTexture(512, 160, (g, w, h) => {
         g.fillStyle = '#11130f'; g.fillRect(0, 0, w, h);
@@ -119,12 +131,24 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
         mk(group, hubGeo, M.steel, x, 0.62, z);
     }
 
-    group.scale.setScalar(scale);
+    const scaleX = scale * MODEL_RATIO.x;
+    const scaleY = scale * MODEL_RATIO.y;
+    const scaleZ = scale * MODEL_RATIO.z;
+    group.scale.set(scaleX, scaleY, scaleZ);
     const vehicle = {
         group, wheels, driverDoor, headlights, taillights, dashboard, barrierRam: ram,
         sensor, mount, roofHatch, hatchLeaves, gunnerMount, materials: M,
         wheelPhase: 0, doorOpen: 0, hatchOpen: 0, engineOn: false,
-        speed: 0, baseY: 0,
+        speed: 0, baseY: 0, scale, scaleX, scaleY, scaleZ,
+        dimensionsMeters: TACTICAL_VEHICLE_DIMENSIONS,
+        dimensionsWorld: {
+            length: TACTICAL_VEHICLE_DIMENSIONS.length * scale,
+            width: TACTICAL_VEHICLE_DIMENSIONS.width * scale,
+            height: TACTICAL_VEHICLE_DIMENSIONS.height * scale,
+        },
+        // Pose lama 10,2 unit mengikuti tinggi mesh lama; pertahankan rasio
+        // tubuh terhadap roof hatch setelah tinggi kendaraan dinormalisasi.
+        gunnerPoseHeight: 10.2 * MODEL_RATIO.y,
     };
     group.userData.tacticalVehicle = vehicle;
     resetTacticalVehicleVisual(vehicle);
@@ -183,6 +207,8 @@ export function tacticalVehicleDebug(vehicle) {
         wheels: vehicle?.wheels?.length || 0,
         doorOpen: vehicle?.doorOpen || 0,
         hatchOpen: vehicle?.hatchOpen || 0,
+        dimensionsMeters: vehicle?.dimensionsMeters ? { ...vehicle.dimensionsMeters } : null,
+        dimensionsWorld: vehicle?.dimensionsWorld ? { ...vehicle.dimensionsWorld } : null,
         doorYaw: vehicle?.driverDoor?.rotation?.y || 0,
         engineOn: !!vehicle?.engineOn,
         wheelPhase: vehicle?.wheelPhase || 0,

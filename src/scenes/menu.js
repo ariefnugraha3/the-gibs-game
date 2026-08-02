@@ -11,6 +11,53 @@ import { setDifficulty } from '../core/state.js';
 import { loadCampaignStage, clearCampaignSave } from '../core/saveGame.js';
 import { startMenuMusic, stopMusic, getMusicVolume, setMusicVolume, getSFXVolume, setSFXVolume } from '../utils/sfx.js';
 
+// Satu sumber konten Credits. Markup dibangun saat menu diinisialisasi agar
+// kredit proyek tidak tercecer sebagai salinan statis di index.html.
+export const MENU_CREDITS = Object.freeze({
+    eyebrow: 'A GIBS 2045 PRODUCTION',
+    intro: 'A browser action game forged from code, persistence, and one impossible mission.',
+    groups: Object.freeze([
+        Object.freeze({
+            role: 'Created, Designed & Directed by',
+            name: 'Arief Nugraha',
+            detail: 'Original concept, game direction, story, systems, world design, and production.',
+            wide: true,
+        }),
+        Object.freeze({
+            role: 'Programming & Technical Design',
+            name: 'Arief Nugraha with OpenAI Codex',
+            detail: 'A collaborative, code-first development process.',
+        }),
+        Object.freeze({
+            role: 'Engine & Rendering',
+            name: 'Three.js r128',
+            detail: 'Released under the MIT License.',
+        }),
+        Object.freeze({
+            role: 'Visual Production',
+            name: 'Original Procedural 3D',
+            detail: 'Geometry, environments, characters, vehicles, materials, and effects built in code.',
+        }),
+        Object.freeze({
+            role: 'Sound & Music',
+            name: 'Royalty-Free Audio Sources',
+            detail: 'Individual audio creators retain the rights to their work.',
+        }),
+        Object.freeze({
+            role: 'Typography',
+            name: 'Courier Prime',
+            detail: 'Designed by Alan Dague-Greene and released under the SIL Open Font License.',
+        }),
+        Object.freeze({
+            role: 'Special Thanks',
+            name: 'The Playtesters',
+            detail: 'Friends, players, and everyone who stood with Major Gibran.',
+            wide: true,
+        }),
+    ]),
+    footer: 'MADE IN INDONESIA — ONE LINE, ONE ROBOT, ONE IMPOSSIBLE MISSION AT A TIME.',
+});
+
 // Campaign baru menahan musik menu sepanjang loading + prolog; intro heli yang
 // mematikannya pada frame live pertama. Continue dan Survival tetap memakai
 // perilaku lama: musik berhenti begitu mode dipilih.
@@ -116,8 +163,35 @@ function initMainMenu() {
     document.querySelectorAll('#mainMenu .menuBack').forEach(b =>
         b.addEventListener('click', showList));
 
+    initCredits();
     initSettingsQuality();
     initSettingsVolume();
+}
+
+function initCredits() {
+    const eyebrow = document.getElementById('creditsEyebrow');
+    const intro = document.getElementById('creditsIntro');
+    const body = document.getElementById('creditsBody');
+    const footer = document.getElementById('creditsFooter');
+    if (!eyebrow || !intro || !body || !footer || body.dataset.ready === '1') return;
+
+    eyebrow.textContent = MENU_CREDITS.eyebrow;
+    intro.textContent = MENU_CREDITS.intro;
+    footer.textContent = MENU_CREDITS.footer;
+    for (const credit of MENU_CREDITS.groups) {
+        const group = document.createElement('div');
+        group.className = 'creditGroup' + (credit.wide ? ' creditWide' : '');
+
+        const role = document.createElement('div');
+        role.className = 'creditRole'; role.textContent = credit.role;
+        const name = document.createElement('div');
+        name.className = 'creditName'; name.textContent = credit.name;
+        const detail = document.createElement('div');
+        detail.className = 'creditDetail'; detail.textContent = credit.detail;
+
+        group.append(role, name, detail); body.appendChild(group);
+    }
+    body.dataset.ready = '1';
 }
 
 // Slider volume MUSIK & SFX di panel Settings (2026-07-19, permintaan user;

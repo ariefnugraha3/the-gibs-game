@@ -2782,6 +2782,17 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         menuMusicMod.keepMenuMusicFor('campaign', 1) === true
         && menuMusicMod.keepMenuMusicFor('campaign', 2) === false
         && menuMusicMod.keepMenuMusicFor('survival', 1) === false);
+    const menuCredits = menuMusicMod.MENU_CREDITS;
+    const menuHtml = fs.readFileSync(ROOT + '/index.html', 'utf8');
+    T('Menu Credits: production dossier bersumber dari menu.js dan memuat kredit proyek utama',
+        menuCredits.eyebrow === 'A GIBS 2045 PRODUCTION'
+        && menuCredits.groups.length >= 7
+        && menuCredits.groups.some(c => c.name === 'Arief Nugraha')
+        && menuCredits.groups.some(c => c.name.includes('OpenAI Codex'))
+        && menuCredits.groups.some(c => c.name === 'Three.js r128')
+        && menuCredits.footer.includes('MADE IN INDONESIA')
+        && menuHtml.includes('id="creditsBody"')
+        && !menuHtml.includes('Claude Code (Anthropic)'));
     // Scene gameplay TIDAK lagi menyalakan musik di enter() — trigger battle
     // music satu-satunya = peluru player mengenai robot (robots.js).
     const sceneFiles = ['src/scenes/survival/index.js', 'src/scenes/campaign/stages/stage1.js',
@@ -5175,6 +5186,12 @@ T('S7 GARUDA LTV-45: empat roda, pintu, mesin, lampu/dashboard dan wheel phase b
     && s7VehicleRig.engineOn && s7VehicleRig.wheelPhase > 0
     && s7VehicleRig.lights.head > 0 && s7VehicleRig.lights.dash > 0
     && s7VehicleMeshes >= 25);
+T('GARUDA DIMENSIONS: proporsi akhir 5.2m × 2.2m × 2.15m dan muat di lajur config',
+    Math.abs(s7VehicleRig.dimensionsMeters.length - tacticalVehicleMod.TACTICAL_VEHICLE_DIMENSIONS.length) < 1e-9
+    && Math.abs(s7VehicleRig.dimensionsMeters.width - tacticalVehicleMod.TACTICAL_VEHICLE_DIMENSIONS.width) < 1e-9
+    && Math.abs(s7VehicleRig.dimensionsMeters.height - tacticalVehicleMod.TACTICAL_VEHICLE_DIMENSIONS.height) < 1e-9
+    && Math.abs(s7VehicleRig.dimensionsWorld.width / 7 - s7VehicleRig.dimensionsMeters.width) < 1e-9
+    && s7VehicleRig.dimensionsWorld.width < S8C.laneWidth);
 tacticalVehicleMod.resetTacticalVehicleVisual(s7VehicleTest);
 T('S7 GARUDA LTV-45: reset mengembalikan pintu/roda/lampu ke state bersih',
     tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest).doorOpen === 0
@@ -5293,8 +5310,8 @@ T('S7 COMPLETE: layar hijau STAGE 7 COMPLETE muncul sebelum Field Shop dan check
     && save5Mod.loadCampaignStage() === 7);
 
 // --- 17a-quinquies. CAMPAIGN STAGE 8 — CISUMDAWU KILL ZONE (2026-08-02).
-// Stage 7 COMPLETE -> Field Shop -> kendaraan otonom tujuh corridor -> sepuluh
-// pickup / 30 rider -> KM 50 -> combat gunship -> Kertajati. ---
+// Stage 7 COMPLETE -> Field Shop -> kendaraan otonom tujuh corridor -> dua puluh
+// pickup / 60 rider -> combat gunship -> Kertajati. ---
 const s8Carry = {
     money: stateMod.score, hp: player.hp, armor: player.armor,
     medkits: player.medkits, weapons: player.weapons.join(','),
@@ -5315,13 +5332,11 @@ T('S8 TRANSISI: Start Next Stage masuk checkpoint 8 dengan loadout/money tetap',
     && player.weapons.join(',') === s8Carry.weapons);
 
 const expectedS8Dialogue = {
-    openingSystem: { speaker: 'Vehicle System', text: 'AUTONOMOUS ROUTE ENGAGED. DESTINATION: KERTAJATI INTERNATIONAL AIRPORT. DISTANCE: 50 KILOMETERS.' },
+    openingSystem: { speaker: 'Vehicle System', text: 'AUTONOMOUS ROUTE ENGAGED. DESTINATION: KERTAJATI INTERNATIONAL AIRPORT. DISTANCE: 100 KILOMETERS.' },
     openingGibran: { speaker: 'Major Gibran', text: 'Good. You handle the road. I’ll handle anything that tries to stop us.' },
     openingCommand: { speaker: 'Command', text: 'Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving.' },
     pickupSystem: { speaker: 'Vehicle System', text: 'HOSTILE VEHICLES APPROACHING.' },
     pickupGibran: { speaker: 'Major Gibran', text: 'Open-bed carriers. I’ll take out the riders and leave the vehicles behind.' },
-    km40Command: { speaker: 'Command', text: 'Ground pursuit is thinning out. Kertajati is ten kilometers ahead.' },
-    km40Gibran: { speaker: 'Major Gibran', text: 'Then why does it suddenly feel too quiet?' },
     gunshipCommand: { speaker: 'Command', text: 'Major, airborne contact! Combat gunship closing fast!' },
     gunshipGibran: { speaker: 'Major Gibran', text: 'So that’s what they were saving for me.' },
     bossDown: { speaker: 'Major Gibran', text: 'Gunship’s down. Kertajati, I’m coming in.' },
@@ -5333,18 +5348,23 @@ T('S8 DIALOG: seluruh naskah final tersimpan PERSIS',
     JSON.stringify(s8mod.STAGE8_DIALOGUE) === JSON.stringify(expectedS8Dialogue));
 T('S8 OPENING: dunia terlihat sebelum typewriter, kontrol cinematic terkunci',
     s8mod.stage8Debug().phase === 'opening' && stateMod.cinematicActive
-    && s8mod.stage8DialogueDebug().key === null && dom4.cineFadeDebug()?.opacity === 1);
+    && s8mod.stage8DialogueDebug().key === null && dom4.cineFadeDebug()?.opacity === 0);
 
 const s8World0 = s8mod.stage8WorldDebug(), s8Road0 = s8mod.stage8RoadDebug();
 T('S8 WORLD: tujuh corridor, fixed road/pickup/dust/projectile pools, airport, dan fixed lights terbangun',
     s8mod.S8_LANES.length === 7 && s8mod.S8_LANES[3] === 0
-    && s8World0.pools.road === 12 && s8World0.pools.pickups === S8C.maxActivePickups
+    && s8mod.S8_START.z === s8mod.S8_LANES[1] && s8mod.S8_START.z < 0
+    && s8World0.lanePositions.every((z, i) => Math.abs(z - (i - 3) * S8C.laneWidth) < 1e-9)
+    && Math.abs(s8World0.gameplayCamera.pullback - 1.20) < 1e-9
+    && s8World0.gameplayCamera.distance > S8C.laneWidth * 11
+    && s8World0.pools.road === 20 && s8World0.pools.pickups === S8C.maxActivePickups
     && s8World0.pools.dust === 24 && s8World0.pools.missiles === S8C.gunship.missileBurst
     && s8World0.pools.shells === 2 && s8World0.lights === 12
     && s8World0.sceneRoots.airport && s8mod.stage8Walk(s8mod.S8_START.x, s8mod.S8_START.z, 1));
-T('S8 DISTANCE: memakai skala Stage 5 persis dan KM 50 = 100 detik',
-    Math.abs(s8Road0.kmPerSec - S5C.routeKm / S5C.rideMinSec) < 1e-9
-    && Math.abs(S8C.routeKm / s8Road0.kmPerSec - 100) < 1e-9);
+T('S8 DISTANCE: 100 KM hanya menjadi informasi opening tanpa countdown perjalanan',
+    s8mod.STAGE8_DIALOGUE.openingSystem.text.includes('DISTANCE: 100 KILOMETERS')
+    && !('distanceKm' in s8Road0) && !('kmPerSec' in s8Road0)
+    && !s8mod.stage8Scene.hudStatus().includes('KM'));
 T('S8 ACTION GATE: RMB move, dodge, dan melee ditolak; fire/switch/medkit tetap diizinkan',
     !s8mod.stage8Scene.allowsPlayerAction('moveTarget')
     && !s8mod.stage8Scene.allowsPlayerAction('dodge')
@@ -5358,7 +5378,9 @@ const pickupRigDbg = enemyPickupMod.enemyPickupDebug(pickupRig);
 enemyPickupMod.updateEnemyPickupVisual(pickupRig, 0.5, { active: true, speed: S8C.pickupSpeed });
 T('S8 PICKUP ENTITY: chassis prosedural punya 4 roda/3 anchor, suspensi bergerak, dan tidak punya HP langsung',
     pickupRig.wheels.length === 4 && pickupRigDbg.anchors === 3 && !('hp' in pickupRig)
-    && enemyPickupMod.enemyPickupDebug(pickupRig).wheelPhase > 0);
+    && enemyPickupMod.enemyPickupDebug(pickupRig).wheelPhase > 0
+    && pickupRigDbg.dimensionsWorld.width < S8C.laneWidth
+    && pickupRigDbg.dimensionsMeters.width === enemyPickupMod.ENEMY_PICKUP_DIMENSIONS.width);
 const gunshipSource = fs.readFileSync(ROOT + '/src/entities/combatGunship.js', 'utf8');
 const gunshipRig = combatGunshipMod.createCombatGunship(1);
 combatGunshipMod.resetCombatGunship(gunshipRig, { active: true, x: 0, y: 42, z: 0 });
@@ -5374,15 +5396,16 @@ T('S8 OPENING SKIP: skip memberi state highway bersih yang sama tanpa dialog/fad
     && !stateMod.cinematicActive && s8mod.stage8DialogueDebug().key === null
     && dom4.stageRadioDialogueDebug() === null && dom4.cineFadeDebug()?.opacity === 0);
 
-// Hold tidak auto-repeat: satu edge A memindah dari slot 5 ke 4 saja.
-stateMod.keys.a = true; s8mod.stage8Scene.updatePlayerControl(S8C.laneChangeSec + 0.01);
+// Mulai di carriageway kiri. Hold tidak auto-repeat: satu edge D hanya pindah
+// dari slot 1 ke 2, lalu edge berikutnya baru membawa kendaraan ke median.
+stateMod.keys.d = true; s8mod.stage8Scene.updatePlayerControl(S8C.laneChangeSec + 0.01);
 const heldLane = s8mod.stage8RoadDebug().laneIndex;
 s8mod.stage8Scene.updatePlayerControl(S8C.laneChangeSec * 3);
-T('S8 LANE: menahan A hanya memindahkan tepat satu slot', heldLane === 4
-    && s8mod.stage8RoadDebug().laneIndex === 4);
-stateMod.keys.a = false; s8mod.stage8Scene.updatePlayerControl(0.01);
-stateMod.keys.a = true; s8mod.stage8Scene.updatePlayerControl(S8C.medianChangeSec + 0.01);
-stateMod.keys.a = false; s8mod.stage8Scene.updatePlayerControl(0.01);
+T('S8 LANE: mulai di kiri dan menahan D hanya memindahkan tepat satu slot', heldLane === 2
+    && s8mod.stage8RoadDebug().laneIndex === 2);
+stateMod.keys.d = false; s8mod.stage8Scene.updatePlayerControl(0.01);
+stateMod.keys.d = true; s8mod.stage8Scene.updatePlayerControl(S8C.medianChangeSec + 0.01);
+stateMod.keys.d = false; s8mod.stage8Scene.updatePlayerControl(0.01);
 T('S8 MEDIAN: tanah/rumput adalah slot valid dan memakai timing lebih lambat',
     s8mod.stage8RoadDebug().laneIndex === 3 && S8C.medianChangeSec > S8C.laneChangeSec
     && Math.abs(s8mod.stage8RoadDebug().currentZ - s8mod.S8_LANES[3]) < 1e-6);
@@ -5409,51 +5432,79 @@ function drainS8Dialogue() {
     }
 }
 
-const firstAt = S8C.groundWaves[0].atKm;
-tickS8(firstAt / s8Road0.kmPerSec - 0.1, 0.1);
-T('S8 WAVE TIMING: pickup pertama belum spawn sebelum KM config',
+tickS8(S8C.groundStartDelaySec - 0.1, 0.1);
+T('S8 SPAWN TIMING: pickup pertama belum spawn sebelum delay config',
     s8mod.stage8ConvoyDebug().spawned === 0);
 tickS8(0.11, 0.01);
 let firstRiders = robots.filter(z => z.stage === 8 && z.mounted);
-T('S8 PICKUP PERTAMA: selalu tepat 3 rider A/B sesuai schedule config',
+const firstPickupEntry = s8mod.stage8ConvoyDebug().pickups.find(p => p.active && !p.wreck);
+T('S8 PICKUP PERTAMA: selalu tepat 3 rider A/B sesuai load config',
     s8mod.stage8ConvoyDebug().spawned === 1 && firstRiders.length === 3
-    && firstRiders.map(z => z.kind).join('/') === S8C.groundWaves[0].vehicles[0].join('/')
+    && firstRiders.map(z => z.kind).join('/') === S8C.groundLoads[0].join('/')
     && firstRiders.every(z => ['A', 'B'].includes(z.kind) && z.pickup));
+T('S8 PICKUP ENTRY: carrier pertama lahir di ujung road pool belakang, bukan tengah layar',
+    firstPickupEntry?.entrySide === 'rear'
+    && firstPickupEntry.entryX <= s8World0.origin.x
+        - (s8Road0.roadSpan / 2 - S8C.pickupEntryInset)
+    && firstPickupEntry.entryX < firstPickupEntry.entryViewEdgeX - S8C.pickupOffscreenMargin
+    && firstPickupEntry.lane <= 2 && Math.abs(firstPickupEntry.yaw) < 1e-9);
 
-// Mainkan route sampai event terakhir. Semua pickup sebelum KM 38 dibersihkan;
-// event KM 38 sengaja dibiarkan hidup untuk menguji gate boss.
-let maxS8Pickups = 0, allMountedTriples = true, lastSpawnSeen = s8mod.stage8ConvoyDebug().spawned;
-while (s8mod.stage8RoadDebug().distanceKm < S8C.groundStopKm - 0.01) {
-    const d0 = s8mod.stage8RoadDebug().distanceKm;
-    if (d0 < 37.9) killS8Riders();
-    tickS8(0.25, 0.25);
-    const cd = s8mod.stage8ConvoyDebug();
+// Hancurkan carrier satu per satu sampai tersisa carrier target terakhir. Audit
+// setiap entry memastikan kedua ujung road pool dipakai tanpa melawan arus.
+let maxS8Pickups = 0, allMountedTriples = true, entryFacingOK = true;
+const s8EntrySides = new Set([firstPickupEntry?.entrySide]);
+const auditedS8Entries = new Set();
+let pursuitGuard = 0;
+function auditS8Entries(cd) {
     maxS8Pickups = Math.max(maxS8Pickups, cd.activePickups);
-    if (cd.spawned !== lastSpawnSeen) {
-        for (const p of cd.pickups.filter(p => p.active && !p.wreck))
-            if (p.passengers !== 3 || p.anchors !== 3) allMountedTriples = false;
-        lastSpawnSeen = cd.spawned;
+    for (const p of cd.pickups.filter(p => p.active && !p.wreck)) {
+        if (auditedS8Entries.has(p.eventIndex)) continue;
+        auditedS8Entries.add(p.eventIndex);
+        if (p.passengers !== 3 || p.anchors !== 3) allMountedTriples = false;
+        s8EntrySides.add(p.entrySide);
+        const atEnd = p.entrySide === 'rear'
+            ? p.entryX <= s8World0.origin.x - (s8Road0.roadSpan / 2 - S8C.pickupEntryInset)
+                && p.entryX < p.entryViewEdgeX - S8C.pickupOffscreenMargin
+            : p.entryX >= s8World0.origin.x + (s8Road0.roadSpan / 2 - S8C.pickupEntryInset)
+                && p.entryX > p.entryViewEdgeX + S8C.pickupOffscreenMargin;
+        if (!atEnd || p.lane > 2 || Math.abs(p.yaw) >= 1e-9) entryFacingOK = false;
     }
 }
-const scheduledVehicles = S8C.groundWaves.reduce((n, w) => n + w.vehicles.length, 0);
-T('S8 CONVOY: seluruh schedule = 10 pickup/30 robot, tiap pickup triple, cap aktif tidak lewat config',
-    scheduledVehicles === 10 && scheduledVehicles * 3 === 30
-    && s8mod.stage8ConvoyDebug().spawned === scheduledVehicles
+auditS8Entries(s8mod.stage8ConvoyDebug());
+while (s8mod.stage8ConvoyDebug().destroyed < S8C.groundPickupTarget - 1
+    && pursuitGuard++ < 20000) {
+    killS8Riders();
+    tickS8(0.25, 0.25);
+    auditS8Entries(s8mod.stage8ConvoyDebug());
+}
+while (s8mod.stage8ConvoyDebug().spawned < S8C.groundPickupTarget
+    && pursuitGuard++ < 22000) {
+    tickS8(0.25, 0.25); auditS8Entries(s8mod.stage8ConvoyDebug());
+}
+const convoyBeforeFinal = s8mod.stage8ConvoyDebug();
+T('S8 CONVOY: target config tercapai, tiap pickup triple A/B, dan cap aktif tidak terlewati',
+    S8C.groundLoads.every(load => load.length === 3 && load.every(k => k === 'A' || k === 'B'))
+    && convoyBeforeFinal.spawned === S8C.groundPickupTarget
+    && convoyBeforeFinal.destroyed === S8C.groundPickupTarget - 1
+    && auditedS8Entries.size === S8C.groundPickupTarget
     && allMountedTriples && maxS8Pickups <= S8C.maxActivePickups);
-const spawnedAtStop = s8mod.stage8ConvoyDebug().spawned;
-tickS8(8, 0.25);
-T('S8 KM 40: antrean dibatalkan dan tidak ada spawn baru sesudah groundStopKm',
-    s8mod.stage8RoadDebug().distanceKm >= S8C.groundStopKm
-    && s8mod.stage8ConvoyDebug().spawned === spawnedAtStop
-    && s8mod.stage8Debug().phase === 'bossApproach');
-tickS8(Math.max(0, (S8C.routeKm - s8mod.stage8RoadDebug().distanceKm) / s8Road0.kmPerSec), 0.25);
-T('S8 BOSS GATE: KM 50 ditahan selama pengejar terakhir masih hidup',
-    s8mod.stage8RoadDebug().distanceKm === S8C.routeKm
-    && s8mod.stage8Debug().phase === 'clearPursuers'
-    && s8mod.stage8ConvoyDebug().activeRiders > 0
+T('S8 CONVOY ENTRY: kedua ujung jalan dipakai, semua carrier menghadap maju di lajur kiri',
+    s8EntrySides.has('rear') && s8EntrySides.has('front') && entryFacingOK);
+T('S8 BOSS GATE: boss belum datang selama kendaraan ke-20 belum dihancurkan',
+    s8mod.stage8Debug().phase === 'groundPursuit'
+    && convoyBeforeFinal.activeRiders === 3
     && !s8mod.stage8GunshipDebug().active);
 killS8Riders(); tickS8(0.1, 0.1);
-T('S8 GUNSHIP INTRO: baru dimulai setelah KM 50 dan semua pengejar mati',
+T('S8 PURSUIT COMPLETE: kendaraan ke-20 memulai approach tanpa spawn tambahan',
+    s8mod.stage8ConvoyDebug().destroyed === S8C.groundPickupTarget
+    && s8mod.stage8ConvoyDebug().spawned === S8C.groundPickupTarget
+    && s8mod.stage8Debug().phase === 'bossApproach'
+    && !s8mod.stage8GunshipDebug().active);
+tickS8(Math.max(0, S8C.bossApproachDelaySec - 0.1), 0.1);
+T('S8 BOSS APPROACH: gunship menunggu delay config setelah 20 carrier hancur',
+    s8mod.stage8Debug().phase === 'bossApproach' && !s8mod.stage8GunshipDebug().active);
+tickS8(0.2, 0.1);
+T('S8 GUNSHIP INTRO: baru dimulai setelah target destruction dan approach selesai',
     s8mod.stage8Debug().phase === 'gunshipIntro' && stateMod.cinematicActive
     && s8mod.stage8GunshipDebug().active);
 T('S8 GUNSHIP INTRO SKIP: cleanup identik dan boss battle tetap aktif',
