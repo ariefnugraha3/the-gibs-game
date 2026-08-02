@@ -1172,11 +1172,11 @@ export function separateRobots() {
     }
     for (let i = 0; i < n; i++) {
         const a = robots[i];
-        if (a.state === 'jumping') continue;
+        if (a.state === 'jumping' || a.mounted) continue;
         const ap = a.mesh.position, ra = base * (a.scl || 1), aFixed = a.state === 'idle';
         for (let j = i + 1; j < n; j++) {
             const b = robots[j];
-            if (b.state === 'jumping') continue;
+            if (b.state === 'jumping' || b.mounted) continue;
             const bFixed = b.state === 'idle';
             if (aFixed && bFixed) continue;   // dua idle: jangan usik penempatan campaign
             const bp = b.mesh.position;
@@ -1205,7 +1205,7 @@ export function separateRobots() {
     if (activeScene.clampRobot) {
         for (let i = 0; i < n; i++) {
             const z = robots[i];
-            if (z.state === 'jumping' || z.state === 'idle') continue;   // idle tak digeser; jumping di udara
+            if (z.state === 'jumping' || z.state === 'idle' || z.mounted) continue;   // mounted mengikuti anchor kendaraan
             if (z.mesh.position.x !== z._sepOX || z.mesh.position.z !== z._sepOZ)
                 activeScene.clampRobot(z, z._sepOX, z._sepOZ);
         }

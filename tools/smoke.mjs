@@ -4347,12 +4347,16 @@ T('S4 FINISH CONTINUE: tombol utama menutup overlay tanpa reset dan baru membuka
 const s5mod = await import(R('src/scenes/campaign/stages/stage5.js'));
 const s6mod = await import(R('src/scenes/campaign/stages/stage6.js'));
 const s7mod = await import(R('src/scenes/campaign/stages/stage7.js'));
+const s8mod = await import(R('src/scenes/campaign/stages/stage8.js'));
 const tacticalVehicleMod = await import(R('src/entities/tacticalVehicle.js'));
+const enemyPickupMod = await import(R('src/entities/enemyPickup.js'));
+const combatGunshipMod = await import(R('src/entities/combatGunship.js'));
 const save5Mod = await import(R('src/core/saveGame.js'));
 const crate5Mod = await import(R('src/entities/crates.js'));
 const S5C = cfgMod.CFG.campaign.stage5;
 const S6C = cfgMod.CFG.campaign.stage6;
 const S7C = cfgMod.CFG.campaign.stage7;
+const S8C = cfgMod.CFG.campaign.stage8;
 
 // Finish Stage 4 sudah ditekan di atas. Tunggu LOADING #1 Field Shop, lalu
 // gunakan tombol shop sesungguhnya (dua tekan = buka konfirmasi + setuju).
@@ -5282,15 +5286,224 @@ T('S7 STATIC CITY: props kota/toll tidak berpindah ketika kendaraan berangkat',
     JSON.stringify(s7mod.stage7WorldDebug().props) === s7StaticBefore);
 T('S7 FIXED POOLS: hujan/ripple/sparks/exhaust tidak menambah mesh sepanjang stage',
     JSON.stringify(s7PoolsAfter) === JSON.stringify(s7PoolsBefore));
-T('S7 COMPLETE: layar hijau TO BE CONTINUED dan checkpoint 7 dipertahankan',
+T('S7 COMPLETE: layar hijau STAGE 7 COMPLETE muncul sebelum Field Shop dan checkpoint dipertahankan',
     stateMod.isGameOver && s7mod.stage7Debug().complete
-    && dom4.gameOverTitle.innerText === 'TO BE CONTINUED'
+    && dom4.gameOverTitle.innerText === 'STAGE 7 COMPLETE'
     && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
     && save5Mod.loadCampaignStage() === 7);
+
+// --- 17a-quinquies. CAMPAIGN STAGE 8 — CISUMDAWU KILL ZONE (2026-08-02).
+// Stage 7 COMPLETE -> Field Shop -> kendaraan otonom tujuh corridor -> sepuluh
+// pickup / 30 rider -> KM 50 -> combat gunship -> Kertajati. ---
+const s8Carry = {
+    money: stateMod.score, hp: player.hp, armor: player.armor,
+    medkits: player.medkits, weapons: player.weapons.join(','),
+};
+T('S7 COMPLETE CONTINUE: tombol utama baru membuka Field Shop menuju Stage 8',
+    gameMod.activateGameOverPrimary() === true && !stateMod.isGameOver
+    && smMod.activeScene.id === 'campaign-shop');
+for (let i = 0; i < 400 && !shopMod.isShopOpen(); i++) await new Promise(r => setTimeout(r, 10));
+T('S8 TRANSISI: Field Shop tampil sebelum Cisumdawu', shopMod.isShopOpen()
+    && smMod.activeScene.id === 'campaign-shop');
+smMod.activeScene.shopKey(' '); smMod.activeScene.shopKey(' ');
+for (let i = 0; i < 500 && smMod.activeScene !== s8mod.stage8Scene; i++) await new Promise(r => setTimeout(r, 10));
+stateMod.setPaused(false);
+T('S8 TRANSISI: Start Next Stage masuk checkpoint 8 dengan loadout/money tetap',
+    smMod.activeScene === s8mod.stage8Scene && save5Mod.loadCampaignStage() === 8
+    && stateMod.score === s8Carry.money && player.hp === s8Carry.hp
+    && player.armor === s8Carry.armor && player.medkits === s8Carry.medkits
+    && player.weapons.join(',') === s8Carry.weapons);
+
+const expectedS8Dialogue = {
+    openingSystem: { speaker: 'Vehicle System', text: 'AUTONOMOUS ROUTE ENGAGED. DESTINATION: KERTAJATI INTERNATIONAL AIRPORT. DISTANCE: 50 KILOMETERS.' },
+    openingGibran: { speaker: 'Major Gibran', text: 'Good. You handle the road. I’ll handle anything that tries to stop us.' },
+    openingCommand: { speaker: 'Command', text: 'Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving.' },
+    pickupSystem: { speaker: 'Vehicle System', text: 'HOSTILE VEHICLES APPROACHING.' },
+    pickupGibran: { speaker: 'Major Gibran', text: 'Open-bed carriers. I’ll take out the riders and leave the vehicles behind.' },
+    km40Command: { speaker: 'Command', text: 'Ground pursuit is thinning out. Kertajati is ten kilometers ahead.' },
+    km40Gibran: { speaker: 'Major Gibran', text: 'Then why does it suddenly feel too quiet?' },
+    gunshipCommand: { speaker: 'Command', text: 'Major, airborne contact! Combat gunship closing fast!' },
+    gunshipGibran: { speaker: 'Major Gibran', text: 'So that’s what they were saving for me.' },
+    bossDown: { speaker: 'Major Gibran', text: 'Gunship’s down. Kertajati, I’m coming in.' },
+    arrivalSystem: { speaker: 'Vehicle System', text: 'KERTAJATI INTERNATIONAL AIRPORT. ROUTE COMPLETE.' },
+    arrivalCommand: { speaker: 'Command', text: 'Major, we have your signal at the airfield. Get inside and secure a route to Kalimantan.' },
+    arrivalGibran: { speaker: 'Major Gibran', text: 'Copy. Next stop—I.K.N.' },
+};
+T('S8 DIALOG: seluruh naskah final tersimpan PERSIS',
+    JSON.stringify(s8mod.STAGE8_DIALOGUE) === JSON.stringify(expectedS8Dialogue));
+T('S8 OPENING: dunia terlihat sebelum typewriter, kontrol cinematic terkunci',
+    s8mod.stage8Debug().phase === 'opening' && stateMod.cinematicActive
+    && s8mod.stage8DialogueDebug().key === null && dom4.cineFadeDebug()?.opacity === 1);
+
+const s8World0 = s8mod.stage8WorldDebug(), s8Road0 = s8mod.stage8RoadDebug();
+T('S8 WORLD: tujuh corridor, fixed road/pickup/dust/projectile pools, airport, dan fixed lights terbangun',
+    s8mod.S8_LANES.length === 7 && s8mod.S8_LANES[3] === 0
+    && s8World0.pools.road === 12 && s8World0.pools.pickups === S8C.maxActivePickups
+    && s8World0.pools.dust === 24 && s8World0.pools.missiles === S8C.gunship.missileBurst
+    && s8World0.pools.shells === 2 && s8World0.lights === 12
+    && s8World0.sceneRoots.airport && s8mod.stage8Walk(s8mod.S8_START.x, s8mod.S8_START.z, 1));
+T('S8 DISTANCE: memakai skala Stage 5 persis dan KM 50 = 100 detik',
+    Math.abs(s8Road0.kmPerSec - S5C.routeKm / S5C.rideMinSec) < 1e-9
+    && Math.abs(S8C.routeKm / s8Road0.kmPerSec - 100) < 1e-9);
+T('S8 ACTION GATE: RMB move, dodge, dan melee ditolak; fire/switch/medkit tetap diizinkan',
+    !s8mod.stage8Scene.allowsPlayerAction('moveTarget')
+    && !s8mod.stage8Scene.allowsPlayerAction('dodge')
+    && !s8mod.stage8Scene.allowsPlayerAction('melee')
+    && s8mod.stage8Scene.allowsPlayerAction('fire')
+    && s8mod.stage8Scene.allowsPlayerAction('switchWeapon')
+    && s8mod.stage8Scene.allowsPlayerAction('medkit'));
+
+const pickupRig = enemyPickupMod.buildEnemyPickupMesh(7);
+const pickupRigDbg = enemyPickupMod.enemyPickupDebug(pickupRig);
+enemyPickupMod.updateEnemyPickupVisual(pickupRig, 0.5, { active: true, speed: S8C.pickupSpeed });
+T('S8 PICKUP ENTITY: chassis prosedural punya 4 roda/3 anchor, suspensi bergerak, dan tidak punya HP langsung',
+    pickupRig.wheels.length === 4 && pickupRigDbg.anchors === 3 && !('hp' in pickupRig)
+    && enemyPickupMod.enemyPickupDebug(pickupRig).wheelPhase > 0);
+const gunshipSource = fs.readFileSync(ROOT + '/src/entities/combatGunship.js', 'utf8');
+const gunshipRig = combatGunshipMod.createCombatGunship(1);
+combatGunshipMod.resetCombatGunship(gunshipRig, { active: true, x: 0, y: 42, z: 0 });
+T('S8 GUNSHIP ENTITY: benar-benar entity baru, HP live sama dengan tank, dan pool missile tepat tiga',
+    !gunshipSource.includes("from './helicopter.js'")
+    && combatGunshipMod.combatGunshipDebug(gunshipRig).hpMatchesTank
+    && gunshipRig.maxHp === cfgMod.CFG.campaign.bosses.tank.hp
+    && gunshipRig.missiles.length === S8C.gunship.missileBurst);
+combatGunshipMod.disposeCombatGunship(gunshipRig);
+
+T('S8 OPENING SKIP: skip memberi state highway bersih yang sama tanpa dialog/fade tersisa',
+    dom4.triggerCutsceneSkip() === true && s8mod.stage8Debug().phase === 'highway'
+    && !stateMod.cinematicActive && s8mod.stage8DialogueDebug().key === null
+    && dom4.stageRadioDialogueDebug() === null && dom4.cineFadeDebug()?.opacity === 0);
+
+// Hold tidak auto-repeat: satu edge A memindah dari slot 5 ke 4 saja.
+stateMod.keys.a = true; s8mod.stage8Scene.updatePlayerControl(S8C.laneChangeSec + 0.01);
+const heldLane = s8mod.stage8RoadDebug().laneIndex;
+s8mod.stage8Scene.updatePlayerControl(S8C.laneChangeSec * 3);
+T('S8 LANE: menahan A hanya memindahkan tepat satu slot', heldLane === 4
+    && s8mod.stage8RoadDebug().laneIndex === 4);
+stateMod.keys.a = false; s8mod.stage8Scene.updatePlayerControl(0.01);
+stateMod.keys.a = true; s8mod.stage8Scene.updatePlayerControl(S8C.medianChangeSec + 0.01);
+stateMod.keys.a = false; s8mod.stage8Scene.updatePlayerControl(0.01);
+T('S8 MEDIAN: tanah/rumput adalah slot valid dan memakai timing lebih lambat',
+    s8mod.stage8RoadDebug().laneIndex === 3 && S8C.medianChangeSec > S8C.laneChangeSec
+    && Math.abs(s8mod.stage8RoadDebug().currentZ - s8mod.S8_LANES[3]) < 1e-6);
+
+function killS8Riders(predicate = () => true) {
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
+        if (z.stage !== 8 || !z.mounted || !predicate(z)) continue;
+        robotsMod.disposeRobot(z); scene.remove(z.mesh); robots.splice(i, 1);
+    }
+}
+function tickS8(total, step = 0.1) {
+    let left = Math.max(0, total), guard = 0;
+    while (left > 1e-9 && guard++ < 50000) {
+        const dt = Math.min(step, left); s8mod.stage8Scene.updateMode(dt); left -= dt;
+    }
+}
+function drainS8Dialogue() {
+    let guard = 0;
+    while (guard++ < 50000) {
+        const d = s8mod.stage8DialogueDebug();
+        if (!d.key && !d.queued.length) break;
+        tickS8(1.01 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps));
+    }
+}
+
+const firstAt = S8C.groundWaves[0].atKm;
+tickS8(firstAt / s8Road0.kmPerSec - 0.1, 0.1);
+T('S8 WAVE TIMING: pickup pertama belum spawn sebelum KM config',
+    s8mod.stage8ConvoyDebug().spawned === 0);
+tickS8(0.11, 0.01);
+let firstRiders = robots.filter(z => z.stage === 8 && z.mounted);
+T('S8 PICKUP PERTAMA: selalu tepat 3 rider A/B sesuai schedule config',
+    s8mod.stage8ConvoyDebug().spawned === 1 && firstRiders.length === 3
+    && firstRiders.map(z => z.kind).join('/') === S8C.groundWaves[0].vehicles[0].join('/')
+    && firstRiders.every(z => ['A', 'B'].includes(z.kind) && z.pickup));
+
+// Mainkan route sampai event terakhir. Semua pickup sebelum KM 38 dibersihkan;
+// event KM 38 sengaja dibiarkan hidup untuk menguji gate boss.
+let maxS8Pickups = 0, allMountedTriples = true, lastSpawnSeen = s8mod.stage8ConvoyDebug().spawned;
+while (s8mod.stage8RoadDebug().distanceKm < S8C.groundStopKm - 0.01) {
+    const d0 = s8mod.stage8RoadDebug().distanceKm;
+    if (d0 < 37.9) killS8Riders();
+    tickS8(0.25, 0.25);
+    const cd = s8mod.stage8ConvoyDebug();
+    maxS8Pickups = Math.max(maxS8Pickups, cd.activePickups);
+    if (cd.spawned !== lastSpawnSeen) {
+        for (const p of cd.pickups.filter(p => p.active && !p.wreck))
+            if (p.passengers !== 3 || p.anchors !== 3) allMountedTriples = false;
+        lastSpawnSeen = cd.spawned;
+    }
+}
+const scheduledVehicles = S8C.groundWaves.reduce((n, w) => n + w.vehicles.length, 0);
+T('S8 CONVOY: seluruh schedule = 10 pickup/30 robot, tiap pickup triple, cap aktif tidak lewat config',
+    scheduledVehicles === 10 && scheduledVehicles * 3 === 30
+    && s8mod.stage8ConvoyDebug().spawned === scheduledVehicles
+    && allMountedTriples && maxS8Pickups <= S8C.maxActivePickups);
+const spawnedAtStop = s8mod.stage8ConvoyDebug().spawned;
+tickS8(8, 0.25);
+T('S8 KM 40: antrean dibatalkan dan tidak ada spawn baru sesudah groundStopKm',
+    s8mod.stage8RoadDebug().distanceKm >= S8C.groundStopKm
+    && s8mod.stage8ConvoyDebug().spawned === spawnedAtStop
+    && s8mod.stage8Debug().phase === 'bossApproach');
+tickS8(Math.max(0, (S8C.routeKm - s8mod.stage8RoadDebug().distanceKm) / s8Road0.kmPerSec), 0.25);
+T('S8 BOSS GATE: KM 50 ditahan selama pengejar terakhir masih hidup',
+    s8mod.stage8RoadDebug().distanceKm === S8C.routeKm
+    && s8mod.stage8Debug().phase === 'clearPursuers'
+    && s8mod.stage8ConvoyDebug().activeRiders > 0
+    && !s8mod.stage8GunshipDebug().active);
+killS8Riders(); tickS8(0.1, 0.1);
+T('S8 GUNSHIP INTRO: baru dimulai setelah KM 50 dan semua pengejar mati',
+    s8mod.stage8Debug().phase === 'gunshipIntro' && stateMod.cinematicActive
+    && s8mod.stage8GunshipDebug().active);
+T('S8 GUNSHIP INTRO SKIP: cleanup identik dan boss battle tetap aktif',
+    dom4.triggerCutsceneSkip() === true && s8mod.stage8Debug().phase === 'gunshipBattle'
+    && !stateMod.cinematicActive && s8mod.stage8GunshipDebug().hp === cfgMod.CFG.campaign.bosses.tank.hp);
+
+// Siklus serangan aktual: median ikut ditarget, MG telegraph, cannon, lalu burst
+// homing yang tidak pernah dapat melebihi tiga proyektil pool.
+tickS8(1.05, 0.05);
+T('S8 GUNSHIP MG: corridor median ikut ditarget dan telegraph muncul sebelum tembakan',
+    s8mod.stage8GunshipDebug().attackState === 'telegraph'
+    && s8mod.stage8GunshipDebug().targetLane === 3 && s8mod.stage8GunshipDebug().telegraph);
+let missilePeak = 0, attackGuard = 0;
+while (attackGuard++ < 600 && missilePeak < S8C.gunship.missileBurst) {
+    tickS8(0.05, 0.05);
+    missilePeak = Math.max(missilePeak, s8mod.stage8GunshipDebug().missilesActive);
+}
+T('S8 GUNSHIP MISSILE: siklus MG/cannon/missile menghasilkan burst tepat tiga, tak lebih dari pool',
+    missilePeak === S8C.gunship.missileBurst
+    && s8mod.stage8WorldDebug().pools.missiles === S8C.gunship.missileBurst);
+
+const s8PoolsBeforeDeath = JSON.stringify(s8mod.stage8WorldDebug().pools);
+s8mod.stage8DamageGunshipForDebug(cfgMod.CFG.campaign.bosses.tank.hp);
+tickS8(0.1, 0.1);
+T('S8 GUNSHIP DEATH: HP nol membersihkan projectile dan masuk animasi jatuh',
+    s8mod.stage8Debug().phase === 'gunshipDeath' && s8mod.stage8GunshipDebug().dead
+    && s8mod.stage8GunshipDebug().missilesActive === 0
+    && s8mod.stage8GunshipDebug().shellsActive === 0);
+tickS8(4.3, 0.1);
+T('S8 DEATH DELAY: arrival belum mulai tepat sesudah animasi gunship selesai',
+    s8mod.stage8GunshipDebug().deathDone && s8mod.stage8Debug().phase === 'gunshipDeath'
+    && s8mod.stage8Debug().deathDelayT < S8C.gunshipDeathDelaySec);
+tickS8(S8C.gunshipDeathDelaySec + 0.1, 0.1); drainS8Dialogue(); tickS8(0.1, 0.1);
+T('S8 ARRIVAL: tiga detik sesudah animasi + dialog boss-down membuka cutscene Kertajati',
+    s8mod.stage8Debug().phase === 'arrival' && stateMod.cinematicActive);
+const s8ArrivalSkip = dom4.triggerCutsceneSkip();
+T('S8 COMPLETE: arrival skip membersihkan pose/overlay/audio dan membuka finish hijau dengan checkpoint 8',
+    s8ArrivalSkip === true && stateMod.isGameOver && s8mod.stage8Debug().complete
+    && dom4.gameOverTitle.innerText === 'STAGE 8 COMPLETE'
+    && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
+    && save5Mod.loadCampaignStage() === 8 && !stateMod.cinematicActive
+    && !avMod.avatarVehicleDebug().active && dom4.stageRadioDialogueDebug() === null
+    && dom4.cineFadeDebug()?.opacity === 0
+    && JSON.stringify(s8mod.stage8WorldDebug().pools) === s8PoolsBeforeDeath);
+
+// Kembali ke Stage 7 untuk menguji jalur skip outro-nya secara independen.
 stateMod.setGameOver(false);
+s8mod.stage8Scene.cheatSkipToStage(7);
 
 // Jalur skip harus menghasilkan cleanup/state akhir yang sama dengan outro normal.
-s7mod.stage7Scene.enter();
 T('S7 OPENING SKIP: Space/button melepas cinematic tanpa menyisakan dialogue/fade',
     dom4.triggerCutsceneSkip() === true && s7mod.stage7Debug().phase === 'hqEscape'
     && !stateMod.cinematicActive && s7mod.stage7DialogueDebug().key === null
@@ -5325,7 +5538,11 @@ stateMod.setGameOver(false);
 // (tanpa shop). Hook `cheatSkipToStage` di tiap stage → `campaignJumpToStage`
 // (transition.js): bersihkan robot + setScene(target) + tempatkan robot. ---
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
-let jr = smMod.activeScene.cheatSkipToStage(7);
+let jr = smMod.activeScene.cheatSkipToStage(8);
+T('cheat skip-to-stage-8: pindah ke Cisumdawu + checkpoint 8 + opening kendaraan', jr === 8
+    && smMod.activeScene === s8mod.stage8Scene && save5Mod.loadCampaignStage() === 8
+    && s8mod.stage8Debug().phase === 'opening');
+jr = smMod.activeScene.cheatSkipToStage(7);
 T('cheat skip-to-stage-7: pindah ke Bandung streets + checkpoint/HQ squad Stage 7', jr === 7
     && smMod.activeScene === s7mod.stage7Scene && save5Mod.loadCampaignStage() === 7
     && robots.filter(z => z.stage === 7).length === mixCount(S7C.encounters.hqEscape));
@@ -5482,7 +5699,9 @@ saveMod.saveCampaignStage(6);
 T('save: checkpoint Stage 6 valid untuk Continue', saveMod.loadCampaignStage() === 6);
 saveMod.saveCampaignStage(7);
 T('save: checkpoint Stage 7 valid untuk Continue', saveMod.loadCampaignStage() === 7);
-saveMod.saveCampaignStage(9);   // di luar 1..7 -> dianggap tak valid
+saveMod.saveCampaignStage(8);
+T('save: checkpoint Stage 8 valid untuk Continue', saveMod.loadCampaignStage() === 8);
+saveMod.saveCampaignStage(9);   // di luar 1..8 -> dianggap tak valid
 T('save: nilai invalid (9) dibaca sebagai 0', saveMod.loadCampaignStage() === 0);
 saveMod.clearCampaignSave();
 T('save: clear -> 0', saveMod.loadCampaignStage() === 0);
@@ -5493,13 +5712,14 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 smMod.activeScene.cheatSkipToStage(1);   // stage1.enter -> saveCampaignStage(1)
 T('save: enter stage 1 menulis checkpoint 1', saveMod.loadCampaignStage() === 1);
 // Konsistensi loading antar-stage (2026-07-16): stage1.enter mem-pre-build SEMUA
-// dunia campaign (ensureWorld stage 3/4/5/6/7 di dalam guard `built`-nya) sehingga
+// dunia campaign (ensureWorld stage 3/4/5/6/7/8 di dalam guard `built`-nya) sehingga
 // LOADING #2 transisi mana pun tak lagi menanggung build+compile lazy.
 const s1PrebuildSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage1.js', 'utf8');
-T('campaign: dunia stage 3/4/5/6/7 PRE-BUILT saat campaign dimulai (loading konsisten)',
-    s3mod.worldBuilt() && s4mod.worldBuilt() && s5mod.worldBuilt() && s6mod.worldBuilt() && s7mod.worldBuilt()
+T('campaign: dunia stage 3/4/5/6/7/8 PRE-BUILT saat campaign dimulai (loading konsisten)',
+    s3mod.worldBuilt() && s4mod.worldBuilt() && s5mod.worldBuilt() && s6mod.worldBuilt()
+    && s7mod.worldBuilt() && s8mod.worldBuilt()
     && s1PrebuildSrc.includes('ensureStage5World()') && s1PrebuildSrc.includes('ensureStage6World()')
-    && s1PrebuildSrc.includes('ensureStage7World()'));
+    && s1PrebuildSrc.includes('ensureStage7World()') && s1PrebuildSrc.includes('ensureStage8World()'));
 saveMod.saveCampaignStage(5);
 const restart5 = saveMod.loadCampaignStage() || 1;
 smMod.activeScene.cheatSkipToStage(restart5);
@@ -5519,6 +5739,15 @@ T('restart/continue checkpoint 7: mendarat di gerbang HQ dengan escape squad utu
     restart7 === 7 && smMod.activeScene === s7mod.stage7Scene
     && robots.filter(z => z.stage === 7).length === mixCount(S7C.encounters.hqEscape)
     && stateMod.stageStatsDebug().stageId === 'campaign-7'
+    && stateMod.stageStatsDebug().elapsedSec === 0
+    && stateMod.stageStatsDebug().lootBoxesDestroyed === 0);
+saveMod.saveCampaignStage(8);
+const restart8 = saveMod.loadCampaignStage() || 1;
+smMod.activeScene.cheatSkipToStage(restart8);
+T('restart/continue checkpoint 8: mendarat di GARUDA pada opening Cisumdawu',
+    restart8 === 8 && smMod.activeScene === s8mod.stage8Scene
+    && s8mod.stage8Debug().phase === 'opening' && s8mod.stage8ConvoyDebug().spawned === 0
+    && stateMod.stageStatsDebug().stageId === 'campaign-8'
     && stateMod.stageStatsDebug().elapsedSec === 0
     && stateMod.stageStatsDebug().lootBoxesDestroyed === 0);
 // Prompt game-over "RESTART STAGE" (2026-07-15): resetGame(true) campaign ulang
@@ -6507,6 +6736,8 @@ const palMod = await import(R('src/world/palette.js'));
     styleGroups.push(['Sedan', (await import(R('src/entities/futuristicSedan.js'))).buildFuturisticSedanMesh(7, null)]);
     styleGroups.push(['SUV', (await import(R('src/entities/futuristicSUV.js'))).buildFuturisticSUVMesh(7, null)]);
     styleGroups.push(['TacticalVehicle', (await import(R('src/entities/tacticalVehicle.js'))).buildTacticalVehicleMesh(7).group]);
+    styleGroups.push(['EnemyPickup', (await import(R('src/entities/enemyPickup.js'))).buildEnemyPickupMesh(7).group]);
+    styleGroups.push(['CombatGunship', (await import(R('src/entities/combatGunship.js'))).buildCombatGunshipMesh(4.8).group]);
     styleGroups.push(['Helicopter', (await import(R('src/entities/helicopter.js'))).buildHelicopterMesh().group]);
     styleGroups.push(['Barrel', (await import(R('src/entities/barrels.js'))).buildBarrelMesh()]);
     styleGroups.push(['SupplyCrate', (await import(R('src/entities/crates.js'))).buildCrateMesh()]);
@@ -6577,7 +6808,8 @@ const palMod = await import(R('src/world/palette.js'));
     // SENGAJA dibuat lebih detail oleh user (2026-07-22) — diberi cap SENDIRI
     // yang longgar (`MESH_CAP`), tetap dijaga agar tak tumbuh liar. Cek palet
     // (neon/emissive) di atas TETAP berlaku penuh untuk heli.
-    const MESH_CAP = { Helicopter: 70, TacticalVehicle: 60, SmashRuko: 30, MilitaryTrain: 220, TrainSceneryPool: 260 };
+    const MESH_CAP = { Helicopter: 70, TacticalVehicle: 60, EnemyPickup: 45,
+        CombatGunship: 60, SmashRuko: 30, MilitaryTrain: 220, TrainSceneryPool: 260 };
     let heaviest = '', heavyN = 0, allLite = true, offender = '';
     for (const [name, g] of styleGroups) {
         let n = 0;
@@ -7100,11 +7332,12 @@ const palMod = await import(R('src/world/palette.js'));
     const s5c2 = await import(R('src/scenes/campaign/stages/stage5.js'));
     const s6c2 = await import(R('src/scenes/campaign/stages/stage6.js'));
     const s7c2 = await import(R('src/scenes/campaign/stages/stage7.js'));
-    T('meshBatch: perabot stage 1/2/3/4/5/6/7 melewati addMergedStatic (batch terisi)',
+    const s8c2 = await import(R('src/scenes/campaign/stages/stage8.js'));
+    T('meshBatch: perabot stage 1/2/3/4/5/6/7/8 melewati addMergedStatic (batch terisi)',
         s1c.s1StaticBatchDbg().length > 0 && s2c.s2StaticBatchDbg().length > 0
         && s3c.s3StaticBatchDbg().length > 0 && s4c.s4StaticBatchDbg().length > 0
         && s5c2.stage5StaticBatchDbg().length > 0 && s6c2.stage6StaticBatchDbg().length > 0
-        && s7c2.stage7StaticBatchDbg().length > 0);
+        && s7c2.stage7StaticBatchDbg().length > 0 && s8c2.stage8StaticBatchDbg().length > 0);
 
     // (c12) stage 4 memakai mergeObjectInPlace utk prop yang MATERIALNYA masih
     //       disentuh saat main (mobil/gedung yang memudar = occluder). Fallback-nya
@@ -7182,18 +7415,19 @@ const palMod = await import(R('src/world/palette.js'));
 
     // (c16) kunci lampu tiap scene campaign ada (kalau lupa, stage masuk dgn set
     //       lampu stage sebelumnya = ruangan gelap/ganda).
-    T('scene campaign 1-7 + survival punya lightsKey',
+    T('scene campaign 1-8 + survival punya lightsKey',
         s1c.stage1Scene.lightsKey === 'campaign-1' && s2c.stage2Scene.lightsKey === 'campaign-2'
         && s3c.stage3Scene.lightsKey === 'campaign-3' && s4c.stage4Scene.lightsKey === 'campaign-4'
         && s5c2.stage5Scene.lightsKey === 'campaign-5' && s6c2.stage6Scene.lightsKey === 'campaign-6'
-        && s7c2.stage7Scene.lightsKey === 'campaign-7');
+        && s7c2.stage7Scene.lightsKey === 'campaign-7'
+        && s8c2.stage8Scene.lightsKey === 'campaign-8');
     lightMod.setActiveStageLights(before.active || 'campaign-1');
 
     // (d) TEKS MISI tanpa penunjuk arah (2026-07-26, permintaan user: biar player
     //     mencarinya sendiri) — sapu string user-facing di semua scene campaign.
     const DIRW = /\b(north|south|east|west|far-right|far-left|top-left|top-right|bottom-left|bottom-right)\b/i;
     const dirHits = [];
-    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js', 'stage5.js', 'stage6.js', 'stage7.js']) {
+    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js', 'stage5.js', 'stage6.js', 'stage7.js', 'stage8.js']) {
         const src = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/' + f, 'utf8');
         for (const line of src.split('\n')) {
             const isMsg = line.includes('showStageMsg(') || line.includes('showPickup(') || (line.includes('return') && line.includes('FLOOR'));

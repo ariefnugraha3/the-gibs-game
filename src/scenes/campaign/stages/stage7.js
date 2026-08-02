@@ -20,10 +20,10 @@ import {
     spawnCampaignRobot, campaignAwardKill, campaignRobotAI, campaignClampRobot,
     countStageRobots,
 } from '../utility/common.js';
-import { campaignJumpToStage } from '../utility/transition.js';
+import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
-import { gameOver } from '../../../core/game.js';
 import { stage1Scene } from './stage1.js';
+import { stage8Scene } from './stage8.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import { enterCityEnv } from '../utility/cityscape.js';
 import { PAL, EMISSIVE_MAX } from '../../../world/palette.js';
@@ -759,7 +759,7 @@ function finishStage() {
         updateTacticalVehicleVisual(tacticalVehicle, 0, { doorOpen: 0, engineOn: true, speed: 72 });
     }
     cleanupCine(0); stopVehicleLoop();
-    gameOver(true, 'TO BE CONTINUED', { preserveCampaignSave: true });
+    beginStageTransition(stage8Scene);
 }
 
 function updateCine(dt) {

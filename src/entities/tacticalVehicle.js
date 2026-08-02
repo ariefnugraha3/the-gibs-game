@@ -1,4 +1,4 @@
-// GARUDA LTV-45 — kendaraan taktis hero untuk outro Campaign Stage 7.
+// GARUDA LTV-45 — kendaraan taktis hero untuk outro Stage 7 dan arena Stage 8.
 // Desain generik 2045 (bukan replika/merek kendaraan dunia nyata): bodi lapis
 // baja bersudut, bull bar + winch, sensor atap, pintu pengemudi animatif,
 // dashboard rute, dan dudukan senjata kosong. Tidak ada PointLight; seluruh
@@ -91,6 +91,14 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
     const mount = new THREE.Group(); mount.position.set(-0.62, 2.56, 0); group.add(mount);
     mk(mount, new THREE.CylinderGeometry(0.43, 0.52, 0.20, 12), M.steel, 0, 0, 0);
     mk(mount, new THREE.TorusGeometry(0.39, 0.07, 6, 14), M.ink, 0, 0.16, 0, Math.PI / 2);
+    // Roof hatch tempur Stage 8. Dua daun bergeser ke sisi kabin; gunnerMount
+    // adalah anchor publik tempat scene menaruh pivot logika/pose Major.
+    const roofHatch = new THREE.Group(); roofHatch.position.set(-0.62, 2.57, 0); group.add(roofHatch);
+    const hatchLeaves = [
+        mk(roofHatch, new THREE.BoxGeometry(0.78, 0.09, 0.46), M.body, 0, 0.11, -0.24),
+        mk(roofHatch, new THREE.BoxGeometry(0.78, 0.09, 0.46), M.body, 0, 0.11, 0.24),
+    ];
+    const gunnerMount = new THREE.Object3D(); gunnerMount.position.set(-0.62, 2.72, 0); group.add(gunnerMount);
 
     // Pintu pengemudi sisi +Z memakai pivot engsel belakang.
     const driverDoor = new THREE.Group(); driverDoor.position.set(-1.48, 1.72, 1.08); group.add(driverDoor);
@@ -114,7 +122,8 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
     group.scale.setScalar(scale);
     const vehicle = {
         group, wheels, driverDoor, headlights, taillights, dashboard, barrierRam: ram,
-        sensor, mount, materials: M, wheelPhase: 0, doorOpen: 0, engineOn: false,
+        sensor, mount, roofHatch, hatchLeaves, gunnerMount, materials: M,
+        wheelPhase: 0, doorOpen: 0, hatchOpen: 0, engineOn: false,
         speed: 0, baseY: 0,
     };
     group.userData.tacticalVehicle = vehicle;
@@ -124,8 +133,13 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
 
 export function resetTacticalVehicleVisual(vehicle) {
     if (!vehicle) return;
-    vehicle.wheelPhase = 0; vehicle.doorOpen = 0; vehicle.engineOn = false; vehicle.speed = 0;
+    vehicle.wheelPhase = 0; vehicle.doorOpen = 0; vehicle.hatchOpen = 0;
+    vehicle.engineOn = false; vehicle.speed = 0;
     vehicle.driverDoor.rotation.y = 0;
+    if (vehicle.hatchLeaves) {
+        vehicle.hatchLeaves[0].position.z = -0.24;
+        vehicle.hatchLeaves[1].position.z = 0.24;
+    }
     for (const w of vehicle.wheels) w.rotation.z = 0;
     vehicle.materials.head.emissiveIntensity = 0;
     vehicle.materials.tail.emissiveIntensity = 0;
@@ -140,6 +154,14 @@ export function updateTacticalVehicleVisual(vehicle, dt, state = {}) {
     vehicle.doorOpen += (doorTarget - vehicle.doorOpen) * Math.min(1, dt * 5.5);
     const e = vehicle.doorOpen * vehicle.doorOpen * (3 - 2 * vehicle.doorOpen);
     vehicle.driverDoor.rotation.y = -1.18 * e;
+
+    const hatchTarget = Math.max(0, Math.min(1, Number(state.hatchOpen ?? vehicle.hatchOpen)));
+    vehicle.hatchOpen += (hatchTarget - vehicle.hatchOpen) * Math.min(1, dt * 6.5);
+    const he = vehicle.hatchOpen * vehicle.hatchOpen * (3 - 2 * vehicle.hatchOpen);
+    if (vehicle.hatchLeaves) {
+        vehicle.hatchLeaves[0].position.z = -0.24 - he * 0.58;
+        vehicle.hatchLeaves[1].position.z = 0.24 + he * 0.58;
+    }
 
     vehicle.engineOn = state.engineOn == null ? vehicle.engineOn : !!state.engineOn;
     vehicle.speed = Number.isFinite(state.speed) ? Math.max(0, state.speed) : vehicle.speed;
@@ -160,6 +182,7 @@ export function tacticalVehicleDebug(vehicle) {
         built: !!vehicle,
         wheels: vehicle?.wheels?.length || 0,
         doorOpen: vehicle?.doorOpen || 0,
+        hatchOpen: vehicle?.hatchOpen || 0,
         doorYaw: vehicle?.driverDoor?.rotation?.y || 0,
         engineOn: !!vehicle?.engineOn,
         wheelPhase: vehicle?.wheelPhase || 0,
@@ -174,4 +197,3 @@ export function tacticalVehicleDebug(vehicle) {
         } : null,
     };
 }
-

@@ -11,8 +11,8 @@ no framework**. Two modes:
 
 - **Survival** — round-based waves defending the Monas monument; a Field Shop opens
   between waves; score = shop currency. Detail: [docs/survival.md](docs/survival.md).
-- **Campaign** — 7 linear stages (text prologue → helicopter intro cutscene → three
-  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters → branching Bandung streets ending at Cisumdawu), an inter-stage shop, loot
+- **Campaign** — 8 linear stages (text prologue → helicopter intro cutscene → three
+  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters → branching Bandung streets → an autonomous-vehicle firefight and combat-gunship duel on Cisumdawu), an inter-stage shop, loot
   as currency, hacking/repair minigames, a stage checkpoint save.
   Detail: [docs/campaign.md](docs/campaign.md).
 
@@ -30,7 +30,7 @@ never re-wire it.
 - `src/core/` — engine/orchestration: config, state, renderer, input, HUD, scene manager,
   preload/warm-up, save, pause menu, cheat console, death director, time scale.
 - `src/entities/` — shared gameplay systems: player, avatar, weapons, bullets, robots,
-  tank boss, gore, effects, drops/ammo/crates/barrels, helicopter, procedural train/scenery, props.
+  tank/gunship bosses, gore, effects, drops/ammo/crates/barrels, helicopter, procedural train/scenery, enemy pickup and props.
 - `src/scenes/` — one file per scene: `campaign/{stages,cutscenes,utility}/`,
   `survival/{,cutscenes/}`, `menu.js`. Adding a stage = one new file + wiring
   (recipe in docs/MODULES.md).
@@ -169,7 +169,15 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   are never spawned or counted. Each run has 50–54 ordinary robots, then three finite toll
   waves at 0/16/32 seconds with a 55-second minimum. GARUDA LTV-45 is a procedural hero
   vehicle with fixed animation state. No boss/miniboss/tank/boss HUD/score/music or
-  infinite respawn; `TO BE CONTINUED` preserves checkpoint 7.
+  infinite respawn; its green complete screen opens the Field Shop before Stage 8.
+- Stage 8 is the coordinate-stable GARUDA gunner arena at x≈270000. Seven lateral
+  corridors span both three-lane carriageways and the traversable median; `A/D` are
+  edge-triggered lane snaps while walking/RMB/dodge/melee are scene-gated off. Ten
+  fixed-schedule pickup carriers each mount exactly three ordinary A/B robots; no new
+  ground pursuer may spawn after KM 40. KM 50 is gated by every remaining rider, then
+  the standalone `combatGunship.js` boss (HP live-linked to tank HP) cycles telegraphed
+  MG/cannon/three homing missiles. Road scenery wraps from fixed pools, Kertajati is a
+  separate static set, and the final green screen preserves checkpoint 8.
 - Dormant-but-kept systems (reload, ADS, crouch, jump, sprint, thrown grenade, medkit
   channel) must stay unreachable — don't re-wire, don't delete.
 

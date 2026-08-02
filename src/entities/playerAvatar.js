@@ -58,6 +58,7 @@ let gunGrpRef = null;                                 // grup senjata (utk digel
 // avatar supaya cutscene tidak perlu menyentuh node rig internal satu per satu.
 let radioPoseActive = false, radioPoseYaw = 0, radioPoseGesture = 'gibranCall';
 let radioPoseProgress = 0, radioPoseT = 0;
+let vehiclePoseActive = false, vehiclePoseHeight = 0;
 let radioPoseDbg = {
     active: false, yaw: 0, gesture: '', progress: 0, t: 0,
     leftY: 0, rightY: 0, gunPitch: 0, torsoPitch: 0, headYaw: 0, bodyY: 0,
@@ -1152,6 +1153,9 @@ function poseDeath(dt, feetY) {
 export function resetAvatarDeath() {
     rappelActive = false;   // batalkan pose rappel intro juga
     radioPoseActive = false;
+    vehiclePoseActive = false; vehiclePoseHeight = 0;
+    if (hipL) hipL.visible = true;
+    if (hipR) hipR.visible = true;
     radioPoseGesture = 'gibranCall'; radioPoseProgress = 0; radioPoseT = 0;
     radioPoseDbg = {
         active: false, yaw: 0, gesture: '', progress: 0, t: 0,
@@ -1229,6 +1233,19 @@ export function setAvatarRadioPose(on, yaw = 0, gesture = 'gibranCall', progress
     radioPoseDbg.progress = radioPoseProgress;
 }
 export const avatarRadioDebug = () => ({ ...radioPoseDbg });
+
+// Pose penembak kendaraan: animasi aim/senjata normal tetap berjalan, hanya
+// pangkal tubuh dinaikkan ke roof hatch dan kaki disembunyikan di dalam kabin.
+export function setAvatarVehiclePose(on, height = 10.2) {
+    vehiclePoseActive = !!on;
+    vehiclePoseHeight = vehiclePoseActive ? height : 0;
+    if (hipL) hipL.visible = !vehiclePoseActive;
+    if (hipR) hipR.visible = !vehiclePoseActive;
+}
+export const avatarVehicleDebug = () => ({
+    active: vehiclePoseActive, height: vehiclePoseHeight,
+    hipsHidden: !!vehiclePoseActive && hipL?.visible === false && hipR?.visible === false,
+});
 
 function poseRadio(dt) {
     radioPoseT += dt;
@@ -1355,6 +1372,9 @@ export function updatePlayerAvatar(dt) {
     const feetY = camera.position.y - eyeHCur;
     const px = camera.position.x, pz = camera.position.z;
     avatarGroup.position.set(px, feetY, pz);
+    if (vehiclePoseActive) avatarGroup.position.y += vehiclePoseHeight;
+    if (hipL) hipL.visible = !vehiclePoseActive;
+    if (hipR) hipR.visible = !vehiclePoseActive;
 
     // Overlay ARMOR mengikuti tier yang dikenakan (kumulatif; 0 = polos).
     // Diperiksa SEBELUM cabang mati supaya armor yang pecah pada pukulan

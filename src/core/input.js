@@ -139,6 +139,8 @@ export function initInput() {
     document.addEventListener('mousedown', (e) => {
         if (isPaused || isGameOver || cinematicActive) return;   // cutscene: klik ditelan
         if (e.button === 2) {
+            if (activeScene && activeScene.allowsPlayerAction
+                && activeScene.allowsPlayerAction('moveTarget') === false) return;
             // Move-to-point: simpan target di titik kursor (bidang kaki player)
             setMoveTarget(aimPoint.x, aimPoint.z);
             return;
@@ -192,12 +194,16 @@ export function initInput() {
         // Shift = DODGE/evade (tumble + i-frame). AKSI DISKRET (tekan, bukan
         // tahan) — `!e.repeat` cegah auto-repeat OS men-spam; gate cooldown/
         // stamina/medkit ada di tryDodge. (Sprint dihapus 2026-07-11.)
-        if (e.key === 'Shift' && !e.repeat && !isPaused && !isGameOver) tryDodge();
+        if (e.key === 'Shift' && !e.repeat && !isPaused && !isGameOver
+            && (!activeScene?.allowsPlayerAction
+                || activeScene.allowsPlayerAction('dodge') !== false)) tryDodge();
         // (R = reload DIHAPUS bersama sistem magazen 2026-07-11 — tiap senjata
         // kini satu kolam peluru tanpa reload.)
         // F = melee: pukul dgn popor senjata aktif ke arah kursor.
         // Gate stamina/cooldown/reload di dalam tryMelee.
-        if (key === 'f' && !isPaused && !isGameOver) tryMelee();
+        if (key === 'f' && !isPaused && !isGameOver
+            && (!activeScene?.allowsPlayerAction
+                || activeScene.allowsPlayerAction('melee') !== false)) tryMelee();
         // 1/2 = slot senjata, 3 = GRANAT (equip -> klik lempar), Q = tukar antar
         // slot senjata. (Shop modal sudah dicegat di atas. Jongkok C/Ctrl &
         // lompat SPASI dihapus di mode top-down.)

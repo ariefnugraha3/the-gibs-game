@@ -18,6 +18,11 @@ import { buildRobotMesh, disposeRobot } from '../entities/robots.js';
 import { borrowBloodSprite, borrowMuzzleFlash, borrowShellCasing } from '../entities/effects.js';
 import { avatarGroup } from '../entities/playerAvatar.js';
 import { buildHeliFlameSprite } from '../entities/helicopter.js';
+import { buildEnemyPickupMesh } from '../entities/enemyPickup.js';
+import {
+    buildCombatGunshipMesh, buildCombatGunshipMissileMesh,
+    buildCombatGunshipShellMesh,
+} from '../entities/combatGunship.js';
 
 let loadEl = null, barEl = null, textEl = null;
 
@@ -97,6 +102,18 @@ export async function warmupAll() {
     const zw = buildRobotMesh('B');
     zw.group.position.set(16, -10, -60);
     warm.add(zw.group);
+
+    // Stage 8: kendaraan pengejar, gunship, missile dan cannon adalah visual
+    // yang baru muncul jauh setelah loading. Paksa satu contoh tiap program
+    // material berada di frustum agar kemunculan pertamanya tidak compile shader.
+    const pickupWarm = buildEnemyPickupMesh(0.55);
+    pickupWarm.group.visible = true; put(pickupWarm.group, 24);
+    const gunshipWarm = buildCombatGunshipMesh(0.55);
+    put(gunshipWarm.group, 28);
+    const missileWarm = buildCombatGunshipMissileMesh(); missileWarm.visible = true;
+    put(missileWarm, 32);
+    const shellWarm = buildCombatGunshipShellMesh(); shellWarm.visible = true;
+    put(shellWarm, 36);
 
     // Sprite darah pinjaman dari pool efek (program sprite + unggah teksturnya).
     const bspr = borrowBloodSprite();
@@ -192,6 +209,15 @@ export async function warmupAll() {
     flame.material.dispose();              // material per-instance (tekstur api DIBAGI — jangan)
     viewCam.remove(warm);
     disposeRobot({ mesh: zw.group });     // material robot per-instance
+    for (const root of [pickupWarm.group, gunshipWarm.group, missileWarm, shellWarm]) {
+        root.traverse(o => {
+            if (o.geometry) o.geometry.dispose();
+            if (o.material) {
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
+                for (const m of mats) m.dispose();
+            }
+        });
+    }
     boomMats.forEach(m => m.dispose());    // hanya material buatan warmup —
     // GEO/MAT bersama + resource granat/magazen/medkit JANGAN di-dispose.
     await loadingStep(100, 'Ready!');

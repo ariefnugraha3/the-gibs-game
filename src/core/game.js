@@ -99,7 +99,12 @@ export function updateGame(dt, step, T, dtReal = dt) {
     const noCtl = dying || cinematicActive;
     if (!noCtl) {
         updateWeaponTimers(dt);        // animasi ganti senjata + melee (hit di 45%)
-        updatePlayerMovement(dt, step);// stamina, WASD, tabrakan scene, lompat, langkah
+        // Scene kendaraan boleh mengambil alih gerak pivot player tanpa mode
+        // if-else di sistem bersama. Return true = gerak kaki standar dilewati;
+        // aiming/senjata di bawah tetap berjalan seperti biasa.
+        const movementHandled = activeScene.updatePlayerControl
+            ? activeScene.updatePlayerControl(dt, step) === true : false;
+        if (!movementHandled) updatePlayerMovement(dt, step);// stamina, WASD, tabrakan scene, lompat, langkah
         if (isGameOver) return;        // (jaga-jaga: transisi scene tak mengakhiri game)
         updateWeaponState(dt);         // recoil/heat decay + posisi z senjata
         updateShooting();              // klik kiri -> spawn peluru
@@ -137,8 +142,8 @@ export function gameOver(won, title, opts = {}) {
     endDeathCine();   // lepas slow motion + letterbox; framing jasad dibekukan (no-op bila menang)
     stopMusic();   // stage berakhir (menang/kalah) -> musik battle/boss berhenti (2026-07-19)
     document.exitPointerLock();
-    // Menang final biasanya menghapus checkpoint. Ending bersambung Stage 7
-    // sengaja mempertahankannya agar Continue/Restart kembali ke checkpoint 7.
+    // Menang final biasanya menghapus checkpoint. Endpoint Stage 8 sengaja
+    // mempertahankannya agar Continue/Restart kembali ke checkpoint 8.
     if (won && !opts.preserveCampaignSave) clearCampaignSave();
     if (score > highScore) setHighScore(score);
     // Campaign selesai = menang; selain itu (HP habis) = kalah.
