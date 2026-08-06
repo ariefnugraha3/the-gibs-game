@@ -4407,9 +4407,13 @@ const expectedS5Dialogue = {
     opening: { speaker: 'Major Gibran', text: "Walking to Bandung isn't an option. There has to be something in this depot I can use." },
     discoverTrain: { speaker: 'Major Gibran', text: 'An autonomous military transport... Destination registry: Bandung Logistics Terminal. This could be my way out.' },
     powerDead: { speaker: 'Major Gibran', text: "The train has no power, and the platform access is locked. I'll need to hack station computer C1 first." },
+    enemyTrainFlyby: { speaker: 'Major Gibran', text: 'A freight consist just ran the adjacent track without slowing down. They know something is alive in this depot.' },
+    enemyTrainFirst: { speaker: 'Train System', text: 'Unscheduled transport braking on the adjacent track. Unloading detected.' },
+    enemyTrainNext: { speaker: 'Major Gibran', text: "Another transport. They're feeding units onto that track faster than I can clear them." },
     powerBack: { speaker: 'Major Gibran', text: "Generator's back online. The route controls are responding." },
     routeReady: { speaker: 'Train System', text: 'Route authority overridden. Destination confirmed: Bandung Logistics Terminal.' },
     letsMove: { speaker: 'Major Gibran', text: "Finally. Let's move." },
+    enemyTrainBoarding: { speaker: 'Major Gibran', text: "One more transport rolling in. I'm not waiting for it—get to the door." },
     commandDeparture: { speaker: 'Command', text: "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" },
     gibranDeparture: { speaker: 'Major Gibran', text: "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." },
     breach: { speaker: 'Train System', text: 'Security breach detected. Rear coupling compromised.' },
@@ -4466,26 +4470,26 @@ const s5World = s5mod.stage5WorldDebug();
 const depotBots = robots.filter(z => z.stage === 5 && z.encounter === 'depot');
 const depotMix = s5Mix('depot');
 const expectedS5Map = [
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    '==============================',
+    '==============================',
+    '==============================',
+    '==============================',
+    ',,,,,,,,,,,,,,,,,,,,,,,,,,,,,,',
+    '=====TTTTTTTLLLLLLL===========',
+    '=====TTTTTTTLLLLLLL===========',
+    '=====TTTTTTTLLLLLLL===========',
+    '=====TITTTTTLLLLLLL===========',
     '#####.........................',
     '#2222.........................',
-    '#..H..........................',
+    '#.HH..........................',
     '#.............................',
     '#.............................',
     '#.............................',
     '#.............................',
-    '##########################--##',
-    '#AAAAAAA.....................#',
-    '#AAAAAAA.....................#',
-    '#AAAAAAA.....................#',
-    '#AAAAAAA.....................#',
+    '##@@###@@##@@##@@##@@##@@#--##',
     '#AAAA#.......................#',
+    '#AAAA-.......................#',
+    '#AAAA-.......................#',
     '#AAAA#.......................#',
     '#AAAA#.......................#',
     '#AAAA#.......................#',
@@ -4510,23 +4514,112 @@ const expectedS5Map = [
     '#AAAA#.................#....1#',
     '#AAAA#.................#....1#',
     '#AAAA#.................#....1#',
-    '#AAAA#.................-....1#',
+    '#AAAA#.................-...H1#',
     '#AAAA#.................-...H1#',
     '#AAAA#.................#....1#',
     '#AAAA#.................#....1#',
     '#ASSA#.................#....1#',
     '##############################',
 ];
+const expectedS5Finish = [
+    '##############################',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '##############################',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '==============TTTTTTTLLLLLLL==',
+    '==============TTTTTTTLLLLLLL==',
+    '==============TTTTTTTLLLLLLL==',
+    '==============TTTTTTTLLLLLLL==',
+];
 const s5TokenAt = (x, z) => {
     const c = Math.floor((x - s5World.depot.x0) / s5World.map.cell);
     const r = Math.floor((z - s5World.depot.z0) / s5World.map.cell);
     return s5mod.S5_MAP[r]?.[c] || '#';
 };
-T('S5 CSV CONTRACT: layout 30×50, semua dinding/pintu/C1/C2/H/T/SA persis peta user',
+const s5Count = t => expectedS5Map.reduce((n, r) => n + [...r].filter(c => c === t).length, 0);
+T('S5 CSV CONTRACT: layout 30×50 dua-track, TT/SPACE/TC/TCI/TL/@/SA persis peta user',
     JSON.stringify(s5mod.S5_MAP) === JSON.stringify(expectedS5Map)
     && s5World.map.rows === 50 && s5World.map.cols === 30
-    && s5mod.S5_MAP.flatMap(r => [...r]).filter(t => t === 'H').length === 2
-    && s5mod.S5_MAP.flatMap(r => [...r]).filter(t => t === '-').length === 4);
+    && s5Count('H') === 4 && s5Count('-') === 6 && s5Count('I') === 1
+    && s5World.map.entryCells === s5Count('I') && s5World.map.locoCells === s5Count('L')
+    && s5World.map.trackCells === s5Count('=') && s5World.map.gapCells === s5Count(',')
+    && s5World.map.windowCells === s5Count('@')
+    && s5World.map.windowPanes === s5World.map.windowCells);
+T('S5 CSV FINISH: denah stasiun Bandung 30×19 dibangun persis dari CSV finish user',
+    JSON.stringify(s5mod.S5_FINISH_MAP) === JSON.stringify(expectedS5Finish));
+T('S5 DUA TRACK: track musuh terpisah satu baris SPACE dari track kereta player',
+    Math.abs(s5World.map.playerTrackZ - s5World.map.enemyTrackZ - 5 * s5World.map.cell) < 0.01
+    && s5World.map.enemyDropZ > s5World.map.enemyTrackZ
+    && s5World.map.enemyDropZ < s5World.map.playerTrackZ);
+
+// Jendela '@' hanya tembus pandang: gerakan dan peluru tetap tertahan.
+const s5WinCell = (() => {
+    for (let r = 0; r < expectedS5Map.length; r++) {
+        const c = expectedS5Map[r].indexOf('@');
+        if (c >= 0) return { c, r };
+    }
+    return null;
+})();
+const s5WinPos = {
+    x: s5World.depot.x0 + (s5WinCell.c + 0.5) * s5World.map.cell,
+    z: s5World.depot.z0 + (s5WinCell.r + 0.5) * s5World.map.cell,
+};
+T('S5 WINDOW WALL: @ solid untuk gerak dan peluru, tetapi punya panel kaca sendiri',
+    !s5mod.stage5Walk(s5WinPos.x, s5WinPos.z, 2)
+    && s5mod.stage5SegHitsWall(s5WinPos.x, s5WinPos.z - s5World.map.cell * 2,
+        s5WinPos.x, s5WinPos.z + s5World.map.cell * 2)
+    && s5World.map.windowPanes === s5World.map.windowCells);
+// Rute track -> peron: satu-satunya jalur adalah memutari ujung kereta player.
+const s5Cell = (c, r) => ({
+    x: s5World.depot.x0 + (c + 0.5) * s5World.map.cell,
+    z: s5World.depot.z0 + (r + 0.5) * s5World.map.cell,
+});
+function s5Reach(from, to) {
+    const seen = new Set(), q = [from], key = p => p.r + ':' + p.c;
+    seen.add(key(from));
+    while (q.length) {
+        const p = q.shift();
+        if (p.c === to.c && p.r === to.r) return true;
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const n = { c: p.c + dc, r: p.r + dr };
+            if (n.c < 0 || n.c >= 30 || n.r < 0 || n.r >= 50 || seen.has(key(n))) continue;
+            const w = s5Cell(n.c, n.r);
+            if (!s5mod.stage5Walk(w.x, w.z, 4)) continue;
+            seen.add(key(n)); q.push(n);
+        }
+    }
+    return false;
+}
+const s5DropCell = { c: 24, r: 4 };
+T('S5 PLAYER TRACK: player tidak bisa melangkah ke track musuh / celah antar-rel',
+    (() => {
+        const drop = s5Cell(24, 4), enemyTrack = s5Cell(24, 2), platform = s5Cell(24, 12);
+        const probe = (p) => {
+            stateMod._v3.set(p.x, 0, p.z);
+            s5mod.stage5Scene.playerCollide(stateMod._v3, platform.x, platform.z, 0);
+            return Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) > 0.01;
+        };
+        return probe(drop) && probe(enemyTrack) && !probe(platform);
+    })());
+T('S5 ROUTE: titik turun kereta musuh terhubung ke peron dan ke titik naik TCI',
+    s5Reach(s5DropCell, { c: 24, r: 12 })
+    && s5Reach(s5DropCell, { c: 6, r: 10 })
+    && !s5Reach(s5DropCell, { c: 10, r: 7 }));
+
+T('S5 SAFE DOOR: pintu keluar safe area otomatis dan bukan pintu peron yang terkunci',
+    s5World.station.doors.map(d => d.kind).sort().join(',') === 'control,platform,safe'
+    && s5World.station.doors.find(d => d.kind === 'safe').target === 0);
 T('S5 SA FLOOR: safe area memakai lantai hall yang sama tanpa overlay warna khusus',
     s5World.map.safeCells > 0 && s5World.map.safeFloorOverlays === 0);
 T('S5 LANDMARK 2045: C1/C2 bukan box basic; mesh detail + bagian animasi dipatok',
@@ -4551,14 +4644,26 @@ T('S5 FURNITURE COLLISION: seluruh perabot besar benar-benar masuk blocker/nav c
 T('S5 WORLD: depot + kereta 5 bagian + 4 pintu + nav terbangun jauh dari rooftop intro',
     s5World.built && s5World.nav && s5World.train.cars === 5 && s5World.train.doors === 4
     && s5World.train.x0 < s5World.depot.x1 && s5World.depot.x0 > 150000);
-T('S5 WORLD: seluruh deck kereta terhubung ke depot dan walkable',
+T('S5 STATION CONSIST: hanya gerbong TC + lokomotif TL yang tampak di peron',
+    s5World.train.cars === 5 && s5World.train.stationCarIndex === 3
+    && s5World.train.stationVisibleCars === 2);
+T('S5 ENEMY CONSIST: kereta musuh prealokasi di track kedua, tidak dibuat saat runtime',
+    s5World.enemyTrain.cars === 4 && s5World.enemyTrain.doorPanels === 6
+    && s5World.enemyTrain.meshes > 60
+    && Math.abs(s5World.enemyTrain.z - s5World.map.enemyTrackZ) < 0.01
+    && s5World.enemyTrain.enterX < s5World.depot.x0
+    && s5World.enemyTrain.exitX > s5World.depot.x1);
+T('S5 WORLD: deck kereta walkable saat perjalanan, badan kereta solid di stasiun',
     s5World.carCenters.length === 5
-    && s5World.carCenters.every(p => s5mod.stage5Walk(p.x, p.z, 3))
+    && s5World.carCenters.every(p => s5mod.stage5TrainWalk(p.x, p.z, 3))
+    && !s5mod.stage5Walk(s5World.map.tci.x, s5World.map.tci.z, 3)
     && s5mod.stage5Walk(s5mod.S5_START.x, s5mod.S5_START.z, 3)
     && s5mod.stage5Walk(s5mod.S5_BOARD.x, s5mod.S5_BOARD.z, 3));
 let s5PlacementOK = true;
 for (const p of [...s5World.supplies, ...s5World.crates]) {
-    if (!s5mod.stage5Walk(p.x, p.z, 1)) s5PlacementOK = false;
+    const inTrain = ['cargo', 'security', 'roof', 'locomotive'].includes(p.area);
+    const walkOK = inTrain ? s5mod.stage5TrainWalk(p.x, p.z, 1) : s5mod.stage5Walk(p.x, p.z, 1);
+    if (!walkOK) s5PlacementOK = false;
     stateMod._v3.set(p.x, 0, p.z); s5mod.resolve(stateMod._v3, 1, 0);
     if (Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) > 0.01) s5PlacementOK = false;
 }
@@ -4685,6 +4790,62 @@ T('S5 HACK C1: solve membuka pintu peron fisik dan baru mengaktifkan generator C
     && Math.hypot(stateMod._v3.x - s5World.map.platformDoor.x,
         stateMod._v3.z - s5World.map.platformDoor.z) < 0.01);
 
+
+// Gelombang kereta musuh di track sebelah: rilis by timer, C2 dikunci sampai
+// semua gelombang tiba DAN peron benar-benar bersih.
+const ETC = S5C.enemyTrain;
+const etDbg = () => s5mod.stage5Debug().enemyTrain;
+camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 ENEMY TRAIN: fase peron dimulai tanpa gelombang dan C2 belum bisa dipakai',
+    s5mod.stage5Debug().phase === 'repair' && !repMod.isRepairOpen()
+    && etDbg().waveIndex === 0 && etDbg().mode === 'idle' && !etDbg().visible
+    && !etDbg().wavesReleased && Array.isArray(ETC.waves) && ETC.waves.length > 0);
+tickS5(ETC.firstWaveDelaySec + 0.2);
+const etApproach = etDbg();
+T('S5 ENEMY TRAIN: gelombang pertama datang dengan kereta di track musuh, bukan spawn instan',
+    etApproach.waveIndex === 1 && etApproach.mode === 'approach' && etApproach.visible
+    && etApproach.x > s5mod.stage5WorldDebug().enemyTrain.enterX
+    && Math.abs(etApproach.z - s5World.map.enemyTrackZ) < 0.01
+    && s5Mix('wave').C + s5Mix('wave').B + s5Mix('wave').A === 0);
+tickS5(ETC.approachSec + ETC.doorSec + 0.3);
+const etDwell = etDbg();
+const waveBots = robots.filter(z => z.stage === 5 && z.encounter === 'wave');
+T('S5 ENEMY TRAIN: pintu terbuka lalu menurunkan komposisi gelombang persis dari CFG',
+    etDwell.mode === 'dwell' && etDwell.doors >= 1 && etDwell.unloads === 1
+    && sameMix(s5Mix('wave'), ETC.waves[0])
+    && waveBots.every(z => ['C', 'B', 'A'].includes(z.kind)));
+T('S5 ENEMY TRAIN: robot turun di sisi track musuh dan menuju celah antar-rel, di luar SA',
+    waveBots.length > 0
+    && waveBots.every(z => z.mesh.position.z > s5World.map.enemyTrackZ)
+    && waveBots.every(z => z.mesh.position.z < s5World.map.playerTrackZ)
+    && waveBots.every(z => z.trainBoard
+        && Math.abs(z.trainBoard.targetZ - s5World.map.enemyDropZ) <= 4.01)
+    && waveBots.every(z => !['A', 'S'].includes(
+        s5TokenAt(z.trainBoard.targetX, z.trainBoard.targetZ))));
+camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 ENEMY TRAIN: C2 tetap terkunci selama robot gelombang masih hidup',
+    !repMod.isRepairOpen() && s5mod.stage5Debug().phase === 'repair'
+    && s5mod.stage5Scene.hudStatus().startsWith('HOLD THE PLATFORM'));
+killS5('wave');
+tickS5(ETC.waveGapSec + ETC.approachSec + ETC.doorSec + 0.5);
+const etSecond = etDbg();
+T('S5 ENEMY TRAIN: kereta berangkat lagi lalu gelombang berikutnya diturunkan',
+    etSecond.arrivals >= 2 && etSecond.unloads === 2
+    && etSecond.waveIndex === ETC.waves.length && etSecond.wavesReleased
+    && sameMix(s5Mix('wave'), ETC.waves[ETC.waves.length - 1]));
+killS5('wave');
+camera.position.x = s5mod.S5_GENERATOR.x + S5C.repairRange * 3;
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 ENEMY TRAIN: setelah semua gelombang tiba dan peron bersih, C2 baru aktif',
+    etDbg().wavesReleased && etDbg().waveRobots === 0
+    && s5mod.stage5Debug().phase === 'repair'
+    && s5mod.stage5Scene.hudStatus().startsWith('GENERATOR C2'));
+tickS5(ETC.departSec + ETC.dwellSec + 1, 0.2);
+T('S5 ENEMY TRAIN: konsist musuh selalu kembali idle dan tersembunyi setelah berangkat',
+    etDbg().mode === 'idle' && !etDbg().visible);
+
 // FIELD REPAIR C2. Abort harus menyimpan 1/3 dan butuh menjauh.
 camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
 s5mod.stage5Scene.updateMode(0.1);
@@ -4712,6 +4873,9 @@ drainS5Dialogue();
 // Departure cinematic lalu perjalanan fixed arena/pool.
 camera.position.set(s5mod.S5_BOARD.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_BOARD.z);
 s5mod.stage5Scene.updateMode(0.1);
+T('S5 BOARDING WAVE: transport terakhir dikirim saat fase board, lalu ditinggal',
+    s5mod.stage5Debug().enemyTrain.boardWaveSent
+    && robots.filter(z => z.stage === 5 && z.encounter === 'wave').length === 0);
 T('S5 DEPARTURE: boarding memulai cinematic freeze + perjalanan',
     s5mod.stage5Debug().phase === 'departure' && stateMod.cinematicActive);
 const s5StationBeforeMove = s5mod.trainJourneyDebug().station;

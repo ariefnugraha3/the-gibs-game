@@ -151,7 +151,15 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   allocate scenery per frame, add a boss, or bypass the config-driven minimum ride/final
   defense gates. Its depot is the frozen 30×50 CSV map: clear combat → hack C1 → open the
   platform door → repair generator C2 → board; station robot spawning, AI and clamps all
-  reject `SA`/`S`/`T`, so those cells never contain robots.
+  reject `SA`/`S`, so those cells never contain robots.
+- Stage 5 station has TWO tracks (2026-08-06 user CSV). Tokens `=`/`,`/`T`/`I`/`L`/`@` join
+  the old legend; `S5_FINISH_MAP` is the 30×19 Bandung terminal. The player may never step
+  onto the enemy track or the inter-track gap, robots may, and `@` window walls stop bullets
+  while their glass stays an unwelded transparent mesh. Reinforcements arrive on a prebuilt
+  enemy consist that approaches, dwells, unloads into the gap and departs; the only route
+  from the tracks to the platform is around the east end of the player's train. C2 arms only
+  after every configured wave has actually unloaded and the platform is clear. The five-car
+  consist keeps its journey arena and is merely shifted while docked so TC/TL match the CSV.
   SA shares the normal hall floor material. Depot robots remain hard-frozen until the
   player's full footprint leaves SA, then chase together. C1/C2 are detailed animated
   2045 landmarks, and depot/platform freight furniture is solid and nav-baked.

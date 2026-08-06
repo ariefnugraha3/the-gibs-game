@@ -174,6 +174,78 @@ function signTexture() {
     const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
 }
 
+// Denah resmi user `stages(Stage5-Finish).csv`, 30 kolom × 19 baris: stasiun
+// tujuan Bandung. Token sama dengan S5_MAP ('#' dinding, '.' lantai, '=' rel,
+// 'T' gerbong, 'L' lokomotif). Bangunan ini STATIS — tidak pernah masuk pool
+// scenery yang bergeser saat kereta berjalan.
+export const BANDUNG_MAP = Object.freeze([
+    '##############################',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '##############################',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '#............................#',
+    '==============TTTTTTTLLLLLLL==',
+    '==============TTTTTTTLLLLLLL==',
+    '==============TTTTTTTLLLLLLL==',
+    '==============TTTTTTTLLLLLLL==',
+]);
+
+// Sel CSV finish disejajarkan ke arena journey: baris track (16-19) berpusat
+// pada sumbu rel, dan kolom lokomotif (TL) jatuh tepat di gerbong terakhir.
+const B_CELL = 16.5, B_WALL_H = 25, B_TRACK_ROW = 17.5, B_COL0 = 12.88;
+const bx = c => (c - B_COL0) * B_CELL;
+const bz = r => (r - B_TRACK_ROW) * B_CELL;
+
+function buildBandungTerminal(M) {
+    const g = new THREE.Group();
+    const cols = BANDUNG_MAP[0].length;
+    // Peron kedatangan (baris 10-15) dan aula dalam (baris 2-8).
+    mesh(g, new THREE.BoxGeometry(cols * B_CELL, 2, 6 * B_CELL), M.panel,
+        bx(15.5), -0.4, bz(12.5));
+    mesh(g, new THREE.BoxGeometry(cols * B_CELL, 2, 7 * B_CELL), M.concrete,
+        bx(15.5), -0.6, bz(5));
+    // Garis aman di tepi peron menghadap rel.
+    mesh(g, new THREE.BoxGeometry(cols * B_CELL, 1, 4), M.hazard, bx(15.5), 0.8, bz(15) + 4);
+    // Dinding dibangun sebagai RUN horizontal, bukan per sel: bentuknya identik
+    // tetapi jumlah mesh tetap jauh di bawah cap prop pool scenery.
+    for (let r = 0; r < BANDUNG_MAP.length; r++) {
+        let c = 0;
+        while (c < cols) {
+            if (BANDUNG_MAP[r][c] !== '#') { c++; continue; }
+            let end = c;
+            while (end + 1 < cols && BANDUNG_MAP[r][end + 1] === '#') end++;
+            const span = end - c + 1;
+            mesh(g, new THREE.BoxGeometry(span * B_CELL, B_WALL_H, B_CELL), M.body,
+                bx(c + 1 + (span - 1) / 2), B_WALL_H / 2, bz(r + 1));
+            c = end + 1;
+        }
+    }
+    // Kanopi peron: tiang di batas aula, balok melintang ke tepi rel.
+    for (let c = 3; c <= 28; c += 5) {
+        mesh(g, new THREE.BoxGeometry(3, 38, 3), M.steel, bx(c), 19, bz(10.5));
+        mesh(g, new THREE.BoxGeometry(58, 3, 5 * B_CELL), M.body, bx(c), 38, bz(12.8));
+        mesh(g, new THREE.BoxGeometry(1.4, 1, 4 * B_CELL), M.amber, bx(c), 36, bz(12.8), 0, 0, 0, false);
+    }
+    // Papan informasi + strip status sipil pada dinding pemisah aula.
+    for (const c of [8, 16, 24])
+        mesh(g, new THREE.BoxGeometry(3 * B_CELL, 5, 1), M.tech, bx(c), 15, bz(9) + B_CELL / 2 + 0.8, 0, 0, 0, false);
+    const sign = mesh(g, new THREE.PlaneGeometry(118, 20),
+        new THREE.MeshBasicMaterial({ map: signTexture(), toneMapped: false }),
+        bx(15.5), 25, bz(10.5) + 2, 0, 0, 0, false);
+    sign.rotation.y = Math.PI;
+    return g;
+}
+
 // Pool perjalanan: seluruh child dibuat SEKALI. `updateJourneyScenery` hanya
 // menggeser transform dan wrap; tidak ada scene.add / alokasi geometry per frame.
 export function buildTrainJourneyScenery(baseX, baseZ = 0) {
@@ -230,16 +302,7 @@ export function buildTrainJourneyScenery(baseX, baseZ = 0) {
         s.visible = false; sparks.push(s);
     }
 
-    const arrival = new THREE.Group();
-    mesh(arrival, new THREE.BoxGeometry(520, 2, 78), M.panel, 0, -1, -66);
-    mesh(arrival, new THREE.BoxGeometry(520, 1, 5), M.hazard, 0, 0.5, -28);
-    for (const x of [-210, -140, -70, 0, 70, 140, 210]) {
-        mesh(arrival, new THREE.BoxGeometry(3, 38, 3), M.steel, x, 18, -86);
-        mesh(arrival, new THREE.BoxGeometry(64, 3, 58), M.body, x, 38, -67);
-    }
-    const sign = mesh(arrival, new THREE.PlaneGeometry(118, 20),
-        new THREE.MeshBasicMaterial({ map: signTexture(), toneMapped: false }), 0, 25, -27, 0, 0, 0, false);
-    sign.rotation.y = Math.PI;
+    const arrival = buildBandungTerminal(M);
     // Terminal Bandung adalah bangunan dunia yang STATIS. Ilusi perjalanan
     // hanya menggeser pool near/mid/far/tunnel; terminal tidak pernah diubah
     // posisinya ketika kereta bergerak.

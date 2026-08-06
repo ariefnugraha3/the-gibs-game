@@ -46,30 +46,34 @@ import {
 } from '../../../entities/train.js';
 import { playLoopSFX, stopLoopSFX, sfxTankMove, playSFX, sfxPurchase } from '../../../utils/sfx.js';
 
-// Denah resmi user `stages(Stage5).csv`, 30 kolom × 50 baris.
-// Token satu-karakter internal: A=SA, 1=C1, 2=C2, .=kosong.
-// Jangan mengubah layout tanpa memperbarui CSV-contract smoke test.
+// Denah resmi user `stages(Stage5-Start).csv`, 30 kolom × 50 baris.
+// Token satu-karakter internal untuk legenda CSV:
+//   '=' TT rel, ',' SPACE antar-rel, 'T' TC gerbong, 'I' TCI pintu naik,
+//   'L' TL lokomotif, '@' dinding berjendela, 'A' SA, 'S' start, '-' pintu,
+//   'H' titik aksi, '1' C1, '2' C2, '.' lantai kosong.
+// Baris 1-4 adalah TRACK MUSUH; baris 6-9 track kereta player. Jangan
+// mengubah layout tanpa memperbarui CSV-contract smoke test.
 export const S5_MAP = Object.freeze([
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
-    'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT',
+    '==============================',
+    '==============================',
+    '==============================',
+    '==============================',
+    ',,,,,,,,,,,,,,,,,,,,,,,,,,,,,,',
+    '=====TTTTTTTLLLLLLL===========',
+    '=====TTTTTTTLLLLLLL===========',
+    '=====TTTTTTTLLLLLLL===========',
+    '=====TITTTTTLLLLLLL===========',
     '#####.........................',
     '#2222.........................',
-    '#..H..........................',
+    '#.HH..........................',
     '#.............................',
     '#.............................',
     '#.............................',
     '#.............................',
-    '##########################--##',
-    '#AAAAAAA.....................#',
-    '#AAAAAAA.....................#',
-    '#AAAAAAA.....................#',
-    '#AAAAAAA.....................#',
+    '##@@###@@##@@##@@##@@##@@#--##',
     '#AAAA#.......................#',
+    '#AAAA-.......................#',
+    '#AAAA-.......................#',
     '#AAAA#.......................#',
     '#AAAA#.......................#',
     '#AAAA#.......................#',
@@ -94,14 +98,19 @@ export const S5_MAP = Object.freeze([
     '#AAAA#.................#....1#',
     '#AAAA#.................#....1#',
     '#AAAA#.................#....1#',
-    '#AAAA#.................-....1#',
+    '#AAAA#.................-...H1#',
     '#AAAA#.................-...H1#',
     '#AAAA#.................#....1#',
     '#AAAA#.................#....1#',
     '#ASSA#.................#....1#',
     '##############################',
 ]);
-export const S5_LEGEND = Object.freeze({ '#': 'wall', S: 'start', '-': 'door', 1: 'hack', 2: 'generator', T: 'train', A: 'safe' });
+export const S5_LEGEND = Object.freeze({
+    '#': 'wall', '@': 'window-wall', S: 'start', '-': 'door', H: 'action',
+    1: 'hack', 2: 'generator', A: 'safe',
+    '=': 'track', ',': 'track-gap', T: 'train-car', I: 'train-entry', L: 'locomotive',
+});
+export { BANDUNG_MAP as S5_FINISH_MAP } from '../../../entities/train.js';
 
 // Intro rooftop memakai x≈150000 dan dibuang setelah cutscene; Stage 5 tetap
 // dipisah satu blok dunia penuh agar jalur Continue/cheat tidak pernah melihatnya.
@@ -110,22 +119,35 @@ const MAP_COLS = 30, MAP_ROWS = 50, CELL = 16.5, WALL_H = 25;
 const MAP_X0 = OX - MAP_COLS * CELL / 2, MAP_Z0 = OZ - MAP_ROWS * CELL / 2;
 const DEPOT = { x0: MAP_X0, x1: MAP_X0 + MAP_COLS * CELL, z0: MAP_Z0, z1: MAP_Z0 + MAP_ROWS * CELL };
 const cellPos = (c, r) => ({ x: MAP_X0 + (c - 0.5) * CELL, z: MAP_Z0 + (r - 0.5) * CELL });
-const TRAIN_CENTER_Z = cellPos(15.5, 4).z;
+// Dua jalur: baris 1-4 = track musuh, baris 6-9 = track kereta player.
+const TRAIN_CENTER_Z = cellPos(1, 7.5).z;
+const ENEMY_TRACK_Z = cellPos(1, 2.5).z;
+// Arena journey tetap di tengah peta seperti sebelumnya. DI STASIUN konsist
+// digeser ke barat sehingga gerbong 3 (TC) + lokomotif (TL) jatuh persis pada
+// sel TC/TL denah CSV; gerbong 0-2 disembunyikan sampai layar hitam departure.
+const STATION_CAR_INDEX = 3;
 const TRAIN_BASE_X = OX - 2 * TRAIN_CAR_STEP;
 const TRAIN_X0 = TRAIN_BASE_X - TRAIN_CAR_LENGTH / 2;
 const TRAIN_X1 = TRAIN_BASE_X + (TRAIN_CAR_COUNT - 1) * TRAIN_CAR_STEP + TRAIN_CAR_LENGTH / 2;
 const TRAIN_Z0 = TRAIN_CENTER_Z - TRAIN_HALF_WIDTH;
 const TRAIN_Z1 = TRAIN_CENTER_Z + TRAIN_HALF_WIDTH;
+const STATION_TC_X = cellPos(9.47, 1).x;                 // pusat sel TC pada CSV
+const STATION_TRAIN_DX = STATION_TC_X - (TRAIN_BASE_X + STATION_CAR_INDEX * TRAIN_CAR_STEP);
 
-const GENERATOR_OBJECT = cellPos(3.5, 9);
+const GENERATOR_OBJECT = cellPos(3.5, 11);
 const TERMINAL_OBJECT = cellPos(29, 45.5);
-const PLATFORM_DOOR_POS = cellPos(27.5, 15);
+const PLATFORM_DOOR_POS = cellPos(27.5, 17);
 const CONTROL_DOOR_POS = cellPos(24, 45.5);
+const SAFE_DOOR_POS = cellPos(6, 19.5);
 export const S5_START = Object.freeze(cellPos(3.5, 49));
-export const S5_GENERATOR = Object.freeze(cellPos(4, 10));       // H dekat C2
-export const S5_TERMINAL = Object.freeze(cellPos(28, 46));       // H dekat C1
-export const S5_BOARD = Object.freeze({ x: TRAIN_BASE_X - 24, z: TRAIN_Z1 - 5 });
+export const S5_GENERATOR = Object.freeze(cellPos(3.5, 12));     // H dekat C2
+export const S5_TERMINAL = Object.freeze(cellPos(28, 45.5));     // H dekat C1
+export const S5_BOARD = Object.freeze(cellPos(7, 10));           // peron di depan TCI
+export const S5_TCI = Object.freeze(cellPos(7, 9));
 export const S5_ENGINE = Object.freeze({ x: TRAIN_BASE_X + 4 * TRAIN_CAR_STEP + 17, z: TRAIN_CENTER_Z });
+// Titik turun robot dari kereta musuh: celah antar-rel, lalu memutari ujung
+// timur kereta player (satu-satunya jalur track -> peron).
+const ENEMY_DROP_Z = cellPos(1, 5).z;
 
 const SUPPLY_POINTS = Object.freeze([
     Object.freeze({ type: 'ammo', weapon: 'pistol', ...cellPos(3, 43) }),
@@ -155,11 +177,14 @@ const depotFurniture = [], platformFurniture = [];
 let repairMarker = null, terminalMarker = null, boardMarker = null;
 const blockers = [], doorBlockers = [];
 const stationDoors = [];
+const windowPanes = [];
+let enemyTrain = null;
 
 let phase = 'opening', rideT = 0, finalT = 0, trainSpeed = 0, trainLoop = null;
 let repairInstalled = 0, repairArmed = true, hackArmed = true, hackCd = 0;
 let complete = false, discovered = false, platformUnlocked = false, depotAwake = false, finalWaveIndex = 0;
 let departureShift = 0;
+let waveIndex = 0, waveT = 0, boardWaveSent = false, flybySent = false;
 let encounterSpawned = { cargo: false, security: false, roof: false };
 let cine = null;
 const cineCam = { x: CAM_OFF_DEFAULT.x, y: CAM_OFF_DEFAULT.y, z: CAM_OFF_DEFAULT.z };
@@ -173,7 +198,11 @@ function mapCellAt(x, z) {
     return { c, r, token: S5_MAP[r][c] };
 }
 
-const openToken = token => token !== '#';
+// Dinding, dinding-jendela dan badan kereta stasiun solid untuk semua entitas.
+const SOLID_TOKENS = '#@TIL';
+const HALL_ROW0 = 17;                                 // baris pertama di bawah dinding peron
+const openToken = token => !SOLID_TOKENS.includes(token);
+const wallToken = token => token === '#' || token === '@';
 const safeToken = token => token === 'A' || token === 'S';
 
 function touchesSafeArea(x, z, r = 0) {
@@ -196,22 +225,43 @@ export function stage5Walk(x, z, r = 0) {
 function trainWalk(x, z, r = 0) {
     return x >= TRAIN_X0 + r && x <= TRAIN_X1 - r && z >= TRAIN_Z0 + r && z <= TRAIN_Z1 - r;
 }
+// Deck kereta hanya walkable selama perjalanan; di stasiun badan kereta solid.
+export const stage5TrainWalk = trainWalk;
 
-function playerWalk(x, z, r = 0) {
-    const moving = ['departure', 'cargo', 'security', 'roof', 'finalDefense', 'arrival', 'complete'].includes(phase);
-    return moving ? trainWalk(x, z, r) : stage5Walk(x, z, r);
+// Player tidak boleh melangkah ke track musuh maupun celah antar-rel: itu
+// jalur kereta yang bergerak. Robot gelombang justru memakainya.
+const PLAYER_ROW0 = 5;
+function playerStationWalk(x, z, r = 0) {
+    return cornerCells(x, z, r).every(m => m.r >= PLAYER_ROW0 && openToken(m.token));
 }
 
-function stationCombatWalk(x, z, r = 0) {
+const movingPhase = () => ['departure', 'cargo', 'security', 'roof',
+    'finalDefense', 'arrival', 'complete'].includes(phase);
+
+function playerWalk(x, z, r = 0) {
+    return movingPhase() ? trainWalk(x, z, r) : playerStationWalk(x, z, r);
+}
+
+function cornerCells(x, z, r) {
     const d = Math.max(0, r);
-    const cells = [mapCellAt(x - d, z - d), mapCellAt(x + d, z - d),
+    return [mapCellAt(x - d, z - d), mapCellAt(x + d, z - d),
         mapCellAt(x - d, z + d), mapCellAt(x + d, z + d)];
-    return cells.every(m => m.r >= 15 && !['#', 'A', 'S', 'T'].includes(m.token));
+}
+
+// Robot boleh menempati seluruh stasiun KECUALI safe area — gelombang kereta
+// musuh memang harus melintasi track, celah antar-rel, lalu peron.
+function robotStationWalk(x, z, r = 0) {
+    return cornerCells(x, z, r).every(m => openToken(m.token) && !safeToken(m.token));
+}
+
+// Spawn horde alarm tetap dikurung di hall, di bawah dinding berjendela.
+function hallSpawnWalk(x, z, r = 0) {
+    return cornerCells(x, z, r).every(m => m.r >= HALL_ROW0
+        && openToken(m.token) && !safeToken(m.token));
 }
 
 function robotWalk(x, z, r = 0) {
-    const moving = ['departure', 'cargo', 'security', 'roof', 'finalDefense', 'arrival', 'complete'].includes(phase);
-    return moving ? trainWalk(x, z, r) : stationCombatWalk(x, z, r);
+    return movingPhase() ? trainWalk(x, z, r) : robotStationWalk(x, z, r);
 }
 
 function addBlocker(x, z, hx, hz, top = 16, standable = false) {
@@ -549,12 +599,13 @@ function buildStationFurniture(M, add, addGeo) {
     buildFreightScale(M, add, 14, 41);
     buildLockerBank(M, add, 27, 26);
 
-    buildPlatformCart(M, add, addGeo, 10, 10);
-    buildPlatformCart(M, add, addGeo, 18, 10);
-    buildPlatformPallets(M, add, 23, 10);
-    buildPlatformBench(M, add, 9, 13);
+    // Peron kini baris 10-16; jalur naik kereta (kolom 7) dibiarkan bersih.
+    buildPlatformCart(M, add, addGeo, 11, 12);
+    buildPlatformCart(M, add, addGeo, 18, 12);
+    buildPlatformPallets(M, add, 23, 12);
+    buildPlatformBench(M, add, 9, 15);
     buildSignalCabinet(M, add, 28, 11);
-    buildDrumCluster(M, addGeo, 20, 13, platformFurniture);
+    buildDrumCluster(M, addGeo, 20, 15, platformFurniture);
 }
 
 function buildStationDoor(M, kind, x, z, sx, sz) {
@@ -573,10 +624,14 @@ function buildStationDoor(M, kind, x, z, sx, sz) {
 }
 
 function updateStationDoors(dt) {
-    const control = stationDoors.find(d => d.kind === 'control');
     const platform = stationDoors.find(d => d.kind === 'platform');
-    if (control) control.target = Math.hypot(camera.position.x - control.blocker.x,
-        camera.position.z - control.blocker.z) < CELL * 2.25 ? 1 : 0;
+    // `-` pada CSV = pintu otomatis saat player mendekat. Pintu peron adalah
+    // satu-satunya pengecualian: ia terkunci sampai C1 berhasil di-hack.
+    for (const d of stationDoors) {
+        if (d === platform) continue;
+        d.target = Math.hypot(camera.position.x - d.blocker.x,
+            camera.position.z - d.blocker.z) < CELL * 2.25 ? 1 : 0;
+    }
     if (platform) platform.target = platformUnlocked ? 1 : 0;
     for (const d of stationDoors) {
         const dir = d.target > d.open ? 1 : -1;
@@ -600,13 +655,147 @@ export function stage5SegHitsWall(x0, z0, x1, z1) {
     const dist = Math.hypot(x1 - x0, z1 - z0), steps = Math.max(1, Math.ceil(dist / (CELL * 0.3)));
     for (let i = 1; i <= steps; i++) {
         const k = i / steps;
-        if (mapCellAt(x0 + (x1 - x0) * k, z0 + (z1 - z0) * k).token === '#') return true;
+        // Dinding berjendela tetap menghentikan peluru: kacanya hanya visual.
+        if (wallToken(mapCellAt(x0 + (x1 - x0) * k, z0 + (z1 - z0) * k).token)) return true;
     }
     return false;
 }
 
 function stationDoorBlocks(x0, z0, x1, z1) {
     return stationDoors.some(d => d.open < 0.74 && segHitsRect(x0, z0, x1, z1, d.blocker));
+}
+
+// --- Kereta musuh di track sebelah (baris CSV 1-4) -------------------------
+// Konsist statis-prealokasi: tiga gerbong angkut + satu lokomotif. Ia hanya
+// bergeser di sumbu X dan membuka/menutup pintu; tidak ada mesh/material yang
+// dibuat saat runtime sehingga tidak pernah memicu shader recompile.
+const ET_CARS = 4, ET_LEN = 92, ET_STEP = 100, ET_HALF = 25;
+const ET_SPAN = (ET_CARS - 1) * ET_STEP;
+const ET_ENTER_X = MAP_X0 - ET_SPAN - ET_LEN * 1.5;
+const ET_EXIT_X = MAP_X0 + MAP_COLS * CELL + ET_LEN;
+const etCfg = () => CFG.campaign.stage5.enemyTrain;
+const etStopX = () => cellPos(etCfg().stopCellCol, 1).x - ET_SPAN / 2;
+
+let etrain = { mode: 'idle', t: 0, wave: null, unloaded: false, doors: 0, arrivals: 0, unloads: 0 };
+
+function buildEnemyTrain(M) {
+    const g = new THREE.Group();
+    g.position.set(ET_ENTER_X, 0, ENEMY_TRACK_Z);
+    const cars = [], doorPanels = [];
+    for (let i = 0; i < ET_CARS; i++) {
+        const car = new THREE.Group(); car.position.x = i * ET_STEP; g.add(car);
+        const loco = i === ET_CARS - 1;
+        box(car, M.ink, ET_LEN, 5, ET_HALF * 2, 0, 4.5, 0);
+        box(car, loco ? M.body : M.panel, ET_LEN - 6, loco ? 25 : 19,
+            ET_HALF * 2 - 5, 0, loco ? 19.5 : 16.5, 0);
+        box(car, M.steel, ET_LEN - 1, 2, ET_HALF * 2 - 2, 0, loco ? 33 : 27, 0);
+        // Rusuk lambung + garis bahaya, kosakata warna GIBS 2045.
+        for (let k = -3; k <= 3; k++)
+            box(car, M.steel, 1.4, loco ? 22 : 16, ET_HALF * 2 - 4, k * 12, loco ? 19.5 : 16.5, 0, false);
+        box(car, M.hazard, ET_LEN - 10, 1.4, 1.2, 0, 9, -ET_HALF + 1.5, false);
+        box(car, M.hazard, ET_LEN - 10, 1.4, 1.2, 0, 9, ET_HALF - 1.5, false);
+        for (const z of [-ET_HALF - 0.6, ET_HALF + 0.6])
+            box(car, M.tech, 22, 1.1, 0.7, loco ? -22 : 26, 22, z, false);
+        // Bogie.
+        for (const bx of [-30, 30]) {
+            box(car, M.ink, 26, 6, ET_HALF * 1.5, bx, 3, 0);
+            for (const wz of [-ET_HALF * 0.72, ET_HALF * 0.72])
+                for (const wx of [-8, 8])
+                    cylinder(car, M.steel, 3.4, 3.4, 2.2, 10, bx + wx, 3.4, wz, Math.PI / 2);
+        }
+        if (loco) {
+            box(car, M.body, 26, 14, ET_HALF * 1.7, ET_LEN / 2 - 12, 8.5, 0);
+            box(car, M.ink, 20, 11, ET_HALF * 1.5, ET_LEN / 2 - 14, 26, 0);
+            box(car, M.glass, 2, 7, ET_HALF * 1.3, ET_LEN / 2 - 4.4, 27, 0, false);
+            for (const z of [-8, 8]) box(car, M.lamp, 2, 3, 4, ET_LEN / 2 + 0.4, 12, z, false);
+            for (const bx of [-8, 6]) cylinder(car, M.ink, 3.4, 4.1, 9, 10, bx, 37, 0);
+            box(car, M.hazard, 4, 12, ET_HALF * 1.6, ET_LEN / 2 + 1.6, 8, 0);
+        } else {
+            // Dua pintu geser menghadap track player; robot turun lewat sini.
+            for (const dx of [-24, 24]) {
+                const panel = box(car, M.body, 22, 17, 2.4, dx, 15.5, ET_HALF - 1.6);
+                doorPanels.push(panel);
+                box(car, M.hazard, 22, 1, 0.8, dx, 6.6, ET_HALF - 0.4, false);
+            }
+        }
+        cars.push(car);
+    }
+    stationRoot.add(g);
+    return { group: g, cars, doorPanels, baseY: doorPanels[0]?.position.y ?? 15.5 };
+}
+
+function setEnemyDoors(open) {
+    if (!enemyTrain) return;
+    etrain.doors = Math.max(0, Math.min(1, open));
+    const e = etrain.doors * etrain.doors * (3 - 2 * etrain.doors);
+    for (const p of enemyTrain.doorPanels) p.position.y = enemyTrain.baseY - e * 19;
+}
+
+function resetEnemyTrain() {
+    etrain = { mode: 'idle', t: 0, wave: null, unloaded: false, doors: 0, arrivals: 0, unloads: 0 };
+    if (!enemyTrain) return;
+    enemyTrain.group.visible = false;
+    enemyTrain.group.position.x = ET_ENTER_X;
+    setEnemyDoors(0);
+}
+
+function sendEnemyTrain(wave) {
+    if (!enemyTrain || etrain.mode !== 'idle') return false;
+    etrain.mode = wave ? 'approach' : 'flyby';
+    etrain.t = 0; etrain.wave = wave || null; etrain.unloaded = false;
+    etrain.arrivals++;
+    enemyTrain.group.visible = true;
+    enemyTrain.group.position.x = ET_ENTER_X;
+    setEnemyDoors(0);
+    startTrainLoop(); addCamShake(1.4);
+    return true;
+}
+
+function unloadEnemyTrain() {
+    if (etrain.unloaded || !etrain.wave) return;
+    etrain.unloaded = true; etrain.unloads++;
+    const gx = enemyTrain.group.position.x;
+    // Titik turun = pintu gerbong angkut, lalu hop ke celah antar-rel.
+    const doorsX = [];
+    for (let i = 0; i < ET_CARS - 1; i++) for (const dx of [-24, 24])
+        doorsX.push(gx + i * ET_STEP + dx);
+    let k = 0;
+    for (const cls of ['C', 'B', 'A']) {
+        const n = Math.max(0, etrain.wave[cls] | 0);
+        for (let i = 0; i < n; i++, k++) {
+            const x = doorsX[k % doorsX.length] + rand(-4, 4);
+            spawnOne(cls, x, ENEMY_TRACK_Z + ET_HALF + 4, 'wave', true,
+                { x, z: ENEMY_DROP_Z + rand(-4, 4) });
+        }
+    }
+    addCamShake(1.8);
+}
+
+function updateEnemyTrain(dt) {
+    if (!enemyTrain || etrain.mode === 'idle') return;
+    const C = etCfg();
+    etrain.t += dt;
+    const stopX = etStopX();
+    if (etrain.mode === 'approach') {
+        const k = Math.min(1, etrain.t / Math.max(0.01, C.approachSec));
+        const e = 1 - Math.pow(1 - k, 3);
+        enemyTrain.group.position.x = ET_ENTER_X + (stopX - ET_ENTER_X) * e;
+        if (k >= 1) { etrain.mode = 'dwell'; etrain.t = 0; }
+    } else if (etrain.mode === 'dwell') {
+        enemyTrain.group.position.x = stopX;
+        setEnemyDoors(Math.min(1, etrain.t / Math.max(0.01, C.doorSec)));
+        if (etrain.doors >= 1) unloadEnemyTrain();
+        if (etrain.t >= C.dwellSec) { etrain.mode = 'depart'; etrain.t = 0; }
+    } else if (etrain.mode === 'depart') {
+        const k = Math.min(1, etrain.t / Math.max(0.01, C.departSec));
+        setEnemyDoors(1 - Math.min(1, etrain.t / Math.max(0.01, C.doorSec)));
+        enemyTrain.group.position.x = stopX + (ET_EXIT_X - stopX) * k * k;
+        if (k >= 1) { etrain.mode = 'idle'; enemyTrain.group.visible = false; stopTrainLoop(); }
+    } else if (etrain.mode === 'flyby') {
+        const k = Math.min(1, etrain.t / Math.max(0.01, C.flybySec));
+        enemyTrain.group.position.x = ET_ENTER_X + (ET_EXIT_X - ET_ENTER_X) * k;
+        if (k >= 1) { etrain.mode = 'idle'; enemyTrain.group.visible = false; stopTrainLoop(); }
+    }
 }
 
 function buildWorld() {
@@ -629,6 +818,9 @@ function buildWorld() {
             color: PAL.amberDim, emissive: PAL.amber, emissiveIntensity: EMISSIVE_MAX * 0.48,
         }),
         lamp: new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false }),
+        glass: new THREE.MeshLambertMaterial({
+            color: PAL.screenBg, transparent: true, opacity: 0.22,
+        }),
     };
     const staticProps = [];
     const addStatic = (sx, sy, sz, x, y, z, mat = M.ground) => {
@@ -641,12 +833,11 @@ function buildWorld() {
         m.castShadow = true; m.receiveShadow = true; staticProps.push(m); return m;
     };
 
-    // Lantai mengikuti footprint CSV: T di utara, peron baris 8-14,
-    // bangunan/station hall baris 16-49. Dinding # dibangun per-sel lalu dibatch.
+    // Lantai mengikuti footprint CSV: dua track di baris 1-9, peron baris
+    // 10-16, hall baris 18-49. Dinding # / @ dibangun per-sel lalu dibatch.
     addStatic(MAP_COLS * CELL, 2, MAP_ROWS * CELL, OX, -1, OZ, M.ground);
-    addStatic(MAP_COLS * CELL, 1, 7 * CELL, OX, -0.1, TRAIN_CENTER_Z, M.asphalt);
-    const stationFloorZ = (cellPos(15.5, 8).z + cellPos(15.5, 50).z) / 2;
-    addStatic(MAP_COLS * CELL, 0.8, 43 * CELL, OX, 0, stationFloorZ, M.panel);
+    addStatic(MAP_COLS * CELL, 1, 9 * CELL, OX, -0.1, cellPos(1, 5).z, M.asphalt);
+    addStatic(MAP_COLS * CELL, 0.8, 41 * CELL, OX, 0, cellPos(1, 30).z, M.panel);
     // SA tetap token gameplay, tetapi lantainya SAMA dengan hall lainnya.
     // Jangan tambahkan overlay warna: safe area harus terbaca dari perilaku,
     // bukan seperti zona bercahaya yang berbeda material.
@@ -656,19 +847,32 @@ function buildWorld() {
         if (token === '#') {
             addStatic(CELL, WALL_H, CELL, p.x, WALL_H / 2, p.z, M.body);
             addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
+        } else if (token === '@') {
+            // Dinding berjendela: ambang + header solid, kaca sebagai mesh
+            // transparan berdiri sendiri (meshBatch sengaja tidak mengelasnya).
+            addStatic(CELL, 6, CELL, p.x, 3, p.z, M.body);
+            addStatic(CELL, 5, CELL, p.x, WALL_H - 2.5, p.z, M.body);
+            addStatic(2.2, 14, CELL, p.x - CELL / 2 + 1.1, 13, p.z, M.steel);
+            addStatic(2.2, 14, CELL, p.x + CELL / 2 - 1.1, 13, p.z, M.steel);
+            const glass = new THREE.Mesh(new THREE.BoxGeometry(CELL, 14, 1.4), M.glass);
+            glass.position.set(p.x, 13, p.z); stationRoot.add(glass);
+            windowPanes.push(glass);
+            addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
         }
     }
-    // Rel stasiun tetap menjadi anak stationRoot, bukan journey scenery.
-    for (const z of [TRAIN_CENTER_Z - 20, TRAIN_CENTER_Z + 20])
-        addStatic(MAP_COLS * CELL, 1.2, 2.2, OX, 0.1, z, M.steel);
+    // Kedua rel stasiun tetap menjadi anak stationRoot, bukan journey scenery.
+    for (const base of [TRAIN_CENTER_Z, ENEMY_TRACK_Z])
+        for (const z of [base - 20, base + 20])
+            addStatic(MAP_COLS * CELL, 1.2, 2.2, OX, 0.1, z, M.steel);
     for (let c = 1; c <= MAP_COLS; c += 2) {
-        const p = cellPos(c, 4);
-        addStatic(CELL * 1.7, 0.8, 53, p.x, -0.25, TRAIN_CENTER_Z, M.ink);
+        const p = cellPos(c, 1);
+        for (const base of [TRAIN_CENTER_Z, ENEMY_TRACK_Z])
+            addStatic(CELL * 1.7, 0.8, 53, p.x, -0.25, base, M.ink);
     }
     // Garis aman peron dan gantry tetap, tidak pernah masuk pool bergerak.
-    addStatic(MAP_COLS * CELL, 0.35, 2, OX, 0.65, cellPos(15.5, 8).z - CELL / 2 + 2, M.hazard);
+    addStatic(MAP_COLS * CELL, 0.35, 2, OX, 0.65, cellPos(1, 10).z - CELL / 2 + 2, M.hazard);
     for (const c of [6, 15, 24]) {
-        const p = cellPos(c, 12);
+        const p = cellPos(c, 15);
         addStatic(3, 29, 3, p.x, 14.5, p.z, M.steel);
         addStatic(3, 3, CELL * 7, p.x, 29, p.z - CELL * 2.5, M.steel);
     }
@@ -678,12 +882,14 @@ function buildWorld() {
     buildGenerator(M); buildTerminal(M);
     buildStationDoor(M, 'platform', PLATFORM_DOOR_POS.x, PLATFORM_DOOR_POS.z, CELL * 1.92, 3.5);
     buildStationDoor(M, 'control', CONTROL_DOOR_POS.x, CONTROL_DOOR_POS.z, 3.5, CELL * 1.92);
+    buildStationDoor(M, 'safe', SAFE_DOOR_POS.x, SAFE_DOOR_POS.z, 3.5, CELL * 1.92);
     repairMarker = marker(S5_GENERATOR.x, S5_GENERATOR.z, PAL.amber);
     terminalMarker = marker(S5_TERMINAL.x, S5_TERMINAL.z, PAL.tech);
     boardMarker = marker(S5_BOARD.x, S5_BOARD.z, PAL.amber);
 
     train = buildMilitaryTrainMesh(TRAIN_BASE_X, TRAIN_CENTER_Z);
     scene.add(train.group);
+    enemyTrain = buildEnemyTrain(M);
     journey = buildTrainJourneyScenery(TRAIN_BASE_X + 2 * TRAIN_CAR_STEP, TRAIN_CENTER_Z);
     scene.add(journey.group);
     // Semua scenery sengaja terlihat saat precompile awal; enter() akan reset/hide.
@@ -696,7 +902,7 @@ function buildWorld() {
     }
 
     // Delapan lampu tetap untuk stage 5; tidak ada lampu runtime.
-    const lampCells = [[3, 18], [11, 18], [20, 18], [28, 18], [8, 32], [17, 32], [27, 32], [15, 12]];
+    const lampCells = [[3, 20], [11, 20], [20, 20], [28, 20], [8, 32], [17, 32], [27, 32], [15, 13]];
     for (const [c, r] of lampCells) {
         const { x, z } = cellPos(c, r);
         const L = new THREE.PointLight(PAL.amber, 0.48, 145);
@@ -711,6 +917,8 @@ function buildWorld() {
         (x, z) => stage5Walk(x, z, 4) && !blockedAt(x, z, 3.5));
 }
 
+const countToken = t => S5_MAP.reduce((n, row) => n + [...row].filter(c => c === t).length, 0);
+
 export function ensureWorld() { if (!built) { built = true; buildWorld(); } }
 export const worldBuilt = () => built;
 export const stage5StaticBatchDbg = () => staticBatch;
@@ -719,12 +927,17 @@ export const stage5WorldDebug = () => ({
     depot: { ...DEPOT },
     map: {
         rows: MAP_ROWS, cols: MAP_COLS, cell: CELL,
-        walls: S5_MAP.reduce((n, row) => n + [...row].filter(t => t === '#').length, 0),
-        trainCells: S5_MAP.reduce((n, row) => n + [...row].filter(t => t === 'T').length, 0),
-        safeCells: S5_MAP.reduce((n, row) => n + [...row].filter(t => t === 'A' || t === 'S').length, 0),
-        safeFloorOverlays: safeFloorOverlayCount,
+        walls: countToken('#'), windowCells: countToken('@'),
+        trainCells: countToken('T') + countToken('I') + countToken('L'),
+        trackCells: countToken('='), gapCells: countToken(','),
+        entryCells: countToken('I'), locoCells: countToken('L'),
+        safeCells: countToken('A') + countToken('S'),
+        safeFloorOverlays: safeFloorOverlayCount, windowPanes: windowPanes.length,
         platformDoor: { ...PLATFORM_DOOR_POS }, controlDoor: { ...CONTROL_DOOR_POS },
+        safeDoor: { ...SAFE_DOOR_POS },
         terminalObject: { ...TERMINAL_OBJECT }, generatorObject: { ...GENERATOR_OBJECT },
+        tci: { ...S5_TCI }, playerTrackZ: TRAIN_CENTER_Z, enemyTrackZ: ENEMY_TRACK_Z,
+        enemyDropZ: ENEMY_DROP_Z,
     },
     landmarks: { ...landmarkVisual },
     furniture: {
@@ -739,6 +952,15 @@ export const stage5WorldDebug = () => ({
     train: {
         x0: TRAIN_X0, x1: TRAIN_X1, z0: TRAIN_Z0, z1: TRAIN_Z1,
         cars: train?.cars?.length || 0, doors: train?.doors?.length || 0,
+        stationVisibleCars: train?.cars?.filter(c => c.visible).length || 0,
+        stationCarIndex: STATION_CAR_INDEX,
+    },
+    enemyTrain: {
+        cars: enemyTrain?.cars?.length || 0,
+        doorPanels: enemyTrain?.doorPanels?.length || 0,
+        meshes: enemyTrain ? meshCount(enemyTrain.group) : 0,
+        enterX: ET_ENTER_X, exitX: ET_EXIT_X,
+        z: enemyTrain?.group?.position?.z ?? 0,
     },
     blockers: blockers.length,
     doorBlockers: doorBlockers.length,
@@ -854,6 +1076,26 @@ function stopTrainLoop() {
     if (trainLoop) { stopLoopSFX(trainLoop); trainLoop = null; }
 }
 
+// Denah CSV hanya memuat satu TC + satu TL di peron, sedangkan journey tetap
+// memakai konsist 5 gerbong. Gerbong sisanya disembunyikan selama di stasiun
+// dan dibuka saat layar sudah hitam di startDeparture.
+function setStationTrainView(atStation) {
+    if (!train) return;
+    // Ambang dipasang di coupler gerbong 2/3 agar bulkhead + coupler yang
+    // tersisa berperan sebagai dinding belakang gerbong TC di peron.
+    const cut = TRAIN_BASE_X + (STATION_CAR_INDEX - 0.5) * TRAIN_CAR_STEP;
+    for (const c of train.group.children) c.visible = !atStation || c.position.x >= cut;
+    if (atStation) train.group.position.x = STATION_TRAIN_DX;
+}
+
+function countWaveRobots() { return countEncounter('wave'); }
+const enemyWaves = () => etCfg().waves || [];
+const wavesReleased = () => waveIndex >= enemyWaves().length;
+// "Selesai" berarti benar-benar SUDAH diturunkan, bukan sekadar dijadwalkan:
+// C2 tidak boleh terbuka pada jeda saat kereta terakhir masih mengerem.
+const wavesDone = () => wavesReleased() && etrain.unloads >= enemyWaves().length;
+const platformClear = () => countWaveRobots() === 0;
+
 function startTrainLoop() {
     if (trainLoop) return;
     trainLoop = playLoopSFX(sfxTankMove, 0.2);
@@ -896,11 +1138,19 @@ function finishDeparture() {
 function startDeparture() {
     releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
     phase = 'departure'; rideT = 0; trainSpeed = 0; boardMarker.visible = false;
+    setStationTrainView(false); resetEnemyTrain();
+    // Robot gelombang peron ditinggal di stasiun begitu player naik kereta.
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
+        if (z.stage !== 5 || z.encounter !== 'wave') continue;
+        disposeRobot(z); scene.remove(z.mesh); robots.splice(i, 1);
+    }
     camera.position.set(TRAIN_BASE_X - 28, CFG.player.eyeHeight, TRAIN_CENTER_Z);
+    camera.position.set(STATION_TC_X - 46, CFG.player.eyeHeight, TRAIN_CENTER_Z);
     setCinematicActive(true); setCineBars(true); setCineFade(1, 0);
     cine = { kind: 'departure', t: 0, fadeIn: false, fading: false };
     queueDialogue('commandDeparture'); queueDialogue('gibranDeparture');
-    setCineFocus(TRAIN_BASE_X + TRAIN_CAR_STEP, TRAIN_CENTER_Z, true);
+    setCineFocus(STATION_TC_X, TRAIN_CENTER_Z, true);
     showCutsceneSkip(finishDeparture); startTrainLoop(); playSFX(sfxPurchase, 0.45);
 }
 
@@ -953,10 +1203,10 @@ function updateCine(dt) {
         // Kereta benar-benar keluar ke timur selama shot; seluruh stationRoot
         // tetap di (0,0,0). Arena di-reset saat layar hitam di finishDeparture.
         departureShift = k * CELL * 15;
-        train.group.position.x = departureShift;
-        camera.position.x = TRAIN_BASE_X - 28 + departureShift;
+        train.group.position.x = STATION_TRAIN_DX + departureShift;
+        camera.position.x = STATION_TC_X - 46 + departureShift;
         camera.position.z = TRAIN_CENTER_Z;
-        setCineFocus(TRAIN_BASE_X + TRAIN_CAR_STEP + departureShift, TRAIN_CENTER_Z, true);
+        setCineFocus(STATION_TC_X + departureShift, TRAIN_CENTER_Z, true);
         if (!cine.fading && cine.t >= C.departureMinSec && !dialogueCurrent && !dialogueQueue.length) {
             cine.fading = true; cine.fadeT = 0; setCineFade(1, C.fadeSec);
         }
@@ -1024,7 +1274,7 @@ function hackAlarm() {
     const H = CFG.campaign.hack;
     hackCd = H.alarmCooldownSec;
     spawnAlarmHorde(5, {
-        count: H.alarmHordeCount, walkable: stationCombatWalk, resolve, scratch: _v3,
+        count: H.alarmHordeCount, walkable: hallSpawnWalk, resolve, scratch: _v3,
         minUnits: H.alarmSpawnMinUnits, maxUnits: H.alarmSpawnMaxUnits, cls: 'C',
         // Ruang C1 berada di sudut peta, sehingga cincin 24 arah kadang hanya
         // menemukan sembilan titik. Cadangan ini tetap jauh, di luar SA/T.
@@ -1056,6 +1306,19 @@ function beginHack() {
             else { terminalMarker.visible = true; showStageMsg('BREACH ABORTED — STEP AWAY, THEN TRY AGAIN', 3200); }
         },
     });
+}
+
+// Gelombang kereta musuh selama fase peron: dirilis oleh timer, dan C2 baru
+// bisa dipakai setelah SEMUA gelombang tiba DAN peron benar-benar bersih.
+function updateStationWaves(dt) {
+    if (wavesReleased()) return;
+    const C = etCfg();
+    waveT += dt;
+    if (waveT < C.firstWaveDelaySec + waveIndex * C.waveGapSec) return;
+    if (!sendEnemyTrain(enemyWaves()[waveIndex])) return;
+    waveIndex++;
+    queueDialogue(waveIndex === 1 ? 'enemyTrainFirst' : 'enemyTrainNext');
+    showStageMsg('HOSTILE TRANSPORT ON THE ADJACENT TRACK — HOLD THE PLATFORM', 4200);
 }
 
 function updateRide(dt) {
@@ -1123,10 +1386,12 @@ function resetStage() {
     phase = 'opening'; rideT = 0; finalT = 0; trainSpeed = 0; complete = false;
     repairInstalled = 0; repairArmed = true; hackArmed = true; hackCd = 0;
     discovered = false; platformUnlocked = false; depotAwake = false; finalWaveIndex = 0; departureShift = 0;
+    waveIndex = 0; waveT = 0; boardWaveSent = false; flybySent = false;
     encounterSpawned = { cargo: false, security: false, roof: false };
     stopTrainLoop(); cleanupCine(); resetDialogue();
-    resetTrainVisual(train); resetJourneyScenery(journey);
+    resetTrainVisual(train); resetJourneyScenery(journey); resetEnemyTrain();
     train.group.position.set(0, 0, 0); stationRoot.visible = true;
+    setStationTrainView(true);
     for (let i = 0; i < train.doors.length; i++) setTrainDoor(train, i, false);
     for (const d of stationDoors) {
         d.open = 0; d.target = 0; d.panel.position.y = (WALL_H - 2) / 2;
@@ -1161,6 +1426,15 @@ export const stage5Debug = () => {
         stationX: stationRoot?.position?.x || 0, stationZ: stationRoot?.position?.z || 0,
         rideT, routeK, distance, finalT, finalWaveIndex,
         robots: countStageRobots(5), complete, encountered: { ...encounterSpawned },
+        enemyTrain: {
+            mode: etrain.mode, doors: etrain.doors, arrivals: etrain.arrivals,
+            unloads: etrain.unloads, x: enemyTrain?.group?.position?.x ?? 0,
+            z: enemyTrain?.group?.position?.z ?? 0,
+            visible: !!enemyTrain?.group?.visible,
+            waveIndex, waveT, boardWaveSent, flybySent,
+            waveRobots: countWaveRobots(),
+            wavesReleased: wavesReleased(), wavesDone: wavesDone(),
+        },
     };
 };
 export const trainJourneyDebug = () => ({
@@ -1202,7 +1476,8 @@ export const stage5Scene = {
     awardKill: campaignAwardKill,
 
     updateMode(dt) {
-        updateDialogue(dt); updateCine(dt); updateStationDoors(dt); pulseMarkers(); updateLandmarks(dt);
+        updateDialogue(dt); updateCine(dt); updateStationDoors(dt); updateEnemyTrain(dt);
+        pulseMarkers(); updateLandmarks(dt);
         if (hackCd > 0) hackCd = Math.max(0, hackCd - dt);
         if (['departure', 'cargo', 'security', 'roof', 'finalDefense', 'arrival'].includes(phase)) updateRide(dt);
 
@@ -1215,6 +1490,11 @@ export const stage5Scene = {
             if (countEncounter('depot') === 0) {
                 phase = 'hack'; terminalMarker.visible = true;
                 queueDialogue('discoverTrain'); queueDialogue('powerDead');
+                // Kereta musuh lewat tanpa berhenti: terlihat dari hall melalui
+                // dinding berjendela, sebagai peringatan sebelum fase peron.
+                if (!flybySent && sendEnemyTrain(null)) {
+                    flybySent = true; queueDialogue('enemyTrainFlyby');
+                }
                 showStageMsg('STATION SECURED — HACK COMPUTER C1', 4200);
             }
         } else if (phase === 'hack') {
@@ -1226,11 +1506,19 @@ export const stage5Scene = {
             }
             terminalMarker.visible = hackCd <= 0 && countStageRobots(5) === 0;
         } else if (phase === 'repair') {
+            updateStationWaves(dt);
+            const ready = wavesDone() && platformClear();
+            repairMarker.visible = ready;
             const near = Math.hypot(camera.position.x - S5_GENERATOR.x,
                 camera.position.z - S5_GENERATOR.z) < CFG.campaign.stage5.repairRange;
             if (!near) repairArmed = true;
-            else if (repairArmed) { repairArmed = false; beginRepair(); }
+            else if (repairArmed && ready) { repairArmed = false; beginRepair(); }
         } else if (phase === 'board') {
+            // Gelombang terakhir mengejar player sepanjang peron menuju TCI.
+            if (!boardWaveSent && sendEnemyTrain(etCfg().boardingWave)) {
+                boardWaveSent = true; queueDialogue('enemyTrainBoarding');
+                showStageMsg('LAST TRANSPORT INBOUND — REACH THE TRAIN DOOR', 4200);
+            }
             if (Math.hypot(camera.position.x - S5_BOARD.x, camera.position.z - S5_BOARD.z)
                 < CFG.campaign.stage5.boardRange) startDeparture();
         }
@@ -1288,9 +1576,16 @@ export const stage5Scene = {
     },
 
     clampDropPos(x, z) {
-        if (stage5Walk(x, z, 2)) return [x, z];
-        if (x >= TRAIN_X0 - 20) return [Math.max(TRAIN_X0 + 2, Math.min(TRAIN_X1 - 2, x)),
-            Math.max(TRAIN_Z0 + 2, Math.min(TRAIN_Z1 - 2, z))];
+        if (movingPhase()) {
+            if (trainWalk(x, z, 2)) return [x, z];
+            return [Math.max(TRAIN_X0 + 2, Math.min(TRAIN_X1 - 2, x)),
+                Math.max(TRAIN_Z0 + 2, Math.min(TRAIN_Z1 - 2, z))];
+        }
+        if (playerStationWalk(x, z, 2)) return [x, z];
+        // Loot dari robot yang mati di area track ditarik ke tepi peron; player
+        // tidak pernah boleh berjalan ke sana untuk memungutnya.
+        const edgeZ = cellPos(1, 10).z;
+        if (z < edgeZ && playerStationWalk(x, edgeZ, 2)) return [x, edgeZ];
         // Hindari menjepit drop ke dalam sel dinding CSV. Safe area start
         // selalu merupakan fallback walkable yang sah.
         return [S5_START.x, S5_START.z];
@@ -1301,13 +1596,19 @@ export const stage5Scene = {
         if (phase === 'opening') return 'STAGE 5 — THE LAST TRAIN TO BANDUNG';
         if (phase === 'clearDepot' && !depotAwake) return 'SAFE AREA — MOVE OUT WHEN READY';
         if (phase === 'clearDepot') return `STATION SECURITY — Robots: ${countEncounter('depot')}`;
+        if (phase === 'repair' && !platformClear())
+            return `HOLD THE PLATFORM — Robots: ${countWaveRobots()}`;
+        if (phase === 'repair' && !wavesDone())
+            return `GENERATOR C2 — ${repairInstalled}/${REPAIR_PARTS.length} | TRANSPORT INBOUND`;
         if (phase === 'repair' || phase === 'repairing') return `GENERATOR C2 — ${repairInstalled}/${REPAIR_PARTS.length}`;
         if (phase === 'hack') {
             if (countStageRobots(5) > 0) return `C1 ACCESS COMPUTER — Clear alarm squad: ${countStageRobots(5)}`;
             if (hackCd > 0) return `C1 ACCESS COMPUTER REBOOT — ${Math.ceil(hackCd)}s`;
             return 'C1 ACCESS COMPUTER — ICE BREACH READY';
         }
-        if (phase === 'board') return 'BANDUNG ROUTE AUTHORIZED — BOARD THE TRAIN';
+        if (phase === 'board') return countWaveRobots()
+            ? `BOARD THE TRAIN — Robots: ${countWaveRobots()}`
+            : 'BANDUNG ROUTE AUTHORIZED — BOARD THE TRAIN';
         if (phase === 'arrival') return 'BANDUNG — ARRIVING';
         if (phase === 'complete') return 'BANDUNG — ARRIVED';
         const k = Math.min(1, rideT / Math.max(1, C.rideMinSec || 1));
