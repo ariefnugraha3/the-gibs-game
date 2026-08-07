@@ -146,6 +146,13 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   Left-click during body first reveals all remaining typed text; only a later click
   advances the era. Chapter changes are silent, and menu music continues through the
   prologue before stopping on the heli intro's first live frame.
+- Stage 5 lives in `stages/stage5/` (2026-08-07 split of a 1631-line file): `index.js`
+  facade + `world.js`/`props.js`/`runtime.js`, and THREE sub-scenes — `station.js` (starting
+  station), `journey.js` (train departs), `arrival.js` (Bandung, stage ends). Sub-scenes use
+  the normal scene-hook contract but never call `setScene`: `activeScene` stays `stage5Scene`
+  so checkpoint/stageStats/modal-resume are unchanged. `enterSub()` is the only switch path —
+  cut to black, fade in over `CFG.campaign.stage5.subSceneFadeSec` (0.5 s) next frame; stage
+  entry passes `{fade:false}`. The dialogue queue is shared and never reset between sub-scenes.
 - Stage 5 keeps its five-car train arena static in world coordinates. Travel is the
   illusion of fixed pooled scenery moving and wrapping; never move player/robot physics,
   allocate scenery per frame, add a boss, or bypass the config-driven minimum ride/final
@@ -155,10 +162,11 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - Stage 5 station has TWO tracks (2026-08-06 user CSV). Tokens `=`/`,`/`T`/`I`/`L`/`@` join
   the old legend; `S5_FINISH_MAP` is the 30×19 Bandung terminal. The player may never step
   onto the enemy track or the inter-track gap, robots may, and `@` window walls stop bullets
-  while their glass stays an unwelded transparent mesh. Reinforcements arrive on a prebuilt
-  enemy consist that approaches, dwells, unloads into the gap and departs; the only route
-  from the tracks to the platform is around the east end of the player's train. C2 arms only
-  after every configured wave has actually unloaded and the platform is clear. The five-car
+  while their glass stays an unwelded transparent mesh. REWORK 2026-08-07: every part-1 robot
+  lives in the freight hall (`encounters.depot`, one spawn spot each). The enemy consist never
+  stops, opens doors, or unloads — `enemyTrain` config is only `{flybySec}` and drives one
+  atmospheric pass when the hall is cleared. Opening the platform door arms C2 immediately;
+  there is no wave gate and no contested boarding. The five-car
   consist keeps its journey arena and is merely shifted while docked so TC/TL match the CSV.
   SA shares the normal hall floor material. Depot robots remain hard-frozen until the
   player's full footprint leaves SA, then chase together. C1/C2 are detailed animated

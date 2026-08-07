@@ -21,7 +21,7 @@ import { stage1Scene } from '../stages/stage1.js';   // restartScene (circular a
 import { stage2Scene } from '../stages/stage2.js';   // (circular aman: DI DALAM fungsi)
 import { stage3Scene } from '../stages/stage3.js';
 import { stage4Scene } from '../stages/stage4.js';
-import { stage5Scene } from '../stages/stage5.js';
+import { stage5Scene } from '../stages/stage5/index.js';
 import { stage6Scene } from '../stages/stage6.js';
 import { stage7Scene } from '../stages/stage7.js';
 import { stage8Scene } from '../stages/stage8.js';

@@ -361,6 +361,7 @@
             "departureMinSec": 10,
             "arrivalMinSec": 12,
             "fadeSec": 0.5,
+            "subSceneFadeSec": 0.5,
             "repairRange": 12,
             "terminalRange": 12,
             "boardRange": 14,
@@ -374,7 +375,7 @@
             "finalDefenseSec": 65,
             "finalWaveGapSec": 18,
             "encounters": {
-                "depot": { "C": 7, "B": 3, "A": 2 },
+                "depot": { "C": 16, "B": 6, "A": 4 },
                 "cargo": { "C": 4, "B": 1, "A": 1 },
                 "security": { "C": 3, "B": 2, "A": 1 },
                 "roof": { "C": 5, "B": 2, "A": 1 },
@@ -385,19 +386,7 @@
                 ]
             },
             "enemyTrain": {
-                "stopCellCol": 16,
-                "approachSec": 4.2,
-                "doorSec": 0.7,
-                "dwellSec": 6,
-                "departSec": 3.6,
-                "flybySec": 6.5,
-                "firstWaveDelaySec": 2.5,
-                "waveGapSec": 34,
-                "waves": [
-                    { "C": 4, "B": 1, "A": 0 },
-                    { "C": 4, "B": 2, "A": 1 }
-                ],
-                "boardingWave": { "C": 3, "B": 2, "A": 1 }
+                "flybySec": 6.5
             }
         },
         "stage6": {
@@ -745,12 +734,9 @@
                     "discoverTrain": { "speaker": "Major Gibran", "text": "An autonomous military transport... Destination registry: Bandung Logistics Terminal. This could be my way out." },
                     "powerDead": { "speaker": "Major Gibran", "text": "The train has no power, and the platform access is locked. I'll need to hack station computer C1 first." },
                     "enemyTrainFlyby": { "speaker": "Major Gibran", "text": "A freight consist just ran the adjacent track without slowing down. They know something is alive in this depot." },
-                    "enemyTrainFirst": { "speaker": "Train System", "text": "Unscheduled transport braking on the adjacent track. Unloading detected." },
-                    "enemyTrainNext": { "speaker": "Major Gibran", "text": "Another transport. They're feeding units onto that track faster than I can clear them." },
                     "powerBack": { "speaker": "Major Gibran", "text": "Generator's back online. The route controls are responding." },
                     "routeReady": { "speaker": "Train System", "text": "Route authority overridden. Destination confirmed: Bandung Logistics Terminal." },
                     "letsMove": { "speaker": "Major Gibran", "text": "Finally. Let's move." },
-                    "enemyTrainBoarding": { "speaker": "Major Gibran", "text": "One more transport rolling in. I'm not waiting for it—get to the door." },
                     "commandDeparture": { "speaker": "Command", "text": "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" },
                     "gibranDeparture": { "speaker": "Major Gibran", "text": "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." },
                     "breach": { "speaker": "Train System", "text": "Security breach detected. Rear coupling compromised." },

@@ -4365,7 +4365,7 @@ T('S4 FINISH CONTINUE: tombol utama menutup overlay tanpa reset dan baru membuka
 // dari CFG.campaign.stage5. Alur dimainkan end-to-end tanpa mensimulasikan
 // kegagalan combat: depot -> alarm hack C1 -> pintu peron -> repair C2 -> kereta -> 4 encounter ->
 // arrival. Semua dialog tetap benar-benar melewati state typewriter parsial. ---
-const s5mod = await import(R('src/scenes/campaign/stages/stage5.js'));
+const s5mod = await import(R('src/scenes/campaign/stages/stage5/index.js'));
 const s6mod = await import(R('src/scenes/campaign/stages/stage6.js'));
 const s7mod = await import(R('src/scenes/campaign/stages/stage7.js'));
 const s8mod = await import(R('src/scenes/campaign/stages/stage8.js'));
@@ -4403,17 +4403,37 @@ T('S5 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
     && player.armor === s5Carry.armor && player.medkits === s5Carry.medkits
     && player.weapons.join(',') === s5Carry.weapons);
 
+// --- PEMECAHAN STAGE 5 (2026-08-07, permintaan user "stage5.js terlalu besar"):
+// satu file 1600+ baris menjadi folder `stage5/` berisi TIGA sub-scene
+// (station -> journey -> arrival) + fasad/world/runtime. Kontraknya: yang
+// dilihat core/sceneManager TETAP satu `stage5Scene` id `campaign-5` (checkpoint,
+// stageStats, resume modal hack/repair tak berubah), dan pergantian sub-scene
+// memakai fade-in `subSceneFadeSec`. ---
+const s5Dir = ROOT + '/src/scenes/campaign/stages/stage5';
+const s5Files = fs.readdirSync(s5Dir).sort();
+const s5FileLines = f => fs.readFileSync(s5Dir + '/' + f, 'utf8').split('\n').length;
+T('S5 SPLIT: stage5.js pecah jadi satu folder — 3 sub-scene + fasad/world/props/runtime, tak ada file raksasa',
+    !fs.existsSync(ROOT + '/src/scenes/campaign/stages/stage5.js')
+    && s5Files.join(',') === 'arrival.js,index.js,journey.js,props.js,runtime.js,station.js,world.js'
+    && s5Files.every(f => s5FileLines(f) < 600));
+T('S5 SPLIT: tiap sub-scene punya id sendiri; sceneManager tetap hanya melihat campaign-5',
+    s5mod.stationScene.id === 'campaign-5-station'
+    && s5mod.journeyScene.id === 'campaign-5-journey'
+    && s5mod.arrivalScene.id === 'campaign-5-arrival'
+    && s5mod.stage5Scene.id === 'campaign-5' && s5mod.stage5Scene.lightsKey === 'campaign-5'
+    && [s5mod.stationScene, s5mod.journeyScene, s5mod.arrivalScene]
+        .every(s => s !== s5mod.stage5Scene && !s.lightsKey));
+T('S5 SPLIT: stage dibuka pada sub-scene stasiun TANPA tirai (entry tetap langsung terlihat)',
+    s5mod.stage5Debug().sub === 'campaign-5-station' && dom4.cineFadeDebug()?.opacity === 0);
+
 const expectedS5Dialogue = {
     opening: { speaker: 'Major Gibran', text: "Walking to Bandung isn't an option. There has to be something in this depot I can use." },
     discoverTrain: { speaker: 'Major Gibran', text: 'An autonomous military transport... Destination registry: Bandung Logistics Terminal. This could be my way out.' },
     powerDead: { speaker: 'Major Gibran', text: "The train has no power, and the platform access is locked. I'll need to hack station computer C1 first." },
     enemyTrainFlyby: { speaker: 'Major Gibran', text: 'A freight consist just ran the adjacent track without slowing down. They know something is alive in this depot.' },
-    enemyTrainFirst: { speaker: 'Train System', text: 'Unscheduled transport braking on the adjacent track. Unloading detected.' },
-    enemyTrainNext: { speaker: 'Major Gibran', text: "Another transport. They're feeding units onto that track faster than I can clear them." },
     powerBack: { speaker: 'Major Gibran', text: "Generator's back online. The route controls are responding." },
     routeReady: { speaker: 'Train System', text: 'Route authority overridden. Destination confirmed: Bandung Logistics Terminal.' },
     letsMove: { speaker: 'Major Gibran', text: "Finally. Let's move." },
-    enemyTrainBoarding: { speaker: 'Major Gibran', text: "One more transport rolling in. I'm not waiting for it—get to the door." },
     commandDeparture: { speaker: 'Command', text: "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" },
     gibranDeparture: { speaker: 'Major Gibran', text: "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." },
     breach: { speaker: 'Train System', text: 'Security breach detected. Rear coupling compromised.' },
@@ -4429,11 +4449,14 @@ T('S5 DIALOG: seluruh naskah final tersimpan PERSIS dan urut',
     JSON.stringify(s5mod.STAGE5_DIALOGUE) === JSON.stringify(expectedS5Dialogue));
 
 const s5Partial = new Set(), s5ShownOrder = [];
-let s5LastKey = null;
+let s5LastKey = null, s5EverWaveRobot = false;
 function sampleS5Dialogue() {
     const d = s5mod.stage5DialogueDebug();
     if (d.key && d.key !== s5LastKey) { s5ShownOrder.push(d.key); s5LastKey = d.key; }
     if (d.key && d.chars > 0 && d.chars < d.text.length) s5Partial.add(d.key);
+    // Sekalian rekam: sejak 2026-08-07 kereta musuh TIDAK BOLEH pernah
+    // menurunkan robot, jadi encounter 'wave' tak boleh muncul sedetik pun.
+    if (robots.some(z => z.stage === 5 && z.encounter === 'wave')) s5EverWaveRobot = true;
 }
 function tickS5(total, step = 1 / Math.max(1, cfgMod.CFG.campaign.dialogue.cps)) {
     let left = Math.max(0, total), guard = 0;
@@ -4560,8 +4583,8 @@ T('S5 CSV FINISH: denah stasiun Bandung 30×19 dibangun persis dari CSV finish u
     JSON.stringify(s5mod.S5_FINISH_MAP) === JSON.stringify(expectedS5Finish));
 T('S5 DUA TRACK: track musuh terpisah satu baris SPACE dari track kereta player',
     Math.abs(s5World.map.playerTrackZ - s5World.map.enemyTrackZ - 5 * s5World.map.cell) < 0.01
-    && s5World.map.enemyDropZ > s5World.map.enemyTrackZ
-    && s5World.map.enemyDropZ < s5World.map.playerTrackZ);
+    // Titik turun robot dihapus 2026-08-07: kereta musuh tak menurunkan siapa pun.
+    && s5World.map.enemyDropZ === undefined);
 
 // Jendela '@' hanya tembus pandang: gerakan dan peluru tetap tertahan.
 const s5WinCell = (() => {
@@ -4673,13 +4696,19 @@ for (const z of depotBots) {
     if (Math.hypot(stateMod._v3.x - z.mesh.position.x, stateMod._v3.z - z.mesh.position.z) > 0.01)
         s5PlacementOK = false;
 }
-T('S5 WORLD: supplies, crates, marker route, dan 12 spawn depot berada di area valid',
+T('S5 WORLD: supplies, crates, marker route, dan SEMUA spawn depot berada di area valid',
     s5PlacementOK && depotBots.length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
 T('S5 DEPOT: komposisi awal C/B/A mengikuti CFG dan tidak memuat boss',
     sameMix(depotMix, S5C.encounters.depot)
     && robots.filter(z => z.stage === 5).every(z => ['C', 'B', 'A'].includes(z.kind))
     && depotBots.every(z => !['A', 'S', 'T'].includes(s5TokenAt(z.mesh.position.x, z.mesh.position.z)))
     && depotBots.every(z => z.state === 'idle') && !s5mod.stage5Debug().depotAwake);
+// 2026-08-07, permintaan user: "tambah lebih banyak robot di ruang sebelah" +
+// "robot hanya ada di ruangan gudang saja". Ambang 12 = jumlah depot SEBELUM
+// rombak (bukan angka tuning) — turun di bawahnya berarti requestnya hilang.
+T(`S5 GUDANG: seluruh robot bagian 1 tinggal di gudang dan jumlahnya bertambah [${depotBots.length}]`,
+    depotBots.length > 12
+    && robots.filter(z => z.stage === 5).length === depotBots.length);
 const s5SafeProbe = depotBots[0], s5SafeOld = {
     x: s5SafeProbe.mesh.position.x, z: s5SafeProbe.mesh.position.z,
 };
@@ -4784,67 +4813,29 @@ tickS5(0.6, 0.1);
 const s5PlatformDoor1 = s5mod.stage5WorldDebug().station.doors.find(d => d.kind === 'platform');
 stateMod._v3.set(s5World.map.platformDoor.x, 0, s5World.map.platformDoor.z);
 s5mod.resolve(stateMod._v3, 2, 0);
-T('S5 HACK C1: solve membuka pintu peron fisik dan baru mengaktifkan generator C2',
+T('S5 HACK C1: solve membuka pintu peron fisik dan LANGSUNG mengaktifkan generator C2',
     s5mod.stage5Debug().phase === 'repair' && s5mod.stage5Debug().platformUnlocked
     && s5PlatformDoor1.target === 1 && s5PlatformDoor1.open >= 0.74
     && Math.hypot(stateMod._v3.x - s5World.map.platformDoor.x,
-        stateMod._v3.z - s5World.map.platformDoor.z) < 0.01);
+        stateMod._v3.z - s5World.map.platformDoor.z) < 0.01
+    && s5mod.stage5Scene.hudStatus()
+        === `GENERATOR C2 — 0/${repMod.REPAIR_PARTS.length}`);
 
-
-// Gelombang kereta musuh di track sebelah: rilis by timer, C2 dikunci sampai
-// semua gelombang tiba DAN peron benar-benar bersih.
-const ETC = S5C.enemyTrain;
+// 2026-08-07, permintaan user: kereta musuh tidak lagi mengantar pasukan. Yang
+// tersisa hanyalah SATU lintasan atmosfer, dan C2 tak punya gate gelombang.
 const etDbg = () => s5mod.stage5Debug().enemyTrain;
-camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
-s5mod.stage5Scene.updateMode(0.1);
-T('S5 ENEMY TRAIN: fase peron dimulai tanpa gelombang dan C2 belum bisa dipakai',
-    s5mod.stage5Debug().phase === 'repair' && !repMod.isRepairOpen()
-    && etDbg().waveIndex === 0 && etDbg().mode === 'idle' && !etDbg().visible
-    && !etDbg().wavesReleased && Array.isArray(ETC.waves) && ETC.waves.length > 0);
-tickS5(ETC.firstWaveDelaySec + 0.2);
-const etApproach = etDbg();
-T('S5 ENEMY TRAIN: gelombang pertama datang dengan kereta di track musuh, bukan spawn instan',
-    etApproach.waveIndex === 1 && etApproach.mode === 'approach' && etApproach.visible
-    && etApproach.x > s5mod.stage5WorldDebug().enemyTrain.enterX
-    && Math.abs(etApproach.z - s5World.map.enemyTrackZ) < 0.01
-    && s5Mix('wave').C + s5Mix('wave').B + s5Mix('wave').A === 0);
-tickS5(ETC.approachSec + ETC.doorSec + 0.3);
-const etDwell = etDbg();
-const waveBots = robots.filter(z => z.stage === 5 && z.encounter === 'wave');
-T('S5 ENEMY TRAIN: pintu terbuka lalu menurunkan komposisi gelombang persis dari CFG',
-    etDwell.mode === 'dwell' && etDwell.doors >= 1 && etDwell.unloads === 1
-    && sameMix(s5Mix('wave'), ETC.waves[0])
-    && waveBots.every(z => ['C', 'B', 'A'].includes(z.kind)));
-T('S5 ENEMY TRAIN: robot turun di sisi track musuh dan menuju celah antar-rel, di luar SA',
-    waveBots.length > 0
-    && waveBots.every(z => z.mesh.position.z > s5World.map.enemyTrackZ)
-    && waveBots.every(z => z.mesh.position.z < s5World.map.playerTrackZ)
-    && waveBots.every(z => z.trainBoard
-        && Math.abs(z.trainBoard.targetZ - s5World.map.enemyDropZ) <= 4.01)
-    && waveBots.every(z => !['A', 'S'].includes(
-        s5TokenAt(z.trainBoard.targetX, z.trainBoard.targetZ))));
-camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
-s5mod.stage5Scene.updateMode(0.1);
-T('S5 ENEMY TRAIN: C2 tetap terkunci selama robot gelombang masih hidup',
-    !repMod.isRepairOpen() && s5mod.stage5Debug().phase === 'repair'
-    && s5mod.stage5Scene.hudStatus().startsWith('HOLD THE PLATFORM'));
-killS5('wave');
-tickS5(ETC.waveGapSec + ETC.approachSec + ETC.doorSec + 0.5);
-const etSecond = etDbg();
-T('S5 ENEMY TRAIN: kereta berangkat lagi lalu gelombang berikutnya diturunkan',
-    etSecond.arrivals >= 2 && etSecond.unloads === 2
-    && etSecond.waveIndex === ETC.waves.length && etSecond.wavesReleased
-    && sameMix(s5Mix('wave'), ETC.waves[ETC.waves.length - 1]));
-killS5('wave');
-camera.position.x = s5mod.S5_GENERATOR.x + S5C.repairRange * 3;
-s5mod.stage5Scene.updateMode(0.1);
-T('S5 ENEMY TRAIN: setelah semua gelombang tiba dan peron bersih, C2 baru aktif',
-    etDbg().wavesReleased && etDbg().waveRobots === 0
-    && s5mod.stage5Debug().phase === 'repair'
-    && s5mod.stage5Scene.hudStatus().startsWith('GENERATOR C2'));
-tickS5(ETC.departSec + ETC.dwellSec + 1, 0.2);
-T('S5 ENEMY TRAIN: konsist musuh selalu kembali idle dan tersembunyi setelah berangkat',
-    etDbg().mode === 'idle' && !etDbg().visible);
+T('S5 STASIUN: config kereta musuh tak lagi punya gelombang/boarding — hanya flyby',
+    S5C.enemyTrain.waves === undefined && S5C.enemyTrain.boardingWave === undefined
+    && S5C.enemyTrain.stopCellCol === undefined && S5C.enemyTrain.dwellSec === undefined
+    && typeof S5C.enemyTrain.flybySec === 'number');
+T('S5 STASIUN: konsist musuh MELINTAS sekali dan tak pernah berhenti/membuka pintu',
+    s5mod.stage5Debug().flybySent && etDbg().passes === 1
+    && ['idle', 'flyby'].includes(etDbg().mode)
+    && etDbg().unloads === undefined && etDbg().waveIndex === undefined);
+tickS5(S5C.enemyTrain.flybySec + 0.5, 0.2);
+T('S5 STASIUN: sesudah melintas, konsist musuh kembali idle + tersembunyi tanpa menambah pass',
+    etDbg().mode === 'idle' && !etDbg().visible && etDbg().passes === 1
+    && robots.filter(z => z.stage === 5).length === 0);
 
 // FIELD REPAIR C2. Abort harus menyimpan 1/3 dan butuh menjauh.
 camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
@@ -4873,11 +4864,22 @@ drainS5Dialogue();
 // Departure cinematic lalu perjalanan fixed arena/pool.
 camera.position.set(s5mod.S5_BOARD.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_BOARD.z);
 s5mod.stage5Scene.updateMode(0.1);
-T('S5 BOARDING WAVE: transport terakhir dikirim saat fase board, lalu ditinggal',
-    s5mod.stage5Debug().enemyTrain.boardWaveSent
-    && robots.filter(z => z.stage === 5 && z.encounter === 'wave').length === 0);
+T('S5 BOARD: tidak ada transport terakhir; peron tetap kosong saat player naik',
+    !s5EverWaveRobot && robots.filter(z => z.stage === 5).length === 0
+    && etDbg().mode === 'idle' && !etDbg().visible);
 T('S5 DEPARTURE: boarding memulai cinematic freeze + perjalanan',
     s5mod.stage5Debug().phase === 'departure' && stateMod.cinematicActive);
+// Pergantian sub-scene = potong ke hitam pada frame switch, fade-in 0.5 dtk di
+// frame berikutnya (transisi CSS harus melihat nilai 1 lebih dulu).
+const s5SubCut = dom4.cineFadeDebug();
+s5mod.stage5Scene.updateMode(1 / 60); sampleS5Dialogue();
+const s5SubIn = dom4.cineFadeDebug();
+T('S5 SUB-SCENE: station -> journey memotong ke hitam lalu fade-in subSceneFadeSec',
+    s5mod.stage5Debug().sub === 'campaign-5-journey'
+    && smMod.activeScene === s5mod.stage5Scene
+    && s5SubCut.opacity === 1 && s5SubCut.transition === 'none'
+    && s5SubIn.opacity === 0
+    && s5SubIn.transition === `opacity ${S5C.subSceneFadeSec}s ease-in-out`);
 const s5StationBeforeMove = s5mod.trainJourneyDebug().station;
 const s5TerminalBeforeMove = s5mod.trainJourneyDebug().terminal;
 tickS5(Math.min(1, S5C.departureMinSec / 3), 0.1);
@@ -4952,6 +4954,9 @@ T('S5 ARRIVAL GATE: baru mulai setelah ride minimum, defense minimum, dan robot 
     s5mod.stage5Debug().phase === 'arrival' && s5mod.stage5Debug().rideT >= S5C.rideMinSec
     && s5mod.stage5Debug().finalT >= S5C.finalDefenseSec && s5mod.stage5Debug().robots === 0
     && s5mod.stage5Debug().distance === 0);
+T('S5 SUB-SCENE: journey -> arrival berpindah tanpa pernah mengganti activeScene',
+    s5mod.stage5Debug().sub === 'campaign-5-arrival'
+    && smMod.activeScene === s5mod.stage5Scene);
 drainS5Dialogue();
 tickS5(S5C.arrivalMinSec + S5C.fadeSec + 0.3, 0.1);
 const s5TrainEnd = s5mod.trainJourneyDebug();
@@ -4961,10 +4966,12 @@ T('S5 TRAIN POOL: scenery wrap/parallax bergerak tanpa mengubah jumlah pool/mesh
 T('S5 STATION INVARIANT: terminal tujuan juga statis; tidak ikut pool scenery yang wrap',
     s5TrainEnd.terminal.x === s5TerminalBeforeMove.x
     && s5TrainEnd.terminal.z === s5TerminalBeforeMove.z);
-T('S5 DIALOG: semua 16 beat tampil sekali, berurutan, dan pernah berada dalam body parsial',
+T('S5 DIALOG: semua beat tampil sekali, berurutan, dan pernah berada dalam body parsial',
     s5ShownOrder.join(',') === Object.keys(expectedS5Dialogue).join(',')
     && Object.keys(expectedS5Dialogue).every(k => s5Partial.has(k))
     && s5mod.stage5DialogueDebug().seen.join(',') === Object.keys(expectedS5Dialogue).join(','));
+T('S5 STASIUN: sepanjang stage TAK PERNAH ada robot yang turun dari kereta musuh',
+    !s5EverWaveRobot);
 T('S5 COMPLETE: arrival membuka layar hijau Stage 5 sebelum Field Shop',
     stateMod.isGameOver && s5mod.stage5Debug().complete
     && smMod.activeScene === s5mod.stage5Scene
@@ -7554,7 +7561,7 @@ const palMod = await import(R('src/world/palette.js'));
     // (c11) tiap stage benar-benar MENGALIRKAN perabotnya lewat batch (bukan
     //       scene.add langsung) — kalau wiring-nya putus, daftar ini kosong.
     const s4c = await import(R('src/scenes/campaign/stages/stage4.js'));
-    const s5c2 = await import(R('src/scenes/campaign/stages/stage5.js'));
+    const s5c2 = await import(R('src/scenes/campaign/stages/stage5/index.js'));
     const s6c2 = await import(R('src/scenes/campaign/stages/stage6.js'));
     const s7c2 = await import(R('src/scenes/campaign/stages/stage7.js'));
     const s8c2 = await import(R('src/scenes/campaign/stages/stage8.js'));
@@ -7652,7 +7659,10 @@ const palMod = await import(R('src/world/palette.js'));
     //     mencarinya sendiri) — sapu string user-facing di semua scene campaign.
     const DIRW = /\b(north|south|east|west|far-right|far-left|top-left|top-right|bottom-left|bottom-right)\b/i;
     const dirHits = [];
-    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js', 'stage5.js', 'stage6.js', 'stage7.js', 'stage8.js']) {
+    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js',
+        'stage5/index.js', 'stage5/world.js', 'stage5/runtime.js', 'stage5/station.js',
+        'stage5/journey.js', 'stage5/arrival.js',
+        'stage6.js', 'stage7.js', 'stage8.js']) {
         const src = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/' + f, 'utf8');
         for (const line of src.split('\n')) {
             const isMsg = line.includes('showStageMsg(') || line.includes('showPickup(') || (line.includes('return') && line.includes('FLOOR'));

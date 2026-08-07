@@ -48,7 +48,7 @@ import { spawnSmashBuilding, smashBuilding, updateSmashBuilding, resetSmashBuild
 import { exitCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
-import { stage5Scene } from './stage5.js';
+import { stage5Scene } from './stage5/index.js';
 import { createTankBossIntro, TANK_BOSS_DIALOGUE } from '../cutscenes/tankBossIntro.js';
 import { createTankBossOutro, TANK_BOSS_OUTRO_DIALOGUE } from '../cutscenes/tankBossOutro.js';
 export { TANK_BOSS_DIALOGUE, TANK_BOSS_OUTRO_DIALOGUE };

@@ -162,6 +162,34 @@ Stage 4 "Jalan Menuju Alun-Alun" (final — **new 2026-07-13, an OUTDOOR level; 
 
 ## Stage 5 — The Last Train to Bandung (2026-08-02)
 
+### File split into three sub-scenes (2026-08-07, user request)
+
+`stage5.js` had grown to 1631 lines, so it became the folder `src/scenes/campaign/stages/stage5/`:
+
+| File | Role |
+| --- | --- |
+| `index.js` | The scene facade — `stage5Scene` (`id:'campaign-5'`, `lightsKey:'campaign-5'`), stage reset, `stage5Debug`/`trainJourneyDebug`, and every public re-export. |
+| `world.js` | CSV layout, coordinates, walkables, blockers, nav grid, station doors, world build + debug. |
+| `props.js` | Static prop builders: the C1/C2 landmarks, depot and platform furniture, station doors, and the enemy consist. |
+| `runtime.js` | State shared by all three sub-scenes: phase, typewriter queue, sub-scene manager + curtain, robot spawn, enemy-train state machine, ride update, in-train collision hooks. |
+| `station.js` | **Sub-scene 1 — the starting station:** `opening → clearDepot → hack → repair → board`. |
+| `journey.js` | **Sub-scene 2 — the train departs:** `departure → cargo → security → roof → finalDefense`. |
+| `arrival.js` | **Sub-scene 3 — arriving in Bandung, the stage ends:** `arrival → complete`. |
+
+The sub-scenes implement the same hook contract as ordinary scenes (`enter`, `updateMode`, `playerCollide`, `robotAI`, `clampDropPos`, `hudStatus`, `radarLandmarks`, …) but deliberately **do not go through `core/sceneManager`**: `activeScene` stays `stage5Scene`, so checkpoint 5, `stageStats`, restart, and `resumeScene` after the hack/repair modals behave exactly as before. `enterSub(next)` in `runtime.js` is the only switch path; it calls the outgoing `exit()`, cuts the curtain to solid black on the switch frame, and fades back in over `CFG.campaign.stage5.subSceneFadeSec` (0.5 s) on the next frame — the CSS transition must observe the opaque value first. Entering the stage itself passes `{fade:false}`, so the "station visible on the first rendered frame" contract survives. The dialogue queue lives in `runtime.js` and is never reset between sub-scenes, which keeps all 16 story beats in order. `stage5Debug()` gained a `sub` field naming the active sub-scene; every other field, export, phase name and tuning key is unchanged.
+
+
+### Part 1 rework — every robot lives in the warehouse (2026-08-07, user request)
+
+The station sub-scene no longer receives troops by rail. Four changes, all inside `station.js` + `runtime.js`:
+
+1. **More robots in the hall.** `CFG.campaign.stage5.encounters.depot` grew from 12 (C7/B3/A2) to 26 (C16/B6/A4), and `DEPOT_SPOTS` grew from 12 to 26 entries so each robot gets its own aisle position across the freight hall and the C1 room instead of stacking two-per-spot. Every spot is still clear of furniture blockers, supplies and `SA`/`S`/`T` cells — the smoke suite walks all of them.
+2. **No more disembarking robots.** `unloadEnemyTrain`, the wave scheduler, `boardingWave`, and the station's use of the `trainBoard` hop arc are gone. `spawnOne(..., boarding)` and `advanceBoardHop` remain, but only the **journey** sub-scene uses them (robots still board the moving train in the cargo/roof/final encounters).
+3. **The platform door arms C2 immediately.** A successful C1 breach sets `platformUnlocked`, opens the physical door and makes the repair marker visible in the same frame; walking into `repairRange` opens FIELD REPAIR with no `wavesDone()`/`platformClear()` gate. The HUD's `HOLD THE PLATFORM` and `TRANSPORT INBOUND` variants are retired.
+4. **The enemy consist only ever passes through.** `CFG.campaign.stage5.enemyTrain` is reduced to `{ flybySec }`; `etrain` is `{ mode: 'idle' | 'flyby', t, passes }`. The prebuilt four-unit consist still exists on the adjacent track and still makes its one scare run when the hall is cleared — seen from the hall through the window walls, carrying the `enemyTrainFlyby` line — but it never stops, never opens its doors (the sliding panels are static geometry now) and never delivers anything. `ENEMY_DROP_Z`, `etStopX`, `setEnemyDoors` and the `approach`/`dwell`/`depart` modes were deleted.
+
+Dialogue: `enemyTrainFirst`, `enemyTrainNext` and `enemyTrainBoarding` were removed from `config/gameplay.json`; the remaining 17 beats keep their order and exact-string smoke pins. `journeyScene.enter()` now disposes **every** remaining Stage 5 robot rather than only `encounter === 'wave'`, so nothing can ride along onto the train.
+
 ### Layout rework — two tracks and enemy troop trains (2026-08-06, user CSVs)
 
 The station layout was replaced wholesale by the user's `stages(Stage5-Start).csv` and a new `stages(Stage5-Finish).csv`. `S5_MAP` is still a frozen 30×50 transliteration, but the token set grew to cover the new legend: `=` TT rail, `,` SPACE between the two tracks, `T` TC car body, `I` TCI boarding door, `L` TL locomotive, `@` window wall, alongside the existing `#`, `-`, `H`, `A` (SA), `S`, `1` (C1) and `2` (C2). `S5_FINISH_MAP` (re-exported from `train.js` as `BANDUNG_MAP`) is the 30×19 destination layout.
@@ -172,9 +200,9 @@ Because the CSV draws only one car plus a locomotive at the platform while the j
 
 Walkability is now three-way. `SOLID_TOKENS` (`#@TIL`) blocks everyone; the player additionally may not enter the enemy track or the inter-track gap (`playerStationWalk`, rows below `PLAYER_ROW0`); robots may use the whole station except SA/S (`robotStationWalk`), and the alarm horde still spawns only in the hall (`hallSpawnWalk`). `stage5TrainWalk` is exported because the car deck is walkable only while the train is moving. Window walls are solid to movement **and** bullets — `stage5SegHitsWall` treats `@` like `#` — and their glass band is a standalone transparent mesh that `meshBatch` deliberately never welds.
 
-Enemy reinforcements no longer materialise on the platform. A prebuilt four-unit consist (`buildEnemyTrain`, three transports + one locomotive, six sliding doors) sits on the enemy track and runs `idle → approach → dwell → depart`, plus a no-stop `flyby`. It only translates in X and moves door panels; no mesh or material is created at runtime. Robots spawn at the transport doors and hop down to the inter-track gap through the existing `trainBoard` arc, then path around the **east end of the player's train — the only opening between the tracks and the platform** (row 10 is walled at columns 1-5), so every wave has to run the length of the platform under fire.
+**Superseded 2026-08-07 — see the Part 1 rework above.** A prebuilt four-unit consist (`buildEnemyTrain`, three transports + one locomotive, six sliding doors) still sits on the enemy track, but it only translates in X for a single no-stop `flyby`; no mesh or material is created at runtime and no robot is ever delivered.
 
-Release schedule, all under `CFG.campaign.stage5.enemyTrain`: a scare `flyby` when the hall is cleared (seen from the hall through the window walls), then `waves[]` released on a timer during the `repair` phase (`firstWaveDelaySec`, then `waveGapSec` apart), then `boardingWave` the moment the `board` phase opens. C2 refuses to arm until every wave has actually **unloaded** (`wavesDone()`, not merely been scheduled) and the platform is clear, so the HUD walks `HOLD THE PLATFORM` → `TRANSPORT INBOUND` → `GENERATOR C2`. Boarding is deliberately not gated on the last wave being dead: the player may run the gauntlet, and `startDeparture` disposes whatever `wave` robots are left standing on the platform.
+The only remaining schedule entry is `CFG.campaign.stage5.enemyTrain.flybySec`: one scare pass when the hall is cleared, seen from the hall through the window walls. C2 has no arming gate beyond the platform door, and boarding is never contested.
 
 The Bandung arrival terminal is now built from `BANDUNG_MAP` rather than an ad-hoc canopy: platform deck, inner hall, run-length-merged walls, canopy bays and the `BANDUNG LOGISTICS TERMINAL` sign. Walls are emitted as horizontal runs, not per cell, so the scenery pool stays inside the prop cap. It remains static and outside every scrolling pool.
 
