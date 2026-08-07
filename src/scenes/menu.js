@@ -14,7 +14,7 @@ import { startMenuMusic, stopMusic, getMusicVolume, setMusicVolume, getSFXVolume
 // Satu sumber konten Credits. Markup dibangun saat menu diinisialisasi agar
 // kredit proyek tidak tercecer sebagai salinan statis di index.html.
 export const MENU_CREDITS = Object.freeze({
-    eyebrow: 'A GIBS 2045 PRODUCTION',
+    eyebrow: 'AN ADVERSARIAL INTELLIGENCE PRODUCTION',
     intro: 'A browser action game forged from code, persistence, and one impossible mission.',
     groups: Object.freeze([
         Object.freeze({
@@ -243,5 +243,5 @@ function exitGame() {
         'justify-content:center;background:#000;color:#ffb84d;' +
         "font-family:'Courier Prime','Courier New',monospace;" +
         'font-size:26px;letter-spacing:2px;text-align:center;padding:20px;">' +
-        'Thanks for playing Gibran vs Robot.<br>You may now close this tab.</div>';
+        'Thanks for playing Adversarial Intelligence.<br>You may now close this tab.</div>';
 }

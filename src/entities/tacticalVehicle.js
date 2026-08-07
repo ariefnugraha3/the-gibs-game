@@ -1,4 +1,6 @@
-// GARUDA LTV-45 — kendaraan taktis hero untuk outro Stage 7 dan arena Stage 8.
+// GRD LTV-45 — kendaraan taktis hero untuk outro Stage 7 dan arena Stage 8.
+// (Diganti nama 2026-08-07: nama lamanya memakai kata yang sama dengan AI musuh
+// di prolog — nama AI itu TETAP, kendaraan inilah yang pindah nama.)
 // Desain generik 2045 (bukan replika/merek kendaraan dunia nyata): bodi lapis
 // baja bersudut, bull bar + winch, sensor atap, pintu pengemudi animatif,
 // dashboard rute, dan dudukan senjata kosong. Tidak ada PointLight; seluruh
@@ -42,7 +44,7 @@ function mk(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
  * @param {number|null} bodyColor warna cat PAL, null = PAL.gunmetal
  */
 export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
-    const group = new THREE.Group(); group.name = 'GarudaLTV45';
+    const group = new THREE.Group(); group.name = 'GrdLTV45';
     const M = {
         body: new THREE.MeshLambertMaterial({ color: bodyColor ?? PAL.gunmetal }),
         panel: new THREE.MeshLambertMaterial({ color: PAL.panel }),

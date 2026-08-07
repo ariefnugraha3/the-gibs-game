@@ -967,6 +967,24 @@ body {
     margin-bottom: 40px;
 }
 
+/* Judul game dua baris ("ADVERSARIAL INTELLIGENCE" + tagline latar "NUSANTARA
+   2045"): dipecah supaya nama panjang tak melebar keluar layar pada jendela
+   kecil. Tagline pakai amber HUD (aksen manusia GIBS 2045), sama seperti
+   .subtitle di bawahnya. */
+#mainMenu h1 .titleMain,
+#modeSelect h1 .titleMain {
+    display: block;
+}
+
+#mainMenu h1 .titleTag,
+#modeSelect h1 .titleTag {
+    display: block;
+    margin-top: 8px;
+    color: #ffb84d;
+    font-size: 0.42em;
+    letter-spacing: 8px;
+}
+
 #mainMenuMain {
     display: flex;
     flex-direction: column;

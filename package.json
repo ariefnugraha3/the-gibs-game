@@ -1,7 +1,7 @@
 {
-    "name": "the-gibs-game",
+    "name": "adversarial-intelligence",
     "private": true,
     "version": "1.0.0",
-    "description": "Gibran vs Robot 3D (DOOM FPS) - static browser game, no dependencies",
+    "description": "Adversarial Intelligence - static browser top-down shooter, no dependencies",
     "type": "module"
 }

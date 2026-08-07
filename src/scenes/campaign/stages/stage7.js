@@ -1,6 +1,6 @@
 // Campaign Stage 7 — BANDUNG LOCKDOWN.
 // Gerbang Bandung HQ -> tiga pilihan distrik -> junction -> underpass/flyover
-// -> pertahanan Gerbang Tol Cisumdawu -> GARUDA LTV-45 menuju Kertajati.
+// -> pertahanan Gerbang Tol Cisumdawu -> GRD LTV-45 menuju Kertajati.
 
 import { CFG } from '../../../core/config.js';
 import { dialogueMap } from '../../../core/dialogue.js';
@@ -423,7 +423,7 @@ function buildToll(M, add) {
     tacticalVehicle.group.position.set(VEHICLE_OBJECT.x, 0, VEHICLE_OBJECT.z);
     tacticalVehicle.group.rotation.y = 0; tacticalVehicle.baseY = 0;
     worldRoot.add(tacticalVehicle.group);
-    recordProp('garuda-ltv-45', VEHICLE_OBJECT, 21, 11, 19, true);
+    recordProp('grd-ltv-45', VEHICLE_OBJECT, 21, 11, 19, true);
 }
 
 function buildFxPools(M) {
@@ -698,7 +698,7 @@ function updateTollDefense(dt) {
     const alive = countEncounter('tollWave1') + countEncounter('tollWave2') + countEncounter('tollWave3');
     if (tollWave >= 3 && tollT >= C.tollDefenseMinSec && alive === 0) {
         phase = 'vehicleReveal'; setMarkers(['vehicle']);
-        showStageMsg('TACTICAL VEHICLE LOCATED — INSPECT THE GARUDA LTV-45', 4800);
+        showStageMsg('TACTICAL VEHICLE LOCATED — INSPECT THE GRD LTV-45', 4800);
     }
 }
 
@@ -1072,7 +1072,7 @@ export const stage7Scene = {
             const left = countEncounter('tollWave1') + countEncounter('tollWave2') + countEncounter('tollWave3');
             return `DEFEND THE TOLL PLAZA — WAVE ${tollWave}/3 — Robots: ${left}`;
         }
-        if (phase === 'vehicleReveal') return 'INSPECT THE GARUDA LTV-45';
+        if (phase === 'vehicleReveal') return 'INSPECT THE GRD LTV-45';
         if (phase === 'outro') return 'ROUTE CONFIRMED — KERTAJATI INTERNATIONAL AIRPORT';
         return 'NEXT DESTINATION — KERTAJATI';
     },

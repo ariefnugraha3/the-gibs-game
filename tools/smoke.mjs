@@ -2795,7 +2795,7 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     const menuCredits = menuMusicMod.MENU_CREDITS;
     const menuHtml = fs.readFileSync(ROOT + '/index.html', 'utf8');
     T('Menu Credits: production dossier bersumber dari menu.js dan memuat kredit proyek utama',
-        menuCredits.eyebrow === 'A GIBS 2045 PRODUCTION'
+        menuCredits.eyebrow === 'AN ADVERSARIAL INTELLIGENCE PRODUCTION'
         && menuCredits.groups.length >= 7
         && menuCredits.groups.some(c => c.name === 'Arief Nugraha')
         && menuCredits.groups.some(c => c.name.includes('Anthropic Claude')
@@ -5238,7 +5238,7 @@ T('S6 SHOP: Field Shop terbuka setelah finish screen ditutup', shopMod.isShopOpe
 
 // --- 17a-quater. CAMPAIGN STAGE 7 — BANDUNG LOCKDOWN (2026-08-02).
 // Field Shop -> gerbang HQ -> pilihan 3 distrik -> junction -> pilihan 2 rute
-// -> 3 wave toll Cisumdawu -> GARUDA LTV-45 -> Kertajati/TBC. ---
+// -> 3 wave toll Cisumdawu -> GRD LTV-45 -> Kertajati/TBC. ---
 const s7Carry = {
     money: stateMod.score, hp: player.hp, armor: player.armor,
     medkits: player.medkits, weapons: player.weapons.join(','),
@@ -5332,7 +5332,7 @@ T('S7 WORLD: map statis 118×72 dan seluruh enam kombinasi cabang terhubung ke t
     && Object.values(s7mod.stage7RouteDebug().connectivity.goals).every(Boolean));
 T('S7 WORLD: identitas Bandung/kota bercabang/toll memiliki set dressing lengkap',
     ['art-deco', 'ruko', 'market-stall', 'bus-stop', 'abandoned-minibus',
-        'abandoned-suv', 'underpass', 'toll-booth', 'toll-canopy', 'garuda-ltv-45']
+        'abandoned-suv', 'underpass', 'toll-booth', 'toll-canopy', 'grd-ltv-45']
         .every(k => s7World.propKinds.includes(k))
     && s7World.props.filter(p => p.solid).length >= 15 && s7World.occluders >= 5);
 T('S7 WORLD: fixed rain/ripple/spark/exhaust pools, fixed lights, dan static batch terbangun',
@@ -5355,19 +5355,19 @@ let s7VehicleMeshes = 0; s7VehicleTest.group.traverse(o => { if (o.isMesh) s7Veh
 tacticalVehicleMod.updateTacticalVehicleVisual(s7VehicleTest, 0.5,
     { doorOpen: 1, engineOn: true, speed: 60 });
 const s7VehicleRig = tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest);
-T('S7 GARUDA LTV-45: empat roda, pintu, mesin, lampu/dashboard dan wheel phase benar-benar beranimasi',
+T('S7 GRD LTV-45: empat roda, pintu, mesin, lampu/dashboard dan wheel phase benar-benar beranimasi',
     s7VehicleRig.wheels === 4 && s7VehicleRig.doorOpen > 0 && s7VehicleRig.doorYaw < 0
     && s7VehicleRig.engineOn && s7VehicleRig.wheelPhase > 0
     && s7VehicleRig.lights.head > 0 && s7VehicleRig.lights.dash > 0
     && s7VehicleMeshes >= 25);
-T('GARUDA DIMENSIONS: proporsi akhir 5.2m × 2.2m × 2.15m dan muat di lajur config',
+T('GRD DIMENSIONS: proporsi akhir 5.2m × 2.2m × 2.15m dan muat di lajur config',
     Math.abs(s7VehicleRig.dimensionsMeters.length - tacticalVehicleMod.TACTICAL_VEHICLE_DIMENSIONS.length) < 1e-9
     && Math.abs(s7VehicleRig.dimensionsMeters.width - tacticalVehicleMod.TACTICAL_VEHICLE_DIMENSIONS.width) < 1e-9
     && Math.abs(s7VehicleRig.dimensionsMeters.height - tacticalVehicleMod.TACTICAL_VEHICLE_DIMENSIONS.height) < 1e-9
     && Math.abs(s7VehicleRig.dimensionsWorld.width / 7 - s7VehicleRig.dimensionsMeters.width) < 1e-9
     && s7VehicleRig.dimensionsWorld.width < S8C.laneWidth);
 tacticalVehicleMod.resetTacticalVehicleVisual(s7VehicleTest);
-T('S7 GARUDA LTV-45: reset mengembalikan pintu/roda/lampu ke state bersih',
+T('S7 GRD LTV-45: reset mengembalikan pintu/roda/lampu ke state bersih',
     tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest).doorOpen === 0
     && tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest).wheelPhase === 0
     && tacticalVehicleMod.tacticalVehicleDebug(s7VehicleTest).lights.head === 0);
@@ -5448,7 +5448,7 @@ killS7('tollWave3');
 tickS7(Math.max(0, S7C.tollDefenseMinSec - s7mod.stage7Debug().tollT - 0.1), 0.1);
 T('S7 TOLL MINIMUM: plaza belum selesai sebelum timer minimum', s7mod.stage7Debug().phase === 'tollDefense');
 tickS7(0.2, 0.1);
-T('S7 TOLL COMPLETE: timer minimum + semua wave mati mengaktifkan GARUDA LTV-45',
+T('S7 TOLL COMPLETE: timer minimum + semua wave mati mengaktifkan GRD LTV-45',
     s7mod.stage7Debug().phase === 'vehicleReveal' && s7mod.stage7Debug().tollAlive === 0);
 
 const s7PoolsBefore = s7mod.stage7WorldDebug().pools;
@@ -5969,7 +5969,7 @@ T('restart/continue checkpoint 7: mendarat di gerbang HQ dengan escape squad utu
 saveMod.saveCampaignStage(8);
 const restart8 = saveMod.loadCampaignStage() || 1;
 smMod.activeScene.cheatSkipToStage(restart8);
-T('restart/continue checkpoint 8: mendarat di GARUDA pada opening Cisumdawu',
+T('restart/continue checkpoint 8: mendarat di GRD LTV-45 pada opening Cisumdawu',
     restart8 === 8 && smMod.activeScene === s8mod.stage8Scene
     && s8mod.stage8Debug().phase === 'opening' && s8mod.stage8ConvoyDebug().spawned === 0
     && stateMod.stageStatsDebug().stageId === 'campaign-8'
@@ -7754,6 +7754,86 @@ const palMod = await import(R('src/world/palette.js'));
     T('font: tidak memakai webfont CDN',
         !cssF.includes('fonts.googleapis') && !htmlF.includes('fonts.googleapis')
         && !htmlF.includes('fonts.gstatic'));
+}
+
+// === NAMA GAME = "Adversarial Intelligence" (2026-08-07, permintaan user; inisial
+// = A.I., menggantikan "Gibran vs Robot 3D"): judul tab, KEDUA H1 menu, layar
+// perpisahan Exit, eyebrow Credits dan metadata harus memakai SATU nama yang sama,
+// dan nama lama tak boleh tersisa di file yang dilihat player. SENGAJA TIDAK ikut
+// berubah: nama karakter "Major Gibran", AI musuh "G.A.R.U.D.A", kunci localStorage
+// `gibs*` (save/preferensi player hilang bila dipindah) dan codename gaya visual
+// "GIBS 2045". ===
+{
+    const TITLE = 'Adversarial Intelligence';
+    const htmlB = fs.readFileSync(ROOT + '/index.html', 'utf8');
+    const cssB = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
+    const menuB = fs.readFileSync(ROOT + '/src/scenes/menu.js', 'utf8');
+    const pkgB = JSON.parse(fs.readFileSync(ROOT + '/package.json', 'utf8'));
+    const menuModB = await import(R('src/scenes/menu.js'));
+
+    T('nama: <title> tab memakai nama game baru', htmlB.includes(`<title>${TITLE}</title>`));
+
+    // Judul dipecah dua baris (nama + tagline latar) supaya tak melebar keluar
+    // layar; kedua layar (menu utama + pilih mode) memakai markup yang sama.
+    const titleH1 = (htmlB.match(/<h1>[\s\S]*?<\/h1>/g) || [])
+        .filter(h => h.includes('titleMain') && h.includes('titleTag'));
+    T('nama: 2 H1 (mainMenu + modeSelect) = ADVERSARIAL INTELLIGENCE / NUSANTARA 2045',
+        titleH1.length === 2
+        && titleH1.every(h => h.includes('>' + TITLE.toUpperCase() + '<')
+            && h.includes('>NUSANTARA 2045<')));
+    T('nama: tagline judul punya style sendiri (blok + amber HUD) di CSS',
+        /#mainMenu h1 \.titleMain,\s*#modeSelect h1 \.titleMain/.test(cssB)
+        && /#mainMenu h1 \.titleTag,\s*#modeSelect h1 \.titleTag/.test(cssB)
+        && /\.titleTag\s*\{[^}]*#ffb84d/.test(cssB));
+
+    T('nama: layar perpisahan Exit + eyebrow Credits memakai nama baru',
+        menuB.includes(`Thanks for playing ${TITLE}.`)
+        && menuModB.MENU_CREDITS.eyebrow === `AN ${TITLE.toUpperCase()} PRODUCTION`);
+    T('nama: metadata package.json ikut nama baru',
+        pkgB.name === 'adversarial-intelligence' && pkgB.description.includes(TITLE));
+
+    // Termasuk nama antara "Automated Invasion" yang sempat dipakai sesi ini.
+    const OLD = ['Gibran vs Robot', 'GIBRAN vs ROBOT', 'the-gibs-game',
+        'Automated Invasion', 'AUTOMATED INVASION', 'A.I. Shooter'];
+    const stale = ['index.html', 'css/style.css', 'src/scenes/menu.js', 'package.json', 'README.md']
+        .filter(f => OLD.some(o => fs.readFileSync(ROOT + '/' + f, 'utf8').includes(o)));
+    T('nama: NOL sisa nama lama di file player-facing + metadata'
+        + (stale.length ? ' [' + stale.join(', ') + ']' : ''), stale.length === 0);
+
+    // Ganti nama tidak boleh memindahkan save/preferensi yang sudah ada di browser.
+    const stateB = fs.readFileSync(ROOT + '/src/core/state.js', 'utf8');
+    const saveB = fs.readFileSync(ROOT + '/src/core/saveGame.js', 'utf8');
+    const sfxB = fs.readFileSync(ROOT + '/src/utils/sfx.js', 'utf8');
+    T('nama: kunci localStorage `gibs*` TETAP (high score/checkpoint/volume tak hilang)',
+        stateB.includes("'gibsHighScore_'") && saveB.includes("'gibsCampaignStage'")
+        && sfxB.includes("'gibsMusicVol'") && sfxB.includes("'gibsSfxVol'"));
+    T('nama: protagonis tetap "Major Gibran" (hanya judul game yang berubah)',
+        menuB.includes('Major Gibran'));
+}
+
+// === NAMA KENDARAAN HERO = "GRD LTV-45" (2026-08-07, permintaan user): dulu
+// senama dengan AI musuh G.A.R.U.D.A, padahal keduanya berlawanan pihak. Nama AI
+// musuh TETAP dan hanya boleh hidup di materi lore prolog; file kendaraan/stage
+// tak boleh menyebutnya lagi dalam bentuk apa pun. ===
+{
+    const vehFiles = ['src/entities/tacticalVehicle.js', 'src/entities/enemyPickup.js',
+        'src/scenes/campaign/stages/stage7.js', 'src/scenes/campaign/stages/stage8.js'];
+    const vehSrc = vehFiles.map(f => fs.readFileSync(ROOT + '/' + f, 'utf8'));
+    const bleed = vehFiles.filter((f, i) => /garuda/i.test(vehSrc[i]));
+    T('kendaraan: NOL sisa nama AI musuh di file kendaraan/stage 7/stage 8'
+        + (bleed.length ? ' [' + bleed.join(', ') + ']' : ''), bleed.length === 0);
+    T('kendaraan: rig hero memakai nama GRD LTV-45',
+        vehSrc[0].includes('GRD LTV-45') && vehSrc[0].includes("group.name = 'GrdLTV45'"));
+    T('kendaraan: HUD + objective + prop id Stage 7 memakai GRD LTV-45',
+        vehSrc[2].includes('TACTICAL VEHICLE LOCATED — INSPECT THE GRD LTV-45')
+        && vehSrc[2].includes("return 'INSPECT THE GRD LTV-45'")
+        && vehSrc[2].includes("recordProp('grd-ltv-45'"));
+
+    // Sisi lain kontrak: AI musuh TIDAK ikut berganti nama.
+    T('lore: AI musuh tetap G.A.R.U.D.A di prolog (dialog config + ilustrasi SVG)',
+        fs.readFileSync(ROOT + '/config/gameplay.json', 'utf8').includes('G.A.R.U.D.A')
+        && fs.readFileSync(ROOT + '/src/scenes/campaign/cutscenes/prologueArt.js', 'utf8')
+            .includes('G.A.R.U.D.A'));
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

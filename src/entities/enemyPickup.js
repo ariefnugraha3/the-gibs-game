@@ -4,7 +4,7 @@
 
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 
-// Carrier juga harus muat di lajur 2,5 m. Sedikit lebih lebar dari GARUDA
+// Carrier juga harus muat di lajur 2,5 m. Sedikit lebih lebar dari GRD LTV-45
 // untuk ruang tiga rider, tetapi masih menyisakan clearance terhadap marka.
 export const ENEMY_PICKUP_DIMENSIONS = Object.freeze({
     length: 5.15, width: 2.30, height: 2.25,

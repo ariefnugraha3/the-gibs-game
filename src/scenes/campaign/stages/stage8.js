@@ -1,5 +1,5 @@
 // Campaign Stage 8 — CISUMDAWU KILL ZONE.
-// GARUDA berjalan otonom; player hanya snap kiri/kanan sambil menembak.
+// GRD LTV-45 berjalan otonom; player hanya snap kiri/kanan sambil menembak.
 // Jalan/scenery bergerak dalam fixed pool, gameplay entity tetap stabil.
 
 import { CFG } from '../../../core/config.js';
@@ -353,7 +353,7 @@ function updateRoad(dt) {
 function syncVehicle(dt = 0) {
     if (!tacticalVehicle) return;
     // Gunner anchor lokal x=-0,62 m; scaleX sudah memuat normalisasi panjang,
-    // jadi body tetap tepat di bawah pivot setelah dimensi GARUDA berubah.
+    // jadi body tetap tepat di bawah pivot setelah dimensi GRD berubah.
     tacticalVehicle.group.position.set(PLAYER_X + 0.62 * tacticalVehicle.scaleX, 0, currentZ);
     tacticalVehicle.group.rotation.y = 0;
     updateTacticalVehicleVisual(tacticalVehicle, dt, {

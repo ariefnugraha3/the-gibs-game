@@ -5,7 +5,7 @@ rules in [CLAUDE.md](CLAUDE.md) — on any conflict, **CLAUDE.md wins**; keep th
 
 ## Repository overview
 
-"Gibran vs Robot 3D" — a browser **top-down shooter** (Alien Shooter-style; pivoted from
+"Adversarial Intelligence" — a browser **top-down shooter** (Alien Shooter-style; pivoted from
 FPS on 2026-07-11). Three.js r128, plain ES modules, **no build step, no npm dependencies,
 no framework**. Two modes:
 
@@ -178,10 +178,10 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - Stage 7 is one static 118×72 road network at x≈240000. It commits one of three city
   routes and then flyover/underpass; prebuilt bollards close unchosen routes, whose robots
   are never spawned or counted. Each run has 50–54 ordinary robots, then three finite toll
-  waves at 0/16/32 seconds with a 55-second minimum. GARUDA LTV-45 is a procedural hero
+  waves at 0/16/32 seconds with a 55-second minimum. GRD LTV-45 is a procedural hero
   vehicle with fixed animation state. No boss/miniboss/tank/boss HUD/score/music or
   infinite respawn; its green complete screen opens the Field Shop before Stage 8.
-- Stage 8 is the coordinate-stable GARUDA gunner arena at x≈270000. Seven lateral
+- Stage 8 is the coordinate-stable GRD LTV-45 gunner arena at x≈270000. Seven lateral
   corridors span both three-lane carriageways and the traversable median; `A/D` are
   edge-triggered lane snaps while walking/RMB/dodge/melee are scene-gated off. The
   opening announces 100 km, but there is no runtime distance counter. Timed pickup
@@ -193,9 +193,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   spacing reads `CFG.campaign.stage8.laneWidth` (default 17.5 = 2.5 m); its gameplay camera scales
   the original offset uniformly by 1.20. Entry must leave `cineFade` transparent while
   the post-shop pointer-lock blocker is paused, otherwise the opening appears frozen.
-  GARUDA's normalized final dimensions are 5.20×2.20×2.15 m; pickup carriers are also
+  GRD LTV-45's normalized final dimensions are 5.20×2.20×2.15 m; pickup carriers are also
   normalized below lane width, and mounted anchors use the resulting axis scales.
-  GARUDA starts in lane slot 1 on Indonesia's left-hand carriageway. Pickup entry alternates
+  GRD LTV-45 starts in lane slot 1 on Indonesia's left-hand carriageway. Pickup entry alternates
   rear/front at the two ends of the 20-module fixed road pool, but every carrier uses
   lanes 0–2 and faces +X; front entries are slower same-direction traffic. Never spawn one
   inside the camera footprint or at its combat target; extend X past the road endpoint
