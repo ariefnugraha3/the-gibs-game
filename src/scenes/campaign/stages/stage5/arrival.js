@@ -10,10 +10,9 @@ import {
 } from '../../../../core/dom.js';
 import { releaseInputs } from '../../../../core/input.js';
 import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
-import { setTrainDoor } from '../../../../entities/train.js';
 import { beginStageTransition } from '../../utility/transition.js';
 import { stage6Scene } from '../stage6.js';
-import { train, TRAIN_CENTER_Z, S5_ENGINE } from './world.js';
+import { TRAIN_CENTER_Z, S5_ENGINE } from './world.js';
 import {
     phase, setPhase, complete, setComplete, cine, setCine, cineCam,
     queueDialogue, dialogueIdle, updateRide, stopTrainLoop, TRAIN_HOOKS,
@@ -52,9 +51,10 @@ export const arrivalScene = {
         setCine({ kind: 'arrival', t: 0, fading: false });
         queueDialogue('arrivedCommand'); queueDialogue('arrivedGibran');
         setAvatarRadioPose(true, Math.PI / 2, 'gibranAccepts', 0.5);
-        camera.position.set(S5_ENGINE.x, CFG.player.eyeHeight, TRAIN_CENTER_Z + 17);
+        // Player tetap DI DALAM gerbong: framing arrival memakai ujung timur
+        // dek, bukan titik di luar badan kereta.
+        camera.position.set(S5_ENGINE.x, CFG.player.eyeHeight, TRAIN_CENTER_Z);
         setCineFocus(S5_ENGINE.x, S5_ENGINE.z, true);
-        setTrainDoor(train, 3, true);
         showCutsceneSkip(finishArrival);
         addCamShake(2.2);
     },

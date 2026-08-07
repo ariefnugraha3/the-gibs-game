@@ -359,6 +359,7 @@
             "openingMinSec": 6,
             "openingDialogueDelaySec": 0.6,
             "departureMinSec": 10,
+            "departureShiftUnits": 330,
             "arrivalMinSec": 12,
             "fadeSec": 0.5,
             "subSceneFadeSec": 0.5,
@@ -367,26 +368,28 @@
             "boardRange": 14,
             "routeKm": 120,
             "trainSpeed": 92,
-            "rideMinSec": 240,
-            "cargoGateSec": 20,
-            "securityGateSec": 75,
-            "roofGateSec": 125,
-            "finalGateSec": 165,
-            "finalDefenseSec": 65,
-            "finalWaveGapSec": 18,
+            "rideMinSec": 210,
             "encounters": {
-                "depot": { "C": 16, "B": 6, "A": 4 },
-                "cargo": { "C": 4, "B": 1, "A": 1 },
-                "security": { "C": 3, "B": 2, "A": 1 },
-                "roof": { "C": 5, "B": 2, "A": 1 },
-                "finalWaves": [
-                    { "C": 3, "B": 1, "A": 0 },
-                    { "C": 2, "B": 1, "A": 1 },
-                    { "C": 2, "B": 1, "A": 1 }
-                ]
+                "depot": { "C": 16, "B": 6, "A": 4 }
             },
             "enemyTrain": {
-                "flybySec": 6.5
+                "flybySec": 6.5,
+                "waveCount": 4,
+                "firstWaveSec": 12,
+                "waveGapSec": 22,
+                "approachSec": 6,
+                "emergeSec": 0.8,
+                "deathSec": 1.8,
+                "deathDriftSpeed": 90,
+                "entryMargin": 220,
+                "carsMin": 1,
+                "carsMax": 3,
+                "perCarMin": 3,
+                "perCarMax": 6,
+                "classARatio": 0.34,
+                "fireRangeMeters": 13,
+                "slotSpacing": 13,
+                "medkitEveryTrains": 2
             }
         },
         "stage6": {
@@ -739,8 +742,8 @@
                     "letsMove": { "speaker": "Major Gibran", "text": "Finally. Let's move." },
                     "commandDeparture": { "speaker": "Command", "text": "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" },
                     "gibranDeparture": { "speaker": "Major Gibran", "text": "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." },
-                    "breach": { "speaker": "Train System", "text": "Security breach detected. Rear coupling compromised." },
-                    "breachReply": { "speaker": "Major Gibran", "text": "They're boarding the train. Here we go again." },
+                    "breach": { "speaker": "Train System", "text": "Contact on the parallel track. An armed consist is matching our speed." },
+                    "breachReply": { "speaker": "Major Gibran", "text": "They can't board at this speed—so they'll shoot it out from over there. Fine by me." },
                     "roofWarning": { "speaker": "Command", "text": "Major, multiple hostile signatures are converging on your position." },
                     "roofReply": { "speaker": "Major Gibran", "text": "I can see them. Just keep the route open!" },
                     "finalApproach": { "speaker": "Train System", "text": "Final approach initiated. Hostile units detected across multiple cars." },

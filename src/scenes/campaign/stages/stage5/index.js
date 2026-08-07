@@ -39,10 +39,10 @@ export {
     stage5Walk, stage5TrainWalk, stage5SegHitsWall, stage5WorldDebug,
     stage5StaticBatchDbg,
 } from './world.js';
-export { STAGE5_DIALOGUE, stage5DialogueDebug } from './runtime.js';
+export { STAGE5_DIALOGUE, stage5DialogueDebug, trainLoopDebug } from './runtime.js';
 export { stationScene, journeyScene, arrivalScene };
 
-const RIDE_PHASES = ['departure', 'cargo', 'security', 'roof', 'finalDefense', 'arrival'];
+const RIDE_PHASES = ['departure', 'ride', 'arrival'];
 const activeSub = () => sub || stationScene;
 
 function resetStage() {
@@ -65,8 +65,9 @@ export const stage5Debug = () => {
         platformUnlocked: st.platformUnlocked, depotAwake: st.depotAwake,
         flybySent: st.flybySent, departureShift: jr.departureShift,
         stationX: stationRoot?.position?.x || 0, stationZ: stationRoot?.position?.z || 0,
-        rideT, routeK, distance, finalT: jr.finalT, finalWaveIndex: jr.finalWaveIndex,
-        robots: countStageRobots(5), complete, encountered: { ...jr.encountered },
+        rideT, routeK, distance, gapT: jr.gapT,
+        wavesSent: jr.wavesSent, wavesCleared: jr.wavesCleared, waveTotal: jr.waveTotal,
+        robots: countStageRobots(5), complete,
         enemyTrain: enemyTrainDebug(),
     };
 };

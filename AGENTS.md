@@ -153,12 +153,49 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   so checkpoint/stageStats/modal-resume are unchanged. `enterSub()` is the only switch path —
   cut to black, fade in over `CFG.campaign.stage5.subSceneFadeSec` (0.5 s) next frame; stage
   entry passes `{fade:false}`. The dialogue queue is shared and never reset between sub-scenes.
-- Stage 5 keeps its five-car train arena static in world coordinates. Travel is the
+- Stage 5 keeps its train arena static in world coordinates. Travel is the
   illusion of fixed pooled scenery moving and wrapping; never move player/robot physics,
-  allocate scenery per frame, add a boss, or bypass the config-driven minimum ride/final
-  defense gates. Its depot is the frozen 30×50 CSV map: clear combat → hack C1 → open the
+  allocate scenery per frame, add a boss, or bypass the config-driven minimum ride gate.
+  Its depot is the frozen 30×50 CSV map: clear combat → hack C1 → open the
   platform door → repair generator C2 → board; station robot spawning, AI and clamps all
   reject `SA`/`S`, so those cells never contain robots.
+- Every door in every stage shares one pair of clips (2026-08-07 user request):
+  `door-open.mp3` when the leaf starts opening, `door-closed.mp3` when it lands shut,
+  triggered ONLY through `playDoorSFX`/`doorMotionSFX` in `campaign/utility/doors.js`
+  (distance-gated; gated on the closed<->open THRESHOLD CROSSING, not per-frame direction, so one
+  open/close = exactly one sound). Door integrators must LAND EXACTLY on their target — a `dir`
+  that is never zero makes a fully-open door jitter every frame and floods the audio. Wired into stage 1-3 sliding doors,
+  stage 3's blast door, stage 5 station doors and stage 6 doors. A new stage door must call
+  that helper — never play a door clip directly; smoke sweeps `src/` and rejects
+  `sfxDoorOpen`/`sfxDoorClose` outside sfx.js + doors.js. A running train uses
+  `train-sound.mp3` (`startTrainLoop`), not the borrowed tank loop, and loops through the
+  Web Audio gapless path (`GAPLESS_LOOPS`/`primeGaplessLoops` in sfx.js): `<audio loop>`
+  replays the MP3's encoder padding as ~47 ms of silence every cycle. Don't try to fix that
+  by re-encoding — the padding is inherent to MP3. Falls back to `<audio>` if Web Audio is
+  unavailable.
+- Stage 5 ROLLING STOCK + JOURNEY GAMELOOP (2026-08-07 user rework). The train body is
+  EXACTLY 4 m wide (`TRAIN_CAR_WIDTH = 4×CAMP_M`); length/height derive from that width with
+  real proportions (16.5 m × 3.9 m), and 16.5 m is 7 CSV cells so car/locomotive land on
+  TC/TL with `TRAIN_CAR_GAP = 0`. The player's consist is ONE car + ONE locomotive
+  (`TRAIN_CAR_COUNT = 2`) with an EMPTY `doors` array — no bulkhead ever opens.
+  `TRAIN_X0/X1/Z0/Z1` are the car INTERIOR, so the player can never leave the car nor enter
+  the locomotive; the corridor is narrower than a crate's block radius, so no crates go
+  inside the train (journey supplies are drops). The departure shot is LOCKED-OFF: cine
+  focus never follows `departureShift` (that made the station sweep past instead), but
+  the player pivot DOES ride with the car (2026-08-08 — pinning it left Gibran behind
+  on the rails; framing is unaffected because followViewCam ignores the pivot while
+  cineFocus is set),
+  camera shake is off, and `updateRide` keeps the journey scenery pool hidden for the whole
+  `departure` phase — it would otherwise scroll through the station floor. A run-out apron
+  of ground+rails east of the platform keeps the departing train on visible track. TWO tracks run through the whole stage —
+  the station's from the CSV, the journey's from the scrolling `near` pool (one ballast bed
+  + four rails; 18 modules × 5 meshes keeps the pool mesh count unchanged). Journey combat is
+  enemy-train waves only: `enemyTrain` sends `waveCount` consists of 1–3 cars × 3–6 robots,
+  class A/B ONLY with B always outnumbering A (`enemyCarMix` floors A at `floor((n-1)/2)`
+  whatever `classARatio` says). They spawn `mounted` on the consist, emerge from the car,
+  shoot across the tracks, and NEVER chase or cross over. Killing a consist's last robot
+  makes it explode and disappear; arrival needs every consist destroyed plus `rideMinSec`.
+  Both in-train sub-scenes return `false` from `bulletBlocked`/`blastBlocked`.
 - Stage 5 station has TWO tracks (2026-08-06 user CSV). Tokens `=`/`,`/`T`/`I`/`L`/`@` join
   the old legend; `S5_FINISH_MAP` is the 30×19 Bandung terminal. The player may never step
   onto the enemy track or the inter-track gap, robots may, and `@` window walls stop bullets
@@ -166,7 +203,7 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   lives in the freight hall (`encounters.depot`, one spawn spot each). The enemy consist never
   stops, opens doors, or unloads — `enemyTrain` config is only `{flybySec}` and drives one
   atmospheric pass when the hall is cleared. Opening the platform door arms C2 immediately;
-  there is no wave gate and no contested boarding. The five-car
+  there is no wave gate and no contested boarding. The
   consist keeps its journey arena and is merely shifted while docked so TC/TL match the CSV.
   SA shares the normal hall floor material. Depot robots remain hard-frozen until the
   player's full footprint leaves SA, then chase together. C1/C2 are detailed animated

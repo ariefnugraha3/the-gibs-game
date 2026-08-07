@@ -25,6 +25,7 @@ import {
     countStageRobots,
 } from '../utility/common.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
+import { doorMotionSFX } from '../utility/doors.js';
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { stage1Scene } from './stage1.js';
 import { stage7Scene } from './stage7.js';
@@ -288,8 +289,12 @@ function door(kind) { return doors.find(d => d.kind === kind); }
 
 function updateDoors(dt) {
     for (const d of doors) {
-        const dir = d.target > d.open ? 1 : -1;
-        d.open = Math.max(0, Math.min(1, d.open + dir * dt / 0.5));
+        // MENDARAT PERSIS di target (lihat catatan yang sama di stage5/world.js):
+        // `dir` yang tak pernah nol membuat pintu terbuka penuh bergetar tiap frame.
+        const prev = d.open, step = dt / 0.5;
+        d.open = d.open < d.target ? Math.min(d.target, d.open + step)
+            : Math.max(d.target, d.open - step);
+        doorMotionSFX(d, prev, d.blocker.x, d.blocker.z);
         const e = d.open * d.open * (3 - 2 * d.open);
         d.panel.position.y = (WALL_H - 2) / 2 - e * (WALL_H + 2);
         d.lamp.material.color.setHex(d.target ? PAL.tech : PAL.hazard);

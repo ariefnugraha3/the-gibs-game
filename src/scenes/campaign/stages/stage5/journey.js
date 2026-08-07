@@ -1,9 +1,16 @@
-// Stage 5 — SUB-SCENE 2: KERETA BERANGKAT (departure -> cargo -> security ->
-// roof -> finalDefense). Arena kereta tetap statis; hanya pool scenery yang
-// bergulir. Selesai gelombang terakhir, kendali diserahkan ke sub-scene arrival.
+// Stage 5 — SUB-SCENE 2: KERETA BERANGKAT (departure -> ride).
+//
+// ROMBAK GAMELOOP 2026-08-07 (permintaan user): tidak ada lagi rantai gerbong
+// cargo -> security -> roof -> finalDefense. Player terkunci DI DALAM SATU
+// GERBONG selebar 4 m sepanjang perjalanan, dan seluruh perlawanan datang dari
+// KERETA MUSUH yang menyusul di jalur sebelah: konsist 1-3 gerbong, tiap
+// gerbong berisi 3-6 robot kelas A/B (B selalu lebih banyak dari A) yang muncul
+// dari gerbong lalu menembak lintas-rel. Habiskan seluruh robotnya -> konsist
+// itu meledak dan menghilang, lalu gelombang berikutnya menyusul. Arena kereta
+// tetap statis; hanya pool scenery yang bergulir.
 
 import { CFG } from '../../../../core/config.js';
-import { robots, keys, setCinematicActive } from '../../../../core/state.js';
+import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
 import { scene, camera, setCineFocus, addCamShake } from '../../../../core/renderer.js';
 import {
     showStageMsg, setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
@@ -11,50 +18,39 @@ import {
 import { releaseInputs } from '../../../../core/input.js';
 import { clearMoveTarget } from '../../../../entities/player.js';
 import { disposeRobot } from '../../../../entities/robots.js';
-import {
-    setTrainDoor, TRAIN_CAR_LENGTH, TRAIN_CAR_STEP, TRAIN_CAR_COUNT, TRAIN_HALF_WIDTH,
-} from '../../../../entities/train.js';
+import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
+import { currentWeapon } from '../../../../entities/weapons.js';
 import { countStageRobots } from '../../utility/common.js';
 import { playSFX, sfxPurchase } from '../../../../utils/sfx.js';
-import { rand } from '../../../../utils/math.js';
 import {
     stationRoot, train, setStationTrainView, boardMarker, updateLandmarks,
-    TRAIN_BASE_X, TRAIN_CENTER_Z, STATION_TC_X, STATION_TRAIN_DX, S5_ENGINE, CELL,
+    TRAIN_BASE_X, TRAIN_CENTER_Z, TRAIN_X0, TRAIN_X1, STATION_TC_X,
+    STATION_TRAIN_DX, JOURNEY_ENEMY_Z, CAR_SUPPLY_POINTS, CELL,
 } from './world.js';
 import {
     phase, setPhase, cine, setCine, cineCam, enterSub, queueDialogue, dialogueIdle,
-    spawnOne, countEncounter, updateRide, rideT, routeK, resetRide,
-    resetEnemyTrain, startTrainLoop, TRAIN_HOOKS,
+    updateRide, rideT, routeK, resetRide, etrain, etCleared, etSent,
+    resetEnemyTrain, sendEnemyWave, updateEnemyTrain, startTrainLoop, TRAIN_HOOKS,
 } from './runtime.js';
 import { arrivalScene } from './arrival.js';
 
-let departureShift = 0, finalT = 0, finalWaveIndex = 0;
-let encounterSpawned = { cargo: false, security: false, roof: false };
+// Ofset kamera shot keberangkatan — KONSTAN, bukan animasi. Shot ini harus
+// benar-benar locked-off supaya stasiun terbaca diam.
+const DEPART_CAM = Object.freeze({ x: -118, y: 96, z: 118 });
+// Tempat berdiri Gibran di dalam gerbong selama shot keberangkatan, diukur ke
+// BARAT dari pusat gerbong (separuh dalam gerbong = 55.35), bukan dari peron.
+const CAR_STAND_DX = 46;
 
-export function resetJourney() {
-    departureShift = 0; finalT = 0; finalWaveIndex = 0;
-    encounterSpawned = { cargo: false, security: false, roof: false };
-}
+let departureShift = 0, gapT = 0, rewarded = 0;
 
-export function carAt(x) {
-    return Math.max(0, Math.min(TRAIN_CAR_COUNT - 1, Math.round((x - TRAIN_BASE_X) / TRAIN_CAR_STEP)));
-}
+export function resetJourney() { departureShift = 0; gapT = 0; rewarded = 0; }
 
-function spawnEncounter(name, counts, carIndex, boarding = false) {
-    if (!counts) return;
-    const cx = TRAIN_BASE_X + carIndex * TRAIN_CAR_STEP;
-    let k = 0;
-    for (const cls of ['C', 'B', 'A']) {
-        const n = Math.max(0, counts[cls] | 0);
-        for (let i = 0; i < n; i++, k++) {
-            const side = k % 2 ? 1 : -1;
-            const rearEntry = boarding && k % 3 === 0;
-            const x = rearEntry ? cx - TRAIN_CAR_LENGTH / 2 - 8 : cx + rand(-32, 32);
-            const z = boarding && !rearEntry ? TRAIN_CENTER_Z + side * (TRAIN_HALF_WIDTH + 11)
-                : TRAIN_CENTER_Z + side * rand(4, 12);
-            const target = rearEntry ? { x: cx - 31, z } : null;
-            spawnOne(cls, x, z, name, boarding, target);
-        }
+const waveTotal = () => Math.max(1, CFG.campaign.stage5.enemyTrain.waveCount | 0);
+
+function placeCarSupplies() {
+    for (const p of CAR_SUPPLY_POINTS) {
+        if (p.type === 'ammo') spawnAmmoDrop(p.x, p.z, p.weapon, 1e9);
+        else spawnMedkitDrop(p.x, p.z, 1e9);
     }
 }
 
@@ -62,79 +58,85 @@ function finishDeparture() {
     // Reset arena train ketika layar hitam; stasiun awal tidak pernah bergeser.
     departureShift = 0; train.group.position.x = 0;
     stationRoot.visible = false;
-    camera.position.set(TRAIN_BASE_X - 28, CFG.player.eyeHeight, TRAIN_CENTER_Z);
+    camera.position.set(TRAIN_X0 + 22, CFG.player.eyeHeight, TRAIN_CENTER_Z);
     hideCutsceneSkip(); setCineFocus(null); setCineBars(false); setCinematicActive(false);
     setCineFade(0, CFG.campaign.stage5.fadeSec);
-    setCine(null); setPhase('cargo'); setTrainDoor(train, 0, true);
-    showStageMsg('FIGHT THROUGH THE TRAIN — REACH THE CONTROL CAR', 4800);
+    setCine(null); setPhase('ride'); gapT = 0;
+    placeCarSupplies();
+    showStageMsg('HOLD THE CAR — HOSTILE CONSISTS WILL RUN THE PARALLEL TRACK', 5000);
 }
 
+// KAMERA TERKUNCI (2026-08-07, laporan user "stasiun terlihat ikut bergerak"):
+// dulu titik fokus + pivot kamera ikut digeser `departureShift`, sehingga kereta
+// diam di layar dan justru STASIUN yang menyapu lewat. Sekarang framing dipatok
+// mati di peron dan HANYA kereta yang melaju keluar frame — satu-satunya cara
+// penonton bisa membaca kereta yang berangkat, bukan stasiun yang bergerak.
 function updateDepartureCine(dt) {
     if (!cine) return;
     cine.t += dt;
     const C = CFG.campaign.stage5;
     const k = Math.min(1, cine.t / Math.max(0.01, C.departureMinSec));
-    cineCam.x = -125 + k * 50; cineCam.y = 90 + k * 18; cineCam.z = 125 - k * 35;
-    // Kereta benar-benar keluar ke timur selama shot; seluruh stationRoot
+    cineCam.x = DEPART_CAM.x; cineCam.y = DEPART_CAM.y; cineCam.z = DEPART_CAM.z;
+    // Percepatan (k*k) = kereta menarik pelan lalu melaju; seluruh stationRoot
     // tetap di (0,0,0). Arena di-reset saat layar hitam di finishDeparture.
-    departureShift = k * CELL * 15;
+    departureShift = k * k * (C.departureShiftUnits || CELL * 28);
     train.group.position.x = STATION_TRAIN_DX + departureShift;
-    camera.position.x = STATION_TC_X - 46 + departureShift;
+    // PLAYER IKUT GERBONG (2026-08-08, laporan user "Major Gibran tertinggal"):
+    // pivot player dulu dipatok mati di peron sementara badan kereta melaju,
+    // jadi avatarnya berdiri sendirian di rel sementara keretanya pergi. Ia ada
+    // DI DALAM gerbong, jadi ofsetnya terhadap pusat gerbong harus tetap.
+    // Framing tidak terpengaruh: selama `cineFocus` aktif, viewCam mengikuti
+    // titik fokus itu, bukan pivot — shot-nya tetap terkunci di peron.
+    camera.position.x = STATION_TC_X - CAR_STAND_DX + departureShift;
     camera.position.z = TRAIN_CENTER_Z;
-    setCineFocus(STATION_TC_X + departureShift, TRAIN_CENTER_Z, true);
+    setCineFocus(STATION_TC_X, TRAIN_CENTER_Z, true);
     if (!cine.fading && cine.t >= C.departureMinSec && dialogueIdle()) {
         cine.fading = true; cine.fadeT = 0; setCineFade(1, C.fadeSec);
     }
     if (cine.fading && (cine.fadeT += dt) >= C.fadeSec) finishDeparture();
 }
 
-function updateEncounters(dt) {
-    const C = CFG.campaign.stage5, car = carAt(camera.position.x);
-    if (phase === 'cargo') {
-        if (!encounterSpawned.cargo && rideT >= C.cargoGateSec && car >= 1) {
-            encounterSpawned.cargo = true;
-            spawnEncounter('cargo', C.encounters.cargo, 1, true);
-            queueDialogue('breach'); queueDialogue('breachReply'); addCamShake(2.0);
+// Dialog gelombang: beat pertama, beat tengah, dan beat terakhir. `queueDialogue`
+// membuang kunci yang sudah pernah tampil, jadi urutan naskah tetap utuh walau
+// `waveCount` di-retune.
+function waveDialogue(i) {
+    const last = i >= waveTotal() - 1;
+    if (i === 0) { queueDialogue('breach'); queueDialogue('breachReply'); }
+    if (i === 1 || last) { queueDialogue('roofWarning'); queueDialogue('roofReply'); }
+    if (last) { queueDialogue('finalApproach'); queueDialogue('finalReply'); }
+}
+
+// Setiap konsist yang hancur meninggalkan bekal: player tak bisa keluar gerbong
+// untuk mencari amunisi, jadi persediaan harus datang kepadanya.
+function dropWaveSupplies() {
+    const w = player.owned && player.owned[currentWeapon] ? currentWeapon : 'rifle';
+    spawnAmmoDrop(TRAIN_BASE_X, TRAIN_CENTER_Z - 4, w, 1e9);
+    if (etCleared % Math.max(1, CFG.campaign.stage5.enemyTrain.medkitEveryTrains | 0) === 0)
+        spawnMedkitDrop(TRAIN_BASE_X + 18, TRAIN_CENTER_Z + 4, 1e9);
+}
+
+function updateWaves(dt) {
+    const C = CFG.campaign.stage5, E = C.enemyTrain;
+    // Jeda antar-gelombang dihitung dari SAAT konsist sebelumnya hancur.
+    if (etCleared > rewarded) { rewarded = etCleared; gapT = 0; dropWaveSupplies(); }
+    if (etrain.mode !== 'idle') return;
+    gapT += dt;
+    if (etSent < waveTotal()) {
+        if (gapT >= (etSent === 0 ? E.firstWaveSec : E.waveGapSec)) {
+            waveDialogue(etSent);
+            sendEnemyWave(etSent);
+            gapT = 0;
         }
-        if (encounterSpawned.cargo && countEncounter('cargo') === 0 && rideT >= C.securityGateSec) {
-            setTrainDoor(train, 1, true); setPhase('security');
-            showStageMsg('CARGO CAR SECURED — ADVANCE THROUGH THE TRAIN', 3200);
-        }
-    } else if (phase === 'security') {
-        if (!encounterSpawned.security && car >= 2) {
-            encounterSpawned.security = true; spawnEncounter('security', C.encounters.security, 2, false);
-        }
-        if (encounterSpawned.security && countEncounter('security') === 0 && rideT >= C.roofGateSec) {
-            setTrainDoor(train, 2, true); setPhase('roof');
-            showStageMsg('SECURITY CAR CLEARED — CROSS THE OPEN DECK', 3200);
-        }
-    } else if (phase === 'roof') {
-        if (!encounterSpawned.roof && car >= 3) {
-            encounterSpawned.roof = true; spawnEncounter('roof', C.encounters.roof, 3, true);
-            queueDialogue('roofWarning'); queueDialogue('roofReply'); addCamShake(2.4);
-        }
-        if (encounterSpawned.roof && countEncounter('roof') === 0 && rideT >= C.finalGateSec) {
-            setTrainDoor(train, 3, true);
-            if (car >= 4) {
-                setPhase('finalDefense'); finalT = 0; finalWaveIndex = 0;
-                queueDialogue('finalApproach'); queueDialogue('finalReply');
-                showStageMsg('FINAL APPROACH — HOLD THE CONTROL CAR', 4300);
-            }
-        }
-    } else if (phase === 'finalDefense') {
-        finalT += dt;
-        const waves = C.encounters.finalWaves || [];
-        while (finalWaveIndex < waves.length && finalT >= finalWaveIndex * C.finalWaveGapSec) {
-            spawnEncounter('final', waves[finalWaveIndex], Math.max(1, 3 - finalWaveIndex), true);
-            finalWaveIndex++; addCamShake(1.6);
-        }
-        if (finalWaveIndex >= waves.length && finalT >= C.finalDefenseSec
-            && rideT >= C.rideMinSec && countStageRobots(5) === 0) enterSub(arrivalScene);
+        return;
     }
+    // Semua gelombang bersih: barulah kedatangan Bandung dibuka.
+    if (etCleared >= waveTotal() && rideT >= C.rideMinSec && countStageRobots(5) === 0)
+        enterSub(arrivalScene);
 }
 
 export const journeyDebug = () => ({
-    departureShift, finalT, finalWaveIndex, encountered: { ...encounterSpawned },
+    departureShift, gapT, rewarded, wavesSent: etSent, wavesCleared: etCleared,
+    waveTotal: waveTotal(),
 });
 
 export const journeyScene = {
@@ -142,16 +144,16 @@ export const journeyScene = {
 
     enter() {
         releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
-        setPhase('departure'); resetRide(); boardMarker.visible = false;
+        setPhase('departure'); resetRide(); resetJourney(); boardMarker.visible = false;
         setStationTrainView(false); resetEnemyTrain();
         // Apa pun yang masih hidup di stasiun ditinggal di sana; kereta harus
-        // berangkat dengan deck bersih sebelum encounter cargo dijadwalkan.
+        // berangkat dengan deck bersih sebelum gelombang pertama dijadwalkan.
         for (let i = robots.length - 1; i >= 0; i--) {
             const z = robots[i];
             if (z.stage !== 5) continue;
             disposeRobot(z); scene.remove(z.mesh); robots.splice(i, 1);
         }
-        camera.position.set(STATION_TC_X - 46, CFG.player.eyeHeight, TRAIN_CENTER_Z);
+        camera.position.set(STATION_TC_X - CAR_STAND_DX, CFG.player.eyeHeight, TRAIN_CENTER_Z);
         setCinematicActive(true); setCineBars(true);
         setCine({ kind: 'departure', t: 0, fading: false });
         queueDialogue('commandDeparture'); queueDialogue('gibranDeparture');
@@ -167,7 +169,7 @@ export const journeyScene = {
             updateDepartureCine(dt); updateRide(dt);
             return;
         }
-        updateRide(dt); updateEncounters(dt);
+        updateRide(dt); updateEnemyTrain(dt); updateWaves(dt);
     },
 
     ...TRAIN_HOOKS,
@@ -175,16 +177,16 @@ export const journeyScene = {
     hudStatus() {
         const C = CFG.campaign.stage5 || {};
         const km = Math.max(1, Math.ceil((C.routeKm || 120) * (1 - routeK())));
-        if (phase === 'finalDefense') return `TO BANDUNG — ${km} KM | HOLD THE CONTROL CAR | Robots: ${countStageRobots(5)}`;
-        return `TO BANDUNG — ${km} KM | CAR ${carAt(camera.position.x) + 1}/${TRAIN_CAR_COUNT} | Robots: ${countStageRobots(5)}`;
+        const n = countStageRobots(5);
+        if (etrain.mode === 'approach') return `TO BANDUNG — ${km} KM | HOSTILE CONSIST CLOSING`;
+        if (n > 0) return `TO BANDUNG — ${km} KM | CONSIST ${etSent}/${waveTotal()} — Robots: ${n}`;
+        return `TO BANDUNG — ${km} KM | CONSISTS DESTROYED ${etCleared}/${waveTotal()}`;
     },
 
     radarLandmarks(plot) {
-        let p = null;
-        if (phase === 'departure' || phase === 'cargo') p = { x: TRAIN_BASE_X + TRAIN_CAR_STEP, z: TRAIN_CENTER_Z };
-        else if (phase === 'security') p = { x: TRAIN_BASE_X + 2 * TRAIN_CAR_STEP, z: TRAIN_CENTER_Z };
-        else if (phase === 'roof') p = { x: TRAIN_BASE_X + 3 * TRAIN_CAR_STEP, z: TRAIN_CENTER_Z };
-        else if (phase === 'finalDefense') p = S5_ENGINE;
-        if (p) plot(p.x - camera.position.x, p.z - camera.position.z, '#ffb03b', 5, true);
+        if (etrain.mode === 'idle' || etrain.mode === 'flyby') return;
+        // Konsist musuh adalah satu-satunya landmark yang relevan di perjalanan.
+        for (const x of [TRAIN_X0, TRAIN_BASE_X, TRAIN_X1])
+            plot(x - camera.position.x, JOURNEY_ENEMY_Z - camera.position.z, '#ffb03b', 4, true);
     },
 };

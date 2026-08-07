@@ -3,17 +3,19 @@
 // alur cerita; ketiga sub-scene (station/journey/arrival) memakainya lewat
 // binding hidup ESM.
 
-import { CFG } from '../../../../core/config.js';
+import { CFG, CAMP_M } from '../../../../core/config.js';
 import { scene, camera } from '../../../../core/renderer.js';
 import { registerStageLight } from '../../../../world/lighting.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
 import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
+import { doorMotionSFX } from '../../utility/doors.js';
 import {
     buildMilitaryTrainMesh, buildTrainJourneyScenery,
-    TRAIN_CAR_LENGTH, TRAIN_CAR_STEP, TRAIN_CAR_COUNT, TRAIN_HALF_WIDTH,
-    setTrainDoor, resetTrainVisual, resetJourneyScenery,
+    TRAIN_CAR_LENGTH, TRAIN_CAR_STEP, TRAIN_HALF_WIDTH,
+    TRAIN_INNER_HALF, TRAIN_INNER_HALF_LEN, TRAIN_GAUGE_HALF, JOURNEY_TRACK_DZ,
+    resetTrainVisual, resetJourneyScenery,
 } from '../../../../entities/train.js';
 import {
     meshCount, buildMarker, buildGenerator, buildTerminal,
@@ -96,17 +98,24 @@ export const cellPos = (c, r) => ({ x: MAP_X0 + (c - 0.5) * CELL, z: MAP_Z0 + (r
 // Dua jalur: baris 1-4 = track musuh, baris 6-9 = track kereta player.
 export const TRAIN_CENTER_Z = cellPos(1, 7.5).z;
 export const ENEMY_TRACK_Z = cellPos(1, 2.5).z;
-// Arena journey tetap di tengah peta seperti sebelumnya. DI STASIUN konsist
-// digeser ke barat sehingga gerbong 3 (TC) + lokomotif (TL) jatuh persis pada
-// sel TC/TL denah CSV; gerbong 0-2 disembunyikan sampai layar hitam departure.
-export const STATION_CAR_INDEX = 3;
+// Konsist player = gerbong 0 (arena) + lokomotif 1. DI STASIUN konsist digeser
+// ke barat sehingga gerbong 0 jatuh persis pada sel TC dan lokomotif pada TL.
+export const STATION_CAR_INDEX = 0;
 export const TRAIN_BASE_X = OX - 2 * TRAIN_CAR_STEP;
-export const TRAIN_X0 = TRAIN_BASE_X - TRAIN_CAR_LENGTH / 2;
-export const TRAIN_X1 = TRAIN_BASE_X + (TRAIN_CAR_COUNT - 1) * TRAIN_CAR_STEP + TRAIN_CAR_LENGTH / 2;
-export const TRAIN_Z0 = TRAIN_CENTER_Z - TRAIN_HALF_WIDTH;
-export const TRAIN_Z1 = TRAIN_CENTER_Z + TRAIN_HALF_WIDTH;
-export const STATION_TC_X = cellPos(9.47, 1).x;          // pusat sel TC pada CSV
+// ARENA PLAYER = bagian DALAM gerbong 0 saja (permintaan user 2026-08-07:
+// player tidak bisa keluar gerbong dan tidak bisa masuk lokomotif).
+export const TRAIN_X0 = TRAIN_BASE_X - TRAIN_INNER_HALF_LEN;
+export const TRAIN_X1 = TRAIN_BASE_X + TRAIN_INNER_HALF_LEN;
+export const TRAIN_Z0 = TRAIN_CENTER_Z - TRAIN_INNER_HALF;
+export const TRAIN_Z1 = TRAIN_CENTER_Z + TRAIN_INNER_HALF;
+// Sel TC menempati kolom 0-based 5..11 (pusat 8), yaitu cellPos(9); sel TL
+// 12..18 (pusat 15) = cellPos(16). Selisih keduanya 7 sel = TRAIN_CAR_STEP,
+// jadi gerbong + lokomotif jatuh PERSIS pada dua blok token itu.
+export const STATION_TC_X = cellPos(9, 1).x;
 export const STATION_TRAIN_DX = STATION_TC_X - (TRAIN_BASE_X + STATION_CAR_INDEX * TRAIN_CAR_STEP);
+// Sumbu jalur musuh SELAMA PERJALANAN (double track mainline, jauh lebih rapat
+// dari dua jalur stasiun yang dipisah peron).
+export const JOURNEY_ENEMY_Z = TRAIN_CENTER_Z + JOURNEY_TRACK_DZ;
 
 const GENERATOR_OBJECT = cellPos(3.5, 11);
 const TERMINAL_OBJECT = cellPos(29, 45.5);
@@ -118,7 +127,9 @@ export const S5_GENERATOR = Object.freeze(cellPos(3.5, 12));     // H dekat C2
 export const S5_TERMINAL = Object.freeze(cellPos(28, 45.5));     // H dekat C1
 export const S5_BOARD = Object.freeze(cellPos(7, 10));           // peron di depan TCI
 export const S5_TCI = Object.freeze(cellPos(7, 9));
-export const S5_ENGINE = Object.freeze({ x: TRAIN_BASE_X + 4 * TRAIN_CAR_STEP + 17, z: TRAIN_CENTER_Z });
+// Ujung timur DALAM gerbong, tepat di depan sekat kabin: titik framing arrival
+// dan landmark radar. Lokomotifnya sendiri tidak pernah bisa dimasuki.
+export const S5_ENGINE = Object.freeze({ x: TRAIN_X1 - 14, z: TRAIN_CENTER_Z });
 
 export const SUPPLY_POINTS = Object.freeze([
     Object.freeze({ type: 'ammo', weapon: 'pistol', ...cellPos(3, 43) }),
@@ -128,12 +139,19 @@ export const SUPPLY_POINTS = Object.freeze([
     Object.freeze({ type: 'medkit', ...cellPos(4, 25) }),
     Object.freeze({ type: 'medkit', ...cellPos(21, 20) }),
 ]);
+// Peti persediaan HANYA di gudang. Lorong gerbong (4 m) masih lebih sempit
+// daripada radius blok peti, jadi satu peti di dalam kereta akan menyumbat
+// jalur player sepenuhnya — persediaan perjalanan memakai drop (tidak pejal).
 export const CRATE_POINTS = Object.freeze([
     Object.freeze({ area: 'depot', ...cellPos(11, 45) }),
     Object.freeze({ area: 'depot', ...cellPos(18, 37) }),
-    Object.freeze({ area: 'cargo', x: TRAIN_BASE_X + TRAIN_CAR_STEP, z: TRAIN_CENTER_Z + 12 }),
-    Object.freeze({ area: 'security', x: TRAIN_BASE_X + 2 * TRAIN_CAR_STEP, z: TRAIN_CENTER_Z + 13 }),
-    Object.freeze({ area: 'locomotive', x: TRAIN_BASE_X + 4 * TRAIN_CAR_STEP - 37, z: TRAIN_CENTER_Z + 14 }),
+    Object.freeze({ area: 'depot', ...cellPos(24, 28) }),
+]);
+// Bekal di dalam gerbong: player terkurung di sana sepanjang perjalanan.
+export const CAR_SUPPLY_POINTS = Object.freeze([
+    Object.freeze({ type: 'ammo', weapon: 'rifle', x: TRAIN_X0 + 16, z: TRAIN_CENTER_Z - 5 }),
+    Object.freeze({ type: 'ammo', weapon: 'shotgun', x: TRAIN_X1 - 16, z: TRAIN_CENTER_Z - 5 }),
+    Object.freeze({ type: 'medkit', x: TRAIN_BASE_X, z: TRAIN_CENTER_Z + 5 }),
 ]);
 
 let built = false, worldRoot = null;
@@ -142,10 +160,10 @@ let staticBatch = [];
 export let generatorScreen = null, terminalScreen = null;
 let generatorRotor = null, terminalCore = null;
 let landmarkVisual = { generatorMeshes: 0, terminalMeshes: 0, animatedParts: 0 };
-let safeFloorOverlayCount = 0;
+let safeFloorOverlayCount = 0, runoutX1 = 0;
 const depotFurniture = [], platformFurniture = [];
 export let repairMarker = null, terminalMarker = null, boardMarker = null;
-const blockers = [], doorBlockers = [];
+const blockers = [];
 const stationDoors = [];
 const windowPanes = [];
 export let enemyTrain = null;
@@ -222,14 +240,6 @@ function blockedAt(x, z, rad = 3.5) {
     return false;
 }
 
-function resolveTrainDoors(pos, radius) {
-    if (!train) return;
-    for (let i = 0; i < doorBlockers.length; i++) {
-        if (train.doors[i].open >= 0.74) continue;
-        resolveBlockers(pos, radius, 0, [doorBlockers[i]]);
-    }
-}
-
 function resolveStationDoors(pos, radius) {
     for (const d of stationDoors) {
         if (d.open >= 0.74) continue;
@@ -240,7 +250,6 @@ function resolveStationDoors(pos, radius) {
 export function resolve(pos, radius, feetY = 0) {
     resolveBlockers(pos, radius, feetY, blockers);
     resolveStationDoors(pos, radius);
-    resolveTrainDoors(pos, radius);
 }
 
 export function stage5GroundHeight(x, z, feetY) {
@@ -260,8 +269,13 @@ export function updateStationDoors(dt, platformOpen) {
     }
     if (platform) platform.target = platformOpen ? 1 : 0;
     for (const d of stationDoors) {
-        const dir = d.target > d.open ? 1 : -1;
-        d.open = Math.max(0, Math.min(1, d.open + dir * dt / 0.48));
+        // MENDARAT PERSIS di target. Bentuk lama (`dir` yang tak pernah nol)
+        // membuat pintu yang sudah terbuka penuh bergetar 0.965<->1 tiap frame:
+        // panelnya bergidik dan `open` tak pernah menetap.
+        const prev = d.open, step = dt / 0.48;
+        d.open = d.open < d.target ? Math.min(d.target, d.open + step)
+            : Math.max(d.target, d.open - step);
+        doorMotionSFX(d, prev, d.blocker.x, d.blocker.z);
         const e = d.open * d.open * (3 - 2 * d.open);
         d.panel.position.y = (WALL_H - 2) / 2 - e * (WALL_H + 2);
         d.lamp.material.color.setHex(d.target ? PAL.tech : PAL.hazard);
@@ -291,32 +305,56 @@ export function stationDoorBlocks(x0, z0, x1, z1) {
     return stationDoors.some(d => d.open < 0.74 && segHitsRect(x0, z0, x1, z1, d.blocker));
 }
 
-// --- Kereta musuh di track sebelah (baris CSV 1-4) -------------------------
-// Konsist statis-prealokasi: tiga gerbong angkut + satu lokomotif. Sejak
-// 2026-08-07 (permintaan user) ia HANYA MELINTAS — tidak pernah berhenti,
-// membuka pintu, atau menurunkan robot; pintu gesernya kini geometri statis.
-export const ET_CARS = 4, ET_LEN = 92, ET_STEP = 100, ET_HALF = 25;
-const ET_SPAN = (ET_CARS - 1) * ET_STEP;
-export const ET_ENTER_X = MAP_X0 - ET_SPAN - ET_LEN * 1.5;
-export const ET_EXIT_X = MAP_X0 + MAP_COLS * CELL + ET_LEN;
+// --- Kereta musuh di jalur sebelah ----------------------------------------
+// Konsist statis-prealokasi: TIGA gerbong angkut terbuka + satu lokomotif,
+// selebar 4 m seperti kereta player. Dua peran: (1) satu lintasan atmosfer di
+// stasiun, (2) GELOMBANG SERANG selama perjalanan — jumlah gerbong yang dipakai
+// diundi 1..3 per gelombang dan sisanya cukup disembunyikan (tanpa alokasi).
+export const ET_CARS = 4;                       // 3 gerbong angkut + 1 lokomotif
+export const ET_CARGO_CARS = ET_CARS - 1;
+export const ET_LEN = 84, ET_STEP = 88, ET_HALF = TRAIN_HALF_WIDTH;
+const ET_SPAN = (ET_CARS - 1) * ET_STEP + ET_LEN;
+export const ET_ENTER_X = MAP_X0 - ET_SPAN - ET_LEN;
+export const ET_EXIT_X = MAP_X0 + MAP_COLS * CELL + ET_SPAN;
 export const etCfg = () => CFG.campaign.stage5.enemyTrain;
+
+// Ofset gerbong ke-i (0..n-1) untuk konsist berisi `n` gerbong angkut: selalu
+// TERPUSAT pada gerbong player, dengan lokomotif menarik di ujung timur.
+export const enemyCarOffsetX = (n, i) => (i - (n - 1) / 2) * ET_STEP;
+
+export function layoutEnemyTrain(n) {
+    if (!enemyTrain) return 0;
+    const k = Math.max(1, Math.min(ET_CARGO_CARS, n | 0));
+    for (let i = 0; i < ET_CARGO_CARS; i++) {
+        enemyTrain.cars[i].visible = i < k;
+        enemyTrain.cars[i].position.x = enemyCarOffsetX(k, i);
+    }
+    const loco = enemyTrain.cars[ET_CARS - 1];
+    loco.visible = true; loco.position.x = enemyCarOffsetX(k, k);
+    return k;
+}
 
 export function parkEnemyTrain() {
     if (!enemyTrain) return;
     enemyTrain.group.visible = false;
-    enemyTrain.group.position.x = ET_ENTER_X;
+    enemyTrain.group.position.set(ET_ENTER_X, 0, ENEMY_TRACK_Z);
+    enemyTrain.wheelPhase = 0;
+    for (const w of enemyTrain.wheels) w.rotation.y = 0;
+    layoutEnemyTrain(ET_CARGO_CARS);
 }
 
-// Denah CSV hanya memuat satu TC + satu TL di peron, sedangkan journey tetap
-// memakai konsist 5 gerbong. Gerbong sisanya disembunyikan selama di stasiun
-// dan dibuka saat layar sudah hitam di startDeparture.
+export function spinEnemyTrain(dt, speed) {
+    if (!enemyTrain) return;
+    enemyTrain.wheelPhase += dt * Math.max(0, speed) * 0.11;
+    for (const w of enemyTrain.wheels) w.rotation.y = enemyTrain.wheelPhase;
+}
+
+// Konsist player kini HANYA gerbong + lokomotif, jadi keduanya selalu terlihat;
+// yang berbeda di stasiun hanyalah pergeseran ke sel TC/TL denah CSV.
 export function setStationTrainView(atStation) {
     if (!train) return;
-    // Ambang dipasang di coupler gerbong 2/3 agar bulkhead + coupler yang
-    // tersisa berperan sebagai dinding belakang gerbong TC di peron.
-    const cut = TRAIN_BASE_X + (STATION_CAR_INDEX - 0.5) * TRAIN_CAR_STEP;
-    for (const c of train.group.children) c.visible = !atStation || c.position.x >= cut;
-    if (atStation) train.group.position.x = STATION_TRAIN_DX;
+    for (const c of train.group.children) c.visible = true;
+    train.group.position.x = atStation ? STATION_TRAIN_DX : 0;
 }
 
 function buildWorld() {
@@ -381,14 +419,25 @@ function buildWorld() {
             addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
         }
     }
-    // Kedua rel stasiun tetap menjadi anak stationRoot, bukan journey scenery.
+    // Kedua rel stasiun tetap menjadi anak stationRoot, bukan journey scenery,
+    // dan memakai gauge yang SAMA dengan bogie kereta (`TRAIN_GAUGE_HALF`).
+    // APRON RUN-OUT di timur peron: shot keberangkatan memakai kamera terkunci
+    // dan hanya keretanya yang maju, jadi ia harus punya tanah + rel di
+    // bawahnya sampai ujung `departureShiftUnits` — tanpa ini lokomotif terbang
+    // di atas kekosongan tepat saat penonton sedang memandanginya.
+    const RUNOUT = (CFG.campaign.stage5.departureShiftUnits || 330) + 120;
+    const MAP_X1 = MAP_X0 + MAP_COLS * CELL;
+    runoutX1 = MAP_X1 + RUNOUT;
+    const bandZ = cellPos(1, 5).z;
+    addStatic(RUNOUT, 2, 9 * CELL, MAP_X1 + RUNOUT / 2, -1, bandZ, M.ground);
+    addStatic(RUNOUT, 1, 9 * CELL, MAP_X1 + RUNOUT / 2, -0.1, bandZ, M.asphalt);
     for (const base of [TRAIN_CENTER_Z, ENEMY_TRACK_Z])
-        for (const z of [base - 20, base + 20])
-            addStatic(MAP_COLS * CELL, 1.2, 2.2, OX, 0.1, z, M.steel);
-    for (let c = 1; c <= MAP_COLS; c += 2) {
+        for (const z of [base - TRAIN_GAUGE_HALF, base + TRAIN_GAUGE_HALF])
+            addStatic(MAP_COLS * CELL + RUNOUT, 1.2, 1.8, OX + RUNOUT / 2, 0.1, z, M.steel);
+    for (let c = 1; c <= MAP_COLS + Math.ceil(RUNOUT / CELL); c += 2) {
         const p = cellPos(c, 1);
         for (const base of [TRAIN_CENTER_Z, ENEMY_TRACK_Z])
-            addStatic(CELL * 1.7, 0.8, 53, p.x, -0.25, base, M.ink);
+            addStatic(CELL * 1.7, 0.8, TRAIN_GAUGE_HALF * 2 + 8, p.x, -0.25, base, M.ink);
     }
     // Garis aman peron dan gantry tetap, tidak pernah masuk pool bergerak.
     addStatic(MAP_COLS * CELL, 0.35, 2, OX, 0.65, cellPos(1, 10).z - CELL / 2 + 2, M.hazard);
@@ -422,18 +471,13 @@ function buildWorld() {
 
     train = buildMilitaryTrainMesh(TRAIN_BASE_X, TRAIN_CENTER_Z);
     scene.add(train.group);
-    enemyTrain = buildEnemyTrain(M, stationRoot, ET_CARS, ET_LEN, ET_STEP, ET_HALF,
+    // Konsist musuh menempel di worldRoot, BUKAN stationRoot: ia harus tetap
+    // terlihat saat stasiun disembunyikan sepanjang perjalanan.
+    enemyTrain = buildEnemyTrain(M, worldRoot, ET_CARS, ET_LEN, ET_STEP, ET_HALF,
         ET_ENTER_X, ENEMY_TRACK_Z);
-    journey = buildTrainJourneyScenery(TRAIN_BASE_X + 2 * TRAIN_CAR_STEP, TRAIN_CENTER_Z);
+    journey = buildTrainJourneyScenery(TRAIN_BASE_X, TRAIN_CENTER_Z, JOURNEY_TRACK_DZ);
     scene.add(journey.group);
     // Semua scenery sengaja terlihat saat precompile awal; enter() akan reset/hide.
-
-    for (let i = 0; i < train.doors.length; i++) {
-        const x = TRAIN_BASE_X + i * TRAIN_CAR_STEP + TRAIN_CAR_LENGTH / 2 + 4;
-        doorBlockers.push({ x, z: TRAIN_CENTER_Z, hx: 2.5, hz: TRAIN_HALF_WIDTH - 4,
-            axx: 1, axz: 0, azx: 0, azz: 1,
-            rad: TRAIN_HALF_WIDTH, top: 14, standable: false });
-    }
 
     // Delapan lampu tetap untuk stage 5; tidak ada lampu runtime.
     const lampCells = [[3, 20], [11, 20], [20, 20], [28, 20], [8, 32], [17, 32], [27, 32], [15, 13]];
@@ -481,7 +525,6 @@ export function resetWorldVisual() {
     resetTrainVisual(train); resetJourneyScenery(journey); parkEnemyTrain();
     train.group.position.set(0, 0, 0); stationRoot.visible = true;
     setStationTrainView(true);
-    for (let i = 0; i < train.doors.length; i++) setTrainDoor(train, i, false);
     for (const d of stationDoors) {
         d.open = 0; d.target = 0; d.panel.position.y = (WALL_H - 2) / 2;
         d.lamp.material.color.setHex(PAL.hazard);
@@ -510,6 +553,7 @@ export const stage5WorldDebug = () => ({
         safeDoor: { ...SAFE_DOOR_POS },
         terminalObject: { ...TERMINAL_OBJECT }, generatorObject: { ...GENERATOR_OBJECT },
         tci: { ...S5_TCI }, playerTrackZ: TRAIN_CENTER_Z, enemyTrackZ: ENEMY_TRACK_Z,
+        journeyEnemyZ: JOURNEY_ENEMY_Z, journeyTrackDz: JOURNEY_TRACK_DZ,
     },
     landmarks: { ...landmarkVisual },
     furniture: {
@@ -523,19 +567,26 @@ export const stage5WorldDebug = () => ({
     },
     train: {
         x0: TRAIN_X0, x1: TRAIN_X1, z0: TRAIN_Z0, z1: TRAIN_Z1,
+        widthMeters: TRAIN_HALF_WIDTH * 2 / CAMP_M,
+        lengthMeters: TRAIN_CAR_LENGTH / CAMP_M,
+        stationTcX: STATION_TC_X,
+        // Geseran badan kereta saat ini (0 = koordinat arena perjalanan,
+        // STATION_TRAIN_DX = terdok di peron, + geseran shot keberangkatan).
+        groupX: train?.group?.position?.x || 0,
         cars: train?.cars?.length || 0, doors: train?.doors?.length || 0,
         stationVisibleCars: train?.cars?.filter(c => c.visible).length || 0,
         stationCarIndex: STATION_CAR_INDEX,
     },
     enemyTrain: {
         cars: enemyTrain?.cars?.length || 0,
-        doorPanels: enemyTrain?.doorPanels?.length || 0,
+        cargoCars: ET_CARGO_CARS,
+        widthMeters: ET_HALF * 2 / CAMP_M,
         meshes: enemyTrain ? meshCount(enemyTrain.group) : 0,
         enterX: ET_ENTER_X, exitX: ET_EXIT_X,
         z: enemyTrain?.group?.position?.z ?? 0,
     },
+    runoutX1,
     blockers: blockers.length,
-    doorBlockers: doorBlockers.length,
     nav: !!navGrid,
     carCenters: train?.cars?.map(c => ({ x: c.position.x, z: c.position.z })) || [],
     supplies: SUPPLY_POINTS.map(p => ({ ...p })),

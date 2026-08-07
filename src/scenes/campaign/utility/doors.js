@@ -13,6 +13,49 @@
 import { CFG } from '../../../core/config.js';
 import { scene, camera } from '../../../core/renderer.js';
 import { PAL } from '../../../world/palette.js';
+import { playSFX, sfxDoorOpen, sfxDoorClose } from '../../../utils/sfx.js';
+
+// ===== SFX PINTU BERSAMA (2026-08-07, permintaan user) ======================
+// SATU pintu masuk audio untuk SELURUH pintu di stage mana pun: pintu geser
+// stage 1-3 (updateStageDoors di bawah), pintu blast stage 3, pintu stasiun
+// stage 5, dan pintu stage 6. Jangan memanggil playSFX pintu dari tempat lain —
+// menaruhnya di sini yang membuat aturan "semua pintu berbunyi sama" tak bisa
+// bocor saat stage baru ditambahkan.
+//   door-open   : saat daun MULAI bergerak membuka.
+//   door-closed : saat daun benar-benar MENDARAT tertutup.
+// Digerbang jarak: pintu di ujung gedung tak boleh ikut terdengar, dan
+// volumenya meredup mengikuti jarak (pola yang sama dgn tembakan robot).
+const DOOR_HEAR = 340;
+let doorSfx = { open: 0, close: 0, last: null };
+export const doorSfxDebug = () => ({ ...doorSfx });
+export const resetDoorSfx = () => { doorSfx = { open: 0, close: 0, last: null }; };
+
+export function playDoorSFX(opening, x, z) {
+    const d = Math.hypot(camera.position.x - x, camera.position.z - z);
+    if (d > DOOR_HEAR) return false;
+    const clip = opening ? sfxDoorOpen : sfxDoorClose;
+    playSFX(clip, 0.6 * (1 - d / DOOR_HEAR));
+    doorSfx[opening ? 'open' : 'close']++;
+    doorSfx.last = clip.src || null;
+    return true;
+}
+
+// Pemicu untuk loop animasi pintu MANA PUN: simpan `open` frame lalu dan panggil
+// ini sesudah memperbaruinya.
+//
+// Gerbangnya adalah PERLINTASAN AMBANG tertutup<->terbuka, BUKAN arah gerak
+// per-frame (bugfix 2026-08-07, laporan user "suara pintu terbuka dijalankan
+// berkali-kali saat pintu terbuka, audionya menumpuk"). Integrator pintu boleh
+// bergetar di sekitar target — mis. `dir` yang tak pernah nol membuat `open`
+// naik-turun 0.965<->1 tiap frame — dan pemicu berbasis arah akan membunyikan
+// klip 30x/detik. Berbasis ambang, satu kali buka = SATU bunyi, apa pun yang
+// terjadi di antaranya. Stateless: reset stage yang menulis `open = 0` langsung
+// juga tidak bisa memicu bunyi palsu karena prev-nya ikut 0.
+export function doorMotionSFX(dr, prev, x, z) {
+    const now = dr.open > 1e-4, was = prev > 1e-4;
+    if (now === was) return;
+    playDoorSFX(now, x, z);
+}
 
 const OPEN_TIME = 0.45;      // detik buka/tutup penuh
 const FRONT_CELLS = 2;       // player HARUS di <= 2 kotak DI DEPAN bukaan (permintaan user 2026-07-18)
@@ -126,8 +169,10 @@ export function updateStageDoors(doors, dt) {
         else if (dr.linger > 0) dr.linger = Math.max(0, dr.linger - dt);
         // Pintu TERKUNCI tak pernah membuka (target 0) berapa pun kedekatan player.
         const target = dr.locked ? 0 : ((near || dr.linger > 0) ? 1 : 0);
+        const prev = dr.open;
         if (dr.open < target) dr.open = Math.min(target, dr.open + step);
         else if (dr.open > target) dr.open = Math.max(target, dr.open - step);
+        doorMotionSFX(dr, prev, dr.cx, dr.cz);
         const t = dr.open, e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;   // easeInOut
         dr.panel.position.y = dr.closedY + (dr.openY - dr.closedY) * e;
     }

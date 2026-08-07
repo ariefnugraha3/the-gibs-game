@@ -74,7 +74,7 @@ import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobo
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../entities/crates.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
-import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
+import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot, playDoorSFX } from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
 import { buildLiftBank } from '../utility/lift.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
@@ -968,6 +968,7 @@ function s3AlarmHorde() {
 // Kelima terminal beres → PINTU BLAST TERBUKA (naik ke plafon), rambu jadi HIJAU.
 function s3OpenDoor() {
     s3DoorOpen = true;
+    playDoorSFX(true, s3DoorCX, s3DoorCZ);   // pintu blast memakai klip pintu yang sama
     const i = blockers.indexOf(s3DoorBlocker);
     if (i !== -1) blockers.splice(i, 1);
     if (s3DoorSign) s3DoorSign.material.color.setHex(HACK_READY);

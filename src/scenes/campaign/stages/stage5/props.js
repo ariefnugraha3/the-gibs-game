@@ -325,51 +325,56 @@ export function buildStationDoor(M, root, kind, x, z, sx, sz) {
     };
 }
 
-// Konsist musuh statis-prealokasi: tiga gerbong angkut + satu lokomotif. Ia
-// hanya bergeser di sumbu X dan membuka/menutup pintu; tidak ada mesh/material
-// yang dibuat saat runtime sehingga tidak pernah memicu shader recompile.
+// Konsist musuh statis-prealokasi: `cars-1` gerbong angkut terbuka + satu
+// lokomotif. Sejak rombak 2026-08-07 ia selebar 4 m persis seperti kereta
+// player, dan gerbongnya adalah DEK TERBUKA — robot yang bertengger di sana
+// harus terbaca dari kamera oblique, jadi dindingnya setinggi dada saja.
+// Jumlah gerbong yang dipakai per gelombang diatur runtime lewat `visible`;
+// tidak ada mesh/material yang dibuat saat runtime.
 export function buildEnemyTrain(M, root, cars, len, step, half, x, z) {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
-    const carGroups = [], doorPanels = [];
+    const carGroups = [], wheels = [], gauge = 4.2;
     for (let i = 0; i < cars; i++) {
         const car = new THREE.Group(); car.position.x = i * step; g.add(car);
         const loco = i === cars - 1;
-        box(car, M.ink, len, 5, half * 2, 0, 4.5, 0);
-        box(car, loco ? M.body : M.panel, len - 6, loco ? 25 : 19,
-            half * 2 - 5, 0, loco ? 19.5 : 16.5, 0);
-        box(car, M.steel, len - 1, 2, half * 2 - 2, 0, loco ? 33 : 27, 0);
-        // Rusuk lambung + garis bahaya, kosakata warna GIBS 2045.
-        for (let k = -3; k <= 3; k++)
-            box(car, M.steel, 1.4, loco ? 22 : 16, half * 2 - 4, k * 12, loco ? 19.5 : 16.5, 0, false);
-        box(car, M.hazard, len - 10, 1.4, 1.2, 0, 9, -half + 1.5, false);
-        box(car, M.hazard, len - 10, 1.4, 1.2, 0, 9, half - 1.5, false);
-        for (const dz of [-half - 0.6, half + 0.6])
-            box(car, M.tech, 22, 1.1, 0.7, loco ? -22 : 26, 22, dz, false);
-        // Bogie.
-        for (const bx of [-30, 30]) {
-            box(car, M.ink, 26, 6, half * 1.5, bx, 3, 0);
-            for (const wz of [-half * 0.72, half * 0.72])
-                for (const wx of [-8, 8])
-                    cylinder(car, M.steel, 3.4, 3.4, 2.2, 10, bx + wx, 3.4, wz, Math.PI / 2);
-        }
+        box(car, M.ink, len, 3.2, half * 2, 0, -2.0, 0);
+        box(car, M.panel, len - 5, 0.7, half * 2 - 2.6, 0, 0.35, 0);
+        for (const dz of [-half + 0.6, half - 0.6])
+            box(car, M.hazard, len - 3, 1.5, 1.0, 0, 0.4, dz, false);
         if (loco) {
-            box(car, M.body, 26, 14, half * 1.7, len / 2 - 12, 8.5, 0);
-            box(car, M.ink, 20, 11, half * 1.5, len / 2 - 14, 26, 0);
-            box(car, M.glass, 2, 7, half * 1.3, len / 2 - 4.4, 27, 0, false);
-            for (const dz of [-8, 8]) box(car, M.lamp, 2, 3, 4, len / 2 + 0.4, 12, dz, false);
-            for (const bx of [-8, 6]) cylinder(car, M.ink, 3.4, 4.1, 9, 10, bx, 37, 0);
-            box(car, M.hazard, 4, 12, half * 1.6, len / 2 + 1.6, 8, 0);
+            box(car, M.body, len - 3, 20, half * 2 - 0.6, -5, 11, 0);
+            box(car, M.steel, len - 14, 1.5, half * 2 - 3.4, -5, 21.5, 0);
+            box(car, M.panel, 24, 11, half * 2 - 0.4, 26, 15.5, 0);
+            box(car, M.glass, 1.2, 6, half * 2 - 4.2, 38.4, 17.4, 0, false);
+            box(car, M.body, 18, 8, half * 2 - 1.2, 32, 5, 0);
+            box(car, M.hazard, 7, 3, half * 2 - 3, len / 2 - 2, 3.2, 0);
+            for (const dz of [-5.2, 5.2]) box(car, M.lamp, 2, 2.4, 3, len / 2 - 5, 8, dz, false);
+            for (const bx of [-28, -10]) cylinder(car, M.ink, 2.2, 2.8, 6, 10, bx, 24, 0);
         } else {
-            // Dua pintu geser menghadap track player; robot turun lewat sini.
-            for (const dx of [-24, 24]) {
-                const panel = box(car, M.body, 22, 17, 2.4, dx, 15.5, half - 1.6);
-                doorPanels.push(panel);
-                box(car, M.hazard, 22, 1, 0.8, dx, 6.6, half - 0.4, false);
+            // Gerbong angkut: dek terbuka, dinding setinggi dada, tiang sudut.
+            for (const dz of [-half + 0.55, half - 0.55]) {
+                box(car, M.body, len - 5, 8, 1.1, 0, 4, dz);
+                box(car, M.steel, len - 5, 0.9, 1.7, 0, 8, dz, false);
             }
+            for (const dx of [-len / 2 + 1.4, len / 2 - 1.4]) {
+                box(car, M.body, 2.6, 14, half * 2 - 0.8, dx, 7, 0);
+                box(car, M.hazard, 3.0, 1.2, half * 2 - 2.4, dx, 14.2, 0, false);
+            }
+            // Rak amunisi menempel dinding jauh; sisi menghadap player dibiarkan
+            // bersih supaya siluet robot yang bertengger tidak terpotong.
+            for (const dx of [-24, 0, 24]) {
+                box(car, M.panel, 14, 4.2, 1.2, dx, 5.6, -half + 1.7, false);
+                box(car, M.tech, 8, 0.5, 0.7, dx, 7.4, -half + 2.4, false);
+            }
+        }
+        for (const bx of [-len * 0.29, len * 0.29]) {
+            box(car, M.ink, 22, 4.4, gauge * 2 + 3, bx, -3.6, 0);
+            for (const wx of [-6.5, 6.5]) for (const wz of [-gauge, gauge])
+                wheels.push(cylinder(car, M.steel, 3.4, 3.4, 1.6, 10, bx + wx, -3.4, wz, Math.PI / 2));
         }
         carGroups.push(car);
     }
     root.add(g);
-    return { group: g, cars: carGroups, doorPanels, baseY: doorPanels[0]?.position.y ?? 15.5 };
+    return { group: g, cars: carGroups, wheels, step, len, half, wheelPhase: 0 };
 }

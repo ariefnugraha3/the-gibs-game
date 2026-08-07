@@ -66,9 +66,12 @@ global.localStorage = (() => {
     };
 })();
 global.Audio = class {
-    constructor() { this.volume = 1; this.currentTime = 0; this.paused = true; this.loop = false; }
+    // `src` dibawa + diwariskan cloneNode (celah harness 2026-08-07): pool
+    // playSFX/playLoopSFX mengembalikan KLON, jadi tanpa ini test tak bisa
+    // membedakan klip mana yang benar-benar diputar.
+    constructor(src = '') { this.src = src; this.volume = 1; this.currentTime = 0; this.paused = true; this.loop = false; }
     load() { } play() { this.paused = false; return { catch() { } }; } pause() { this.paused = true; }
-    cloneNode() { return new global.Audio(); }
+    cloneNode() { const n = new global.Audio(this.src); n.volume = this.volume; return n; }
 };
 global.requestAnimationFrame = (f) => setTimeout(f, 0);
 
@@ -4374,6 +4377,7 @@ const enemyPickupMod = await import(R('src/entities/enemyPickup.js'));
 const combatGunshipMod = await import(R('src/entities/combatGunship.js'));
 const save5Mod = await import(R('src/core/saveGame.js'));
 const crate5Mod = await import(R('src/entities/crates.js'));
+const train5Mod = await import(R('src/entities/train.js'));
 const S5C = cfgMod.CFG.campaign.stage5;
 const S6C = cfgMod.CFG.campaign.stage6;
 const S7C = cfgMod.CFG.campaign.stage7;
@@ -4436,8 +4440,8 @@ const expectedS5Dialogue = {
     letsMove: { speaker: 'Major Gibran', text: "Finally. Let's move." },
     commandDeparture: { speaker: 'Command', text: "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" },
     gibranDeparture: { speaker: 'Major Gibran', text: "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." },
-    breach: { speaker: 'Train System', text: 'Security breach detected. Rear coupling compromised.' },
-    breachReply: { speaker: 'Major Gibran', text: "They're boarding the train. Here we go again." },
+    breach: { speaker: 'Train System', text: 'Contact on the parallel track. An armed consist is matching our speed.' },
+    breachReply: { speaker: 'Major Gibran', text: "They can't board at this speed—so they'll shoot it out from over there. Fine by me." },
     roofWarning: { speaker: 'Command', text: 'Major, multiple hostile signatures are converging on your position.' },
     roofReply: { speaker: 'Major Gibran', text: 'I can see them. Just keep the route open!' },
     finalApproach: { speaker: 'Train System', text: 'Final approach initiated. Hostile units detected across multiple cars.' },
@@ -4585,6 +4589,20 @@ T('S5 DUA TRACK: track musuh terpisah satu baris SPACE dari track kereta player'
     Math.abs(s5World.map.playerTrackZ - s5World.map.enemyTrackZ - 5 * s5World.map.cell) < 0.01
     // Titik turun robot dihapus 2026-08-07: kereta musuh tak menurunkan siapa pun.
     && s5World.map.enemyDropZ === undefined);
+// 2026-08-07, permintaan user: "di bagian journey juga akan terus ada 2 rel".
+// Pool near yang bergulir HARUS memuat dua jalur (empat batang rel), dan sumbu
+// jalur musuh perjalanan berada di sisi yang sama dengan jalur musuh stasiun.
+T('S5 DUA TRACK: jalur kedua juga ada sepanjang perjalanan, bukan hanya di stasiun',
+    typeof s5World.map.journeyTrackDz === 'number' && s5World.map.journeyTrackDz < 0
+    && Math.abs(s5World.map.journeyEnemyZ
+        - (s5World.map.playerTrackZ + s5World.map.journeyTrackDz)) < 1e-6
+    && Math.sign(s5World.map.journeyEnemyZ - s5World.map.playerTrackZ)
+        === Math.sign(s5World.map.enemyTrackZ - s5World.map.playerTrackZ)
+    && (() => {
+        // Satu modul rel = 1 bed + 4 batang rel (2 jalur x 2 rel).
+        const pool = train5Mod.buildTrainJourneyScenery(0);
+        return pool.near.length > 0 && pool.near.every(g => g.children.length === 5);
+    })());
 
 // Jendela '@' hanya tembus pandang: gerakan dan peluru tetap tertahan.
 const s5WinCell = (() => {
@@ -4664,29 +4682,51 @@ for (const p of [...s5World.furniture.depot, ...s5World.furniture.platform]) {
 }
 T('S5 FURNITURE COLLISION: seluruh perabot besar benar-benar masuk blocker/nav contract',
     s5FurnitureSolid);
-T('S5 WORLD: depot + kereta 5 bagian + 4 pintu + nav terbangun jauh dari rooftop intro',
-    s5World.built && s5World.nav && s5World.train.cars === 5 && s5World.train.doors === 4
+// --- SKALA KERETA (ROMBAK 2026-08-07, permintaan user): "lebar kereta hanya 3
+// meter, sesuaikan panjang dan tingginya" + "kereta yang dinaiki player hanya
+// terdiri dari lokomotif dan 1 gerbong". Lebar dipatok EKSAK (bukan ambang):
+// kalau ada yang menggemukkannya lagi, test ini yang jatuh. ---
+T(`S5 SKALA: badan kereta tepat 4 m dan konsist player = 1 gerbong + 1 lokomotif [${s5World.train.widthMeters.toFixed(2)}m x ${s5World.train.lengthMeters.toFixed(2)}m]`,
+    Math.abs(s5World.train.widthMeters - 4) < 1e-6
+    && Math.abs(s5World.train.lengthMeters - 16.5) < 1e-6
+    && s5World.train.cars === 2 && s5World.train.doors === 0);
+T('S5 SKALA: konsist musuh memakai lebar 4 m yang sama, bukan skala lama',
+    Math.abs(s5World.enemyTrain.widthMeters - s5World.train.widthMeters) < 1e-6);
+T('S5 WORLD: depot + kereta + nav terbangun jauh dari rooftop intro',
+    s5World.built && s5World.nav
     && s5World.train.x0 < s5World.depot.x1 && s5World.depot.x0 > 150000);
-T('S5 STATION CONSIST: hanya gerbong TC + lokomotif TL yang tampak di peron',
-    s5World.train.cars === 5 && s5World.train.stationCarIndex === 3
-    && s5World.train.stationVisibleCars === 2);
-T('S5 ENEMY CONSIST: kereta musuh prealokasi di track kedua, tidak dibuat saat runtime',
-    s5World.enemyTrain.cars === 4 && s5World.enemyTrain.doorPanels === 6
+T('S5 STATION CONSIST: gerbong TC + lokomotif TL keduanya tampak di peron dan jatuh persis pada sel CSV-nya',
+    s5World.train.cars === 2 && s5World.train.stationCarIndex === 0
+    && s5World.train.stationVisibleCars === 2
+    && (() => {
+        // Kolom TC 0-based 5..11 (pusat 8), TL 12..18 (pusat 15).
+        const colX = c => s5World.depot.x0 + (c + 0.5) * s5World.map.cell;
+        const cell = s5World.map.cell, half = s5World.train.lengthMeters * 7 / 2;
+        const tcC = s5World.train.stationTcX, tlC = tcC + s5World.train.lengthMeters * 7;
+        return Math.abs(tcC - colX(8)) < 1e-6 && Math.abs(tlC - colX(15)) < 1e-6
+            // badan gerbong menutupi tepat tujuh sel TC, tidak menjorok
+            && Math.abs((tcC - half) - (colX(5) - cell / 2)) < 1e-6
+            && Math.abs((tcC + half) - (colX(11) + cell / 2)) < 1e-6;
+    })());
+T('S5 ENEMY CONSIST: 3 gerbong angkut + lokomotif prealokasi, tidak dibuat saat runtime',
+    s5World.enemyTrain.cars === 4 && s5World.enemyTrain.cargoCars === 3
     && s5World.enemyTrain.meshes > 60
     && Math.abs(s5World.enemyTrain.z - s5World.map.enemyTrackZ) < 0.01
     && s5World.enemyTrain.enterX < s5World.depot.x0
     && s5World.enemyTrain.exitX > s5World.depot.x1);
-T('S5 WORLD: deck kereta walkable saat perjalanan, badan kereta solid di stasiun',
-    s5World.carCenters.length === 5
-    && s5World.carCenters.every(p => s5mod.stage5TrainWalk(p.x, p.z, 3))
+// Arena perjalanan = bagian DALAM gerbong 0. Lokomotif dan luar gerbong tertutup.
+T('S5 ARENA: hanya bagian dalam gerbong yang walkable; lokomotif dan luar kereta tidak',
+    s5World.carCenters.length === 2
+    && s5mod.stage5TrainWalk(s5World.carCenters[0].x, s5World.carCenters[0].z, 3)
+    && !s5mod.stage5TrainWalk(s5World.carCenters[1].x, s5World.carCenters[1].z, 3)
+    && !s5mod.stage5TrainWalk(s5World.train.x0 - 6, s5World.carCenters[0].z, 3)
+    && !s5mod.stage5TrainWalk(s5World.carCenters[0].x, s5World.train.z0 - 6, 3)
     && !s5mod.stage5Walk(s5World.map.tci.x, s5World.map.tci.z, 3)
     && s5mod.stage5Walk(s5mod.S5_START.x, s5mod.S5_START.z, 3)
     && s5mod.stage5Walk(s5mod.S5_BOARD.x, s5mod.S5_BOARD.z, 3));
 let s5PlacementOK = true;
 for (const p of [...s5World.supplies, ...s5World.crates]) {
-    const inTrain = ['cargo', 'security', 'roof', 'locomotive'].includes(p.area);
-    const walkOK = inTrain ? s5mod.stage5TrainWalk(p.x, p.z, 1) : s5mod.stage5Walk(p.x, p.z, 1);
-    if (!walkOK) s5PlacementOK = false;
+    if (!s5mod.stage5Walk(p.x, p.z, 1)) s5PlacementOK = false;
     stateMod._v3.set(p.x, 0, p.z); s5mod.resolve(stateMod._v3, 1, 0);
     if (Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) > 0.01) s5PlacementOK = false;
 }
@@ -4719,11 +4759,11 @@ T('S5 SAFE AREA: robot juga di-clamp keluar dari SA/S, bukan hanya dilarang spaw
 s5SafeProbe.mesh.position.x = s5SafeOld.x; s5SafeProbe.mesh.position.z = s5SafeOld.z;
 const s5SupplyDrops = stateMod.drops.filter(d => s5World.supplies.some(p =>
     Math.hypot(d.mesh.position.x - p.x, d.mesh.position.z - p.z) < 0.1));
-T('S5 SUPPLY: depot membawa 4 ammo + 2 medkit dan 5 crates (cargo/security/locomotive termasuk)',
+T('S5 SUPPLY: depot membawa 4 ammo + 2 medkit; peti HANYA di gudang (lorong gerbong tak muat peti pejal)',
     s5SupplyDrops.filter(d => d.type === 'ammo').length === 4
     && s5SupplyDrops.filter(d => d.type === 'medkit').length === 2
     && crate5Mod.crateDebug().count === s5World.crates.length
-    && ['cargo', 'security', 'locomotive'].every(a => s5World.crates.some(p => p.area === a)));
+    && s5World.crates.every(p => p.area === 'depot'));
 
 // Opening cinematic: dunia langsung terlihat, establishing beat, lalu typewriter.
 const s5D0 = s5mod.stage5DialogueDebug();
@@ -4837,6 +4877,24 @@ T('S5 STASIUN: sesudah melintas, konsist musuh kembali idle + tersembunyi tanpa 
     etDbg().mode === 'idle' && !etDbg().visible && etDbg().passes === 1
     && robots.filter(z => z.stage === 5).length === 0);
 
+// REGRESI 2026-08-07 (laporan user): "suara pintu terbuka terus dijalankan
+// berkali-kali saat posisi pintu terbuka, audionya menumpuk". Diuji pada jalur
+// STAGE 5 yang sesungguhnya — berdiri di dekat pintu peron yang sudah terbuka.
+{
+    const doorSfx5 = await import(R('src/scenes/campaign/utility/doors.js'));
+    const pdoor = s5World.map.platformDoor;
+    camera.position.set(pdoor.x, cfgMod.CFG.player.eyeHeight, pdoor.z + s5World.map.cell * 1.5);
+    tickS5(1.5, 0.05);                       // pastikan daun sudah benar-benar terbuka penuh
+    const s5DoorOpenNow = s5mod.stage5WorldDebug().station.doors.find(d => d.kind === 'platform');
+    doorSfx5.resetDoorSfx();
+    tickS5(6, 0.05);                         // ~120 frame berdiri di depan pintu terbuka
+    T('S5 PINTU: berdiri di dekat pintu peron yang terbuka tidak menumpuk suara door-open',
+        s5DoorOpenNow.open === 1
+        && doorSfx5.doorSfxDebug().open === 0 && doorSfx5.doorSfxDebug().close === 0);
+    T('S5 PINTU: daun yang sudah terbuka penuh MENETAP di 1, tidak bergetar tiap frame',
+        s5mod.stage5WorldDebug().station.doors.find(d => d.kind === 'platform').open === 1);
+}
+
 // FIELD REPAIR C2. Abort harus menyimpan 1/3 dan butuh menjauh.
 camera.position.set(s5mod.S5_GENERATOR.x, cfgMod.CFG.player.eyeHeight, s5mod.S5_GENERATOR.z);
 s5mod.stage5Scene.updateMode(0.1);
@@ -4869,6 +4927,11 @@ T('S5 BOARD: tidak ada transport terakhir; peron tetap kosong saat player naik',
     && etDbg().mode === 'idle' && !etDbg().visible);
 T('S5 DEPARTURE: boarding memulai cinematic freeze + perjalanan',
     s5mod.stage5Debug().phase === 'departure' && stateMod.cinematicActive);
+// 2026-08-07, permintaan user: kereta berjalan punya klipnya sendiri; dulu ini
+// meminjam loop tank yang dipercepat 1.32x.
+T('S5 SUARA: kereta berjalan memakai train-sound, bukan pinjaman loop tank',
+    s5mod.trainLoopDebug().on
+    && s5mod.trainLoopDebug().src === 'assets/sounds/train-sound.mp3');
 // Pergantian sub-scene = potong ke hitam pada frame switch, fade-in 0.5 dtk di
 // frame berikutnya (transisi CSS harus melihat nilai 1 lebih dulu).
 const s5SubCut = dom4.cineFadeDebug();
@@ -4882,6 +4945,15 @@ T('S5 SUB-SCENE: station -> journey memotong ke hitam lalu fade-in subSceneFadeS
     && s5SubIn.transition === `opacity ${S5C.subSceneFadeSec}s ease-in-out`);
 const s5StationBeforeMove = s5mod.trainJourneyDebug().station;
 const s5TerminalBeforeMove = s5mod.trainJourneyDebug().terminal;
+const s5DepartFocus0 = { ...rendererMod.camFocusPos() };
+const s5DepartPivot0 = { x: camera.position.x, z: camera.position.z };
+// Ofset player terhadap PUSAT GERBONG (dibaca dari transform mesh, bukan
+// dihitung ulang) — dipakai memastikan ia benar-benar ikut terbawa kereta.
+const s5DepartCarX = () => {
+    const t = s5mod.stage5WorldDebug().train;
+    return (t.x0 + t.x1) / 2 + t.groupX;
+};
+const s5CarOffset0 = camera.position.x - s5DepartCarX();
 tickS5(Math.min(1, S5C.departureMinSec / 3), 0.1);
 const s5DepartureMove = s5mod.stage5Debug();
 const s5StationDuringMove = s5mod.trainJourneyDebug().station;
@@ -4889,71 +4961,148 @@ T('S5 DEPARTURE: yang bergerak hanya kereta; stasiun tetap persis di koordinat s
     s5DepartureMove.departureShift > 0 && s5StationDuringMove.visible
     && s5StationDuringMove.x === s5StationBeforeMove.x
     && s5StationDuringMove.z === s5StationBeforeMove.z);
+// 2026-08-07, laporan user "stasiun terlihat ikut bergerak". DUA penyebabnya
+// dipatok di sini: (1) kamera shot keberangkatan harus TERKUNCI — dulu titik
+// fokus + pivot ikut digeser `departureShift` sehingga keretalah yang diam di
+// layar; (2) pool scenery perjalanan (rel + lanskap bergulir) berada tepat di
+// atas denah stasiun dan tak boleh tampil sebelum layar hitam.
+const s5DepartFocus1 = rendererMod.camFocusPos();
+T('S5 DEPARTURE: kamera benar-benar terkunci di peron — titik fokus tidak ikut kereta',
+    Math.abs(s5DepartFocus1.x - s5DepartFocus0.x) < 1e-6
+    && Math.abs(s5DepartFocus1.z - s5DepartFocus0.z) < 1e-6
+    && camera.position.z === s5DepartPivot0.z);
+// 2026-08-08, laporan user "Major Gibran tertinggal di cutscene keberangkatan":
+// pivot player dipatok mati di peron sementara badan kereta melaju, jadi
+// avatarnya ditinggal berdiri di rel. Ia harus terbawa gerbong dengan ofset
+// TETAP dan tak pernah keluar dari dinding dalam. Ini TIDAK mengubah framing:
+// selama `cineFocus` aktif, viewCam mengikuti titik fokus, bukan pivot.
+{
+    const t = s5mod.stage5WorldDebug().train, r = stateMod.player.radius;
+    T('S5 DEPARTURE: player IKUT berangkat bersama gerbong, tidak tertinggal di peron',
+        s5mod.stage5Debug().departureShift > 0
+        && camera.position.x > s5DepartPivot0.x
+        && Math.abs((camera.position.x - s5DepartCarX()) - s5CarOffset0) < 1e-6
+        && camera.position.x >= t.x0 + t.groupX + r
+        && camera.position.x <= t.x1 + t.groupX - r);
+}
+T('S5 DEPARTURE: pool scenery perjalanan tetap tersembunyi selama shot (tak menembus lantai peron)',
+    !s5mod.trainJourneyDebug().visible);
+T('S5 DEPARTURE: kereta punya rel + tanah run-out sampai ujung geseran, tidak melayang di kekosongan',
+    s5World.runoutX1 >= s5World.train.stationTcX
+        + s5World.train.lengthMeters * 7 * 1.5 + S5C.departureShiftUnits);
 drainS5Dialogue();
 tickS5(S5C.departureMinSec + S5C.fadeSec + 0.2, 0.1);
 const s5Pools0 = s5mod.trainJourneyDebug().pools;
-T('S5 DEPARTURE: selesai fade -> cargo, roda/scenery bergerak dan pintu pertama terbuka',
-    s5mod.stage5Debug().phase === 'cargo' && !stateMod.cinematicActive
+T('S5 DEPARTURE: selesai fade -> ride, roda/scenery bergerak, player berdiri di dalam gerbong',
+    s5mod.stage5Debug().phase === 'ride' && !stateMod.cinematicActive
     && s5mod.trainJourneyDebug().active && s5mod.trainJourneyDebug().wheelPhase > 0
-    && s5mod.trainJourneyDebug().doors[0].target === 1
+    && s5mod.trainJourneyDebug().doors.length === 0
     && s5mod.stage5Debug().departureShift === 0
+    && s5mod.stage5Scene.groundHeight(camera.position.x, camera.position.z, 0) === 0
     && s5mod.trainJourneyDebug().station.x === s5StationBeforeMove.x
     && s5mod.trainJourneyDebug().station.z === s5StationBeforeMove.z);
 
-// Cargo -> security -> roof, tiap gate menunggu timer + area bersih.
-camera.position.set(s5World.carCenters[1].x, cfgMod.CFG.player.eyeHeight, s5World.carCenters[1].z);
-tickS5(Math.max(0, S5C.cargoGateSec - s5mod.stage5Debug().rideT) + 0.1, 0.25);
-const cargoMix = s5Mix('cargo');
-T('S5 CARGO: encounter config muncul lewat rear/side boarding dan gate depan tetap terkunci',
-    sameMix(cargoMix, S5C.encounters.cargo) && robots.some(z => z.encounter === 'cargo' && z.trainBoard)
-    && s5mod.trainJourneyDebug().doors[1].target === 0);
-drainS5Dialogue(); killS5('cargo');
-tickS5(Math.max(0, S5C.securityGateSec - s5mod.stage5Debug().rideT) + 0.1, 0.5);
-T('S5 CARGO: pintu security baru terbuka setelah bersih + gate timer',
-    s5mod.stage5Debug().phase === 'security' && s5mod.trainJourneyDebug().doors[1].target === 1);
-camera.position.set(s5World.carCenters[2].x, cfgMod.CFG.player.eyeHeight, s5World.carCenters[2].z);
-s5mod.stage5Scene.updateMode(0.1);
-T('S5 SECURITY: encounter C/B/A mengikuti CFG', sameMix(s5Mix('security'), S5C.encounters.security));
-killS5('security');
-tickS5(Math.max(0, S5C.roofGateSec - s5mod.stage5Debug().rideT) + 0.1, 0.5);
-T('S5 SECURITY: pintu roof baru terbuka setelah bersih + gate timer',
-    s5mod.stage5Debug().phase === 'roof' && s5mod.trainJourneyDebug().doors[2].target === 1);
-camera.position.set(s5World.carCenters[3].x, cfgMod.CFG.player.eyeHeight, s5World.carCenters[3].z);
-s5mod.stage5Scene.updateMode(0.1);
-T('S5 ROOF: encounter C/B/A mengikuti CFG', sameMix(s5Mix('roof'), S5C.encounters.roof));
-drainS5Dialogue(); killS5('roof');
-camera.position.set(s5World.carCenters[4].x, cfgMod.CFG.player.eyeHeight, s5World.carCenters[4].z);
-tickS5(Math.max(0, S5C.finalGateSec - s5mod.stage5Debug().rideT) + 0.1, 0.5);
-T('S5 ROOF: locomotive baru terbuka setelah bersih + gate timer',
-    s5mod.stage5Debug().phase === 'finalDefense' && s5mod.trainJourneyDebug().doors[3].target === 1);
+// --- GAMELOOP PERJALANAN BARU (ROMBAK 2026-08-07, permintaan user 5-7):
+// gelombang KERETA MUSUH di jalur sebelah, 1-3 gerbong x 3-6 robot kelas A/B
+// (B WAJIB > A), robot muncul dari gerbong dan menembaki player, dan konsist
+// MELEDAK + menghilang begitu seluruh robotnya habis. Semuanya config-driven. ---
+const S5E = S5C.enemyTrain;
+const etDbg2 = () => s5mod.stage5Debug().enemyTrain;
+const s5CarCenter = s5World.carCenters[0];
+camera.position.set(s5CarCenter.x, cfgMod.CFG.player.eyeHeight, s5CarCenter.z);
+T('S5 KURUNGAN: player tidak bisa keluar gerbong maupun masuk lokomotif',
+    (() => {
+        const inside = { x: s5CarCenter.x, z: s5CarCenter.z };
+        const probe = (x, z) => {
+            stateMod._v3.set(x, 0, z);
+            s5mod.stage5Scene.playerCollide(stateMod._v3, inside.x, inside.z, 0);
+            return Math.hypot(stateMod._v3.x - x, stateMod._v3.z - z) > 0.01;
+        };
+        return probe(s5World.carCenters[1].x, s5CarCenter.z)          // lokomotif
+            && probe(s5CarCenter.x, s5World.train.z0 - 12)            // keluar sisi jalur musuh
+            && probe(s5CarCenter.x, s5World.train.z1 + 12)            // keluar sisi peron
+            && probe(s5World.train.x1 + 30, s5CarCenter.z)            // keluar ujung depan
+            && !probe(inside.x, inside.z);
+    })());
+T('S5 SUPPLY GERBONG: bekal dijatuhkan di dalam gerbong karena player terkunci di sana',
+    stateMod.drops.filter(d => s5mod.stage5TrainWalk(d.mesh.position.x, d.mesh.position.z, 1)).length >= 3);
 
-// Pertahanan terakhir: wave t=0/18/36, total C/B/A persis CFG; tanpa boss.
-s5mod.stage5Scene.updateMode(0.01); drainS5Dialogue();
-const finalTotal = { C: 0, B: 0, A: 0 };
-for (let wi = 0; wi < S5C.encounters.finalWaves.length; wi++) {
-    if (wi > 0) tickS5(S5C.finalWaveGapSec + 0.01, 0.5);
-    const got = s5Mix('final'), want = S5C.encounters.finalWaves[wi];
-    T(`S5 FINAL WAVE ${wi + 1}: komposisi C/B/A mengikuti CFG pada beat ${wi}×gap`, sameMix(got, want));
-    for (const k of ['C', 'B', 'A']) finalTotal[k] += got[k];
-    killS5('final');
+// Gelombang 1..waveCount dimainkan penuh: approach -> engage -> ledak -> idle.
+const s5WaveShape = [];
+let s5EverGroundRobot = false, s5EverClassC = false, s5EmergeSeen = false, s5EverInRange = false;
+// Robot mounted digerakkan lewat hook scene yang SAMA seperti updateRobots
+// (emerge + hadap + gerbang tembak `chaseDist`), tanpa memanggil loop tempur
+// penuh yang akan menembaki player harness.
+function tickS5Wave(total, step = 0.1) {
+    let left = Math.max(0, total), guard = 0;
+    while (left > 1e-9 && guard++ < 8000) {
+        const dt = Math.min(step, left);
+        s5mod.stage5Scene.updateMode(dt);
+        for (const z of robots) {
+            if (z.stage !== 5) continue;
+            const res = s5mod.stage5Scene.robotAI(z, dt, dt * 60) || {};
+            if (res.chaseDist != null && res.chaseDist <= z.range) s5EverInRange = true;
+        }
+        sampleS5Dialogue(); left -= dt;
+    }
 }
-const finalExpected = S5C.encounters.finalWaves.reduce((o, w) => {
-    for (const k of ['C', 'B', 'A']) o[k] += w[k] | 0; return o;
-}, { C: 0, B: 0, A: 0 });
-T('S5 FINAL: total tiga wave config, tanpa boss entity/HP/music khusus',
-    sameMix(finalTotal, finalExpected) && !robots.some(z => z.stage === 5 && z.kind === 'boss'));
-T('S5 PACING: sebelum rideMinSec arrival terkunci dan jarak HUD tidak pernah 0',
-    s5mod.stage5Debug().rideT < S5C.rideMinSec
-    && s5mod.stage5Debug().phase === 'finalDefense' && s5mod.stage5Debug().distance >= 1);
-const finalWait = Math.max(
-    S5C.finalDefenseSec - s5mod.stage5Debug().finalT,
-    S5C.rideMinSec - s5mod.stage5Debug().rideT,
-) + 0.2;
-tickS5(finalWait, 0.5);
-T('S5 ARRIVAL GATE: baru mulai setelah ride minimum, defense minimum, dan robot habis',
+for (let wi = 0; wi < S5E.waveCount; wi++) {
+    // Konsist berikutnya baru dikirim setelah jeda config-driven.
+    tickS5Wave((wi === 0 ? S5E.firstWaveSec : S5E.waveGapSec) + 0.2, 0.25);
+    T(`S5 WAVE ${wi + 1}: konsist musuh menyusul di jalur sebelah (approach), belum menembak`,
+        etDbg2().visible && ['approach', 'engage'].includes(etDbg2().mode)
+        && etDbg2().wave === wi && etDbg2().spawned > 0);
+    tickS5Wave(S5E.approachSec + S5E.emergeSec + 0.3, 0.1);
+    const wave = robots.filter(z => z.stage === 5 && z.mounted && z.etWave === wi);
+    const perCar = new Map();
+    for (const z of wave) perCar.set(z.etCar, (perCar.get(z.etCar) || 0) + 1);
+    const mix = { A: 0, B: 0, C: 0 };
+    for (const z of wave) mix[z.kind]++;
+    s5WaveShape.push({ cars: etDbg2().cars, perCar: [...perCar.values()], A: mix.A, B: mix.B });
+    if (mix.C > 0) s5EverClassC = true;
+    if (wave.some(z => Math.abs(z.mesh.position.z - s5World.map.playerTrackZ) < 20)) s5EverGroundRobot = true;
+    if (wave.every(z => z.emergeT >= 1)) s5EmergeSeen = true;
+    T(`S5 WAVE ${wi + 1}: 1-3 gerbong x 3-6 robot, HANYA kelas A/B, dan B lebih banyak dari A [${etDbg2().cars} gerbong, ${[...perCar.values()].join('/')}]`,
+        etDbg2().cars >= S5E.carsMin && etDbg2().cars <= S5E.carsMax
+        && perCar.size === etDbg2().cars
+        && [...perCar.values()].every(n => n >= S5E.perCarMin && n <= S5E.perCarMax)
+        && mix.C === 0 && mix.B > mix.A && wave.length === etDbg2().spawned);
+    T(`S5 WAVE ${wi + 1}: penembak tetap di konsist seberang dan tak pernah menyeberang ke gerbong player`,
+        wave.every(z => z.mounted && z.state === 'mounted'
+            && Math.abs(z.mesh.position.z - s5World.map.journeyEnemyZ) < s5World.enemyTrain.widthMeters * 7
+            && !s5mod.stage5TrainWalk(z.mesh.position.x, z.mesh.position.z, 1)));
+    // Habisi seluruh robot konsist -> ia MELEDAK lalu MENGHILANG.
+    killS5(`etrain-${wi}`);
+    s5mod.stage5Scene.updateMode(0.05);
+    T(`S5 WAVE ${wi + 1}: robot habis -> konsist meledak`, etDbg2().mode === 'dying');
+    tickS5Wave(S5E.deathSec + 0.3, 0.1);
+    T(`S5 WAVE ${wi + 1}: sesudah ledakan konsist benar-benar menghilang dan gelombang tercatat bersih`,
+        etDbg2().mode === 'idle' && !etDbg2().visible && etDbg2().cleared === wi + 1);
+    drainS5Dialogue();
+}
+T('S5 WAVE: seluruh konsist memakai kelas A/B saja; tidak ada robot kelas C atau boss di perjalanan',
+    !s5EverClassC && !robots.some(z => z.stage === 5 && z.kind === 'boss'));
+T('S5 WAVE: robot benar-benar MUNCUL DARI GERBONG (emerge selesai) dan tak pernah turun ke jalur player',
+    s5EmergeSeen && !s5EverGroundRobot);
+// Jarak antar-jalur perjalanan HARUS di dalam jangkauan tembak konsist, kalau
+// tidak barisan tembaknya cuma berdiri diam dan gameloop-nya mati.
+T('S5 WAVE: penembak konsist benar-benar mendapat gerbang tembak ke player lintas-rel',
+    s5EverInRange);
+T(`S5 WAVE: variasi jumlah gerbong/robot dibaca dari config, bukan angka mati [${s5WaveShape.map(w => w.cars).join(',')}]`,
+    s5WaveShape.length === S5E.waveCount
+    && s5WaveShape.every(w => w.B > w.A && w.perCar.length === w.cars));
+T('S5 PACING: arrival baru boleh dibuka setelah semua konsist hancur DAN ride minimum',
+    etDbg2().cleared === S5E.waveCount && s5mod.stage5Debug().wavesSent === S5E.waveCount);
+const s5RideLeft = S5C.rideMinSec - s5mod.stage5Debug().rideT;
+if (s5RideLeft > 0) {
+    T('S5 PACING: sebelum rideMinSec arrival terkunci dan jarak HUD tidak pernah 0',
+        s5mod.stage5Debug().phase === 'ride' && s5mod.stage5Debug().distance >= 1);
+    tickS5(s5RideLeft + 0.5, 0.5);
+}
+s5mod.stage5Scene.updateMode(0.1);
+T('S5 ARRIVAL GATE: baru mulai setelah ride minimum, semua konsist hancur, dan robot habis',
     s5mod.stage5Debug().phase === 'arrival' && s5mod.stage5Debug().rideT >= S5C.rideMinSec
-    && s5mod.stage5Debug().finalT >= S5C.finalDefenseSec && s5mod.stage5Debug().robots === 0
-    && s5mod.stage5Debug().distance === 0);
+    && s5mod.stage5Debug().robots === 0 && s5mod.stage5Debug().distance === 0);
 T('S5 SUB-SCENE: journey -> arrival berpindah tanpa pernah mengganti activeScene',
     s5mod.stage5Debug().sub === 'campaign-5-arrival'
     && smMod.activeScene === s5mod.stage5Scene);
@@ -4970,7 +5119,7 @@ T('S5 DIALOG: semua beat tampil sekali, berurutan, dan pernah berada dalam body 
     s5ShownOrder.join(',') === Object.keys(expectedS5Dialogue).join(',')
     && Object.keys(expectedS5Dialogue).every(k => s5Partial.has(k))
     && s5mod.stage5DialogueDebug().seen.join(',') === Object.keys(expectedS5Dialogue).join(','));
-T('S5 STASIUN: sepanjang stage TAK PERNAH ada robot yang turun dari kereta musuh',
+T('S5 STASIUN: kereta musuh tak pernah MENURUNKAN robot; perlawanan perjalanan tetap di konsistnya',
     !s5EverWaveRobot);
 T('S5 COMPLETE: arrival membuka layar hijau Stage 5 sebelum Field Shop',
     stateMod.isGameOver && s5mod.stage5Debug().complete
@@ -7764,6 +7913,263 @@ const palMod = await import(R('src/world/palette.js'));
     T('font: tidak memakai webfont CDN',
         !cssF.includes('fonts.googleapis') && !htmlF.includes('fonts.googleapis')
         && !htmlF.includes('fonts.gstatic'));
+}
+
+// --- 21. SUARA PINTU + KERETA (2026-08-07, permintaan user): SATU pasang klip
+//     dipakai SEMUA pintu di stage mana pun (door-open saat mulai membuka,
+//     door-closed saat mendarat tertutup), dan kereta berjalan memakai klipnya
+//     sendiri. Pemicunya WAJIB terpusat di campaign/utility/doors.js supaya
+//     stage baru tak bisa diam-diam memakai suara lain. ---
+{
+    const doorsMod = await import(R('src/scenes/campaign/utility/doors.js'));
+    const sfxMod = await import(R('src/utils/sfx.js'));
+    const srcOf = f => fs.readFileSync(ROOT + '/' + f, 'utf8');
+    const sfxSrc = fs.readFileSync(ROOT + '/src/utils/sfx.js', 'utf8');
+    T('SFX PINTU/KERETA: ketiga klip terdaftar dengan berkas yang benar',
+        sfxMod.sfxDoorOpen.src === 'assets/sounds/door-open.mp3'
+        && sfxMod.sfxDoorClose.src === 'assets/sounds/door-closed.mp3'
+        && sfxMod.sfxTrain.src === 'assets/sounds/train-sound.mp3');
+    // Klip baru WAJIB ikut dipanaskan preload — kalau tidak, bunyi pertamanya
+    // men-decode di tengah aksi (aturan "no mid-game hitch").
+    T('SFX PINTU/KERETA: ketiganya ikut daftar preloadAllSFX',
+        /preloadAllSFX[\s\S]*?sfxDoorOpen[\s\S]*?sfxDoorClose[\s\S]*?sfxTrain[\s\S]*?\];/.test(sfxSrc));
+
+    // Gerbang jarak: pintu di ujung gedung tidak boleh ikut terdengar.
+    doorsMod.resetDoorSfx();
+    camera.position.set(0, cfgMod.CFG.player.eyeHeight, 0);
+    T('PINTU SFX: digerbang jarak — hanya pintu di dekat player yang berbunyi',
+        doorsMod.playDoorSFX(true, 0, 30) === true
+        && doorsMod.playDoorSFX(true, 0, 5000) === false
+        && doorsMod.doorSfxDebug().open === 1
+        && doorsMod.doorSfxDebug().last === 'assets/sounds/door-open.mp3');
+
+    // Pintu geser sungguhan lewat updateStageDoors: buka -> tahan -> tutup.
+    const DCELL = 20, DH = 22, DOX = 900000;
+    const dCell = (c, r) => ({ x: DOX + c * DCELL, z: DOX + r * DCELL });
+    const tDoors = doorsMod.buildStageDoors(
+        [{ c0: 5, r0: 5, c1: 5, r1: 5, dir: 'ns' }], dCell, DCELL, DH);
+    const dp = dCell(5, 5);
+    const tick = (n, dt = 1 / 60) => { for (let i = 0; i < n; i++) doorsMod.updateStageDoors(tDoors, dt); };
+    // Berdiri di luar zona buka tetapi MASIH dalam jarak dengar.
+    const outsideZone = { x: dp.x, z: dp.z + 250 };
+    doorsMod.resetDoorSfx();
+    camera.position.set(outsideZone.x, cfgMod.CFG.player.eyeHeight, outsideZone.z);
+    tick(30);
+    T('PINTU SFX: pintu yang tak tersentuh tetap diam',
+        tDoors[0].open === 0 && doorsMod.doorSfxDebug().open === 0
+        && doorsMod.doorSfxDebug().close === 0);
+    camera.position.set(dp.x, cfgMod.CFG.player.eyeHeight, dp.z + DCELL);
+    tick(1);
+    T('PINTU SFX: door-open berbunyi TEPAT SEKALI saat daun mulai membuka',
+        tDoors[0].open > 0 && doorsMod.doorSfxDebug().open === 1
+        && doorsMod.doorSfxDebug().close === 0
+        && doorsMod.doorSfxDebug().last === 'assets/sounds/door-open.mp3');
+    tick(120);
+    T('PINTU SFX: klip tidak diulang selama pintu terus membuka / terbuka penuh',
+        tDoors[0].open === 1 && doorsMod.doorSfxDebug().open === 1);
+    // REGRESI 2026-08-07 (laporan user, Stage 5): pintu yang DITAHAN terbuka
+    // membunyikan door-open berkali-kali sampai audionya menumpuk. Dua akar
+    // masalahnya dipatok terpisah di bawah — di sini cukup dipastikan menahan
+    // pintu terbuka lama TIDAK menambah satu bunyi pun.
+    tick(600);
+    T('PINTU SFX: pintu yang DITAHAN terbuka tetap sunyi (audio tidak menumpuk)',
+        tDoors[0].open === 1 && doorsMod.doorSfxDebug().open === 1
+        && doorsMod.doorSfxDebug().close === 0);
+    // Akar 1: pemicunya harus PERLINTASAN AMBANG, bukan arah gerak per-frame —
+    // integrator yang bergetar di sekitar target tak boleh membunyikan apa pun.
+    {
+        const jitter = { open: 1 };
+        const before = doorsMod.doorSfxDebug().open;
+        for (let i = 0; i < 50; i++) {
+            const prev = jitter.open;
+            jitter.open = i % 2 ? 1 : 0.9653;      // persis pola getaran yang dilaporkan
+            doorsMod.doorMotionSFX(jitter, prev, camera.position.x, camera.position.z);
+        }
+        T('PINTU SFX: getaran integrator di sekitar posisi terbuka TIDAK memicu klip sama sekali',
+            doorsMod.doorSfxDebug().open === before);
+    }
+    // Menjauh (masih terdengar): setelah closeDelaySec pintu menutup.
+    camera.position.set(outsideZone.x, cfgMod.CFG.player.eyeHeight, outsideZone.z);
+    let closeAtLanding = null;
+    for (let i = 0; i < (cfgMod.CFG.campaign.doors.closeDelaySec + 2) * 60; i++) {
+        const before = tDoors[0].open;
+        doorsMod.updateStageDoors(tDoors, 1 / 60);
+        if (closeAtLanding === null && before > 0 && tDoors[0].open === 0)
+            closeAtLanding = doorsMod.doorSfxDebug().close;
+    }
+    T('PINTU SFX: door-closed berbunyi TEPAT SEKALI, dan tepat saat daun MENDARAT tertutup',
+        closeAtLanding === 1 && doorsMod.doorSfxDebug().close === 1
+        && doorsMod.doorSfxDebug().last === 'assets/sounds/door-closed.mp3');
+    tick(60);
+    T('PINTU SFX: pintu yang sudah tertutup tidak berbunyi berulang tiap frame',
+        doorsMod.doorSfxDebug().close === 1);
+    // Buka lagi -> door-open berbunyi lagi (bukan sekali seumur hidup pintu).
+    camera.position.set(dp.x, cfgMod.CFG.player.eyeHeight, dp.z + DCELL);
+    tick(2);
+    T('PINTU SFX: siklus berikutnya berbunyi lagi — bukan hanya sekali per pintu',
+        doorsMod.doorSfxDebug().open === 2);
+
+    // Akar 2: integrator pintu Stage 5/6 harus MENDARAT PERSIS di target. Bentuk
+    // lama (`dir = target > open ? 1 : -1`, tak pernah nol) membuat pintu terbuka
+    // penuh bergetar 0.965<->1 tiap frame — panelnya bergidik DAN itulah yang
+    // memicu banjir audio di atas.
+    {
+        const settle = (src, per) => {
+            const m = src.match(new RegExp('d\\.open = d\\.open < d\\.target[\\s\\S]{0,160}?;'));
+            return !!m && !/const dir = d\.target > d\.open/.test(src) && src.includes(per);
+        };
+        T('PINTU: integrator stage 5/6 mendarat persis di target, tidak bergetar tiap frame',
+            settle(srcOf('src/scenes/campaign/stages/stage5/world.js'), 'dt / 0.48')
+            && settle(srcOf('src/scenes/campaign/stages/stage6.js'), 'dt / 0.5'));
+    }
+
+    // WIRING: setiap sistem pintu yang ada harus lewat pemicu bersama, dan tak
+    // ada modul lain yang boleh memutar klip pintu sendiri.
+    const wired = [
+        ['src/scenes/campaign/utility/doors.js', 'doorMotionSFX(dr, prev'],
+        ['src/scenes/campaign/stages/stage5/world.js', 'doorMotionSFX(d, prev'],
+        ['src/scenes/campaign/stages/stage6.js', 'doorMotionSFX(d, prev'],
+        ['src/scenes/campaign/stages/stage3.js', 'playDoorSFX(true'],
+    ];
+    const walkSrc = (dir, out = []) => {
+        for (const e of fs.readdirSync(ROOT + '/' + dir, { withFileTypes: true })) {
+            const f = dir + '/' + e.name;
+            if (e.isDirectory()) walkSrc(f, out);
+            else if (e.name.endsWith('.js')) out.push(f);
+        }
+        return out;
+    };
+    const rogue = walkSrc('src').filter(f =>
+        f !== 'src/utils/sfx.js' && f !== 'src/scenes/campaign/utility/doors.js'
+        && /sfxDoor(Open|Close)/.test(srcOf(f)));
+    T('PINTU SFX: SEMUA sistem pintu (stage 1-3, blast stage 3, stasiun stage 5, stage 6) memakai pemicu bersama'
+        + (rogue.length ? ' [rogue: ' + rogue.join(',') + ']' : ''),
+        wired.every(([f, needle]) => srcOf(f).includes(needle)) && rogue.length === 0);
+}
+
+// --- 22. LOOP KERETA TANPA JEDA (2026-08-07, laporan user: "train-sound ada
+//     jedanya di setiap pengulangan"). AKAR: `<audio loop>` mengulang padding
+//     encoder MP3 (train-sound: 576 sampel delay + 1498 padding = ~47 ms senyap)
+//     -> tiap putaran terdengar terputus, dan tak bisa diperbaiki dgn re-encode
+//     karena padding melekat pada format MP3. Perbaikannya jalur Web Audio:
+//     decodeAudioData + AudioBufferSourceNode.loop yang sampel-akurat, dengan
+//     loopStart/loopEnd dipotong ke sampel non-senyap. ---
+{
+    const sfxG = await import(R('src/utils/sfx.js'));
+
+    // (a) Berkas yang dikirim memang membawa padding encoder — inilah alasan
+    //     jalur gapless ada. Kalau suatu saat asetnya diganti yang bersih,
+    //     assert ini yang memberi tahu bahwa jalurnya boleh disederhanakan.
+    {
+        const b = fs.readFileSync(ROOT + '/assets/sounds/train-sound.mp3');
+        let off = b.toString('latin1', 0, 3) === 'ID3'
+            ? 10 + (((b[6] & 0x7f) << 21) | ((b[7] & 0x7f) << 14) | ((b[8] & 0x7f) << 7) | (b[9] & 0x7f)) : 0;
+        while (off < b.length - 4 && !(b[off] === 0xff && (b[off + 1] & 0xe0) === 0xe0)) off++;
+        let delay = 0, pad = 0;
+        for (const probe of [off + 4 + 32, off + 4 + 21, off + 4 + 17, off + 4 + 9]) {
+            const tag = b.toString('latin1', probe, probe + 4);
+            if (tag !== 'Xing' && tag !== 'Info') continue;
+            const flags = b.readUInt32BE(probe + 4);
+            let q = probe + 8;
+            if (flags & 1) q += 4;
+            if (flags & 2) q += 4;
+            if (flags & 4) q += 100;
+            if (flags & 8) q += 4;
+            const d = b.readUIntBE(q + 21, 3);
+            delay = (d >> 12) & 0xfff; pad = d & 0xfff;
+            break;
+        }
+        T(`LOOP KERETA: berkasnya memang membawa padding encoder MP3 [delay ${delay} + padding ${pad} sampel]`,
+            delay + pad > 0);
+    }
+
+    // (b) Matematika pemotongan senyap, diuji pada buffer sintetis berisi
+    //     senyap-di-depan + senyap-di-belakang yang panjangnya diketahui.
+    const SR = 44100, LEN = SR, HEAD = 2000, TAIL = 3000;
+    const pcm = new Float32Array(LEN);
+    for (let i = HEAD; i < LEN - TAIL; i++) pcm[i] = 0.5;
+    const fakeBuffer = {
+        sampleRate: SR, length: LEN, numberOfChannels: 1,
+        duration: LEN / SR, getChannelData: () => pcm,
+    };
+    const trim = sfxG.trimSilenceRange(fakeBuffer);
+    T('LOOP KERETA: senyap di kedua ujung dipotong tepat ke sampel non-senyap pertama/terakhir',
+        Math.abs(trim.start - HEAD / SR) < 1e-9
+        && Math.abs(trim.end - (LEN - TAIL) / SR) < 1e-9);
+    T('LOOP KERETA: buffer yang seluruhnya senyap TIDAK dipotong habis (jaga-jaga)',
+        (() => {
+            const q = sfxG.trimSilenceRange({
+                sampleRate: SR, length: 10, numberOfChannels: 1,
+                duration: 10 / SR, getChannelData: () => new Float32Array(10),
+            });
+            return q.start === 0 && Math.abs(q.end - 10 / SR) < 1e-9;
+        })());
+
+    // (c) Tanpa Web Audio (kondisi harness apa adanya) SEMUANYA tetap jalan
+    //     lewat elemen <audio> — jalur gapless tak boleh jadi syarat wajib.
+    T('LOOP KERETA: tanpa Web Audio tetap jatuh mulus ke elemen <audio>',
+        !sfxG.gaplessLoopDebug().ctx
+        && (() => {
+            const n = sfxG.playLoopSFX(sfxG.sfxTrain, 0.4);
+            const ok = n.loop === true && !n.gapless && n.src === 'assets/sounds/train-sound.mp3';
+            sfxG.stopLoopSFX(n);
+            return ok;
+        })());
+
+    // (d) DENGAN Web Audio: kereta memakai AudioBufferSourceNode ber-loop yang
+    //     loopStart/loopEnd-nya sudah dipotong -> tidak ada senyap tiap putaran.
+    const started = [];
+    globalThis.AudioContext = class {
+        constructor() { this.state = 'running'; this.destination = { }; }
+        resume() { return Promise.resolve(); }
+        createGain() { return { gain: { value: 1 }, connect() { }, disconnect() { } }; }
+        createBufferSource() {
+            const node = {
+                buffer: null, loop: false, loopStart: 0, loopEnd: 0,
+                playbackRate: { value: 1 }, stopped: false,
+                connect() { }, disconnect() { },
+                start(when, offset) { node.startedAt = offset; started.push(node); },
+                stop() { node.stopped = true; },
+            };
+            return node;
+        }
+        decodeAudioData() { return Promise.resolve(fakeBuffer); }
+    };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = () => Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) });
+    T('LOOP KERETA: primeGaplessLoops mendaftarkan kereta untuk jalur tanpa jeda',
+        sfxG.primeGaplessLoops() === true
+        && sfxG.gaplessLoopDebug().registered.includes('assets/sounds/train-sound.mp3'));
+    for (let i = 0; i < 20 && !sfxG.gaplessLoopDebug().ready.length; i++) await new Promise(r => setTimeout(r, 5));
+    T('LOOP KERETA: buffer ter-decode saat loading dan trim-nya tersimpan',
+        sfxG.gaplessLoopDebug().ready.includes('assets/sounds/train-sound.mp3')
+        && Math.abs(sfxG.gaplessLoopDebug().trims[0].start - HEAD / SR) < 1e-9);
+
+    const loop = sfxG.playLoopSFX(sfxG.sfxTrain, 0.42);
+    const node = started[started.length - 1];
+    T('LOOP KERETA: diputar sebagai AudioBufferSourceNode ber-loop, mulai & berulang DI DALAM daerah non-senyap',
+        loop.gapless === true && !!node && node.loop === true
+        && Math.abs(node.loopStart - HEAD / SR) < 1e-9
+        && Math.abs(node.loopEnd - (LEN - TAIL) / SR) < 1e-9
+        && Math.abs(node.startedAt - HEAD / SR) < 1e-9);
+    T('LOOP KERETA: handle-nya tetap meniru elemen <audio> (volume/playbackRate/pause) agar call-site lama utuh',
+        (() => {
+            loop.volume = 0.25; loop.playbackRate = 1.5;
+            const okSet = Math.abs(loop.volume - 0.25) < 1e-9 && node.playbackRate.value === 1.5;
+            sfxG.stopLoopSFX(loop);          // pause() + currentTime = 0
+            return okSet && node.stopped === true && loop.paused === true;
+        })());
+    // Klip loop LAIN sengaja TIDAK didaftarkan (heli/tank memakai playbackRate,
+    // dan AudioBufferSourceNode akan mengubah pitch-nya) — pastikan tetap <audio>.
+    T('LOOP KERETA: klip loop yang tidak terdaftar tetap memakai elemen <audio> (pitch-nya tak berubah)',
+        (() => {
+            const n = sfxG.playLoopSFX(sfxG.sfxHeli, 0.5);
+            const ok = !n.gapless && n.loop === true;
+            sfxG.stopLoopSFX(n);
+            return ok;
+        })());
+    delete globalThis.AudioContext;
+    if (realFetch === undefined) delete globalThis.fetch; else globalThis.fetch = realFetch;
 }
 
 // === NAMA GAME = "Adversarial Intelligence" (2026-08-07, permintaan user; inisial

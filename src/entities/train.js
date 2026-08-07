@@ -5,11 +5,36 @@
 
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 
-export const TRAIN_CAR_LENGTH = 92;
-export const TRAIN_CAR_GAP = 8;
+// ROMBAK SKALA 2026-08-07 (permintaan user): LEBAR badan kereta = 4 METER
+// tepat — dinaikkan dari 3 m karena lorongnya terasa terlalu sempit untuk
+// bertempur. Panjang dan tinggi tetap diturunkan dengan proporsi rolling stock
+// nyata (16.5 m panjang, 3.9 m tinggi). 16.5 m kebetulan = 7 sel CSV
+// (7 x 16.5 unit), jadi gerbong + lokomotif jatuh PERSIS pada sel TC/TL denah
+// stasiun user. Semua geometri di bawah diturunkan dari W/HW — jangan menulis
+// ulang angka lebar sebagai literal.
+const M_UNIT = 7;                                        // 1 m = 7 unit (CAMP_M)
+export const TRAIN_CAR_WIDTH = 4 * M_UNIT;               // 28
+export const TRAIN_HALF_WIDTH = TRAIN_CAR_WIDTH / 2;     // 14
+export const TRAIN_CAR_LENGTH = 16.5 * M_UNIT;           // 115.5
+export const TRAIN_CAR_HEIGHT = 3.9 * M_UNIT;            // 27.3
+export const TRAIN_CAR_GAP = 0;                          // TC dan TL bersebelahan di CSV
 export const TRAIN_CAR_STEP = TRAIN_CAR_LENGTH + TRAIN_CAR_GAP;
-export const TRAIN_HALF_WIDTH = 27;
-export const TRAIN_CAR_COUNT = 5;
+// Konsist player = SATU gerbong + SATU lokomotif (permintaan user 2026-08-07).
+export const TRAIN_CAR_COUNT = 2;
+export const TRAIN_PLAYER_CAR = 0;
+export const TRAIN_LOCO_CAR = TRAIN_CAR_COUNT - 1;
+// Kotak arena player: bagian DALAM gerbong 0 saja. Player tidak pernah boleh
+// keluar dari gerbong maupun masuk ke lokomotif.
+export const TRAIN_WALL_T = 0.9;
+export const TRAIN_END_T = 2.4;
+export const TRAIN_INNER_HALF = TRAIN_HALF_WIDTH - TRAIN_WALL_T;          // 13.1
+export const TRAIN_INNER_HALF_LEN = TRAIN_CAR_LENGTH / 2 - TRAIN_END_T;   // 55.35
+export const TRAIN_SIDE_WALL_H = 9;                      // dinding samping setinggi dada
+export const TRAIN_GAUGE_HALF = 4.2;                     // rel 1067 mm (+ margin visual)
+// Jarak antar-sumbu KEDUA jalur selama perjalanan (double track mainline).
+// Jauh lebih rapat daripada dua jalur stasiun agar baku tembak lintas-rel
+// benar-benar berada dalam jangkauan peluru robot kelas A/B.
+export const JOURNEY_TRACK_DZ = -42;
 
 const mats = () => ({
     body: new THREE.MeshLambertMaterial({ color: PAL.gunmetal }),
@@ -40,98 +65,108 @@ function mesh(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, shadow = true) 
     return m;
 }
 
-function stripe(parent, M, x, z, side) {
-    mesh(parent, new THREE.BoxGeometry(54, 1.1, 0.7), M.hazard, x, 7.7, z + side * 0.1);
-    mesh(parent, new THREE.BoxGeometry(54, 0.8, 0.78), M.white, x, 9.2, z + side * 0.1);
+// Bogie bergaya narrow-gauge: rangka + dua gandar, roda tepat di atas rel.
+function bogie(g, M, bx, wheels) {
+    mesh(g, new THREE.BoxGeometry(24, 4.4, TRAIN_GAUGE_HALF * 2 + 3), M.ink, bx, -3.6, 0);
+    for (const ax of [-7, 7]) for (const wz of [-TRAIN_GAUGE_HALF, TRAIN_GAUGE_HALF]) {
+        const w = mesh(g, new THREE.CylinderGeometry(3.6, 3.6, 1.6, 12), M.rubber,
+            bx + ax, -3.4, wz, Math.PI / 2, 0, 0);
+        wheels.push(w);
+    }
 }
 
 function buildCar(M, i, cx, cz, wheels) {
     const g = new THREE.Group();
     g.position.set(cx, 0, cz);
-    const openDeck = i === 3;
-    const loco = i === 4;
+    const loco = i === TRAIN_LOCO_CAR;
+    const L = TRAIN_CAR_LENGTH, HW = TRAIN_HALF_WIDTH, W = TRAIN_CAR_WIDTH;
+    const endX = L / 2 - TRAIN_END_T / 2;
 
     // Deck sengaja y=0: seluruh gameplay tetap pada ground plane standar.
-    mesh(g, new THREE.BoxGeometry(TRAIN_CAR_LENGTH, 2.4, TRAIN_HALF_WIDTH * 2), M.body, 0, -1.2, 0);
-    mesh(g, new THREE.BoxGeometry(TRAIN_CAR_LENGTH - 5, 0.65, TRAIN_HALF_WIDTH * 2 - 5), M.panel, 0, 0.34, 0);
-    mesh(g, new THREE.BoxGeometry(TRAIN_CAR_LENGTH - 8, 2.2, 2.0), M.hazard, 0, 1.2, -TRAIN_HALF_WIDTH + 1.3);
-    mesh(g, new THREE.BoxGeometry(TRAIN_CAR_LENGTH - 8, 2.2, 2.0), M.hazard, 0, 1.2, TRAIN_HALF_WIDTH - 1.3);
+    mesh(g, new THREE.BoxGeometry(L, 3.2, W), M.body, 0, -2.0, 0);
+    mesh(g, new THREE.BoxGeometry(L - 5, 0.7, W - 2.6), M.panel, 0, 0.35, 0);
+    for (const z of [-HW + 0.6, HW - 0.6])
+        mesh(g, new THREE.BoxGeometry(L - 3, 1.5, 1.0), M.hazard, 0, 0.4, z, 0, 0, 0, false);
 
-    // Cutaway: dinding jauh tetap tinggi, sisi dekat kamera rendah agar interior terbaca.
-    if (!openDeck) {
-        mesh(g, new THREE.BoxGeometry(TRAIN_CAR_LENGTH - 8, 13, 2.2), M.body, 0, 7.1, -TRAIN_HALF_WIDTH + 1.4);
-        mesh(g, new THREE.BoxGeometry(TRAIN_CAR_LENGTH - 8, 4.2, 2.2), M.body, 0, 2.5, TRAIN_HALF_WIDTH - 1.4);
-        stripe(g, M, 0, -TRAIN_HALF_WIDTH + 2.6, 1);
-        // Rusuk atap terbuka menggambar siluet tanpa menutup avatar.
-        for (const x of [-34, -12, 12, 34]) {
-            mesh(g, new THREE.BoxGeometry(1.5, 13, 1.5), M.steel, x, 7, -TRAIN_HALF_WIDTH + 3.0);
-            mesh(g, new THREE.BoxGeometry(1.5, 4, 1.5), M.steel, x, 2.3, TRAIN_HALF_WIDTH - 3.0);
-            mesh(g, new THREE.BoxGeometry(1.2, 1.2, TRAIN_HALF_WIDTH * 2 - 6), M.steel, x, 13.1, 0);
+    if (!loco) {
+        // GERBONG PLAYER. Badan cuma 4 m: dindingnya sengaja SETINGGI DADA agar
+        // avatar dan penembak di track sebelah tetap terbaca dari kamera oblique;
+        // siluet "beratap" datang dari rusuk terbuka, bukan dinding penuh.
+        for (const z of [-HW + TRAIN_WALL_T / 2, HW - TRAIN_WALL_T / 2]) {
+            mesh(g, new THREE.BoxGeometry(L - TRAIN_END_T * 2, TRAIN_SIDE_WALL_H, TRAIN_WALL_T),
+                M.body, 0, TRAIN_SIDE_WALL_H / 2, z);
+            mesh(g, new THREE.BoxGeometry(L - TRAIN_END_T * 2, 1.0, TRAIN_WALL_T + 0.6),
+                M.steel, 0, TRAIN_SIDE_WALL_H, z, 0, 0, 0, false);
+        }
+        // Dua sekat ujung setinggi penuh: sisi timur = sekat kabin (player tidak
+        // pernah bisa masuk lokomotif), sisi barat = dinding belakang gerbong.
+        for (const s of [-1, 1]) {
+            mesh(g, new THREE.BoxGeometry(TRAIN_END_T, TRAIN_CAR_HEIGHT - 7, W - 0.8),
+                M.body, s * endX, (TRAIN_CAR_HEIGHT - 7) / 2, 0);
+            mesh(g, new THREE.BoxGeometry(TRAIN_END_T + 0.5, 1.3, W - 2.4),
+                M.hazard, s * endX, 9.4, 0, 0, 0, 0, false);
+        }
+        // Pintu sekat kabin — TERKUNCI, murni detail; tidak ada collider pintu.
+        mesh(g, new THREE.BoxGeometry(0.8, 13, 8.4), M.panel, endX - TRAIN_END_T, 6.5, 0);
+        mesh(g, new THREE.BoxGeometry(0.9, 0.9, 5.2), M.hazard, endX - TRAIN_END_T - 0.45, 12.4, 0, 0, 0, 0, false);
+        // Pintu naik sisi peron (sel TCI denah): kusen + dua daun tergeser terbuka.
+        for (const dx of [-38, -18]) mesh(g, new THREE.BoxGeometry(2.0, TRAIN_SIDE_WALL_H + 3, 1.6),
+            M.steel, dx, (TRAIN_SIDE_WALL_H + 3) / 2, HW - 0.4);
+        mesh(g, new THREE.BoxGeometry(20, 1.2, 1.6), M.steel, -28, TRAIN_SIDE_WALL_H + 3, HW - 0.4);
+        mesh(g, new THREE.BoxGeometry(18, 0.5, 1.0), M.amber, -28, 0.9, HW - 1.6, 0, 0, 0, false);
+        // Rusuk atap terbuka + lampu langit-langit: siluet gerbong tanpa menutup
+        // avatar. Rusuk atap + detail dinding SELALU dipatok ke bidang dinding
+        // (`TRAIN_WALL_T / 2` dari HW), bukan offset literal: lorong gerbong
+        // harus tetap bebas hambatan berapa pun lebar badan di-retune.
+        const wallZ = HW - TRAIN_WALL_T / 2;
+        for (const x of [-44, -22, 0, 22, 44]) {
+            for (const z of [-wallZ, wallZ])
+                mesh(g, new THREE.BoxGeometry(1.1, TRAIN_CAR_HEIGHT - 11, 1.1), M.steel,
+                    x, TRAIN_SIDE_WALL_H + (TRAIN_CAR_HEIGHT - 11) / 2, z);
+            mesh(g, new THREE.BoxGeometry(1.0, 1.0, W - 1.6), M.steel, x, TRAIN_CAR_HEIGHT - 2, 0);
+        }
+        for (const x of [-33, 0, 33])
+            mesh(g, new THREE.BoxGeometry(14, 0.6, 1.5), M.amber, x, TRAIN_CAR_HEIGHT - 3, 0, 0, 0, 0, false);
+        for (const x of [-46, -25, 25, 46]) {
+            mesh(g, new THREE.BoxGeometry(13, 4.6, 0.7), M.panel, x, 5.4, -wallZ + 0.1, 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(9, 0.5, 0.4), M.tech, x, 7.4, -wallZ + 0.5, 0, 0, 0, false);
         }
     } else {
-        for (const z of [-TRAIN_HALF_WIDTH + 2, TRAIN_HALF_WIDTH - 2]) {
-            mesh(g, new THREE.BoxGeometry(TRAIN_CAR_LENGTH - 7, 1.0, 1.0), M.steel, 0, 5.4, z);
-            for (const x of [-40, -20, 0, 20, 40]) mesh(g, new THREE.BoxGeometry(0.8, 5, 0.8), M.steel, x, 2.8, z);
-        }
+        // LOKOMOTIF: badan tertutup penuh, kabin di ujung timur, hidung bertingkat.
+        mesh(g, new THREE.BoxGeometry(L - TRAIN_END_T, TRAIN_CAR_HEIGHT - 9, W - 0.6),
+            M.body, -6, (TRAIN_CAR_HEIGHT - 9) / 2 + 1, 0);
+        mesh(g, new THREE.BoxGeometry(L - 16, 1.6, W - 3.4), M.steel, -6, TRAIN_CAR_HEIGHT - 7.4, 0);
+        for (const x of [-42, -20, 2])
+            mesh(g, new THREE.BoxGeometry(1.6, TRAIN_CAR_HEIGHT - 12, W + 0.4), M.steel, x, 10.5, 0, 0, 0, 0, false);
+        mesh(g, new THREE.BoxGeometry(28, 12, W - 0.4), M.panel, 26, 15.5, 0);
+        mesh(g, new THREE.BoxGeometry(1.2, 6.4, W - 4.2), M.glass, 40.6, 17.5, 0, 0, 0, 0.16, false);
+        mesh(g, new THREE.BoxGeometry(22, 8.5, W - 1.2), M.body, 34, 5.5, 0);
+        mesh(g, new THREE.BoxGeometry(9, 3.2, W - 3), M.hazard, 48, 3.4, 0);
+        for (const z of [-5.4, 5.4]) mesh(g, new THREE.BoxGeometry(2.2, 2.6, 3.2), M.amber, 46.8, 8.4, z, 0, 0, 0, false);
+        for (const x of [-34, -12]) mesh(g, new THREE.CylinderGeometry(2.4, 3.0, 6.5, 10), M.ink, x, TRAIN_CAR_HEIGHT - 4, 0);
+        for (const z of [-HW + 1.1, HW - 1.1])
+            mesh(g, new THREE.BoxGeometry(20, 0.9, 0.6), M.tech, -22, 15, z, 0, 0, 0, false);
     }
 
-    // Detail interior berbeda per gerbong, tetap memberi jalur tengah yang luas.
-    if (i === 0) {
-        for (const x of [-26, 0, 26]) mesh(g, new THREE.BoxGeometry(14, 4, 7), M.ink, x, 2.3, -14);
-    } else if (i === 1) {
-        for (const x of [-28, 0, 28]) {
-            mesh(g, new THREE.BoxGeometry(16, 6, 10), M.earth, x, 3.2, -13);
-            mesh(g, new THREE.BoxGeometry(17, 0.8, 11), M.hazard, x, 6.5, -13);
-        }
-    } else if (i === 2) {
-        for (const x of [-27, -9, 9, 27]) {
-            mesh(g, new THREE.BoxGeometry(11, 2.2, 6), M.panel, x, 1.5, -15);
-            mesh(g, new THREE.BoxGeometry(2, 5, 6), M.steel, x - 4.5, 4, -15);
-        }
-    } else if (i === 3) {
-        for (const x of [-28, 28]) mesh(g, new THREE.BoxGeometry(18, 5, 12), M.ink, x, 2.7, -10);
-    } else if (loco) {
-        mesh(g, new THREE.BoxGeometry(35, 10, 42), M.body, 18, 5.2, 0);
-        mesh(g, new THREE.BoxGeometry(1.0, 7, 27), M.glass, 0, 8.2, 0, 0, 0.22);
-        mesh(g, new THREE.BoxGeometry(12, 5, 30), M.panel, -22, 2.8, 0);
-        const console = mesh(g, new THREE.BoxGeometry(10, 4, 22), M.ink, 8, 2.3, 0);
-        mesh(console, new THREE.BoxGeometry(4, 0.5, 14), M.tech, -5.1, 2.1, 0, 0, 0, 0.15, false);
-        // Hidung bertingkat memberi bentuk lokomotif tanpa geometry khusus.
-        mesh(g, new THREE.BoxGeometry(16, 7, 44), M.body, 38, 3.8, 0);
-        mesh(g, new THREE.BoxGeometry(8, 3, 38), M.hazard, 48, 1.8, 0);
-    }
-
-    // Dua bogie/gerbong, empat roda terlihat dari tiap sisi.
-    for (const wx of [-29, 29]) for (const wz of [-23, 23]) {
-        const w = mesh(g, new THREE.CylinderGeometry(5.5, 5.5, 2.4, 12), M.rubber,
-            wx, -4.2, wz, Math.PI / 2, 0, 0);
-        wheels.push(w);
-        mesh(g, new THREE.CylinderGeometry(2.7, 2.7, 2.6, 10), M.steel,
-            wx, -4.2, wz, Math.PI / 2, 0, 0);
-    }
+    for (const bx of [-L * 0.29, L * 0.29]) bogie(g, M, bx, wheels);
     return g;
 }
 
 export function buildMilitaryTrainMesh(baseX, baseZ = 0) {
     const M = mats();
     const group = new THREE.Group();
+    // `doors` sengaja KOSONG sejak 2026-08-07: konsist player hanya gerbong +
+    // lokomotif, dan sekat kabin tidak pernah boleh terbuka.
     const cars = [], wheels = [], doors = [];
     for (let i = 0; i < TRAIN_CAR_COUNT; i++) {
-        const cx = baseX + i * TRAIN_CAR_STEP;
-        const car = buildCar(M, i, cx, baseZ, wheels);
+        const car = buildCar(M, i, baseX + i * TRAIN_CAR_STEP, baseZ, wheels);
         group.add(car); cars.push(car);
-        if (i < TRAIN_CAR_COUNT - 1) {
-            // Bulkhead bergerak ke atas saat terbuka; collider dimiliki stage.
-            const door = mesh(group, new THREE.BoxGeometry(3, 12, TRAIN_HALF_WIDTH * 2 - 8),
-                M.body, cx + TRAIN_CAR_LENGTH / 2 + TRAIN_CAR_GAP / 2, 6, baseZ);
-            mesh(door, new THREE.BoxGeometry(3.2, 1.1, 30), M.amber, 0, 1.5, 0, 0, 0, 0, false);
-            doors.push({ mesh: door, open: 0, target: 0, closedY: 6 });
-        }
     }
-    // Coupler antar gerbong.
+    // Coupler/gangway antar gerbong.
     for (let i = 0; i < TRAIN_CAR_COUNT - 1; i++) {
-        const x = baseX + i * TRAIN_CAR_STEP + TRAIN_CAR_LENGTH / 2 + TRAIN_CAR_GAP / 2;
-        mesh(group, new THREE.BoxGeometry(TRAIN_CAR_GAP + 3, 1.2, 7), M.steel, x, -0.2, baseZ);
+        const x = baseX + i * TRAIN_CAR_STEP + TRAIN_CAR_LENGTH / 2;
+        mesh(group, new THREE.BoxGeometry(5, 1.4, 6), M.steel, x, -0.6, baseZ);
+        mesh(group, new THREE.BoxGeometry(3.5, 9, 9.5), M.rubber, x, 6, baseZ);
     }
     group.userData.train = { group, baseX, baseZ, cars, wheels, doors, wheelPhase: 0, M };
     return group.userData.train;
@@ -145,7 +180,9 @@ export function setTrainDoor(train, index, open) {
 export function resetTrainVisual(train) {
     if (!train) return;
     train.wheelPhase = 0;
-    for (const w of train.wheels) w.rotation.z = 0;
+    // Roda berporos Z (rotation.x = PI/2 saat dibangun); putarannya ada di
+    // rotation.y — memakai rotation.z hanya menjungkirkan silinder, bukan memutar.
+    for (const w of train.wheels) w.rotation.y = 0;
     for (const d of train.doors) {
         d.open = d.target = 0;
         d.mesh.position.y = d.closedY;
@@ -155,7 +192,7 @@ export function resetTrainVisual(train) {
 export function updateTrainVisual(train, dt, speed) {
     if (!train) return;
     train.wheelPhase += dt * Math.max(0, speed) * 0.11;
-    for (const w of train.wheels) w.rotation.z = train.wheelPhase;
+    for (const w of train.wheels) w.rotation.y = train.wheelPhase;
     for (const d of train.doors) {
         const k = Math.min(1, dt * 4.2);
         d.open += (d.target - d.open) * k;
@@ -202,7 +239,10 @@ export const BANDUNG_MAP = Object.freeze([
 
 // Sel CSV finish disejajarkan ke arena journey: baris track (16-19) berpusat
 // pada sumbu rel, dan kolom lokomotif (TL) jatuh tepat di gerbong terakhir.
-const B_CELL = 16.5, B_WALL_H = 25, B_TRACK_ROW = 17.5, B_COL0 = 12.88;
+// B_COL0 = 18 = pusat kolom TC denah finish, sehingga bx(18) jatuh tepat di
+// titik pusat gerbong player dan bx(25) tepat di lokomotif (selisih 7 sel =
+// TRAIN_CAR_STEP). Terminal dibangun relatif terhadap `journey.baseX`.
+const B_CELL = 16.5, B_WALL_H = 25, B_TRACK_ROW = 17.5, B_COL0 = 18;
 const bx = c => (c - B_COL0) * B_CELL;
 const bz = r => (r - B_TRACK_ROW) * B_CELL;
 
@@ -248,18 +288,24 @@ function buildBandungTerminal(M) {
 
 // Pool perjalanan: seluruh child dibuat SEKALI. `updateJourneyScenery` hanya
 // menggeser transform dan wrap; tidak ada scene.add / alokasi geometry per frame.
-export function buildTrainJourneyScenery(baseX, baseZ = 0) {
+export function buildTrainJourneyScenery(baseX, baseZ = 0, enemyDz = JOURNEY_TRACK_DZ) {
     const M = mats();
     const group = new THREE.Group();
     const near = [], mid = [], far = [], tunnel = [], sparks = [];
-    const span = 1500;
+    // 18 modul x 84 = 1512; jumlah MESH pool near tetap 90 seperti sebelum
+    // jalur kedua ditambahkan (modul lebih panjang, bukan lebih banyak).
+    const NEAR_N = 18, NEAR_STEP = 84, span = NEAR_N * NEAR_STEP;
 
-    for (let i = 0; i < 30; i++) {
+    // DUA JALUR sepanjang perjalanan (permintaan user 2026-08-07): jalur player
+    // di baseZ dan jalur musuh di baseZ+enemyDz, berbagi satu bed ballast.
+    const bedZ0 = Math.min(0, enemyDz), bedZ1 = Math.max(0, enemyDz);
+    for (let i = 0; i < NEAR_N; i++) {
         const g = new THREE.Group();
-        mesh(g, new THREE.BoxGeometry(14, 0.7, 92), M.earth, 0, -5.5, 0);
-        mesh(g, new THREE.BoxGeometry(60, 0.7, 2), M.steel, 0, -4.9, -20);
-        mesh(g, new THREE.BoxGeometry(60, 0.7, 2), M.steel, 0, -4.9, 20);
-        g.position.set(baseX - 520 + i * 50, 0, baseZ); group.add(g); near.push(g);
+        mesh(g, new THREE.BoxGeometry(NEAR_STEP, 0.8, bedZ1 - bedZ0 + 34), M.earth,
+            0, -5.6, (bedZ0 + bedZ1) / 2);
+        for (const tz of [0, enemyDz]) for (const rz of [-TRAIN_GAUGE_HALF, TRAIN_GAUGE_HALF])
+            mesh(g, new THREE.BoxGeometry(NEAR_STEP + 2, 1.1, 1.8), M.steel, 0, -4.7, tz + rz);
+        g.position.set(baseX - span * 0.55 + i * NEAR_STEP, 0, baseZ); group.add(g); near.push(g);
     }
     for (let i = 0; i < 18; i++) {
         const g = new THREE.Group();
@@ -287,10 +333,12 @@ export function buildTrainJourneyScenery(baseX, baseZ = 0) {
     }
     for (let i = 0; i < 12; i++) {
         const g = new THREE.Group();
-        mesh(g, new THREE.BoxGeometry(3, 34, 4), M.ink, 0, 12, -39);
-        mesh(g, new THREE.BoxGeometry(3, 34, 4), M.ink, 0, 12, 39);
-        mesh(g, new THREE.BoxGeometry(3, 4, 82), M.ink, 0, 29, 0);
-        mesh(g, new THREE.BoxGeometry(1, 1, 22), M.amber, 0, 22, -25, 0, 0, 0, false);
+        // Terowongan harus melintasi KEDUA jalur, bukan hanya jalur player.
+        const tz = (bedZ0 + bedZ1) / 2, thw = (bedZ1 - bedZ0) / 2 + 24;
+        mesh(g, new THREE.BoxGeometry(3, 34, 4), M.ink, 0, 12, tz - thw);
+        mesh(g, new THREE.BoxGeometry(3, 34, 4), M.ink, 0, 12, tz + thw);
+        mesh(g, new THREE.BoxGeometry(3, 4, thw * 2 + 4), M.ink, 0, 29, tz);
+        mesh(g, new THREE.BoxGeometry(1, 1, 22), M.amber, 0, 22, tz, 0, 0, 0, false);
         g.position.set(baseX - 450 + i * 92, 0, baseZ); group.add(g); tunnel.push(g);
     }
 
@@ -298,7 +346,8 @@ export function buildTrainJourneyScenery(baseX, baseZ = 0) {
     // no particles or materials are allocated during arrival.
     for (let i = 0; i < 12; i++) {
         const s = mesh(group, new THREE.BoxGeometry(0.45, 0.45, 4 + (i % 3)), M.amber,
-            baseX - 150 + i * 29, -3.8, baseZ + (i % 2 ? 23 : -23), 0, 0, (i % 2 ? 1 : -1) * 0.35, false);
+            baseX - 150 + i * 29, -3.4, baseZ + (i % 2 ? 1 : -1) * (TRAIN_GAUGE_HALF + 2),
+            0, 0, (i % 2 ? 1 : -1) * 0.35, false);
         s.visible = false; sparks.push(s);
     }
 
@@ -385,6 +434,7 @@ export function updateJourneyScenery(journey, dt, speed, routeK) {
 export function trainJourneyDebug(train, journey) {
     return {
         active: !!journey?.active,
+        visible: !!journey?.group?.visible,
         speed: journey?.speed || 0,
         routeK: journey?.routeK || 0,
         phase: journey?.phase || 'none',

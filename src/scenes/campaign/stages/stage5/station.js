@@ -64,7 +64,7 @@ function spawnDepot() {
     let k = 0;
     for (const cls of ['C', 'B', 'A']) for (let i = 0; i < (C[cls] | 0); i++, k++) {
         const p = DEPOT_SPOTS[k % DEPOT_SPOTS.length], w = cellPos(p[0], p[1]);
-        spawnOne(cls, w.x + rand(-3, 3), w.z + rand(-3, 3), 'depot', false, null, false);
+        spawnOne(cls, w.x + rand(-3, 3), w.z + rand(-3, 3), 'depot', false);
     }
 }
 
