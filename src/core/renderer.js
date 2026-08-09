@@ -112,6 +112,11 @@ let _prevPX = 0, _prevPZ = 0;
 const RECENTER_RATE = 3, MOVE_EPS2 = 0.01;
 // Debug/uji: posisi titik fokus kamera (dipakai tes recenter).
 export const camFocusPos = () => ({ x: camFocus.x, y: camFocus.y, z: camFocus.z });
+// Titik pandang selalu SEKIAN di bawah titik fokus (lebih banyak dunia terlihat
+// ke atas layar). DIEKSPOR 2026-08-09: sebuah shot cutscene yang harus SEJAJAR
+// (sumbu pandang horizontal) memakai `camOffset.y = -CAM_LOOK_DROP` — kalau
+// angkanya cuma disalin, mengubahnya di sini diam-diam memiringkan shot itu.
+export const CAM_LOOK_DROP = 8;
 
 // ----- Guncangan kamera (screen shake, 2026-07-13): dipakai untuk momen
 // sinematik seperti runtuhnya Monas. addCamShake(a) menaikkan amplitudo (unit
@@ -120,6 +125,9 @@ export const camFocusPos = () => ({ x: camFocus.x, y: camFocus.y, z: camFocus.z 
 let camShake = 0;
 export function addCamShake(a) { camShake = Math.max(camShake, a); }
 export function resetCamShake() { camShake = 0; }
+// Dipakai smoke untuk membuktikan shot yang HARUS terkunci benar-benar tidak
+// pernah diguncang (cutscene keberangkatan + kedatangan Stage 5).
+export const camShakeDebug = () => camShake;
 
 // ----- DEATH CAM (2026-07-26): selama sekuens kematian player, kamera MENDEKAT
 // ke jasad sambil meng-ORBIT halus dan MEMIRING (dutch angle). Nilainya DIDORONG
@@ -249,7 +257,7 @@ export function followViewCam(dt = 0) {
     const offZ = (CAM_OFF.x * so + CAM_OFF.z * co) * dcZoom;
     viewCam.position.set(camFocus.x + offX, camFocus.y + CAM_OFF.y * dcZoom, camFocus.z + offZ);
     // Target sedikit di bawah titik fokus -> lebih banyak dunia terlihat ke atas layar.
-    viewCam.lookAt(camFocus.x, camFocus.y - 8, camFocus.z);
+    viewCam.lookAt(camFocus.x, camFocus.y - CAM_LOOK_DROP, camFocus.z);
     // Dutch angle: MIRING di sumbu pandang (setelah lookAt) — hanya saat mati.
     if (dcTilt) viewCam.rotateZ(dcTilt);
     // Guncangan sinematik: jitter posisi acak yang meluruh (Monas runtuh).

@@ -29,11 +29,11 @@
 
 import { CFG } from '../../../../core/config.js';
 import { robots, keys, setCinematicActive } from '../../../../core/state.js';
-import { scene, camera, setCineFocus } from '../../../../core/renderer.js';
+import { scene, camera, setCineFocus, CAM_LOOK_DROP } from '../../../../core/renderer.js';
 import { setCineBars, showCutsceneSkip } from '../../../../core/dom.js';
 import { releaseInputs, aimPoint } from '../../../../core/input.js';
 import { clearMoveTarget } from '../../../../entities/player.js';
-import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
+import { setAvatarRadioPose, setAvatarCarried } from '../../../../entities/playerAvatar.js';
 import { disposeRobot } from '../../../../entities/robots.js';
 import {
     train, setBoardDoorTarget, updateBoardDoor, resetBoardDoor, boardDoorPos, locoCenterX,
@@ -67,7 +67,16 @@ export const BOARD_WAIT_DZ = 16;
 const SHOT_CAM = Object.freeze({
     doorOpen: Object.freeze({ x: 24, y: 30, z: 42 }),
     board: Object.freeze({ x: 16, y: 40, z: 54 }),
-    doorClose: Object.freeze({ x: -30, y: 28, z: 40 }),
+    // SHOT 3 SEJAJAR GERBONG (2026-08-09, permintaan user "arah sorot kamera
+    // scene ketika pintu gerbong menutup sejajar dengan gerbong, tidak dari atas
+    // gerbong seperti sekarang"). Renderer selalu memandang ke
+    // `camFocus.y - CAM_LOOK_DROP`, jadi kamera pada ketinggian yang SAMA
+    // membuat sumbu pandangnya benar-benar horizontal — nol derajat, bukan
+    // sekadar rendah. Angkanya diturunkan dari konstanta renderer, bukan
+    // disalin: mengubahnya di sana harus ikut memiringkan/meratakan shot ini.
+    // Jaraknya dirapatkan (50 -> 30 unit) karena pandangan sejajar kehilangan
+    // "kelonggaran" yang dulu didapat dari memandang ke bawah.
+    doorClose: Object.freeze({ x: -18, y: -CAM_LOOK_DROP, z: 24 }),
     // y=38: sinar kamera harus lewat DI ATAS dinding samping setinggi dada,
     // kalau tidak kakinya tertelan dinding di close-up sedekat ini.
     radio: Object.freeze({ x: 13, y: 38, z: 34 }),
@@ -110,7 +119,8 @@ function faceTo(x, z) {
 // SKIP di tengah shot 1/2 bisa meninggalkan pintu setengah terbuka, jadi
 // pintunya dijepret tertutup (tanpa SFX — layarnya sudah hitam).
 function finishDeparture() {
-    resetDeparture(); resetBoardDoor(); setAvatarRadioPose(false); cleanupCine();
+    resetDeparture(); resetBoardDoor(); setAvatarRadioPose(false); setAvatarCarried(false);
+    cleanupCine();
     enterSub(journeyScene);
 }
 
@@ -140,6 +150,10 @@ function cutTo(idx) {
         // SHOT 5. Titik fokus diambil SEKALI dari posisi lokomotif saat ini lalu
         // dikunci; kereta yang melaju melewatinya.
         setAvatarRadioPose(false);
+        // Pivotnya IKUT gerbong pada shot ini, jadi rig avatar harus diberi tahu
+        // bahwa itu bukan langkah kakinya (laporan user 2026-08-09: "ketika
+        // kereta berjalan, major gibran malah terlihat sedang berlari").
+        setAvatarCarried(true);
         setCineFocus(locoCenterX(), TRAIN_CENTER_Z, true);
         startTrainLoop();
     }

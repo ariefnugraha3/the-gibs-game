@@ -484,7 +484,35 @@ function buildEnemyLoco(M, car, len, half) {
     box(hull, M.lamp, 3.2, 1.2, 3.2, 8, H + 11, 6.5, false);
     for (const dx of [-30, -12, 6]) box(hull, M.steel, 2.2, H - 8, 1.1, dx, (H - 8) / 2 + 1, half + 0.3, false);
     box(hull, M.tech, len - 40, 0.7, 0.5, 0, H - 6, half + 0.45, false);
-    return { hull };
+    // ===== DUA SENJATA DI ATAP (2026-08-09, permintaan user: lokomotif jadi
+    // mini boss). Keduanya sudah TERPASANG sejak konsist muncul tetapi mati —
+    // larasnya mengarah LURUS KE DEPAN (arah laju kereta, +x). Mereka BUKAN
+    // anak `hull`: hull dilas jadi satu mesh, sementara kedua dudukan ini harus
+    // bisa berputar (yaw) saat mengunci sasaran. Tiap senjata = grup dudukan
+    // (statis) + grup putar berisi larasnya, plus satu anchor moncong yang
+    // dibaca runtime lewat getWorldPosition.
+    const turret = (bx, scale, barrelLen, barrelR, mat) => {
+        const base = new THREE.Group(); base.position.set(bx, H + 1.6, 0); car.add(base);
+        box(base, M.ink, 9 * scale, 2.2, 9 * scale, 0, 1.1, 0);
+        const yaw = new THREE.Group(); yaw.position.y = 2.6; base.add(yaw);
+        box(yaw, M.body, 7 * scale, 4.2, 7.4 * scale, 0, 2.1, 0);
+        // Laras di +x: "mengarah ke depan arah kereta" saat idle (yaw = 0).
+        cylinder(yaw, mat, barrelR, barrelR, barrelLen, 8,
+            barrelLen / 2 + 3, 2.6, 0, 0, 0, -Math.PI / 2);
+        const muzzle = new THREE.Object3D();
+        muzzle.position.set(barrelLen + 3.4, 2.6, 0); yaw.add(muzzle);
+        return { base, yaw, muzzle };
+    };
+    // MG: laras ramping panjang. GL: laras pendek gemuk — siluetnya harus bisa
+    // dibedakan dari jarak kamera oblique.
+    const mg = turret(-2, 1, 15, 0.85, M.steel);
+    const gl = turret(-24, 1.15, 8.5, 1.9, M.ink);
+    // Strip peringatan yang menyala saat senjata aktif. WAJIB di luar `hull`:
+    // hull dilas jadi satu mesh, dan apa pun yang di-toggle `visible` tak boleh
+    // ikut terlas (aturan meshBatch).
+    const warn = box(car, M.hazard, 16, 0.9, 1.0, -12, H + 0.6, half - 1.2, false);
+    warn.visible = false;
+    return { hull, weapons: { mg, gl, warn } };
 }
 
 // Konsist musuh statis-prealokasi: `cargoCars` peti baja + satu lokomotif di
@@ -496,11 +524,13 @@ export function buildEnemyTrain(M, root, cargoCars, len, step, half, x, z) {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     const carGroups = [], hulls = [], ramps = [], strobes = [], wheels = [], gauge = 4.2;
+    let locoWeapons = null;
     for (let i = 0; i <= cargoCars; i++) {
         const car = new THREE.Group(); car.position.x = i * step; g.add(car);
         const parts = i === cargoCars
             ? buildEnemyLoco(M, car, len, half)
             : buildEnemyCargoCar(M, car, len, half);
+        if (parts.weapons) locoWeapons = parts.weapons;
         hulls.push(parts.hull);
         if (parts.ramp) { ramps.push(parts.ramp); strobes.push(parts.strobe); }
         // Bogie: hanya roda sisi DEKAT yang dibuat — sisi jauh selalu tertutup
@@ -515,5 +545,21 @@ export function buildEnemyTrain(M, root, cargoCars, len, step, half, x, z) {
         carGroups.push(car);
     }
     root.add(g);
-    return { group: g, cars: carGroups, hulls, ramps, strobes, wheels, step, len, half, wheelPhase: 0 };
+    // POOL GRANAT LOKOMOTIF (mini boss 2026-08-09). Prealokasi wajib: peluru
+    // MG menumpang pool peluru robot yang sudah ada, tetapi granat lob punya
+    // mesh sendiri — dibuat SEKALI di sini, disembunyikan, dan dipasang pada
+    // `root` (worldRoot, tidak ikut bergerak) supaya lintasannya berada di
+    // koordinat dunia, bukan koordinat konsist yang bergeser.
+    const grenades = [];
+    const gGeo = new THREE.SphereGeometry(1.9, 8, 6);
+    const gMat = new THREE.MeshLambertMaterial({ color: PAL.ink });
+    for (let i = 0; i < 6; i++) {
+        const m = new THREE.Mesh(gGeo, gMat);
+        m.visible = false; root.add(m);
+        grenades.push({ mesh: m, live: false, t: 0, dur: 0, x0: 0, z0: 0, y0: 0, tx: 0, tz: 0 });
+    }
+    return {
+        group: g, cars: carGroups, hulls, ramps, strobes, wheels, step, len, half,
+        wheelPhase: 0, weapons: locoWeapons, grenades,
+    };
 }

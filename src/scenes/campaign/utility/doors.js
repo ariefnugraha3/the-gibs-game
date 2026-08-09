@@ -81,7 +81,16 @@ const LOCK_RED = 0xff4a3c;   // merah "TERKUNCI" (varian pintu terkunci, mis. ru
 // DIEKSPOR supaya smoke tak perlu menyalin 0.1.
 export const DOOR_OPEN_REVEAL = 0.1;
 
-export function buildSplitDoor(parent, material, x, y, z, sx, sy, sz) {
+// `opts.headRail` (2026-08-09, laporan user Stage 5: "di atas pintu gerbong ada
+// besi yang melintang dan kepala major gibran menembus itu"): palang kepala yang
+// dulu bagian dari KUSEN DIAM kini boleh menjadi bagian DAUN — separuh palang
+// menempel pada masing-masing daun, jadi ia ikut menyingkir saat pintu terbuka.
+// Wajib untuk pintu yang dindingnya lebih rendah daripada tinggi orang (gondola
+// Stage 5): apa pun yang melintang di atas bukaan akan menembus kepala avatar.
+// Opsional, jadi pintu Stage 1-3/6 (bukaan setinggi dinding) tidak berubah.
+//   { mat, h, t, overhang }  — material, tebal palang, tebal arah bukaan, dan
+//   berapa jauh palang menjorok melewati tepi daun.
+export function buildSplitDoor(parent, material, x, y, z, sx, sy, sz, opts = {}) {
     const panel = new THREE.Group();
     panel.position.set(x, y, z);
     parent.add(panel);
@@ -89,6 +98,7 @@ export function buildSplitDoor(parent, material, x, y, z, sx, sy, sz) {
     const span = horizontal ? sx : sz;
     const leafSpan = span / 2;
     const leaves = [];
+    const rail = opts.headRail || null;
     for (const sign of [-1, 1]) {
         const leaf = new THREE.Mesh(new THREE.BoxGeometry(
             horizontal ? leafSpan : sx, sy, horizontal ? sz : leafSpan), material);
@@ -96,6 +106,17 @@ export function buildSplitDoor(parent, material, x, y, z, sx, sy, sz) {
         leaf.position[horizontal ? 'x' : 'z'] = sign * span / 4;
         panel.add(leaf);
         leaves.push(leaf);
+        if (!rail) continue;
+        // Menjorok HANYA ke sisi luar bukaan: dua separuh palang bertemu rapat
+        // di tengah saat tertutup, tanpa saling menembus.
+        const over = rail.overhang || 0, len = leafSpan + over;
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(
+            horizontal ? len : rail.t, rail.h, horizontal ? rail.t : len),
+        rail.mat || material);
+        bar.castShadow = true; bar.receiveShadow = true;
+        bar.position.y = sy / 2 + rail.h / 2;
+        bar.position[horizontal ? 'x' : 'z'] = sign * over / 2;
+        leaf.add(bar);
     }
     return { panel, leaves, horizontal, span, leafSpan, travel: leafSpan * (1 - DOOR_OPEN_REVEAL) };
 }
@@ -124,6 +145,14 @@ export const splitDoorDebug = door => ({
     leafSpan: door?.leafSpan || 0,
     travel: door?.travel || 0,
     leaves: door?.leaves?.map(l => ({ x: l.position.x, y: l.position.y, z: l.position.z })) || [],
+    // Palang kepala opsional yang MENEMPEL pada daun: ofsetnya sepanjang sumbu
+    // bukaan harus bergerak bersama daunnya (lihat `opts.headRail`).
+    rails: door?.leaves?.map(l => {
+        const bar = l.children && l.children[0];
+        if (!bar) return null;
+        const ax = door.horizontal ? 'x' : 'z';
+        return { off: l.position[ax] + bar.position[ax], y: l.position.y + bar.position.y };
+    }) || [],
 });
 
 // Bangun pintu untuk satu stage.

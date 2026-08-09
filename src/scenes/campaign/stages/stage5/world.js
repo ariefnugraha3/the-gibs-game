@@ -141,10 +141,6 @@ export const S5_SPAWN_MACHINE = Object.freeze(cellPos(16, 22));
 export const S5_MACHINE_SPAWNS = Object.freeze([-1, 0, 1].map(i => Object.freeze({
     x: S5_SPAWN_MACHINE.x - 25, z: S5_SPAWN_MACHINE.z + i * 8,
 })));
-// Ujung timur DALAM gerbong, tepat di depan sekat kabin: titik framing arrival
-// dan landmark radar. Lokomotifnya sendiri tidak pernah bisa dimasuki.
-export const S5_ENGINE = Object.freeze({ x: TRAIN_X1 - 14, z: TRAIN_CENTER_Z });
-
 export const SUPPLY_POINTS = Object.freeze([
     Object.freeze({ type: 'ammo', weapon: 'pistol', ...cellPos(3, 43) }),
     Object.freeze({ type: 'ammo', weapon: 'rifle', ...cellPos(10, 39) }),
@@ -604,9 +600,12 @@ function buildWorld() {
     // "sekat kabin tidak pernah terbuka").
     boardDoor = {
         kind: 'board', open: 0, target: 0,
+        // `headRail`: palang di atas bukaan ikut DAUNNYA (2026-08-09) — dinding
+        // gerbong setinggi dada, jadi palang diam akan menembus kepala Gibran.
         rig: buildSplitDoor(train.cars[TRAIN_PLAYER_CAR], M.panel,
             TRAIN_DOOR_X, TRAIN_SIDE_WALL_H / 2, TRAIN_DOOR_LEAF_Z,
-            TRAIN_DOOR_HALF * 2, TRAIN_SIDE_WALL_H, TRAIN_DOOR_T),
+            TRAIN_DOOR_HALF * 2, TRAIN_SIDE_WALL_H, TRAIN_DOOR_T,
+            { headRail: { mat: M.steel, h: 1.2, t: TRAIN_DOOR_T + 1.1, overhang: 2 } }),
     };
     // Konsist musuh menempel di worldRoot, BUKAN stationRoot: ia harus tetap
     // terlihat saat stasiun disembunyikan sepanjang perjalanan.

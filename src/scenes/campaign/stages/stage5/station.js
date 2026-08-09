@@ -30,8 +30,8 @@ import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import {
     campaignRobotAI, campaignClampRobot, countStageRobots, spawnAlarmHorde,
 } from '../../utility/common.js';
-import { beginRepairMinigame, REPAIR_PARTS } from '../../utility/repairMinigame.js';
-import { beginHackMinigame } from '../../utility/hackMinigame.js';
+import { beginRepairMinigame, ADVANCED_REPAIR_PARTS } from '../../utility/repairMinigame.js';
+import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
 import {
     cellPos, resolve, stage5GroundHeight, navGrid,
     playerStationWalk, robotStationWalk, hallSpawnWalk,
@@ -297,11 +297,12 @@ function beginRepair() {
     setPhase('repairing'); repairMarker.visible = false;
     clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
     beginRepairMinigame({
-        head: 'AUXILIARY GENERATOR — FIELD REPAIR',
+        head: 'AUXILIARY GENERATOR - FIELD RESTART',
+        parts: ADVANCED_REPAIR_PARTS,
         startIndex: repairInstalled,
         onProgress: k => { repairInstalled = k; },
         onSuccess: () => {
-            repairInstalled = REPAIR_PARTS.length; setPhase('board');
+            repairInstalled = ADVANCED_REPAIR_PARTS.length; setPhase('board');
             litScreen(generatorScreen, EMISSIVE_MAX * 0.75);
             boardMarker.visible = true;
             queueDialogue('powerBack'); queueDialogue('routeReady'); queueDialogue('letsMove');
@@ -310,7 +311,7 @@ function beginRepair() {
         },
         onFail: () => {
             setPhase('repair'); repairMarker.visible = true;
-            showStageMsg(`REPAIR ABORTED — ${repairInstalled}/${REPAIR_PARTS.length} COMPONENTS INSTALLED`, 3600);
+            showStageMsg(`REPAIR ABORTED - ${repairInstalled}/${ADVANCED_REPAIR_PARTS.length} STEPS COMPLETE`, 3600);
         },
     });
 }
@@ -332,9 +333,9 @@ function hackAlarm() {
 function beginHack() {
     terminalMarker.visible = false;
     clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
-    beginHackMinigame({
-        head: 'C1 PLATFORM ACCESS — ICE BREACH',
-        sub: 'Override station security and unlock the platform door.',
+    beginSignalTraceMinigame({
+        head: 'C1 PLATFORM ACCESS',
+        sub: 'Capture every encrypted carrier to override station security.',
         onSuccess: () => {
             setPhase('repair'); platformUnlocked = true; repairMarker.visible = true;
             litScreen(terminalScreen, EMISSIVE_MAX * 0.65);
@@ -352,7 +353,7 @@ function beginHack() {
 }
 
 export const stationDebug = () => ({
-    repairInstalled, repairTotal: REPAIR_PARTS.length, repairArmed, hackArmed, hackCd,
+    repairInstalled, repairTotal: ADVANCED_REPAIR_PARTS.length, repairArmed, hackArmed, hackCd,
     platformUnlocked, depotAwake, flybySent, boardCommitted, boardHoldT,
     machine: {
         hp: machineHp, maxHp: CFG.campaign.stage5.spawnMachine.hp, alive: machineAlive,
@@ -377,7 +378,7 @@ export const stationScene = {
         if (phase === 'opening') updateOpeningCine(dt);
         updateStationDoors(dt, platformUnlocked, depotAwake); updateEnemyTrain(dt);
         pulseMarkers();
-        updateLandmarks(dt, repairInstalled >= REPAIR_PARTS.length, platformUnlocked);
+        updateLandmarks(dt, repairInstalled >= ADVANCED_REPAIR_PARTS.length, platformUnlocked);
         if (hackCd > 0) hackCd = Math.max(0, hackCd - dt);
 
         if (phase === 'clearDepot') {
@@ -498,11 +499,11 @@ export const stationScene = {
         if (phase === 'clearDepot') return machineAlive
             ? `DESTROY ROBOT FACTORY — HP ${Math.ceil(machineHp)}/${CFG.campaign.stage5.spawnMachine.hp} | Hostiles: ${countStageRobots(5)}`
             : `STATION SECURITY — Remaining hostiles: ${countStageRobots(5)}`;
-        if (phase === 'repair' || phase === 'repairing') return `GENERATOR C2 — ${repairInstalled}/${REPAIR_PARTS.length}`;
+        if (phase === 'repair' || phase === 'repairing') return `GENERATOR C2 - ${repairInstalled}/${ADVANCED_REPAIR_PARTS.length}`;
         if (phase === 'hack') {
             if (countStageRobots(5) > 0) return `C1 ACCESS COMPUTER — Clear alarm squad: ${countStageRobots(5)}`;
             if (hackCd > 0) return `C1 ACCESS COMPUTER REBOOT — ${Math.ceil(hackCd)}s`;
-            return 'C1 ACCESS COMPUTER — ICE BREACH READY';
+            return 'C1 ACCESS COMPUTER - SIGNAL TRACE READY';
         }
         if (boardCommitted) return 'ALL ABOARD — DEPARTING';
         return 'BANDUNG ROUTE AUTHORIZED — BOARD THE TRAIN';

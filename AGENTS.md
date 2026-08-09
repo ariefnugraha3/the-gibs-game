@@ -107,6 +107,7 @@ stub in `tools/smoke.mjs` instead of working around it in game code.
   source becomes a factor inside it — never a second multiplier in the render loop.
 - **The `camera` object is the player LOGIC PIVOT, not the render camera** — rendering
   uses `viewCam`. Never hardcode screen directions: use `SCREEN_UP`/`SCREEN_LEFT`.
+- **Weapon cadence is PER LEVEL (2026-08-09, user request):** `weaponFireDelay(w, lvl)` is the ONLY reader of fire rate — a weapon carrying `CFG.weapons.<w>.fireDelayByLevel` uses its level's entry, and that table may RAISE or LOWER the delay independently of damage (the shotgun's is the one tuned per level), so never read `fireDelayMs` directly anywhere else. The Field Shop upgrade card must quote the before→after rate (`cadenceNote`) — selling damage while quietly cutting cadence is a trap. → docs/combat.md
 - **Frame-rate independence**: multiply motion by `step` (= dt·60), decrement timers by
   `dt`; fire rates use real `Date.now()` time.
 
@@ -123,6 +124,12 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - **Every spoken-dialogue box uses a character-by-character typewriter reveal**;
   speaker labels may appear immediately, while speed and full-text hold are config-driven.
   Narration captions and short HUD/status messages are not dialogue boxes.
+- **Stage 5-6 minigames are a separate interaction set** (2026-08-09): Stage 5 C1
+  and the Stage 6 `I` terminal use `signalTraceMinigame.js` (SIGNAL TRACE), never
+  ICE BREACH/progress bars. Stage 5 C2 and all three Stage 6 generators run exactly
+  `ADVANCED_REPAIR_PARTS`: FUSE LOADOUT then ROTOR KICKSTART, preserving the completed-board
+  index after abort. Welding heat only rolls back the active seam; a mistimed ignition
+  only costs rotor RPM. The Stage 6 HQ upload remains a story cutscene.
 - **Dialogue source contract:** spoken/cinematic text lives in `config/gameplay.json`
   under `dialogue`; scenes read it through `src/core/dialogue.js`. Keep objective/HUD
   status strings separate from the dialogue data.
@@ -214,12 +221,34 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   the station's from the CSV, the journey's from the scrolling `near` pool (one ballast bed
   + four rails; 18 modules × 5 meshes keeps the pool mesh count unchanged).
   Both in-train sub-scenes return `false` from `bulletBlocked`/`blastBlocked`.
+- Stage 5 enemy LOCOMOTIVE is a MINI BOSS (2026-08-09 user request). Destroying the tenth car no
+  longer starts the finale: the consist advances once more until the LOCOMOTIVE is level with the
+  player's car, then `stages/stage5/loco.js` runs it — HP 1000, plus the two weapons that have
+  been on its roof since it appeared (barrels stowed forward, along the direction of travel).
+  Three rules that are deliberately NOT tank.js's:
+  (1) A 3 s INVULNERABLE ARM WINDOW (`armSec`): turrets swing to combat, the warning strip lights,
+  player bullets do nothing. The HUD says so explicitly — otherwise "my shots don't register"
+  reads as a bug.
+  (2) The MG FIRES AT A DEAD POINT. It locks one spot, gives the player `mgLockSec` (0.5 s) to
+  leave it, then puts all `mgShots` (10) rounds down that same line at `mgDamage` 5. tank.js's
+  coax re-aims every round; this one must not. (The muzzle sways with the consist, so the
+  direction vectors differ slightly — what is pinned is that every ray passes through the LOCKED
+  POINT.)
+  (3) The GRENADE LAUNCHER FOLLOWS, never overlaps: `mgToGlSec` (2 s) after the LAST MG round it
+  lobs `glShots` (3), each locking its impact point on firing and detonating `glFlightSec` (0.5 s)
+  later for `glDamage` 25, at EXACTLY the tank mortar's radius — read from
+  `bosses.tank.mortarBlastRatio`, never copied, so a retune keeps them equal. **Both directions of the weapon changeover have a gap** (2026-08-09, user request): `mgToGlSec` 2 s for MG -> GL and `cycleGapSec` **1 s** for GL -> MG, so `cycleGapSec` is a hand-over beat, not idle rest.
+  Player bullets hit via a SWEPT SEGMENT vs the loco's box: a rifle round covers tens of units per
+  frame and a per-frame point test tunnels through a 24-wide body. During the fight the highway
+  keeps sending cars but with `highway.bossLoad` = exactly two class-B riders and `bossMaxActive`
+  1, so at most two of them exist at once. The weapon rigs live OUTSIDE the welded hull (they
+  rotate), and the warning strip outside it too (it toggles `visible`).
 - Stage 5 journey combat is ONE TEN-CAR ASSAULT CONSIST (2026-08-08 user request; replaces
   the old enemy-train waves). After `consistDelaySec` of `ride` a single consist of
   `ET_CARGO_CARS` = 10 sealed armoured boxcars + a shielded locomotive appears on the
   parallel track entirely BEHIND the player, OVERTAKES over `overtakeSec`, and settles with
   car 0 — the REARMOST — level with the player's car. Cars then open ONE AT A TIME:
-  `open` (only that car's ramp falls; its robots stay hidden until `revealAtRamp`) →
+  `open` (only that car's ramp falls; its crew — loaded at launch with every other car's — is already in its firing slots, revealed at `revealAtRamp` but holding fire and `invuln` until the ramp LANDS) →
   `engage` (3–6 robots, class A/B ONLY with B always outnumbering A — `enemyCarMix` floors A
   at `floor((n-1)/2)` whatever `classARatio` says — spawn `mounted`, emerge from the hold,
   shoot across the tracks, and NEVER chase or cross over) → `detach` (that car EXPLODES,
@@ -285,7 +314,113 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   carries BOTH landscapes as child groups (`cityG`/`hillG`, `skyG`/`ridgeG`) and the act only
   toggles `visible` — nothing is allocated mid-journey and only one act is drawn at a time. The
   tunnel is now a beat inside the mountain act; the closing `bandung` act returns to city
-  silhouettes. `MESH_CAP.TrainSceneryPool` is 360 for that reason.
+  silhouettes. `MESH_CAP.TrainSceneryPool` is loose for that reason.
+- Stage 5 journey HAS A GROUND SURFACE — grass + soil, never the background (2026-08-09 user
+  request "warna tanahnya jangan biru muda ... pakai kombinasi warna hijau rumput dan coklat
+  tanah"). The pale blue was NOT a material: outside the ballast bed the journey had no ground at
+  all, so what showed under the scenery was `scene.background`, the cool haze `enterCityEnv()`
+  installs. The near pool (parallax 1.0 — ground must move at ground speed) now carries TWO bands
+  either side of the track corridor, never one slab across it: the rails sit in a shallow CUTTING
+  (formation at y ~-5, every lineside prop at y 0), so the terrain surface is y = 0 and the
+  corridor between `CUT_FAR`/`CUT_NEAR` stays open or the drains and ballast shoulders get buried.
+  Each band is a brown `PAL.wood` body (-6.6..-1.2) capped by a thin darker-`PAL.leaf` grass layer
+  (-1.2..0) so the cut face toward the rails reads as EARTH, plus deterministic soil plots 0.3
+  above the cap; boxes abut instead of overlapping because coplanar faces z-fight. Bands span the
+  full camera trapezoid (z -232..+118) and are exactly `NEAR_STEP` wide. Props that used to stand
+  inside the corridor moved out to the `LS_FAR`/`LS_NEAR` rows — invisible floating over ballast
+  before, obvious now. Smoke: 'S5 TANAH: ... permukaan tanah sungguhan' derives coverage from
+  `groundViewExtents`, 'S5 TANAH: hanya hijau rumput + coklat tanah' rejects any other hue.
+- Stage 5 act changes TRAVEL DOWN THE LINE; nothing ever changes act in view (2026-08-09 user
+  request "bikin transisi yang mulus ... sekarang terlihat aneh karena tiba-tiba berubah"). The
+  first pass toggled `visible` on all 18 mid + 12 far modules in ONE frame, so the whole horizon
+  flipped in front of the player. Now the phase only sets a TARGET act and a module may adopt it
+  only while off screen, two ways: (1) `wrap()` takes an `onWrap` callback and `adoptAct` runs
+  there, so a module reborn at the head of the pool arrives already dressed for the new act;
+  (2) at the threshold, `relayoutAhead()` re-dresses every module already parked beyond
+  `SCENERY_OFFSCREEN_AHEAD` (420 — outside `groundViewExtents` maxX 267 plus a module half-width),
+  because wrap alone leaves the change hanging (one `far` rotation is ~47 s). On-screen and
+  already-passed modules are never touched. The nearest relaid modules take a DITHER pattern
+  ([0,1,0,1,1,0,1,1]) so the boundary reads as the old landscape thinning out; the far horizon is
+  deliberately NOT dithered — a silhouette must move as one line. Measured: old act clear of the
+  screen in ~13 s, both acts coexisting ~25 s. Four smoke tests pin it, including '0 kejadian' of
+  any module changing act inside the view.
+- Stage 5 polish pass (2026-08-09 user reports) — five fixes, each a rule:
+  (1) NOTHING STATIC MAY SPAN THE BOARDING OPENING ("kepala major gibran menembus besi yang
+  melintang di atas pintu", then "masih ada besi melintang yang tidak ikut terbuka"). The car
+  wall is chest-high, so any bar crossing the opening sits at head/shoulder height for whoever
+  stands there. TWO offenders: the frame lintel (moved onto the leaves — `buildSplitDoor` gained
+  an opt-in `opts.headRail`, half a bar per leaf, so it opens with them) and the PLATFORM-SIDE
+  TOP SILL, which ran the full car length at y 9.0-10.2. The sill is now emitted in two segments
+  around the opening, exactly like the wall, and the head rail is sized to the same band so it
+  still reads continuous when shut. Its CENTRE was at x 0, far from the door — a centre-based
+  test never saw it, so smoke now measures mesh X-SPAN OVERLAP with the opening. Stage 1-3/6
+  doors are unaffected (their openings are wall-height).
+  (2) A PIVOT CARRIED BY A VEHICLE IS NOT A WALK CYCLE ("ketika kereta berjalan, major gibran
+  malah terlihat sedang berlari"). The avatar's gait reads pivot displacement per frame, and the
+  departing shot rides the pivot along with the car — `setAvatarCarried(true)` tells the rig that
+  displacement is not self-locomotion; cleared in `finishDeparture`.
+  (3) THE CAMERA-SIDE FOREGROUND BAND IS EXTINGUISHED WHEN THE HIGHWAY ARMS ("ketika transisi
+  jalan raya masuk, masih banyak rumah pohon dan objek lainnya yang ada di tengah jalan"). The
+  road sweeps from z 200 to 62, so it passes THROUGH the band at 84..96 while merging. The band
+  is now its own welded child group `fgG` per near module, toggled by `setJourneyForeground()`
+  from `startHighway`/`stopHighway`, cleared wrap-by-wrap plus a one-shot for everything already
+  beyond `SCENERY_OFFSCREEN_AHEAD` — nothing ever vanishes on screen.
+  (4) BACKGROUND BUILDINGS ARE FIVE SILHOUETTE TYPES OVER A FIVE-TONE WALL PALETTE (`buildingAt`
+  + `wallTan`/`wallBrick`/`wallPale`, all `shade()`d from PAL tokens, warm only), not one box
+  with a light strip; the far skyline varies material and crown too.
+  (5) COMBAT LEFTOVERS RIDE THE WORLD, NOT THE TRAIN ("serpihan robot masih berada di tempat dan
+  mengikuti pergerakan kereta player"). `driftGore(dx, keep)` walks gibs, decals, corpses and
+  bisected halves back at ground speed every frame of the ride; `keep` excludes the car interior,
+  since anything that lands on the deck really does travel with the train.
+  The welded draw-call guard moved 400 -> 540 and `MESH_CAP.TrainSceneryPool` 2000 -> 2600 to pay
+  for (3) and (4): splitting a weld duplicates any material both halves use.
+- Stage 5 FINISH cutscene = FOUR SHOTS, CUT ONLY, in its OWN FILE `stage5/finish.js`
+  (2026-08-09 user requests "bikin cutscene terpisah dong buat finishnya" + "lebih baik cutscene
+  itu dijadikan file terpisah"). The file was `arrival.js`, which held nothing but this cutscene;
+  the scene id is now `campaign-5-finish` and the debug field `stage5Debug().finish`, but the
+  PHASE is still `arrival` — that names the world state `updateRide`/`RIDE_PHASES` branch on.
+  All hostiles dead -> `arrivalDelaySec` 3 s with the gameplay camera and player control still
+  live -> `finishScene`, the mirror of the departure cutscene: (1) extreme close-up IN FRONT OF THE LOCOMOTIVE — the train brakes to a dead stop at
+  the platform and `stopTrainLoop()` kills the train sound; (2) close-up of the CAR DOOR OPENING;
+  (3) close-up of GIBRAN GETTING OFF; (4) extreme close-up IN FRONT OF GIBRAN with the two radio
+  lines, then an `endHoldSec` 3 s hold before the stage closes. Every transition is a hard CUT —
+  no camera movement and no fade anywhere inside, including the ending (`finishArrival` calls
+  `beginStageTransition` directly). Shot 1 focuses the loco NOSE
+  (`locoCenterX() + TRAIN_CAR_LENGTH/2`), never its centre: half a car is 57.75 units, so a
+  camera 40 in front of the centre sits inside the body. Shot 1 is also LEVEL with the train, not
+  looking down at it: `followViewCam` always aims at `camFocus.y - CAM_LOOK_DROP`, so the shot
+  uses `y: -CAM_LOOK_DROP` (exported from renderer.js — copying the number would let a change
+  there silently tilt the shot) and the sight line is exactly horizontal.
+  THE DESTINATION STATION ARRIVES, IT DOES NOT RIDE ALONG (user "pastikan stasiun tujuan tidak
+  ikut bergeser mengikuti kereta"): during the journey illusion the TRAIN is what stands still in
+  world space, so a terminal pinned at `baseX` stands still relative to it and reads as glued to
+  the locomotive while the world sweeps past. `dockArrivalTerminal()` seeds `journey.arrivalDx`
+  with the braking distance (`v0 * stopSec / 2`, the integral of the smoothstep brake curve) and
+  `updateJourneyScenery` walks it back at the `near` pool's parallax 1.0, so it decelerates with
+  the train and lands exactly on `baseX`. It still never joins the wrap.
+  THE CAMERA-SIDE LINESIDE ROW IS EMPTY (user "jauhkan pagar pembatas yang ada di kanan kereta
+  karena Major Gibran berjalan menembusnya"): the boundary fence sat at z 30, exactly where
+  Gibran now stands after alighting. That strip is claimed by the arrival apron (18..72), the
+  merging highway (asphalt 44..80, lamps ~32) and the camera's sight line to the player's car
+  (anything below z ~71 can occlude it), so every RAILWAY prop — km posts and relay cabinets
+  included — moved to the backdrop row, and the only thing left on the camera side is the
+  foreground band's own fence at `FG0 - 2`. Smoke fails if a near-pool prop stands over the
+  apron band or on the road. The cutscene OWNS the train speed —
+  `updateRide` no longer decays it in the `arrival` phase (its exponential never reached 0) and
+  skips `addCamShake`, so all four shots stay locked off. `buildBandungTerminal` gained a
+  camera-side apron (`B_APRON_Z0`..`B_APRON_Z1` = 18..72: deck, hazard line, low benches) because
+  the CSV platform is on -z (the backdrop, behind the train from the oblique camera) while the
+  car's one door faces +z; it is deliberately FLAT — a canopy there stands in the sight line of
+  shots 3-4. `arrivalMinSec` is deleted in favour of the `arrival` config block
+  (`stopSec`/`frontSec`/`doorOpenSec`/`alightSec`/`radioMinSec`/`endHoldSec`), exactly as the
+  departure rework deleted `departureMinSec`, and `S5_ENGINE` is deleted with its last consumer.
+- Stage 5 departure SHOT 3 is LEVEL with the car (2026-08-09 user request "arah sorot kamera
+  scene ketika pintu gerbong menutup sejajar dengan gerbong, tidak dari atas gerbong"). Same rule
+  as the arrival's loco shot: `followViewCam` always aims at `camFocus.y - CAM_LOOK_DROP`, so a
+  camera at that height gives an exactly horizontal sight line. The shot uses
+  `y: -CAM_LOOK_DROP` (imported from renderer.js — copying the number would let a change there
+  silently tilt it) and its distance drops 50 -> 30, because a level view loses the headroom a
+  downward one gets for free. Shots 1/2/4/5 keep their angles.
 - Stage 5 departure cutscene = FIVE SHOTS, CUT ONLY (2026-08-08 user rework of the single
   locked-off departing shot). In order: (1) close-up of the car door OPENING, (2) close-up of
   Major Gibran BOARDING, (3) close-up of the door CLOSING, (4) close-up of Gibran CONTACTING
@@ -436,7 +571,7 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   opening announces 100 km, but there is no runtime distance counter. Timed pickup
   carriers each mount exactly three ordinary A/B robots and keep spawning until the
   config-driven target of 20 carriers is destroyed. Only then does the standalone
-  `combatGunship.js` boss (HP live-linked to tank HP) arrive and cycle telegraphed
+  `combatGunship.js` boss (tuning in `CFG.campaign.bosses.gunship` since 2026-08-09 — a boss belongs beside `giant`/`tank`, and it has its own `hp`/`score` there instead of live-reading tank HP; only its scene pacing stays in `stage8`) arrive and cycle telegraphed
   MG/cannon/three homing missiles. Its shape was totally reworked 2026-08-08 (user request):
   faceted hull, gimballed chin turret with a four-barrel gatling, anhedral stub wings with
   missile pods, twin nacelles, a SHROUDED five-blade rotor and a twin-boom tail with a

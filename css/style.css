@@ -2106,6 +2106,114 @@ body.cine #medkitBar, body.cine #stageMsg {
     50% { color: #ffd0c4; background: rgba(60, 12, 8, 0.9); }
 }
 
+/* ---------- SIGNAL TRACE (Stage 5-6) ---------- */
+.sigPanel {
+    position: relative;
+    width: min(820px, 94vw);
+    max-height: 94vh;
+    padding: 20px 26px 18px;
+    overflow: hidden;
+    background: rgba(14, 18, 19, 0.96);
+    border: 1px solid rgba(255, 176, 59, 0.55);
+    border-radius: 8px;
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.85);
+}
+.sigHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.sigTag {
+    padding: 3px 9px;
+    color: #0b0e10;
+    background: #ffb03b;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 0.24em;
+}
+.sigTitle { color: #e6ded0; font-size: 17px; font-weight: bold; text-transform: uppercase; }
+.sigSub { margin: 8px 0 16px; color: #9fb0ad; font-size: 13px; line-height: 1.5; }
+.sigBoard {
+    display: grid;
+    gap: 10px;
+    min-height: 260px;
+    padding: 18px;
+    background: #090d0e;
+    border: 1px solid rgba(47, 184, 166, 0.24);
+    border-radius: 6px;
+}
+.sigRow {
+    display: grid;
+    grid-template-columns: 62px minmax(160px, 1fr) 62px;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 0 10px;
+    border: 1px solid rgba(47, 184, 166, 0.18);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.sigRow.active { border-color: #ffb03b; background: rgba(255, 176, 59, 0.07); }
+.sigRow.locked { border-color: rgba(46, 255, 106, 0.55); background: rgba(46, 255, 106, 0.06); }
+.sigLabel, .sigState { color: #6f807d; font-size: 10px; letter-spacing: 0.12em; }
+.sigState { text-align: right; }
+.sigRow.active .sigState { color: #ffb03b; }
+.sigRow.locked .sigState { color: #2eff6a; }
+.sigTrack { position: relative; height: 18px; background: #172421; border: 1px solid #2a4b47; }
+.sigTrack::after { content: ''; position: absolute; left: 0; right: 0; top: 8px; height: 1px; background: #2fb8a6; }
+.sigTarget {
+    position: absolute;
+    z-index: 2;
+    top: -5px;
+    height: 26px;
+    transform: translateX(-50%);
+    border-left: 2px solid #ffb03b;
+    border-right: 2px solid #ffb03b;
+    background: rgba(255, 176, 59, 0.12);
+}
+.sigCursor {
+    position: absolute;
+    z-index: 3;
+    top: -7px;
+    width: 4px;
+    height: 30px;
+    transform: translateX(-50%);
+    background: #e6ded0;
+    box-shadow: 0 0 10px rgba(230, 222, 208, 0.6);
+}
+.sigRow.locked .sigCursor { background: #2eff6a; box-shadow: 0 0 12px rgba(46, 255, 106, 0.55); }
+.sigStatus { margin-top: 12px; min-height: 16px; color: #6f807d; font-size: 11px; letter-spacing: 0.1em; text-align: center; }
+.sigFoot { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.sigTimer { display: flex; align-items: center; gap: 8px; color: #6f807d; font-size: 10px; letter-spacing: 0.12em; }
+.sigTimerShell { width: 120px; height: 6px; overflow: hidden; background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+.sigTimerFill { display: block; width: 100%; height: 100%; background: #2fb8a6; }
+.sigTimerFill.warn { background: #d9552f; }
+.sigLock, .sigAbort {
+    min-height: 34px;
+    padding: 7px 13px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.1em;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.sigLock { margin-left: auto; color: #0b0e10; background: #ffb03b; border: 1px solid #ffb03b; }
+.sigAbort { color: #ffb03b; background: transparent; border: 1px solid rgba(255, 176, 59, 0.45); }
+.sigBanner {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(8, 11, 12, 0.92);
+    font-size: clamp(18px, 3vw, 36px);
+    font-weight: bold;
+    letter-spacing: 0.18em;
+    text-align: center;
+}
+.sigBanner.on { display: flex; }
+.sigBanner.ok { color: #2eff6a; }
+.sigBanner.bad { color: #ff6b52; animation: hackAlarm 0.42s steps(1, end) infinite; }
+
 /* ---------- MINIGAME PERBAIKAN GENERATOR "FIELD REPAIR" (2026-07-29) — scene
    MODAL yang menggantikan bar "RESTORING GENERATOR" 10 dtk di Stage 2. TIGA
    papan berurutan, satu per komponen yang dikumpulkan player; TANPA hitung
@@ -2346,6 +2454,71 @@ body.cine #medkitBar, body.cine #stageMsg {
     cursor: pointer;
 }
 .repValveBtn:hover { background: rgba(255, 176, 59, 0.2); }
+/* ----- Stage 5-6 board 1: FUSE LOADOUT ----- */
+.repFuseWrap { display: grid; grid-template-columns: minmax(260px, 1fr) 190px; gap: 16px; width: 100%; }
+.repFusePanel, .repFuseRack {
+    min-width: 0; padding: 12px; background: #151a18; border: 1px solid #3d4742;
+    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.45) inset;
+}
+.repFuseLbl { margin-bottom: 10px; color: #87918d; font-size: 10px; letter-spacing: 0.14em; }
+.repFuseCircuit {
+    display: grid; grid-template-columns: 116px minmax(90px, 1fr) 116px; gap: 12px; align-items: center;
+    min-height: 54px; margin-top: 9px; padding: 9px; background: #0d1110; border: 1px solid #39423e;
+    cursor: pointer; user-select: none;
+}
+.repFuseCircuit.ok { border-color: #56865f; background: #122018; }
+.repFuseCircuit.bad { border-color: #8b3b2c; background: #201210; }
+.repFuseName { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.repFuseName span { color: #d9d2c6; font-size: 12px; letter-spacing: 0.1em; }
+.repFuseName strong { color: #ffb03b; font-size: 15px; }
+.repFuseCircuit.ok .repFuseName strong { color: #9de68d; }
+.repFuseMeter { position: relative; height: 16px; background: #080b0a; border: 1px solid #4b514d; overflow: hidden; }
+.repFuseBand { position: absolute; top: 0; bottom: 0; background: #365f3e; }
+.repFuseNeedle { position: absolute; top: -3px; bottom: -3px; width: 3px; transform: translateX(-1px); background: #ffe5a3; }
+.repFuseRead { color: #87918d; font-size: 9px; letter-spacing: 0.08em; text-align: right; }
+.repFuseRack { display: grid; grid-template-columns: 1fr; align-content: start; gap: 9px; }
+.repFuseRack .repFuseLbl { margin-bottom: 1px; }
+.repFuse {
+    display: flex; align-items: center; justify-content: space-between; min-height: 39px; padding: 7px 10px;
+    color: #d9d2c6; background: #242923; border: 2px solid #59615c; cursor: pointer; user-select: none;
+}
+.repFuse:hover { background: #30372f; }
+.repFuse.sel { border-color: #ffb03b; box-shadow: 0 0 0 2px rgba(255, 176, 59, 0.18); }
+.repFuse.used { opacity: 0.34; }
+.repFuse span { font-size: 18px; font-weight: bold; color: #ffb03b; }
+.repFuse b { font-size: 9px; letter-spacing: 0.16em; color: #87918d; }
+
+/* ----- Stage 5-6 board 2: ROTOR KICKSTART ----- */
+.repRotorWrap { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(250px, 1fr); gap: 24px; align-items: center; width: 100%; }
+.repRotorMachine { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.repRotor {
+    position: relative; width: min(31vh, 248px); aspect-ratio: 1; border-radius: 50%;
+    background: #161a18; border: 10px solid #444944; box-shadow: 0 0 0 4px #171a18, 0 9px 20px rgba(0, 0, 0, 0.65);
+    cursor: grab; user-select: none;
+}
+.repRotor:active { cursor: grabbing; }
+.repRotorFace { position: absolute; inset: 0; border-radius: 50%; }
+.repRotorFace::before { content: ''; position: absolute; inset: 18%; border: 4px solid #6a6b61; border-radius: 50%; background: #252a27; }
+.repRotorFace i { position: absolute; left: calc(50% - 2px); top: 7%; width: 4px; height: 43%; background: #74756b; transform-origin: 50% 100%; }
+.repRotorFace b { position: absolute; left: 39%; top: 39%; width: 22%; height: 22%; border-radius: 50%; background: #b66e2f; border: 5px solid #262a27; }
+.repCrank, .repIgnition, .repMaster {
+    min-height: 40px; padding: 8px 12px; font-family: inherit; font-weight: bold; letter-spacing: 0.08em;
+    color: #e6ded0; background: #171c1a; border: 1px solid #59615c; border-radius: 4px; cursor: pointer;
+}
+.repCrank { width: min(248px, 100%); color: #ffb03b; border-color: #8c642f; }
+.repCrank:hover, .repIgnition:hover, .repMaster:hover { background: #262d29; }
+.repCrank:disabled, .repIgnition:disabled, .repMaster:disabled { opacity: 0.35; cursor: default; }
+.repRotorControls { display: flex; flex-direction: column; gap: 11px; }
+.repRpmLabel { display: flex; align-items: center; justify-content: space-between; color: #87918d; font-size: 10px; letter-spacing: 0.1em; }
+.repRpmLabel strong { color: #ffb03b; font-size: 18px; }
+.repRpmMeter { position: relative; height: 28px; background: #0b0e0d; border: 1px solid #4c534f; }
+.repRpmGreen { position: absolute; top: 0; bottom: 0; background: #3f7545; }
+.repRpmNeedle { position: absolute; top: -5px; bottom: -5px; width: 3px; transform: translateX(-1px); background: #ffe5a3; }
+.repIgnition { color: #ffb03b; border-color: #8c642f; }
+.repIgnition.on { color: #d8f0d8; background: #34553a; border-color: #608a64; }
+.repMaster.on { color: #d8f0d8; background: #34553a; border-color: #608a64; }
+.repRotorState { min-height: 17px; color: #84908a; font-size: 10px; letter-spacing: 0.13em; text-align: center; }
+.repRotorWrap.bad .repRotorState { color: #ef755a; }
 /* ----- Kaki panel ----- */
 .repFoot { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
 .repHint { flex: 1; text-align: center; font-size: 11px; letter-spacing: 0.06em; color: #6f807d; }
@@ -2378,3 +2551,21 @@ body.cine #medkitBar, body.cine #stageMsg {
 }
 .repBanner.on { display: flex; }
 .repBanner.ok { color: #2eff6a; text-shadow: 0 0 26px rgba(46, 255, 106, 0.5); }
+
+@media (max-width: 620px), (max-height: 620px) {
+    .sigPanel, .repPanel { padding: 14px 12px 12px; }
+    .sigBoard { min-height: 210px; padding: 10px; gap: 7px; }
+    .sigRow { grid-template-columns: 42px minmax(110px, 1fr) 48px; gap: 7px; min-height: 40px; padding: 0 6px; }
+    .sigTimer { width: 100%; }
+    .sigLock { margin-left: 0; flex: 1; }
+    .repFuseWrap { grid-template-columns: 1fr 160px; gap: 10px; }
+    .repFuseCircuit { grid-template-columns: 96px minmax(80px, 1fr); }
+    .repFuseRead { grid-column: 1 / -1; text-align: left; }
+    .repRotorWrap { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .repRotor { width: min(26vh, 190px); }
+}
+@media (max-width: 500px) {
+    .repFuseWrap { grid-template-columns: 1fr; }
+    .repRotorWrap { grid-template-columns: 1fr; }
+    .repRotor { width: min(25vh, 176px); }
+}

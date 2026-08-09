@@ -370,6 +370,34 @@ export function updateGore(dt) {
 
 // resetGame: buang mayat & bangkai terbelah (dispose material robot),
 // sembunyikan pool gib & decal.
+// DUNIA YANG BERGULIR (2026-08-09, laporan user "serpihan robot masih berada di
+// tempat dan mengikuti pergerakan kereta player"): pada ilusi perjalanan Stage 5
+// KERETA-lah yang diam di koordinat dunia dan lanskapnya yang bergulir. Sisa
+// tempur — serpihan, bangkai, genangan coolant — karena itu HARUS ikut
+// digulirkan; kalau dibiarkan, ia diam TERHADAP KERETA dan terlihat terbawa
+// selamanya. `keep(x,z)` menandai apa yang tidak boleh ikut bergulir (isi
+// gerbong player: apa pun yang jatuh di lantai gerbong memang ikut kereta).
+export function driftGore(dx, keep = null) {
+    if (!dx) return;
+    const move = o => {
+        if (!o || !o.visible) return;
+        if (keep && keep(o.position.x, o.position.z)) return;
+        o.position.x -= dx;
+    };
+    // Item pool gib/decal adalah PEMBUNGKUS {mesh, life}, bukan meshnya sendiri.
+    for (const g of GIB_POOL) if (g.life > 0) move(g.mesh);
+    for (const d of DECAL_POOL) if (d.life > 0) move(d.mesh);
+    for (const c of corpses) move(c.group);
+    for (const w of bisected) { move(w.top); move(w.bot); }
+}
+
+// Posisi sisa tempur yang sedang tampil — dipakai smoke membuktikan serpihan
+// benar-benar DITINGGALKAN kereta (dan yang di dalam gerbong tidak).
+export const goreDebug = () => ({
+    gibs: GIB_POOL.filter(g => g.life > 0).map(g => ({ x: g.mesh.position.x, z: g.mesh.position.z })),
+    decals: DECAL_POOL.filter(d => d.life > 0).map(d => ({ x: d.mesh.position.x, z: d.mesh.position.z })),
+});
+
 export function resetGore() {
     for (const c of corpses) { for (const m of c.mats) m.dispose(); scene.remove(c.group); }
     corpses.length = 0;

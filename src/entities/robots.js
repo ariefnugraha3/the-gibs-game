@@ -791,6 +791,13 @@ export function queueBoom(x, y, z, r, hurtPlayer = false, playerDmg = 0, dmg = n
     pendingBooms.push({ pos: new THREE.Vector3(x, y, z), r, hurtPlayer, playerDmg, dmg, sfx });
 }
 export function resetRobotsFx() { pendingBooms.length = 0; }   // dipanggil resetGame
+// Antrean ledakan yang BELUM diproses (read-only, utk smoke). Dipakai menguji
+// kontrak ledakan yang diantre sebuah senjata musuh — radius, hurtPlayer, dan
+// damage ke player — tanpa harus menjalankan loop robot penuh.
+export const pendingBoomsDebug = () => pendingBooms.map(b => ({
+    x: b.pos.x, y: b.pos.y, z: b.pos.z, r: b.r,
+    hurtPlayer: !!b.hurtPlayer, playerDmg: b.playerDmg, dmg: b.dmg,
+}));
 
 // Skor per kematian: boss = `CFG.campaign.bosses.giant.score`; selain itu dari
 // `CFG.robot.score` — special = kelas penembak A/B (150), normal = kelas C (100).
@@ -943,6 +950,29 @@ export function fireRobotBullet(z, tx, ty, tz, monasDmg = 0) {
 // Gerak & hit peluru MUSUH -> player. Sweep segmen (anti-tunnel peluru cepat);
 // i-frame dodge & god-mode = peluru MELESET (lenyap tanpa damage). Diblok
 // dinding/Monas via activeScene.bulletBlocked (robot tak bisa nembak tembus tembok).
+// PELURU MUSUH TANPA ROBOT (2026-08-09): dipakai senjata kendaraan/boss yang
+// BUKAN anggota array `robots` — MG lokomotif mini-boss Stage 5. Memakai
+// geometri + material peluru robot yang SAMA (sudah dipanaskan preload), jadi
+// tidak ada shader baru yang lahir di tengah permainan. Arah diambil dari titik
+// sasaran EKSPLISIT, bukan dari posisi player saat ini: MG lokomotif memang
+// menembak lurus ke titik yang sudah dikunci.
+export function spawnTurretBullet(x, y, z, tx, tz, speed, dmg) {
+    const dx = tx - x, dz = tz - z, d = Math.hypot(dx, dz) || 1;
+    const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
+    m.scale.setScalar(1.05);
+    m.position.set(x, y, z);
+    scene.add(m);
+    enemyBullets.push({
+        mesh: m, dir: new THREE.Vector3(dx / d, 0, dz / d),
+        speed, life: CFG.robot.rangedBulletLife, dmg, monasDmg: 0,
+        px: x, py: y, pz: z,
+    });
+    const pd = Math.hypot(x - camera.position.x, z - camera.position.z);
+    if (pd < 400) playSFX(sfxRobotShot, Math.max(0.12, 0.45 * (1 - pd / 400)));
+    spawnMuzzleFlash(x, y, z, Math.atan2(dx / d, dz / d), 4.6);
+    return m;
+}
+
 export function updateEnemyBullets(dt, step) {
     const hitR2 = player.radius * player.radius;
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
@@ -1098,10 +1128,16 @@ export function updateRobots(dt, step) {
         // (robot ber-skala kecil, pusat rendah) lolos DI BAWAH lintasan peluru
         // setinggi laras dan mustahil ditembak dari depan. Damage per peluru dibawa
         // b.damage (rifle/pistol/shotgun beda). Radius diskalakan z.scl (kelas B/A/boss).
+        // `z.invuln` (2026-08-09): robot yang ADA di dunia tapi belum boleh
+        // dilukai — dipakai robot gerbong kereta musuh yang sudah berdiri siap
+        // di dalam peti bajanya sementara ramp-nya belum terbuka penuh. Dijaga
+        // di SEMUA jalur damage (peluru di sini, ledakan di effects.explodeAt,
+        // melee di weapons.doMeleeHit); `skip` saja tidak cukup karena ledakan
+        // mengiterasi `robots` sendiri di luar loop ini.
         const scl = z.scl || 1;
         const hitR = (z.isModel ? CFG.robot.bodyHitRadius : 4.5) * scl;
         const hitY = z.mesh.position.y + (z.isModel ? 6 : 0) * scl;   // tinggi percikan darah (visual)
-        for (let j = bullets.length - 1; j >= 0; j--) {
+        for (let j = bullets.length - 1; !z.invuln && j >= 0; j--) {
             const b = bullets[j];
             const bx = b.mesh.position.x, bz = b.mesh.position.z;
             if (segPointDist2(b.px, 0, b.pz, bx, 0, bz,

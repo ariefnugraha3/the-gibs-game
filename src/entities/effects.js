@@ -277,6 +277,7 @@ export function explodeAt(pos, radius, dmg, sfx) {
     const R = radius != null ? radius : CFG.grenade.killRadius + 3.5;
     for (let i = robots.length - 1; i >= 0; i--) {
         const z = robots[i];
+        if (z.invuln) continue;   // belum boleh dilukai (mis. masih tersegel di gerbong musuh)
         if (z.mesh.position.distanceTo(pos) < R) {
             // PINTU TERTUTUP menahan ledakan (2026-07-19, permintaan user):
             // hook scene opsional blastBlocked (stage 1-3 -> doorBlocksShot) —

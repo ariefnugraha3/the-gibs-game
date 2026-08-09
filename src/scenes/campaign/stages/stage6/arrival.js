@@ -25,6 +25,8 @@ import { clearMoveTarget } from '../../../../entities/player.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { spawnCrate, resolveCrateBlock } from '../../../../entities/crates.js';
 import { campaignRobotAI, campaignClampRobot } from '../../utility/common.js';
+import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
+import { beginRepairMinigame, ADVANCED_REPAIR_PARTS } from '../../utility/repairMinigame.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import {
     phase, setPhase, cine, setCine, cineCam, cleanupCine, enterSub,
@@ -45,16 +47,18 @@ const C6 = () => CFG.campaign.stage6;
 
 let keyRack = 0, hasKey = false, infoRead = false;
 let rackSearched = [false, false, false], rackProgress = [0, 0, 0];
-let generatorOnline = [false, false, false], repairProgress = [0, 0, 0];
-let infoProgress = 0, interactionKind = '';
+let generatorOnline = [false, false, false], generatorStep = [0, 0, 0];
+let generatorArmed = [true, true, true], infoArmed = true, infoHackCd = 0;
+let interactionKind = '';
 let hallAwake = false, hallSpawned = false, gridSpawned = false, exfilSpawned = false;
 let enteredSupply = false, enteredHall = false, chapterDone = false, elapsed = 0;
 
 export function resetArrival() {
     keyRack = 0; hasKey = false; infoRead = false;
     rackSearched = [false, false, false]; rackProgress = [0, 0, 0];
-    generatorOnline = [false, false, false]; repairProgress = [0, 0, 0];
-    infoProgress = 0; interactionKind = '';
+    generatorOnline = [false, false, false]; generatorStep = [0, 0, 0];
+    generatorArmed = [true, true, true]; infoArmed = true; infoHackCd = 0;
+    interactionKind = '';
     hallAwake = false; hallSpawned = false; gridSpawned = false; exfilSpawned = false;
     enteredSupply = false; enteredHall = false; chapterDone = false; elapsed = 0;
 }
@@ -150,20 +154,41 @@ function updateRacks(dt) {
     openGridDoor();
 }
 
-function updateInfoTerminal(dt) {
-    const C = C6();
-    if (infoRead || !near(S6_INFO, C.infoRange)) {
-        if (interactionKind === 'info') hideInteraction();
-        infoProgress = 0; return;
-    }
-    if (interactionKind !== 'info') { interactionKind = 'info'; showDownloadBar('READING MAINTENANCE LOG'); }
-    infoProgress = Math.min(C.infoReadSec, infoProgress + dt);
-    setDownloadProgress(infoProgress / Math.max(0.01, C.infoReadSec));
-    if (infoProgress < C.infoReadSec) return;
+function finishInfoHack() {
     infoRead = true; hideInteraction(); setInfoRead(true);
     queueDialogue('infoRead');
-    showStageMsg(`MAINTENANCE LOG — KEY LOGGED TO RACK ${keyRack + 1} OF 3`, 4200);
+    showStageMsg(`MAINTENANCE LOG - KEY LOGGED TO RACK ${keyRack + 1} OF 3`, 4200);
     syncMarkers();
+}
+
+function infoHackFailed(reason) {
+    infoArmed = false;
+    if (reason !== 'fail') {
+        showStageMsg('SIGNAL TRACE ABORTED - STEP AWAY, THEN TRY AGAIN', 3200);
+        return;
+    }
+    const C = C6();
+    infoHackCd = C.signalCooldownSec;
+    spawnEncounter(encounterPoints('grid'), 'signalAlarm', C.encounters.signalAlarm, true);
+    showStageMsg(`TRACE ALARM - TERMINAL REBOOTS IN ${Math.round(infoHackCd)}s`, 4200);
+}
+
+function updateInfoTerminal(dt) {
+    const C = C6();
+    infoHackCd = Math.max(0, infoHackCd - dt);
+    if (infoRead) return;
+    if (!near(S6_INFO, C.infoRange)) {
+        infoArmed = true;
+        return;
+    }
+    if (!infoArmed || infoHackCd > 0) return;
+    infoArmed = false;
+    beginSignalTraceMinigame({
+        head: 'MAINTENANCE LOG TERMINAL',
+        sub: 'Capture the encrypted maintenance carriers to reveal the service-key record.',
+        onSuccess: finishInfoHack,
+        onFail: infoHackFailed,
+    });
 }
 
 function openGridDoor() {
@@ -180,29 +205,38 @@ function openGridDoor() {
 }
 
 // --- Generator -------------------------------------------------------------
-function updateGenerators(dt) {
+function generatorRestored(i) {
+    generatorStep[i] = ADVANCED_REPAIR_PARTS.length;
+    generatorOnline[i] = true;
+    setGeneratorOnline(i, true); activateSparks(GENERATOR_POINTS[i], 2.2);
+    if (onlineCount() === 1) queueDialogue('generatorFirst');
+    if (onlineCount() < GENERATOR_POINTS.length) {
+        showStageMsg(`GENERATOR ONLINE - ${onlineCount()}/${GENERATOR_POINTS.length}`, 2600);
+        syncMarkers(); return;
+    }
+    beginExfil();
+}
+
+function beginGeneratorRepair(i) {
+    generatorArmed[i] = false;
+    beginRepairMinigame({
+        head: `GENERATOR ${i + 1} - FIELD RESTART`,
+        parts: ADVANCED_REPAIR_PARTS,
+        startIndex: generatorStep[i],
+        onProgress: k => { generatorStep[i] = k; },
+        onSuccess: () => generatorRestored(i),
+        onFail: () => showStageMsg(
+            `REPAIR ABORTED - ${generatorStep[i]}/${ADVANCED_REPAIR_PARTS.length} STEPS COMPLETE`, 3400),
+    });
+}
+
+function updateGenerators() {
     const C = C6();
     let active = -1;
     for (let i = 0; i < GENERATOR_POINTS.length; i++)
         if (!generatorOnline[i] && near(GENERATOR_POINTS[i].stand, C.repairRange)) { active = i; break; }
-    for (let i = 0; i < repairProgress.length; i++) if (i !== active) repairProgress[i] = 0;
-    if (active < 0) {
-        if (interactionKind.startsWith('repair')) hideInteraction();
-        return;
-    }
-    const ik = `repair-${active}`;
-    if (interactionKind !== ik) { interactionKind = ik; showDownloadBar(`FIELD REPAIR — GENERATOR ${active + 1}`); }
-    repairProgress[active] = Math.min(C.repairSec, repairProgress[active] + dt);
-    setDownloadProgress(repairProgress[active] / Math.max(0.01, C.repairSec));
-    if (repairProgress[active] < C.repairSec) return;
-    generatorOnline[active] = true; hideInteraction();
-    setGeneratorOnline(active, true); activateSparks(GENERATOR_POINTS[active], 2.2);
-    if (onlineCount() === 1) queueDialogue('generatorFirst');
-    if (onlineCount() < GENERATOR_POINTS.length) {
-        showStageMsg(`GENERATOR ONLINE — ${onlineCount()}/${GENERATOR_POINTS.length}`, 2600);
-        syncMarkers(); return;
-    }
-    beginExfil();
+    for (let i = 0; i < generatorArmed.length; i++) if (i !== active) generatorArmed[i] = true;
+    if (active >= 0 && generatorArmed[active]) beginGeneratorRepair(active);
 }
 
 function beginExfil() {
@@ -257,8 +291,9 @@ function wakeHall() {
 export const arrivalDebug = () => ({
     keyRack, hasKey, infoRead,
     rackSearched: [...rackSearched], rackProgress: [...rackProgress],
-    generatorOnline: [...generatorOnline], repairProgress: [...repairProgress],
-    generatorsOnline: onlineCount(), infoProgress, interaction: interactionKind,
+    generatorOnline: [...generatorOnline], generatorStep: [...generatorStep],
+    generatorArmed: [...generatorArmed], generatorsOnline: onlineCount(),
+    infoArmed, infoHackCd, interaction: interactionKind,
     hallAwake, hallSpawned, gridSpawned, exfilSpawned,
     enteredSupply, enteredHall, chapterDone, elapsed,
 });
@@ -312,7 +347,7 @@ export const arrivalScene = {
             return;
         }
         if (phase === 'findKey') { updateInfoTerminal(dt); updateRacks(dt); return; }
-        if (phase === 'powerGrid') { updateGenerators(dt); return; }
+        if (phase === 'powerGrid') { updateGenerators(); return; }
     },
 
     // --- Hook scene ---------------------------------------------------------

@@ -59,6 +59,15 @@ let gunGrpRef = null;                                 // grup senjata (utk digel
 let radioPoseActive = false, radioPoseYaw = 0, radioPoseGesture = 'gibranCall';
 let radioPoseProgress = 0, radioPoseT = 0;
 let vehiclePoseActive = false, vehiclePoseHeight = 0;
+// DIBAWA PLATFORM (2026-08-09, laporan user "ketika kereta berjalan, major
+// gibran malah terlihat sedang berlari"): gait avatar diturunkan dari
+// PERPINDAHAN PIVOT per frame, jadi begitu pivot ikut terbawa gerbong yang
+// melaju ia terbaca berlari di tempat. Flag ini memberi tahu rig bahwa
+// perpindahan itu BUKAN langkah kakinya sendiri; posisinya tetap diperbarui,
+// hanya siklus langkahnya yang diam.
+let carriedPose = false;
+export function setAvatarCarried(on) { carriedPose = !!on; }
+export const avatarCarriedDebug = () => carriedPose;
 let radioPoseDbg = {
     active: false, yaw: 0, gesture: '', progress: 0, t: 0,
     leftY: 0, rightY: 0, gunPitch: 0, torsoPitch: 0, headYaw: 0, bodyY: 0,
@@ -1153,7 +1162,7 @@ function poseDeath(dt, feetY) {
 export function resetAvatarDeath() {
     rappelActive = false;   // batalkan pose rappel intro juga
     radioPoseActive = false;
-    vehiclePoseActive = false; vehiclePoseHeight = 0;
+    vehiclePoseActive = false; vehiclePoseHeight = 0; carriedPose = false;
     if (hipL) hipL.visible = true;
     if (hipR) hipR.visible = true;
     radioPoseGesture = 'gibranCall'; radioPoseProgress = 0; radioPoseT = 0;
@@ -1423,7 +1432,8 @@ export function updatePlayerAvatar(dt) {
     if (meleeT > 0 && (meleeDirX || meleeDirZ)) aimYaw = Math.atan2(meleeDirX, meleeDirZ);
     // Kecepatan horizontal NYATA (WASD ataupun klik-kanan) + arah geraknya.
     const vx = dt > 0 ? (px - lastX) / dt : 0, vz = dt > 0 ? (pz - lastZ) / dt : 0;
-    const sp = Math.hypot(vx, vz);
+    // `carriedPose`: pivotnya dibawa kendaraan, bukan berjalan (lihat deklarasi).
+    const sp = carriedPose ? 0 : Math.hypot(vx, vz);
     lastX = px; lastZ = pz;
     const moving = sp > 1;
     const inMelee = meleeT > 0;

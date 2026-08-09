@@ -3,7 +3,7 @@
 // dilihat core/sceneManager (id `campaign-5`, checkpoint 5, resume modal
 // hack/repair), sementara isi stage dipecah menjadi EMPAT SUB-SCENE di folder
 // ini — station (stasiun awal) -> departure (cutscene kereta berangkat) ->
-// journey (perjalanan) -> arrival (tiba di Bandung, stage selesai).
+// journey (perjalanan) -> finish (cutscene tiba di Bandung, stage selesai).
 // Pergantian sub-scene memakai fade-in `CFG.campaign.stage5.subSceneFadeSec`
 // (0.5 dtk); lihat runtime.js.
 
@@ -35,12 +35,12 @@ import { journeyHighwayDebug as hwPoolDebug } from '../../../../entities/train.j
 import { stationScene, stationDebug, resetStation } from './station.js';
 import { departureScene, departureDebug, resetDeparture } from './departure.js';
 import { journeyScene, journeyDebug, resetJourney } from './journey.js';
-import { arrivalScene } from './arrival.js';
+import { finishScene, finishDebug, resetFinish } from './finish.js';
 
 // Permukaan publik stage 5 tidak berubah walau file-nya dipecah.
 export {
     S5_MAP, S5_LEGEND, S5_FINISH_MAP, S5_START, S5_GENERATOR, S5_TERMINAL,
-    S5_BOARD, S5_TCI, S5_ENGINE, S5_SPAWN_MACHINE, S5_MACHINE_SPAWNS,
+    S5_BOARD, S5_TCI, S5_SPAWN_MACHINE, S5_MACHINE_SPAWNS,
     BARREL_POINTS, ensureWorld, worldBuilt, resolve,
     stage5Walk, stage5TrainWalk, stage5SegHitsWall, stage5WorldDebug,
     stage5StaticBatchDbg,
@@ -50,14 +50,14 @@ export { highwayDebug, roadOffsetAt } from './highway.js';
 // Transform HIDUP pool jalan raya: dipakai smoke untuk memastikan sambungan
 // modulnya rapat (regresi "jalannya patah-patah", 2026-08-08).
 export const journeyHighwayDebug = () => hwPoolDebug(highway);
-export { stationScene, departureScene, journeyScene, arrivalScene };
+export { stationScene, departureScene, journeyScene, finishScene };
 
 const RIDE_PHASES = ['departure', 'ride', 'arrival'];
 const activeSub = () => sub || stationScene;
 
 function resetStage() {
     setPhase('opening'); setComplete(false); resetRide();
-    resetStation(); resetDeparture(); resetJourney(); resetSub();
+    resetStation(); resetDeparture(); resetJourney(); resetFinish(); resetSub();
     stopTrainLoop(); cleanupCine(); resetDialogue(); resetEnemyTrain(); resetHighway();
     resetWorldVisual();
 }
@@ -76,6 +76,7 @@ export const stage5Debug = () => {
         machine: st.machine,
         flybySent: st.flybySent,
         departureShift: departureDebug().shift, departure: departureDebug(),
+        finish: finishDebug(),
         stationX: stationRoot?.position?.x || 0, stationZ: stationRoot?.position?.z || 0,
         rideT, routeK: routeK(), gapT: jr.gapT,
         consistLaunched: jr.consistLaunched,

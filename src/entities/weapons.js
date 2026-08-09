@@ -1044,6 +1044,7 @@ export function doMeleeHit() {
     let hit = false;
     for (let i = robots.length - 1; i >= 0; i--) {
         const z = robots[i];
+        if (z.invuln) continue;   // belum boleh dilukai (mis. masih tersegel di gerbong musuh)
         const dx = z.mesh.position.x - camera.position.x;
         const dz = z.mesh.position.z - camera.position.z;
         const d = Math.hypot(dx, dz);
@@ -1156,6 +1157,25 @@ export function weaponDamage(w) {
     return base * (1 + (CFG.weapons.upgradeDamagePct || 0.25) * (lvl - 1));
 }
 
+// Kadens efektif (ms antar tembakan). Level upgrade TIDAK mengubah kadens
+// kecuali senjata itu punya tabel `fireDelayByLevel` (2026-08-09, permintaan
+// user: shotgun Lv3 = 0.8 tembakan/detik = 1250 ms — Lv3 memukul lebih keras
+// TAPI lebih lambat, jadi tabel ini memang boleh MENAIKKAN delay). Indeks =
+// level-1; level di luar tabel memakai entri terakhir, senjata tanpa tabel
+// tetap memakai `fireDelayMs`. SATU-SATUNYA pembaca kadens — jangan baca
+// `fireDelayMs` langsung di tempat lain, nanti Lv3 diam-diam kembali ke base.
+// `lvl` opsional: default = level yang sedang dipakai player. Field Shop
+// memakainya utk MENGUTIP kadens level yang sedang dijual tanpa menyalin ulang
+// aturan tabelnya.
+export function weaponFireDelay(w, lvl) {
+    const wc = CFG.weapons[w] || {};
+    const tbl = wc.fireDelayByLevel;
+    if (!Array.isArray(tbl) || !tbl.length) return wc.fireDelayMs;
+    const l = lvl != null ? lvl : (player.weaponLvl && player.weaponLvl[w]) || 1;
+    const v = tbl[Math.min(tbl.length, Math.max(1, l)) - 1];
+    return v != null ? v : wc.fireDelayMs;
+}
+
 // --- Tembak (kiri klik), fire-rate berbasis waktu nyata, per senjata ---
 // Peluru & damage identik utk kedua senjata; pistol semi-cepat.
 export function updateShooting() {
@@ -1167,7 +1187,7 @@ export function updateShooting() {
     // utk memilih suara tembak/ledakan: grenade vs rocket).
     const isRocket = isLauncher && ((player.weaponLvl && player.weaponLvl.launcher) || 1) >= 3;
     if (mouse.isDown && !player.isReloading && switchAnim < 0 && meleeT <= 0
-        && Date.now() - player.lastShot > wcfg.fireDelayMs && wpn.ammo > 0) {
+        && Date.now() - player.lastShot > weaponFireDelay(currentWeapon) && wpn.ammo > 0) {
         muzzlePoint.getWorldPosition(_tip);   // muzzle senjata aktif
 
         camera.getWorldDirection(_v3);
@@ -1265,7 +1285,7 @@ export function updateShooting() {
         wpn.ammo--;
         player.lastShot = Date.now();
         gunRecoil = 1;
-        fireBurstFx(wcfg, isLauncher);   // hentakan + kilat + selongsong + guncang kamera
+        fireBurstFx(wcfg, isLauncher, weaponFireDelay(currentWeapon));   // hentakan + kilat + selongsong + guncang kamera
         updateUI();
     } else if (mouse.isDown && emptyReady && switchAnim < 0
         && meleeT <= 0 && wpn.ammo === 0) {
@@ -1284,14 +1304,16 @@ export function updateShooting() {
 // asap & debu untuk senjata BERAT, dan guncangan kamera kecil. Semuanya
 // config-driven lewat `CFG.weapons.recoil` × `cameraKick` senjata, jadi pistol
 // mencuit sementara shotgun/launcher benar-benar MENGHENTAK.
-function fireBurstFx(wcfg, isLauncher) {
+function fireBurstFx(wcfg, isLauncher, delayMs) {
     const RC = CFG.weapons.recoil || {};
     const kick = (wcfg && wcfg.cameraKick) || 0.015;
     // Jam animasi: panjangnya mengikuti kadens senjata (senapan cepat = hentakan
     // pendek yang saling menimpa; shotgun = hentakan panjang yang sempat reda).
+    // `delayMs` = kadens EFEKTIF (weaponFireDelay), bukan base — supaya senjata
+    // ber-tabel per level tidak memakai jam hentakan level lain.
     shotT = 0;
     shotDur = Math.max(RC.durMin || 0.17,
-        Math.min(RC.durMax || 0.5, ((wcfg && wcfg.fireDelayMs) || 200) / 1000 * (RC.durMul || 1.7)));
+        Math.min(RC.durMax || 0.5, (delayMs || (wcfg && wcfg.fireDelayMs) || 200) / 1000 * (RC.durMul || 1.7)));
     shotKick = kick;
     shotSide = Math.random() < 0.5 ? -1 : 1;
     recoilStack = Math.min(1, recoilStack + (RC.climbPerShot || 0.3));

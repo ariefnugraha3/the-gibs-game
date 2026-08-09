@@ -1,5 +1,7 @@
 // N.U.S.A. combat gunship boss — entity BARU untuk Stage 8. Sengaja tidak
-// memakai atau mengimpor entities/helicopter.js. HP selalu membaca HP tank.
+// memakai atau mengimpor entities/helicopter.js. HP/skor = `bosses.gunship.hp`
+// / `.score` MILIKNYA SENDIRI (2026-08-09, permintaan user) — dulu HP-nya
+// meminjam `bosses.tank.hp`, jadi meretune tank diam-diam meretune bos akhir.
 //
 // ROMBAK TOTAL BENTUK 2026-08-08 (permintaan user: "buat agar lebih bagus, lebih
 // dramatis, lebih futuristis, lebih cinematic, dan lebih terlihat keren lagi").
@@ -254,7 +256,7 @@ export function createCombatGunship(scale = 4.8) {
     }
     const gunship = {
         parts, missiles, shells, telegraph: makeTelegraph(), active: false,
-        hp: 0, maxHp: 0, dead: false, deathDone: false, deathT: 0, deathBlast: false,
+        hp: 0, maxHp: 0, score: 0, dead: false, deathDone: false, deathT: 0, deathBlast: false,
         attackIdx: 0, attackState: 'cooldown', attackT: 0, targetLane: 0,
         mgLeft: 0, mgT: 0, missileLeft: 0, missileT: 0, hoverT: 0, hitT: 0,
         gatSpin: 0,
@@ -265,8 +267,10 @@ export function createCombatGunship(scale = 4.8) {
 
 export function resetCombatGunship(gunship, opts = {}) {
     if (!gunship) return;
-    const hp = CFG.campaign.bosses.tank.hp;
-    gunship.hp = hp; gunship.maxHp = hp; gunship.active = !!opts.active;
+    // HP/skor SENDIRI, sejajar bos tank (2026-08-09, permintaan user).
+    const B = CFG.campaign.bosses.gunship;
+    gunship.hp = B.hp; gunship.maxHp = B.hp; gunship.score = B.score;
+    gunship.active = !!opts.active;
     gunship.dead = false; gunship.deathDone = false; gunship.deathT = 0; gunship.deathBlast = false;
     gunship.attackIdx = 0; gunship.attackState = 'cooldown'; gunship.attackT = opts.holdSec || 1;
     gunship.targetLane = 0; gunship.mgLeft = 0; gunship.mgT = 0;
@@ -299,7 +303,7 @@ function laneZ(ctx, lane) {
 }
 
 function startTelegraph(g, ctx) {
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     g.targetLane = ctx.playerLane;
     g.attackState = 'telegraph';
     g.attackT = g.attackIdx === 0 ? C.mgTelegraphSec
@@ -310,7 +314,7 @@ function startTelegraph(g, ctx) {
 }
 
 function endAttack(g) {
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     const enraged = g.hp <= g.maxHp * C.enrageHpFrac;
     g.attackIdx = (g.attackIdx + 1) % 3;
     g.attackState = 'cooldown';
@@ -319,7 +323,7 @@ function endAttack(g) {
 }
 
 function fireMG(g, ctx) {
-    const C = CFG.campaign.stage8.gunship, p = g.parts;
+    const C = CFG.campaign.bosses.gunship, p = g.parts;
     const sx = p.group.position.x - 8, sy = 13, sz = laneZ(ctx, g.targetLane);
     const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
     m.scale.set(1.15, 1.15, 7); m.position.set(sx, sy, sz); scene.add(m);
@@ -332,7 +336,7 @@ function fireMG(g, ctx) {
 }
 
 function fireCannon(g, ctx) {
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     const s = g.shells.find(x => !x.active); if (!s) { endAttack(g); return; }
     s.active = true; s.life = 3; s.laneZ = laneZ(ctx, g.targetLane);
     s.mesh.visible = true; s.mesh.position.set(g.parts.group.position.x - 5, 8, s.laneZ);
@@ -340,7 +344,7 @@ function fireCannon(g, ctx) {
 }
 
 function fireMissile(g) {
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     const m = g.missiles.find(x => !x.active); if (!m) return;
     const slot = g.missileLeft;
     m.active = true; m.hp = C.missileHp; m.life = C.missileLifeSec;
@@ -351,7 +355,7 @@ function fireMissile(g) {
 }
 
 function updateAttacks(g, dt, ctx) {
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     if (!ctx.allowAttack) return;
     if (g.attackState === 'cooldown') {
         g.attackT -= dt;
@@ -391,7 +395,7 @@ function updateAttacks(g, dt, ctx) {
 }
 
 function updateShells(g, dt) {
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     for (const s of g.shells) if (s.active) {
         s.mesh.position.x -= C.cannonSpeed * dt; s.life -= dt;
         if (s.mesh.position.x <= camera.position.x + 2 || s.life <= 0) {
@@ -409,7 +413,7 @@ function wrapAngle(a) {
 }
 
 function updateMissiles(g, dt) {
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     for (const m of g.missiles) if (m.active) {
         const want = Math.atan2(camera.position.z - m.mesh.position.z,
             camera.position.x - m.mesh.position.x);
@@ -430,7 +434,7 @@ function updateMissiles(g, dt) {
 }
 
 function projectileHits(g) {
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     for (let bi = bullets.length - 1; bi >= 0; bi--) {
         const b = bullets[bi], bx = b.mesh.position.x, bz = b.mesh.position.z;
         let consumed = false;
@@ -510,7 +514,7 @@ function aimYaw(p, tx, tz, limit) {
 export function updateCombatGunship(g, dt, ctx = {}) {
     if (!g || !g.active) return;
     if (g.dead) { updateDeath(g, dt); return; }
-    const C = CFG.campaign.stage8.gunship;
+    const C = CFG.campaign.bosses.gunship;
     const p = g.parts; g.hoverT += dt;
     p.group.visible = true;
     p.group.position.x = ctx.bossX == null ? p.group.position.x : ctx.bossX;
@@ -570,7 +574,7 @@ export function disposeCombatGunship(g) {
 export function combatGunshipDebug(g) {
     return {
         built: !!g, active: !!g?.active, hp: g?.hp || 0, maxHp: g?.maxHp || 0,
-        hpMatchesTank: !!g && g.maxHp === CFG.campaign.bosses.tank.hp,
+        score: g?.score || 0,
         dead: !!g?.dead, deathDone: !!g?.deathDone, deathT: g?.deathT || 0,
         attackIdx: g?.attackIdx ?? -1, attackState: g?.attackState || 'none',
         targetLane: g?.targetLane ?? null, mgLeft: g?.mgLeft || 0,

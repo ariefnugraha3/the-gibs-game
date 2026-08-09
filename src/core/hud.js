@@ -206,9 +206,13 @@ export function drawRadar() {
     // Landmark per scene: Monas (survival) / tangga exit / air mancur + blokade
     if (activeScene && activeScene.radarLandmarks) activeScene.radarLandmarks(plot);
 
-    // Robot
-    for (const z of robots)
+    // Robot. Yang meshnya disembunyikan scene (mis. awak gerbong kereta musuh
+    // yang masih tersegel, atau robot campaign di luar jarak cull) TIDAK
+    // diplot: radar memetakan apa yang ada di medan, bukan isi peti baja.
+    for (const z of robots) {
+        if (!z.mesh.visible) continue;
         plot(z.mesh.position.x - camera.position.x, z.mesh.position.z - camera.position.z, "#ff4757", 3);
+    }
     // Drops — amunisi memakai warna KHAS jenis senjatanya (AMMO_KINDS, 2026-07-26),
     // medkit merah muda, loot/uang amber, lainnya hijau.
     for (const d of drops)

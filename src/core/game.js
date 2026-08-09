@@ -74,6 +74,7 @@ export function updateGame(dt, step, T, dtReal = dt) {
     // tetap dikecualikan.
     if (isPaused) {
         if (stageStats.active && (activeScene?.id === 'campaign-hack'
+            || activeScene?.id === 'campaign-signal-trace'
             || activeScene?.id === 'campaign-repair')) updateStageStats(dtReal);
         return;
     }

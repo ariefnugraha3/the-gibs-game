@@ -34,12 +34,14 @@ import { explodeAt } from '../../../../entities/effects.js';
 import { spawnGibs } from '../../../../entities/gore.js';
 import { PAL } from '../../../../world/palette.js';
 import { playSFX, sfxTankExplode } from '../../../../utils/sfx.js';
-import { updateJourneyHighway, resetJourneyHighway } from '../../../../entities/train.js';
+import {
+    updateJourneyHighway, resetJourneyHighway, setJourneyForeground,
+} from '../../../../entities/train.js';
 import {
     TRAIN_BASE_X, TRAIN_CENTER_Z, TRAIN_X0, TRAIN_X1,
-    highway, highwayPickups, highwayLaneOffset, HIGHWAY_HALF_W, HIGHWAY_LANES,
+    journey, highway, highwayPickups, highwayLaneOffset, HIGHWAY_HALF_W, HIGHWAY_LANES,
 } from './world.js';
-import { spawnOne, trainSpeed } from './runtime.js';
+import { spawnOne, trainSpeed, etrain } from './runtime.js';
 
 const hwCfg = () => CFG.campaign.stage5.highway || {};
 const smoothK = k => k * k * (3 - 2 * k);
@@ -51,6 +53,7 @@ let spawnT = 0, spawned = 0, destroyed = 0, announced = false;
 export function resetHighway() {
     active = false; travel = 0; startTravel = 0;
     spawnT = 0; spawned = 0; destroyed = 0; announced = false;
+    setJourneyForeground(journey, true);
     resetJourneyHighway(highway);
     for (const p of highwayPickups) resetEnemyPickupVisual(p);
 }
@@ -84,6 +87,7 @@ export const roadMerged = () => active
 // adalah bangunan statis dan tidak boleh berbagi ruang dengan pool jalan.
 export function stopHighway() {
     active = false;
+    setJourneyForeground(journey, true);
     resetJourneyHighway(highway);
     for (const p of highwayPickups) resetEnemyPickupVisual(p);
 }
@@ -91,6 +95,11 @@ export function stopHighway() {
 export function startHighway() {
     if (active) return false;
     active = true; startTravel = travel; spawnT = 0;
+    // Pita depan sisi kamera DIPADAMKAN: jalan raya akan menyapu tepat melewati
+    // z 84..96 saat merapat, jadi rumah/pohon di sana berakhir di tengah aspal
+    // (laporan user 2026-08-09). Padamnya menjalar lewat wrap — tak ada yang
+    // lenyap di depan mata.
+    setJourneyForeground(journey, false);
     return true;
 }
 
@@ -121,9 +130,14 @@ function spawnHighwayPickup() {
     p.group.position.z = pickupZ(p);
     p.group.rotation.y = 0;
     p.passengers = [];
-    const loads = C.loads || [['B', 'B', 'A']];
-    const classes = loads[spawned % loads.length];
-    for (let i = 0; i < 3; i++) {
+    // KOMPOSISI SAAT MELAWAN MINI BOS LOKOMOTIF (2026-08-09, permintaan user
+    // "sesekali datangkan juga robot yang menggunakan mobil, tapi cuma boleh ada
+    // 2 robot kelas B"): pengangkut hanya membawa DUA penumpang, keduanya kelas
+    // B. Di luar babak bos komposisinya tetap `loads` yang lama.
+    const boss = etrain.mode === 'boss';
+    const classes = boss ? (C.bossLoad || ['B', 'B'])
+        : (C.loads || [['B', 'B', 'A']])[spawned % (C.loads || [1]).length];
+    for (let i = 0; i < classes.length; i++) {
         const r = spawnOne(classes[i] || 'B', p.group.position.x, p.group.position.z,
             `hwpickup-${spawned}`);
         r.mounted = true; r.mountSlot = i; r.pickup = p; r.state = 'mounted';
@@ -187,7 +201,11 @@ export function updateHighway(dt, consistDone) {
     spawnT += dt;
     const gap = spawned === 0 ? (C.firstPickupSec ?? 6) : (C.pickupGapSec ?? 16);
     if (spawnT < gap) return;
-    if (activeHighwayPickups() >= Math.max(1, C.maxActivePickups | 0) || !freePickup()) return;
+    // Selama babak bos hanya SATU pengangkut boleh hidup, jadi jumlah robot
+    // kelas B dari jalan raya tak pernah melewati dua.
+    const cap = etrain.mode === 'boss'
+        ? Math.max(1, C.bossMaxActive | 0) : Math.max(1, C.maxActivePickups | 0);
+    if (activeHighwayPickups() >= cap || !freePickup()) return;
     if (spawnHighwayPickup()) spawnT = 0;
 }
 

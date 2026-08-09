@@ -17,7 +17,7 @@ import { CFG } from '../../core/config.js';
 import { player, score, addScore, setScore, syncOwnedFromWeapons, maxAmmoFor } from '../../core/state.js';
 import { updateUI } from '../../core/hud.js';
 import { playSFX, sfxPurchase } from '../../utils/sfx.js';
-import { WEAPON_DEF, refreshOwnedWeapon } from '../../entities/weapons.js';
+import { WEAPON_DEF, refreshOwnedWeapon, weaponFireDelay } from '../../entities/weapons.js';
 import { healMonas, strengthenMonas, startNextWave, isMonasFullyStrengthened, getMonasState, setMonasState } from './index.js';
 
 let open = false;
@@ -129,6 +129,8 @@ export function shopTabDebug() {
         active: activeTab,
         tabs: visibleTabs().map(t => t.id),
         items: Object.fromEntries(TABS.map(t => [t.id, tabItems(t.id).map(it => it.id)])),
+        // Deskripsi kartu yang sedang tampil (uji teks user-facing).
+        desc: Object.fromEntries(TABS.flatMap(t => tabItems(t.id).map(it => [it.id, it.desc]))),
     };
 }
 
@@ -178,6 +180,22 @@ export function openShop(ctx) {
 // awal): kartunya hanya muncul saat dimiliki (varian upgrade saja) — sama
 // seperti perilaku kartu upgrade lama.
 const ROMAN = ['I', 'II', 'III'];
+// Kadens per level (CFG.weapons.<w>.fireDelayByLevel, 2026-08-09): sebuah level
+// boleh mengubah — bahkan MEMPERLAMBAT — laju tembak senjata. Kartu WAJIB
+// menyebutkannya; pemain tak boleh membayar upgrade lalu menemukan senjatanya
+// menembak lebih jarang tanpa peringatan. Angkanya dikutip dari weaponFireDelay
+// (satu-satunya pemilik aturan tabel), bukan dihitung ulang di sini. Senjata
+// tanpa tabel -> string kosong, jadi kartu lain tidak berubah sama sekali.
+const shotsPerSec = (w, lvl) => 1000 / weaponFireDelay(w, lvl);
+function cadenceNote(w, lvl, next) {
+    if (!Array.isArray((CFG.weapons[w] || {}).fireDelayByLevel)) return '';
+    const r = shotsPerSec(w, lvl);
+    if (next == null) return ` Rate of fire: ${r.toFixed(2)} shots per second.`;
+    const rn = shotsPerSec(w, next);
+    return Math.abs(rn - r) < 1e-9
+        ? ` Rate of fire stays ${r.toFixed(2)} shots per second.`
+        : ` Its rate of fire also changes from ${r.toFixed(2)} to ${rn.toFixed(2)} shots per second.`;
+}
 function weaponItem(w) {
     const S = CFG.shop;
     const label = WEAPON_DEF[w].name;
@@ -216,8 +234,8 @@ function weaponItem(w) {
         name: `${label} ${ROMAN[Math.min(tier, ROMAN.length - 1)]}`,
         cost: costs[tier - 1] != null ? costs[tier - 1] : 0,
         desc: lvl >= maxL
-            ? `The ${label} is fully upgraded (Level ${maxL}, +${pct * (maxL - 1)}% damage).`
-            : `Upgrade the ${label} to Level ${lvl + 1}. Each level adds +${pct}% of its base damage. Current: Level ${lvl}.`,
+            ? `The ${label} is fully upgraded (Level ${maxL}, +${pct * (maxL - 1)}% damage).${cadenceNote(w, maxL)}`
+            : `Upgrade the ${label} to Level ${lvl + 1}. Each level adds +${pct}% of its base damage. Current: Level ${lvl}.${cadenceNote(w, lvl, lvl + 1)}`,
         maxedMsg: `The ${label} is already fully upgraded`,
         apply() {
             const cur = (player.weaponLvl && player.weaponLvl[w]) || 1;

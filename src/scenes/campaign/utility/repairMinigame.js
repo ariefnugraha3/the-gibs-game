@@ -79,6 +79,22 @@ export const REPAIR_PARTS = [
     },
 ];
 
+// Dua pekerjaan mekanis khusus generator Stage 5-6. Keduanya sengaja berbeda
+// dari kabel, chip, dan katup Stage 2: setel load fuse, lalu putar rotor dan
+// hidupkan mesin pada rentang RPM yang aman.
+export const ADVANCED_REPAIR_PARTS = [
+    {
+        id: 'fuse', label: 'FUSE LOADOUT', type: 'fuse',
+        sub: 'Fit the correct amp fuses so every generator circuit lands inside its safe load band.',
+        hint: 'Click a fuse, then a circuit bay - click a loaded bay to pull its fuse back out',
+    },
+    {
+        id: 'kickstart', label: 'ROTOR KICKSTART', type: 'kickstart',
+        sub: 'Crank the flywheel clockwise, fire ignition inside the green RPM band, then close the master breaker.',
+        hint: 'Drag the flywheel clockwise - bad ignition timing costs momentum, never the whole repair',
+    },
+];
+
 // Palet kabel. `std` = warna biasa; `cb` = Okabe-Ito (aman untuk semua jenis
 // buta warna) dan dipasangkan dengan LAMBANG bentuk supaya tetap terbaca
 // walaupun warnanya tak terbedakan sama sekali.
@@ -113,6 +129,7 @@ let wireLinesEl = null;   // kotak SVG kabel (dilukis ulang tiap gerak seret)
 // listener mousemove/mouseup dipasang SEKALI di document (tak perlu dicabut —
 // semuanya no-op saat `drag` null), ghost = chip bayangan yang mengikuti kursor.
 let drag = null, dragEl = null, ghostEl = null, docWired = false;
+let rotorDrag = null;
 const DRAG_SLOP = 5;      // px sebelum gerakan dianggap seret (di bawah ini = klik biasa)
 
 const overlayEl = () => document.getElementById('repairOverlay');
@@ -168,10 +185,42 @@ function buildValves(count, steps) {
     return { type: 'valves', n, steps, pos, target, bad: null };
 }
 
+const FUSE_NAMES = ['PUMP', 'IGNITION', 'COOLANT', 'FIELD', 'AUX'];
+const FUSE_AMPS = [10, 15, 20, 25, 30, 35, 40, 45];
+
+function buildFuse(count) {
+    const A = CFG.campaign.repair.advanced;
+    const n = Math.max(2, Math.min(FUSE_NAMES.length, count | 0));
+    const spread = Math.max(0, A.fuseSafeSpread | 0);
+    const spareCount = Math.max(0, Math.min(3, A.fuseSpareCount | 0));
+    const solution = FUSE_AMPS.slice(2, 2 + n);
+    const circuits = solution.map((amp, i) => {
+        const load = 45 + i * 7 + ((Math.random() * 7) | 0);
+        const safe = load + amp;
+        return {
+            id: FUSE_NAMES[i], load, min: safe - spread, max: safe + spread,
+            fuse: -1, targetAmp: amp,
+        };
+    });
+    const used = new Set(solution);
+    const spares = FUSE_AMPS.filter(a => !used.has(a)).slice(0, spareCount);
+    const fuses = solution.concat(spares).sort((a, b) => a - b).map((amp) => ({ amp, at: -1 }));
+    return { type: 'fuse', n, circuits, fuses, sel: -1, bad: null };
+}
+
+function buildKickstart(segments) {
+    return {
+        type: 'kickstart', n: Math.max(8, segments | 0), angle: 0, rpm: 0,
+        phase: 'spin', ignited: false, breaker: false, stalls: 0, bad: false,
+    };
+}
+
 // Bangun state papan MURNI (dipakai modal DAN smoke test).
 export function buildRepairGame(type, n) {
     if (type === 'wires') return buildWires(n);
     if (type === 'chips') return buildChips(n);
+    if (type === 'fuse') return buildFuse(n);
+    if (type === 'kickstart') return buildKickstart(n);
     return buildValves(n, CFG.campaign.repair.valveSteps);
 }
 
@@ -179,6 +228,8 @@ export function repairIsSolved(g) {
     if (!g) return false;
     if (g.type === 'wires') return g.links.every(v => v >= 0);
     if (g.type === 'chips') return g.chips.every(c => c.at >= 0);
+    if (g.type === 'fuse') return g.circuits.every(c => fuseCircuitSafe(g, c));
+    if (g.type === 'kickstart') return g.breaker;
     return g.pos.every((v, i) => v === g.target[i]);
 }
 
@@ -268,6 +319,76 @@ export function applyValveTurn(g, i, dir = 1) {
     return 'link';
 }
 
+function fuseCircuitSafe(g, c) {
+    const f = c && g.fuses[c.fuse];
+    if (!f) return false;
+    const load = c.load + f.amp;
+    return load >= c.min && load <= c.max;
+}
+
+export function applyFusePick(g, zone, i) {
+    if (!g || g.type !== 'fuse') return 'none';
+    if (zone === 'fuse') {
+        const f = g.fuses[i];
+        if (!f) return 'none';
+        if (f.at >= 0) {
+            g.circuits[f.at].fuse = -1;
+            f.at = -1;
+            g.sel = -1;
+            return 'unlink';
+        }
+        g.sel = g.sel === i ? -1 : i;
+        return 'select';
+    }
+    if (zone !== 'circuit') return 'none';
+    const c = g.circuits[i];
+    if (!c) return 'none';
+    if (g.sel < 0) {
+        if (c.fuse < 0) return 'none';
+        g.fuses[c.fuse].at = -1;
+        c.fuse = -1;
+        g.bad = { i };
+        return 'unlink';
+    }
+    const f = g.fuses[g.sel];
+    if (!f || f.at >= 0) return 'none';
+    if (c.fuse >= 0) g.fuses[c.fuse].at = -1;
+    c.fuse = g.sel;
+    f.at = i;
+    g.sel = -1;
+    g.bad = fuseCircuitSafe(g, c) ? null : { i };
+    return g.bad ? 'reject' : 'link';
+}
+
+export function applyRotorTurn(g, deltaRad) {
+    if (!g || g.type !== 'kickstart' || g.phase !== 'spin' || !Number.isFinite(deltaRad)) return 'none';
+    const A = CFG.campaign.repair.advanced;
+    g.angle += deltaRad;
+    if (deltaRad > 0) g.rpm = Math.min(1, g.rpm + deltaRad / (Math.PI * 2) * A.rotorRpmPerTurn);
+    else g.rpm = Math.max(0, g.rpm + deltaRad / (Math.PI * 2) * A.rotorReverseLossPerTurn);
+    g.bad = false;
+    return 'link';
+}
+
+export function applyRotorIgnition(g) {
+    if (!g || g.type !== 'kickstart' || g.phase !== 'spin') return 'none';
+    const A = CFG.campaign.repair.advanced;
+    if (g.rpm >= A.rotorGreenMin && g.rpm <= A.rotorGreenMax) {
+        g.phase = 'ignited'; g.ignited = true; g.bad = false;
+        return 'link';
+    }
+    g.rpm *= A.rotorStallRetain;
+    g.stalls++;
+    g.bad = true;
+    return 'reject';
+}
+
+export function applyMasterBreaker(g) {
+    if (!g || g.type !== 'kickstart' || g.phase !== 'ignited') return 'none';
+    g.phase = 'online'; g.breaker = true; g.bad = false;
+    return 'link';
+}
+
 // ===================== TAMPILAN =====================
 
 const wireCol = (i) => (cbMode ? WIRE_COL.cb : WIRE_COL.std)[i % 5];
@@ -312,6 +433,7 @@ function paintChrome() {
     if (hintEl) hintEl.innerText = p.hint || '';
     if (stepEl) stepEl.innerText = `COMPONENT ${gi + 1} / ${parts.length} — ${p.label || ''}`;
     if (cbBtn) cbBtn.innerText = 'COLOR MODE: ' + (cbMode ? 'COLOURBLIND-SAFE' : 'STANDARD');
+    if (cbBtn) cbBtn.style.display = G && G.type === 'wires' ? '' : 'none';
 }
 
 // Bangun ulang papan setiap aksi (≤5 elemen — jauh lebih murah daripada
@@ -323,7 +445,9 @@ function renderBoard() {
     if (!G) return;
     if (G.type === 'wires') renderWires();
     else if (G.type === 'chips') renderChips();
-    else renderValves();
+    else if (G.type === 'valves') renderValves();
+    else if (G.type === 'fuse') renderFuse();
+    else renderKickstart();
 }
 
 function mkEl(cls, parent, html) {
@@ -451,7 +575,17 @@ function beginDrag(ev, src, el) {
 }
 
 function onDragMove(ev) {
-    if (!open || !drag || phase !== 'play') return;
+    if (!open || phase !== 'play') return;
+    if (rotorDrag) {
+        const angle = Math.atan2(ev.clientY - rotorDrag.cy, ev.clientX - rotorDrag.cx);
+        let delta = angle - rotorDrag.angle;
+        if (delta > Math.PI) delta -= Math.PI * 2;
+        else if (delta < -Math.PI) delta += Math.PI * 2;
+        rotorDrag.angle = angle;
+        repairRotorTurn(delta);
+        return;
+    }
+    if (!drag) return;
     drag.cx = ev.clientX; drag.cy = ev.clientY;
     if (!drag.moved) {
         if (Math.hypot(drag.cx - drag.x, drag.cy - drag.y) < DRAG_SLOP) return;
@@ -476,6 +610,7 @@ function dropOn(target) {
 }
 
 function endDrag() {
+    rotorDrag = null;
     if (!drag) { killGhost(); return; }
     const stale = drag.moved && !drag.done;   // dilepas di ruang kosong -> batal
     drag = null; dragEl = null;
@@ -554,6 +689,86 @@ function renderValves() {
     }
 }
 
+function renderFuse() {
+    const wrap = mkEl('repFuseWrap', boardEl);
+    const panel = mkEl('repFusePanel', wrap);
+    mkEl('repFuseLbl', panel, 'GENERATOR LOAD BUS');
+    for (let i = 0; i < G.circuits.length; i++) {
+        const c = G.circuits[i];
+        const f = G.fuses[c.fuse];
+        const total = c.load + (f ? f.amp : 0);
+        const safe = fuseCircuitSafe(G, c);
+        const bad = G.bad && G.bad.i === i && !safe;
+        const row = mkEl('repFuseCircuit' + (safe ? ' ok' : '') + (bad ? ' bad' : ''), panel);
+        row.addEventListener('click', () => repairFusePick('circuit', i));
+        const meterPct = Math.max(0, Math.min(100, (total / Math.max(1, c.max + 20)) * 100));
+        const minPct = Math.max(0, Math.min(100, (c.min / Math.max(1, c.max + 20)) * 100));
+        const maxPct = Math.max(0, Math.min(100, (c.max / Math.max(1, c.max + 20)) * 100));
+        row.innerHTML =
+            `<div class="repFuseName"><span>${c.id}</span><strong>${f ? f.amp + 'A' : '--'}</strong></div>`
+            + '<div class="repFuseMeter">'
+            + `<i class="repFuseBand" style="left:${minPct}%;width:${Math.max(4, maxPct - minPct)}%"></i>`
+            + `<i class="repFuseNeedle" style="left:${meterPct}%"></i>`
+            + '</div>'
+            + `<div class="repFuseRead">${total} LOAD / SAFE ${c.min}-${c.max}</div>`;
+    }
+    const rack = mkEl('repFuseRack', wrap);
+    mkEl('repFuseLbl', rack, 'FUSE RACK');
+    for (let i = 0; i < G.fuses.length; i++) {
+        const f = G.fuses[i];
+        const e = mkEl('repFuse' + (G.sel === i ? ' sel' : '') + (f.at >= 0 ? ' used' : ''), rack);
+        e.innerHTML = `<span>${f.amp}</span><b>AMP</b>`;
+        e.addEventListener('click', () => repairFusePick('fuse', i));
+    }
+}
+
+function renderKickstart() {
+    const A = CFG.campaign.repair.advanced;
+    const wrap = mkEl('repRotorWrap' + (G.bad ? ' bad' : ''), boardEl);
+    const machine = mkEl('repRotorMachine', wrap);
+    const wheel = mkEl('repRotor', machine);
+    let spokes = '';
+    for (let i = 0; i < G.n; i++) spokes += `<i style="transform:rotate(${(i / G.n) * 360}deg)"></i>`;
+    wheel.innerHTML = `<div class="repRotorFace" style="transform:rotate(${G.angle}rad)">${spokes}<b></b></div>`;
+    wheel.addEventListener('mousedown', (ev) => beginRotorDrag(ev, wheel));
+    const crank = document.createElement('button');
+    crank.className = 'repCrank'; crank.innerText = 'CRANK CLOCKWISE';
+    crank.disabled = G.phase !== 'spin';
+    crank.addEventListener('click', () => repairRotorTurn(A.rotorCrankStepRad));
+    machine.appendChild(crank);
+
+    const controls = mkEl('repRotorControls', wrap);
+    mkEl('repRpmLabel', controls, `<span>ROTOR SPEED</span><strong>${Math.round(G.rpm * 100)}%</strong>`);
+    const meter = mkEl('repRpmMeter', controls);
+    const green = mkEl('repRpmGreen', meter);
+    green.style.left = `${A.rotorGreenMin * 100}%`;
+    green.style.width = `${(A.rotorGreenMax - A.rotorGreenMin) * 100}%`;
+    const needle = mkEl('repRpmNeedle', meter);
+    needle.style.left = `${G.rpm * 100}%`;
+    const ignition = document.createElement('button');
+    ignition.className = 'repIgnition' + (G.ignited ? ' on' : '');
+    ignition.innerText = G.ignited ? 'IGNITION LIT' : 'IGNITION';
+    ignition.disabled = G.phase !== 'spin';
+    ignition.addEventListener('click', repairRotorIgnition);
+    controls.appendChild(ignition);
+    const breaker = document.createElement('button');
+    breaker.className = 'repMaster' + (G.breaker ? ' on' : '');
+    breaker.innerText = G.breaker ? 'MASTER CLOSED' : 'CLOSE MASTER BREAKER';
+    breaker.disabled = G.phase !== 'ignited';
+    breaker.addEventListener('click', repairMasterBreaker);
+    controls.appendChild(breaker);
+    mkEl('repRotorState', controls, G.bad ? `ENGINE STALLED - ${G.stalls}`
+        : G.phase === 'spin' ? 'CRANKING' : G.phase === 'ignited' ? 'COMBUSTION STABLE' : 'GENERATOR COUPLED');
+}
+
+function beginRotorDrag(ev, wheel) {
+    if (!open || phase !== 'play' || !G || G.type !== 'kickstart' || G.phase !== 'spin' || ev.button !== 0) return;
+    if (ev.preventDefault) ev.preventDefault();
+    const r = wheel.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    rotorDrag = { cx, cy, angle: Math.atan2(ev.clientY - cy, ev.clientX - cx) };
+}
+
 function banner(text, cls) {
     if (!bannerEl) return;
     bannerEl.innerText = text;
@@ -621,6 +836,38 @@ export function repairValveTurn(i, dir = 1) {
     return true;
 }
 
+export function repairFusePick(zone, i) {
+    if (!open || phase !== 'play' || !G || G.type !== 'fuse') return false;
+    const ev = applyFusePick(G, zone, i);
+    if (ev === 'none') return false;
+    afterAction(ev);
+    return true;
+}
+
+export function repairRotorTurn(deltaRad) {
+    if (!open || phase !== 'play' || !G || G.type !== 'kickstart') return false;
+    const ev = applyRotorTurn(G, deltaRad);
+    if (ev === 'none') return false;
+    renderBoard();
+    return true;
+}
+
+export function repairRotorIgnition() {
+    if (!open || phase !== 'play' || !G || G.type !== 'kickstart') return false;
+    const ev = applyRotorIgnition(G);
+    if (ev === 'none') return false;
+    afterAction(ev);
+    return true;
+}
+
+export function repairMasterBreaker() {
+    if (!open || phase !== 'play' || !G || G.type !== 'kickstart') return false;
+    const ev = applyMasterBreaker(G);
+    if (ev === 'none') return false;
+    afterAction(ev);
+    return true;
+}
+
 // Tukar palet kabel biasa <-> palet AMAN BUTA WARNA (+ lambang bentuk).
 export function repairToggleColorblind() {
     cbMode = !cbMode;
@@ -651,8 +898,13 @@ function stepSolved() {
 function loadGame(k) {
     gi = k;
     drag = null; dragEl = null; killGhost();   // papan baru: seret yang tertinggal dibuang
+    rotorDrag = null;
     wireLinesEl = null;
-    G = buildRepairGame(parts[k].type, repairCount());
+    const type = parts[k].type;
+    const A = CFG.campaign.repair.advanced;
+    const count = type === 'fuse' ? A.fuseCircuits
+        : type === 'kickstart' ? A.rotorSegments : repairCount();
+    G = buildRepairGame(type, count);
     phase = 'play';
     renderBoard();
 }
@@ -666,7 +918,7 @@ function finish(result) {
     if (stepTimer) { clearTimeout(stepTimer); stepTimer = 0; }
     if (badTimer) { clearTimeout(badTimer); badTimer = 0; }
     killGhost();
-    drag = null; dragEl = null;
+    drag = null; dragEl = null; rotorDrag = null;
     const root = overlayEl();
     if (root) { root.style.display = 'none'; root.innerHTML = ''; }
     boardEl = bannerEl = subEl = stepEl = cbBtn = hintEl = wireLinesEl = null;

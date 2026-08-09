@@ -30,13 +30,14 @@ import {
 import {
     setPhase, enterSub, queueDialogue,
     updateRide, etrain, etCarsKilled, etLaunched,
-    etCarTotal, etConsistDone, launchEnemyConsist,
+    etCarTotal, etConsistDone, launchEnemyConsist, countLiveHostiles,
     updateEnemyTrain, TRAIN_HOOKS,
 } from './runtime.js';
 import {
     updateHighway, highwayActive, highwayClear, highwayCarsDestroyed, roadMerged,
 } from './highway.js';
-import { arrivalScene } from './arrival.js';
+import { finishScene } from './finish.js';
+import { locoBossDebug } from './loco.js';
 
 let gapT = 0, rewarded = 0, clearT = 0, clearShown = false;
 
@@ -101,7 +102,7 @@ function updateConsist(dt) {
         showStageMsg('ALL HOSTILES DESTROYED — BANDUNG AHEAD', 4200);
     }
     clearT += dt;
-    if (clearT >= (CFG.campaign.stage5.arrivalDelaySec ?? 5)) enterSub(arrivalScene);
+    if (clearT >= (CFG.campaign.stage5.arrivalDelaySec ?? 3)) enterSub(finishScene);
 }
 
 export const journeyDebug = () => ({
@@ -137,11 +138,21 @@ export const journeyScene = {
     // TANPA HITUNG MUNDUR JARAK (2026-08-08, permintaan user): satu-satunya
     // ukuran kemajuan adalah gerbong musuh yang sudah dihancurkan.
     hudStatus() {
-        const n = countStageRobots(5), total = etCarTotal();
+        // Awak gerbong yang masih tersegel TIDAK dihitung: mereka ada di dunia
+        // sejak konsist berangkat, tetapi belum jadi musuh yang bisa dilawan.
+        const n = countLiveHostiles(), total = etCarTotal();
         const road = highwayActive()
             ? ` | ROAD CONVOY DESTROYED ${highwayCarsDestroyed()}` : '';
         if (!etLaunched) return 'TO BANDUNG — HOSTILE CONTACT ON THE PARALLEL TRACK';
         if (etrain.mode === 'overtake') return 'HOSTILE CONSIST OVERTAKING';
+        // MINI BOS LOKOMOTIF (2026-08-09): HUD-nya menyebut jendela kebal
+        // secara eksplisit, kalau tidak "peluru tidak mempan" terbaca sebagai bug.
+        if (etrain.mode === 'boss') {
+            const b = locoBossDebug();
+            if (!b) return 'HOSTILE LOCOMOTIVE';
+            if (!b.vulnerable) return 'HOSTILE LOCOMOTIVE POWERING UP — ARMOR STILL SEALED';
+            return `HOSTILE LOCOMOTIVE — ${Math.max(0, Math.ceil(b.hp / b.maxHp * 100))}%${road}`;
+        }
         if (etConsistDone()) return `ENEMY CARS DESTROYED ${etCarsKilled}/${total}${road}`;
         if (etrain.mode === 'open') return `ENEMY CAR ${etrain.car + 1}/${total} OPENING${road}`;
         return `ENEMY CAR ${etrain.car + 1}/${total} — Robots: ${n}${road}`;

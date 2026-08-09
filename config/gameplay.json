@@ -127,9 +127,14 @@
             "maxAmmo": 300,
             "ammoPickup": 50,
             "fireDelayMs": 900,
+            "fireDelayByLevel": [
+                900,
+                900,
+                650
+            ],
             "cameraKick": 0.03,
             "pellets": 10,
-            "pelletSpread": 0.09,
+            "pelletSpread": 0.1,
             "damage": 10
         },
         "launcher": {
@@ -323,9 +328,29 @@
             "alarmSpawnMinUnits": 150,
             "alarmSpawnMaxUnits": 420
         },
+        "signalTrace": {
+            "channels": 4,
+            "traceSec": 40,
+            "lockTolerance": 0.075,
+            "missPenaltySec": 3,
+            "speedMin": 0.18,
+            "speedMax": 0.31
+        },
         "repair": {
             "count": { "easy": 3, "normal": 4, "hard": 5 },
-            "valveSteps": 6
+            "valveSteps": 6,
+            "advanced": {
+                "fuseCircuits": 3,
+                "fuseSafeSpread": 3,
+                "fuseSpareCount": 2,
+                "rotorSegments": 12,
+                "rotorRpmPerTurn": 0.5,
+                "rotorReverseLossPerTurn": 0.35,
+                "rotorGreenMin": 0.62,
+                "rotorGreenMax": 0.82,
+                "rotorStallRetain": 0.32,
+                "rotorCrankStepRad": 0.75
+            }
         },
         "stage1": {
             "downloadSec": 10,
@@ -369,8 +394,15 @@
             },
             "departureShiftUnits": 330,
             "scenery": { "mountainAfterCars": 3 },
-            "arrivalDelaySec": 5,
-            "arrivalMinSec": 12,
+            "arrivalDelaySec": 3,
+            "arrival": {
+                "stopSec": 3.2,
+                "frontSec": 5,
+                "doorOpenSec": 2.6,
+                "alightSec": 4,
+                "radioMinSec": 2.5,
+                "endHoldSec": 3
+            },
             "fadeSec": 0.5,
             "subSceneFadeSec": 0.5,
             "repairRange": 12,
@@ -396,7 +428,6 @@
                 "overtakeSec": 11,
                 "rampSec": 1.8,
                 "revealAtRamp": 0.45,
-                "emergeSec": 0.8,
                 "detachSec": 2.6,
                 "advanceSec": 2.4,
                 "finaleSec": 3.2,
@@ -408,7 +439,22 @@
                 "classARatio": 0.34,
                 "fireRangeMeters": 13,
                 "slotSpacing": 13,
-                "medkitEveryCars": 2
+                "medkitEveryCars": 2,
+                "boss": {
+                    "hp": 2000,
+                    "armSec": 3,
+                    "mgLockSec": 0.5,
+                    "mgShots": 10,
+                    "mgShotGapSec": 0.09,
+                    "mgBulletSpeed": 2,
+                    "mgDamage": 5,
+                    "mgToGlSec": 2,
+                    "glShots": 3,
+                    "glShotGapSec": 0.55,
+                    "glFlightSec": 0.5,
+                    "glDamage": 25,
+                    "cycleGapSec": 1
+                }
             },
             "highway": {
                 "fromCarIndex": 4,
@@ -425,6 +471,8 @@
                 "wreckSec": 2.6,
                 "fireRangeMeters": 13,
                 "medkitEveryPickups": 2,
+                "bossLoad": ["B", "B"],
+                "bossMaxActive": 1,
                 "loads": [
                     ["B", "B", "A"],
                     ["B", "A", "B"],
@@ -441,9 +489,8 @@
             "rackRange": 13,
             "rackSearchSec": 2.2,
             "infoRange": 13,
-            "infoReadSec": 2,
+            "signalCooldownSec": 18,
             "repairRange": 13,
-            "repairSec": 3.5,
             "finishRange": 13,
             "uplinkRange": 13,
             "uploadSec": 5,
@@ -457,6 +504,7 @@
             "machineMaxAlive": 16,
             "encounters": {
                 "hall": { "C": 14, "B": 6, "A": 2 },
+                "signalAlarm": { "C": 4, "B": 2, "A": 0 },
                 "grid": { "C": 6, "B": 4, "A": 2 },
                 "exfil": { "C": 5, "B": 3, "A": 2 },
                 "office": { "C": 20, "B": 10, "A": 4 },
@@ -532,32 +580,7 @@
                 ["B", "A", "A"],
                 ["B", "B", "A"],
                 ["B", "A", "A"]
-            ],
-            "gunship": {
-                "hitRadius": 25,
-                "attackGapSec": 1.5,
-                "enrageHpFrac": 0.5,
-                "enrageGapMul": 0.75,
-                "mgTelegraphSec": 0.75,
-                "mgDamage": 5,
-                "mgBurst": 16,
-                "mgIntervalSec": 0.1,
-                "mgBulletSpeed": 4,
-                "cannonTelegraphSec": 1.1,
-                "cannonDamage": 50,
-                "cannonBlastRadius": 18,
-                "cannonSpeed": 125,
-                "missileLockSec": 1,
-                "missileBurst": 3,
-                "missileGapSec": 0.55,
-                "missileHp": 80,
-                "missileHitRadius": 5,
-                "missileDamage": 45,
-                "missileBlastRadius": 15,
-                "missileSpeed": 82,
-                "missileTurnRadPerSec": 1.35,
-                "missileLifeSec": 7
-            }
+            ]
         },
         "bosses": {
             "giant": {
@@ -605,6 +628,33 @@
                 "mortarApexRatio": 0.25,
                 "shockRadiusMeters": 5,
                 "shockDps": 20
+            },
+            "gunship": {
+                "hp": 8000,
+                "score": 1600,
+                "hitRadius": 25,
+                "attackGapSec": 1.5,
+                "enrageHpFrac": 0.5,
+                "enrageGapMul": 0.75,
+                "mgTelegraphSec": 0.75,
+                "mgDamage": 5,
+                "mgBurst": 16,
+                "mgIntervalSec": 0.1,
+                "mgBulletSpeed": 4,
+                "cannonTelegraphSec": 1.1,
+                "cannonDamage": 50,
+                "cannonBlastRadius": 18,
+                "cannonSpeed": 125,
+                "missileLockSec": 1,
+                "missileBurst": 3,
+                "missileGapSec": 0.55,
+                "missileHp": 80,
+                "missileHitRadius": 5,
+                "missileDamage": 45,
+                "missileBlastRadius": 15,
+                "missileSpeed": 82,
+                "missileTurnRadPerSec": 1.35,
+                "missileLifeSec": 7
             }
         }
     },

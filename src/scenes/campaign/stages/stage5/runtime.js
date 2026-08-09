@@ -14,7 +14,7 @@ import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot } from '../../utility/common.js';
 import { resolveCrateBlock } from '../../../../entities/crates.js';
 import { explodeAt } from '../../../../entities/effects.js';
-import { spawnGibs } from '../../../../entities/gore.js';
+import { spawnGibs, driftGore } from '../../../../entities/gore.js';
 import { PAL } from '../../../../world/palette.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import { updateTrainVisual, updateJourneyScenery } from '../../../../entities/train.js';
@@ -22,6 +22,10 @@ import {
     playSFX, playLoopSFX, stopLoopSFX, sfxTrain, sfxTankExplode, sfxExplode,
 } from '../../../../utils/sfx.js';
 import { highwayRobotAI, snapHighwayRobot, startHighway } from './highway.js';
+import {
+    armLocoBoss, updateLocoBoss, resetLocoBoss, locoBossDead, locoBossActive,
+    locoDeathBurst, locoBossDebug,
+} from './loco.js';
 import {
     TRAIN_BASE_X, TRAIN_X0, TRAIN_X1, TRAIN_Z0, TRAIN_Z1,
     ENEMY_TRACK_Z, JOURNEY_ENEMY_Z, ET_ENTER_X, ET_EXIT_X, ET_CARGO_CARS,
@@ -185,7 +189,11 @@ export const trainLoopDebug = () => ({ on: !!trainLoop, src: trainLoop?.src || n
 // Mesh + transform gerbong milik world.js; modul ini hanya menggerakkannya.
 //
 // Urutan mode perjalanan:
-//   idle -> overtake -> [ open -> engage -> detach -> advance ]*10 -> finale
+//   idle -> overtake -> [ open -> engage -> detach -> advance ]*10
+//        -> boss (lokomotif mini-boss, lihat loco.js) -> finale
+// Sejak 2026-08-09 gerbong terakhir TIDAK langsung menyalakan `finale`: konsist
+// maju sekali lagi sampai LOKOMOTIFNYA sejajar dengan gerbong player, lalu
+// lokomotif itu bertempur sebagai mini boss sampai HP-nya habis.
 export let etrain = {
     mode: 'idle', t: 0, passes: 0, car: -1, spawned: 0, ramp: 0, boom: 0,
 };
@@ -201,6 +209,7 @@ export const etConsistDone = () => etCarsKilled >= ET_CARGO_CARS && etrain.mode 
 export function resetEnemyTrain() {
     etrain = { mode: 'idle', t: 0, passes: 0, car: -1, spawned: 0, ramp: 0, boom: 0 };
     etCarsKilled = 0; etLaunched = false; etWrecks = [];
+    resetLocoBoss();
     parkEnemyTrain();
 }
 
@@ -244,26 +253,36 @@ function slotLocal(carIdx, k, n, out) {
     return out;
 }
 
-// Robot gerbong ke-i lahir TERSEMBUNYI di dalam peti baja (di balik dinding
-// jauh) dan baru melangkah ke barisan tembak sesudah ramp cukup terbuka.
+// AWAK SELURUH KONSIST SUDAH BERADA DI DALAMNYA SEJAK BERANGKAT (2026-08-09,
+// permintaan user: "buat agar sudah ada spawn robot di awal. sehingga ketika
+// pintu terbuka robot sudah siap menembak"). Robot gerbong ke-i lahir LANGSUNG
+// di barisan tembaknya — bukan lagi di-spawn saat ramp jatuh lalu berjalan
+// keluar dari peti — jadi begitu ramp turun mereka sudah berdiri siap. Selama
+// gerbongnya belum terbuka penuh mereka `invuln` + tak terlihat; lihat
+// enemyTrainRobotAI.
 function spawnCarRobots(carIdx) {
     const C = etCfg(), g = enemyTrain.group.position, slot = { x: 0, z: 0 };
     const n = randInt(C.perCarMin, C.perCarMax), mix = enemyCarMix(n);
-    const stow = { x: enemyCarOffsetX(carIdx), z: -ET_HALF + 4 };
     let k = 0;
     for (const cls of ['B', 'A']) for (let i = 0; i < mix[cls]; i++, k++) {
         slotLocal(carIdx, k, n, slot);
-        const r = spawnOne(cls, g.x + stow.x, g.z + stow.z, `etrain-${carIdx}`);
+        const r = spawnOne(cls, g.x + slot.x, g.z + slot.z, `etrain-${carIdx}`);
         r.mounted = true; r.state = 'mounted'; r.moving = false; r.aiming = false;
         r.etCar = carIdx;
         r.etSlot = { x: slot.x, z: slot.z };
-        r.etStow = { x: stow.x, z: stow.z };
-        r.emergeT = 0;
         // Barisan tembak lintas-rel: jangkauan mereka dipatok config stage,
         // bukan radius kejar kelas biasa yang dirancang untuk pertempuran dekat.
         r.range = (C.fireRangeMeters ?? 13) * CAMP_M;
+        r.invuln = true;               // tersegel sampai ramp gerbongnya terbuka PENUH
         r.mesh.visible = false;
     }
+    return n;
+}
+
+// Seluruh awak konsist sekaligus, dipanggil sekali saat konsist diluncurkan.
+function spawnConsistRobots() {
+    let n = 0;
+    for (let i = 0; i < ET_CARGO_CARS; i++) n += spawnCarRobots(i);
     return n;
 }
 
@@ -276,16 +295,19 @@ export function launchEnemyConsist() {
     etrain = {
         mode: 'overtake', t: 0, passes: etrain.passes, car: -1, spawned: 0, ramp: 0, boom: 0,
     };
+    // Awak SEMUA gerbong dimuat sekarang, bukan satu gerbong per giliran.
+    spawnConsistRobots();
     etLaunched = true;
     startTrainLoop(); addCamShake(1.8);
     return true;
 }
 
-// Gerbong ke-i mulai giliran: robotnya di-spawn, lampu peringatannya menyala,
-// dan ramp-nya mulai jatuh. Gerbong LAIN tidak ikut terbuka.
+// Gerbong ke-i mulai giliran: lampu peringatannya menyala dan ramp-nya mulai
+// jatuh. Gerbong LAIN tidak ikut terbuka. Robotnya TIDAK di-spawn di sini —
+// awak seluruh konsist sudah dimuat sejak `launchEnemyConsist`.
 function armCar(i) {
     etrain.mode = 'open'; etrain.t = 0; etrain.car = i; etrain.ramp = 0; etrain.boom = 0;
-    etrain.spawned = spawnCarRobots(i);
+    etrain.spawned = countEnemyCarRobots(i);
     setEnemyStrobe(i, true);
     addCamShake(1.1);
     // Begitu gerbong ke-N tiba, JALUR REL MULAI MENDEKATI JALAN RAYA di sisi
@@ -300,12 +322,19 @@ export function countEnemyCarRobots(i = etrain.car) {
     return n;
 }
 
-// Posisi dunia satu robot mounted; `k` 0..1 = progres keluar dari peti.
+// Musuh yang benar-benar bisa dilawan SEKARANG. Sejak awak seluruh konsist
+// dimuat di muka (2026-08-09), `countStageRobots(5)` mencakup sembilan gerbong
+// yang masih tersegel — angka itu tak boleh bocor ke HUD.
+export function countLiveHostiles() {
+    let n = 0;
+    for (const z of robots) if (z.stage === 5 && !z.invuln) n++;
+    return n;
+}
+
+// Posisi dunia satu robot mounted: slot tembaknya, dibawa ikut konsist.
 function mountedWorld(z, out) {
-    const g = enemyTrain.group.position, k = Math.min(1, z.emergeT || 0);
-    const s = smoothK(k);
-    out.set(g.x + z.etStow.x + (z.etSlot.x - z.etStow.x) * s, 0,
-        g.z + z.etStow.z + (z.etSlot.z - z.etStow.z) * s);
+    const g = enemyTrain.group.position;
+    out.set(g.x + z.etSlot.x, 0, g.z + z.etSlot.z);
     return out;
 }
 
@@ -317,23 +346,38 @@ export function snapMountedRobot(z) {
 
 // AI robot kereta musuh: TIDAK PERNAH mengejar. Ia menempel pada slotnya,
 // menghadap player, dan menembak lewat kontrak `chaseDist` milik updateRobots.
-// Robot gerbong yang belum/bukan giliran tetap tersembunyi di dalam petinya.
+//
+// TIGA GERBANG BERURUTAN (2026-08-09, permintaan user) — awak seluruh konsist
+// sudah ada sejak berangkat, jadi yang mengatur semuanya adalah ramp gerbongnya
+// SENDIRI, bukan lagi saat spawn:
+//   1. bukan giliran gerbongnya -> tak terlihat, `invuln`, `skip` (tak dianimasi
+//      & tak diuji peluru). Sembilan gerbong tersegel lain tidak membebani apa
+//      pun dan tidak bocor ke radar.
+//   2. giliran gerbongnya, ramp masih turun -> SUDAH BERDIRI SIAP di barisan
+//      tembak dan terlihat begitu ramp melewati `revealAtRamp`, tetapi masih
+//      `invuln` dan `aiming=false`: belum menembak, belum bisa dilukai.
+//   3. ramp TERBUKA PENUH -> `invuln` lepas dan barisan itu membuka tembakan.
 export function enemyTrainRobotAI(z, dt) {
-    const armed = etrain.mode === 'open' || etrain.mode === 'engage';
-    if (!enemyTrain || !z.etSlot || z.etCar !== etrain.car || !armed) {
-        z.mesh.visible = false; return { skip: true };
-    }
-    // Selama ramp masih menutup, isi peti benar-benar tak boleh terlihat.
-    if (etrain.ramp < (etCfg().revealAtRamp ?? 0.45)) {
-        snapMountedRobot(z); z.mesh.visible = false; return { skip: true };
-    }
-    z.mesh.visible = true;
-    if (z.emergeT < 1) z.emergeT = Math.min(1, z.emergeT + dt / Math.max(0.05, etCfg().emergeSec ?? 0.8));
+    if (!enemyTrain || !z.etSlot) { z.mesh.visible = false; z.invuln = true; return { skip: true }; }
+    // Awak SELALU ikut gerbongnya, terbuka atau tidak: kalau tidak, sembilan
+    // kru yang belum giliran tertinggal di titik konsist itu berangkat.
     snapMountedRobot(z);
+    const armed = etrain.mode === 'open' || etrain.mode === 'engage';
+    if (z.etCar !== etrain.car || !armed) {
+        z.mesh.visible = false; z.invuln = true; return { skip: true };
+    }
     z.state = 'mounted'; z.moving = false; z.losOK = true;
     const dx = camera.position.x - z.mesh.position.x, dz = camera.position.z - z.mesh.position.z;
     z.mesh.rotation.y = Math.atan2(dx, dz);
-    if (z.emergeT < 1) { z.aiming = false; return {}; }
+    // Selama ramp masih menutup, isi peti benar-benar tak boleh terlihat.
+    if (etrain.ramp < (etCfg().revealAtRamp ?? 0.45)) {
+        z.mesh.visible = false; z.invuln = true; return { skip: true };
+    }
+    z.mesh.visible = true;
+    // Ramp belum mendarat: sudah kelihatan berdiri siap, tapi menahan tembakan
+    // DAN kebal — pintu setengah terbuka bukan sasaran yang sah.
+    if (etrain.ramp < 1) { z.invuln = true; z.aiming = false; return {}; }
+    z.invuln = false;
     z.aiming = true;
     return { chaseDist: Math.hypot(dx, dz) };
 }
@@ -428,10 +472,9 @@ export function updateEnemyTrain(dt) {
         const wr = etWrecks[etWrecks.length - 1];
         boomAlongCar(etrain.car, Math.min(3, Math.ceil(etrain.t / (dur * 0.6) * 3)),
             g.x + enemyCarOffsetX(etrain.car) + (wr ? wr.dx : 0));
-        if (etrain.t >= dur) {
-            if (etrain.car + 1 < ET_CARGO_CARS) { etrain.mode = 'advance'; etrain.t = 0; }
-            else { etrain.mode = 'finale'; etrain.t = 0; etrain.boom = 0; addCamShake(3.4); }
-        }
+        // Gerbong terakhir pun berlanjut ke `advance`: yang disejajarkan
+        // berikutnya adalah LOKOMOTIF, bukan langsung babak penutup.
+        if (etrain.t >= dur) { etrain.mode = 'advance'; etrain.t = 0; }
         return;
     }
     if (etrain.mode === 'advance') {
@@ -439,7 +482,25 @@ export function updateEnemyTrain(dt) {
         const k = Math.min(1, etrain.t / Math.max(0.01, C.advanceSec));
         const a = carAlignX(etrain.car), b = carAlignX(etrain.car + 1);
         g.x = a + (b - a) * smoothK(k);
-        if (k >= 1) armCar(etrain.car + 1);
+        if (k >= 1) {
+            if (etrain.car + 1 < ET_CARGO_CARS) armCar(etrain.car + 1);
+            else {
+                // LOKOMOTIF SEJAJAR: mulai jendela kebal 3 detik (loco.js).
+                etrain.mode = 'boss'; etrain.t = 0; etrain.car = ET_CARGO_CARS;
+                armLocoBoss();
+            }
+        }
+        return;
+    }
+    if (etrain.mode === 'boss') {
+        // Kedua kereta melaju sama cepat; lokomotif tetap sejajar sambil
+        // bertempur. Seluruh logika senjata + HP ada di loco.js.
+        g.x = carAlignX(ET_CARGO_CARS) + Math.sin(etrain.t * 0.7) * 3.5;
+        updateLocoBoss(dt);
+        if (locoBossDead()) {
+            etrain.mode = 'finale'; etrain.t = 0; etrain.boom = 0;
+            locoDeathBurst();
+        }
         return;
     }
     if (etrain.mode === 'finale') {
@@ -463,6 +524,7 @@ export const enemyTrainDebug = () => ({
     ramp: etrain.ramp, alive: countEnemyCarRobots(),
     launched: etLaunched, killed: etCarsKilled, done: etConsistDone(),
     wrecks: etWrecks.map(w => ({ i: w.i, dx: w.dx })),
+    boss: locoBossDebug(), bossActive: locoBossActive(),
     x: enemyTrain?.group?.position?.x ?? 0,
     z: enemyTrain?.group?.position?.z ?? 0,
     alignX: etrain.car >= 0 ? carAlignX(etrain.car) : 0,
@@ -475,6 +537,10 @@ export const enemyTrainDebug = () => ({
 // --- Perjalanan (dipakai journey + arrival) --------------------------------
 export let rideT = 0, trainSpeed = 0;
 export const resetRide = () => { rideT = 0; trainSpeed = 0; };
+// Cutscene kedatangan MENGEMUDIKAN kecepatannya sendiri: shot pertama harus
+// berhenti PERSIS pada akhir `arrival.stopSec` (lalu suara kereta dimatikan),
+// bukan meluruh asimtotik dan tak pernah benar-benar nol.
+export const setTrainSpeed = v => { trainSpeed = Math.max(0, v); };
 // KEMAJUAN RUTE = KEMAJUAN TEMPUR (2026-08-08, permintaan user "ubah mekanisme
 // menempuh jarak menjadi harus menghancurkan semua gerbong musuh"). Tidak ada
 // lagi hitung mundur jarak/waktu: lanskap Jakarta -> Bandung dan kemunculan
@@ -490,13 +556,18 @@ export const sceneryMountainK = () => {
     return Math.min(1, Math.max(0, (n | 0)) / Math.max(1, ET_CARGO_CARS));
 };
 
+// Kotak dalam gerbong player: dipakai `driftGore` untuk mengecualikan apa pun
+// yang jatuh di dalam gerbong (darah player, serpihan yang terlempar masuk).
+const insideCar = (x, z) =>
+    x > TRAIN_X0 - 3 && x < TRAIN_X1 + 3 && z > TRAIN_Z0 - 3 && z < TRAIN_Z1 + 3;
+
 export function updateRide(dt) {
     const C = CFG.campaign.stage5;
     rideT += dt;
     const k = routeK();
     if (phase === 'departure') trainSpeed += (C.trainSpeed - trainSpeed) * Math.min(1, dt * 0.55);
-    else if (phase === 'arrival') trainSpeed += (0 - trainSpeed) * Math.min(1, dt * 0.85);
-    else trainSpeed += (C.trainSpeed - trainSpeed) * Math.min(1, dt * 2.5);
+    // `arrival` sengaja TIDAK diatur di sini — lihat `setTrainSpeed`.
+    else if (phase !== 'arrival') trainSpeed += (C.trainSpeed - trainSpeed) * Math.min(1, dt * 2.5);
     updateTrainVisual(train, dt, trainSpeed);
     // SHOT KEBERANGKATAN: pool scenery perjalanan HARUS tetap tersembunyi.
     // Arena journey berada tepat di atas denah stasiun, jadi rel + lanskapnya
@@ -513,7 +584,15 @@ export function updateRide(dt) {
     // ia dihitung di sini dari config dan dikirim ke pool scenery.
     updateJourneyScenery(journey, dt, trainSpeed, phase === 'arrival' || complete ? 1 : k,
         sceneryMountainK());
-    if (trainSpeed > 18) addCamShake(0.16 + Math.min(0.08, trainSpeed / 1000));
+    // SISA TEMPUR IKUT DUNIA, BUKAN KERETA (2026-08-09, laporan user "serpihan
+    // robot mengikuti pergerakan kereta player"): kereta diam di koordinat
+    // dunia, jadi serpihan/bangkai/genangan yang dibiarkan di tempatnya akan
+    // terbawa selamanya. Isi DALAM gerbong dikecualikan — yang jatuh di lantai
+    // gerbong memang ikut kereta.
+    driftGore(trainSpeed * dt, insideCar);
+    // Guncangan hanya selama perjalanan: keempat shot cutscene kedatangan
+    // WAJIB terkunci, sama seperti kelima shot keberangkatan.
+    if (trainSpeed > 18 && phase !== 'arrival') addCamShake(0.16 + Math.min(0.08, trainSpeed / 1000));
 }
 
 // --- Hook collision bersama ------------------------------------------------
