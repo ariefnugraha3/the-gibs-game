@@ -1,12 +1,26 @@
-// MESIN PEMBUAT ROBOT — hero prop procedural bersama Stage 3 + Stage 6.
+// MESIN PEMBUAT ROBOT — hero prop procedural bersama Stage 3, 5, 6 dan 7.
 //
 // Siluet 2026-08-08: pod fabrikasi oktagonal dengan chamber berlapis, dua turbin
 // samping, lengan gantry, iris hatch, scan ring, crown antenna dan armor miring.
 // Hatch menghadap +z LOKAL; pemanggil tetap bebas memutar seluruh grup. Seluruh
 // animasi hanya mengubah transform/material yang sudah dibuat — tanpa alokasi,
 // PointLight, atau shader/material baru di tengah permainan.
+//
+// KEHANCURAN (2026-08-09, permintaan user): mesin yang mati TIDAK disembunyikan
+// lagi — ia menjadi BANGKAI HITAM GOSONG dengan part yang terlepas
+// (`wreckSpawnMachine`). Bangkai memakai mesh dan material yang SAMA: hanya
+// warna + transform yang berubah, jadi tetap nol alokasi dan nol rekompilasi
+// shader. HP-nya juga satu angka bersama untuk semua stage (`spawnMachineHp`).
 
+import { CFG } from '../core/config.js';
 import { PAL } from '../world/palette.js';
+
+// HP tunggal untuk SEMUA mesin di semua stage (config-driven, permintaan user
+// 2026-08-09) — jangan pernah menambah kunci HP per stage lagi.
+export const spawnMachineHp = () => CFG.campaign.spawnMachine.hp;
+
+// Palet bangkai: gosong, bukan hitam murni (aturan #1 palette.js).
+const CHAR = Object.freeze({ body: PAL.rubber, trim: PAL.ink, ember: PAL.amberDim });
 
 export function buildSpawnMachineMesh(W = 26, H = 17, D = 26) {
     const g = new THREE.Group();
@@ -151,8 +165,44 @@ export function buildSpawnMachineMesh(W = 26, H = 17, D = 26) {
         scanRing, turbines, gantry, arms, hatchFrame, hatch, iris, irisBlades,
         eyes, crown, beacon, deckRing, eye: eyes[1], eyeMat, coreMat,
         glowMats: [coreMat, glass], signalMats: [teal, amberMat],
-        animT: 0, power: 0, W, H, D,
+        // Material bodi dicatat beserta warna aslinya: pose harian tidak
+        // menyentuhnya, jadi HANYA blok bangkai yang boleh mengubahnya — dan
+        // reset stage harus bisa mengembalikannya persis.
+        bodyMats: [[gun, PAL.gunmetal, CHAR.body], [steel, PAL.steel, CHAR.body],
+            [panel, PAL.panel, CHAR.body], [ink, PAL.ink, CHAR.trim],
+            [hazard, PAL.hazard, CHAR.ember]],
+        animT: 0, power: 0, dead: false, W, H, D,
     };
+    // Rencana kehancuran: seluruhnya part yang SUDAH ada (nol mesh tambahan).
+    // Nilai = pergeseran RELATIF terhadap pose utuh, diskalakan ukuran mesin.
+    rig.debris = [
+        // Turbin kiri benar-benar copot dan mendarat di sisi mesin...
+        [turbines[0], -W * 0.2, -(3.1 + H * 0.43) + minSide * 0.15, D * 0.36, 0.44, 0, 1.34],
+        // ...turbin kanan cuma melorot dari dudukannya.
+        [turbines[1], W * 0.04, -H * 0.15, -D * 0.04, -0.2, 0, -0.6],
+        // Satu lengan gantry terlepas, satunya terkulai; gantry-nya sendiri turun.
+        [arms[0], -W * 0.14, -H * 0.52, D * 0.22, 0.62, 0.34, 1.48],
+        [arms[1], 0, -H * 0.05, 0, 0, 0, -0.58],
+        [gantry, 0, -1.9, D * 0.03, 0.17, 0, -0.1],
+        [crown, W * 0.13, -H * 0.24, -D * 0.06, 0, 0, 1.2],
+        [coreCrystal, W * 0.1, -H * 0.31, D * 0.13, 0.72, 0.4, 0.52],
+        [hatch, 0, -H * 0.31, D * 0.15, 1.28, 0, 0.32],
+        [deckRing, 0, 0.35, 0, 0.2, 0, 0.12],
+        [capsule, 0, -H * 0.22, 0, 0, 0, 0, 1.06, 0.14, 1.06],
+        [chamber, 0, -0.6, 0, 0.06, 0, -0.07],
+        [frame, 0, 0, 0, 0, 0, 0.04],
+        [scanRing, 0, -H * 0.12, D * 0.06, 0.5, 0, 0.3],
+    ];
+    for (let i = 0; i < irisBlades.length; i++) {
+        const b = irisBlades[i], a = b.userData.a;
+        rig.debris.push([b, Math.cos(a) * minSide * 0.1, Math.sin(a) * minSide * 0.1,
+            D * 0.05 * (i % 2 ? 1 : -1), 0, 0, a * 0.5 + (i % 2 ? 0.6 : -0.7)]);
+    }
+    rig.debrisHome = rig.debris.map(([o]) => ({
+        px: o.position.x, py: o.position.y, pz: o.position.z,
+        rx: o.rotation.x, ry: o.rotation.y, rz: o.rotation.z,
+        sx: o.scale.x, sy: o.scale.y, sz: o.scale.z,
+    }));
     resetSpawnMachine(rig, false);
     return rig;
 }
@@ -202,15 +252,58 @@ function poseSpawnMachine(rig, active, hit = 0) {
     rig.chamber.position.z = hit * Math.cos(t * 29) * 0.38;
 }
 
+// --- Bangkai --------------------------------------------------------------
+// Gosong + part terlepas. Warna dan transform saja: mesh, material dan jumlah
+// PointLight tidak berubah, jadi tak ada rekompilasi shader saat mesin meledak.
+function charMaterials(rig, on) {
+    for (const [mat, home, charred] of rig.bodyMats) mat.color.setHex(on ? charred : home);
+    rig.coreMat.color.setHex(on ? CHAR.trim : PAL.techDim);
+    rig.coreMat.emissiveIntensity = on ? 0 : 0.14;
+    rig.glowMats[1].emissiveIntensity = on ? 0 : 0.1;
+    rig.glowMats[1].opacity = on ? 0.06 : 0.25;
+    rig.signalMats[0].color.setHex(on ? CHAR.trim : PAL.techDim);
+    rig.signalMats[1].color.setHex(on ? CHAR.trim : PAL.amber);
+    rig.eyeMat.color.setHex(on ? CHAR.trim : PAL.steel);
+}
+
+function poseDebris(rig, wrecked) {
+    for (let i = 0; i < rig.debris.length; i++) {
+        const [o, dx, dy, dz, rx, ry, rz, sx, sy, sz] = rig.debris[i];
+        const h = rig.debrisHome[i];
+        if (wrecked) {
+            o.position.set(h.px + dx, h.py + dy, h.pz + dz);
+            o.rotation.set(h.rx + rx, h.ry + ry, h.rz + rz);
+            o.scale.set(sx == null ? h.sx : sx, sy == null ? h.sy : sy, sz == null ? h.sz : sz);
+        } else {
+            o.position.set(h.px, h.py, h.pz);
+            o.rotation.set(h.rx, h.ry, h.rz);
+            o.scale.set(h.sx, h.sy, h.sz);
+        }
+    }
+}
+
+// Dipanggil stage saat HP mesin habis. Idempoten: memanggilnya dua kali tidak
+// menggeser bangkai lebih jauh.
+export function wreckSpawnMachine(rig) {
+    if (!rig || rig.dead) return;
+    rig.dead = true; rig.power = 0;
+    charMaterials(rig, true);
+    poseDebris(rig, true);
+}
+
 export function resetSpawnMachine(rig, active = false) {
     if (!rig) return;
     rig.animT = 0;
     rig.power = active ? 1 : 0;
+    if (rig.dead) { rig.dead = false; charMaterials(rig, false); }
+    poseDebris(rig, false);
     poseSpawnMachine(rig, !!active, 0);
 }
 
 export function updateSpawnMachine(rig, dt, active = true, hit = 0) {
     if (!rig) return;
+    // Bangkai itu STATIS: posenya sudah final, tak ada lagi yang berputar.
+    if (rig.dead) return;
     const d = Math.max(0, Math.min(0.1, dt || 0));
     const target = active ? 1 : 0;
     rig.power += (target - rig.power) * Math.min(1, d * 3.6);
@@ -225,6 +318,13 @@ export function spawnMachineDebug(rig) {
         if (o.isPointLight) pointLights++;
     });
     const b = rig?.irisBlades?.[0];
+    // Pergeseran POSISI saja: pose harian memang memutar dan menskala part
+    // (lengan, iris, scan ring), tapi pada pose diam ia tak memindahkan satu pun
+    // — jadi hitungan ini nol untuk mesin utuh dan besar untuk bangkai.
+    const moved = (rig?.debris || []).filter(([o], i) => {
+        const h = rig.debrisHome[i];
+        return Math.hypot(o.position.x - h.px, o.position.y - h.py, o.position.z - h.pz) > 0.25;
+    }).length;
     return {
         meshes, nonBox, pointLights, power: rig?.power || 0,
         irisRadius: b ? Math.hypot(b.position.x, b.position.y) : 0,
@@ -233,5 +333,8 @@ export function spawnMachineDebug(rig) {
         crystalYaw: rig?.coreCrystal?.rotation.y || 0,
         armTilt: rig?.arms?.map(a => a.rotation.z) || [],
         hatchFacing: '+z',
+        dead: !!rig?.dead, parts: rig?.debris?.length || 0, detached: moved,
+        charred: rig ? rig.bodyMats[0][0].color.getHex() === CHAR.body : false,
+        emberHex: CHAR.ember, charHex: CHAR.body,
     };
 }

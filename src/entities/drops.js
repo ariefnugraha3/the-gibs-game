@@ -42,24 +42,24 @@ export function buildMedkitMesh() {
 // ----- Amunisi PER-SENJATA: mesh & tabel jenis ada di entities/ammoPickups.js.
 // Taruh satu paket amunisi senjata `w` di (x,z) (dipakai stage/peti/drop robot). -----
 export function spawnAmmoDrop(x, z, w, lifetime) {
-    const [px, pz] = activeScene.clampDropPos(x, z);
+    const [px, pz, groundY = 0] = activeScene.clampDropPos(x, z);
     const mesh = buildAmmoMesh(w);
-    mesh.position.set(px, 1, pz);
+    mesh.position.set(px, groundY + 1, pz);
     scene.add(mesh);
     drops.push({
-        mesh, type: 'ammo', weapon: w,
+        mesh, type: 'ammo', weapon: w, groundY,
         timer: lifetime != null ? lifetime : CFG.drops.lifetimeSec
     });
 }
 
 // Taruh satu medkit di (x,z) (isi peti / persediaan stage).
 export function spawnMedkitDrop(x, z, lifetime) {
-    const [px, pz] = activeScene.clampDropPos(x, z);
+    const [px, pz, groundY = 0] = activeScene.clampDropPos(x, z);
     const mesh = buildMedkitMesh();
-    mesh.position.set(px, 1, pz);
+    mesh.position.set(px, groundY + 1, pz);
     scene.add(mesh);
     drops.push({
-        mesh, type: 'medkit',
+        mesh, type: 'medkit', groundY,
         timer: lifetime != null ? lifetime : CFG.drops.lifetimeSec
     });
 }
@@ -95,14 +95,16 @@ export function buildLootMesh() {
 // campaignAwardKill (common.js). Keping tersebar sedikit di sekitar titik jatuh
 // dan TETAP DI SANA sampai player melewatinya (lootPickupRadius).
 export function spawnLoot(x, z, value, chips = 1) {
-    const [px, pz] = activeScene.clampDropPos(x, z);
+    const [px, pz, groundY = 0] = activeScene.clampDropPos(x, z);
     const per = Math.max(1, Math.round(value / chips));
     for (let i = 0; i < chips; i++) {
         const mesh = buildLootMesh();
         const a = Math.random() * 6.283, r = chips > 1 ? 3 + Math.random() * 6 : 0;
-        mesh.position.set(px + Math.cos(a) * r, 2, pz + Math.sin(a) * r);
+        mesh.position.set(px + Math.cos(a) * r, groundY + 2,
+            pz + Math.sin(a) * r);
         scene.add(mesh);
-        drops.push({ mesh, type: 'loot', value: per, timer: CFG.drops.lootLifetimeSec, spin: Math.random() * 6.283 });
+        drops.push({ mesh, type: 'loot', value: per, groundY,
+            timer: CFG.drops.lootLifetimeSec, spin: Math.random() * 6.283 });
     }
 }
 
@@ -137,7 +139,8 @@ export function updateDrops(dt, T) {
             d.spin += 5 * dt; d.mesh.rotation.y = d.spin;
             const distL = Math.hypot(camera.position.x - d.mesh.position.x,
                 camera.position.z - d.mesh.position.z);
-            d.mesh.position.y = 2 + Math.sin(T * 4 + i) * 0.4;
+            d.mesh.position.y = (d.groundY || 0) + 2
+                + Math.sin(T * 4 + i) * 0.4;
             if (distL < CFG.drops.lootPickupRadius) {
                 addScore(d.value);
                 if (lootSndCd <= 0) { lootSndCd = 0.12; playSFX(sfxPickup, 0.5); }
@@ -153,7 +156,8 @@ export function updateDrops(dt, T) {
         }
 
         d.mesh.rotation.y += 3 * dt;
-        d.mesh.position.y = 1.2 + Math.sin(T * 3 + i) * 0.3;   // bob (jalan di kedua mode)
+        d.mesh.position.y = (d.groundY || 0) + 1.2
+            + Math.sin(T * 3 + i) * 0.3;   // bob (jalan di kedua mode)
 
         const dist = Math.hypot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z);
         if (dist < player.radius + 2) {

@@ -23,6 +23,7 @@ import {
 import { queueBoom } from '../../../../entities/robots.js';
 import { explodeAt, spawnBloodBurst, spawnGroundPuff } from '../../../../entities/effects.js';
 import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
+import { spawnMachineHp } from '../../../../entities/spawnMachine.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import { rand, segPointDist2 } from '../../../../utils/math.js';
 import { playSFX, sfxPurchase, sfxRobotSpawn } from '../../../../utils/sfx.js';
@@ -63,7 +64,7 @@ export function resetStation() {
     discovered = false; platformUnlocked = false; depotAwake = false; flybySent = false;
     boardCommitted = false; boardHoldT = 0;
     const M = CFG.campaign.stage5.spawnMachine;
-    machineHp = M.hp; machineAlive = true; machineHitT = 0;
+    machineHp = spawnMachineHp(); machineAlive = true; machineHitT = 0;
     machineClock = 0; machineNextAt = M.batchSec; machineCycle = null;
     machineBatches = 0; machineSpawned = 0; machineChargePulse = 0; machineBirths = [];
 }
@@ -356,7 +357,7 @@ export const stationDebug = () => ({
     repairInstalled, repairTotal: ADVANCED_REPAIR_PARTS.length, repairArmed, hackArmed, hackCd,
     platformUnlocked, depotAwake, flybySent, boardCommitted, boardHoldT,
     machine: {
-        hp: machineHp, maxHp: CFG.campaign.stage5.spawnMachine.hp, alive: machineAlive,
+        hp: machineHp, maxHp: spawnMachineHp(), alive: machineAlive,
         clock: machineClock, nextBatchIn: Math.max(0, machineNextAt - machineClock),
         batches: machineBatches, spawned: machineSpawned,
         charging: !!machineCycle && machineCycle.t < CFG.campaign.stage5.spawnMachine.chargeSec,
@@ -497,7 +498,7 @@ export const stationScene = {
         if (phase === 'opening') return 'STAGE 5 — THE LAST TRAIN TO BANDUNG';
         if (phase === 'clearDepot' && !depotAwake) return 'SAFE AREA — MOVE OUT WHEN READY';
         if (phase === 'clearDepot') return machineAlive
-            ? `DESTROY ROBOT FACTORY — HP ${Math.ceil(machineHp)}/${CFG.campaign.stage5.spawnMachine.hp} | Hostiles: ${countStageRobots(5)}`
+            ? `DESTROY ROBOT FACTORY — HP ${Math.ceil(machineHp)}/${spawnMachineHp()} | Hostiles: ${countStageRobots(5)}`
             : `STATION SECURITY — Remaining hostiles: ${countStageRobots(5)}`;
         if (phase === 'repair' || phase === 'repairing') return `GENERATOR C2 - ${repairInstalled}/${ADVANCED_REPAIR_PARTS.length}`;
         if (phase === 'hack') {

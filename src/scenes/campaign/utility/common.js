@@ -175,6 +175,8 @@ export function spawnAlarmHorde(stage, o) {
 //   resolve(pos,r,f) — penghalang pejal stage (furnitur / median+mobil+bak)
 //   los(x1,z1,x2,z2) — OPSIONAL garis-pandang (stage 1 indoor); tanpa los =
 //                      aktivasi murni jarak (stage 2)
+//   activate(z,d)     — OPSIONAL predikat aktivasi idle milik scene; bila ada,
+//                      menggantikan gerbang jarak+LOS (Stage 7 = masuk kamera)
 //   nav              — OPSIONAL nav-grid pathfinder (utils/pathfind.js);
 //                      tanpa nav = selalu kejar lurus (perilaku lama)
 // Return kontrak robots.js: {skip} utk idle jauh; {chaseDist} saat mengejar.
@@ -192,8 +194,12 @@ export function campaignRobotAI(z, dt, step, stage) {
         // terlihat / memasuki ruangannya; stage 1-3 membungkus los dgn cek
         // pintu tertutup juga). Tertembak tetap membangunkan (robots.js);
         // tanpa hook los (stage 4 outdoor) aktivasi murni jarak spt semula.
-        if (dCull < CFG.campaign.activateMeters * CAMP_M && (!stage.los ||
-            stage.los(z.mesh.position.x, z.mesh.position.z, camera.position.x, camera.position.z))) {
+        const activate = stage.activate
+            ? stage.activate(z, dCull)
+            : dCull < CFG.campaign.activateMeters * CAMP_M && (!stage.los
+                || stage.los(z.mesh.position.x, z.mesh.position.z,
+                    camera.position.x, camera.position.z));
+        if (activate) {
             z.state = 'chasing'; z.groundY = 0;
         }
         else if (dCull > CFG.campaign.cullDistance) return { skip: true };   // jauh & diam: lewati animasi/hit test

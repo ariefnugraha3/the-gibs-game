@@ -5,11 +5,19 @@
 // sebelum itu. Cutscene pembuka KEDUA MODE sekarang adegan 3D di dalam engine
 // (campaign: cutscenes/intro.js, survival: survival/cutscenes/monasIntro.js) —
 // SLIDESHOW DOM 4 slide `#cutscene` + `initCutscene()` DIHAPUS 2026-07-27.
+//
+// ROMBAK TAMPILAN 2026-08-09 (permintaan user: menu lama "terlihat AI
+// generated"). Yang bertambah di sini — semua di atas kontrak lama, bukan
+// menggantinya: latar kota berlapis dari scenes/menuArt.js + parallax pointer,
+// navigasi keyboard (panah/Enter/Escape) dgn baris tersorot, ringkasan angka
+// difficulty yang DIBACA DARI CFG (jadi retune gameplay.json ikut terbaca), dan
+// isian --fill slider volume supaya relnya terisi sesuai nilai.
 
-import { applyDifficulty } from '../core/config.js';
+import { applyDifficulty, CFG } from '../core/config.js';
 import { setDifficulty } from '../core/state.js';
 import { loadCampaignStage, clearCampaignSave } from '../core/saveGame.js';
 import { startMenuMusic, stopMusic, getMusicVolume, setMusicVolume, getSFXVolume, setSFXVolume } from '../utils/sfx.js';
+import { paintMenuArt } from './menuArt.js';
 
 // Satu sumber konten Credits. Markup dibangun saat menu diinisialisasi agar
 // kredit proyek tidak tercecer sebagai salinan statis di index.html.
@@ -63,13 +71,37 @@ export const MENU_CREDITS = Object.freeze({
 // perilaku lama: musik berhenti begitu mode dipilih.
 export const keepMenuMusicFor = (mode, stage) => mode === 'campaign' && stage === 1;
 
+// Ringkasan angka difficulty di bawah segmented control — DIBACA DARI CFG,
+// bukan teks tetap, supaya retune config/gameplay.json langsung ikut tampil
+// (aturan repo: apa pun yang mengutip angka gameplay harus config-driven).
+export function difficultyNote(name) {
+    const d = CFG && CFG.difficulty && CFG.difficulty[name];
+    if (!d) return '';
+    const parts = [];
+    const add = (label, v) => {
+        if (!(Math.abs(v - 1) > 0.001)) return;   // yang sama dgn baseline tak perlu disebut
+        parts.push(label + ' <b>&times;' + (Math.round(v * 100) / 100).toFixed(2) + '</b>');
+    };
+    add('Enemy HP', d.robotHpMul);
+    add('Enemy damage', d.robotDamageMul);
+    add('Wave gap', d.spawnIntervalMul);
+    // Semua pengali = 1 (normal) → menyebut "×1.00" tiga kali cuma bising.
+    return parts.length ? parts.join(' &middot; ') : 'Baseline &mdash; the mission as designed';
+}
+
 export function initMenu(onPick) {
     initMainMenu();
+    paintMenuArt(document.getElementById('modeSelect'));
+    initParallax();
     // --- Pilihan difficulty (localStorage; default normal). applyDifficulty
     // idempoten (selalu dihitung dari CFG_BASE) — aman diklik berkali-kali. ---
     let diff = localStorage.getItem('gibsDifficulty') || 'normal';
     const dbtns = document.querySelectorAll('#diffRow .dbtn');
-    const paintDiff = () => dbtns.forEach(b => b.classList.toggle('selected', b.dataset.d === diff));
+    const dnote = document.getElementById('diffNote');
+    const paintDiff = () => {
+        dbtns.forEach(b => b.classList.toggle('selected', b.dataset.d === diff));
+        if (dnote) dnote.innerHTML = difficultyNote(diff);
+    };
     dbtns.forEach(b => b.addEventListener('click', () => {
         diff = b.dataset.d;
         localStorage.setItem('gibsDifficulty', diff);
@@ -125,10 +157,22 @@ export function initMenu(onPick) {
     });
 
     // Tombol Back di layar pilih mode -> kembali ke menu utama.
-    document.getElementById('modeBack').addEventListener('click', () => {
-        document.getElementById('modeSelect').style.display = 'none';
-        document.getElementById('mainMenu').style.display = 'flex';
+    document.getElementById('modeBack').addEventListener('click', backToMainMenu);
+
+    // Escape = mundur satu langkah di mana pun pemain berada (prompt Continue →
+    // pilih mode → menu utama). initInput() belum jalan sebelum startGame, jadi
+    // tak ada listener lain yang berebut tombol ini.
+    document.addEventListener('keydown', (e) => {
+        if (picked || e.key !== 'Escape') return;
+        if (cp.style.display === 'flex') { cp.style.display = 'none'; return; }
+        if (document.getElementById('modeSelect').style.display !== 'none') backToMainMenu();
     });
+}
+
+// Kembali dari layar pilih mode ke menu utama (dipakai tombol Back + Escape).
+function backToMainMenu() {
+    document.getElementById('modeSelect').style.display = 'none';
+    document.getElementById('mainMenu').style.display = 'flex';
 }
 
 // Menu utama: Start Game menyingkap #modeSelect; Settings/Credits membuka
@@ -163,9 +207,58 @@ function initMainMenu() {
     document.querySelectorAll('#mainMenu .menuBack').forEach(b =>
         b.addEventListener('click', showList));
 
+    paintMenuArt(menu);
+    initMenuNav(menu, () => showList());
     initCredits();
     initSettingsQuality();
     initSettingsVolume();
+}
+
+// Sorotan + navigasi keyboard daftar menu utama. Barisnya <button>, jadi
+// Enter/Space sudah memicu klik sendiri — di sini hanya panah (pindah sorotan),
+// Escape (tutup panel), dan sinkronisasi sorotan dgn pointer. Kelas `.on`
+// dipakai KEDUA jalur (mouse & keyboard) supaya tak pernah ada dua baris
+// tersorot sekaligus seperti kalau memakai :hover terpisah.
+function initMenuNav(menu, closePanel) {
+    const rows = [...menu.querySelectorAll('#mainMenuMain .navRow')];
+    if (!rows.length) return;
+    let idx = 0;
+
+    const paint = (i, focus) => {
+        idx = (i + rows.length) % rows.length;
+        rows.forEach((r, k) => r.classList.toggle('on', k === idx));
+        if (focus) rows[idx].focus({ preventScroll: true });
+    };
+    rows.forEach((r, k) => {
+        r.addEventListener('mouseenter', () => paint(k, false));
+        r.addEventListener('focus', () => paint(k, false));
+    });
+    paint(0, false);
+
+    document.addEventListener('keydown', (e) => {
+        if (menu.style.display === 'none') return;
+        if (e.key === 'Escape') {
+            if (menu.classList.contains('subview')) { closePanel(); e.preventDefault(); }
+            return;
+        }
+        if (menu.classList.contains('subview')) return;   // panel terbuka: daftar tak aktif
+        if (e.key === 'ArrowDown') { paint(idx + 1, true); e.preventDefault(); }
+        else if (e.key === 'ArrowUp') { paint(idx - 1, true); e.preventDefault(); }
+    });
+}
+
+// Parallax halus latar kota: --px (satuan px) diwariskan ke tiap .mCity yang
+// mengalikannya dgn --depth lapisannya, jadi lapisan dekat bergerak lebih jauh
+// daripada cakrawala. Transisi CSS 0.5s yang memberi bobotnya — di sini cukup
+// satu penulisan variabel per gerakan pointer.
+function initParallax() {
+    const screens = [...document.querySelectorAll('.menuScreen')];
+    if (!screens.length) return;
+    const AMP = 18;
+    document.addEventListener('pointermove', (e) => {
+        const px = (e.clientX / Math.max(1, window.innerWidth) - 0.5) * -2 * AMP;
+        for (const s of screens) s.style.setProperty('--px', px.toFixed(1) + 'px');
+    });
 }
 
 function initCredits() {
@@ -202,7 +295,12 @@ function initSettingsVolume() {
     const wire = (sliderId, valId, get, set) => {
         const s = document.getElementById(sliderId), v = document.getElementById(valId);
         if (!s || !v) return;
-        const paint = () => { v.textContent = Math.round(get() * 100) + '%'; };
+        // --fill = porsi rel yang tercat amber; dibaca CSS track slider.
+        const paint = () => {
+            const pct = Math.round(get() * 100);
+            v.textContent = pct + '%';
+            s.style.setProperty('--fill', pct + '%');
+        };
         s.value = Math.round(get() * 100);
         paint();
         s.addEventListener('input', () => { set(s.value / 100); paint(); });

@@ -53,6 +53,8 @@ The single `'mag'` drop that refilled EVERY weapon at once is gone. Each weapon 
 
 Drops are `{type:'ammo', weapon}` in the `drops` array. `spawnAmmoDrop(x, z, w, lifetime?)` places one (stage supplies pass `1e9` = never expires); `spawnMedkitDrop(x, z, lifetime?)` is its medkit twin. Pickup fills ONLY `player[w].ammo` by `CFG.weapons[w].ammoPickup`, capped at `maxAmmoFor(w)`. Two cases leave the item on the floor with a grey feed line: that weapon is already full, or **the player does not own that weapon** (ammo for an unbought gun is never consumed). `spawnDrop` (random robot-death drop, chance `CFG.drops.magChance`) rolls the type from the player's OWNED weapons only, so a drop is never wasted.
 
+`activeScene.clampDropPos(x,z)` may optionally return `[x,z,groundY]` (2026-08-10). `drops.js` stores that third value and adds it to every ammo/medkit/loot bob; Stage 7 uses it for the Pasupati descent and lower Pasteur plaza. Existing scenes returning only `[x,z]` retain groundY 0 exactly.
+
 ## Destructible supply crates (2026-07-26, user request)
 
 `src/entities/crates.js` — wood/steel supply crates that break to **gunfire OR the melee knives**, with a chance to contain loot. `spawnCrate(x, z, groundY)`, `crateBulletHits()` (swept segment, run in `updateGame` next to `barrelBulletHits`), `crateMeleeHit(px, pz, dirx, dirz, range, dmg)` (called from `doMeleeHit`, same ±70° front cone as robots), `crateBlastHits(x, z, R)` (explosions break them too, called from `explodeAt`), `resolveCrateBlock(pos, r)`, `resetCrates()`, `crateDebug()`.

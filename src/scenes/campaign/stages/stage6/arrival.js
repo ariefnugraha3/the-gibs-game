@@ -11,6 +11,12 @@
 //               titik `H`
 //   exfil    -> pintu `@` terbuka; capai titik `F` untuk menutup chapter
 //
+// DUA MESIN PEMBUAT ROBOT (permintaan user 2026-08-09) berdiri di ujung utara
+// gudang, tepat sebelum lorong layanan menuju `F`. Mereka menyala bersama
+// garnisun hall, mencetak robot ber-encounter `factory` (jadi tak pernah menahan
+// gate `clearHall`), dan KEDUANYA WAJIB HANCUR sebelum titik `F` mau menutup
+// chapter — mendekat lebih awal hanya membuat Gibran menolak.
+//
 // Semua jarak/durasi/jumlah robot dari `CFG.campaign.stage6`.
 
 import { CFG } from '../../../../core/config.js';
@@ -24,22 +30,24 @@ import { releaseInputs } from '../../../../core/input.js';
 import { clearMoveTarget } from '../../../../entities/player.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { spawnCrate, resolveCrateBlock } from '../../../../entities/crates.js';
-import { campaignRobotAI, campaignClampRobot } from '../../utility/common.js';
+import { campaignRobotAI, campaignClampRobot, countStageRobots } from '../../utility/common.js';
 import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
 import { beginRepairMinigame, ADVANCED_REPAIR_PARTS } from '../../utility/repairMinigame.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import {
     phase, setPhase, cine, setCine, cineCam, cleanupCine, enterSub,
     queueDialogue, dialogueIdle, countEncounter, spawnEncounter,
+    machineBulletHits, machineWreckFx,
 } from './runtime.js';
 import {
     CELL, WALL_H, cellPos, mapCellAt, touchesSafeArea,
-    S6_START, S6_INFO, S6_FINISH, RACK_POINTS, GENERATOR_POINTS,
+    S6_START, S6_INFO, S6_FINISH, RACK_POINTS, GENERATOR_POINTS, MACHINE_POINTS,
     SUPPLY_POINTS, CRATE_POINTS, ENCOUNTER_POINTS,
     stage6Walk, robotWalk, resolve, groundHeight, stage6SegHitsWall, doorBlocksShot,
     doorOf, stage6Nav, updateDoors, updateAutoDoors, updateMachinery, updateSparks,
     activateSparks, pulseMarkers, setMarkers, setRackSearched, setInfoRead,
     setGeneratorOnline, resetWorldVisuals,
+    stage6Machines, armMachines, killMachine, updateMachineVisual,
 } from './world.js';
 import { hqScene } from './hq.js';
 
@@ -52,6 +60,7 @@ let generatorArmed = [true, true, true], infoArmed = true, infoHackCd = 0;
 let interactionKind = '';
 let hallAwake = false, hallSpawned = false, gridSpawned = false, exfilSpawned = false;
 let enteredSupply = false, enteredHall = false, chapterDone = false, elapsed = 0;
+let machineT = 0, exitWarnArmed = true;
 
 export function resetArrival() {
     keyRack = 0; hasKey = false; infoRead = false;
@@ -61,9 +70,11 @@ export function resetArrival() {
     interactionKind = '';
     hallAwake = false; hallSpawned = false; gridSpawned = false; exfilSpawned = false;
     enteredSupply = false; enteredHall = false; chapterDone = false; elapsed = 0;
+    machineT = 0; exitWarnArmed = true;
 }
 
 const onlineCount = () => generatorOnline.reduce((n, v) => n + (v ? 1 : 0), 0);
+const machinesAlive = () => stage6Machines().reduce((n, m) => n + (m.alive ? 1 : 0), 0);
 const encounterPoints = name => ENCOUNTER_POINTS[name].map(([c, r]) => cellPos(c, r));
 
 function hideInteraction() { interactionKind = ''; hideDownloadBar(); }
@@ -81,7 +92,10 @@ function syncMarkers() {
         return infoRead ? i === keyRack : true;
     });
     const repairs = GENERATOR_POINTS.map((_, i) => phase === 'powerGrid' && !generatorOnline[i]);
-    setMarkers({ racks, repairs, info: phase === 'findKey' && !infoRead, finish: phase === 'exfil' });
+    // Titik `F` baru ditandai kalau kedua mesin sudah hancur — selama masih ada
+    // yang berdiri, objektifnya adalah mesin itu.
+    setMarkers({ racks, repairs, info: phase === 'findKey' && !infoRead,
+        finish: phase === 'exfil' && machinesAlive() === 0 });
 }
 
 function placeSupplies() {
@@ -252,6 +266,35 @@ function beginExfil() {
     addCamShake(1.6); syncMarkers();
 }
 
+// --- Mesin pembuat robot gudang --------------------------------------------
+function destroyMachine(m) {
+    killMachine(m.id);
+    machineWreckFx(m.x, m.z);
+    showStageMsg(`ROBOT FABRICATOR DESTROYED — ${machinesAlive()}/${MACHINE_POINTS.length} LEFT`, 3000);
+    if (machinesAlive() === 0) queueDialogue('fabricatorsClear');
+    syncMarkers();
+}
+
+function updateMachines(dt) {
+    const C = C6();
+    const list = stage6Machines();
+    machineBulletHits(list, C.machineHitRadius);
+    for (const m of list) if (m.alive && m.hp <= 0) destroyMachine(m);
+    for (const m of list) if (m.hitT > 0) m.hitT = Math.max(0, m.hitT - dt * 4);
+    if (!hallAwake || machinesAlive() === 0) return;
+    machineT -= dt;
+    if (machineT > 0) return;
+    machineT = Math.max(1, C.machineWaveSec || 9);
+    // Pagar `machineMaxAlive` menghitung SELURUH robot stage: garnisun hall yang
+    // masih utuh sudah menahan produksinya sendiri.
+    if (countStageRobots(6) >= (C.machineMaxAlive || 16)) return;
+    const n = Math.max(1, (C.machineWaveCount | 0) || 2);
+    for (const m of list) {
+        if (!m.alive || !m.active) continue;
+        for (let k = 0; k < n; k++) spawnEncounter([m.hatch], 'factory', { C: 1 }, true);
+    }
+}
+
 // --- Penutup chapter -------------------------------------------------------
 function finishChapter() {
     if (chapterDone) return;
@@ -262,7 +305,15 @@ function finishChapter() {
 
 function updateChapterEnd(dt) {
     if (!cine) {
-        if (!near(S6_FINISH, C6().finishRange)) return;
+        if (!near(S6_FINISH, C6().finishRange)) { exitWarnArmed = true; return; }
+        // Pintu keluar tidak melayani siapa pun selama mesinnya masih mencetak.
+        if (machinesAlive() > 0) {
+            if (!exitWarnArmed) return;
+            exitWarnArmed = false;
+            queueDialogue('machinesFirst', true);
+            showStageMsg(`DESTROY BOTH FABRICATORS FIRST — ${machinesAlive()} LEFT`, 3200);
+            return;
+        }
         releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
         setCinematicActive(true); setCineBars(true);
         setCine({ kind: 'handoff', t: 0, fading: false, fadeT: 0 });
@@ -282,7 +333,11 @@ function updateChapterEnd(dt) {
 // --- Bangun garnisun hall --------------------------------------------------
 function wakeHall() {
     if (hallAwake) return;
-    hallAwake = true; queueDialogue('hallContact');
+    hallAwake = true;
+    queueDialogue('hallContact'); queueDialogue('hallFabricators');
+    // Mesin gudang ikut menyala bersama garnisunnya.
+    armMachines(true);
+    machineT = Math.max(1, C6().machineFirstWaveSec || 5);
     for (const z of robots) if (z.stage === 6 && z.encounter === 'hall') {
         z.state = 'chasing'; z.moving = false; z.aiming = false;
     }
@@ -295,6 +350,7 @@ export const arrivalDebug = () => ({
     generatorArmed: [...generatorArmed], generatorsOnline: onlineCount(),
     infoArmed, infoHackCd, interaction: interactionKind,
     hallAwake, hallSpawned, gridSpawned, exfilSpawned,
+    machinesAlive: machinesAlive(), machineT, exitWarnArmed,
     enteredSupply, enteredHall, chapterDone, elapsed,
 });
 
@@ -319,9 +375,12 @@ export const arrivalScene = {
     updateMode(dt) {
         elapsed += dt;
         updateAutoDoors(); updateDoors(dt); updateSparks(dt);
-        updateMachinery(dt, generatorOnline); pulseMarkers(dt, elapsed);
+        updateMachinery(dt, generatorOnline); updateMachineVisual(dt);
+        pulseMarkers(dt, elapsed);
         if (phase === 'opening') { updateOpeningCine(dt); return; }
         if (phase === 'complete') return;
+        // Mesin gudang menembak balik di SETIAP fase sesudah hall bangun.
+        if (!cine) updateMachines(dt);
         if (phase === 'exfil') { updateChapterEnd(dt); return; }
 
         const cell = mapCellAt(camera.position.x, camera.position.z);
@@ -399,14 +458,20 @@ export const arrivalScene = {
                 : `RECOVER THE SERVICE KEY — ${left} RACKS UNSEARCHED`;
         }
         if (phase === 'powerGrid') return `RESTORE THE GENERATORS — ${onlineCount()}/${GENERATOR_POINTS.length}`;
-        if (phase === 'exfil') return 'POWER RESTORED — REACH THE ACCESS DOOR';
+        if (phase === 'exfil') {
+            return machinesAlive() > 0
+                ? `DESTROY BOTH FABRICATORS — ${machinesAlive()}/${MACHINE_POINTS.length} LEFT`
+                : 'POWER RESTORED — REACH THE ACCESS DOOR';
+        }
         return 'HEADQUARTERS ACCESS OPEN';
     },
 
     radarLandmarks(plot) {
         const marks = [];
         if (phase === 'stockUp') marks.push(cellPos(3.5, 35));
-        else if (phase === 'findKey') {
+        else if (phase === 'exfil' && machinesAlive() > 0) {
+            for (const m of stage6Machines()) if (m.alive) marks.push(m);
+        } else if (phase === 'findKey') {
             if (!infoRead) marks.push(S6_INFO);
             for (let i = 0; i < RACK_POINTS.length; i++) {
                 if (rackSearched[i]) continue;

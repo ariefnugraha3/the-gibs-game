@@ -12,7 +12,7 @@ no framework**. Two modes:
 - **Survival** — round-based waves defending the Monas monument; a Field Shop opens
   between waves; score = shop currency. Detail: [docs/survival.md](docs/survival.md).
 - **Campaign** — 8 linear stages (text prologue → helicopter intro cutscene → three
-  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters → a maze of Bandung streets, alleys and parks → an autonomous-vehicle firefight and combat-gunship duel on Cisumdawu), an inter-stage shop, loot
+  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters → a 1.5 km night crossing of the Prof. Dr. Mochtar Kusumaatmadja/Pasupati flyover to Pasteur → an autonomous-vehicle firefight and combat-gunship duel on Cisumdawu), an inter-stage shop, loot
   as currency, hacking/repair minigames, a stage checkpoint save.
   Detail: [docs/campaign.md](docs/campaign.md).
 
@@ -137,6 +137,14 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   by separation must be re-clamped via `activeScene.clampRobot`.
 - Robots show **no damage feedback**; the radar has **no sweep/gradient**;
   `#crosshair` stays hidden with its JS writes intact.
+- The menu front-end is the "field terminal" design (2026-08-09 user request, the old one
+  "looked AI generated"): layered Jakarta 2045 skyline backdrop from `src/scenes/menuArt.js`
+  (three parallax layers, Monas the anchor, deterministic hash instead of `Math.random`),
+  a LEFT-aligned numbered main menu with status rails, mission-dossier mode cards with vector
+  schematics, a segmented Settings console, and film-card Credits. NEVER re-add the red radial
+  gradient, rounded pill buttons, emoji mode icons, or the centred stack. `difficultyNote()`
+  quotes `CFG.difficulty`, and the old DOM contract (button ids, `.qbtn[data-q]`,
+  `.dbtn[data-d]`, `.modeCard[data-mode]`, `#creditsBody`, `#continuePrompt`) is unchanged.
 - Barrels/crates are solid to the player only and stay **out of the nav grid**;
   furniture is the opposite (in `blockers` AND nav).
 - Green Campaign finish screens show per-stage total time and destroyed loot boxes.
@@ -256,7 +264,7 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   `ET_STEP` so the next car comes level). After the tenth, the locomotive burns in `finale`.
   Arrival needs the whole consist destroyed plus `rideMinSec`.
   The consist is deliberately menacing and its shape is forced by the oblique sight line
-  (same 1.16-per-unit rule as the Stage 7 city blocks; the enemy track is 42 units FARTHER):
+  (projected height grows about 1.16 units per unit of depth; the enemy track is 42 units FARTHER):
   the FIXED near wall stays chest-high (`ET_CAR_SILL` 8) so the deck reads, the part that
   seals to `ET_CAR_HEIGHT` 26 is the RAMP (so a sealed car really hides its robots), the roof
   covers only the FAR 58% of the deck (a full-width roof clips robot heads), and the ramp
@@ -264,14 +272,18 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   static hull and ramp are welded with `mergeObjectInPlace`; only the ramp, the warning strip
   and four near-side wheels stay separate. The car count is the geometry constant
   `ET_CARGO_CARS`, NOT config — the meshes are preallocated, exactly like `TRAIN_CAR_COUNT`.
-- A destroyed spawn machine must stop blocking exactly when its chassis stops being drawn
-  (2026-08-08 user report "masih ada blocking tidak terlihat"). VISIBILITY DECIDES COLLISION:
-  Stages 3, 5 and 6 hide the rig on death so each must also drop its collider — Stage 5 splices
-  `machineBlocker` out of `blockers`, Stage 6 splices its `recordProp` blocker AND adds the `M`
-  cells to `deadMachineCells` so `hqWalk`/`hqSegHitsWall` open up. Stage 7 is the deliberate
-  exception: its chassis stays visible as cover, so it stays solid. Nav is NEVER rebaked — the
-  cell stays non-navigable and robots route around it. Colliders are restored in each world's
-  visual reset because the machine is alive again on re-entry.
+- A destroyed spawn machine is a CHARRED WRECK that stays on screen (2026-08-09 user request
+  "hitam gosong dengan part yang terlepas"). `wreckSpawnMachine(rig)` chars every body material
+  (PAL.rubber/PAL.ink, hazard trim down to the PAL.amberDim ember) and throws ~18 of the rig's
+  OWN parts out of pose — no new mesh, material or PointLight, so an exploding machine still
+  cannot force a shader recompile; `updateSpawnMachine` returns early on a dead rig, and
+  `resetSpawnMachine` restores it for the next entry.
+- VISIBILITY DECIDES COLLISION, in both directions (2026-08-08 report; revised 2026-08-09).
+  A drawn rig blocks; a rig that is not drawn drops its collider. Because the wreck is now
+  drawn, Stages 3, 5, 6 and 7 all KEEP the collider (and Stage 6's `M` cells) after death.
+  The only hidden case left is Stage 6 HQ before lockdown deploys its machines: there
+  `setMachineSolid(m,false)` splices the blocker and opens the `M` cells (`openMachineCells`)
+  until `deployMachine` puts them back. Nav is NEVER rebaked in any case.
 - Stage 5 boarding WAITS for the station script, THEN holds (2026-08-08 user request). Touching
   the boarding marker no longer hands over on the spot — that cut the departure cutscene
   over `powerBack`/`routeReady`/`letsMove` mid-type. It now only COMMITS the departure
@@ -306,8 +318,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   `scene` would sit in the middle of the rails all ride), at a near-ground `groundY` instead of
   the Floor-2 -70, and with a RAIL CORRIDOR kept clear at every x (the normal ring only clears a
   box around the building, so without it towers grow on the track and on the run-out apron the
-  train departs across). Stage 5 therefore calls `enterCityEnv()`, not `exitCityEnv()`; Stage 6
-  restores the apocalyptic dome. The journey runs two acts: it OPENS IN THE CITY and switches to
+  train departs across). Stage 5 therefore calls `enterCityEnv()`, not `exitCityEnv()`; since
+  2026-08-10 Stage 6 does the same, leaving Stage 4 as the only stage that wants the apocalyptic
+  dome. The journey runs two acts: it OPENS IN THE CITY and switches to
   the WEST JAVA MOUNTAINS the moment the `CFG.campaign.stage5.scenery.mountainAfterCars`-th (3rd)
   enemy car is destroyed — a CAR COUNT converted to `routeK` by `sceneryMountainK()`, so the cut
   lands exactly on that kill. Fixed preallocation is an invariant, so every mid/far scenery module
@@ -494,6 +507,16 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   the only switch path: cut to black, then fade in over chapterFadeSec on the next frame.
   Both worlds register lamps under the single lightsKey 'campaign-6' and stay lit together,
   because toggling per chapter would change the point-light count mid-stage.
+- Stage 6 BACKGROUND = CITY, like Stage 5 (2026-08-10 user request; it used to show the global
+  burning-vortex dome). enter() calls enterCityEnv(), not exitCityEnv(). Hiding the dome alone
+  would only swap a strange sky for an empty one, so EACH chapter builds its own
+  buildCampaignCityscape ring PARENTED TO THAT CHAPTER'S worldRoot — never to scene, since the
+  chapters are 6000 units apart and a scene-welded ring would stand in the other chapter's
+  coordinates. Ground heights are exported and deliberate: S6_CITY_GROUND_Y -6 (the terminal is
+  on the ground, like the Stage 5 depot) and HQ_CITY_GROUND_Y -70 (the HQ chapter is an
+  administration floor one storey up, like the Stage 1-3 offices, so the podium fills the space
+  under the slab). The rings are pure decor — zero blockers, zero nav cells, zero PointLights —
+  and are reported through the `city` field of stage6WorldDebug()/hqWorldDebug().
 - Stage 6 chapter 1 is the user's stages(Stage6-Start).csv, a frozen 50x50 transliteration:
   # wall, A (CSV SA) safe area, S start, W supply room, - auto door, = keyed door,
   @ chapter door, K key rack, I info terminal, G generator, H repair point, F finish.
@@ -504,7 +527,12 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   three K racks holds the key, chosen at random per entry, and the I terminal narrows the
   markers/radar/HUD to the correct one; the key opens =, all three G generators are repaired
   from their H points, which releases @ and the exfil wave, and standing on F hands to
-  chapter 2.
+  chapter 2. TWO robot fabricators (2026-08-09 user request) stand in the hall's north strip,
+  just west of the service corridor that leads to F, so the player passes them going in and
+  coming out. The CSV is frozen, so they are PROPS (recordProp collider, nav-baked), not map
+  tokens; they wake with the hall garrison, print `factory`-tagged robots (never `hall`, so the
+  clearHall gate is untouched), and BOTH must be destroyed before F responds — approaching it
+  early only gets Gibran's `machinesFirst` refusal.
 - Stage 6 chapter 2 is the user's stages(Stage6-Finish).csv, a frozen 50x50 OFFICE at
   x~216000: # wall, A (CSV SA) safe area with no spawns at the start, S (CSV SF) start AND
   finish, @ BROKEN door that never opens, - door (the start/finish pair is sealed), W weapon
@@ -515,56 +543,73 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   Phases: office -> upload -> purge -> escape -> complete. The garrison is frozen until the
   player leaves the safe area; standing on H runs the upload that always stops at the
   config-driven 92% and reveals IKN; that cutscene HANDS CONTROL BACK, lockdown drops a wave
-  across the whole floor INCLUDING the safe area and powers up both M machines (shared rig
-  entities/spawnMachine.js, chassis nav-baked from the start so nav is never rebaked); the
-  finish opens only once both machines are destroyed AND the floor is clear, and stepping
-  back on SF ends the stage through the shared transition. No boss/miniboss/tank/boss
-  HUD/score/music anywhere in Stage 6.
+  across the whole floor INCLUDING the safe area; the finish opens only once both machines
+  are destroyed AND the floor is clear, and stepping back on SF ends the stage through the
+  shared transition. Four 2026-08-09 user-requested rules: (1) the two M fabricators DO NOT
+  EXIST before the upload — no chassis, no collider, no HP; beginLockdown calls deployMachine
+  and only then are they solid and printing; (2) NO robot ever spawns in the server room
+  (HQ_SERVER_ROOM, cols 30-48 rows 1-12), before or after — the encounter tables are clean and
+  points() filters the room again at spawn time, though chasing robots may follow the player
+  in; (3) the one door into that room (server-access) starts LOCKED and is released only by
+  the SIGNAL TRACE terminal in the middle meeting room (HQ_HACK, hackRange), with a re-arming
+  warning line at the locked door and an alarm squad on a failed trace; (4) after the upload
+  the main door refuses until both fabricators are wrecked, answering with `machinesFirst`
+  once per approach. No boss/miniboss/tank/boss HUD/score/music anywhere in Stage 6.
 - Spawn machines are shared animated hero props, never generic boxes (2026-08-08):
-  `entities/spawnMachine.js` owns the chamber/iris/turbine/gantry rig used by Stage 3 and
-  Stage 6. Animate it only through `resetSpawnMachine`/`updateSpawnMachine`; keep the hatch
-  facing local +Z, parent transform/collider fixed, PAL-only materials and zero PointLights.
+  `entities/spawnMachine.js` owns the chamber/iris/turbine/gantry rig used by Stages 3, 5, 6
+  (both chapters) and 7. Animate it only through `resetSpawnMachine`/`updateSpawnMachine`;
+  keep the hatch facing local +Z, parent transform/collider fixed, PAL-only materials and zero
+  PointLights. Their HP is ONE shared config number, `campaign.spawnMachine.hp`, read only
+  through `spawnMachineHp()` (2026-08-09 user request) — the per-stage machineHp /
+  spawnMachine(s).hp keys are deleted, so never reintroduce one.
 - Both Stage 6 chapters carry a traversability assert that BFS-walks the map at the player's
   clearance through solid props. Any furniture edit that seals a doorway fails it.
-- Stage 7 is one static 280×184 Bandung city maze at x≈240000. The old exclusive three-route
-  choice, commit thresholds and bollards are gone. Every asphalt section is exactly
-  `CFG.campaign.stage7.streets.asphaltWidthMeters` (default 8 m) wide with a
-  `sidewalkWidthMeters` (default 2 m) sidewalk on both edges. The roundabout uses a grass
-  island + low curb, exact 8 m asphalt ring, outer-only 2 m sidewalk and four dashed give-way
-  rows; player collision slides radially while bullets can cross its center. The wide toll apron
-  is concrete. Every three/four-arm junction uses
-  a continuous asphalt center, rounded sidewalk curbs at active corners, and one zebra crossing
-  plus stop line per active arm. Zebra bars run PARALLEL to that arm while their row repeats
-  across the road width; center dashes stop before the conflict area. A pure 90-degree elbow
-  trims both straight segments at tangent points and joins them with concentric quarter-annuli
-  for inner sidewalk/asphalt/outer sidewalk plus curved center dashes—never two overlapping
-  circular end-caps. Elbows near an alley mouth remain junctions so the alley cannot be sealed.
-  Street-facing frontage buildings
-  are at most `buildingSetbackMeters` (default 1.5 m) from the OUTER sidewalk edge, not from
-  the asphalt edge. Clearance-aware smoke proves the
-  connected loops, wrong turns and dead ends still require both an alley and an open park on
-  the path from HQ to Cisumdawu. All six district encounters exist in one run but do not gate
-  the toll. The only mandatory finish combat remains exactly three solid/nav-baked shared
-  spawn-machine rigs; each prints `spawnMachines.batchCount` robots every `batchSec` until
-  destroyed, and the last chassis reveals the GRD LTV-45.
-- Stage 7 dressing mixes offices, pitched-roof homes, a school, shops/ruko, markets, four
-  differently sized parks, a roundabout, sedans, SUVs, an angkot, benches and at least 55
-  trees, including at least 25 large roadside and park trees. Every park has a varied mix of fountains,
-  benches, trees, planters, bins, gazebos and playground pieces rather than empty grass. Cars,
-  lamp posts, benches and trees are registered before nav bake; tree trunks remain
-  bullet-transparent. Every whole tree and every close frontage/landmark is registered through
-  `registerOccluder`. Occlusion is a persistent `viewCam`-to-entity ray test: walls, roofs and
-  trees stay faded while they intersect the view, without a timer. Occluder materials are made
-  transparency-ready during world construction and runtime changes opacity only—never the
-  `transparent` flag—so no fade causes a shader recompile. Deep generic blocks retain the
-  rotated-roof sight-line cap, while close frontage obeys the exact outer-sidewalk setback.
-  Roughly 30+ moderately spaced visual lamp posts line the streets, while the registered
-  PointLight count remains exactly 14; unlit poles use emissive heads. Robot wake
-  and ranged fire use the same wall LOS as bullets. All eight supplies, nine crates and 26
-  barrels appear every run without sharing a prop/spawn center or sealing a 3 m alley. The toll
-  arm is solid across the lane and the vehicle trigger sits outside the GRD bumper. Fixed pools
-  remain allocation-stable, and there is no boss/miniboss/tank/boss
-  HUD/score/music; the green complete screen opens Field Shop before Stage 8.
+- Stage 7 is one static, straight 1.5 km Prof. Dr. Mochtar Kusumaatmadja/Pasupati flyover at
+  x≈240000, traversed east to west. `CFG.campaign.stage7.flyover` defines four 3 m lanes on each
+  carriageway, a 1 m median and a 1 m shoulder outside each carriageway, making the deck exactly
+  27 m wide. Each shoulder has a solid edge line before the outer barrier. The median surface has no
+  longitudinal collider: player and robots can cross anywhere, while lamp and pylon bases retain
+  only local blockers. The deck top stays at y=0 through meter 1200, then descends 12 m over
+  200 m and runs the final 100 m at lower-road level; Pasteur's toll plaza, factories and finish
+  vehicle are therefore physically below the elevated Pasupati span. Player, robots, vehicles,
+  drops, mortar markers, lamps and blockers all read the same road-height profile. The city/cross
+  roads remain 12 m below the upper deck, with piers that shorten along the descent and stop at
+  ground level. Both sides gain a two-lane (2×3 m) feeder every 300 m; all eight ramps travel
+  parallel to the flyover, rise from the lower side road over 180 m, then taper for 80 m as a fifth
+  lane merging into the outermost carriageway lane. They are never perpendicular/T-shaped.
+  Concrete hazard barricades outside the deck and main-deck-only walkability keep both character
+  types off them while every deck-side merge approach remains reachable.
+- Stage 7 is permanently night. Dual-arm street lamps branch over both carriageways from the
+  median every 50 m, with exactly 14 fixed registered PointLights and emissive-only heads on the
+  remaining poles. At meter 700, the 26 m tapered/split concrete-red pylon carries a compact official
+  name plaque and exactly 10 large cylindrical white stays, split five ahead and five behind; every
+  deck anchor remains on the median centerline, never at a carriageway edge. Its base is solid but
+  both sides remain traversable. The camera eases
+  up/out within 110 m without changing aim, movement, collision or the logic pivot.
+  Deterministic defaults place sixteen seven-car gate bands plus 48 scattered cars (160 total), 12
+  jagged broken-asphalt holes, and 250 initial robots. Cars are oriented solid/nav/bullet blockers;
+  holes are real cuts with depressed floors, exposed aggregate lips, surface rubble and cracks, reject
+  player/robot clearance, and remain bullet-transparent. The road skin is split at crater midpoints
+  so each welded ShapeGeometry carries at most one reliable cut, and no car may overlap a crater.
+  Clearance smoke proves a median-crossing
+  detour reaches Pasteur and the landmark cannot seal the level.
+- Stage 7 runs `opening→flyover→tollApproach→factorySiege→vehicleReveal→outro→complete`.
+  Five encounter groups distribute robots along the crossing. An idle Stage 7 robot activates on the
+  first frame its body enters the gameplay-camera frustum through `campaignRobotAI`'s optional
+  `activate(z,d)` hook; it does not use the global proximity radius. Only from meter 500 through
+  meter 1300, a fixed two-shell mortar pool fires every 6 s, tracks until the final 0.5 s, then locks
+  its impact marker; each blast uses tank-mortar radius and deals 30 player / 150 enemy-robot damage,
+  ignoring local cover for robot AoE. Each finish factory prints exactly three robots every five
+  seconds, with its first batch obeying the same five-second cadence. The
+  Pasteur toll entrance keeps
+  exactly three solid shared spawn-machine rigs as the mandatory finish combat; the last destroyed
+  chassis collapses the network and reveals the GRD LTV-45 on the left/south side of the road, never
+  in the median. Defaults place eight supplies, 30
+  crates and 60 barrels; Stage 7's three-value `clampDropPos` result carries road elevation so
+  supplies, crate contents and robot loot remain above the slope/lower plaza. Fixed
+  96/24/20/12 rain/ripple/spark/exhaust pools remain allocation-stable.
+  There is no boss/miniboss/tank/boss HUD/score/music, and the green complete screen opens Field
+  Shop before Stage 8.
 - Stage 8 is the coordinate-stable GRD LTV-45 gunner arena at x≈270000. Seven lateral
   corridors span both three-lane carriageways and the traversable median; `A/D` are
   edge-triggered lane snaps while walking/RMB/dodge/melee are scene-gated off. The

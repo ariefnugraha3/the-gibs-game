@@ -410,6 +410,24 @@ body {
 .invSlot.active .invKey { color: #f1c40f; }
 .invSlot.active .invCount { color: #fff3cf; }
 
+/* HUD bawah harus tetap menjadi dua kelompok terpisah pada layar sempit. */
+@media (max-width: 620px) {
+    #barsHud {
+        left: 12px;
+        bottom: 12px;
+        transform: scale(0.58);
+        transform-origin: left bottom;
+    }
+
+    #statsHud {
+        right: 10px;
+        bottom: 10px;
+        gap: 5px;
+        transform: scale(0.62);
+        transform-origin: right bottom;
+    }
+}
+
 /* Crosshair DISEMBUNYIKAN permanen (permintaan user) — elemen & seluruh JS
    yang menulisnya (opacity ADS, kelas .hit) dibiarkan utuh agar mekanik
    menembak/recoil tidak berubah sedikit pun. */
@@ -885,92 +903,302 @@ body {
     letter-spacing: 1px;
 }
 
-/* ----- Layar pilih mode (paling awal, di atas cutscene) ----- */
-#modeSelect {
+/* ============================================================================
+   FRONT-END MENU — ROMBAK TOTAL 2026-08-09 (permintaan user: menu lama "jelek
+   dan terlihat AI generated"). Yang dibuang: gradien radial merah, sudut
+   membulat, tombol pil seragam, emoji sebagai ilustrasi, dan tata letak
+   semuanya-di-tengah. Penggantinya satu bahasa desain "TERMINAL LAPANGAN"
+   yang senada HUD dalam-game (panel gelap, garis rambut, label mikro
+   ber-jarak lebar, aksen amber manusia + teal sipil GIBS 2045):
+
+     * satu panggung latar berlapis (langit → 3 lapis siluet Jakarta 2045 dari
+       scenes/menuArt.js → kabut → garis pindai) dipakai ulang oleh menu utama
+       & layar pilih mode;
+     * rel status atas/bawah yang membingkai layar;
+     * menu utama RATA KIRI dgn nomor entri + baris petunjuk (bukan tumpukan
+       tombol di tengah);
+     * kartu mode berbentuk BERKAS MISI: kode operasi, skema vektor, spesifikasi;
+     * Settings jadi konsol berkelompok (DISPLAY/AUDIO) dgn segmented control;
+     * Credits jadi kartu judul film (peran kanan-rata | nama kiri-rata).
+
+   Semua kontrak JS lama dipertahankan — lihat komentar di index.html.
+   ============================================================================ */
+
+:root {
+    --aiAmber: #ffb03b;          /* PAL.amber — aksen manusia (senada HUD) */
+    --aiAmberDim: #8a5a14;
+    --aiTech: #2fb8a6;           /* PAL.tech — teal sipil */
+    --aiHazard: #b3402e;         /* PAL.hazard — merah-bata */
+    --aiPaper: #d8d2c4;          /* PAL.white — putih hangat */
+    --aiText: #cfc9bb;
+    --aiTextDim: #8a8478;
+    --aiTextFaint: #6f6a5e;
+    --aiInk: #0c0d10;
+    --aiLine: rgba(216, 210, 196, 0.15);
+    --aiLineHot: rgba(255, 176, 59, 0.55);
+}
+
+/* ---------- Kerangka layar ---------- */
+.menuScreen {
     position: absolute;
     inset: 0;
-    background: radial-gradient(circle at 50% 30%, #2a0d0d, #000 80%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    z-index: 30;
-    color: #fff;
+    overflow: hidden;
+    background: var(--aiInk);
+    color: var(--aiText);
     font-family: 'Courier Prime', 'Courier New', monospace;
 }
 
-#modeSelect h1 {
-    font-size: clamp(30px, 5vw, 52px);
-    margin: 0 0 6px;
-    letter-spacing: 3px;
-    text-shadow: 0 0 24px rgba(255, 60, 0, 0.55), 3px 3px 4px #000;
-}
-
-#modeSelect .subtitle {
-    color: #ffb84d;
-    letter-spacing: 4px;
-    font-size: 15px;
-    margin-bottom: 34px;
-}
-
-.modeCards { display: flex; gap: 26px; flex-wrap: wrap; justify-content: center; padding: 0 20px; }
-
-.modeCard {
-    width: 300px;
-    padding: 28px 22px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 2px solid #7a2b2b;
-    border-radius: 14px;
-    cursor: pointer;
-    text-align: center;
-    transition: transform 0.12s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
-}
-
-.modeCard:hover {
-    transform: translateY(-5px);
-    border-color: #e0503e;
-    background: rgba(224, 80, 62, 0.12);
-    box-shadow: 0 8px 30px rgba(224, 80, 62, 0.25);
-}
-
-.modeCard .emoji { font-size: 54px; filter: drop-shadow(0 6px 6px rgba(0,0,0,0.7)); }
-.modeCard h2 { color: #ff6b3a; font-size: 24px; margin: 14px 0 8px; letter-spacing: 1px; }
-.modeCard p { font-size: 14px; color: #ccc; line-height: 1.55; margin: 0; }
-
-#modeBack { margin-top: 30px; min-width: 200px; }
-
-/* ----- Menu utama (Start / Settings / Credits / Exit) ----- */
 #mainMenu {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 50% 30%, #2a0d0d, #000 80%);
+    z-index: 32;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 clamp(26px, 7vw, 128px);
+    box-sizing: border-box;
+}
+
+#modeSelect {
+    z-index: 30;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* Panel Settings/Credits mengambil alih layar -> menu utama ikut ke tengah */
+#mainMenu.subview { justify-content: center; }
+#mainMenu.subview #mainMenuMain { display: none; }
+
+/* ---------- Panggung latar: langit, kota berlapis, kabut, garis pindai ----------
+   .mCity diisi SVG oleh menuArt.paintMenuArt; parallax halus digeser
+   menu.js lewat --px (pointer) sehingga lapisan bergerak beda jauh-dekat. */
+.mScene {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Senja berdebu: cahaya hangat rendah di cakrawala supaya SEMUA siluet kota
+   terbaca gelap di atasnya — bukan gelap-di-atas-gelap seperti versi pertama. */
+.mSky {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(128% 62% at 60% 104%, rgba(255, 176, 59, 0.34) 0%,
+            rgba(214, 120, 52, 0.16) 30%, rgba(255, 176, 59, 0) 62%),
+        radial-gradient(74% 48% at 18% 2%, rgba(47, 184, 166, 0.11), rgba(47, 184, 166, 0) 64%),
+        linear-gradient(180deg, #06070a 0%, #0b0d12 32%, #171920 58%, #2b2219 84%, #3d2c1c 100%);
+}
+
+/* Dua lampu pesawat menyeberangi langit — satu-satunya gerak besar di latar */
+.mSky::before,
+.mSky::after {
+    content: '';
+    position: absolute;
+    top: 21%;
+    left: -3%;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--aiHazard);
+    box-shadow: 0 0 7px rgba(179, 64, 46, 0.9);
+    animation: mmFlyBy 44s linear infinite;
+}
+
+.mSky::after {
+    top: 33%;
+    background: var(--aiPaper);
+    box-shadow: 0 0 6px rgba(216, 210, 196, 0.7);
+    animation-duration: 67s;
+    animation-delay: -25s;
+}
+
+@keyframes mmFlyBy {
+    from { transform: translateX(0); }
+    to { transform: translateX(110vw); }
+}
+
+.mCity {
+    position: absolute;
+    left: -7%;
+    right: -7%;
+    bottom: 0;
+    transform: translate3d(calc(var(--px, 0) * var(--depth, 1)), 0, 0);
+    transition: transform 0.5s cubic-bezier(.2, .7, .3, 1);
+}
+
+.mCity[data-depth="far"] { height: 48%; --depth: 0.34; color: #2f3138; opacity: 0.9; }
+.mCity[data-depth="mid"] { height: 63%; --depth: 0.68; color: #2a2c32; }
+.mCity[data-depth="near"] { height: 32%; --depth: 1.25; color: #16181c; }
+
+/* Tiga nilai gelap yang JELAS berbeda = perspektif udara; versi pertama pakai
+   tiga abu-abu nyaris sama sehingga kotanya jadi bubur. */
+.mCity .miSvg { display: block; width: 100%; height: 100%; }
+.mCity[data-depth="far"] .miBody { fill: #23252b; }
+.mCity[data-depth="mid"] .miBody { fill: #131519; }
+.mCity[data-depth="near"] .miBody { fill: #0a0b0e; }
+
+.miWire { fill: none; stroke: currentColor; stroke-width: 1.6; }
+.miDish { fill: #16181c; stroke: currentColor; stroke-width: 1.4; }
+.miWin { fill: var(--aiAmberDim); }
+.miWinT { fill: #1f5f57; }
+.miFlame {
+    fill: var(--aiAmber);
+    filter: drop-shadow(0 0 7px rgba(255, 176, 59, 0.85));
+}
+.miSmoke { fill: rgba(216, 210, 196, 0.045); }
+
+.miBeacon {
+    fill: var(--aiHazard);
+    animation: mmBeacon 3.4s ease-in-out infinite;
+}
+
+.mCity[data-depth="near"] .miBeacon { animation-delay: 1.3s; }
+
+@keyframes mmBeacon {
+    0%, 70% { opacity: 0.12; }
+    76%, 84% { opacity: 1; }
+    100% { opacity: 0.12; }
+}
+
+/* Kabut tipis setinggi cakrawala yang merayap pelan */
+.mHaze {
+    position: absolute;
+    left: -25%;
+    right: -25%;
+    bottom: 6%;
+    height: 36%;
+    background: linear-gradient(90deg, transparent 0%, rgba(216, 210, 196, 0.055) 22%,
+            transparent 44%, rgba(216, 210, 196, 0.04) 70%, transparent 100%);
+    filter: blur(14px);
+    animation: mmHaze 58s linear infinite;
+}
+
+@keyframes mmHaze {
+    from { transform: translateX(-14%); }
+    to { transform: translateX(14%); }
+}
+
+/* Garis pindai halus + vignette layar */
+.mScan {
+    position: absolute;
+    inset: 0;
+    background:
+        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.20) 0 1px, transparent 1px 3px),
+        radial-gradient(126% 104% at 50% 46%, transparent 40%, rgba(0, 0, 0, 0.7) 100%);
+}
+
+/* Peredup teks: menu utama gelap PENUH di kiri sampai ujung daftar menu (~42%
+   lebar layar) lalu membuka ke kota; pilih mode rata karena isinya di tengah. */
+.mScene::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(96deg, rgba(6, 7, 10, 0.97) 0%, rgba(6, 7, 10, 0.95) 32%,
+            rgba(6, 7, 10, 0.66) 47%, rgba(6, 7, 10, 0.16) 68%,
+            rgba(6, 7, 10, 0.1) 84%, rgba(6, 7, 10, 0.62) 100%);
+}
+
+#modeSelect .mScene::after {
+    background: linear-gradient(180deg, rgba(9, 10, 13, 0.94) 0%, rgba(9, 10, 13, 0.76) 38%,
+            rgba(9, 10, 13, 0.8) 68%, rgba(9, 10, 13, 0.94) 100%);
+}
+
+/* ---------- Rel status atas & bawah ---------- */
+.mRail {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 46px;
+    padding: 0 clamp(18px, 4vw, 46px);
+    box-sizing: border-box;
+    font-size: 10px;
+    letter-spacing: 2.8px;
+    text-transform: uppercase;
+    color: var(--aiTextFaint);
+    white-space: nowrap;
+}
+
+.mRailTop { top: 0; border-bottom: 1px solid var(--aiLine); }
+.mRailBot { bottom: 0; border-top: 1px solid var(--aiLine); }
+.railGap { flex: 1 1 auto; }
+.railKey { color: var(--aiText); }
+.railDim { color: var(--aiTextFaint); }
+
+.railMark {
+    width: 11px;
+    height: 11px;
+    background: var(--aiAmber);
+    clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.railLive {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--aiTextDim);
+}
+
+.liveDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--aiTech);
+    box-shadow: 0 0 8px rgba(47, 184, 166, 0.85);
+    animation: mmLive 2.6s ease-in-out infinite;
+}
+
+@keyframes mmLive {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+}
+
+/* ---------- Kunci judul (menu utama) ---------- */
+#mainMenuMain {
+    position: relative;
+    z-index: 3;
+    display: flex;
     flex-direction: column;
-    z-index: 32;
-    color: #fff;
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    align-items: flex-start;
+}
+
+.titleLock { margin-bottom: clamp(24px, 4.6vh, 54px); }
+
+.eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin-bottom: 18px;
+    font-size: 10.5px;
+    letter-spacing: 4.4px;
+    text-transform: uppercase;
+    color: var(--aiTextDim);
+}
+
+.ebMark {
+    width: 24px;
+    height: 2px;
+    background: var(--aiHazard);
 }
 
 #mainMenu h1 {
-    font-size: clamp(30px, 5vw, 52px);
-    margin: 0 0 6px;
-    letter-spacing: 3px;
-    text-shadow: 0 0 24px rgba(255, 60, 0, 0.55), 3px 3px 4px #000;
+    margin: 0;
+    font-size: clamp(38px, 7.1vw, 92px);
+    line-height: 0.9;
+    letter-spacing: -0.012em;
+    color: #efe9dc;
+    /* Bayang KETAT saja: blur besar di belakang teks raksasa terbaca sebagai
+       kotak abu-abu, bukan sebagai cahaya. Kontras datang dari peredam latar. */
+    text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
 }
 
-#mainMenu .subtitle {
-    color: #ffb84d;
-    letter-spacing: 4px;
-    font-size: 15px;
-    margin-bottom: 40px;
-}
-
-/* Judul game dua baris ("ADVERSARIAL INTELLIGENCE" + tagline latar "NUSANTARA
-   2045"): dipecah supaya nama panjang tak melebar keluar layar pada jendela
-   kecil. Tagline pakai amber HUD (aksen manusia GIBS 2045), sama seperti
-   .subtitle di bawahnya. */
+/* Judul dua baris: nama panjang + tagline latar. Lebar 12ch = tepat memotong
+   "ADVERSARIAL / INTELLIGENCE" pada font monospace, jadi kedua baris rata kiri
+   tanpa markup tambahan. Tagline pakai amber HUD (aksen manusia GIBS 2045). */
 #mainMenu h1 .titleMain,
 #modeSelect h1 .titleMain {
     display: block;
@@ -979,106 +1207,714 @@ body {
 #mainMenu h1 .titleTag,
 #modeSelect h1 .titleTag {
     display: block;
-    margin-top: 8px;
     color: #ffb84d;
-    font-size: 0.42em;
-    letter-spacing: 8px;
+    font-size: 0.155em;
+    letter-spacing: 0.6em;
 }
 
-#mainMenuMain {
+#mainMenu h1 .titleMain { max-width: 12ch; }
+
+#mainMenu h1 .titleRule {
+    display: block;
+    width: 12ch;
+    height: 2px;
+    margin: 20px 0 14px;
+    background: linear-gradient(90deg, var(--aiAmber), rgba(255, 176, 59, 0));
+}
+
+/* Layar pilih mode memakai logotype KECIL di rel atas, bukan judul raksasa */
+#modeSelect h1 {
     display: flex;
-    flex-direction: column;
-    align-items: center;
+    align-items: baseline;
+    gap: 12px;
+    margin: 0;
+    font-size: 12.5px;
+    letter-spacing: 2.6px;
+    color: #e6e0d3;
 }
 
+#modeSelect h1 .titleRule { display: none; }
+
+#modeSelect h1 .titleTag {
+    font-size: 0.82em;
+    letter-spacing: 0.32em;
+}
+
+/* ---------- Daftar entri menu utama ---------- */
 .menuBtns {
     display: flex;
     flex-direction: column;
+    gap: 3px;
+}
+
+.navRow {
+    display: grid;
+    grid-template-columns: 38px 1fr 18px;
+    align-items: center;
+    gap: clamp(12px, 1.6vw, 22px);
+    width: min(560px, 84vw);
+    padding: 12px 16px 12px 14px;
+    text-align: left;
+    font-family: inherit;
+    color: inherit;
+    /* Baris diam SEPENUHNYA transparan — latar samar yang lama berhenti mendadak
+       di tengah baris dan terbaca sebagai kotak UI di depan kota. */
+    background: transparent;
+    border: 0;
+    border-left: 2px solid rgba(216, 210, 196, 0.18);
+    cursor: pointer;
+    transition: background 0.16s, border-color 0.16s, transform 0.16s;
+    animation: mmRise 0.5s cubic-bezier(.2, .7, .3, 1) backwards;
+}
+
+.menuBtns .navRow:nth-child(1) { animation-delay: 0.05s; }
+.menuBtns .navRow:nth-child(2) { animation-delay: 0.12s; }
+.menuBtns .navRow:nth-child(3) { animation-delay: 0.19s; }
+.menuBtns .navRow:nth-child(4) { animation-delay: 0.26s; }
+
+@keyframes mmRise {
+    from { opacity: 0; transform: translateX(-16px); }
+}
+
+.nrIdx {
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--aiTextFaint);
+    transition: color 0.16s;
+}
+
+.nrBody {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.nrLabel {
+    font-size: clamp(16px, 1.7vw, 20px);
+    font-weight: bold;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: var(--aiText);
+    transition: color 0.16s;
+}
+
+.nrHint {
+    font-size: 10.5px;
+    letter-spacing: 1.6px;
+    color: var(--aiTextDim);
+    opacity: 0;
+    transition: opacity 0.18s;
+}
+
+.nrArrow {
+    color: var(--aiAmber);
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity 0.18s, transform 0.18s;
+}
+
+.navRow.on {
+    background: linear-gradient(90deg, rgba(255, 176, 59, 0.2) 0%, rgba(255, 176, 59, 0.06) 46%,
+            rgba(255, 176, 59, 0) 88%);
+    border-left-color: var(--aiAmber);
+    transform: translateX(7px);
+}
+
+.navRow.on .nrIdx { color: var(--aiAmber); }
+.navRow.on .nrLabel { color: #fff; }
+.navRow.on .nrHint { opacity: 1; }
+.navRow.on .nrArrow { opacity: 1; transform: translateX(0); }
+.navRow:focus { outline: none; }
+
+/* ---------- Tombol biasa (Back / konfirmasi) ---------- */
+.menuBtn {
+    align-self: center;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: bold;
+    letter-spacing: 3.4px;
+    text-transform: uppercase;
+    color: var(--aiText);
+    background: rgba(216, 210, 196, 0.05);
+    border: 1px solid var(--aiLine);
+    padding: 12px 40px;
+    min-width: 200px;
+    cursor: pointer;
+    transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+
+.menuBtn:hover,
+.menuBtn:focus-visible {
+    background: rgba(255, 176, 59, 0.13);
+    border-color: var(--aiLineHot);
+    color: #fff;
+    outline: none;
+}
+
+.menuBtn:active { transform: translateY(1px); }
+.menuBtnHot { border-color: rgba(255, 176, 59, 0.45); color: var(--aiAmber); }
+.menuBack { min-width: 180px; }
+
+/* ---------- Panel Settings & Credits ---------- */
+.menuPanel {
+    position: relative;
+    z-index: 4;
+    display: none;
+    flex-direction: column;
+    gap: 20px;
+    width: min(700px, 92vw);
+    max-height: 80vh;
+    padding: 30px clamp(20px, 3.4vw, 44px) 26px;
+    box-sizing: border-box;
+    background: linear-gradient(180deg, rgba(19, 21, 25, 0.96), rgba(11, 12, 15, 0.97));
+    border: 1px solid var(--aiLine);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.72);
+    animation: mmPanelIn 0.26s ease-out;
+}
+
+.menuPanel.open { display: flex; }
+
+@keyframes mmPanelIn {
+    from { opacity: 0; transform: translateY(12px); }
+}
+
+/* Kurung sudut — pengganti sudut membulat, senada panel HUD */
+.menuPanel::before,
+.menuPanel::after,
+.cpBox::before,
+.cpBox::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    pointer-events: none;
+}
+
+.menuPanel::before,
+.cpBox::before {
+    top: -1px;
+    left: -1px;
+    border-top: 2px solid var(--aiAmber);
+    border-left: 2px solid var(--aiAmber);
+}
+
+.menuPanel::after,
+.cpBox::after {
+    right: -1px;
+    bottom: -1px;
+    border-right: 2px solid var(--aiAmber);
+    border-bottom: 2px solid var(--aiAmber);
+}
+
+.panelHead { text-align: center; }
+
+.phEyebrow,
+.creditsEyebrow {
+    display: block;
+    margin-bottom: 9px;
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--aiTextDim);
+}
+
+.menuPanel h2 {
+    margin: 0;
+    font-size: clamp(21px, 2.6vw, 29px);
+    letter-spacing: 7px;
+    color: #efe9dc;
+}
+
+.panelHead::after {
+    content: '';
+    display: block;
+    width: 62px;
+    height: 2px;
+    margin: 13px auto 0;
+    background: var(--aiAmber);
+}
+
+/* ---------- Settings: kelompok DISPLAY / AUDIO ---------- */
+.setGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+}
+
+.setGroupHead {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 10.5px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--aiAmber);
+}
+
+.setGroupHead i {
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--aiLine);
+}
+
+#qualityRow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.qlabel {
+    font-size: 10.5px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--aiTextDim);
+}
+
+.setNote {
+    font-size: 10.5px;
+    line-height: 1.65;
+    color: var(--aiTextFaint);
+}
+
+/* Segmented control bersama: kualitas grafis & difficulty */
+.segRow {
+    display: flex;
+    border: 1px solid var(--aiLine);
+}
+
+.qbtn,
+.dbtn {
+    flex: 1 1 0;
+    min-width: 0;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--aiTextDim);
+    background: rgba(216, 210, 196, 0.03);
+    border: 0;
+    border-right: 1px solid var(--aiLine);
+    padding: 10px 6px;
+    cursor: pointer;
+    transition: background 0.14s, color 0.14s;
+}
+
+.segRow > :last-child { border-right: 0; }
+
+.qbtn:hover,
+.dbtn:hover {
+    background: rgba(216, 210, 196, 0.09);
+    color: #e6e0d3;
+}
+
+.qbtn.active,
+.dbtn.selected {
+    background: var(--aiAmber);
+    color: #16130c;
+}
+
+/* Slider volume musik & SFX (2026-07-19). --fill diisi menu.js tiap paint()
+   supaya bagian terisi rel benar-benar mengikuti nilainya. */
+#volumeRows {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.volRow {
+    display: grid;
+    grid-template-columns: 84px 1fr 50px;
     align-items: center;
     gap: 16px;
 }
 
-.menuBtn {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 20px;
+.volRow .qlabel { text-align: right; }
+
+.volVal {
+    font-size: 11.5px;
     font-weight: bold;
     letter-spacing: 1px;
-    color: #e8eef4;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    border-radius: 10px;
-    padding: 14px 40px;
-    min-width: 280px;
+    color: var(--aiAmber);
+}
+
+.volRow input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    background: transparent;
     cursor: pointer;
-    transition: background 0.12s, border-color 0.12s, transform 0.05s;
 }
 
-.menuBtn:hover { background: rgba(255, 184, 77, 0.18); border-color: #ffb84d; color: #fff; }
-.menuBtn:active { transform: translateY(2px); }
-.menuBack { min-width: 200px; }
-
-/* Panel Settings/Credits di dalam #mainMenu (disembunyikan default) */
-.menuPanel {
-    display: none;
-    flex-direction: column;
-    align-items: center;
-    gap: 22px;
-    background: rgba(10, 14, 20, 0.9);
-    border: 1px solid rgba(255, 184, 77, 0.3);
-    border-radius: 14px;
-    padding: 34px 46px;
-    max-width: min(620px, 90vw);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+.volRow input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    border: 1px solid var(--aiLine);
+    background:
+        repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(12, 13, 16, 0.85) calc(10% - 1px) 10%),
+        linear-gradient(90deg, var(--aiAmber) 0 var(--fill, 80%), rgba(216, 210, 196, 0.1) var(--fill, 80%) 100%);
 }
 
-.menuPanel.open { display: flex; }
-#mainMenu.subview #mainMenuMain { display: none; }
-
-.menuPanel h2 {
-    font-size: 32px;
-    letter-spacing: 3px;
-    color: #ffb84d;
-    text-shadow: 2px 2px 6px black;
-    margin: 0;
+.volRow input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 8px;
+    height: 18px;
+    margin-top: -7px;
+    border: 0;
+    background: var(--aiPaper);
+    box-shadow: 0 0 0 1px rgba(12, 13, 16, 0.9), 0 0 10px rgba(255, 176, 59, 0.35);
 }
 
+.volRow input[type="range"]::-moz-range-track {
+    height: 6px;
+    border: 1px solid var(--aiLine);
+    background:
+        repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(12, 13, 16, 0.85) calc(10% - 1px) 10%),
+        linear-gradient(90deg, var(--aiAmber) 0 var(--fill, 80%), rgba(216, 210, 196, 0.1) var(--fill, 80%) 100%);
+}
+
+.volRow input[type="range"]::-moz-range-thumb {
+    width: 8px;
+    height: 18px;
+    border: 0;
+    border-radius: 0;
+    background: var(--aiPaper);
+    box-shadow: 0 0 0 1px rgba(12, 13, 16, 0.9), 0 0 10px rgba(255, 176, 59, 0.35);
+}
+
+/* ---------- Credits: kartu judul film ---------- */
 #creditsPanel {
-    width: min(780px, 90vw);
-    max-width: min(780px, 90vw);
-    max-height: 90vh;
-    box-sizing: border-box;
-    gap: 13px;
-    padding: 27px 34px;
-}
-
-.creditsEyebrow {
-    color: #b8c6c2;
-    font-size: 11px;
-    font-weight: bold;
-    letter-spacing: 4px;
+    width: min(780px, 94vw);
+    max-height: 88vh;
+    gap: 15px;
 }
 
 .creditsIntro {
-    max-width: 610px;
-    color: #c7cbd0;
-    font-size: 14px;
-    line-height: 1.55;
+    /* 82ch = kalimat intro muat SATU baris di lebar panel — barisnya sendiri
+       yang menentukan, bukan angka bulat; dua baris memakan tinggi yang
+       dibutuhkan entri terakhir daftar kredit. */
+    max-width: 82ch;
+    margin: 0 auto;
+    font-size: 12.5px;
+    font-style: italic;
+    line-height: 1.6;
     text-align: center;
+    color: var(--aiTextDim);
 }
 
 .creditsBody {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    text-align: left;
-    max-height: 49vh;
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
     overflow-y: auto;
-    padding: 2px 6px 2px 2px;
-    scrollbar-color: rgba(255, 184, 77, 0.65) rgba(255, 255, 255, 0.06);
+    padding: 8px 14px 8px 0;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+    mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 176, 59, 0.45) rgba(216, 210, 196, 0.05);
 }
 
-/* Prompt Continue game? (Campaign checkpoint) */
+.creditsBody::-webkit-scrollbar { width: 6px; }
+.creditsBody::-webkit-scrollbar-track { background: rgba(216, 210, 196, 0.05); }
+.creditsBody::-webkit-scrollbar-thumb { background: rgba(255, 176, 59, 0.45); }
+
+/* Peran rata-KANAN | nama rata-KIRI = tata letak kredit film klasik.
+   Urutan DOM (role, name, detail) tak berubah — penempatan lewat grid. */
+.creditGroup {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    column-gap: 24px;
+    row-gap: 4px;
+    align-items: baseline;
+}
+
+.creditRole {
+    grid-column: 1;
+    text-align: right;
+    font-size: 10px;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    color: var(--aiAmber);
+}
+
+.creditName {
+    grid-column: 2;
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #efe9dc;
+}
+
+.creditDetail {
+    grid-column: 2;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--aiTextDim);
+}
+
+/* Blok "wide" (pencipta & terima kasih) dipisah garis rambut, bukan lebar penuh */
+.creditWide {
+    padding: 14px 0;
+    border-top: 1px solid var(--aiLine);
+    border-bottom: 1px solid var(--aiLine);
+}
+
+.creditsFooter {
+    text-align: center;
+    font-size: 9.5px;
+    line-height: 1.7;
+    letter-spacing: 2.6px;
+    color: var(--aiTextFaint);
+}
+
+/* ---------- Layar pilih mode ---------- */
+.msBody {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(14px, 2.4vh, 26px);
+    width: 100%;
+    padding: 70px clamp(18px, 4vw, 48px) 34px;
+    box-sizing: border-box;
+}
+
+#modeSelect .subtitle {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-size: clamp(14px, 1.9vw, 19px);
+    letter-spacing: 8px;
+    color: #efe9dc;
+}
+
+#modeSelect .subtitle::before,
+#modeSelect .subtitle::after {
+    content: '';
+    width: clamp(28px, 6vw, 88px);
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--aiLineHot));
+}
+
+#modeSelect .subtitle::after {
+    background: linear-gradient(90deg, var(--aiLineHot), transparent);
+}
+
+/* Baris difficulty: segmented control + ringkasan angka dari CFG */
+#diffRow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+}
+
+#diffRow .segRow { width: min(430px, 84vw); }
+
+#diffNote {
+    font-size: 10.5px;
+    letter-spacing: 2.2px;
+    text-transform: uppercase;
+    color: var(--aiTextDim);
+}
+
+#diffNote b {
+    color: var(--aiAmber);
+    font-weight: bold;
+}
+
+/* ---------- Kartu mode = berkas misi ---------- */
+.modeCards {
+    display: flex;
+    gap: clamp(16px, 2.6vw, 30px);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.modeCard {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    width: min(368px, 88vw);
+    padding: 22px 22px 18px;
+    box-sizing: border-box;
+    background: linear-gradient(180deg, rgba(21, 23, 27, 0.94), rgba(11, 12, 15, 0.96));
+    border: 1px solid var(--aiLine);
+    cursor: pointer;
+    transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+
+.modeCard:hover {
+    transform: translateY(-4px);
+    border-color: var(--aiLineHot);
+    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.6);
+}
+
+/* Pita bahaya di kepala kartu (dan kotak Continue) */
+.mcStripe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    opacity: 0.5;
+    background: repeating-linear-gradient(115deg, var(--aiAmber) 0 12px, #16130c 12px 24px);
+    transition: opacity 0.18s;
+}
+
+.modeCard:hover .mcStripe { opacity: 1; }
+
+.mcTop {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 9.5px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--aiTextFaint);
+}
+
+.mcCode { color: var(--aiAmber); }
+
+.mcArt {
+    height: 126px;
+    border: 1px solid rgba(216, 210, 196, 0.08);
+    background: rgba(47, 184, 166, 0.03);
+}
+
+.mcArt .maSvg { display: block; width: 100%; height: 100%; }
+
+.modeCard h2 {
+    margin: 0;
+    font-size: clamp(21px, 2.4vw, 27px);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #efe9dc;
+}
+
+.mcSub {
+    font-size: 10.5px;
+    font-weight: bold;
+    letter-spacing: 2.6px;
+    text-transform: uppercase;
+    color: var(--aiTech);
+}
+
+.modeCard p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--aiTextDim);
+}
+
+.mcSpec {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0;
+    padding-top: 11px;
+    border-top: 1px solid var(--aiLine);
+}
+
+.mcSpec > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 10.5px;
+    letter-spacing: 1.6px;
+}
+
+.mcSpec dt {
+    text-transform: uppercase;
+    color: var(--aiTextFaint);
+}
+
+.mcSpec dd {
+    margin: 0;
+    text-align: right;
+    color: var(--aiText);
+}
+
+.mcGo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 2px;
+    padding-top: 11px;
+    border-top: 1px solid var(--aiLine);
+    font-size: 11.5px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--aiTextFaint);
+    transition: color 0.18s;
+}
+
+.modeCard:hover .mcGo { color: var(--aiAmber); }
+
+.mcGo i {
+    font-style: normal;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity 0.18s, transform 0.18s;
+}
+
+.modeCard:hover .mcGo i { opacity: 1; transform: translateX(0); }
+
+/* Skema misi (menuArt.js) — garis teknis, bukan ikon */
+.maSvg {
+    color: var(--aiTextFaint);
+    font-family: 'Courier Prime', 'Courier New', monospace;
+}
+
+.maFrame { fill: none; stroke: rgba(216, 210, 196, 0.22); stroke-width: 1.2; }
+.maRing { fill: none; stroke: var(--aiTech); stroke-opacity: 0.42; stroke-dasharray: 5 6; }
+.maVec { stroke: var(--aiHazard); stroke-width: 1.4; stroke-opacity: 0.75; }
+.maHead { fill: var(--aiHazard); }
+.maCore { fill: none; stroke: var(--aiAmber); stroke-width: 1.6; }
+.maCoreMark { stroke: var(--aiAmber); stroke-opacity: 0.5; }
+.maTerrain { fill: rgba(216, 210, 196, 0.05); stroke: rgba(216, 210, 196, 0.12); }
+.maRoute { fill: none; stroke: var(--aiAmber); stroke-width: 1.8; }
+.maRouteGhost { fill: none; stroke: var(--aiAmber); stroke-opacity: 0.55; stroke-width: 1.4; stroke-dasharray: 4 5; }
+.maNode { fill: #0c0d10; stroke: var(--aiAmber); stroke-width: 1.4; }
+.maNodeOn { fill: var(--aiAmber); }
+.maMast { fill: none; stroke: var(--aiTech); stroke-width: 1.4; }
+.maWave { fill: none; stroke: var(--aiTech); stroke-width: 1.2; stroke-opacity: 0.5; }
+.maCore2 { fill: var(--aiTech); }
+
+.maTag,
+.maNum {
+    fill: var(--aiTextDim);
+    font-size: 8px;
+    letter-spacing: 1.6px;
+}
+
+.maNum { text-anchor: middle; }
+.maEnd { text-anchor: end; }
+
+.modeCard:hover .maRing {
+    transform-origin: 160px 74px;
+    animation: mmRingSpin 11s linear infinite;
+}
+
+.modeCard:hover .maRouteGhost { animation: mmDash 1.6s linear infinite; }
+
+@keyframes mmRingSpin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes mmDash {
+    to { stroke-dashoffset: -18; }
+}
+
+/* ---------- Prompt Continue game? (checkpoint campaign) ---------- */
 #continuePrompt {
     display: none;
     position: absolute;
@@ -1086,69 +1922,81 @@ body {
     z-index: 33;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.72);
+    background: rgba(6, 7, 9, 0.82);
     font-family: 'Courier Prime', 'Courier New', monospace;
 }
 
 .cpBox {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 22px;
-    background: rgba(10, 14, 20, 0.94);
-    border: 1px solid rgba(255, 184, 77, 0.4);
-    border-radius: 14px;
-    padding: 36px 48px;
-    max-width: min(520px, 90vw);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    gap: 15px;
+    width: min(520px, 92vw);
+    padding: 30px clamp(22px, 4vw, 44px) 26px;
+    box-sizing: border-box;
     text-align: center;
+    background: linear-gradient(180deg, rgba(21, 23, 27, 0.97), rgba(11, 12, 15, 0.98));
+    border: 1px solid var(--aiLine);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+}
+
+.cpEyebrow {
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--aiHazard);
 }
 
 .cpTitle {
-    font-size: 30px;
-    letter-spacing: 3px;
-    color: #ffb84d;
-    text-shadow: 2px 2px 6px black;
+    font-size: clamp(20px, 2.6vw, 26px);
+    letter-spacing: 5px;
+    color: #efe9dc;
 }
 
-.cpText { font-size: 18px; color: #e8eef4; line-height: 1.5; }
-.cpBtns { display: flex; flex-direction: column; gap: 14px; width: 100%; }
-.cpBtns .menuBtn { min-width: 260px; }
+.cpText {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--aiTextDim);
+}
 
-.creditGroup {
+.cpBtns {
     display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 0;
-    padding: 13px 15px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(184, 198, 194, 0.13);
-    border-left: 2px solid rgba(255, 184, 77, 0.72);
-    border-radius: 3px;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    width: 100%;
 }
-.creditWide { grid-column: 1 / -1; }
-.creditRole {
-    font-size: 10px;
-    letter-spacing: 1.8px;
-    color: #ffb84d;
-    text-transform: uppercase;
-}
-.creditName { font-size: 17px; font-weight: bold; color: #e8eef4; }
-.creditDetail { font-size: 12px; line-height: 1.45; color: #9da6ae; }
-.creditsFooter {
-    color: #b8c6c2;
-    font-size: 10px;
-    line-height: 1.5;
-    letter-spacing: 1.7px;
-    text-align: center;
-}
-#creditsPanel .menuBack { margin-top: 3px; padding-top: 11px; padding-bottom: 11px; }
 
-@media (max-width: 680px) {
-    #creditsPanel { padding: 22px 18px; }
-    .creditsBody { grid-template-columns: 1fr; max-height: 51vh; }
-    .creditWide { grid-column: auto; }
-    .creditsEyebrow { letter-spacing: 2.5px; }
+.cpBtns .menuBtn {
+    flex: 1 1 190px;
+    min-width: 0;
+    padding: 12px 16px;
+}
+
+/* ---------- Layar sempit ---------- */
+@media (max-width: 900px) {
+    #mainMenu { justify-content: center; padding: 0 22px; }
+    #mainMenuMain { align-items: center; text-align: center; }
+    .eyebrow { justify-content: center; }
+    #mainMenu h1 .titleRule { margin-left: auto; margin-right: auto; }
+    .mScene::after { background: linear-gradient(180deg, rgba(9, 10, 13, 0.93), rgba(9, 10, 13, 0.78) 44%, rgba(9, 10, 13, 0.94)); }
+    /* Rel bawah dibuang seluruhnya, bukan disisakan labelnya saja */
+    .mRail .railDim { display: none; }
+    .mRailBot { display: none; }
+    .creditGroup { grid-template-columns: 1fr; row-gap: 2px; }
+    .creditRole, .creditName, .creditDetail { grid-column: 1; text-align: center; }
+    .volRow { grid-template-columns: 70px 1fr 46px; gap: 10px; }
+}
+
+/* Hormati preferensi sistem: latar menu tetap, geraknya yang berhenti */
+@media (prefers-reduced-motion: reduce) {
+    .mSky::before, .mSky::after, .mHaze, .miBeacon, .liveDot,
+    .navRow, .menuPanel, .modeCard:hover .maRing, .modeCard:hover .maRouteGhost {
+        animation: none;
+    }
+    .mCity { transition: none; }
 }
 
 /* Pesan stage (muncul sebentar saat pindah stage campaign) */
@@ -1183,32 +2031,6 @@ body {
     line-height: 1.6;
     z-index: 99;
 }
-
-/* Pilihan kualitas grafis di layar mulai (hilang setelah game pertama dimulai) */
-#qualityRow { margin-top: 24px; }
-#qualityRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; }
-.qbtn {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 14px;
-    font-weight: bold;
-    color: #ccc;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid #555;
-    border-radius: 6px;
-    padding: 7px 16px;
-    margin: 10px 4px 0;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.qbtn:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
-.qbtn.active { background: #c0392b; border-color: #e0503e; color: #fff; box-shadow: 0 0 10px rgba(224, 80, 62, 0.5); }
-
-/* Slider volume musik & SFX di panel Settings (2026-07-19) */
-#volumeRows { margin-top: 22px; }
-.volRow { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; }
-.volRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; width: 150px; text-align: right; }
-.volRow input[type="range"] { width: 200px; accent-color: #e0503e; cursor: pointer; }
-.volVal { font-size: 13px; color: #ccc; width: 46px; text-align: left; font-family: 'Courier Prime', 'Courier New', monospace; font-weight: bold; }
 
 /* ---------- Indikator arah serangan (baji merah di tepi layar, diputar
    showHitDir ke sudut penyerang; mask menyisakan cincin luar saja) ---------- */
@@ -1469,25 +2291,6 @@ body {
 }
 .shopConfirmNo:hover { background: rgba(255, 255, 255, 0.18); }
 .shopConfirmNo:active { transform: translateY(2px); }
-
-/* ---------- Baris difficulty di layar pilih mode ---------- */
-#diffRow { margin: 2px 0 18px; }
-#diffRow .qlabel { font-size: 13px; color: #ffb84d; letter-spacing: 2px; }
-.dbtn {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 14px;
-    font-weight: bold;
-    color: #ccc;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid #555;
-    border-radius: 6px;
-    padding: 7px 18px;
-    margin: 10px 4px 0;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.dbtn:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
-.dbtn.selected { background: #c0392b; border-color: #e0503e; color: #fff; box-shadow: 0 0 10px rgba(224, 80, 62, 0.5); }
 
 /* ===== CUTSCENE LETTERBOX + MODE SINEMATIK (2026-07-17, stage 4) =====
    Dua blok hitam meluncur masuk PERLAHAN dari atas/bawah; selama body.cine

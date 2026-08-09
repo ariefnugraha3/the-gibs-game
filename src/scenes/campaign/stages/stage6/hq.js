@@ -4,17 +4,24 @@
 //   office  -> masuk dari SF, cari jalan ke ruang server. Kantor sudah dikuasai
 //              robot, jadi garnisunnya besar; tiga pintu RUSAK (`@`) memaksa
 //              player memutar, dan pemicu `E1`/`E2`/`E3` memberi tahu kenapa.
+//              Pintu ruang server TERKUNCI sampai terminal SIGNAL TRACE di ruang
+//              rapat tengah dibobol (permintaan user 2026-08-09).
 //   upload  -> berdiri di titik `H` memulai upload kill-switch. Uploadnya SELALU
 //              berhenti di `uploadFailFraction` — hanya transmitter pusat IKN
 //              yang berwenang menyiarkannya.
 //   purge   -> jejaknya terdeteksi: gelombang baru turun DI SELURUH kantor
-//              termasuk safe area, dan DUA mesin pembuat robot menyala.
+//              termasuk safe area, dan DUA mesin pembuat robot BARU DITURUNKAN
+//              di sini (sebelum upload rangkanya tidak ada di layar sama sekali).
 //   escape  -> semua robot habis + kedua mesin hancur, barulah kembali ke `SF`
-//              menutup stage.
+//              menutup stage. Mendekati pintu utama lebih awal hanya membuat
+//              Gibran menolak: mesinnya dulu.
+//
+// RUANG SERVER tak pernah dipakai sebagai titik spawn robot, sebelum maupun
+// sesudah upload (permintaan user) — lihat `HQ_SERVER_ROOM` di hqWorld.js.
 
 import { CFG } from '../../../../core/config.js';
-import { player, robots, bullets, keys, stats, setCinematicActive } from '../../../../core/state.js';
-import { scene, camera, setCineFocus, addCamShake } from '../../../../core/renderer.js';
+import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
+import { camera, setCineFocus, addCamShake } from '../../../../core/renderer.js';
 import {
     showStageMsg, showDownloadBar, setDownloadProgress, hideDownloadBar,
     setCineBars, setCineFade, showCutsceneSkip,
@@ -24,27 +31,26 @@ import { clearMoveTarget } from '../../../../entities/player.js';
 import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { spawnCrate, resolveCrateBlock } from '../../../../entities/crates.js';
-import { queueBoom } from '../../../../entities/robots.js';
-import { spawnBloodBurst, explodeAt } from '../../../../entities/effects.js';
-import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
 import { campaignRobotAI, campaignClampRobot, countStageRobots } from '../../utility/common.js';
 import { beginStageTransition } from '../../utility/transition.js';
+import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
 import { slideWalk } from '../../../../utils/collision.js';
-import { segPointDist2 } from '../../../../utils/math.js';
 import { stage7Scene } from '../stage7.js';
 import {
     phase, setPhase, complete, setComplete, cine, setCine, cineCam, cleanupCine,
     queueDialogue, dialogueIdle, dialogueCurrentLine, dialogueCharCount,
     spawnEncounter, clearStageRobots, resetDialogue, setDialogueHook,
+    machineBulletHits, machineWreckFx,
 } from './runtime.js';
 import {
-    WALL_H, hqCellPos, HQ_START, HQ_UPLOAD, HQ_SERVERS,
+    WALL_H, hqCellPos, HQ_START, HQ_UPLOAD, HQ_SERVERS, HQ_HACK,
     HQ_SUPPLY_POINTS, HQ_CRATE_POINTS, HQ_ENCOUNTER_POINTS,
-    MACHINE_POINTS, EVENT_POINTS,
+    MACHINE_POINTS, EVENT_POINTS, hqInServerRoomCell,
     hqWalk, hqTouchesSafeArea, hqResolve, hqGroundHeight, hqSegHitsWall, hqDoorBlocksShot,
-    hqNav, hqMachines, updateHqDoors, updateHqAutoDoors, updateHqFx,
+    hqNav, hqMachines, hqDoorOf, updateHqDoors, updateHqAutoDoors, updateHqFx,
     hqSparks, setUploadMarker, setFinishMarker, pulseHqMarkers, setUploadAlarm,
-    setLockdownLights, setMachineActive, killMachineVisual, resetHqVisuals,
+    setLockdownLights, deployMachine, killMachineVisual,
+    unlockHqDoor, setHackMarker, setHackScreenHacked, resetHqVisuals,
 } from './hqWorld.js';
 
 const C6 = () => CFG.campaign.stage6;
@@ -52,16 +58,24 @@ const C6 = () => CFG.campaign.stage6;
 let officeAwake = false, officeSpawned = false, purgeSpawned = false;
 let uploadProgress = 0, uploadFailed = false, lockdown = false;
 let machineT = 0, eventSeen = [false, false, false];
+let serverHacked = false, hackArmed = true, hackCd = 0;
+let doorWarnArmed = true, exitWarnArmed = true;
 let elapsed = 0;
 
 export function resetHq() {
     officeAwake = false; officeSpawned = false; purgeSpawned = false;
     uploadProgress = 0; uploadFailed = false; lockdown = false;
-    machineT = 0; eventSeen = [false, false, false]; elapsed = 0;
+    machineT = 0; eventSeen = [false, false, false];
+    serverHacked = false; hackArmed = true; hackCd = 0;
+    doorWarnArmed = true; exitWarnArmed = true; elapsed = 0;
 }
 
-const points = name => HQ_ENCOUNTER_POINTS[name].map(([c, r]) => hqCellPos(c, r));
+// Ruang server tak pernah menjadi titik spawn — pagar ini berlaku untuk SEMUA
+// encounter, jadi satu titik yang tergeser ke sana pun tak bisa lolos.
+const points = name => HQ_ENCOUNTER_POINTS[name]
+    .filter(([c, r]) => !hqInServerRoomCell(c, r)).map(([c, r]) => hqCellPos(c, r));
 const machinesAlive = () => hqMachines().reduce((n, m) => n + (m.alive ? 1 : 0), 0);
+const machinesDeployed = () => hqMachines().some(m => m.deployed);
 const near = (p, range) => Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < range;
 
 function placeSupplies() {
@@ -97,45 +111,69 @@ function updateEventTriggers() {
     }
 }
 
-// --- Mesin pembuat robot ---------------------------------------------------
-function machineBulletHits() {
-    const R2 = (C6().machineHitRadius || 22) ** 2;
-    for (let j = bullets.length - 1; j >= 0; j--) {
-        const b = bullets[j], bx = b.mesh.position.x, bz = b.mesh.position.z;
-        let hit = null;
-        for (const m of hqMachines()) {
-            if (!m.alive) continue;
-            if (segPointDist2(b.px, 0, b.pz, bx, 0, bz, m.x, 0, m.z) < R2) { hit = m; break; }
-        }
-        if (!hit) continue;
-        if (b.explosive) {
-            queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z,
-                b.explodeR, false, 0, b.damage, b.boomSfx);
-            hit.hp -= (b.damage != null ? b.damage : CFG.grenade.damage);
-        } else {
-            hit.hp -= (b.damage != null ? b.damage : CFG.weapons.bulletDamage) * (player.dmgMul || 1);
-            stats.hits++;
-            spawnBloodBurst(bx, 12 + Math.random() * 6, bz, b.dir.x, b.dir.z, 2, 0.5, 1.4, 0xffb24a);
-        }
-        hit.hitT = 1;
-        scene.remove(b.mesh); bullets.splice(j, 1);
-    }
+// --- Terminal HACK ruang rapat ---------------------------------------------
+// Pintu ruang server hanya terlepas dari sini. Pola armed/cooldown-nya sama
+// dengan terminal informasi chapter 1.
+function finishServerHack() {
+    serverHacked = true; setHackMarker(false); setHackScreenHacked(true);
+    unlockHqDoor('server-access');
+    queueDialogue('serverDoorOpen');
+    showStageMsg('SERVER ROOM ACCESS RELEASED', 4200);
+    hqSparks(HQ_HACK, 1.4);
 }
 
+function serverHackFailed(reason) {
+    hackArmed = false;
+    if (reason !== 'fail') {
+        showStageMsg('SIGNAL TRACE ABORTED - STEP AWAY, THEN TRY AGAIN', 3200);
+        return;
+    }
+    hackCd = C6().signalCooldownSec;
+    spawnEncounter(points('alarm'), 'alarm', C6().encounters.signalAlarm, true);
+    showStageMsg(`TRACE ALARM - TERMINAL REBOOTS IN ${Math.round(hackCd)}s`, 4200);
+}
+
+function updateServerHack(dt) {
+    const C = C6();
+    hackCd = Math.max(0, hackCd - dt);
+    if (serverHacked) return;
+    if (!near(HQ_HACK, C.hackRange)) { hackArmed = true; return; }
+    if (!hackArmed || hackCd > 0) return;
+    hackArmed = false;
+    beginSignalTraceMinigame({
+        head: 'MEETING ROOM TERMINAL',
+        sub: 'Capture the door-control carriers to release the server room lock.',
+        onSuccess: finishServerHack,
+        onFail: serverHackFailed,
+    });
+}
+
+// Pintu ruang server sendiri: mendekatinya selagi terkunci menjelaskan kenapa,
+// sekali per pendekatan (re-arm setelah menjauh).
+function updateServerDoorWarning() {
+    const d = hqDoorOf('server-access');
+    if (!d) return;
+    const inRange = near({ x: d.blocker.x, z: d.blocker.z }, C6().serverDoorWarnRange);
+    if (!inRange) { doorWarnArmed = true; return; }
+    if (serverHacked || !doorWarnArmed) return;
+    doorWarnArmed = false;
+    queueDialogue('serverDoorLocked', true); queueDialogue('hackTerminalHint');
+    showStageMsg('SERVER ROOM LOCKED - BREAK THE MEETING ROOM TERMINAL', 3600);
+    setHackMarker(true);
+}
+
+// --- Mesin pembuat robot ---------------------------------------------------
 function destroyMachine(m) {
     killMachineVisual(m.id);
-    explodeAt(new THREE.Vector3(m.x, 12, m.z), 28, 1, undefined);
-    spawnGibs(m.x, 14, m.z, 12, 1, 0, 2.2, 0x3d444c, 0.4, 0x141210);
-    spawnBloodDecal(m.x, m.z, 7, 0x141210);
-    addCamShake(8);
+    machineWreckFx(m.x, m.z);
     showStageMsg(`ROBOT FACTORY DESTROYED — ${machinesAlive()}/${MACHINE_POINTS.length} LEFT`, 3000);
     if (machinesAlive() === 0) queueDialogue('machinesDown');
 }
 
 function updateMachines(dt) {
     const C = C6();
-    machineBulletHits();
-    // `hp` baru berarti setelah mesin menyala (beginLockdown mengisinya).
+    machineBulletHits(hqMachines(), C.machineHitRadius);
+    // `hp` baru berarti setelah rangkanya diturunkan (beginLockdown mengisinya).
     for (const m of hqMachines()) if (m.alive && m.hp <= 0) destroyMachine(m);
     for (const m of hqMachines()) if (m.hitT > 0) {
         m.hitT = Math.max(0, m.hitT - dt * 4);
@@ -152,15 +190,26 @@ function updateMachines(dt) {
     }
 }
 
+// Pintu utama TIDAK melayani player selama mesinnya masih berdiri (permintaan
+// user): Gibran menolak dengan suara, sekali per pendekatan.
+function updateExitWarning() {
+    if (!near(HQ_START, C6().finishRange)) { exitWarnArmed = true; return; }
+    if (!exitWarnArmed) return;
+    exitWarnArmed = false;
+    queueDialogue('machinesFirst', true);
+    showStageMsg(`DESTROY BOTH ROBOT FACTORIES FIRST — ${machinesAlive()} LEFT`, 3200);
+}
+
 // --- Upload ----------------------------------------------------------------
 function beginLockdown() {
     if (lockdown) return;
     lockdown = true; setPhase('purge'); hideDownloadBar();
     setLockdownLights(true); setUploadAlarm(true);
-    // HP baru diisi SAAT mesin menyala: sebelum itu rangkanya cuma perabot mati
-    // (lihat catatan aktivasi di hqWorld.js), jadi ia tak bisa "hancur" duluan.
-    for (const m of hqMachines()) { m.hp = C6().machineHp || 900; m.alive = true; m.hitT = 0; }
-    for (const m of MACHINE_POINTS) setMachineActive(m.id, true);
+    // MESINNYA BARU MUNCUL DI SINI (permintaan user): sebelum upload selesai
+    // tidak ada rangka, tidak ada collider, dan tidak ada HP yang bisa habis.
+    for (const m of MACHINE_POINTS) deployMachine(m.id);
+    for (const m of hqMachines()) hqSparks(m, 2.2);
+    queueDialogue('machinesDeploy');
     machineT = Math.max(1, C6().machineFirstWaveSec || 5);
     if (!purgeSpawned) {
         purgeSpawned = true;
@@ -248,7 +297,9 @@ function finishStage() {
 export const hqDebug = () => ({
     officeAwake, officeSpawned, purgeSpawned,
     uploadProgress, uploadFailed, lockdown, machineT,
-    machinesAlive: machinesAlive(), eventSeen: [...eventSeen], elapsed,
+    serverHacked, hackArmed, hackCd, doorWarnArmed, exitWarnArmed,
+    machinesAlive: machinesAlive(), machinesDeployed: machinesDeployed(),
+    eventSeen: [...eventSeen], elapsed,
 });
 
 export const hqScene = {
@@ -269,12 +320,15 @@ export const hqScene = {
         player.vy = 0; player.onGround = true;
         releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
         setCinematicActive(false); setCineBars(false);
-        setUploadMarker(true);
+        setUploadMarker(true); setHackMarker(false);
         queueDialogue('hqCommand'); queueDialogue('hqGibran');
         showStageMsg('REACH THE SERVER ROOM AND UPLOAD THE KILL-SWITCH', 4600);
     },
 
-    exit() { hideDownloadBar(); setUploadMarker(false); setFinishMarker(false); },
+    exit() {
+        hideDownloadBar();
+        setUploadMarker(false); setFinishMarker(false); setHackMarker(false);
+    },
 
     updateMode(dt) {
         elapsed += dt;
@@ -288,12 +342,17 @@ export const hqScene = {
         updateEventTriggers();
 
         if (phase === 'office') {
-            if (near(HQ_UPLOAD, C6().uplinkRange)) startUpload();
+            updateServerDoorWarning();
+            updateServerHack(dt);
+            // Konsol upload memang berada di balik pintu yang terkunci, tetapi
+            // gerbangnya ditegakkan di sini juga supaya tidak ada jalan pintas.
+            if (serverHacked && near(HQ_UPLOAD, C6().uplinkRange)) startUpload();
             return;
         }
         if (phase === 'purge') {
             updateMachines(dt);
-            if (machinesAlive() === 0 && countStageRobots(6) === 0) {
+            if (machinesAlive() > 0) { updateExitWarning(); return; }
+            if (countStageRobots(6) === 0) {
                 setPhase('escape'); setFinishMarker(true);
                 queueDialogue('floorClear');
                 showStageMsg('FLOOR CLEAR — RETURN TO THE ENTRY POINT', 4400);
@@ -340,7 +399,11 @@ export const hqScene = {
         return [HQ_START.x, HQ_START.z];
     },
     hudStatus() {
-        if (phase === 'office') return `HEADQUARTERS OFFICE — REACH THE SERVER ROOM | Robots: ${countStageRobots(6)}`;
+        if (phase === 'office') {
+            return serverHacked
+                ? `HEADQUARTERS OFFICE — REACH THE SERVER ROOM | Robots: ${countStageRobots(6)}`
+                : `SERVER ROOM LOCKED — BREAK THE MEETING ROOM TERMINAL | Robots: ${countStageRobots(6)}`;
+        }
         if (phase === 'upload') return `KILL-SWITCH UPLOAD — ${Math.round(uploadProgress * 100)}%`;
         if (phase === 'purge') return `FACTORIES ${machinesAlive()}/${MACHINE_POINTS.length} — Robots: ${countStageRobots(6)}`;
         if (phase === 'escape') return 'FLOOR CLEAR — RETURN TO THE ENTRY POINT';
@@ -348,7 +411,8 @@ export const hqScene = {
     },
     radarLandmarks(plot) {
         const marks = [];
-        if (phase === 'office' || phase === 'upload') marks.push(HQ_UPLOAD);
+        if (phase === 'office') marks.push(serverHacked ? HQ_UPLOAD : HQ_HACK);
+        else if (phase === 'upload') marks.push(HQ_UPLOAD);
         else if (phase === 'purge') { for (const m of hqMachines()) if (m.alive) marks.push(m); }
         else if (phase === 'escape') marks.push(HQ_START);
         for (const p of marks)

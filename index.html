@@ -147,43 +147,101 @@
         <div id="cheatFeedback"></div>
     </div>
 
-    <!-- Menu utama (paling awal saat game dibuka): Start Game / Settings /
-         Credits / Exit. Start Game menyingkap #modeSelect; Settings & Credits
-         adalah panel di dalam menu ini (tombol Back kembali ke daftar utama). -->
-    <div id="mainMenu">
-        <div id="mainMenuMain">
-            <h1><span class="titleMain">ADVERSARIAL INTELLIGENCE</span><span class="titleTag">NUSANTARA 2045</span></h1>
-            <div class="subtitle">MAIN MENU</div>
-            <div class="menuBtns">
-                <button id="mmStart" class="menuBtn">Start Game</button>
-                <button id="mmSettings" class="menuBtn">Settings</button>
-                <button id="mmCredits" class="menuBtn">Credits</button>
-                <button id="mmExit" class="menuBtn">Exit Game</button>
-            </div>
+    <!-- ============================================================
+         FRONT-END MENU — ROMBAK TOTAL 2026-08-09 (permintaan user: menu lama
+         "terlihat AI generated"). Konsep barunya TERMINAL LAPANGAN: rel status
+         atas/bawah, judul + daftar misi RATA KIRI, dan siluet Jakarta 2045
+         (SVG buatan tangan di scenes/menuArt.js, tiga lapis parallax) mengisi
+         ruang kanan. Tak ada lagi emoji, sudut membulat, atau gradien radial.
+         KONTRAK JS LAMA TETAP: #mmStart/#mmSettings/#mmCredits/#mmExit,
+         .menuBack[data-back], #qualityRow > .qbtn[data-q] (dibaca renderer.js
+         + disembunyikan input.js), slider volume, #creditsBody, #diffRow
+         .dbtn[data-d], .modeCard[data-mode], #modeBack, #continuePrompt.
+         ============================================================ -->
+    <div id="mainMenu" class="menuScreen">
+        <!-- Panggung latar: langit → tiga lapis kota → kabut → garis pindai.
+             Isi .mCity ditanam menuArt.paintMenuArt saat menu diinisialisasi. -->
+        <div class="mScene" aria-hidden="true">
+            <div class="mSky"></div>
+            <div class="mCity" data-depth="far"></div>
+            <div class="mHaze"></div>
+            <div class="mCity" data-depth="mid"></div>
+            <div class="mCity" data-depth="near"></div>
+            <div class="mScan"></div>
         </div>
 
-        <!-- Panel Settings: pengaturan kualitas grafis dipindah ke sini -->
+        <div class="mRail mRailTop">
+            <span class="railMark"></span>
+            <span class="railKey">FIELD TERMINAL</span>
+            <span class="railDim">GARUDA CONTAINMENT PROTOCOL</span>
+            <span class="railGap"></span>
+            <span class="railDim">BUILD 2045.08</span>
+            <span class="railLive"><i class="liveDot"></i>UPLINK STANDBY</span>
+        </div>
+
+        <div id="mainMenuMain">
+            <div class="titleLock">
+                <div class="eyebrow"><i class="ebMark"></i>Nusantara Command — Clearance Red</div>
+                <h1><span class="titleMain">ADVERSARIAL INTELLIGENCE</span><span class="titleRule"></span><span class="titleTag">NUSANTARA 2045</span></h1>
+            </div>
+            <nav class="menuBtns">
+                <button id="mmStart" class="navRow">
+                    <span class="nrIdx">01</span>
+                    <span class="nrBody"><span class="nrLabel">Start Game</span><span class="nrHint">Pick an operation and deploy</span></span>
+                    <span class="nrArrow">&#9656;</span>
+                </button>
+                <button id="mmSettings" class="navRow">
+                    <span class="nrIdx">02</span>
+                    <span class="nrBody"><span class="nrLabel">Settings</span><span class="nrHint">Display fidelity and audio levels</span></span>
+                    <span class="nrArrow">&#9656;</span>
+                </button>
+                <button id="mmCredits" class="navRow">
+                    <span class="nrIdx">03</span>
+                    <span class="nrBody"><span class="nrLabel">Credits</span><span class="nrHint">Everyone behind the mission</span></span>
+                    <span class="nrArrow">&#9656;</span>
+                </button>
+                <button id="mmExit" class="navRow">
+                    <span class="nrIdx">04</span>
+                    <span class="nrBody"><span class="nrLabel">Exit Game</span><span class="nrHint">Stand down and close the terminal</span></span>
+                    <span class="nrArrow">&#9656;</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Panel Settings: konsol dua kelompok (DISPLAY / AUDIO) -->
         <div id="settingsPanel" class="menuPanel">
-            <h2>SETTINGS</h2>
-            <div id="qualityRow">
-                <span class="qlabel">GRAPHICS QUALITY</span><br />
-                <button class="qbtn" data-q="0">Ultra</button>
-                <button class="qbtn" data-q="1">High</button>
-                <button class="qbtn" data-q="2">Medium</button>
-                <button class="qbtn" data-q="3">Low</button>
-                <button class="qbtn" data-q="4">Very Low</button>
+            <div class="panelHead">
+                <span class="phEyebrow">Terminal Configuration</span>
+                <h2>SETTINGS</h2>
+            </div>
+            <div class="setGroup">
+                <div class="setGroupHead"><span>Display</span><i></i></div>
+                <div id="qualityRow">
+                    <span class="qlabel">Graphics Quality</span>
+                    <div class="segRow">
+                        <button class="qbtn" data-q="0">Ultra</button>
+                        <button class="qbtn" data-q="1">High</button>
+                        <button class="qbtn" data-q="2">Medium</button>
+                        <button class="qbtn" data-q="3">Low</button>
+                        <button class="qbtn" data-q="4">Very Low</button>
+                    </div>
+                    <div class="setNote">Applied the moment a mission starts. Lower tiers drop bloom and shadow work first.</div>
+                </div>
             </div>
             <!-- Slider volume musik & SFX (2026-07-19): master 0-100%, tersimpan localStorage -->
-            <div id="volumeRows">
-                <div class="volRow">
-                    <span class="qlabel">MUSIC VOLUME</span>
-                    <input id="musicVolSlider" type="range" min="0" max="100" step="5" />
-                    <span id="musicVolVal" class="volVal">100%</span>
-                </div>
-                <div class="volRow">
-                    <span class="qlabel">SFX VOLUME</span>
-                    <input id="sfxVolSlider" type="range" min="0" max="100" step="5" />
-                    <span id="sfxVolVal" class="volVal">100%</span>
+            <div class="setGroup">
+                <div class="setGroupHead"><span>Audio</span><i></i></div>
+                <div id="volumeRows">
+                    <div class="volRow">
+                        <span class="qlabel">Music</span>
+                        <input id="musicVolSlider" type="range" min="0" max="100" step="5" />
+                        <span id="musicVolVal" class="volVal">100%</span>
+                    </div>
+                    <div class="volRow">
+                        <span class="qlabel">Effects</span>
+                        <input id="sfxVolSlider" type="range" min="0" max="100" step="5" />
+                        <span id="sfxVolVal" class="volVal">100%</span>
+                    </div>
                 </div>
             </div>
             <button class="menuBtn menuBack" data-back="settings">Back</button>
@@ -191,37 +249,90 @@
 
         <!-- Panel Credits: konten diisi dari MENU_CREDITS dalam menu.js -->
         <div id="creditsPanel" class="menuPanel">
-            <div id="creditsEyebrow" class="creditsEyebrow"></div>
-            <h2>CREDITS</h2>
+            <div class="panelHead">
+                <div id="creditsEyebrow" class="creditsEyebrow"></div>
+                <h2>CREDITS</h2>
+            </div>
             <div id="creditsIntro" class="creditsIntro"></div>
             <div id="creditsBody" class="creditsBody"></div>
             <div id="creditsFooter" class="creditsFooter"></div>
             <button class="menuBtn menuBack" data-back="credits">Back</button>
         </div>
+
+        <div class="mRail mRailBot">
+            <span class="railKey">Operator</span>
+            <span class="railDim">Maj. Gibran &mdash; 1st Special Response</span>
+            <span class="railGap"></span>
+            <span class="railDim">Sector DKI Jakarta</span>
+            <span class="railDim">06&deg;12'S 106&deg;49'E</span>
+        </div>
     </div>
 
-    <div id="modeSelect" style="display:none">
-        <h1><span class="titleMain">ADVERSARIAL INTELLIGENCE</span><span class="titleTag">NUSANTARA 2045</span></h1>
-        <div class="subtitle">SELECT GAME MODE</div>
-        <div id="diffRow">
-            <span class="qlabel">DIFFICULTY</span><br />
-            <button class="dbtn" data-d="easy">Easy</button>
-            <button class="dbtn selected" data-d="normal">Normal</button>
-            <button class="dbtn" data-d="hard">Hard</button>
+    <div id="modeSelect" class="menuScreen" style="display:none">
+        <div class="mScene" aria-hidden="true">
+            <div class="mSky"></div>
+            <div class="mCity" data-depth="far"></div>
+            <div class="mHaze"></div>
+            <div class="mCity" data-depth="mid"></div>
+            <div class="mCity" data-depth="near"></div>
+            <div class="mScan"></div>
         </div>
-        <div class="modeCards">
-            <div class="modeCard" data-mode="survival">
-                <div class="emoji">🏛️</div>
-                <h2>Survival Mode</h2>
-                <p>Defend Monas from endless robot waves. Survive as long as you can — it only gets harder.</p>
-            </div>
-            <div class="modeCard" data-mode="campaign">
-                <div class="emoji">🌆</div>
-                <h2>Campaign Mode</h2>
-                <p>Escape the abandoned building (Floor 3), then fight down 1 km of ruined Jakarta highway. Robots lie in wait — keep your distance.</p>
-            </div>
+
+        <div class="mRail mRailTop">
+            <span class="railMark"></span>
+            <h1><span class="titleMain">ADVERSARIAL INTELLIGENCE</span><span class="titleRule"></span><span class="titleTag">NUSANTARA 2045</span></h1>
+            <span class="railGap"></span>
+            <span class="railDim">OPERATION SELECT</span>
         </div>
-        <button id="modeBack" class="menuBtn menuBack">Back</button>
+
+        <div class="msBody">
+            <div class="subtitle">SELECT GAME MODE</div>
+
+            <div id="diffRow">
+                <span class="qlabel">Difficulty</span>
+                <div class="segRow">
+                    <button class="dbtn" data-d="easy">Easy</button>
+                    <button class="dbtn selected" data-d="normal">Normal</button>
+                    <button class="dbtn" data-d="hard">Hard</button>
+                </div>
+                <!-- Ringkasan angka difficulty — diisi menu.js LANGSUNG DARI CFG
+                     supaya retune config/gameplay.json ikut terbaca di sini. -->
+                <div id="diffNote"></div>
+            </div>
+
+            <div class="modeCards">
+                <div class="modeCard" data-mode="survival">
+                    <span class="mcStripe"></span>
+                    <div class="mcTop"><span class="mcCode">OP // 01</span><span class="mcClass">Open Field</span></div>
+                    <div class="mcArt" data-art="survival"></div>
+                    <h2>Survival</h2>
+                    <div class="mcSub">Monas Perimeter Defense</div>
+                    <p>Hold the monument while the machines come from every side. Clear a wave, spend what you earned at the field shop, then brace for a bigger one.</p>
+                    <dl class="mcSpec">
+                        <div><dt>Sector</dt><dd>Merdeka Square</dd></div>
+                        <div><dt>Duration</dt><dd>Endless</dd></div>
+                        <div><dt>Extraction</dt><dd>None</dd></div>
+                    </dl>
+                    <div class="mcGo"><span>Deploy</span><i>&#9656;</i></div>
+                </div>
+                <div class="modeCard" data-mode="campaign">
+                    <span class="mcStripe"></span>
+                    <div class="mcTop"><span class="mcCode">OP // 02</span><span class="mcClass">Long War</span></div>
+                    <div class="mcArt" data-art="campaign"></div>
+                    <h2>Campaign</h2>
+                    <div class="mcSub">Eight Stages, One Kill Switch</div>
+                    <p>A dead office block, a highway held by armour, a military train east, and the road past Bandung — carrying a kill switch only one transmitter can still broadcast.</p>
+                    <dl class="mcSpec">
+                        <div><dt>Sector</dt><dd>Jakarta &rarr; Kertajati</dd></div>
+                        <div><dt>Duration</dt><dd>8 stages</dd></div>
+                        <div><dt>Extraction</dt><dd>Story</dd></div>
+                    </dl>
+                    <div class="mcGo"><span>Deploy</span><i>&#9656;</i></div>
+                </div>
+            </div>
+
+            <button id="modeBack" class="menuBtn menuBack">Back</button>
+        </div>
     </div>
 
     <!-- Prompt "Continue game?" (Campaign): muncul di atas #modeSelect saat ada
@@ -229,10 +340,12 @@
          Game dari stage 1 + hapus save. -->
     <div id="continuePrompt">
         <div class="cpBox">
+            <span class="mcStripe"></span>
+            <div class="cpEyebrow">Mission Record Found</div>
             <div class="cpTitle">CONTINUE GAME?</div>
             <div class="cpText" id="cpText"></div>
             <div class="cpBtns">
-                <button id="cpYes" class="menuBtn">Yes, Continue</button>
+                <button id="cpYes" class="menuBtn menuBtnHot">Yes, Continue</button>
                 <button id="cpNo" class="menuBtn">No, New Game</button>
             </div>
         </div>

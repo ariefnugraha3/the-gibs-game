@@ -16,6 +16,7 @@ import {
 } from '../../utility/doors.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, spawnMachineDebug, updateSpawnMachine,
+    wreckSpawnMachine,
 } from '../../../../entities/spawnMachine.js';
 import {
     buildMilitaryTrainMesh, buildTrainJourneyScenery, buildJourneyHighway,
@@ -294,16 +295,13 @@ export function updateStationSpawnMachine(dt, active, hit = 0) {
         updateSpawnMachine(stationSpawnMachine, dt, active, hit);
 }
 
-// MESIN HANCUR = TIDAK ADA LAGI YANG MENGHALANGI DI SANA (perbaikan 2026-08-08,
-// laporan user "masih ada blocking tidak terlihat"). Rangkanya disembunyikan,
-// jadi collider-nya WAJIB ikut dicabut — pola yang sama dengan Stage 3
-// (`s3DestroyMachine`). Nav TIDAK di-bake ulang: itu invarian proyek, dan robot
-// yang memutari petak kosong jauh lebih tak terasa daripada player yang
-// menabrak dinding tak terlihat.
+// MESIN HANCUR MENYISAKAN BANGKAI GOSONG (2026-08-09, permintaan user): rangkanya
+// TETAP di layar dengan part yang terlepas, jadi collider-nya juga tetap terpasang
+// — aturannya "yang terlihat itulah yang menghalangi", jadi tidak ada lagi
+// blocking tak terlihat maupun bangkai yang bisa ditembus. Nav TIDAK di-bake ulang
+// (invarian proyek); petaknya memang tak pernah bisa dilalui sejak awal.
 export function killStationSpawnMachine() {
-    if (stationSpawnMachine) stationSpawnMachine.group.visible = false;
-    const i = machineBlocker ? blockers.indexOf(machineBlocker) : -1;
-    if (i !== -1) blockers.splice(i, 1);
+    if (stationSpawnMachine) wreckSpawnMachine(stationSpawnMachine);
 }
 
 export const stationMachineBlocked = () =>
@@ -678,8 +676,9 @@ export function litScreen(mesh, intensity) {
 // Seluruh visual stasiun/kereta kembali ke kondisi awal stage (dipanggil dari
 // enter() facade sebelum sub-scene pertama masuk).
 export function resetWorldVisual() {
-    // Mesin hidup lagi di setiap entry stage, jadi collider-nya harus kembali
-    // (visual rangkanya dipulihkan di blok stationSpawnMachine di bawah).
+    // Mesin hidup lagi di setiap entry stage. Collider-nya tak pernah dicabut
+    // sejak bangkainya tetap terlihat, tapi penjaga ini dipertahankan supaya
+    // entry ulang selalu berakhir pada satu keadaan yang sama.
     if (machineBlocker && !blockers.includes(machineBlocker)) blockers.push(machineBlocker);
     resetTrainVisual(train); resetJourneyScenery(journey); parkEnemyTrain();
     resetJourneyHighway(highway);

@@ -17,7 +17,7 @@ import { resetCrates } from '../../../../entities/crates.js';
 import { applyLightPreset } from '../../../../world/lighting.js';
 import { campaignAwardKill, countStageRobots } from '../../utility/common.js';
 import { campaignJumpToStage } from '../../utility/transition.js';
-import { exitCityEnv } from '../../utility/cityscape.js';
+import { enterCityEnv } from '../../utility/cityscape.js';
 import { stage1Scene } from '../stage1.js';
 import { ensureWorld as ensureArrivalWorld, S6_START } from './world.js';
 import { ensureHqWorld } from './hqWorld.js';
@@ -31,12 +31,16 @@ import { hqScene, hqDebug, resetHq } from './hq.js';
 // Permukaan publik stage 6.
 export {
     S6_MAP, S6_LEGEND, S6_START, S6_INFO, S6_FINISH, cellPos,
+    CITY_GROUND_Y as S6_CITY_GROUND_Y,
     RACK_POINTS, GENERATOR_POINTS, SUPPLY_POINTS, CRATE_POINTS, ENCOUNTER_POINTS,
+    MACHINE_POINTS as S6_MACHINE_POINTS, stage6Machines,
     stage6Walk, stage6SegHitsWall, resolve, stage6WorldDebug, stage6StaticBatchDbg,
 } from './world.js';
 export {
-    HQ_MAP, HQ_LEGEND, HQ_START, HQ_UPLOAD, HQ_SERVERS, hqCellPos,
+    HQ_MAP, HQ_LEGEND, HQ_START, HQ_UPLOAD, HQ_SERVERS, HQ_HACK, hqCellPos,
     MACHINE_POINTS, EVENT_POINTS, HQ_SUPPLY_POINTS, HQ_CRATE_POINTS, HQ_ENCOUNTER_POINTS,
+    HQ_SERVER_ROOM, hqInServerRoom, hqInServerRoomCell,
+    CITY_GROUND_Y as HQ_CITY_GROUND_Y,
     hqWalk, hqResolve, hqSegHitsWall, hqWorldDebug, hqStaticBatchDbg, hqMachines,
 } from './hqWorld.js';
 export { STAGE6_DIALOGUE, stage6DialogueDebug, subFadeDebug } from './runtime.js';
@@ -78,7 +82,10 @@ export const stage6Scene = {
         ensureWorld();
         clearStageRobots();
         resetCrates(); resetStage();
-        applyLightPreset(scene, 'night'); exitCityEnv();
+        // LATAR KOTA seperti Stage 5 (2026-08-10, permintaan user): kubah
+        // "pusaran api" global disembunyikan, background jadi haze malam dingin,
+        // fog dilebarkan agar cincin kota kedua chapter terlihat di luar tembok.
+        applyLightPreset(scene, 'night'); enterCityEnv();
         camera.position.set(S6_START.x, CFG.player.eyeHeight, S6_START.z);
         camera.quaternion.set(0, -0.7071, 0, 0.7071);
         player.vy = 0; player.onGround = true;

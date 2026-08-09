@@ -26,7 +26,8 @@ import {
     buildSplitDoor, setSplitDoorOpen, splitDoorDebug, doorMotionSFX,
 } from '../../utility/doors.js';
 import {
-    buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine,
+    buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
+    wreckSpawnMachine, spawnMachineHp,
 } from '../../../../entities/spawnMachine.js';
 import { buildFuturisticDeskMesh } from '../../../../entities/futuristicDesk.js';
 import { buildFuturisticChairMesh } from '../../../../entities/futuristicChair.js';
@@ -39,12 +40,19 @@ import { buildFuturisticSofaMesh } from '../../../../entities/futuristicSofa.js'
 import { buildFuturisticBenchMesh } from '../../../../entities/futuristicBench.js';
 import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
+import { buildCampaignCityscape } from '../../utility/cityscape.js';
 
 export const HQ_OX = 216000, HQ_OZ = 0;
 export const HQ_COLS = 50, HQ_ROWS = 50, CELL = 14, WALL_H = 25;
 export const HQ_X0 = HQ_OX - HQ_COLS * CELL / 2;
 export const HQ_Z0 = HQ_OZ - HQ_ROWS * CELL / 2;
 export const hqCellPos = (c, r) => ({ x: HQ_X0 + (c + 0.5) * CELL, z: HQ_Z0 + (r + 0.5) * CELL });
+
+// LATAR = KOTA, SEPERTI STAGE 5 (2026-08-10, permintaan user). Berbeda dengan
+// terminal chapter 1 yang di permukaan tanah, ini "ADMINISTRATION FLOOR" sebuah
+// markas — satu lantai di ATAS jalan, persis kantor Stage 1-3, jadi jalan kota
+// memakai ketinggian -70 dan podium cincin kota menutup kolong lantainya.
+export const CITY_GROUND_Y = -70;
 
 export const HQ_MAP = Object.freeze([
     '##################################################',
@@ -113,8 +121,26 @@ export const HQ_UPLOAD = Object.freeze(hqCellPos(45, 7));
 const UPLOAD_CONSOLE = Object.freeze(hqCellPos(45, 6));
 export const HQ_SERVERS = Object.freeze(hqCellPos(47.5, 6));
 
+// RUANG SERVER = seluruh ruangan timur-atas yang memuat bank `C` dan titik
+// upload; satu-satunya pintunya adalah `server-access`. TIDAK ADA ROBOT YANG
+// BOLEH SPAWN DI SINI, sebelum maupun sesudah upload (permintaan user
+// 2026-08-09) — robot yang mengejar player ke dalam tetap boleh masuk.
+export const HQ_SERVER_ROOM = Object.freeze({ c0: 30, c1: 48, r0: 1, r1: 12 });
+export const hqInServerRoomCell = (c, r) => c >= HQ_SERVER_ROOM.c0 && c <= HQ_SERVER_ROOM.c1
+    && r >= HQ_SERVER_ROOM.r0 && r <= HQ_SERVER_ROOM.r1;
+export function hqInServerRoom(x, z) {
+    const m = mapCellAt(x, z);
+    return hqInServerRoomCell(m.c, m.r);
+}
+
+// Terminal HACK di ruang rapat tengah: satu-satunya yang melepas kunci pintu
+// ruang server (permintaan user 2026-08-09). Titik BERDIRI di sebelah konsol.
+export const HQ_HACK = Object.freeze(hqCellPos(38, 20));
+const HACK_CONSOLE = Object.freeze(hqCellPos(39, 20));
+
 // Dua mesin pembuat robot (blok `M` 3x3). `hatch` = sel di depan corong tempat
-// robot keluar; grup diputar supaya corongnya menghadap ke sana.
+// robot keluar; grup diputar supaya corongnya menghadap ke sana. Rangkanya
+// BARU DITURUNKAN saat lockdown — sebelum upload selesai mereka tidak ada.
 export const MACHINE_POINTS = Object.freeze([
     Object.freeze({ id: 0, ...hqCellPos(3, 24), hatch: Object.freeze(hqCellPos(6, 24)) }),
     Object.freeze({ id: 1, ...hqCellPos(3, 46), hatch: Object.freeze(hqCellPos(6, 46)) }),
@@ -129,7 +155,9 @@ export const EVENT_POINTS = Object.freeze([
 ]);
 
 const DOOR_LAYOUT = Object.freeze([
-    Object.freeze({ kind: 'warehouse-east', ...hqCellPos(29, 1.5), sx: 4.5, sz: CELL * 2 }),
+    // Satu-satunya pintu ke ruang server: TERKUNCI sampai terminal ruang rapat
+    // di-hack (permintaan user 2026-08-09).
+    Object.freeze({ kind: 'server-access', ...hqCellPos(29, 1.5), sx: 4.5, sz: CELL * 2, locked: true }),
     Object.freeze({ kind: 'warehouse-south', ...hqCellPos(11.5, 5), sx: CELL * 2, sz: 4.5 }),
     Object.freeze({ kind: 'mid-corridor', ...hqCellPos(25.5, 13), sx: CELL * 2, sz: 4.5 }),
     Object.freeze({ kind: 'restroom', ...hqCellPos(44, 15.5), sx: 4.5, sz: CELL * 2 }),
@@ -174,14 +202,18 @@ export const HQ_CRATE_POINTS = Object.freeze([
     Object.freeze({ area: 'server', ...hqCellPos(33, 8) }),
 ]);
 
+// TIDAK SATU PUN titik berada di dalam `HQ_SERVER_ROOM` (permintaan user
+// 2026-08-09): ruang server tetap sunyi sebelum dan sesudah upload.
 export const HQ_ENCOUNTER_POINTS = Object.freeze({
-    office: Object.freeze([[4, 2], [12, 2], [36, 3], [43, 3], [2, 7], [38, 9],
-        [12, 10], [43, 11], [3, 14], [9, 18], [16, 18], [42, 20], [30, 24],
+    office: Object.freeze([[4, 2], [12, 2], [20, 2], [27, 4], [2, 7], [24, 10],
+        [12, 10], [17, 12], [3, 14], [9, 18], [16, 18], [42, 20], [30, 24],
         [11, 25], [19, 25], [36, 30], [6, 31], [29, 31], [17, 32], [42, 32],
         [47, 35], [33, 36], [8, 39], [3, 42], [46, 44], [42, 47]]),
-    purge: Object.freeze([[15, 2], [38, 3], [44, 9], [18, 10], [2, 12], [24, 16],
+    purge: Object.freeze([[15, 2], [24, 4], [26, 11], [18, 10], [2, 12], [24, 16],
         [38, 20], [37, 19], [42, 27], [19, 37], [29, 37], [26, 38], [28, 40],
         [45, 41], [5, 42], [38, 44], [21, 46], [8, 47], [24, 47], [43, 47]]),
+    // Squad yang turun kalau SIGNAL TRACE ruang rapat gagal.
+    alarm: Object.freeze([[28, 16], [36, 16], [24, 21], [41, 22], [35, 31], [30, 14]]),
 });
 
 // Perabot kantor: [pembuat, kolom, baris, sx, sy, sz]. `desk` menambahkan kursi
@@ -206,8 +238,10 @@ const FURNITURE = Object.freeze([
     ['cupboard', 21, 20, 8, 15, 40], ['sofa', 19, 15, 18, 6, 14],
     ['planter', 2, 19, 8, 11, 8], ['planter', 20, 27, 8, 11, 8],
     // --- Ruang rapat tertutup (rows 19-27, cols 28-39) ----------------------
+    // Sel (39,20) sengaja KOSONG di sini: itu tempat konsol HACK ruang rapat,
+    // yang dibangun terpisah karena layarnya berubah warna saat dibobol.
     ['meeting', 33, 21, 90, 7, 26], ['meeting', 33, 25, 70, 7, 24],
-    ['cupboard', 28, 23, 8, 15, 44], ['console', 39, 20, 8, 12, 16],
+    ['cupboard', 28, 23, 8, 15, 44],
     ['planter', 29, 20, 8, 11, 8], ['planter', 38, 26, 8, 11, 8],
     // --- Lantai server timur-atas -------------------------------------------
     ['desk', 32, 2, 24, 7, 12], ['desk', 40, 2, 24, 7, 12],
@@ -245,7 +279,8 @@ const FURNITURE = Object.freeze([
 let built = false, worldRoot = null, navGrid = null, staticBatch = [];
 const blockers = [], doors = [], propRecords = [], stageLights = [];
 const sparkPool = [], machines = [];
-let uploadConsole = null, uploadMarker = null, finishMarker = null;
+let uploadConsole = null, uploadMarker = null, finishMarker = null, cityscape = null;
+let hackScreen = null, hackMarker = null;
 const serverPanels = [];
 let sparkT = 0;
 
@@ -262,18 +297,19 @@ function mapCellAt(x, z) {
 export { mapCellAt as hqCellAt };
 
 // Dinding, pintu RUSAK, bank server dan mesin robot memblok semua entitas.
-// Mesin ikut di sini karena rangkanya memang berdiri sejak awal (lihat catatan
-// aktivasi di hq.js) — jadi nav tak pernah perlu di-bake ulang.
+// Mesin ikut di sini karena nav DI-BAKE dengan rangkanya terpasang — nav tak
+// pernah perlu di-bake ulang, berapa kali pun mesin muncul/hancur.
 const SOLID_TOKENS = '#@CM';
-// Sel mesin yang RANGKANYA SUDAH HANCUR (perbaikan 2026-08-08, laporan user
-// "masih ada blocking tidak terlihat"): `killMachineVisual` menyembunyikan
-// rangkanya, jadi petaknya tak boleh terus memblok siapa pun. Nav TIDAK
-// di-bake ulang — itu invarian proyek; robot tetap memutar, tetapi player
-// (dan peluru) tidak lagi menabrak dinding tak terlihat.
-const deadMachineCells = new Set();
+// Petak `M` yang rangkanya TIDAK ADA DI LAYAR. Aturannya: yang terlihat itulah
+// yang menghalangi. Sejak 2026-08-09 mesin hanya tak terlihat SEBELUM lockdown
+// (permintaan user: mesin baru muncul setelah upload); bangkainya sesudah
+// hancur tetap terlihat, jadi tetap pejal. Nav TIDAK di-bake ulang — itu
+// invarian proyek; robot memutar, player tak pernah menabrak dinding tak
+// terlihat.
+const openMachineCells = new Set();
 const cellKey = (c, r) => c + ',' + r;
 const openToken = (token, c, r) => !SOLID_TOKENS.includes(token)
-    || (token === 'M' && deadMachineCells.has(cellKey(c, r)));
+    || (token === 'M' && openMachineCells.has(cellKey(c, r)));
 const safeToken = token => token === 'A' || token === 'S';
 
 function cornerCells(x, z, r) {
@@ -382,6 +418,7 @@ function addDoor(M, spec) {
     lamp.position.set(spec.x, WALL_H - 2.8, spec.z); worldRoot.add(lamp);
     const d = { kind: spec.kind, panel: rig.panel, rig, leaves: rig.leaves,
         lamp, open: 0, target: 0, sealed: !!spec.sealed,
+        locked: !!spec.locked, lockedInit: !!spec.locked,
         blocker: { x: spec.x, z: spec.z, hx: spec.sx / 2, hz: spec.sz / 2,
             axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(spec.sx, spec.sz) / 2,
             top: WALL_H, standable: false } };
@@ -486,6 +523,20 @@ function buildUploadConsole(M) {
     uploadMarker = markerAt(HQ_UPLOAD, PAL.amber, 8, 10.5);
 }
 
+// Konsol HACK ruang rapat: kunci jaringan pintu ruang server. Dibangun terpisah
+// dari FURNITURE karena layarnya berganti warna begitu jaringannya dibobol.
+function buildHackConsole(M) {
+    const g = new THREE.Group(); g.position.set(HACK_CONSOLE.x, 0, HACK_CONSOLE.z);
+    box(g, M.ink, 8, 6, CELL - 2, 0, 3, 0);
+    const top = box(g, M.body, 9, 2, CELL - 1, 0, 7, 0); top.rotation.z = 0.12;
+    hackScreen = box(g, M.screen, 0.9, 6, 9, -4.4, 9.5, 0, false); hackScreen.rotation.z = 0.12;
+    for (const z of [-3.5, 0, 3.5]) box(g, M.amber, 0.9, 1, 1.4, -4.7, 5.2, z, false);
+    box(g, M.steel, 3, 13, 3, 3.2, 6.5, -CELL / 2 + 2);
+    worldRoot.add(g);
+    recordProp('hack-console', HACK_CONSOLE.x, HACK_CONSOLE.z, 4, CELL / 2 - 1, 10, true);
+    hackMarker = markerAt(HQ_HACK, PAL.tech, 8, 10.5);
+}
+
 // Semua sel 'M' yang tersambung dengan pusat mesin (blok 3x3 pada denah user).
 function machineCells(x, z) {
     const seed = mapCellAt(x, z);
@@ -508,15 +559,24 @@ function buildMachines(M) {
         rig.group.rotation.y = Math.PI / 2;       // corong menghadap +x (ke ruangan)
         worldRoot.add(rig.group);
         const half = (CELL * 3 - 4) / 2;
-        // Collider dipegang supaya bisa DICABUT saat mesin hancur.
+        // Collider dipegang supaya bisa DICABUT selama rangkanya belum turun.
         const blocker = recordProp('spawn-machine', spec.x, spec.z, half, half, 19, true);
         machines.push({ id: spec.id, group: rig.group, rig, eyeMat: rig.eyeMat,
             coreMat: rig.coreMat, x: spec.x, z: spec.z,
             hatch: { x: spec.hatch.x, z: spec.hatch.z },
-            // Tapak `M` + collider miliknya: dipakai membuka petaknya saat hancur.
+            // Tapak `M` + collider miliknya: dipakai membuka petaknya selagi
+            // mesin belum diturunkan.
             cells: machineCells(spec.x, spec.z), blocker,
-            hp: 0, alive: true, active: false, hitT: 0 });
+            hp: 0, alive: false, deployed: false, active: false, hitT: 0 });
     }
+}
+
+// Rangka mesin hanya memblok saat ia benar-benar terlihat.
+function setMachineSolid(m, solid) {
+    const i = m.blocker ? blockers.indexOf(m.blocker) : -1;
+    if (solid && m.blocker && i === -1) blockers.push(m.blocker);
+    if (!solid && i !== -1) blockers.splice(i, 1);
+    for (const k of m.cells) { if (solid) openMachineCells.delete(k); else openMachineCells.add(k); }
 }
 
 function buildSparks(M) {
@@ -596,10 +656,17 @@ function buildWorld() {
     staticBatch = addMergedStatic(worldRoot, staticProps);
 
     buildUploadConsole(M);
+    buildHackConsole(M);
     buildMachines(M);
     for (const spec of DOOR_LAYOUT) addDoor(M, spec);
     finishMarker = markerAt(HQ_START, PAL.tech, 9, 12);
     buildSparks(M);
+
+    // Cincin kota (lihat catatan di world.js chapter 1). Diinduk ke `worldRoot`
+    // milik chapter HQ; jaraknya 6000 unit dari cincin chapter arrival sehingga
+    // keduanya tak pernah bertumpuk maupun terlihat bersamaan (camera.far 4000).
+    cityscape = buildCampaignCityscape(HQ_OX, HQ_OZ, HQ_COLS * CELL / 2, HQ_ROWS * CELL / 2,
+        { parent: worldRoot, groundY: CITY_GROUND_Y });
 
     const lampCells = [[14, 3], [40, 3], [12, 9], [24, 9], [40, 9],
         [10, 20], [24, 21], [33, 23], [42, 21], [46, 20],
@@ -640,16 +707,31 @@ export function updateHqDoors(dt) {
         doorMotionSFX(d, prev, d.blocker.x, d.blocker.z);
         const e = d.open * d.open * (3 - 2 * d.open);
         setSplitDoorOpen(d.rig, e);
-        d.lamp.material.color.setHex(d.sealed ? PAL.hazard : (d.target ? PAL.tech : PAL.hazard));
+        d.lamp.material.color.setHex(d.sealed || d.locked
+            ? PAL.hazard : (d.target ? PAL.tech : PAL.hazard));
     }
 }
 
 export function updateHqAutoDoors(px, pz) {
     for (const d of doors) {
-        if (d.sealed) { d.target = 0; continue; }
+        if (d.sealed || d.locked) { d.target = 0; continue; }
         d.target = Math.hypot(px - d.blocker.x, pz - d.blocker.z) < CELL * 2.4 ? 1 : 0;
     }
 }
+
+export function unlockHqDoor(kind) {
+    const d = doors.find(x => x.kind === kind);
+    if (d) d.locked = false;
+    return !!d;
+}
+
+export function setHackScreenHacked(on) {
+    if (!hackScreen) return;
+    hackScreen.material = hackScreen.material.clone();
+    hackScreen.material.emissive.setHex(on ? PAL.tech : PAL.techDim);
+    hackScreen.material.emissiveIntensity = on ? 0.5 : 0.28;
+}
+export function setHackMarker(on) { if (hackMarker) hackMarker.visible = !!on; }
 
 export function setMachineActive(id, on) {
     const m = machines.find(x => x.id === id);
@@ -659,24 +741,34 @@ export function setMachineActive(id, on) {
     m.eyeMat.color.setHex(on ? 0xff2b1f : PAL.steel);
 }
 
+// MESIN BARU DITURUNKAN SETELAH UPLOAD (permintaan user 2026-08-09): sebelum ini
+// rangkanya tidak ada di layar sama sekali, jadi petak + collider-nya juga
+// terbuka. Begitu turun, ia langsung utuh, pejal dan menyala.
+export function deployMachine(id) {
+    const m = machines.find(x => x.id === id);
+    if (!m || m.deployed) return;
+    m.deployed = true; m.alive = true; m.hitT = 0;
+    m.hp = spawnMachineHp();
+    m.group.visible = true;
+    setMachineSolid(m, true);
+    resetSpawnMachine(m.rig, true);
+    setMachineActive(id, true);
+}
+
+// Mesin hancur TIDAK hilang: ia menjadi bangkai hitam gosong dengan part yang
+// terlepas, dan karena bangkainya terlihat ia TETAP pejal.
 export function killMachineVisual(id) {
     const m = machines.find(x => x.id === id);
-    if (!m) return;
-    m.alive = false; m.active = false;
-    m.group.visible = false;
-    // Petak `M` + collider miliknya dibuka: rangkanya sudah tidak ada di layar.
-    for (const k of m.cells) deadMachineCells.add(k);
-    const bi = m.blocker ? blockers.indexOf(m.blocker) : -1;
-    if (bi !== -1) blockers.splice(bi, 1);
-    m.coreMat.color.setHex(PAL.techDim);
-    m.eyeMat.color.setHex(PAL.steel);
+    if (!m || !m.alive) return;
+    m.alive = false; m.active = false; m.hitT = 0;
+    wreckSpawnMachine(m.rig);
 }
 
 export function setUploadMarker(on) { if (uploadMarker) uploadMarker.visible = !!on; }
 export function setFinishMarker(on) { if (finishMarker) finishMarker.visible = !!on; }
 
 export function pulseHqMarkers(dt, t) {
-    for (const m of [uploadMarker, finishMarker]) {
+    for (const m of [uploadMarker, finishMarker, hackMarker]) {
         if (!m?.visible) continue;
         m.material.opacity = 0.28 + 0.22 * (0.5 + 0.5 * Math.sin(t * 4));
         m.rotation.z += dt * 0.8;
@@ -717,7 +809,7 @@ export function hqSparks(center, sec = 2.5) {
 
 export function updateHqFx(dt) {
     // Animasi mesin tidak bergantung pada pool percikan; rig tetap hidup saat alarm aktif.
-    for (const m of machines) if (m.alive)
+    for (const m of machines) if (m.deployed && m.alive)
         updateSpawnMachine(m.rig, dt, m.active, m.hitT);
     if (sparkT <= 0) { for (const s of sparkPool) s.visible = false; return; }
     sparkT = Math.max(0, sparkT - dt);
@@ -733,20 +825,21 @@ export function updateHqFx(dt) {
 
 export function resetHqVisuals() {
     for (const d of doors) {
-        d.open = 0; d.target = 0;
+        d.open = 0; d.target = 0; d.locked = !!d.lockedInit;
         setSplitDoorOpen(d.rig, 0);
         d.lamp.material.color.setHex(PAL.hazard);
     }
-    deadMachineCells.clear();
     for (const m of machines) {
-        m.alive = true; m.active = false; m.hp = 0; m.hitT = 0;
-        m.group.visible = true;
-        // Mesin hidup lagi tiap entry chapter, jadi collider-nya harus kembali.
-        if (m.blocker && !blockers.includes(m.blocker)) blockers.push(m.blocker);
+        // Chapter dimulai TANPA mesin di layar: rangkanya baru turun saat
+        // lockdown, jadi petak + collider-nya juga dibuka lebih dulu.
+        m.alive = false; m.deployed = false; m.active = false; m.hp = 0; m.hitT = 0;
+        m.group.visible = false;
+        setMachineSolid(m, false);
         resetSpawnMachine(m.rig, false);
     }
     for (const m of MACHINE_POINTS) setMachineActive(m.id, false);
     setUploadMarker(false); setFinishMarker(false);
+    setHackMarker(false); setHackScreenHacked(false);
     setUploadAlarm(false); setLockdownLights(false);
     sparkT = 0; for (const s of sparkPool) s.visible = false;
 }
@@ -768,19 +861,24 @@ export const hqWorldDebug = () => ({
         machines: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === 'M').length, 0),
         events: HQ_MAP.reduce((n, row) => n + [...row].filter(t => '123'.includes(t)).length, 0) },
     start: { ...HQ_START }, upload: { ...HQ_UPLOAD }, servers: { ...HQ_SERVERS },
+    hack: { ...HQ_HACK }, serverRoom: { ...HQ_SERVER_ROOM },
     machinePoints: MACHINE_POINTS.map(m => ({ ...m, hatch: { ...m.hatch } })),
     events: EVENT_POINTS.map(e => ({ ...e })),
     machines: machines.map(m => ({ id: m.id, alive: m.alive, active: m.active,
-        hp: m.hp, visible: !!m.group.visible, cells: m.cells.length,
-        blocking: !!m.blocker && blockers.includes(m.blocker) })),
+        deployed: m.deployed, hp: m.hp, visible: !!m.group.visible, cells: m.cells.length,
+        blocking: !!m.blocker && blockers.includes(m.blocker),
+        rig: spawnMachineDebug(m.rig) })),
     blockers: blockers.length, props: propRecords.map(p => ({ ...p })),
     propKinds: [...new Set(propRecords.map(p => p.kind))],
     doors: doors.map(d => ({ kind: d.kind, open: d.open, target: d.target,
-        sealed: !!d.sealed, x: d.blocker.x, z: d.blocker.z,
+        sealed: !!d.sealed, locked: !!d.locked, x: d.blocker.x, z: d.blocker.z,
         split: splitDoorDebug(d.rig) })),
-    markers: { upload: !!uploadMarker?.visible, finish: !!finishMarker?.visible },
+    markers: { upload: !!uploadMarker?.visible, finish: !!finishMarker?.visible,
+        hack: !!hackMarker?.visible },
     pools: { sparks: sparkPool.length },
     visiblePools: { sparks: sparkPool.filter(s => s.visible).length },
     lights: stageLights.length, nav: !!navGrid, staticBatches: staticBatch.length,
     supplies: HQ_SUPPLY_POINTS.map(p => ({ ...p })), crates: HQ_CRATE_POINTS.map(p => ({ ...p })),
+    city: cityscape && { groundY: cityscape.groundY, buildings: cityscape.buildings,
+        trees: cityscape.trees, parented: cityscape.root === worldRoot },
 });

@@ -5,7 +5,8 @@
 // stage3.doorHp kini DORMAN), 'T'=TANGGA rusak (sumber spawn
 // robot), 'L'=LIFT (titik MASUK/spawn player), 'W'=ruang SUPPLY (6 ammo + 3
 // medkit), 'R'=toilet, 'S'=MESIN PEMBUAT ROBOT (4 buah 2x2, 2 kiri 2 kanan, HP
-// machineHp — dihancurkan dgn menembak), 'X'=ruang PABRIK (arena akhir), 'o'=PINTU
+// campaign.spawnMachine.hp bersama semua stage — dihancurkan dgn menembak dan
+// menyisakan bangkai gosong), 'X'=ruang PABRIK (arena akhir), 'o'=PINTU
 // KELUAR gedung (finish → transisi stage 4). Grid sel 2 m (dinding/collision/LOS/
 // hit-peluru dari grid yang sama; pola stage1/2). Konektivitas BFS-verified.
 //
@@ -48,6 +49,7 @@ import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine,
+    wreckSpawnMachine, spawnMachineHp,
 } from '../../../entities/spawnMachine.js';
 import { PAL } from '../../../world/palette.js';
 import {
@@ -948,12 +950,13 @@ function s3OpenDoor() {
 }
 function s3DestroyMachine(m) {
     m.alive = false;
-    if (m.group) m.group.visible = false;
+    // BANGKAI TETAP DI LAYAR (2026-08-09, permintaan user): rangkanya menjadi
+    // hitam gosong dengan part terlepas, jadi collider-nya juga TETAP terpasang
+    // — aturan "yang terlihat itulah yang menghalangi".
+    wreckSpawnMachine(m.rig);
     // Mesin hancur = berhenti memproduksi: batalkan robot yang masih ANTRE keluar
     // dari hatch-nya (identitas cell = objek m.spawn yang sama saat di-queue).
     s3Queue = s3Queue.filter(e => e.cell !== m.spawn);
-    const i = blockers.indexOf(m.blocker);
-    if (i !== -1) blockers.splice(i, 1);
     addScore(CFG.robot.score.specialKill);
     explodeAt(new THREE.Vector3(m.cx, 12, m.cz), 26, 1, undefined);
     spawnGibs(m.cx, 14, m.cz, 12, 1, 0, 2.2, 0x3d444c, 0.4, 0x141210);
@@ -1054,7 +1057,7 @@ export const stage3Scene = {
         }
         s3PaintTerminals();
         for (const m of s3Machines) {
-            m.hp = CFG.campaign.stage3.machineHp; m.alive = true; m.hitT = 0;
+            m.hp = spawnMachineHp(); m.alive = true; m.hitT = 0;
             if (m.group) m.group.visible = true;
             resetSpawnMachine(m.rig, false);
             if (blockers.indexOf(m.blocker) === -1) blockers.push(m.blocker);

@@ -22,12 +22,23 @@ import { rand } from '../../../../utils/math.js';
 import {
     buildSplitDoor, setSplitDoorOpen, splitDoorDebug, doorMotionSFX,
 } from '../../utility/doors.js';
+import {
+    buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
+    wreckSpawnMachine, spawnMachineHp,
+} from '../../../../entities/spawnMachine.js';
+import { buildCampaignCityscape } from '../../utility/cityscape.js';
 
 export const OX = 210000, OZ = 0;
 export const MAP_COLS = 50, MAP_ROWS = 50, CELL = 14, WALL_H = 25;
 export const MAP_X0 = OX - MAP_COLS * CELL / 2;
 export const MAP_Z0 = OZ - MAP_ROWS * CELL / 2;
 export const cellPos = (c, r) => ({ x: MAP_X0 + (c + 0.5) * CELL, z: MAP_Z0 + (r + 0.5) * CELL });
+
+// LATAR = KOTA, SEPERTI STAGE 5 (2026-08-10, permintaan user: stage 6 masih
+// memakai kubah "pusaran api" global yang terasa aneh). Terminal Bandung berdiri
+// di PERMUKAAN TANAH — bukan Lantai 2 seperti kantor stage 1-3 — jadi jalan kota
+// nyaris rata dengan lantai peron, persis seperti depot Stage 5.
+export const CITY_GROUND_Y = -6;
 
 // Transliterasi CSV user, baris demi baris. JANGAN diedit tanpa CSV baru.
 export const S6_MAP = Object.freeze([
@@ -108,6 +119,16 @@ export const GENERATOR_POINTS = Object.freeze([
     Object.freeze({ id: 1, ...cellPos(39, 41), stand: Object.freeze(cellPos(39, 43)) }),
     Object.freeze({ id: 2, ...cellPos(44, 41), stand: Object.freeze(cellPos(44, 43)) }),
 ]);
+// DUA MESIN PEMBUAT ROBOT (permintaan user 2026-08-09): di ujung utara gudang
+// terminal, tepat SEBELUM lorong layanan yang mengantar ke pintu keluar `F` —
+// jadi player melewatinya saat menuju lorong dan sekali lagi saat keluar.
+// Mereka PROP, bukan token peta: denah CSV user tidak boleh diedit, jadi
+// collider-nya masuk lewat `recordProp` dan ikut dipanggang ke nav.
+export const MACHINE_SIZE = 30;
+export const MACHINE_POINTS = Object.freeze([
+    Object.freeze({ id: 0, ...cellPos(31, 3), hatch: Object.freeze(cellPos(31, 6)) }),
+    Object.freeze({ id: 1, ...cellPos(38, 3), hatch: Object.freeze(cellPos(38, 6)) }),
+]);
 
 // Gudang W: "tebar banyak ammo dan medkit" — ruangan ini memang tempat mengisi
 // ulang sebelum masuk hall, jadi keempat senjata dan beberapa medkit ada di sini.
@@ -133,15 +154,15 @@ export const CRATE_POINTS = Object.freeze([
 ]);
 
 // Titik spawn per encounter (kolom, baris) — semuanya di luar SA/W dan tidak
-// menempel pilar, rak, generator maupun daun pintu.
+// menempel pilar, rak, generator, daun pintu maupun rangka mesin gudang.
 export const ENCOUNTER_POINTS = Object.freeze({
-    hall: Object.freeze([[8, 3], [20, 3], [32, 3], [12, 10], [28, 11], [38, 8],
+    hall: Object.freeze([[8, 3], [20, 3], [26, 2], [12, 10], [28, 11], [38, 8],
         [2, 12], [18, 21], [30, 22], [8, 24], [38, 20], [12, 31], [26, 32], [36, 30],
         [20, 13], [6, 20]]),
     grid: Object.freeze([[33, 37], [36, 38], [42, 37], [46, 39], [31, 45],
         [36, 46], [41, 46], [45, 44], [47, 42], [30, 47]]),
     exfil: Object.freeze([[46, 30], [43, 24], [47, 18], [44, 12], [46, 6],
-        [42, 3], [38, 2], [30, 2]]),
+        [42, 3], [35, 1], [24, 1]]),
 });
 
 const DOOR_LAYOUT = Object.freeze([
@@ -155,8 +176,8 @@ const AUTO_DOORS = Object.freeze(['safe', 'hall']);
 
 let built = false, worldRoot = null, navGrid = null, staticBatch = [];
 const blockers = [], doors = [], propRecords = [], stageLights = [];
-const sparkPool = [], rackVisuals = [], generatorVisuals = [];
-let infoScreen = null, finishMarker = null, infoMarker = null;
+const sparkPool = [], rackVisuals = [], generatorVisuals = [], machines = [];
+let infoScreen = null, finishMarker = null, infoMarker = null, cityscape = null;
 const rackMarkers = [], repairMarkers = [];
 let sparkT = 0;
 
@@ -164,6 +185,7 @@ export const worldGroup = () => worldRoot;
 export const stage6Doors = () => doors;
 export const stage6Lights = () => stageLights;
 export const stage6Nav = () => navGrid;
+export const stage6Machines = () => machines;
 
 function mapCellAt(x, z) {
     const c = Math.floor((x - MAP_X0) / CELL), r = Math.floor((z - MAP_Z0) / CELL);
@@ -408,6 +430,21 @@ function buildGridHallProps(M, add) {
     }
 }
 
+// Mesin pembuat robot gudang: rig hero bersama, corong lokal +z sudah menghadap
+// hall (tanpa rotasi), jadi robot keluar ke arah player, bukan ke dinding utara.
+function buildMachines() {
+    for (const spec of MACHINE_POINTS) {
+        const rig = buildSpawnMachineMesh(MACHINE_SIZE, 20, MACHINE_SIZE);
+        rig.group.position.set(spec.x, 0, spec.z);
+        worldRoot.add(rig.group);
+        const half = MACHINE_SIZE / 2;
+        recordProp('spawn-machine', spec, half, half, 20, true);
+        machines.push({ id: spec.id, group: rig.group, rig, x: spec.x, z: spec.z,
+            hatch: { x: spec.hatch.x, z: spec.hatch.z },
+            hp: 0, alive: true, active: false, hitT: 0 });
+    }
+}
+
 function buildSparks(M) {
     for (let i = 0; i < 16; i++) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 2.4), M.spark);
@@ -478,10 +515,19 @@ function buildWorld() {
 
     for (const spec of RACK_POINTS) buildRack(M, spec);
     for (const spec of GENERATOR_POINTS) buildGenerator(M, spec);
+    buildMachines();
     buildInfoTerminal(M);
     for (const spec of DOOR_LAYOUT) addDoor(M, spec);
     finishMarker = markerAt(S6_FINISH, PAL.tech, 9, 12);
     buildSparks(M);
+
+    // Cincin kota Jakarta/Bandung yang sama dengan Stage 1-3 & Stage 5, DIINDUK
+    // ke `worldRoot` (bukan `scene`) supaya ia ikut hidup-mati bersama chapter
+    // ini dan tidak pernah bertumpuk dengan cincin kota chapter HQ di x≈216000.
+    // MURNI DEKOR: tidak menambah blocker/nav/PointLight, jadi collision, BFS,
+    // dan jumlah lampu stage tak berubah.
+    cityscape = buildCampaignCityscape(OX, OZ, MAP_COLS * CELL / 2, MAP_ROWS * CELL / 2,
+        { parent: worldRoot, groundY: CITY_GROUND_Y });
 
     // Jumlah lampu sengaja ditahan: kedua dunia chapter menyala BERSAMAAN di
     // bawah satu `lightsKey`, jadi totalnya (arrival + hq) yang menentukan biaya
@@ -553,6 +599,24 @@ export function updateMachinery(dt, online) {
         g.rotor.rotation.x += dt * (online && online[g.id] ? 2.4 : 0.14);
 }
 
+// Mesin gudang: hidup sejak awal chapter (rangkanya memang berdiri di sana),
+// menyala begitu garnisun hall bangun, dan meninggalkan BANGKAI hitam gosong —
+// yang tetap terlihat, jadi tetap pejal.
+export function armMachines(on) {
+    for (const m of machines) if (m.alive) m.active = !!on;
+}
+
+export function killMachine(id) {
+    const m = machines.find(x => x.id === id);
+    if (!m || !m.alive) return;
+    m.alive = false; m.active = false; m.hitT = 0;
+    wreckSpawnMachine(m.rig);
+}
+
+export function updateMachineVisual(dt) {
+    for (const m of machines) if (m.alive) updateSpawnMachine(m.rig, dt, m.active, m.hitT);
+}
+
 export function setMarkers(state) {
     for (let i = 0; i < rackMarkers.length; i++) rackMarkers[i].visible = !!(state.racks && state.racks[i]);
     for (let i = 0; i < repairMarkers.length; i++) repairMarkers[i].visible = !!(state.repairs && state.repairs[i]);
@@ -621,6 +685,10 @@ export function resetWorldVisuals() {
     }
     for (const v of rackVisuals) setRackSearched(v.id, false);
     for (const g of generatorVisuals) setGeneratorOnline(g.id, false);
+    for (const m of machines) {
+        m.alive = true; m.active = false; m.hp = spawnMachineHp(); m.hitT = 0;
+        resetSpawnMachine(m.rig, false);
+    }
     setInfoRead(false);
     setMarkers({});
     sparkT = 0;
@@ -645,6 +713,10 @@ export const stage6WorldDebug = () => ({
     start: { ...S6_START }, info: { ...S6_INFO }, finish: { ...S6_FINISH },
     racks: RACK_POINTS.map(p => ({ ...p, stand: { ...p.stand } })),
     generators: GENERATOR_POINTS.map(p => ({ ...p, stand: { ...p.stand } })),
+    machinePoints: MACHINE_POINTS.map(p => ({ ...p, hatch: { ...p.hatch } })),
+    machines: machines.map(m => ({ id: m.id, alive: m.alive, active: m.active,
+        hp: m.hp, x: m.x, z: m.z, visible: !!m.group.visible,
+        rig: spawnMachineDebug(m.rig) })),
     blockers: blockers.length, props: propRecords.map(p => ({ ...p })),
     propKinds: [...new Set(propRecords.map(p => p.kind))],
     doors: doors.map(d => ({ kind: d.kind, open: d.open, target: d.target,
@@ -656,4 +728,6 @@ export const stage6WorldDebug = () => ({
     visiblePools: { sparks: sparkPool.filter(s => s.visible).length },
     lights: stageLights.length, nav: !!navGrid, staticBatches: staticBatch.length,
     supplies: SUPPLY_POINTS.map(p => ({ ...p })), crates: CRATE_POINTS.map(p => ({ ...p })),
+    city: cityscape && { groundY: cityscape.groundY, buildings: cityscape.buildings,
+        trees: cityscape.trees, parented: cityscape.root === worldRoot },
 });

@@ -8,16 +8,18 @@
 
 import { CFG } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
-import { robots, setCinematicActive } from '../../../../core/state.js';
-import { scene, CAM_OFF_DEFAULT, setCineFocus } from '../../../../core/renderer.js';
+import { player, robots, bullets, stats, setCinematicActive } from '../../../../core/state.js';
+import { scene, CAM_OFF_DEFAULT, setCineFocus, addCamShake } from '../../../../core/renderer.js';
 import {
     showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, hideCutsceneSkip,
 } from '../../../../core/dom.js';
 import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
-import { disposeRobot } from '../../../../entities/robots.js';
+import { disposeRobot, queueBoom } from '../../../../entities/robots.js';
+import { explodeAt, spawnBloodBurst } from '../../../../entities/effects.js';
+import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
 import { spawnCampaignRobot } from '../../utility/common.js';
-import { rand } from '../../../../utils/math.js';
+import { rand, segPointDist2 } from '../../../../utils/math.js';
 
 // Naskah dipatok sebagai data agar smoke bisa memeriksa teks dan urutannya.
 export const STAGE6_DIALOGUE = dialogueMap('campaign.stage6.lines');
@@ -157,4 +159,38 @@ export function clearStageRobots() {
         if (robots[i].stage !== 6) continue;
         disposeRobot(robots[i]); scene.remove(robots[i].mesh); robots.splice(i, 1);
     }
+}
+
+// --- Mesin pembuat robot (dipakai KEDUA chapter) ---------------------------
+// Sapuan segmen prev->now: peluru senapan menempuh puluhan unit per frame, jadi
+// uji titik per frame akan menembus rangka selebar apa pun.
+export function machineBulletHits(list, hitRadius) {
+    const r2 = Math.max(1, hitRadius) ** 2;
+    for (let j = bullets.length - 1; j >= 0; j--) {
+        const b = bullets[j], bx = b.mesh.position.x, bz = b.mesh.position.z;
+        let hit = null;
+        for (const m of list) {
+            if (!m.alive) continue;
+            if (segPointDist2(b.px, 0, b.pz, bx, 0, bz, m.x, 0, m.z) < r2) { hit = m; break; }
+        }
+        if (!hit) continue;
+        if (b.explosive) {
+            queueBoom(bx, b.mesh.position.y, bz, b.explodeR, false, 0, b.damage, b.boomSfx);
+            hit.hp -= (b.damage != null ? b.damage : CFG.grenade.damage);
+        } else {
+            hit.hp -= (b.damage != null ? b.damage : CFG.weapons.bulletDamage) * (player.dmgMul || 1);
+            stats.hits++;
+            spawnBloodBurst(bx, 12 + Math.random() * 6, bz, b.dir.x, b.dir.z, 2, 0.5, 1.4, 0xffb24a);
+        }
+        hit.hitT = 1;
+        scene.remove(b.mesh); bullets.splice(j, 1);
+    }
+}
+
+// Ledakan penghancurnya; bangkai gosongnya sendiri milik `wreckSpawnMachine`.
+export function machineWreckFx(x, z) {
+    explodeAt(new THREE.Vector3(x, 12, z), 28, 1, undefined);
+    spawnGibs(x, 14, z, 12, 1, 0, 2.2, 0x3d444c, 0.4, 0x141210);
+    spawnBloodDecal(x, z, 7, 0x141210);
+    addCamShake(8);
 }
