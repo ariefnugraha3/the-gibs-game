@@ -67,7 +67,7 @@ import { stage2Scene, buildWorld as buildStage2World } from './stage2.js';   // 
 import { ensureWorld as ensureStage3World } from './stage3.js';   // (circular aman: dipanggil DI DALAM enter)
 import { ensureWorld as ensureStage4World } from './stage4.js';
 import { ensureWorld as ensureStage5World } from './stage5/world.js';
-import { ensureWorld as ensureStage6World } from './stage6.js';
+import { ensureWorld as ensureStage6World } from './stage6/index.js';
 import { ensureWorld as ensureStage7World } from './stage7.js';
 import { ensureWorld as ensureStage8World } from './stage8.js';
 

@@ -12,7 +12,7 @@ no framework**. Two modes:
 - **Survival** — round-based waves defending the Monas monument; a Field Shop opens
   between waves; score = shop currency. Detail: [docs/survival.md](docs/survival.md).
 - **Campaign** — 8 linear stages (text prologue → helicopter intro cutscene → three
-  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters → branching Bandung streets → an autonomous-vehicle firefight and combat-gunship duel on Cisumdawu), an inter-stage shop, loot
+  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters → a maze of Bandung streets, alleys and parks → an autonomous-vehicle firefight and combat-gunship duel on Cisumdawu), an inter-stage shop, loot
   as currency, hacking/repair minigames, a stage checkpoint save.
   Detail: [docs/campaign.md](docs/campaign.md).
 
@@ -147,8 +147,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   advances the era. Chapter changes are silent, and menu music continues through the
   prologue before stopping on the heli intro's first live frame.
 - Stage 5 lives in `stages/stage5/` (2026-08-07 split of a 1631-line file): `index.js`
-  facade + `world.js`/`props.js`/`runtime.js`, and THREE sub-scenes — `station.js` (starting
-  station), `journey.js` (train departs), `arrival.js` (Bandung, stage ends). Sub-scenes use
+  facade + `world.js`/`props.js`/`runtime.js`, and FOUR sub-scenes — `station.js` (starting
+  station), `departure.js` (train-departure cutscene, split out of journey.js on 2026-08-08 at
+  the user's request), `journey.js` (the ride), `arrival.js` (Bandung, stage ends). Sub-scenes use
   the normal scene-hook contract but never call `setScene`: `activeScene` stays `stage5Scene`
   so checkpoint/stageStats/modal-resume are unchanged. `enterSub()` is the only switch path —
   cut to black, fade in over `CFG.campaign.stage5.subSceneFadeSec` (0.5 s) next frame; stage
@@ -156,9 +157,17 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - Stage 5 keeps its train arena static in world coordinates. Travel is the
   illusion of fixed pooled scenery moving and wrapping; never move player/robot physics,
   allocate scenery per frame, add a boss, or bypass the config-driven minimum ride gate.
-  Its depot is the frozen 30×50 CSV map: clear combat → hack C1 → open the
-  platform door → repair generator C2 → board; station robot spawning, AI and clamps all
-  reject `SA`/`S`, so those cells never contain robots.
+  Its depot is the frozen 30×50 CSV map: open the safe door → destroy the central robot
+  factory + clear combat → hack C1 → open the platform door → repair generator C2 → board.
+  `SA`/`S` reject spawn points only; robot walk/nav/clamp allow living robots to chase the
+  player inside after the safe door begins opening; that door stays latched open for depot combat.
+- Every campaign door is the one shared two-leaf rig in `campaign/utility/doors.js`
+  (`buildSplitDoor` / `setSplitDoorOpen` / `splitDoorLeafOffset`) — stage 1-3 doors, stage 3's
+  blast and exit doors, stage 5 station doors, both stage 6 chapters. No stage computes its own
+  leaf offset. Leaf travel is `leafSpan × (1 − DOOR_OPEN_REVEAL)` with `DOOR_OPEN_REVEAL` = 0.1
+  (2026-08-08 user request), so a fully open door keeps 10% of each leaf visible instead of
+  vanishing into the wall; the effective gap is 10% narrower on purpose. The same offset helper
+  feeds the stage 1-3 bullet slab test, so the visible sliver actually stops edge shots.
 - Every door in every stage shares one pair of clips (2026-08-07 user request):
   `door-open.mp3` when the leaf starts opening, `door-closed.mp3` when it lands shut,
   triggered ONLY through `playDoorSFX`/`doorMotionSFX` in `campaign/utility/doors.js`
@@ -173,29 +182,155 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   replays the MP3's encoder padding as ~47 ms of silence every cycle. Don't try to fix that
   by re-encoding — the padding is inherent to MP3. Falls back to `<audio>` if Web Audio is
   unavailable.
+- Every active campaign door uses a 50:50 split-leaf rig (2026-08-08 user request):
+  `buildSplitDoor`/`setSplitDoorOpen` in `campaign/utility/doors.js` move both leaves
+  symmetrically left/right along the wall. Never make an active door sink into the floor or
+  rise into the ceiling. This covers Stage 1-3 automatic doors, Stage 3 blast + exit doors,
+  Stage 5 station doors, and both Stage 6 chapters; Stage 1-3 bullet sweeps follow the two
+  moving leaf footprints. Broken/jammed doors and road bollards remain static barriers.
 - Stage 5 ROLLING STOCK + JOURNEY GAMELOOP (2026-08-07 user rework). The train body is
   EXACTLY 4 m wide (`TRAIN_CAR_WIDTH = 4×CAMP_M`); length/height derive from that width with
   real proportions (16.5 m × 3.9 m), and 16.5 m is 7 CSV cells so car/locomotive land on
   TC/TL with `TRAIN_CAR_GAP = 0`. The player's consist is ONE car + ONE locomotive
-  (`TRAIN_CAR_COUNT = 2`) with an EMPTY `doors` array — no bulkhead ever opens.
+  (`TRAIN_CAR_COUNT = 2`) with an EMPTY `doors` array — no bulkhead ever opens. The player's
+  car is an OPEN-TOP GONDOLA (reshaped 2026-08-08 user request): underframe, chest-high solid
+  sides, outward-only top sill, external stiffener ribs, four corner posts, outside-hung
+  boarding door. It has NO roof structure and NO ceiling lights — the old roofless rib cage
+  with amber strips hanging from it read as floating in mid-air. Nothing may hang over the
+  open bay unless it touches the blind bulkhead against the locomotive (the one tall plane,
+  and it faces up-screen so it never occludes the avatar); sides stay chest-high so the
+  oblique camera sees the player inside a 4 m body, and interior detail stays flat against a
+  wall so the corridor is clear. Both rules are smoke-asserted from the built mesh.
   `TRAIN_X0/X1/Z0/Z1` are the car INTERIOR, so the player can never leave the car nor enter
   the locomotive; the corridor is narrower than a crate's block radius, so no crates go
-  inside the train (journey supplies are drops). The departure shot is LOCKED-OFF: cine
+  inside the train (journey supplies are drops). Every departure shot is LOCKED-OFF: cine
   focus never follows `departureShift` (that made the station sweep past instead), but
-  the player pivot DOES ride with the car (2026-08-08 — pinning it left Gibran behind
-  on the rails; framing is unaffected because followViewCam ignores the pivot while
-  cineFocus is set),
+  the player pivot DOES ride with the car during the departing shot (2026-08-08 — pinning it
+  left Gibran behind on the rails; framing is unaffected because followViewCam ignores the
+  pivot while cineFocus is set),
   camera shake is off, and `updateRide` keeps the journey scenery pool hidden for the whole
   `departure` phase — it would otherwise scroll through the station floor. A run-out apron
   of ground+rails east of the platform keeps the departing train on visible track. TWO tracks run through the whole stage —
   the station's from the CSV, the journey's from the scrolling `near` pool (one ballast bed
-  + four rails; 18 modules × 5 meshes keeps the pool mesh count unchanged). Journey combat is
-  enemy-train waves only: `enemyTrain` sends `waveCount` consists of 1–3 cars × 3–6 robots,
-  class A/B ONLY with B always outnumbering A (`enemyCarMix` floors A at `floor((n-1)/2)`
-  whatever `classARatio` says). They spawn `mounted` on the consist, emerge from the car,
-  shoot across the tracks, and NEVER chase or cross over. Killing a consist's last robot
-  makes it explode and disappear; arrival needs every consist destroyed plus `rideMinSec`.
+  + four rails; 18 modules × 5 meshes keeps the pool mesh count unchanged).
   Both in-train sub-scenes return `false` from `bulletBlocked`/`blastBlocked`.
+- Stage 5 journey combat is ONE TEN-CAR ASSAULT CONSIST (2026-08-08 user request; replaces
+  the old enemy-train waves). After `consistDelaySec` of `ride` a single consist of
+  `ET_CARGO_CARS` = 10 sealed armoured boxcars + a shielded locomotive appears on the
+  parallel track entirely BEHIND the player, OVERTAKES over `overtakeSec`, and settles with
+  car 0 — the REARMOST — level with the player's car. Cars then open ONE AT A TIME:
+  `open` (only that car's ramp falls; its robots stay hidden until `revealAtRamp`) →
+  `engage` (3–6 robots, class A/B ONLY with B always outnumbering A — `enemyCarMix` floors A
+  at `floor((n-1)/2)` whatever `classARatio` says — spawn `mounted`, emerge from the hold,
+  shoot across the tracks, and NEVER chase or cross over) → `detach` (that car EXPLODES,
+  DECOUPLES and FALLS BEHIND) → `advance` (the rest of the consist DROPS BACK exactly one
+  `ET_STEP` so the next car comes level). After the tenth, the locomotive burns in `finale`.
+  Arrival needs the whole consist destroyed plus `rideMinSec`.
+  The consist is deliberately menacing and its shape is forced by the oblique sight line
+  (same 1.16-per-unit rule as the Stage 7 city blocks; the enemy track is 42 units FARTHER):
+  the FIXED near wall stays chest-high (`ET_CAR_SILL` 8) so the deck reads, the part that
+  seals to `ET_CAR_HEIGHT` 26 is the RAMP (so a sealed car really hides its robots), the roof
+  covers only the FAR 58% of the deck (a full-width roof clips robot heads), and the ramp
+  stops at `ET_RAMP_OPEN` 0.85 rad so its tip never reaches the player's car. Each car's
+  static hull and ramp are welded with `mergeObjectInPlace`; only the ramp, the warning strip
+  and four near-side wheels stay separate. The car count is the geometry constant
+  `ET_CARGO_CARS`, NOT config — the meshes are preallocated, exactly like `TRAIN_CAR_COUNT`.
+- A destroyed spawn machine must stop blocking exactly when its chassis stops being drawn
+  (2026-08-08 user report "masih ada blocking tidak terlihat"). VISIBILITY DECIDES COLLISION:
+  Stages 3, 5 and 6 hide the rig on death so each must also drop its collider — Stage 5 splices
+  `machineBlocker` out of `blockers`, Stage 6 splices its `recordProp` blocker AND adds the `M`
+  cells to `deadMachineCells` so `hqWalk`/`hqSegHitsWall` open up. Stage 7 is the deliberate
+  exception: its chassis stays visible as cover, so it stays solid. Nav is NEVER rebaked — the
+  cell stays non-navigable and robots route around it. Colliders are restored in each world's
+  visual reset because the machine is alive again on re-entry.
+- Stage 5 boarding WAITS for the station script, THEN holds (2026-08-08 user request). Touching
+  the boarding marker no longer hands over on the spot — that cut the departure cutscene
+  over `powerBack`/`routeReady`/`letsMove` mid-type. It now only COMMITS the departure
+  (`boardCommitted`): input frozen, cine bars up so the pause reads as a scene starting, marker
+  hidden. The station sub-scene ends only on boarding point + `dialogueIdle()` + a further
+  `departureDelaySec` (3 s) beat, and only then does `enterSub(departureScene)` run the cutscene;
+  when THAT finishes, `journeyScene.enter()` starts the ride behind the black curtain.
+- Stage 5 JOURNEY SCENERY IS DENSE AND WELDED (2026-08-09 user report "background perjalanan
+  terlalu kosong"). The old pool was largely BUILT OUTSIDE THE CAMERA'S REACH: `far` sat 370 units
+  behind the rails where the height budget is negative, so the whole horizon layer never rendered
+  a pixel, and the half of `mid` that alternated to +z fell below the bottom edge. Layout now
+  derives from `groundViewExtents`: the visible ground trapezoid is z in [-267, +118] relative to
+  the player, its far edge is diagonal (x - z ~ 226), and the top edge clips height by ~0.35 per
+  unit of depth (~54 tall at z=-70, ~23 at z=-160, 0 at z=-226). All backdrop content lives in
+  z -76..-200, the horizon band sits at ~-196 (tall silhouettes there are clipped by the frame
+  edge, which is what FILLS it), and the +z side — visible only to z ~ x + 96, and able to occlude
+  the player's own car below z ~ 71 — gets a thin FOREGROUND BAND at 84..96. A smoke assert built
+  from `groundViewExtents` now fails if any scenery prop is placed outside the trapezoid. `near` (parallax 1.0) carries sleepers on
+  both tracks, shoulders/drains, cable trough, lineside fences, poles, km posts, relay boxes,
+  block signals and that foreground band (~45 meshes/module); `mid` carries a full block of
+  scenery per module for BOTH acts; `far` is 12 modules ALL on -z, moved from -370 to ~-196 with
+  parallax raised 0.22 -> 0.40 (it now sits just behind `mid`) and spacing equal to its wrap
+  span. Every module and act variant is welded with `mergeObjectInPlace` at build time: ~1690 raw
+  meshes draw as ~305. `MESH_CAP.TrainSceneryPool` is loose (2000 — the harness cannot weld); the
+  real guard is the smoke test 'S5 LANSKAP: biaya draw call'. Do not move close-to-rail props into
+  `mid` (0.62 parallax slides slower than the ground under them), keep long boundary props exactly
+  `NEAR_STEP` wide so neighbours abut instead of z-fighting, and vary modules with a deterministic
+  hash of the index — never `Math.random()`, which would shift other stages' random placement.
+- Stage 5 BACKGROUND = CITY then WEST JAVA MOUNTAINS (2026-08-09 user request). The depot
+  stands in the middle of a city: the same `buildCampaignCityscape` ring as Stages 1-3, but
+  parented to `stationRoot` (the journey arena uses the same coordinates, so a city welded to
+  `scene` would sit in the middle of the rails all ride), at a near-ground `groundY` instead of
+  the Floor-2 -70, and with a RAIL CORRIDOR kept clear at every x (the normal ring only clears a
+  box around the building, so without it towers grow on the track and on the run-out apron the
+  train departs across). Stage 5 therefore calls `enterCityEnv()`, not `exitCityEnv()`; Stage 6
+  restores the apocalyptic dome. The journey runs two acts: it OPENS IN THE CITY and switches to
+  the WEST JAVA MOUNTAINS the moment the `CFG.campaign.stage5.scenery.mountainAfterCars`-th (3rd)
+  enemy car is destroyed — a CAR COUNT converted to `routeK` by `sceneryMountainK()`, so the cut
+  lands exactly on that kill. Fixed preallocation is an invariant, so every mid/far scenery module
+  carries BOTH landscapes as child groups (`cityG`/`hillG`, `skyG`/`ridgeG`) and the act only
+  toggles `visible` — nothing is allocated mid-journey and only one act is drawn at a time. The
+  tunnel is now a beat inside the mountain act; the closing `bandung` act returns to city
+  silhouettes. `MESH_CAP.TrainSceneryPool` is 360 for that reason.
+- Stage 5 departure cutscene = FIVE SHOTS, CUT ONLY (2026-08-08 user rework of the single
+  locked-off departing shot). In order: (1) close-up of the car door OPENING, (2) close-up of
+  Major Gibran BOARDING, (3) close-up of the door CLOSING, (4) close-up of Gibran CONTACTING
+  HQ, (5) close-up from the train's FRONT-RIGHT as it departs. Every transition is a hard CUT —
+  `cineCam` and `setCineFocus(..., snap)` are written ONCE per shot in `cutTo()` and never
+  touched again, so there is no connecting camera move and no fade anywhere inside the cutscene
+  (smoke asserts angle+focus are frame-constant within a shot, both change on the cut, and the
+  curtain stays transparent throughout). Durations live in `CFG.campaign.stage5.departure`
+  (`doorMoveSec`/`doorOpenSec`/`boardSec`/`doorCloseSec`/`radioMinSec`/`departSec`); the old
+  `departureMinSec` is gone. Shot 4 owns the `commandDeparture`/`gibranDeparture` radio lines
+  and ends on `dialogueIdle()`, so the train stays docked until the call is over; only shot 5
+  advances `departureShift`, starts the train loop and spins the wheels. Gibran waits one step
+  deeper on the platform than the boarding marker — standing in front of the door puts his back
+  between the close-up and the door.
+- Stage 5's boarding door is a REAL HOLE in the car's platform-side wall (2026-08-08). The wall
+  is built as two segments around `TRAIN_DOOR_X ± TRAIN_DOOR_HALF` and the leaf is the shared
+  two-leaf 50:50 rig from `campaign/utility/doors.js`, mounted by `stage5/world.js` on the car
+  group so it rides with the train. It is deliberately NOT a member of `train.doors` (that array
+  stays empty — the cabin bulkhead never opens), and its sound goes through `doorMotionSFX` like
+  every other campaign door.
+- Stage 5 has NO distance countdown (2026-08-08 user request). `routeKm`/`rideMinSec` are deleted
+  and `stage5Debug().distance` is gone; `routeK()` is `etCarsKilled / ET_CARGO_CARS`, so the
+  landscape phases and the destination-terminal reveal follow kills. Arrival needs the whole
+  consist destroyed PLUS the road convoy clear PLUS no robots, THEN a `arrivalDelaySec` (5 s)
+  hold with the gameplay camera and player control still live — cutting to the arrival sub-scene
+  on the frame the last enemy dies reads as a jump (same pattern as Stage 4
+  `tankOutro.preCutsceneDelaySec` and Stage 8 `gunshipDeathDelaySec`).
+- Stage 5 grows a PARALLEL HIGHWAY from the 5th enemy car (`highway.fromCarIndex`), on the
+  train's RIGHT (+z, opposite the enemy track). It sends armed pickups — the same
+  `entities/enemyPickup.js` carrier as Stage 8, three class A/B riders, `mounted`, never chasing
+  or crossing, loot pulled into the car — and they must be destroyed too. THE ROAD MUST NEVER POP
+  IN: do NOT animate one global lateral offset (that reads as a slab of asphalt sliding sideways).
+  `roadOffsetAt(worldX)` in `stage5/highway.js` derives each module's lateral distance from its own
+  TRAVEL COORDINATE, so modules ahead of the player are already nearer than those behind and the
+  road really angles in and merges. `mergeDistance = approachSec × trainSpeed` keeps the curve's
+  shape under retune, and `farZ` is outside the camera's +z edge (~118) so it arrives from
+  off-screen. THE ROAD MUST ALSO READ AS ONE SMOOTH CURVE: moving only `position.z` left every
+  84-unit bar axis-aligned while the road axis drifted ~9 units between neighbours — a jagged
+  staircase ("jalannya patah-patah"). Each module is also rotated onto the tangent
+  (`rotation.y = -atan(m)`) and stretched along the ARC (`scale.x = sqrt(1+m*m)`), closing the
+  joins to 0.17 units; the asphalt is exactly `L` (overlap z-fights coplanar tops) and the lower,
+  longer shoulder hides any hairline seam. Guardrails/lamp posts stay on the road's rail-facing (camera-far) edge so nothing
+  occludes the vehicles. Pickups spawn only after `roadMerged()`; the spawner stops when the
+  consist dies but survivors still have to be killed; `arrivalScene.enter()` calls `stopHighway()`
+  behind the already-black sub-scene curtain.
 - Stage 5 station has TWO tracks (2026-08-06 user CSV). Tokens `=`/`,`/`T`/`I`/`L`/`@` join
   the old legend; `S5_FINISH_MAP` is the 30×19 Bandung terminal. The player may never step
   onto the enemy track or the inter-track gap, robots may, and `@` window walls stop bullets
@@ -205,27 +340,96 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   atmospheric pass when the hall is cleared. Opening the platform door arms C2 immediately;
   there is no wave gate and no contested boarding. The
   consist keeps its journey arena and is merely shifted while docked so TC/TL match the CSV.
-  SA shares the normal hall floor material. Depot robots remain hard-frozen until the
-  player's full footprint leaves SA, then chase together. C1/C2 are detailed animated
-  2045 landmarks, and depot/platform freight furniture is solid and nav-baked.
+  SA shares the normal hall floor material. Depot robots remain hard-frozen until the safe
+  door starts opening, then chase together and may enter SA/S. One central shared hero-rig
+  spawn machine must also be destroyed; while alive it performs a charge/materialize/eject/
+  landing sequence and releases `CFG.campaign.stage5.spawnMachine.batchCount` robots every
+  `batchSec`. Spawn selection still rejects SA/S. C1/C2 are detailed animated 2045 landmarks
+  with the same 12×12 amber stand-box markers as Stages 1–2 at their H points; expanded depot/platform freight furniture is
+  solid and nav-baked. Stage 5 also places explosive barrels in the depot, player-solid only.
   Stage 5 entry clears `cineFade` synchronously so the station renders before its delayed
   opening dialogue; do not make fade cleanup depend on an unpaused gameplay update.
   The train may move visually in the departure shot, but the station root and destination
   terminal must never move or join a wrapping scenery pool. Arrival opens the Field Shop
   and transitions to Stage 6.
-- Stage 6 is one continuous 76×52 Bandung Terminal→HQ world. Its arrival platform is a
-  safe area that hard-freezes terminal robots until the player's full footprint leaves;
-  Station Operations and both any-order substations then gate the service tunnel and HQ.
-  The command floor must be completely clear before the uplink activates. Upload always
-  stops at the config-driven 92%, reveals IKN as the only valid broadcast site, starts
-  lockdown, and opens the Field Shop before Stage 7. It has exactly 52 config-driven
-  C/B/A robots and no boss/miniboss/tank/boss HUD/score/music.
-- Stage 7 is one static 118×72 road network at x≈240000. It commits one of three city
-  routes and then flyover/underpass; prebuilt bollards close unchosen routes, whose robots
-  are never spawned or counted. Each run has 50–54 ordinary robots, then three finite toll
-  waves at 0/16/32 seconds with a 55-second minimum. GRD LTV-45 is a procedural hero
-  vehicle with fixed animation state. No boss/miniboss/tank/boss HUD/score/music or
-  infinite respawn; its green complete screen opens the Field Shop before Stage 8.
+- Stage 6 is a FOLDER of TWO CHAPTERS (2026-08-08): stage6/ = index.js facade + runtime.js,
+  then arrival.js (Bandung station) -> hq.js (Bandung Headquarters), each with its own world
+  module at a separate origin (x~210000 / x~216000, farther apart than camera.far). Chapters
+  are sub-scenes on the normal hook contract but never touch core/sceneManager; enterSub() is
+  the only switch path: cut to black, then fade in over chapterFadeSec on the next frame.
+  Both worlds register lamps under the single lightsKey 'campaign-6' and stay lit together,
+  because toggling per chapter would change the point-light count mid-stage.
+- Stage 6 chapter 1 is the user's stages(Stage6-Start).csv, a frozen 50x50 transliteration:
+  # wall, A (CSV SA) safe area, S start, W supply room, - auto door, = keyed door,
+  @ chapter door, K key rack, I info terminal, G generator, H repair point, F finish.
+  SOLID_TOKENS is #KG so racks/generators are furniture (solid to everyone, nav-baked,
+  bullet-stopping); robotWalk also rejects A/S, so no robot spawns in or walks into the safe
+  area. Phases: opening -> stockUp -> clearHall -> findKey -> powerGrid -> exfil -> complete.
+  The hall garrison is frozen until the player leaves the safe area and supply room; ONE of
+  three K racks holds the key, chosen at random per entry, and the I terminal narrows the
+  markers/radar/HUD to the correct one; the key opens =, all three G generators are repaired
+  from their H points, which releases @ and the exfil wave, and standing on F hands to
+  chapter 2.
+- Stage 6 chapter 2 is the user's stages(Stage6-Finish).csv, a frozen 50x50 OFFICE at
+  x~216000: # wall, A (CSV SA) safe area with no spawns at the start, S (CSV SF) start AND
+  finish, @ BROKEN door that never opens, - door (the start/finish pair is sealed), W weapon
+  cache, C server bank, H upload point, R restroom, G warehouse, M robot spawn machine,
+  1/2/3 event triggers announcing a dead door. SOLID_TOKENS is #@CM, so broken doors,
+  servers and machine chassis are permanently solid, and every remaining cell is still
+  reachable from S. Dressing uses the same futuristic* office rig as Stages 1-3.
+  Phases: office -> upload -> purge -> escape -> complete. The garrison is frozen until the
+  player leaves the safe area; standing on H runs the upload that always stops at the
+  config-driven 92% and reveals IKN; that cutscene HANDS CONTROL BACK, lockdown drops a wave
+  across the whole floor INCLUDING the safe area and powers up both M machines (shared rig
+  entities/spawnMachine.js, chassis nav-baked from the start so nav is never rebaked); the
+  finish opens only once both machines are destroyed AND the floor is clear, and stepping
+  back on SF ends the stage through the shared transition. No boss/miniboss/tank/boss
+  HUD/score/music anywhere in Stage 6.
+- Spawn machines are shared animated hero props, never generic boxes (2026-08-08):
+  `entities/spawnMachine.js` owns the chamber/iris/turbine/gantry rig used by Stage 3 and
+  Stage 6. Animate it only through `resetSpawnMachine`/`updateSpawnMachine`; keep the hatch
+  facing local +Z, parent transform/collider fixed, PAL-only materials and zero PointLights.
+- Both Stage 6 chapters carry a traversability assert that BFS-walks the map at the player's
+  clearance through solid props. Any furniture edit that seals a doorway fails it.
+- Stage 7 is one static 280×184 Bandung city maze at x≈240000. The old exclusive three-route
+  choice, commit thresholds and bollards are gone. Every asphalt section is exactly
+  `CFG.campaign.stage7.streets.asphaltWidthMeters` (default 8 m) wide with a
+  `sidewalkWidthMeters` (default 2 m) sidewalk on both edges. The roundabout uses a grass
+  island + low curb, exact 8 m asphalt ring, outer-only 2 m sidewalk and four dashed give-way
+  rows; player collision slides radially while bullets can cross its center. The wide toll apron
+  is concrete. Every three/four-arm junction uses
+  a continuous asphalt center, rounded sidewalk curbs at active corners, and one zebra crossing
+  plus stop line per active arm. Zebra bars run PARALLEL to that arm while their row repeats
+  across the road width; center dashes stop before the conflict area. A pure 90-degree elbow
+  trims both straight segments at tangent points and joins them with concentric quarter-annuli
+  for inner sidewalk/asphalt/outer sidewalk plus curved center dashes—never two overlapping
+  circular end-caps. Elbows near an alley mouth remain junctions so the alley cannot be sealed.
+  Street-facing frontage buildings
+  are at most `buildingSetbackMeters` (default 1.5 m) from the OUTER sidewalk edge, not from
+  the asphalt edge. Clearance-aware smoke proves the
+  connected loops, wrong turns and dead ends still require both an alley and an open park on
+  the path from HQ to Cisumdawu. All six district encounters exist in one run but do not gate
+  the toll. The only mandatory finish combat remains exactly three solid/nav-baked shared
+  spawn-machine rigs; each prints `spawnMachines.batchCount` robots every `batchSec` until
+  destroyed, and the last chassis reveals the GRD LTV-45.
+- Stage 7 dressing mixes offices, pitched-roof homes, a school, shops/ruko, markets, four
+  differently sized parks, a roundabout, sedans, SUVs, an angkot, benches and at least 55
+  trees, including at least 25 large roadside and park trees. Every park has a varied mix of fountains,
+  benches, trees, planters, bins, gazebos and playground pieces rather than empty grass. Cars,
+  lamp posts, benches and trees are registered before nav bake; tree trunks remain
+  bullet-transparent. Every whole tree and every close frontage/landmark is registered through
+  `registerOccluder`. Occlusion is a persistent `viewCam`-to-entity ray test: walls, roofs and
+  trees stay faded while they intersect the view, without a timer. Occluder materials are made
+  transparency-ready during world construction and runtime changes opacity only—never the
+  `transparent` flag—so no fade causes a shader recompile. Deep generic blocks retain the
+  rotated-roof sight-line cap, while close frontage obeys the exact outer-sidewalk setback.
+  Roughly 30+ moderately spaced visual lamp posts line the streets, while the registered
+  PointLight count remains exactly 14; unlit poles use emissive heads. Robot wake
+  and ranged fire use the same wall LOS as bullets. All eight supplies, nine crates and 26
+  barrels appear every run without sharing a prop/spawn center or sealing a 3 m alley. The toll
+  arm is solid across the lane and the vehicle trigger sits outside the GRD bumper. Fixed pools
+  remain allocation-stable, and there is no boss/miniboss/tank/boss
+  HUD/score/music; the green complete screen opens Field Shop before Stage 8.
 - Stage 8 is the coordinate-stable GRD LTV-45 gunner arena at x≈270000. Seven lateral
   corridors span both three-lane carriageways and the traversable median; `A/D` are
   edge-triggered lane snaps while walking/RMB/dodge/melee are scene-gated off. The
@@ -233,7 +437,15 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   carriers each mount exactly three ordinary A/B robots and keep spawning until the
   config-driven target of 20 carriers is destroyed. Only then does the standalone
   `combatGunship.js` boss (HP live-linked to tank HP) arrive and cycle telegraphed
-  MG/cannon/three homing missiles. Road scenery wraps from fixed pools, Kertajati is a
+  MG/cannon/three homing missiles. Its shape was totally reworked 2026-08-08 (user request):
+  faceted hull, gimballed chin turret with a four-barrel gatling, anhedral stub wings with
+  missile pods, twin nacelles, a SHROUDED five-blade rotor and a twin-boom tail with a
+  fenestron; the nose faces -X so the boss looks at the player. The static hull is welded
+  with `mergeObjectInPlace`, so the richer rig costs FEWER draw calls than the old one —
+  `MESH_CAP.CombatGunship` is 95 for the same reason Helicopter is 70 (single hero asset).
+  Every added animation (banking, turret/sensor tracking, gatling spin-up, exhaust breathing,
+  warn strips igniting past `enrageHpFrac`) is visual only; no gameplay number changed, and
+  the boss still adds zero PointLights. Road scenery wraps from fixed pools, Kertajati is a
   separate static set, and the final green screen preserves checkpoint 8. The live lane
   spacing reads `CFG.campaign.stage8.laneWidth` (default 17.5 = 2.5 m); its gameplay camera scales
   the original offset uniformly by 1.20. Entry must leave `cineFade` transparent while

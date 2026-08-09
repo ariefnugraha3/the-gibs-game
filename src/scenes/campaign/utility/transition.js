@@ -22,7 +22,7 @@ import { stage2Scene } from '../stages/stage2.js';   // (circular aman: DI DALAM
 import { stage3Scene } from '../stages/stage3.js';
 import { stage4Scene } from '../stages/stage4.js';
 import { stage5Scene } from '../stages/stage5/index.js';
-import { stage6Scene } from '../stages/stage6.js';
+import { stage6Scene } from '../stages/stage6/index.js';
 import { stage7Scene } from '../stages/stage7.js';
 import { stage8Scene } from '../stages/stage8.js';
 

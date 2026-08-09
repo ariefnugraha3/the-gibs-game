@@ -10,16 +10,26 @@ import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
 import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
-import { doorMotionSFX } from '../../utility/doors.js';
+import { buildCampaignCityscape } from '../../utility/cityscape.js';
 import {
-    buildMilitaryTrainMesh, buildTrainJourneyScenery,
-    TRAIN_CAR_LENGTH, TRAIN_CAR_STEP, TRAIN_HALF_WIDTH,
+    buildSplitDoor, doorMotionSFX, setSplitDoorOpen, splitDoorDebug,
+} from '../../utility/doors.js';
+import {
+    buildSpawnMachineMesh, resetSpawnMachine, spawnMachineDebug, updateSpawnMachine,
+} from '../../../../entities/spawnMachine.js';
+import {
+    buildMilitaryTrainMesh, buildTrainJourneyScenery, buildJourneyHighway,
+    TRAIN_CAR_LENGTH, TRAIN_CAR_STEP, TRAIN_HALF_WIDTH, TRAIN_PLAYER_CAR, TRAIN_LOCO_CAR,
+    TRAIN_DOOR_X, TRAIN_DOOR_HALF, TRAIN_DOOR_LEAF_Z, TRAIN_DOOR_T, TRAIN_SIDE_WALL_H,
     TRAIN_INNER_HALF, TRAIN_INNER_HALF_LEN, TRAIN_GAUGE_HALF, JOURNEY_TRACK_DZ,
-    resetTrainVisual, resetJourneyScenery,
+    resetTrainVisual, resetJourneyScenery, resetJourneyHighway,
+    HIGHWAY_HALF_W, HIGHWAY_LANES, HIGHWAY_LANE_W, highwayLaneOffset,
 } from '../../../../entities/train.js';
+import { buildEnemyPickupMesh, resetEnemyPickupVisual } from '../../../../entities/enemyPickup.js';
 import {
     meshCount, buildMarker, buildGenerator, buildTerminal,
     buildStationFurniture, buildStationDoor, buildEnemyTrain,
+    ET_RAMP_OPEN, ET_CAR_SILL, ET_CAR_HEIGHT,
 } from './props.js';
 
 // Denah resmi user `stages(Stage5-Start).csv`, 30 kolom × 50 baris.
@@ -127,6 +137,10 @@ export const S5_GENERATOR = Object.freeze(cellPos(3.5, 12));     // H dekat C2
 export const S5_TERMINAL = Object.freeze(cellPos(28, 45.5));     // H dekat C1
 export const S5_BOARD = Object.freeze(cellPos(7, 10));           // peron di depan TCI
 export const S5_TCI = Object.freeze(cellPos(7, 9));
+export const S5_SPAWN_MACHINE = Object.freeze(cellPos(16, 22));
+export const S5_MACHINE_SPAWNS = Object.freeze([-1, 0, 1].map(i => Object.freeze({
+    x: S5_SPAWN_MACHINE.x - 25, z: S5_SPAWN_MACHINE.z + i * 8,
+})));
 // Ujung timur DALAM gerbong, tepat di depan sekat kabin: titik framing arrival
 // dan landmark radar. Lokomotifnya sendiri tidak pernah bisa dimasuki.
 export const S5_ENGINE = Object.freeze({ x: TRAIN_X1 - 14, z: TRAIN_CENTER_Z });
@@ -147,6 +161,12 @@ export const CRATE_POINTS = Object.freeze([
     Object.freeze({ area: 'depot', ...cellPos(18, 37) }),
     Object.freeze({ area: 'depot', ...cellPos(24, 28) }),
 ]);
+// Barel gameplay tidak masuk nav: robot boleh melewatinya, player didorong oleh
+// resolveBarrelBlock. Semua titik berada di hall dan di luar SA/S/C1/C2.
+export const BARREL_POINTS = Object.freeze([
+    [8, 22], [13, 29], [22, 30], [9, 38],
+    [16, 42], [23, 39], [18, 48], [27, 34],
+].map(([c, r]) => Object.freeze(cellPos(c, r))));
 // Bekal di dalam gerbong: player terkurung di sana sepanjang perjalanan.
 export const CAR_SUPPLY_POINTS = Object.freeze([
     Object.freeze({ type: 'ammo', weapon: 'rifle', x: TRAIN_X0 + 16, z: TRAIN_CENTER_Z - 5 }),
@@ -157,7 +177,9 @@ export const CAR_SUPPLY_POINTS = Object.freeze([
 let built = false, worldRoot = null;
 export let stationRoot = null, train = null, journey = null, navGrid = null;
 let staticBatch = [];
-export let generatorScreen = null, terminalScreen = null;
+export let generatorScreen = null, terminalScreen = null, stationSpawnMachine = null;
+// Collider mesin pembuat robot: dipegang supaya bisa DICABUT saat mesin hancur.
+let machineBlocker = null;
 let generatorRotor = null, terminalCore = null;
 let landmarkVisual = { generatorMeshes: 0, terminalMeshes: 0, animatedParts: 0 };
 let safeFloorOverlayCount = 0, runoutX1 = 0;
@@ -167,6 +189,18 @@ const blockers = [];
 const stationDoors = [];
 const windowPanes = [];
 export let enemyTrain = null;
+// Pintu naik gerbong player: satu-satunya pintu kereta yang bergerak.
+export let boardDoor = null;
+// Cincin kota di sekeliling depot (2026-08-09). Ketinggian jalannya nyaris rata
+// dengan lantai depot, dan koridor rel dikosongkan sejauh CITY_TRACK_CLEAR dari
+// kedua sumbu jalur supaya tidak ada gedung yang berdiri di atas rel.
+export const CITY_GROUND_Y = -6, CITY_TRACK_CLEAR = 90;
+export let cityscape = null;
+// Pool jalan raya pendamping + pengangkut jalan raya (permintaan user
+// 2026-08-08). Keduanya PREALOKASI seperti pool lain di stage ini.
+export let highway = null;
+export const highwayPickups = [];
+export { HIGHWAY_HALF_W, HIGHWAY_LANES, HIGHWAY_LANE_W, highwayLaneOffset };
 
 function mapCellAt(x, z) {
     const c = Math.floor((x - MAP_X0) / CELL), r = Math.floor((z - MAP_Z0) / CELL);
@@ -217,10 +251,10 @@ export function playerStationWalk(x, z, r = 0) {
     return cornerCells(x, z, r).every(m => m.r >= PLAYER_ROW0 && openToken(m.token));
 }
 
-// Robot boleh menempati seluruh stasiun KECUALI safe area — gelombang kereta
-// musuh memang harus melintasi track, celah antar-rel, lalu peron.
+// SA/S hanya melarang TITIK SPAWN. Robot yang sudah hidup boleh mengejar player
+// masuk ke safe area; dinding dan daun pintu fisik tetap menentukan jalurnya.
 export function robotStationWalk(x, z, r = 0) {
-    return cornerCells(x, z, r).every(m => openToken(m.token) && !safeToken(m.token));
+    return cornerCells(x, z, r).every(m => openToken(m.token));
 }
 
 // Spawn horde alarm tetap dikurung di hall, di bawah dinding berjendela.
@@ -257,15 +291,37 @@ export function stage5GroundHeight(x, z, feetY) {
 }
 
 export const platformDoor = () => stationDoors.find(d => d.kind === 'platform');
+export const safeDoor = () => stationDoors.find(d => d.kind === 'safe');
+
+export function updateStationSpawnMachine(dt, active, hit = 0) {
+    if (stationSpawnMachine?.group?.visible)
+        updateSpawnMachine(stationSpawnMachine, dt, active, hit);
+}
+
+// MESIN HANCUR = TIDAK ADA LAGI YANG MENGHALANGI DI SANA (perbaikan 2026-08-08,
+// laporan user "masih ada blocking tidak terlihat"). Rangkanya disembunyikan,
+// jadi collider-nya WAJIB ikut dicabut — pola yang sama dengan Stage 3
+// (`s3DestroyMachine`). Nav TIDAK di-bake ulang: itu invarian proyek, dan robot
+// yang memutari petak kosong jauh lebih tak terasa daripada player yang
+// menabrak dinding tak terlihat.
+export function killStationSpawnMachine() {
+    if (stationSpawnMachine) stationSpawnMachine.group.visible = false;
+    const i = machineBlocker ? blockers.indexOf(machineBlocker) : -1;
+    if (i !== -1) blockers.splice(i, 1);
+}
+
+export const stationMachineBlocked = () =>
+    !!machineBlocker && blockers.includes(machineBlocker);
 
 // `platformOpen` datang dari sub-scene stasiun: pintu peron adalah satu-satunya
 // pintu yang tidak otomatis — ia terkunci sampai C1 berhasil di-hack.
-export function updateStationDoors(dt, platformOpen) {
+export function updateStationDoors(dt, platformOpen, safeOpen = false) {
     const platform = platformDoor();
     for (const d of stationDoors) {
         if (d === platform) continue;
-        d.target = Math.hypot(camera.position.x - d.blocker.x,
-            camera.position.z - d.blocker.z) < CELL * 2.25 ? 1 : 0;
+        d.target = d.kind === 'safe' && safeOpen ? 1
+            : (Math.hypot(camera.position.x - d.blocker.x,
+                camera.position.z - d.blocker.z) < CELL * 2.25 ? 1 : 0);
     }
     if (platform) platform.target = platformOpen ? 1 : 0;
     for (const d of stationDoors) {
@@ -277,7 +333,7 @@ export function updateStationDoors(dt, platformOpen) {
             : Math.max(d.target, d.open - step);
         doorMotionSFX(d, prev, d.blocker.x, d.blocker.z);
         const e = d.open * d.open * (3 - 2 * d.open);
-        d.panel.position.y = (WALL_H - 2) / 2 - e * (WALL_H + 2);
+        setSplitDoorOpen(d.rig, e);
         d.lamp.material.color.setHex(d.target ? PAL.tech : PAL.hazard);
     }
 }
@@ -306,32 +362,56 @@ export function stationDoorBlocks(x0, z0, x1, z1) {
 }
 
 // --- Kereta musuh di jalur sebelah ----------------------------------------
-// Konsist statis-prealokasi: TIGA gerbong angkut terbuka + satu lokomotif,
-// selebar 4 m seperti kereta player. Dua peran: (1) satu lintasan atmosfer di
-// stasiun, (2) GELOMBANG SERANG selama perjalanan — jumlah gerbong yang dipakai
-// diundi 1..3 per gelombang dan sisanya cukup disembunyikan (tanpa alokasi).
-export const ET_CARS = 4;                       // 3 gerbong angkut + 1 lokomotif
-export const ET_CARGO_CARS = ET_CARS - 1;
+// SATU konsist penyerbu statis-prealokasi: SEPULUH peti baja tertutup + satu
+// lokomotif perisai (bentuknya di props.js). Dua peran: (1) satu lintasan
+// atmosfer di stasiun, (2) SELURUH perlawanan perjalanan — ia menyusul lalu
+// MENDAHULUI kereta player sampai gerbong 0 (paling belakang) sejajar dengan
+// gerbong player, membuka ramp SATU PER SATU, dan tiap gerbong yang robotnya
+// habis MELEDAK + TERLEPAS + TERTINGGAL sementara sisanya mundur satu gerbong.
+export const ET_CARGO_CARS = 10;                // permintaan user 2026-08-08
+export const ET_CARS = ET_CARGO_CARS + 1;       // + satu lokomotif perisai
 export const ET_LEN = 84, ET_STEP = 88, ET_HALF = TRAIN_HALF_WIDTH;
-const ET_SPAN = (ET_CARS - 1) * ET_STEP + ET_LEN;
+const ET_SPAN = ET_CARGO_CARS * ET_STEP + ET_LEN;
 export const ET_ENTER_X = MAP_X0 - ET_SPAN - ET_LEN;
 export const ET_EXIT_X = MAP_X0 + MAP_COLS * CELL + ET_SPAN;
 export const etCfg = () => CFG.campaign.stage5.enemyTrain;
+export { ET_RAMP_OPEN, ET_CAR_SILL, ET_CAR_HEIGHT };
 
-// Ofset gerbong ke-i (0..n-1) untuk konsist berisi `n` gerbong angkut: selalu
-// TERPUSAT pada gerbong player, dengan lokomotif menarik di ujung timur.
-export const enemyCarOffsetX = (n, i) => (i - (n - 1) / 2) * ET_STEP;
+// Ofset gerbong ke-i dari titik acuan konsist. Gerbong 0 = paling BELAKANG
+// (yang pertama dilawan), lokomotif di indeks ET_CARGO_CARS paling depan.
+export const enemyCarOffsetX = i => i * ET_STEP;
 
-export function layoutEnemyTrain(n) {
-    if (!enemyTrain) return 0;
-    const k = Math.max(1, Math.min(ET_CARGO_CARS, n | 0));
-    for (let i = 0; i < ET_CARGO_CARS; i++) {
-        enemyTrain.cars[i].visible = i < k;
-        enemyTrain.cars[i].position.x = enemyCarOffsetX(k, i);
+// Seluruh gerbong kembali utuh: terpasang di ofsetnya, ramp tertutup, lampu mati.
+export function resetEnemyCars() {
+    if (!enemyTrain) return;
+    for (let i = 0; i < enemyTrain.cars.length; i++) {
+        enemyTrain.cars[i].visible = true;
+        enemyTrain.cars[i].position.x = enemyCarOffsetX(i);
     }
-    const loco = enemyTrain.cars[ET_CARS - 1];
-    loco.visible = true; loco.position.x = enemyCarOffsetX(k, k);
-    return k;
+    for (const r of enemyTrain.ramps) r.rotation.x = 0;
+    for (const s of enemyTrain.strobes) s.visible = false;
+}
+
+// `k` 0..1 = progres ramp gerbong ke-i; 1 = terbuka penuh (ET_RAMP_OPEN rad).
+export function setEnemyRamp(i, k) {
+    const r = enemyTrain?.ramps?.[i];
+    if (r) r.rotation.x = Math.max(0, Math.min(1, k)) * ET_RAMP_OPEN;
+}
+
+export function setEnemyStrobe(i, on) {
+    const s = enemyTrain?.strobes?.[i];
+    if (s) s.visible = !!on;
+}
+
+// Bangkai gerbong yang sudah terlepas: digeser ke belakang relatif konsist.
+export function setEnemyCarDrift(i, dx) {
+    const c = enemyTrain?.cars?.[i];
+    if (c) c.position.x = enemyCarOffsetX(i) + dx;
+}
+
+export function setEnemyCarVisible(i, on) {
+    const c = enemyTrain?.cars?.[i];
+    if (c) c.visible = !!on;
 }
 
 export function parkEnemyTrain() {
@@ -340,8 +420,48 @@ export function parkEnemyTrain() {
     enemyTrain.group.position.set(ET_ENTER_X, 0, ENEMY_TRACK_Z);
     enemyTrain.wheelPhase = 0;
     for (const w of enemyTrain.wheels) w.rotation.y = 0;
-    layoutEnemyTrain(ET_CARGO_CARS);
+    resetEnemyCars();
 }
+
+// --- Pintu naik gerbong player --------------------------------------------
+// Koordinat DUNIA diturunkan dari transform hidup grup kereta + grup gerbong,
+// jadi cutscene keberangkatan tidak pernah menghitung ulang posisi kereta.
+export const carCenterX = () =>
+    (train ? train.group.position.x + train.cars[TRAIN_PLAYER_CAR].position.x : 0);
+export const locoCenterX = () =>
+    (train ? train.group.position.x + train.cars[TRAIN_LOCO_CAR].position.x : 0);
+export const boardDoorPos = () => ({
+    x: carCenterX() + TRAIN_DOOR_X, z: TRAIN_CENTER_Z + TRAIN_DOOR_LEAF_Z,
+});
+export const setBoardDoorTarget = v => { if (boardDoor) boardDoor.target = v ? 1 : 0; };
+
+// Integrator pintu: MENDARAT PERSIS di target (syarat pemicu SFX ambang) dan
+// membunyikan klip pintu bersama lewat doorMotionSFX — sama seperti pintu
+// stasiun, jadi tidak ada klip pintu yang dimainkan di luar doors.js.
+export function updateBoardDoor(dt) {
+    if (!boardDoor) return;
+    const sec = Math.max(0.05, CFG.campaign.stage5.departure.doorMoveSec);
+    const prev = boardDoor.open, step = dt / sec;
+    boardDoor.open = boardDoor.open < boardDoor.target
+        ? Math.min(boardDoor.target, boardDoor.open + step)
+        : Math.max(boardDoor.target, boardDoor.open - step);
+    const p = boardDoorPos();
+    doorMotionSFX(boardDoor, prev, p.x, p.z);
+    const e = boardDoor.open * boardDoor.open * (3 - 2 * boardDoor.open);
+    setSplitDoorOpen(boardDoor.rig, e);
+}
+
+// Jepret tertutup TANPA SFX: dipakai reset stage dan tombol SKIP cutscene
+// (layarnya sudah hitam, jadi klip pintu justru terdengar salah).
+export function resetBoardDoor() {
+    if (!boardDoor) return;
+    boardDoor.open = 0; boardDoor.target = 0; setSplitDoorOpen(boardDoor.rig, 0);
+}
+
+export const boardDoorDebug = () => (boardDoor ? {
+    open: boardDoor.open, target: boardDoor.target,
+    ...boardDoorPos(), split: splitDoorDebug(boardDoor.rig),
+} : null);
 
 export function spinEnemyTrain(dt, speed) {
     if (!enemyTrain) return;
@@ -460,24 +580,61 @@ function buildWorld() {
     const term = buildTerminal(M, stationRoot, TERMINAL_OBJECT, addBlocker);
     terminalScreen = term.screen; terminalCore = term.core;
     landmarkVisual.terminalMeshes = term.meshes; landmarkVisual.animatedParts++;
+    stationSpawnMachine = buildSpawnMachineMesh(30, 20, 30);
+    stationSpawnMachine.group.position.set(S5_SPAWN_MACHINE.x, 0, S5_SPAWN_MACHINE.z);
+    // Hatch lokal +z diputar menghadap -x, ke arah pintu safe-area.
+    stationSpawnMachine.group.rotation.y = -Math.PI / 2;
+    stationRoot.add(stationSpawnMachine.group);
+    machineBlocker = addBlocker(S5_SPAWN_MACHINE.x, S5_SPAWN_MACHINE.z, 16, 16, 25);
     for (const [kind, p, sx, sz] of [
         ['platform', PLATFORM_DOOR_POS, CELL * 1.92, 3.5],
         ['control', CONTROL_DOOR_POS, 3.5, CELL * 1.92],
         ['safe', SAFE_DOOR_POS, 3.5, CELL * 1.92],
     ]) stationDoors.push(buildStationDoor(M, stationRoot, kind, p.x, p.z, sx, sz));
     repairMarker = buildMarker(scene, S5_GENERATOR.x, S5_GENERATOR.z, PAL.amber);
-    terminalMarker = buildMarker(scene, S5_TERMINAL.x, S5_TERMINAL.z, PAL.tech);
+    terminalMarker = buildMarker(scene, S5_TERMINAL.x, S5_TERMINAL.z, PAL.amber);
     boardMarker = buildMarker(scene, S5_BOARD.x, S5_BOARD.z, PAL.amber);
 
     train = buildMilitaryTrainMesh(TRAIN_BASE_X, TRAIN_CENTER_Z);
     scene.add(train.group);
+    // PINTU NAIK GERBONG (2026-08-08): rig DUA DAUN 50:50 yang sama dengan
+    // seluruh pintu campaign, ditempel pada grup gerbong player sehingga ia ikut
+    // bergerak bersama badan kereta tanpa satu pun perhitungan posisi tambahan.
+    // Ia sengaja BUKAN anggota `train.doors` — array itu tetap kosong (kontrak
+    // "sekat kabin tidak pernah terbuka").
+    boardDoor = {
+        kind: 'board', open: 0, target: 0,
+        rig: buildSplitDoor(train.cars[TRAIN_PLAYER_CAR], M.panel,
+            TRAIN_DOOR_X, TRAIN_SIDE_WALL_H / 2, TRAIN_DOOR_LEAF_Z,
+            TRAIN_DOOR_HALF * 2, TRAIN_SIDE_WALL_H, TRAIN_DOOR_T),
+    };
     // Konsist musuh menempel di worldRoot, BUKAN stationRoot: ia harus tetap
     // terlihat saat stasiun disembunyikan sepanjang perjalanan.
-    enemyTrain = buildEnemyTrain(M, worldRoot, ET_CARS, ET_LEN, ET_STEP, ET_HALF,
+    enemyTrain = buildEnemyTrain(M, worldRoot, ET_CARGO_CARS, ET_LEN, ET_STEP, ET_HALF,
         ET_ENTER_X, ENEMY_TRACK_Z);
     journey = buildTrainJourneyScenery(TRAIN_BASE_X, TRAIN_CENTER_Z, JOURNEY_TRACK_DZ);
     scene.add(journey.group);
+    // Jalan raya berjalan di sisi KANAN kereta player (+z); ia hidup mulai
+    // gerbong ke-5 dan MERAPAT perlahan (kurva penyatuan ada di highway.js).
+    highway = buildJourneyHighway(TRAIN_BASE_X, TRAIN_CENTER_Z);
+    scene.add(highway.group);
+    for (let i = 0; i < Math.max(2, ((CFG.campaign.stage5.highway || {}).maxActivePickups | 0) + 1); i++) {
+        const p = buildEnemyPickupMesh(CAMP_M);
+        scene.add(p.group); resetEnemyPickupVisual(p); highwayPickups.push(p);
+    }
     // Semua scenery sengaja terlihat saat precompile awal; enter() akan reset/hide.
+
+    // DEPOT BERDIRI DI TENGAH KOTA (2026-08-09, permintaan user): cincin kota
+    // Stage 1-3, dengan dua penyesuaian WAJIB — induknya `stationRoot` (arena
+    // perjalanan memakai koordinat yang sama, jadi kota yang menempel di scene
+    // akan tetap berdiri di tengah rel sepanjang perjalanan) dan koridor rel
+    // dikosongkan di SEMUA x (tanpa itu gedung tumbuh di atas jalur + apron
+    // run-out di timur, persis tempat kereta berangkat). Jalannya nyaris rata
+    // dengan lantai depot: depot ini di permukaan tanah, bukan Lantai 2.
+    cityscape = buildCampaignCityscape(OX, OZ, MAP_COLS * CELL / 2, MAP_ROWS * CELL / 2, {
+        parent: stationRoot, groundY: CITY_GROUND_Y,
+        corridor: { z0: ENEMY_TRACK_Z - CITY_TRACK_CLEAR, z1: TRAIN_CENTER_Z + CITY_TRACK_CLEAR },
+    });
 
     // Delapan lampu tetap untuk stage 5; tidak ada lampu runtime.
     const lampCells = [[3, 20], [11, 20], [20, 20], [28, 20], [8, 32], [17, 32], [27, 32], [15, 13]];
@@ -505,7 +662,7 @@ export const stage5StaticBatchDbg = () => staticBatch;
 export function pulseMarkers() {
     const t = Date.now() * 0.004;
     for (const [m, p] of [[repairMarker, 0], [terminalMarker, 1.4], [boardMarker, 2.8]])
-        if (m && m.visible) { m.material.opacity = 0.28 + 0.22 * (0.5 + 0.5 * Math.sin(t + p)); m.rotation.z += 0.008; }
+        if (m && m.visible) m.material.opacity = 0.28 + 0.22 * (0.5 + 0.5 * Math.sin(t + p));
 }
 
 export function updateLandmarks(dt, repairDone, unlocked) {
@@ -522,11 +679,16 @@ export function litScreen(mesh, intensity) {
 // Seluruh visual stasiun/kereta kembali ke kondisi awal stage (dipanggil dari
 // enter() facade sebelum sub-scene pertama masuk).
 export function resetWorldVisual() {
+    // Mesin hidup lagi di setiap entry stage, jadi collider-nya harus kembali
+    // (visual rangkanya dipulihkan di blok stationSpawnMachine di bawah).
+    if (machineBlocker && !blockers.includes(machineBlocker)) blockers.push(machineBlocker);
     resetTrainVisual(train); resetJourneyScenery(journey); parkEnemyTrain();
+    resetJourneyHighway(highway);
+    for (const p of highwayPickups) resetEnemyPickupVisual(p);
     train.group.position.set(0, 0, 0); stationRoot.visible = true;
-    setStationTrainView(true);
+    setStationTrainView(true); resetBoardDoor();
     for (const d of stationDoors) {
-        d.open = 0; d.target = 0; d.panel.position.y = (WALL_H - 2) / 2;
+        d.open = 0; d.target = 0; setSplitDoorOpen(d.rig, 0);
         d.lamp.material.color.setHex(PAL.hazard);
     }
     repairMarker.visible = terminalMarker.visible = boardMarker.visible = false;
@@ -536,6 +698,11 @@ export function resetWorldVisual() {
     terminalScreen.material.emissive.setHex(PAL.techDim); terminalScreen.material.emissiveIntensity = 0.25;
     if (generatorRotor) generatorRotor.rotation.x = 0;
     if (terminalCore) terminalCore.rotation.y = 0;
+    if (stationSpawnMachine) {
+        stationSpawnMachine.group.visible = true;
+        resetSpawnMachine(stationSpawnMachine, false);
+        stationSpawnMachine.hatchFrame.scale.setScalar(1);
+    }
 }
 
 export const stage5WorldDebug = () => ({
@@ -556,6 +723,21 @@ export const stage5WorldDebug = () => ({
         journeyEnemyZ: JOURNEY_ENEMY_Z, journeyTrackDz: JOURNEY_TRACK_DZ,
     },
     landmarks: { ...landmarkVisual },
+    spawnMachine: stationSpawnMachine ? {
+        x: S5_SPAWN_MACHINE.x, z: S5_SPAWN_MACHINE.z,
+        spawns: S5_MACHINE_SPAWNS.map(p => ({ ...p })),
+        visible: stationSpawnMachine.group.visible,
+        blocking: stationMachineBlocked(),
+        ...spawnMachineDebug(stationSpawnMachine),
+    } : null,
+    markers: {
+        c1: terminalMarker ? { x: terminalMarker.position.x, z: terminalMarker.position.z,
+            color: terminalMarker.material.color.getHex(), visible: terminalMarker.visible } : null,
+        c2: repairMarker ? { x: repairMarker.position.x, z: repairMarker.position.z,
+            color: repairMarker.material.color.getHex(), visible: repairMarker.visible } : null,
+        board: boardMarker ? { x: boardMarker.position.x, z: boardMarker.position.z,
+            color: boardMarker.material.color.getHex(), visible: boardMarker.visible } : null,
+    },
     furniture: {
         depot: depotFurniture.map(p => ({ ...p })),
         platform: platformFurniture.map(p => ({ ...p })),
@@ -563,7 +745,8 @@ export const stage5WorldDebug = () => ({
     station: {
         visible: !!stationRoot?.visible,
         x: stationRoot?.position?.x || 0, z: stationRoot?.position?.z || 0,
-        doors: stationDoors.map(d => ({ kind: d.kind, open: d.open, target: d.target })),
+        doors: stationDoors.map(d => ({ kind: d.kind, open: d.open, target: d.target,
+            split: splitDoorDebug(d.rig) })),
     },
     train: {
         x0: TRAIN_X0, x1: TRAIN_X1, z0: TRAIN_Z0, z1: TRAIN_Z1,
@@ -576,19 +759,36 @@ export const stage5WorldDebug = () => ({
         cars: train?.cars?.length || 0, doors: train?.doors?.length || 0,
         stationVisibleCars: train?.cars?.filter(c => c.visible).length || 0,
         stationCarIndex: STATION_CAR_INDEX,
+        // Bukaan naik + daun pintunya: dipakai smoke memastikan dinding sisi
+        // peron benar-benar berlubang dan daunnya menutupi lubang itu.
+        doorX: TRAIN_DOOR_X, doorHalf: TRAIN_DOOR_HALF, doorLeafZ: TRAIN_DOOR_LEAF_Z,
+        boardDoor: boardDoorDebug(),
     },
     enemyTrain: {
         cars: enemyTrain?.cars?.length || 0,
         cargoCars: ET_CARGO_CARS,
+        ramps: enemyTrain?.ramps?.length || 0,
+        strobes: enemyTrain?.strobes?.length || 0,
+        rampOpenRad: ET_RAMP_OPEN,
+        // Ramp adalah SATU-SATUNYA yang menyembunyikan isi gerbong dari kamera
+        // oblique; dinding dekat yang TETAP harus tetap serendah dada.
+        sill: ET_CAR_SILL, height: ET_CAR_HEIGHT,
         widthMeters: ET_HALF * 2 / CAMP_M,
         meshes: enemyTrain ? meshCount(enemyTrain.group) : 0,
+        step: ET_STEP, len: ET_LEN,
         enterX: ET_ENTER_X, exitX: ET_EXIT_X,
         z: enemyTrain?.group?.position?.z ?? 0,
     },
     runoutX1,
+    city: cityscape ? {
+        parented: cityscape.root === stationRoot, groundY: cityscape.groundY,
+        buildings: cityscape.buildings, trees: cityscape.trees,
+        corridorHits: cityscape.corridorHits, corridor: { ...cityscape.corridor },
+    } : null,
     blockers: blockers.length,
     nav: !!navGrid,
     carCenters: train?.cars?.map(c => ({ x: c.position.x, z: c.position.z })) || [],
     supplies: SUPPLY_POINTS.map(p => ({ ...p })),
     crates: CRATE_POINTS.map(p => ({ ...p })),
+    barrels: BARREL_POINTS.map(p => ({ ...p })),
 });

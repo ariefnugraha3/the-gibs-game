@@ -11,12 +11,13 @@ import {
 import { releaseInputs } from '../../../../core/input.js';
 import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 import { beginStageTransition } from '../../utility/transition.js';
-import { stage6Scene } from '../stage6.js';
+import { stage6Scene } from '../stage6/index.js';
 import { TRAIN_CENTER_Z, S5_ENGINE } from './world.js';
 import {
     phase, setPhase, complete, setComplete, cine, setCine, cineCam,
     queueDialogue, dialogueIdle, updateRide, stopTrainLoop, TRAIN_HOOKS,
 } from './runtime.js';
+import { stopHighway } from './highway.js';
 
 function finishArrival() {
     if (complete) return;
@@ -48,6 +49,9 @@ export const arrivalScene = {
     enter() {
         if (complete) return;
         setPhase('arrival'); releaseInputs(); setCinematicActive(true); setCineBars(true);
+        // Tirai sub-scene sudah hitam di sini, jadi menutup jalan raya tidak
+        // pernah terlihat sebagai objek yang hilang mendadak.
+        stopHighway();
         setCine({ kind: 'arrival', t: 0, fading: false });
         queueDialogue('arrivedCommand'); queueDialogue('arrivedGibran');
         setAvatarRadioPose(true, Math.PI / 2, 'gibranAccepts', 0.5);

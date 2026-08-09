@@ -4,6 +4,8 @@
 // world.js dan hanya dititipkan lewat parameter.
 
 import { PAL } from '../../../../world/palette.js';
+import { mergeObjectInPlace } from '../../../../utils/meshBatch.js';
+import { buildSplitDoor } from '../../utility/doors.js';
 import { CELL, WALL_H, cellPos } from './world.js';
 
 export function box(parent, mat, sx, sy, sz, x, y, z, shadow = true) {
@@ -35,10 +37,25 @@ export function meshCount(root) {
 }
 
 export function buildMarker(parent, x, z, color) {
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide, toneMapped: false });
-    const m = new THREE.Mesh(new THREE.RingGeometry(7, 9, 24), mat);
-    m.rotation.x = -Math.PI / 2; m.position.set(x, 0.15, z); m.visible = false;
-    parent.add(m); return m;
+    // Persis pola `buildStandMarker` Stage 1/2: bidang amber 12×12 dengan
+    // empat bar tebal. Marker adalah AREA PIJAK, bukan cincin waypoint.
+    const g = new THREE.Group();
+    const fillMat = new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.28, toneMapped: false, depthWrite: false,
+    });
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), fillMat);
+    fill.rotation.x = -Math.PI / 2; fill.position.y = 0.14; g.add(fill);
+    const barMat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
+    for (const [sx, sz, px, pz] of [
+        [12, 1, 0, -6], [12, 1, 0, 6], [1, 12, -6, 0], [1, 12, 6, 0],
+    ]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.5, sz), barMat);
+        bar.position.set(px, 0.22, pz); g.add(bar);
+    }
+    // Alias material menjaga animator/debug lama tanpa membuat material baru.
+    g.material = fillMat; g.userData.fill = fill; g.userData.bars = 4;
+    g.position.set(x, 0, z); g.visible = false;
+    parent.add(g); return g;
 }
 
 const screenMaterial = () => new THREE.MeshLambertMaterial({
@@ -290,6 +307,48 @@ function buildSignalCabinet(M, add, reg, c, r) {
     reg('platform', 'signal-cabinet', p, 7, 6, 20);
 }
 
+function buildPackingIsland(M, add, reg, c, r) {
+    const p = cellPos(c, r);
+    add(25, 3, 16, p.x, 5.5, p.z, M.wood);
+    add(23, 1.1, 14, p.x, 7.6, p.z, M.steel);
+    for (const x of [-10, 10]) for (const z of [-5.5, 5.5])
+        add(1.8, 7, 1.8, p.x + x, 3.5, p.z + z, M.body);
+    for (const x of [-7, 0, 7]) {
+        add(5.5, 4 + (x === 0 ? 2 : 0), 5.5, p.x + x, 10.2, p.z, x === 0 ? M.panel : M.wood);
+        add(4.4, 0.65, 4.4, p.x + x, 12.4 + (x === 0 ? 1 : 0), p.z, M.hazard);
+    }
+    add(13, 5.5, 1, p.x, 11, p.z + 7.2, M.tech);
+    reg('depot', 'packing-island', p, 13, 9, 14);
+}
+
+function buildPipeRack(M, add, addGeo, reg, c, r) {
+    const p = cellPos(c, r);
+    for (const z of [-13, 13]) for (const x of [-5, 5])
+        add(2, 18, 2, p.x + x, 9, p.z + z, M.steel);
+    for (const y of [4, 10, 16]) {
+        add(13, 1.2, 30, p.x, y, p.z, M.body);
+        for (const x of [-4, 0, 4])
+            addGeo(new THREE.CylinderGeometry(1.25, 1.25, 27, 8), p.x + x, y + 1.8, p.z,
+                x === 0 ? M.hazard : M.panel, Math.PI / 2, 0, 0);
+    }
+    reg('depot', 'conduit-rack', p, 8, 17, 19);
+}
+
+function buildDroneDock(M, add, addGeo, reg, c, r) {
+    const p = cellPos(c, r);
+    add(27, 1.6, 27, p.x, 0.8, p.z, M.ink);
+    for (const a of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+        const x = Math.cos(a) * 10, z = Math.sin(a) * 10;
+        add(7, 2, 3, p.x + x, 4.5, p.z + z, M.hazard);
+        add(1.5, 11, 1.5, p.x + x, 5.5, p.z + z, M.steel);
+    }
+    addGeo(new THREE.CylinderGeometry(7, 9, 3, 8), p.x, 2.4, p.z, M.body);
+    addGeo(new THREE.TorusGeometry(8.2, 0.8, 7, 16), p.x, 4.1, p.z, M.tech, Math.PI / 2);
+    add(11, 5, 8, p.x, 7, p.z, M.panel);
+    add(8, 0.7, 5, p.x, 9.8, p.z, M.amber);
+    reg('depot', 'drone-service-dock', p, 14, 14, 11);
+}
+
 export function buildStationFurniture(M, add, addGeo, reg) {
     buildPalletRack(M, add, reg, 10, 24, 4);
     buildPalletRack(M, add, reg, 18, 27, 4);
@@ -301,6 +360,12 @@ export function buildStationFurniture(M, add, addGeo, reg) {
     buildDrumCluster(M, addGeo, reg, 27, 39);
     buildFreightScale(M, add, reg, 14, 41);
     buildLockerBank(M, add, reg, 27, 26);
+    buildPackingIsland(M, add, reg, 8, 29);
+    buildPackingIsland(M, add, reg, 15, 45);
+    buildPipeRack(M, add, addGeo, reg, 8, 36);
+    buildPipeRack(M, add, addGeo, reg, 25, 38);
+    buildDroneDock(M, add, addGeo, reg, 14, 31);
+    buildDroneDock(M, add, addGeo, reg, 20, 48);
 
     // Peron kini baris 10-16; jalur naik kereta (kolom 7) dibiarkan bersih.
     buildPlatformCart(M, add, addGeo, reg, 11, 12);
@@ -312,69 +377,143 @@ export function buildStationFurniture(M, add, addGeo, reg) {
 }
 
 export function buildStationDoor(M, root, kind, x, z, sx, sz) {
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(sx, WALL_H - 2, sz), M.body);
-    panel.position.set(x, (WALL_H - 2) / 2, z); panel.castShadow = true; panel.receiveShadow = true;
-    root.add(panel);
+    const rig = buildSplitDoor(root, M.body, x, (WALL_H - 2) / 2, z,
+        sx, WALL_H - 2, sz);
     const lamp = new THREE.Mesh(new THREE.BoxGeometry(kind === 'platform' ? 5 : 1, 1.2, kind === 'platform' ? 1 : 5),
         new THREE.MeshBasicMaterial({ color: PAL.hazard, toneMapped: false }));
     lamp.position.set(x, WALL_H - 3, z); root.add(lamp);
     return {
-        kind, panel, lamp, open: 0, target: 0,
+        kind, panel: rig.panel, rig, leaves: rig.leaves, lamp, open: 0, target: 0,
         blocker: { x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1,
             rad: Math.hypot(sx, sz) / 2, top: WALL_H, standable: false },
     };
 }
 
-// Konsist musuh statis-prealokasi: `cars-1` gerbong angkut terbuka + satu
-// lokomotif. Sejak rombak 2026-08-07 ia selebar 4 m persis seperti kereta
-// player, dan gerbongnya adalah DEK TERBUKA — robot yang bertengger di sana
-// harus terbaca dari kamera oblique, jadi dindingnya setinggi dada saja.
-// Jumlah gerbong yang dipakai per gelombang diatur runtime lewat `visible`;
-// tidak ada mesh/material yang dibuat saat runtime.
-export function buildEnemyTrain(M, root, cars, len, step, half, x, z) {
+// --- KONSIST PENYERBU BERLAPIS BAJA (rombak total 2026-08-08, permintaan user
+// "kereta musuh ini buat agar bentuknya lebih menyeramkan") -----------------
+//
+// SEPULUH gerbong angkut TERTUTUP + satu lokomotif perisai berhaluan bajak.
+// Tiap gerbong adalah PETI BAJA: dinding jauh, sekat ujung, dan tiang sudut
+// setinggi penuh, sementara dinding dekat terdiri atas bagian bawah setinggi
+// dada YANG TETAP plus RAMP berengsel di atasnya. Selama ramp tertutup dinding
+// dekat setinggi penuh dan isi gerbong benar-benar tak terlihat; begitu ramp
+// jatuh keluar seperti pintu bomb-bay, dek + barisan robotnya terbuka.
+//
+// GEOMETRI TERIKAT GARIS PANDANG (aturan yang sama dengan blok kota Stage 7):
+// kamera duduk di +z dan garis pandangnya naik ~1,16 unit per unit jarak tanah,
+// jadi (1) dinding dekat yang TETAP wajib <= ~10 unit supaya dek terbaca,
+// (2) atap hanya boleh menutup separuh JAUH dek — kalau ia menjorok sampai tepi
+// dekat, tepinya memotong kepala robot di barisan tembak, dan (3) ramp yang
+// terbuka harus berhenti di ~49 derajat supaya ujungnya tidak menyentuh gerbong
+// player di seberang rel.
+//
+// Lambung statis tiap gerbong DILAS `mergeObjectInPlace` — alasannya sama
+// dengan CombatGunship: konsist sepuluh gerbong ini adalah aset hero tunggal,
+// jadi kerumitan yang DITULIS boleh tinggi selama yang DIGAMBAR tetap murah.
+// Yang tetap berdiri sendiri hanya bagian yang bergerak/berganti visibilitas:
+// ramp, lampu peringatan, dan roda.
+export const ET_RAMP_OPEN = 0.85;                // rad (~49 derajat)
+export const ET_CAR_HEIGHT = 26;                 // tinggi peti baja
+export const ET_CAR_SILL = 8;                    // dinding dekat TETAP (setinggi dada)
+
+function buildEnemyCargoCar(M, car, len, half) {
+    const H = ET_CAR_HEIGHT, SILL = ET_CAR_SILL, W = half * 2;
+    const wallZ = half - 0.9, endX = len / 2 - 1.3;
+    const hull = new THREE.Group(); car.add(hull);
+
+    // Rangka bawah: dek + solebar + headstock.
+    box(hull, M.ink, len, 3.2, W, 0, -2.0, 0);
+    box(hull, M.panel, len - 5, 0.7, W - 2.6, 0, 0.35, 0);
+    for (const dz of [-half + 1.1, half - 1.1])
+        box(hull, M.ink, len - 2, 2.6, 1.6, 0, -4.2, dz, false);
+    for (const s of [-1, 1])
+        box(hull, M.ink, 2.4, 3.0, W - 1.2, s * (len / 2 - 1.2), -4.0, 0, false);
+
+    // Dinding jauh setinggi penuh + dinding dekat setinggi dada (TETAP).
+    box(hull, M.body, len - 4, H, 1.8, 0, H / 2, -wallZ);
+    box(hull, M.body, len - 4, SILL, 1.8, 0, SILL / 2, wallZ);
+    box(hull, M.steel, len - 4, 1.1, 2.8, 0, SILL + 0.55, wallZ, false);
+    box(hull, M.hazard, len - 26, 1.2, 0.5, 0, SILL - 2.2, half + 0.45, false);
+    box(hull, M.tech, len - 34, 0.6, 0.45, 0, 4.4, half + 0.45, false);
+
+    // Sekat ujung + tiang sudut: yang memberi siluet peti tertutup.
+    for (const s of [-1, 1]) {
+        box(hull, M.body, 2.6, H, W - 0.6, s * endX, H / 2, 0);
+        box(hull, M.hazard, 3.0, 1.3, W - 3.2, s * endX, H - 2.0, 0, false);
+    }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1])
+        box(hull, M.steel, 3.2, H + 1.6, 2.4, sx * endX, (H + 1.6) / 2, sz * wallZ);
+
+    // Atap SEPARUH JAUH saja (lihat aturan garis pandang di atas).
+    const roofW = W * 0.58, roofZ = -half + roofW / 2;
+    box(hull, M.body, len - 4, 1.8, roofW, 0, H, roofZ);
+    for (const dx of [-22, 22]) box(hull, M.steel, 2.2, 1.2, roofW, dx, H + 1.4, roofZ, false);
+
+    // RAMP: engsel di puncak dinding dekat, jatuh KELUAR menjauhi player.
+    const ramp = new THREE.Group();
+    ramp.position.set(0, SILL, half + 0.15);
+    car.add(ramp);
+    const RH = H - SILL;
+    box(ramp, M.body, len - 4, RH, 1.6, 0, RH / 2, 0);
+    box(ramp, M.steel, len - 4, 1.2, 2.4, 0, RH - 0.6, 0, false);
+    for (const dx of [-26, 0, 26]) box(ramp, M.steel, 2.2, RH - 2, 1.0, dx, RH / 2, 1.0, false);
+    box(ramp, M.hazard, len - 30, 1.6, 0.55, 0, RH * 0.46, 1.1, false);
+
+    // Lampu peringatan gerbong AKTIF: menempel badan (bukan ramp) supaya ia
+    // tetap terbaca ketika ramp sudah terlipat keluar.
+    const strobe = box(car, M.lamp, len - 42, 1.1, 1.2, 0, SILL + 1.9, half + 1.3, false);
+    strobe.visible = false;
+    return { hull, ramp, strobe };
+}
+
+function buildEnemyLoco(M, car, len, half) {
+    const H = ET_CAR_HEIGHT, W = half * 2, endX = len / 2;
+    const hull = new THREE.Group(); car.add(hull);
+    box(hull, M.ink, len, 3.2, W, 0, -2.0, 0);
+    box(hull, M.body, len - 8, H - 2, W - 0.8, -5, (H - 2) / 2 + 1, 0);
+    box(hull, M.steel, len - 22, 1.6, W - 4.4, -7, H, 0);
+    box(hull, M.panel, 22, 12, W - 0.6, 21, H - 5, 0);
+    box(hull, M.glass, 1.4, 4.8, W - 5.4, 32.2, H - 5, 0, false);
+    box(hull, M.body, 20, 9, W - 1.4, 28, 5.5, 0);
+    // Haluan bajak: kerucut 4 sisi yang menusuk ke depan (+x).
+    cylinder(hull, M.ink, 0.6, 12.5, 22, 4, endX + 7, 7, 0, 0, 0, -Math.PI / 2);
+    box(hull, M.hazard, 4.0, 3.2, W - 6, endX - 1.5, 3.4, 0, false);
+    for (const dz of [-6.4, 6.4]) box(hull, M.lamp, 2.4, 2.8, 3.4, endX - 3, 11.5, dz, false);
+    for (const bx of [-30, -18, -6]) cylinder(hull, M.ink, 2.3, 3.0, 7, 8, bx, H + 2.5, -5.5);
+    box(hull, M.steel, 1.4, 11, 1.4, 8, H + 5.5, 6.5);
+    box(hull, M.lamp, 3.2, 1.2, 3.2, 8, H + 11, 6.5, false);
+    for (const dx of [-30, -12, 6]) box(hull, M.steel, 2.2, H - 8, 1.1, dx, (H - 8) / 2 + 1, half + 0.3, false);
+    box(hull, M.tech, len - 40, 0.7, 0.5, 0, H - 6, half + 0.45, false);
+    return { hull };
+}
+
+// Konsist musuh statis-prealokasi: `cargoCars` peti baja + satu lokomotif di
+// indeks `cargoCars`. Gerbong 0 adalah gerbong PALING BELAKANG — yang pertama
+// disejajarkan dengan gerbong player. Tidak ada mesh/material yang dibuat saat
+// runtime: runtime hanya memutar ramp, menyalakan lampu, menggeser bangkai, dan
+// mematikan `visible` gerbong yang sudah terlepas.
+export function buildEnemyTrain(M, root, cargoCars, len, step, half, x, z) {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
-    const carGroups = [], wheels = [], gauge = 4.2;
-    for (let i = 0; i < cars; i++) {
+    const carGroups = [], hulls = [], ramps = [], strobes = [], wheels = [], gauge = 4.2;
+    for (let i = 0; i <= cargoCars; i++) {
         const car = new THREE.Group(); car.position.x = i * step; g.add(car);
-        const loco = i === cars - 1;
-        box(car, M.ink, len, 3.2, half * 2, 0, -2.0, 0);
-        box(car, M.panel, len - 5, 0.7, half * 2 - 2.6, 0, 0.35, 0);
-        for (const dz of [-half + 0.6, half - 0.6])
-            box(car, M.hazard, len - 3, 1.5, 1.0, 0, 0.4, dz, false);
-        if (loco) {
-            box(car, M.body, len - 3, 20, half * 2 - 0.6, -5, 11, 0);
-            box(car, M.steel, len - 14, 1.5, half * 2 - 3.4, -5, 21.5, 0);
-            box(car, M.panel, 24, 11, half * 2 - 0.4, 26, 15.5, 0);
-            box(car, M.glass, 1.2, 6, half * 2 - 4.2, 38.4, 17.4, 0, false);
-            box(car, M.body, 18, 8, half * 2 - 1.2, 32, 5, 0);
-            box(car, M.hazard, 7, 3, half * 2 - 3, len / 2 - 2, 3.2, 0);
-            for (const dz of [-5.2, 5.2]) box(car, M.lamp, 2, 2.4, 3, len / 2 - 5, 8, dz, false);
-            for (const bx of [-28, -10]) cylinder(car, M.ink, 2.2, 2.8, 6, 10, bx, 24, 0);
-        } else {
-            // Gerbong angkut: dek terbuka, dinding setinggi dada, tiang sudut.
-            for (const dz of [-half + 0.55, half - 0.55]) {
-                box(car, M.body, len - 5, 8, 1.1, 0, 4, dz);
-                box(car, M.steel, len - 5, 0.9, 1.7, 0, 8, dz, false);
-            }
-            for (const dx of [-len / 2 + 1.4, len / 2 - 1.4]) {
-                box(car, M.body, 2.6, 14, half * 2 - 0.8, dx, 7, 0);
-                box(car, M.hazard, 3.0, 1.2, half * 2 - 2.4, dx, 14.2, 0, false);
-            }
-            // Rak amunisi menempel dinding jauh; sisi menghadap player dibiarkan
-            // bersih supaya siluet robot yang bertengger tidak terpotong.
-            for (const dx of [-24, 0, 24]) {
-                box(car, M.panel, 14, 4.2, 1.2, dx, 5.6, -half + 1.7, false);
-                box(car, M.tech, 8, 0.5, 0.7, dx, 7.4, -half + 2.4, false);
-            }
-        }
+        const parts = i === cargoCars
+            ? buildEnemyLoco(M, car, len, half)
+            : buildEnemyCargoCar(M, car, len, half);
+        hulls.push(parts.hull);
+        if (parts.ramp) { ramps.push(parts.ramp); strobes.push(parts.strobe); }
+        // Bogie: hanya roda sisi DEKAT yang dibuat — sisi jauh selalu tertutup
+        // badan gerbong, jadi 4 mesh berputar per gerbong (bukan 8) sudah cukup.
         for (const bx of [-len * 0.29, len * 0.29]) {
-            box(car, M.ink, 22, 4.4, gauge * 2 + 3, bx, -3.6, 0);
-            for (const wx of [-6.5, 6.5]) for (const wz of [-gauge, gauge])
-                wheels.push(cylinder(car, M.steel, 3.4, 3.4, 1.6, 10, bx + wx, -3.4, wz, Math.PI / 2));
+            box(parts.hull, M.ink, 22, 4.4, gauge * 2 + 3, bx, -3.6, 0, false);
+            for (const wx of [-6.5, 6.5])
+                wheels.push(cylinder(car, M.steel, 3.4, 3.4, 1.6, 10, bx + wx, -3.4, gauge, Math.PI / 2));
         }
+        mergeObjectInPlace(parts.hull);
+        if (parts.ramp) mergeObjectInPlace(parts.ramp);
         carGroups.push(car);
     }
     root.add(g);
-    return { group: g, cars: carGroups, wheels, step, len, half, wheelPhase: 0 };
+    return { group: g, cars: carGroups, hulls, ramps, strobes, wheels, step, len, half, wheelPhase: 0 };
 }

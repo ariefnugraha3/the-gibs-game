@@ -1,7 +1,9 @@
-// doors.js — PINTU GESER OTOMATIS gedung campaign stage 1-3 (2026-07-18,
-// permintaan user). Pintu MELUNCUR TURUN ke bawah lantai saat player (atau
-// robot) mendekat = "terbuka otomatis ketika memasuki ruangan", lalu naik lagi
-// menutup saat menjauh. LAMPU HIJAU kecil di KEDUA SISI pintu (di atas tembok
+// doors.js — PINTU GESER OTOMATIS campaign (2026-07-18, dirombak 2026-08-08).
+// Setiap pintu aktif terdiri dari DUA DAUN 50:50 yang bergeser simetris ke kiri
+// dan kanan sepanjang dinding saat membuka, lalu bertemu lagi saat menutup.
+// Terbuka penuh TIDAK menelan daunnya bulat-bulat ke dalam dinding: 10% tiap
+// daun tetap terlihat di tepi bukaan (`DOOR_OPEN_REVEAL`, lihat rig di bawah).
+// LAMPU HIJAU kecil di KEDUA SISI pintu (di atas tembok
 // jamb) menandai pintu ini BISA dibuka — nanti akan ada pintu terkunci TANPA
 // lampu hijau. Hanya di ruangan TERTUTUP; jangan di aula/koridor tengah.
 //
@@ -63,6 +65,67 @@ const DOOR_SOLID_MAX = 0.5;  // pintu PEJAL (memblok robot) selama open < ini (m
 const GREEN = 0x39ff7a;      // hijau "bisa dibuka" (senada lampu EXIT)
 const LOCK_RED = 0xff4a3c;   // merah "TERKUNCI" (varian pintu terkunci, mis. ruang komputer stage 1)
 
+// ===== RIG DUA DAUN 50:50 BERSAMA =========================================
+// Dipakai pintu stage 1-3, blast door stage 3, stasiun stage 5, dan kedua
+// chapter stage 6. `horizontal` berarti bukaan memanjang di sumbu X; selain itu
+// memanjang di Z. Daun berada di 1/4 bentang ketika tertutup lalu bergeser ke
+// arah berlawanan ketika membuka.
+//
+// SISA TAMPAK (2026-08-08, permintaan user "saat pintu terbuka seperti terlihat
+// masuk menembus tembok"): dulu jarak gesernya PERSIS sepanjang daun, jadi
+// terbuka penuh = daun hilang total di balik dinding dan pintunya seolah lenyap.
+// Sekarang daun hanya bergeser `1 - DOOR_OPEN_REVEAL` dari panjangnya, sehingga
+// 10% tiap daun TETAP menonjol di tepi kiri/kanan bukaan. Konsekuensinya bukaan
+// efektif menyempit 10% (5% tiap sisi) — disengaja, itu yang membuat pintunya
+// terbaca. Angkanya visual-only (seperti OPEN_TIME), jadi tetap di kode, tapi
+// DIEKSPOR supaya smoke tak perlu menyalin 0.1.
+export const DOOR_OPEN_REVEAL = 0.1;
+
+export function buildSplitDoor(parent, material, x, y, z, sx, sy, sz) {
+    const panel = new THREE.Group();
+    panel.position.set(x, y, z);
+    parent.add(panel);
+    const horizontal = sx >= sz;
+    const span = horizontal ? sx : sz;
+    const leafSpan = span / 2;
+    const leaves = [];
+    for (const sign of [-1, 1]) {
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(
+            horizontal ? leafSpan : sx, sy, horizontal ? sz : leafSpan), material);
+        leaf.castShadow = true; leaf.receiveShadow = true;
+        leaf.position[horizontal ? 'x' : 'z'] = sign * span / 4;
+        panel.add(leaf);
+        leaves.push(leaf);
+    }
+    return { panel, leaves, horizontal, span, leafSpan, travel: leafSpan * (1 - DOOR_OPEN_REVEAL) };
+}
+
+// Jarak pusat daun dari pusat bukaan pada bukaan ter-ease `easedOpen`. SATU-
+// SATUNYA sumber posisi daun: dipakai animasi visual DAN uji peluru-vs-daun,
+// supaya keduanya tidak bisa berbeda (dulu rumusnya disalin di dua tempat).
+export function splitDoorLeafOffset(door, easedOpen) {
+    if (!door) return 0;
+    const e = Math.max(0, Math.min(1, easedOpen));
+    const leafSpan = door.leafSpan != null ? door.leafSpan : door.span / 2;
+    const travel = door.travel != null ? door.travel : leafSpan * (1 - DOOR_OPEN_REVEAL);
+    return door.span / 4 + travel * e;
+}
+
+export function setSplitDoorOpen(door, easedOpen) {
+    if (!door || !door.leaves) return;
+    const off = splitDoorLeafOffset(door, easedOpen);
+    const axis = door.horizontal ? 'x' : 'z';
+    for (let i = 0; i < door.leaves.length; i++) door.leaves[i].position[axis] = (i ? 1 : -1) * off;
+}
+
+export const splitDoorDebug = door => ({
+    horizontal: !!door?.horizontal,
+    span: door?.span || 0,
+    leafSpan: door?.leafSpan || 0,
+    travel: door?.travel || 0,
+    leaves: door?.leaves?.map(l => ({ x: l.position.x, y: l.position.y, z: l.position.z })) || [],
+});
+
 // Bangun pintu untuk satu stage.
 //   doorList item {c0,r0,c1,r1,dir} — dir 'ew' (celah di dinding VERTIKAL, panel
 //   membentang sumbu-z) / 'ns' (celah di dinding HORIZONTAL, panel membentang
@@ -82,26 +145,26 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
         const span = ew ? (Math.abs(d.r1 - d.r0) + 1) * CELL : (Math.abs(d.c1 - d.c0) + 1) * CELL;
         const w = span + 0.6, thick = 3.2;                       // lebar menutup celah + seal tipis
 
-        // --- PANEL (grup; digeser .position.y untuk buka/tutup) ---
-        const panel = new THREE.Group();
-        const body = new THREE.Mesh(
-            ew ? new THREE.BoxGeometry(thick, H, w) : new THREE.BoxGeometry(w, H, thick), bodyMat);
-        body.castShadow = true; body.receiveShadow = true;
-        panel.add(body);
-        // seam vertikal tengah (kesan pintu dua daun)
-        const seam = new THREE.Mesh(
-            ew ? new THREE.BoxGeometry(thick + 0.3, H, 0.7) : new THREE.BoxGeometry(0.7, H, thick + 0.3), seamMat);
-        panel.add(seam);
-        // dua garis aksen TEAL horizontal (menyala, dua muka)
-        for (const ay of [H * 0.66, H * 0.34]) {
-            const acc = new THREE.Mesh(
-                ew ? new THREE.BoxGeometry(thick + 0.4, 1.3, w * 0.9) : new THREE.BoxGeometry(w * 0.9, 1.3, thick + 0.4), tealMat);
-            acc.position.y = ay - H / 2;
-            panel.add(acc);
+        // --- DUA DAUN 50:50: bergeser sejajar dinding ke arah berlawanan. ---
+        const rig = buildSplitDoor(scene, bodyMat, cx, H / 2, cz,
+            ew ? thick : w, H, ew ? w : thick);
+        const panel = rig.panel;
+        for (let i = 0; i < rig.leaves.length; i++) {
+            const leaf = rig.leaves[i], sign = i ? 1 : -1;
+            // Strip gelap di tepi dalam memperjelas pertemuan kedua daun.
+            const seam = new THREE.Mesh(
+                ew ? new THREE.BoxGeometry(thick + 0.3, H, 0.7) : new THREE.BoxGeometry(0.7, H, thick + 0.3), seamMat);
+            seam.position[ew ? 'z' : 'x'] = -sign * (rig.leafSpan / 2 - 0.35);
+            leaf.add(seam);
+            // Dua garis aksen TEAL horizontal ikut bergerak bersama tiap daun.
+            for (const ay of [H * 0.66, H * 0.34]) {
+                const acc = new THREE.Mesh(
+                    ew ? new THREE.BoxGeometry(thick + 0.4, 1.3, rig.leafSpan * 0.86)
+                        : new THREE.BoxGeometry(rig.leafSpan * 0.86, 1.3, thick + 0.4), tealMat);
+                acc.position.y = ay - H / 2;
+                leaf.add(acc);
+            }
         }
-        const closedY = H / 2, openY = -H / 2 - 1;               // turun sampai tenggelam di lantai
-        panel.position.set(cx, closedY, cz);
-        scene.add(panel);
 
         // --- LAMPU KECIL di MUKA tembok = penanda status pintu. HIJAU = bisa
         //     dibuka; MERAH (d.locked, mis. ruang komputer stage 1) = TERKUNCI
@@ -132,7 +195,7 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
         }
 
         doors.push({
-            panel, cx, cz, closedY, openY, open: 0,
+            panel, rig, leaves: rig.leaves, cx, cz, open: 0,
             linger: 0,                             // sisa delay tutup (dtk) setelah player keluar zona (2026-07-20)
             ew,                                    // orientasi: true = dinding vertikal (masuk dari ±x)
             locked: !!d.locked,                    // TERKUNCI (tak pernah membuka sampai setDoorLocked(false))
@@ -153,7 +216,7 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
 // (selebar bukaan). Di luar zona → pintu menutup, tapi TIDAK langsung
 // (2026-07-20, permintaan user — dulu langsung menutup begitu player keluar
 // zona): menunggu `CFG.campaign.doors.closeDelaySec` (3 dtk) dulu via timer
-// `dr.linger` (di-reset penuh selama player masih di zona), BARU meluncur naik.
+// `dr.linger` (di-reset penuh selama player masih di zona), BARU bergeser rapat.
 // Ease-in-out halus.
 export function updateStageDoors(doors, dt) {
     if (!doors || !doors.length) return;
@@ -174,7 +237,7 @@ export function updateStageDoors(doors, dt) {
         else if (dr.open > target) dr.open = Math.max(target, dr.open - step);
         doorMotionSFX(dr, prev, dr.cx, dr.cz);
         const t = dr.open, e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;   // easeInOut
-        dr.panel.position.y = dr.closedY + (dr.openY - dr.closedY) * e;
+        setSplitDoorOpen(dr.rig, e);
     }
 }
 
@@ -209,12 +272,10 @@ export function setDoorLocked(door, locked) {
     if (door.lockMat) door.lockMat.color.setHex(locked ? LOCK_RED : GREEN);   // merah <-> hijau (mis. re-lock saat restart)
 }
 
-// ===== PELURU vs PINTU (2026-07-19, permintaan user): peluru PLAYER & ROBOT
-// TIDAK bisa menembus pintu yang masih menutup jalurnya. Uji ruas 2D (slab
-// test) posisi-lalu -> kini terhadap footprint daun pintu; sebuah pintu
-// menghalangi selama PUNCAK panelnya masih di ATAS ketinggian peluru `y`
-// (panel meluruncur TURUN ke lantai saat membuka, jadi pintu setengah-terbuka
-// masih menghadang peluru setinggi laras; panel tenggelam penuh = jalur bebas).
+// ===== PELURU vs PINTU (2026-07-19, disesuaikan 2026-08-08): peluru PLAYER &
+// ROBOT tidak bisa menembus daun pintu. Uji ruas 2D mengikuti DUA footprint
+// daun yang bergeser ke samping, sehingga celah tengah membesar bersama animasi
+// dan terbuka penuh ketika kedua daun sudah masuk ke sisi dinding.
 // Dipanggil dari hook `bulletBlocked` stage 1-3 — peluru player (bullets.js)
 // dan peluru robot (updateEnemyBullets di robots.js) sama-sama mati lewat hook
 // itu, jadi SATU cek ini menutup keduanya. =====
@@ -229,23 +290,32 @@ function doorShotEntry(doors, x0, z0, x1, z1, y) {
     if (!doors) return null;
     let best = null;
     for (const dr of doors) {
-        if (dr.panel.position.y + dr.closedY <= y) continue;   // puncak panel (H = 2×closedY) sudah di bawah jalur peluru
-        const hx = dr.hx + 0.4, hz = dr.hz + 0.4;
-        const dx = x1 - x0, dz = z1 - z0;
-        const px = x0 - dr.cx, pz = z0 - dr.cz;
-        let t0 = 0, t1 = 1, hit = true;
-        for (const [p, d, h] of [[px, dx, hx], [pz, dz, hz]]) {
-            if (Math.abs(d) < 1e-9) {
-                if (Math.abs(p) > h) { hit = false; break; }
-                continue;
+        const e = dr.open < 0.5 ? 2 * dr.open * dr.open
+            : 1 - (-2 * dr.open + 2) ** 2 / 2;
+        const alongHalf = dr.rig.leafSpan / 2 + 0.4;
+        const acrossHalf = (dr.ew ? dr.hx : dr.hz) + 0.4;
+        const centerOff = splitDoorLeafOffset(dr.rig, e);   // sama persis dgn visual
+        for (const sign of [-1, 1]) {
+            const leafX = dr.cx + (dr.ew ? 0 : sign * centerOff);
+            const leafZ = dr.cz + (dr.ew ? sign * centerOff : 0);
+            const hx = dr.ew ? acrossHalf : alongHalf;
+            const hz = dr.ew ? alongHalf : acrossHalf;
+            const dx = x1 - x0, dz = z1 - z0;
+            const px = x0 - leafX, pz = z0 - leafZ;
+            let t0 = 0, t1 = 1, hit = true;
+            for (const [p, d, h] of [[px, dx, hx], [pz, dz, hz]]) {
+                if (Math.abs(d) < 1e-9) {
+                    if (Math.abs(p) > h) { hit = false; break; }
+                    continue;
+                }
+                let ta = (-h - p) / d, tb = (h - p) / d;
+                if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
+                if (ta > t0) t0 = ta;
+                if (tb < t1) t1 = tb;
+                if (t0 > t1) { hit = false; break; }
             }
-            let ta = (-h - p) / d, tb = (h - p) / d;
-            if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
-            if (ta > t0) t0 = ta;
-            if (tb < t1) t1 = tb;
-            if (t0 > t1) { hit = false; break; }
+            if (hit && (best === null || t0 < best)) best = t0;
         }
-        if (hit && (best === null || t0 < best)) best = t0;
     }
     return best;
 }

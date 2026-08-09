@@ -4,6 +4,7 @@
 // tidak perlu mengenal platform bergerak. Seluruh visual procedural, PAL-only.
 
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
+import { mergeObjectInPlace, materialKey } from '../utils/meshBatch.js';
 
 // ROMBAK SKALA 2026-08-07 (permintaan user): LEBAR badan kereta = 4 METER
 // tepat — dinaikkan dari 3 m karena lorongnya terasa terlalu sempit untuk
@@ -31,6 +32,16 @@ export const TRAIN_INNER_HALF = TRAIN_HALF_WIDTH - TRAIN_WALL_T;          // 13.
 export const TRAIN_INNER_HALF_LEN = TRAIN_CAR_LENGTH / 2 - TRAIN_END_T;   // 55.35
 export const TRAIN_SIDE_WALL_H = 9;                      // dinding samping setinggi dada
 export const TRAIN_GAUGE_HALF = 4.2;                     // rel 1067 mm (+ margin visual)
+// BUKAAN NAIK sisi peron. Sejak 2026-08-08 (rombak cutscene keberangkatan) ini
+// adalah LUBANG SUNGGUHAN di dinding samping, bukan pelat tempelan: daun
+// pintunya dibangun stage 5 (`stage5/world.js`) sebagai rig dua daun bersama
+// milik `campaign/utility/doors.js`, jadi membukanya benar-benar memperlihatkan
+// dek. Koordinatnya diekspor supaya stage tidak menyalin angkanya lagi.
+export const TRAIN_DOOR_X = -28;
+export const TRAIN_DOOR_HALF = 10;
+export const TRAIN_DOOR_Z = TRAIN_HALF_WIDTH + 0.55;     // bidang KUSEN (rel + tiang)
+export const TRAIN_DOOR_LEAF_Z = TRAIN_HALF_WIDTH + 1.5;  // daun menggantung DI LUAR kusen
+export const TRAIN_DOOR_T = 0.7;
 // Jarak antar-sumbu KEDUA jalur selama perjalanan (double track mainline).
 // Jauh lebih rapat daripada dua jalur stasiun agar baku tembak lintas-rel
 // benar-benar berada dalam jangkauan peluru robot kelas A/B.
@@ -89,47 +100,105 @@ function buildCar(M, i, cx, cz, wheels) {
         mesh(g, new THREE.BoxGeometry(L - 3, 1.5, 1.0), M.hazard, 0, 0.4, z, 0, 0, 0, false);
 
     if (!loco) {
-        // GERBONG PLAYER. Badan cuma 4 m: dindingnya sengaja SETINGGI DADA agar
-        // avatar dan penembak di track sebelah tetap terbaca dari kamera oblique;
-        // siluet "beratap" datang dari rusuk terbuka, bukan dinding penuh.
-        for (const z of [-HW + TRAIN_WALL_T / 2, HW - TRAIN_WALL_T / 2]) {
-            mesh(g, new THREE.BoxGeometry(L - TRAIN_END_T * 2, TRAIN_SIDE_WALL_H, TRAIN_WALL_T),
-                M.body, 0, TRAIN_SIDE_WALL_H / 2, z);
-            mesh(g, new THREE.BoxGeometry(L - TRAIN_END_T * 2, 1.0, TRAIN_WALL_T + 0.6),
-                M.steel, 0, TRAIN_SIDE_WALL_H, z, 0, 0, 0, false);
+        // GERBONG PLAYER = GONDOLA TERBUKA (dirombak 2026-08-08, permintaan user:
+        // "perbaiki bentuk gerbong... hilangkan lampu di atasnya, terlihat aneh
+        // seperti melayang di ruang kosong").
+        //
+        // Versi lama memakai sangkar rusuk atap TANPA atap, dengan tiga strip
+        // lampu langit-langit yang menggantung di udara di atas lorong terbuka —
+        // itulah yang melayang. Sekarang bentuknya jujur: BAK TERBUKA. Dinding
+        // samping setinggi dada (wajib: kamera oblique harus tetap melihat avatar
+        // di badan selebar 4 m), ditutup sill atas, ditopang tiang sudut, dan
+        // dikeraskan rusuk press DI LUAR badan. Tidak ada satu pun bagian yang
+        // menggantung di atas lorong — satu-satunya struktur tinggi adalah sekat
+        // buta ke lokomotif di ujung timur, yang memang dinding belakang kabin
+        // DAN berada di arah UP-SCREEN sehingga tak pernah menutupi avatar.
+        //
+        // Semua detail dalam WAJIB pipih menempel dinding: lorong gerbong harus
+        // tetap bebas hambatan berapa pun lebar badan di-retune.
+        const wallZ = HW - TRAIN_WALL_T / 2;      // bidang dinding samping
+        const innerZ = HW - TRAIN_WALL_T;         // muka DALAM dinding = TRAIN_INNER_HALF
+        const innerX = L / 2 - TRAIN_END_T;       // muka DALAM sekat = TRAIN_INNER_HALF_LEN
+        const sillY = TRAIN_SIDE_WALL_H;          // puncak dinding samping
+        const DOOR_X = TRAIN_DOOR_X, DOOR_HALF = TRAIN_DOOR_HALF;   // bukaan naik (sel TCI)
+        const wallLen = L - TRAIN_END_T * 2;
+
+        // Rangka bawah: solebar memanjang + headstock ujung, supaya badan duduk
+        // di atas rangka dan bukan melayang di atas bogie.
+        for (const z of [-HW + 1.1, HW - 1.1])
+            mesh(g, new THREE.BoxGeometry(L - 2, 2.4, 1.5), M.ink, 0, -4.0, z, 0, 0, 0, false);
+        for (const s of [-1, 1])
+            mesh(g, new THREE.BoxGeometry(2.2, 2.8, W - 1.2), M.ink, s * (L / 2 - 1.1), -3.8, 0, 0, 0, 0, false);
+
+        // Dinding samping + sill atas. Sill sengaja MENJOROK KE LUAR saja (muka
+        // dalamnya rata dengan dinding) agar lorong tidak menyempit.
+        for (const z of [-wallZ, wallZ]) {
+            const s = Math.sign(z);
+            // SISI PERON BENAR-BENAR BERLUBANG (2026-08-08, rombak cutscene
+            // keberangkatan): dulu dinding ini utuh dan "pintu"-nya cuma pelat
+            // tempelan di luar badan, jadi menggesernya hanya memperlihatkan
+            // dinding pejal di baliknya — mustahil dipakai adegan pintu terbuka
+            // lalu Gibran naik. Kedua penggal dihitung dari TEPI bukaan supaya
+            // lebar bukaan tetap TRAIN_DOOR_HALF*2 berapa pun panjang gerbong.
+            if (s > 0) {
+                for (const [x0, x1] of [[-wallLen / 2, DOOR_X - DOOR_HALF],
+                    [DOOR_X + DOOR_HALF, wallLen / 2]])
+                    mesh(g, new THREE.BoxGeometry(x1 - x0, TRAIN_SIDE_WALL_H, TRAIN_WALL_T),
+                        M.body, (x0 + x1) / 2, TRAIN_SIDE_WALL_H / 2, z);
+            } else {
+                mesh(g, new THREE.BoxGeometry(wallLen, TRAIN_SIDE_WALL_H, TRAIN_WALL_T),
+                    M.body, 0, TRAIN_SIDE_WALL_H / 2, z);
+            }
+            mesh(g, new THREE.BoxGeometry(L - TRAIN_END_T * 2 + 1.2, 1.2, TRAIN_WALL_T + 0.9),
+                M.steel, 0, sillY + 0.6, z + s * 0.45, 0, 0, 0, false);
+            for (let x = -48; x <= 48; x += 12) {
+                if (s > 0 && x > DOOR_X - DOOR_HALF - 4 && x < DOOR_X + DOOR_HALF + 4) continue;
+                mesh(g, new THREE.BoxGeometry(1.6, TRAIN_SIDE_WALL_H - 0.6, 0.8), M.steel,
+                    x, (TRAIN_SIDE_WALL_H - 0.6) / 2, z + s * 0.85, 0, 0, 0, false);
+            }
         }
-        // Dua sekat ujung setinggi penuh: sisi timur = sekat kabin (player tidak
-        // pernah bisa masuk lokomotif), sisi barat = dinding belakang gerbong.
-        for (const s of [-1, 1]) {
-            mesh(g, new THREE.BoxGeometry(TRAIN_END_T, TRAIN_CAR_HEIGHT - 7, W - 0.8),
-                M.body, s * endX, (TRAIN_CAR_HEIGHT - 7) / 2, 0);
-            mesh(g, new THREE.BoxGeometry(TRAIN_END_T + 0.5, 1.3, W - 2.4),
-                M.hazard, s * endX, 9.4, 0, 0, 0, 0, false);
-        }
+        // Empat tiang sudut: penopang nyata untuk sill, sekaligus yang membuat
+        // siluetnya terbaca sebagai bak, bukan lantai berpagar.
+        for (const sx of [-1, 1]) for (const sz of [-1, 1])
+            mesh(g, new THREE.BoxGeometry(TRAIN_END_T + 0.2, TRAIN_SIDE_WALL_H + 2.2, TRAIN_WALL_T + 1.6),
+                M.steel, sx * endX, (TRAIN_SIDE_WALL_H + 2.2) / 2, sz * wallZ);
+
+        // Ujung BELAKANG (barat): dinding bak setinggi dinding samping — ini yang
+        // dulu berupa pelat tinggi menyendiri. Ia juga sisi DOWN-SCREEN, jadi
+        // harus rendah supaya tak menutupi avatar.
+        mesh(g, new THREE.BoxGeometry(TRAIN_END_T, TRAIN_SIDE_WALL_H, W - 0.8),
+            M.body, -endX, TRAIN_SIDE_WALL_H / 2, 0);
+        mesh(g, new THREE.BoxGeometry(TRAIN_END_T + 1.2, 1.2, W + 0.6),
+            M.steel, -endX, sillY + 0.6, 0, 0, 0, 0, false);
+        mesh(g, new THREE.BoxGeometry(TRAIN_END_T + 0.5, 1.3, W - 3.2),
+            M.hazard, -endX, sillY - 2.2, 0, 0, 0, 0, false);
+
+        // Ujung DEPAN (timur): sekat buta ke lokomotif, tetap setinggi badan.
+        const bhH = TRAIN_CAR_HEIGHT - 7;
+        mesh(g, new THREE.BoxGeometry(TRAIN_END_T, bhH, W - 0.8), M.body, endX, bhH / 2, 0);
+        mesh(g, new THREE.BoxGeometry(TRAIN_END_T + 1.0, 1.4, W + 0.4), M.steel, endX, bhH, 0, 0, 0, 0, false);
+        mesh(g, new THREE.BoxGeometry(TRAIN_END_T + 0.5, 1.3, W - 2.4), M.hazard, endX, 9.4, 0, 0, 0, 0, false);
         // Pintu sekat kabin — TERKUNCI, murni detail; tidak ada collider pintu.
-        mesh(g, new THREE.BoxGeometry(0.8, 13, 8.4), M.panel, endX - TRAIN_END_T, 6.5, 0);
-        mesh(g, new THREE.BoxGeometry(0.9, 0.9, 5.2), M.hazard, endX - TRAIN_END_T - 0.45, 12.4, 0, 0, 0, 0, false);
-        // Pintu naik sisi peron (sel TCI denah): kusen + dua daun tergeser terbuka.
-        for (const dx of [-38, -18]) mesh(g, new THREE.BoxGeometry(2.0, TRAIN_SIDE_WALL_H + 3, 1.6),
-            M.steel, dx, (TRAIN_SIDE_WALL_H + 3) / 2, HW - 0.4);
-        mesh(g, new THREE.BoxGeometry(20, 1.2, 1.6), M.steel, -28, TRAIN_SIDE_WALL_H + 3, HW - 0.4);
-        mesh(g, new THREE.BoxGeometry(18, 0.5, 1.0), M.amber, -28, 0.9, HW - 1.6, 0, 0, 0, false);
-        // Rusuk atap terbuka + lampu langit-langit: siluet gerbong tanpa menutup
-        // avatar. Rusuk atap + detail dinding SELALU dipatok ke bidang dinding
-        // (`TRAIN_WALL_T / 2` dari HW), bukan offset literal: lorong gerbong
-        // harus tetap bebas hambatan berapa pun lebar badan di-retune.
-        const wallZ = HW - TRAIN_WALL_T / 2;
-        for (const x of [-44, -22, 0, 22, 44]) {
-            for (const z of [-wallZ, wallZ])
-                mesh(g, new THREE.BoxGeometry(1.1, TRAIN_CAR_HEIGHT - 11, 1.1), M.steel,
-                    x, TRAIN_SIDE_WALL_H + (TRAIN_CAR_HEIGHT - 11) / 2, z);
-            mesh(g, new THREE.BoxGeometry(1.0, 1.0, W - 1.6), M.steel, x, TRAIN_CAR_HEIGHT - 2, 0);
-        }
-        for (const x of [-33, 0, 33])
-            mesh(g, new THREE.BoxGeometry(14, 0.6, 1.5), M.amber, x, TRAIN_CAR_HEIGHT - 3, 0, 0, 0, 0, false);
+        // Dipatok RATA ke muka dalam sekat (dulu menggantung 0.8 unit di depannya).
+        mesh(g, new THREE.BoxGeometry(0.8, 13, 8.4), M.panel, innerX - 0.4, 6.5, 0);
+        mesh(g, new THREE.BoxGeometry(0.9, 0.9, 5.2), M.hazard, innerX - 0.45, 12.4, 0, 0, 0, 0, false);
+
+        // Kusen pintu geser sisi peron. DAUNNYA TIDAK DIBANGUN DI SINI: ia
+        // memakai rig dua daun 50:50 bersama (`campaign/utility/doors.js`) yang
+        // dipasang stage 5 pada grup gerbong ini, supaya satu-satunya sumber
+        // gerak/SFX pintu di seluruh campaign tetap satu modul.
+        const doorZ = TRAIN_DOOR_Z;
+        for (const dx of [DOOR_X - DOOR_HALF, DOOR_X + DOOR_HALF])
+            mesh(g, new THREE.BoxGeometry(1.4, TRAIN_SIDE_WALL_H - 0.4, 1.1), M.steel,
+                dx, (TRAIN_SIDE_WALL_H - 0.4) / 2, doorZ, 0, 0, 0, false);
+        mesh(g, new THREE.BoxGeometry(DOOR_HALF * 2 + 4, 0.9, 1.3), M.steel,
+            DOOR_X, TRAIN_SIDE_WALL_H - 0.4, doorZ, 0, 0, 0, false);
+        mesh(g, new THREE.BoxGeometry(18, 0.5, 1.0), M.amber, DOOR_X, 0.9, innerZ - 0.5, 0, 0, 0, false);
+
+        // Detail dinding dalam: pipih, menempel, dan rendah.
         for (const x of [-46, -25, 25, 46]) {
-            mesh(g, new THREE.BoxGeometry(13, 4.6, 0.7), M.panel, x, 5.4, -wallZ + 0.1, 0, 0, 0, false);
-            mesh(g, new THREE.BoxGeometry(9, 0.5, 0.4), M.tech, x, 7.4, -wallZ + 0.5, 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(13, 4.6, 0.6), M.panel, x, 5.0, -innerZ + 0.3, 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(9, 0.5, 0.35), M.tech, x, 7.0, -innerZ + 0.65, 0, 0, 0, false);
         }
     } else {
         // LOKOMOTIF: badan tertutup penuh, kabin di ujung timur, hidung bertingkat.
@@ -292,43 +361,234 @@ export function buildTrainJourneyScenery(baseX, baseZ = 0, enemyDz = JOURNEY_TRA
     const M = mats();
     const group = new THREE.Group();
     const near = [], mid = [], far = [], tunnel = [], sparks = [];
-    // 18 modul x 84 = 1512; jumlah MESH pool near tetap 90 seperti sebelum
-    // jalur kedua ditambahkan (modul lebih panjang, bukan lebih banyak).
+    // 18 modul x 84 = 1512 unit bentang bergulir.
     const NEAR_N = 18, NEAR_STEP = 84, span = NEAR_N * NEAR_STEP;
+    const LEFT = baseX - span * 0.55;
 
-    // DUA JALUR sepanjang perjalanan (permintaan user 2026-08-07): jalur player
-    // di baseZ dan jalur musuh di baseZ+enemyDz, berbagi satu bed ballast.
+    // ===== TATA LETAK PITA LANSKAP =========================================
+    // Kamera oblique memandang dari +z, jadi kedua sisi rel TIDAK setara:
+    //   * sisi -z (ATAS LAYAR) terbuka sangat jauh -> ini panggung utama;
+    //   * sisi +z (BAWAH LAYAR) hanya terlihat sampai ~118 unit, dan apa pun
+    //     di antara rel dan kamera (z < ~71) bisa MENUTUPI gerbong player.
+    // Karena itu isian sisi +z dipakai sebagai PITA DEPAN di 88..118 (di luar
+    // garis pandang ke kereta, tetap terbaca di tepi bawah layar) dan jalur
+    // musuh + jalan raya mengisi sisanya. Semua angka di bawah turun dari sini.
     const bedZ0 = Math.min(0, enemyDz), bedZ1 = Math.max(0, enemyDz);
+    const bedC = (bedZ0 + bedZ1) / 2, bedHalf = (bedZ1 - bedZ0) / 2 + 17;
+    const ROW_FAR = bedC - bedHalf - 9;     // tepi daerah milik jalan, sisi backdrop
+    const ROW_NEAR = bedC + bedHalf + 9;    // tepi daerah milik jalan, sisi kamera
+    const FG0 = 84;                          // pita depan sisi kamera (di luar jalan raya)
+
+    // Acak DETERMINISTIK dari indeks modul. Sengaja BUKAN Math.random(): pool ini
+    // dibangun saat loading bersama seluruh dunia campaign, dan menggeser urutan
+    // RNG global ikut menggeser penempatan acak stage lain.
+    const rnd = (i, n) => {
+        const v = Math.sin(i * 12.9898 + n * 78.233) * 43758.5453;
+        return v - Math.floor(v);
+    };
+
+    // --- Kosakata prop bersama (semua PAL-only, semua statis) ---
+    const treeAt = (p, x, z, h, r = h * 0.4) => {
+        mesh(p, new THREE.CylinderGeometry(h * 0.05, h * 0.08, h * 0.44, 6), M.earth,
+            x, h * 0.22, z, 0, 0, 0, false);
+        mesh(p, new THREE.ConeGeometry(r, h * 0.8, 7), M.leaf, x, h * 0.62, z, 0, 0, 0, false);
+    };
+    const palmAt = (p, x, z, h) => {
+        mesh(p, new THREE.CylinderGeometry(0.9, 1.6, h, 6), M.earth, x, h / 2, z, 0, 0, 0, false);
+        mesh(p, new THREE.ConeGeometry(6.5, 8, 6), M.leaf, x, h + 2.6, z, Math.PI, 0, 0, false);
+    };
+    const bambooAt = (p, x, z, h) => {
+        for (let k = 0; k < 3; k++)
+            mesh(p, new THREE.ConeGeometry(2.2, h - k * 5, 5), M.leaf,
+                x + (k - 1) * 3.4, (h - k * 5) / 2, z + (k % 2) * 3, 0, 0, (k - 1) * 0.07, false);
+    };
+    // Blok bangunan + strip jendela menyala menghadap kamera (+z).
+    const blockAt = (p, x, z, w, d, h, mat, lit = true) => {
+        mesh(p, new THREE.BoxGeometry(w, h, d), mat, x, h / 2, z, 0, 0, 0, false);
+        if (lit) mesh(p, new THREE.BoxGeometry(w * 0.66, 1.1, 1.1), M.amber,
+            x, h * 0.58, z + d / 2 + 0.6, 0, 0, 0, false);
+    };
+    // Rumah beratap pelana (ruko/rumah kampung/saung — beda materialnya saja).
+    const houseAt = (p, x, z, w, h, wall, roof) => {
+        mesh(p, new THREE.BoxGeometry(w, h, w * 0.8), wall, x, h / 2, z, 0, 0, 0, false);
+        mesh(p, new THREE.ConeGeometry(w * 0.78, h * 0.62, 4), roof,
+            x, h + h * 0.31, z, 0, Math.PI / 4, 0, false);
+    };
+    // Tiang lineside: tiang + palang + kepala lampu kecil.
+    const poleAt = (p, x, z, h, head) => {
+        mesh(p, new THREE.CylinderGeometry(0.7, 0.9, h, 6), M.steel, x, h / 2, z, 0, 0, 0, false);
+        mesh(p, new THREE.BoxGeometry(0.6, 0.6, 11), M.steel, x, h - 2.5, z, 0, 0, 0, false);
+        if (head) mesh(p, new THREE.BoxGeometry(1.6, 1.6, 1.6), M.amber, x, h - 0.6, z, 0, 0, 0, false);
+    };
+    // Pagar batas: dua kawat memanjang + tiang.
+    const fenceRun = (p, z, L, posts) => {
+        for (const y of [3.4, 6.2])
+            mesh(p, new THREE.BoxGeometry(L, 0.35, 0.35), M.steel, 0, y, z, 0, 0, 0, false);
+        for (let k = 0; k < posts; k++)
+            mesh(p, new THREE.BoxGeometry(0.7, 7, 0.7), M.steel,
+                -L / 2 + (k + 0.5) * (L / posts), 3.5, z, 0, 0, 0, false);
+    };
+
+    // ===== POOL NEAR: JALUR + PERABOT LINESIDE + PITA DEPAN =================
+    // Parallax 1.0 — semua yang secara fisik dekat rel HARUS di pool ini, kalau
+    // tidak ia akan tampak menggeser lebih lambat daripada tanah di bawahnya.
+    // Isinya sengaja NETRAL BABAK (bantalan, pagar, tiang, semak, palem, gubuk):
+    // perabot tepi rel memang sama di pinggiran kota maupun di lembah pegunungan,
+    // jadi hanya pita mid/far yang berganti saat masuk wilayah pegunungan.
     for (let i = 0; i < NEAR_N; i++) {
         const g = new THREE.Group();
-        mesh(g, new THREE.BoxGeometry(NEAR_STEP, 0.8, bedZ1 - bedZ0 + 34), M.earth,
-            0, -5.6, (bedZ0 + bedZ1) / 2);
-        for (const tz of [0, enemyDz]) for (const rz of [-TRAIN_GAUGE_HALF, TRAIN_GAUGE_HALF])
-            mesh(g, new THREE.BoxGeometry(NEAR_STEP + 2, 1.1, 1.8), M.steel, 0, -4.7, tz + rz);
-        g.position.set(baseX - span * 0.55 + i * NEAR_STEP, 0, baseZ); group.add(g); near.push(g);
-    }
-    for (let i = 0; i < 18; i++) {
-        const g = new THREE.Group();
-        const side = i % 2 ? 1 : -1;
-        if (i % 3 === 0) {
-            mesh(g, new THREE.BoxGeometry(44, 22 + (i % 5) * 5, 38), M.concrete,
-                0, 10 + (i % 5) * 2.5, 0);
-            mesh(g, new THREE.BoxGeometry(28, 1, 2), M.amber, 0, 15, side * -20, 0, 0, 0, false);
-            g.userData.sceneryKind = 'industrial';
-        } else {
-            mesh(g, new THREE.CylinderGeometry(2.6, 3.4, 18, 7), M.earth, 0, 9, 0);
-            mesh(g, new THREE.ConeGeometry(14, 30, 8), M.leaf, 0, 30, 0);
-            g.userData.sceneryKind = 'rural';
+        const L = NEAR_STEP;
+        mesh(g, new THREE.BoxGeometry(L, 0.8, bedHalf * 2 + 6), M.earth, 0, -5.6, bedC);
+        // Bahu ballast + parit drainase di kedua tepi.
+        for (const s of [-1, 1]) {
+            mesh(g, new THREE.BoxGeometry(L, 1.4, 12), M.ballast,
+                0, -5.3, bedC + s * (bedHalf + 3), 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(L, 0.8, 3.4), M.ink,
+                0, -6.2, bedC + s * (bedHalf + 10), 0, 0, 0, false);
         }
-        g.position.set(baseX - 600 + i * 84, 0, baseZ + side * (95 + (i % 4) * 34));
+        for (const tz of [0, enemyDz]) {
+            for (const rz of [-TRAIN_GAUGE_HALF, TRAIN_GAUGE_HALF])
+                mesh(g, new THREE.BoxGeometry(L + 2, 1.1, 1.8), M.steel, 0, -4.7, tz + rz);
+            // BANTALAN: irama inilah yang menjual kecepatan kereta; tanpa ini
+            // jalurnya cuma dua batang mulus yang tak terlihat bergerak.
+            for (let k = 0; k < 9; k++)
+                mesh(g, new THREE.BoxGeometry(4.6, 0.9, TRAIN_GAUGE_HALF * 2 + 7), M.ink,
+                    -L / 2 + (k + 0.5) * (L / 9), -5.15, tz, 0, 0, 0, false);
+        }
+        // Talang kabel beton menyusuri sisi backdrop.
+        mesh(g, new THREE.BoxGeometry(L, 2.2, 3.2), M.ballast, 0, -4.2, ROW_FAR + 4, 0, 0, 0, false);
+        fenceRun(g, ROW_FAR - 3, L, 4);
+        fenceRun(g, ROW_NEAR + 3, L, 4);
+        // Tiang berdiri TEPAT di belakang pagar, di depan talud pita mid (-76):
+        // lebih jauh sedikit lagi dan ia akan menembus tembok penahan itu.
+        poleAt(g, -L * 0.28, ROW_FAR - 5, 26 + (i % 3) * 4, i % 2 === 0);
+        if (i % 2) poleAt(g, L * 0.3, ROW_NEAR + 8, 20, false);
+        // Patok kilometer + kotak relay + tumpukan balas: perabat kecil yang
+        // membuat tepi rel terbaca terurus, bukan garis kosong.
+        if (i % 3 === 0) {
+            mesh(g, new THREE.BoxGeometry(1.2, 6, 1.2), M.white, L * 0.1, 3, ROW_NEAR, 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(0.6, 3, 5), M.white, L * 0.1, 6.5, ROW_NEAR, 0, 0, 0, false);
+        }
+        if (i % 4 === 1) {
+            mesh(g, new THREE.BoxGeometry(7, 8, 5), M.body, -L * 0.34, 4, ROW_FAR + 9, 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(8, 1, 6), M.ink, -L * 0.34, 8.4, ROW_FAR + 9, 0, 0, 0, false);
+        }
+        if (i % 5 === 2) {
+            // Sinyal blok: tiang tinggi + kepala tiga lampu menghadap kereta.
+            mesh(g, new THREE.CylinderGeometry(0.8, 1.1, 30, 6), M.steel, L * 0.36, 15, ROW_FAR - 5, 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(2.6, 9, 3), M.ink, L * 0.36, 27, ROW_FAR - 3.6, 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(1, 1.6, 1.6), M.amber, L * 0.36, 29.4, ROW_FAR - 2, 0, 0, 0, false);
+        }
+        if (i % 6 === 4)
+            mesh(g, new THREE.ConeGeometry(7, 6, 6), M.ballast, -L * 0.1, 3, ROW_NEAR + 6, 0, 0, 0, false);
+        // PITA DEPAN sisi kamera: rendah-menengah, di luar garis pandang ke
+        // gerbong player dan di luar badan jalan raya.
+        const fz = FG0 + rnd(i, 1) * 10;
+        switch (i % 4) {
+            case 0: treeAt(g, -L * 0.2, fz + 2, 26 + rnd(i, 2) * 10); palmAt(g, L * 0.22, fz + 9, 22); break;
+            case 1: {
+                mesh(g, new THREE.BoxGeometry(30, 8, 12), M.ballast, 0, 4, fz + 5, 0, 0, 0, false);
+                treeAt(g, L * 0.3, fz + 11, 22);
+                break;
+            }
+            case 2: houseAt(g, L * 0.05, fz + 7, 20, 13, M.panel, M.hazard); break;
+            default: {
+                for (let k = 0; k < 3; k++)
+                    mesh(g, new THREE.ConeGeometry(5.5, 7, 6), M.leaf,
+                        -L * 0.3 + k * 24, 3.5, fz + 3 + (k % 2) * 5, 0, 0, 0, false);
+                break;
+            }
+        }
+        g.position.set(LEFT + i * NEAR_STEP, 0, baseZ);
+        const merged = mergeObjectInPlace(g);
+        group.add(merged); near.push(merged);
+    }
+
+    // ===== POOL MID: PANGGUNG UTAMA DI SISI BACKDROP ========================
+    // DUA LANSKAP DALAM SATU POOL (2026-08-09, permintaan user: "di bagian awal
+    // journey berada di kota juga. ketika gerbong ke-3 hancur, masuk ke wilayah
+    // pegunungan khas Jawa Barat"). Karena pool WAJIB prealokasi (tanpa alokasi
+    // di tengah permainan), tiap modul membawa KEDUA set — kota dan pegunungan —
+    // sebagai anak grup yang tinggal di-toggle `visible`. Tidak ada material
+    // atau geometri baru yang lahir saat lanskapnya berganti; tiap set DILAS
+    // (`mergeObjectInPlace`) jadi segelintir mesh per material, sehingga isinya
+    // jauh lebih padat TAPI draw call-nya justru turun.
+    const MID_N = 18;
+    for (let i = 0; i < MID_N; i++) {
+        const g = new THREE.Group();
+        // --- KOTA: deret ruko/gudang, blok kantor, satu menara, papan reklame.
+        let cityG = new THREE.Group();
+        for (let k = 0; k < 3; k++) {
+            const h = 22 + rnd(i, k) * 20;
+            blockAt(cityG, -30 + k * 30, -90 - rnd(i, k + 3) * 10, 26, 22, h,
+                k % 2 ? M.panel : M.concrete);
+        }
+        for (let k = 0; k < 2; k++) {
+            const h = 54 + rnd(i, k + 6) * 46;
+            blockAt(cityG, -22 + k * 46, -124 - rnd(i, k + 8) * 16, 40, 34, h, M.concrete);
+        }
+        blockAt(cityG, (rnd(i, 10) - 0.5) * 50, -160 - rnd(i, 11) * 24, 44, 44,
+            120 + rnd(i, 12) * 90, M.panel, false);
+        // Papan reklame + tiang listrik di tepi lahan: siluet khas pinggir rel.
+        mesh(cityG, new THREE.BoxGeometry(0.9, 16, 0.9), M.steel, -14, 8, -80, 0, 0, 0, false);
+        mesh(cityG, new THREE.BoxGeometry(0.9, 16, 0.9), M.steel, 14, 8, -80, 0, 0, 0, false);
+        mesh(cityG, new THREE.BoxGeometry(32, 11, 1), M.panel, 0, 21, -80, 0, 0, 0, false);
+        mesh(cityG, new THREE.BoxGeometry(28, 1.1, 1.2), M.amber, 0, 21, -79.2, 0, 0, 0, false);
+        mesh(cityG, new THREE.BoxGeometry(NEAR_STEP, 7, 1.6), M.ballast, 0, 3.5, -76, 0, 0, 0, false);
+        if (i % 2) palmAt(cityG, -40, -84, 24);
+        cityG = mergeObjectInPlace(cityG);
+        g.add(cityG); g.userData.cityG = cityG;
+
+        // --- PEGUNUNGAN JAWA BARAT: sawah terasering bertingkat, rumpun pohon,
+        // bambu, saung beratap pelana, dan tebing batu — penanda paling khas
+        // koridor Jakarta-Bandung.
+        let hillG = new THREE.Group();
+        for (let k = 0; k < 4; k++) {                      // terasering naik menjauh
+            const w = 72 - k * 8, y = 1.5 + k * 5.5;
+            mesh(hillG, new THREE.BoxGeometry(w, y + 3, 26), M.earth,
+                (rnd(i, k + 14) - 0.5) * 8, (y + 3) / 2, -88 - k * 22, 0, 0, 0, false);
+            mesh(hillG, new THREE.BoxGeometry(w - 8, 1.2, 20), M.leaf,
+                (rnd(i, k + 14) - 0.5) * 8, y + 3, -88 - k * 22, 0, 0, 0, false);
+        }
+        for (let k = 0; k < 4; k++)
+            treeAt(hillG, -44 + k * 30 + rnd(i, k + 18) * 12, -100 - rnd(i, k + 22) * 62,
+                26 + rnd(i, k + 26) * 22);
+        bambooAt(hillG, -52, -86, 24);
+        if (i % 2) houseAt(hillG, 34, -118, 18, 11, M.panel, M.earth);
+        if (i % 3 === 1) mesh(hillG, new THREE.ConeGeometry(26, 46, 6), M.earth, -18, 23, -176, 0, 0, 0, false);
+        mesh(hillG, new THREE.BoxGeometry(NEAR_STEP, 5, 8), M.ballast, 0, 2.5, -78, 0, 0, 0, false);
+        hillG = mergeObjectInPlace(hillG);
+        g.add(hillG); g.userData.hillG = hillG;
+
+        g.position.set(LEFT + (i + 0.5) * NEAR_STEP, 0, baseZ);
         group.add(g); mid.push(g);
     }
-    for (let i = 0; i < 10; i++) {
+
+    // ===== POOL FAR: SILUET CAKRAWALA ======================================
+    // Semua modul kini di sisi BACKDROP (-z). Versi lama menyelang-nyeling ke
+    // +z, dan modul +z itu berada di belakang kamera — separuh pool tak pernah
+    // terlihat sama sekali. Jarak antar-modul juga disamakan dengan bentang
+    // wrap-nya supaya cakrawala tidak berlubang.
+    const FAR_SPAN = span * 1.15, FAR_N = 12, FAR_STEP = FAR_SPAN / FAR_N;
+    for (let i = 0; i < FAR_N; i++) {
         const g = new THREE.Group();
-        const side = i % 2 ? 1 : -1;
-        mesh(g, new THREE.ConeGeometry(115 + (i % 3) * 24, 155 + (i % 4) * 35, 7),
-            M.concrete, 0, 55, 0);
-        g.position.set(baseX - 700 + i * 165, -22, baseZ + side * 360);
+        let ridgeG = new THREE.Group();
+        for (let k = 0; k < 3; k++)
+            mesh(ridgeG, new THREE.ConeGeometry(105 + rnd(i, k) * 70, 130 + rnd(i, k + 3) * 120, 7),
+                M.leaf, (k - 1) * (130 + rnd(i, k + 6) * 60), 40, -22 + k * 22, 0, 0, 0, false);
+        ridgeG = mergeObjectInPlace(ridgeG);
+        g.add(ridgeG); g.userData.ridgeG = ridgeG;
+        let skyG = new THREE.Group();
+        for (let k = 0; k < 5; k++) {
+            const h = 130 + rnd(i, k + 9) * 240;
+            mesh(skyG, new THREE.BoxGeometry(40 + rnd(i, k + 13) * 34, h, 44), M.concrete,
+                (k - 2) * (62 + rnd(i, k + 17) * 20), h / 2, -16 + rnd(i, k + 21) * 34, 0, 0, 0, false);
+            if (k % 2) mesh(skyG, new THREE.BoxGeometry(22, 1.4, 1.4), M.amber,
+                (k - 2) * (62 + rnd(i, k + 17) * 20), h * 0.8, -16 + rnd(i, k + 21) * 34 + 23, 0, 0, 0, false);
+        }
+        skyG = mergeObjectInPlace(skyG);
+        g.add(skyG); g.userData.skyG = skyG;
+        g.position.set(baseX - FAR_SPAN * 0.55 + i * FAR_STEP, -22, baseZ - 196);
         group.add(g); far.push(g);
     }
     for (let i = 0; i < 12; i++) {
@@ -383,7 +643,10 @@ export function resetJourneyScenery(journey) {
     journey.arrival.position.set(journey.baseX, 0, journey.baseZ);
 }
 
-export function updateJourneyScenery(journey, dt, speed, routeK) {
+// `mountainK` = nilai routeK saat lanskap berganti dari KOTA ke PEGUNUNGAN.
+// Angkanya milik gameplay (jumlah gerbong musuh yang harus hancur), jadi ia
+// DIKIRIM stage dari config — bukan ditanam di sini bersama ambang visual.
+export function updateJourneyScenery(journey, dt, speed, routeK, mountainK = 0.3) {
     if (!journey) return;
     journey.active = speed > 0.01;
     journey.speed = Math.max(0, speed);
@@ -393,24 +656,35 @@ export function updateJourneyScenery(journey, dt, speed, routeK) {
     const dx = journey.speed * dt;
     wrap(journey.near, journey.baseX, journey.span, dx, journey, 1);
     wrap(journey.mid, journey.baseX, journey.span, dx, journey, 0.62);
-    wrap(journey.far, journey.baseX, journey.span * 1.15, dx, journey, 0.22);
+    // Parallax far dinaikkan 0.22 -> 0.40 pada 2026-08-09: pool ini dulu berada
+    // 370 unit di belakang rel — DI LUAR tapak pandang, jadi tak pernah terlihat
+    // sama sekali. Sekarang ia duduk tepat di belakang pita mid, jadi lajunya
+    // harus mendekati mid supaya tidak terbaca menggeser salah arah.
+    wrap(journey.far, journey.baseX, journey.span * 1.15, dx, journey, 0.4);
 
-    journey.phase = journey.routeK < 0.22 ? 'jakarta'
-        : journey.routeK < 0.45 ? 'industrial'
-            : journey.routeK < 0.62 ? 'countryside'
-                : journey.routeK < 0.76 ? 'tunnel'
-                    : journey.routeK < 0.9 ? 'mountains' : 'bandung';
+    // DUA BABAK (2026-08-09, permintaan user): KOTA dulu — perjalanan dimulai
+    // dari depot yang memang berdiri di tengah kota — lalu PEGUNUNGAN JAWA
+    // BARAT begitu `routeK` melewati `mountainK` (= gerbong musuh ke-N hancur).
+    // Terowongan tetap ada tetapi kini menjadi bagian dari babak pegunungan
+    // (itulah tembusan perbukitan jalur Jakarta-Bandung), dan babak penutup
+    // kembali ke kota karena tujuannya adalah kota Bandung.
+    const mk = Math.max(0, Math.min(1, mountainK));
+    const tunnelK = mk + (1 - mk) * 0.55;
+    journey.phase = journey.routeK < mk ? 'city'
+        : journey.routeK < tunnelK ? 'mountains'
+            : journey.routeK < tunnelK + 0.1 ? 'tunnel'
+                : journey.routeK < 0.9 ? 'mountains' : 'bandung';
 
-    // Jakarta/industrial menonjolkan gudang terbakar; countryside/mountains
-    // menggantinya dengan pohon. Semua objek tetap berasal dari pool yang sama.
-    for (let i = 0; i < journey.mid.length; i++) {
-        const g = journey.mid[i], kind = g.userData.sceneryKind;
-        if (journey.phase === 'tunnel') g.visible = false;
-        else if (journey.phase === 'jakarta' || journey.phase === 'industrial')
-            g.visible = kind === 'industrial' || i % 4 === 1;
-        else if (journey.phase === 'countryside' || journey.phase === 'mountains')
-            g.visible = kind === 'rural' || i % 6 === 0;
-        else g.visible = true;
+    // Tiap modul mid membawa KEDUA set; yang berganti hanya `visible`.
+    const cityAct = journey.phase === 'city' || journey.phase === 'bandung';
+    for (const g of journey.mid) {
+        g.visible = journey.phase !== 'tunnel';
+        g.userData.cityG.visible = cityAct;
+        g.userData.hillG.visible = !cityAct;
+    }
+    for (const g of journey.far) {
+        g.userData.skyG.visible = cityAct;
+        g.userData.ridgeG.visible = !cityAct;
     }
 
     const inTunnel = journey.phase === 'tunnel';
@@ -429,6 +703,163 @@ export function updateJourneyScenery(journey, dt, speed, routeK) {
             s.scale.x = 0.65 + ((i * 7) % 5) * 0.14;
         }
     }
+}
+
+// --- JALAN RAYA PENDAMPING (2026-08-08, permintaan user) -------------------
+// Mulai gerbong ke-5 kereta musuh, sebuah jalan raya berjalan di sisi KANAN
+// kereta player (+z; arah perjalanan +x, jadi kanan = +z, dan dari kamera
+// oblique itu berada di bawah layar — sisi berlawanan dengan jalur musuh).
+//
+// ATURAN KERAS DARI USER: "JANGAN BUAT JALAN TIBA-TIBA MUNCUL — BUAT SEOLAH-
+// OLAH JALAN REL KERETA MENDEKAT KE JALAN SECARA WAJAR." Karena itu pool ini
+// TIDAK memakai satu offset lateral global yang dianimasikan (bidang jalan
+// akan terlihat menggeser ke samping). Jarak lateral tiap modul dihitung dari
+// KOORDINAT TEMPUH modul itu sendiri lewat callback `offsetForX` milik scene:
+// modul yang berada DI DEPAN player sudah lebih dekat daripada yang di
+// belakang, sehingga jalannya benar-benar terbaca MENIKUNG masuk menyatu
+// dengan rel dari kejauhan. Seluruh peralihan itu selesai jauh di luar tapak
+// pandang kamera (tepi +z yang terlihat hanya ~118 unit), jadi yang dilihat
+// player adalah jalan yang merapat, bukan jalan yang lahir mendadak.
+//
+// Pool berdiri SENDIRI (bukan anak `buildTrainJourneyScenery`) supaya cap mesh
+// TrainSceneryPool tetap mengukur lanskap perjalanan saja.
+export const HIGHWAY_MODULES = 16;
+export const HIGHWAY_MODULE_LEN = 84;
+export const HIGHWAY_LANE_W = 17.5;
+export const HIGHWAY_LANES = 2;
+export const HIGHWAY_HALF_W = HIGHWAY_LANE_W * HIGHWAY_LANES / 2;
+// Lajur ke-i relatif sumbu jalan. Dua lajur searah; keduanya menyusul kereta.
+export const highwayLaneOffset = i =>
+    ((Math.max(0, Math.min(HIGHWAY_LANES - 1, i | 0))) - (HIGHWAY_LANES - 1) / 2) * HIGHWAY_LANE_W;
+
+export function buildJourneyHighway(baseX, baseZ = 0) {
+    const M = mats();
+    const group = new THREE.Group();
+    const modules = [];
+    const L = HIGHWAY_MODULE_LEN, HW = HIGHWAY_HALF_W;
+    const span = HIGHWAY_MODULES * L;
+    // Pagar + tiang lampu sengaja SELALU di sisi rel (-z jalan) = sisi JAUH dari
+    // kamera, jadi tak satu pun dari keduanya dapat menutupi kendaraan di jalan.
+    const railZ = -(HW + 6), lampZ = -(HW + 12);
+    for (let i = 0; i < HIGHWAY_MODULES; i++) {
+        const g = new THREE.Group();
+        // PANJANG SAMBUNGAN: aspal TEPAT `L` supaya ujung modul jatuh persis di
+        // ujung modul berikutnya setelah `scale.x` busur diterapkan — tumpang
+        // tindih aspal akan membuat z-fighting pada bidang datar yang sebidang.
+        // Bahu jalan sengaja LEBIH PANJANG dan lebih rendah: ia yang menutup
+        // celah rambut di sambungan, bukan aspalnya.
+        mesh(g, new THREE.BoxGeometry(L + 6, 0.5, HW * 2 + 22), M.earth, 0, -0.65, 0, 0, 0, 0, false);
+        mesh(g, new THREE.BoxGeometry(L, 0.7, HW * 2), M.ink, 0, -0.25, 0, 0, 0, 0, false);
+        mesh(g, new THREE.BoxGeometry(L * 0.42, 0.12, 0.75), M.white, 0, 0.2, 0, 0, 0, 0, false);
+        mesh(g, new THREE.BoxGeometry(L + 1.2, 0.9, 0.6), M.steel, 0, 4.6, railZ, 0, 0, 0, false);
+        for (const x of [-L / 4, L / 4])
+            mesh(g, new THREE.BoxGeometry(0.7, 6.2, 0.7), M.steel, x, 2.4, railZ, 0, 0, 0, false);
+        if (i % 4 === 0) {
+            mesh(g, new THREE.BoxGeometry(1.5, 22, 1.5), M.steel, 0, 11, lampZ, 0, 0, 0, false);
+            mesh(g, new THREE.BoxGeometry(3.4, 1.1, 3.4), M.amber, 0, 22, lampZ, 0, 0, 0, false);
+        }
+        g.position.set(baseX - span * 0.55 + i * L, 0, baseZ);
+        g.visible = false; group.add(g); modules.push(g);
+    }
+    group.visible = false;
+    return { group, baseX, baseZ, modules, span, active: false, travel: 0, offset: 0, slope: 0 };
+}
+
+export function resetJourneyHighway(highway) {
+    if (!highway) return;
+    highway.active = false; highway.travel = 0; highway.offset = 0; highway.slope = 0;
+    highway.group.visible = false;
+    for (let i = 0; i < highway.modules.length; i++) {
+        const g = highway.modules[i];
+        g.position.x = highway.baseX - highway.span * 0.55 + i * HIGHWAY_MODULE_LEN;
+        g.position.z = highway.baseZ;
+        g.rotation.y = 0; g.scale.x = 1;
+        g.visible = false;
+    }
+}
+
+// `offsetForX(worldX)` = jarak lateral jalan pada koordinat dunia itu, relatif
+// `baseZ`. Scene yang memilikinya (stage 5) yang memegang kurva penyatuan.
+//
+// JALAN HARUS MENYAMBUNG MULUS (perbaikan 2026-08-08, laporan user "kenapa
+// jalannya patah-patah?"). Versi pertama hanya menggeser `position.z` tiap
+// modul: tiap batang aspal 84 unit tetap SEJAJAR sumbu x sementara sumbu
+// jalannya menyimpang belasan unit antar-modul, jadi yang tergambar adalah
+// tangga bergerigi, bukan tikungan. Sekarang tiap modul DIPUTAR mengikuti
+// GARIS SINGGUNG kurva dan DIPANJANGKAN sepanjang busurnya:
+//   m       = kemiringan lateral dz/dx pada titik pusat modul
+//   yaw     = -atan(m)                 (rotasi Y: local +x -> world (cos, -sin))
+//   scale.x = sqrt(1 + m*m)            (panjang BUSUR antar-pusat, bukan proyeksi x)
+// Dengan begitu ujung modul ke-i jatuh PERSIS di ujung modul ke-i+1 (keduanya
+// di (cx + L/2, cz + L*m/2) hingga orde pertama), sehingga sambungannya rapat
+// tanpa celah dan tanpa tumpang-tindih yang membuat z-fighting.
+const HW_SLOPE_H = 4;                                    // beda-tengah kemiringan
+export function updateJourneyHighway(highway, dt, speed, active, offsetForX) {
+    if (!highway) return;
+    highway.active = !!active;
+    highway.group.visible = highway.active;
+    if (!highway.active) return;
+    highway.travel += Math.max(0, speed) * dt;
+    const left = highway.baseX - highway.span * 0.55, right = highway.baseX + highway.span * 0.45;
+    const dx = Math.max(0, speed) * dt;
+    for (const g of highway.modules) {
+        g.position.x -= dx;
+        while (g.position.x < left) g.position.x += highway.span;
+        while (g.position.x > right) g.position.x -= highway.span;
+        const x = g.position.x;
+        const m = (offsetForX(x + HW_SLOPE_H) - offsetForX(x - HW_SLOPE_H)) / (2 * HW_SLOPE_H);
+        g.position.z = highway.baseZ + offsetForX(x);
+        g.rotation.y = -Math.atan(m);
+        g.scale.x = Math.sqrt(1 + m * m);
+        g.visible = true;
+    }
+    highway.offset = offsetForX(highway.baseX);
+    highway.slope = (offsetForX(highway.baseX + HW_SLOPE_H)
+        - offsetForX(highway.baseX - HW_SLOPE_H)) / (2 * HW_SLOPE_H);
+}
+
+export function journeyHighwayDebug(highway) {
+    return {
+        active: !!highway?.active, visible: !!highway?.group?.visible,
+        modules: highway?.modules?.length || 0, moduleLen: HIGHWAY_MODULE_LEN,
+        travel: highway?.travel || 0, offset: highway?.offset || 0,
+        slope: highway?.slope || 0,
+        laneW: HIGHWAY_LANE_W, lanes: HIGHWAY_LANES, halfWidth: HIGHWAY_HALF_W,
+        // Sambungan modul diuji dari transform HIDUP: pusat, yaw, dan rentang
+        // busur. Kalau salah satunya lepas, jalannya kembali patah-patah.
+        segments: highway?.modules?.map(g => ({
+            x: g.position.x, z: g.position.z, yaw: g.rotation.y, scaleX: g.scale.x,
+        })) || [],
+    };
+}
+
+// BIAYA NYATA POOL LANSKAP. `raw` = jumlah mesh mentah (itu yang dilihat harness
+// headless, karena `canMerge()` false di sana sehingga pengelasan dilewati);
+// `welded` = jumlah mesh yang benar-benar digambar di browser, yakni satu mesh
+// per MATERIAL per grup yang dilas. Padatnya isi lanskap boleh naik berlipat
+// selama `welded` tetap kecil — itu ukuran draw call yang sesungguhnya.
+export function journeySceneryDebug(journey) {
+    if (!journey) return null;
+    const raw = g => { let n = 0; g.traverse(o => { if (o.isMesh) n++; }); return n; };
+    const keys = g => {
+        const s = new Set();
+        g.traverse(o => { if (o.isMesh && o.material) s.add(materialKey(o.material)); });
+        return s.size;
+    };
+    // Modul mid/far mengelas TIAP VARIAN terpisah (kota vs pegunungan), jadi
+    // biayanya = jumlah material berbeda pada masing-masing varian.
+    const weld = g => {
+        const v = [g.userData.cityG, g.userData.hillG, g.userData.ridgeG, g.userData.skyG]
+            .filter(Boolean);
+        return v.length ? v.reduce((n, x) => n + keys(x), 0) : keys(g);
+    };
+    const sum = (arr, f) => arr.reduce((n, g) => n + f(g), 0);
+    return {
+        raw: sum(journey.near, raw) + sum(journey.mid, raw) + sum(journey.far, raw),
+        welded: sum(journey.near, weld) + sum(journey.mid, weld) + sum(journey.far, weld),
+        near: journey.near.length, mid: journey.mid.length, far: journey.far.length,
+        nearRaw: sum(journey.near, raw), midRaw: sum(journey.mid, raw), farRaw: sum(journey.far, raw),
+    };
 }
 
 export function trainJourneyDebug(train, journey) {
@@ -452,6 +883,11 @@ export function trainJourneyDebug(train, journey) {
             x: journey?.arrival?.position?.x || 0,
             z: journey?.arrival?.position?.z || 0,
         },
+        // Set lanskap yang sedang tampil: kota vs pegunungan Jawa Barat.
+        midCity: journey?.mid?.filter(g => g.visible && g.userData.cityG?.visible).length || 0,
+        midHill: journey?.mid?.filter(g => g.visible && g.userData.hillG?.visible).length || 0,
+        farSky: journey?.far?.filter(g => g.userData.skyG?.visible).length || 0,
+        farRidge: journey?.far?.filter(g => g.userData.ridgeG?.visible).length || 0,
         wheelPhase: train?.wheelPhase || 0,
         doors: train?.doors?.map(d => ({ open: d.open, target: d.target })) || [],
     };

@@ -27,7 +27,7 @@
 //                   dari LIFT, gateWaveCount, kelas ACAK C50/B25/A25, LANGSUNG
 //                   mengejar ke mana pun player berada). Gelombang itu TIDAK
 //                   di-respawn — tak ada robot baru sampai hack BERIKUTNYA selesai.
-//                   Hack ke-5 selesai → pintu MEMBUKA (naik ke plafon) → 'toX'.
+//                   Hack ke-5 selesai → dua daun bergeser kiri/kanan → 'toX'.
 //   2. 'toX'      : robot sisa tetap mengejar; masuk ruang X (lewati bekas pintu).
 //   3. 'machines' : 4 MESIN aktif. JANGAN langsung spawn — TUNDA machineFirstWaveSec
 //                   (3 dtk), lalu GELOMBANG machineWaveCount (4) robot PER MESIN
@@ -46,6 +46,9 @@ import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../utils
 import { makeNavGrid } from '../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
+import {
+    buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine,
+} from '../../../entities/spawnMachine.js';
 import { PAL } from '../../../world/palette.js';
 import {
     showStageMsg, showPickup, showStageRadioDialogue, hideStageRadioDialogue,
@@ -74,7 +77,10 @@ import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobo
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../entities/crates.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../utility/interior.js';
-import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot, playDoorSFX } from '../utility/doors.js';
+import {
+    buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot,
+    buildSplitDoor, setSplitDoorOpen, splitDoorDebug, playDoorSFX,
+} from '../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
 import { buildLiftBank } from '../utility/lift.js';
 import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
@@ -262,7 +268,8 @@ let s3Phase = 'door';   // door | toX | machines | done
 let s3SpawnT = 0;        // timer GELOMBANG (respawn 8 dtk setelah gelombang bersih; HANYA fase machines)
 let s3Door = null, s3DoorBlocker = null;   // mesh + blocker pintu blast
 let s3DoorCX = 0, s3DoorCZ = 0;
-// PINTU BLAST kini DIBUKA (naik ke plafon), bukan dihancurkan (2026-07-28).
+// PINTU BLAST kini DIBUKA, bukan dihancurkan (2026-07-28); sejak 2026-08-08
+// kedua daun 50:50 bergeser kiri/kanan sepanjang dinding.
 let s3DoorOpen = false, s3DoorK = 0;
 let s3DoorSign = null, s3DoorLight = null;   // rambu status pintu: MERAH terkunci / HIJAU terbuka
 // ===== TERMINAL HACK (2026-07-28) =====
@@ -277,7 +284,7 @@ let s3InactiveDialogueArmed = true;
 let s3DialogueCurrent = null, s3DialogueQueue = [], s3DialogueSeen = new Set();
 let s3DialogueT = 0, s3DialogueChars = 0;
 let s3Machines = [];    // [{group, cx, cz, spawn, hp, alive, spawnT, hitT, eyeMat, blocker}]
-let s3ExitSign = null, s3ExitLight = null, s3ExitDoor = null, s3ExitOpen = false;
+let s3ExitSign = null, s3ExitLight = null, s3ExitDoor = null, s3ExitOpen = false, s3ExitK = 0;
 // ===== ANTREAN SPAWN + ANIMASI MUNCUL (2026-07-26, permintaan user) =====
 // Robot TIDAK lagi muncul serentak: satu gelombang di-ANTRE lalu dilepas satu
 // per satu tiap `spawnGapSec` (0.3 dtk) dari tangga / lift / hatch mesin. Tiap
@@ -297,6 +304,8 @@ export const s3DoorDbg = () => ({
     open: s3DoorOpen, k: s3DoorK, visible: s3Door ? s3Door.visible : null,
     blocked: blockers.indexOf(s3DoorBlocker) !== -1,
     signHex: s3DoorSign ? s3DoorSign.material.color.getHex() : null,
+    split: splitDoorDebug(s3Door?.userData?.doorRig),
+    exitSplit: splitDoorDebug(s3ExitDoor?.userData?.doorRig),
 });
 // Debug/uji terminal hack: posisi, ruangan, urutan acak & warna layar tiap unit.
 export const s3HackDbg = () => ({
@@ -452,51 +461,6 @@ const s3MachinesAlive = () => s3Machines.reduce((a, m) => a + (m.alive ? 1 : 0),
 // Ruang fabrikasi inti teal + gantry + hatch emitter (muka DEPAN +z) tempat robot
 // keluar + SENSOR MERAH (faksi robot). GIBS-2045 (gunmetal/steel/panel/ink + teal
 // + hazard). Lambert/Basic (warm, tanpa recompile). Menghadap PUSAT ruang X.
-function buildSpawnMachine() {
-    const g = new THREE.Group();
-    const W = 26, H = 17, D = 26, f = 1;   // hatch di muka +z lokal (grup diputar ke pusat X di buildWorld)
-    const gun = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
-    const steel = new THREE.MeshLambertMaterial({ color: PAL.steel });
-    const panel = new THREE.MeshLambertMaterial({ color: PAL.panel });
-    const ink = new THREE.MeshLambertMaterial({ color: PAL.ink });
-    const teal = new THREE.MeshBasicMaterial({ color: PAL.tech, toneMapped: false });
-    const hazard = new THREE.MeshBasicMaterial({ color: PAL.hazard, toneMapped: false });
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2b1f, toneMapped: false });   // sensor merah faksi robot
-    const box = (mat, sx, sy, sz, x, y, z) => {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-        m.position.set(x, y, z); m.castShadow = true; g.add(m); return m;
-    };
-    const cyl = (mat, r, h, x, y, z, ax = 'y') => {
-        const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 14), mat);
-        m.position.set(x, y, z);
-        if (ax === 'x') m.rotation.z = Math.PI / 2; else if (ax === 'z') m.rotation.x = Math.PI / 2;
-        m.castShadow = true; g.add(m); return m;
-    };
-    // Fondasi + 4 pilar sudut + rangka atas
-    box(ink, W, 2.4, D, 0, 1.2, 0);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(steel, 2.6, H, 2.6, sx * (W / 2 - 2), 2.4 + H / 2, sz * (D / 2 - 2));
-    box(gun, W, 2.2, D, 0, 2.4 + H, 0);
-    // Dinding belakang (jauh dari pusat) + samping
-    box(gun, W, H - 2, 2.4, 0, 2.4 + (H - 2) / 2, -f * (D / 2 - 1.4));
-    box(panel, 2.4, H - 2, D - 6, -W / 2 + 1.4, 2.4 + (H - 2) / 2, 0);
-    box(panel, 2.4, H - 2, D - 6, W / 2 - 1.4, 2.4 + (H - 2) / 2, 0);
-    // Ruang fabrikasi: inti teal menyala + cincin baja
-    cyl(teal, 4.5, H - 4, 0, 2.4 + (H - 4) / 2, 0);
-    for (const yy of [5, 9, 13]) cyl(steel, 5.2, 0.9, 0, yy, 0);
-    // Gantry + lengan robotik di atas inti
-    box(steel, 3, 3, 16, 0, 2.4 + H - 1.5, 0);
-    box(gun, 2.2, 6, 2.2, 6, 2.4 + H - 6, 0);
-    // Hatch emitter di muka DEPAN (ke pusat X, f) tempat robot keluar
-    box(gun, 14, 12, 1.6, 0, 8, f * (D / 2 - 0.8));
-    box(teal, 10, 8, 0.8, 0, 8, f * (D / 2 - 0.2));
-    const eye = box(eyeMat, 5, 1.7, 0.7, 0, 15, f * (D / 2 - 0.1));   // sensor merah (kilat tertembak)
-    box(hazard, W - 6, 1, 0.8, 0, 3.2, f * (D / 2 - 0.2));
-    // Pipa + antena
-    for (const sx of [-1, 1]) cyl(steel, 1, D - 4, sx * (W / 2 - 4), 2.4 + H - 3, 0, 'z');
-    cyl(steel, 0.5, 6, 0, 2.4 + H + 3, 0);
-    return { group: g, eyeMat };
-}
-
 // PINTU BLAST '+' (dihancurkan dgn tembak): slab tebal + rusuk baja + strip
 // hazard + panel kunci teal. w = lebar bukaan (4 sel).
 function buildBlastDoor(w) {
@@ -508,17 +472,26 @@ function buildBlastDoor(w) {
     const teal = new THREE.MeshBasicMaterial({ color: PAL.tech, toneMapped: false });
     const hazard = new THREE.MeshBasicMaterial({ color: PAL.hazard, toneMapped: false });
     const white = new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false });
-    const box = (mat, sx, sy, sz, x, y, z) => {
+    const box = (parent, mat, sx, sy, sz, x, y, z) => {
         const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-        m.position.set(x, y, z); m.castShadow = true; g.add(m); return m;
+        m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m;
     };
-    box(gun, w, H - 1, D, 0, (H - 1) / 2, 0);
-    for (let x = -w / 2 + 5; x <= w / 2 - 5; x += 10) box(steel, 2.4, H - 3, D + 0.6, x, (H - 1) / 2, 0);
-    for (const yy of [H * 0.3, H * 0.68]) box(steel, w - 2, 2.2, D + 0.4, 0, yy, 0);
-    for (const s of [-1, 1]) for (let i = -2; i <= 2; i++)
-        box(i % 2 ? hazard : white, 5, 2.4, 0.5, i * 6, H * 0.5, s * (D / 2 + 0.2));
-    box(ink, 10, 8, 0.9, 0, H * 0.5, D / 2 + 0.3);
-    box(teal, 6, 4, 0.8, 0, H * 0.5, D / 2 + 0.6);
+    const rig = buildSplitDoor(g, gun, 0, (H - 1) / 2, 0, w, H - 1, D);
+    const leafW = w / 2;
+    for (let i = 0; i < rig.leaves.length; i++) {
+        const leaf = rig.leaves[i], sign = i ? 1 : -1;
+        for (const x of [-leafW * 0.27, leafW * 0.27])
+            box(leaf, steel, 2.4, H - 3, D + 0.6, x, 0, 0);
+        for (const yy of [-H * 0.2, H * 0.18])
+            box(leaf, steel, leafW - 2, 2.2, D + 0.4, 0, yy, 0);
+        for (const face of [-1, 1]) for (let n = -1; n <= 1; n++)
+            box(leaf, n % 2 ? hazard : white, Math.max(3, leafW / 3.4), 2.4, 0.5,
+                n * leafW / 3.2, 0, face * (D / 2 + 0.2));
+        const innerX = -sign * (leafW / 2 - 2.5);
+        box(leaf, ink, 5, 8, 0.9, innerX, 0, D / 2 + 0.3);
+        box(leaf, teal, 3, 4, 0.8, innerX, 0, D / 2 + 0.6);
+    }
+    g.userData.doorRig = rig;
     return g;
 }
 
@@ -682,14 +655,14 @@ export function buildWorld() {
     s3Machines = [];
     for (const d of S3_MACHINES_DEF) {
         const p = s3Cell(d.cc + 0.5, d.cr + 0.5);    // pusat 2x2
-        const mach = buildSpawnMachine();             // hatch di muka +z lokal
+        const mach = buildSpawnMachineMesh();             // hatch di muka +z lokal
         mach.group.position.set(p.x, 0, p.z);
         mach.group.rotation.y = d.face * Math.PI / 2; // putar hatch ke PUSAT ruang (timur/barat)
         scene.add(mach.group);
         const blocker = { x: p.x, z: p.z, hx: 14, hz: 14, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(14, 14), top: 17, standable: false };
         blockers.push(blocker);
         const sp = s3Cell(d.sc, d.sr);
-        s3Machines.push({ group: mach.group, cx: p.x, cz: p.z, spawn: { c: d.sc, r: d.sr }, hp: 0, alive: true, hitT: 0, eyeMat: mach.eyeMat, blocker });
+        s3Machines.push({ group: mach.group, rig: mach, cx: p.x, cz: p.z, spawn: { c: d.sc, r: d.sr }, hp: 0, alive: true, hitT: 0, eyeMat: mach.eyeMat, blocker });
     }
 
     // --- PINTU KELUAR 'o' (finish) di dinding selatan baris 39 (c18-21) ---
@@ -698,13 +671,10 @@ export function buildWorld() {
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(exW + 8, 5, 6), new THREE.MeshLambertMaterial({ color: PAL.gunmetal }));
     lintel.position.set(exP.x, S3.H - 2.5, exP.z); scene.add(lintel);
     const glassMat = new THREE.MeshPhongMaterial({ color: 0x1a2b28, shininess: 60, specular: 0x4a6a64, transparent: true, opacity: 0.55 });
-    s3ExitDoor = new THREE.Group();
-    for (const sgn of [-1, 1]) {
-        const leaf = new THREE.Mesh(new THREE.BoxGeometry(exW / 2 - 1, S3.H - 6, 1.2), glassMat);
-        leaf.position.set(exP.x + sgn * (exW / 4), (S3.H - 6) / 2, exP.z - 1.5);
-        s3ExitDoor.add(leaf);
-    }
-    scene.add(s3ExitDoor);
+    const exitRig = buildSplitDoor(scene, glassMat, exP.x, (S3.H - 6) / 2, exP.z - 1.5,
+        exW - 2, S3.H - 6, 1.2);
+    s3ExitDoor = exitRig.panel;
+    s3ExitDoor.userData.doorRig = exitRig;
     s3ExitSign = new THREE.Mesh(new THREE.BoxGeometry(20, 5, 1.2), new THREE.MeshBasicMaterial({ color: 0xff4a3c, toneMapped: false }));
     s3ExitSign.position.set(exP.x, S3.H - 6, exP.z + 3); scene.add(s3ExitSign);
     s3ExitLight = new THREE.PointLight(0xff5040, 0.9, 240, 2);
@@ -761,8 +731,8 @@ export function buildWorld() {
 
     // === RAMBU PINTU BLAST (2026-07-28, permintaan user "beri lampu di pintu utama
     // itu seperti di pintu lain"): papan + PointLight, MERAH selama terkunci dan
-    // HIJAU begitu terbuka. Sengaja BUKAN anak grup pintu — pintunya naik ke
-    // plafon saat membuka, rambunya harus tetap di ambang. ===
+    // HIJAU begitu terbuka. Sengaja BUKAN anak grup pintu agar rambunya tetap
+    // di ambang ketika kedua daun bergeser masuk ke sisi dinding. ===
     const sgP = s3Cell((S3_PLUS.c0 + S3_PLUS.c1) / 2, S3_PLUS.r);
     s3DoorSign = new THREE.Mesh(new THREE.BoxGeometry(16, 4, 1.2),
         new THREE.MeshBasicMaterial({ color: HACK_LOCKED, toneMapped: false }));
@@ -965,7 +935,7 @@ function s3AlarmHorde() {
         + `Clear them out; it reboots in ${Math.round(s3HackCd)}s.`, 5000);
 }
 
-// Kelima terminal beres → PINTU BLAST TERBUKA (naik ke plafon), rambu jadi HIJAU.
+// Kelima terminal beres → PINTU BLAST TERBUKA kiri/kanan, rambu jadi HIJAU.
 function s3OpenDoor() {
     s3DoorOpen = true;
     playDoorSFX(true, s3DoorCX, s3DoorCZ);   // pintu blast memakai klip pintu yang sama
@@ -1068,7 +1038,7 @@ export const stage3Scene = {
         // PINTU BLAST: tertutup lagi, rambu MERAH (tak lagi punya HP — dibuka
         // oleh 5 terminal hack, bukan ditembak).
         s3DoorOpen = false; s3DoorK = 0;
-        if (s3Door) { s3Door.visible = true; s3Door.position.y = 0; }
+        if (s3Door) { s3Door.visible = true; setSplitDoorOpen(s3Door.userData.doorRig, 0); }
         if (s3DoorSign) s3DoorSign.material.color.setHex(HACK_LOCKED);
         if (s3DoorLight) s3DoorLight.color.setHex(HACK_LOCKED);
         if (blockers.indexOf(s3DoorBlocker) === -1) blockers.push(s3DoorBlocker);
@@ -1086,10 +1056,11 @@ export const stage3Scene = {
         for (const m of s3Machines) {
             m.hp = CFG.campaign.stage3.machineHp; m.alive = true; m.hitT = 0;
             if (m.group) m.group.visible = true;
-            if (m.eyeMat) m.eyeMat.color.setHex(0xff2b1f);
+            resetSpawnMachine(m.rig, false);
             if (blockers.indexOf(m.blocker) === -1) blockers.push(m.blocker);
         }
-        s3ExitOpen = false;
+        s3ExitOpen = false; s3ExitK = 0;
+        if (s3ExitDoor) setSplitDoorOpen(s3ExitDoor.userData.doorRig, 0);
         if (s3ExitSign) { s3ExitSign.material.color.setHex(0xff4a3c); s3ExitLight.color.setHex(0xff5040); }
         s3HintT = 0;
         const sp = s3Cell(S3_START.c, S3_START.r);
@@ -1185,21 +1156,26 @@ export const stage3Scene = {
             if (s3MachinesAlive() === 0 && !s3Queue.length && countStageRobots(3) === 0) {
                 s3Phase = 'done';
                 s3ExitOpen = true;
+                playDoorSFX(true, s3ExitDoor.position.x, s3ExitDoor.position.z);
                 if (s3ExitSign) { s3ExitSign.material.color.setHex(0x2eff6a); s3ExitLight.color.setHex(0x39ff7a); }
                 showStageMsg('ALL FACTORIES DESTROYED — the EXIT is open. Get out!', 4800);
             }
         }
-        // PINTU BLAST MEMBUKA: daun pintu naik ke plafon (bukan meledak).
+        // PINTU BLAST MEMBUKA: dua daun 50:50 bergeser kiri/kanan.
         if (s3DoorOpen && s3DoorK < 1) {
             s3DoorK = Math.min(1, s3DoorK + dt / 1.3);
             const e = s3DoorK * s3DoorK * (3 - 2 * s3DoorK);   // smoothstep
-            if (s3Door) s3Door.position.y = S3.H * e;
+            if (s3Door) setSplitDoorOpen(s3Door.userData.doorRig, e);
+        }
+        if (s3ExitOpen && s3ExitK < 1) {
+            s3ExitK = Math.min(1, s3ExitK + dt / 0.7);
+            const e = s3ExitK * s3ExitK * (3 - 2 * s3ExitK);
+            if (s3ExitDoor) setSplitDoorOpen(s3ExitDoor.userData.doorRig, e);
         }
         // Kilat sensor mesin tertembak (merah → putih, memudar)
-        for (const m of s3Machines) if (m.alive && m.hitT > 0 && m.eyeMat) {
-            m.hitT = Math.max(0, m.hitT - dt * 6);
-            const t = m.hitT, r = 0xff, g = Math.round(0x2b + (0xff - 0x2b) * t), bl = Math.round(0x1f + (0xff - 0x1f) * t);
-            m.eyeMat.color.setHex(r << 16 | g << 8 | bl);
+        for (const m of s3Machines) if (m.alive) {
+            if (m.hitT > 0) m.hitT = Math.max(0, m.hitT - dt * 6);
+            updateSpawnMachine(m.rig, dt, s3Phase === 'machines', m.hitT);
         }
     },
 
