@@ -2,6 +2,8 @@
 
 **Cutscene layout update (2026-08-10):** campaign-wide `prologue.js`, `prologueArt.js`, and `intro.js` remain in `src/scenes/campaign/cutscenes/`; Stage 4 controllers are in `cutscenes/stage4/`, and Stage 5 controllers are in `cutscenes/stage5/`. Stage facades own the imports from those canonical paths.
 
+**Cutscene rate update (2026-08-10):** while `cinematicActive` is true, `core/cutsceneRate.js` caps cutscene simulation ticks and rendering at 24 FPS; ordinary gameplay remains uncapped.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Commands

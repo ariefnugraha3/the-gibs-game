@@ -211,6 +211,7 @@ global.THREE = {
 const R = (p) => 'file:///' + ROOT + '/' + p;
 const cfgMod = await import(R('src/core/config.js'));
 Object.assign(cfgMod.CFG, JSON.parse(fs.readFileSync(ROOT + '/config/gameplay.json', 'utf8')));
+const cineRateMod = await import(R('src/core/cutsceneRate.js'));
 const rendererMod = await import(R('src/core/renderer.js'));
 rendererMod.initRenderer();
 const { scene, camera } = rendererMod;
@@ -237,6 +238,13 @@ smMod.setScene({
 
 let pass = 0, fail = 0;
 const T = (name, ok) => { ok ? pass++ : (fail++, console.log('FAIL:', name)); };
+
+T('CUTSCENE RATE: limiter dikunci maksimal 24 FPS dengan deadline berjalan',
+    cineRateMod.CUTSCENE_FPS === 24
+    && Math.abs(cineRateMod.CUTSCENE_FRAME_MS - (1000 / 24)) < 1e-9
+    && cineRateMod.cutsceneFrameDue(100, NaN)
+    && !cineRateMod.cutsceneFrameDue(100, 101)
+    && cineRateMod.nextCutsceneDeadline(100, 100) > 100);
 
 T('DIALOGUE CONFIG: seluruh naskah spoken/cutscene terpusat di gameplay.json',
     cfgMod.CFG.dialogue

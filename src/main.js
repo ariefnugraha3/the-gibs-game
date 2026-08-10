@@ -4,7 +4,7 @@
 // dipenggal dgn await loadingStep() agar overlay & bar sempat dilukis browser.
 
 import { loadConfig, CFG } from './core/config.js';
-import { setMode, configurePlayer, isPaused, isGameOver, highScore } from './core/state.js';
+import { setMode, configurePlayer, isPaused, isGameOver, highScore, cinematicActive } from './core/state.js';
 import {
     initRenderer, initQualityUI, scene, camera, viewCam, renderer, composer, postFxOn,
     followViewCam
@@ -37,6 +37,7 @@ import { prologueScene, beginPrologue } from './scenes/campaign/cutscenes/prolog
 import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
+import { cutsceneFrameDue, nextCutsceneDeadline } from './core/cutsceneRate.js';
 
 // Boot BERTAHAP di balik #bootScreen (2026-08-10, permintaan user): menu utama
 // baru diperlihatkan setelah config dimuat, DOM menu dibangun, font UI siap,
@@ -178,9 +179,28 @@ export async function startGame(mode, opts = {}) {
 // ----------- Frame Loop ----------- //
 const clock = new THREE.Clock();
 let radarTick = 0;
+let cutsceneNextFrameAt = NaN;
+let wasCinematic = false;
 
-function animate() {
+function animate(now) {
     requestAnimationFrame(animate);
+    const frameNow = Number.isFinite(now)
+        ? now
+        : (globalThis.performance && typeof globalThis.performance.now === 'function'
+            ? globalThis.performance.now() : Date.now());
+
+    // Cutscene tick + render = maksimal 24 FPS. Gameplay biasa tetap mengikuti
+    // requestAnimationFrame tanpa limiter. Deadline berjalan menghasilkan
+    // distribusi 24 FPS yang stabil pada monitor 60 Hz.
+    if (cinematicActive !== wasCinematic) {
+        wasCinematic = cinematicActive;
+        if (cinematicActive) cutsceneNextFrameAt = NaN;
+    }
+    if (cinematicActive) {
+        if (!cutsceneFrameDue(frameNow, cutsceneNextFrameAt)) return;
+        cutsceneNextFrameAt = nextCutsceneDeadline(frameNow, cutsceneNextFrameAt);
+    }
+
     const dtReal = Math.min(clock.getDelta(), 0.05);   // clamp anti-spike (tab switch)
     // SATU-SATUNYA skala waktu global (core/timeScale.js): slow-motion kematian
     // × HIT-STOP melee. 1 = normal, jadi frame biasa identik dengan sebelumnya.
