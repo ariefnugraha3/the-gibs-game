@@ -10988,6 +10988,12 @@ const palMod = await import(R('src/world/palette.js'));
         && ['easy', 'normal', 'hard'].every(d => htmlM.includes('data-d="' + d + '"'))
         && ['survival', 'campaign'].every(m => htmlM.includes('class="modeCard" data-mode="' + m + '"'))
         && (htmlM.match(/class="menuBtn menuBack" data-back=/g) || []).length === 2);
+    // Urutan tampil kualitas grafis: paling RENDAH di kiri -> paling TINGGI di
+    // kanan (2026-08-10, permintaan user). `data-q` sengaja tidak ikut dibalik —
+    // yang dibaca menu.js/renderer.js adalah dataset.q, bukan posisi tombol.
+    T('MENU: tombol kualitas terurut Very Low -> Ultra dari kiri ke kanan',
+        (htmlM.match(/class="qbtn" data-q="(\d)"/g) || [])
+            .map(s => +s.replace(/\D/g, '')).join(',') === '4,3,2,1,0');
     T('MENU: panel Settings/Credits tetap dibuka lewat kelas .open + .subview',
         /\.menuPanel\.open\s*\{[^}]*display:\s*flex/.test(cssM)
         && /#mainMenu\.subview\s+#mainMenuMain\s*\{[^}]*display:\s*none/.test(cssM));
@@ -10996,11 +11002,24 @@ const palMod = await import(R('src/world/palette.js'));
     T('MENU: NOL emoji sebagai ilustrasi kartu mode',
         !htmlM.includes('class="emoji"') && !/[\u{1F300}-\u{1FAFF}]/u.test(htmlM)
         && !cssM.includes('.modeCard .emoji'));
-    T('MENU: kartu mode kini berkas misi (kode operasi + skema vektor + spesifikasi)',
+    // PAS KEDUA 2026-08-10 (user: "masih terlihat AI generated"). Yang membuat
+    // layar ini terbaca sebagai template bukan bahasa desainnya melainkan
+    // KEPADATANNYA. Ketiga assert di bawah mengunci pengurangannya supaya tak
+    // pelan-pelan tumbuh kembali.
+    T('MENU: kartu mode dipimpin GAMBAR — skema + nama + satu kalimat, tanpa chrome berkas misi',
         htmlM.includes('class="mcArt" data-art="survival"')
         && htmlM.includes('class="mcArt" data-art="campaign"')
-        && (htmlM.match(/class="mcSpec"/g) || []).length === 2
-        && (htmlM.match(/class="mcGo"/g) || []).length === 2);
+        && (htmlM.match(/class="modeCard" data-mode=/g) || []).length === 2
+        && (htmlM.match(/class="mcSub"/g) || []).length === 2
+        && !/mcSpec|mcGo|mcTop|mcCode|mcStripe/.test(htmlM));
+    T('MENU: NOL rel telemetri palsu dan NOL baris petunjuk per entri menu',
+        !/mRail|railKey|railDim|railLive|liveDot|class="eyebrow"/.test(htmlM)
+        && !/nrHint|nrIdx|nrArrow/.test(htmlM)
+        && (htmlM.match(/class="navRow"/g) || []).length === 4
+        && (htmlM.match(/class="nrLabel"/g) || []).length === 4);
+    T('MENU: NOL overlay garis pindai CRT (klise UI fiksi ilmiah); .mScan tinggal vignette',
+        /\.mScan\s*\{[^}]*radial-gradient/.test(cssM)
+        && !/\.mScan\s*\{[^}]*repeating-linear-gradient/.test(cssM));
 
     // (c) Seni vektor: tiga lapis skyline + dua skema, semuanya DETERMINISTIK
     // (dibangun ulang tiap layar menu disiapkan — Math.random bikin berkedip).

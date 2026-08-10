@@ -148,18 +148,22 @@
     </div>
 
     <!-- ============================================================
-         FRONT-END MENU — ROMBAK TOTAL 2026-08-09 (permintaan user: menu lama
-         "terlihat AI generated"). Konsep barunya TERMINAL LAPANGAN: rel status
-         atas/bawah, judul + daftar misi RATA KIRI, dan siluet Jakarta 2045
-         (SVG buatan tangan di scenes/menuArt.js, tiga lapis parallax) mengisi
-         ruang kanan. Tak ada lagi emoji, sudut membulat, atau gradien radial.
+         FRONT-END MENU — desain 2026-08-09, DIRAMPINGKAN 2026-08-10 (user:
+         "masih terlihat AI generated"). Yang dibuang pada pas kedua adalah
+         KERAMAIAN-nya, bukan bahasanya: rel telemetri palsu atas/bawah
+         (FIELD TERMINAL / BUILD / UPLINK STANDBY / koordinat), eyebrow
+         "Clearance Red", baris petunjuk di bawah tiap entri menu, nomor entri,
+         garis pindai CRT, pita bahaya, dan seluruh chrome berkas-misi kartu
+         mode (kode OP, tabel spesifikasi, footer Deploy). Sisanya: satu judul
+         besar, empat kata menu rata kiri, dan siluet Jakarta 2045 (SVG buatan
+         tangan di scenes/menuArt.js, tiga lapis parallax).
          KONTRAK JS LAMA TETAP: #mmStart/#mmSettings/#mmCredits/#mmExit,
          .menuBack[data-back], #qualityRow > .qbtn[data-q] (dibaca renderer.js
          + disembunyikan input.js), slider volume, #creditsBody, #diffRow
          .dbtn[data-d], .modeCard[data-mode], #modeBack, #continuePrompt.
          ============================================================ -->
     <div id="mainMenu" class="menuScreen">
-        <!-- Panggung latar: langit → tiga lapis kota → kabut → garis pindai.
+        <!-- Panggung latar: langit → tiga lapis kota → kabut → vignette.
              Isi .mCity ditanam menuArt.paintMenuArt saat menu diinisialisasi. -->
         <div class="mScene" aria-hidden="true">
             <div class="mSky"></div>
@@ -170,62 +174,40 @@
             <div class="mScan"></div>
         </div>
 
-        <div class="mRail mRailTop">
-            <span class="railMark"></span>
-            <span class="railKey">FIELD TERMINAL</span>
-            <span class="railDim">GARUDA CONTAINMENT PROTOCOL</span>
-            <span class="railGap"></span>
-            <span class="railDim">BUILD 2045.08</span>
-            <span class="railLive"><i class="liveDot"></i>UPLINK STANDBY</span>
-        </div>
-
         <div id="mainMenuMain">
             <div class="titleLock">
-                <div class="eyebrow"><i class="ebMark"></i>Nusantara Command — Clearance Red</div>
                 <h1><span class="titleMain">ADVERSARIAL INTELLIGENCE</span><span class="titleRule"></span><span class="titleTag">NUSANTARA 2045</span></h1>
             </div>
             <nav class="menuBtns">
-                <button id="mmStart" class="navRow">
-                    <span class="nrIdx">01</span>
-                    <span class="nrBody"><span class="nrLabel">Start Game</span><span class="nrHint">Pick an operation and deploy</span></span>
-                    <span class="nrArrow">&#9656;</span>
-                </button>
-                <button id="mmSettings" class="navRow">
-                    <span class="nrIdx">02</span>
-                    <span class="nrBody"><span class="nrLabel">Settings</span><span class="nrHint">Display fidelity and audio levels</span></span>
-                    <span class="nrArrow">&#9656;</span>
-                </button>
-                <button id="mmCredits" class="navRow">
-                    <span class="nrIdx">03</span>
-                    <span class="nrBody"><span class="nrLabel">Credits</span><span class="nrHint">Everyone behind the mission</span></span>
-                    <span class="nrArrow">&#9656;</span>
-                </button>
-                <button id="mmExit" class="navRow">
-                    <span class="nrIdx">04</span>
-                    <span class="nrBody"><span class="nrLabel">Exit Game</span><span class="nrHint">Stand down and close the terminal</span></span>
-                    <span class="nrArrow">&#9656;</span>
-                </button>
+                <button id="mmStart" class="navRow"><span class="nrLabel">Start Game</span></button>
+                <button id="mmSettings" class="navRow"><span class="nrLabel">Settings</span></button>
+                <button id="mmCredits" class="navRow"><span class="nrLabel">Credits</span></button>
+                <button id="mmExit" class="navRow"><span class="nrLabel">Exit</span></button>
             </nav>
         </div>
 
         <!-- Panel Settings: konsol dua kelompok (DISPLAY / AUDIO) -->
         <div id="settingsPanel" class="menuPanel">
             <div class="panelHead">
-                <span class="phEyebrow">Terminal Configuration</span>
-                <h2>SETTINGS</h2>
+                <h2>Settings</h2>
             </div>
             <div class="setGroup">
                 <div class="setGroupHead"><span>Display</span><i></i></div>
                 <div id="qualityRow">
                     <span class="qlabel">Graphics Quality</span>
+                    <!-- Urutan DOM = paling rendah di KIRI sampai paling tinggi di
+                         KANAN (2026-08-10, permintaan user), searah dgn baris
+                         Difficulty di sebelahnya dan dgn slider volume: naik ke
+                         kanan. `data-q` TIDAK ikut dibalik — menu.js/renderer.js
+                         membaca `dataset.q`, bukan posisi, jadi tier 0 tetap Ultra. -->
                     <div class="segRow">
-                        <button class="qbtn" data-q="0">Ultra</button>
-                        <button class="qbtn" data-q="1">High</button>
-                        <button class="qbtn" data-q="2">Medium</button>
-                        <button class="qbtn" data-q="3">Low</button>
                         <button class="qbtn" data-q="4">Very Low</button>
+                        <button class="qbtn" data-q="3">Low</button>
+                        <button class="qbtn" data-q="2">Medium</button>
+                        <button class="qbtn" data-q="1">High</button>
+                        <button class="qbtn" data-q="0">Ultra</button>
                     </div>
-                    <div class="setNote">Applied the moment a mission starts. Lower tiers drop bloom and shadow work first.</div>
+                    <div class="setNote">Applied when a mission starts. Lower tiers drop bloom and shadows first.</div>
                 </div>
             </div>
             <!-- Slider volume musik & SFX (2026-07-19): master 0-100%, tersimpan localStorage -->
@@ -250,8 +232,8 @@
         <!-- Panel Credits: konten diisi dari MENU_CREDITS dalam menu.js -->
         <div id="creditsPanel" class="menuPanel">
             <div class="panelHead">
+                <h2>Credits</h2>
                 <div id="creditsEyebrow" class="creditsEyebrow"></div>
-                <h2>CREDITS</h2>
             </div>
             <div id="creditsIntro" class="creditsIntro"></div>
             <div id="creditsBody" class="creditsBody"></div>
@@ -259,13 +241,8 @@
             <button class="menuBtn menuBack" data-back="credits">Back</button>
         </div>
 
-        <div class="mRail mRailBot">
-            <span class="railKey">Operator</span>
-            <span class="railDim">Maj. Gibran &mdash; 1st Special Response</span>
-            <span class="railGap"></span>
-            <span class="railDim">Sector DKI Jakarta</span>
-            <span class="railDim">06&deg;12'S 106&deg;49'E</span>
-        </div>
+        <!-- Satu-satunya chrome yang tersisa di layar menu. -->
+        <div class="mStamp">Build 2045.08</div>
     </div>
 
     <div id="modeSelect" class="menuScreen" style="display:none">
@@ -278,15 +255,13 @@
             <div class="mScan"></div>
         </div>
 
-        <div class="mRail mRailTop">
-            <span class="railMark"></span>
+        <!-- Logotype kecil di pojok kiri atas, bukan rel status selebar layar. -->
+        <div class="msMark">
             <h1><span class="titleMain">ADVERSARIAL INTELLIGENCE</span><span class="titleRule"></span><span class="titleTag">NUSANTARA 2045</span></h1>
-            <span class="railGap"></span>
-            <span class="railDim">OPERATION SELECT</span>
         </div>
 
         <div class="msBody">
-            <div class="subtitle">SELECT GAME MODE</div>
+            <div class="subtitle">Select an operation</div>
 
             <div id="diffRow">
                 <span class="qlabel">Difficulty</span>
@@ -300,34 +275,20 @@
                 <div id="diffNote"></div>
             </div>
 
+            <!-- Kartu mode DIPIMPIN GAMBAR: skema misi, nama, satu kalimat.
+                 Kode OP / tabel spesifikasi / footer "Deploy" dibuang 2026-08-10. -->
             <div class="modeCards">
                 <div class="modeCard" data-mode="survival">
-                    <span class="mcStripe"></span>
-                    <div class="mcTop"><span class="mcCode">OP // 01</span><span class="mcClass">Open Field</span></div>
                     <div class="mcArt" data-art="survival"></div>
                     <h2>Survival</h2>
-                    <div class="mcSub">Monas Perimeter Defense</div>
-                    <p>Hold the monument while the machines come from every side. Clear a wave, spend what you earned at the field shop, then brace for a bigger one.</p>
-                    <dl class="mcSpec">
-                        <div><dt>Sector</dt><dd>Merdeka Square</dd></div>
-                        <div><dt>Duration</dt><dd>Endless</dd></div>
-                        <div><dt>Extraction</dt><dd>None</dd></div>
-                    </dl>
-                    <div class="mcGo"><span>Deploy</span><i>&#9656;</i></div>
+                    <div class="mcSub">Merdeka Square, held to the last wave</div>
+                    <p>Machines come from every side of the monument. Clear a wave, spend what you earned, brace for a bigger one.</p>
                 </div>
                 <div class="modeCard" data-mode="campaign">
-                    <span class="mcStripe"></span>
-                    <div class="mcTop"><span class="mcCode">OP // 02</span><span class="mcClass">Long War</span></div>
                     <div class="mcArt" data-art="campaign"></div>
                     <h2>Campaign</h2>
-                    <div class="mcSub">Eight Stages, One Kill Switch</div>
-                    <p>A dead office block, a highway held by armour, a military train east, and the road past Bandung — carrying a kill switch only one transmitter can still broadcast.</p>
-                    <dl class="mcSpec">
-                        <div><dt>Sector</dt><dd>Jakarta &rarr; Kertajati</dd></div>
-                        <div><dt>Duration</dt><dd>8 stages</dd></div>
-                        <div><dt>Extraction</dt><dd>Story</dd></div>
-                    </dl>
-                    <div class="mcGo"><span>Deploy</span><i>&#9656;</i></div>
+                    <div class="mcSub">Jakarta to Kertajati, eight stages</div>
+                    <p>A dead office block, a highway held by armour, a train east — carrying a kill switch only one transmitter can still broadcast.</p>
                 </div>
             </div>
 
@@ -340,9 +301,7 @@
          Game dari stage 1 + hapus save. -->
     <div id="continuePrompt">
         <div class="cpBox">
-            <span class="mcStripe"></span>
-            <div class="cpEyebrow">Mission Record Found</div>
-            <div class="cpTitle">CONTINUE GAME?</div>
+            <div class="cpTitle">Continue?</div>
             <div class="cpText" id="cpText"></div>
             <div class="cpBtns">
                 <button id="cpYes" class="menuBtn menuBtnHot">Yes, Continue</button>

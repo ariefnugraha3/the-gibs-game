@@ -904,24 +904,36 @@ body {
 }
 
 /* ============================================================================
-   FRONT-END MENU — ROMBAK TOTAL 2026-08-09 (permintaan user: menu lama "jelek
-   dan terlihat AI generated"). Yang dibuang: gradien radial merah, sudut
-   membulat, tombol pil seragam, emoji sebagai ilustrasi, dan tata letak
-   semuanya-di-tengah. Penggantinya satu bahasa desain "TERMINAL LAPANGAN"
-   yang senada HUD dalam-game (panel gelap, garis rambut, label mikro
-   ber-jarak lebar, aksen amber manusia + teal sipil GIBS 2045):
+   FRONT-END MENU — desain 2026-08-09, DIRAMPINGKAN 2026-08-10.
+   ----------------------------------------------------------------------------
+   Pas pertama membuang gradien radial merah, sudut membulat, tombol pil, emoji,
+   dan tumpukan-di-tengah; penggantinya bahasa "terminal lapangan" senada HUD.
+   User tetap membacanya sebagai AI generated, dan sebabnya BUKAN bahasa
+   desainnya melainkan KEPADATANNYA: layar itu memakai sembilan potong teks
+   telemetri palsu (FIELD TERMINAL / GARUDA CONTAINMENT PROTOCOL / BUILD /
+   UPLINK STANDBY / operator / sektor / koordinat / Clearance Red / OPERATION
+   SELECT), sebaris petunjuk di bawah SETIAP entri menu ("Exit Game — stand down
+   and close the terminal"), enam laras teks di tiap kartu mode, ditambah garis
+   pindai CRT + pita bahaya + titik "live" berkedip. Redundansi tanpa alasan
+   itulah tanda tangannya.
 
-     * satu panggung latar berlapis (langit → 3 lapis siluet Jakarta 2045 dari
-       scenes/menuArt.js → kabut → garis pindai) dipakai ulang oleh menu utama
-       & layar pilih mode;
-     * rel status atas/bawah yang membingkai layar;
-     * menu utama RATA KIRI dgn nomor entri + baris petunjuk (bukan tumpukan
-       tombol di tengah);
-     * kartu mode berbentuk BERKAS MISI: kode operasi, skema vektor, spesifikasi;
-     * Settings jadi konsol berkelompok (DISPLAY/AUDIO) dgn segmented control;
-     * Credits jadi kartu judul film (peran kanan-rata | nama kiri-rata).
+   Pas kedua karena itu MENGURANGI, bukan menambah:
 
-   Semua kontrak JS lama dipertahankan — lihat komentar di index.html.
+     * rel status atas & bawah DIHAPUS — sisa satu cap "Build" di pojok;
+     * entri menu = SATU kata masing-masing (nomor, baris petunjuk, dan panah
+       dibuang); yang menandai baris aktif cukup rusuk amber + geseran kecil;
+     * kartu mode DIPIMPIN GAMBAR: skema misi, nama, satu kalimat — kode OP,
+       tabel spesifikasi, footer "Deploy", dan pita bahaya dibuang;
+     * garis pindai CRT dibuang; .mScan tinggal vignette;
+     * label mikro disatukan jadi SATU gaya (.qlabel/.setGroupHead/.subtitle/
+       .creditRole/.mStamp semuanya 10.5px + 0.28em) — sebelumnya ada sebelas
+       varian 9.5-10.5px dgn tracking berbeda-beda, yang membuat tiap sudut
+       layar tampak "diisi" alih-alih dirancang.
+
+   Yang TETAP: panggung latar berlapis (langit → 3 lapis siluet Jakarta 2045
+   dari scenes/menuArt.js → kabut → vignette), judul + daftar RATA KIRI, panel
+   Settings berkelompok, Credits ala kartu judul film, dan seluruh kontrak JS
+   lama — lihat komentar di index.html.
    ============================================================================ */
 
 :root {
@@ -1079,13 +1091,13 @@ body {
     to { transform: translateX(14%); }
 }
 
-/* Garis pindai halus + vignette layar */
+/* Vignette layar. Garis pindai CRT dibuang 2026-08-10: overlay scanline adalah
+   klise "UI fiksi ilmiah" paling umum, dan di sini ia cuma mengaburkan siluet
+   kota yang digambar tangan. */
 .mScan {
     position: absolute;
     inset: 0;
-    background:
-        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.20) 0 1px, transparent 1px 3px),
-        radial-gradient(126% 104% at 50% 46%, transparent 40%, rgba(0, 0, 0, 0.7) 100%);
+    background: radial-gradient(126% 104% at 50% 46%, transparent 40%, rgba(0, 0, 0, 0.7) 100%);
 }
 
 /* Peredup teks: menu utama gelap PENUH di kiri sampai ujung daftar menu (~42%
@@ -1104,57 +1116,28 @@ body {
             rgba(9, 10, 13, 0.8) 68%, rgba(9, 10, 13, 0.94) 100%);
 }
 
-/* ---------- Rel status atas & bawah ---------- */
-.mRail {
-    position: absolute;
-    left: 0;
-    right: 0;
-    z-index: 3;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    height: 46px;
-    padding: 0 clamp(18px, 4vw, 46px);
-    box-sizing: border-box;
-    font-size: 10px;
-    letter-spacing: 2.8px;
+/* ---------- Label mikro BERSAMA ----------
+   Satu gaya untuk setiap teks kecil di seluruh front-end (label Settings, judul
+   kelompok, "Select an operation", peran di Credits, cap build). Sebelas varian
+   yang nyaris sama adalah salah satu sebab layar ini terbaca sebagai template. */
+.qlabel,
+.setGroupHead,
+.creditRole,
+.mStamp,
+#modeSelect .subtitle,
+#diffNote {
+    font-size: 10.5px;
+    letter-spacing: 0.28em;
     text-transform: uppercase;
+}
+
+/* Cap build — satu-satunya chrome yang tersisa di layar menu utama. */
+.mStamp {
+    position: absolute;
+    right: clamp(18px, 4vw, 46px);
+    bottom: clamp(16px, 3vh, 30px);
+    z-index: 3;
     color: var(--aiTextFaint);
-    white-space: nowrap;
-}
-
-.mRailTop { top: 0; border-bottom: 1px solid var(--aiLine); }
-.mRailBot { bottom: 0; border-top: 1px solid var(--aiLine); }
-.railGap { flex: 1 1 auto; }
-.railKey { color: var(--aiText); }
-.railDim { color: var(--aiTextFaint); }
-
-.railMark {
-    width: 11px;
-    height: 11px;
-    background: var(--aiAmber);
-    clip-path: polygon(0 0, 100% 0, 100% 100%);
-}
-
-.railLive {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--aiTextDim);
-}
-
-.liveDot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--aiTech);
-    box-shadow: 0 0 8px rgba(47, 184, 166, 0.85);
-    animation: mmLive 2.6s ease-in-out infinite;
-}
-
-@keyframes mmLive {
-    0%, 100% { opacity: 0.35; }
-    50% { opacity: 1; }
 }
 
 /* ---------- Kunci judul (menu utama) ---------- */
@@ -1166,24 +1149,7 @@ body {
     align-items: flex-start;
 }
 
-.titleLock { margin-bottom: clamp(24px, 4.6vh, 54px); }
-
-.eyebrow {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    margin-bottom: 18px;
-    font-size: 10.5px;
-    letter-spacing: 4.4px;
-    text-transform: uppercase;
-    color: var(--aiTextDim);
-}
-
-.ebMark {
-    width: 24px;
-    height: 2px;
-    background: var(--aiHazard);
-}
+.titleLock { margin-bottom: clamp(26px, 5vh, 58px); }
 
 #mainMenu h1 {
     margin: 0;
@@ -1214,15 +1180,24 @@ body {
 
 #mainMenu h1 .titleMain { max-width: 12ch; }
 
+/* Rusuk amber PADAT selebar tagline. Versi lama memudar ke transparan — sapuan
+   gradien seperti itu adalah dekorasi, bukan keputusan. */
 #mainMenu h1 .titleRule {
     display: block;
-    width: 12ch;
-    height: 2px;
-    margin: 20px 0 14px;
-    background: linear-gradient(90deg, var(--aiAmber), rgba(255, 176, 59, 0));
+    width: 5ch;
+    height: 3px;
+    margin: 22px 0 15px;
+    background: var(--aiAmber);
 }
 
-/* Layar pilih mode memakai logotype KECIL di rel atas, bukan judul raksasa */
+/* Layar pilih mode memakai logotype KECIL di pojok kiri atas, bukan judul raksasa */
+.msMark {
+    position: absolute;
+    left: clamp(18px, 4vw, 46px);
+    top: clamp(16px, 3vh, 30px);
+    z-index: 3;
+}
+
 #modeSelect h1 {
     display: flex;
     align-items: baseline;
@@ -1247,13 +1222,13 @@ body {
     gap: 3px;
 }
 
+/* SATU kata per baris (2026-08-10). Nomor entri, baris petunjuk dan panah
+   dibuang: tak ada menu yang perlu menjelaskan apa arti "Exit", dan empat
+   penanda arah untuk satu aksi persis seperti template yang dihasilkan mesin. */
 .navRow {
-    display: grid;
-    grid-template-columns: 38px 1fr 18px;
-    align-items: center;
-    gap: clamp(12px, 1.6vw, 22px);
-    width: min(560px, 84vw);
-    padding: 12px 16px 12px 14px;
+    display: block;
+    width: min(460px, 84vw);
+    padding: 11px 16px 11px 15px;
     text-align: left;
     font-family: inherit;
     color: inherit;
@@ -1276,55 +1251,24 @@ body {
     from { opacity: 0; transform: translateX(-16px); }
 }
 
-.nrIdx {
-    font-size: 12px;
-    letter-spacing: 2px;
-    color: var(--aiTextFaint);
-    transition: color 0.16s;
-}
-
-.nrBody {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-}
-
 .nrLabel {
-    font-size: clamp(16px, 1.7vw, 20px);
+    display: block;
+    font-size: clamp(18px, 2vw, 24px);
     font-weight: bold;
-    letter-spacing: 1.6px;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--aiText);
     transition: color 0.16s;
 }
 
-.nrHint {
-    font-size: 10.5px;
-    letter-spacing: 1.6px;
-    color: var(--aiTextDim);
-    opacity: 0;
-    transition: opacity 0.18s;
-}
-
-.nrArrow {
-    color: var(--aiAmber);
-    opacity: 0;
-    transform: translateX(-6px);
-    transition: opacity 0.18s, transform 0.18s;
-}
-
 .navRow.on {
-    background: linear-gradient(90deg, rgba(255, 176, 59, 0.2) 0%, rgba(255, 176, 59, 0.06) 46%,
-            rgba(255, 176, 59, 0) 88%);
+    background: linear-gradient(90deg, rgba(255, 176, 59, 0.16) 0%,
+            rgba(255, 176, 59, 0) 82%);
     border-left-color: var(--aiAmber);
     transform: translateX(7px);
 }
 
-.navRow.on .nrIdx { color: var(--aiAmber); }
 .navRow.on .nrLabel { color: #fff; }
-.navRow.on .nrHint { opacity: 1; }
-.navRow.on .nrArrow { opacity: 1; transform: translateX(0); }
 .navRow:focus { outline: none; }
 
 /* ---------- Tombol biasa (Back / konfirmasi) ---------- */
@@ -1407,33 +1351,29 @@ body {
     border-bottom: 2px solid var(--aiAmber);
 }
 
-.panelHead { text-align: center; }
+/* Kepala panel RATA KIRI di atas satu garis rambut selebar panel. Judul
+   di tengah dgn palang amber pendek di bawahnya adalah tata letak sertifikat,
+   bukan tata letak konsol. */
+.panelHead {
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--aiLine);
+}
 
-.phEyebrow,
 .creditsEyebrow {
     display: block;
-    margin-bottom: 9px;
-    font-size: 10px;
-    font-weight: bold;
-    letter-spacing: 4px;
+    margin-top: 7px;
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
-    color: var(--aiTextDim);
+    color: var(--aiTextFaint);
 }
 
 .menuPanel h2 {
     margin: 0;
-    font-size: clamp(21px, 2.6vw, 29px);
-    letter-spacing: 7px;
+    font-size: clamp(20px, 2.4vw, 26px);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
     color: #efe9dc;
-}
-
-.panelHead::after {
-    content: '';
-    display: block;
-    width: 62px;
-    height: 2px;
-    margin: 13px auto 0;
-    background: var(--aiAmber);
 }
 
 /* ---------- Settings: kelompok DISPLAY / AUDIO ---------- */
@@ -1443,14 +1383,11 @@ body {
     gap: 13px;
 }
 
+/* ukuran/tracking/uppercase datang dari aturan label mikro bersama di atas */
 .setGroupHead {
     display: flex;
     align-items: center;
     gap: 14px;
-    font-size: 10.5px;
-    font-weight: bold;
-    letter-spacing: 4px;
-    text-transform: uppercase;
     color: var(--aiAmber);
 }
 
@@ -1466,13 +1403,7 @@ body {
     gap: 10px;
 }
 
-.qlabel {
-    font-size: 10.5px;
-    font-weight: bold;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    color: var(--aiTextDim);
-}
+.qlabel { color: var(--aiTextDim); }
 
 .setNote {
     font-size: 10.5px;
@@ -1594,16 +1525,13 @@ body {
     gap: 15px;
 }
 
+/* Rata kiri mengikuti kepala panel (2026-08-10) — kepala kiri di atas kalimat
+   di tengah adalah dua keputusan tata letak yang saling menyangkal. */
 .creditsIntro {
-    /* 82ch = kalimat intro muat SATU baris di lebar panel — barisnya sendiri
-       yang menentukan, bukan angka bulat; dua baris memakan tinggi yang
-       dibutuhkan entri terakhir daftar kredit. */
     max-width: 82ch;
-    margin: 0 auto;
     font-size: 12.5px;
     font-style: italic;
     line-height: 1.6;
-    text-align: center;
     color: var(--aiTextDim);
 }
 
@@ -1636,9 +1564,6 @@ body {
 .creditRole {
     grid-column: 1;
     text-align: right;
-    font-size: 10px;
-    letter-spacing: 2.4px;
-    text-transform: uppercase;
     color: var(--aiAmber);
 }
 
@@ -1666,9 +1591,9 @@ body {
 
 .creditsFooter {
     text-align: center;
-    font-size: 9.5px;
+    font-size: 10.5px;
     line-height: 1.7;
-    letter-spacing: 2.6px;
+    letter-spacing: 0.2em;
     color: var(--aiTextFaint);
 }
 
@@ -1681,30 +1606,13 @@ body {
     align-items: center;
     gap: clamp(14px, 2.4vh, 26px);
     width: 100%;
-    padding: 70px clamp(18px, 4vw, 48px) 34px;
+    padding: 82px clamp(18px, 4vw, 48px) 34px;
     box-sizing: border-box;
 }
 
-#modeSelect .subtitle {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    font-size: clamp(14px, 1.9vw, 19px);
-    letter-spacing: 8px;
-    color: #efe9dc;
-}
-
-#modeSelect .subtitle::before,
-#modeSelect .subtitle::after {
-    content: '';
-    width: clamp(28px, 6vw, 88px);
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--aiLineHot));
-}
-
-#modeSelect .subtitle::after {
-    background: linear-gradient(90deg, var(--aiLineHot), transparent);
-}
+/* Judul kecil biasa. Versi lama = huruf besar ber-tracking 8px diapit dua
+   garis gradien yang memudar — hiasan simetris yang dipasang begitu saja. */
+#modeSelect .subtitle { font-size: 12px; color: var(--aiTextDim); }
 
 /* Baris difficulty: segmented control + ringkasan angka dari CFG */
 #diffRow {
@@ -1716,19 +1624,18 @@ body {
 
 #diffRow .segRow { width: min(430px, 84vw); }
 
-#diffNote {
-    font-size: 10.5px;
-    letter-spacing: 2.2px;
-    text-transform: uppercase;
-    color: var(--aiTextDim);
-}
+#diffNote { color: var(--aiTextDim); }
 
 #diffNote b {
     color: var(--aiAmber);
     font-weight: bold;
 }
 
-/* ---------- Kartu mode = berkas misi ---------- */
+/* ---------- Kartu mode: DIPIMPIN GAMBAR ----------
+   Rombak 2026-08-10. Versi "berkas misi" menumpuk enam laras teks dalam satu
+   kartu (kode OP + kelas + skema + nama + sub + paragraf + tabel spesifikasi +
+   footer Deploy) — itu bukan kartu, itu formulir. Sekarang: skema misi memenuhi
+   kepala kartu, lalu nama, satu baris keterangan, satu kalimat. Selesai. */
 .modeCards {
     display: flex;
     gap: clamp(16px, 2.6vw, 30px);
@@ -1740,9 +1647,9 @@ body {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 11px;
-    width: min(368px, 88vw);
-    padding: 22px 22px 18px;
+    gap: 9px;
+    width: min(352px, 88vw);
+    padding: 0 0 20px;
     box-sizing: border-box;
     background: linear-gradient(180deg, rgba(21, 23, 27, 0.94), rgba(11, 12, 15, 0.96));
     border: 1px solid var(--aiLine);
@@ -1756,54 +1663,31 @@ body {
     box-shadow: 0 18px 46px rgba(0, 0, 0, 0.6);
 }
 
-/* Pita bahaya di kepala kartu (dan kotak Continue) */
-.mcStripe {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    opacity: 0.5;
-    background: repeating-linear-gradient(115deg, var(--aiAmber) 0 12px, #16130c 12px 24px);
-    transition: opacity 0.18s;
-}
-
-.modeCard:hover .mcStripe { opacity: 1; }
-
-.mcTop {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    font-size: 9.5px;
-    font-weight: bold;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    color: var(--aiTextFaint);
-}
-
-.mcCode { color: var(--aiAmber); }
-
+/* Skema memenuhi lebar kartu (tanpa bingkai kedua di dalam bingkai kartu) dan
+   duduk di atas garis rambut yang memisahkannya dari teks. */
 .mcArt {
-    height: 126px;
-    border: 1px solid rgba(216, 210, 196, 0.08);
+    height: 138px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--aiLine);
     background: rgba(47, 184, 166, 0.03);
 }
 
 .mcArt .maSvg { display: block; width: 100%; height: 100%; }
 
+.modeCard h2,
+.mcSub,
+.modeCard p { padding: 0 20px; }
+
 .modeCard h2 {
     margin: 0;
     font-size: clamp(21px, 2.4vw, 27px);
-    letter-spacing: 4px;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: #efe9dc;
 }
 
 .mcSub {
-    font-size: 10.5px;
-    font-weight: bold;
-    letter-spacing: 2.6px;
-    text-transform: uppercase;
+    font-size: 12px;
     color: var(--aiTech);
 }
 
@@ -1813,60 +1697,6 @@ body {
     line-height: 1.7;
     color: var(--aiTextDim);
 }
-
-.mcSpec {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    margin: 0;
-    padding-top: 11px;
-    border-top: 1px solid var(--aiLine);
-}
-
-.mcSpec > div {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    font-size: 10.5px;
-    letter-spacing: 1.6px;
-}
-
-.mcSpec dt {
-    text-transform: uppercase;
-    color: var(--aiTextFaint);
-}
-
-.mcSpec dd {
-    margin: 0;
-    text-align: right;
-    color: var(--aiText);
-}
-
-.mcGo {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 2px;
-    padding-top: 11px;
-    border-top: 1px solid var(--aiLine);
-    font-size: 11.5px;
-    font-weight: bold;
-    letter-spacing: 4px;
-    text-transform: uppercase;
-    color: var(--aiTextFaint);
-    transition: color 0.18s;
-}
-
-.modeCard:hover .mcGo { color: var(--aiAmber); }
-
-.mcGo i {
-    font-style: normal;
-    opacity: 0;
-    transform: translateX(-6px);
-    transition: opacity 0.18s, transform 0.18s;
-}
-
-.modeCard:hover .mcGo i { opacity: 1; transform: translateX(0); }
 
 /* Skema misi (menuArt.js) — garis teknis, bukan ikon */
 .maSvg {
@@ -1889,15 +1719,13 @@ body {
 .maWave { fill: none; stroke: var(--aiTech); stroke-width: 1.2; stroke-opacity: 0.5; }
 .maCore2 { fill: var(--aiTech); }
 
-.maTag,
+/* Nomor stage di atas simpul rute — satu-satunya teks yang tersisa di skema. */
 .maNum {
     fill: var(--aiTextDim);
     font-size: 8px;
     letter-spacing: 1.6px;
+    text-anchor: middle;
 }
-
-.maNum { text-anchor: middle; }
-.maEnd { text-anchor: end; }
 
 .modeCard:hover .maRing {
     transform-origin: 160px 74px;
@@ -1941,17 +1769,10 @@ body {
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
 }
 
-.cpEyebrow {
-    font-size: 10px;
-    font-weight: bold;
-    letter-spacing: 4px;
-    text-transform: uppercase;
-    color: var(--aiHazard);
-}
-
 .cpTitle {
     font-size: clamp(20px, 2.6vw, 26px);
-    letter-spacing: 5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
     color: #efe9dc;
 }
 
@@ -1979,12 +1800,9 @@ body {
 @media (max-width: 900px) {
     #mainMenu { justify-content: center; padding: 0 22px; }
     #mainMenuMain { align-items: center; text-align: center; }
-    .eyebrow { justify-content: center; }
     #mainMenu h1 .titleRule { margin-left: auto; margin-right: auto; }
     .mScene::after { background: linear-gradient(180deg, rgba(9, 10, 13, 0.93), rgba(9, 10, 13, 0.78) 44%, rgba(9, 10, 13, 0.94)); }
-    /* Rel bawah dibuang seluruhnya, bukan disisakan labelnya saja */
-    .mRail .railDim { display: none; }
-    .mRailBot { display: none; }
+    .mStamp { display: none; }
     .creditGroup { grid-template-columns: 1fr; row-gap: 2px; }
     .creditRole, .creditName, .creditDetail { grid-column: 1; text-align: center; }
     .volRow { grid-template-columns: 70px 1fr 46px; gap: 10px; }
@@ -1992,7 +1810,7 @@ body {
 
 /* Hormati preferensi sistem: latar menu tetap, geraknya yang berhenti */
 @media (prefers-reduced-motion: reduce) {
-    .mSky::before, .mSky::after, .mHaze, .miBeacon, .liveDot,
+    .mSky::before, .mSky::after, .mHaze, .miBeacon,
     .navRow, .menuPanel, .modeCard:hover .maRing, .modeCard:hover .maRouteGhost {
         animation: none;
     }

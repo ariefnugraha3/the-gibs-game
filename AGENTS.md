@@ -140,11 +140,20 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - The menu front-end is the "field terminal" design (2026-08-09 user request, the old one
   "looked AI generated"): layered Jakarta 2045 skyline backdrop from `src/scenes/menuArt.js`
   (three parallax layers, Monas the anchor, deterministic hash instead of `Math.random`),
-  a LEFT-aligned numbered main menu with status rails, mission-dossier mode cards with vector
-  schematics, a segmented Settings console, and film-card Credits. NEVER re-add the red radial
-  gradient, rounded pill buttons, emoji mode icons, or the centred stack. `difficultyNote()`
-  quotes `CFG.difficulty`, and the old DOM contract (button ids, `.qbtn[data-q]`,
-  `.dbtn[data-d]`, `.modeCard[data-mode]`, `#creditsBody`, `#continuePrompt`) is unchanged.
+  a LEFT-aligned main menu, image-led mode cards with vector schematics, a segmented Settings
+  console, and film-card Credits. NEVER re-add the red radial gradient, rounded pill buttons,
+  emoji mode icons, or the centred stack. `difficultyNote()` quotes `CFG.difficulty`, and the
+  old DOM contract (button ids, `.qbtn[data-q]`, `.dbtn[data-d]`, `.modeCard[data-mode]`,
+  `#creditsBody`, `#continuePrompt`) is unchanged.
+- THINNED OUT 2026-08-10 (same complaint, second pass). The thing that reads as machine-made
+  is DENSITY, not the design language: the first pass carried nine pieces of fake telemetry,
+  a hint line under EVERY menu entry ("Exit Game — stand down and close the terminal"), six
+  registers of text per mode card, CRT scanlines, hazard stripes and eleven near-identical
+  micro-label styles. Also banned now: status/telemetry rails, per-entry hint lines, entry
+  numbers, mission-dossier card chrome (op code, spec table, DEPLOY footer, stripe), CRT
+  scanlines, corner captions inside the schematics, and any new one-off micro-label size.
+  A menu entry is ONE WORD; a mode card is a picture and three lines; every small label uses
+  the one shared 10.5px/0.28em rule. Smoke pins all of these absences.
 - Barrels/crates are solid to the player only and stay **out of the nav grid**;
   furniture is the opposite (in `blockers` AND nav).
 - Green Campaign finish screens show per-stage total time and destroyed loot boxes.

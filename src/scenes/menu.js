@@ -12,6 +12,11 @@
 // navigasi keyboard (panah/Enter/Escape) dgn baris tersorot, ringkasan angka
 // difficulty yang DIBACA DARI CFG (jadi retune gameplay.json ikut terbaca), dan
 // isian --fill slider volume supaya relnya terisi sesuai nilai.
+//
+// PAS KEDUA 2026-08-10 (user: "masih terlihat AI generated") murni pekerjaan
+// markup/CSS — index.html + style.css dirampingkan, JS di file ini TIDAK
+// berubah: baris menu tetap `.navRow` (kini hanya berisi `.nrLabel`), kartu
+// tetap `.modeCard[data-mode]`, dan seluruh id kontrak tetap sama.
 
 import { applyDifficulty, CFG } from '../core/config.js';
 import { setDifficulty } from '../core/state.js';

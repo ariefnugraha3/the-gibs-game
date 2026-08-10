@@ -197,8 +197,11 @@ export function skylineSvg(layer) {
 }
 
 // ---------- Skema kartu mode ----------
-// Keduanya digambar sebagai LEMBAR TEKNIS (garis tipis, tick, label kecil),
-// bukan ikon — kartu mode harus terbaca seperti lampiran berkas misi.
+// Keduanya digambar sebagai LEMBAR TEKNIS (garis tipis, tick), bukan ikon.
+// KETERANGAN SUDUT DIBUANG 2026-08-10: "MERDEKA SQ" / "360° HOSTILE" /
+// "ROUTE PROFILE // 8 STAGES" / "IKN UPLINK" mengulang apa yang sudah ditulis
+// kartunya sendiri, dan empat label mikro di empat sudut adalah pengisi ruang.
+// Nomor stage di atas simpul rute TETAP — itu data grafiknya, bukan hiasan.
 
 // Kurung sudut lembar — pengganti bingkai kotak penuh, supaya bingkai .mcArt di
 // CSS tidak jadi garis ganda.
@@ -225,8 +228,6 @@ function survivalArt() {
     // Monas dalam denah: alas persegi + garis bidik.
     s += `<rect class="maCore" x="${cx - 9}" y="${cy - 9}" width="18" height="18"/>`;
     s += `<path class="maCoreMark" d="M${cx} ${cy - 20} L${cx} ${cy + 20} M${cx - 20} ${cy} L${cx + 20} ${cy}"/>`;
-    s += `<text class="maTag" x="22" y="126">MERDEKA SQ</text>`;
-    s += `<text class="maTag maEnd" x="298" y="126">360&#176; HOSTILE</text>`;
     return wrapArt(s);
 }
 
@@ -253,8 +254,6 @@ function campaignArt() {
     s += `<path class="maMast" d="M286 52 L286 34 M279 41 L293 41 M281 47 L291 47"/>`;
     for (const r of [8, 14, 20]) s += `<path class="maWave" d="M${286 - r} 34 A${r} ${r} 0 0 1 ${286 + r} 34"/>`;
     s += `<circle class="maCore2" cx="286" cy="32" r="3"/>`;
-    s += `<text class="maTag" x="22" y="22">ROUTE PROFILE // 8 STAGES</text>`;
-    s += `<text class="maTag maEnd" x="298" y="126">IKN UPLINK</text>`;
     return wrapArt(s);
 }
 
