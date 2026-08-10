@@ -277,3 +277,48 @@ export function showFatal(msg) {
     el.innerHTML = msg;
     el.style.display = 'flex';
 }
+
+// ===== LAYAR BOOT (2026-08-10, permintaan user) =====
+// "Ketika game dibuka, persiapkan dan render dulu background menu itu, karena
+// sekarang sangat terasa delay. Tambahkan loading dulu di awal sebelum main
+// menu ditampilkan."
+//
+// #bootScreen TAMPIL BAWAAN dari CSS (bukan dinyalakan di sini) — yang lambat
+// justru menunggu JS-nya tiba, jadi menyalakannya lewat JS akan percuma. Modul
+// ini hanya MENGISI progresnya dan MENUTUPNYA setelah menu siap.
+const bootEl = () => document.getElementById('bootScreen');
+
+export function bootProgress(k, label) {
+    const fill = document.getElementById('bootBarFill');
+    const note = document.getElementById('bootNote');
+    if (fill) fill.style.width = Math.round(Math.max(0, Math.min(1, k)) * 100) + '%';
+    if (note && label) note.textContent = label;
+}
+
+// Tunggu browser BENAR-BENAR melukis satu frame. Dua rAF: yang pertama masih
+// frame berjalan, yang kedua baru dijamin setelah lukisan berikutnya — inilah
+// yang memberi kesempatan siluet kota + blur-nya dirasterisasi sebelum menu
+// diperlihatkan.
+export function nextPaint() {
+    return new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+}
+
+// Font UI (Courier Prime lokal). Tanpa ini judul & tombol menu sempat tampil
+// dgn font cadangan lalu melompat saat font aslinya tiba. Dibatasi waktu:
+// kegagalan font tak boleh menggantung boot selamanya.
+export function fontsReady(timeoutMs = 2500) {
+    if (!document.fonts || !document.fonts.ready) return Promise.resolve();
+    return Promise.race([
+        document.fonts.ready,
+        new Promise(res => setTimeout(res, timeoutMs)),
+    ]);
+}
+
+// Silang-pudar ke menu, lalu benar-benar dilepas dari komposisi.
+export async function hideBootScreen() {
+    const el = bootEl();
+    if (!el) return;
+    el.classList.add('done');
+    await new Promise(res => setTimeout(res, 500));   // = transisi opacity CSS
+    el.style.display = 'none';
+}

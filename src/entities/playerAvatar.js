@@ -1225,6 +1225,10 @@ function placeArm(side, hx, hy, hz) {
     }
 }
 
+// (Pose duduk panggung menu — `poseAvatarSeated`/`detachAvatarProp`/
+// `seatedPoseDebug` — DIBUANG 2026-08-10 bersama panggung 3D-nya: user memilih
+// menu berlatar siluet kota saja. Jangan dihidupkan kembali tanpa permintaan.)
+
 // Cutscene penutup Stage 4 mengaktifkan pose ini selama shot komunikasi radio.
 // `gesture` = key dialog aktif; `progress` = progres huruf 0..1. Keduanya membuat
 // tubuh benar-benar berakting mengikuti isi percakapan, bukan mematung dalam

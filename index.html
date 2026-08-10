@@ -6,20 +6,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <title>Adversarial Intelligence</title>
     <link rel="stylesheet" href="css/style.css">
-    <!-- Library Three.js CDN (global THREE — dipakai semua module di src/) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Library Three.js CDN (global THREE — dipakai semua module di src/).
+         SEMUANYA `defer` (2026-08-10): sebagai script klasik biasa mereka
+         MEMBLOKIR render, jadi layar tetap kosong sampai ~1 MB CDN selesai
+         diunduh — itulah "delay" yang terasa saat game dibuka. Dengan defer,
+         #bootScreen langsung terlukis, dan urutan eksekusi tetap terjaga
+         (script defer + module berjalan sesuai urutan dokumen), sehingga
+         `THREE` tetap ada sebelum src/main.js dijalankan. -->
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- Post-processing: bloom sinematik + FXAA + koreksi gamma (fallback aman bila gagal dimuat) -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/FXAAShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/FXAAShader.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 </head>
 
 <body>
+    <!-- LAYAR BOOT (2026-08-10, permintaan user: "ketika game dibuka,
+         persiapkan dan render dulu background menu itu ... tambahkan loading
+         dulu di awal sebelum main menu ditampilkan"). Ia TAMPIL BAWAAN dari CSS
+         — bukan dinyalakan JS — karena yang lambat justru menunggu JS-nya
+         tiba. main.js yang menutupnya setelah config dimuat, menu dibangun,
+         font siap, dan latar kotanya benar-benar sempat dilukis. -->
+    <div id="bootScreen">
+        <div id="bootTitle">ADVERSARIAL INTELLIGENCE</div>
+        <div id="bootBarShell"><div id="bootBarFill"></div></div>
+        <div id="bootNote">Loading</div>
+    </div>
+
     <div id="ui">
         <div id="waveText">Wave 1</div>
     </div>
@@ -232,13 +250,15 @@
             <button class="menuBtn menuBack" data-back="settings">Back</button>
         </div>
 
-        <!-- Panel Credits: konten diisi dari MENU_CREDITS dalam menu.js -->
+        <!-- Panel Credits: konten diisi dari MENU_CREDITS dalam menu.js.
+             DISEDERHANAKAN 2026-08-10 (permintaan user: "seperti di menu
+             settings") — kartu film [eyebrow, kalimat pembuka miring, peran
+             rata-kanan + nama + satu kalimat rincian, blok bergaris] diganti
+             baris label→nilai yang sama persis tata bahasanya dgn Settings. -->
         <div id="creditsPanel" class="menuPanel">
             <div class="panelHead">
                 <h2>Credits</h2>
-                <div id="creditsEyebrow" class="creditsEyebrow"></div>
             </div>
-            <div id="creditsIntro" class="creditsIntro"></div>
             <div id="creditsBody" class="creditsBody"></div>
             <div id="creditsFooter" class="creditsFooter"></div>
             <button class="menuBtn menuBack" data-back="credits">Back</button>

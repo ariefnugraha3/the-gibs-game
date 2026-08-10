@@ -141,7 +141,8 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   "looked AI generated"): layered Jakarta 2045 skyline backdrop from `src/scenes/menuArt.js`
   (three parallax layers, Monas the anchor, deterministic hash instead of `Math.random`),
   a LEFT-aligned main menu, text-only mode cards, a segmented Settings
-  console, and film-card Credits. NEVER re-add the red radial gradient, rounded pill buttons,
+  console, which Credits now mirrors (one `role -> name` row per credit; licence attributions
+  folded into the name line must stay). NEVER re-add the red radial gradient, rounded pill buttons,
   emoji mode icons, or the centred stack. `difficultyNote()` quotes `CFG.difficulty`, and the
   old DOM contract (button ids, `.qbtn[data-q]`, `.dbtn[data-d]`, `.modeCard[data-mode]`,
   `#creditsBody`, `#continuePrompt`) is unchanged.
@@ -154,6 +155,16 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   scanlines, and any new one-off micro-label size.
   A menu entry is ONE WORD; a mode card is three lines; every small label uses
   the one shared 10.5px/0.28em rule. Smoke pins all of these absences.
+- BOOT: the Three.js CDN scripts are `defer` (as plain classic scripts they BLOCK rendering)
+  and `#bootScreen` is visible straight from CSS — never gate the first-paint splash behind
+  JS, since waiting for JS is exactly the delay it hides. `boot()` reveals the menu only
+  after config + `initMenu` + `fontsReady()` + one real paint frame. → docs/presentation.md
+- The main menu backdrop is the BLURRED city parallax and NOTHING ELSE (2026-08-10 user
+  request): `filter: blur()` 3/4.5/6 px near→far, layers hung 14 px below the viewport so
+  the blur's soft edge falls off-screen. A foreground scene of Major Gibran on the GRD
+  LTV-45 was built twice that day — once as hand-drawn SVG, once as a live WebGL stage —
+  and BOTH were rejected; `menuStage.js` plus the menu-only rig helpers are deleted and
+  smoke asserts they stay gone. → docs/presentation.md
 - THIRD PASS, same day, same complaint. Also gone, and not to be restored: the
   `NUSANTARA 2045` tagline on BOTH title lockups (`.titleTag`/`.titleRule` deleted), the
   mode-card schematics (`modeArtSvg` and every `.ma*` class DELETED from menuArt.js/CSS —

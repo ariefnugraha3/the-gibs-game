@@ -47,7 +47,7 @@ function fakeEl() {
 const elCache = new Map();
 global.window = {
     innerWidth: 1280, innerHeight: 720, devicePixelRatio: 1,
-    addEventListener() { }, location: { reload() { } }
+    addEventListener() { }, removeEventListener() { }, location: { reload() { } }
 };
 global.document = {
     getElementById: (id) => { if (!elCache.has(id)) elCache.set(id, fakeEl()); return elCache.get(id); },
@@ -185,6 +185,23 @@ global.THREE = {
     WebGLRenderer: class {
         constructor() { this.domElement = fakeEl(); this.shadowMap = {}; }
         setPixelRatio() { } setSize() { } getPixelRatio() { return 1; } compile() { } render() { }
+        dispose() { }
+    },
+    // Celah harness 2026-08-10: panggung 3D menu utama (scenes/menuStage.js)
+    // memakai tiga lampu ini. Sebelumnya tak ada di stub karena world/lighting
+    // memang tak pernah dipanggil dari smoke.
+    AmbientLight: class extends Obj3D { constructor(c, i) { super(); this.color = new Color(c); this.intensity = i; this.isLight = true; } },
+    HemisphereLight: class extends Obj3D { constructor(s, g, i) { super(); this.color = new Color(s); this.groundColor = new Color(g); this.intensity = i; this.isLight = true; } },
+    DirectionalLight: class extends Obj3D {
+        constructor(c, i) {
+            super();
+            this.color = new Color(c); this.intensity = i; this.isLight = true;
+            this.target = new Obj3D();
+            this.shadow = {
+                mapSize: { set() { } },
+                camera: { left: 0, right: 0, top: 0, bottom: 0, near: 0, far: 0, updateProjectionMatrix() { } },
+            };
+        }
     },
     sRGBEncoding: 3001, ACESFilmicToneMapping: 4, PCFSoftShadowMap: 2, DoubleSide: 2,
     AdditiveBlending: 2, NearestFilter: 1003, RepeatWrapping: 1000
@@ -3078,15 +3095,26 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         && menuMusicMod.keepMenuMusicFor('survival', 1) === false);
     const menuCredits = menuMusicMod.MENU_CREDITS;
     const menuHtml = fs.readFileSync(ROOT + '/index.html', 'utf8');
-    T('Menu Credits: production dossier bersumber dari menu.js dan memuat kredit proyek utama',
-        menuCredits.eyebrow === 'AN ADVERSARIAL INTELLIGENCE PRODUCTION'
-        && menuCredits.groups.length >= 7
+    T('Menu Credits: bersumber dari menu.js dan memuat kredit proyek utama',
+        menuCredits.groups.length >= 7
         && menuCredits.groups.some(c => c.name === 'Arief Nugraha')
         && menuCredits.groups.some(c => c.name.includes('Anthropic Claude')
             && c.name.includes('OpenAI Codex'))
-        && menuCredits.groups.some(c => c.name === 'Three.js r128')
+        && menuCredits.groups.some(c => c.name.includes('Three.js r128'))
         && menuCredits.footer.includes('MADE IN INDONESIA')
         && menuHtml.includes('id="creditsBody"'));
+    // ATRIBUSI LISENSI wajib bertahan walau panel disederhanakan (2026-08-10):
+    // kalimat `detail` dibuang, jadi lisensinya dilipat ke baris nama.
+    T('Menu Credits: atribusi lisensi Three.js + Courier Prime tetap tertulis',
+        menuCredits.groups.some(c => /three\.js/i.test(c.name) && /MIT/i.test(c.name))
+        && menuCredits.groups.some(c => /courier prime/i.test(c.name)
+            && /open font license/i.test(c.name)));
+    // Bentuk baris = tata bahasa Settings: satu `role` + satu `name`, TANPA
+    // kalimat rincian per kredit (itu yang membuat panel lama padat).
+    T('Menu Credits: SEDERHANA — tiap kredit satu baris role→name, tanpa kalimat rincian',
+        menuCredits.groups.every(c => c.role && c.name
+            && c.detail === undefined && c.wide === undefined)
+        && menuCredits.eyebrow === undefined && menuCredits.intro === undefined);
     // Scene gameplay TIDAK lagi menyalakan musik di enter() — trigger battle
     // music satu-satunya = peluru player mengenai robot (robots.js).
     const sceneFiles = ['src/scenes/survival/index.js', 'src/scenes/campaign/stages/stage1.js',
@@ -10914,9 +10942,11 @@ const palMod = await import(R('src/world/palette.js'));
         && !/titleTag|titleRule/.test(cssNoC)
         && /#mainMenu h1 \.titleMain,\s*#modeSelect h1 \.titleMain/.test(cssB));
 
-    T('nama: layar perpisahan Exit + eyebrow Credits memakai nama baru',
+    // Eyebrow Credits ("AN <NAMA> PRODUCTION") dibuang 2026-08-10 saat panel
+    // disederhanakan, jadi layar perpisahan Exit yang tersisa sbg pemakai nama.
+    T('nama: layar perpisahan Exit memakai nama baru',
         menuB.includes(`Thanks for playing ${TITLE}.`)
-        && menuModB.MENU_CREDITS.eyebrow === `AN ${TITLE.toUpperCase()} PRODUCTION`);
+        && !('eyebrow' in menuModB.MENU_CREDITS));
     T('nama: metadata package.json ikut nama baru',
         pkgB.name === 'adversarial-intelligence' && pkgB.description.includes(TITLE));
 
@@ -10935,8 +10965,11 @@ const palMod = await import(R('src/world/palette.js'));
     T('nama: kunci localStorage `gibs*` TETAP (high score/checkpoint/volume tak hilang)',
         stateB.includes("'gibsHighScore_'") && saveB.includes("'gibsCampaignStage'")
         && sfxB.includes("'gibsMusicVol'") && sfxB.includes("'gibsSfxVol'"));
+    // Dulu di-anchor ke menu.js karena kalimat rincian Credits menyebut namanya;
+    // kalimat itu dibuang 2026-08-10 saat panel disederhanakan, jadi assert ini
+    // pindah ke SUMBER SEBENARNYA nama protagonis: dialog di gameplay.json.
     T('nama: protagonis tetap "Major Gibran" (hanya judul game yang berubah)',
-        menuB.includes('Major Gibran'));
+        /Gibran/.test(fs.readFileSync(ROOT + '/config/gameplay.json', 'utf8')));
 }
 
 // === NAMA KENDARAAN HERO = "GRD LTV-45" (2026-08-07, permintaan user): dulu
@@ -10981,7 +11014,7 @@ const palMod = await import(R('src/world/palette.js'));
     const need = ['id="mainMenu"', 'id="mainMenuMain"', 'id="mmStart"', 'id="mmSettings"',
         'id="mmCredits"', 'id="mmExit"', 'id="settingsPanel"', 'id="creditsPanel"',
         'id="qualityRow"', 'id="volumeRows"', 'id="musicVolSlider"', 'id="musicVolVal"',
-        'id="sfxVolSlider"', 'id="sfxVolVal"', 'id="creditsEyebrow"', 'id="creditsIntro"',
+        'id="sfxVolSlider"', 'id="sfxVolVal"',
         'id="creditsBody"', 'id="creditsFooter"', 'id="modeSelect"', 'id="diffRow"',
         'id="modeBack"', 'id="continuePrompt"', 'id="cpText"', 'id="cpYes"', 'id="cpNo"'];
     const goneM = need.filter(k => !htmlM.includes(k));
@@ -11048,6 +11081,24 @@ const palMod = await import(R('src/world/palette.js'));
     T('MENU: NOL overlay garis pindai CRT (klise UI fiksi ilmiah); .mScan tinggal vignette',
         /\.mScan\s*\{[^}]*radial-gradient/.test(cssM)
         && !/\.mScan\s*\{[^}]*repeating-linear-gradient/.test(cssM));
+    // LATAR KOTA DIBURAMKAN (2026-08-10, permintaan user) — makin jauh makin
+    // kabur, dan lapisnya menjulur ke bawah layar supaya tepi blur-nya tak
+    // terlihat sebagai pita pucat di garis tanah. Panggung 3D "Gibran duduk di
+    // kap" yang sempat ada DIBATALKAN user; jangan dihidupkan lagi.
+    {
+        const blur = (d) => {
+            const m = cssM.match(new RegExp('\\.mCity\\[data-depth="' + d + '"\\][^{]*\\{[^}]*blur\\(([\\d.]+)px\\)'));
+            return m ? +m[1] : 0;
+        };
+        const far = blur('far'), mid = blur('mid'), near = blur('near');
+        T('MENU: siluet kota DIBURAMKAN, makin jauh makin kabur',
+            near > 0 && mid > near && far > mid
+            && /\.mCity\s*\{[^}]*bottom:\s*-\d+px/.test(cssM));
+        T('MENU: panggung 3D menu (Gibran + kendaraan) sudah dibuang seluruhnya',
+            !htmlM.includes('mHero') && !htmlM.includes('menuStageCanvas')
+            && !cssM.includes('.mHero') && !fs.existsSync(ROOT + '/src/scenes/menuStage.js')
+            && !fs.readFileSync(ROOT + '/src/scenes/menu.js', 'utf8').includes('menuStage'));
+    }
 
     // (c) Seni vektor: tiga lapis skyline + dua skema, semuanya DETERMINISTIK
     // (dibangun ulang tiap layar menu disiapkan — Math.random bikin berkedip).
@@ -11063,7 +11114,8 @@ const palMod = await import(R('src/world/palette.js'));
         && !layers[0].includes('miFlame') && !layers[2].includes('miFlame'));
 
     // Palet: tiap hex di seni menu wajib anggota MENU_INK (turunan GIBS 2045).
-    // Sejak skema kartu mode dibuang (2026-08-10) skyline-lah satu-satunya seni.
+    // Sejak skema kartu mode dibuang (2026-08-10) skyline adalah seluruh seni
+    // SVG menu — adegan latar depannya kini panggung 3D (bagian 24z di bawah).
     const inks = Object.values(artM.MENU_INK).map(h => h.toLowerCase());
     let offInk = '';
     for (const svg of layers)
@@ -11091,6 +11143,33 @@ const palMod = await import(R('src/world/palette.js'));
         T('MENU: difficulty tanpa selisih memakai kalimat baseline, bukan tiga x1.00',
             !menuM.difficultyNote('normal').includes('1.00')
             && /baseline/i.test(menuM.difficultyNote('normal')));
+    }
+
+    // (e) LAYAR BOOT SEBELUM MENU (2026-08-10, permintaan user: "ketika game
+    // dibuka ... sangat terasa delay. Tambahkan loading dulu di awal sebelum
+    // main menu ditampilkan"). Dua penyebabnya dikunci di sini: script CDN yang
+    // memblokir render, dan menu yang tampil sebelum latar kotanya dilukis.
+    {
+        const mainSrc = fs.readFileSync(ROOT + '/src/main.js', 'utf8');
+        const domSrc = fs.readFileSync(ROOT + '/src/core/dom.js', 'utf8');
+        const bodyHead = htmlM.slice(htmlM.indexOf('<body>'), htmlM.indexOf('id="ui"'));
+        T('BOOT: layar boot TAMPIL BAWAAN dari CSS (bukan dinyalakan JS yang justru ditunggu)',
+            bodyHead.includes('id="bootScreen"')
+            && /#bootScreen\s*\{[^}]*display:\s*flex/.test(cssM)
+            && !/#bootScreen\s*\{[^}]*display:\s*none/.test(cssM)
+            && !/id="bootScreen"[^>]*style=/.test(htmlM));
+        // Script klasik tanpa `defer` MEMBLOKIR render: layar boot pun tak
+        // sempat terlukis sampai ~1 MB CDN selesai diunduh.
+        const cdnTags = htmlM.match(/<script[^>]*src="https:[^"]*"[^>]*>/g) || [];
+        T('BOOT: seluruh script CDN Three.js dipasang `defer` (kalau tidak, render terblokir)',
+            cdnTags.length >= 9 && cdnTags.every(t => /\sdefer[\s>]/.test(t)));
+        T('BOOT: menu diperlihatkan SETELAH dibangun + font siap + satu frame terlukis',
+            /bootProgress\(/.test(mainSrc)
+            && mainSrc.indexOf('await fontsReady()') > mainSrc.indexOf('initMenu(startGame)')
+            && mainSrc.indexOf('await nextPaint()') > mainSrc.indexOf('initMenu(startGame)')
+            && mainSrc.indexOf('hideBootScreen()') > mainSrc.indexOf('await nextPaint()')
+            && ['bootProgress', 'nextPaint', 'fontsReady', 'hideBootScreen']
+                .every(f => new RegExp('export (async )?function ' + f + '\\(').test(domSrc)));
     }
 }
 

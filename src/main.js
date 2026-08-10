@@ -9,7 +9,10 @@ import {
     initRenderer, initQualityUI, scene, camera, viewCam, renderer, composer, postFxOn,
     followViewCam
 } from './core/renderer.js';
-import { initGrain, bestScoreEl, showFatal } from './core/dom.js';
+import {
+    initGrain, bestScoreEl, showFatal,
+    bootProgress, nextPaint, fontsReady, hideBootScreen
+} from './core/dom.js';
 import { setScene, activeScene } from './core/sceneManager.js';
 import { updateGame } from './core/game.js';
 import { globalTimeScale } from './core/timeScale.js';
@@ -35,7 +38,14 @@ import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
 
+// Boot BERTAHAP di balik #bootScreen (2026-08-10, permintaan user): menu utama
+// baru diperlihatkan setelah config dimuat, DOM menu dibangun, font UI siap,
+// dan latar kotanya benar-benar sempat dilukis. Sebelumnya menu langsung
+// tampil dgn lapis kota MASIH KOSONG — siluetnya baru muncul belakangan, dan
+// itulah "delay" yang terasa. Bila #bootScreen tak ada (mis. harness), seluruh
+// pemanggilan di bawah tak berefek dan urutannya tetap sama.
 export async function boot() {
+    bootProgress(0.12, 'Loading configuration');
     try {
         await loadConfig();
     } catch (e) {
@@ -45,9 +55,16 @@ export async function boot() {
             '<code>python -m http.server 8000</code> &rarr; open ' +
             '<code>http://localhost:8000</code><br><br>' +
             '<small>' + (e && e.message ? e.message : e) + '</small>');
-        throw e;
+        throw e;   // layar boot sengaja DIBIARKAN: #fatalMsg (z-99) di atasnya
     }
-    initMenu(startGame);
+    bootProgress(0.4, 'Building menu');
+    initMenu(startGame);           // termasuk paintMenuArt: siluet kota disuntikkan
+    bootProgress(0.65, 'Loading fonts');
+    await fontsReady();
+    bootProgress(0.85, 'Rendering background');
+    await nextPaint();             // beri browser satu frame utk melukis kota + blur
+    bootProgress(1, 'Ready');
+    await hideBootScreen();
 }
 
 // opts.stage (campaign): titik-mulai stage (1..8) — dipakai untuk MELANJUTKAN

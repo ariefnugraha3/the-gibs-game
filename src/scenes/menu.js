@@ -26,49 +26,24 @@ import { paintMenuArt } from './menuArt.js';
 
 // Satu sumber konten Credits. Markup dibangun saat menu diinisialisasi agar
 // kredit proyek tidak tercecer sebagai salinan statis di index.html.
+//
+// DISEDERHANAKAN 2026-08-10 (permintaan user: "jauh lebih sederhana, seperti
+// di menu settings"): tiap kredit kini SATU BARIS `role → name`, sama seperti
+// baris Settings. Yang dibuang: eyebrow produksi, kalimat pembuka miring, dan
+// kalimat `detail` di bawah tiap nama — tujuh kalimat itulah yang membuat
+// panel ini terbaca padat. Keterangan lisensi TIDAK ikut dibuang (itu
+// kewajiban atribusi, bukan hiasan) — ia dilipat ke dalam baris namanya.
 export const MENU_CREDITS = Object.freeze({
-    eyebrow: 'AN ADVERSARIAL INTELLIGENCE PRODUCTION',
-    intro: 'A browser action game forged from code, persistence, and one impossible mission.',
     groups: Object.freeze([
-        Object.freeze({
-            role: 'Created, Designed & Directed by',
-            name: 'Arief Nugraha',
-            detail: 'Original concept, game direction, story, systems, world design, and production.',
-            wide: true,
-        }),
-        Object.freeze({
-            role: 'AI Development Collaborators',
-            name: 'Anthropic Claude & OpenAI Codex',
-            detail: 'Development assistance across implementation, iteration, debugging, and documentation.',
-        }),
-        Object.freeze({
-            role: 'Engine & Rendering',
-            name: 'Three.js r128',
-            detail: 'Released under the MIT License.',
-        }),
-        Object.freeze({
-            role: 'Visual Production',
-            name: 'Original Procedural 3D',
-            detail: 'Geometry, environments, characters, vehicles, materials, and effects built in code.',
-        }),
-        Object.freeze({
-            role: 'Sound & Music',
-            name: 'Royalty-Free Audio Sources',
-            detail: 'Individual audio creators retain the rights to their work.',
-        }),
-        Object.freeze({
-            role: 'Typography',
-            name: 'Courier Prime',
-            detail: 'Designed by Alan Dague-Greene and released under the SIL Open Font License.',
-        }),
-        Object.freeze({
-            role: 'Special Thanks',
-            name: 'The Playtesters',
-            detail: 'Friends, players, and everyone who stood with Major Gibran.',
-            wide: true,
-        }),
+        Object.freeze({ role: 'Created & Directed by', name: 'Arief Nugraha' }),
+        Object.freeze({ role: 'AI Development', name: 'Anthropic Claude & OpenAI Codex' }),
+        Object.freeze({ role: 'Engine', name: 'Three.js r128 — MIT License' }),
+        Object.freeze({ role: 'Visuals', name: 'Original procedural 3D' }),
+        Object.freeze({ role: 'Audio', name: 'Royalty-free sources' }),
+        Object.freeze({ role: 'Typeface', name: 'Courier Prime — SIL Open Font License' }),
+        Object.freeze({ role: 'Special Thanks', name: 'The Playtesters' }),
     ]),
-    footer: 'MADE IN INDONESIA — ONE LINE, ONE ROBOT, ONE IMPOSSIBLE MISSION AT A TIME.',
+    footer: 'MADE IN INDONESIA',
 });
 
 // Campaign baru menahan musik menu sepanjang loading + prolog; intro heli yang
@@ -266,28 +241,25 @@ function initParallax() {
     });
 }
 
+// Baris kredit memakai tata bahasa yang SAMA dgn baris Settings: label mikro
+// amber di kolom kiri, nilainya di kolom kanan. `.qlabel` sengaja dipakai ulang
+// (bukan kelas baru) supaya panel ini tunduk pada satu aturan label mikro
+// bersama — menambah ukuran label baru justru kesalahan yang sudah dibereskan
+// di pas kedua.
 function initCredits() {
-    const eyebrow = document.getElementById('creditsEyebrow');
-    const intro = document.getElementById('creditsIntro');
     const body = document.getElementById('creditsBody');
     const footer = document.getElementById('creditsFooter');
-    if (!eyebrow || !intro || !body || !footer || body.dataset.ready === '1') return;
+    if (!body || !footer || body.dataset.ready === '1') return;
 
-    eyebrow.textContent = MENU_CREDITS.eyebrow;
-    intro.textContent = MENU_CREDITS.intro;
     footer.textContent = MENU_CREDITS.footer;
     for (const credit of MENU_CREDITS.groups) {
-        const group = document.createElement('div');
-        group.className = 'creditGroup' + (credit.wide ? ' creditWide' : '');
-
-        const role = document.createElement('div');
-        role.className = 'creditRole'; role.textContent = credit.role;
-        const name = document.createElement('div');
-        name.className = 'creditName'; name.textContent = credit.name;
-        const detail = document.createElement('div');
-        detail.className = 'creditDetail'; detail.textContent = credit.detail;
-
-        group.append(role, name, detail); body.appendChild(group);
+        const row = document.createElement('div');
+        row.className = 'credRow';
+        const role = document.createElement('span');
+        role.className = 'qlabel'; role.textContent = credit.role;
+        const name = document.createElement('span');
+        name.className = 'credName'; name.textContent = credit.name;
+        row.append(role, name); body.appendChild(row);
     }
     body.dataset.ready = '1';
 }

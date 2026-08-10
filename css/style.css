@@ -858,6 +858,60 @@ body {
 /* ---------- Layar loading pra-game: overlay OPAK di atas menu/cutscene
    (z 40 > modeSelect 30 > cutscene 20) selama dunia dibangun + shader
    dipanaskan (core/preload.js) — menutupi frame-frame pemanasan renderer ---------- */
+/* ---------- LAYAR BOOT (2026-08-10, permintaan user) ----------
+   Tampil BAWAAN (tanpa JS) supaya sudah ada di lukisan pertama browser, lalu
+   ditutup main.js setelah menu benar-benar siap. Beda dgn #loadingScreen yang
+   dinyalakan JS setelah mode dipilih. z-50: di atas seluruh layar menu (32),
+   tapi tetap di bawah #fatalMsg (99) supaya pesan galat masih terbaca. */
+#bootScreen {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: var(--aiInk);
+    font-family: 'Courier Prime', 'Courier New', monospace;
+    /* Peluruhannya SEKALIGUS jadi silang-pudar: latar kota di belakangnya baru
+       pertama kali dirasterisasi saat ini, dan setengah detik ini menyembunyikan
+       biaya rasterisasi blur-nya. */
+    transition: opacity 0.45s ease;
+}
+
+#bootScreen.done { opacity: 0; pointer-events: none; }
+
+#bootTitle {
+    max-width: 12ch;
+    font-size: clamp(22px, 3.4vw, 38px);
+    font-weight: bold;
+    line-height: 1.05;
+    letter-spacing: 0.12em;
+    text-align: center;
+    color: var(--aiText);
+}
+
+#bootBarShell {
+    width: min(260px, 56vw);
+    height: 2px;
+    background: rgba(216, 210, 196, 0.14);
+}
+
+#bootBarFill {
+    width: 6%;
+    height: 100%;
+    background: var(--aiAmber);
+    transition: width 0.25s ease-out;
+}
+
+#bootNote {
+    font-size: 10.5px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--aiTextFaint);
+}
+
 #loadingScreen {
     display: none;
     position: absolute;
@@ -926,13 +980,13 @@ body {
        tabel spesifikasi, footer "Deploy", dan pita bahaya dibuang;
      * garis pindai CRT dibuang; .mScan tinggal vignette;
      * label mikro disatukan jadi SATU gaya (.qlabel/.setGroupHead/.subtitle/
-       .creditRole/.mStamp semuanya 10.5px + 0.28em) — sebelumnya ada sebelas
+       .mStamp semuanya 10.5px + 0.28em) — sebelumnya ada sebelas
        varian 9.5-10.5px dgn tracking berbeda-beda, yang membuat tiap sudut
        layar tampak "diisi" alih-alih dirancang.
 
    Yang TETAP: panggung latar berlapis (langit → 3 lapis siluet Jakarta 2045
    dari scenes/menuArt.js → kabut → vignette), judul + daftar RATA KIRI, panel
-   Settings berkelompok, Credits ala kartu judul film, dan seluruh kontrak JS
+   Settings berkelompok, dan seluruh kontrak JS
    lama — lihat komentar di index.html.
    ============================================================================ */
 
@@ -1034,7 +1088,7 @@ body {
     position: absolute;
     left: -7%;
     right: -7%;
-    bottom: 0;
+    bottom: -14px;
     transform: translate3d(calc(var(--px, 0) * var(--depth, 1)), 0, 0);
     transition: transform 0.5s cubic-bezier(.2, .7, .3, 1);
 }
@@ -1059,6 +1113,16 @@ body {
     filter: drop-shadow(0 0 7px rgba(255, 176, 59, 0.85));
 }
 .miSmoke { fill: rgba(216, 210, 196, 0.045); }
+
+/* KABUR (2026-08-10, permintaan user "background kota jakartanya dikasih efek
+   buram"): tiap lapis kota di-blur, MAKIN JAUH MAKIN KABUR — itu perspektif
+   udara yang sama dgn tiga nilai gelapnya, dan sekaligus menjauhkan latar dari
+   teks menu di depannya. Lapisnya dijulurkan 14px ke bawah layar karena blur
+   mencuplik daerah transparan di luar elemen: tanpa itu tepi bawah kota
+   memudar jadi pita pucat tepat di garis tanahnya. */
+.mCity[data-depth="far"] { filter: blur(6px); }
+.mCity[data-depth="mid"] { filter: blur(4.5px); }
+.mCity[data-depth="near"] { filter: blur(3px); }
 
 .miBeacon {
     fill: var(--aiHazard);
@@ -1122,7 +1186,6 @@ body {
    yang nyaris sama adalah salah satu sebab layar ini terbaca sebagai template. */
 .qlabel,
 .setGroupHead,
-.creditRole,
 .mStamp,
 #modeSelect .subtitle,
 #diffNote {
@@ -1332,15 +1395,6 @@ body {
     padding-bottom: 14px;
 }
 
-.creditsEyebrow {
-    display: block;
-    margin-top: 7px;
-    font-size: 10.5px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--aiTextFaint);
-}
-
 .menuPanel h2 {
     margin: 0;
     font-size: clamp(20px, 2.4vw, 26px);
@@ -1486,31 +1540,24 @@ body {
     box-shadow: 0 0 0 1px rgba(12, 13, 16, 0.9), 0 0 10px rgba(255, 176, 59, 0.35);
 }
 
-/* ---------- Credits: kartu judul film ---------- */
-#creditsPanel {
-    width: min(780px, 94vw);
-    max-height: 88vh;
-    gap: 15px;
-}
+/* ---------- Credits ----------
+   TANPA penimpaan ukuran (2026-08-10): dulu panel ini 780px/88vh/gap 15px
+   sendiri karena isinya kartu film yang panjang. Sekarang isinya sama
+   sederhananya dgn Settings, jadi ia memakai geometri `.menuPanel` yang sama
+   persis — dua panel yang saling berganti tak boleh melompat ukuran. */
 
-/* Rata kiri mengikuti kepala panel (2026-08-10) — kepala kiri di atas kalimat
-   di tengah adalah dua keputusan tata letak yang saling menyangkal. */
-.creditsIntro {
-    max-width: 82ch;
-    font-size: 12.5px;
-    font-style: italic;
-    line-height: 1.6;
-    color: var(--aiTextDim);
-}
-
+/* ---------- Credits: BARIS label→nilai, seperti Settings ----------
+   Disederhanakan 2026-08-10 (permintaan user: "seperti di menu settings").
+   Yang dibuang bersama markup-nya: .creditsEyebrow, .creditsIntro (kalimat
+   pembuka miring), tata letak kartu film .creditGroup/.creditRole/.creditName/
+   .creditDetail, blok bergaris .creditWide, dan mask gulir. Panel ini kini
+   memakai kolom yang sama dgn baris Settings. */
 .creditsBody {
     display: flex;
     flex-direction: column;
-    gap: 13px;
+    gap: 11px;
     overflow-y: auto;
-    padding: 8px 14px 8px 0;
-    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
-    mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+    padding-right: 8px;
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 176, 59, 0.45) rgba(216, 210, 196, 0.05);
 }
@@ -1519,49 +1566,27 @@ body {
 .creditsBody::-webkit-scrollbar-track { background: rgba(216, 210, 196, 0.05); }
 .creditsBody::-webkit-scrollbar-thumb { background: rgba(255, 176, 59, 0.45); }
 
-/* Peran rata-KANAN | nama rata-KIRI = tata letak kredit film klasik.
-   Urutan DOM (role, name, detail) tak berubah — penempatan lewat grid. */
-.creditGroup {
+/* Kolom label memakai lebar tetap seperti .volRow supaya seluruh nilai rata
+   di satu garis — itu yang membuatnya terbaca sebagai konsol, bukan daftar.
+   210px = muat label terpanjang ("Created & Directed by", 21 huruf) pada font
+   monospace 10.5px + tracking 0.28em ≈ 9.2px/huruf; lebih sempit dari itu
+   labelnya membungkus dan barisnya jadi dua tinggi. */
+.credRow {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
-    column-gap: 24px;
-    row-gap: 4px;
+    grid-template-columns: 210px 1fr;
+    column-gap: 18px;
     align-items: baseline;
 }
 
-.creditRole {
-    grid-column: 1;
-    text-align: right;
-    color: var(--aiAmber);
-}
-
-.creditName {
-    grid-column: 2;
-    font-size: 15px;
-    font-weight: bold;
-    letter-spacing: 1px;
-    color: #efe9dc;
-}
-
-.creditDetail {
-    grid-column: 2;
-    font-size: 11px;
-    line-height: 1.6;
-    color: var(--aiTextDim);
-}
-
-/* Blok "wide" (pencipta & terima kasih) dipisah garis rambut, bukan lebar penuh */
-.creditWide {
-    padding: 14px 0;
-    border-top: 1px solid var(--aiLine);
-    border-bottom: 1px solid var(--aiLine);
+.credName {
+    font-size: 13px;
+    color: var(--aiText);
 }
 
 .creditsFooter {
-    text-align: center;
     font-size: 10.5px;
-    line-height: 1.7;
-    letter-spacing: 0.2em;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
     color: var(--aiTextFaint);
 }
 
@@ -1719,8 +1744,7 @@ body {
     #mainMenuMain { align-items: center; text-align: center; }
     .mScene::after { background: linear-gradient(180deg, rgba(9, 10, 13, 0.93), rgba(9, 10, 13, 0.78) 44%, rgba(9, 10, 13, 0.94)); }
     .mStamp { display: none; }
-    .creditGroup { grid-template-columns: 1fr; row-gap: 2px; }
-    .creditRole, .creditName, .creditDetail { grid-column: 1; text-align: center; }
+    .credRow { grid-template-columns: 1fr; row-gap: 2px; }
     .volRow { grid-template-columns: 70px 1fr 46px; gap: 10px; }
 }
 

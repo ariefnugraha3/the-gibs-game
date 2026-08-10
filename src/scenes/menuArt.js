@@ -201,8 +201,14 @@ export function skylineSvg(layer) {
 // Permintaan user: layar pilih mode "jauh lebih sederhana, tidak usah ada
 // gambar ilustrasi setiap mode". `modeArtSvg` beserta denah pertahanan Monas
 // dan profil rute delapan stage-nya dihapus seluruhnya (bukan disembunyikan),
-// termasuk kelas .ma* di CSS. Kartu mode sekarang teks saja. Modul ini tinggal
-// menggambar siluet skyline latar.
+// termasuk kelas .ma* di CSS. Kartu mode sekarang teks saja.
+
+// ---------- Adegan latar depan SVG: DIBUANG 2026-08-10, hari yang sama ----------
+// Sempat ada `heroSvg()` — Major Gibran + GRD LTV-45 digambar tangan sebagai
+// siluet SVG. User menolaknya (minta objek 3D asli), lalu panggung 3D
+// penggantinya pun dibatalkan — menu utama kini cukup siluet kota berlapis
+// yang DIBURAMKAN lewat CSS. Modul ini hanya mengurus siluet itu; jangan
+// gambar ulang adegan Gibran/kendaraan di sini.
 
 // Isi seluruh wadah gambar di dalam `root` (satu layar menu): tiap `.mCity`
 // dapat lapis skyline sesuai data-depth.
