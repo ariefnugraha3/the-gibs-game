@@ -140,7 +140,7 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - The menu front-end is the "field terminal" design (2026-08-09 user request, the old one
   "looked AI generated"): layered Jakarta 2045 skyline backdrop from `src/scenes/menuArt.js`
   (three parallax layers, Monas the anchor, deterministic hash instead of `Math.random`),
-  a LEFT-aligned main menu, image-led mode cards with vector schematics, a segmented Settings
+  a LEFT-aligned main menu, text-only mode cards, a segmented Settings
   console, and film-card Credits. NEVER re-add the red radial gradient, rounded pill buttons,
   emoji mode icons, or the centred stack. `difficultyNote()` quotes `CFG.difficulty`, and the
   old DOM contract (button ids, `.qbtn[data-q]`, `.dbtn[data-d]`, `.modeCard[data-mode]`,
@@ -151,9 +151,14 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   registers of text per mode card, CRT scanlines, hazard stripes and eleven near-identical
   micro-label styles. Also banned now: status/telemetry rails, per-entry hint lines, entry
   numbers, mission-dossier card chrome (op code, spec table, DEPLOY footer, stripe), CRT
-  scanlines, corner captions inside the schematics, and any new one-off micro-label size.
-  A menu entry is ONE WORD; a mode card is a picture and three lines; every small label uses
+  scanlines, and any new one-off micro-label size.
+  A menu entry is ONE WORD; a mode card is three lines; every small label uses
   the one shared 10.5px/0.28em rule. Smoke pins all of these absences.
+- THIRD PASS, same day, same complaint. Also gone, and not to be restored: the
+  `NUSANTARA 2045` tagline on BOTH title lockups (`.titleTag`/`.titleRule` deleted), the
+  mode-card schematics (`modeArtSvg` and every `.ma*` class DELETED from menuArt.js/CSS —
+  cards are text only), the amber left rib on menu entries, the `.panelHead` underline and
+  the `DISPLAY`/`AUDIO` filler hairlines. The build stamp reads `BUILD DEV.01`.
 - Barrels/crates are solid to the player only and stay **out of the nav grid**;
   furniture is the opposite (in `blockers` AND nav).
 - Green Campaign finish screens show per-stage total time and destroyed loot boxes.

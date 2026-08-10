@@ -8,8 +8,9 @@
 //   skylineSvg(layer)  siluet Jakarta 2045 TIGA LAPIS (far/mid/near) untuk latar
 //                      parallax #mainMenu + #modeSelect — Monas jadi jangkar
 //                      komposisi, ditemani menara, derek, dan asap kebakaran.
-//   modeArtSvg(mode)   skema misi tiap kartu mode: denah pertahanan Monas
-//                      (survival) dan profil rute delapan stage (campaign).
+//
+// (`modeArtSvg` — skema misi kartu mode — DIBUANG 2026-08-10 atas permintaan
+//  user; kartu mode sekarang teks saja. Jangan dihidupkan lagi.)
 //
 // ATURAN:
 // 1. Warna WAJIB dari MENU_INK — turunan palet GIBS 2045 (amber manusia, teal
@@ -196,84 +197,18 @@ export function skylineSvg(layer) {
         + `<g class="miBody">${body}</g></svg>`;
 }
 
-// ---------- Skema kartu mode ----------
-// Keduanya digambar sebagai LEMBAR TEKNIS (garis tipis, tick), bukan ikon.
-// KETERANGAN SUDUT DIBUANG 2026-08-10: "MERDEKA SQ" / "360° HOSTILE" /
-// "ROUTE PROFILE // 8 STAGES" / "IKN UPLINK" mengulang apa yang sudah ditulis
-// kartunya sendiri, dan empat label mikro di empat sudut adalah pengisi ruang.
-// Nomor stage di atas simpul rute TETAP — itu data grafiknya, bukan hiasan.
-
-// Kurung sudut lembar — pengganti bingkai kotak penuh, supaya bingkai .mcArt di
-// CSS tidak jadi garis ganda.
-const CORNERS = `<path class="maFrame" d="M10 28 L10 10 L30 10 M290 10 L310 10 L310 28`
-    + ` M310 112 L310 130 L290 130 M30 130 L10 130 L10 112"/>`;
-
-// SURVIVAL: denah Lapangan Merdeka — cincin pertahanan mengecil ke Monas,
-// enam vektor ancaman masuk dari tepi. Titik awal ditulis sebagai KOORDINAT di
-// dalam bingkai (bukan panjang dari pusat) supaya tak pernah terpotong tepi.
-function survivalArt() {
-    const cx = 160, cy = 74;
-    let s = CORNERS;
-    for (const r of [58, 42, 26]) s += `<circle class="maRing" cx="${cx}" cy="${cy}" r="${r}"/>`;
-    // Sudut bawah kiri/kanan sengaja dikosongkan — di situ label berdiri.
-    const starts = [[30, 48], [104, 20], [250, 24], [298, 68], [266, 106], [54, 106]];
-    for (const [x0, y0] of starts) {
-        const dx = cx - x0, dy = cy - y0, m = Math.hypot(dx, dy);
-        const ux = dx / m, uy = dy / m;
-        const x1 = cx - ux * 32, y1 = cy - uy * 32;
-        s += `<path class="maVec" d="M${n(x0)} ${n(y0)} L${n(x1)} ${n(y1)}"/>`;
-        s += poly([[x1, y1], [x1 - ux * 9 - uy * 4, y1 - uy * 9 + ux * 4],
-        [x1 - ux * 9 + uy * 4, y1 - uy * 9 - ux * 4]], 'maHead');
-    }
-    // Monas dalam denah: alas persegi + garis bidik.
-    s += `<rect class="maCore" x="${cx - 9}" y="${cy - 9}" width="18" height="18"/>`;
-    s += `<path class="maCoreMark" d="M${cx} ${cy - 20} L${cx} ${cy + 20} M${cx - 20} ${cy} L${cx + 20} ${cy}"/>`;
-    return wrapArt(s);
-}
-
-// CAMPAIGN: profil rute delapan stage Jakarta ke timur, ditutup menara pemancar
-// yang jadi tujuan cerita.
-function campaignArt() {
-    // Tinggi tiap simpul ditulis tangan = profil medan, bukan garis lurus.
-    const ys = [98, 90, 82, 94, 72, 80, 60, 66];
-    let path = '', dots = '';
-    ys.forEach((y, i) => {
-        const x = 26 + i * 30;
-        path += (i ? ' L' : 'M') + x + ' ' + y;
-        dots += `<rect class="maNode${i === 0 ? ' maNodeOn' : ''}" x="${x - 3.5}" y="${y - 3.5}" width="7" height="7"/>`;
-        if (i % 2 === 0) dots += `<text class="maNum" x="${x}" y="${y - 11}">0${i + 1}</text>`;
-    });
-    let s = CORNERS;
-    // Medan di bawah rute: siluet kasar kota lalu perbukitan.
-    s += `<path class="maTerrain" d="M14 130 L14 110 L46 106 L64 114 L92 102 L120 112 L150 98`
-        + ` L182 108 L214 90 L244 98 L272 80 L298 88 L298 130 Z"/>`;
-    s += `<path class="maRoute" d="${path}"/>`;
-    s += `<path class="maRouteGhost" d="M236 66 L286 52"/>`;
-    s += dots;
-    // Menara pemancar IKN + gelombang siar.
-    s += `<path class="maMast" d="M286 52 L286 34 M279 41 L293 41 M281 47 L291 47"/>`;
-    for (const r of [8, 14, 20]) s += `<path class="maWave" d="M${286 - r} 34 A${r} ${r} 0 0 1 ${286 + r} 34"/>`;
-    s += `<circle class="maCore2" cx="286" cy="32" r="3"/>`;
-    return wrapArt(s);
-}
-
-function wrapArt(body) {
-    return `<svg class="maSvg" viewBox="0 0 320 140" preserveAspectRatio="xMidYMid meet"`
-        + ` xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${body}</svg>`;
-}
-
-export function modeArtSvg(mode) {
-    return mode === 'campaign' ? campaignArt() : survivalArt();
-}
+// ---------- Skema kartu mode: DIBUANG 2026-08-10 ----------
+// Permintaan user: layar pilih mode "jauh lebih sederhana, tidak usah ada
+// gambar ilustrasi setiap mode". `modeArtSvg` beserta denah pertahanan Monas
+// dan profil rute delapan stage-nya dihapus seluruhnya (bukan disembunyikan),
+// termasuk kelas .ma* di CSS. Kartu mode sekarang teks saja. Modul ini tinggal
+// menggambar siluet skyline latar.
 
 // Isi seluruh wadah gambar di dalam `root` (satu layar menu): tiap `.mCity`
-// dapat lapis skyline sesuai data-depth, tiap `[data-art]` dapat skema modenya.
+// dapat lapis skyline sesuai data-depth.
 export function paintMenuArt(root) {
     if (!root) return;
     for (const el of root.querySelectorAll('.mCity')) {
         el.innerHTML = skylineSvg(el.dataset.depth || 'mid');
-    }
-    for (const el of root.querySelectorAll('[data-art]')) {
-        el.innerHTML = modeArtSvg(el.dataset.art);
     }
 }

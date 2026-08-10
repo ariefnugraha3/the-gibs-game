@@ -10897,18 +10897,22 @@ const palMod = await import(R('src/world/palette.js'));
 
     T('nama: <title> tab memakai nama game baru', htmlB.includes(`<title>${TITLE}</title>`));
 
-    // Judul dipecah dua baris (nama + tagline latar) supaya tak melebar keluar
-    // layar; kedua layar (menu utama + pilih mode) memakai markup yang sama.
+    // Judul = NAMA SAJA di kedua layar (2026-08-10, permintaan user, dua
+    // tahap: tagline "NUSANTARA 2045" + rusuk ambernya dibuang dari menu utama
+    // lalu dari logotype layar pilih mode). Tak ada lagi .titleTag/.titleRule.
     const titleH1 = (htmlB.match(/<h1>[\s\S]*?<\/h1>/g) || [])
-        .filter(h => h.includes('titleMain') && h.includes('titleTag'));
-    T('nama: 2 H1 (mainMenu + modeSelect) = ADVERSARIAL INTELLIGENCE / NUSANTARA 2045',
+        .filter(h => h.includes('titleMain'));
+    T('nama: 2 H1 (mainMenu + modeSelect) = ADVERSARIAL INTELLIGENCE',
         titleH1.length === 2
-        && titleH1.every(h => h.includes('>' + TITLE.toUpperCase() + '<')
-            && h.includes('>NUSANTARA 2045<')));
-    T('nama: tagline judul punya style sendiri (blok + amber HUD) di CSS',
-        /#mainMenu h1 \.titleMain,\s*#modeSelect h1 \.titleMain/.test(cssB)
-        && /#mainMenu h1 \.titleTag,\s*#modeSelect h1 \.titleTag/.test(cssB)
-        && /\.titleTag\s*\{[^}]*#ffb84d/.test(cssB));
+        && titleH1.every(h => h.includes('>' + TITLE.toUpperCase() + '<')));
+    // Komentar dibuang dulu: catatan "jangan dihidupkan lagi" di HTML/CSS
+    // memang MENYEBUT nama-nama itu, dan itu justru harus boleh tetap ada.
+    const htmlNoC = htmlB.replace(/<!--[\s\S]*?-->/g, '');
+    const cssNoC = cssB.replace(/\/\*[\s\S]*?\*\//g, '');
+    T('nama: NOL tagline NUSANTARA 2045 di kedua layar judul',
+        !/titleTag|titleRule|NUSANTARA/.test(htmlNoC)
+        && !/titleTag|titleRule/.test(cssNoC)
+        && /#mainMenu h1 \.titleMain,\s*#modeSelect h1 \.titleMain/.test(cssB));
 
     T('nama: layar perpisahan Exit + eyebrow Credits memakai nama baru',
         menuB.includes(`Thanks for playing ${TITLE}.`)
@@ -11006,9 +11010,16 @@ const palMod = await import(R('src/world/palette.js'));
     // layar ini terbaca sebagai template bukan bahasa desainnya melainkan
     // KEPADATANNYA. Ketiga assert di bawah mengunci pengurangannya supaya tak
     // pelan-pelan tumbuh kembali.
-    T('MENU: kartu mode dipimpin GAMBAR — skema + nama + satu kalimat, tanpa chrome berkas misi',
-        htmlM.includes('class="mcArt" data-art="survival"')
-        && htmlM.includes('class="mcArt" data-art="campaign"')
+    // PAS KETIGA 2026-08-10 (user: "jauh lebih sederhana, tidak usah ada gambar
+    // ilustrasi setiap mode"): skema vektor kartu mode ikut dibuang — kartunya
+    // tinggal nama + satu baris + satu kalimat, dan modeArtSvg dihapus.
+    // Komentar dilucuti: catatan "sudah dibuang, jangan dihidupkan" menyebut
+    // nama kelasnya, dan catatan itu justru yang harus tetap ada.
+    const htmlMNoC = htmlM.replace(/<!--[\s\S]*?-->/g, '');
+    const cssMNoC = cssM.replace(/\/\*[\s\S]*?\*\//g, '');
+    T('MENU: kartu mode TEKS SAJA — nama + satu baris + satu kalimat, tanpa ilustrasi',
+        !/mcArt|data-art=|maSvg/.test(htmlMNoC) && !/\.mcArt|\.maSvg|\.maRing/.test(cssMNoC)
+        && !('modeArtSvg' in artM)
         && (htmlM.match(/class="modeCard" data-mode=/g) || []).length === 2
         && (htmlM.match(/class="mcSub"/g) || []).length === 2
         && !/mcSpec|mcGo|mcTop|mcCode|mcStripe/.test(htmlM));
@@ -11017,6 +11028,23 @@ const palMod = await import(R('src/world/palette.js'));
         && !/nrHint|nrIdx|nrArrow/.test(htmlM)
         && (htmlM.match(/class="navRow"/g) || []).length === 4
         && (htmlM.match(/class="nrLabel"/g) || []).length === 4);
+    // 2026-08-10 (user): rusuk kiri tiap entri menu dibuang — penanda entri
+    // aktif tinggal sapuan amber + geseran; cap build diganti manual.
+    const navRowCss = (cssM.match(/\n\.navRow \{[^}]*\}/) || [''])[0];
+    T('MENU: entri menu tanpa rusuk kiri, cap build = BUILD DEV.01',
+        navRowCss.length > 0 && !/border-left/.test(navRowCss)
+        && !/\.navRow\.on\s*\{[^}]*border-left/.test(cssM)
+        && htmlM.includes('<div class="mStamp">BUILD DEV.01</div>'));
+    // 2026-08-10 (user): kepala panel & kepala kelompok Settings TANPA garis —
+    // garis rambut di bawah "Settings" dan yang memanjang di kanan
+    // "Display"/"Audio" dibuang; <i></i> pengisinya ikut hilang dari markup.
+    const panelHeadCss = (cssM.match(/\n\.panelHead \{[^}]*\}/) || [''])[0];
+    // `.` tanpa flag s tak melompati baris, jadi tiap div terpotong sendiri
+    const groupHeads = htmlM.match(/<div class="setGroupHead">.*?<\/div>/g) || [];
+    T('MENU: kepala panel + kepala kelompok Settings tanpa garis rambut',
+        panelHeadCss.length > 0 && !/border/.test(panelHeadCss)
+        && !/\.setGroupHead i\s*\{/.test(cssM)
+        && groupHeads.length === 2 && !groupHeads.some(h => h.includes('<i>')));
     T('MENU: NOL overlay garis pindai CRT (klise UI fiksi ilmiah); .mScan tinggal vignette',
         /\.mScan\s*\{[^}]*radial-gradient/.test(cssM)
         && !/\.mScan\s*\{[^}]*repeating-linear-gradient/.test(cssM));
@@ -11035,41 +11063,20 @@ const palMod = await import(R('src/world/palette.js'));
         && !layers[0].includes('miFlame') && !layers[2].includes('miFlame'));
 
     // Palet: tiap hex di seni menu wajib anggota MENU_INK (turunan GIBS 2045).
+    // Sejak skema kartu mode dibuang (2026-08-10) skyline-lah satu-satunya seni.
     const inks = Object.values(artM.MENU_INK).map(h => h.toLowerCase());
     let offInk = '';
-    for (const svg of layers.concat([artM.modeArtSvg('survival'), artM.modeArtSvg('campaign')]))
+    for (const svg of layers)
         for (const hx of (svg.match(/#[0-9a-fA-F]{6}\b/g) || []))
             if (!inks.includes(hx.toLowerCase())) offInk = offInk || hx;
     T('MENU ART: NOL warna di luar MENU_INK (tanpa neon cyan/magenta)'
         + (offInk ? ' [' + offInk + ']' : ''),
         !offInk && !inks.includes('#00ffff') && !inks.includes('#ff00ff'));
 
-    // Skema kartu: bebas digambar apa saja ASAL tak ada yang keluar bingkai
-    // 320x140 — panah & label terpotong itulah bug rancangan pertama.
-    {
-        let badArt = '';
-        for (const m of ['survival', 'campaign']) {
-            const svg = artM.modeArtSvg(m);
-            const pts = [];
-            for (const t of svg.matchAll(/\b(?:x|cx)="(-?[\d.]+)"\s+(?:y|cy)="(-?[\d.]+)"/g))
-                pts.push([+t[1], +t[2]]);
-            for (const t of svg.matchAll(/points="([^"]+)"/g))
-                for (const pr of t[1].trim().split(/\s+/)) {
-                    const xy = pr.split(',').map(Number);
-                    pts.push([xy[0], xy[1]]);
-                }
-            for (const t of svg.matchAll(/d="([^"]+)"/g))
-                for (const c of t[1].matchAll(/[ML]\s*(-?[\d.]+)\s+(-?[\d.]+)/g))
-                    pts.push([+c[1], +c[2]]);
-            if (!pts.length) badArt = badArt || m + ' kosong';
-            for (const pt of pts)
-                if (pt[0] < 0 || pt[0] > 320 || pt[1] < 0 || pt[1] > 140)
-                    badArt = badArt || (m + ' ' + pt[0] + ',' + pt[1]);
-        }
-        T('MENU ART: seluruh geometri skema mode ada DI DALAM bingkai 320x140'
-            + (badArt ? ' [' + badArt + ']' : ''),
-            !badArt && artM.modeArtSvg('survival') !== artM.modeArtSvg('campaign'));
-    }
+    // Uji "seluruh geometri ada di dalam bingkai" DIHAPUS bersama skema kartu
+    // mode (2026-08-10): ia menjaga bingkai 320x140 yang sudah tak ada, dan
+    // tak bisa dipindahkan ke skyline — lapis skyline memang SENGAJA melewati
+    // tepi kanvas (preserveAspectRatio slice memotongnya di CSS).
 
     // (d) Ringkasan difficulty = angka CFG apa adanya, bukan kalimat tetap.
     {

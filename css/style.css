@@ -1162,33 +1162,16 @@ body {
     text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
 }
 
-/* Judul dua baris: nama panjang + tagline latar. Lebar 12ch = tepat memotong
-   "ADVERSARIAL / INTELLIGENCE" pada font monospace, jadi kedua baris rata kiri
-   tanpa markup tambahan. Tagline pakai amber HUD (aksen manusia GIBS 2045). */
+/* Judul = NAMA SAJA di kedua layar (2026-08-10, permintaan user — tagline
+   "NUSANTARA 2045" beserta rusuk ambernya dibuang dari menu utama lalu dari
+   layar pilih mode). Lebar 12ch = tepat memotong "ADVERSARIAL / INTELLIGENCE"
+   pada font monospace, jadi kedua baris rata kiri tanpa markup tambahan. */
 #mainMenu h1 .titleMain,
 #modeSelect h1 .titleMain {
     display: block;
 }
 
-#mainMenu h1 .titleTag,
-#modeSelect h1 .titleTag {
-    display: block;
-    color: #ffb84d;
-    font-size: 0.155em;
-    letter-spacing: 0.6em;
-}
-
 #mainMenu h1 .titleMain { max-width: 12ch; }
-
-/* Rusuk amber PADAT selebar tagline. Versi lama memudar ke transparan — sapuan
-   gradien seperti itu adalah dekorasi, bukan keputusan. */
-#mainMenu h1 .titleRule {
-    display: block;
-    width: 5ch;
-    height: 3px;
-    margin: 22px 0 15px;
-    background: var(--aiAmber);
-}
 
 /* Layar pilih mode memakai logotype KECIL di pojok kiri atas, bukan judul raksasa */
 .msMark {
@@ -1199,20 +1182,10 @@ body {
 }
 
 #modeSelect h1 {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
     margin: 0;
     font-size: 12.5px;
     letter-spacing: 2.6px;
     color: #e6e0d3;
-}
-
-#modeSelect h1 .titleRule { display: none; }
-
-#modeSelect h1 .titleTag {
-    font-size: 0.82em;
-    letter-spacing: 0.32em;
 }
 
 /* ---------- Daftar entri menu utama ---------- */
@@ -1228,17 +1201,19 @@ body {
 .navRow {
     display: block;
     width: min(460px, 84vw);
-    padding: 11px 16px 11px 15px;
+    /* padding kiri 17px = 15px lama + 2px bekas border, supaya teks tak bergeser
+       setelah rusuk kirinya dibuang (2026-08-10, permintaan user). */
+    padding: 11px 16px 11px 17px;
     text-align: left;
     font-family: inherit;
     color: inherit;
     /* Baris diam SEPENUHNYA transparan — latar samar yang lama berhenti mendadak
-       di tengah baris dan terbaca sebagai kotak UI di depan kota. */
+       di tengah baris dan terbaca sebagai kotak UI di depan kota. Tanpa rusuk
+       kiri sama sekali: penanda entri aktif tinggal sapuan amber + geseran. */
     background: transparent;
     border: 0;
-    border-left: 2px solid rgba(216, 210, 196, 0.18);
     cursor: pointer;
-    transition: background 0.16s, border-color 0.16s, transform 0.16s;
+    transition: background 0.16s, transform 0.16s;
     animation: mmRise 0.5s cubic-bezier(.2, .7, .3, 1) backwards;
 }
 
@@ -1264,7 +1239,6 @@ body {
 .navRow.on {
     background: linear-gradient(90deg, rgba(255, 176, 59, 0.16) 0%,
             rgba(255, 176, 59, 0) 82%);
-    border-left-color: var(--aiAmber);
     transform: translateX(7px);
 }
 
@@ -1351,12 +1325,11 @@ body {
     border-bottom: 2px solid var(--aiAmber);
 }
 
-/* Kepala panel RATA KIRI di atas satu garis rambut selebar panel. Judul
-   di tengah dgn palang amber pendek di bawahnya adalah tata letak sertifikat,
-   bukan tata letak konsol. */
+/* Kepala panel RATA KIRI, TANPA garis apa pun (2026-08-10, permintaan user).
+   Judul di tengah dgn palang amber pendek di bawahnya adalah tata letak
+   sertifikat, bukan tata letak konsol — rata kiri saja sudah cukup memisahkan. */
 .panelHead {
     padding-bottom: 14px;
-    border-bottom: 1px solid var(--aiLine);
 }
 
 .creditsEyebrow {
@@ -1383,18 +1356,13 @@ body {
     gap: 13px;
 }
 
-/* ukuran/tracking/uppercase datang dari aturan label mikro bersama di atas */
+/* ukuran/tracking/uppercase datang dari aturan label mikro bersama di atas.
+   Garis rambut yang dulu memanjang di kanan label dibuang 2026-08-10
+   (permintaan user) — label amber-nya sendiri sudah menandai kelompok. */
 .setGroupHead {
     display: flex;
     align-items: center;
-    gap: 14px;
     color: var(--aiAmber);
-}
-
-.setGroupHead i {
-    flex: 1 1 auto;
-    height: 1px;
-    background: var(--aiLine);
 }
 
 #qualityRow {
@@ -1631,11 +1599,12 @@ body {
     font-weight: bold;
 }
 
-/* ---------- Kartu mode: DIPIMPIN GAMBAR ----------
-   Rombak 2026-08-10. Versi "berkas misi" menumpuk enam laras teks dalam satu
-   kartu (kode OP + kelas + skema + nama + sub + paragraf + tabel spesifikasi +
-   footer Deploy) — itu bukan kartu, itu formulir. Sekarang: skema misi memenuhi
-   kepala kartu, lalu nama, satu baris keterangan, satu kalimat. Selesai. */
+/* ---------- Kartu mode: TEKS SAJA ----------
+   Rombak 2026-08-10, dua tahap. Versi "berkas misi" menumpuk enam laras teks
+   dalam satu kartu (kode OP + kelas + skema + nama + sub + paragraf + tabel
+   spesifikasi + footer Deploy) — itu bukan kartu, itu formulir. Tahap kedua
+   (permintaan user: "jauh lebih sederhana") membuang skema vektornya juga:
+   sekarang nama, satu baris keterangan, satu kalimat. Selesai. */
 .modeCards {
     display: flex;
     gap: clamp(16px, 2.6vw, 30px);
@@ -1649,7 +1618,7 @@ body {
     flex-direction: column;
     gap: 9px;
     width: min(352px, 88vw);
-    padding: 0 0 20px;
+    padding: 22px 0 20px;
     box-sizing: border-box;
     background: linear-gradient(180deg, rgba(21, 23, 27, 0.94), rgba(11, 12, 15, 0.96));
     border: 1px solid var(--aiLine);
@@ -1662,17 +1631,6 @@ body {
     border-color: var(--aiLineHot);
     box-shadow: 0 18px 46px rgba(0, 0, 0, 0.6);
 }
-
-/* Skema memenuhi lebar kartu (tanpa bingkai kedua di dalam bingkai kartu) dan
-   duduk di atas garis rambut yang memisahkannya dari teks. */
-.mcArt {
-    height: 138px;
-    margin-bottom: 6px;
-    border-bottom: 1px solid var(--aiLine);
-    background: rgba(47, 184, 166, 0.03);
-}
-
-.mcArt .maSvg { display: block; width: 100%; height: 100%; }
 
 .modeCard h2,
 .mcSub,
@@ -1698,49 +1656,8 @@ body {
     color: var(--aiTextDim);
 }
 
-/* Skema misi (menuArt.js) — garis teknis, bukan ikon */
-.maSvg {
-    color: var(--aiTextFaint);
-    font-family: 'Courier Prime', 'Courier New', monospace;
-}
-
-.maFrame { fill: none; stroke: rgba(216, 210, 196, 0.22); stroke-width: 1.2; }
-.maRing { fill: none; stroke: var(--aiTech); stroke-opacity: 0.42; stroke-dasharray: 5 6; }
-.maVec { stroke: var(--aiHazard); stroke-width: 1.4; stroke-opacity: 0.75; }
-.maHead { fill: var(--aiHazard); }
-.maCore { fill: none; stroke: var(--aiAmber); stroke-width: 1.6; }
-.maCoreMark { stroke: var(--aiAmber); stroke-opacity: 0.5; }
-.maTerrain { fill: rgba(216, 210, 196, 0.05); stroke: rgba(216, 210, 196, 0.12); }
-.maRoute { fill: none; stroke: var(--aiAmber); stroke-width: 1.8; }
-.maRouteGhost { fill: none; stroke: var(--aiAmber); stroke-opacity: 0.55; stroke-width: 1.4; stroke-dasharray: 4 5; }
-.maNode { fill: #0c0d10; stroke: var(--aiAmber); stroke-width: 1.4; }
-.maNodeOn { fill: var(--aiAmber); }
-.maMast { fill: none; stroke: var(--aiTech); stroke-width: 1.4; }
-.maWave { fill: none; stroke: var(--aiTech); stroke-width: 1.2; stroke-opacity: 0.5; }
-.maCore2 { fill: var(--aiTech); }
-
-/* Nomor stage di atas simpul rute — satu-satunya teks yang tersisa di skema. */
-.maNum {
-    fill: var(--aiTextDim);
-    font-size: 8px;
-    letter-spacing: 1.6px;
-    text-anchor: middle;
-}
-
-.modeCard:hover .maRing {
-    transform-origin: 160px 74px;
-    animation: mmRingSpin 11s linear infinite;
-}
-
-.modeCard:hover .maRouteGhost { animation: mmDash 1.6s linear infinite; }
-
-@keyframes mmRingSpin {
-    to { transform: rotate(360deg); }
-}
-
-@keyframes mmDash {
-    to { stroke-dashoffset: -18; }
-}
+/* Gaya skema misi (.maSvg + seluruh kelas .ma*) DIBUANG 2026-08-10 bersama
+   gambarnya — lihat komentar kartu mode di atas. */
 
 /* ---------- Prompt Continue game? (checkpoint campaign) ---------- */
 #continuePrompt {
@@ -1800,7 +1717,6 @@ body {
 @media (max-width: 900px) {
     #mainMenu { justify-content: center; padding: 0 22px; }
     #mainMenuMain { align-items: center; text-align: center; }
-    #mainMenu h1 .titleRule { margin-left: auto; margin-right: auto; }
     .mScene::after { background: linear-gradient(180deg, rgba(9, 10, 13, 0.93), rgba(9, 10, 13, 0.78) 44%, rgba(9, 10, 13, 0.94)); }
     .mStamp { display: none; }
     .creditGroup { grid-template-columns: 1fr; row-gap: 2px; }
@@ -1811,7 +1727,7 @@ body {
 /* Hormati preferensi sistem: latar menu tetap, geraknya yang berhenti */
 @media (prefers-reduced-motion: reduce) {
     .mSky::before, .mSky::after, .mHaze, .miBeacon,
-    .navRow, .menuPanel, .modeCard:hover .maRing, .modeCard:hover .maRouteGhost {
+    .navRow, .menuPanel {
         animation: none;
     }
     .mCity { transition: none; }
