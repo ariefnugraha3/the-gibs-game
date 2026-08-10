@@ -17,7 +17,7 @@ import { updateUI } from '../../../core/hud.js';
 import { releaseInputs } from '../../../core/input.js';
 import { clearMoveTarget } from '../../../entities/player.js';
 import { avatarGroup, setAvatarRadioPose } from '../../../entities/playerAvatar.js';
-import { disposeRobot, queueBoom } from '../../../entities/robots.js';
+import { disposeRobot, queueBoom, killRobot } from '../../../entities/robots.js';
 import {
     spawnCampaignRobot, campaignAwardKill, campaignRobotAI, campaignClampRobot,
     countStageRobots,
@@ -66,7 +66,7 @@ const NAV_CELL = 14;
 // `midnight` (ambient sepertiga + cahaya bulan dingin) DITAMBAH haze malam
 // pekat ini; near/far dibaca dari preset yang sama supaya tak ada dua sumber
 // kebenaran. Sisa cahaya hangat = lampu jalan amber, jendela kota, efek tempur.
-const NIGHT_ENV = Object.freeze({ background: 0x11151c, fogColor: 0x0d1116 });
+const NIGHT_ENV = Object.freeze({ background: 0x090c11, fogColor: 0x06080c });
 const PLAY_CAM = Object.freeze({ x: 70.7, y: 116, z: 70.7 });
 const LANDMARK_CAM = Object.freeze({ x: 150, y: 230, z: 150 });
 const MORTAR_UP = new THREE.Vector3(0, 1, 0);
@@ -271,6 +271,17 @@ function ensureLayout() {
         }));
     }
 
+    // DUNIA LANJUTAN DI BALIK GERBANG TOL (2026-08-10, laporan user "dunia habis
+    // di depan tol Pasteur, ini jadi terlihat aneh"). Player TETAP terkunci di
+    // meter `lengthMeters` — `stage7Walk` tak berubah sama sekali — tetapi jalan,
+    // tanah dan kotanya diteruskan `beyondTollMeters` lagi supaya tak ada tepi
+    // dunia yang terlihat. Panjang itu bukan hiasan: tapak pandang kamera saja
+    // sudah ~38 m di depan fokus, dan pada cutscene outro fokusnya IKUT
+    // kendaraan yang melaju ke barat melewati gerbang, jadi yang terlihat bisa
+    // sampai ~85 m di luar tol. 150 m memberi marjin sekaligus jatuh tepat di
+    // `fogFar`, sehingga ujungnya larut jadi kabut, bukan potongan.
+    const beyondMeters = Math.max(0, F.beyondTollMeters || 0);
+    const beyondX = xAtMeter(lengthMeters + beyondMeters);
     const pointAt = (meter, z = 0) => Object.freeze({
         meter, x: xAtMeter(meter), y: roadYAtMeter(meter), z,
     });
@@ -299,7 +310,7 @@ function ensureLayout() {
         lanes, eastX, westX, xAtMeter,
         rampIntervalMeters, rampLaneCount, rampWidth, rampLength, rampMergeLength,
         rampOuter: deckHalf + rampWidth,
-        deckHeight, lowerY, leftRoadZ,
+        deckHeight, lowerY, leftRoadZ, beyondMeters, beyondX,
         descentStartMeter, descentLengthMeters, descentEndMeter,
         descentDrop, descentRun, descentSlopeLength, descentPitch,
         roadYAtMeter, roadPitchAtMeter,
@@ -654,8 +665,9 @@ function buildMaterials() {
 // dibangun `stage7City.js` (PUSAT KOTA BANDUNG, 2026-08-10).
 function buildLowerRoads(M, staticProps) {
     const L = ensureLayout();
-    staticBox(staticProps, M.earth, L.length + 300, 5, L.deckWidth + 720,
-        OX, L.lowerY - 2.8, OZ);
+    const beyond = L.beyondMeters * CAMP_M;
+    staticBox(staticProps, M.earth, L.length + beyond + 300, 5, L.deckWidth + 720,
+        OX - beyond / 2, L.lowerY - 2.8, OZ);
     for (let meter = 0; meter <= L.lengthMeters; meter += L.rampIntervalMeters) {
         const x = L.xAtMeter(meter);
         staticBox(staticProps, M.road, 8 * CAMP_M, 1, L.deckWidth + 650,
@@ -666,9 +678,9 @@ function buildLowerRoads(M, staticProps) {
     }
     for (const side of [-1, 1]) {
         const z = side * (L.deckHalf + L.rampWidth / 2);
-        staticBox(staticProps, M.road, L.length, 1, L.rampWidth,
-            OX, L.lowerY + 0.16, z);
-        lowerRoadRecords.push({ meter: null, x: OX, z, y: L.lowerY,
+        staticBox(staticProps, M.road, L.length + beyond, 1, L.rampWidth,
+            OX - beyond / 2, L.lowerY + 0.16, z);
+        lowerRoadRecords.push({ meter: null, x: OX - beyond / 2, z, y: L.lowerY,
             belowDeck: true, parallelFeeder: true, side });
     }
 }
@@ -1209,6 +1221,105 @@ function buildToll(M, staticProps) {
             roadY: vehicleObject.y }, Math.PI, true);
 }
 
+// DUNIA DI BALIK GERBANG (2026-08-10, permintaan user). Jalan tol Pasteur
+// diteruskan `beyondTollMeters` lagi ke barat: aspal, marka, rel pengaman,
+// pulau pemisah keluar gerbang, gantry rambu, tiang lampu dan beberapa mobil
+// mogok. SEMUANYA DEKOR — tak satu pun jadi blocker dan `stage7Walk` tidak
+// disentuh, jadi player tetap berhenti tepat di gerbang tol; yang berubah cuma
+// tidak ada lagi tepi dunia yang terlihat di ujung jalan. Lampunya juga TIDAK
+// masuk `lampSpecs`, supaya ke-14 PointLight tetap terbagi di sepanjang rute
+// yang benar-benar dimainkan (dan jumlah light per stage tetap).
+function buildBeyondToll(M, staticProps) {
+    const L = ensureLayout();
+    if (L.beyondMeters <= 0) return;
+    const m0 = L.lengthMeters, m1 = L.lengthMeters + L.beyondMeters;
+    const roadY = L.roadYAtMeter(m1);
+    roadSpanBox(staticProps, M.road, m0, m1, 0.12, L.deckWidth, OZ, 0.17);
+    roadSpanBox(staticProps, M.panel, m0, m1, 0.22, L.medianWidth, OZ, 0.22);
+    for (let i = 1; i < L.lanesPerSide; i++)
+        for (const side of [-1, 1])
+            for (let meter = m0 + 6; meter < m1; meter += 12)
+                roadSpanBox(staticProps, M.white, meter - 2.6, meter + 2.6,
+                    0.08, 0.12 * CAMP_M,
+                    side * (L.medianWidth / 2 + i * L.laneWidth), 0.25);
+    for (const side of [-1, 1]) {
+        roadSpanBox(staticProps, M.white, m0, m1, 0.08, 0.09 * CAMP_M,
+            side * (L.medianWidth / 2), 0.25);
+        roadSpanBox(staticProps, M.white, m0, m1, 0.08, 0.12 * CAMP_M,
+            side * L.roadEdge, 0.25);
+        roadSpanBox(staticProps, M.steel, m0, m1, 0.9 * CAMP_M, 0.16 * CAMP_M,
+            side * (L.deckHalf - 0.15 * CAMP_M), 0.55 * CAMP_M);
+    }
+    // Pulau pemisah keluar gerbang: hidung beton bergaris di antara gardu
+    for (const z of [-(L.medianWidth / 2 + L.laneWidth * 2), -(L.deckHalf - 0.75 * CAMP_M),
+        L.medianWidth / 2 + L.laneWidth * 2, L.deckHalf - 0.75 * CAMP_M]) {
+        const nose = L.xAtMeter(m0 + 5);
+        staticBox(staticProps, M.concrete, 9 * CAMP_M, 0.55 * CAMP_M,
+            1.1 * CAMP_M, nose, roadY + 0.28 * CAMP_M, z);
+        staticBox(staticProps, M.red, 1.4 * CAMP_M, 0.62 * CAMP_M,
+            1.16 * CAMP_M, nose + 4 * CAMP_M, roadY + 0.31 * CAMP_M, z);
+    }
+    // Gantry rambu arah di kejauhan
+    const gantryMeter = Math.min(m1 - 12, m0 + 70);
+    const gx = L.xAtMeter(gantryMeter);
+    const gantry = new THREE.Group();
+    gantry.position.set(gx, roadY, OZ);
+    for (const side of [-1, 1])
+        cylinder(gantry, M.steel, 0.3 * CAMP_M, 0.34 * CAMP_M, 8.5 * CAMP_M, 8,
+            0, 4.25 * CAMP_M, side * (L.deckHalf - 0.4 * CAMP_M));
+    box(gantry, M.steel, 0.5 * CAMP_M, 0.5 * CAMP_M, L.deckWidth,
+        0, 8.4 * CAMP_M, 0);
+    staticProps.push(gantry);
+    const gantrySign = new THREE.Mesh(new THREE.BoxGeometry(
+        0.4 * CAMP_M, 2.4 * CAMP_M, 14 * CAMP_M),
+    new THREE.MeshBasicMaterial({
+        color: PAL.white, map: signTexture('PADALEUNYI TOLL ROAD', 'KERTAJATI ROUTE'),
+        toneMapped: false,
+    }));
+    gantrySign.position.set(gx, roadY + 6.6 * CAMP_M, 0);
+    staticProps.push(gantrySign);
+    // Tiang lampu lanjutan (visual saja — di luar lampSpecs)
+    const interval = Math.max(10, L.F.lampIntervalMeters);
+    for (let meter = m0 + interval / 2; meter < m1; meter += interval) {
+        const x = L.xAtMeter(meter), g = new THREE.Group();
+        g.position.set(x, roadY, OZ);
+        const h = 8.5 * CAMP_M, arm = 2.65 * CAMP_M;
+        cylinder(g, M.steel, 0.18 * CAMP_M, 0.26 * CAMP_M, h, 8, 0, h / 2, 0);
+        for (const side of [-1, 1]) {
+            const beam = box(g, M.steel, 0.18 * CAMP_M, 0.18 * CAMP_M,
+                arm, 0, h - 0.45 * CAMP_M, side * arm / 2);
+            beam.rotation.x = side * 0.12;
+            box(g, M.amber, 0.9 * CAMP_M, 0.18 * CAMP_M, 0.42 * CAMP_M,
+                0, h - 0.72 * CAMP_M, side * (arm - 0.12 * CAMP_M));
+        }
+        staticProps.push(g);
+        recordProp('beyond-lamp', { x, z: 0 }, 0.28 * CAMP_M, 0.28 * CAMP_M,
+            roadY + h, false, { meter, roadY, decorOnly: true });
+    }
+    // Mobil mogok: jalan yang benar-benar kosong terbaca seperti set kosong
+    const colors = [PAL.gunmetal, PAL.concrete, PAL.panel, PAL.steel];
+    for (let i = 0; i < 5; i++) {
+        const meter = m0 + 14 + i * 21;
+        if (meter > m1 - 8) break;
+        const lane = laneCenterFrom(L.lanes, i * 3 + 1);
+        const g = i % 2
+            ? new FuturisticSUV({ bodyColor: colors[i % colors.length],
+                scale: CAMP_M, enableLights: false }).group
+            : new FuturisticSedan(colors[i % colors.length]).group;
+        if (i % 2 === 0) g.scale.setScalar(CAMP_M);
+        const carrier = new THREE.Group();
+        carrier.position.set(L.xAtMeter(meter), roadY, lane);
+        g.rotation.y = [-0.12, 0.09, -0.05, 0.14, 0][i % 5];
+        carrier.add(g); staticProps.push(carrier);
+        recordProp('beyond-car', { x: carrier.position.x, z: lane },
+            2.4 * CAMP_M, 1.1 * CAMP_M, roadY + 2.4 * CAMP_M, false,
+            { meter, decorOnly: true });
+    }
+    recordProp('beyond-toll-road', { x: (L.westX + L.beyondX) / 2, z: OZ },
+        Math.abs(L.westX - L.beyondX) / 2, L.deckHalf, roadY, false,
+        { meters: L.beyondMeters, endX: L.beyondX, roadY, playerBlocked: true });
+}
+
 function buildFxPools(M) {
     for (let i = 0; i < 96; i++) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(0.16, 10, 0.16), M.rain);
@@ -1327,6 +1438,7 @@ function buildWorld() {
     buildLandmark(M, staticProps);
     buildSpawnFactories();
     buildToll(M, staticProps);
+    buildBeyondToll(M, staticProps);
 
     const eastSign = new THREE.Mesh(new THREE.BoxGeometry(
         0.5 * CAMP_M, 3.5 * CAMP_M, 22 * CAMP_M),
@@ -1547,11 +1659,42 @@ function destroyMachine(m) {
     const left = machinesAlive();
     showStageMsg(`ROBOT FACTORY DESTROYED - ${left}/3 REMAINING`, 3200);
     if (left === 0) {
-        for (const z of robots)
-            if (z.stage === 7 && String(z.encounter).startsWith('factory-')) z.hp = 0;
-        showStageMsg('FACTORY NETWORK COLLAPSED - GRD LTV-45 ACCESS OPEN', 4600);
+        const down = collapseRobotNetwork();
+        showStageMsg(`FACTORY NETWORK COLLAPSED - ${down} UNITS DOWN`, 4600);
         addCamShake(13);
     }
+}
+
+// JARINGAN RUNTUH (2026-08-10, permintaan user: "ketika 3 spawn machine itu
+// hancur, semua robot akan langsung hancur dan mati juga"). Ini sekaligus
+// memperbaiki bug: baris lama hanya men-set `hp = 0` pada robot cetakan pabrik,
+// padahal hp<=0 HANYA diproses di jalur "peluru mengenai robot" — jadi robot itu
+// tetap berkeliaran dengan 0 HP dan gerbang `factoryRobotCount() === 0` menuju
+// `vehicleReveal` baru terbuka kalau player menembaki mereka satu per satu.
+// Sekarang SELURUH robot stage 7 dihabisi pada frame yang sama.
+//
+// Yang MASIH DI LAYAR mati lewat jalur kematian ledakan yang normal — gore
+// penuh + loot, sehingga runtuhnya benar-benar terlihat. Yang di luar layar
+// dilenyapkan langsung: tak ada yang menyaksikan gore-nya, dan menaburkan
+// ratusan loot di sepanjang 1,5 km yang sudah dilewati hanya menambah mesh
+// yang tak akan pernah dipungut. Keduanya tetap dihitung sebagai kill.
+function collapseRobotNetwork() {
+    let wrecked = 0, cleared = 0;
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
+        if (z.stage !== 7) continue;
+        if (stage7RobotInView(z)) {
+            const p = z.mesh.position;
+            spawnGroundPuff(p.x, p.z, PAL.amber, 7, (z.groundY || 0) + 1.2);
+            killRobot(i, { cause: 'explosion' });
+            wrecked++;
+        } else {
+            disposeRobot(z); scene.remove(z.mesh); robots.splice(i, 1);
+            stats.kills++; cleared++;
+        }
+    }
+    machineBirths.length = 0;
+    return wrecked + cleared;
 }
 
 function machineBulletHit(b) {
@@ -2227,6 +2370,20 @@ export const stage7FlyoverDebug = () => {
             roadSide: 'left',
             carriageway: 'south', centered: vehicleObject.z === 0,
             onLeftSide: vehicleObject.z === L.leftRoadZ && vehicleObject.z > 0,
+        },
+        beyond: {
+            meters: L.beyondMeters, endX: L.beyondX,
+            roadY: L.roadYAtMeter(L.lengthMeters + L.beyondMeters),
+            props: propRecords.filter(p => String(p.kind).startsWith('beyond-')).length,
+            lamps: propRecords.filter(p => p.kind === 'beyond-lamp').length,
+            // Dunianya diteruskan, TAPI kuncinya tidak: satu-satunya hal yang
+            // memutuskan sejauh mana player boleh melangkah tetap `stage7Walk`.
+            playerLocked: !stage7Walk(L.westX - 1, 0, 0)
+                && !stage7Walk(L.beyondX + 1, 0, 0)
+                && stage7Walk(L.westX + CFG.player.radius + 0.5, 0,
+                    CFG.player.radius),
+            solidProps: propRecords.filter(p => String(p.kind).startsWith('beyond-')
+                && p.solid).length,
         },
         toll: {
             name: 'Pasteur Toll Gate', meter: L.lengthMeters,

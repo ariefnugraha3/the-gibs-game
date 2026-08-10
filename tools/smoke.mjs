@@ -7870,6 +7870,57 @@ T('S7 TURUNAN PASTEUR: mulai sesuai CFG, turun kontinu ke plaza bawah, lalu gerb
     && s7mod.stage7Scene.clampDropPos(
         s7mod.S7_VEHICLE.x, s7mod.S7_VEHICLE.z)[2] === s7Fly.toll.y);
 
+// FX MENGIKUTI KONTUR JALAN (2026-08-10, laporan user: di ujung turunan
+// Pasupati "ledakan dan pecahan musuh masih melayang di atas seakan-akan jalan
+// itu masih berada di atas"). Cincin ledakan, kilat, percikan coolant dan
+// genangan DULU memakai y=0 mati — benar selama semua lantai ada di y=0, tetapi
+// dek Stage 7 turun 12 m di 200 m terakhir. Sumber kebenarannya satu:
+// `activeScene.groundHeight`.
+{
+    const CM = cfgMod.CAMP_M;
+    const at = m => s7Fly.world.eastX - m * CM;
+    const roadY = x => s7mod.stage7RoadHeight(x);
+    const slopeX = at(S7F.descentStartMeter + S7F.descentLengthMeters / 2);
+    const plazaX = at(S7F.descentStartMeter + S7F.descentLengthMeters + 20);
+    goreMod.resetGore(); effectsMod.resetBloodPool();
+    stateMod.explosions.length = 0;
+
+    goreMod.spawnBloodDecal(plazaX, 0, 3);
+    goreMod.spawnBloodDecal(slopeX, 0, 3);
+    const decals = goreMod.goreDebug().decals;
+    T(`S7 KONTUR FX: genangan coolant menempel di aspal turunan, bukan di y=0 [plaza ${roadY(plazaX).toFixed(0)}, lereng ${roadY(slopeX).toFixed(0)}]`,
+        roadY(plazaX) < -1 && roadY(slopeX) < -1 && roadY(slopeX) > roadY(plazaX)
+        && decals.length === 2
+        && decals.every(d => d.y - roadY(d.x) >= 0.06 - 1e-9
+            && d.y - roadY(d.x) <= 0.1));
+
+    effectsMod.spawnBloodBurst(slopeX, roadY(slopeX) + 12, 0, 1, 0, 8, 1, 2.1);
+    // Satu percikan dijatuhkan LURUS ke bawah supaya pendaratannya deterministik
+    // (percikan kerucut biasa keburu habis umur sebelum menyentuh lantai).
+    effectsMod.spawnBlood(slopeX, roadY(slopeX) + 6, 0, 0, -40, 0);
+    let settled = 0;
+    for (let i = 0; i < 20; i++) {
+        effectsMod.updateBloodPool(0.016);
+        for (const b of effectsMod.bloodPoolDebug())
+            if (Math.abs(b.y - (b.gy + 0.4)) < 0.01) settled++;
+    }
+    const blood = effectsMod.bloodPoolDebug();
+    T(`S7 KONTUR FX: percikan coolant mengendap di permukaan jalan [lantai ${blood.length ? blood[0].gy.toFixed(0) : 'n/a'}]`,
+        blood.length > 0 && settled > 0
+        && blood.every(b => Math.abs(b.gy - roadY(slopeX)) < 1e-9
+            && b.y >= b.gy + 0.4 - 1e-6));
+
+    effectsMod.explodeAt(new THREE.Vector3(slopeX, roadY(slopeX) + 5, 0), 1, 0);
+    const shock = stateMod.explosions.find(e => e.scale === 95);
+    const flash = stateMod.explosions.find(e => e.light);
+    T('S7 KONTUR FX: gelombang kejut + kilat ledakan ikut turun bersama jalan',
+        !!shock && Math.abs(shock.mesh.position.y - (roadY(slopeX) + 0.8)) < 1e-9
+        && !!flash && Math.abs(flash.light.position.y - (roadY(slopeX) + 14)) < 1e-9);
+    for (let i = 0; i < 6; i++) effectsMod.updateExplosions(0.2);
+    goreMod.resetGore(); effectsMod.resetBloodPool();
+    stateMod.explosions.length = 0;
+}
+
 T('S7 MALAM/LAMPU: semua tiang berada di median, bercabang kiri-kanan, fixed lights',
     s7Fly.night && s7Fly.lamps.visual >= 20
     && s7Fly.lamps.dualBranch && s7Fly.lamps.centerMounted
@@ -8035,8 +8086,12 @@ T(`S7 KOTA: sisi kamera tak pernah menembus permukaan dek [tertinggi ${s7City.ma
     const half = s7City.districtMeters / 2;
     const seen = d => {
         const lane = d.side < 0 ? outer[0] : outer[1];
+        // Batas atas kamera BUKAN meter 1500: pada cutscene outro `setCineFocus`
+        // mengikuti GRD LTV-45 yang melaju melewati gerbang (~32 m sebelum fade),
+        // jadi dunia lanjutan di baliknya memang sempat terlihat.
+        const reach = S7F.lengthMeters + 40;
         for (const back of [0, 20, 40, 60]) {
-            const meter = Math.max(4, Math.min(S7F.lengthMeters - 4, d.meter - back));
+            const meter = Math.max(4, Math.min(reach, d.meter - back));
             const x = s7Fly.world.eastX - meter * cfgMod.CAMP_M;
             camera.position.set(x, s7mod.stage7RoadHeight(x) + eye, lane);
             // Samakan titik fokus kamera dgn posisi player, kalau tidak
@@ -8054,6 +8109,33 @@ T(`S7 KOTA: sisi kamera tak pernah menembus permukaan dek [tertinggi ${s7City.ma
         blind.length === 0);
     camera.position.set(s7mod.S7_START.x, s7mod.S7_START.y + eye, s7mod.S7_START.z);
     rendererMod.setCineFocus(s7mod.S7_START.x, s7mod.S7_START.z, true);
+}
+// DUNIA LANJUT DI BALIK GERBANG (2026-08-10, laporan user "dunia habis di depan
+// tol Pasteur, ini jadi terlihat aneh"): jalan/tanah/kota diteruskan
+// `beyondTollMeters`, TAPI kuncinya tetap `stage7Walk` — player berhenti tepat
+// di gerbang dan tak satu pun prop lanjutan menjadi blocker.
+{
+    const B = s7Fly.beyond, CM = cfgMod.CAMP_M;
+    const past = [5, 40, 90, S7F.beyondTollMeters - 5].map(dm =>
+        s7Fly.world.westX - dm * CM);
+    T(`S7 LANJUTAN: dunia diteruskan ${B.meters} m di balik gerbang tol [${B.props} prop, ${B.lamps} lampu dekor]`,
+        B.meters === S7F.beyondTollMeters && B.meters > 0
+        && Math.abs(B.endX - (s7Fly.world.westX - B.meters * CM)) < 1e-6
+        && B.roadY === s7Fly.toll.y
+        && B.props > 6 && B.lamps >= 2
+        && ['beyond-toll-road', 'beyond-lamp', 'beyond-car']
+            .every(k => s7World.propKinds.includes(k))
+        && s7City.beyondMeters === B.meters
+        && s7City.endMeter === S7F.lengthMeters + B.meters
+        && s7City.districts.some(d => d.meter > S7F.lengthMeters));
+    T('S7 LANJUTAN: player tetap terkunci di gerbang tol dan lanjutannya nol blocker',
+        B.playerLocked && B.solidProps === 0
+        && past.every(x => !s7mod.stage7Walk(x, 0, 0)
+            && !s7mod.stage7Walk(x, s7Fly.lanes.centers[0], 0))
+        && s7mod.stage7Walk(s7Fly.world.westX + player.radius + 0.5, 0, player.radius)
+        // nav grid tak melar ke luar gerbang
+        && s7World.navBounds.x0 >= s7Fly.world.westX - 3 * CM
+        && s7Conn.connected && s7Conn.allRampsInaccessible);
 }
 // PENJAGA SESUNGGUHNYA: biaya draw call sesudah dilas per potongan 125 m —
 // bukan jumlah mesh mentah (kota padat memang mahal secara mesh, murah secara
@@ -8365,12 +8447,28 @@ T('S7 FACTORY GATE: dua chassis hancur masih belum membuka GRD',
     hitS7Factory(s7LockMachines[1])
     && s7mod.stage7Debug().machinesAlive === 1
     && !s7mod.stage7Debug().vehicleReady);
-const s7FactoryRobots = robots.filter(z => z.stage === 7
-    && String(z.encounter).startsWith('factory-'));
-T('S7 FACTORY DESTROY: swept hit terakhir mematikan network dan semua hasil cetak',
-    hitS7Factories() === 1 && s7mod.stage7Debug().machinesAlive === 0
-    && s7FactoryRobots.length > 0 && s7FactoryRobots.every(z => z.hp <= 0));
-killS7(); s7mod.stage7Scene.updateMode(0.1);
+// RUNTUHNYA JARINGAN MEMBUNUH SEMUA ROBOT (2026-08-10, permintaan user).
+// Dulu barisnya cuma men-set `hp = 0` pada robot cetakan pabrik — padahal
+// hp<=0 HANYA diproses saat sebuah peluru mengenai robot, jadi mereka tetap
+// berkeliaran dan gerbang menuju vehicleReveal cuma terbuka kalau player
+// menembaki mereka satu per satu. Tes ini sengaja TIDAK lagi membersihkan
+// robot secara manual: yang diuji justru sapuannya sendiri.
+const s7Wipe = {
+    total: robots.filter(z => z.stage === 7).length,
+    factory: robots.filter(z => z.stage === 7
+        && String(z.encounter).startsWith('factory-')).length,
+    other: robots.filter(z => z.stage === 7
+        && !String(z.encounter).startsWith('factory-')).length,
+    kills: stateMod.stats.kills,
+};
+T(`S7 FACTORY DESTROY: chassis terakhir menghabisi SELURUH robot stage seketika [${s7Wipe.total} robot: ${s7Wipe.factory} cetakan + ${s7Wipe.other} encounter]`,
+    s7Wipe.factory > 0 && s7Wipe.other > 0
+    && hitS7Factories() === 1 && s7mod.stage7Debug().machinesAlive === 0
+    && robots.filter(z => z.stage === 7).length === 0
+    && s7mod.stage7Debug().robots === 0
+    && s7mod.stage7Debug().factoryRobots === 0
+    && stateMod.stats.kills === s7Wipe.kills + s7Wipe.total);
+s7mod.stage7Scene.updateMode(0.1);
 T('S7 FACTORY COMPLETE: network bersih membuka akses GRD LTV-45',
     s7mod.stage7Debug().phase === 'vehicleReveal'
     && s7mod.stage7Debug().factoryRobots === 0);

@@ -840,10 +840,11 @@ export function killRobot(i, opts = {}) {
         spawnGibs(p.x, bodyY, p.z, 10, dirx, dirz, 1.8, 0x3d444c, restY);  // + serpihan logam ekstra
         spawnCorpse(z.mesh, z.rig, { dirx, dirz, dur: 1.2, fast: true });
         // genangan coolant TERCECER di sekitar titik ledak (bukan cuma satu di tengah)
-        spawnBloodDecal(p.x, p.z, 4 + Math.random() * 3);
+        spawnBloodDecal(p.x, p.z, 4 + Math.random() * 3, undefined, restY - 0.3);
         for (let d = 0; d < 8; d++) {
             const a = Math.random() * 6.283, r = (2 + Math.random() * 15) * scl;
-            spawnBloodDecal(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, 1.8 + Math.random() * 3);
+            spawnBloodDecal(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r,
+                1.8 + Math.random() * 3, undefined, restY - 0.3);
         }
     } else if (opts.cause === 'melee') {
         // TEBASAN PEDANG (2026-07-13): robot TERBELAH DUA di pinggang — separuh
@@ -857,12 +858,12 @@ export function killRobot(i, opts = {}) {
         spawnBloodBurst(p.x, cutY, p.z, dirx, dirz, 8, 0.8, 6.283);    // cincin rendah 360°
         spawnGibs(p.x, cutY, p.z, 2, dirx, dirz, 0.8, 0x3d444c, restY); // serpihan logam dari penampang
         bisectCorpse(z.mesh, z.rig, { dirx, dirz, restY });
-        spawnBloodDecal(p.x, p.z, 3.5 + Math.random() * 2);
+        spawnBloodDecal(p.x, p.z, 3.5 + Math.random() * 2, undefined, restY - 0.3);
     } else {
         spawnBloodBurst(p.x, bodyY, p.z, dirx, dirz, 9, 1.0);          // muncratan coolant
         gibRobot(z.rig, z.mesh, 'light', dirx, dirz, restY);          // kadang satu anggota lepas
         spawnCorpse(z.mesh, z.rig, { dirx, dirz });
-        spawnBloodDecal(p.x, p.z, 3 + Math.random() * 2);             // genangan di titik mati
+        spawnBloodDecal(p.x, p.z, 3 + Math.random() * 2, undefined, restY - 0.3);   // genangan di titik mati
     }
 }
 

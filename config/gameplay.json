@@ -551,6 +551,7 @@
                 "potholeMaxRadiusMeters": 4.8,
                 "lootboxCount": 30,
                 "barrelCount": 60,
+                "beyondTollMeters": 150,
                 "tollSightBeforeMeters": 150,
                 "tollTriggerBeforeMeters": 85
             },

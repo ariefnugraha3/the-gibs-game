@@ -109,7 +109,7 @@ export function bandungMaterials() {
         deck: lam(PAL.gunmetal),
         glass: lam(PAL.screenBg),
         lit: lam(PAL.screenBg, { emissive: PAL.amber, emissiveIntensity: 0.45 }),
-        civic: lam(PAL.screenBg, { emissive: PAL.tech, emissiveIntensity: 0.34 }),
+        civic: lam(PAL.screenBg, { emissive: PAL.tech, emissiveIntensity: 0.26 }),
         sign: lam(PAL.amber, { emissive: PAL.amber, emissiveIntensity: 0.55 }),
         lamp: lam(PAL.amber, { emissive: PAL.amber, emissiveIntensity: 0.8 }),
         metal: lam(PAL.steel),
@@ -429,8 +429,10 @@ function districtGedung(put, M, d) {
         bx(put, rnd(d.seed, 40 + f) < 0.3 ? M.lit : M.glass,
             m(0.25), m(1.7), dep * 0.8, d.cx + bw / 2, y, zc);
     }
-    // Lobi lantai dasar: layar sipil teal (satu-satunya aksen non-amber kota)
-    bx(put, M.civic, bw * 0.62, m(2.4), m(0.28), d.cx, d.gy + m(1.4),
+    // Lobi lantai dasar: layar sipil teal — SATU-SATUNYA aksen non-amber kota,
+    // jadi sengaja sempit; sebidang teal selebar gedung langsung mendominasi
+    // frame di malam segelap ini.
+    bx(put, M.civic, bw * 0.3, m(1.6), m(0.28), d.cx, d.gy + m(1.2),
         zc + toward * (dep / 2 + m(0.16)));
     // Mahkota: dak, ruang mesin, antena
     bx(put, M.trim, bw * 1.04, m(0.6), dep * 1.04, d.cx, d.gy + h + m(0.3), zc);
@@ -628,7 +630,15 @@ export function buildBandungCity(ctx) {
     const M = bandungMaterials();
     const gy = L.lowerY;
     const R = S7_CITY_ROWS;
-    const chunkCount = Math.ceil(L.lengthMeters / CHUNK_METERS) + 1;
+    // Kota ikut diteruskan `L.beyondMeters` di balik gerbang tol (2026-08-10):
+    // tanah + jalan sampai ujung penuh supaya tak ada tepi dunia, sedangkan
+    // DISTRIK berhenti di `districtEndMeter` — sedikit di luar jangkauan
+    // pandang terjauh, karena blok yang tak pernah masuk frame tetap tak boleh
+    // dibangun (aturan 1 di kepala berkas).
+    const beyond = Math.max(0, L.beyondMeters || 0);
+    const endMeter = L.lengthMeters + beyond;
+    const districtEndMeter = L.lengthMeters + Math.min(beyond, 60);
+    const chunkCount = Math.ceil(endMeter / CHUNK_METERS) + 1;
     const chunks = [];
     for (let i = 0; i < chunkCount; i++) chunks.push([]);
     const at = meter => chunks[Math.max(0, Math.min(chunkCount - 1,
@@ -643,7 +653,7 @@ export function buildBandungCity(ctx) {
     //     di-cull dan potongan itu selalu tergambar). ---
     for (let c = 0; c < chunkCount; c++) {
         const m0 = c * CHUNK_METERS;
-        const m1 = Math.min(L.lengthMeters + 40, m0 + CHUNK_METERS);
+        const m1 = Math.min(endMeter, m0 + CHUNK_METERS);
         if (m1 <= m0) continue;
         const put = o => chunks[c].push(o);
         const spanX = (m1 - m0) * CAMP_M;
@@ -674,7 +684,7 @@ export function buildBandungCity(ctx) {
             }
             // Jalan lintas antar blok — DIPOTONG di kaki flyover: koridor di
             // bawah dek sudah beraspal milik `buildLowerRoads`.
-            if (crossMeter < L.lengthMeters)
+            if (crossMeter < endMeter)
                 bx(put, M.asphalt, m(9), m(0.24), depth, crossX, gy + m(0.13),
                     side * (inner + depth / 2));
         }
@@ -694,15 +704,16 @@ export function buildBandungCity(ctx) {
         { key: 'near', n: 4, side: 1, near: L.deckHalf + R.near[0],
             depth: NEAR_ROW_D, mix: NEAR_MIX, floors: [2, 3], maxTop: NEAR_TOP_Y },
     ];
-    const count = Math.ceil((L.lengthMeters + 60) / DISTRICT_METERS);
+    const count = Math.ceil((districtEndMeter + DISTRICT_METERS) / DISTRICT_METERS);
     for (const row of rowsPlan) {
         for (let i = 0; i < count; i++) {
             const meter = (i + 0.5) * DISTRICT_METERS - 20;
             if (row.key === 'row3'
                 && Math.abs(meter - L.F.landmarkMeter) > ROW3_HALF_METERS) continue;
-            // Distrik yang seluruh bentangnya berada di barat ujung jalan tak
-            // pernah masuk frame: player berhenti di gerbang tol meter 1500.
-            if (meter - DISTRICT_METERS / 2 > L.lengthMeters - 5) continue;
+            // Distrik yang seluruh bentangnya berada di barat batas pandang
+            // tak pernah masuk frame: player berhenti di gerbang tol, dan hanya
+            // kamera outro yang ikut kendaraan sedikit melewatinya.
+            if (meter - DISTRICT_METERS / 2 > districtEndMeter) continue;
             const seed = row.n * 7919 + i * 131 + (row.side + 2) * 4517;
             let type = pick(seed, 1, row.mix);
             if (row.key === 'row1') {
@@ -733,7 +744,7 @@ export function buildBandungCity(ctx) {
 
     // --- PERABOT JALAN: lampu, tiang listrik berkabel, mobil parkir, pohon
     //     peneduh. Semua di sepanjang jalan layan kedua sisi. ---
-    for (let meter = 12; meter < L.lengthMeters + 30; meter += 24) {
+    for (let meter = 12; meter < endMeter; meter += 24) {
         const put = o => at(meter).push(o);
         const x = L.xAtMeter(meter);
         const s = Math.round(meter);
@@ -772,6 +783,7 @@ export function buildBandungCity(ctx) {
     const stats = {
         root: cityRoot, groundY: gy, chunks: chunkCount,
         chunkMeters: CHUNK_METERS, districtMeters: DISTRICT_METERS,
+        beyondMeters: beyond, endMeter, districtEndMeter,
         raw, welded, districts,
         types: [...new Set(districts.map(d => d.type))],
         rows: {

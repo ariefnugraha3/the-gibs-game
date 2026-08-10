@@ -45,13 +45,16 @@ export const LIGHT_PRESETS = {
     indoor: { fogNear: 50, fogFar: 700, amb: 0.34, hemi: 0.42, dir: 0.5 },   // interior TERANG futuristik (dicerahkan 2026-07-18)
     night: { fogNear: 160, fogFar: 1150, amb: 0.15, hemi: 0.2, dir: 0.32 },  // taman malam (campaign stage 3)
     // MALAM SUNGGUHAN (2026-08-10, laporan user "ini masih terlalu terang" utk
-    // Stage 7): `night` masih memakai matahari apokaliptik oranye 0.32 —
-    // terang seperti senja. `midnight` menurunkan KETIGA sumber ambient sampai
-    // sekitar sepertiga DAN menukar warnanya ke cahaya bulan dingin, sehingga
-    // satu-satunya cahaya hangat yang tersisa adalah lampu jalan amber, jendela
-    // kota, dan efek tempur. Kontras itulah yang membuatnya terbaca malam.
+    // Stage 7, lalu "buat lebih gelap lagi"): `night` masih memakai matahari
+    // apokaliptik oranye 0.32 — terang seperti senja. `midnight` menurunkan
+    // KETIGA sumber ambient sampai SEPEREMPAT nilai `night` DAN menukar
+    // warnanya ke cahaya bulan dingin, sehingga satu-satunya cahaya hangat
+    // yang tersisa adalah lampu jalan amber, jendela kota, dan efek tempur.
+    // Kontras itulah yang membuatnya terbaca malam. Angka ini SUDAH menyentuh
+    // batas bawah keterbacaan: di bawahnya aspal (PAL.rubber 0x161618) jatuh
+    // ke hitam pekat dan robot di luar kolam lampu tak lagi terlihat.
     midnight: {
-        fogNear: 200, fogFar: 1300, amb: 0.08, hemi: 0.1, dir: 0.12,
+        fogNear: 190, fogFar: 1050, amb: 0.04, hemi: 0.045, dir: 0.06,
         ambColor: 0xb9c4d6, skyColor: 0x232c3c, groundColor: 0x08090c,
         dirColor: 0x8fa0c8, rim: 0.12, rimColor: 0x3c4c78,
     },

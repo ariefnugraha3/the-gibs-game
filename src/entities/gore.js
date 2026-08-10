@@ -14,7 +14,7 @@
 import { scene } from '../core/renderer.js';
 import { makeTexture } from '../utils/textures.js';
 import { rand } from '../utils/math.js';
-import { spawnBloodBurst } from './effects.js';   // sirkular aman (gore->effects->robots->gore): dipakai di dalam fungsi
+import { spawnBloodBurst, sceneGroundY } from './effects.js';   // sirkular aman (gore->effects->robots->gore): dipakai di dalam fungsi
 
 const corpses = [];              // mayat yang sedang jatuh/memudar (mesh robot di-reuse)
 const bisected = [];             // bangkai TERBELAH DUA (kill pedang 2026-07-13): atas terbang berputar, bawah berdiri lalu roboh
@@ -72,11 +72,17 @@ export function initGore(sc) {
 }
 
 // Genangan coolant pipih di tanah (di titik mati / benturan gib). Pool round-robin.
-export function spawnBloodDecal(x, z, s, tone = 0x2fbf66) {
+// `groundY` (2026-08-10): tinggi permukaan tempat genangan menempel. DULU
+// dipaku 0.06 — benar selama semua lantai ada di y=0, tetapi di turunan Pasupati
+// Stage 7 genangannya menggantung 84 unit di atas aspal. Pemanggil yang SUDAH
+// tahu permukaannya (mayat robot, gib yang mendarat) mengirimkannya; sisanya
+// membaca hook scene.
+export function spawnBloodDecal(x, z, s, tone = 0x2fbf66, groundY = null) {
     if (!DECAL_POOL.length) return;
     const d = DECAL_POOL[nextDecal++ % DECAL_POOL.length];
+    const gy = groundY != null ? groundY : sceneGroundY(x, z, 0);
     d.mesh.visible = true;
-    d.mesh.position.set(x, 0.06 + Math.random() * 0.03, z);
+    d.mesh.position.set(x, gy + 0.06 + Math.random() * 0.03, z);
     d.mesh.rotation.set(-Math.PI / 2, 0, Math.random() * 6.283);   // rebah + putar acak di bidang tanah
     d.mesh.scale.set(s, s, 1);
     d.mesh.material.color.setHex(tone);
@@ -349,7 +355,13 @@ export function updateGore(dt) {
             g.mesh.rotation.z += g.sz * dt;
             if (g.mesh.position.y <= g.restY) {
                 g.mesh.position.y = g.restY;
-                if (!g.bled && g.vy < -6) { g.bled = true; spawnBloodDecal(g.mesh.position.x, g.mesh.position.z, 1.8 + Math.random() * 1.8, g.decalTone); }
+                if (!g.bled && g.vy < -6) {
+                    g.bled = true;
+                    // Gib mendarat di restY (= tanah + 0,3), jadi permukaannya
+                    // sudah diketahui — tak perlu menanyai scene lagi.
+                    spawnBloodDecal(g.mesh.position.x, g.mesh.position.z,
+                        1.8 + Math.random() * 1.8, g.decalTone, g.restY - 0.3);
+                }
                 g.vy = -g.vy * 0.3; g.vx *= 0.5; g.vz *= 0.5;
                 g.sx *= 0.4; g.sy *= 0.4; g.sz *= 0.4;
                 if (Math.abs(g.vy) < 3) { g.rest = true; g.vy = 0; }
@@ -394,8 +406,12 @@ export function driftGore(dx, keep = null) {
 // Posisi sisa tempur yang sedang tampil — dipakai smoke membuktikan serpihan
 // benar-benar DITINGGALKAN kereta (dan yang di dalam gerbong tidak).
 export const goreDebug = () => ({
-    gibs: GIB_POOL.filter(g => g.life > 0).map(g => ({ x: g.mesh.position.x, z: g.mesh.position.z })),
-    decals: DECAL_POOL.filter(d => d.life > 0).map(d => ({ x: d.mesh.position.x, z: d.mesh.position.z })),
+    gibs: GIB_POOL.filter(g => g.life > 0).map(g => ({
+        x: g.mesh.position.x, y: g.mesh.position.y, z: g.mesh.position.z, restY: g.restY,
+    })),
+    decals: DECAL_POOL.filter(d => d.life > 0).map(d => ({
+        x: d.mesh.position.x, y: d.mesh.position.y, z: d.mesh.position.z,
+    })),
 });
 
 export function resetGore() {

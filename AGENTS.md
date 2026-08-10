@@ -611,6 +611,18 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   street lamps branch over both carriageways from the median every 50 m, with exactly 14 fixed
   registered PointLights — 30 m range, so each pole is a pool of light that covers the deck but
   stops before the city — and emissive-only heads on the remaining poles.
+- Destroying the third Stage 7 spawn machine kills every Stage 7 robot on the same frame: on-screen
+  ones through the normal explosion death (gore + loot), off-screen ones removed outright, both counted
+  as kills. Setting `hp = 0` does not kill a robot — `hp <= 0` is only evaluated in the bullet-hit path.
+- Every FX that sits on the ground offsets by `effects.sceneGroundY(x, z, feetY)` (the one door onto
+  `activeScene.groundHeight`) instead of a hardcoded y: explosion shockwave/flash, settling coolant
+  spray, coolant decals. Floors are not always y=0 — Stage 7's deck descends 12 m. Resolve the height
+  once per burst, and pass it in when the caller already knows the surface (corpse/gib `restY`).
+- The Stage 7 world continues `flyover.beyondTollMeters` (150 m) past the Pasteur gate — road, markings,
+  rails, exit islands, a gantry sign, decor lamps, stalled cars and city ground — so no world edge is ever
+  visible; the outro cutscene's camera follows the vehicle through the gate, so it is genuinely seen. The
+  player lock is unchanged: `stage7Walk` still ends at meter 1500 and the continuation adds zero blockers,
+  with its lamps kept out of `lampSpecs` so the 14 PointLights stay on the played route.
 - Stage 7's ground backdrop is central Bandung (`stage7City.js`): ruko, kampung houses, markets,
   schools, parks, mid-rise blocks, an alun-alun with a domed mosque and minarets, Braga art-deco
   rows and Gedung Sate at meter 700. It is pure decor (no blockers, nav cells or PointLights). It

@@ -89,7 +89,7 @@ export function initEffects(sc) {
         }));
         spr.visible = false;
         sc.add(spr);
-        bloodPool.push({ spr, life: 0, s0: 3, vx: 0, vy: 0, vz: 0 });
+        bloodPool.push({ spr, life: 0, s0: 3, vx: 0, vy: 0, vz: 0, gy: 0 });
     }
 
     // Kilat moncong: bintang 4 lidah api + inti pijar (sama gaya dgn milik player).
@@ -151,7 +151,7 @@ export function spawnShellCasing(x, y, z, dirX, dirZ, power = 1) {
     c.sz = (Math.random() - 0.5) * 26;
     c.rest = false;
     c.life = 1;
-    c.gy = (activeScene && activeScene.groundHeight) ? activeScene.groundHeight(x, z, y) : 0;
+    c.gy = sceneGroundY(x, z, y);
     c.mesh.position.set(x, y, z);
     c.mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
     c.mesh.material.opacity = 1;
@@ -253,8 +253,9 @@ export function explodeAt(pos, radius, dmg, sfx) {
     expMesh.scale.setScalar(1);
     scene.add(expMesh);
     // Kilat cahaya dari pool (visual saja; radius blast dari CFG.grenade.killRadius)
+    const gy = sceneGroundY(pos.x, pos.z, pos.y);
     const flash = explosionLights[nextExplosionLight++ % explosionLights.length];
-    flash.position.set(pos.x, 14, pos.z);
+    flash.position.set(pos.x, gy + 14, pos.z);
     flash.intensity = 7;
     explosions.push({ mesh: expMesh, light: flash, life: 1, scale: 40 });   // life 0..1
     // Inti putih menyilaukan (ditangkap bloom) + gelombang kejut cincin di tanah
@@ -269,7 +270,7 @@ export function explodeAt(pos, radius, dmg, sfx) {
         blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
     }));
     shock.rotation.x = -Math.PI / 2;
-    shock.position.set(pos.x, 0.8, pos.z);
+    shock.position.set(pos.x, gy + 0.8, pos.z);
     scene.add(shock);
     explosions.push({ mesh: shock, life: 1, scale: 95 });
     playSFX(sfx || sfxExplode);
@@ -306,6 +307,17 @@ export function explodeAt(pos, radius, dmg, sfx) {
 
 // Cincin debu/percikan di ketinggian y — visual murni; menumpang daur hidup array
 // explosions (loop ledakan menangani skala, pudar opasitas, dispose, dan splice).
+// TINGGI TANAH DI SATU TITIK (2026-08-10, laporan user: di ujung turunan
+// Pasupati "ledakan dan pecahan musuh masih melayang di atas"). Semua FX yang
+// menyentuh tanah DULU memakai y=0 mati — benar selama semua lantai ada di y=0,
+// tetapi jalan Stage 7 turun 12 m sepanjang 200 m terakhir, jadi cincin ledakan,
+// percikan coolant dan genangan menggantung 84 unit di atas aspal. Satu-satunya
+// sumber kebenaran tetap hook `activeScene.groundHeight`.
+export function sceneGroundY(x, z, feetY = 0) {
+    return (activeScene && activeScene.groundHeight)
+        ? activeScene.groundHeight(x, z, feetY) : 0;
+}
+
 export function spawnGroundPuff(x, z, color, scale, y = 0.6) {
     const m = new THREE.Mesh(GEO.ring, new THREE.MeshBasicMaterial({
         color, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false
@@ -323,7 +335,7 @@ export function spawnGroundPuff(x, z, color, scale, y = 0.6) {
 // standable [atap bangkai mobil dsb] ikut dihitung). Menumpang pool
 // explosions via spawnGroundPuff — tanpa material/lampu baru.
 export function spawnBulletFloorHit(x, z, y = 0) {
-    const gy = (activeScene && activeScene.groundHeight) ? activeScene.groundHeight(x, z, y) : 0;
+    const gy = sceneGroundY(x, z, y);
     spawnGroundPuff(x, z, 0xffd28a, 4, gy + 0.8);   // percik terang (amber)
     spawnGroundPuff(x, z, 0x8f8579, 7, gy + 0.5);   // debu
 }
@@ -332,8 +344,13 @@ export function spawnBulletFloorHit(x, z, y = 0) {
 // (vx/vy/vz) = MUNCRAT keluar lalu jatuh (updateBloodPool); `color` = warna
 // cairan (default coolant hijau; darah player = merah). Sprite sedikit
 // digeser ke kamera render supaya tidak terbenam di dalam badan.
-export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0, color = COOLANT_HEX) {
+export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0, color = COOLANT_HEX,
+    groundY = null) {
     const bl = bloodPool[nextBlood++ % bloodPool.length];
+    // Dihitung SEKALI per percikan (atau diwariskan dari semburannya): pada
+    // stage berlantai banyak blocker, memanggil groundHeight per partikel per
+    // frame jauh lebih mahal daripada menyimpannya.
+    bl.gy = groundY != null ? groundY : sceneGroundY(x, z, y);
     const dx = viewCam.position.x - x, dy = viewCam.position.y - y, dz = viewCam.position.z - z;
     const dl = Math.hypot(dx, dy, dz) || 1;
     bl.spr.position.set(x + dx / dl * 1.2, y + dy / dl * 1.2, z + dz / dl * 1.2);
@@ -354,11 +371,12 @@ export function spawnBlood(x, y, z, vx = 0, vy = 0, vz = 0, color = COOLANT_HEX)
 export function spawnBloodBurst(x, y, z, dirx, dirz, n, power = 1, spread = 2.1, color = COOLANT_HEX) {
     const dl = Math.hypot(dirx, dirz) || 1;
     const base = Math.atan2(dirz / dl, dirx / dl);
+    const gy = sceneGroundY(x, z, y);   // satu kali untuk seluruh semburan
     for (let i = 0; i < n; i++) {
         const ang = base + (Math.random() - 0.5) * spread;
         const spd = (7 + Math.random() * 24) * power;
         spawnBlood(x + (Math.random() - 0.5) * 3, y + (Math.random() - 0.5) * 3, z + (Math.random() - 0.5) * 3,
-            Math.cos(ang) * spd, 5 + Math.random() * 22 * power, Math.sin(ang) * spd, color);
+            Math.cos(ang) * spd, 5 + Math.random() * 22 * power, Math.sin(ang) * spd, color, gy);
     }
 }
 
@@ -414,12 +432,21 @@ export function updateBloodPool(dt) {
         bl.spr.position.x += bl.vx * dt;
         bl.spr.position.y += bl.vy * dt;
         bl.spr.position.z += bl.vz * dt;
-        if (bl.spr.position.y < 0.4) { bl.spr.position.y = 0.4; bl.vx *= 0.6; bl.vz *= 0.6; bl.vy = 0; }
+        if (bl.spr.position.y < bl.gy + 0.4) {
+            bl.spr.position.y = bl.gy + 0.4;
+            bl.vx *= 0.6; bl.vz *= 0.6; bl.vy = 0;
+        }
         bl.spr.scale.setScalar(bl.s0 * (1 + (1 - Math.max(0, bl.life)) * 0.5));
         bl.spr.material.opacity = Math.max(0, bl.life) * 0.95;
         if (bl.life <= 0) bl.spr.visible = false;
     }
 }
+
+// Debug/uji: percikan yang sedang hidup + tinggi tanah yang dipakainya (dipakai
+// smoke membuktikan percikan mengendap di ASPAL, bukan menggantung di y=0).
+export const bloodPoolDebug = () => bloodPool.filter(bl => bl.life > 0).map(bl => ({
+    x: bl.spr.position.x, y: bl.spr.position.y, z: bl.spr.position.z, gy: bl.gy,
+}));
 
 // Pool tetap: cukup disembunyikan saat reset (tanpa dispose)
 export function resetBloodPool() {
