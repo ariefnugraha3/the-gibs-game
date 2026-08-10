@@ -145,14 +145,20 @@ export function buildCampaignCityscape(cx, cz, hx, hz, opts = {}) {
 // Nyalakan lingkungan "kota" (stage 1-3 enter, SETELAH applyLightPreset): kubah
 // kobaran-api global disembunyikan, background = haze malam dingin, fog dilebarkan
 // (kota jauh terlihat & memudar mulus ke warna background, bukan oranye api).
-export function enterCityEnv() {
+// `opts` (2026-08-10, Stage 7 malam Bandung): override haze/kabut. Stage lain
+// memanggil tanpa argumen dan mendapat nilai lama PERSIS. Warna haze inilah yang
+// paling menentukan "terang/gelap"-nya sebuah stage luar ruang — bukan intensitas
+// lampu — karena ia mengisi seluruh langit dan menjadi warna akhir kabut.
+export function enterCityEnv(opts = {}) {
     if (skyDome) skyDome.visible = false;
-    if (!_bg) _bg = new THREE.Color(0x2b3742);   // haze biru-abu (senada horizon langit intro)
+    const bg = opts.background != null ? opts.background : 0x2b3742;  // haze biru-abu (senada horizon langit intro)
+    if (!_bg) _bg = new THREE.Color(bg); else _bg.setHex(bg);
     scene.background = _bg;
     if (scene.fog && scene.fog.color) {
-        scene.fog.color.setHex(0x232d36);
-        scene.fog.near = 240;
-        scene.fog.far = 1650;   // cukup lebar agar cincin kota terlihat (kota jauh 30km tetap ter-cull)
+        scene.fog.color.setHex(opts.fogColor != null ? opts.fogColor : 0x232d36);
+        scene.fog.near = opts.fogNear != null ? opts.fogNear : 240;
+        // cukup lebar agar cincin kota terlihat (kota jauh 30km tetap ter-cull)
+        scene.fog.far = opts.fogFar != null ? opts.fogFar : 1650;
     }
 }
 

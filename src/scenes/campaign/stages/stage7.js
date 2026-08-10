@@ -26,8 +26,9 @@ import { beginStageTransition, campaignJumpToStage } from '../utility/transition
 import { saveCampaignStage } from '../../../core/saveGame.js';
 import { stage1Scene } from './stage1.js';
 import { stage8Scene } from './stage8.js';
-import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
+import { applyLightPreset, registerStageLight, LIGHT_PRESETS } from '../../../world/lighting.js';
 import { enterCityEnv } from '../utility/cityscape.js';
+import { buildBandungCity } from './stage7City.js';
 import { PAL } from '../../../world/palette.js';
 import { addMergedStatic } from '../../../utils/meshBatch.js';
 import { slideWalk, resolveBlockers } from '../../../utils/collision.js';
@@ -57,6 +58,15 @@ import {
 
 const OX = 240000, OZ = 0;
 const NAV_CELL = 14;
+// MALAM PASUPATI (2026-08-10, laporan user "ini masih terlalu terang"). Yang
+// membuat sebuah stage luar-ruang terasa terang BUKAN intensitas lampu,
+// melainkan HAZE-nya: `enterCityEnv` standar memasang langit biru-abu 0x2b3742
+// yang mengisi seluruh layar dan menjadi warna akhir kabut, jadi seterang apa
+// pun setelan lampunya kota tetap terbaca senja. Stage 7 memakai preset
+// `midnight` (ambient sepertiga + cahaya bulan dingin) DITAMBAH haze malam
+// pekat ini; near/far dibaca dari preset yang sama supaya tak ada dua sumber
+// kebenaran. Sisa cahaya hangat = lampu jalan amber, jendela kota, efek tempur.
+const NIGHT_ENV = Object.freeze({ background: 0x11151c, fogColor: 0x0d1116 });
 const PLAY_CAM = Object.freeze({ x: 70.7, y: 116, z: 70.7 });
 const LANDMARK_CAM = Object.freeze({ x: 150, y: 230, z: 150 });
 const MORTAR_UP = new THREE.Vector3(0, 1, 0);
@@ -322,7 +332,7 @@ const mortarPool = [], mortarBlastOrigins = [];
 const markers = {}, spawnMachines = [], machineBirths = [];
 const supplyPlacements = [], cratePlacements = [], barrelPlacements = [];
 const encounterPlacements = {};
-let tacticalVehicle = null, tollBarrier = null, exhaustCursor = 0;
+let tacticalVehicle = null, tollBarrier = null, exhaustCursor = 0, cityStats = null;
 let landmarkCableCount = 0, landmarkCableAnchorMaxZ = 0, landmarkPieceCount = 0;
 let landmarkCableFrontCount = 0, landmarkCableBackCount = 0;
 let landmarkCableThickness = 0;
@@ -616,14 +626,20 @@ function buildMaterials() {
         window: new THREE.MeshLambertMaterial({
             color: PAL.screenBg, emissive: PAL.amberDim, emissiveIntensity: 0.42,
         }),
-        pylonConcrete: new THREE.MeshBasicMaterial({ color: PAL.concrete }),
-        pylonRed: new THREE.MeshBasicMaterial({ color: PAL.hazard }),
+        // Pylon Pasupati DULU MeshBasic: material Basic mengabaikan cahaya, jadi
+        // menara 26 m itu bersinar seterang siang persis di tengah adegan malam
+        // — penyumbang "terlalu terang" terbesar (2026-08-10). Sekarang Lambert,
+        // dan yang menyala hanya lampu peringatan penerbangan di mahkotanya.
+        pylonConcrete: new THREE.MeshLambertMaterial({ color: PAL.concrete }),
+        pylonRed: new THREE.MeshLambertMaterial({
+            color: PAL.hazard, emissive: PAL.hazard, emissiveIntensity: 0.34,
+        }),
         cable: new THREE.MeshBasicMaterial({
-            color: PAL.white, transparent: true, opacity: 0.72,
+            color: PAL.white, transparent: true, opacity: 0.52,
             depthWrite: false, toneMapped: false,
         }),
         rain: new THREE.MeshBasicMaterial({
-            color: PAL.white, transparent: true, opacity: 0.3,
+            color: PAL.white, transparent: true, opacity: 0.19,
             toneMapped: false, depthWrite: false,
         }),
         spark: new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false }),
@@ -633,7 +649,10 @@ function buildMaterials() {
     };
 }
 
-function buildLowerCity(M, staticProps) {
+// Jalan-jalan di permukaan tanah kota: aspal di bawah dek, jalan lintas tiap
+// interval ramp, dan dua feeder sejajar. Gedung/rumah/toko/sekolah/tamannya
+// dibangun `stage7City.js` (PUSAT KOTA BANDUNG, 2026-08-10).
+function buildLowerRoads(M, staticProps) {
     const L = ensureLayout();
     staticBox(staticProps, M.earth, L.length + 300, 5, L.deckWidth + 720,
         OX, L.lowerY - 2.8, OZ);
@@ -652,23 +671,14 @@ function buildLowerCity(M, staticProps) {
         lowerRoadRecords.push({ meter: null, x: OX, z, y: L.lowerY,
             belowDeck: true, parallelFeeder: true, side });
     }
-    const blocks = Math.ceil(L.lengthMeters / 62);
-    for (let i = 0; i < blocks; i++) for (const side of [-1, 1]) {
-        const meter = (i + 0.45) * L.lengthMeters / blocks;
-        const x = L.xAtMeter(meter);
-        const w = (9 + (i % 4) * 2) * CAMP_M;
-        const d = (7 + ((i * 3) % 4) * 2) * CAMP_M;
-        const h = (4.2 + ((i * 7 + (side > 0 ? 2 : 0)) % 6) * 0.85) * CAMP_M;
-        const z = side * (L.deckHalf + 7 * CAMP_M + d / 2 + (i % 3) * 2 * CAMP_M);
-        staticBox(staticProps, i % 3 ? M.concrete : M.panel, w, h, d,
-            x, L.lowerY + h / 2, z);
-        staticBox(staticProps, M.ink, w + 2, 1.2, d + 2,
-            x, L.lowerY + h + 0.6, z);
-        staticBox(staticProps, M.window, w * 0.62, Math.min(7, h * 0.2), 0.8,
-            x, L.lowerY + h * 0.62, z - side * (d / 2 + 0.45));
-        recordProp('lower-city-building', { x, z }, w / 2, d / 2,
-            L.lowerY + h, false, { belowDeck: true });
-    }
+}
+
+function buildBandung() {
+    cityStats = buildBandungCity({
+        L: ensureLayout(), parent: worldRoot,
+        record: (kind, x, z, hx, hz, top, meta) =>
+            recordProp(kind, { x, z }, hx, hz, top, false, meta),
+    });
 }
 
 function buildDeck(M, staticProps) {
@@ -1307,7 +1317,8 @@ function buildWorld() {
     const L = ensureLayout();
     worldRoot = new THREE.Group(); worldRoot.name = 'Stage7Pasupati'; scene.add(worldRoot);
     const M = buildMaterials(), staticProps = [];
-    buildLowerCity(M, staticProps);
+    buildLowerRoads(M, staticProps);
+    buildBandung();
     buildDeck(M, staticProps);
     buildRampsAndSupports(M, staticProps);
     buildLamps(M, staticProps);
@@ -1339,7 +1350,15 @@ function buildWorld() {
     for (let i = 0; i < wantedLights; i++) {
         const spec = lampSpecs[Math.min(lampSpecs.length - 1,
             Math.floor((i + 0.5) * lampSpecs.length / wantedLights))];
-        const light = new THREE.PointLight(PAL.amber, 0.55, 125 * CAMP_M);
+        // Jangkauan DIPERSEMPIT 125 m -> 30 m dan intensitasnya dinaikkan
+        // (2026-08-10): lampu berjangkauan 125 m praktis jadi ambient kedua —
+        // seluruh dek DAN kota di bawahnya rata terang. 30 m dipilih tepat:
+        // ia masih menerangi seluruh lebar dek (tepi dek berjarak ~112 unit
+        // dari kepala lampu) tetapi BERHENTI sebelum baris depan kota (~213
+        // unit), jadi kotanya kembali gelap dan hanya jendela/papan namanya
+        // yang menyala. Di antara tiang tersisa gelap — kolam cahaya itulah
+        // yang membuatnya terbaca malam.
+        const light = new THREE.PointLight(PAL.amber, 1.5, 30 * CAMP_M);
         light.position.set(spec.x, spec.y + spec.height - 0.8 * CAMP_M, spec.z);
         scene.add(light); registerStageLight('campaign-7', light); stageLights.push(light);
     }
@@ -2218,8 +2237,24 @@ export const stage7FlyoverDebug = () => {
     };
 };
 
+// PUSAT KOTA BANDUNG (2026-08-10). `raw`/`welded` = biaya sebelum/sesudah
+// pengelasan per potongan — angka `welded` inilah penjaganya, sama seperti
+// lanskap perjalanan Stage 5.
+export const stage7CityDebug = () => {
+    if (!cityStats) return null;
+    const { root, districts, ...rest } = cityStats;
+    return {
+        ...rest, sceneRoot: root?.name || null,
+        districts: districts.map(d => ({ ...d })),
+        night: {
+            preset: 'midnight', ...LIGHT_PRESETS.midnight, ...NIGHT_ENV,
+        },
+    };
+};
+
 export const stage7WorldDebug = () => ({
     built, sceneRoot: worldRoot?.name || null,
+    city: stage7CityDebug(),
     props: propRecords.map(p => ({ ...p })),
     propKinds: [...new Set(propRecords.map(p => p.kind))],
     blockers: blockers.length, nav: !!navGrid, navBounds: navBounds ? { ...navBounds } : null,
@@ -2337,7 +2372,10 @@ export const stage7Scene = {
         for (const [name, counts] of Object.entries(CFG.campaign.stage7.encounters))
             spawnEncounter(name, counts, false);
         placeCommonItems();
-        applyLightPreset(scene, 'night'); enterCityEnv();
+        applyLightPreset(scene, 'midnight');
+        enterCityEnv({ ...NIGHT_ENV,
+            fogNear: LIGHT_PRESETS.midnight.fogNear,
+            fogFar: LIGHT_PRESETS.midnight.fogFar });
         camera.position.set(S7_START.x, S7_START.y + CFG.player.eyeHeight, S7_START.z);
         camera.quaternion.set(0, 0.7071, 0, 0.7071);
         player.vy = 0; player.onGround = true; startOpening(); updateUI();

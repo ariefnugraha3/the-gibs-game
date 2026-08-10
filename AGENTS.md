@@ -604,9 +604,22 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   lane merging into the outermost carriageway lane. They are never perpendicular/T-shaped.
   Concrete hazard barricades outside the deck and main-deck-only walkability keep both character
   types off them while every deck-side merge approach remains reachable.
-- Stage 7 is permanently night. Dual-arm street lamps branch over both carriageways from the
-  median every 50 m, with exactly 14 fixed registered PointLights and emissive-only heads on the
-  remaining poles. At meter 700, the 26 m tapered/split concrete-red pylon carries a compact official
+- Stage 7 is permanently night, using the `midnight` light preset plus a deep night haze
+  (2026-08-10, user: "still too bright"). The haze colour, not the lamp intensity, is what decides
+  how bright an outdoor stage looks, so `enterCityEnv` takes background/fog overrides and light
+  presets carry colours that default to the base values so other presets restore them. Dual-arm
+  street lamps branch over both carriageways from the median every 50 m, with exactly 14 fixed
+  registered PointLights — 30 m range, so each pole is a pool of light that covers the deck but
+  stops before the city — and emissive-only heads on the remaining poles.
+- Stage 7's ground backdrop is central Bandung (`stage7City.js`): ruko, kampung houses, markets,
+  schools, parks, mid-rise blocks, an alun-alun with a domed mosque and minarets, Braga art-deco
+  rows and Gedung Sate at meter 700. It is pure decor (no blockers, nav cells or PointLights). It
+  is a top-down game, so the backdrop is GROUND, not sky: the top of the screen is the farthest
+  ground and the height budget shrinks with depth, so nothing is built beyond |z| ~700, there is no
+  distant skyline or mountain ridge, and the camera-side (+z) row is shallow with tops kept below
+  the deck surface so it can never occlude the player. Layout is a deterministic hash (never
+  `Math.random()`, since it is built during loading with the other campaign worlds) and is welded
+  per 125 m chunk, so the guarded number is the draw-group count, not the raw mesh count. At meter 700, the 26 m tapered/split concrete-red pylon carries a compact official
   name plaque and exactly 10 large cylindrical white stays, split five ahead and five behind; every
   deck anchor remains on the median centerline, never at a carriageway edge. Its base is solid but
   both sides remain traversable. The camera eases

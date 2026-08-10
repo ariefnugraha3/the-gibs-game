@@ -7953,6 +7953,176 @@ T('S7 FINISH LTV: GRD LTV-45 berada di sisi kiri arah timur-ke-barat, bukan medi
         && p.roadSide === 'left' && !p.centered && p.z > 0
         && p.roadY === s7Fly.toll.y));
 
+// --- 17a-sexies. PUSAT KOTA BANDUNG + MALAM SUNGGUHAN (2026-08-10, dua
+//     permintaan user: "buat agar suasananya lebih terasa malam, ini masih
+//     terlalu terang" dan "beri banyak bangunan seperti gedung, rumah, toko,
+//     sekolah, taman ... INI ADALAH KOTA BANDUNG, PUSAT KOTA BANDUNG"). ---
+const s7CityMod = await import(R('src/scenes/campaign/stages/stage7City.js'));
+const s7LightMod = await import(R('src/world/lighting.js'));
+const s7City = s7mod.stage7CityDebug();
+const s7CitySrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage7City.js', 'utf8');
+const S7_CITY_TYPES = ['ruko', 'kampung', 'pasar', 'sekolah', 'taman', 'gedung',
+    'alunAlun', 'braga', 'gedungSate'];
+T(`S7 KOTA: pusat kota Bandung berdiri di kedua sisi flyover [${s7City.districts.length} distrik, ${s7City.raw} mesh mentah]`,
+    s7City.districts.length >= 60
+    && S7_CITY_TYPES.every(t => s7City.types.includes(t))
+    && s7City.districts.every(d => d.top > s7City.groundY && d.meter >= 0)
+    && s7City.districts.filter(d => d.side < 0).length > s7City.districts.length / 2
+    && s7City.districts.some(d => d.side > 0)
+    && s7City.groundY === s7Fly.toll.y);
+// Landmark ikonik: Gedung Sate persis di meter pylon, supaya benar-benar
+// terbingkai saat kamera menarik mundur.
+T('S7 KOTA: Gedung Sate tunggal berdiri di meter landmark, alun-alun + Braga hadir',
+    s7City.districts.filter(d => d.type === 'gedungSate').length === 1
+    && Math.abs(s7City.districts.find(d => d.type === 'gedungSate').meter
+        - S7F.landmarkMeter) <= s7City.districtMeters / 2
+    && s7City.districts.filter(d => d.type === 'alunAlun').length >= 1
+    && s7City.districts.filter(d => d.type === 'braga').length >= 2
+    && s7World.propKinds.includes('bandung-landmark')
+    && s7World.propKinds.includes('bandung-park'));
+// DEKOR MURNI: tak satu pun blocker/nav — collision & BFS stage tak berubah.
+T('S7 KOTA: seluruh kota murni dekor (tanpa blocker, tanpa PointLight)',
+    s7World.props.filter(p => ['lower-city-building', 'bandung-park',
+        'bandung-landmark'].includes(p.kind)).every(p => !p.solid)
+    && s7City.pointLights === 0 && s7City.blockers === 0
+    && s7Fly.lamps.pointLights === Math.min(S7F.pointLights, s7Fly.lamps.visual));
+// ATURAN SISI KAMERA: ruas mata->player selalu di z 0..+70 dan y 11..127, jadi
+// apa pun di sisi +z yang puncaknya TETAP DI BAWAH permukaan dek mustahil
+// menutupi player. Ini yang membuat baris +z aman untuk diisi.
+T(`S7 KOTA: sisi kamera tak pernah menembus permukaan dek [tertinggi ${s7City.maxNearTop.toFixed(1)}]`,
+    s7City.nearTopY < 0 && s7City.maxNearTop <= s7City.nearTopY + 1e-6
+    && s7City.districts.filter(d => d.side > 0).length >= 15
+    && s7CityMod.S7_CITY_ROWS.near[0]
+        >= S7F.rampLaneCount * S7F.rampLaneWidthMeters * cfgMod.CAMP_M);
+// Sapuan MESH (bukan ringkasan distrik): tak satu pun bagian kota boleh masuk
+// koridor flyover, dan di sisi kamera tak satu pun boleh menembus dek.
+{
+    let cityRoot = null;
+    scene.traverse(o => { if (o.name === 'Stage7BandungCity') cityRoot = o; });
+    const halfOf = o => {
+        const a = o.geometry?.args || [];
+        const t = o.geometry?.type;
+        const sx = t === 'box' ? a[0] : t === 'cyl' ? 2 * Math.max(a[0], a[1])
+            : t === 'cone' ? 2 * a[0] : t === 'sph' ? 2 * a[0] : 0;
+        const sy = t === 'box' ? a[1] : t === 'cyl' ? a[2]
+            : t === 'cone' ? a[1] : t === 'sph' ? 2 * a[0] : 0;
+        const sz = t === 'box' ? a[2] : sx;
+        const yaw = o.rotation?.y || 0;
+        return {
+            z: (Math.abs(Math.sin(yaw)) * sx * o.scale.x
+                + Math.abs(Math.cos(yaw)) * sz * o.scale.z) / 2,
+            y: sy * o.scale.y / 2,
+        };
+    };
+    let meshes = 0, inCorridor = 0, overDeck = 0;
+    cityRoot?.traverse(o => {
+        if (!o.isMesh) return;
+        meshes++;
+        const h = halfOf(o);
+        if (Math.abs(o.position.z) - h.z < s7Fly.lanes.totalWidth / 2 - 1) inCorridor++;
+        if (o.position.z > 0 && o.position.y + h.y > s7City.nearTopY + 1) overDeck++;
+    });
+    T(`S7 KOTA: tak ada mesh kota di koridor flyover / menembus dek sisi kamera [${meshes} mesh]`,
+        !!cityRoot && meshes > 1200 && inCorridor === 0 && overDeck === 0);
+}
+// PELAJARAN LANSKAP STAGE 5: apa pun yang dibangun di luar jangkauan kamera
+// tidak pernah menampilkan satu piksel pun. Di kamera top-down ini tepi ATAS
+// layar adalah TANAH TERJAUH, jadi batasnya diuji dengan proyeksi stage
+// sendiri — bukan angka mati.
+{
+    const eye = cfgMod.CFG.player.eyeHeight;
+    const outer = [s7Fly.lanes.centers[0], s7Fly.lanes.centers[s7Fly.lanes.total - 1]];
+    const half = s7City.districtMeters / 2;
+    const seen = d => {
+        const lane = d.side < 0 ? outer[0] : outer[1];
+        for (const back of [0, 20, 40, 60]) {
+            const meter = Math.max(4, Math.min(S7F.lengthMeters - 4, d.meter - back));
+            const x = s7Fly.world.eastX - meter * cfgMod.CAMP_M;
+            camera.position.set(x, s7mod.stage7RoadHeight(x) + eye, lane);
+            // Samakan titik fokus kamera dgn posisi player, kalau tidak
+            // `stage7RobotInView` memproyeksikan dari camFocus sisa tes lain.
+            rendererMod.setCineFocus(x, lane, true);
+            for (const dm of [-half, 0, half])
+                for (const y of [s7City.groundY, (s7City.groundY + d.top) / 2, d.top])
+                    if (s7mod.stage7RobotInView(d.x + dm * cfgMod.CAMP_M, d.z, y))
+                        return true;
+        }
+        return false;
+    };
+    const blind = s7City.districts.filter(d => !seen(d));
+    T(`S7 KOTA: tidak ada distrik yang dibangun di luar jangkauan kamera [${blind.length} buta dari ${s7City.districts.length}]`,
+        blind.length === 0);
+    camera.position.set(s7mod.S7_START.x, s7mod.S7_START.y + eye, s7mod.S7_START.z);
+    rendererMod.setCineFocus(s7mod.S7_START.x, s7mod.S7_START.z, true);
+}
+// PENJAGA SESUNGGUHNYA: biaya draw call sesudah dilas per potongan 125 m —
+// bukan jumlah mesh mentah (kota padat memang mahal secara mesh, murah secara
+// draw call), dan potongan yang tak terlihat masih bisa di-frustum-cull.
+T(`S7 KOTA: biaya draw call tetap kecil walau padat [${s7City.welded} dilas dari ${s7City.raw} mentah, ${s7City.chunks} potongan]`,
+    s7City.raw > 1200 && s7City.welded < 210 && s7City.welded < s7City.raw / 8
+    && s7City.chunkMeters <= 150);
+// Kota ini dibangun saat loading bersama seluruh dunia campaign: memakai RNG
+// global akan menggeser penempatan acak stage lain (aturan sama dgn lanskap
+// Stage 5).
+T('S7 KOTA: penataan deterministik — tanpa RNG global',
+    !/Math\s*\.\s*random\s*\(/.test(s7CitySrc
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')));
+{
+    const { FORBIDDEN_HEX, EMISSIVE_MAX } = await import(R('src/world/palette.js'));
+    const mats = s7CityMod.bandungMaterials();
+    const flat = Object.values(mats).flatMap(v => Array.isArray(v) ? v : [v]);
+    T('S7 KOTA: seluruh material kota memakai token PAL (tanpa neon, emissive <= EMISSIVE_MAX)',
+        flat.length >= 15 && flat.every(m2 => !FORBIDDEN_HEX.includes(m2.color.getHex())
+            && !FORBIDDEN_HEX.includes(m2.emissive.getHex())
+            && (m2.emissive.getHex() === 0 || m2.emissiveIntensity <= EMISSIVE_MAX)));
+}
+// MALAM (2026-08-10, "ini masih terlalu terang"): `night` masih memakai
+// matahari apokaliptik oranye 0.32 dan `enterCityEnv` memasang haze biru-abu
+// terang — gabungan itu terbaca SENJA. Stage 7 memakai `midnight` PLUS haze
+// malam pekat; haze-lah yang paling menentukan terang/gelap karena ia mengisi
+// layar dan menjadi warna akhir kabut. Nilai pembandingnya DIUKUR dari default
+// yang dipakai stage kota lain, bukan angka mati.
+{
+    const N = s7LightMod.LIGHT_PRESETS.midnight, D = s7LightMod.LIGHT_PRESETS.night;
+    const cityEnvMod = await import(R('src/scenes/campaign/utility/cityscape.js'));
+    const nightNow = { bg: scene.background.getHex(), fog: scene.fog.color.getHex(),
+        near: scene.fog.near, far: scene.fog.far };
+    // Harness tak pernah membangun cahaya dasar (renderer di-stub), padahal
+    // yang diuji di sini justru intensitas & WARNA-nya.
+    if (!s7LightMod.dirLight) s7LightMod.createBaseLights(scene);
+    s7LightMod.applyLightPreset(scene, 'midnight');
+    // Ukur default stage kota lain, lalu pulihkan malam Stage 7 — TANPA enter()
+    // ulang, karena sisa berkas ini menguji state stage yang sudah berjalan.
+    s7LightMod.applyLightPreset(scene, 'night');
+    cityEnvMod.enterCityEnv();
+    const base = { bg: scene.background.getHex(), fog: scene.fog.color.getHex(),
+        far: scene.fog.far, dir: s7LightMod.dirLight.color.getHex(),
+        amb: s7LightMod.ambLight.color.getHex(), rim: s7LightMod.rimLight.intensity };
+    s7LightMod.applyLightPreset(scene, 'midnight');
+    cityEnvMod.enterCityEnv({ background: s7City.night.background,
+        fogColor: s7City.night.fogColor, fogNear: N.fogNear, fogFar: N.fogFar });
+    const lum = h => ((h >> 16 & 255) + (h >> 8 & 255) + (h & 255)) / 3;
+    T(`S7 MALAM: cahaya ambient turun jauh di bawah preset night [amb ${N.amb} vs ${D.amb}]`,
+        N.amb < D.amb * 0.75 && N.hemi < D.hemi * 0.75 && N.dir < D.dir * 0.6
+        && s7City.night.preset === 'midnight'
+        && s7LightMod.ambLight.intensity === N.amb
+        && s7LightMod.dirLight.intensity === N.dir
+        && s7LightMod.dirLight.color.getHex() === N.dirColor);
+    T(`S7 MALAM: haze + kabut jauh lebih gelap/rapat dari stage kota lain [0x${nightNow.bg.toString(16)} vs 0x${base.bg.toString(16)}]`,
+        nightNow.bg === s7City.night.background
+        && nightNow.fog === s7City.night.fogColor
+        && nightNow.near === N.fogNear && nightNow.far === N.fogFar
+        && lum(nightNow.bg) < lum(base.bg) * 0.55
+        && lum(nightNow.fog) < lum(base.fog) * 0.55
+        && nightNow.far < base.far
+        && scene.background.getHex() === s7City.night.background);
+    // Preset lain WAJIB memulihkan warna dasar, kalau tidak Stage 8 mewarisi
+    // cahaya bulan Stage 7.
+    T('S7 MALAM: preset/haze lain memulihkan nilai dasar (tanpa jejak ke stage lain)',
+        base.dir === 0xff7b3a && base.amb === 0xffd9b3 && base.rim === 0.22
+        && base.bg === 0x2b3742);
+}
+
 const s7PlacementGroups = {
     objectives: [s7mod.S7_START, s7mod.S7_LANDMARK, s7mod.S7_TOLL, s7mod.S7_VEHICLE],
     supplies: s7World.supplies,

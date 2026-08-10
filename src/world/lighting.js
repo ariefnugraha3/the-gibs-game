@@ -31,19 +31,43 @@ export function createBaseLights(scene) {
     scene.add(rimLight);
 }
 
+// WARNA DASAR = persis nilai createBaseLights. Ditulis eksplisit supaya preset
+// yang MENGGANTI warna (mis. `midnight`) selalu dipulihkan oleh preset lain —
+// applyLightPreset dipanggil di enter() setiap scene, jadi tak ada jejak.
+const BASE_COLORS = Object.freeze({
+    ambColor: 0xffd9b3, skyColor: 0x4a2c1a, groundColor: 0x0a0a12,
+    dirColor: 0xff7b3a, rim: 0.22, rimColor: 0x5a76c8,
+});
+
 // Preset kabut + intensitas cahaya per lingkungan (uniform saja — tanpa recompile)
 export const LIGHT_PRESETS = {
     outdoor: { fogNear: 220, fogFar: 1700, amb: 0.3, hemi: 0.4, dir: 0.7 },   // taman / jalan raya
     indoor: { fogNear: 50, fogFar: 700, amb: 0.34, hemi: 0.42, dir: 0.5 },   // interior TERANG futuristik (dicerahkan 2026-07-18)
     night: { fogNear: 160, fogFar: 1150, amb: 0.15, hemi: 0.2, dir: 0.32 },  // taman malam (campaign stage 3)
+    // MALAM SUNGGUHAN (2026-08-10, laporan user "ini masih terlalu terang" utk
+    // Stage 7): `night` masih memakai matahari apokaliptik oranye 0.32 —
+    // terang seperti senja. `midnight` menurunkan KETIGA sumber ambient sampai
+    // sekitar sepertiga DAN menukar warnanya ke cahaya bulan dingin, sehingga
+    // satu-satunya cahaya hangat yang tersisa adalah lampu jalan amber, jendela
+    // kota, dan efek tempur. Kontras itulah yang membuatnya terbaca malam.
+    midnight: {
+        fogNear: 200, fogFar: 1300, amb: 0.08, hemi: 0.1, dir: 0.12,
+        ambColor: 0xb9c4d6, skyColor: 0x232c3c, groundColor: 0x08090c,
+        dirColor: 0x8fa0c8, rim: 0.12, rimColor: 0x3c4c78,
+    },
 };
 
 export function applyLightPreset(scene, name) {
-    const p = LIGHT_PRESETS[name];
+    const p = { ...BASE_COLORS, ...LIGHT_PRESETS[name] };
     scene.fog.near = p.fogNear; scene.fog.far = p.fogFar;
-    if (ambLight) ambLight.intensity = p.amb;
-    if (hemiLight) hemiLight.intensity = p.hemi;
-    if (dirLight) dirLight.intensity = p.dir;
+    if (ambLight) { ambLight.intensity = p.amb; ambLight.color.setHex(p.ambColor); }
+    if (hemiLight) {
+        hemiLight.intensity = p.hemi;
+        hemiLight.color.setHex(p.skyColor);
+        if (hemiLight.groundColor) hemiLight.groundColor.setHex(p.groundColor);
+    }
+    if (dirLight) { dirLight.intensity = p.dir; dirLight.color.setHex(p.dirColor); }
+    if (rimLight) { rimLight.intensity = p.rim; rimLight.color.setHex(p.rimColor); }
 }
 
 // ===== LAMPU MILIK STAGE: hanya stage AKTIF yang menyala =====
