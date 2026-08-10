@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+**Cutscene layout update (2026-08-10):** campaign-wide `prologue.js`, `prologueArt.js`, and `intro.js` remain in `src/scenes/campaign/cutscenes/`; Stage 4 controllers are in `cutscenes/stage4/`, and Stage 5 controllers are in `cutscenes/stage5/`. Stage facades own the imports from those canonical paths.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Commands

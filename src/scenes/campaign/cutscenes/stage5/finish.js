@@ -44,17 +44,17 @@ import {
     TRAIN_CAR_LENGTH, TRAIN_DOOR_X, dockArrivalTerminal,
 } from '../../../../entities/train.js';
 import { beginStageTransition } from '../../utility/transition.js';
-import { stage6Scene } from '../stage6/index.js';
+import { stage6Scene } from '../../stages/stage6/index.js';
 import {
     journey, carCenterX, locoCenterX, boardDoorPos,
     setBoardDoorTarget, updateBoardDoor, resetBoardDoor, TRAIN_CENTER_Z,
-} from './world.js';
+} from '../../stages/stage5/world.js';
 import {
     phase, setPhase, complete, setComplete, cine, setCine, cineCam, cleanupCine,
     queueDialogue, dialogueIdle, dialogueCurrentLine, dialogueCharCount,
     updateRide, trainSpeed, setTrainSpeed, stopTrainLoop, TRAIN_HOOKS,
-} from './runtime.js';
-import { stopHighway } from './highway.js';
+} from '../../stages/stage5/runtime.js';
+import { stopHighway } from '../../stages/stage5/highway.js';
 
 // Titik berdiri DI DALAM gerbong tepat di belakang bukaan (shot 1-2: ia berada
 // di sisi jauh pintu dari kamera, jadi punggungnya tidak menutupi daun pintu

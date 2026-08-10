@@ -3961,7 +3961,7 @@ T('S4 DIALOG RING: panggilan LZ mulai diketik huruf-per-huruf setelah cutscene a
         const off = Math.hypot(A.x + vx * tt - SM.x, A.z + vz * tt - SM.z);
         // Lintasannya DITURUNKAN dari posisi bangunan, bukan kebetulan sejajar:
         // geser bangunannya, lintasan tank ikut bergeser supaya tetap menabraknya.
-        const tbiMod = await import(R('src/scenes/campaign/cutscenes/tankBossIntro.js'));
+        const tbiMod = await import(R('src/scenes/campaign/cutscenes/stage4/tankBossIntro.js'));
         const probe = (shift) => tbiMod.createTankBossIntro({
             SQ: s4mod.arenaDebug().sq, HELI_POS: s4mod.S4_END, BOSS_POS: s4mod.S4_BOSS,
             WRECK_CLEAR: CD5.wreckClear, S4_START: s4mod.S4_START,
@@ -4743,12 +4743,24 @@ T('S5 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
 // dilihat core/sceneManager TETAP satu `stage5Scene` id `campaign-5` (checkpoint,
 // stageStats, resume modal hack/repair tak berubah), dan pergantian sub-scene
 // memakai fade-in `subSceneFadeSec`. ---
+const campaignCutDir = ROOT + '/src/scenes/campaign/cutscenes';
+const stage4CutFiles = fs.readdirSync(campaignCutDir + '/stage4').sort();
+T('CAMPAIGN CUTSCENES: prologue/art/intro tetap di root, controller Stage 4 masuk stage4/',
+    fs.existsSync(campaignCutDir + '/prologue.js')
+    && fs.existsSync(campaignCutDir + '/prologueArt.js')
+    && fs.existsSync(campaignCutDir + '/intro.js')
+    && !fs.existsSync(campaignCutDir + '/tankBossIntro.js')
+    && !fs.existsSync(campaignCutDir + '/tankBossOutro.js')
+    && stage4CutFiles.join(',') === 'tankBossIntro.js,tankBossOutro.js');
 const s5Dir = ROOT + '/src/scenes/campaign/stages/stage5';
 const s5Files = fs.readdirSync(s5Dir).sort();
 const s5FileLines = f => fs.readFileSync(s5Dir + '/' + f, 'utf8').split('\n').length;
+const s5CutDir = ROOT + '/src/scenes/campaign/cutscenes/stage5';
+const s5CutFiles = fs.readdirSync(s5CutDir).sort();
 T('S5 SPLIT: stage5.js pecah jadi satu folder — 4 sub-scene + fasad/world/props/runtime, tak ada file raksasa',
     !fs.existsSync(ROOT + '/src/scenes/campaign/stages/stage5.js')
-    && s5Files.join(',') === 'departure.js,finish.js,highway.js,index.js,journey.js,loco.js,props.js,runtime.js,station.js,world.js'
+    && s5Files.join(',') === 'highway.js,index.js,journey.js,loco.js,props.js,runtime.js,station.js,world.js'
+    && s5CutFiles.join(',') === 'departure.js,finish.js'
     // Ambang dinaikkan 700 -> 760 -> 800 pada 2026-08-08: stage ini bertambah
     // TIGA subsistem (konsist musuh 10 gerbong, jalan raya pendamping, dan
     // pintu naik gerbong milik cutscene keberangkatan lima shot) sejak folder
@@ -10791,7 +10803,7 @@ const palMod = await import(R('src/world/palette.js'));
     const dirHits = [];
     for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js',
         'stage5/index.js', 'stage5/world.js', 'stage5/runtime.js', 'stage5/station.js',
-        'stage5/journey.js', 'stage5/finish.js', 'stage5/departure.js',
+        'stage5/journey.js',
         'stage6/index.js', 'stage6/world.js', 'stage6/runtime.js',
         'stage6/arrival.js', 'stage6/hqWorld.js', 'stage6/hq.js',
         'stage7.js', 'stage8.js']) {

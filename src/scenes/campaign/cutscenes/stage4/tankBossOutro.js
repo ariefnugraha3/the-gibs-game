@@ -12,16 +12,16 @@
 // Modul ini buta terhadap kondisi menang Stage 4: tank + callback akhir di-
 // inject oleh stage4.js. Semua state kamera/dialog/pose dibersihkan oleh reset().
 
-import { CFG } from '../../../core/config.js';
-import { dialogueList } from '../../../core/dialogue.js';
-import { setCinematicActive } from '../../../core/state.js';
-import { scene, camera, setCineFocus, CAM_OFF_DEFAULT } from '../../../core/renderer.js';
+import { CFG } from '../../../../core/config.js';
+import { dialogueList } from '../../../../core/dialogue.js';
+import { setCinematicActive } from '../../../../core/state.js';
+import { scene, camera, setCineFocus, CAM_OFF_DEFAULT } from '../../../../core/renderer.js';
 import {
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
     showStageRadioDialogue, hideStageRadioDialogue,
-} from '../../../core/dom.js';
-import { releaseInputs } from '../../../core/input.js';
-import { setAvatarRadioPose } from '../../../entities/playerAvatar.js';
+} from '../../../../core/dom.js';
+import { releaseInputs } from '../../../../core/input.js';
+import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 
 const lerp = (a, b, k) => a + (b - a) * k;
 const clamp01 = (k) => k < 0 ? 0 : k > 1 ? 1 : k;

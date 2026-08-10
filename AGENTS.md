@@ -1,5 +1,7 @@
 # AGENTS
 
+**Cutscene layout update (2026-08-10):** campaign-wide `prologue.js`, `prologueArt.js`, and `intro.js` remain in `src/scenes/campaign/cutscenes/`; Stage 4 controllers are in `cutscenes/stage4/`, and Stage 5 controllers are in `cutscenes/stage5/`. Stage facades own the imports from those canonical paths.
+
 Onboarding guide for AI agents (and humans) working on this repository. It condenses the
 rules in [CLAUDE.md](CLAUDE.md) — on any conflict, **CLAUDE.md wins**; keep the two in sync.
 

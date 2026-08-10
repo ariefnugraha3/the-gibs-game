@@ -49,8 +49,8 @@ import { exitCityEnv } from '../utility/cityscape.js';
 import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
 import { stage1Scene } from './stage1.js';
 import { stage5Scene } from './stage5/index.js';
-import { createTankBossIntro, TANK_BOSS_DIALOGUE } from '../cutscenes/tankBossIntro.js';
-import { createTankBossOutro, TANK_BOSS_OUTRO_DIALOGUE } from '../cutscenes/tankBossOutro.js';
+import { createTankBossIntro, TANK_BOSS_DIALOGUE } from '../cutscenes/stage4/tankBossIntro.js';
+import { createTankBossOutro, TANK_BOSS_OUTRO_DIALOGUE } from '../cutscenes/stage4/tankBossOutro.js';
 export { TANK_BOSS_DIALOGUE, TANK_BOSS_OUTRO_DIALOGUE };
 
 // Dunia ditaruh ~120 km dari origin (jauh dari gedung stage 1/2/3). Skala 1 m ≈ 7 u.
@@ -86,7 +86,7 @@ export const S4_BOSS = BOSS_POS;   // utk smoke test
 // ia bagian dari gedung latar INSTANCED yang ditaruh acak, jadi tank menembusnya
 // begitu saja. Sekarang: SATU ruko dua lantai berdiri di titik ini sebagai objek
 // tersendiri yang bisa hancur (entities/smashBuilding.js), dan lintasan masuk
-// tank di cutscenes/tankBossIntro.js DITURUNKAN dari titik ini — jadi tabrakannya
+// tank di cutscenes/stage4/tankBossIntro.js DITURUNKAN dari titik ini — jadi tabrakannya
 // selalu tepat di tengah muka bangunan, bukan kebetulan. `hz` dipilih supaya muka
 // utaranya tersentuh PERSIS di batas shot telegraf->reveal: bangunan meledak di
 // ujung telegraf, lalu tank menerobos keluar dari puingnya ke dalam frame.
@@ -1070,7 +1070,7 @@ let tank = null, exitHintT = 0, winFired = false, outroDelayT = -1;
 let arenaLocked = false;
 
 // CUTSCENE TANK-BOSS (heli penjemput + tank masuk menghancurkan heli) DIPISAH
-// 2026-07-19 (permintaan user) ke cutscenes/tankBossIntro.js. State heli/cine
+// 2026-07-19 (permintaan user) ke cutscenes/stage4/tankBossIntro.js. State heli/cine
 // kini milik modul itu; stage4 hanya menyimpan tank (utk DUEL) + geometri.
 
 // Referensi tank aktif (dipakai smoke test utk melumpuhkan boss)
@@ -1096,7 +1096,7 @@ function openGate() {
     if (gi >= 0) blockers.splice(gi, 1);
 }
 
-// Pengontrol CUTSCENE TANK-BOSS (cutscenes/tankBossIntro.js): mengurus heli
+// Pengontrol CUTSCENE TANK-BOSS (cutscenes/stage4/tankBossIntro.js): mengurus heli
 // penjemput + mesin sinematik; tank yang di-spawn di tengah cutscene diserahkan
 // balik ke stage4 lewat setTank (bossSpawned=true + ref tank utk duel).
 const intro = createTankBossIntro({
@@ -1150,7 +1150,7 @@ export const stage4Scene = {
         bossSpawned = false; bossDefeated = false; exitHintT = 0; winFired = false; outroDelayT = -1;
         arenaLocked = false;
         // Reset CUTSCENE + heli: buang heli/bangkai lama + blocker-nya, batalkan
-        // sinematik yang mungkin berjalan (restart/cheat) — cutscenes/tankBossIntro.js.
+        // sinematik yang mungkin berjalan (restart/cheat) — cutscenes/stage4/tankBossIntro.js.
         intro.reset();
         outro.reset();
         resetSmashBuilding(smashRuko);   // ruko yang diterobos tank berdiri utuh lagi (restart/cheat)
@@ -1183,7 +1183,7 @@ export const stage4Scene = {
     updateMode(dt) {
         updateOccluders(dt);   // objek penghalang -> semi-transparan (2026-07-18)
         updateSmashBuilding(smashRuko, dt);   // puing ruko yang diterobos tank (no-op setelah menetap)
-        intro.update(dt);      // heli penjemput + mesin cutscene tank-boss (cutscenes/tankBossIntro.js)
+        intro.update(dt);      // heli penjemput + mesin cutscene tank-boss (cutscenes/stage4/tankBossIntro.js)
         // updateTank dipanggil JUGA selama cutscene (2026-07-19, permintaan
         // user — SFX cutscene lengkap): fase 'cine' early-return SETELAH
         // updateTankAudio, jadi loop tank-moving (tick dari cineTracksDust) +
@@ -1261,7 +1261,7 @@ export const stage4Scene = {
     // Hook kamera per-scene (renderer.applySceneCamOffset membacanya TIAP FRAME
     // sebagai PROPERTI — getter ini karenanya sah). Selama CUTSCENE tank-boss,
     // sinematografinya (sudut/jarak/tinggi tiap shot) datang dari
-    // cutscenes/tankBossIntro.js; di luar cutscene ia mengembalikan null =
+    // cutscenes/stage4/tankBossIntro.js; di luar cutscene ia mengembalikan null =
     // renderer memakai CAM_OFF_DEFAULT (kamera gameplay) seperti biasa.
     get camOffset() { return outro.camOffset() || intro.camOffset(); },
 

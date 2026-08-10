@@ -33,9 +33,9 @@ import {
 import { resetHighway, highwayDebug } from './highway.js';
 import { journeyHighwayDebug as hwPoolDebug } from '../../../../entities/train.js';
 import { stationScene, stationDebug, resetStation } from './station.js';
-import { departureScene, departureDebug, resetDeparture } from './departure.js';
+import { departureScene, departureDebug, resetDeparture } from '../../cutscenes/stage5/departure.js';
 import { journeyScene, journeyDebug, resetJourney } from './journey.js';
-import { finishScene, finishDebug, resetFinish } from './finish.js';
+import { finishScene, finishDebug, resetFinish } from '../../cutscenes/stage5/finish.js';
 
 // Permukaan publik stage 5 tidak berubah walau file-nya dipecah.
 export {

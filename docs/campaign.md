@@ -32,7 +32,8 @@
 > Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](MODULES.md).
 
 **Where the code lives:** stages = `src/scenes/campaign/stages/stage{1..8}.js`; cutscenes =
-`src/scenes/campaign/cutscenes/{prologue,prologueArt,intro,tankBossIntro,tankBossOutro}.js`; shared campaign plumbing =
+`src/scenes/campaign/cutscenes/{prologue,prologueArt,intro}.js`, with stage-specific controllers in
+`src/scenes/campaign/cutscenes/stage{4,5}/`; shared campaign plumbing =
 `src/scenes/campaign/utility/` — `common.js` (robot AI/clamp/awardKill/spawnSwarm),
 `transition.js` (inter-stage loading+shop, `campaignJumpToStage`), `doors.js` (sliding doors),
 `stairwell.js`/`lift.js`, `interior.js` (floor/wall materials), `cityscape.js` (decor ring),
@@ -334,7 +335,7 @@ Details that are load-bearing:
 - **The camera-side lineside row had to move out of the way** (user: *"jauhkan pagar pembatas yang ada di kanan kereta karena sekarang major gibran berjalan menembusnya"*). The boundary fence sat at `LS_NEAR` = 30 — exactly where Gibran now stands after alighting, so he walked straight through it. That narrow strip turned out to be claimed by three other things: the arrival apron (18…72), the merging highway (asphalt 44…80, lamp posts ≈32), and the camera's own sight line to the player's car (anything below z ≈ 71 can occlude it). So **every railway prop moved to the backdrop row** — km posts and relay cabinets join the fence, poles, block signals and ballast piles on −z — and the only thing left on the camera side is the foreground band's own boundary fence at `FG0 − 2` (82), well clear of all three. Smoke fails if any near-pool prop stands over the apron band or on the road.
 - **No fade at the end either.** `finishArrival()` clears the letterbox and calls `beginStageTransition(stage6Scene)` directly, so `STAGE 5 COMPLETE` cuts in. `arrivalMinSec` is deleted from the config, replaced by the `arrival` block (`stopSec`, `frontSec`, `doorOpenSec`, `alightSec`, `radioMinSec`, `endHoldSec`) exactly as the departure rework replaced `departureMinSec`. `S5_ENGINE`, the old arrival framing anchor, lost its last consumer and is deleted.
 
-The cutscene lives in **`stage5/finish.js`** (user: *"lebih baik cutscene itu dijadikan file terpisah"*). It was written into `arrival.js`, which contained nothing else, so the module is now named for what it holds — the sibling of `departure.js`. The gameplay phase is still `arrival`, because that names the *world state* (the train is arriving) that `updateRide` and `RIDE_PHASES` branch on; only the file, the scene id (`campaign-5-finish`) and the debug field (`stage5Debug().finish`) changed.
+The cutscene lives in **`cutscenes/stage5/finish.js`** (user: *"lebih baik cutscene itu dijadikan file terpisah"*). It was written into `arrival.js`, which contained nothing else, so the module is now named for what it holds — the sibling of `departure.js`. The gameplay phase is still `arrival`, because that names the *world state* (the train is arriving) that `updateRide` and `RIDE_PHASES` branch on; only the file, the scene id (`campaign-5-finish`) and the debug field (`stage5Debug().finish`) changed.
 
 Smoke reuses the departure's `s5RunShot` harness (its shot accessor is now a parameter) and adds twelve asserts: the four cuts each change both angle and focus in one frame with the curtain never opaque, shot 1's camera height equals `-CAM_LOOK_DROP` so the sight line is provably horizontal, the train really reaches speed 0 with the loop off and the terminal visible, the terminal's approach distance matches the integral of the brake curve and it never once moves backwards before landing exactly on `baseX`, nothing stands on the apron band, the door opens once, Gibran ends up between the apron's two edges having only ever walked outward, both radio lines type in order with two distinct gestures, and the gap between the dialogue going idle and the stage completing is `endHoldSec` (measured 3.05 s).
 
@@ -490,7 +491,7 @@ The general rule, now recorded in CLAUDE.md: **visibility decides collision.** S
 
 ### File split into sub-scenes (2026-08-07, user request; a fourth added 2026-08-08)
 
-`stage5.js` had grown to 1631 lines, so it became the folder `src/scenes/campaign/stages/stage5/`:
+`stage5.js` had grown to 1631 lines, so it became the folder `src/scenes/campaign/stages/stage5/`, while its two cutscene controllers live in `src/scenes/campaign/cutscenes/stage5/`:
 
 | File | Role |
 | --- | --- |
@@ -499,10 +500,10 @@ The general rule, now recorded in CLAUDE.md: **visibility decides collision.** S
 | `props.js` | Static prop builders: the C1/C2 landmarks, depot and platform furniture, station doors, and the enemy consist. |
 | `runtime.js` | State shared by all four sub-scenes: phase, typewriter queue, sub-scene manager + curtain, robot spawn, enemy-train state machine, ride update, in-train collision hooks. |
 | `station.js` | **Sub-scene 1 — the starting station:** `opening → clearDepot → hack → repair → board`. |
-| `departure.js` | **Sub-scene 2 — the train-departure cutscene:** the five locked-off shots (door opens → Gibran boards → door closes → radio call → the train departs), split out of `journey.js` on 2026-08-08 (see below). |
+| `cutscenes/stage5/departure.js` | **Sub-scene 2 — the train-departure cutscene:** the five locked-off shots (door opens → Gibran boards → door closes → radio call → the train departs), split out of `journey.js` on 2026-08-08 (see below). |
 | `journey.js` | **Sub-scene 3 — the ride:** `ride` (the one ten-car assault consist; see the 2026-08-08 rework above). |
 | `highway.js` | The parallel highway that merges with the line from the 5th enemy car on, plus its pickup convoy (2026-08-08). |
-| `finish.js` | **Sub-scene 4 — the arrival cutscene, and the stage ends:** the four locked-off shots (loco front → door opens → Gibran gets off → his close-up + radio). Named `arrival.js` until 2026-08-09; the file held nothing but the cutscene, so it now says so. Its *phase* is still `arrival` — that is the world state, not the file. |
+| `cutscenes/stage5/finish.js` | **Sub-scene 4 — the arrival cutscene, and the stage ends:** the four locked-off shots (loco front → door opens → Gibran gets off → his close-up + radio). Named `arrival.js` until 2026-08-09; the file held nothing but the cutscene, so it now says so. Its *phase* is still `arrival` — that is the world state, not the file. |
 
 The sub-scenes implement the same hook contract as ordinary scenes (`enter`, `updateMode`, `playerCollide`, `robotAI`, `clampDropPos`, `hudStatus`, `radarLandmarks`, …) but deliberately **do not go through `core/sceneManager`**: `activeScene` stays `stage5Scene`, so checkpoint 5, `stageStats`, restart, and `resumeScene` after the hack/repair modals behave exactly as before. `enterSub(next)` in `runtime.js` is the only switch path; it calls the outgoing `exit()`, cuts the curtain to solid black on the switch frame, and fades back in over `CFG.campaign.stage5.subSceneFadeSec` (0.5 s) on the next frame — the CSS transition must observe the opaque value first. Entering the stage itself passes `{fade:false}`, so the "station visible on the first rendered frame" contract survives. The dialogue queue lives in `runtime.js` and is never reset between sub-scenes, which keeps all 16 story beats in order. `stage5Debug()` gained a `sub` field naming the active sub-scene; every other field, export, phase name and tuning key is unchanged.
 

@@ -47,7 +47,7 @@ import {
     spawnOne, sendEnemyFlyby, updateEnemyTrain,
     bulletBlocked, blastBlocked, cineCam,
 } from './runtime.js';
-import { departureScene } from './departure.js';
+import { departureScene } from '../../cutscenes/stage5/departure.js';
 
 let repairInstalled = 0, repairArmed = true, hackArmed = true, hackCd = 0;
 let discovered = false, platformUnlocked = false, depotAwake = false, flybySent = false;

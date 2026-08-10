@@ -39,14 +39,14 @@ import {
     train, setBoardDoorTarget, updateBoardDoor, resetBoardDoor, boardDoorPos, locoCenterX,
     updateLandmarks, boardMarker,
     TRAIN_CENTER_Z, STATION_TC_X, STATION_TRAIN_DX, CELL, S5_BOARD,
-} from './world.js';
+} from '../../stages/stage5/world.js';
 import {
     setPhase, cine, setCine, cineCam, cleanupCine, enterSub,
     queueDialogue, dialogueIdle, dialogueCurrentLine, dialogueCharCount,
     updateRide, resetRide, resetEnemyTrain, startTrainLoop, TRAIN_HOOKS,
-} from './runtime.js';
-import { resetHighway } from './highway.js';
-import { journeyScene } from './journey.js';
+} from '../../stages/stage5/runtime.js';
+import { resetHighway } from '../../stages/stage5/highway.js';
+import { journeyScene } from '../../stages/stage5/journey.js';
 
 // Tempat berdiri Gibran DI DALAM gerbong sesudah naik, diukur ke BARAT dari
 // pusat gerbong: tepat di belakang bukaan naik, jauh di dalam separuh panjang

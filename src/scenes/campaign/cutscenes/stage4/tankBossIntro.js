@@ -47,23 +47,23 @@
 // di-inject stage4 lewat createTankBossIntro (modul ini buta geometri scene).
 // Mesin BERBASIS TIMER (deterministik — headless-testable via stage4).
 
-import { CFG } from '../../../core/config.js';
-import { dialogueMap } from '../../../core/dialogue.js';
-import { _v3, GEO, setCinematicActive } from '../../../core/state.js';
-import { scene, camera, addCamShake, setCineFocus, CAM_OFF_DEFAULT } from '../../../core/renderer.js';
+import { CFG } from '../../../../core/config.js';
+import { dialogueMap } from '../../../../core/dialogue.js';
+import { _v3, GEO, setCinematicActive } from '../../../../core/state.js';
+import { scene, camera, addCamShake, setCineFocus, CAM_OFF_DEFAULT } from '../../../../core/renderer.js';
 import {
     setCineBars, showStageMsg, showCutsceneSkip, hideCutsceneSkip,
     hideCineCaption, showStageRadioDialogue, hideStageRadioDialogue,
-} from '../../../core/dom.js';
-import { releaseInputs, aimPoint } from '../../../core/input.js';
-import { addHitStop } from '../../../core/timeScale.js';
-import { spawnGroundPuff } from '../../../entities/effects.js';
-import { playSFX, sfxExplode, sfxTankBlast, playLoopSFX, stopLoopSFX, sfxHeli, stopMusic, startBossMusic } from '../../../utils/sfx.js';
-import { spawnHelicopter, updateHelicopter, blastHelicopter, disposeHelicopter } from '../../../entities/helicopter.js';
-import { spawnTank, tankMovingTick } from '../../../entities/tank.js';
-import { rand } from '../../../utils/math.js';
-import { updateUI } from '../../../core/hud.js';
-import { countStageRobots } from '../utility/common.js';
+} from '../../../../core/dom.js';
+import { releaseInputs, aimPoint } from '../../../../core/input.js';
+import { addHitStop } from '../../../../core/timeScale.js';
+import { spawnGroundPuff } from '../../../../entities/effects.js';
+import { playSFX, sfxExplode, sfxTankBlast, playLoopSFX, stopLoopSFX, sfxHeli, stopMusic, startBossMusic } from '../../../../utils/sfx.js';
+import { spawnHelicopter, updateHelicopter, blastHelicopter, disposeHelicopter } from '../../../../entities/helicopter.js';
+import { spawnTank, tankMovingTick } from '../../../../entities/tank.js';
+import { rand } from '../../../../utils/math.js';
+import { updateUI } from '../../../../core/hud.js';
+import { countStageRobots } from '../../utility/common.js';
 
 const lerp = (a, b, k) => a + (b - a) * k;
 const easeOut = (k) => 1 - (1 - k) * (1 - k);

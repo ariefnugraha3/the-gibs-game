@@ -36,7 +36,7 @@ import {
 import {
     updateHighway, highwayActive, highwayClear, highwayCarsDestroyed, roadMerged,
 } from './highway.js';
-import { finishScene } from './finish.js';
+import { finishScene } from '../../cutscenes/stage5/finish.js';
 import { locoBossDebug } from './loco.js';
 
 let gapT = 0, rewarded = 0, clearT = 0, clearShown = false;
