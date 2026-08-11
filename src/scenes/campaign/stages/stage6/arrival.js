@@ -36,14 +36,15 @@ import { beginRepairMinigame, ADVANCED_REPAIR_PARTS } from '../../utility/repair
 import { slideWalk } from '../../../../utils/collision.js';
 import {
     phase, setPhase, cine, setCine, cineCam, cleanupCine, enterSub,
-    queueDialogue, dialogueIdle, countEncounter, spawnEncounter,
+    queueDialogue, dialogueIdle, clearDialogueQueue, countEncounter, spawnEncounter,
     machineBulletHits, machineWreckFx,
 } from './runtime.js';
 import {
     CELL, WALL_H, cellPos, mapCellAt, touchesSafeArea,
     S6_START, S6_INFO, S6_FINISH, RACK_POINTS, GENERATOR_POINTS, MACHINE_POINTS,
     SUPPLY_POINTS, CRATE_POINTS, ENCOUNTER_POINTS,
-    stage6Walk, robotWalk, resolve, groundHeight, stage6SegHitsWall, doorBlocksShot,
+    stage6Walk, robotWalk, resolve, groundHeight, stage6SegHitsWall,
+    doorBlocksShot, doorsWalkable, doorClampShot,
     doorOf, stage6Nav, updateDoors, updateAutoDoors, updateMachinery, updateSparks,
     activateSparks, pulseMarkers, setMarkers, setRackSearched, setInfoRead,
     setGeneratorOnline, resetWorldVisuals,
@@ -299,11 +300,11 @@ function updateMachines(dt) {
 function finishChapter() {
     if (chapterDone) return;
     chapterDone = true; setPhase('complete'); hideInteraction();
-    setMarkers({}); cleanupCine(0);
-    enterSub(hqScene);
+    setMarkers({}); clearDialogueQueue(); cleanupCine(0);
+    enterSub(hqScene, { fade: false });
 }
 
-function updateChapterEnd(dt) {
+function updateChapterEnd() {
     if (!cine) {
         if (!near(S6_FINISH, C6().finishRange)) { exitWarnArmed = true; return; }
         // Pintu keluar tidak melayani siapa pun selama mesinnya masih mencetak.
@@ -314,20 +315,11 @@ function updateChapterEnd(dt) {
             showStageMsg(`DESTROY BOTH FABRICATORS FIRST — ${machinesAlive()} LEFT`, 3200);
             return;
         }
-        releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
-        setCinematicActive(true); setCineBars(true);
-        setCine({ kind: 'handoff', t: 0, fading: false, fadeT: 0 });
-        cineCam.x = -70; cineCam.y = 74; cineCam.z = 78;
-        setCineFocus(S6_FINISH.x, S6_FINISH.z, true);
-        queueDialogue('chapterEnd');
-        showCutsceneSkip(finishChapter);
+        // Tidak ada dialog, letterbox, pembekuan input, atau fade. Chapter HQ
+        // langsung masuk pada frame pemicu yang sama.
+        finishChapter();
         return;
     }
-    cine.t += dt;
-    if (!cine.fading && dialogueIdle() && cine.t >= C6().chapterHoldSec) {
-        cine.fading = true; cine.fadeT = 0; setCineFade(1, C6().fadeSec);
-    }
-    if (cine.fading && (cine.fadeT += dt) >= C6().fadeSec) finishChapter();
 }
 
 // --- Bangun garnisun hall --------------------------------------------------
@@ -374,7 +366,7 @@ export const arrivalScene = {
 
     updateMode(dt) {
         elapsed += dt;
-        updateAutoDoors(); updateDoors(dt); updateSparks(dt);
+        updateAutoDoors(dt); updateDoors(dt); updateSparks(dt);
         updateMachinery(dt, generatorOnline); updateMachineVisual(dt);
         pulseMarkers(dt, elapsed);
         if (phase === 'opening') { updateOpeningCine(dt); return; }
@@ -420,7 +412,7 @@ export const arrivalScene = {
     bulletBlocked(b) {
         if (b.mesh.position.y >= WALL_H) return false;
         return stage6SegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z)
-            || doorBlocksShot(b.px, b.pz, b.mesh.position.x, b.mesh.position.z);
+            || doorClampShot(b);
     },
     blastBlocked(x0, z0, x1, z1, y = 0) {
         if (y >= WALL_H) return false;
@@ -437,7 +429,12 @@ export const arrivalScene = {
         if (z.encounter === 'hall' && !hallAwake) {
             z.state = 'idle'; z.moving = false; z.aiming = false; return {};
         }
-        return campaignRobotAI(z, dt, step, { walkable: robotWalk, resolve, nav: stage6Nav() });
+        return campaignRobotAI(z, dt, step, {
+            walkable: robotWalk, resolve, nav: stage6Nav(),
+            los: (x0, z0, x1, z1) => !stage6SegHitsWall(x0, z0, x1, z1)
+                && !doorBlocksShot(x0, z0, x1, z1),
+            pathWalkable: doorsWalkable,
+        });
     },
     clampRobot(z, oldX, oldZ) {
         campaignClampRobot(z, oldX, oldZ, { walkable: robotWalk, resolve });

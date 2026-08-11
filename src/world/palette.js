@@ -17,8 +17,10 @@
 // 4. Emissive LINGKUNGAN maksimum EMISSIVE_MAX (0.9) — hanya efek
 //    tempur (ledakan/muzzle/telegraph boss) yang boleh lebih terang.
 // 5. WARNA SINYAL GAMEPLAY itu SAKRAL, jangan dipakai untuk dekorasi:
-//    mata robot merah 0xff2020, armor kelas C hijau / B kuning /
-//    A merah, coolant hijau, darah player merah, plasma musuh biru,
+//    mata robot merah 0xff2020, armor kelas C PERUNGGU / B PERAK /
+//    A EMAS (logam bertingkat — permintaan user 2026-08-11, menggantikan
+//    hijau/kuning/merah; tabelnya CLASS_LOOK di entities/robots.js),
+//    coolant hijau, darah player merah, plasma musuh biru,
 //    tanda EXIT terbuka hijau 0x2eff6a.
 // ============================================================
 

@@ -9,7 +9,9 @@
 //   `W` weapon cache (banyak medkit + ammo), `C` server komputer tempat program
 //   diupload, `H` titik pemicu upload, `R` (CSV `RR`) toilet, `G` (CSV `WH`)
 //   gudang, `M` (CSV `RM`) mesin pembuat robot, `1`/`2`/`3` (CSV `E1`/`E2`/`E3`)
-//   pemicu event yang memberi tahu bahwa pintu di sebelahnya rusak.
+//   pemicu event yang memberi tahu bahwa pintu di sebelahnya rusak, `+` pintu
+//   terkunci yang baru terbuka sesudah komputer `X` berhasil di-hack, `Y`
+//   safe area yang tidak boleh menjadi titik spawn robot.
 //
 // Ini KANTOR: perabotannya memakai rig `futuristic*` yang sama dengan Stage 1-3
 // (meja + kursi, meja rapat, lemari, konsol, peti, planter, sofa, bangku) plus
@@ -20,11 +22,13 @@ import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
 import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
-import { makeTexture } from '../../../../utils/textures.js';
 import { rand } from '../../../../utils/math.js';
 import {
-    buildSplitDoor, buildDoorSideLights, DOOR_LOCKED_COLOR, setDoorSideLightState,
-    setSplitDoorOpen, splitDoorDebug, doorMotionSFX,
+    buildSplitDoor, buildDoorSideLights, DOOR_LOCKED_COLOR,
+    doorBlocksShot as sharedDoorBlocksShot, doorClampShot as sharedDoorClampShot,
+    doorsWalkable as sharedDoorsWalkable,
+    doorProximityTarget, resolveDoors as resolveCampaignDoors,
+    setDoorSideLightState, splitDoorDebug, updateDoorMotion,
 } from '../../utility/doors.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
@@ -42,6 +46,7 @@ import { buildFuturisticBenchMesh } from '../../../../entities/futuristicBench.j
 import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
 import { buildCampaignCityscape } from '../../utility/cityscape.js';
+import { buildDetailedWallCell } from '../../utility/wallDetail.js';
 
 export const HQ_OX = 216000, HQ_OZ = 0;
 export const HQ_COLS = 50, HQ_ROWS = 50, CELL = 14, WALL_H = 25;
@@ -69,26 +74,26 @@ export const HQ_MAP = Object.freeze([
     '#.....................#......#.................CC#',
     '#.....................#......#.....2222........CC#',
     '#.....................#......#.....2222........CC#',
-    '#.....................###--#########@@############',
+    '#.....................###++#########@@############',
     '#.....................#............2222.....#RRRR#',
     '#.....................#............2222.....-RRRR#',
     '#.....................#.....................-RRRR#',
     '#.....................#.....................#RRRR#',
     '#.....................#....##############...#RRRR#',
-    '#.....................#....#............#...#RRRR#',
-    '#.....................#....#............#...#RRRR#',
-    '#.....................#....#............#...#RRRR#',
-    '#.....................#....#............#...#RRRR#',
-    '#.MMM.................#....#............#...#RRRR#',
-    '#.MMM.................#....#............#...#RRRR#',
-    '#.MMM.................#....#............#...#RRRR#',
-    '#.....................#....#............#...#RRRR#',
-    '#.....................#....#............#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYY#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYX#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYX#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYY#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYY#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYY#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYY#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYY#...#RRRR#',
+    '#.....................#....#YYYYYYYYYYYY#...#RRRR#',
     '#######################....##########--##...######',
     '#......................................3@3.......#',
-    '#......................................3@3.......#',
-    '#......................................3@3.......#',
-    '#......................1111............3@3.......#',
+    '#.............MMM...............MMM....3@3.......#',
+    '#.............MMM...............MMM....3@3.......#',
+    '#.............MMM......1111.....MMM....3@3.......#',
     '#......................1111............3@3.......#',
     '#.........###..########@@@@##############........#',
     '#.........#......#AAAAA1111AAAA#WWWWWWWWWWWWWWWWW#',
@@ -101,9 +106,9 @@ export const HQ_MAP = Object.freeze([
     '#.........#......=AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
     '#.........#......#AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
     '#.........#......#AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
-    '#.MMM.....#......#AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
-    '#.MMM.....#......#AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
-    '#.MMM.....#......#AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
+    '#.........#......#AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
+    '#.........#......#AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
+    '#.........#......#AAAAAAAAAAAAA#WWWWWWWWWWWWWWWWW#',
     '#.........#......#AAAAASSSSAAAA#WWWWWWWWWWWWWWWWW#',
     '#######################----#######################',
 ]);
@@ -112,6 +117,7 @@ export const HQ_LEGEND = Object.freeze({
     '#': 'wall', '.': 'floor', A: 'safe-area', S: 'start-finish',
     '@': 'broken-door', '-': 'door', W: 'weapon-cache', C: 'server',
     H: 'upload-point', R: 'restroom', G: 'warehouse', M: 'spawn-machine',
+    '+': 'keyed-door', X: 'hack-terminal', Y: 'safe-area',
     1: 'event-1', 2: 'event-2', 3: 'event-3',
 });
 
@@ -143,8 +149,8 @@ const HACK_CONSOLE = Object.freeze(hqCellPos(39, 20));
 // robot keluar; grup diputar supaya corongnya menghadap ke sana. Rangkanya
 // BARU DITURUNKAN saat lockdown — sebelum upload selesai mereka tidak ada.
 export const MACHINE_POINTS = Object.freeze([
-    Object.freeze({ id: 0, ...hqCellPos(3, 24), hatch: Object.freeze(hqCellPos(6, 24)) }),
-    Object.freeze({ id: 1, ...hqCellPos(3, 46), hatch: Object.freeze(hqCellPos(6, 46)) }),
+    Object.freeze({ id: 0, ...hqCellPos(15, 31), hatch: Object.freeze(hqCellPos(18, 31)) }),
+    Object.freeze({ id: 1, ...hqCellPos(33, 31), hatch: Object.freeze(hqCellPos(36, 31)) }),
 ]);
 
 // Tiga pemicu event: masing-masing mengapit satu pintu rusak dan memberi tahu
@@ -156,11 +162,10 @@ export const EVENT_POINTS = Object.freeze([
 ]);
 
 const DOOR_LAYOUT = Object.freeze([
-    // Satu-satunya pintu ke ruang server: TERKUNCI sampai terminal ruang rapat
-    // di-hack (permintaan user 2026-08-09).
-    Object.freeze({ kind: 'server-access', ...hqCellPos(29, 1.5), sx: 4.5, sz: CELL * 2, locked: true }),
+    // Pintu `+` baru bisa dibuka sesudah terminal `X` di-hack.
+    Object.freeze({ kind: 'server-access', ...hqCellPos(25.5, 13), sx: CELL * 2, sz: 4.5, locked: true }),
+    Object.freeze({ kind: 'upper-server-door', ...hqCellPos(29, 1.5), sx: 4.5, sz: CELL * 2 }),
     Object.freeze({ kind: 'warehouse-south', ...hqCellPos(11.5, 5), sx: CELL * 2, sz: 4.5 }),
-    Object.freeze({ kind: 'mid-corridor', ...hqCellPos(25.5, 13), sx: CELL * 2, sz: 4.5 }),
     Object.freeze({ kind: 'restroom', ...hqCellPos(44, 15.5), sx: 4.5, sz: CELL * 2 }),
     Object.freeze({ kind: 'office-room', ...hqCellPos(37.5, 28), sx: CELL * 2, sz: 4.5 }),
     Object.freeze({ kind: 'safe-exit', ...hqCellPos(17, 41.5), sx: 4.5, sz: CELL * 2 }),
@@ -198,7 +203,7 @@ export const HQ_SUPPLY_POINTS = Object.freeze([
 export const HQ_CRATE_POINTS = Object.freeze([
     Object.freeze({ area: 'office', ...hqCellPos(7, 9) }),
     Object.freeze({ area: 'office', ...hqCellPos(19, 21) }),
-    Object.freeze({ area: 'hall', ...hqCellPos(13, 31) }),
+    Object.freeze({ area: 'hall', ...hqCellPos(10, 31) }),
     Object.freeze({ area: 'corridor', ...hqCellPos(42, 22) }),
     Object.freeze({ area: 'server', ...hqCellPos(33, 8) }),
 ]);
@@ -207,14 +212,14 @@ export const HQ_CRATE_POINTS = Object.freeze([
 // 2026-08-09): ruang server tetap sunyi sebelum dan sesudah upload.
 export const HQ_ENCOUNTER_POINTS = Object.freeze({
     office: Object.freeze([[4, 2], [12, 2], [20, 2], [27, 4], [2, 7], [24, 10],
-        [12, 10], [17, 12], [3, 14], [9, 18], [16, 18], [42, 20], [30, 24],
-        [11, 25], [19, 25], [36, 30], [6, 31], [29, 31], [17, 32], [42, 32],
+        [12, 10], [17, 12], [3, 14], [9, 18], [16, 18], [42, 20], [42, 24],
+        [11, 25], [19, 25], [36, 30], [6, 31], [26, 31], [17, 32], [42, 32],
         [47, 35], [33, 36], [8, 39], [3, 42], [46, 44], [42, 47]]),
     purge: Object.freeze([[15, 2], [24, 4], [26, 11], [18, 10], [2, 12], [24, 16],
-        [38, 20], [37, 19], [42, 27], [19, 37], [29, 37], [26, 38], [28, 40],
+        [41, 20], [42, 19], [42, 27], [19, 37], [29, 37], [26, 38], [28, 40],
         [45, 41], [5, 42], [38, 44], [21, 46], [8, 47], [24, 47], [43, 47]]),
     // Squad yang turun kalau SIGNAL TRACE ruang rapat gagal.
-    alarm: Object.freeze([[28, 16], [36, 16], [24, 21], [41, 22], [35, 31], [30, 14]]),
+    alarm: Object.freeze([[28, 16], [36, 16], [24, 21], [41, 22], [35, 31], [43, 20]]),
 });
 
 // Perabot kantor: [pembuat, kolom, baris, sx, sy, sz]. `desk` menambahkan kursi
@@ -253,7 +258,7 @@ const FURNITURE = Object.freeze([
     ['bench', 24, 18, 7, 6, 18], ['bench', 24, 24, 7, 6, 18],
     ['planter', 25, 21, 8, 11, 8],
     ['bench', 42, 17, 7, 6, 18], ['planter', 42, 25, 8, 11, 8],
-    ['sofa', 33, 30, 18, 6, 14], ['sofa', 22, 32, 18, 6, 14],
+    ['sofa', 37, 30, 18, 6, 14], ['sofa', 22, 32, 18, 6, 14],
     ['planter', 45, 30, 8, 11, 8], ['planter', 8, 33, 8, 11, 8],
     // --- Ruang barat bawah ---------------------------------------------------
     ['desk', 5, 37, 24, 7, 12], ['desk', 5, 41, 24, 7, 12],
@@ -278,6 +283,7 @@ const FURNITURE = Object.freeze([
 ]);
 
 let built = false, worldRoot = null, navGrid = null, staticBatch = [];
+let wallDetailCount = 0, furnitureDetailCount = 0, serverDetailCount = 0;
 const blockers = [], doors = [], propRecords = [], stageLights = [];
 const sparkPool = [], machines = [];
 let uploadConsole = null, uploadMarker = null, finishMarker = null, cityscape = null;
@@ -311,7 +317,7 @@ const openMachineCells = new Set();
 const cellKey = (c, r) => c + ',' + r;
 const openToken = (token, c, r) => !SOLID_TOKENS.includes(token)
     || (token === 'M' && openMachineCells.has(cellKey(c, r)));
-const safeToken = token => token === 'A' || token === 'S';
+const safeToken = token => token === 'A' || token === 'S' || token === 'Y';
 
 function cornerCells(x, z, r) {
     const d = Math.max(0, r);
@@ -339,25 +345,12 @@ function blockedAt(x, z, radius = 3.5) {
     return false;
 }
 
-function resolveDoors(pos, radius) {
-    for (const d of doors) if (d.open < 0.74) resolveBlockers(pos, radius, 0, [d.blocker]);
-}
-
 export function hqResolve(pos, radius, feetY = 0) {
     resolveBlockers(pos, radius, feetY, blockers);
-    resolveDoors(pos, radius);
+    resolveCampaignDoors(doors, pos, radius);
 }
 
 export function hqGroundHeight(x, z, feetY) { return blockersGroundHeight(x, z, feetY, blockers); }
-
-function segHitsRect(x0, z0, x1, z1, b) {
-    const dist = Math.hypot(x1 - x0, z1 - z0), steps = Math.max(1, Math.ceil(dist / 5));
-    for (let i = 0; i <= steps; i++) {
-        const k = i / steps, x = x0 + (x1 - x0) * k, z = z0 + (z1 - z0) * k;
-        if (Math.abs(x - b.x) <= b.hx && Math.abs(z - b.z) <= b.hz) return true;
-    }
-    return false;
-}
 
 export function hqSegHitsWall(x0, z0, x1, z1) {
     const dist = Math.hypot(x1 - x0, z1 - z0), steps = Math.max(1, Math.ceil(dist / (CELL * 0.3)));
@@ -370,7 +363,15 @@ export function hqSegHitsWall(x0, z0, x1, z1) {
 }
 
 export function hqDoorBlocksShot(x0, z0, x1, z1) {
-    return doors.some(d => d.open < 0.74 && segHitsRect(x0, z0, x1, z1, d.blocker));
+    return sharedDoorBlocksShot(doors, x0, z0, x1, z1, 0);
+}
+
+export function hqDoorsWalkable(x, z, radius = 0) {
+    return sharedDoorsWalkable(doors, x, z, radius);
+}
+
+export function hqDoorClampShot(b) {
+    return sharedDoorClampShot(doors, b);
 }
 
 export const hqDoorOf = kind => doors.find(d => d.kind === kind);
@@ -394,16 +395,6 @@ function markerAt(p, color, ri = 6.5, ro = 8.5) {
     worldRoot.add(m); return m;
 }
 
-function signTexture(text, sub = '') {
-    return makeTexture(512, 128, (g, w, h) => {
-        g.fillStyle = '#171611'; g.fillRect(0, 0, w, h);
-        g.strokeStyle = '#bd8b42'; g.lineWidth = 7; g.strokeRect(5, 5, w - 10, h - 10);
-        g.fillStyle = '#f0dfbc'; g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.font = 'bold 35px monospace'; g.fillText(text, w / 2, sub ? 49 : h / 2);
-        if (sub) { g.fillStyle = '#b88b48'; g.font = '20px monospace'; g.fillText(sub, w / 2, 91); }
-    });
-}
-
 function recordProp(kind, x, z, hx = 0, hz = 0, top = 0, solid = false) {
     propRecords.push({ kind, x, z, hx, hz, top, solid });
     return solid ? addBlocker(x, z, hx, hz, top, true) : null;
@@ -416,7 +407,9 @@ function addDoor(M, spec) {
     const lamps = buildDoorSideLights(worldRoot, spec.x, spec.z,
         spec.sx, spec.sz, CELL, WALL_H, lampMat);
     const d = { kind: spec.kind, panel: rig.panel, rig, leaves: rig.leaves,
-        lamps, open: 0, target: 0, sealed: !!spec.sealed,
+        lamps, open: 0, target: 0, cx: spec.x, cz: spec.z, ew: !rig.horizontal,
+        hx: spec.sx / 2, hz: spec.sz / 2, cell: CELL, linger: 0,
+        sealed: !!spec.sealed,
         locked: !!spec.locked, lockedInit: !!spec.locked,
         blocker: { x: spec.x, z: spec.z, hx: spec.sx / 2, hz: spec.sz / 2,
             axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(spec.sx, spec.sz) / 2,
@@ -443,6 +436,11 @@ function buildBrokenDoor(M, spec, staticProps) {
 }
 
 function buildFurniture(M, staticProps) {
+    const detail = (sx, sy, sz, x, y, z, mat) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+        mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true;
+        staticProps.push(mesh); furnitureDetailCount++; return mesh;
+    };
     const put = (mesh, x, z, sx, sy, sz, kind, standable = true) => {
         mesh.position.set(x, 0, z);
         staticProps.push(mesh);
@@ -453,12 +451,21 @@ function buildFurniture(M, staticProps) {
         const p = hqCellPos(c, r);
         if (kind === 'desk') {
             put(buildFuturisticDeskMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'desk');
+            detail(Math.min(12, sx * 0.3), 3.8, 0.75, p.x, sy + 1.9,
+                p.z - sz * 0.18, M.screen);
+            detail(Math.min(15, sx * 0.38), 0.8, 3, p.x, sy + 0.45,
+                p.z - sz * 0.18, M.steel);
+            detail(3.2, 1.6, 4.2, p.x + sx * 0.34, sy + 0.8,
+                p.z + sz * 0.22, M.ink);
             const chair = buildFuturisticChairMesh(Math.min(5, sz * 0.35));
             chair.position.set(p.x, 0, p.z + sz * 0.5 + 2);
             chair.rotation.y = Math.PI;
             staticProps.push(chair);
         } else if (kind === 'meeting') {
             put(buildFuturisticMeetingTableMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'meeting-table');
+            detail(sx * 0.55, 0.7, Math.min(5, sz * 0.25), p.x, sy + 0.45, p.z, M.screen);
+            for (const x of [-sx * 0.32, sx * 0.32])
+                detail(3.5, 0.9, 3.5, p.x + x, sy + 0.55, p.z, M.steel);
         } else if (kind === 'cupboard') {
             // Deret lemari sepanjang sisi terpanjang, satu blocker penuh.
             recordProp('cupboard', p.x, p.z, sx / 2, sz / 2, sy, true);
@@ -471,20 +478,39 @@ function buildFurniture(M, staticProps) {
                 cab.position.set(along ? p.x + off : p.x, 0, along ? p.z : p.z + off);
                 staticProps.push(cab);
             }
+            detail(sx + 1, 1, sz + 1, p.x, sy + 0.5, p.z, M.steel);
+            const marks = Math.max(2, Math.min(6, Math.round((sx + sz) / 18)));
+            for (let i = 0; i < marks; i++) {
+                const k = (i + 0.5) / marks - 0.5;
+                detail(sx >= sz ? 5 : 0.7, 2.2, sx >= sz ? 0.7 : 5,
+                    p.x + (sx >= sz ? k * sx * 0.8 : sx / 2 + 0.4), sy * 0.63,
+                    p.z + (sx >= sz ? sz / 2 + 0.4 : k * sz * 0.8),
+                    i === 0 ? M.hazard : M.panel);
+            }
         } else if (kind === 'console') {
             put(buildFuturisticConsoleMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'console');
+            detail(sx * 0.62, 0.7, 1, p.x, sy + 0.35, p.z + sz * 0.28, M.screen);
         } else if (kind === 'crate') {
             put(buildFuturisticCrateMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'crate');
+            for (const x of [-sx * 0.32, sx * 0.32])
+                detail(1, sy + 0.5, sz + 0.6, p.x + x, sy / 2, p.z, M.steel);
         } else if (kind === 'planter') {
             put(buildFuturisticPlanterMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'planter');
         } else if (kind === 'sofa') {
             put(buildFuturisticSofaMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'sofa');
+            for (const x of [-sx / 2 + 1, sx / 2 - 1])
+                detail(2, sy * 0.72, sz + 0.7, p.x + x, sy * 0.36, p.z, M.steel);
         } else if (kind === 'bench') {
             put(buildFuturisticBenchMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'bench');
+            detail(sx - 2, 0.7, sz + 0.7, p.x, sy + 0.35, p.z, M.panel);
         } else if (kind === 'stall') {
             put(buildFuturisticStallMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'toilet-stall');
+            detail(sx + 0.8, 1, 1, p.x, sy - 1.1, p.z - sz / 2, M.steel);
         } else if (kind === 'sink') {
             put(buildFuturisticSinkMesh(sx, sy, sz), p.x, p.z, sx, sy, sz, 'washbasin');
+            detail(sx * 0.74, sy * 0.8, 0.7, p.x, sy * 1.35,
+                p.z - sz / 2 + 0.2, M.screen);
+            detail(sx * 0.22, 1.4, 1.4, p.x, sy + 1.2, p.z, M.steel);
         }
     }
 }
@@ -501,8 +527,20 @@ function buildServers(M, staticProps) {
         for (const y of [5, 10, 15]) {
             const led = new THREE.Mesh(new THREE.BoxGeometry(CELL - 6, 0.7, 0.8), M.amber);
             led.position.set(p.x, y, p.z - CELL / 2 + 1.4);
-            staticProps.push(led);
+            staticProps.push(led); serverDetailCount++;
+            for (const x of [-CELL * 0.27, CELL * 0.27]) {
+                const latch = new THREE.Mesh(new THREE.BoxGeometry(0.65, 2.4, 0.9), M.steel);
+                latch.position.set(p.x + x, y, p.z - CELL / 2 + 1.2);
+                staticProps.push(latch); serverDetailCount++;
+            }
         }
+        for (const x of [-CELL / 2 + 1.3, CELL / 2 - 1.3]) {
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(1.1, 20.5, 1.1), M.steel);
+            rail.position.set(p.x + x, 10.25, p.z - CELL / 2 + 1.2);
+            staticProps.push(rail); serverDetailCount++;
+        }
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(CELL - 1, 1.1, CELL - 1), M.body);
+        cap.position.set(p.x, 19.7, p.z); staticProps.push(cap); serverDetailCount++;
         const panel = new THREE.Mesh(new THREE.BoxGeometry(CELL - 6, 5, 0.8), M.screen);
         panel.position.set(p.x, 16, p.z - CELL / 2 + 1.1);
         worldRoot.add(panel); serverPanels.push(panel);
@@ -593,8 +631,10 @@ function buildWorld() {
         deck: new THREE.MeshLambertMaterial({ color: PAL.ink }),
         tile: new THREE.MeshLambertMaterial({ color: PAL.steel }),
         body: new THREE.MeshLambertMaterial({ color: PAL.gunmetal }),
+        panel: new THREE.MeshLambertMaterial({ color: PAL.panel }),
         steel: new THREE.MeshLambertMaterial({ color: PAL.steel }),
         ink: new THREE.MeshLambertMaterial({ color: PAL.ink }),
+        hazard: new THREE.MeshLambertMaterial({ color: PAL.hazard }),
         dead: new THREE.MeshBasicMaterial({ color: PAL.hazard, toneMapped: false }),
         amber: new THREE.MeshLambertMaterial({ color: PAL.amberDim, emissive: PAL.amber,
             emissiveIntensity: EMISSIVE_MAX * 0.48 }),
@@ -622,10 +662,17 @@ function buildWorld() {
     addFloor(18, 35, 30, 48, M.deck);       // safe area
     addFloor(32, 35, 48, 48, M.deck);       // weapon cache
 
+    wallDetailCount = 0; furnitureDetailCount = 0; serverDetailCount = 0;
+    const isWall = (c, r) => c < 0 || c >= HQ_COLS || r < 0 || r >= HQ_ROWS
+        || HQ_MAP[r][c] === '#';
     for (let r = 0; r < HQ_ROWS; r++) for (let c = 0; c < HQ_COLS; c++) {
         if (HQ_MAP[r][c] !== '#') continue;
         const p = hqCellPos(c, r);
-        add(CELL, WALL_H, CELL, p.x, WALL_H / 2, p.z, M.body);
+        wallDetailCount += buildDetailedWallCell(add, {
+            c, r, x: p.x, z: p.z, cell: CELL, wallH: WALL_H, isWall,
+            body: M.body, panel: M.panel, steel: M.steel, ink: M.ink,
+            accent: M.hazard, accentEvery: 17,
+        });
         addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
     }
     // Sel pintu rusak juga pejal permanen; propnya dibangun di bawah.
@@ -638,19 +685,6 @@ function buildWorld() {
     buildFurniture(M, staticProps);
     buildServers(M, staticProps);
     for (const spec of BROKEN_DOORS) buildBrokenDoor(M, spec, staticProps);
-
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(70, 15, 1.2),
-        new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false,
-            map: signTexture('BANDUNG HEADQUARTERS', 'ADMINISTRATION FLOOR') }));
-    const sp = hqCellPos(24.5, 34.6); sign.position.set(sp.x, 19, sp.z); staticProps.push(sign);
-    const srvSign = new THREE.Mesh(new THREE.BoxGeometry(50, 13, 1.2),
-        new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false,
-            map: signTexture('SERVER ROOM', 'RESTRICTED') }));
-    const ssp = hqCellPos(40, 5.6); srvSign.position.set(ssp.x, 18, ssp.z); staticProps.push(srvSign);
-    const cacheSign = new THREE.Mesh(new THREE.BoxGeometry(56, 13, 1.2),
-        new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false,
-            map: signTexture('WEAPON CACHE', 'ARMORY') }));
-    const csp = hqCellPos(40, 34.6); cacheSign.position.set(csp.x, 18, csp.z); staticProps.push(cacheSign);
 
     staticBatch = addMergedStatic(worldRoot, staticProps);
 
@@ -699,21 +733,18 @@ export const hqStaticBatchDbg = () => staticBatch;
 
 export function updateHqDoors(dt) {
     for (const d of doors) {
-        // MENDARAT PERSIS di target (lihat catatan yang sama di stage5/world.js).
-        const prev = d.open, step = dt / 0.5;
-        d.open = d.open < d.target ? Math.min(d.target, d.open + step)
-            : Math.max(d.target, d.open - step);
-        doorMotionSFX(d, prev, d.blocker.x, d.blocker.z);
-        const e = d.open * d.open * (3 - 2 * d.open);
-        setSplitDoorOpen(d.rig, e);
+        updateDoorMotion(d, dt, d.target);
         setDoorSideLightState(d.lamps, !d.sealed && !d.locked);
     }
 }
 
-export function updateHqAutoDoors(px, pz) {
+export function updateHqAutoDoors(px, pz, dt = 0) {
     for (const d of doors) {
-        if (d.sealed || d.locked) { d.target = 0; continue; }
-        d.target = Math.hypot(px - d.blocker.x, pz - d.blocker.z) < CELL * 2.4 ? 1 : 0;
+        if (d.sealed || d.locked) {
+            d.target = doorProximityTarget(d, dt, px, pz, CELL, false);
+            continue;
+        }
+        d.target = doorProximityTarget(d, dt, px, pz, CELL);
     }
 }
 
@@ -823,8 +854,8 @@ export function updateHqFx(dt) {
 
 export function resetHqVisuals() {
     for (const d of doors) {
-        d.open = 0; d.target = 0; d.locked = !!d.lockedInit;
-        setSplitDoorOpen(d.rig, 0);
+        d.open = 0; d.target = 0; d.linger = 0; d.locked = !!d.lockedInit;
+        updateDoorMotion(d, 0, 0);
         setDoorSideLightState(d.lamps, !d.sealed && !d.locked);
     }
     for (const m of machines) {
@@ -846,11 +877,12 @@ export const hqWorldDebug = () => ({
     built,
     map: { rows: HQ_ROWS, cols: HQ_COLS, cell: CELL, x0: HQ_X0, z0: HQ_Z0,
         walls: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === '#').length, 0),
-        safe: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === 'A').length, 0),
+        safe: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === 'A' || t === 'Y').length, 0),
         startFinish: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === 'S').length, 0),
         broken: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === '@').length, 0),
         doors: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === '-').length, 0),
         keyedDoors: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === '=').length, 0),
+        keyedPlus: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === '+').length, 0),
         cache: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === 'W').length, 0),
         servers: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === 'C').length, 0),
         upload: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === 'H').length, 0),
@@ -879,6 +911,8 @@ export const hqWorldDebug = () => ({
     pools: { sparks: sparkPool.length },
     visiblePools: { sparks: sparkPool.filter(s => s.visible).length },
     lights: stageLights.length, nav: !!navGrid, staticBatches: staticBatch.length,
+    architecture: { wallDetails: wallDetailCount },
+    furnitureDetails: { furniture: furnitureDetailCount, servers: serverDetailCount },
     supplies: HQ_SUPPLY_POINTS.map(p => ({ ...p })), crates: HQ_CRATE_POINTS.map(p => ({ ...p })),
     city: cityscape && { groundY: cityscape.groundY, buildings: cityscape.buildings,
         trees: cityscape.trees, parented: cityscape.root === worldRoot },

@@ -308,17 +308,6 @@ export function updateTrainVisual(train, dt, speed) {
     }
 }
 
-function signTexture() {
-    const c = document.createElement('canvas'); c.width = 768; c.height = 128;
-    const g = c.getContext('2d');
-    const css = h => '#' + h.toString(16).padStart(6, '0');
-    g.fillStyle = css(PAL.ink); g.fillRect(0, 0, c.width, c.height);
-    g.strokeStyle = css(PAL.amber); g.lineWidth = 8; g.strokeRect(7, 7, c.width - 14, c.height - 14);
-    g.fillStyle = css(PAL.white); g.font = 'bold 42px "Courier Prime", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('BANDUNG LOGISTICS TERMINAL', c.width / 2, c.height / 2);
-    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
-}
-
 // Denah resmi user `stages(Stage5-Finish).csv`, 30 kolom × 19 baris: stasiun
 // tujuan Bandung. Token sama dengan S5_MAP ('#' dinding, '.' lantai, '=' rel,
 // 'T' gerbong, 'L' lokomotif). Bangunan ini STATIS — tidak pernah masuk pool
@@ -392,13 +381,7 @@ function buildBandungTerminal(M) {
         mesh(g, new THREE.BoxGeometry(58, 3, 5 * B_CELL), M.body, bx(c), 38, bz(12.8));
         mesh(g, new THREE.BoxGeometry(1.4, 1, 4 * B_CELL), M.amber, bx(c), 36, bz(12.8), 0, 0, 0, false);
     }
-    // Papan informasi + strip status sipil pada dinding pemisah aula.
-    for (const c of [8, 16, 24])
-        mesh(g, new THREE.BoxGeometry(3 * B_CELL, 5, 1), M.tech, bx(c), 15, bz(9) + B_CELL / 2 + 0.8, 0, 0, 0, false);
-    const sign = mesh(g, new THREE.PlaneGeometry(118, 20),
-        new THREE.MeshBasicMaterial({ map: signTexture(), toneMapped: false }),
-        bx(15.5), 25, bz(10.5) + 2, 0, 0, 0, false);
-    sign.rotation.y = Math.PI;
+    // Dinding pemisah aula sengaja bersih tanpa papan nama/penunjuk lokasi.
     // Peron kedatangan sisi kamera: pelat + garis aman menghadap rel, lalu
     // bangku rendah saja (lihat catatan di B_APRON_Z0).
     const aprD = B_APRON_Z1 - B_APRON_Z0, aprC = (B_APRON_Z0 + B_APRON_Z1) / 2;
@@ -510,12 +493,11 @@ export function buildTrainJourneyScenery(baseX, baseZ = 0, enemyDz = JOURNEY_TRA
             litRow(p, x, h * 1.12, z + d * 0.3, w * 0.6);
             litRow(p, x, h * 0.62, z + d * 0.3, w * 0.6);
         } else if (t === 2) {
-            // DERET RUKO: tiga unit sempit, kanopi menerus, papan nama.
+            // DERET RUKO: tiga unit sempit dan kanopi menerus, tanpa papan nama.
             const uw = w / 3;
             for (let u = 0; u < 3; u++)
                 mesh(p, new THREE.BoxGeometry(uw - 1.2, h * (0.7 + 0.2 * ((u + k) % 2)), d),
                     u === 1 ? M.panel : mat, x - w / 2 + uw * (u + 0.5), h * (0.35 + 0.1 * ((u + k) % 2)), z, 0, 0, 0, false);
-            mesh(p, new THREE.BoxGeometry(w, 1, 4), M.ink, x, h * 0.42, z + d / 2 + 1.6, 0, 0, 0, false);
             litRow(p, x, h * 0.5, z + d / 2, w * 0.8);
         } else if (t === 3) {
             // GUDANG BERATAP PELANA + pintu rol.
@@ -673,7 +655,7 @@ export function buildTrainJourneyScenery(baseX, baseZ = 0, enemyDz = JOURNEY_TRA
     const MID_N = 18;
     for (let i = 0; i < MID_N; i++) {
         const g = new THREE.Group();
-        // --- KOTA: deret ruko/gudang, blok kantor, satu menara, papan reklame.
+        // --- KOTA: deret ruko/gudang, blok kantor, satu menara; tanpa reklame.
         let cityG = new THREE.Group();
         for (let k = 0; k < 3; k++) {
             const h = 22 + rnd(i, k) * 20;
@@ -685,11 +667,6 @@ export function buildTrainJourneyScenery(baseX, baseZ = 0, enemyDz = JOURNEY_TRA
         }
         buildingAt(cityG, (rnd(i, 10) - 0.5) * 50, -160 - rnd(i, 11) * 24, 44, 44,
             120 + rnd(i, 12) * 90, i, 9);
-        // Papan reklame + tiang listrik di tepi lahan: siluet khas pinggir rel.
-        mesh(cityG, new THREE.BoxGeometry(0.9, 16, 0.9), M.steel, -14, 8, -80, 0, 0, 0, false);
-        mesh(cityG, new THREE.BoxGeometry(0.9, 16, 0.9), M.steel, 14, 8, -80, 0, 0, 0, false);
-        mesh(cityG, new THREE.BoxGeometry(32, 11, 1), M.panel, 0, 21, -80, 0, 0, 0, false);
-        mesh(cityG, new THREE.BoxGeometry(28, 1.1, 1.2), M.amber, 0, 21, -79.2, 0, 0, 0, false);
         mesh(cityG, new THREE.BoxGeometry(NEAR_STEP, 7, 1.6), M.ballast, 0, 3.5, -76, 0, 0, 0, false);
         if (i % 2) palmAt(cityG, -40, -84, 24);
         cityG = mergeObjectInPlace(cityG);

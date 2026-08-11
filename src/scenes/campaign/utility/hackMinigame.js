@@ -29,7 +29,7 @@ import { requestLock } from '../../../core/input.js';
 import { blocker } from '../../../core/dom.js';
 import { clearMoveTarget } from '../../../entities/player.js';
 import { playSFX, sfxSwitch, sfxPurchase, sfxEmpty, sfxRobotSpawn } from '../../../utils/sfx.js';
-import { stage1Scene } from '../stages/stage1.js';   // hanya utk restartScene (circular aman: dipakai DI DALAM fungsi)
+import { stage1Scene } from '../stages/stage1/index.js';   // hanya utk restartScene (circular aman: dipakai DI DALAM fungsi)
 
 // Arah: 0=N (atas), 1=E (kanan), 2=S (bawah), 3=W (kiri); bit = 1<<d.
 // Memutar chip 90° searah jarum jam = geser bit ke kiri 1 (N->E->S->W->N).

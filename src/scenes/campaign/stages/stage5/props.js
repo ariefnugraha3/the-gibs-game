@@ -176,6 +176,13 @@ function buildPalletRack(M, add, reg, c, r, span = 4) {
         add(sx, 1.5, 2, p.x, y, p.z - 5, M.hazard);
         add(sx, 1.5, 2, p.x, y, p.z + 5, M.hazard);
         add(sx - 3, 1.2, sz, p.x, y, p.z, M.steel);
+        // Bibir rak + label bay membuat tiap tingkat terbaca terpisah dari atas.
+        add(sx - 5, 0.8, 0.7, p.x, y + 1.1, p.z - 6.1, M.white);
+    }
+    for (const z of [-5.8, 5.8]) {
+        const a = add(sx * 0.82, 0.85, 0.8, p.x, 11, p.z + z, M.steel);
+        const b = add(sx * 0.82, 0.85, 0.8, p.x, 11, p.z + z, M.steel);
+        a.rotation.z = 0.31; b.rotation.z = -0.31;
     }
     const bays = Math.max(3, span + 1);
     for (let i = 0; i < bays; i++) {
@@ -198,6 +205,15 @@ function buildCargoContainer(M, add, reg, c, r, span = 3) {
         add(2.4, 14.8, 2.2, p.x + x, 7.4, p.z + sz / 2, M.hazard);
     }
     add(sx - 5, 0.8, 2, p.x, 14.5, p.z, M.white);
+    // Daun servis, locking bar dan pelat identitas di kedua ujung kontainer.
+    for (const z of [-sz / 2 - 0.55, sz / 2 + 0.55]) {
+        add(sx - 5, 0.65, 0.7, p.x, 7, p.z + z, M.ink);
+        for (const x of [-sx * 0.22, sx * 0.22]) {
+            add(1, 10.5, 0.9, p.x + x, 7, p.z + z, M.steel);
+            add(3.2, 1.1, 1.1, p.x + x, 8.5, p.z + z, M.hazard);
+        }
+        add(7, 2.4, 0.85, p.x, 11.3, p.z + z, M.white);
+    }
     reg('depot', 'cargo-container', p, sx / 2, sz / 2, 15);
 }
 
@@ -213,6 +229,11 @@ function buildWorkshop(M, add, reg, c, r) {
     }
     add(8, 5, 9, p.x - 1, 10.5, p.z - 10, M.ink);
     add(6, 0.7, 7, p.x - 1, 13.3, p.z - 10, M.tech);
+    add(1, 16, sz - 4, p.x + 7.3, 14, p.z, M.steel);
+    for (const z of [-14, -7, 0, 7, 14]) {
+        add(1.4, 1.4, 1.4, p.x + 7.9, 12 + (Math.abs(z) % 3), p.z + z, M.white);
+        add(5, 0.8, 0.8, p.x + 4.8, 11, p.z + z, M.steel);
+    }
     reg('depot', 'maintenance-workbench', p, sx / 2, sz / 2, 23);
 }
 
@@ -260,7 +281,11 @@ function buildLockerBank(M, add, reg, c, r) {
         add(9, 18, 10, p.x, 9, p.z + i * 10, M.body);
         add(0.7, 13, 7.5, p.x - 4.85, 9, p.z + i * 10, M.panel);
         add(0.8, 1.2, 2.5, p.x - 5.3, 10, p.z + i * 10, i === 0 ? M.amber : M.steel);
+        for (const z of [-2.2, 0, 2.2])
+            add(0.85, 0.55, 1.4, p.x - 5.32, 14.2, p.z + i * 10 + z, M.ink);
     }
+    add(11, 1.2, 52, p.x, 18.6, p.z, M.steel);
+    add(11, 1.6, 52, p.x, 0.8, p.z, M.ink);
     reg('depot', 'tool-lockers', p, 5, 25, 18);
 }
 
@@ -296,6 +321,8 @@ function buildPlatformBench(M, add, reg, c, r) {
     for (const x of [-12, 0, 12]) add(2, 7, 6, p.x + x, 3.5, p.z, M.steel);
     add(12, 4, 5, p.x, 10.5, p.z + 3, M.ink);
     add(9, 0.6, 3.5, p.x, 12.7, p.z + 3, M.tech);
+    for (const x of [-12, 0, 12]) add(3.6, 0.8, 8.2, p.x + x, 7.9, p.z, M.steel);
+    add(28, 0.65, 0.8, p.x, 13.8, p.z - 4.1, M.white);
     reg('platform', 'dispatch-bench', p, 16, 5, 16);
 }
 
@@ -306,6 +333,9 @@ function buildSignalCabinet(M, add, reg, c, r) {
     for (const x of [-3, 0, 3]) add(1.2, 8, 0.9, p.x + x, 11, p.z + 6.3, M.ink);
     add(8, 3.5, 1, p.x, 16, p.z + 6.5, M.tech);
     add(11, 1, 1, p.x, 19, p.z + 5.9, M.hazard);
+    for (const y of [5.5, 8, 10.5, 13])
+        add(7.5, 0.55, 0.9, p.x, y, p.z + 6.45, M.ink);
+    add(1.1, 4.5, 1, p.x + 4, 10, p.z + 6.5, M.steel);
     reg('platform', 'signal-cabinet', p, 7, 6, 20);
 }
 
@@ -397,30 +427,34 @@ export function buildTrackBed(M, add, g) {
 }
 
 export function buildStationFurniture(M, add, addGeo, reg) {
-    buildPalletRack(M, add, reg, 10, 24, 4);
-    buildPalletRack(M, add, reg, 18, 27, 4);
-    buildPalletRack(M, add, reg, 11, 34, 4);
-    buildCargoContainer(M, add, reg, 20, 34, 3);
-    buildCargoContainer(M, add, reg, 23, 22, 3);
-    buildWorkshop(M, add, reg, 27, 31);
-    buildForklift(M, add, addGeo, reg, 20, 43);
-    buildDrumCluster(M, addGeo, reg, 27, 39);
-    buildFreightScale(M, add, reg, 14, 41);
-    buildLockerBank(M, add, reg, 27, 26);
-    buildPackingIsland(M, add, reg, 8, 29);
-    buildPackingIsland(M, add, reg, 15, 45);
-    buildPipeRack(M, add, addGeo, reg, 8, 36);
-    buildPipeRack(M, add, addGeo, reg, 25, 38);
-    buildDroneDock(M, add, addGeo, reg, 14, 31);
-    buildDroneDock(M, add, addGeo, reg, 20, 48);
+    let meshes = 0;
+    const detailAdd = (...args) => { meshes++; return add(...args); };
+    const detailGeo = (...args) => { meshes++; return addGeo(...args); };
+    buildPalletRack(M, detailAdd, reg, 10, 24, 4);
+    buildPalletRack(M, detailAdd, reg, 18, 27, 4);
+    buildPalletRack(M, detailAdd, reg, 11, 34, 4);
+    buildCargoContainer(M, detailAdd, reg, 20, 34, 3);
+    buildCargoContainer(M, detailAdd, reg, 23, 22, 3);
+    buildWorkshop(M, detailAdd, reg, 27, 31);
+    buildForklift(M, detailAdd, detailGeo, reg, 20, 43);
+    buildDrumCluster(M, detailGeo, reg, 27, 39);
+    buildFreightScale(M, detailAdd, reg, 14, 41);
+    buildLockerBank(M, detailAdd, reg, 27, 26);
+    buildPackingIsland(M, detailAdd, reg, 8, 29);
+    buildPackingIsland(M, detailAdd, reg, 15, 45);
+    buildPipeRack(M, detailAdd, detailGeo, reg, 8, 36);
+    buildPipeRack(M, detailAdd, detailGeo, reg, 25, 38);
+    buildDroneDock(M, detailAdd, detailGeo, reg, 14, 31);
+    buildDroneDock(M, detailAdd, detailGeo, reg, 20, 48);
 
     // Peron kini baris 10-16; jalur naik kereta (kolom 7) dibiarkan bersih.
-    buildPlatformCart(M, add, addGeo, reg, 11, 12);
-    buildPlatformCart(M, add, addGeo, reg, 18, 12);
-    buildPlatformPallets(M, add, reg, 23, 12);
-    buildPlatformBench(M, add, reg, 9, 15);
-    buildSignalCabinet(M, add, reg, 28, 11);
-    buildDrumCluster(M, addGeo, reg, 20, 15, 'platform');
+    buildPlatformCart(M, detailAdd, detailGeo, reg, 11, 12);
+    buildPlatformCart(M, detailAdd, detailGeo, reg, 18, 12);
+    buildPlatformPallets(M, detailAdd, reg, 23, 12);
+    buildPlatformBench(M, detailAdd, reg, 9, 15);
+    buildSignalCabinet(M, detailAdd, reg, 28, 11);
+    buildDrumCluster(M, detailGeo, reg, 20, 15, 'platform');
+    return { meshes };
 }
 
 export function buildStationDoor(M, root, kind, x, z, sx, sz) {
@@ -430,6 +464,8 @@ export function buildStationDoor(M, root, kind, x, z, sx, sz) {
     const lamps = buildDoorSideLights(root, x, z, sx, sz, CELL, WALL_H, lampMat);
     return {
         kind, panel: rig.panel, rig, leaves: rig.leaves, lamps, open: 0, target: 0,
+        cx: x, cz: z, ew: !rig.horizontal, hx: sx / 2, hz: sz / 2,
+        cell: CELL, linger: 0,
         canOpen: kind !== 'platform',
         blocker: { x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1,
             rad: Math.hypot(sx, sz) / 2, top: WALL_H, standable: false },

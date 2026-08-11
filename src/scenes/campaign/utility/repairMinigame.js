@@ -47,7 +47,7 @@ import { requestLock } from '../../../core/input.js';
 import { blocker } from '../../../core/dom.js';
 import { clearMoveTarget } from '../../../entities/player.js';
 import { playSFX, sfxSwitch, sfxPurchase, sfxEmpty, sfxPickup } from '../../../utils/sfx.js';
-import { stage1Scene } from '../stages/stage1.js';   // hanya utk restartScene (circular aman: dipakai DI DALAM fungsi)
+import { stage1Scene } from '../stages/stage1/index.js';   // hanya utk restartScene (circular aman: dipakai DI DALAM fungsi)
 
 const STEP_MS = 700;      // jeda banner "COMPONENT k/n INSTALLED" antar papan
 const FINISH_MS = 850;    // jeda banner GENERATOR ONLINE sebelum kembali ke game

@@ -12,7 +12,24 @@ import { navAim, turnToward } from '../../../utils/pathfind.js';
 // Catatan arsitektur: KEDUA dunia stage dibangun sekali di awal campaign dan
 // hidup berdampingan di satu THREE.Scene, dipisah jarak ~26 km (gedung stage 1
 // di x≈30000). camera.far 4000 + culling robot menyembunyikan stage yang
-// jauh. Orkestrasi build/penempatan ada di stage1.js (scene masuk campaign).
+// jauh. Orkestrasi build/penempatan ada di stage1/index.js (scene masuk campaign).
+
+// Radius tabrakan player terhadap PERABOT indoor (2026-08-11, permintaan user:
+// "celah di antara perabotan terlihat cukup dilewati, tapi player tidak bisa").
+// Ternyata bukan blocker-nya yang kegemukan — footprint perabot PERSIS mesh-nya
+// (`hx = sx/2`). Yang kegemukan `player.radius` 5: bagian terlebar avatar cuma
+// rompi radius 1,66 (+lengan ~2,5), jadi collider-nya 2x lebar tubuh yang
+// terlihat dan menuntut celah 10 unit (1,43 m) untuk lewat.
+//
+// `player.radius` TIDAK diturunkan sebab ia bukan cuma ukuran badan: ia juga
+// titik acuan jangkauan robot (`reachForScale` di robots.js dirancang supaya
+// scl 1 menghasilkan TEPAT 1.0 pada radius 5) dan dipakai survival + semua
+// stage lain. Jadi bentrokan-ke-PERABOT dipisah ke angka sendiri; dinding grid,
+// pintu, peti & barel tetap memakai `player.radius` penuh.
+export function propClearance() {
+    const r = CFG.player.propRadius;
+    return (typeof r === 'number' && r > 0) ? Math.min(r, player.radius) : player.radius;
+}
 
 // Robot campaign: DIAM di tempat (state 'idle') sampai player mendekat /
 // tertembak. HP/speed/attack per KELAS (CFG.robot.classes); tag z.stage utk
@@ -179,6 +196,7 @@ export function spawnAlarmHorde(stage, o) {
 //                      menggantikan gerbang jarak+LOS (Stage 7 = masuk kamera)
 //   nav              — OPSIONAL nav-grid pathfinder (utils/pathfind.js);
 //                      tanpa nav = selalu kejar lurus (perilaku lama)
+//   pathWalkable     — OPSIONAL hambatan dinamis A* (terutama pintu tertutup)
 // Return kontrak robots.js: {skip} utk idle jauh; {chaseDist} saat mengejar.
 export function campaignRobotAI(z, dt, step, stage) {
     // Culling jarak jauh (peta besar, banyak robot statis) — ini juga yang
@@ -187,18 +205,17 @@ export function campaignRobotAI(z, dt, step, stage) {
         z.mesh.position.z - camera.position.z);
     z.mesh.visible = dCull < CFG.campaign.cullDistance;
     if (z.state === 'idle') {
-        z.moving = false;
-        // Stage indoor (hook los ada): bangun HANYA bila MELIHAT player — bypass
-        // "sangat dekat menembus dinding tipis" DIHAPUS 2026-07-19 (permintaan
-        // user: robot di dalam ruangan tak boleh mengejar sebelum player
-        // terlihat / memasuki ruangannya; stage 1-3 membungkus los dgn cek
-        // pintu tertutup juga). Tertembak tetap membangunkan (robots.js);
-        // tanpa hook los (stage 4 outdoor) aktivasi murni jarak spt semula.
+        z.moving = false; z.navIdle = false;
+        // Robot melee indoor tetap bangun hanya bila melihat player. Penembak
+        // A/B yang punya nav-grid bangun dalam radius aktivasi walau LOS tertutup:
+        // mereka harus mencoba mencari sudut tembak; bila A* gagal, cabang
+        // navIdle di bawah membuatnya tetap diam sambil animasi idle.
         const activate = stage.activate
             ? stage.activate(z, dCull)
-            : dCull < CFG.campaign.activateMeters * CAMP_M && (!stage.los
-                || stage.los(z.mesh.position.x, z.mesh.position.z,
-                    camera.position.x, camera.position.z));
+            : dCull < CFG.campaign.activateMeters * CAMP_M
+                && (!stage.los || (z.ranged && stage.nav)
+                    || stage.los(z.mesh.position.x, z.mesh.position.z,
+                        camera.position.x, camera.position.z));
         if (activate) {
             z.state = 'chasing'; z.groundY = 0;
         }
@@ -219,7 +236,8 @@ export function campaignRobotAI(z, dt, step, stage) {
     // Pathfinder: direct = garis lurus bebas (kejar player langsung);
     // selain itu menuju waypoint agar memutari tembok/median. Gerak memakai
     // heading berlaju-putar-terbatas (turnToward) -> belokan melengkung alami.
-    const aim = navAim(z, stage.nav, camera.position.x, camera.position.z, dt, step);
+    const aim = navAim(z, stage.nav, camera.position.x, camera.position.z,
+        dt, step, stage.pathWalkable);
     // GARIS TEMBAK != GARIS JALAN (bugfix 2026-07-27, laporan user): dulu
     // penembak B/A memakai `aim.direct` — LOS NAV-GRID setebal badan robot, yang
     // ikut memblok FURNITUR (meja/lemari). Akibatnya robot ranged di balik meja
@@ -237,6 +255,19 @@ export function campaignRobotAI(z, dt, step, stage) {
     // robots.js); melee merapat sampai jangkauan cakar seperti biasa.
     const stopD = z.ranged && shotOK ? (z.range || 70) * 0.95
         : player.radius + CFG.robot.stopRange * (z.reachMul || 1);
+
+    // Tidak ada rute = jangan fallback mendorong dinding/pintu. Pengecualian
+    // hanya penembak yang SUDAH punya garis tembak bersih dan sudah berada di
+    // radius tembak: ia tidak membutuhkan path, cukup menembak dari tempat.
+    const canHoldShot = z.ranged && shotOK && distToEye <= stopD;
+    if (!aim.reachable && !canHoldShot) {
+        z.moving = false; z.aiming = false; z.navIdle = true;
+        z.losOK = shotOK; z.windT = 0; z.clawT = 0;
+        z.mesh.position.y = z.baseY;
+        return { pathBlocked: true };
+    }
+
+    z.navIdle = false;
     z.moving = !shotOK || distToEye > stopD;
     z.losOK = shotOK;
     // Stance MEMBIDIK (lengan senapan terangkat, animateRobotRig): berdiri di
@@ -289,39 +320,12 @@ export function countStageRobots(stage) {
     return n;
 }
 
-// ===== LAMPU PER-RUANGAN (2026-07-19, permintaan user): semua lampu ruangan
-// MATI saat stage dimulai dan MENYALA (fade ~0.5 dtk) saat SALAH SATU PINTU
-// ruangannya MULAI TERBUKA (`lm.doors`, revisi 2026-07-19 — "menyala ketika
-// pintu dibuka, bukan ketika player baru masuk": pintu geser terbuka saat
-// player berdiri di depannya, jadi ruangan sudah terang SEBELUM dimasuki);
-// masuk rect tanpa lewat pintu (aula/lobi/koridor bukaan terbuka + ruang
-// spawn) tetap menyalakan sbg CADANGAN. Sekali menyala tetap menyala. Jumlah
-// PointLight konstan (dibuat saat build; HANYA intensity yang dianimasikan).
-// SELUBUNG GELAP (`lm.shroud` — "harus hitam total, bukan sekadar lampu
-// mati"): kotak hitam pekat memenuhi ruangan yang belum terbuka (menutup
-// interior dari ambient global + menyembunyikan isinya), MEMUDAR HILANG
-// bersama lampu yang menyala.
-// lamps: [{L, base, x0, x1, z0, z1, on, k, shroud?, doors?}] milik stage. =====
-const DOOR_LIT = 0.3;   // pintu tergeser terbuka segini -> lampu ruangan menyala
-export function updateRoomLamps(lamps, dt) {
-    const px = camera.position.x, pz = camera.position.z;
-    for (const lm of lamps) {
-        if (!lm.on
-            && ((lm.doors && lm.doors.some(d => d.open > DOOR_LIT))
-                || (px >= lm.x0 && px <= lm.x1 && pz >= lm.z0 && pz <= lm.z1))) lm.on = true;
-        if (lm.on && lm.k < 1) {
-            lm.k = Math.min(1, lm.k + dt * 2.2);
-            lm.L.intensity = lm.base * lm.k;
-            if (lm.shroud) {
-                lm.shroud.material.opacity = 1 - lm.k;
-                lm.shroud.visible = lm.k < 1;
-            }
-        }
-    }
-}
-export function resetRoomLamps(lamps) {
-    for (const lm of lamps) {
-        lm.on = false; lm.k = 0; lm.L.intensity = 0;
-        if (lm.shroud) { lm.shroud.material.opacity = 1; lm.shroud.visible = true; }
-    }
-}
+// ===== LAMPU PER-RUANGAN (stage 1-3): MEKANISME "MATI LAMPU" DIHAPUS
+// 2026-08-11 (permintaan user). Dulu tiap lampu ruangan lahir dgn intensity 0
+// + selubung hitam pekat, lalu menyala saat pintunya terbuka/rect dimasuki
+// (updateRoomLamps/resetRoomLamps + lm.doors + lm.shroud), dan lampu aula
+// stage 1 berkedip lewat decor.js. Sekarang SEMUA lampu ruangan menyala penuh
+// sejak dunia dibangun: tak ada selubung, tak ada state on/k, tak ada kedip —
+// jadi tak ada lagi fungsi update/reset di sini.
+// `sNLamps` tetap ada sbg DATA ruangan: [{L, base, x0, x1, z0, z1}] — rect-nya
+// masih dipakai (mis. cek "tiap ruangan punya peti" di smoke). =====

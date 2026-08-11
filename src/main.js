@@ -31,7 +31,7 @@ import { survivalScene } from './scenes/survival/index.js';
 import {
     survivalIntroScene, beginSurvivalIntro, warmupSurvivalIntro
 } from './scenes/survival/cutscenes/monasIntro.js';
-import { stage1Scene } from './scenes/campaign/stages/stage1.js';
+import { stage1Scene } from './scenes/campaign/stages/stage1/index.js';
 import { introScene, beginIntro, warmupIntro } from './scenes/campaign/cutscenes/intro.js';
 import { prologueScene, beginPrologue } from './scenes/campaign/cutscenes/prologue.js';
 import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';

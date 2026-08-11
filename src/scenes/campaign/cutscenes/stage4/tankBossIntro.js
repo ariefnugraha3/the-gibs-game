@@ -1,4 +1,4 @@
-// CUTSCENE: TANK-BOSS INTRO ("penjemputan gagal") — dipisah dari stage4.js pada
+// CUTSCENE: TANK-BOSS INTRO ("penjemputan gagal") — dipisah dari stage4/index.js pada
 // 2026-07-19 (permintaan user: pisahkan cutscene dari stage & utility), lalu
 // DIROMBAK TOTAL 2026-07-27 (permintaan user: "buat agar jauh lebih dramatis,
 // jauh lebih cinematic ... seperti film box office"). Ini adegan scripted saat

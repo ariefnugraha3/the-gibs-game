@@ -9,7 +9,7 @@ import { requestLock } from '../../../core/input.js';
 import { blocker } from '../../../core/dom.js';
 import { clearMoveTarget } from '../../../entities/player.js';
 import { playSFX, sfxSwitch, sfxPurchase, sfxEmpty, sfxRobotSpawn } from '../../../utils/sfx.js';
-import { stage1Scene } from '../stages/stage1.js';
+import { stage1Scene } from '../stages/stage1/index.js';
 
 const FINISH_MS = 850;
 const ALARM_MS = 1150;

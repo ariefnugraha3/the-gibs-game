@@ -3,8 +3,8 @@
 // Sama seperti Stage 5: chapter adalah SUB-SCENE yang memakai kontrak hook scene
 // biasa tetapi TIDAK pernah melewati `core/sceneManager` — `activeScene` tetap
 // `stage6Scene`, sehingga checkpoint, stageStats, restart dan modal apa pun tak
-// berubah perilaku. Perpindahan chapter = potong ke hitam lalu fade-in
-// `CFG.campaign.stage6.chapterFadeSec`.
+// berubah perilaku. Arrival -> HQ berpindah langsung tanpa dialog/cutscene;
+// helper fade tetap tersedia untuk entry/reset lain yang memerlukannya.
 
 import { CFG } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
@@ -42,31 +42,17 @@ export function cleanupCine(revealSec = 0) {
 
 // --- Manajer CHAPTER (sub-scene) -------------------------------------------
 export let sub = null;
-let subFadePending = false;
-
-export const chapterFadeSec = () => {
-    const v = CFG.campaign.stage6?.chapterFadeSec;
-    return typeof v === 'number' ? v : 0.5;
-};
 
 export function enterSub(next, opts = {}) {
     if (sub && sub.exit) sub.exit();
     sub = next;
-    // Tirai baru dijalankan pada frame berikutnya: transisi CSS harus melihat
-    // nilai 1 lebih dulu, persis seperti pergantian sub-scene Stage 5.
-    if (opts.fade === false) subFadePending = false;
-    else { setCineFade(1, 0); subFadePending = true; }
     if (next && next.enter) next.enter(opts);
 }
 
-export function updateSubFade() {
-    if (!subFadePending) return;
-    subFadePending = false;
-    setCineFade(0, chapterFadeSec());
-}
+export function updateSubFade() {}
 
-export function resetSub() { sub = null; subFadePending = false; }
-export const subFadeDebug = () => ({ pending: subFadePending, sec: chapterFadeSec() });
+export function resetSub() { sub = null; }
+export const subFadeDebug = () => ({ pending: false, sec: 0 });
 
 // --- Mesin dialog (SATU antrean untuk seluruh stage; tak pernah di-reset
 // antar chapter supaya urutan naskah tetap utuh) ---------------------------
@@ -116,6 +102,14 @@ export function updateDialogue(dt) {
 export function resetDialogue() {
     dialogueCurrent = null; dialogueQueue = []; dialogueSeen = new Set();
     dialogueT = 0; dialogueChars = 0; hideStageRadioDialogue();
+}
+
+// Putuskan dialog aktif/antrean tanpa menghapus `seen`. Dipakai saat pindah
+// Arrival -> HQ agar kalimat chapter lama tidak ikut terbawa ke kantor.
+export function clearDialogueQueue() {
+    dialogueCurrent = null; dialogueQueue = [];
+    dialogueT = 0; dialogueChars = 0;
+    hideStageRadioDialogue(); setAvatarRadioPose(false);
 }
 
 export const dialogueIdle = () => !dialogueCurrent && !dialogueQueue.length;

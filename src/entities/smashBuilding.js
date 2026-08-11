@@ -4,7 +4,7 @@
 // berjalan melewatinya").
 //
 // Dipakai SATU kali: sebuah RUKO dua lantai yang berdiri TEPAT di lintasan masuk
-// tank pada cutscene tank-boss Stage 4 (posisi `S4_SMASH` di stage4.js; lintasan
+// tank pada cutscene tank-boss Stage 4 (posisi `S4_SMASH` di stage4/index.js; lintasan
 // tank di tankBossIntro.js DITURUNKAN dari titik itu supaya tabrakannya selalu
 // tepat di tengah, bukan hasil kebetulan). Sebelum ini tank melewati begitu saja
 // gedung latar instanced yang kebetulan berdiri di jalurnya.

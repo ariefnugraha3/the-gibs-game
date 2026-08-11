@@ -17,14 +17,14 @@ import { disposeRobot, resetRobotsFx } from '../../../entities/robots.js';
 import { blocker } from '../../../core/dom.js';
 import { hidePauseMenu } from '../../../core/pauseMenu.js';
 import { stopMusic } from '../../../utils/sfx.js';
-import { stage1Scene } from '../stages/stage1.js';   // restartScene (circular aman: dibaca DI DALAM fungsi)
-import { stage2Scene } from '../stages/stage2.js';   // (circular aman: DI DALAM fungsi)
-import { stage3Scene } from '../stages/stage3.js';
-import { stage4Scene } from '../stages/stage4.js';
+import { stage1Scene } from '../stages/stage1/index.js';   // restartScene (circular aman: dibaca DI DALAM fungsi)
+import { stage2Scene } from '../stages/stage2/index.js';   // (circular aman: DI DALAM fungsi)
+import { stage3Scene } from '../stages/stage3/index.js';
+import { stage4Scene } from '../stages/stage4/index.js';
 import { stage5Scene } from '../stages/stage5/index.js';
 import { stage6Scene } from '../stages/stage6/index.js';
-import { stage7Scene } from '../stages/stage7.js';
-import { stage8Scene } from '../stages/stage8.js';
+import { stage7Scene } from '../stages/stage7/index.js';
+import { stage8Scene } from '../stages/stage8/index.js';
 
 const MIN_LOADING_MS = 900;   // durasi minimum tiap layar loading (konsistensi & terlihat)
 let pendingNext = null;       // stage tujuan setelah shop

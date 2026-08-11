@@ -31,54 +31,57 @@
 //                    (2026-07-21, permintaan user): tinggal capai LIFT → stage
 //                    selesai (transisi ke stage 3). Boleh lari melewati robot.
 
-import { CFG, CAMP_M } from '../../../core/config.js';
-import { dialogueMap } from '../../../core/dialogue.js';
-import { player, robots, _v3, keys, setCinematicActive } from '../../../core/state.js';
-import { scene, camera } from '../../../core/renderer.js';
-import { makeTexture, speckle } from '../../../utils/textures.js';
-import { rand } from '../../../utils/math.js';
-import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../utils/collision.js';
-import { makeNavGrid } from '../../../utils/pathfind.js';
-import { addMergedStatic } from '../../../utils/meshBatch.js';
-import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
-import { PAL } from '../../../world/palette.js';
+import { CFG, CAMP_M } from '../../../../core/config.js';
+import { dialogueMap } from '../../../../core/dialogue.js';
+import { player, robots, _v3, keys, setCinematicActive } from '../../../../core/state.js';
+import { scene, camera } from '../../../../core/renderer.js';
+import { makeTexture, speckle } from '../../../../utils/textures.js';
+import { rand } from '../../../../utils/math.js';
+import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
+import { makeNavGrid } from '../../../../utils/pathfind.js';
+import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
+import { PAL } from '../../../../world/palette.js';
 // showDownloadBar/setDownloadProgress TAK dipakai lagi sejak bar "RESTORING
 // GENERATOR" diganti minigame (2026-07-29); hideDownloadBar tetap dipanggil di
 // enter() sebagai pembersih.
 import {
     showStageMsg, hideStageMsg, showPickup, hideDownloadBar,
     showStageRadioDialogue, hideStageRadioDialogue,
-} from '../../../core/dom.js';
-import { beginRepairMinigame, REPAIR_PARTS } from '../utility/repairMinigame.js';
-import { saveCampaignStage } from '../../../core/saveGame.js';
-import { updateUI } from '../../../core/hud.js';
-import { NADE_R } from '../../../entities/grenades.js';
-import { disposeRobot } from '../../../entities/robots.js';
-import { clearMoveTarget } from '../../../entities/player.js';
-import { spawnAmmoDrop, spawnMedkitDrop } from '../../../entities/drops.js';
-import { buildFuturisticDeskMesh } from '../../../entities/futuristicDesk.js';
-import { buildFuturisticChairMesh } from '../../../entities/futuristicChair.js';
-import { buildFuturisticCupboardMesh } from '../../../entities/futuristicCupboard.js';
-import { buildFuturisticCrateMesh } from '../../../entities/futuristicCrate.js';
-import { buildFuturisticSofaMesh } from '../../../entities/futuristicSofa.js';
-import { buildFuturisticRubbleMesh } from '../../../entities/futuristicRubble.js';
-import { buildFuturisticConsoleMesh } from '../../../entities/futuristicConsole.js';
-import { buildFuturisticBenchMesh } from '../../../entities/futuristicBench.js';
-import { buildFuturisticMeetingTableMesh } from '../../../entities/futuristicMeetingTable.js';
-import { buildFuturisticStallMesh } from '../../../entities/futuristicStall.js';
-import { buildFuturisticSinkMesh } from '../../../entities/futuristicSink.js';
-import { buildFuturisticPlanterMesh } from '../../../entities/futuristicPlanter.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, updateRoomLamps, resetRoomLamps, campaignAwardKill } from '../utility/common.js';
-import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../entities/barrels.js';
-import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../entities/crates.js';
-import { buildInteriorWallMat, buildInteriorFloorMat } from '../utility/interior.js';
-import { buildStageDoors, updateStageDoors, resolveDoors, doorBlocksShot, doorClampShot } from '../utility/doors.js';
-import { buildStairwellUp, stairwellUpFootprint } from '../utility/stairwell.js';
-import { buildLiftBank } from '../utility/lift.js';
-import { buildCampaignCityscape, enterCityEnv } from '../utility/cityscape.js';
-import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
-import { stage1Scene } from './stage1.js';
-import { stage3Scene } from './stage3.js';
+} from '../../../../core/dom.js';
+import { beginRepairMinigame, REPAIR_PARTS } from '../../utility/repairMinigame.js';
+import { saveCampaignStage } from '../../../../core/saveGame.js';
+import { updateUI } from '../../../../core/hud.js';
+import { NADE_R } from '../../../../entities/grenades.js';
+import { disposeRobot } from '../../../../entities/robots.js';
+import { clearMoveTarget } from '../../../../entities/player.js';
+import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
+import { buildFuturisticDeskMesh } from '../../../../entities/futuristicDesk.js';
+import { buildFuturisticChairMesh } from '../../../../entities/futuristicChair.js';
+import { buildFuturisticCupboardMesh } from '../../../../entities/futuristicCupboard.js';
+import { buildFuturisticCrateMesh } from '../../../../entities/futuristicCrate.js';
+import { buildFuturisticSofaMesh } from '../../../../entities/futuristicSofa.js';
+import { buildFuturisticRubbleMesh } from '../../../../entities/futuristicRubble.js';
+import { buildFuturisticConsoleMesh } from '../../../../entities/futuristicConsole.js';
+import { buildFuturisticBenchMesh } from '../../../../entities/futuristicBench.js';
+import { buildFuturisticMeetingTableMesh } from '../../../../entities/futuristicMeetingTable.js';
+import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.js';
+import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
+import { buildFuturisticPlanterMesh } from '../../../../entities/futuristicPlanter.js';
+import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill, propClearance } from '../../utility/common.js';
+import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../../entities/barrels.js';
+import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../../entities/crates.js';
+import { buildInteriorWallMat, buildInteriorFloorMat } from '../../utility/interior.js';
+import {
+    buildStageDoors, updateStageDoors, resolveDoors, doorsWalkable,
+    doorBlocksShot, doorClampShot,
+} from '../../utility/doors.js';
+import { buildStairwellUp, stairwellUpFootprint } from '../../utility/stairwell.js';
+import { buildLiftBank } from '../../utility/lift.js';
+import { buildCampaignCityscape, enterCityEnv } from '../../utility/cityscape.js';
+import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
+import { stage1Scene } from '../stage1/index.js';
+import { stage3Scene } from '../stage3/index.js';
 
 // Grid 50x50 (sel 2 m). Gedung ~60 km dari origin — hidup berdampingan dgn stage
 // lain, dipisah jarak (camera.far + culling).
@@ -107,7 +110,7 @@ const S2_SHELF_R0 = 33, S2_SHELF_R1 = 44;        // baris rak gudang
 // kotak pulih) dan ruang besar di bawahnya (r7-28) — dengan satu MULUT PINTU
 // c43-44 tepat di depan generator (pintu geser di S2_DOORS). Semua yang
 // mengikuti denah ikut disesuaikan: pintu, perabot yang tadinya di baris 6,
-// titik spawn robot gelombang-1, lampu+selubung per-ruangan, dan peti.
+// titik spawn robot gelombang-1, lampu per-ruangan, dan peti.
 const S2_MAP = [
     '##################################################',   // 0
     '#.......#........#.....................#.........#',   // 1
@@ -284,10 +287,10 @@ export const s2StaticBatchDbg = () => s2StaticBatch; // smoke test (jumlah draw 
 
 let s2doors = null;
 
-// Lampu PER-RUANGAN + papan status.
+// Lampu PER-RUANGAN — SELALU MENYALA (mekanisme "mati lampu" dihapus 2026-08-11).
+// Rect ruangannya masih dipakai smoke test (sebaran peti per ruangan).
 let s2Lamps = [];
 export const s2LampsDbg = () => s2Lamps;
-let s2HallLamp = null;
 let s2HintT = 0, s2LiftT = 0;
 
 // ===== STATE MACHINE ALUR STAGE 2 =====
@@ -710,39 +713,31 @@ export function buildWorld() {
     lift.position.set(liftWallX2, 0, liftZ2);
     scene.add(lift);
 
-    // --- Pencahayaan PER-RUANGAN (mati → nyala saat pintu dibuka / rect dimasuki) ---
+    // --- Pencahayaan PER-RUANGAN: SELALU MENYALA (mekanisme "mati lampu" +
+    // selubung hitam dihapus 2026-08-11, permintaan user) ---
     s2Lamps = [];
     const addLamp = (c, r, color, inten, dist, c0, r0, c1, r1) => {
         const p = s2Cell(c, r);
-        const L = new THREE.PointLight(color, 0, dist, 2);
+        const L = new THREE.PointLight(color, inten, dist, 2);
         L.position.set(p.x, S2.H - 3, p.z);
         scene.add(L);
         registerStageLight('campaign-2', L);
         const lm = {
-            L, base: inten, on: false, k: 0,
+            L, base: inten,
             x0: S2.x0 + c0 * S2.CELL, x1: S2.x0 + (c1 + 1) * S2.CELL,
             z0: S2.z0 + r0 * S2.CELL, z1: S2.z0 + (r1 + 1) * S2.CELL
         };
-        if (!s2Lamps.some(o => o.shroud && o.x0 === lm.x0 && o.z0 === lm.z0 && o.x1 === lm.x1 && o.z1 === lm.z1)) {
-            const sh = new THREE.Mesh(
-                new THREE.BoxGeometry(lm.x1 - lm.x0 - 1, S2.H - 0.6, lm.z1 - lm.z0 - 1),
-                new THREE.MeshBasicMaterial({ color: 0x030303, transparent: true, opacity: 1 }));
-            sh.position.set((lm.x0 + lm.x1) / 2, (S2.H - 0.6) / 2 + 0.2, (lm.z0 + lm.z1) / 2);
-            scene.add(sh);
-            lm.shroud = sh;
-        }
         s2Lamps.push(lm);
         return lm;
     };
-    addLamp(4, 4, 0xffd9a0, 0.9, 260, 1, 1, 7, 8);           // 0 T-area (start, pra-nyala)
+    addLamp(4, 4, 0xffd9a0, 0.9, 260, 1, 1, 7, 8);           // 0 T-area (start)
     addLamp(4, 14, 0xffc890, 0.85, 320, 1, 10, 7, 19);       // 1 left corridor
-    s2HallLamp = addLamp(19, 12, 0xffe2b8, 0.9, 500, 8, 7, 30, 20);   // 2 center hall (FLICKER, + nook lift)
+    addLamp(19, 12, 0xffe2b8, 0.9, 500, 8, 7, 30, 20);       // 2 center hall (+ nook lift)
     addLamp(22, 3, 0xffd9a0, 0.85, 300, 18, 1, 26, 5);       // 3 upper-center
     addLamp(33, 3, 0xbfe4ff, 0.9, 320, 28, 1, 38, 5);        // 4 W supply (dingin)
     addLamp(35, 12, 0xffe2b8, 0.85, 340, 31, 7, 38, 17);     // 5 R toilet
     // Ruang kanan-atas kini DUA ruangan (revisi denah user 2026-07-29): masing-
-    // masing dapat lampu + SELUBUNG sendiri seperti ruangan lain, jadi ruang
-    // generator tetap gelap sampai player benar-benar masuk lewat pintunya.
+    // masing dapat lampunya sendiri seperti ruangan lain.
     addLamp(44, 3, 0xbfe4ff, 0.9, 320, 40, 1, 48, 5);        // 6 ruang GENERATOR (r1-5, dingin)
     addLamp(44, 14, 0xbfe4ff, 0.9, 560, 40, 7, 48, 28);      // 7 ruang besar bawah generator (dingin)
     addLamp(6, 24, 0xffc890, 0.85, 320, 1, 21, 12, 28);      // 8 lower-left (room2)
@@ -750,9 +745,6 @@ export function buildWorld() {
     addLamp(32, 24, 0xbfe4ff, 0.85, 360, 27, 21, 38, 28);    // 10 lower-center-right
     addLamp(14, 39, 0xffc07a, 0.9, 640, 1, 30, 24, 48);      // 11 warehouse W (gudang)
     addLamp(37, 39, 0xffc07a, 0.9, 640, 25, 30, 48, 48);     // 12 warehouse E
-    for (const lm of s2Lamps) lm.doors = s2doors.filter(d =>
-        d.cx >= lm.x0 - 1.5 * S2.CELL && d.cx <= lm.x1 + 1.5 * S2.CELL &&
-        d.cz >= lm.z0 - 1.5 * S2.CELL && d.cz <= lm.z1 + 1.5 * S2.CELL);
 
     // GABUNG perabot statis jadi belasan mesh (blockers/nav tak tersentuh).
     s2StaticBatch = addMergedStatic(scene, staticProps);
@@ -934,14 +926,6 @@ export const stage2Scene = {
         if (s2Marker) s2Marker.visible = false;
         for (const c of s2Components) if (c.marker) scene.remove(c.marker);
         s2Components = []; s2CompGot = 0;
-        // Lampu ruangan MATI; start room pra-nyala; kedip hall reset
-        resetRoomLamps(s2Lamps);
-        if (s2HallLamp) s2HallLamp.flicker = false;
-        if (s2Lamps[0]) {
-            const st = s2Lamps[0];
-            st.on = true; st.k = 1; st.L.intensity = st.base;
-            if (st.shroud) { st.shroud.visible = false; st.shroud.material.opacity = 0; }
-        }
         s2HintT = Date.now(); s2LiftT = 0;
         const sp = s2Cell(S2_START.c, S2_START.r);
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
@@ -966,7 +950,6 @@ export const stage2Scene = {
 
     updateMode(dt) {
         updateStageDoors(s2doors, dt);
-        updateRoomLamps(s2Lamps, dt);
         updateS2Dialogue(dt);
         const s2 = CFG.campaign.stage2;
         const px = camera.position.x, pz = camera.position.z;
@@ -1048,16 +1031,12 @@ export const stage2Scene = {
             if (!s2DialogueSeen.has('liftDead')) queueS2Dialogue('liftDead');
             else showStageMsg('The elevator has no power — restore the generator first.', 2600);
         }
-
-        // Kedip lampu hall SETELAH menyala
-        if (s2HallLamp && s2HallLamp.on && s2HallLamp.k >= 1 && !s2HallLamp.flicker)
-            s2HallLamp.flicker = true;
     },
 
     // Dinding + furnitur + trigger LIFT (fase 'done' → transisi stage 3).
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage2Walk, pos, oldX, oldZ, player.radius);
-        resolve(pos, player.radius, feetY);
+        resolve(pos, propClearance(), feetY);      // perabot: radius lebih ramping (lihat propClearance)
         resolveBarrelBlock(pos, player.radius);   // barel peledak pejal ke player
         resolveCrateBlock(pos, player.radius);    // peti persediaan pejal ke player
         slideWalk(stage2Walk, pos, oldX, oldZ, player.radius);
@@ -1097,6 +1076,7 @@ export const stage2Scene = {
             walkable: stage2Walk, resolve, nav: s2Nav,
             los: (x1, z1, x2, z2) => s2LOS(x1, z1, x2, z2)
                 && !doorBlocksShot(s2doors, x1, z1, x2, z2, 8),
+            pathWalkable: (x, z, r) => doorsWalkable(s2doors, x, z, r),
             doorBlock: (pos, r) => resolveDoors(s2doors, pos, r)
         });
     },

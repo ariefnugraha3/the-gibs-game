@@ -17,17 +17,40 @@ import { spawnCorpse, bisectCorpse, gibRobot, spawnGibs, spawnBloodDecal } from 
 import { spawnDrop } from './drops.js';
 import { startPlayerDeath, isPlayerDying } from '../core/game.js';
 import { addHitStop } from '../core/timeScale.js';   // HIT-STOP saat cakar mendarat
+import { PAL } from '../world/palette.js';           // token warna "GIBS 2045" (rangka mesin)
 
 // Ceritanya: tentara mesin pemberontak yang menyerbu Jakarta. Dibangun
 // prosedural dari primitif murah (silinder + elipsoid + kotak, tanpa file
 // model). Tampilan per KELAS (2026-07-12): pelat armor berwarna kelas —
-// C hijau (melee), B kuning (penembak), A merah (penembak berat), boss gelap —
+// C perunggu (melee), B perak (penembak), A emas (penembak berat), boss gelap —
 // plus visor & inti daya EMISIF senada supaya kelas terbaca sekilas dari atas.
-const CLASS_LOOK = {
-    C: { armor: 0x2f9e44, glow: 0x36ff7d },      // hijau (grunt melee)
-    B: { armor: 0xd9a41c, glow: 0xffc832 },      // kuning (penembak)
-    A: { armor: 0xbf2b1f, glow: 0xff5040 },      // merah (penembak berat)
-    boss: { armor: 0x3a2f42, glow: 0xff2e4c },   // ungu-gelap + visor merah (raksasa melee)
+// DIGELAPKAN 2026-08-11 (permintaan user: warna lama "terlalu cerah, seperti
+// badut") — pelat armor = area TERBESAR yang terlihat dari kamera top-down
+// (pelat dada, tutup kepala, dua paha, dua bantalan bahu), jadi di sinilah
+// kesan "badut" itu lahir dan di sinilah potongannya.
+//
+// LOGAM BERTINGKAT 2026-08-11 (permintaan user, menggantikan hijau/kuning/merah):
+// C perunggu -> B perak -> A emas. Ini kebetulan lebih baik daripada warna lama:
+// urutannya SENDIRI sudah menyatakan ancaman (medali perunggu<perak<emas), jadi
+// kelas terbaca tanpa perlu menghafal "merah = paling bahaya".
+//
+// Tiga hal yang jangan "dirapikan":
+// 1. PERAK ITU TAK BER-HUE — identitasnya LEBIH TERANG, bukan warna. Karena itu
+//    B (L 0,33) sengaja lebih terang dari perunggu (0,24) & emas (0,30), dan
+//    itulah satu-satunya yang memisahkannya dari rangka PAL.gunmetal (L 0,25).
+//    Menggelapkan B "biar senada" = kelas B kehilangan pelatnya sama sekali.
+// 2. PERUNGGU vs EMAS sama-sama hangat, jadi jaraknya DILEBARKAN dengan sengaja
+//    (hue 24 vs 47 + terang 0,24 vs 0,30). Menyeret keduanya saling mendekat
+//    membuat C & A tertukar dari kejauhan.
+// 3. INTI DAYA (glow) = versi VIVID logam yang sama, bukan warna lain: ia yang
+//    memikul identitas kelas dari jauh begitu pelatnya gelap. Core B sengaja
+//    putih-dingin nyaris tanpa saturasi — itu "perak" versi menyala.
+// Semua tetap di bawah pagu gelap (L <= 0,35) dan dijaga assert ROBOT WARNA.
+export const CLASS_LOOK = {
+    C: { armor: 0x5d371d, glow: 0xca6421 },      // PERUNGGU gelap (grunt melee)
+    B: { armor: 0x4d545b, glow: 0xa6bbc9 },      // PERAK gelap (penembak)
+    A: { armor: 0x796620, glow: 0xe3b81c },      // EMAS gelap (penembak berat)
+    boss: { armor: 0x3a2f42, glow: 0xcc253d },   // ungu-gelap + visor merah (raksasa melee)
 };
 // MATA/VISOR robot = MERAH untuk SEMUA kelas (permintaan user 2026-07-14) —
 // tampak menyeramkan & seragam; identitas kelas tetap terbaca dari PELAT ARMOR
@@ -123,8 +146,14 @@ export function buildRobotMesh(cls = 'C') {
         color: new THREE.Color(hex).offsetHSL(0, 0, rand(-0.045, 0.035))   // aus/kusam, tiap unit beda
     });
     const armor = mat(L.armor);           // pelat warna kelas (C hijau / B kuning / A merah)
-    const metal = mat(0x7c848c);          // rangka logam terang
-    const joint = mat(0x23262b);          // sendi/aktuator gelap
+    // RANGKA DIGELAPKAN 2026-08-11 (permintaan user, sepaket dgn CLASS_LOOK):
+    // dulu PAL.steel 0x7c848c — abu-abu terang yang menutupi torso, kepala,
+    // kedua lengan & kedua betis, jadi ia penyumbang KECERAHAN kedua terbesar
+    // setelah pelat armor. PAL.gunmetal adalah token "logam utama prop/mesin",
+    // jadi robot kini sewarna mesin lain di dunia ini. Kontras ke sendi
+    // (PAL.ink) sengaja disisakan supaya siluetnya tetap terbaca dari atas.
+    const metal = mat(PAL.gunmetal);      // rangka logam mesin
+    const joint = mat(PAL.ink);           // sendi/aktuator gelap
     const dark = mat(0x14171b);           // laras/telapak/ransel
     // Inti daya menyala warna kelas (Lambert emissive = program sama, tanpa recompile)
     const glow = new THREE.MeshLambertMaterial({ color: 0x0c0e10, emissive: new THREE.Color(L.glow) });
@@ -268,9 +297,10 @@ export function animateRobotRig(z, dt) {
         r.inner.position.y = 0;
         return;
     }
-    // DORMAN (campaign belum terbangun): idle SENTINEL per kelas — mesin siaga
-    // yang memindai, bukan manekin diam. animateRobotIdle mengelola pose penuh.
-    if (z.state === 'idle') { animateRobotIdle(z, r, dt); return; }
+    // DORMAN atau tak punya path: idle SENTINEL per kelas — mesin siaga yang
+    // memindai, bukan manekin diam. navIdle tetap ber-state chasing agar
+    // pencarian rute terus dicoba dan langsung pulih ketika jalan terbuka.
+    if (z.state === 'idle' || z.navIdle) { animateRobotIdle(z, r, dt); return; }
     // Baru aktif dari idle: luruhkan sisa pose siaga (pindaian kepala + sandaran
     // badan) yang tak ditulis oleh cabang jalan/serang, agar tak "macet" miring.
     const dClr = Math.min(1, dt * 6);
@@ -926,12 +956,24 @@ export function fireRobotBullet(z, tx, ty, tz, monasDmg = 0) {
     const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
     m.scale.setScalar(1.05);   // bola plasma biru kecil (dikecilkan dari 1.7)
     m.position.copy(_ebPos);
-    scene.add(m);
-    enemyBullets.push({
+    const b = {
         mesh: m, dir: _ebDir.set(dx / d, 0, dz / d).clone(),
         speed: z.bulletSpeed, life: CFG.robot.rangedBulletLife, dmg: z.attack, monasDmg,
         px: _ebPos.x, py: _ebPos.y, pz: _ebPos.z
+    };
+    scene.add(m);
+    // PELURU TIDAK BOLEH LAHIR DI BALIK PINTU TERTUTUP (2026-08-11):
+    // bila robot menempel kusen, ujung laras dapat sudah melewati bidang daun
+    // pada frame spawn. Pemeriksaan per-frame baru dimulai setelah peluru
+    // bergerak, sehingga segmen pertama bisa luput. Uji titik laras dan ruas
+    // badan->laras sekarang juga memakai hook scene yang sama; ini mencakup
+    // pintu stasiun Stage 5 serta kedua set pintu Stage 6.
+    const muzzleBlocked = activeScene.bulletBlocked(b);
+    const bodyToMuzzleBlocked = z.mesh?.position && activeScene.bulletBlocked({
+        ...b, px: z.mesh.position.x, pz: z.mesh.position.z,
     });
+    if (muzzleBlocked || bodyToMuzzleBlocked) scene.remove(m);
+    else enemyBullets.push(b);
     // SUARA TEMBAKAN robot A/B (2026-07-19) — digerbang jarak ke player supaya
     // penembak Monas yang jauh (survival) tidak menyemburkan spam suara.
     const pd = Math.hypot(_ebPos.x - camera.position.x, _ebPos.z - camera.position.z);

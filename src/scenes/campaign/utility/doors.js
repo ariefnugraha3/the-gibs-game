@@ -72,6 +72,58 @@ export function setDoorSideLightState(lights, canOpen) {
     for (const lamp of lights || []) lamp.material.color.setHex(color);
 }
 
+// ===== STANDAR GERAK + ZONA PINTU =========================================
+// Stage 1 adalah patokan semua pintu geser aktif campaign. Stage lain boleh
+// memiliki aturan cerita sendiri untuk target buka, tetapi integrator, easing,
+// zona player, dan jeda tutupnya harus lewat helper yang sama.
+export function doorEasedOpen(open) {
+    const t = Math.max(0, Math.min(1, open));
+    return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+}
+
+function doorGeometry(dr) {
+    const blocker = dr.blocker || {};
+    const horizontal = dr.rig?.horizontal ?? !dr.ew;
+    return {
+        cx: dr.cx ?? blocker.x,
+        cz: dr.cz ?? blocker.z,
+        ew: dr.ew ?? !horizontal,
+        hx: dr.hx ?? blocker.hx,
+        hz: dr.hz ?? blocker.hz,
+        span: dr.rig?.span ?? 0,
+    };
+}
+
+export function doorNearPlayer(dr, px, pz, CELL) {
+    const g = doorGeometry(dr);
+    const perp = g.ew ? Math.abs(px - g.cx) : Math.abs(pz - g.cz);
+    const para = g.ew ? Math.abs(pz - g.cz) : Math.abs(px - g.cx);
+    const perpMax = dr.perpMax ?? (FRONT_CELLS + 0.5) * CELL;
+    const paraMax = dr.paraMax ?? g.span / 2 + CELL * 0.4;
+    return perp <= perpMax && para <= paraMax;
+}
+
+// Menghasilkan target otomatis Stage 1: buka saat player masuk zona, lalu
+// tetap terbuka selama closeDelaySec setelah player keluar zona.
+export function doorProximityTarget(dr, dt, px, pz, CELL, canOpen = true) {
+    if (!canOpen) { dr.linger = 0; return 0; }
+    const near = doorNearPlayer(dr, px, pz, CELL);
+    const closeDelay = CFG.campaign.doors.closeDelaySec;
+    if (near) dr.linger = closeDelay;
+    else if (dr.linger > 0) dr.linger = Math.max(0, dr.linger - dt);
+    return near || dr.linger > 0 ? 1 : 0;
+}
+
+export function updateDoorMotion(dr, dt, target) {
+    dr.target = target;
+    const prev = dr.open, step = dt / OPEN_TIME;
+    dr.open = dr.open < target ? Math.min(target, dr.open + step)
+        : Math.max(target, dr.open - step);
+    const g = doorGeometry(dr);
+    doorMotionSFX(dr, prev, g.cx, g.cz);
+    setSplitDoorOpen(dr.rig, doorEasedOpen(dr.open));
+}
+
 // ===== RIG DUA DAUN 50:50 BERSAMA =========================================
 // Dipakai pintu stage 1-3, blast door stage 3, stasiun stage 5, dan kedua
 // chapter stage 6. `horizontal` berarti bukaan memanjang di sumbu X; selain itu
@@ -258,7 +310,7 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
         }
 
         doors.push({
-            panel, rig, leaves: rig.leaves, cx, cz, open: 0,
+            panel, rig, leaves: rig.leaves, cx, cz, open: 0, cell: CELL,
             linger: 0,                             // sisa delay tutup (dtk) setelah player keluar zona (2026-07-20)
             ew,                                    // orientasi: true = dinding vertikal (masuk dari ±x)
             locked: !!d.locked,                    // TERKUNCI (tak pernah membuka sampai setDoorLocked(false))
@@ -284,23 +336,10 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
 export function updateStageDoors(doors, dt) {
     if (!doors || !doors.length) return;
     const px = camera.position.x, pz = camera.position.z;   // camera = pivot logika player
-    const step = dt / OPEN_TIME;
-    const closeDelay = CFG.campaign.doors.closeDelaySec;
     for (const dr of doors) {
-        const dx = px - dr.cx, dz = pz - dr.cz;
-        const perp = dr.ew ? Math.abs(dx) : Math.abs(dz);   // tegak-lurus dinding (arah masuk pintu)
-        const para = dr.ew ? Math.abs(dz) : Math.abs(dx);   // sejajar dinding (lebar bukaan)
-        const near = perp <= dr.perpMax && para <= dr.paraMax;
-        if (near) dr.linger = closeDelay;                   // delay tutup di-reset selama di zona
-        else if (dr.linger > 0) dr.linger = Math.max(0, dr.linger - dt);
-        // Pintu TERKUNCI tak pernah membuka (target 0) berapa pun kedekatan player.
-        const target = dr.locked ? 0 : ((near || dr.linger > 0) ? 1 : 0);
-        const prev = dr.open;
-        if (dr.open < target) dr.open = Math.min(target, dr.open + step);
-        else if (dr.open > target) dr.open = Math.max(target, dr.open - step);
-        doorMotionSFX(dr, prev, dr.cx, dr.cz);
-        const t = dr.open, e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;   // easeInOut
-        setSplitDoorOpen(dr.rig, e);
+        // Pintu TERKUNCI tak pernah membuka berapa pun kedekatan player.
+        const target = doorProximityTarget(dr, dt, px, pz, dr.cell, !dr.locked);
+        updateDoorMotion(dr, dt, target);
     }
 }
 
@@ -316,13 +355,29 @@ export function resolveDoors(doors, pos, radius, lockedOnly = false) {
     for (const dr of doors) {
         if (lockedOnly && !dr.locked) continue;               // blok PLAYER hanya di pintu TERKUNCI (stage 1)
         if (dr.open >= DOOR_SOLID_MAX) continue;              // sudah cukup terbuka → tembus
-        const ex = dr.hx + radius, ez = dr.hz + radius;
-        const dx = pos.x - dr.cx, dz = pos.z - dr.cz;
+        const g = doorGeometry(dr);
+        const ex = g.hx + radius, ez = g.hz + radius;
+        const dx = pos.x - g.cx, dz = pos.z - g.cz;
         if (Math.abs(dx) >= ex || Math.abs(dz) >= ez) continue;   // di luar footprint
         const ox = ex - Math.abs(dx), oz = ez - Math.abs(dz);     // penetrasi tiap sumbu
-        if (ox < oz) pos.x = dr.cx + (dx < 0 ? -ex : ex);         // dorong sumbu-x
-        else pos.z = dr.cz + (dz < 0 ? -ez : ez);                 // dorong sumbu-z
+        if (ox < oz) pos.x = g.cx + (dx < 0 ? -ex : ex);         // dorong sumbu-x
+        else pos.z = g.cz + (dz < 0 ? -ez : ez);                 // dorong sumbu-z
     }
+}
+
+// Predikat non-mutating untuk A*: false bila lingkaran calon posisi masih
+// menyentuh footprint pintu yang pejal. Bentuk dan ambang bukanya SAMA dengan
+// resolveDoors(), sehingga pathfinder tidak merencanakan rute menembus daun
+// tertutup lalu membuat robot mendorong pintu tanpa henti.
+export function doorsWalkable(doors, x, z, radius = 0) {
+    if (!doors) return true;
+    for (const dr of doors) {
+        if (dr.open >= DOOR_SOLID_MAX) continue;
+        const g = doorGeometry(dr);
+        if (Math.abs(x - g.cx) < g.hx + radius
+            && Math.abs(z - g.cz) < g.hz + radius) return false;
+    }
+    return true;
 }
 
 // Kunci/buka sebuah pintu (stage 1: ruang komputer TERKUNCI sampai semua robot
@@ -353,16 +408,16 @@ function doorShotEntry(doors, x0, z0, x1, z1, y) {
     if (!doors) return null;
     let best = null;
     for (const dr of doors) {
-        const e = dr.open < 0.5 ? 2 * dr.open * dr.open
-            : 1 - (-2 * dr.open + 2) ** 2 / 2;
+        const g = doorGeometry(dr);
+        const e = doorEasedOpen(dr.open);
         const alongHalf = dr.rig.leafSpan / 2 + 0.4;
-        const acrossHalf = (dr.ew ? dr.hx : dr.hz) + 0.4;
+        const acrossHalf = (g.ew ? g.hx : g.hz) + 0.4;
         const centerOff = splitDoorLeafOffset(dr.rig, e);   // sama persis dgn visual
         for (const sign of [-1, 1]) {
-            const leafX = dr.cx + (dr.ew ? 0 : sign * centerOff);
-            const leafZ = dr.cz + (dr.ew ? sign * centerOff : 0);
-            const hx = dr.ew ? acrossHalf : alongHalf;
-            const hz = dr.ew ? alongHalf : acrossHalf;
+            const leafX = g.cx + (g.ew ? 0 : sign * centerOff);
+            const leafZ = g.cz + (g.ew ? sign * centerOff : 0);
+            const hx = g.ew ? acrossHalf : alongHalf;
+            const hz = g.ew ? alongHalf : acrossHalf;
             const dx = x1 - x0, dz = z1 - z0;
             const px = x0 - leafX, pz = z0 - leafZ;
             let t0 = 0, t1 = 1, hit = true;

@@ -1,6 +1,6 @@
 // Registri animasi dekoratif dunia — TIDAK menyentuh gameplay. Scene builder
-// mendaftarkan objeknya (api Monas, semburan air, sprite kebakaran, lampu
-// koridor berkedip, dst); satu updateWorldDecor() menganimasikan semuanya.
+// mendaftarkan objeknya (api Monas, semburan air, sprite kebakaran, riak air,
+// kubah langit, dst); satu updateWorldDecor() menganimasikan semuanya.
 // Berjalan tiap frame BAHKAN saat pause (kontrak lama updateDecor).
 
 export const waterJets = [];     // kerucut air mancur (denyut pelan)
@@ -10,23 +10,20 @@ export let flameLight = null, flameGlow = null;   // api Monas (survival)
 export let burningMat = null;                     // fasad gedung terbakar
 export let waterTex = null;                       // riak air (offset dianimasikan)
 export let skyDome = null;                        // kubah langit + bulan (ikut player)
-export let s1FlickerLight = null;                 // lampu koridor gedung (campaign stage 1)
+// CATATAN 2026-08-11: `s1FlickerLight`/`setS1FlickerLight` (kedip lampu aula
+// campaign stage 1) DIHAPUS bersama mekanisme "mati lampu" stage 1-3 —
+// permintaan user. Jangan dihidupkan lagi tanpa diminta.
 
 export const setFlameLight = (l) => { flameLight = l; };
 export const setFlameGlow = (g) => { flameGlow = g; };
 export const setBurningMat = (m) => { burningMat = m; };
 export const setWaterTex = (t) => { waterTex = t; };
 export const setSkyDome = (d) => { skyDome = d; };
-export const setS1FlickerLight = (l) => { s1FlickerLight = l; };
 
 export function updateWorldDecor(dt, T, camera) {
     // Kubah langit selalu berpusat di player (peta campaign membentang jauh)
     if (skyDome) { skyDome.position.x = camera.position.x; skyDome.position.z = camera.position.z; }
     if (flameLight) flameLight.intensity = 1.1 + Math.sin(T * 6.1) * 0.12 + Math.sin(T * 17) * 0.06;
-    if (s1FlickerLight) {   // lampu koridor gedung berkedip-kedip (campaign stage 1)
-        const fl = Math.sin(T * 13) * Math.sin(T * 7.3) > 0.55 ? 0.12 : 0.85;
-        s1FlickerLight.intensity += (fl - s1FlickerLight.intensity) * Math.min(1, dt * 22);
-    }
     if (flameGlow) {
         const s = 30 + Math.sin(T * 5.2) * 2.4 + Math.sin(T * 13) * 1.2;
         flameGlow.scale.set(s, s, 1);

@@ -38,9 +38,9 @@
 // Kota ini MURNI DEKOR: tanpa blocker, tanpa sel nav, tanpa PointLight (jumlah
 // light per stage harus tetap — lihat invarian "no mid-game shader recompiles").
 
-import { CAMP_M } from '../../../core/config.js';
-import { PAL } from '../../../world/palette.js';
-import { addMergedStatic, materialKey } from '../../../utils/meshBatch.js';
+import { CAMP_M } from '../../../../core/config.js';
+import { PAL } from '../../../../world/palette.js';
+import { addMergedStatic, materialKey } from '../../../../utils/meshBatch.js';
 
 const m = v => v * CAMP_M;                 // meter -> unit dunia
 
@@ -224,7 +224,7 @@ const capH = (d, base, h, reserve = 0) => d.maxTop != null
     ? Math.min(h, Math.max(m(2.5), d.maxTop - base - reserve)) : h;
 
 // --- RUKO: rumah-toko 2-3 lantai. Bentuk paling khas jalan protokol Bandung:
-//     etalase kaca, kanopi bergaris, papan nama menyala, tandon air di dak. ---
+//     etalase kaca, kanopi bergaris, fasad bersih, dan tandon air di dak. ---
 function districtRuko(put, M, d) {
     const toward = -d.side;
     let buildings = 0, top = d.gy;
@@ -242,13 +242,11 @@ function districtRuko(put, M, d) {
             lot.x, d.gy + m(1.5), zFront + toward * m(0.16));
         bx(put, M.trim, lot.w, m(0.35), m(0.35),
             lot.x, d.gy + m(2.95), zFront + toward * m(0.16));
-        // Kanopi miring + papan nama
+        // Kanopi miring; fasad sengaja tanpa papan nama.
         const awn = bx(put, rnd(d.seed, lot.i * 7 + 4) < 0.5 ? M.red : M.white,
             lot.w * 0.94, m(0.16), m(1.5), lot.x, d.gy + m(3.35),
             zFront + toward * m(0.75));
         awn.rotation.x = toward * 0.28;
-        bx(put, M.sign, lot.w * 0.7, m(0.7), m(0.2),
-            lot.x, d.gy + m(4.1), zFront + toward * m(0.2));
         // Jendela lantai atas
         for (let f = 1; f < floors; f++)
             bx(put, rnd(d.seed, lot.i * 7 + 5 + f) < 0.55 ? M.lit : M.glass,
@@ -314,7 +312,6 @@ function districtPasar(put, M, d) {
     const h = capH(d, d.gy, m(5.5), m(1.4));
     bx(put, M.wall[1], d.span * 0.9, h, dep, d.cx, d.gy + h / 2, zc);
     bx(put, M.deck, d.span * 0.94, m(0.5), dep * 1.05, d.cx, d.gy + h + m(0.25), zc);
-    bx(put, M.sign, d.span * 0.4, m(0.9), m(0.25), d.cx, d.gy + h + m(0.9), zc);
     buildings++;
     // Kanopi los di halaman depan
     for (let i = 0; i < 6; i++) {
@@ -366,10 +363,9 @@ function districtSekolah(put, M, d) {
         zAt(d, m(3)));
     bx(put, M.white, m(1.4), m(0.5), m(0.06), d.cx + m(0.75), d.gy + m(7.1),
         zAt(d, m(3)));
-    // Pagar + gerbang bertuliskan papan
+    // Pagar sekolah tanpa papan nama.
     bx(put, M.metal, d.span * 0.9, m(0.14), m(0.14), d.cx, d.gy + m(1.6),
         zAt(d, m(0.4)));
-    bx(put, M.sign, m(4), m(0.8), m(0.25), d.cx, d.gy + m(2.8), zAt(d, m(0.4)));
     return { buildings: 1, top: d.gy + h + m(2) };
 }
 

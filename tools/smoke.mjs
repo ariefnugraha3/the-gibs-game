@@ -135,7 +135,15 @@ class Scene extends Obj3D { constructor() { super(); this.fog = null; } }
 // near/far disimpan 2026-07-27 (celah harness): assert kubah langit intro perlu
 // membandingkan jarak kubah dengan far-plane kamera yang SEBENARNYA.
 class PCam extends Obj3D { constructor(fov = 50, aspect = 1, near = 1, far = 2000) { super(); this.fov = fov; this.aspect = aspect; this.near = near; this.far = far; } updateProjectionMatrix() { } }
-class PLight extends Obj3D { constructor() { super(); this.intensity = 0; this.color = new Color(0xffffff); this.isLight = true; this.isPointLight = true; } }
+// PointLight stub: HORMATI argumen konstruktor (color, intensity, distance,
+// decay) — lampu ruangan stage 1-3 kini lahir menyala penuh (2026-08-11).
+class PLight extends Obj3D {
+    constructor(color = 0xffffff, intensity = 0, distance = 0, decay = 1) {
+        super();
+        this.intensity = intensity; this.distance = distance; this.decay = decay;
+        this.color = new Color(color); this.isLight = true; this.isPointLight = true;
+    }
+}
 const geo = (name) => class {
     constructor(...a) { this.args = a; this.type = name; }
     scale() { return this; }
@@ -262,6 +270,102 @@ for (const cls of ['C', 'B', 'A', 'boss']) {
     T(cls + ' rig lengkap', !!(b.rig.inner && b.rig.thighL && b.rig.thighR && b.rig.shinL && b.rig.shinR && b.rig.armL && b.rig.armR && b.rig.head));
     let meshes = 0; b.group.traverse(o => { if (o.isMesh) meshes++; });
     T(cls + ' punya mesh (' + meshes + ')', meshes > 15);
+}
+
+// --- 1b. WARNA ROBOT: LOGAM GELAP BERTINGKAT (2026-08-11). Dua permintaan user
+//     berturut-turut: pertama "terlalu cerah, seperti badut" (semua digelapkan),
+//     lalu palet kelas diganti jadi C PERUNGGU / B PERAK / A EMAS.
+//     Perak MENGUBAH cara menguji: ia tak punya hue, jadi pita hue lama tidak
+//     bisa dipakai dan pelatnya juga tak bisa dideteksi lewat saturasi. Yang
+//     diuji sekarang ATURANnya: (a) tak ada permukaan terang di robot, (b) tabel
+//     CLASS_LOOK benar-benar yang dipakai mesh, (c) tiga kelas saling BEDA jauh,
+//     (d) tiap pelat juga beda dari RANGKA (ini risiko khusus perak — pelat &
+//     rangka sama-sama abu-abu), (e) inti daya = versi MENYALA logam yang sama,
+//     (f) mata tetap MERAH semua kelas (aturan user 2026-07-14), (g) rangka
+//     tetap token PAL gelap.
+//     Stub Color.offsetHSL() di harness = no-op, jadi yang terbaca nilai DASAR
+//     (jitter keausan +-0,045 memang hanya ada saat runtime). ---
+{
+    const palR = await import(R('src/world/palette.js'));
+    const CL = robotsMod.CLASS_LOOK;
+    // HSL dari hex (harness tak punya Color.getHSL asli).
+    const hsl = (hex) => {
+        const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
+        let h = 0;
+        if (d > 1e-9) {
+            if (mx === r) h = 60 * (((g - b) / d) % 6);
+            else if (mx === g) h = 60 * ((b - r) / d + 2);
+            else h = 60 * ((r - g) / d + 4);
+            if (h < 0) h += 360;
+        }
+        return { h, s: d < 1e-9 ? 0 : d / (1 - Math.abs(2 * l - 1)), l };
+    };
+    const hueNear = (a, b, tol) => { let d = Math.abs(a - b) % 360; if (d > 180) d = 360 - d; return d <= tol; };
+    // Jarak RGB — SATU-SATUNYA ukuran "beda warna" yang tetap sahih saat salah
+    // satu pihak abu-abu (perak). Pita hue tidak bisa, sebab hue perak tak ada.
+    const dist = (p, q) => Math.hypot(((p >> 16) & 255) - ((q >> 16) & 255),
+        ((p >> 8) & 255) - ((q >> 8) & 255), (p & 255) - (q & 255));
+
+    // Pagu ini ATURAN ("tak ada permukaan terang di robot"), bukan hasil tuning:
+    // palet sebelum 2026-08-11 menembusnya jauh (pelat B L=0,48; rangka L=0,52).
+    const L_CAP = 0.35;
+    const EYE_RED = 0xff2020;
+    // Ambang pisah: dua pelat kelas yang berjarak < ini akan tertukar sekilas
+    // dari kamera top-down. 40 lolos utk palet logam sekarang (terdekat ~55)
+    // tapi menolak mis. perunggu digeser ke emas.
+    const MIN_SEP = 40;
+
+    let allDark = true, badDark = '';
+    let usesTable = true, badTable = '';
+    let vsFrameOk = true, badVsFrame = '';
+    let coreOk = true, badCore = '';
+    let eyeOk = true, badEye = '';
+    let frameOk = true, badFrame = '';
+    const palHexes = Object.values(palR.PAL);
+    for (const cls of ['C', 'B', 'A', 'boss']) {
+        const g = robotsMod.buildRobotMesh(cls).group;
+        const mats = new Set();
+        g.traverse(o => { if (o.material) mats.add(o.material); });
+        for (const m of mats) {
+            if (hsl(m.color.getHex()).l > L_CAP) { allDark = false; badDark = badDark || (cls + ' #' + m.color.getHex().toString(16)); }
+        }
+        const plain = [...mats].filter(m => m.emissive.getHex() === 0);
+        const lit = [...mats].filter(m => m.emissive.getHex() !== 0);
+        // (b) tabel benar-benar dipakai: pelat & core kelas ini ADA di mesh.
+        if (!plain.some(m => m.color.getHex() === CL[cls].armor)) { usesTable = false; badTable = badTable || (cls + ' pelat'); }
+        if (!lit.some(m => m.emissive.getHex() === CL[cls].glow)) { usesTable = false; badTable = badTable || (cls + ' core'); }
+        // (f) mata/visor MERAH di semua kelas.
+        if (!lit.some(m => m.emissive.getHex() === EYE_RED)) { eyeOk = false; badEye = badEye || cls; }
+        // (g) rangka = material netral non-pelat paling terang; token PAL gelap.
+        const neutral = plain.filter(m => m.color.getHex() !== CL[cls].armor && hsl(m.color.getHex()).s <= 0.2);
+        const frame = neutral.sort((p, q) => hsl(q.color.getHex()).l - hsl(p.color.getHex()).l)[0];
+        if (!frame || !palHexes.includes(frame.color.getHex()) || hsl(frame.color.getHex()).l > L_CAP) {
+            frameOk = false; badFrame = badFrame || (cls + ' #' + (frame ? frame.color.getHex().toString(16) : '-'));
+        } else if (cls !== 'boss' && dist(CL[cls].armor, frame.color.getHex()) < 25) {
+            // (d) pelat harus terbaca DI ATAS rangka. Perak-vs-gunmetal adalah
+            // pasangan paling berisiko: keduanya abu-abu, hanya beda terang.
+            vsFrameOk = false; badVsFrame = badVsFrame || (cls + ' d=' + dist(CL[cls].armor, frame.color.getHex()).toFixed(0));
+        }
+        // (e) inti daya = versi MENYALA logam yang sama: lebih terang dari
+        // pelatnya, dan sehue kecuali logam netral (perak) yang memang tak ber-hue.
+        const aC = hsl(CL[cls].armor), gC = hsl(CL[cls].glow);
+        if (gC.l <= aC.l) { coreOk = false; badCore = badCore || (cls + ' core tak lebih terang'); }
+        else if (cls !== 'boss' && aC.s > 0.2 && !hueNear(gC.h, aC.h, 15)) {
+            coreOk = false; badCore = badCore || (cls + ' hue core=' + gC.h.toFixed(0) + ' vs pelat=' + aC.h.toFixed(0));
+        } else if (cls !== 'boss' && aC.s <= 0.2 && gC.s > 0.35) {
+            coreOk = false; badCore = badCore || (cls + ' core perak tak netral s=' + gC.s.toFixed(2));
+        }
+    }
+    T('ROBOT WARNA: tak ada permukaan terang (semua L <= ' + L_CAP + ')' + (badDark ? ' [' + badDark + ']' : ''), allDark);
+    T('ROBOT WARNA: mesh benar-benar memakai tabel CLASS_LOOK' + (badTable ? ' [' + badTable + ']' : ''), usesTable);
+    T('ROBOT WARNA: C perunggu / B perak / A emas saling berjarak >= ' + MIN_SEP
+        + ' (min ' + Math.min(dist(CL.C.armor, CL.B.armor), dist(CL.B.armor, CL.A.armor), dist(CL.C.armor, CL.A.armor)).toFixed(0) + ')',
+        dist(CL.C.armor, CL.B.armor) >= MIN_SEP && dist(CL.B.armor, CL.A.armor) >= MIN_SEP && dist(CL.C.armor, CL.A.armor) >= MIN_SEP);
+    T('ROBOT WARNA: pelat tiap kelas tetap terbaca DI ATAS rangka (risiko perak)' + (badVsFrame ? ' [' + badVsFrame + ']' : ''), vsFrameOk);
+    T('ROBOT WARNA: inti daya = versi menyala logam yang sama' + (badCore ? ' [' + badCore + ']' : ''), coreOk);
+    T('ROBOT WARNA: mata/visor MERAH di semua kelas' + (badEye ? ' [' + badEye + ']' : ''), eyeOk);
+    T('ROBOT WARNA: rangka memakai token PAL gelap' + (badFrame ? ' [' + badFrame + ']' : ''), frameOk);
 }
 
 // --- 2. Gerbang tembak (stop-and-shoot) ---
@@ -391,6 +495,17 @@ T('peluru monasDmg terpasang', enemyBullets.length === 1 && enemyBullets[0].mona
 sceneCtl.blocked = true;
 robotsMod.updateEnemyBullets(0.016, 1);
 T('hook enemyBulletHitMonas terpanggil (dmg 20)', sceneCtl.monasHits.length === 1 && sceneCtl.monasHits[0] === 20 && enemyBullets.length === 0);
+sceneCtl.blocked = false;
+
+// Peluru A/B juga harus ditolak PADA SAAT LAHIR bila ujung laras sudah berada
+// di bidang pintu tertutup; menunggu frame gerak pertama membuat robot yang
+// menempel pintu bisa menembak menembusnya.
+sceneCtl.blocked = true;
+const ebBeforeSpawnBlock = enemyBullets.length;
+robotsMod.fireRobotBullet(zB);
+robotsMod.fireRobotBullet(zA);
+T('peluru A/B yang lahir di pintu tertutup langsung terblokir',
+    enemyBullets.length === ebBeforeSpawnBlock);
 sceneCtl.blocked = false;
 
 // --- 5c. rig.muzzle: kanan utk B, KEDUA lengan utk A, null utk melee ---
@@ -1766,7 +1881,7 @@ T('survivalScene.robotsCelebrate hook ada & false saat Monas tegak',
 // --- 15. Campaign STAGE 2 overhaul (2026-07-13): gedung indoor mengikuti denah.
 // Bangun dunia gedung + verifikasi grid (BFS konektivitas), penempatan robot 9
 // spot, robotAI, dan gerbang BOSS penjaga tangga. ---
-const s2mod = await import(R('src/scenes/campaign/stages/stage2.js'));
+const s2mod = await import(R('src/scenes/campaign/stages/stage2/index.js'));
 s2mod.buildWorld();
 {   // BFS: SEMUA lantai harus terjangkau dari START (menangkap salah-carve pintu)
     const grid = s2mod.s2grid, ROWS = grid.length, COLS = grid[0].length;
@@ -1844,8 +1959,9 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
 
 // Jumlah robot STAGE 1 = 40 (2026-07-19 malam, permintaan user — dulu 30)
 {
-    const s1m = await import(R('src/scenes/campaign/stages/stage1.js'));
+    const s1m = await import(R('src/scenes/campaign/stages/stage1/index.js'));
     const comMod = await import(R('src/scenes/campaign/utility/common.js'));
+    const decorMod = await import(R('src/world/decor.js'));
     if (!s1m.s1grid) s1m.buildWorld();
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     s1m.placeRobots();
@@ -1853,34 +1969,29 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     T('S1: placeRobots menaruh 50 robot GELOMBANG-1 (kelas C) tagged stage 1 (' + n1 + ')',
         n1 === 50 && n1 === s1m.s1Wave1Count && robots.filter(z => z.stage === 1).every(z => z.kind === 'C'));
 
-    // --- LAMPU PER-RUANGAN (2026-07-19): mati saat mulai, menyala saat player
-    // memasuki rect ruangannya (yang lain tetap mati). ---
+    // --- LAMPU PER-RUANGAN (2026-08-11, permintaan user "mekanisme mati lampu
+    // dihilangkan"): SEMUA lampu ruangan menyala PENUH sejak dunia dibangun.
+    // Tak ada lagi state on/k, tautan lm.doors, selubung hitam, maupun kedip. ---
     const lamps = s1m.s1LampsDbg();
-    comMod.resetRoomLamps(lamps);
-    T('LAMPU: semua lampu ruangan MATI + SELUBUNG HITAM terpasang saat stage dimulai',
-        lamps.length >= 10 && lamps.every(l => !l.on && l.L.intensity === 0)
-        && lamps.filter(l => l.shroud).length >= 10
-        && lamps.filter(l => l.shroud).every(l => l.shroud.visible && l.shroud.material.opacity === 1));
+    T('LAMPU: semua lampu ruangan stage 1 MENYALA PENUH sejak dibangun (tanpa state mati)',
+        lamps.length >= 10
+        && lamps.every(l => l.L.intensity === l.base && l.base > 0)
+        && lamps.every(l => l.on === undefined && l.k === undefined
+            && l.shroud === undefined && l.doors === undefined));
+    T('LAMPU: TAK ADA selubung hitam ruangan yang tersisa di scene stage 1',
+        !scene.children.some(o => o.material && o.material.color
+            && o.material.color.getHex && o.material.color.getHex() === 0x030303));
+    // Berkeliling stage TIDAK boleh lagi mengubah intensitas lampu mana pun.
+    const beforeInt = lamps.map(l => l.L.intensity);
     const conf = s1m.s1Cell(14, 3);                    // ruang conference
     camera.position.set(conf.x, cfgMod.CFG.player.eyeHeight, conf.z);
     for (let i = 0; i < 12; i++) s1m.stage1Scene.updateMode(0.1);
-    const lit = lamps.find(l => l.on);
-    T('LAMPU: masuk ruangan -> lampu MENYALA + selubung hitamnya HILANG (ruangan lain tetap gelap)',
-        lit && lit.L.intensity > 0.5 * lit.base
-        && (!lit.shroud || lit.shroud.visible === false)
-        && lamps.some(l => !l.on && l.shroud && l.shroud.visible));
-
-    // REVISI (2026-07-19): lampu menyala saat PINTU ruangan DIBUKA — player
-    // berdiri DI DEPAN pintu A<->B (masih di ruang A, BELUM masuk conference)
-    // -> pintu bergeser terbuka -> lampu conference menyala lebih dulu.
-    comMod.resetRoomLamps(lamps);
-    const frontA = s1m.s1Cell(6, 3);            // ruang A, zona depan pintu A<->B (c8 r3-4)
-    camera.position.set(frontA.x, cfgMod.CFG.player.eyeHeight, frontA.z);
-    for (let i = 0; i < 30; i++) s1m.stage1Scene.updateMode(0.05);   // pintu terbuka penuh
-    const confLamp = lamps[1];                  // lampu conference (rect c9-19 r1-6)
-    T('LAMPU: pintu DIBUKA -> lampu ruangan di baliknya MENYALA (player belum masuk rect)',
-        confLamp.doors && confLamp.doors.length > 0 && confLamp.on
-        && !(frontA.x >= confLamp.x0 && frontA.x <= confLamp.x1));
+    T('LAMPU: updateMode tak lagi menganimasikan intensitas lampu ruangan',
+        lamps.every((l, i) => l.L.intensity === beforeInt[i]));
+    T('LAMPU: helper mati-lampu updateRoomLamps/resetRoomLamps SUDAH DIHAPUS',
+        comMod.updateRoomLamps === undefined && comMod.resetRoomLamps === undefined);
+    T('LAMPU: kedip lampu aula (setS1FlickerLight) SUDAH DIHAPUS dari decor.js',
+        decorMod.setS1FlickerLight === undefined && decorMod.s1FlickerLight === undefined);
 
     // --- FINISH TERKUNCI (2026-07-20): trigger TANGGA (T, titik masuk = titik
     // selesai) DITOLAK selagi objektif belum tuntas (fase clear1, robot hidup). ---
@@ -2483,7 +2594,7 @@ async function waitRepairClosed() {
 // ruang X -> clear2 -> done (tangga aktif).
 // Mulai dari state built section sebelumnya (fase clear1). ---
 {
-    const s1m = await import(R('src/scenes/campaign/stages/stage1.js'));
+    const s1m = await import(R('src/scenes/campaign/stages/stage1/index.js'));
     const domS1 = await import(R('src/core/dom.js'));
     // Fase awal = clear1 + pintu ruang komputer TERKUNCI (merah).
     T('S1 FLOW: fase clear1 + pintu ruang komputer TERKUNCI',
@@ -2696,7 +2807,7 @@ T('S2: tak ada boss (boss dibuang; updateMode kini animasi pintu, bukan boss)',
 // via LOADING; setelah loading shop terbuka; "Start Next Stage"
 // (SPACE x2) -> LOADING -> transisi ke stage 3. Spy enter stage3 agar tak
 // membangun dunianya di harness. Poll (bukan await tetap) supaya tahan MIN_LOADING.
-const s3mod = await import(R('src/scenes/campaign/stages/stage3.js'));
+const s3mod = await import(R('src/scenes/campaign/stages/stage3/index.js'));
 const realS3Enter = s3mod.stage3Scene.enter;
 let s3entered = false;
 s3mod.stage3Scene.enter = () => { s3entered = true; };
@@ -2849,13 +2960,59 @@ T('S3: START (lift) & END (pintu keluar) di lantai',
     !s3mod.s3Wall(s3mod.S3_START.c, s3mod.S3_START.r) && !s3mod.s3Wall(s3mod.S3_END.c, s3mod.S3_END.r));
 T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 
+// --- 16f. CELAH ANTAR-PERABOT stage 1-3 (2026-08-11, laporan user: "celah di
+// antara perabotan terlihat cukup, tapi player tidak bisa lewat"). Blocker
+// perabot TIDAK dipadding (hx = sx/2 = mesh-nya), jadi yang kegemukan adalah
+// `player.radius` 5 — 2x lebar avatar yang terlihat. Bentrokan-ke-PERABOT kini
+// pakai `CFG.player.propRadius` lewat `propClearance()`, sementara DINDING,
+// PINTU, PETI & BAREL tetap `player.radius` penuh. Diuji: nilai konfigurasinya
+// masuk akal, primitifnya benar-benar meloloskan celah yang dulu tertutup, dan
+// ketiga stage sungguh MEMAKAINYA (sweep sumber — wiring-nya yang gampang
+// terlewat saat refactor). ---
+{
+    const commonMod = await import(R('src/scenes/campaign/utility/common.js'));
+    const { resolveBlockers } = await import(R('src/utils/collision.js'));
+    const pR = cfgMod.CFG.player.radius;
+    const propR = commonMod.propClearance();
+    // Lantai 2,5 unit = setengah lebar VISUAL avatar (rompi r=1,66 + lengan):
+    // di bawah ini badan mulai menembus meja secara kasat mata.
+    const AVATAR_HALF_W = 2.5;
+    T('CELAH PERABOT: propRadius (' + propR + ') lebih ramping dari player.radius (' + pR + ')', propR < pR);
+    T('CELAH PERABOT: masih >= setengah lebar visual avatar (' + AVATAR_HALF_W + ') — badan tak menembus meja',
+        propR >= AVATAR_HALF_W);
+
+    // Dua balok perabot dgn celah G di antaranya; lolos jika G >= 2*radius.
+    // G diambil dari TENGAH kedua radius supaya uji ini ikut nilai config: ia
+    // harus lolos di propRadius dan MENTOK di player.radius.
+    const G = propR + pR;                       // = 2*((propR+pR)/2)
+    const mkB = (x) => ({ x, z: 0, hx: 10, hz: 10, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(10, 10), top: 7, standable: true });
+    const twoDesks = [mkB(-(10 + G / 2)), mkB(10 + G / 2)];
+    const probe = (radius) => { const p = { x: 0, z: 0 }; resolveBlockers(p, radius, 0, twoDesks); return Math.abs(p.x) < 1e-9; };
+    T('CELAH PERABOT: celah ' + G.toFixed(1) + 'u (' + (G / 7).toFixed(2) + ' m) kini BISA dilewati', probe(propR));
+    T('CELAH PERABOT: celah yang sama dulu MENTOK di player.radius (uji ini bermakna)', !probe(pR));
+
+    // Wiring: perabot pakai propClearance(), sisanya TIDAK boleh ikut menyusut.
+    let wireOk = true, wireBad = '';
+    for (const st of ['stage1', 'stage2', 'stage3']) {
+        const src3 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/' + st + '/index.js', 'utf8');
+        const pc = src3.slice(src3.indexOf('playerCollide('));
+        const body = pc.slice(0, pc.indexOf('\n    },'));
+        const has = (re) => re.test(body);
+        if (!has(/resolve\(pos,\s*propClearance\(\)/) || has(/resolve\(pos,\s*player\.radius/)) { wireOk = false; wireBad = wireBad || (st + ' perabot'); }
+        // Dinding & peti/barel WAJIB tetap radius penuh.
+        if (!has(/slideWalk\([^)]*player\.radius\)/)) { wireOk = false; wireBad = wireBad || (st + ' dinding'); }
+        if (has(/resolveCrateBlock\(pos,\s*propClearance/) || has(/resolveBarrelBlock\(pos,\s*propClearance/)) { wireOk = false; wireBad = wireBad || (st + ' peti/barel'); }
+    }
+    T('CELAH PERABOT: stage 1-3 memakai propClearance() utk perabot saja' + (wireBad ? ' [' + wireBad + ']' : ''), wireOk);
+}
+
 // --- 16b. TANPA DINDING GANDA (2026-07-18): denah gedung stage 1/2/3 dirapatkan
 // agar SETIAP celah antar-ruang = 1 sel dinding. Detektor: run dinding tebal-2
 // (dua tembok paralel berdempetan = selalu ganda) ATAU tebal-3 dgn sel TENGAH
 // tak ter-render (dua strip + celah terlihat). Sudut/tembok tipis panjang tidak
 // dihitung. Cermin scratchpad walls.mjs. ---
 {
-    const s1mod = await import(R('src/scenes/campaign/stages/stage1.js'));
+    const s1mod = await import(R('src/scenes/campaign/stages/stage1/index.js'));
     if (!s1mod.s1grid) s1mod.buildWorld();
     const wcl = (g, c, r) => (r < 0 || c < 0 || r >= g.length || c >= g[0].length) ? true : g[r][c] === 1;
     const flr = (g, c, r) => !wcl(g, c, r);
@@ -3125,9 +3282,9 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         && menuCredits.eyebrow === undefined && menuCredits.intro === undefined);
     // Scene gameplay TIDAK lagi menyalakan musik di enter() — trigger battle
     // music satu-satunya = peluru player mengenai robot (robots.js).
-    const sceneFiles = ['src/scenes/survival/index.js', 'src/scenes/campaign/stages/stage1.js',
-        'src/scenes/campaign/stages/stage2.js', 'src/scenes/campaign/stages/stage3.js',
-        'src/scenes/campaign/stages/stage4.js'];
+    const sceneFiles = ['src/scenes/survival/index.js', 'src/scenes/campaign/stages/stage1/index.js',
+        'src/scenes/campaign/stages/stage2/index.js', 'src/scenes/campaign/stages/stage3/index.js',
+        'src/scenes/campaign/stages/stage4/index.js'];
     T('Music: enter() scene gameplay tak menyalakan musik; trigger = hit peluru di robots.js',
         sceneFiles.every(f => !fs.readFileSync(ROOT + '/' + f, 'utf8').includes('startBattleMusic'))
         && fs.readFileSync(ROOT + '/src/entities/robots.js', 'utf8').includes('startBattleMusic()'));
@@ -3531,7 +3688,7 @@ s3mod.stage3Scene.updateMode(0.05);
 T('S3 FLOW: mesin hancur + robot habis -> fase done (PINTU KELUAR AKTIF)', s3mod.s3Debug().phase === 'done');
 
 // (7) Stage 3 EXIT 'o' fase done -> FINISH HIJAU -> SHOP -> stage 4
-const s4mod = await import(R('src/scenes/campaign/stages/stage4.js'));
+const s4mod = await import(R('src/scenes/campaign/stages/stage4/index.js'));
 const realS4Enter = s4mod.stage4Scene.enter;
 let s4entered = false;
 s4mod.stage4Scene.enter = () => { s4entered = true; };
@@ -3584,8 +3741,8 @@ T('KAMERA: scene non-stage-3 -> SCREEN_UP kembali default TIMUR LAUT (x>0, z<0)'
     // Ketiga stage MENGIMPOR entity yang sama & memakai buildLiftBank (SEPASANG)
     const usesLift = (f) => fs.readFileSync(ROOT + '/' + f, 'utf8');
     T('LIFT: stage 1/2/3 memakai buildLiftBank dari utility/lift.js (tanpa builder lokal)',
-        ['src/scenes/campaign/stages/stage1.js', 'src/scenes/campaign/stages/stage2.js', 'src/scenes/campaign/stages/stage3.js']
-            .every(f => usesLift(f).includes("from '../utility/lift.js'") && usesLift(f).includes('buildLiftBank(')
+        ['src/scenes/campaign/stages/stage1/index.js', 'src/scenes/campaign/stages/stage2/index.js', 'src/scenes/campaign/stages/stage3/index.js']
+            .every(f => usesLift(f).includes("from '../../utility/lift.js'") && usesLift(f).includes('buildLiftBank(')
                 && !/function buildLiftCar|function buildLiftDoors/.test(usesLift(f))));
 }
 
@@ -4696,8 +4853,8 @@ T('S4 FINISH CONTINUE: tombol utama menutup overlay tanpa reset dan baru membuka
 // arrival. Semua dialog tetap benar-benar melewati state typewriter parsial. ---
 const s5mod = await import(R('src/scenes/campaign/stages/stage5/index.js'));
 const s6mod = await import(R('src/scenes/campaign/stages/stage6/index.js'));
-const s7mod = await import(R('src/scenes/campaign/stages/stage7.js'));
-const s8mod = await import(R('src/scenes/campaign/stages/stage8.js'));
+const s7mod = await import(R('src/scenes/campaign/stages/stage7/index.js'));
+const s8mod = await import(R('src/scenes/campaign/stages/stage8/index.js'));
 const tacticalVehicleMod = await import(R('src/entities/tacticalVehicle.js'));
 const enemyPickupMod = await import(R('src/entities/enemyPickup.js'));
 const combatGunshipMod = await import(R('src/entities/combatGunship.js'));
@@ -4706,6 +4863,9 @@ const crate5Mod = await import(R('src/entities/crates.js'));
 const barrel5Mod = await import(R('src/entities/barrels.js'));
 const train5Mod = await import(R('src/entities/train.js'));
 const s5WorldMod = await import(R('src/scenes/campaign/stages/stage5/world.js'));
+const s6WorldMod = await import(R('src/scenes/campaign/stages/stage6/world.js'));
+const s6HqWorldMod = await import(R('src/scenes/campaign/stages/stage6/hqWorld.js'));
+const doorsMod = await import(R('src/scenes/campaign/utility/doors.js'));
 const s5PathMod = await import(R('src/utils/pathfind.js'));
 const s5PalMod = await import(R('src/world/palette.js'));
 const S5C = cfgMod.CFG.campaign.stage5;
@@ -4760,6 +4920,13 @@ T('CAMPAIGN CUTSCENES: prologue/art/intro tetap di root, controller Stage 4 masu
     && !fs.existsSync(campaignCutDir + '/tankBossIntro.js')
     && !fs.existsSync(campaignCutDir + '/tankBossOutro.js')
     && stage4CutFiles.join(',') === 'tankBossIntro.js,tankBossOutro.js');
+const campaignStagesDir = ROOT + '/src/scenes/campaign/stages';
+T('CAMPAIGN STAGES: seluruh Stage 1-8 memakai folder sendiri dengan index.js',
+    Array.from({ length: 8 }, (_, i) => i + 1).every(n =>
+        fs.existsSync(`${campaignStagesDir}/stage${n}/index.js`)
+        && !fs.existsSync(`${campaignStagesDir}/stage${n}.js`))
+    && fs.existsSync(`${campaignStagesDir}/stage7/stage7City.js`)
+    && !fs.existsSync(`${campaignStagesDir}/stage7City.js`));
 const s5Dir = ROOT + '/src/scenes/campaign/stages/stage5';
 const s5Files = fs.readdirSync(s5Dir).sort();
 const s5FileLines = f => fs.readFileSync(s5Dir + '/' + f, 'utf8').split('\n').length;
@@ -5296,6 +5463,27 @@ const sideLamps = d => {
 };
 T('S5 PINTU: lampu indikator berada di kusen kiri/kanan, bukan di atas pintu',
     s5World.station.doors.every(sideLamps));
+const shotAcrossDoor = d => {
+    const pad = 100;
+    return d.rig.horizontal
+        ? [{ x: d.cx, z: d.cz - pad }, { x: d.cx, z: d.cz + pad }]
+        : [{ x: d.cx - pad, z: d.cz }, { x: d.cx + pad, z: d.cz }];
+};
+const closedDoorStopsShot = (d, clamp) => {
+    const oldOpen = d.open;
+    const [a, b] = shotAcrossDoor(d);
+    d.open = 0; doorsMod.setSplitDoorOpen(d.rig, 0);
+    const shot = { px: a.x, pz: a.z,
+        mesh: { position: { x: b.x, y: 8, z: b.z } } };
+    const blocked = clamp(shot);
+    const stopped = Math.hypot(shot.mesh.position.x - a.x, shot.mesh.position.z - a.z)
+        < Math.hypot(b.x - a.x, b.z - a.z);
+    d.open = oldOpen;
+    doorsMod.setSplitDoorOpen(d.rig, doorsMod.doorEasedOpen(oldOpen));
+    return blocked && stopped;
+};
+T('S5 PINTU: tembakan melintasi pintu stasiun tertutup dihentikan dan di-clamp',
+    closedDoorStopsShot(s5WorldMod.platformDoor(), s5WorldMod.stationDoorClampShot));
 T('S5 SA FLOOR: safe area memakai lantai hall yang sama tanpa overlay warna khusus',
     s5World.map.safeCells > 0 && s5World.map.safeFloorOverlays === 0);
 T('S5 LANDMARK 2045: C1/C2 bukan box basic; mesh detail + bagian animasi dipatok',
@@ -5334,6 +5522,9 @@ T('S5 DEPOT FURNITURE: hall berisi rack/container/workbench/forklift/drum/scale/
 T('S5 PLATFORM FURNITURE: peron berisi cart/pallet/bench/signal/drum solid',
     s5World.furniture.platform.length >= 6 && s5PlatformKinds.size >= 5
     && s5World.furniture.platform.every(p => p.solid));
+T('S5 DETAIL VISUAL: dinding berpanel dan perabot depot bukan balok placeholder',
+    s5World.architecture.wallDetails > s5World.map.walls * 2
+    && s5World.furniture.meshes > 180);
 let s5FurnitureSolid = true;
 for (const p of [...s5World.furniture.depot, ...s5World.furniture.platform]) {
     stateMod._v3.set(p.x, 0, p.z); s5mod.resolve(stateMod._v3, 2, 0);
@@ -6941,9 +7132,6 @@ const expectedS6Dialogue = {
     exfilCall: { speaker: 'Command', text: 'The grid woke something up and they are converging on you. Get to that door, Major.' },
     fabricatorsClear: { speaker: 'Major Gibran', text: 'Both fabricators are wrecked. Nothing else is walking out of them.' },
     machinesFirst: { speaker: 'Major Gibran', text: 'Not yet. Those fabricators are still printing, and they come down first.' },
-    chapterEnd: { speaker: 'Major Gibran', text: 'Headquarters is right behind this door. Time to finish what I carried across the island.' },
-    hqCommand: { speaker: 'Command', text: 'This is the administration floor. The server room sits behind it, and every terminal on the way is theirs now.' },
-    hqGibran: { speaker: 'Major Gibran', text: 'An office. After everything, it ends in an office. Keep the uplink ready.' },
     officeContact: { speaker: 'Major Gibran', text: 'They already own this floor. I will have to clear my way to the servers.' },
     blockedRouteSafe: { speaker: 'Major Gibran', text: 'This door is dead \u2014 no power, no manual release. I need another way out of here.' },
     blockedRouteVault: { speaker: 'Major Gibran', text: 'Jammed shut as well. Whoever pulled back through here made sure nobody followed.' },
@@ -7042,6 +7230,9 @@ T('S6 DENAH: transliterasi CSV user 50x50 dengan sensus token persis',
     && s6World.map.repairs === 3 && s6World.map.info === 2 && s6World.map.finish === 4
     && s6World.map.autoDoors === 4 && s6World.map.lockedDoors === 2
     && s6World.map.chapterDoors === 4 && s6Count('S') === 1);
+T('S6 ARRIVAL DETAIL VISUAL: dinding berpanel, rak ber-brace, dan perabot industri padat',
+    s6World.architecture.wallDetails > s6World.map.walls * 2
+    && s6World.furniture.meshes > 120 && s6World.furniture.rackDetails >= 15);
 {
     const open = t => t !== '#';
     let start = null;
@@ -7114,6 +7305,8 @@ T('S6 PINTU: empat pintu fisik; `=` dan `@` terkunci sampai alurnya membukanya',
     && s6Door('grid').locked === true && s6Door('chapter').locked === true
     && s6World.doors.every(d => d.target === 0)
     && s6World.pools.sparks === 16 && s6World.lights >= 10 && s6World.staticBatches > 0);
+T('S6 ARRIVAL PINTU: tembakan melintasi pintu tertutup dihentikan dan di-clamp',
+    closedDoorStopsShot(s6WorldMod.doorOf('safe'), s6WorldMod.doorClampShot));
 {
     let ok = true;
     const clearAt = (p, r) => {
@@ -7372,25 +7565,15 @@ s6Put(s6mod.cellPos(20, 20)); s6mod.stage6Scene.updateMode(0.1);
 }
 drainS6Dialogue();
 
-s6Put(s6mod.S6_FINISH); s6mod.stage6Scene.updateMode(0.1);
-T('S6 FINISH: berdiri di titik `F` memulai serah-terima chapter',
-    stateMod.cinematicActive && s6mod.stage6DialogueDebug().key === 'chapterEnd');
 const s6ExfilLeft = s6Alive('exfil');
-drainS6Dialogue();
-// Berhenti TEPAT pada frame pergantian chapter: satu tick lagi dan tirai
-// fade-in-nya sudah dijalankan, sehingga potongan ke hitam tak terlihat lagi.
-for (let i = 0; i < 4000 && s6mod.stage6Debug().chapter !== 'hq'; i++) {
-    s6mod.stage6Scene.updateMode(0.05); sampleS6Dialogue();
-}
-const s6ChapterCut = dom4.cineFadeDebug();
-s6mod.stage6Scene.updateMode(1 / 60); sampleS6Dialogue();
+s6Put(s6mod.S6_FINISH); s6mod.stage6Scene.updateMode(0.1);
 const s6ChapterIn = dom4.cineFadeDebug();
-T('S6 CHAPTER: arrival -> hq memotong ke hitam lalu fade-in chapterFadeSec',
+T('S6 CHAPTER: arrival -> HQ berpindah langsung tanpa dialog/cutscene/fade',
     s6mod.stage6Debug().chapter === 'hq' && s6mod.stage6Debug().sub === 'campaign-6-hq'
     && smMod.activeScene === s6mod.stage6Scene
-    && s6ChapterCut.opacity === 1 && s6ChapterCut.transition === 'none'
-    && s6ChapterIn.opacity === 0
-    && s6ChapterIn.transition === `opacity ${S6C.chapterFadeSec}s ease-in-out`);
+    && !stateMod.cinematicActive && s6mod.stage6DialogueDebug().key === null
+    && !s6mod.subFadeDebug().pending && s6mod.subFadeDebug().sec === 0
+    && s6ChapterIn.opacity === 0);
 T('S6 CHAPTER: sisa robot chapter 1 ditinggal, garnisun kantor sesuai CFG',
     s6ExfilLeft > 0 && s6Alive('exfil') === 0
     && s6mod.stage6Debug().phase === 'office'
@@ -7416,9 +7599,11 @@ T('S6 HQ DENAH: transliterasi CSV finish 50x50 dengan sensus token persis',
     s6HqWorld.built && s6HqWorld.map.cols === 50 && s6HqWorld.map.rows === 50
     && s6mod.HQ_MAP.length === 50 && s6mod.HQ_MAP.every(r => r.length === 50)
     && s6HqWorld.map.walls === s6HqCount('#') && s6HqWorld.map.walls === 412
-    && s6HqWorld.map.safe === 170 && s6HqWorld.map.startFinish === 4
-    && s6HqWorld.map.broken === 11 && s6HqWorld.map.doors === 14
-    && s6HqWorld.map.keyedDoors === 2 && s6HqWorld.map.cache === 238
+    && s6HqWorld.map.safe === 276 && s6HqWorld.map.startFinish === 4
+    && s6HqWorld.map.broken === 11 && s6HqWorld.map.doors === 12
+    && s6HqWorld.map.keyedDoors === 2 && s6HqWorld.map.keyedPlus === 2
+    && s6HqCount('+') === 2 && s6HqCount('X') === 2 && s6HqCount('Y') === 106
+    && s6HqWorld.map.cache === 238
     && s6HqWorld.map.servers === 30 && s6HqWorld.map.upload === 2
     && s6HqWorld.map.restroom === 56 && s6HqWorld.map.warehouse === 76
     && s6HqWorld.map.machines === 18 && s6HqWorld.map.events === 42
@@ -7454,6 +7639,10 @@ T('S6 HQ KANTOR: perabot kantor lengkap seperti Stage 1-3, plus gudang/toilet/me
     && s6HqWorld.props.filter(p => p.kind === 'broken-door').length === 3
     && s6HqWorld.props.filter(p => p.solid).length >= 60
     && s6HqWorld.pools.sparks === 16 && s6HqWorld.lights >= 12 && s6HqWorld.staticBatches > 0);
+T('S6 HQ DETAIL VISUAL: dinding, workstation, lemari, toilet, dan server berlapis detail',
+    s6HqWorld.architecture.wallDetails > s6HqWorld.map.walls * 2
+    && s6HqWorld.furnitureDetails.furniture > 60
+    && s6HqWorld.furnitureDetails.servers > 200);
 T('S6 HQ PINTU: tujuh pintu; start/finish TERSEGEL, ruang server TERKUNCI',
     s6HqWorld.doors.length === 7
     && s6HqDoor('entry-seal').sealed === true
@@ -7468,6 +7657,8 @@ T('S6 HQ PINTU: tujuh pintu; start/finish TERSEGEL, ruang server TERKUNCI',
         stateMod._v3.set(d.x, 0, d.z); s6mod.hqResolve(stateMod._v3, 4, 0);
         return Math.hypot(stateMod._v3.x - d.x, stateMod._v3.z - d.z) > 0.5;
     })());
+T('S6 HQ PINTU: tembakan melintasi pintu tertutup dihentikan dan di-clamp',
+    closedDoorStopsShot(s6HqWorldMod.hqDoorOf('entry-seal'), s6HqWorldMod.hqDoorClampShot));
 T('S6 HQ PINTU RUSAK: sel `@` benar-benar PEJAL, bukan sekadar prop',
     s6mod.HQ_MAP[34][24] === '@' && s6mod.HQ_MAP[13][36] === '@' && s6mod.HQ_MAP[31][40] === '@'
     && !s6mod.hqWalk(s6mod.hqCellPos(24, 34).x, s6mod.hqCellPos(24, 34).z, 0)
@@ -7491,9 +7682,9 @@ T('S6 HQ PINTU RUSAK: sel `@` benar-benar PEJAL, bukan sekadar prop',
     // Tak satu pun spawn AWAL boleh di safe area (legenda user), tapi gelombang
     // purge SENGAJA memakainya.
     const officeInSafe = s6mod.HQ_ENCOUNTER_POINTS.office
-        .some(([c, r]) => 'AS'.includes(s6mod.HQ_MAP[r][c]));
+        .some(([c, r]) => 'ASY'.includes(s6mod.HQ_MAP[r][c]));
     const purgeInSafe = s6mod.HQ_ENCOUNTER_POINTS.purge
-        .filter(([c, r]) => s6mod.HQ_MAP[r][c] === 'A').length;
+        .filter(([c, r]) => 'AY'.includes(s6mod.HQ_MAP[r][c])).length;
     T('S6 HQ PENEMPATAN: semua titik bebas blocker; spawn awal di luar SA, gelombang purge memakainya',
         ok && !officeInSafe && purgeInSafe >= 4
         && s6HqWorld.supplies.length === 15 && s6HqWorld.crates.length === 5);
@@ -8069,10 +8260,10 @@ T('S7 FINISH LTV: GRD LTV-45 berada di sisi kiri arah timur-ke-barat, bukan medi
 //     permintaan user: "buat agar suasananya lebih terasa malam, ini masih
 //     terlalu terang" dan "beri banyak bangunan seperti gedung, rumah, toko,
 //     sekolah, taman ... INI ADALAH KOTA BANDUNG, PUSAT KOTA BANDUNG"). ---
-const s7CityMod = await import(R('src/scenes/campaign/stages/stage7City.js'));
+const s7CityMod = await import(R('src/scenes/campaign/stages/stage7/stage7City.js'));
 const s7LightMod = await import(R('src/world/lighting.js'));
 const s7City = s7mod.stage7CityDebug();
-const s7CitySrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage7City.js', 'utf8');
+const s7CitySrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage7/stage7City.js', 'utf8');
 const S7_CITY_TYPES = ['ruko', 'kampung', 'pasar', 'sekolah', 'taman', 'gedung',
     'alunAlun', 'braga', 'gedungSate'];
 T(`S7 KOTA: pusat kota Bandung berdiri di kedua sisi flyover [${s7City.districts.length} distrik, ${s7City.raw} mesh mentah]`,
@@ -8464,7 +8655,7 @@ T('S7 PASTEUR: ujung barat mengaktifkan tepat tiga factory',
         && m.hatch.y === s7Fly.toll.y
         && m.landings.every(p => p.y === s7Fly.toll.y)));
 
-const s7FactorySource = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage7.js', 'utf8');
+const s7FactorySource = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage7/index.js', 'utf8');
 T('S7 FACTORY RIG: tiga shared hero rig detail, solid/nav-baked, tanpa boss',
     s7World.spawnMachines.length === 3
     && s7World.spawnMachines.every(m => m.meshes >= 60 && m.nonBox >= 20
@@ -9037,7 +9228,7 @@ T('save: enter stage 1 menulis checkpoint 1', saveMod.loadCampaignStage() === 1)
 // Konsistensi loading antar-stage (2026-07-16): stage1.enter mem-pre-build SEMUA
 // dunia campaign (ensureWorld stage 3/4/5/6/7/8 di dalam guard `built`-nya) sehingga
 // LOADING #2 transisi mana pun tak lagi menanggung build+compile lazy.
-const s1PrebuildSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage1.js', 'utf8');
+const s1PrebuildSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage1/index.js', 'utf8');
 T('campaign: dunia stage 3/4/5/6/7/8 PRE-BUILT saat campaign dimulai (loading konsisten)',
     s3mod.worldBuilt() && s4mod.worldBuilt() && s5mod.worldBuilt() && s6mod.worldBuilt()
     && s7mod.worldBuilt() && s8mod.worldBuilt()
@@ -9528,7 +9719,7 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
 // Stage 1. Semua timing dari CFG.campaign.intro; stage1.enter di-spy. ---
 {
     const introMod = await import(R('src/scenes/campaign/cutscenes/intro.js'));
-    const s1mod = await import(R('src/scenes/campaign/stages/stage1.js'));
+    const s1mod = await import(R('src/scenes/campaign/stages/stage1/index.js'));
     const I = cfgMod.CFG.campaign.intro;
     const realS1Enter = s1mod.stage1Scene.enter;
     let s1entered = false;
@@ -10155,11 +10346,11 @@ const palMod = await import(R('src/world/palette.js'));
     // kunci HP per stage di gameplay.json, dan pembacanya cuma `spawnMachineHp`.
     {
         const C = cfgMod.CFG.campaign;
-        const readers = ['src/scenes/campaign/stages/stage3.js',
+        const readers = ['src/scenes/campaign/stages/stage3/index.js',
             'src/scenes/campaign/stages/stage5/station.js',
             'src/scenes/campaign/stages/stage6/world.js',
             'src/scenes/campaign/stages/stage6/hqWorld.js',
-            'src/scenes/campaign/stages/stage7.js']
+            'src/scenes/campaign/stages/stage7/index.js']
             .map(f => fs.readFileSync(ROOT + '/' + f, 'utf8'));
         T('spawn machine: HP tunggal config-driven dipakai SEMUA stage',
             typeof C.spawnMachine.hp === 'number' && C.spawnMachine.hp > 0
@@ -10540,9 +10731,9 @@ const palMod = await import(R('src/world/palette.js'));
     stateMod.drops.length = 0; stateMod.bullets.length = 0;
 
     // ---- (c) penempatan peti + perabot per stage ----
-    const s1c = await import(R('src/scenes/campaign/stages/stage1.js'));
-    const s2c = await import(R('src/scenes/campaign/stages/stage2.js'));
-    const s3c = await import(R('src/scenes/campaign/stages/stage3.js'));
+    const s1c = await import(R('src/scenes/campaign/stages/stage1/index.js'));
+    const s2c = await import(R('src/scenes/campaign/stages/stage2/index.js'));
+    const s3c = await import(R('src/scenes/campaign/stages/stage3/index.js'));
 
     const posOf = (placeFn) => { crateMod.resetCrates(); placeFn(); const a = crateMod.crates.map(k => ({ x: k.x, z: k.z })); return a; };
     const s1CratePos = posOf(s1c.placeCrates);
@@ -10557,6 +10748,15 @@ const palMod = await import(R('src/world/palette.js'));
     T('peti: SETIAP ruangan stage 1 memuat minimal satu peti', covers(s1c.s1LampsDbg(), s1CratePos));
     T('peti: SETIAP ruangan stage 2 memuat minimal satu peti', covers(s2c.s2LampsDbg(), s2CratePos));
     T('peti: SETIAP ruangan stage 3 memuat minimal satu peti', covers(s3c.s3LampsDbg(), s3CratePos));
+
+    // MEKANISME "MATI LAMPU" DIHAPUS (2026-08-11, permintaan user): stage 2 & 3
+    // ikut stage 1 — lampu ruangan menyala penuh, tanpa on/k/shroud/doors.
+    const allLit = (lamps) => lamps.length >= 10
+        && lamps.every(l => l.L.intensity === l.base && l.base > 0)
+        && lamps.every(l => l.on === undefined && l.k === undefined
+            && l.shroud === undefined && l.doors === undefined);
+    T('LAMPU: semua lampu ruangan stage 2 MENYALA PENUH sejak dibangun', allLit(s2c.s2LampsDbg()));
+    T('LAMPU: semua lampu ruangan stage 3 MENYALA PENUH sejak dibangun', allLit(s3c.s3LampsDbg()));
 
     // (c2) Tiap peti berdiri di LANTAI & tak tertanam di furnitur (kalau tertanam,
     //      peti mustahil didekati/dipecah).
@@ -10751,11 +10951,11 @@ const palMod = await import(R('src/world/palette.js'));
 
     // (c11) tiap stage benar-benar MENGALIRKAN perabotnya lewat batch (bukan
     //       scene.add langsung) — kalau wiring-nya putus, daftar ini kosong.
-    const s4c = await import(R('src/scenes/campaign/stages/stage4.js'));
+    const s4c = await import(R('src/scenes/campaign/stages/stage4/index.js'));
     const s5c2 = await import(R('src/scenes/campaign/stages/stage5/index.js'));
     const s6c2 = await import(R('src/scenes/campaign/stages/stage6/index.js'));
-    const s7c2 = await import(R('src/scenes/campaign/stages/stage7.js'));
-    const s8c2 = await import(R('src/scenes/campaign/stages/stage8.js'));
+    const s7c2 = await import(R('src/scenes/campaign/stages/stage7/index.js'));
+    const s8c2 = await import(R('src/scenes/campaign/stages/stage8/index.js'));
     T('meshBatch: perabot stage 1/2/3/4/5/6/7/8 melewati addMergedStatic (batch terisi)',
         s1c.s1StaticBatchDbg().length > 0 && s2c.s2StaticBatchDbg().length > 0
         && s3c.s3StaticBatchDbg().length > 0 && s4c.s4StaticBatchDbg().length > 0
@@ -10850,12 +11050,12 @@ const palMod = await import(R('src/world/palette.js'));
     //     mencarinya sendiri) — sapu string user-facing di semua scene campaign.
     const DIRW = /\b(north|south|east|west|far-right|far-left|top-left|top-right|bottom-left|bottom-right)\b/i;
     const dirHits = [];
-    for (const f of ['stage1.js', 'stage2.js', 'stage3.js', 'stage4.js',
+    for (const f of ['stage1/index.js', 'stage2/index.js', 'stage3/index.js', 'stage4/index.js',
         'stage5/index.js', 'stage5/world.js', 'stage5/runtime.js', 'stage5/station.js',
         'stage5/journey.js',
         'stage6/index.js', 'stage6/world.js', 'stage6/runtime.js',
         'stage6/arrival.js', 'stage6/hqWorld.js', 'stage6/hq.js',
-        'stage7.js', 'stage8.js']) {
+        'stage7/index.js', 'stage8/index.js']) {
         const src = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/' + f, 'utf8');
         for (const line of src.split('\n')) {
             const isMsg = line.includes('showStageMsg(') || line.includes('showPickup(') || (line.includes('return') && line.includes('FLOOR'));
@@ -10864,6 +11064,24 @@ const palMod = await import(R('src/world/palette.js'));
     }
     if (dirHits.length) console.log('  dir-hits:', dirHits);
     T('teks misi: tanpa penunjuk arah (north/south/east/west/far-right/...)', dirHits.length === 0);
+}
+
+// === STAGE 5-8 TANPA PAPAN PENUNJUK TEMPAT (2026-08-11, permintaan user). ===
+{
+    const signSources = [
+        'src/entities/train.js',
+        'src/scenes/campaign/stages/stage6/world.js',
+        'src/scenes/campaign/stages/stage6/hqWorld.js',
+        'src/scenes/campaign/stages/stage7/index.js',
+        'src/scenes/campaign/stages/stage8/index.js',
+    ].map(f => fs.readFileSync(ROOT + '/' + f, 'utf8')).join('\n');
+    const citySource = fs.readFileSync(
+        ROOT + '/src/scenes/campaign/stages/stage7/stage7City.js', 'utf8');
+    T('S5-8 PAPAN TEMPAT: texture/mesh papan nama dan penunjuk lokasi seluruhnya dihapus',
+        !/signTexture\s*\(/.test(signSources)
+        && !/BANDUNG LOGISTICS TERMINAL|EMERGENCY POWER HALL|BANDUNG HEADQUARTERS/.test(signSources)
+        && !/flyover-name-sign|tollSign|gantrySign|eastSign/.test(signSources)
+        && !/bx\(put,\s*M\.sign/.test(citySource));
 }
 
 // === GARIS TEMBAK != GARIS JALAN untuk robot PENEMBAK B/A (bugfix 2026-07-27,
@@ -10911,6 +11129,57 @@ const palMod = await import(R('src/world/palette.js'));
     comMod3.campaignRobotAI(zR4, 0.016, 1, { walkable: () => true, resolve: () => { }, nav: grid });
     T('penembak stage outdoor (tanpa hook los): garis tembak bebas -> diam menembak',
         zR4.losOK === true && zR4.moving === false);
+
+    // (a2) Pintu/dinding memutus seluruh grid: A/B tetap terbangun untuk mencari
+    // sudut, tetapi karena A* benar-benar gagal mereka tidak mendorong penghalang.
+    // State tetap chasing + navIdle supaya repath terus berjalan dan rig memakai
+    // animasi idle kelasnya. Begitu gerbang dibuka, keduanya pulih otomatis.
+    const seekD = Math.max(30,
+        cfgMod.CFG.campaign.activateMeters * cfgMod.CAMP_M * 0.5);
+    const seekCell = 10, seekX0 = -40, seekRows = 20;
+    const seekCols = Math.ceil((seekD + 80) / seekCell);
+    const seekGrid = pfMod.makeNavGrid(seekX0, -seekRows * seekCell / 2,
+        seekCell, seekCols, seekRows, () => true);
+    const gateX = seekD * 0.5;
+    let gateOpen = false;
+    const seekStage = {
+        walkable: () => true, resolve: () => { }, nav: seekGrid,
+        los: () => gateOpen,
+        pathWalkable: (x) => gateOpen || Math.abs(x - gateX) > seekCell * 1.1,
+    };
+    const seekers = ['A', 'B'].map(cls => {
+        const z = mkBot(cls, seekD, 0);
+        z.speed = 1; z.state = 'idle';
+        return z;
+    });
+    camera.position.set(0, cfgMod.CFG.player.eyeHeight, 0);
+    const blockedSeekers = seekers.every(z => {
+        const x0 = z.mesh.position.x, z0 = z.mesh.position.z;
+        comMod3.campaignRobotAI(z, 0.016, 1, seekStage);
+        robotsMod.animateRobotRig(z, 0.1);
+        return z.state === 'chasing' && z.navIdle && !z.moving && !z.aiming
+            && z.idleInit === 1
+            && z.mesh.position.x === x0 && z.mesh.position.z === z0;
+    });
+    T('A/B NO PATH: diam di tempat dengan animasi idle, bukan mendorong pintu/dinding',
+        blockedSeekers);
+
+    const zNoPathC = mkBot('C', seekD, 0);
+    zNoPathC.speed = 1; zNoPathC.state = 'chasing';
+    const cX0 = zNoPathC.mesh.position.x;
+    comMod3.campaignRobotAI(zNoPathC, 0.016, 1, seekStage);
+    robotsMod.animateRobotRig(zNoPathC, 0.1);
+    T('robot melee NO PATH mengikuti aturan sama: posisi beku tetapi rig idle hidup',
+        zNoPathC.navIdle && !zNoPathC.moving && zNoPathC.idleInit === 1
+        && zNoPathC.mesh.position.x === cX0);
+
+    gateOpen = true;
+    const resumedSeekers = seekers.every(z => {
+        comMod3.campaignRobotAI(z, 0.016, 1, seekStage);
+        return !z.navIdle && (z.moving || z.aiming);
+    });
+    T('A/B PATH PULIH: pintu/jalur terbuka membuat robot kembali mengejar atau membidik',
+        resumedSeekers);
     while (robots.length) robots.pop();
 
     // (b) SURVIVAL — penghalang peluru HANYA siluet Monas (pohon/bak menembus).
@@ -11053,29 +11322,28 @@ const palMod = await import(R('src/world/palette.js'));
     T('PINTU SFX: siklus berikutnya berbunyi lagi — bukan hanya sekali per pintu',
         doorsMod.doorSfxDebug().open === 2);
 
-    // Akar 2: integrator pintu Stage 5/6 harus MENDARAT PERSIS di target. Bentuk
-    // lama (`dir = target > open ? 1 : -1`, tak pernah nol) membuat pintu terbuka
-    // penuh bergetar 0.965<->1 tiap frame — panelnya bergidik DAN itulah yang
-    // memicu banjir audio di atas.
+    // Akar 2: integrator pintu Stage 5/6 memakai helper standar Stage 1.
+    // Helper itu mendarat persis di target; bentuk lama (`dir = target > open
+    // ? 1 : -1`) membuat pintu penuh bergetar 0.965<->1 tiap frame.
     {
-        const settle = (src, per) => {
-            const m = src.match(new RegExp('d\\.open = d\\.open < d\\.target[\\s\\S]{0,160}?;'));
-            return !!m && !/const dir = d\.target > d\.open/.test(src) && src.includes(per);
+        const settle = src => {
+            return src.includes('updateDoorMotion(d, dt, d.target)')
+                && !/const dir = d\.target > d\.open/.test(src);
         };
         T('PINTU: integrator stage 5/6 mendarat persis di target, tidak bergetar tiap frame',
-            settle(srcOf('src/scenes/campaign/stages/stage5/world.js'), 'dt / 0.48')
-            && settle(srcOf('src/scenes/campaign/stages/stage6/world.js'), 'dt / 0.5')
-            && settle(srcOf('src/scenes/campaign/stages/stage6/hqWorld.js'), 'dt / 0.5'));
+            settle(srcOf('src/scenes/campaign/stages/stage5/world.js'))
+            && settle(srcOf('src/scenes/campaign/stages/stage6/world.js'))
+            && settle(srcOf('src/scenes/campaign/stages/stage6/hqWorld.js')));
     }
 
     const splitWired = [
-        'src/scenes/campaign/stages/stage3.js',
+        'src/scenes/campaign/stages/stage3/index.js',
         'src/scenes/campaign/stages/stage5/world.js',
         'src/scenes/campaign/stages/stage6/world.js',
         'src/scenes/campaign/stages/stage6/hqWorld.js',
     ];
     T('PINTU VISUAL: blast/exit Stage 3, stasiun Stage 5, dan Stage 6 memakai rig dua-daun bersama',
-        splitWired.every(f => srcOf(f).includes('setSplitDoorOpen'))
+        splitWired.every(f => srcOf(f).includes('buildSplitDoor'))
         && srcOf('src/scenes/campaign/utility/doors.js').includes('buildSplitDoor(scene'));
     // Karena rig-nya satu, aturan "10% daun tetap tampak" berlaku SERENTAK di
     // semua stage — tak ada stage yang boleh menghitung offset daunnya sendiri.
@@ -11091,10 +11359,10 @@ const palMod = await import(R('src/world/palette.js'));
     // ada modul lain yang boleh memutar klip pintu sendiri.
     const wired = [
         ['src/scenes/campaign/utility/doors.js', 'doorMotionSFX(dr, prev'],
-        ['src/scenes/campaign/stages/stage5/world.js', 'doorMotionSFX(d, prev'],
-        ['src/scenes/campaign/stages/stage6/world.js', 'doorMotionSFX(d, prev'],
-        ['src/scenes/campaign/stages/stage6/hqWorld.js', 'doorMotionSFX(d, prev'],
-        ['src/scenes/campaign/stages/stage3.js', 'playDoorSFX(true'],
+        ['src/scenes/campaign/stages/stage5/world.js', 'updateDoorMotion(d, dt, d.target'],
+        ['src/scenes/campaign/stages/stage6/world.js', 'updateDoorMotion(d, dt, d.target'],
+        ['src/scenes/campaign/stages/stage6/hqWorld.js', 'updateDoorMotion(d, dt, d.target'],
+        ['src/scenes/campaign/stages/stage3/index.js', 'playDoorSFX(true'],
     ];
     const walkSrc = (dir, out = []) => {
         for (const e of fs.readdirSync(ROOT + '/' + dir, { withFileTypes: true })) {
@@ -11315,7 +11583,7 @@ const palMod = await import(R('src/world/palette.js'));
 // tak boleh menyebutnya lagi dalam bentuk apa pun. ===
 {
     const vehFiles = ['src/entities/tacticalVehicle.js', 'src/entities/enemyPickup.js',
-        'src/scenes/campaign/stages/stage7.js', 'src/scenes/campaign/stages/stage8.js'];
+        'src/scenes/campaign/stages/stage7/index.js', 'src/scenes/campaign/stages/stage8/index.js'];
     const vehSrc = vehFiles.map(f => fs.readFileSync(ROOT + '/' + f, 'utf8'));
     const bleed = vehFiles.filter((f, i) => /garuda/i.test(vehSrc[i]));
     T('kendaraan: NOL sisa nama AI musuh di file kendaraan/stage 7/stage 8'

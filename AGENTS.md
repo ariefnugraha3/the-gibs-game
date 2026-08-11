@@ -1,10 +1,20 @@
 # AGENTS
 
+**Enemy bullet door fix (2026-08-11):** `entities/robots.js` preflights every A/B robot shot through `activeScene.bulletBlocked()` at the muzzle and along body→muzzle before adding it to `enemyBullets`. This closes the spawn-frame gap that let robots pressed against closed Stage 5/6 doors fire from the far side of the door. Keep the normal per-frame sweep too.
+
+**Robot no-path/line-of-fire update (2026-08-11):** campaign A/B robots use the stage bullet LOS predicate, path around walls or closed doors to obtain a clear shot, and never fall back to walking straight into an unreachable target. `navAim()` returns `reachable:false` when A* has no route; `campaignRobotAI()` then sets `navIdle` so the robot stays exactly in place while `animateRobotIdle()` continues. Closed leaves are dynamic A* obstacles through `doorsWalkable()`; repath continues and chase/aim resumes automatically when LOS or a route returns. The same no-path idle rule applies to melee campaign robots.
+
+**Stage 5-8 location-sign removal (2026-08-11):** these stages contain no place-name, destination, wayfinding, gantry, terminal-name, airport-name, billboard, shop-name, or landmark-plaque boards. Keep gameplay floor markers, terminal screens, traffic signals, and door-status jamb lights; those are controls/status, not location signage.
+
+**Stage 6 HQ map revision (2026-08-11):** `hqWorld.js` uses the exact 50×50 HQ layout supplied by the user. `+` is the locked server-access door released by hacking `X`; `Y` is a no-robot-spawn safe area; and both 3×3 `M` machine blocks are in their new middle-floor positions. Keep the map, `HQ_LEGEND`, machine points, safe-area checks, and Stage 6 smoke census synchronized.
+
 **Cutscene layout update (2026-08-10):** campaign-wide `prologue.js`, `prologueArt.js`, and `intro.js` remain in `src/scenes/campaign/cutscenes/`; Stage 4 controllers are in `cutscenes/stage4/`, and Stage 5 controllers are in `cutscenes/stage5/`. Stage facades own the imports from those canonical paths.
 
 **Cutscene rate update (2026-08-10):** while `cinematicActive` is true, `core/cutsceneRate.js` caps cutscene simulation ticks and rendering at 24 FPS; ordinary gameplay remains uncapped.
 
 **Door indicator update (2026-08-11):** Stage 5 station doors and both Stage 6 chapter door sets use `buildDoorSideLights()` from `campaign/utility/doors.js`, matching Stage 1's left/right jamb indicators; an accessible door is always green, while a locked/sealed door is always red; the old overhead door lamp is not used.
+
+**Campaign door standard update (2026-08-11):** Stage 1 is the behavior standard for every active split door. `doorProximityTarget()` supplies the 2.5-cell front zone and `CFG.campaign.doors.closeDelaySec` linger; `updateDoorMotion()` supplies the 0.45 s exact-settle quadratic easing; `resolveDoors()` keeps the shared `open < 0.5` solid threshold; and every bullet hook must use `doorBlocksShot()`/`doorClampShot()` against the moving leaf footprints. Never restore a fixed whole-doorway shot blocker or a per-stage timing/threshold copy: robot A/B muzzle preflight plus the normal bullet sweep must both remain intact.
 
 **Promotional-art standard update (2026-08-11):** `assets/images/low-poly/decommission-day-cover-logo-distressed-gameplay-lowpoly.png` is the current landscape visual/style master; approved low-poly portrait, banner, and transparent-logo masters live beside it under `assets/images/low-poly/`. Future promotional raster art must use gameplay-matched low-detail procedural geometry, visibly low-segment round forms, large facets, matte Lambert-like broad-color materials, sparse large clutter, and no micro-greebles, dense textures, or glossy PBR detail. Root-level images are preserved sources/layout references only; read `docs/PROMOTIONAL-ART.md` before generation or editing.
 
@@ -54,6 +64,7 @@ never re-wire it.
   robot, prop and building is procedural geometry built in code.
 - `tools/smoke.mjs` — the headless test suite (see below).
 - `package.json` — metadata only (`"type": "module"`). No dependencies.
+- Every Campaign Stage 1-8 lives in `src/scenes/campaign/stages/stageN/index.js`; companion modules stay inside that stage folder.
 
 ## Documentation map — read on demand
 
@@ -128,8 +139,25 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   lazily-revealed mesh added to `core/preload.js` warm-up.
 - **Art style "GIBS 2045"** (`src/world/palette.js`): PAL tokens only, no neon
   cyan/magenta, environment emissive ≤ 0.9 — enforced by smoke material sweeps.
+- **The player has TWO collision radii** (2026-08-11, user request): `CFG.player.propRadius` 3.5
+  (`propClearance()`) is used only for indoor FURNITURE in Stages 1-3; walls, doors, crates and
+  barrels keep `player.radius` 5. Never merge them — `player.radius` is also the robot-reach
+  reference (`reachForScale` = exactly 1.0 at radius 5) and is shared with Survival.
+- **Robots are DARK machines in a TIERED METAL palette** (2026-08-11, two user requests —
+  the old colors "looked like a clown", then green/yellow/red became metal tiers):
+  `CLASS_LOOK` (exported from `robots.js`) is **C dark BRONZE / B dark SILVER / A dark GOLD**;
+  the frame is `PAL.gunmetal` instead of the bright `PAL.steel`; the emissive core is a vivid
+  version of the same metal because it carries class identity once the plates are dark;
+  `EYE_RED` and the boss plate are untouched. Silver has no hue — its identity is being
+  LIGHTER than both the other plates and the frame, so never darken B "to match". No robot
+  surface may exceed HSL lightness 0.35.
 - **All user-facing UI text is ENGLISH** (permanent user rule); code comments are
   Indonesian.
+- **Stage 1–3 room lights are ALWAYS ON** (2026-08-11, user request): the "lights-out"
+  mechanic is gone — every room PointLight is built at full intensity and never animated,
+  with no `on`/`k` state, no `lm.doors` link, no black room `shroud`, and no central-hall
+  flicker (`updateRoomLamps`/`resetRoomLamps` and `setS1FlickerLight` are deleted). The
+  `sNLamps` lists survive only as room-rect data; the light count is unchanged.
 - **Every spoken-dialogue box uses a character-by-character typewriter reveal**;
   speaker labels may appear immediately, while speed and full-text hold are config-driven.
   Narration captions and short HUD/status messages are not dialogue boxes.
@@ -227,8 +255,11 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   blast and exit doors, stage 5 station doors, both stage 6 chapters. No stage computes its own
   leaf offset. Leaf travel is `leafSpan × (1 − DOOR_OPEN_REVEAL)` with `DOOR_OPEN_REVEAL` = 0.1
   (2026-08-08 user request), so a fully open door keeps 10% of each leaf visible instead of
-  vanishing into the wall; the effective gap is 10% narrower on purpose. The same offset helper
-  feeds the stage 1-3 bullet slab test, so the visible sliver actually stops edge shots.
+  vanishing into the wall; the effective gap is 10% narrower on purpose. Stage 1 is the behavior
+  standard: every active door uses `doorProximityTarget()` (2.5-cell front zone + configured close
+  linger), `updateDoorMotion()` (0.45 s exact-settle quadratic easing), `resolveDoors()` (`open <
+  0.5` solid threshold), and the same moving-leaf shot sweep/clamp. The visible leaf footprint
+  and bullet blocker therefore stay synchronized in Stage 1, Stage 5, and both Stage 6 chapters.
 - Every door in every stage shares one pair of clips (2026-08-07 user request):
   `door-open.mp3` when the leaf starts opening, `door-closed.mp3` when it lands shut,
   triggered ONLY through `playDoorSFX`/`doorMotionSFX` in `campaign/utility/doors.js`
@@ -247,8 +278,8 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   `buildSplitDoor`/`setSplitDoorOpen` in `campaign/utility/doors.js` move both leaves
   symmetrically left/right along the wall. Never make an active door sink into the floor or
   rise into the ceiling. This covers Stage 1-3 automatic doors, Stage 3 blast + exit doors,
-  Stage 5 station doors, and both Stage 6 chapters; Stage 1-3 bullet sweeps follow the two
-  moving leaf footprints. Broken/jammed doors and road bollards remain static barriers.
+  Stage 5 station doors, and both Stage 6 chapters; every active door's bullet sweep follows the
+  two moving leaf footprints. Broken/jammed doors and road bollards remain static barriers.
 - Stage 5 ROLLING STOCK + JOURNEY GAMELOOP (2026-08-07 user rework). The train body is
   EXACTLY 4 m wide (`TRAIN_CAR_WIDTH = 4×CAMP_M`); length/height derive from that width with
   real proportions (16.5 m × 3.9 m), and 16.5 m is 7 CSV cells so car/locomotive land on
@@ -550,9 +581,11 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   then arrival.js (Bandung station) -> hq.js (Bandung Headquarters), each with its own world
   module at a separate origin (x~210000 / x~216000, farther apart than camera.far). Chapters
   are sub-scenes on the normal hook contract but never touch core/sceneManager; enterSub() is
-  the only switch path: cut to black, then fade in over chapterFadeSec on the next frame.
+  the only switch path. Arrival -> HQ switches on the trigger frame with no handoff dialogue,
+  cutscene, input freeze, or fade; queued Arrival dialogue is flushed before HQ enters.
   Both worlds register lamps under the single lightsKey 'campaign-6' and stay lit together,
   because toggling per chapter would change the point-light count mid-stage.
+- Stage 5/6 wall shells use `campaign/utility/wallDetail.js`: exposed faces receive batched inset panels, plinths, seams, ribs and deterministic service accents. Stage 5 freight furniture and both Stage 6 chapters keep their added structural dressing; these meshes are visual/static-batched and must not change map/nav footprints.
 - Stage 6 BACKGROUND = CITY, like Stage 5 (2026-08-10 user request; it used to show the global
   burning-vortex dome). enter() calls enterCityEnv(), not exitCityEnv(). Hiding the dome alone
   would only swap a strange sky for an empty one, so EACH chapter builds its own
@@ -640,11 +673,11 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   spray, coolant decals. Floors are not always y=0 — Stage 7's deck descends 12 m. Resolve the height
   once per burst, and pass it in when the caller already knows the surface (corpse/gib `restY`).
 - The Stage 7 world continues `flyover.beyondTollMeters` (150 m) past the Pasteur gate — road, markings,
-  rails, exit islands, a gantry sign, decor lamps, stalled cars and city ground — so no world edge is ever
+  rails, exit islands, a bare gantry frame, decor lamps, stalled cars and city ground — so no world edge is ever
   visible; the outro cutscene's camera follows the vehicle through the gate, so it is genuinely seen. The
   player lock is unchanged: `stage7Walk` still ends at meter 1500 and the continuation adds zero blockers,
   with its lamps kept out of `lampSpecs` so the 14 PointLights stay on the played route.
-- Stage 7's ground backdrop is central Bandung (`stage7City.js`): ruko, kampung houses, markets,
+- Stage 7's ground backdrop is central Bandung (`stage7/stage7City.js`): ruko, kampung houses, markets,
   schools, parks, mid-rise blocks, an alun-alun with a domed mosque and minarets, Braga art-deco
   rows and Gedung Sate at meter 700. It is pure decor (no blockers, nav cells or PointLights). It
   is a top-down game, so the backdrop is GROUND, not sky: the top of the screen is the farthest

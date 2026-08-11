@@ -7,8 +7,8 @@
 // terbatas -> menikung mulus).
 // Semua status per-robot hidup di objek robot (z.nav*); scratch A* dipakai
 // BERSAMA antar grid (pencarian selalu sinkron, tidak pernah paralel).
-// Gagal mencari jalan (target terputus / budget habis) = fallback kejar lurus,
-// yang berperilaku persis seperti sebelum sistem ini ada.
+// Gagal mencari jalan (target terputus / budget habis) = reachable:false;
+// pemanggil menghentikan robot dalam animasi idle sampai pencarian berikutnya.
 
 import { CFG } from '../core/config.js';
 
@@ -31,37 +31,47 @@ function cellWalk(g, c, r) {
     return c >= 0 && r >= 0 && c < g.cols && r < g.rows && g.walk[r * g.cols + c] === 1;
 }
 
+// Hambatan dinamis (terutama daun pintu) tidak ikut bake grid. `extra` adalah
+// predikat dunia (x,z,radius)->bool yang diuji di pusat node A*.
+function nodeWalk(g, c, r, extra) {
+    if (!cellWalk(g, c, r)) return false;
+    if (!extra) return true;
+    return extra(g.x0 + (c + 0.5) * g.cell,
+        g.z0 + (r + 0.5) * g.cell, ZR);
+}
+
 // Lingkaran (x,z,rad) sepenuhnya menimpa sel walkable?
-function circleFree(g, x, z, rad) {
+function circleFree(g, x, z, rad, extra) {
     const c0 = Math.floor((x - rad - g.x0) / g.cell), c1 = Math.floor((x + rad - g.x0) / g.cell);
     const r0 = Math.floor((z - rad - g.z0) / g.cell), r1 = Math.floor((z + rad - g.z0) / g.cell);
     for (let r = r0; r <= r1; r++)
         for (let c = c0; c <= c1; c++)
             if (!cellWalk(g, c, r)) return false;
+    if (extra && !extra(x, z, rad)) return false;
     return true;
 }
 
 // Garis-pandang grid setebal badan robot (sampling ~setengah sel).
-export function gridLOS(g, x1, z1, x2, z2, rad = ZR) {
+export function gridLOS(g, x1, z1, x2, z2, rad = ZR, extra = null) {
     const dx = x2 - x1, dz = z2 - z1;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / (g.cell * 0.45)));
     for (let i = 1; i <= steps; i++) {
         const t = i / steps;
-        if (!circleFree(g, x1 + dx * t, z1 + dz * t, rad)) return false;
+        if (!circleFree(g, x1 + dx * t, z1 + dz * t, rad, extra)) return false;
     }
     return true;
 }
 
 // Sel walkable terdekat dari titik dunia (spiral cincin; utk titik yang jatuh
 // di sel penghalang, mis. player berdiri di atas furnitur/median).
-function snapCell(g, x, z, maxRing = 6) {
+function snapCell(g, x, z, maxRing = 6, extra = null) {
     const c = Math.floor((x - g.x0) / g.cell), r = Math.floor((z - g.z0) / g.cell);
-    if (cellWalk(g, c, r)) return { c, r };
+    if (nodeWalk(g, c, r, extra)) return { c, r };
     for (let ring = 1; ring <= maxRing; ring++)
         for (let dr = -ring; dr <= ring; dr++)
             for (let dc = -ring; dc <= ring; dc++) {
                 if (Math.max(Math.abs(dc), Math.abs(dr)) !== ring) continue;
-                if (cellWalk(g, c + dc, r + dr)) return { c: c + dc, r: r + dr };
+                if (nodeWalk(g, c + dc, r + dr, extra)) return { c: c + dc, r: r + dr };
             }
     return null;
 }
@@ -112,8 +122,8 @@ function hpop(S) {
 // ----------- A* ----------- //
 // 8-arah, diagonal dilarang memotong sudut dinding. Return array waypoint
 // dunia yang SUDAH dihaluskan (string-pulling), atau null bila tak tercapai.
-export function findPath(g, sx, sz, tx, tz) {
-    const a = snapCell(g, sx, sz), b = snapCell(g, tx, tz);
+export function findPath(g, sx, sz, tx, tz, extra = null) {
+    const a = snapCell(g, sx, sz, 6, extra), b = snapCell(g, tx, tz, 6, extra);
     if (!a || !b) return null;
     const cols = g.cols;
     const start = a.r * cols + a.c, goal = b.r * cols + b.c;
@@ -141,9 +151,10 @@ export function findPath(g, sx, sz, tx, tz) {
             for (let dc = -1; dc <= 1; dc++) {
                 if (dc === 0 && dr === 0) continue;
                 const nc = cc + dc, nr = cr + dr;
-                if (!cellWalk(g, nc, nr)) continue;
+                if (!nodeWalk(g, nc, nr, extra)) continue;
                 if (dc !== 0 && dr !== 0 &&
-                    (!cellWalk(g, cc + dc, cr) || !cellWalk(g, cc, cr + dr))) continue;
+                    (!nodeWalk(g, cc + dc, cr, extra)
+                        || !nodeWalk(g, cc, cr + dr, extra))) continue;
                 const ni = nr * cols + nc;
                 if (S.stamp[ni] === gen && S.closed[ni] === 1) continue;
                 const ng = S.g[cur] + (dc !== 0 && dr !== 0 ? DIAG : D);
@@ -166,18 +177,18 @@ export function findPath(g, sx, sz, tx, tz) {
         x: g.x0 + ((i % cols) + 0.5) * g.cell,
         z: g.z0 + (((i / cols) | 0) + 0.5) * g.cell,
     });
-    return smooth(g, sx, sz, pts);
+    return smooth(g, sx, sz, pts, extra);
 }
 
 // String-pulling: ganti deretan pusat sel dgn titik belok seminimal mungkin
 // (jendela maju dibatasi agar biaya tetap linear).
-function smooth(g, sx, sz, pts) {
+function smooth(g, sx, sz, pts, extra) {
     const out = [];
     let cx = sx, cz = sz, i = 0;
     while (i < pts.length) {
         let best = i;
         for (let j = Math.min(pts.length - 1, i + 24); j > i; j--)
-            if (gridLOS(g, cx, cz, pts[j].x, pts[j].z)) { best = j; break; }
+            if (gridLOS(g, cx, cz, pts[j].x, pts[j].z, ZR, extra)) { best = j; break; }
         out.push(pts[best]);
         cx = pts[best].x; cz = pts[best].z;
         i = best + 1;
@@ -186,18 +197,19 @@ function smooth(g, sx, sz, pts) {
 }
 
 // ----------- Steering per-robot ----------- //
-const _aim = { x: 0, z: 0, direct: true };   // objek bersama — baca langsung, jangan disimpan
+const _aim = { x: 0, z: 0, direct: true, reachable: true }; // objek bersama — baca langsung, jangan disimpan
 
 // Titik tuju frame ini utk robot z yang mengejar (tx,tz). Return _aim:
-//   direct=true  -> garis lurus ke target bebas (atau pathfinder nonaktif/gagal);
+//   direct=true  -> garis lurus ke target bebas (atau pathfinder nonaktif);
 //   direct=false -> (x,z) = waypoint path.
+//   reachable=false -> garis tertutup dan A* belum/tidak menemukan rute.
 // LOS grid dicek TIAP frame (murah): robot langsung berbelok begitu jalurnya
 // tertutup dan langsung lurus lagi begitu player terlihat — tanpa menunggu
 // timer. Hanya findPath (mahal) yang di-rate-limit repathSec per robot;
 // macet (berniat jalan tapi perpindahan << kecepatan selama stuckSec) memaksa
 // pencarian ulang walau target dekat/terlihat.
-export function navAim(z, grid, tx, tz, dt, step) {
-    _aim.x = tx; _aim.z = tz; _aim.direct = true;
+export function navAim(z, grid, tx, tz, dt, step, extra = null) {
+    _aim.x = tx; _aim.z = tz; _aim.direct = true; _aim.reachable = true;
     if (!grid) return _aim;
     const zx = z.mesh.position.x, zz = z.mesh.position.z;
 
@@ -212,24 +224,37 @@ export function navAim(z, grid, tx, tz, dt, step) {
 
     const stuck = (z.navStuck || 0) >= CFG.robot.stuckSec;
     if (!stuck) {
-        // Sangat dekat dgn target: selalu lurus (jangkauan berhenti/cakar)
-        if (Math.hypot(tx - zx, tz - zz) < grid.cell * 1.6) { z.navPath = null; return _aim; }
         // Terlihat lurus: buang path, kejar langsung
-        if (gridLOS(grid, zx, zz, tx, tz)) { z.navPath = null; return _aim; }
+        if (gridLOS(grid, zx, zz, tx, tz, ZR, extra)) {
+            z.navPath = null; z.navFailed = false; return _aim;
+        }
+    }
+
+    // Pintu dapat menutup setelah path dibuat. Jangan terus mengikuti waypoint
+    // yang kini terpotong daun pintu; batalkan dan cari ulang pada frame ini.
+    if (z.navPath && z.navI < z.navPath.length) {
+        const wp = z.navPath[z.navI];
+        if (!gridLOS(grid, zx, zz, wp.x, wp.z, ZR, extra)) {
+            z.navPath = null; z.navT = 0;
+        }
     }
 
     // Terhalang: pastikan punya path segar (findPath di-rate-limit navT)
     const needNew = !z.navPath || stuck ||
         Math.hypot(tx - z.navGX, tz - z.navGZ) > grid.cell * 2.5;   // target menjauhi ujung path
     if (needNew && z.navT <= 0) {
-        z.navPath = findPath(grid, zx, zz, tx, tz);
+        z.navPath = findPath(grid, zx, zz, tx, tz, extra);
         z.navI = 0;
         z.navGX = tx; z.navGZ = tz;
         z.navT = CFG.robot.repathSec * (0.75 + Math.random() * 0.5);
+        z.navFailed = !z.navPath;
         if (stuck) z.navStuck = 0;
     }
     const p = z.navPath;
-    if (!p) return _aim;   // gagal / menunggu jatah repath: lurus (fallback lama)
+    if (!p) {
+        _aim.direct = false; _aim.reachable = false;
+        return _aim;       // gagal / menunggu repath: diam, jangan dorong dinding
+    }
 
     // Maju waypoint bila tercapai, ATAU bila waypoint BERIKUTNYA sudah
     // terlihat (string-pull runtime: belok dini hanya saat aman -> menikung
@@ -237,8 +262,12 @@ export function navAim(z, grid, tx, tz, dt, step) {
     while (z.navI < p.length &&
         Math.hypot(p[z.navI].x - zx, p[z.navI].z - zz) < grid.cell * 0.75) z.navI++;
     while (z.navI < p.length - 1 &&
-        gridLOS(grid, zx, zz, p[z.navI + 1].x, p[z.navI + 1].z)) z.navI++;
-    if (z.navI >= p.length) { z.navPath = null; return _aim; }
+        gridLOS(grid, zx, zz, p[z.navI + 1].x, p[z.navI + 1].z, ZR, extra)) z.navI++;
+    if (z.navI >= p.length) {
+        z.navPath = null; z.navFailed = true;
+        _aim.direct = false; _aim.reachable = false;
+        return _aim;
+    }
     _aim.x = p[z.navI].x; _aim.z = p[z.navI].z; _aim.direct = false;
     return _aim;
 }

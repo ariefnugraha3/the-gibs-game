@@ -11,8 +11,12 @@ import { addMergedStatic } from '../../../../utils/meshBatch.js';
 import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { buildCampaignCityscape } from '../../utility/cityscape.js';
+import { buildDetailedWallCell } from '../../utility/wallDetail.js';
 import {
-    buildSplitDoor, doorMotionSFX, setDoorSideLightState, setSplitDoorOpen, splitDoorDebug,
+    buildSplitDoor, doorBlocksShot, doorClampShot, doorsWalkable,
+    doorMotionSFX, doorProximityTarget,
+    resolveDoors as resolveCampaignDoors, setDoorSideLightState, setSplitDoorOpen,
+    splitDoorDebug, updateDoorMotion,
 } from '../../utility/doors.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, spawnMachineDebug, updateSpawnMachine,
@@ -180,6 +184,7 @@ let machineBlocker = null;
 let generatorRotor = null, terminalCore = null;
 let landmarkVisual = { generatorMeshes: 0, terminalMeshes: 0, animatedParts: 0 };
 let safeFloorOverlayCount = 0, runoutX1 = 0, leadX0 = 0, fenceDbg = null;
+let wallDetailCount = 0, furnitureMeshCount = 0;
 const depotFurniture = [], platformFurniture = [];
 export let repairMarker = null, terminalMarker = null, boardMarker = null;
 const blockers = [];
@@ -275,10 +280,7 @@ function blockedAt(x, z, rad = 3.5) {
 }
 
 function resolveStationDoors(pos, radius) {
-    for (const d of stationDoors) {
-        if (d.open >= 0.74) continue;
-        resolveBlockers(pos, radius, 0, [d.blocker]);
-    }
+    resolveCampaignDoors(stationDoors, pos, radius);
 }
 
 export function resolve(pos, radius, feetY = 0) {
@@ -316,35 +318,19 @@ export function updateStationDoors(dt, platformOpen, safeOpen = false) {
     const platform = platformDoor();
     for (const d of stationDoors) {
         if (d === platform) continue;
-        d.target = d.kind === 'safe' && safeOpen ? 1
-            : (Math.hypot(camera.position.x - d.blocker.x,
-                camera.position.z - d.blocker.z) < CELL * 2.25 ? 1 : 0);
+        const forcedOpen = d.kind === 'safe' && safeOpen;
+        d.target = forcedOpen
+            ? 1 : doorProximityTarget(d, dt, camera.position.x, camera.position.z, CELL);
     }
     if (platform) {
         platform.target = platformOpen ? 1 : 0;
         platform.canOpen = !!platformOpen;
+        platform.linger = 0;
     }
     for (const d of stationDoors) {
-        // MENDARAT PERSIS di target. Bentuk lama (`dir` yang tak pernah nol)
-        // membuat pintu yang sudah terbuka penuh bergetar 0.965<->1 tiap frame:
-        // panelnya bergidik dan `open` tak pernah menetap.
-        const prev = d.open, step = dt / 0.48;
-        d.open = d.open < d.target ? Math.min(d.target, d.open + step)
-            : Math.max(d.target, d.open - step);
-        doorMotionSFX(d, prev, d.blocker.x, d.blocker.z);
-        const e = d.open * d.open * (3 - 2 * d.open);
-        setSplitDoorOpen(d.rig, e);
+        updateDoorMotion(d, dt, d.target);
         setDoorSideLightState(d.lamps, d.canOpen);
     }
-}
-
-function segHitsRect(x0, z0, x1, z1, b) {
-    const dist = Math.hypot(x1 - x0, z1 - z0), steps = Math.max(1, Math.ceil(dist / 5));
-    for (let i = 0; i <= steps; i++) {
-        const k = i / steps, x = x0 + (x1 - x0) * k, z = z0 + (z1 - z0) * k;
-        if (Math.abs(x - b.x) <= b.hx && Math.abs(z - b.z) <= b.hz) return true;
-    }
-    return false;
 }
 
 export function stage5SegHitsWall(x0, z0, x1, z1) {
@@ -357,8 +343,11 @@ export function stage5SegHitsWall(x0, z0, x1, z1) {
     return false;
 }
 
-export function stationDoorBlocks(x0, z0, x1, z1) {
-    return stationDoors.some(d => d.open < 0.74 && segHitsRect(x0, z0, x1, z1, d.blocker));
+export const stationDoorBlocks = (x0, z0, x1, z1) => doorBlocksShot(stationDoors, x0, z0, x1, z1, 0);
+export const stationDoorsWalkable = (x, z, radius = 0) => doorsWalkable(stationDoors, x, z, radius);
+
+export function stationDoorClampShot(b) {
+    return doorClampShot(stationDoors, b);
 }
 
 // --- Kereta musuh di jalur sebelah ----------------------------------------
@@ -521,10 +510,17 @@ function buildWorld() {
     // Jangan tambahkan overlay warna: safe area harus terbaca dari perilaku,
     // bukan seperti zona bercahaya yang berbeda material.
     safeFloorOverlayCount = 0;
+    wallDetailCount = 0; furnitureMeshCount = 0;
+    const isWall = (c, r) => c < 0 || c >= MAP_COLS || r < 0 || r >= MAP_ROWS
+        || S5_MAP[r][c] === '#' || S5_MAP[r][c] === '@';
     for (let r = 0; r < MAP_ROWS; r++) for (let c = 0; c < MAP_COLS; c++) {
         const token = S5_MAP[r][c], p = cellPos(c + 1, r + 1);
         if (token === '#') {
-            addStatic(CELL, WALL_H, CELL, p.x, WALL_H / 2, p.z, M.body);
+            wallDetailCount += buildDetailedWallCell(addStatic, {
+                c, r, x: p.x, z: p.z, cell: CELL, wallH: WALL_H, isWall,
+                body: M.body, panel: M.panel, steel: M.steel, ink: M.ink,
+                accent: M.hazard, accentEvery: 11,
+            });
             addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
         } else if (token === '@') {
             // Dinding berjendela: ambang + header solid, kaca sebagai mesh
@@ -565,7 +561,7 @@ function buildWorld() {
         (which === 'platform' ? platformFurniture : depotFurniture)
             .push({ kind, x: p.x, z: p.z, hx, hz, top, solid: true });
     };
-    buildStationFurniture(M, addStatic, addStaticGeo, regFurniture);
+    furnitureMeshCount = buildStationFurniture(M, addStatic, addStaticGeo, regFurniture).meshes;
     staticBatch = addMergedStatic(stationRoot, staticProps);
 
     const gen = buildGenerator(M, stationRoot, GENERATOR_OBJECT, addBlocker);
@@ -686,7 +682,8 @@ export function resetWorldVisual() {
     train.group.position.set(0, 0, 0); stationRoot.visible = true;
     setStationTrainView(true); resetBoardDoor();
     for (const d of stationDoors) {
-        d.open = 0; d.target = 0; setSplitDoorOpen(d.rig, 0);
+        d.open = 0; d.target = 0; d.linger = 0;
+        updateDoorMotion(d, 0, 0);
         d.canOpen = d.kind !== 'platform';
         setDoorSideLightState(d.lamps, d.canOpen);
     }
@@ -740,7 +737,9 @@ export const stage5WorldDebug = () => ({
     furniture: {
         depot: depotFurniture.map(p => ({ ...p })),
         platform: platformFurniture.map(p => ({ ...p })),
+        meshes: furnitureMeshCount,
     },
+    architecture: { wallDetails: wallDetailCount },
     station: {
         visible: !!stationRoot?.visible,
         x: stationRoot?.position?.x || 0, z: stationRoot?.position?.z || 0,

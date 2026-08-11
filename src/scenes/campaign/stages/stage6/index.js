@@ -4,8 +4,7 @@
 // dilihat core/sceneManager (id `campaign-6`, checkpoint 6), sementara isi stage
 // dipecah menjadi DUA CHAPTER sebagai sub-scene —
 //   arrival (stasiun Bandung, denah CSV user) -> hq (Bandung Headquarters).
-// Pergantian chapter = potong ke hitam lalu fade-in
-// `CFG.campaign.stage6.chapterFadeSec`; lihat runtime.js.
+// Pergantian Arrival -> HQ langsung pada frame pemicu; tanpa dialog/cutscene/fade.
 
 import { CFG } from '../../../../core/config.js';
 import { player } from '../../../../core/state.js';
@@ -18,7 +17,7 @@ import { applyLightPreset } from '../../../../world/lighting.js';
 import { campaignAwardKill, countStageRobots } from '../../utility/common.js';
 import { campaignJumpToStage } from '../../utility/transition.js';
 import { enterCityEnv } from '../../utility/cityscape.js';
-import { stage1Scene } from '../stage1.js';
+import { stage1Scene } from '../stage1/index.js';
 import { ensureWorld as ensureArrivalWorld, S6_START } from './world.js';
 import { ensureHqWorld } from './hqWorld.js';
 import {

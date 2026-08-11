@@ -2,56 +2,55 @@
 // GRD LTV-45 berjalan otonom; player hanya snap kiri/kanan sambil menembak.
 // Jalan/scenery bergerak dalam fixed pool, gameplay entity tetap stabil.
 
-import { CFG } from '../../../core/config.js';
-import { dialogueMap } from '../../../core/dialogue.js';
-import { player, robots, keys, setCinematicActive } from '../../../core/state.js';
+import { CFG } from '../../../../core/config.js';
+import { dialogueMap } from '../../../../core/dialogue.js';
+import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
 import {
     scene, camera, setCineFocus, addCamShake, CAM_OFF_DEFAULT,
     groundViewExtents,
-} from '../../../core/renderer.js';
+} from '../../../../core/renderer.js';
 import {
     showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
-} from '../../../core/dom.js';
-import { updateUI } from '../../../core/hud.js';
-import { releaseInputs } from '../../../core/input.js';
-import { clearMoveTarget } from '../../../entities/player.js';
+} from '../../../../core/dom.js';
+import { updateUI } from '../../../../core/hud.js';
+import { releaseInputs } from '../../../../core/input.js';
+import { clearMoveTarget } from '../../../../entities/player.js';
 import {
     avatarGroup, setAvatarVehiclePose, setAvatarRadioPose,
     avatarVehicleDebug,
-} from '../../../entities/playerAvatar.js';
-import { disposeRobot } from '../../../entities/robots.js';
-import { spawnCampaignRobot, countStageRobots } from '../utility/common.js';
-import { campaignJumpToStage } from '../utility/transition.js';
-import { saveCampaignStage } from '../../../core/saveGame.js';
-import { gameOver } from '../../../core/game.js';
-import { stage1Scene } from './stage1.js';
-import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
-import { enterCityEnv } from '../utility/cityscape.js';
-import { PAL, EMISSIVE_MAX } from '../../../world/palette.js';
-import { addMergedStatic } from '../../../utils/meshBatch.js';
-import { makeTexture } from '../../../utils/textures.js';
-import { rand, clamp, smooth01 } from '../../../utils/math.js';
-import { spawnAmmoDrop, spawnLoot } from '../../../entities/drops.js';
-import { currentWeapon } from '../../../entities/weapons.js';
+} from '../../../../entities/playerAvatar.js';
+import { disposeRobot } from '../../../../entities/robots.js';
+import { spawnCampaignRobot, countStageRobots } from '../../utility/common.js';
+import { campaignJumpToStage } from '../../utility/transition.js';
+import { saveCampaignStage } from '../../../../core/saveGame.js';
+import { gameOver } from '../../../../core/game.js';
+import { stage1Scene } from '../stage1/index.js';
+import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
+import { enterCityEnv } from '../../utility/cityscape.js';
+import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
+import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import { rand, clamp, smooth01 } from '../../../../utils/math.js';
+import { spawnAmmoDrop, spawnLoot } from '../../../../entities/drops.js';
+import { currentWeapon } from '../../../../entities/weapons.js';
 import {
     buildTacticalVehicleMesh, resetTacticalVehicleVisual,
     updateTacticalVehicleVisual, tacticalVehicleDebug,
-} from '../../../entities/tacticalVehicle.js';
+} from '../../../../entities/tacticalVehicle.js';
 import {
     buildEnemyPickupMesh, resetEnemyPickupVisual, updateEnemyPickupVisual,
     enemyPickupPassengerWorld, enemyPickupDebug,
-} from '../../../entities/enemyPickup.js';
+} from '../../../../entities/enemyPickup.js';
 import {
     createCombatGunship, resetCombatGunship, updateCombatGunship, damageCombatGunship,
     combatGunshipDebug,
-} from '../../../entities/combatGunship.js';
-import { explodeAt, spawnGroundPuff } from '../../../entities/effects.js';
-import { spawnGibs } from '../../../entities/gore.js';
+} from '../../../../entities/combatGunship.js';
+import { explodeAt, spawnGroundPuff } from '../../../../entities/effects.js';
+import { spawnGibs } from '../../../../entities/gore.js';
 import {
     playLoopSFX, stopLoopSFX, playSFX, sfxTankMove, sfxHeli,
     sfxTankExplode, startBossMusic, stopMusic,
-} from '../../../utils/sfx.js';
+} from '../../../../utils/sfx.js';
 
 const OX = 270000, OZ = 0, PLAYER_X = OX;
 const ROAD_MODULES = 20, MODULE_LEN = 84, ROAD_SPAN = ROAD_MODULES * MODULE_LEN;
@@ -98,16 +97,6 @@ function box(parent, mat, sx, sy, sz, x, y, z) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
     m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
 }
-function signTexture(title, sub) {
-    return makeTexture(512, 180, (g, w, h) => {
-        g.fillStyle = '#24272a'; g.fillRect(0, 0, w, h);
-        g.strokeStyle = '#b8893f'; g.lineWidth = 9; g.strokeRect(7, 7, w - 14, h - 14);
-        g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#e2d7be';
-        g.font = 'bold 34px monospace'; g.fillText(title, w / 2, 66);
-        g.fillStyle = '#d39b47'; g.font = '23px monospace'; g.fillText(sub, w / 2, 126);
-    });
-}
-
 function buildRoadModule(index, M) {
     const g = new THREE.Group();
     g.position.set(OX + (index - (ROAD_MODULES - 1) / 2) * MODULE_LEN, 0, OZ);
@@ -155,11 +144,6 @@ function buildRoadModule(index, M) {
         const gantryZ = railZ + 3;
         for (const z of [-gantryZ, gantryZ]) box(gantry, M.steel, 2, 32, 2, 0, 16, z);
         box(gantry, M.steel, 2, 2, gantryZ * 2 + 2, 0, 31, 0);
-        const s = new THREE.Mesh(new THREE.BoxGeometry(2, 17, laneW * 4.5),
-            new THREE.MeshBasicMaterial({ color: PAL.white,
-                map: signTexture(index === 2 ? 'CISUMDAWU' : 'KERTAJATI',
-                    index === 2 ? 'AUTONOMOUS CORRIDOR' : 'AIRPORT APPROACH'), toneMapped: false }));
-        s.position.set(0, 27, 0); s.rotation.y = Math.PI / 2; gantry.add(s);
     }
     // Landmark perjalanan ikut pool modul yang sama: tidak ada mesh baru saat
     // runtime. Bentuknya sengaja cutaway agar arena tetap terbaca top-down.
@@ -215,10 +199,6 @@ function buildAirport(M) {
         add(2, 28, 2, x, 14, z, M.steel); add(13, 1, 3, x, 28, z, M.amber);
     }
     staticBatch = addMergedStatic(airportRoot, props);
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(165, 25, 1.4),
-        new THREE.MeshBasicMaterial({ color: PAL.white,
-            map: signTexture('KERTAJATI', 'INTERNATIONAL AIRPORT'), toneMapped: false }));
-    sign.position.set(AIRPORT_X + 205, 44, -72); airportRoot.add(sign);
     // Pesawat siluet jauh untuk mengikat identitas bandara tanpa aset eksternal.
     const plane = new THREE.Group(); plane.position.set(AIRPORT_X + 170, 3, 85); airportRoot.add(plane);
     box(plane, M.white, 54, 4, 7, 0, 4, 0);

@@ -10,7 +10,7 @@
 //      tombol CONTINUE pada screen itu yang meneruskan ke Field Shop.
 //
 // Modul ini buta terhadap kondisi menang Stage 4: tank + callback akhir di-
-// inject oleh stage4.js. Semua state kamera/dialog/pose dibersihkan oleh reset().
+// inject oleh stage4/index.js. Semua state kamera/dialog/pose dibersihkan oleh reset().
 
 import { CFG } from '../../../../core/config.js';
 import { dialogueList } from '../../../../core/dialogue.js';

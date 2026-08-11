@@ -35,7 +35,7 @@ import { campaignRobotAI, campaignClampRobot, countStageRobots } from '../../uti
 import { beginStageTransition } from '../../utility/transition.js';
 import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
 import { slideWalk } from '../../../../utils/collision.js';
-import { stage7Scene } from '../stage7.js';
+import { stage7Scene } from '../stage7/index.js';
 import {
     phase, setPhase, complete, setComplete, cine, setCine, cineCam, cleanupCine,
     queueDialogue, dialogueIdle, dialogueCurrentLine, dialogueCharCount,
@@ -43,10 +43,11 @@ import {
     machineBulletHits, machineWreckFx,
 } from './runtime.js';
 import {
-    WALL_H, hqCellPos, HQ_START, HQ_UPLOAD, HQ_SERVERS, HQ_HACK,
+    WALL_H, hqCellPos, HQ_MAP, HQ_START, HQ_UPLOAD, HQ_SERVERS, HQ_HACK,
     HQ_SUPPLY_POINTS, HQ_CRATE_POINTS, HQ_ENCOUNTER_POINTS,
     MACHINE_POINTS, EVENT_POINTS, hqInServerRoomCell,
-    hqWalk, hqTouchesSafeArea, hqResolve, hqGroundHeight, hqSegHitsWall, hqDoorBlocksShot,
+    hqWalk, hqTouchesSafeArea, hqResolve, hqGroundHeight, hqSegHitsWall,
+    hqDoorBlocksShot, hqDoorsWalkable, hqDoorClampShot,
     hqNav, hqMachines, hqDoorOf, updateHqDoors, updateHqAutoDoors, updateHqFx,
     hqSparks, setUploadMarker, setFinishMarker, pulseHqMarkers, setUploadAlarm,
     setLockdownLights, deployMachine, killMachineVisual,
@@ -70,10 +71,12 @@ export function resetHq() {
     doorWarnArmed = true; exitWarnArmed = true; elapsed = 0;
 }
 
-// Ruang server tak pernah menjadi titik spawn — pagar ini berlaku untuk SEMUA
-// encounter, jadi satu titik yang tergeser ke sana pun tak bisa lolos.
+// Ruang server dan safe area `Y` tak pernah menjadi titik spawn — pagar ini
+// berlaku untuk SEMUA encounter, jadi satu titik yang tergeser ke sana pun tak
+// bisa lolos.
 const points = name => HQ_ENCOUNTER_POINTS[name]
-    .filter(([c, r]) => !hqInServerRoomCell(c, r)).map(([c, r]) => hqCellPos(c, r));
+    .filter(([c, r]) => !hqInServerRoomCell(c, r) && HQ_MAP[r][c] !== 'Y')
+    .map(([c, r]) => hqCellPos(c, r));
 const machinesAlive = () => hqMachines().reduce((n, m) => n + (m.alive ? 1 : 0), 0);
 const machinesDeployed = () => hqMachines().some(m => m.deployed);
 const near = (p, range) => Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < range;
@@ -321,7 +324,6 @@ export const hqScene = {
         releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
         setCinematicActive(false); setCineBars(false);
         setUploadMarker(true); setHackMarker(false);
-        queueDialogue('hqCommand'); queueDialogue('hqGibran');
         showStageMsg('REACH THE SERVER ROOM AND UPLOAD THE KILL-SWITCH', 4600);
     },
 
@@ -332,7 +334,7 @@ export const hqScene = {
 
     updateMode(dt) {
         elapsed += dt;
-        updateHqAutoDoors(camera.position.x, camera.position.z);
+        updateHqAutoDoors(camera.position.x, camera.position.z, dt);
         updateHqDoors(dt); updateHqFx(dt); pulseHqMarkers(dt, elapsed);
         updateCine(dt);
         if (cine || complete) return;
@@ -372,7 +374,7 @@ export const hqScene = {
     bulletBlocked(b) {
         if (b.mesh.position.y >= WALL_H) return false;
         return hqSegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z)
-            || hqDoorBlocksShot(b.px, b.pz, b.mesh.position.x, b.mesh.position.z);
+            || hqDoorClampShot(b);
     },
     blastBlocked(x0, z0, x1, z1, y = 0) {
         if (y >= WALL_H) return false;
@@ -389,7 +391,12 @@ export const hqScene = {
         if (z.encounter === 'office' && !officeAwake) {
             z.state = 'idle'; z.moving = false; z.aiming = false; return {};
         }
-        return campaignRobotAI(z, dt, step, { walkable: hqWalk, resolve: hqResolve, nav: hqNav() });
+        return campaignRobotAI(z, dt, step, {
+            walkable: hqWalk, resolve: hqResolve, nav: hqNav(),
+            los: (x0, z0, x1, z1) => !hqSegHitsWall(x0, z0, x1, z1)
+                && !hqDoorBlocksShot(x0, z0, x1, z1),
+            pathWalkable: hqDoorsWalkable,
+        });
     },
     clampRobot(z, oldX, oldZ) {
         campaignClampRobot(z, oldX, oldZ, { walkable: hqWalk, resolve: hqResolve });

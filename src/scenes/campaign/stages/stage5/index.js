@@ -21,7 +21,7 @@ import { applyLightPreset } from '../../../../world/lighting.js';
 import { campaignAwardKill, countStageRobots } from '../../utility/common.js';
 import { campaignJumpToStage } from '../../utility/transition.js';
 import { enterCityEnv } from '../../utility/cityscape.js';
-import { stage1Scene } from '../stage1.js';
+import { stage1Scene } from '../stage1/index.js';
 import {
     ensureWorld, stationRoot, train, journey, highway, S5_START, resetWorldVisual,
 } from './world.js';

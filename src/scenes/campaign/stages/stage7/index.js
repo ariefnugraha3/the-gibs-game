@@ -2,59 +2,58 @@
 // Major Gibran crosses the Prof. Dr. Mochtar Kusumaatmadja Flyover from east
 // to west, reaches the Pasteur toll entrance, and secures the GRD LTV-45.
 
-import { CFG, CAMP_M } from '../../../core/config.js';
-import { dialogueMap } from '../../../core/dialogue.js';
-import { player, robots, stats, keys, setCinematicActive } from '../../../core/state.js';
+import { CFG, CAMP_M } from '../../../../core/config.js';
+import { dialogueMap } from '../../../../core/dialogue.js';
+import { player, robots, stats, keys, setCinematicActive } from '../../../../core/state.js';
 import {
     scene, camera, viewCam, setCineFocus, CAM_OFF_DEFAULT, CAM_LOOK_DROP,
     camFocusPos, addCamShake,
-} from '../../../core/renderer.js';
+} from '../../../../core/renderer.js';
 import {
     showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
-} from '../../../core/dom.js';
-import { updateUI } from '../../../core/hud.js';
-import { releaseInputs } from '../../../core/input.js';
-import { clearMoveTarget } from '../../../entities/player.js';
-import { avatarGroup, setAvatarRadioPose } from '../../../entities/playerAvatar.js';
-import { disposeRobot, queueBoom, killRobot } from '../../../entities/robots.js';
+} from '../../../../core/dom.js';
+import { updateUI } from '../../../../core/hud.js';
+import { releaseInputs } from '../../../../core/input.js';
+import { clearMoveTarget } from '../../../../entities/player.js';
+import { avatarGroup, setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
+import { disposeRobot, queueBoom, killRobot } from '../../../../entities/robots.js';
 import {
     spawnCampaignRobot, campaignAwardKill, campaignRobotAI, campaignClampRobot,
     countStageRobots,
-} from '../utility/common.js';
-import { beginStageTransition, campaignJumpToStage } from '../utility/transition.js';
-import { saveCampaignStage } from '../../../core/saveGame.js';
-import { stage1Scene } from './stage1.js';
-import { stage8Scene } from './stage8.js';
-import { applyLightPreset, registerStageLight, LIGHT_PRESETS } from '../../../world/lighting.js';
-import { enterCityEnv } from '../utility/cityscape.js';
+} from '../../utility/common.js';
+import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
+import { saveCampaignStage } from '../../../../core/saveGame.js';
+import { stage1Scene } from '../stage1/index.js';
+import { stage8Scene } from '../stage8/index.js';
+import { applyLightPreset, registerStageLight, LIGHT_PRESETS } from '../../../../world/lighting.js';
+import { enterCityEnv } from '../../utility/cityscape.js';
 import { buildBandungCity } from './stage7City.js';
-import { PAL } from '../../../world/palette.js';
-import { addMergedStatic } from '../../../utils/meshBatch.js';
-import { slideWalk, resolveBlockers } from '../../../utils/collision.js';
-import { makeNavGrid } from '../../../utils/pathfind.js';
-import { makeTexture } from '../../../utils/textures.js';
-import { rand, segPointDist2 } from '../../../utils/math.js';
-import { spawnAmmoDrop, spawnMedkitDrop } from '../../../entities/drops.js';
-import { spawnCrate, resetCrates, resolveCrateBlock } from '../../../entities/crates.js';
-import { spawnBarrel, resetBarrels, resolveBarrelBlock } from '../../../entities/barrels.js';
-import { explodeAt, spawnGroundPuff, spawnBloodBurst } from '../../../entities/effects.js';
-import { spawnGibs, spawnBloodDecal } from '../../../entities/gore.js';
+import { PAL } from '../../../../world/palette.js';
+import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import { slideWalk, resolveBlockers } from '../../../../utils/collision.js';
+import { makeNavGrid } from '../../../../utils/pathfind.js';
+import { rand, segPointDist2 } from '../../../../utils/math.js';
+import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
+import { spawnCrate, resetCrates, resolveCrateBlock } from '../../../../entities/crates.js';
+import { spawnBarrel, resetBarrels, resolveBarrelBlock } from '../../../../entities/barrels.js';
+import { explodeAt, spawnGroundPuff, spawnBloodBurst } from '../../../../entities/effects.js';
+import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
     wreckSpawnMachine, spawnMachineHp,
-} from '../../../entities/spawnMachine.js';
-import { FuturisticSUV } from '../../../entities/futuristicSUV.js';
-import { FuturisticSedan } from '../../../entities/futuristicSedan.js';
-import { mortarShell } from '../../../entities/tank.js';
+} from '../../../../entities/spawnMachine.js';
+import { FuturisticSUV } from '../../../../entities/futuristicSUV.js';
+import { FuturisticSedan } from '../../../../entities/futuristicSedan.js';
+import { mortarShell } from '../../../../entities/tank.js';
 import {
     buildTacticalVehicleMesh, resetTacticalVehicleVisual,
     updateTacticalVehicleVisual, tacticalVehicleDebug as vehicleDebug,
-} from '../../../entities/tacticalVehicle.js';
+} from '../../../../entities/tacticalVehicle.js';
 import {
     sfxTankMove, sfxTankMortar, sfxTankIncoming, sfxTankBlast,
     sfxRobotSpawn, playLoopSFX, stopLoopSFX, playSFX,
-} from '../../../utils/sfx.js';
+} from '../../../../utils/sfx.js';
 
 const OX = 240000, OZ = 0;
 const NAV_CELL = 14;
@@ -586,19 +585,6 @@ function dashClear(meter, z, halfLengthMeters) {
     });
 }
 
-function signTexture(text, sub = '') {
-    return makeTexture(1024, 256, (g, w, h) => {
-        g.fillStyle = '#23262b'; g.fillRect(0, 0, w, h);
-        g.strokeStyle = '#b3402e'; g.lineWidth = 14; g.strokeRect(9, 9, w - 18, h - 18);
-        g.fillStyle = '#d8d2c4'; g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.font = 'bold 44px monospace'; g.fillText(text, w / 2, sub ? 92 : h / 2);
-        if (sub) {
-            g.fillStyle = '#ffb03b'; g.font = '28px monospace';
-            g.fillText(sub, w / 2, 176);
-        }
-    });
-}
-
 function markerAt(name, p, color = PAL.amber) {
     const m = new THREE.Mesh(new THREE.RingGeometry(6.5, 8.7, 24),
         new THREE.MeshBasicMaterial({
@@ -1112,14 +1098,6 @@ function buildLandmark(M, staticProps) {
             landmarkCableAnchorMaxZ = Math.max(landmarkCableAnchorMaxZ, 0);
         }
     }
-    const plaqueMat = new THREE.MeshBasicMaterial({
-        color: PAL.white,
-        map: signTexture('PROF. DR. MOCHTAR KUSUMAATMADJA', 'PASUPATI FLYOVER'),
-        toneMapped: false,
-    });
-    staticBox(staticProps, plaqueMat, 2.15 * CAMP_M, 0.56 * CAMP_M, 0.08 * CAMP_M,
-        p.x, 4.1 * CAMP_M, p.z + 0.43 * CAMP_M);
-    landmarkPieceCount++;
     recordProp('pasupati-pylon', p, 1.5 * CAMP_M, 0.46 * CAMP_M, height, true,
         { meter: L.F.landmarkMeter, height, cables: landmarkCableCount,
             cableAnchorMaxZ: landmarkCableAnchorMaxZ,
@@ -1181,16 +1159,6 @@ function buildToll(M, staticProps) {
     }
     staticBox(staticProps, M.panel, 7 * CAMP_M, 0.7 * CAMP_M, L.deckWidth,
         gateX, gateY + 6.2 * CAMP_M, 0);
-    const tollSign = new THREE.Mesh(new THREE.BoxGeometry(
-        0.5 * CAMP_M, 3.4 * CAMP_M, Math.min(L.deckWidth - 3 * CAMP_M, 22 * CAMP_M)),
-    new THREE.MeshBasicMaterial({
-        color: PAL.white, map: signTexture('PASTEUR TOLL GATE', 'WEST END - KERTAJATI ROUTE'),
-        toneMapped: false,
-    }));
-    const signMeter = L.lengthMeters - 55;
-    tollSign.position.set(L.xAtMeter(signMeter), L.roadYAtMeter(signMeter)
-        + 9 * CAMP_M, 0);
-    staticProps.push(tollSign);
     recordProp('pasteur-toll-canopy', { x: gateX, z: 0 },
         3.5 * CAMP_M, L.deckHalf, gateY + 6.6 * CAMP_M, false,
         { gate: 'Pasteur', roadY: gateY, westEndpoint: true });
@@ -1259,7 +1227,7 @@ function buildBeyondToll(M, staticProps) {
         staticBox(staticProps, M.red, 1.4 * CAMP_M, 0.62 * CAMP_M,
             1.16 * CAMP_M, nose + 4 * CAMP_M, roadY + 0.31 * CAMP_M, z);
     }
-    // Gantry rambu arah di kejauhan
+    // Gantry struktur di kejauhan; papan penunjuk lokasinya sengaja dihapus.
     const gantryMeter = Math.min(m1 - 12, m0 + 70);
     const gx = L.xAtMeter(gantryMeter);
     const gantry = new THREE.Group();
@@ -1270,14 +1238,6 @@ function buildBeyondToll(M, staticProps) {
     box(gantry, M.steel, 0.5 * CAMP_M, 0.5 * CAMP_M, L.deckWidth,
         0, 8.4 * CAMP_M, 0);
     staticProps.push(gantry);
-    const gantrySign = new THREE.Mesh(new THREE.BoxGeometry(
-        0.4 * CAMP_M, 2.4 * CAMP_M, 14 * CAMP_M),
-    new THREE.MeshBasicMaterial({
-        color: PAL.white, map: signTexture('PADALEUNYI TOLL ROAD', 'KERTAJATI ROUTE'),
-        toneMapped: false,
-    }));
-    gantrySign.position.set(gx, roadY + 6.6 * CAMP_M, 0);
-    staticProps.push(gantrySign);
     // Tiang lampu lanjutan (visual saja — di luar lampSpecs)
     const interval = Math.max(10, L.F.lampIntervalMeters);
     for (let meter = m0 + interval / 2; meter < m1; meter += interval) {
@@ -1440,18 +1400,6 @@ function buildWorld() {
     buildToll(M, staticProps);
     buildBeyondToll(M, staticProps);
 
-    const eastSign = new THREE.Mesh(new THREE.BoxGeometry(
-        0.5 * CAMP_M, 3.5 * CAMP_M, 22 * CAMP_M),
-    new THREE.MeshBasicMaterial({
-        color: PAL.white,
-        map: signTexture('PROF. DR. MOCHTAR KUSUMAATMADJA FLYOVER', 'WEST TO PASTEUR - 1.5 KM'),
-        toneMapped: false,
-    }));
-    eastSign.position.set(L.xAtMeter(38), 8.5 * CAMP_M, 0); staticProps.push(eastSign);
-    recordProp('flyover-name-sign', { x: eastSign.position.x, z: 0 },
-        0.3 * CAMP_M, 11 * CAMP_M, 10.3 * CAMP_M, false,
-        { officialName: true, direction: 'west' });
-
     staticBatch = addMergedStatic(worldRoot, staticProps);
     markerAt('landmark', S7_LANDMARK, PAL.amber);
     markerAt('toll', S7_TOLL, PAL.amber);
@@ -1467,8 +1415,8 @@ function buildWorld() {
         // seluruh dek DAN kota di bawahnya rata terang. 30 m dipilih tepat:
         // ia masih menerangi seluruh lebar dek (tepi dek berjarak ~112 unit
         // dari kepala lampu) tetapi BERHENTI sebelum baris depan kota (~213
-        // unit), jadi kotanya kembali gelap dan hanya jendela/papan namanya
-        // yang menyala. Di antara tiang tersisa gelap — kolam cahaya itulah
+        // unit), jadi kotanya kembali gelap dan hanya jendelanya yang menyala.
+        // Di antara tiang tersisa gelap — kolam cahaya itulah
         // yang membuatnya terbaca malam.
         const light = new THREE.PointLight(PAL.amber, 1.5, 30 * CAMP_M);
         light.position.set(spec.x, spec.y + spec.height - 0.8 * CAMP_M, spec.z);

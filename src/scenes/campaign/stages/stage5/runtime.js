@@ -33,7 +33,7 @@ import {
     resetEnemyCars, enemyCarOffsetX, spinEnemyTrain,
     setEnemyRamp, setEnemyStrobe, setEnemyCarDrift, setEnemyCarVisible,
     train, journey, navGrid, trainWalk, resolve, stage5GroundHeight,
-    stage5SegHitsWall, stationDoorBlocks, WALL_H,
+    stage5SegHitsWall, stationDoorBlocks, stationDoorClampShot, WALL_H,
 } from './world.js';
 
 // Dialog final disimpan sebagai data agar urutan + typewriter dapat dipatok smoke.
@@ -600,7 +600,7 @@ export function updateRide(dt) {
 export function bulletBlocked(b) {
     if (b.mesh.position.y >= WALL_H) return false;
     return stage5SegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z)
-        || stationDoorBlocks(b.px, b.pz, b.mesh.position.x, b.mesh.position.z);
+        || stationDoorClampShot(b);
 }
 
 export function blastBlocked(x0, z0, x1, z1, y = 0) {

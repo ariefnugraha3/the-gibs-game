@@ -36,6 +36,7 @@ import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
 import {
     cellPos, resolve, stage5GroundHeight, navGrid,
     playerStationWalk, robotStationWalk, hallSpawnWalk,
+    stage5SegHitsWall, stationDoorBlocks, stationDoorsWalkable,
     updateStationDoors, platformDoor, safeDoor, pulseMarkers, updateLandmarks, litScreen,
     updateStationSpawnMachine, killStationSpawnMachine, stationSpawnMachine, stage5Walk,
     repairMarker, terminalMarker, boardMarker, generatorScreen, terminalScreen,
@@ -476,7 +477,12 @@ export const stationScene = {
             z.state = 'idle'; z.moving = false; z.aiming = false;
             return {};
         }
-        return campaignRobotAI(z, dt, step, { walkable: robotStationWalk, resolve, nav: navGrid });
+        return campaignRobotAI(z, dt, step, {
+            walkable: robotStationWalk, resolve, nav: navGrid,
+            los: (x0, z0, x1, z1) => !stage5SegHitsWall(x0, z0, x1, z1)
+                && !stationDoorBlocks(x0, z0, x1, z1),
+            pathWalkable: stationDoorsWalkable,
+        });
     },
 
     clampRobot(z, oldX, oldZ) {
