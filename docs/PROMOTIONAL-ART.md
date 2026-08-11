@@ -6,13 +6,17 @@ This is the source of truth for generated covers, banners, store capsules, and s
 
 Always load the relevant image before generation. Reference priority is:
 
-1. `assets/images/decommission-day-cover-logo-distressed.png` — **visual master** (1672×941). Use this as the primary reference for characters, scene, palette, material treatment, and title.
-2. `assets/images/decommission-day-cover-logo-distressed-portrait.png` — approved portrait composition (1024×1536).
-3. `assets/images/decommission-day-banner-1200x400.png` — approved 3:1 banner composition.
-4. `assets/images/decommission-day-banner-1250x350.png` — approved 25:7 shallow-banner composition.
-5. `assets/images/decommission-day-cover.png` — approved clean-title landscape alternative.
-6. `assets/images/decommission-day-cover-logo-distressed-ss2-v2.png` — approved alternate-rifle landscape cover.
-7. `assets/images/decommission-day-logo-distressed-transparent.png` — approved standalone distressed title logo with transparent background (1633×499 RGBA).
+1. `assets/images/decommission-day-cover-logo-distressed-v2.png` — **current visual master** (1671×941). It establishes the pickup wreck, varied robot poses, and readable boss-gunship scale; use it as the primary reference for characters, scene, palette, material treatment, and title.
+2. `assets/images/decommission-day-cover-logo-distressed.png` — preserved pre-revision landscape master (1672×941). Keep it for provenance; do not use it as the sole reference for new derivatives.
+3. `assets/images/decommission-day-cover-logo-distressed-portrait-v2.png` — **current portrait master** (1024×1536), updated with the v2 pickup, robot-pose, and gunship standards.
+4. `assets/images/decommission-day-cover-logo-distressed-portrait.png` — preserved pre-revision portrait composition (1024×1536).
+5. `assets/images/decommission-day-banner-1200x400-v2.png` — **current 3:1 banner master** (1200×400), updated to the v2 scene standard.
+6. `assets/images/decommission-day-banner-1200x400.png` — preserved pre-revision 3:1 banner.
+7. `assets/images/decommission-day-banner-1250x350-v2.png` — **current 25:7 banner master** (1250×350), natively cropped from its approved shallow composition after the v2 scene edit.
+8. `assets/images/decommission-day-banner-1250x350.png` — preserved pre-revision 25:7 banner.
+9. `assets/images/decommission-day-cover.png` — approved clean-title landscape alternative.
+10. `assets/images/decommission-day-cover-logo-distressed-ss2-v2.png` — approved alternate-rifle landscape cover.
+11. `assets/images/decommission-day-logo-distressed-transparent.png` — approved standalone distressed title logo with transparent background (1633×499 RGBA).
 
 Do not use a generated derivative as the sole reference when the master is available. This prevents cumulative style and detail drift.
 
@@ -24,8 +28,9 @@ The `adversarial-intelligence-*` files are preserved as pre-rename legacy assets
 - Nighttime war-torn Jakarta with smoke and deep black/charcoal negative space.
 - Warm dusty gunmetal, muted tan, concrete, and black dominate. Orange appears only in fire, sparks, tracers, and muzzle flashes. No cyan/magenta neon or cyberpunk glow.
 - Major Gibran is the foreground hero: modern Indonesian tactical armor, rifle, helmet, and a clearly correct red-over-white Indonesian flag patch.
-- Monas must remain recognizable. The robot army, tank, burning wreck, rubble, and restrained combat effects establish the conflict and depth.
-- Robots are dark, angular, faceted machines with small red eyes. Do not introduce unrelated creature, mech, or drone designs.
+- Monas must remain recognizable. The robot army, tank, burning **pickup truck**, rubble, and restrained combat effects establish the conflict and depth. The pickup must have a readable open cargo bed because this vehicle carries robots in-game; do not regress it to a sedan.
+- Robots are dark, angular, faceted machines with small red eyes. Their army must use visibly varied actions and silhouettes—running, aiming, advancing hunched, crossing rubble, turning, or signaling—rather than duplicated or synchronized poses. Do not introduce unrelated creature, mech, or drone designs.
+- The helicopter gunship boss must remain clearly readable in the upper sky at the relative scale established by the v2 master. Keep atmospheric depth, but do not reduce it to an indistinct speck or enlarge it enough to compete with Major Gibran.
 - The tone is mature, grounded, ominous, and readable—never cluttered, cartoonish, overly saturated, or generically “AI-looking.”
 
 ## Title Contract
@@ -63,8 +68,9 @@ Faithfully preserve the supplied Decommission Day visual master. Create a
 native <ASPECT> <ASSET TYPE>: dark low-poly faceted 3D military sci-fi artwork,
 nighttime war-torn Jakarta, muted tan/gunmetal/charcoal palette, restrained orange
 combat light. Keep Major Gibran with the correct Indonesian flag patch, rifle and
-tactical armor; recognizable Monas; angular red-eyed robot army; tank, rubble and
-burning wreck. Render the exact distressed two-line title "DECOMMISSION DAY".
+tactical armor; recognizable Monas; angular red-eyed robots with varied poses;
+tank, rubble, burning pickup truck, and distant boss gunship at the v2 master scale.
+Render the exact distressed two-line title "DECOMMISSION DAY".
 No extra text, watermark, border, neon, cyberpunk styling, photorealism, cartoons,
 unrelated units, clipped subjects, or misspelled title.
 ```
@@ -75,5 +81,6 @@ unrelated units, clipped subjects, or misspelled title.
 - Title is perfect, readable, and safely inside the frame.
 - Indonesian flag is red over white; no altered national symbols.
 - Hero, Monas, robots, and battlefield hierarchy read at thumbnail size.
+- Burning vehicle is unmistakably a pickup; robot silhouettes are not copy-pasted; boss gunship remains readable without stealing focus.
 - Low-poly faceting, dark palette, restrained effects, and original mood match the master.
 - No unwanted text, watermark, border, neon colors, style drift, obvious stretching, or destructive overwrite.
