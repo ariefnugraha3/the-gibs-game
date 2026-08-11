@@ -28,6 +28,7 @@ This file holds only what applies to *every* session. The detail lives next door
 | Waves, field shop, Monas objective, wave events, scoring | [docs/survival.md](docs/survival.md) |
 | Robots, weapons, gore, loot/barrels/horde, armor, movement/dodge/stamina, **the collision model** | [docs/combat.md](docs/combat.md) |
 | Camera rig, player avatar, **the player death sequence**, HUD, menus, input/pause/cheats, SFX & music | [docs/presentation.md](docs/presentation.md) |
+| Generated covers, banners, store capsules, promotional image identity and QA | [docs/PROMOTIONAL-ART.md](docs/PROMOTIONAL-ART.md) — mandatory before generating promotional raster art |
 | Starting a new gameplay feature | [SECOND-IMPROVEMENT-PLAN.md](docs/SECOND-IMPROVEMENT-PLAN.md) (current backlog; items 1–3 done 2026-07-22) then [IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md) (older backlog). Update their status tables when you finish an item. |
 | Wrapping this into a Windows `.exe` / Steam | [STEAM-DESKTOP-PLAN.md](docs/STEAM-DESKTOP-PLAN.md) |
 

@@ -62,6 +62,7 @@ never re-wire it.
 | Waves, field shop, Monas objective, wave events, scoring | [docs/survival.md](docs/survival.md) |
 | Robots, weapons, gore, loot/barrels/crates, armor, movement/dodge/stamina, collision | [docs/combat.md](docs/combat.md) |
 | Camera rig, avatar, death sequence, HUD, menus, input/pause/cheats, SFX & music | [docs/presentation.md](docs/presentation.md) |
+| Generated covers, banners, store capsules, promotional image identity and QA | [docs/PROMOTIONAL-ART.md](docs/PROMOTIONAL-ART.md) — read before generating promotional raster art |
 | New gameplay feature backlog | [SECOND-IMPROVEMENT-PLAN.md](docs/SECOND-IMPROVEMENT-PLAN.md), then [IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md) — update their status tables when finishing an item |
 | Windows `.exe` / Steam port | [STEAM-DESKTOP-PLAN.md](docs/STEAM-DESKTOP-PLAN.md) |
 
