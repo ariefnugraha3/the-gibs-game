@@ -11424,9 +11424,9 @@ const palMod = await import(R('src/world/palette.js'));
     T('MENU: logo transparan menggantikan teks visual; backdrop skyline kembali',
         mainMenuMarkup.includes('class="mCity"')
         && htmlM.includes('class="mainTitleLogo"')
-        && htmlM.includes('assets/images/decommission-day-logo-distressed-transparent.png')
+        && htmlM.includes('assets/images/low-poly/decommission-day-logo-distressed-transparent.png')
         && htmlM.includes('class="titleMain mainTitleA11y"')
-        && fs.existsSync(ROOT + '/assets/images/decommission-day-logo-distressed-transparent.png')
+        && fs.existsSync(ROOT + '/assets/images/low-poly/decommission-day-logo-distressed-transparent.png')
         && /#mainMenu \.mainTitleLogo\s*\{[^}]*display:\s*block/.test(cssM)
         && fs.readFileSync(ROOT + '/src/scenes/menu.js', 'utf8').includes('paintMenuArt(menu)'));
     // LATAR KOTA DIBURAMKAN (2026-08-10, permintaan user) — makin jauh makin

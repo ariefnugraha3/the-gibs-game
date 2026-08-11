@@ -6,6 +6,8 @@
 
 **Door indicator update (2026-08-11):** Stage 5 station doors and both Stage 6 chapter door sets use `buildDoorSideLights()` from `campaign/utility/doors.js`, matching Stage 1's left/right jamb indicators; an accessible door is always green, while a locked/sealed door is always red; the old overhead door lamp is not used.
 
+**Promotional-art standard update (2026-08-11):** `assets/images/low-poly/decommission-day-cover-logo-distressed-gameplay-lowpoly.png` is the current landscape visual/style master; approved low-poly portrait, banner, and transparent-logo masters live beside it under `assets/images/low-poly/`. Future promotional raster art must use gameplay-matched low-detail procedural geometry, visibly low-segment round forms, large facets, matte Lambert-like broad-color materials, sparse large clutter, and no micro-greebles, dense textures, or glossy PBR detail. Root-level images are preserved sources/layout references only; read `docs/PROMOTIONAL-ART.md` before generation or editing.
+
 Onboarding guide for AI agents (and humans) working on this repository. It condenses the
 rules in [CLAUDE.md](CLAUDE.md) — on any conflict, **CLAUDE.md wins**; keep the two in sync.
 
@@ -153,7 +155,7 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   emoji mode icons, or the centred stack. `difficultyNote()` quotes `CFG.difficulty`, and the
   old DOM contract (button ids, `.qbtn[data-q]`, `.dbtn[data-d]`, `.modeCard[data-mode]`,
   `#creditsBody`, `#continuePrompt`) is unchanged. The Main Menu's visible title uses
-  `assets/images/decommission-day-logo-distressed-transparent.png`; equivalent H1 text stays
+  `assets/images/low-poly/decommission-day-logo-distressed-transparent.png`; equivalent H1 text stays
   visually hidden for semantics.
 - THINNED OUT 2026-08-10 (same complaint, second pass). The thing that reads as machine-made
   is DENSITY, not the design language: the first pass carried nine pieces of fake telemetry,
