@@ -5,7 +5,9 @@
 
 import { PAL } from '../../../../world/palette.js';
 import { mergeObjectInPlace } from '../../../../utils/meshBatch.js';
-import { buildSplitDoor } from '../../utility/doors.js';
+import {
+    buildSplitDoor, buildDoorSideLights, DOOR_LOCKED_COLOR,
+} from '../../utility/doors.js';
 import { CELL, WALL_H, cellPos } from './world.js';
 
 export function box(parent, mat, sx, sy, sz, x, y, z, shadow = true) {
@@ -349,6 +351,51 @@ function buildDroneDock(M, add, addGeo, reg, c, r) {
     reg('depot', 'drone-service-dock', p, 14, 14, 11);
 }
 
+// --- BADAN JALUR: tanah, aspal, rel, bantalan, dan PAGAR BESI PERIMETER ---
+// Jalur masuk barat + apron run-out timur dibangun dari satu deskripsi rentang,
+// jadi kedua sisi peron tidak akan pernah lagi tumbuh terpisah.
+const FENCE_DZ = 4, FENCE_PLINTH_H = 3, FENCE_TOP = 18.4, FENCE_PICKET_TOP = 18;
+
+export function buildTrackBed(M, add, g) {
+    const { leadX0, runoutX1, mapX0, mapX1, bandZ, bandD, tracks, gaugeHalf } = g;
+    // `CELL` adalah binding hidup dari world.js (impor melingkar) — hanya boleh
+    // dibaca DI DALAM fungsi, tidak pernah di puncak modul.
+    const FENCE_POST_STEP = CELL, FENCE_PICKET_STEP = CELL / 4;
+    for (const [x0, len] of [[mapX1, runoutX1 - mapX1], [leadX0, mapX0 - leadX0]]) {
+        add(len, 2, bandD, x0 + len / 2, -1, bandZ, M.ground);
+        add(len, 1, bandD, x0 + len / 2, -0.1, bandZ, M.asphalt);
+    }
+    for (const base of tracks) for (const z of [base - gaugeHalf, base + gaugeHalf])
+        add(runoutX1 - leadX0, 1.2, 1.8, (leadX0 + runoutX1) / 2, 0.1, z, M.steel);
+    // Bantalan tetap sebidang dengan kolom CSV (langkah dua sel) supaya sisi
+    // barat menyambung mulus dengan yang sudah ada di bawah peron.
+    for (let x = mapX0 + CELL / 2 - Math.ceil((mapX0 - leadX0) / (CELL * 2)) * CELL * 2;
+        x <= runoutX1; x += CELL * 2)
+        for (const base of tracks)
+            add(CELL * 1.7, 0.8, gaugeHalf * 2 + 8, x, -0.25, base, M.ink);
+    // PAGAR BESI PERIMETER DI UTARA REL (2026-08-11, permintaan user: "tidak ada
+    // pembatas antara wilayah stasiun dan dunia luar"). Ia berdiri PERSIS di
+    // luar pita aspal track dan membentang penuh dari ujung jalur masuk barat
+    // sampai ujung apron timur — tidak ada sisi jalur yang menganga ke kota.
+    // DEKOR MURNI: nol blocker, nol sel nav, nol PointLight. Sel track sudah
+    // ditolak playerStationWalk/robotStationWalk, jadi collider di sini cuma
+    // menambah kerja resolve tanpa mengubah satu pun jalur. Semua batangnya
+    // dilas ke batch statis, jadi ~600 mesh mentah = nol draw call tambahan.
+    const fz = g.northEdgeZ - FENCE_DZ, fLen = runoutX1 - leadX0;
+    const fCx = (leadX0 + runoutX1) / 2;
+    add(fLen, FENCE_PLINTH_H, 3, fCx, FENCE_PLINTH_H / 2, fz, M.ground);
+    for (const y of [6.4, 16]) add(fLen, 1, 1.2, fCx, y, fz, M.steel);
+    let posts = 0, pickets = 0;
+    for (let x = leadX0; x <= runoutX1 + 0.01; x += FENCE_POST_STEP, posts++) {
+        add(2, FENCE_TOP - FENCE_PLINTH_H, 2, x, (FENCE_TOP + FENCE_PLINTH_H) / 2, fz, M.steel);
+        add(2.8, 0.8, 2.8, x, FENCE_TOP + 0.4, fz, M.panel);
+    }
+    for (let x = leadX0 + FENCE_PICKET_STEP / 2; x < runoutX1; x += FENCE_PICKET_STEP, pickets++)
+        add(0.7, FENCE_PICKET_TOP - FENCE_PLINTH_H, 0.7,
+            x, (FENCE_PICKET_TOP + FENCE_PLINTH_H) / 2, fz, M.steel);
+    return { z: fz, x0: leadX0, x1: runoutX1, top: FENCE_TOP, posts, pickets };
+}
+
 export function buildStationFurniture(M, add, addGeo, reg) {
     buildPalletRack(M, add, reg, 10, 24, 4);
     buildPalletRack(M, add, reg, 18, 27, 4);
@@ -379,11 +426,11 @@ export function buildStationFurniture(M, add, addGeo, reg) {
 export function buildStationDoor(M, root, kind, x, z, sx, sz) {
     const rig = buildSplitDoor(root, M.body, x, (WALL_H - 2) / 2, z,
         sx, WALL_H - 2, sz);
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(kind === 'platform' ? 5 : 1, 1.2, kind === 'platform' ? 1 : 5),
-        new THREE.MeshBasicMaterial({ color: PAL.hazard, toneMapped: false }));
-    lamp.position.set(x, WALL_H - 3, z); root.add(lamp);
+    const lampMat = new THREE.MeshBasicMaterial({ color: DOOR_LOCKED_COLOR, toneMapped: false });
+    const lamps = buildDoorSideLights(root, x, z, sx, sz, CELL, WALL_H, lampMat);
     return {
-        kind, panel: rig.panel, rig, leaves: rig.leaves, lamp, open: 0, target: 0,
+        kind, panel: rig.panel, rig, leaves: rig.leaves, lamps, open: 0, target: 0,
+        canOpen: kind !== 'platform',
         blocker: { x, z, hx: sx / 2, hz: sz / 2, axx: 1, axz: 0, azx: 0, azz: 1,
             rad: Math.hypot(sx, sz) / 2, top: WALL_H, standable: false },
     };

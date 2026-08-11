@@ -5284,6 +5284,18 @@ T('S5 PINTU: seluruh pintu stasiun memakai dua daun 50:50 simetris',
         && Math.abs(d.split.leaves[0].y - d.split.leaves[1].y) < 1e-6
         && Math.abs((d.split.horizontal ? d.split.leaves[0].x : d.split.leaves[0].z)
             + (d.split.horizontal ? d.split.leaves[1].x : d.split.leaves[1].z)) < 1e-6));
+const sideLamps = d => {
+    const side = d.split.horizontal ? 'x' : 'z';
+    const face = d.split.horizontal ? 'z' : 'x';
+    const sides = new Set(d.lamps.map(l => Math.round(l[side] * 1000) / 1000));
+    return d.lamps.length === 4 && sides.size === 2
+        && d.lamps.every(l => Math.abs(l[side] - d[side]) > d.split.span / 2
+            && l.y > 0 && l.y < 20
+            && l.color === (d.canOpen ? 0x39ff7a : 0xff4a3c))
+        && new Set(d.lamps.map(l => Math.sign(l[face] - d[face]))).size === 2;
+};
+T('S5 PINTU: lampu indikator berada di kusen kiri/kanan, bukan di atas pintu',
+    s5World.station.doors.every(sideLamps));
 T('S5 SA FLOOR: safe area memakai lantai hall yang sama tanpa overlay warna khusus',
     s5World.map.safeCells > 0 && s5World.map.safeFloorOverlays === 0);
 T('S5 LANDMARK 2045: C1/C2 bukan box basic; mesh detail + bagian animasi dipatok',
@@ -5433,6 +5445,31 @@ T('S5 WORLD: depot + kereta + nav terbangun jauh dari rooftop intro',
         !!c && c.corridorHits === 0
         && c.corridor.z0 < s5World.map.enemyTrackZ
         && c.corridor.z1 > s5World.map.playerTrackZ);
+}
+// --- JALUR MASUK BARAT + PAGAR PERIMETER (2026-08-11, permintaan user: rel
+// hanya ada ke arah timur sehingga sisi barat stasiun terlihat seperti ujung
+// dunia, dan tidak ada pembatas apa pun antara wilayah stasiun dan kota). ---
+{
+    const lead = s5World.depot.x0 - s5World.leadX0;
+    T(`S5 JALUR BARAT: rel + tanah menerus ${s5World.westLeadMeters} m ke barat peron, bukan berhenti di tepi peta`,
+        s5World.leadX0 < s5World.depot.x0
+        && Math.abs(lead - s5World.westLeadMeters * cfgMod.CAMP_M) < 1e-6
+        // Ujung potongnya harus jauh di luar jangkauan kamera dari peron, kalau
+        // tidak masalah "dunia habis" cuma pindah 100 m.
+        && lead > s5World.map.cell * s5World.map.cols);
+    const f = s5World.fence;
+    T(`S5 PAGAR: pagar besi utara rel membentang penuh barat->apron timur [${f ? f.posts : 0} tiang, ${f ? f.pickets : 0} jeruji]`,
+        !!f && f.x0 === s5World.leadX0 && f.x1 === s5World.runoutX1
+        && f.posts > 0 && f.pickets > f.posts && f.top > 0);
+    T('S5 PAGAR: berdiri DI LUAR pita track, di sisi utara, dan di dalam koridor bebas gedung',
+        !!f && f.z < s5World.depot.z0
+        && f.z > s5World.depot.z0 - s5World.map.cell
+        && f.z < s5World.map.enemyTrackZ
+        && (!s5World.city || f.z > s5World.city.corridor.z0));
+    // Track tidak pernah walkable, jadi pagar ini WAJIB dekor murni: satu
+    // blocker di sini hanya menambah kerja resolve tanpa mengubah satu jalur.
+    T('S5 PAGAR: dekor murni — nol blocker di pita z-nya',
+        !!f && f.blockersAtZ === 0);
 }
 T('S5 STATION CONSIST: gerbong TC + lokomotif TL keduanya tampak di peron dan jatuh persis pada sel CSV-nya',
     s5World.train.cars === 2 && s5World.train.stationCarIndex === 0
@@ -6986,6 +7023,8 @@ T('S6 ARRIVAL PINTU: seluruh pintu memakai dua daun 50:50 simetris',
         && Math.abs(d.split.leaves[0].y - d.split.leaves[1].y) < 1e-6
         && Math.abs((d.split.horizontal ? d.split.leaves[0].x : d.split.leaves[0].z)
             + (d.split.horizontal ? d.split.leaves[1].x : d.split.leaves[1].z)) < 1e-6));
+T('S6 ARRIVAL PINTU: lampu indikator berada di kusen kiri/kanan',
+    s6World.doors.every(sideLamps));
 const s6Count = t => s6mod.S6_MAP.reduce((n, row) => n + [...row].filter(x => x === t).length, 0);
 const s6Token = (x, z) => {
     const c = Math.floor((x - s6World.map.x0) / s6World.map.cell);
@@ -7368,6 +7407,8 @@ T('S6 HQ PINTU: seluruh pintu aktif memakai dua daun 50:50 simetris',
         && Math.abs(d.split.leaves[0].y - d.split.leaves[1].y) < 1e-6
         && Math.abs((d.split.horizontal ? d.split.leaves[0].x : d.split.leaves[0].z)
             + (d.split.horizontal ? d.split.leaves[1].x : d.split.leaves[1].z)) < 1e-6));
+T('S6 HQ PINTU: lampu indikator berada di kusen kiri/kanan',
+    s6HqWorld.doors.every(sideLamps));
 const s6HqDoor = kind => s6mod.hqWorldDebug().doors.find(d => d.kind === kind);
 const s6HqCount = t => s6mod.HQ_MAP.reduce((n, row) => n + [...row].filter(x => x === t).length, 0);
 const s6HqPut = p => camera.position.set(p.x, cfgMod.CFG.player.eyeHeight, p.z);

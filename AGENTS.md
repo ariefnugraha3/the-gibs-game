@@ -4,6 +4,8 @@
 
 **Cutscene rate update (2026-08-10):** while `cinematicActive` is true, `core/cutsceneRate.js` caps cutscene simulation ticks and rendering at 24 FPS; ordinary gameplay remains uncapped.
 
+**Door indicator update (2026-08-11):** Stage 5 station doors and both Stage 6 chapter door sets use `buildDoorSideLights()` from `campaign/utility/doors.js`, matching Stage 1's left/right jamb indicators; an accessible door is always green, while a locked/sealed door is always red; the old overhead door lamp is not used.
+
 Onboarding guide for AI agents (and humans) working on this repository. It condenses the
 rules in [CLAUDE.md](CLAUDE.md) — on any conflict, **CLAUDE.md wins**; keep the two in sync.
 
@@ -205,6 +207,15 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   factory + clear combat → hack C1 → open the platform door → repair generator C2 → board.
   `SA`/`S` reject spawn points only; robot walk/nav/clamp allow living robots to chase the
   player inside after the safe door begins opening; that door stays latched open for depot combat.
+- Stage 5 station TRACK BED + PERIMETER FENCE (2026-08-11 user request). `buildTrackBed` in
+  `stage5/props.js` lays ground/asphalt/rails/sleepers for both tracks past BOTH ends of the CSV
+  map: the east run-out apron (`departureShiftUnits + 120`) and a 100 m west lead
+  (`WEST_LEAD_METERS × CAMP_M`), because rails only to the east made the west side read as the
+  edge of the world. No buffer stop at the west end — the enemy consist enters from there. The
+  same function raises an iron perimeter fence along the NORTH edge of the track band, spanning
+  the full west-lead-to-east-apron run. It is PURE DECOR: zero blockers, zero nav cells, zero
+  PointLights (track cells are already rejected by the walk tests), and it stands inside the
+  cityscape's clear corridor so the fence, not a building, separates the rails from the skyline.
 - Every campaign door is the one shared two-leaf rig in `campaign/utility/doors.js`
   (`buildSplitDoor` / `setSplitDoorOpen` / `splitDoorLeafOffset`) — stage 1-3 doors, stage 3's
   blast and exit doors, stage 5 station doors, both stage 6 chapters. No stage computes its own

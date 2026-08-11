@@ -20,7 +20,8 @@ import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { makeTexture } from '../../../../utils/textures.js';
 import { rand } from '../../../../utils/math.js';
 import {
-    buildSplitDoor, setSplitDoorOpen, splitDoorDebug, doorMotionSFX,
+    buildSplitDoor, buildDoorSideLights, DOOR_LOCKED_COLOR, setDoorSideLightState,
+    setSplitDoorOpen, splitDoorDebug, doorMotionSFX,
 } from '../../utility/doors.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
@@ -309,13 +310,11 @@ function recordProp(kind, p, hx = 0, hz = 0, top = 0, solid = false) {
 function addDoor(M, spec) {
     const rig = buildSplitDoor(worldRoot, M.body, spec.x, (WALL_H - 2) / 2, spec.z,
         spec.sx, WALL_H - 2, spec.sz);
-    const horizontal = spec.sx > spec.sz;
-    const lamp = new THREE.Mesh(
-        new THREE.BoxGeometry(horizontal ? 6 : 1.2, 1.2, horizontal ? 1.2 : 6),
-        new THREE.MeshBasicMaterial({ color: PAL.hazard, toneMapped: false }));
-    lamp.position.set(spec.x, WALL_H - 2.8, spec.z); worldRoot.add(lamp);
+    const lampMat = new THREE.MeshBasicMaterial({ color: DOOR_LOCKED_COLOR, toneMapped: false });
+    const lamps = buildDoorSideLights(worldRoot, spec.x, spec.z,
+        spec.sx, spec.sz, CELL, WALL_H, lampMat);
     const d = { kind: spec.kind, panel: rig.panel, rig, leaves: rig.leaves,
-        lamp, open: 0, target: 0, locked: !AUTO_DOORS.includes(spec.kind),
+        lamps, open: 0, target: 0, locked: !AUTO_DOORS.includes(spec.kind),
         blocker: { x: spec.x, z: spec.z, hx: spec.sx / 2, hz: spec.sz / 2,
             axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(spec.sx, spec.sz) / 2,
             top: WALL_H, standable: false } };
@@ -572,7 +571,7 @@ export function updateDoors(dt) {
         doorMotionSFX(d, prev, d.blocker.x, d.blocker.z);
         const e = d.open * d.open * (3 - 2 * d.open);
         setSplitDoorOpen(d.rig, e);
-        d.lamp.material.color.setHex(d.target ? PAL.tech : PAL.hazard);
+        setDoorSideLightState(d.lamps, !d.locked);
     }
 }
 
@@ -681,7 +680,7 @@ export function resetWorldVisuals() {
         d.open = 0; d.target = 0;
         d.locked = !AUTO_DOORS.includes(d.kind);
         setSplitDoorOpen(d.rig, 0);
-        d.lamp.material.color.setHex(PAL.hazard);
+        setDoorSideLightState(d.lamps, !d.locked);
     }
     for (const v of rackVisuals) setRackSearched(v.id, false);
     for (const g of generatorVisuals) setGeneratorOnline(g.id, false);
@@ -720,7 +719,9 @@ export const stage6WorldDebug = () => ({
     blockers: blockers.length, props: propRecords.map(p => ({ ...p })),
     propKinds: [...new Set(propRecords.map(p => p.kind))],
     doors: doors.map(d => ({ kind: d.kind, open: d.open, target: d.target,
-        locked: d.locked, x: d.blocker.x, z: d.blocker.z,
+        locked: d.locked, canOpen: !d.locked, x: d.blocker.x, z: d.blocker.z,
+        lamps: d.lamps.map(l => ({ x: l.position.x, y: l.position.y, z: l.position.z,
+            color: l.material.color.getHex() })),
         split: splitDoorDebug(d.rig) })),
     markers: { racks: rackMarkers.map(m => m.visible), repairs: repairMarkers.map(m => m.visible),
         info: !!infoMarker?.visible, finish: !!finishMarker?.visible },

@@ -12,7 +12,7 @@ import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collisi
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { buildCampaignCityscape } from '../../utility/cityscape.js';
 import {
-    buildSplitDoor, doorMotionSFX, setSplitDoorOpen, splitDoorDebug,
+    buildSplitDoor, doorMotionSFX, setDoorSideLightState, setSplitDoorOpen, splitDoorDebug,
 } from '../../utility/doors.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, spawnMachineDebug, updateSpawnMachine,
@@ -28,7 +28,7 @@ import {
 } from '../../../../entities/train.js';
 import { buildEnemyPickupMesh, resetEnemyPickupVisual } from '../../../../entities/enemyPickup.js';
 import {
-    meshCount, buildMarker, buildGenerator, buildTerminal,
+    meshCount, buildMarker, buildGenerator, buildTerminal, buildTrackBed,
     buildStationFurniture, buildStationDoor, buildEnemyTrain,
     ET_RAMP_OPEN, ET_CAR_SILL, ET_CAR_HEIGHT,
 } from './props.js';
@@ -179,7 +179,7 @@ export let generatorScreen = null, terminalScreen = null, stationSpawnMachine = 
 let machineBlocker = null;
 let generatorRotor = null, terminalCore = null;
 let landmarkVisual = { generatorMeshes: 0, terminalMeshes: 0, animatedParts: 0 };
-let safeFloorOverlayCount = 0, runoutX1 = 0;
+let safeFloorOverlayCount = 0, runoutX1 = 0, leadX0 = 0, fenceDbg = null;
 const depotFurniture = [], platformFurniture = [];
 export let repairMarker = null, terminalMarker = null, boardMarker = null;
 const blockers = [];
@@ -192,6 +192,9 @@ export let boardDoor = null;
 // dengan lantai depot, dan koridor rel dikosongkan sejauh CITY_TRACK_CLEAR dari
 // kedua sumbu jalur supaya tidak ada gedung yang berdiri di atas rel.
 export const CITY_GROUND_Y = -6, CITY_TRACK_CLEAR = 90;
+// JALUR MASUK BARAT (2026-08-11, permintaan user): dinyatakan dalam METER
+// kampanye supaya angka "100 m" tetap terbaca; geometrinya ada di props.js.
+export const WEST_LEAD_METERS = 100;
 export let cityscape = null;
 // Pool jalan raya pendamping + pengangkut jalan raya (permintaan user
 // 2026-08-08). Keduanya PREALOKASI seperti pool lain di stage ini.
@@ -317,7 +320,10 @@ export function updateStationDoors(dt, platformOpen, safeOpen = false) {
             : (Math.hypot(camera.position.x - d.blocker.x,
                 camera.position.z - d.blocker.z) < CELL * 2.25 ? 1 : 0);
     }
-    if (platform) platform.target = platformOpen ? 1 : 0;
+    if (platform) {
+        platform.target = platformOpen ? 1 : 0;
+        platform.canOpen = !!platformOpen;
+    }
     for (const d of stationDoors) {
         // MENDARAT PERSIS di target. Bentuk lama (`dir` yang tak pernah nol)
         // membuat pintu yang sudah terbuka penuh bergetar 0.965<->1 tiap frame:
@@ -328,7 +334,7 @@ export function updateStationDoors(dt, platformOpen, safeOpen = false) {
         doorMotionSFX(d, prev, d.blocker.x, d.blocker.z);
         const e = d.open * d.open * (3 - 2 * d.open);
         setSplitDoorOpen(d.rig, e);
-        d.lamp.material.color.setHex(d.target ? PAL.tech : PAL.hazard);
+        setDoorSideLightState(d.lamps, d.canOpen);
     }
 }
 
@@ -533,26 +539,20 @@ function buildWorld() {
             addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
         }
     }
-    // Kedua rel stasiun tetap menjadi anak stationRoot, bukan journey scenery,
-    // dan memakai gauge yang SAMA dengan bogie kereta (`TRAIN_GAUGE_HALF`).
-    // APRON RUN-OUT di timur peron: shot keberangkatan memakai kamera terkunci
-    // dan hanya keretanya yang maju, jadi ia harus punya tanah + rel di
-    // bawahnya sampai ujung `departureShiftUnits` — tanpa ini lokomotif terbang
-    // di atas kekosongan tepat saat penonton sedang memandanginya.
+    // Badan jalur = anak stationRoot (bukan journey scenery), gauge SAMA dengan
+    // bogie kereta, menjorok ke DUA arah: APRON RUN-OUT timur, karena shot
+    // keberangkatan mengunci kamera dan hanya keretanya yang maju sampai
+    // `departureShiftUnits` (tanpa itu lokomotif terbang di atas kekosongan
+    // persis saat ditonton); dan JALUR MASUK 100 M BARAT (2026-08-11, permintaan
+    // user), karena rel yang cuma ada di timur membuat stasiun terbaca sebagai
+    // ujung dunia. Tak ada buffer stop di barat — konsist musuh masuk dari sana.
     const RUNOUT = (CFG.campaign.stage5.departureShiftUnits || 330) + 120;
     const MAP_X1 = MAP_X0 + MAP_COLS * CELL;
-    runoutX1 = MAP_X1 + RUNOUT;
-    const bandZ = cellPos(1, 5).z;
-    addStatic(RUNOUT, 2, 9 * CELL, MAP_X1 + RUNOUT / 2, -1, bandZ, M.ground);
-    addStatic(RUNOUT, 1, 9 * CELL, MAP_X1 + RUNOUT / 2, -0.1, bandZ, M.asphalt);
-    for (const base of [TRAIN_CENTER_Z, ENEMY_TRACK_Z])
-        for (const z of [base - TRAIN_GAUGE_HALF, base + TRAIN_GAUGE_HALF])
-            addStatic(MAP_COLS * CELL + RUNOUT, 1.2, 1.8, OX + RUNOUT / 2, 0.1, z, M.steel);
-    for (let c = 1; c <= MAP_COLS + Math.ceil(RUNOUT / CELL); c += 2) {
-        const p = cellPos(c, 1);
-        for (const base of [TRAIN_CENTER_Z, ENEMY_TRACK_Z])
-            addStatic(CELL * 1.7, 0.8, TRAIN_GAUGE_HALF * 2 + 8, p.x, -0.25, base, M.ink);
-    }
+    runoutX1 = MAP_X1 + RUNOUT; leadX0 = MAP_X0 - WEST_LEAD_METERS * CAMP_M;
+    fenceDbg = buildTrackBed(M, addStatic, {
+        leadX0, runoutX1, mapX0: MAP_X0, mapX1: MAP_X1, northEdgeZ: MAP_Z0,
+        bandZ: cellPos(1, 5).z, bandD: 9 * CELL, gaugeHalf: TRAIN_GAUGE_HALF,
+        tracks: [TRAIN_CENTER_Z, ENEMY_TRACK_Z] });
     // Garis aman peron dan gantry tetap, tidak pernah masuk pool bergerak.
     addStatic(MAP_COLS * CELL, 0.35, 2, OX, 0.65, cellPos(1, 10).z - CELL / 2 + 2, M.hazard);
     for (const c of [6, 15, 24]) {
@@ -687,7 +687,8 @@ export function resetWorldVisual() {
     setStationTrainView(true); resetBoardDoor();
     for (const d of stationDoors) {
         d.open = 0; d.target = 0; setSplitDoorOpen(d.rig, 0);
-        d.lamp.material.color.setHex(PAL.hazard);
+        d.canOpen = d.kind !== 'platform';
+        setDoorSideLightState(d.lamps, d.canOpen);
     }
     repairMarker.visible = terminalMarker.visible = boardMarker.visible = false;
     generatorScreen.material.color.setHex(PAL.screenBg);
@@ -744,6 +745,8 @@ export const stage5WorldDebug = () => ({
         visible: !!stationRoot?.visible,
         x: stationRoot?.position?.x || 0, z: stationRoot?.position?.z || 0,
         doors: stationDoors.map(d => ({ kind: d.kind, open: d.open, target: d.target,
+            canOpen: d.canOpen, x: d.blocker.x, z: d.blocker.z,
+            lamps: d.lamps.map(l => ({ x: l.position.x, y: l.position.y, z: l.position.z, color: l.material.color.getHex() })),
             split: splitDoorDebug(d.rig) })),
     },
     train: {
@@ -777,7 +780,10 @@ export const stage5WorldDebug = () => ({
         enterX: ET_ENTER_X, exitX: ET_EXIT_X,
         z: enemyTrain?.group?.position?.z ?? 0,
     },
-    runoutX1,
+    runoutX1, leadX0, westLeadMeters: WEST_LEAD_METERS,
+    // `blockersAtZ` dihitung DI SINI: pagar lahir sebelum perabot/pintu/mesin.
+    fence: fenceDbg ? { ...fenceDbg,
+        blockersAtZ: blockers.filter(b => Math.abs(b.z - fenceDbg.z) <= b.hz + 2).length } : null,
     city: cityscape ? {
         parented: cityscape.root === stationRoot, groundY: cityscape.groundY,
         buildings: cityscape.buildings, trees: cityscape.trees,

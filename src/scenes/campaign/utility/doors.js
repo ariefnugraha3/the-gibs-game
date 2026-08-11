@@ -64,6 +64,13 @@ const FRONT_CELLS = 2;       // player HARUS di <= 2 kotak DI DEPAN bukaan (perm
 const DOOR_SOLID_MAX = 0.5;  // pintu PEJAL (memblok robot) selama open < ini (masih >=1/2 tertutup)
 const GREEN = 0x39ff7a;      // hijau "bisa dibuka" (senada lampu EXIT)
 const LOCK_RED = 0xff4a3c;   // merah "TERKUNCI" (varian pintu terkunci, mis. ruang komputer stage 1)
+export const DOOR_OPEN_COLOR = GREEN;
+export const DOOR_LOCKED_COLOR = LOCK_RED;
+
+export function setDoorSideLightState(lights, canOpen) {
+    const color = canOpen ? GREEN : LOCK_RED;
+    for (const lamp of lights || []) lamp.material.color.setHex(color);
+}
 
 // ===== RIG DUA DAUN 50:50 BERSAMA =========================================
 // Dipakai pintu stage 1-3, blast door stage 3, stasiun stage 5, dan kedua
@@ -119,6 +126,33 @@ export function buildSplitDoor(parent, material, x, y, z, sx, sy, sz, opts = {})
         leaf.add(bar);
     }
     return { panel, leaves, horizontal, span, leafSpan, travel: leafSpan * (1 - DOOR_OPEN_REVEAL) };
+}
+
+// Lampu status untuk pintu yang dibangun di luar `buildStageDoors` (Stage 5
+// dan Stage 6). Polanya sengaja sama dengan Stage 1: dua kusen kiri/kanan,
+// masing-masing terlihat dari kedua muka tembok; tidak ada panel lampu di atas
+// bukaan yang membuat pintu tampak seperti plafon.
+export function buildDoorSideLights(parent, x, z, sx, sz, cell, wallH, material) {
+    const horizontal = sx >= sz;
+    const span = horizontal ? sx : sz;
+    const jambOffset = span / 2 + cell / 2;
+    const faceOffset = cell / 2 + 0.25;
+    const lights = [];
+    for (const side of [-1, 1]) {
+        for (const face of [-1, 1]) {
+            const lamp = new THREE.Mesh(
+                horizontal ? new THREE.BoxGeometry(1.3, 2.2, 0.5)
+                    : new THREE.BoxGeometry(0.5, 2.2, 1.3),
+                material);
+            lamp.position.set(
+                horizontal ? x + side * jambOffset : x + face * faceOffset,
+                wallH * 0.55,
+                horizontal ? z + face * faceOffset : z + side * jambOffset);
+            parent.add(lamp);
+            lights.push(lamp);
+        }
+    }
+    return lights;
 }
 
 // Jarak pusat daun dari pusat bukaan pada bukaan ter-ease `easedOpen`. SATU-
