@@ -1,6 +1,6 @@
 # Rencana: Konversi ke Desktop Windows (.exe) & Publikasi ke Steam
 
-> Dokumen rencana untuk mengubah **Adversarial Intelligence** (game browser statis,
+> Dokumen rencana untuk mengubah **Decommission Day** (game browser statis,
 > lihat [CLAUDE.md](../CLAUDE.md)) menjadi aplikasi desktop Windows yang bisa dijual di
 > **Steam** (dan itch.io versi desktop), tanpa menulis ulang game.
 >
@@ -54,7 +54,7 @@ Satu-satunya ketergantungan yang tidak boleh dibawa ke desktop: **CDN**. Lihat �
 ## 2. Arsitektur target (Electron)
 
 ```
-adversarial-intelligence/
+decommission-day/
 ├─ index.html                 # game (tetap; hanya <head> script src diubah ke lokal)
 ├─ assets/sounds/*.mp3        # tetap
 ├─ vendor/                    # BARU: library yang sebelumnya dari CDN (lihat §3)
@@ -128,7 +128,7 @@ Bisa dikerjakan sekarang; hasilnya langsung diuji & bisa dijual di itch.io deskt
    `backgroundColor` gelap agar tak ada flash putih saat start.
 4. **Ikon**: `build/icon.ico` (256×256 minimal). electron-builder memakainya untuk exe.
 5. **electron-builder config** (di `package.json` `build`):
-   - `appId`, `productName: "Adversarial Intelligence"`.
+   - `appId`, `productName: "Decommission Day"`.
    - `win.target`: untuk Steam pakai output folder terpaket (`dir`) → Steam yang urus
      "install"/update lewat depot. Untuk itch bisa tambahan `nsis` (installer) atau zip.
    - `files`: sertakan `index.html`, `assets/**`, `vendor/**`, `desktop/**`.

@@ -318,5 +318,5 @@ function exitGame() {
         'justify-content:center;background:#000;color:#ffb84d;' +
         "font-family:'Courier Prime','Courier New',monospace;" +
         'font-size:26px;letter-spacing:2px;text-align:center;padding:20px;">' +
-        'Thanks for playing Adversarial Intelligence.<br>You may now close this tab.</div>';
+        'Thanks for playing Decommission Day.<br>You may now close this tab.</div>';
 }

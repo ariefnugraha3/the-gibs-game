@@ -11,7 +11,7 @@ rules in [CLAUDE.md](CLAUDE.md) — on any conflict, **CLAUDE.md wins**; keep th
 
 ## Repository overview
 
-"Adversarial Intelligence" — a browser **top-down shooter** (Alien Shooter-style; pivoted from
+"Decommission Day" — a browser **top-down shooter** (Alien Shooter-style; pivoted from
 FPS on 2026-07-11). Three.js r128, plain ES modules, **no build step, no npm dependencies,
 no framework**. Two modes:
 

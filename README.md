@@ -1,4 +1,4 @@
-# Adversarial Intelligence
+# Decommission Day
 
 A Three.js browser **top-down shooter** (Alien Shooter-style). Two modes: **Survival** (defend Monas from endless waves) and **Campaign** (a 4-stage story — rappel onto a rooftop, clear three floors of an abandoned office block, then fight a tank boss at the alun-alun).
 

@@ -1,17 +1,21 @@
 # Promotional Artwork Standard
 
-This is the source of truth for generated covers, banners, store capsules, and social artwork for **Adversarial Intelligence**. Read it before generating or editing promotional raster art. It complements the in-game `GIBS 2045` palette rules; it does not replace `src/world/palette.js`.
+This is the source of truth for generated covers, banners, store capsules, and social artwork for **Decommission Day**. Read it before generating or editing promotional raster art. It complements the in-game `GIBS 2045` palette rules; it does not replace `src/world/palette.js`.
 
 ## Canonical References
 
 Always load the relevant image before generation. Reference priority is:
 
-1. `assets/images/adversarial-intelligence-cover-logo-distressed.png` — **visual master** (1672×941). Use this as the primary reference for characters, scene, palette, material treatment, and title.
-2. `assets/images/adversarial-intelligence-cover-logo-distressed-portrait.png` — approved portrait composition (1024×1536).
-3. `assets/images/adversarial-intelligence-banner-1200x400.png` — approved 3:1 banner composition.
-4. `assets/images/adversarial-intelligence-banner-1250x350.png` — approved 25:7 shallow-banner composition.
+1. `assets/images/decommission-day-cover-logo-distressed.png` — **visual master** (1672×941). Use this as the primary reference for characters, scene, palette, material treatment, and title.
+2. `assets/images/decommission-day-cover-logo-distressed-portrait.png` — approved portrait composition (1024×1536).
+3. `assets/images/decommission-day-banner-1200x400.png` — approved 3:1 banner composition.
+4. `assets/images/decommission-day-banner-1250x350.png` — approved 25:7 shallow-banner composition.
+5. `assets/images/decommission-day-cover.png` — approved clean-title landscape alternative.
+6. `assets/images/decommission-day-cover-logo-distressed-ss2-v2.png` — approved alternate-rifle landscape cover.
 
 Do not use a generated derivative as the sole reference when the master is available. This prevents cumulative style and detail drift.
+
+The `adversarial-intelligence-*` files are preserved as pre-rename legacy assets. Do not delete or overwrite them, and do not use them for current store artwork. New derivatives must start from the matching `decommission-day-*` master above so the obsolete title cannot return.
 
 ## Non-Negotiable Visual Identity
 
@@ -28,8 +32,8 @@ Do not use a generated derivative as the sole reference when the master is avail
 The only promotional copy is exactly:
 
 ```text
-ADVERSARIAL
-INTELLIGENCE
+DECOMMISSION
+DAY
 ```
 
 Use large uppercase condensed military block lettering, muted sand/tan fill, dark extrusion/shadow, and subtle chipped/distressed marks. Preserve spelling, line order, and legibility. Do not add `NUSANTARA 2045`, a subtitle, studio mark, badge, UI, border, or watermark unless explicitly requested. Reject any output with missing, duplicated, malformed, clipped, or misspelled letters.
@@ -47,19 +51,19 @@ Generate at the requested aspect ratio. For exact delivery sizes, downscale from
 
 1. Treat the visual master as an **edit target/style reference**, not inspiration for a new unrelated scene.
 2. State the exact aspect ratio, final use, title text, required layout, invariants, and avoid list in the prompt.
-3. Preserve approved assets; save new work under `assets/images/` with a descriptive suffix, for example `adversarial-intelligence-banner-1200x400.png`.
+3. Preserve approved assets; save new work under `assets/images/` with a descriptive suffix, for example `decommission-day-banner-1200x400.png` (the existing `adversarial-intelligence-*` files are the pre-rename masters — leave their names alone).
 4. Inspect the generated image at full size. Correct one problem per iteration instead of broadly regenerating the art direction.
 5. Verify the final PNG dimensions with `file <path>` and visually inspect the saved project copy.
 
 ## Reusable Prompt Core
 
 ```text
-Faithfully preserve the supplied Adversarial Intelligence visual master. Create a
+Faithfully preserve the supplied Decommission Day visual master. Create a
 native <ASPECT> <ASSET TYPE>: dark low-poly faceted 3D military sci-fi artwork,
 nighttime war-torn Jakarta, muted tan/gunmetal/charcoal palette, restrained orange
 combat light. Keep Major Gibran with the correct Indonesian flag patch, rifle and
 tactical armor; recognizable Monas; angular red-eyed robot army; tank, rubble and
-burning wreck. Render the exact distressed two-line title "ADVERSARIAL INTELLIGENCE".
+burning wreck. Render the exact distressed two-line title "DECOMMISSION DAY".
 No extra text, watermark, border, neon, cyberpunk styling, photorealism, cartoons,
 unrelated units, clipped subjects, or misspelled title.
 ```

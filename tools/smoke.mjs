@@ -11237,15 +11237,19 @@ const palMod = await import(R('src/world/palette.js'));
     if (realFetch === undefined) delete globalThis.fetch; else globalThis.fetch = realFetch;
 }
 
-// === NAMA GAME = "Adversarial Intelligence" (2026-08-07, permintaan user; inisial
-// = A.I., menggantikan "Gibran vs Robot 3D"): judul tab, KEDUA H1 menu, layar
-// perpisahan Exit, eyebrow Credits dan metadata harus memakai SATU nama yang sama,
+// === NAMA GAME = "Decommission Day" (2026-08-11, permintaan user, menggantikan
+// "Adversarial Intelligence" yang dipakai sejak 2026-08-07; sebelumnya lagi
+// "Gibran vs Robot 3D"). Arti judul: decommission = menonaktifkan mesin dari
+// dinas secara resmi — istilah teknis yang tepat utk robot, dan ironis karena
+// biasanya MANUSIA yang men-decommission mesin. Ejaan WAJIB dua huruf 's'.
+// Kontrak: judul tab, layar boot, KEDUA H1 menu, layar perpisahan Exit dan
+// metadata harus memakai SATU nama yang sama,
 // dan nama lama tak boleh tersisa di file yang dilihat player. SENGAJA TIDAK ikut
 // berubah: nama karakter "Major Gibran", AI musuh "G.A.R.U.D.A", kunci localStorage
 // `gibs*` (save/preferensi player hilang bila dipindah) dan codename gaya visual
 // "GIBS 2045". ===
 {
-    const TITLE = 'Adversarial Intelligence';
+    const TITLE = 'Decommission Day';
     const htmlB = fs.readFileSync(ROOT + '/index.html', 'utf8');
     const cssB = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
     const menuB = fs.readFileSync(ROOT + '/src/scenes/menu.js', 'utf8');
@@ -11253,13 +11257,17 @@ const palMod = await import(R('src/world/palette.js'));
     const menuModB = await import(R('src/scenes/menu.js'));
 
     T('nama: <title> tab memakai nama game baru', htmlB.includes(`<title>${TITLE}</title>`));
+    // Layar boot = teks NAMA GAME pertama yang dilihat player (tampil dari CSS
+    // sebelum JS tiba), jadi ia ikut dipatok — dulu luput dari kontrak ini.
+    T('nama: layar boot memakai nama game baru',
+        htmlB.includes(`<div id="bootTitle">${TITLE.toUpperCase()}</div>`));
 
     // Judul = NAMA SAJA di kedua layar (2026-08-10, permintaan user, dua
     // tahap: tagline "NUSANTARA 2045" + rusuk ambernya dibuang dari menu utama
     // lalu dari logotype layar pilih mode). Tak ada lagi .titleTag/.titleRule.
     const titleH1 = (htmlB.match(/<h1>[\s\S]*?<\/h1>/g) || [])
         .filter(h => h.includes('titleMain'));
-    T('nama: 2 H1 (mainMenu + modeSelect) = ADVERSARIAL INTELLIGENCE',
+    T('nama: 2 H1 (mainMenu + modeSelect) = DECOMMISSION DAY',
         titleH1.length === 2
         && titleH1.every(h => h.includes('>' + TITLE.toUpperCase() + '<')));
     // Komentar dibuang dulu: catatan "jangan dihidupkan lagi" di HTML/CSS
@@ -11277,11 +11285,13 @@ const palMod = await import(R('src/world/palette.js'));
         menuB.includes(`Thanks for playing ${TITLE}.`)
         && !('eyebrow' in menuModB.MENU_CREDITS));
     T('nama: metadata package.json ikut nama baru',
-        pkgB.name === 'adversarial-intelligence' && pkgB.description.includes(TITLE));
+        pkgB.name === 'decommission-day' && pkgB.description.includes(TITLE));
 
-    // Termasuk nama antara "Automated Invasion" yang sempat dipakai sesi ini.
+    // Termasuk nama antara "Automated Invasion" yang sempat dipakai sesi ini,
+    // dan "Adversarial Intelligence" yang dipensiunkan 2026-08-11.
     const OLD = ['Gibran vs Robot', 'GIBRAN vs ROBOT', 'the-gibs-game',
-        'Automated Invasion', 'AUTOMATED INVASION', 'A.I. Shooter'];
+        'Automated Invasion', 'AUTOMATED INVASION', 'A.I. Shooter',
+        'Adversarial Intelligence', 'ADVERSARIAL INTELLIGENCE', 'adversarial-intelligence'];
     const stale = ['index.html', 'css/style.css', 'src/scenes/menu.js', 'package.json', 'README.md']
         .filter(f => OLD.some(o => fs.readFileSync(ROOT + '/' + f, 'utf8').includes(o)));
     T('nama: NOL sisa nama lama di file player-facing + metadata'
