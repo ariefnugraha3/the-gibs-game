@@ -12,6 +12,7 @@ Always load the relevant image before generation. Reference priority is:
 4. `assets/images/decommission-day-banner-1250x350.png` — approved 25:7 shallow-banner composition.
 5. `assets/images/decommission-day-cover.png` — approved clean-title landscape alternative.
 6. `assets/images/decommission-day-cover-logo-distressed-ss2-v2.png` — approved alternate-rifle landscape cover.
+7. `assets/images/decommission-day-logo-distressed-transparent.png` — approved standalone distressed title logo with transparent background (1633×499 RGBA).
 
 Do not use a generated derivative as the sole reference when the master is available. This prevents cumulative style and detail drift.
 
