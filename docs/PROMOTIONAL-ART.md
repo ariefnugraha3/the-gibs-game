@@ -9,6 +9,7 @@ Always load the relevant image before generation. Reference priority is:
 1. `assets/images/adversarial-intelligence-cover-logo-distressed.png` — **visual master** (1672×941). Use this as the primary reference for characters, scene, palette, material treatment, and title.
 2. `assets/images/adversarial-intelligence-cover-logo-distressed-portrait.png` — approved portrait composition (1024×1536).
 3. `assets/images/adversarial-intelligence-banner-1200x400.png` — approved 3:1 banner composition.
+4. `assets/images/adversarial-intelligence-banner-1250x350.png` — approved 25:7 shallow-banner composition.
 
 Do not use a generated derivative as the sole reference when the master is available. This prevents cumulative style and detail drift.
 
@@ -37,7 +38,7 @@ Use large uppercase condensed military block lettering, muted sand/tan fill, dar
 
 - **Landscape cover:** title upper-left; battlefield spans the horizon; Monas near center; hero dominates the right foreground.
 - **Portrait 2:3:** title fills the upper section; Monas anchors the central depth; hero fills the lower-right/center. Extend the scene vertically—never stretch a landscape crop.
-- **Banner 3:1:** keep all essentials inside the shallow central band. Title occupies the left third, Monas and robots the center, and the hero the right. Avoid edge-touching details.
+- **Banner 3:1 or 25:7:** keep all essentials inside the shallow central band. Title occupies the left third, Monas and robots the center, and the hero the right. As the banner gets shallower, remove expendable sky and foreground rather than compressing the scene. Avoid edge-touching details.
 - For other formats, recompose natively and maintain clear silhouette separation. Preserve safe margins around the title, face/helmet, flag patch, muzzle, and Monas.
 
 Generate at the requested aspect ratio. For exact delivery sizes, downscale from the closest exact-ratio master; do not distort. Crop only expendable smoke/sky/ground, never required subjects or typography.
