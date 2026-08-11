@@ -33,7 +33,6 @@
          tiba. main.js yang menutupnya setelah config dimuat, menu dibangun,
          font siap, dan latar kotanya benar-benar sempat dilukis. -->
     <div id="bootScreen">
-        <div id="bootTitle">DECOMMISSION DAY</div>
         <div id="bootBarShell"><div id="bootBarFill"></div></div>
         <div id="bootNote">Loading</div>
     </div>
@@ -174,7 +173,8 @@
          garis pindai CRT, pita bahaya, dan seluruh chrome berkas-misi kartu
          mode (kode OP, tabel spesifikasi, footer Deploy). Sisanya: satu judul
          besar, empat kata menu rata kiri, dan siluet Jakarta 2045 (SVG buatan
-         tangan di scenes/menuArt.js, tiga lapis parallax).
+         tangan di scenes/menuArt.js, tiga lapis parallax). Judul visual menu
+         utama memakai PNG logo transparan agar lettering tetap konsisten.
          KONTRAK JS LAMA TETAP: #mmStart/#mmSettings/#mmCredits/#mmExit,
          .menuBack[data-back], #qualityRow > .qbtn[data-q] (dibaca renderer.js
          + disembunyikan input.js), slider volume, #creditsBody, #diffRow
@@ -196,8 +196,15 @@
             <!-- Judul menu utama = NAMA SAJA (2026-08-10, permintaan user):
                  tagline "NUSANTARA 2045" + rusuk amber di atasnya dibuang.
                  Layar pilih mode masih memakai logotype lengkap. -->
+            <!-- Teks nama tetap menjadi heading aksesibel; gambar transparan
+                 di dalam heading menggantikannya secara visual. -->
             <div class="titleLock">
-                <h1><span class="titleMain">DECOMMISSION DAY</span></h1>
+                <h1>
+                    <span class="titleMain mainTitleA11y">DECOMMISSION DAY</span>
+                    <img class="mainTitleLogo"
+                         src="assets/images/decommission-day-logo-distressed-transparent.png"
+                         alt="" decoding="async">
+                </h1>
             </div>
             <nav class="menuBtns">
                 <button id="mmStart" class="navRow"><span class="nrLabel">Start Game</span></button>

@@ -11242,8 +11242,8 @@ const palMod = await import(R('src/world/palette.js'));
 // "Gibran vs Robot 3D"). Arti judul: decommission = menonaktifkan mesin dari
 // dinas secara resmi — istilah teknis yang tepat utk robot, dan ironis karena
 // biasanya MANUSIA yang men-decommission mesin. Ejaan WAJIB dua huruf 's'.
-// Kontrak: judul tab, layar boot, KEDUA H1 menu, layar perpisahan Exit dan
-// metadata harus memakai SATU nama yang sama,
+// Kontrak: judul tab, KEDUA H1 menu, layar perpisahan Exit dan metadata harus
+// memakai SATU nama yang sama. Boot screen sengaja tidak menampilkan judul,
 // dan nama lama tak boleh tersisa di file yang dilihat player. SENGAJA TIDAK ikut
 // berubah: nama karakter "Major Gibran", AI musuh "G.A.R.U.D.A", kunci localStorage
 // `gibs*` (save/preferensi player hilang bila dipindah) dan codename gaya visual
@@ -11257,10 +11257,8 @@ const palMod = await import(R('src/world/palette.js'));
     const menuModB = await import(R('src/scenes/menu.js'));
 
     T('nama: <title> tab memakai nama game baru', htmlB.includes(`<title>${TITLE}</title>`));
-    // Layar boot = teks NAMA GAME pertama yang dilihat player (tampil dari CSS
-    // sebelum JS tiba), jadi ia ikut dipatok — dulu luput dari kontrak ini.
-    T('nama: layar boot memakai nama game baru',
-        htmlB.includes(`<div id="bootTitle">${TITLE.toUpperCase()}</div>`));
+    T('nama: layar boot tidak menampilkan judul game',
+        !htmlB.includes('id="bootTitle"'));
 
     // Judul = NAMA SAJA di kedua layar (2026-08-10, permintaan user, dua
     // tahap: tagline "NUSANTARA 2045" + rusuk ambernya dibuang dari menu utama
@@ -11340,7 +11338,7 @@ const palMod = await import(R('src/world/palette.js'));
 // generated"): tampilannya boleh berubah total, KONTRAK-nya tidak. Bagian ini
 // menjaga (a) setiap id/kelas yang dibaca menu.js / renderer.js / input.js masih
 // ada di index.html, (b) hiasan lama (emoji sebagai ilustrasi) benar-benar
-// hilang, (c) seni vektor menu deterministik + tetap di dalam bingkainya, dan
+// hilang, (c) logo transparan + seni vektor kedua layar benar, dan
 // (d) ringkasan difficulty dibaca dari CFG, bukan kalimat hardcoded. ===
 {
     const htmlM = fs.readFileSync(ROOT + '/index.html', 'utf8');
@@ -11420,6 +11418,17 @@ const palMod = await import(R('src/world/palette.js'));
     T('MENU: NOL overlay garis pindai CRT (klise UI fiksi ilmiah); .mScan tinggal vignette',
         /\.mScan\s*\{[^}]*radial-gradient/.test(cssM)
         && !/\.mScan\s*\{[^}]*repeating-linear-gradient/.test(cssM));
+    // 2026-08-11 (koreksi user): skyline lama tetap menjadi backdrop; PNG
+    // transparan hanya menggantikan lettering judul menu utama.
+    const mainMenuMarkup = (htmlM.match(/<div id="mainMenu"[\s\S]*?<div id="mainMenuMain">/) || [''])[0];
+    T('MENU: logo transparan menggantikan teks visual; backdrop skyline kembali',
+        mainMenuMarkup.includes('class="mCity"')
+        && htmlM.includes('class="mainTitleLogo"')
+        && htmlM.includes('assets/images/decommission-day-logo-distressed-transparent.png')
+        && htmlM.includes('class="titleMain mainTitleA11y"')
+        && fs.existsSync(ROOT + '/assets/images/decommission-day-logo-distressed-transparent.png')
+        && /#mainMenu \.mainTitleLogo\s*\{[^}]*display:\s*block/.test(cssM)
+        && fs.readFileSync(ROOT + '/src/scenes/menu.js', 'utf8').includes('paintMenuArt(menu)'));
     // LATAR KOTA DIBURAMKAN (2026-08-10, permintaan user) — makin jauh makin
     // kabur, dan lapisnya menjulur ke bawah layar supaya tepi blur-nya tak
     // terlihat sebagai pita pucat di garis tanah. Panggung 3D "Gibran duduk di
@@ -11430,7 +11439,7 @@ const palMod = await import(R('src/world/palette.js'));
             return m ? +m[1] : 0;
         };
         const far = blur('far'), mid = blur('mid'), near = blur('near');
-        T('MENU: siluet kota DIBURAMKAN, makin jauh makin kabur',
+        T('MENU: siluet kota DIBURAMKAN di kedua layar, makin jauh makin kabur',
             near > 0 && mid > near && far > mid
             && /\.mCity\s*\{[^}]*bottom:\s*-\d+px/.test(cssM));
         T('MENU: panggung 3D menu (Gibran + kendaraan) sudah dibuang seluruhnya',
@@ -11497,6 +11506,13 @@ const palMod = await import(R('src/world/palette.js'));
             && /#bootScreen\s*\{[^}]*display:\s*flex/.test(cssM)
             && !/#bootScreen\s*\{[^}]*display:\s*none/.test(cssM)
             && !/id="bootScreen"[^>]*style=/.test(htmlM));
+        const bootMarkup = (htmlM.match(/<div id="bootScreen">[\s\S]*?<\/div>\s*<\/div>/) || [''])[0];
+        T('BOOT: tanpa judul dan memakai visual progress yang sama dengan loading pra-game',
+            !bootMarkup.includes('bootTitle')
+            && !bootMarkup.includes('DECOMMISSION DAY')
+            && /#bootBarShell,\s*#loadingBarShell\s*\{/.test(cssM)
+            && /#bootBarFill,\s*#loadingBarFill\s*\{/.test(cssM)
+            && /#bootNote,\s*#loadingText\s*\{/.test(cssM));
         // Script klasik tanpa `defer` MEMBLOKIR render: layar boot pun tak
         // sempat terlukis sampai ~1 MB CDN selesai diunduh.
         const cdnTags = htmlM.match(/<script[^>]*src="https:[^"]*"[^>]*>/g) || [];

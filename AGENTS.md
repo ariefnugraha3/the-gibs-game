@@ -152,7 +152,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   folded into the name line must stay). NEVER re-add the red radial gradient, rounded pill buttons,
   emoji mode icons, or the centred stack. `difficultyNote()` quotes `CFG.difficulty`, and the
   old DOM contract (button ids, `.qbtn[data-q]`, `.dbtn[data-d]`, `.modeCard[data-mode]`,
-  `#creditsBody`, `#continuePrompt`) is unchanged.
+  `#creditsBody`, `#continuePrompt`) is unchanged. The Main Menu's visible title uses
+  `assets/images/decommission-day-logo-distressed-transparent.png`; equivalent H1 text stays
+  visually hidden for semantics.
 - THINNED OUT 2026-08-10 (same complaint, second pass). The thing that reads as machine-made
   is DENSITY, not the design language: the first pass carried nine pieces of fake telemetry,
   a hint line under EVERY menu entry ("Exit Game — stand down and close the terminal"), six
@@ -171,7 +173,8 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   the blur's soft edge falls off-screen. A foreground scene of Major Gibran on the GRD
   LTV-45 was built twice that day — once as hand-drawn SVG, once as a live WebGL stage —
   and BOTH were rejected; `menuStage.js` plus the menu-only rig helpers are deleted and
-  smoke asserts they stay gone. → docs/presentation.md
+  smoke asserts they stay gone. The boot screen contains no game title and shares its
+  progress-bar styling with the in-game loading screen. → docs/presentation.md
 - THIRD PASS, same day, same complaint. Also gone, and not to be restored: the
   `NUSANTARA 2045` tagline on BOTH title lockups (`.titleTag`/`.titleRule` deleted), the
   mode-card schematics (`modeArtSvg` and every `.ma*` class DELETED from menuArt.js/CSS —

@@ -855,25 +855,28 @@ body {
     margin: 4px 0 0;
 }
 
-/* ---------- Layar loading pra-game: overlay OPAK di atas menu/cutscene
-   (z 40 > modeSelect 30 > cutscene 20) selama dunia dibangun + shader
-   dipanaskan (core/preload.js) — menutupi frame-frame pemanasan renderer ---------- */
-/* ---------- LAYAR BOOT (2026-08-10, permintaan user) ----------
-   Tampil BAWAAN (tanpa JS) supaya sudah ada di lukisan pertama browser, lalu
-   ditutup main.js setelah menu benar-benar siap. Beda dgn #loadingScreen yang
-   dinyalakan JS setelah mode dipilih. z-50: di atas seluruh layar menu (32),
-   tapi tetap di bawah #fatalMsg (99) supaya pesan galat masih terbaca. */
-#bootScreen {
+/* ---------- Loading bersama ----------
+   Boot tampil sebelum menu; loadingScreen tampil setelah mode dipilih. Keduanya
+   sengaja berbagi panggung, progress bar, dan tipografi agar transisi terasa
+   sebagai satu sistem. Boot tidak memuat judul game. */
+#bootScreen,
+#loadingScreen {
     position: absolute;
     inset: 0;
-    z-index: 50;
-    display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 18px;
-    background: var(--aiInk);
+    gap: 22px;
+    background: #05060a;
     font-family: 'Courier Prime', 'Courier New', monospace;
+    cursor: wait;
+}
+
+/* Tampil BAWAAN (tanpa JS) supaya sudah ada pada paint pertama browser.
+   z-50: di atas menu dan loading pra-game, tetapi di bawah #fatalMsg (99). */
+#bootScreen {
+    z-index: 50;
+    display: flex;
     /* Peluruhannya SEKALIGUS jadi silang-pudar: latar kota di belakangnya baru
        pertama kali dirasterisasi saat ini, dan setengah detik ini menyembunyikan
        biaya rasterisasi blur-nya. */
@@ -882,48 +885,9 @@ body {
 
 #bootScreen.done { opacity: 0; pointer-events: none; }
 
-#bootTitle {
-    max-width: 12ch;
-    font-size: clamp(22px, 3.4vw, 38px);
-    font-weight: bold;
-    line-height: 1.05;
-    letter-spacing: 0.12em;
-    text-align: center;
-    color: var(--aiText);
-}
-
-#bootBarShell {
-    width: min(260px, 56vw);
-    height: 2px;
-    background: rgba(216, 210, 196, 0.14);
-}
-
-#bootBarFill {
-    width: 6%;
-    height: 100%;
-    background: var(--aiAmber);
-    transition: width 0.25s ease-out;
-}
-
-#bootNote {
-    font-size: 10.5px;
-    letter-spacing: 0.28em;
-    text-transform: uppercase;
-    color: var(--aiTextFaint);
-}
-
 #loadingScreen {
     display: none;
-    position: absolute;
-    inset: 0;
-    background: #05060a;
     z-index: 40;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 22px;
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    cursor: wait;
 }
 
 .loadingTitle {
@@ -934,6 +898,7 @@ body {
     text-shadow: 2px 2px 6px black;
 }
 
+#bootBarShell,
 #loadingBarShell {
     width: min(420px, 70vw);
     height: 14px;
@@ -943,14 +908,18 @@ body {
     overflow: hidden;
 }
 
+#bootBarFill,
 #loadingBarFill {
-    width: 0%;
     height: 100%;
     background: linear-gradient(90deg, #b45a1e, #ffb84d);
     border-radius: 7px;
     transition: width 0.15s ease-out;
 }
 
+#bootBarFill { width: 6%; }
+#loadingBarFill { width: 0%; }
+
+#bootNote,
 #loadingText {
     font-size: 16px;
     color: #8fa0b0;
@@ -985,9 +954,9 @@ body {
        layar tampak "diisi" alih-alih dirancang.
 
    Yang TETAP: panggung latar berlapis (langit → 3 lapis siluet Jakarta 2045
-   dari scenes/menuArt.js → kabut → vignette), judul + daftar RATA KIRI, panel
-   Settings berkelompok, dan seluruh kontrak JS
-   lama — lihat komentar di index.html.
+   dari scenes/menuArt.js → kabut → vignette), judul + daftar RATA KIRI,
+   panel Settings berkelompok, dan seluruh kontrak JS lama. Judul visual main
+   menu kini memakai logo PNG transparan — lihat komentar di index.html.
    ============================================================================ */
 
 :root {
@@ -1034,7 +1003,7 @@ body {
 #mainMenu.subview { justify-content: center; }
 #mainMenu.subview #mainMenuMain { display: none; }
 
-/* ---------- Panggung latar: langit, kota berlapis, kabut, garis pindai ----------
+/* ---------- Panggung latar: langit, kota berlapis, kabut, vignette ----------
    .mCity diisi SVG oleh menuArt.paintMenuArt; parallax halus digeser
    menu.js lewat --px (pointer) sehingga lapisan bergerak beda jauh-dekat. */
 .mScene {
@@ -1213,6 +1182,28 @@ body {
 }
 
 .titleLock { margin-bottom: clamp(26px, 5vh, 58px); }
+
+/* Nama teks tetap hidup sebagai heading aksesibel; PNG transparan menjadi
+   lettering yang terlihat tanpa menggandakan nama untuk pembaca layar. */
+#mainMenu .titleMain.mainTitleA11y {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+#mainMenu .mainTitleLogo {
+    display: block;
+    width: clamp(330px, 48vw, 760px);
+    max-width: 68vw;
+    height: auto;
+    filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
+}
 
 #mainMenu h1 {
     margin: 0;
@@ -1742,6 +1733,7 @@ body {
 @media (max-width: 900px) {
     #mainMenu { justify-content: center; padding: 0 22px; }
     #mainMenuMain { align-items: center; text-align: center; }
+    #mainMenu .mainTitleLogo { width: min(88vw, 680px); max-width: 88vw; }
     .mScene::after { background: linear-gradient(180deg, rgba(9, 10, 13, 0.93), rgba(9, 10, 13, 0.78) 44%, rgba(9, 10, 13, 0.94)); }
     .mStamp { display: none; }
     .credRow { grid-template-columns: 1fr; row-gap: 2px; }

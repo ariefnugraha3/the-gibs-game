@@ -9,6 +9,7 @@
 // ROMBAK TAMPILAN 2026-08-09 (permintaan user: menu lama "terlihat AI
 // generated"). Yang bertambah di sini — semua di atas kontrak lama, bukan
 // menggantinya: latar kota berlapis dari scenes/menuArt.js + parallax pointer,
+// logo PNG transparan sebagai lettering judul menu utama,
 // navigasi keyboard (panah/Enter/Escape) dgn baris tersorot, ringkasan angka
 // difficulty yang DIBACA DARI CFG (jadi retune gameplay.json ikut terbaca), dan
 // isian --fill slider volume supaya relnya terisi sesuai nilai.
