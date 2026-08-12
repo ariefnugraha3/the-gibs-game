@@ -100,15 +100,15 @@ export const S6_MAP = Object.freeze([
 export const S6_LEGEND = Object.freeze({
     '#': 'wall', '.': 'floor', A: 'safe-area', S: 'start', W: 'supply-room',
     '-': 'door', '=': 'locked-door', '@': 'chapter-door',
-    K: 'key-rack', I: 'info-terminal', G: 'generator', H: 'repair-point', F: 'finish',
+    // `I` DULU terminal informasi yang bisa di-hack; DIHAPUS 2026-08-12 atas
+    // permintaan user — tak boleh ada komputer di depan ruang generator, karena
+    // satu-satunya cara membuka pintu `=` adalah KUNCI yang dicari di rak `K`.
+    // Petanya tetap transliterasi beku CSV user, jadi tokennya dipertahankan dan
+    // selnya kini lantai biasa.
+    K: 'key-rack', I: 'floor', G: 'generator', H: 'repair-point', F: 'finish',
 });
 
 export const S6_START = Object.freeze(cellPos(27, 49));
-// Titik BERDIRI di sel `I`. Konsolnya sendiri digeser ke sel `I` sebelah kiri:
-// menaruhnya di tengah dua sel `I` membuat blocker-nya menutup SATU-SATUNYA
-// pendekatan ke pintu `=` di bawahnya, dan ruang generator jadi mustahil dicapai.
-export const S6_INFO = Object.freeze(cellPos(44, 34));
-const INFO_CONSOLE = Object.freeze(cellPos(42.5, 34));
 export const S6_FINISH = Object.freeze(cellPos(44.5, 1));
 // Tiga rak kunci; satu dipilih acak tiap run. Titik berdiri ada di SISI TERBUKA
 // rak (rak menempel pilar), bukan di dalam selnya.
@@ -174,14 +174,19 @@ const DOOR_LAYOUT = Object.freeze([
     Object.freeze({ kind: 'grid', ...cellPos(44.5, 35), sx: CELL * 2, sz: 4.5 }),
     Object.freeze({ kind: 'chapter', ...cellPos(44.5, 0), sx: CELL * 4, sz: 4.5 }),
 ]);
-// Pintu `-` membuka otomatis saat didekati; `=` dan `@` hanya dibuka oleh alur.
+// Pintu `-` membuka otomatis saat didekati; `@` hanya dibuka oleh alur.
 const AUTO_DOORS = Object.freeze(['safe', 'hall']);
+// Pintu `=` ruang generator: kunci dari rak hanya MEMBUKA GEMBOKNYA. Daunnya
+// tetap tertutup dan baru bergeser saat player berdiri di depannya, persis pintu
+// otomatis lain (permintaan user 2026-08-12 — dulu kunci langsung membuka
+// pintunya dari seberang ruangan). Selama masih `locked`, targetnya tetap 0.
+const KEYED_AUTO_DOORS = Object.freeze(['grid']);
 
 let built = false, worldRoot = null, navGrid = null, staticBatch = [];
 let wallDetailCount = 0, furnitureMeshCount = 0, rackDetailCount = 0;
 const blockers = [], doors = [], propRecords = [], stageLights = [];
 const sparkPool = [], rackVisuals = [], generatorVisuals = [], machines = [];
-let infoScreen = null, finishMarker = null, infoMarker = null, cityscape = null;
+let finishMarker = null, cityscape = null;
 const rackMarkers = [], repairMarkers = [];
 let sparkT = 0;
 
@@ -366,19 +371,6 @@ function buildGenerator(M, spec) {
     repairMarkers.push(markerAt(spec.stand, PAL.amber));
 }
 
-// Terminal informasi: konsol dinding di seberang pintu berkunci. Membacanya
-// menunjukkan rak mana yang menyimpan kunci.
-function buildInfoTerminal(M) {
-    const g = new THREE.Group(); g.position.set(INFO_CONSOLE.x, 0, INFO_CONSOLE.z);
-    box(g, M.ink, CELL * 2 - 4, 6, 8, 0, 3, 0);
-    const top = box(g, M.body, CELL * 2 - 3, 2, 9, 0, 7, 0); top.rotation.x = -0.14;
-    infoScreen = box(g, M.screen, 14, 6, 0.8, 0, 9.4, 4.2, false); infoScreen.rotation.x = -0.14;
-    for (const x of [-6, -2, 2, 6]) box(g, M.amber, 1, 1, 1, x, 5.4, 4.5, false);
-    worldRoot.add(g);
-    recordProp('info-terminal', INFO_CONSOLE, CELL - 2, 4.5, 10, true);
-    infoMarker = markerAt(S6_INFO, PAL.tech, 8, 10.5);
-}
-
 function buildSupplyRoomProps(M, add) {
     // Rak-rak logistik rendah: memberi bentuk pada gudang tanpa menutup drop.
     // Kolom 3-4 adalah lorong lurus antara kedua pintu `-`; rak logistik menjauh
@@ -533,7 +525,6 @@ function buildWorld() {
     for (const spec of RACK_POINTS) buildRack(M, spec);
     for (const spec of GENERATOR_POINTS) buildGenerator(M, spec);
     buildMachines();
-    buildInfoTerminal(M);
     for (const spec of DOOR_LAYOUT) addDoor(M, spec);
     finishMarker = markerAt(S6_FINISH, PAL.tech, 9, 12);
     buildSparks(M);
@@ -587,7 +578,9 @@ export function updateDoors(dt) {
 
 export function updateAutoDoors(dt = 0) {
     for (const d of doors) {
-        if (!AUTO_DOORS.includes(d.kind)) continue;
+        const auto = AUTO_DOORS.includes(d.kind)
+            || (KEYED_AUTO_DOORS.includes(d.kind) && !d.locked);
+        if (!auto) continue;
         d.target = doorProximityTarget(d, dt, camera.position.x, camera.position.z, CELL);
     }
 }
@@ -628,12 +621,11 @@ export function updateMachineVisual(dt) {
 export function setMarkers(state) {
     for (let i = 0; i < rackMarkers.length; i++) rackMarkers[i].visible = !!(state.racks && state.racks[i]);
     for (let i = 0; i < repairMarkers.length; i++) repairMarkers[i].visible = !!(state.repairs && state.repairs[i]);
-    if (infoMarker) infoMarker.visible = !!state.info;
     if (finishMarker) finishMarker.visible = !!state.finish;
 }
 
 export function pulseMarkers(dt, t) {
-    const list = [...rackMarkers, ...repairMarkers, infoMarker, finishMarker];
+    const list = [...rackMarkers, ...repairMarkers, finishMarker];
     for (let i = 0; i < list.length; i++) {
         const m = list[i];
         if (m?.visible) {
@@ -677,13 +669,6 @@ export function setRackSearched(id, hasKey) {
     v.tag.material.emissiveIntensity = hasKey ? EMISSIVE_MAX * 0.6 : 0.1;
 }
 
-export function setInfoRead(on) {
-    if (!infoScreen) return;
-    infoScreen.material = infoScreen.material.clone();
-    infoScreen.material.emissive.setHex(on ? PAL.tech : PAL.techDim);
-    infoScreen.material.emissiveIntensity = on ? 0.5 : 0.28;
-}
-
 export function resetWorldVisuals() {
     for (const d of doors) {
         d.open = 0; d.target = 0; d.linger = 0;
@@ -697,7 +682,6 @@ export function resetWorldVisuals() {
         m.alive = true; m.active = false; m.hp = spawnMachineHp(); m.hitT = 0;
         resetSpawnMachine(m.rig, false);
     }
-    setInfoRead(false);
     setMarkers({});
     sparkT = 0;
     for (const s of sparkPool) s.visible = false;
@@ -713,12 +697,13 @@ export const stage6WorldDebug = () => ({
         racks: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === 'K').length, 0),
         generators: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === 'G').length, 0),
         repairs: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === 'H').length, 0),
-        info: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === 'I').length, 0),
+        // Sel `I` peta beku user; sejak 2026-08-12 tak ada prop apa pun di sana.
+        infoCells: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === 'I').length, 0),
         finish: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === 'F').length, 0),
         autoDoors: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === '-').length, 0),
         lockedDoors: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === '=').length, 0),
         chapterDoors: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === '@').length, 0) },
-    start: { ...S6_START }, info: { ...S6_INFO }, finish: { ...S6_FINISH },
+    start: { ...S6_START }, finish: { ...S6_FINISH },
     racks: RACK_POINTS.map(p => ({ ...p, stand: { ...p.stand } })),
     generators: GENERATOR_POINTS.map(p => ({ ...p, stand: { ...p.stand } })),
     machinePoints: MACHINE_POINTS.map(p => ({ ...p, hatch: { ...p.hatch } })),
@@ -733,7 +718,7 @@ export const stage6WorldDebug = () => ({
             color: l.material.color.getHex() })),
         split: splitDoorDebug(d.rig) })),
     markers: { racks: rackMarkers.map(m => m.visible), repairs: repairMarkers.map(m => m.visible),
-        info: !!infoMarker?.visible, finish: !!finishMarker?.visible },
+        finish: !!finishMarker?.visible },
     pools: { sparks: sparkPool.length },
     visiblePools: { sparks: sparkPool.filter(s => s.visible).length },
     lights: stageLights.length, nav: !!navGrid, staticBatches: staticBatch.length,

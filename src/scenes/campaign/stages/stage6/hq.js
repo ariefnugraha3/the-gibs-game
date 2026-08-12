@@ -35,12 +35,13 @@ import { campaignRobotAI, campaignClampRobot, countStageRobots } from '../../uti
 import { beginStageTransition } from '../../utility/transition.js';
 import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
 import { slideWalk } from '../../../../utils/collision.js';
+import { setActiveStageLights } from '../../../../world/lighting.js';
 import { stage7Scene } from '../stage7/index.js';
 import {
     phase, setPhase, complete, setComplete, cine, setCine, cineCam, cleanupCine,
     queueDialogue, dialogueIdle, dialogueCurrentLine, dialogueCharCount,
     spawnEncounter, clearStageRobots, resetDialogue, setDialogueHook,
-    machineBulletHits, machineWreckFx,
+    machineBulletHit, machineBulletHits, machineWreckFx,
 } from './runtime.js';
 import {
     WALL_H, hqCellPos, HQ_MAP, HQ_START, HQ_UPLOAD, HQ_SERVERS, HQ_HACK,
@@ -52,6 +53,7 @@ import {
     hqSparks, setUploadMarker, setFinishMarker, pulseHqMarkers, setUploadAlarm,
     setLockdownLights, deployMachine, killMachineVisual,
     unlockHqDoor, setHackMarker, setHackScreenHacked, resetHqVisuals,
+    HQ_LIGHTS_KEY,
 } from './hqWorld.js';
 
 const C6 = () => CFG.campaign.stage6;
@@ -78,6 +80,15 @@ const points = name => HQ_ENCOUNTER_POINTS[name]
     .filter(([c, r]) => !hqInServerRoomCell(c, r) && HQ_MAP[r][c] !== 'Y')
     .map(([c, r]) => hqCellPos(c, r));
 const machinesAlive = () => hqMachines().reduce((n, m) => n + (m.alive ? 1 : 0), 0);
+// KOTAK PIJAK AMBER: tepat SATU yang menyala pada satu waktu, dan selalu yang
+// sama dengan tujuan yang ditunjuk radar (2026-08-12, permintaan user). Selama
+// ruang server terkunci itu terminal hack di ruang rapat; sesudah terbuka,
+// konsol server. Begitu upload mulai, keduanya padam.
+function syncHqMarkers() {
+    const acting = phase === 'office';
+    setHackMarker(acting && !serverHacked);
+    setUploadMarker(acting && serverHacked);
+}
 const machinesDeployed = () => hqMachines().some(m => m.deployed);
 const near = (p, range) => Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < range;
 
@@ -118,7 +129,7 @@ function updateEventTriggers() {
 // Pintu ruang server hanya terlepas dari sini. Pola armed/cooldown-nya sama
 // dengan terminal informasi chapter 1.
 function finishServerHack() {
-    serverHacked = true; setHackMarker(false); setHackScreenHacked(true);
+    serverHacked = true; setHackScreenHacked(true); syncHqMarkers();
     unlockHqDoor('server-access');
     queueDialogue('serverDoorOpen');
     showStageMsg('SERVER ROOM ACCESS RELEASED', 4200);
@@ -162,7 +173,7 @@ function updateServerDoorWarning() {
     doorWarnArmed = false;
     queueDialogue('serverDoorLocked', true); queueDialogue('hackTerminalHint');
     showStageMsg('SERVER ROOM LOCKED - BREAK THE MEETING ROOM TERMINAL', 3600);
-    setHackMarker(true);
+    syncHqMarkers();
 }
 
 // --- Mesin pembuat robot ---------------------------------------------------
@@ -203,6 +214,12 @@ function updateExitWarning() {
     showStageMsg(`DESTROY BOTH ROBOT FACTORIES FIRST — ${machinesAlive()} LEFT`, 3200);
 }
 
+function machineShotBlocked(b, m, x0, z0, x1, z1) {
+    if (b.mesh.position.y >= WALL_H) return false;
+    return hqSegHitsWall(x0, z0, x1, z1, m.cells)
+        || hqDoorBlocksShot(x0, z0, x1, z1);
+}
+
 // --- Upload ----------------------------------------------------------------
 function beginLockdown() {
     if (lockdown) return;
@@ -241,7 +258,7 @@ function startUpload() {
     setCine({ kind: 'upload', stage: 'brief', t: 0, stageT: 0 });
     cineCam.x = -48; cineCam.y = 58; cineCam.z = 62;
     setCineFocus(HQ_SERVERS.x - 14, HQ_SERVERS.z, true);
-    setUploadMarker(false); uploadProgress = 0; uploadFailed = false;
+    syncHqMarkers(); uploadProgress = 0; uploadFailed = false;
     queueDialogue('insertCommand'); queueDialogue('uploadSystem');
     showCutsceneSkip(endUploadCine);
 }
@@ -309,6 +326,9 @@ export const hqScene = {
     id: 'campaign-6-hq',
 
     enter() {
+        // Set lampu chapter 2 (lihat HQ_LIGHTS_KEY): lampu terminal chapter 1
+        // padam supaya shader tidak menghitung 26 PointLight per fragmen.
+        setActiveStageLights(HQ_LIGHTS_KEY);
         resetHq(); resetHqVisuals();
         // Satu-satunya kait dialog stage ini: baris peringatan lockdown MEMULAI
         // lockdown-nya, jadi visual dan naskah tak pernah saling mendahului.
@@ -323,8 +343,8 @@ export const hqScene = {
         player.vy = 0; player.onGround = true;
         releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
         setCinematicActive(false); setCineBars(false);
-        setUploadMarker(true); setHackMarker(false);
-        showStageMsg('REACH THE SERVER ROOM AND UPLOAD THE KILL-SWITCH', 4600);
+        syncHqMarkers();
+        showStageMsg('BREAK THE MEETING ROOM TERMINAL TO REACH THE SERVER ROOM', 4600);
     },
 
     exit() {
@@ -372,6 +392,9 @@ export const hqScene = {
     groundHeight(x, z, feetY) { return hqGroundHeight(x, z, feetY); },
     get camOffset() { return cine ? cineCam : null; },
     bulletBlocked(b) {
+        // Sel M memang pejal, tetapi peluru harus diberi kesempatan merusak
+        // mesin hidup sebelum sapuan dinding menghapusnya sebagai wall hit.
+        if (machineBulletHit(b, hqMachines(), C6().machineHitRadius, machineShotBlocked)) return true;
         if (b.mesh.position.y >= WALL_H) return false;
         return hqSegHitsWall(b.px, b.pz, b.mesh.position.x, b.mesh.position.z)
             || hqDoorClampShot(b);

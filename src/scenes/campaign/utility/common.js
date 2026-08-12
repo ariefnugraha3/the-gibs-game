@@ -31,6 +31,44 @@ export function propClearance() {
     return (typeof r === 'number' && r > 0) ? Math.min(r, player.radius) : player.radius;
 }
 
+// PENANDA KOTAK BERDIRI 12x12 — bahasa visual TUNGGAL untuk "berdiri di sini
+// supaya sesuatu terjadi" di seluruh campaign (Stage 1 komputer, Stage 2
+// generator, Stage 5 C1/C2, Stage 6 HQ terminal hack + konsol upload). Sengaja
+// sebuah AREA PIJAK berbar tebal, bukan cincin waypoint: cincin berarti "pergi
+// ke sana", kotak berarti "injak petak ini".
+//
+// Lahir `visible = false` (pemanggil yang menyalakannya sesuai fase) dan TIDAK
+// pernah diputar — bidangnya rebah di lantai, jadi memutar sumbu z akan
+// mendirikannya. Animasinya cukup opasitas; `pulseStandMarker` di bawah adalah
+// denyut bakunya. `g.material` dialias ke material isian supaya animator/debug
+// lama tetap jalan tanpa membuat material baru.
+export const STAND_MARKER_SIZE = 12;
+export function buildStandMarker(parent, x, z, color) {
+    const g = new THREE.Group();
+    const S = STAND_MARKER_SIZE;
+    const fillMat = new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.28, toneMapped: false, depthWrite: false,
+    });
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(S, S), fillMat);
+    fill.rotation.x = -Math.PI / 2; fill.position.y = 0.14; g.add(fill);
+    const barMat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
+    for (const [sx, sz, px, pz] of [
+        [S, 1, 0, -S / 2], [S, 1, 0, S / 2], [1, S, -S / 2, 0], [1, S, S / 2, 0],
+    ]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.5, sz), barMat);
+        bar.position.set(px, 0.22, pz); g.add(bar);
+    }
+    g.material = fillMat; g.userData.fill = fill; g.userData.bars = 4;
+    g.userData.standMarker = true;
+    g.position.set(x, 0, z); g.visible = false;
+    if (parent) parent.add(g);
+    return g;
+}
+
+export function pulseStandMarker(m, t, phase = 0) {
+    if (m?.visible) m.material.opacity = 0.28 + 0.22 * (0.5 + 0.5 * Math.sin(t + phase));
+}
+
 // Robot campaign: DIAM di tempat (state 'idle') sampai player mendekat /
 // tertembak. HP/speed/attack per KELAS (CFG.robot.classes); tag z.stage utk
 // hitungan HUD & pembersihan saat pindah stage.

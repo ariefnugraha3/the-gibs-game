@@ -4854,6 +4854,7 @@ T('S4 FINISH CONTINUE: tombol utama menutup overlay tanpa reset dan baru membuka
 const s5mod = await import(R('src/scenes/campaign/stages/stage5/index.js'));
 const s6mod = await import(R('src/scenes/campaign/stages/stage6/index.js'));
 const s7mod = await import(R('src/scenes/campaign/stages/stage7/index.js'));
+const s7RoadVehicleMod = await import(R('src/scenes/campaign/stages/stage7/roadVehicles.js'));
 const s8mod = await import(R('src/scenes/campaign/stages/stage8/index.js'));
 const tacticalVehicleMod = await import(R('src/entities/tacticalVehicle.js'));
 const enemyPickupMod = await import(R('src/entities/enemyPickup.js'));
@@ -7124,7 +7125,6 @@ const expectedS6Dialogue = {
     hallContact: { speaker: 'Major Gibran', text: 'Contact in the freight hall. So much for a quiet homecoming.' },
     hallFabricators: { speaker: 'Major Gibran', text: 'They built fabricators into the freight hall. Those come down before I leave this terminal.' },
     keyHunt: { speaker: 'Command', text: 'The service door to the power hall runs on a physical key, Major. Maintenance crews kept their spares in the supply racks.' },
-    infoRead: { speaker: 'Station System', text: 'Maintenance log recovered. Service key signed out and logged to a single rack.' },
     keyFound: { speaker: 'Major Gibran', text: 'Got it. Now let us see what they were keeping behind that door.' },
     gridOpen: { speaker: 'Command', text: 'That is the emergency power hall. Headquarters cannot release its access door until all three generators are running.' },
     generatorFirst: { speaker: 'Major Gibran', text: 'One turbine turning. Two to go.' },
@@ -7227,7 +7227,7 @@ T('S6 DENAH: transliterasi CSV user 50x50 dengan sensus token persis',
     && s6World.map.safe === s6Count('A') + s6Count('S') && s6World.map.safe === 168
     && s6World.map.supply === s6Count('W') && s6World.map.supply === 196
     && s6World.map.racks === 9 && s6World.map.generators === 27
-    && s6World.map.repairs === 3 && s6World.map.info === 2 && s6World.map.finish === 4
+    && s6World.map.repairs === 3 && s6World.map.infoCells === 2 && s6World.map.finish === 4
     && s6World.map.autoDoors === 4 && s6World.map.lockedDoors === 2
     && s6World.map.chapterDoors === 4 && s6Count('S') === 1);
 T('S6 ARRIVAL DETAIL VISUAL: dinding berpanel, rak ber-brace, dan perabot industri padat',
@@ -7290,9 +7290,16 @@ function s6NearReachable(can, cellPos, p, range) {
     }
     return false;
 }
-T('S6 DENAH: rak kunci, generator dan terminal informasi adalah furnitur SOLID',
-    ['key-rack', 'generator', 'info-terminal', 'supply-shelf', 'inspection-bench',
+T('S6 DENAH: rak kunci dan generator adalah furnitur SOLID',
+    ['key-rack', 'generator', 'supply-shelf', 'inspection-bench',
         'distribution-panel'].every(k => s6World.propKinds.includes(k))
+    // TERMINAL YANG BISA DI-HACK DI DEPAN RUANG GENERATOR SUDAH DIHAPUS
+    // (2026-08-12, permintaan user): satu-satunya kunci pintu `=` adalah kunci
+    // fisik di rak. Peta tetap beku, jadi sel `I`-nya kini lantai kosong.
+    && !s6World.propKinds.includes('info-terminal')
+    && s6mod.S6_LEGEND.I === 'floor' && s6World.map.infoCells === 2
+    && s6mod.S6_INFO === undefined && S6C.infoRange === undefined
+    && s6mod.STAGE6_DIALOGUE.infoRead === undefined
     && s6World.props.filter(p => p.kind === 'key-rack' && p.solid).length === 3
     && s6World.props.filter(p => p.kind === 'generator' && p.solid).length === 3
     && !s6mod.stage6Walk(s6mod.RACK_POINTS[0].x, s6mod.RACK_POINTS[0].z, 0)
@@ -7314,7 +7321,7 @@ T('S6 ARRIVAL PINTU: tembakan melintasi pintu tertutup dihentikan dan di-clamp',
         stateMod._v3.set(p.x, 0, p.z); s6mod.resolve(stateMod._v3, r, 0);
         return Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) <= 0.01;
     };
-    for (const p of [s6mod.S6_START, s6mod.S6_FINISH, s6mod.S6_INFO,
+    for (const p of [s6mod.S6_START, s6mod.S6_FINISH,
         ...s6mod.RACK_POINTS.map(r => r.stand), ...s6mod.GENERATOR_POINTS.map(g => g.stand),
         ...s6World.supplies, ...s6World.crates]) if (!clearAt(p, 1)) ok = false;
     // Titik spawn diperiksa pada radius robot penuh, bukan radius drop.
@@ -7334,8 +7341,8 @@ T('S6 ARRIVAL PINTU: tembakan melintasi pintu tertutup dihentikan dan di-clamp',
         ...s6mod.RACK_POINTS.map(x => x.stand), ...s6mod.GENERATOR_POINTS.map(x => x.stand),
         s6mod.S6_FINISH, ...s6World.supplies, ...s6World.crates,
         ...s6World.machinePoints.map(m => m.hatch)];
-    T('S6 LULUS-JALAN: rak, terminal, generator, gudang dan titik `F` benar-benar bisa dicapai player',
-        targets.every(t => nearOK(t, 1)) && nearOK(s6mod.S6_INFO, S6C.infoRange));
+    T('S6 LULUS-JALAN: rak, generator, gudang dan titik `F` benar-benar bisa dicapai player',
+        targets.every(t => nearOK(t, 1)));
 }
 // DUA MESIN PEMBUAT ROBOT DI GUDANG (2026-08-09, permintaan user: "taruh 2 mesin
 // spawn robot di area gudang ... di bagian utara sebelum lorong ke jalan keluar").
@@ -7444,45 +7451,55 @@ killS6('hall'); tickS6(S6C.machineFirstWaveSec + 0.2, 0.1);
 killS6('factory'); s6mod.stage6Scene.updateMode(0.1);
 T('S6 KUNCI: hall bersih membuka perburuan kunci; pintu `=` masih tertutup',
     s6mod.stage6Debug().phase === 'findKey' && s6Door('grid').target === 0
-    && s6mod.stage6WorldDebug().markers.racks.every(v => v === true)
-    && s6mod.stage6WorldDebug().markers.info === true);
+    && s6mod.stage6WorldDebug().markers.racks.every(v => v === true));
 drainS6Dialogue();
 
-s6Put(s6mod.S6_INFO); s6mod.stage6Scene.updateMode(0.1);
-T('S6 TERMINAL INFO: terminal memakai SIGNAL TRACE yang sama dengan Stage 5',
-    signalMod.isSignalTraceOpen() && smMod.activeScene.id === 'campaign-signal-trace'
-    && signalMod.signalTraceDebug().total === cfgMod.CFG.campaign.signalTrace.channels);
-signalMod.signalTick(cfgMod.CFG.campaign.signalTrace.traceSec + 1);
-await waitSignalClosed();
-T('S6 TERMINAL INFO: timeout melepas alarm squad config-driven dan cooldown terminal',
-    sameMix(s6Mix('signalAlarm'), S6C.encounters.signalAlarm)
-    && Math.abs(s6mod.stage6Debug().infoHackCd - S6C.signalCooldownSec) < 0.01);
-killS6('signalAlarm');
-s6Put(s6mod.S6_START); s6mod.stage6Scene.updateMode(S6C.signalCooldownSec + 0.1);
-s6Put(s6mod.S6_INFO); s6mod.stage6Scene.updateMode(0.1);
-smMod.activeScene.shopKey('escape'); stateMod.setPaused(false);
-T('S6 TERMINAL INFO: abort tidak membaca log dan wajib re-arm dengan menjauh',
-    !s6mod.stage6Debug().infoRead && !s6mod.stage6Debug().infoArmed);
-s6Put(s6mod.S6_START); s6mod.stage6Scene.updateMode(0.1);
-s6Put(s6mod.S6_INFO); s6mod.stage6Scene.updateMode(0.1);
-solveSignalTrace(); await waitSignalClosed();
+// TAK ADA KOMPUTER DI DEPAN RUANG GENERATOR (2026-08-12, permintaan user):
+// berdiri di petak `I` lama — tepat di depan pintu `=` — tidak boleh membuka
+// minigame apa pun, dan ketiga rak tetap ditandai karena tak ada yang
+// mempersempit perburuan.
+{
+    const oldInfoCell = s6mod.cellPos(44, 34);
+    s6Put(oldInfoCell); tickS6(2, 0.1);
+    T('S6 RUANG GENERATOR: tak ada terminal yang bisa di-hack di depan pintu `=`',
+        !signalMod.isSignalTraceOpen() && smMod.activeScene.id === 'campaign-6'
+        && s6mod.stage6Debug().phase === 'findKey' && s6Door('grid').target === 0
+        && s6mod.stage6WorldDebug().markers.racks.every(v => v === true)
+        && s6mod.stage6WorldDebug().markers.info === undefined);
+}
 const s6KeyRack = s6mod.stage6Debug().keyRack;
-T('S6 TERMINAL INFO: log dibaca -> hanya rak pemegang kunci yang tetap ditandai',
-    s6mod.stage6Debug().infoRead && s6mod.stage6WorldDebug().markers.info === false
-    && s6mod.stage6WorldDebug().markers.racks.filter(v => v).length === 1
-    && s6mod.stage6WorldDebug().markers.racks[s6KeyRack] === true);
-drainS6Dialogue();
 
 const s6WrongRack = (s6KeyRack + 1) % s6mod.RACK_POINTS.length;
 s6Put(s6mod.RACK_POINTS[s6WrongRack].stand); tickS6(S6C.rackSearchSec + 0.1, 0.1);
 T('S6 RAK: menggeledah rak yang salah hanya menandainya kosong',
     s6mod.stage6Debug().rackSearched[s6WrongRack] && !s6mod.stage6Debug().hasKey
-    && s6mod.stage6Debug().phase === 'findKey' && s6Door('grid').target === 0);
+    && s6mod.stage6Debug().phase === 'findKey' && s6Door('grid').target === 0
+    // Penanda rak kosong padam; rak yang belum digeledah tetap menyala.
+    && s6mod.stage6WorldDebug().markers.racks[s6WrongRack] === false
+    && s6mod.stage6WorldDebug().markers.racks.filter(v => v).length
+        === s6mod.RACK_POINTS.length - 1);
 s6Put(s6mod.RACK_POINTS[s6KeyRack].stand); tickS6(S6C.rackSearchSec + 0.1, 0.1);
-T('S6 KUNCI DITEMUKAN: rak yang benar membuka pintu `=` dan menurunkan garnisun generator',
+// KUNCI HANYA MELEPAS GEMBOK (2026-08-12, permintaan user): pintunya TETAP
+// TERTUTUP dan baru bergeser saat player berdiri di depannya.
+T('S6 KUNCI DITEMUKAN: rak yang benar MELEPAS GEMBOK `=` tanpa membukanya',
     s6mod.stage6Debug().hasKey && s6mod.stage6Debug().phase === 'powerGrid'
-    && s6Door('grid').target === 1 && s6Door('chapter').target === 0
+    && s6Door('grid').locked === false
+    && s6Door('grid').target === 0 && s6Door('grid').open === 0
+    && s6Door('chapter').target === 0
     && sameMix(s6Mix('grid'), S6C.encounters.grid));
+{
+    // Berdiri di depan daunnya membukanya; menjauh menutupnya lagi setelah
+    // linger `closeDelaySec` habis — perilaku pintu otomatis standar.
+    const gd = s6Door('grid');
+    s6Put({ x: gd.x, z: gd.z + 18 });        // satu sel di depan daun pintu
+    tickS6(0.6, 0.1);
+    const openedNear = s6Door('grid').target === 1 && s6Door('grid').open > 0;
+    s6Put(s6mod.RACK_POINTS[s6KeyRack].stand);
+    tickS6(cfgMod.CFG.campaign.doors.closeDelaySec + 1.2, 0.1);
+    const closedFar = s6Door('grid').target === 0 && s6Door('grid').open === 0;
+    T('S6 PINTU GENERATOR: terbuka saat DIDEKATI, menutup lagi saat ditinggalkan',
+        openedNear && closedFar);
+}
 drainS6Dialogue();
 
 s6Put(s6mod.GENERATOR_POINTS[0].stand); s6mod.stage6Scene.updateMode(0.1);
@@ -7639,10 +7656,114 @@ T('S6 HQ KANTOR: perabot kantor lengkap seperti Stage 1-3, plus gudang/toilet/me
     && s6HqWorld.props.filter(p => p.kind === 'broken-door').length === 3
     && s6HqWorld.props.filter(p => p.solid).length >= 60
     && s6HqWorld.pools.sparks === 16 && s6HqWorld.lights >= 12 && s6HqWorld.staticBatches > 0);
+// KANTOR TERBUKA BARAT (2026-08-12, permintaan user): sayap barat diisi deret
+// pulau kerja back-to-back, bukan meja tunggal yang berjauhan. Yang dijaga di
+// sini: seluruh pulau memang berada di sayap BARAT (kol < 28), dan tiap pulau
+// membawa perabot kantor pendukungnya.
+{
+    const banks = s6HqWorld.props.filter(p => p.kind === 'desk-bank');
+    const westOf = c => s6mod.hqCellPos(c, 0).x;
+    T('S6 HQ KANTOR BARAT: deret pulau kerja open-plan mengisi sayap barat',
+        banks.length >= 20 && banks.every(b => b.solid && b.x < westOf(28))
+        && ['file-cabinet', 'printer', 'water-cooler', 'coffee-table']
+            .every(k => s6HqWorld.propKinds.includes(k)));
+}
+// TOILET DIROMBAK (2026-08-12, permintaan user): isinya dulu rig kios warung.
+// Sekarang bilik + urinoir + wastafel, dan lorong tengahnya (kolom 46) WAJIB
+// bebas blocker — itu satu-satunya jalur ke ujung selatan ruangan.
+{
+    const rest = s6HqWorld.props.filter(p => ['toilet-stall', 'urinal', 'washbasin',
+        'restroom-bin'].includes(p.kind));
+    let laneOK = true;
+    for (let r = 14; r <= 27; r++) {
+        const q = s6mod.hqCellPos(46, r);
+        if (rest.some(b => Math.abs(q.x - b.x) <= b.hx + stateMod.player.radius
+            && Math.abs(q.z - b.z) <= b.hz + stateMod.player.radius)) laneOK = false;
+    }
+    T('S6 HQ TOILET: lima bilik + tiga urinoir + tiga wastafel, lorong tengah bebas',
+        s6HqWorld.props.filter(p => p.kind === 'toilet-stall').length === 5
+        && s6HqWorld.props.filter(p => p.kind === 'urinal').length === 3
+        && s6HqWorld.props.filter(p => p.kind === 'washbasin').length === 3
+        && rest.every(p => p.solid && !p.standable) && laneOK);
+}
 T('S6 HQ DETAIL VISUAL: dinding, workstation, lemari, toilet, dan server berlapis detail',
     s6HqWorld.architecture.wallDetails > s6HqWorld.map.walls * 2
     && s6HqWorld.furnitureDetails.furniture > 60
     && s6HqWorld.furnitureDetails.servers > 200);
+// KOTAK PIJAK AMBER DI DEPAN KEDUA KOMPUTER (2026-08-12, permintaan user "biar
+// player tidak bingung harus ke mana"): bentuknya HARUS kotak pijak 12x12
+// bersama milik campaign, bukan cincin waypoint, warnanya amber, berdiri persis
+// di petak berdiri masing-masing konsol, dan TIDAK PERNAH diputar (bidangnya
+// rebah di lantai — memutar sumbu z akan mendirikannya).
+{
+    const palM = await import(R('src/world/palette.js'));
+    const comM = await import(R('src/scenes/campaign/utility/common.js'));
+    const sm = s6HqWorld.standMarkers;
+    const at = (m, p) => m && Math.hypot(m.x - p.x, m.z - p.z) < 0.01;
+    s6mod.stage6Scene.updateMode(0.1); s6mod.stage6Scene.updateMode(0.1);
+    const spun = s6mod.hqWorldDebug().standMarkers;
+    T('S6 HQ PENANDA: kotak pijak amber tepat di depan terminal hack dan konsol server',
+        sm.hack && sm.upload
+        && sm.hack.stand === true && sm.upload.stand === true
+        && sm.hack.bars === 4 && sm.upload.bars === 4
+        && sm.hack.color === palM.PAL.amber && sm.upload.color === palM.PAL.amber
+        && at(sm.hack, s6mod.HQ_HACK) && at(sm.upload, s6mod.HQ_UPLOAD)
+        && spun.hack.spin === 0 && spun.upload.spin === 0
+        && comM.STAND_MARKER_SIZE === 12);
+}
+// ---- OPTIMASI STAGE 6 (2026-08-12, laporan user "terasa agak berat") --------
+// Tiga hal yang dipatok di sini karena ketiganya hanya terlihat lewat angka:
+{
+    // (1) INDEKS SPASIAL BLOCKER. `hqResolve` tak lagi menyapu seluruh 591
+    //     blocker; kalau petak indeksnya salah, sebuah blocker jadi TAK TERLIHAT
+    //     dan player menembusnya. Uji langsung: taruh probe di TENGAH tiap prop
+    //     solid — resolve WAJIB mendorongnya keluar. Satu saja yang lolos berarti
+    //     indeksnya bocor.
+    let stuck = 0, ejected = 0;
+    for (const pr of s6HqWorld.props) {
+        // Rangka mesin SENGAJA tak punya collider sebelum lockdown (yang terlihat
+        // itulah yang menghalangi), jadi ia memang tak boleh mendorong apa pun.
+        if (!pr.solid || pr.kind === 'spawn-machine') continue;
+        stateMod._v3.set(pr.x, 0, pr.z);
+        s6mod.hqResolve(stateMod._v3, stateMod.player.radius, 0);
+        const dx = Math.abs(stateMod._v3.x - pr.x), dz = Math.abs(stateMod._v3.z - pr.z);
+        if (dx > pr.hx || dz > pr.hz) ejected++; else stuck++;
+    }
+    T(`S6 HQ OPTIMASI: indeks blocker tetap mendorong keluar SEMUA prop solid [${ejected} ok, ${stuck} tembus]`,
+        ejected > 0 && stuck === 0);
+}
+{
+    // (2) LAS SADAR-BAYANGAN. Kulit dinding + pernik perabot tidak boleh masuk
+    //     shadow pass; dulu satu bucket material meng-OR-kan castShadow sehingga
+    //     82.076 dari 116.402 segitiga dibayar dua kali. Yang dijaga: mayoritas
+    //     mesh statis HQ TIDAK mencetak bayangan, tapi dindingnya tetap mencetak.
+    let cast = 0, flat = 0;
+    for (const o of s6mod.hqStaticBatchDbg()) o.traverse(m => {
+        if (!m.isMesh) return;
+        if (m.castShadow) cast++; else flat++;
+    });
+    T(`S6 HQ OPTIMASI: pernik statis keluar dari shadow pass [${cast} mencetak, ${flat} tidak]`,
+        flat > cast * 2 && cast > 0);
+}
+{
+    // (3) SET LAMPU PER CHAPTER. Dulu kedua chapter memakai `campaign-6`, jadi 26
+    //     PointLight dihitung tiap fragmen sepanjang stage — dua kali lipat stage
+    //     mana pun. Sekarang tiap chapter punya kuncinya sendiri, dan keduanya
+    //     tetap dikompilasi di muka oleh `precompileStageLightSets`.
+    const lm = await import(R('src/world/lighting.js'));
+    const keys = lm.stageLightsDebug().keys;
+    const lit = k => { lm.setActiveStageLights(k); return lm.stageLightsDebug().visible; };
+    const before = lm.stageLightsDebug().active;
+    const arrivalLit = lit('campaign-6'), hqLit = lit(s6HqWorldMod.HQ_LIGHTS_KEY);
+    lm.setActiveStageLights(before || 'campaign-6');
+    T(`S6 HQ OPTIMASI: tiap chapter punya set lampunya sendiri [arrival ${arrivalLit}, hq ${hqLit}]`,
+        s6HqWorldMod.HQ_LIGHTS_KEY === 'campaign-6-hq'
+        && s6HqWorldMod.HQ_LIGHTS_KEY !== s6mod.stage6Scene.lightsKey
+        && keys.includes('campaign-6') && keys.includes(s6HqWorldMod.HQ_LIGHTS_KEY)
+        && arrivalLit > 0 && hqLit > 0
+        // Justru inilah untungnya: tak satu pun chapter menyalakan gabungannya.
+        && arrivalLit < arrivalLit + hqLit && hqLit < arrivalLit + hqLit);
+}
 T('S6 HQ PINTU: tujuh pintu; start/finish TERSEGEL, ruang server TERKUNCI',
     s6HqWorld.doors.length === 7
     && s6HqDoor('entry-seal').sealed === true
@@ -7687,7 +7808,20 @@ T('S6 HQ PINTU RUSAK: sel `@` benar-benar PEJAL, bukan sekadar prop',
         .filter(([c, r]) => 'AY'.includes(s6mod.HQ_MAP[r][c])).length;
     T('S6 HQ PENEMPATAN: semua titik bebas blocker; spawn awal di luar SA, gelombang purge memakainya',
         ok && !officeInSafe && purgeInSafe >= 4
-        && s6HqWorld.supplies.length === 15 && s6HqWorld.crates.length === 5);
+        && s6HqWorld.supplies.length === 15 && s6HqWorld.crates.length === 34);
+}
+// PETI LOOT DI SETIAP RUANGAN (2026-08-12, permintaan user): kalau lootnya
+// hanya di jalur utama, tak ada alasan menyisir kantor. Yang dijaga: tiap area
+// bernama punya peti, dan tak satu pun peti berdiri di dalam ruang server yang
+// memang harus sunyi.
+{
+    const areas = new Set(s6HqWorld.crates.map(c => c.area));
+    T('S6 HQ PETI: tiap ruangan kantor punya peti loot sendiri',
+        ['west-pod', 'warehouse', 'office', 'office-annex', 'server', 'corridor',
+            'meeting', 'restroom', 'hall', 'south-west', 'south-room', 'safe-area',
+            'cache'].every(a => areas.has(a))
+        && areas.size === 13
+        && s6HqWorld.crates.filter(c => c.area === 'office').length >= 5);
 }
 
 {
@@ -7761,7 +7895,11 @@ s6HqPut(s6mod.HQ_UPLOAD); s6mod.stage6Scene.updateMode(0.1);
 T('S6 HQ SERVER LOCK: titik upload tak berbuat apa-apa selama pintunya belum dibobol',
     s6mod.stage6Debug().phase === 'office' && !stateMod.cinematicActive
     && !s6mod.stage6Debug().hq.serverHacked
-    && s6HqDoor('server-access').locked === true);
+    && s6HqDoor('server-access').locked === true
+    // Selagi terkunci, yang MENYALA adalah kotak terminal hack — bukan kotak
+    // konsol server yang belum bisa dipakai.
+    && s6mod.hqWorldDebug().markers.hack === true
+    && s6mod.hqWorldDebug().markers.upload === false);
 {
     const d = s6HqDoor('server-access');
     s6HqPut({ x: d.x, z: d.z + 20 }); s6mod.stage6Scene.updateMode(0.1);
@@ -7795,7 +7933,9 @@ solveSignalTrace(); await waitSignalClosed();
 T('S6 HQ HACK: berhasil melepas kunci pintu ruang server',
     s6mod.stage6Debug().hq.serverHacked
     && s6HqDoor('server-access').locked === false
-    && s6mod.hqWorldDebug().markers.hack === false);
+    // Penanda berpindah: kotak terminal padam, kotak konsol server menyala.
+    && s6mod.hqWorldDebug().markers.hack === false
+    && s6mod.hqWorldDebug().markers.upload === true);
 drainS6Dialogue();
 
 // Upload di titik `H`.
@@ -7844,16 +7984,37 @@ T('S6 FINISH GATE HQ: pintu utama menolak selagi mesinnya masih berdiri',
 drainS6Dialogue();
 s6HqPut(s6mod.hqCellPos(13, 40)); s6mod.stage6Scene.updateMode(0.1);
 {
-    // Satu mesin dihancurkan lewat peluru SUNGGUHAN (menguji sapuan segmen),
-    // satunya lagi lewat HP supaya tesnya tetap singkat.
-    const m0 = s6mod.hqMachines()[0];
+    // Dinding sungguhan yang berada SEBELUM mesin tetap harus menang. Lintasan
+    // dari empat sel di selatan mesin kedua menembus dinding baris 34 dulu.
+    const m1 = s6mod.hqMachines()[1];
+    const wallSweep = s6HqWorld.map.cell * 4;
+    const hpBeforeWallShot = m1.hp;
     stateMod.bullets.push({
-        mesh: { position: { x: m0.x, y: 8, z: m0.z } },
-        px: m0.x - 30, py: 8, pz: m0.z, dir: { x: 1, y: 0, z: 0 },
+        mesh: { position: new THREE.Vector3(m1.x, 8, m1.z + wallSweep) },
+        px: m1.x, py: 8, pz: m1.z + wallSweep, dir: new THREE.Vector3(0, 0, -1),
+        speed: wallSweep, life: 2, first: true,
         damage: MACHINE_HP() + 50,
     });
+    bulMod.updateBullets(1);
+    T('S6 MESIN: dinding kantor sebelum mesin tetap memblokir tembakan',
+        m1.hp === hpBeforeWallShot && stateMod.bullets.length === 0);
+
+    // Satu mesin dihancurkan lewat urutan frame SUNGGUHAN: updateBullets
+    // menyapu dari luar radius sampai menembus sel M pejal pada frame yang
+    // sama. Mesin harus menerima damage SEBELUM hqSegHitsWall membuang peluru.
+    // Satunya lagi lewat HP supaya tesnya tetap singkat.
+    const m0 = s6mod.hqMachines()[0];
+    const sweepSpeed = Math.max(cfgMod.CFG.weapons.bulletSpeed, S6C.machineHitRadius * 2);
+    const startX = m0.x - sweepSpeed;
+    stateMod.bullets.push({
+        mesh: { position: new THREE.Vector3(startX, 8, m0.z) },
+        px: startX, py: 8, pz: m0.z, dir: new THREE.Vector3(1, 0, 0),
+        speed: sweepSpeed, life: 2, first: true,
+        damage: MACHINE_HP() + 50,
+    });
+    bulMod.updateBullets(1);
     s6mod.stage6Scene.updateMode(0.1);
-    T('S6 MESIN: peluru yang mengenainya benar-benar merusak dan menghancurkannya',
+    T('S6 MESIN: peluru cepat merusak mesin sebelum sel M pejal memblokirnya',
         s6mod.stage6Debug().hq.machinesAlive === 1
         && s6mod.hqWorldDebug().machines[0].alive === false
         && stateMod.bullets.length === 0);
@@ -7940,7 +8101,7 @@ T('S7 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
 const expectedS7Dialogue = {
     openingCommand: { speaker: 'Command', text: 'Major, the east end of the Prof. Dr. Mochtar Kusumaatmadja Flyover is ahead. Cross all one point five kilometers to Pasteur.' },
     openingGibran: { speaker: 'Major Gibran', text: 'Straight west, eight lanes, and a city full of machines. Understood.' },
-    flyoverPlan: { speaker: 'Major Gibran', text: "The deck is wrecked. I'll weave through the abandoned vehicles and craters." },
+    flyoverPlan: { speaker: 'Major Gibran', text: "The abandoned vehicles have turned the whole deck into a maze. I'll weave through." },
     mortarWarning: { speaker: 'Command', text: 'Major, hostile mortar batteries have your position. Keep moving when the shells begin to fall.' },
     landmarkCommand: { speaker: 'Command', text: 'You are passing the Pasupati cable tower, seven hundred meters from the east end. Pasteur is eight hundred meters ahead.' },
     landmarkGibran: { speaker: 'Major Gibran', text: 'I see the tower. The median is open; I can cross between both carriageways.' },
@@ -8182,34 +8343,71 @@ T('S7 MALAM/LAMPU: semua tiang berada di median, bercabang kiri-kanan, fixed lig
         === s7Fly.lamps.visual);
 
 const s7ExpectedCars = s7Fly.maze.bands * S7F.carsPerBand + S7F.scatteredCars;
-T('S7 LABIRIN: mobil + lubang besar memutus garis lurus tetapi rute tetap tersambung',
+const s7RouteCoverage = points => {
+    const bins = Math.min(S7F.laneCountPerSide * 2, points.length);
+    if (!bins) return true;
+    return new Set(points.map(p => Math.min(bins - 1, Math.floor(
+        Math.max(0, Math.min(S7F.lengthMeters - 1e-9,
+            (s7Fly.world.eastX - p.x) / cfgMod.CAMP_M))
+        / S7F.lengthMeters * bins)))).size === bins;
+};
+T('S7 LABIRIN: mobil tersebar sepanjang rute, memutus garis lurus, tetapi rute tetap tersambung',
     s7Fly.maze.bands === S7F.mazeBandCount
     && s7Fly.maze.cars === s7ExpectedCars
-    && s7Fly.maze.holes === S7F.potholeCount
+    && s7RouteCoverage(s7World.props.filter(p => p.kind === 'abandoned-car'))
     && s7Fly.maze.directBlocked && s7Fly.maze.connected
     && s7Conn.connected && Object.values(s7Conn.goals).every(Boolean)
     && s7Conn.path.detourRatio > 1
     && s7Conn.path.crossesMedian
     && s7World.props.filter(p => p.kind === 'abandoned-car' && p.solid).length
-        === s7ExpectedCars
-    && s7World.props.filter(p => p.kind === 'road-crater' && p.unwalkable).length
-        === S7F.potholeCount);
+        === s7ExpectedCars);
 
-T('S7 LUBANG: radius seluruh crater mengikuti CFG dan tidak bisa diinjak player/robot',
-    s7mod.S7_HOLES.length === S7F.potholeCount
-    && s7Fly.maze.roadSkinSegments === Math.max(1, S7F.potholeCount) + 2
-    && s7Fly.maze.maxHolesPerSegment <= 1
-    && s7Fly.maze.carsClearHoles
-    && s7mod.S7_HOLES.every(h =>
-        h.radius / cfgMod.CAMP_M >= S7F.potholeMinRadiusMeters - 1e-9
-        && h.radius / cfgMod.CAMP_M <= S7F.potholeMaxRadiusMeters + 1e-9
-        && h.rim.length >= 15 && h.depression > 0
-        && !s7mod.stage7Walk(h.x, h.z, player.radius))
-    && s7Fly.maze.brokenRoad
-    && s7World.props.filter(p => p.kind === 'road-crater').every(p =>
-        p.shape === 'jagged' && p.brokenAsphalt && p.vertices >= 15
-        && p.depression > 0 && p.cracks > 0 && p.rubble > 0
-        && p.surfaceRubble > 0));
+const s7VehicleProps = s7World.props.filter(p => p.kind === 'abandoned-car');
+const s7ExtraTypes = s7RoadVehicleMod.STAGE7_EXTRA_VEHICLE_TYPES;
+const s7VehicleTypePoints = Object.fromEntries(s7ExtraTypes.map(type => [type,
+    s7VehicleProps.filter(p => p.vehicleType === type)]));
+T('S7 VARIASI KENDARAAN: truk kontainer, dump truck, bus, truk tangki, dan pickup semuanya hadir',
+    s7ExtraTypes.join(',') === 'container-truck,dump-truck,bus,tanker-truck,pickup'
+    && s7ExtraTypes.every(type => s7VehicleTypePoints[type].length > 0)
+    && s7VehicleProps.every(p => {
+        const spec = s7RoadVehicleMod.STAGE7_ROAD_VEHICLE_SPECS[p.vehicleType];
+        return !!spec && p.vehicleLengthMeters === spec.length
+            && p.vehicleWidthMeters === spec.width
+            && p.vehicleHeightMeters === spec.height;
+    }));
+T('S7 VARIASI KENDARAAN: setiap jenis baru tersebar di paruh timur DAN barat flyover',
+    s7ExtraTypes.every(type => s7VehicleTypePoints[type].some(p => p.meter < S7F.lengthMeters / 2)
+        && s7VehicleTypePoints[type].some(p => p.meter > S7F.lengthMeters / 2)));
+T('S7 COVER KENDARAAN BESAR: kelima jenis baru solid dan menghentikan swept bullet/LOS',
+    s7ExtraTypes.every(type => {
+        const p = s7VehicleTypePoints[type][0];
+        return p && p.solid && s7mod.stage7SegHitsWall(
+            p.x - p.hx * 2, p.z, p.x + p.hx * 2, p.z, 8);
+    }));
+
+const s7RoadCuts = [0, S7F.lengthMeters, S7F.descentStartMeter,
+    S7F.descentStartMeter + S7F.descentLengthMeters]
+    .filter(m => m >= 0 && m <= S7F.lengthMeters)
+    .sort((a, b) => a - b)
+    .filter((m, i, a) => !i || Math.abs(m - a[i - 1]) > 1e-9);
+T('S7 JALAN UTUH: seluruh sistem lubang/crater dihapus dari config, ekspor, prop, dan mesh jalan',
+    !('potholeCount' in S7F)
+    && !('potholeMinRadiusMeters' in S7F)
+    && !('potholeMaxRadiusMeters' in S7F)
+    && !('S7_HOLES' in s7mod)
+    && !('holes' in s7Fly.maze)
+    && !s7World.props.some(p => p.kind === 'road-crater')
+    && s7Fly.maze.roadSkinSegments === s7RoadCuts.length - 1);
+
+T('S7 OPTIMASI: kendaraan di-frustum-cull per chunk dan blocker memakai indeks spasial',
+    s7World.optimization.vehicleChunks.chunkMeters > 0
+    && s7World.optimization.vehicleChunks.chunks > 1
+    && s7World.optimization.vehicleChunks.raw === s7ExpectedCars
+    && s7World.optimization.vehicleChunks.maxRaw < s7ExpectedCars
+    && s7World.optimization.blockerBins.binMeters > 0
+    && s7World.optimization.blockerBins.bins > 1
+    && s7World.optimization.blockerBins.references >= s7World.blockers
+    && s7World.optimization.blockerBins.maxPerBin < s7World.blockers);
 
 const s7FirstCar = s7World.props.find(p => p.kind === 'abandoned-car');
 T('S7 COVER MOBIL: kendaraan solid juga menghentikan swept bullet/LOS',
@@ -8240,7 +8438,7 @@ T('S7 LANDMARK: pylon Pasupati tepat meter 700 memakai 10 kabel besar, seimbang 
 T('S7 WORLD: flyover punya dek, bahu, ramp naik-merge, kota bawah, landmark, Pasteur, dan GRD',
     ['flyover-deck', 'road-shoulder', 'side-ramp', 'ramp-barricade',
         'lower-city-building', 'pasupati-pylon',
-        'abandoned-car', 'road-crater', 'pasteur-toll-canopy',
+        'abandoned-car', 'pasteur-toll-canopy',
         'toll-booth', 'robot-factory', 'grd-ltv-45']
         .every(k => s7World.propKinds.includes(k))
     && s7World.pools.rain === 96 && s7World.pools.ripples === 24
@@ -8473,6 +8671,8 @@ T('S7 PLACEMENT: objective, supplies, crates, barrels, robot, dan factory berada
     && s7World.supplies.length === 8
     && s7World.crates.length === S7F.lootboxCount
     && s7World.barrels.length === S7F.barrelCount
+    && s7RouteCoverage(s7World.crates)
+    && s7RouteCoverage(s7World.barrels)
     && new Set(s7World.crates.map(p => `${p.x.toFixed(3)},${p.z.toFixed(3)}`)).size
         === S7F.lootboxCount
     && new Set(s7World.barrels.map(p => `${p.x.toFixed(3)},${p.z.toFixed(3)}`)).size
@@ -10251,6 +10451,9 @@ const palMod = await import(R('src/world/palette.js'));
     styleGroups.push(['MeetingTable', (await import(R('src/entities/futuristicMeetingTable.js'))).buildFuturisticMeetingTableMesh(30, 9, 16)]);
     styleGroups.push(['Sedan', (await import(R('src/entities/futuristicSedan.js'))).buildFuturisticSedanMesh(7, null)]);
     styleGroups.push(['SUV', (await import(R('src/entities/futuristicSUV.js'))).buildFuturisticSUVMesh(7, null)]);
+    for (const type of s7RoadVehicleMod.STAGE7_EXTRA_VEHICLE_TYPES)
+        styleGroups.push(['Stage7-' + type,
+            s7RoadVehicleMod.buildStage7RoadVehicle(type, PAL.gunmetal, 7)]);
     styleGroups.push(['TacticalVehicle', (await import(R('src/entities/tacticalVehicle.js'))).buildTacticalVehicleMesh(7).group]);
     styleGroups.push(['EnemyPickup', (await import(R('src/entities/enemyPickup.js'))).buildEnemyPickupMesh(7).group]);
     styleGroups.push(['CombatGunship', (await import(R('src/entities/combatGunship.js'))).buildCombatGunshipMesh(4.8).group]);

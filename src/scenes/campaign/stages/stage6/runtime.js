@@ -158,25 +158,56 @@ export function clearStageRobots() {
 // --- Mesin pembuat robot (dipakai KEDUA chapter) ---------------------------
 // Sapuan segmen prev->now: peluru senapan menempuh puluhan unit per frame, jadi
 // uji titik per frame akan menembus rangka selebar apa pun.
-export function machineBulletHits(list, hitRadius) {
+function circleEntryT(x0, z0, x1, z1, cx, cz, r2) {
+    const dx = x1 - x0, dz = z1 - z0;
+    const fx = x0 - cx, fz = z0 - cz;
+    const a = dx * dx + dz * dz;
+    const c = fx * fx + fz * fz - r2;
+    if (c < 0) return 0;
+    if (a < 1e-9) return null;
+    const q = 2 * (fx * dx + fz * dz);
+    const disc = q * q - 4 * a * c;
+    if (disc <= 0) return null;
+    const t = (-q - Math.sqrt(disc)) / (2 * a);
+    return t >= 0 && t <= 1 ? t : null;
+}
+
+export function machineBulletHit(b, list, hitRadius, blockedBeforeHit = null) {
     const r2 = Math.max(1, hitRadius) ** 2;
+    const bx = b.mesh.position.x, bz = b.mesh.position.z;
+    let hit = null, hitT = Infinity;
+    for (const m of list) {
+        if (!m.alive) continue;
+        if (segPointDist2(b.px, 0, b.pz, bx, 0, bz, m.x, 0, m.z) >= r2) continue;
+        const t = circleEntryT(b.px, b.pz, bx, bz, m.x, m.z, r2);
+        if (t == null || t >= hitT) continue;
+        const x = b.px + (bx - b.px) * t, z = b.pz + (bz - b.pz) * t;
+        if (blockedBeforeHit && blockedBeforeHit(b, m, b.px, b.pz, x, z)) continue;
+        hit = m; hitT = t;
+    }
+    if (!hit) return false;
+    if (b.explosive) {
+        hit.hp -= (b.damage != null ? b.damage : CFG.grenade.damage);
+    } else {
+        hit.hp -= (b.damage != null ? b.damage : CFG.weapons.bulletDamage) * (player.dmgMul || 1);
+        stats.hits++;
+        spawnBloodBurst(bx, 12 + Math.random() * 6, bz, b.dir.x, b.dir.z, 2, 0.5, 1.4, 0xffb24a);
+    }
+    hit.hitT = 1;
+    return true;
+}
+
+export function machineBulletHits(list, hitRadius) {
     for (let j = bullets.length - 1; j >= 0; j--) {
-        const b = bullets[j], bx = b.mesh.position.x, bz = b.mesh.position.z;
-        let hit = null;
-        for (const m of list) {
-            if (!m.alive) continue;
-            if (segPointDist2(b.px, 0, b.pz, bx, 0, bz, m.x, 0, m.z) < r2) { hit = m; break; }
-        }
-        if (!hit) continue;
+        const b = bullets[j];
+        if (!machineBulletHit(b, list, hitRadius)) continue;
+        // Jalur batch membuang pelurunya sendiri, jadi ledakan impact juga
+        // diantrikan di sini. Jalur bulletBlocked mengembalikan true dan
+        // membiarkan updateBullets mengantrikannya tepat satu kali.
         if (b.explosive) {
-            queueBoom(bx, b.mesh.position.y, bz, b.explodeR, false, 0, b.damage, b.boomSfx);
-            hit.hp -= (b.damage != null ? b.damage : CFG.grenade.damage);
-        } else {
-            hit.hp -= (b.damage != null ? b.damage : CFG.weapons.bulletDamage) * (player.dmgMul || 1);
-            stats.hits++;
-            spawnBloodBurst(bx, 12 + Math.random() * 6, bz, b.dir.x, b.dir.z, 2, 0.5, 1.4, 0xffb24a);
+            queueBoom(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z,
+                b.explodeR, false, 0, b.damage, b.boomSfx);
         }
-        hit.hitT = 1;
         scene.remove(b.mesh); bullets.splice(j, 1);
     }
 }

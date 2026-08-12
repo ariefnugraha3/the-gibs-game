@@ -45,6 +45,9 @@ import {
 } from '../../../../entities/spawnMachine.js';
 import { FuturisticSUV } from '../../../../entities/futuristicSUV.js';
 import { FuturisticSedan } from '../../../../entities/futuristicSedan.js';
+import {
+    buildStage7RoadVehicle, STAGE7_ROAD_VEHICLE_SPECS,
+} from './roadVehicles.js';
 import { mortarShell } from '../../../../entities/tank.js';
 import {
     buildTacticalVehicleMesh, resetTacticalVehicleVisual,
@@ -57,6 +60,9 @@ import {
 
 const OX = 240000, OZ = 0;
 const NAV_CELL = 14;
+const BLOCKER_BIN_METERS = 50;
+const BLOCKER_BIN_WORLD = BLOCKER_BIN_METERS * CAMP_M;
+const VEHICLE_CHUNK_METERS = 125;
 // MALAM PASUPATI (2026-08-10, laporan user "ini masih terlalu terang"). Yang
 // membuat sebuah stage luar-ruang terasa terang BUKAN intensitas lampu,
 // melainkan HAZE-nya: `enterCityEnv` standar memasang langit biru-abu 0x2b3742
@@ -78,6 +84,10 @@ const CAR_OPEN_PATTERNS = Object.freeze([
     Object.freeze([0, 4, 7]),
     Object.freeze([1, 5, 6]),
 ]);
+const SCATTER_VEHICLE_TYPES = Object.freeze([
+    'pickup', 'sedan', 'container-truck', 'suv', 'dump-truck',
+    'sedan', 'bus', 'pickup', 'tanker-truck', 'suv',
+]);
 
 export let S7_START = Object.freeze({ x: OX, z: OZ });
 export let S7_EAST_END = Object.freeze({ x: OX, z: OZ });
@@ -86,7 +96,6 @@ export let S7_LANDMARK = Object.freeze({ x: OX, z: OZ });
 export let S7_TOLL = Object.freeze({ x: OX, z: OZ });
 export let S7_VEHICLE = Object.freeze({ x: OX, z: OZ });
 export let S7_RAMPS = Object.freeze([]);
-export let S7_HOLES = Object.freeze([]);
 export let S7_CARS = Object.freeze([]);
 export let S7_MACHINE_POINTS = Object.freeze([]);
 
@@ -102,6 +111,30 @@ let vehicleObject = Object.freeze({ x: OX, z: OZ });
 function laneCenterFrom(lanes, index) {
     const i = ((index % lanes.length) + lanes.length) % lanes.length;
     return lanes[i];
+}
+
+function vehicleRect(x, z, type, yaw = 0) {
+    const spec = STAGE7_ROAD_VEHICLE_SPECS[type];
+    return { x, z, yaw, hx: spec.length * CAMP_M / 2,
+        hz: spec.width * CAMP_M / 2 };
+}
+
+function vehicleRectsOverlap(a, b, margin = 0) {
+    const axesFor = r => {
+        const c = Math.cos(r.yaw), s = Math.sin(r.yaw);
+        return [{ x: c, z: s }, { x: -s, z: c }];
+    };
+    const aa = axesFor(a), ba = axesFor(b);
+    const dx = b.x - a.x, dz = b.z - a.z;
+    for (const u of [...aa, ...ba]) {
+        const dist = Math.abs(dx * u.x + dz * u.z);
+        const ar = a.hx * Math.abs(u.x * aa[0].x + u.z * aa[0].z)
+            + a.hz * Math.abs(u.x * aa[1].x + u.z * aa[1].z);
+        const br = b.hx * Math.abs(u.x * ba[0].x + u.z * ba[0].z)
+            + b.hz * Math.abs(u.x * ba[1].x + u.z * ba[1].z);
+        if (dist >= ar + br + margin) return false;
+    }
+    return true;
 }
 
 function ensureLayout() {
@@ -186,50 +219,14 @@ function ensureLayout() {
             plannedBands.push({ band, meter });
     }
 
-    const holes = [];
-    const holeCount = Math.max(0, F.potholeCount | 0);
-    const holeMin = Math.max(1, F.potholeMinRadiusMeters) * CAMP_M;
-    const holeMax = Math.max(F.potholeMinRadiusMeters, F.potholeMaxRadiusMeters) * CAMP_M;
-    const holeLanes = [7, 2, 5, 6, 1, 0].map(i => i % lanes.length);
-    const holeEndMeter = Math.min(lengthMeters - 150, descentStartMeter - 45);
-    for (let i = 0; i < holeCount; i++) {
-        let meter = 185 + (holeCount > 1 ? i * Math.max(0, holeEndMeter - 185)
-            / (holeCount - 1) : 0);
-        if (Math.abs(meter - F.landmarkMeter) < 62) meter += i & 1 ? 68 : -68;
-        meter = Math.max(70, Math.min(lengthMeters - 150, meter));
-        for (let guard = 0; guard < 6; guard++) {
-            const clash = plannedBands.find(b => Math.abs(b.meter - meter) < 28);
-            if (!clash) break;
-            meter += (i + guard) % 2 ? 31 : -31;
-            meter = Math.max(70, Math.min(holeEndMeter, meter));
-        }
-        const radius = holeMin + (holeMax - holeMin) * (((i * 37 + 11) % 101) / 100);
-        const vertices = 15 + (i % 4);
-        const rim = [];
-        for (let j = 0; j < vertices; j++) {
-            const a = j / vertices * Math.PI * 2;
-            const noise = 0.78 + (((i * 47 + j * 31 + j * j * 7) % 29) / 100);
-            rim.push(Object.freeze({ x: Math.cos(a) * radius * noise,
-                z: Math.sin(a) * radius * noise }));
-        }
-        holes.push(Object.freeze({
-            id: `crater-${i}`, meter, x: xAtMeter(meter),
-            z: laneCenterFrom(lanes, holeLanes[i % holeLanes.length]), radius,
-            rim: Object.freeze(rim), depression: (0.65 + (i % 3) * 0.12) * CAMP_M,
-        }));
-    }
-
     const cars = [];
     const carsPerBand = Math.max(1, F.carsPerBand | 0);
     const bandMeters = [];
-    // Mobil tidak boleh mendarat DI DALAM crater. Kotak mobilnya dilonggarkan
-    // sedikit di atas setengah-ukuran terbesar (SUV 4.8x2.2 m + yaw), jadi
-    // penjaganya tetap benar walau `carsPerBand`/radius lubang di-retune.
-    const carClearOfHoles = (m, z) => holes.every(h => {
-        const dx = Math.max(0, Math.abs(xAtMeter(m) - h.x) - 2.7 * CAMP_M);
-        const dz = Math.max(0, Math.abs(z - h.z) - 1.45 * CAMP_M);
-        return dx * dx + dz * dz >= (h.radius + 0.4 * CAMP_M) ** 2;
-    });
+    const carClearOfCars = (m, z, type, yaw) => {
+        const candidate = vehicleRect(xAtMeter(m), z, type, yaw);
+        return cars.every(p => !vehicleRectsOverlap(candidate,
+            vehicleRect(p.x, p.z, p.type, p.yaw), 0.12 * CAMP_M));
+    };
     for (const planned of plannedBands) {
         const { band, meter } = planned;
         bandMeters.push(meter);
@@ -241,15 +238,12 @@ function ensureLayout() {
             const localRow = Math.floor(j / blocked.length);
             const laneZ = laneCenterFrom(lanes, lane);
             let carMeter = meter + ((j % 3) - 1) * 1.35 + localRow * 7;
-            // Digeser sepanjang lajurnya sendiri: bandnya tetap menutup lajur
-            // yang sama, jadi labirinnya tak berubah.
-            for (let guard = 0; guard < 10 && !carClearOfHoles(carMeter, laneZ); guard++)
-                carMeter += 4;
+            const yaw = (((band * 3 + j) % 5) - 2) * 0.035;
+            const type = (band + j) % 3 === 0 ? 'suv' : 'sedan';
             cars.push(Object.freeze({
                 id: `gate-car-${band}-${j}`, band, meter: carMeter, lane,
                 x: xAtMeter(carMeter), z: laneCenterFrom(lanes, lane),
-                yaw: (((band * 3 + j) % 5) - 2) * 0.035,
-                type: (band + j) % 3 === 0 ? 'suv' : 'sedan',
+                yaw, type,
             }));
         }
     }
@@ -259,14 +253,18 @@ function ensureLayout() {
         if (Math.abs(meter - F.landmarkMeter) < 48) meter += 52;
         if (bandMeters.some(m => Math.abs(meter - m) < 15)) meter += 22;
         const lane = (i * 3 + 1) % lanes.length;
-        const nearHole = holes.find(h => Math.abs(h.meter - meter) < 12
-            && Math.abs(h.z - laneCenterFrom(lanes, lane)) < h.radius + laneWidth);
-        if (nearHole) meter += 18;
+        const laneZ = laneCenterFrom(lanes, lane);
+        const type = SCATTER_VEHICLE_TYPES[i % SCATTER_VEHICLE_TYPES.length];
+        const yaw = [-0.16, 0.11, -0.07, 0.18][i % 4];
+        // Geser di lajur yang sama sampai tak menumpuk kendaraan sebelumnya;
+        // pola lintas-lajur dan koridor maze tetap tidak berubah.
+        for (let guard = 0; guard < 24
+            && !carClearOfCars(meter, laneZ, type, yaw); guard++)
+            meter += 4;
         cars.push(Object.freeze({
             id: `scatter-car-${i}`, band: -1, meter, lane,
-            x: xAtMeter(meter), z: laneCenterFrom(lanes, lane),
-            yaw: [-0.16, 0.11, -0.07, 0.18][i % 4],
-            type: i % 3 === 1 ? 'suv' : 'sedan',
+            x: xAtMeter(meter), z: laneZ,
+            yaw, type,
         }));
     }
 
@@ -293,7 +291,6 @@ function ensureLayout() {
     S7_VEHICLE = pointAt(lengthMeters - 28, leftRoadZ);
     vehicleObject = S7_VEHICLE;
     S7_RAMPS = Object.freeze(ramps);
-    S7_HOLES = Object.freeze(holes);
     S7_CARS = Object.freeze(cars);
     S7_MACHINE_POINTS = Object.freeze([
         Object.freeze({ id: 'north', ...pointAt(lengthMeters - 72,
@@ -325,16 +322,14 @@ function progressMeters(x = camera.position.x) {
 
 export function stage7Walk(x, z, radius = 0) {
     const L = ensureLayout(), d = Math.max(0, radius);
-    const main = x >= L.westX + d && x <= L.eastX - d
+    return x >= L.westX + d && x <= L.eastX - d
         && Math.abs(z) <= L.deckHalf - d;
-    if (!main) return false;
-    for (const h of S7_HOLES)
-        if ((x - h.x) ** 2 + (z - h.z) ** 2 < (h.radius + d) ** 2) return false;
-    return true;
 }
 
 let built = false, worldRoot = null, navGrid = null, navBounds = null, staticBatch = [];
 const blockers = [], propRecords = [], stageLights = [], lampSpecs = [];
+const blockerBins = new Map(), blockerScratch = [];
+let blockerQueryStamp = 0;
 const carRecords = [], rampRecords = [], shoulderRecords = [];
 const supportRecords = [], lowerRoadRecords = [];
 const rainPool = [], ripplePool = [], sparkPool = [], exhaustPool = [];
@@ -346,7 +341,9 @@ let tacticalVehicle = null, tollBarrier = null, exhaustCursor = 0, cityStats = n
 let landmarkCableCount = 0, landmarkCableAnchorMaxZ = 0, landmarkPieceCount = 0;
 let landmarkCableFrontCount = 0, landmarkCableBackCount = 0;
 let landmarkCableThickness = 0;
-let roadSkinSegmentCount = 0, roadSkinMaxHoles = 0;
+let roadSkinSegmentCount = 0;
+let vehicleChunkStats = { chunkMeters: VEHICLE_CHUNK_METERS, chunks: 0,
+    raw: 0, maxRaw: 0, batches: 0 };
 let landmarkSeen = false, tollSighted = false;
 let phase = 'opening', complete = false, stageElapsed = 0, barrierBroken = false;
 let cine = null, vehicleLoop = null;
@@ -359,12 +356,37 @@ let dialogueT = 0, dialogueChars = 0;
 
 function addBlocker(x, z, hx, hz, top = 20, yaw = 0, kind = 'solid', bullet = true) {
     const c = Math.cos(yaw), s = Math.sin(yaw);
+    const worldHx = Math.abs(c) * hx + Math.abs(s) * hz;
     const b = {
         x, z, hx, hz, axx: c, axz: s, azx: -s, azz: c,
         rad: Math.hypot(hx, hz), top, standable: false, kind, bullet,
+        queryStamp: 0,
     };
     blockers.push(b);
+    const k0 = Math.floor((x - worldHx) / BLOCKER_BIN_WORLD);
+    const k1 = Math.floor((x + worldHx) / BLOCKER_BIN_WORLD);
+    for (let k = k0; k <= k1; k++) {
+        let bin = blockerBins.get(k);
+        if (!bin) { bin = []; blockerBins.set(k, bin); }
+        bin.push(b);
+    }
     return b;
+}
+
+function visitBlockers(x0, x1, padding, visit) {
+    const k0 = Math.floor((Math.min(x0, x1) - padding) / BLOCKER_BIN_WORLD);
+    const k1 = Math.floor((Math.max(x0, x1) + padding) / BLOCKER_BIN_WORLD);
+    const stamp = ++blockerQueryStamp;
+    for (let k = k0; k <= k1; k++) {
+        const bin = blockerBins.get(k);
+        if (!bin) continue;
+        for (const b of bin) {
+            if (b.queryStamp === stamp) continue;
+            b.queryStamp = stamp;
+            if (visit(b)) return true;
+        }
+    }
+    return false;
 }
 
 function pointInBlocker(x, z, radius, b) {
@@ -376,7 +398,8 @@ function pointInBlocker(x, z, radius, b) {
 }
 
 function blockedAt(x, z, radius = 3.5) {
-    return blockers.some(b => pointInBlocker(x, z, radius, b));
+    return visitBlockers(x, x, radius + 1,
+        b => pointInBlocker(x, z, radius, b));
 }
 
 function recordProp(kind, p, hx = 0, hz = 0, top = 0, solid = false, meta = null,
@@ -386,7 +409,11 @@ function recordProp(kind, p, hx = 0, hz = 0, top = 0, solid = false, meta = null
 }
 
 export function resolve(pos, radius, feetY = 0) {
-    resolveBlockers(pos, radius, roadHeightAtX(pos.x), blockers);
+    blockerScratch.length = 0;
+    visitBlockers(pos.x, pos.x, radius + 1, b => {
+        blockerScratch.push(b); return false;
+    });
+    resolveBlockers(pos, radius, roadHeightAtX(pos.x), blockerScratch);
 }
 
 function segHitsBlocker(x0, z0, x1, z1, b) {
@@ -408,7 +435,8 @@ function segHitsBlocker(x0, z0, x1, z1, b) {
 }
 
 export function stage7SegHitsWall(x0, z0, x1, z1, y = 0) {
-    return blockers.some(b => b.bullet && y < b.top && segHitsBlocker(x0, z0, x1, z1, b));
+    return visitBlockers(x0, x1, 0,
+        b => b.bullet && y < b.top && segHitsBlocker(x0, z0, x1, z1, b));
 }
 
 function mortarBlastOrigin(x, z) {
@@ -544,13 +572,6 @@ function flatShape(list, mat, points, x, y, z) {
 
 function roadLineIntervals(z, halfWidth = 0) {
     const L = ensureLayout(), intervals = [];
-    for (const h of S7_HOLES) {
-        const dz = Math.abs(z - h.z) - halfWidth;
-        if (dz >= h.radius) continue;
-        const dm = Math.sqrt(Math.max(0, h.radius * h.radius - dz * dz)) / CAMP_M;
-        intervals.push({ a: Math.max(0, h.meter - dm - 0.35),
-            b: Math.min(L.lengthMeters, h.meter + dm + 0.35) });
-    }
     if (Math.abs(Math.abs(z) - L.roadEdge) <= halfWidth + 0.2 * CAMP_M) {
         const side = z < 0 ? -1 : 1;
         for (const r of S7_RAMPS) if (r.side === side)
@@ -576,15 +597,6 @@ function addSolidRoadLine(list, mat, z, width) {
     }
 }
 
-function dashClear(meter, z, halfLengthMeters) {
-    const L = ensureLayout(), x = L.xAtMeter(meter);
-    const half = halfLengthMeters * CAMP_M;
-    return !S7_HOLES.some(h => {
-        const dx = Math.max(0, Math.abs(x - h.x) - half);
-        return dx * dx + (z - h.z) ** 2 < (h.radius + 0.12 * CAMP_M) ** 2;
-    });
-}
-
 function markerAt(name, p, color = PAL.amber) {
     const m = new THREE.Mesh(new THREE.RingGeometry(6.5, 8.7, 24),
         new THREE.MeshBasicMaterial({
@@ -605,11 +617,6 @@ function buildMaterials() {
         panel: new THREE.MeshLambertMaterial({ color: PAL.panel }),
         steel: new THREE.MeshLambertMaterial({ color: PAL.steel }),
         ink: new THREE.MeshLambertMaterial({ color: PAL.ink }),
-        craterFloor: new THREE.MeshBasicMaterial({ color: PAL.ink }),
-        craterEdge: new THREE.MeshLambertMaterial({
-            color: PAL.concrete, emissive: PAL.ink, emissiveIntensity: 0.14,
-        }),
-        craterCrack: new THREE.MeshBasicMaterial({ color: PAL.ink }),
         earth: new THREE.MeshLambertMaterial({ color: PAL.wood }),
         grass: new THREE.MeshLambertMaterial({ color: PAL.leaf }),
         white: new THREE.MeshLambertMaterial({ color: PAL.white }),
@@ -690,42 +697,11 @@ function buildDeck(M, staticProps) {
             L.medianWidth, OZ, 0.22);
     }
 
-    // Earcut kehilangan kontur bila semua crater pada dek 1,5 km dimasukkan ke
-    // satu poligon yang sangat panjang. Bagi kulit jalan di titik tengah antar
-    // crater. Semua crater sengaja selesai sebelum meter turunan; bidang miring
-    // dan plaza bawah kemudian memakai dua slab profil tanpa lubang.
-    const flatHoles = S7_HOLES.filter(h => h.meter < L.descentStartMeter);
-    const skinSegments = flatHoles.length
-        ? flatHoles.map((h, i) => ({
-            m0: i ? (flatHoles[i - 1].meter + h.meter) / 2 : 0,
-            m1: i + 1 < flatHoles.length
-                ? (h.meter + flatHoles[i + 1].meter) / 2 : L.descentStartMeter,
-            holes: [h],
-        }))
-        : [{ m0: 0, m1: L.descentStartMeter, holes: [] }];
-    roadSkinSegmentCount = skinSegments.length
-        + (L.descentEndMeter > L.descentStartMeter ? 1 : 0)
-        + (L.lengthMeters > L.descentEndMeter ? 1 : 0);
-    roadSkinMaxHoles = Math.max(0, ...skinSegments.map(s => s.holes.length));
-    for (const segment of skinSegments) {
-        const west = L.xAtMeter(segment.m1) - OX;
-        const east = L.xAtMeter(segment.m0) - OX;
-        const roadShape = pathFromPoints([
-            { x: west, z: -L.deckHalf }, { x: east, z: -L.deckHalf },
-            { x: east, z: L.deckHalf }, { x: west, z: L.deckHalf },
-        ], THREE.Shape);
-        roadShape.holes = segment.holes.map(h => pathFromPoints(
-            [...h.rim].reverse().map(p => ({
-                x: h.x - OX + p.x, z: -(h.z + p.z),
-            })), THREE.Path));
-        const roadSkin = new THREE.Mesh(new THREE.ShapeGeometry(roadShape), M.road);
-        roadSkin.rotation.x = -Math.PI / 2;
-        roadSkin.position.set(OX, 0.17, OZ);
-        roadSkin.castShadow = true; roadSkin.receiveShadow = true;
-        staticProps.push(roadSkin);
-    }
-    roadSpanBox(staticProps, M.road, L.descentStartMeter, L.lengthMeters,
-        0.12, L.deckWidth, OZ, 0.17);
+    // Jalan kini utuh: satu pemanggilan membagi permukaan hanya pada dua titik
+    // profil elevasi (datar -> turunan -> plaza bawah), tanpa ShapeGeometry
+    // berlubang atau fragmentasi tambahan sepanjang 1,5 km.
+    roadSkinSegmentCount = roadSpanBox(staticProps, M.road, 0, L.lengthMeters,
+        0.12, L.deckWidth, OZ, 0.17).length;
 
     const separators = [];
     for (let i = 1; i < L.lanesPerSide; i++) {
@@ -734,10 +710,9 @@ function buildDeck(M, staticProps) {
     }
     for (const z of separators)
         for (let meter = 6; meter < L.lengthMeters; meter += 12)
-            if (dashClear(meter, z, 2.6))
-                roadSpanBox(staticProps, M.white, Math.max(0, meter - 2.6),
-                    Math.min(L.lengthMeters, meter + 2.6), 0.08,
-                    0.12 * CAMP_M, z, 0.25);
+            roadSpanBox(staticProps, M.white, Math.max(0, meter - 2.6),
+                Math.min(L.lengthMeters, meter + 2.6), 0.08,
+                0.12 * CAMP_M, z, 0.25);
     for (const side of [-1, 1]) {
         addSolidRoadLine(staticProps, M.white, side * (L.medianWidth / 2),
             0.09 * CAMP_M);
@@ -939,91 +914,65 @@ function buildCars(M, staticProps) {
     carRecords.length = 0;
     for (let i = 0; i < S7_CARS.length; i++) {
         const p = S7_CARS[i];
-        let g, lengthMeters, widthMeters;
+        const spec = STAGE7_ROAD_VEHICLE_SPECS[p.type];
+        let g;
         if (p.type === 'suv') {
             g = new FuturisticSUV({
                 bodyColor: colors[i % colors.length], scale: CAMP_M, enableLights: i % 4 !== 0,
             }).group;
-            lengthMeters = 4.8; widthMeters = 2.2;
-        } else {
+        } else if (p.type === 'sedan') {
             g = new FuturisticSedan(colors[i % colors.length]).group;
-            g.scale.setScalar(CAMP_M); lengthMeters = 4.8; widthMeters = 2;
+            g.scale.setScalar(CAMP_M);
+        } else {
+            g = buildStage7RoadVehicle(p.type, colors[i % colors.length], CAMP_M);
         }
         const roadY = L.roadYAtMeter(p.meter);
         const carrier = new THREE.Group();
         carrier.position.set(p.x, roadY, p.z);
         carrier.rotation.z = L.roadPitchAtMeter(p.meter);
+        carrier.userData.stage7Meter = p.meter;
         g.position.set(0, 0, 0); g.rotation.y = p.yaw;
         carrier.add(g); carrier.name = `stage7-${p.id}`; staticProps.push(carrier);
         const rec = {
             ...p, y: roadY, pitch: L.roadPitchAtMeter(p.meter),
-            lengthMeters, widthMeters,
-            hx: lengthMeters * CAMP_M / 2, hz: widthMeters * CAMP_M / 2,
+            lengthMeters: spec.length, widthMeters: spec.width,
+            heightMeters: spec.height,
+            hx: spec.length * CAMP_M / 2, hz: spec.width * CAMP_M / 2,
         };
         carRecords.push(rec);
         recordProp('abandoned-car', p, rec.hx, rec.hz,
-            roadY + 2.4 * CAMP_M, true,
+            roadY + spec.height * CAMP_M, true,
             { id: p.id, meter: p.meter, lane: p.lane, vehicleType: p.type,
+                vehicleLengthMeters: spec.length, vehicleWidthMeters: spec.width,
+                vehicleHeightMeters: spec.height,
                 mazeBand: p.band, roadY, pitch: rec.pitch }, p.yaw, true);
     }
 }
 
-function buildPotholes(M, staticProps) {
-    for (const h of S7_HOLES) {
-        flatShape(staticProps, M.craterFloor,
-            h.rim.map(p => ({ x: p.x * 0.72, z: p.z * 0.72 })),
-            h.x, -h.depression, h.z);
-        for (let i = 0; i < h.rim.length; i++) {
-            const a = h.rim[i], b = h.rim[(i + 1) % h.rim.length];
-            const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
-            const edgeLength = Math.hypot(b.x - a.x, b.z - a.z);
-            const yaw = -Math.atan2(b.z - a.z, b.x - a.x);
-            staticBox(staticProps, i % 3 ? M.earth : M.craterEdge,
-                edgeLength * 1.08, Math.max(0.24 * CAMP_M, h.depression * 0.74),
-                0.28 * CAMP_M, h.x + mx, -h.depression * 0.52,
-                h.z + mz, yaw);
-            const lip = staticBox(staticProps, i % 2 ? M.craterEdge : M.ink,
-                edgeLength * (0.62 + (i % 3) * 0.11),
-                (0.1 + (i % 4) * 0.045) * CAMP_M,
-                (0.38 + (i % 2) * 0.16) * CAMP_M,
-                h.x + mx * 1.035, 0.25 + (i % 3) * 0.11 * CAMP_M,
-                h.z + mz * 1.035, yaw);
-            lip.rotation.z = ((i % 5) - 2) * 0.018;
-        }
-        const crackCount = 10 + (h.rim.length % 4);
-        for (let i = 0; i < crackCount; i++) {
-            const p = h.rim[(i * 5 + 2) % h.rim.length];
-            const a = Math.atan2(p.z, p.x) + ((i % 3) - 1) * 0.08;
-            const len = (0.9 + (i % 4) * 0.42) * CAMP_M;
-            const baseR = Math.hypot(p.x, p.z) + len * 0.36;
-            staticBox(staticProps, M.craterCrack, len, 0.055, 0.075 * CAMP_M,
-                h.x + Math.cos(a) * baseR, 0.275,
-                h.z + Math.sin(a) * baseR, -a);
-        }
-        const rubbleCount = 8 + (h.rim.length % 3);
-        for (let i = 0; i < rubbleCount; i++) {
-            const a = i / rubbleCount * Math.PI * 2 + (h.meter % 17) * 0.03;
-            const exposed = i % 3 === 0;
-            const r = h.radius * (exposed
-                ? 1.04 + ((i * 7) % 3) * 0.08
-                : 0.64 + ((i * 7) % 5) * 0.09);
-            const sx = (0.22 + (i % 4) * 0.13) * CAMP_M;
-            const sz = (0.18 + ((i * 3) % 4) * 0.1) * CAMP_M;
-            const piece = staticBox(staticProps, exposed ? M.craterEdge
-                : (i % 3 ? M.concrete : M.road),
-                sx, (0.12 + (i % 3) * 0.1) * CAMP_M, sz,
-                h.x + Math.cos(a) * r,
-                exposed ? 0.24 * CAMP_M : -h.depression * 0.35,
-                h.z + Math.sin(a) * r, -a + i * 0.17);
-            piece.rotation.z = ((i % 4) - 1.5) * 0.08;
-        }
-        recordProp('road-crater', h, h.radius, h.radius, 0, false,
-            { meter: h.meter, radius: h.radius, unwalkable: true,
-                shape: 'jagged', brokenAsphalt: true,
-                vertices: h.rim.length, depression: h.depression,
-                cracks: crackCount, rubble: rubbleCount,
-                surfaceRubble: Math.ceil(rubbleCount / 3) });
+function addVehicleStaticChunks(parent, objects) {
+    const chunks = new Map();
+    for (const o of objects) {
+        const meter = Math.max(0, o.userData?.stage7Meter || 0);
+        const key = Math.floor(meter / VEHICLE_CHUNK_METERS);
+        let list = chunks.get(key);
+        if (!list) { list = []; chunks.set(key, list); }
+        list.push(o);
     }
+    const out = [];
+    let maxRaw = 0;
+    for (const key of [...chunks.keys()].sort((a, b) => a - b)) {
+        const list = chunks.get(key);
+        maxRaw = Math.max(maxRaw, list.length);
+        out.push(...addMergedStatic(parent, list));
+    }
+    vehicleChunkStats = {
+        chunkMeters: VEHICLE_CHUNK_METERS,
+        chunks: chunks.size,
+        raw: objects.length,
+        maxRaw,
+        batches: out.length,
+    };
+    return out;
 }
 
 function buildLandmark(M, staticProps) {
@@ -1387,20 +1336,22 @@ function buildDynamicPlacements() {
 function buildWorld() {
     const L = ensureLayout();
     worldRoot = new THREE.Group(); worldRoot.name = 'Stage7Pasupati'; scene.add(worldRoot);
-    const M = buildMaterials(), staticProps = [];
+    const M = buildMaterials(), staticProps = [], vehicleStaticProps = [];
     buildLowerRoads(M, staticProps);
     buildBandung();
     buildDeck(M, staticProps);
     buildRampsAndSupports(M, staticProps);
     buildLamps(M, staticProps);
-    buildCars(M, staticProps);
-    buildPotholes(M, staticProps);
+    buildCars(M, vehicleStaticProps);
     buildLandmark(M, staticProps);
     buildSpawnFactories();
     buildToll(M, staticProps);
     buildBeyondToll(M, staticProps);
 
-    staticBatch = addMergedStatic(worldRoot, staticProps);
+    staticBatch = [
+        ...addMergedStatic(worldRoot, staticProps),
+        ...addVehicleStaticChunks(worldRoot, vehicleStaticProps),
+    ];
     markerAt('landmark', S7_LANDMARK, PAL.amber);
     markerAt('toll', S7_TOLL, PAL.amber);
     markerAt('vehicle', S7_VEHICLE, PAL.amber);
@@ -2192,15 +2143,6 @@ export function stage7ConnectivityDebug() {
     };
 }
 
-function carClearsCrater(car, hole) {
-    const c = Math.abs(Math.cos(car.yaw)), s = Math.abs(Math.sin(car.yaw));
-    const hx = car.hx * c + car.hz * s;
-    const hz = car.hx * s + car.hz * c;
-    const dx = Math.max(0, Math.abs(car.x - hole.x) - hx);
-    const dz = Math.max(0, Math.abs(car.z - hole.z) - hz);
-    return dx * dx + dz * dz >= (hole.radius + 0.15 * CAMP_M) ** 2;
-}
-
 export const stage7FlyoverDebug = () => {
     const L = ensureLayout();
     const conn = stage7ConnectivityDebug();
@@ -2281,17 +2223,12 @@ export const stage7FlyoverDebug = () => {
         },
         maze: {
             bands: L.bandMeters.length, cars: carRecords.length,
-            holes: S7_HOLES.length, directBlocked: conn.directBlocked,
+            directBlocked: conn.directBlocked,
             connected: conn.connected, detourRatio: conn.path.detourRatio,
             crossesMedian: conn.path.crossesMedian,
             roadSkinSegments: roadSkinSegmentCount,
-            maxHolesPerSegment: roadSkinMaxHoles,
-            carsClearHoles: carRecords.every(c =>
-                S7_HOLES.every(h => carClearsCrater(c, h))),
-            brokenRoad: propRecords.filter(p => p.kind === 'road-crater')
-                .every(p => p.shape === 'jagged' && p.brokenAsphalt
-                    && p.depression > 0 && p.cracks > 0 && p.rubble > 0
-                    && p.surfaceRubble > 0),
+            carsDoNotOverlap: carRecords.every((c, i) => carRecords.slice(i + 1)
+                .every(other => !vehicleRectsOverlap(c, other))),
         },
         landmark: {
             meter: L.F.landmarkMeter, x: S7_LANDMARK.x, z: S7_LANDMARK.z,
@@ -2357,6 +2294,16 @@ export const stage7CityDebug = () => {
     };
 };
 
+function blockerIndexDebug() {
+    const sizes = [...blockerBins.values()].map(bin => bin.length);
+    return {
+        binMeters: BLOCKER_BIN_METERS,
+        bins: sizes.length,
+        references: sizes.reduce((n, size) => n + size, 0),
+        maxPerBin: sizes.length ? Math.max(...sizes) : 0,
+    };
+}
+
 export const stage7WorldDebug = () => ({
     built, sceneRoot: worldRoot?.name || null,
     city: stage7CityDebug(),
@@ -2364,6 +2311,10 @@ export const stage7WorldDebug = () => ({
     propKinds: [...new Set(propRecords.map(p => p.kind))],
     blockers: blockers.length, nav: !!navGrid, navBounds: navBounds ? { ...navBounds } : null,
     staticBatches: staticBatch.length, lights: stageLights.length,
+    optimization: {
+        vehicleChunks: { ...vehicleChunkStats },
+        blockerBins: blockerIndexDebug(),
+    },
     pools: {
         rain: rainPool.length, ripples: ripplePool.length,
         sparks: sparkPool.length, exhaust: exhaustPool.length,

@@ -29,7 +29,7 @@ import { hqScene, hqDebug, resetHq } from './hq.js';
 
 // Permukaan publik stage 6.
 export {
-    S6_MAP, S6_LEGEND, S6_START, S6_INFO, S6_FINISH, cellPos,
+    S6_MAP, S6_LEGEND, S6_START, S6_FINISH, cellPos,
     CITY_GROUND_Y as S6_CITY_GROUND_Y,
     RACK_POINTS, GENERATOR_POINTS, SUPPLY_POINTS, CRATE_POINTS, ENCOUNTER_POINTS,
     MACHINE_POINTS as S6_MACHINE_POINTS, stage6Machines,

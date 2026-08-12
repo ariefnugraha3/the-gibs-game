@@ -189,6 +189,71 @@ export function addMergedStatic(parent, objects) {
     return out;
 }
 
+// ===== GABUNG SADAR-BAYANGAN (2026-08-12, optimasi Stage 6 HQ) =====
+// `addMergedStatic` mengelompokkan HANYA menurut material lalu meng-OR-kan
+// `castShadow` seluruh kelompok: satu pencetak bayangan membuat SEMUA anggota
+// bucket itu ikut digambar ke shadow map. Di interior padat efeknya besar —
+// ribuan panel dinding, pernik meja dan muka rak server yang menempel rata pada
+// benda yang sudah mencetak bayangannya sendiri tetap dibayar satu shadow pass
+// penuh. Di HQ Stage 6 itu 82.076 dari 116.402 segitiga; setelah kelompoknya
+// dipisah menurut flag, tinggal 15.896.
+//
+// Kuncinya = material + castShadow + receiveShadow, jadi `castShadow:false`
+// benar-benar berarti tidak masuk shadow map. Harganya jumlah kelompok naik
+// (~2x, satu per kombinasi flag) — itu SENGAJA: draw call statis jauh lebih
+// murah daripada menggambar ulang geometrinya ke depth map tiap frame.
+//
+// CATATAN PENGUKURAN: versi awal fungsi ini juga memecah kelompok PER PETAK
+// RUANG supaya bisa di-frustum-cull. Diukur di HQ: petak 140 unit memangkas
+// segitiga tergambar 116k -> 39k tetapi menaikkan draw call 45 -> 137. Segitiga
+// bukan hambatannya (biaya nyata interior ini ada di fragment shader: belasan
+// PointLight per piksel), jadi pemecahan ruang DIBUANG dan hanya pemisahan
+// bayangan yang dipertahankan. Jangan menambahkannya kembali tanpa pengukuran
+// baru yang menunjukkan geometri benar-benar jadi hambatan.
+export function addMergedStaticShadowAware(parent, objects) {
+    if (!objects || !objects.length) return [];
+    if (!canMerge()) {                       // harness headless: perilaku lama
+        for (const o of objects) parent.add(o);
+        return objects.slice();
+    }
+    const buckets = new Map();
+    const loose = [];
+    for (const root of objects) {
+        root.updateMatrixWorld(true);
+        root.traverse(o => {
+            const how = classifyForBatch(o);
+            // `mergeLine` ikut jalur `keep`: tetap dipasang apa adanya. Menjatuhkannya
+            // diam-diam adalah cara paling mudah menghilangkan geometri tanpa sadar.
+            if (how !== 'merge') { if (how !== 'skip') loose.push(o); return; }
+            const key = (o.castShadow ? 1 : 0) + '' + (o.receiveShadow ? 1 : 0)
+                + '|' + materialKey(o.material);
+            let b = buckets.get(key);
+            if (!b) {
+                b = { mat: o.material, geos: [], cast: !!o.castShadow, receive: !!o.receiveShadow };
+                buckets.set(key, b);
+            }
+            b.geos.push(bakeGeometry(o));
+        });
+    }
+    const out = [];
+    for (const b of buckets.values()) {
+        const mesh = new THREE.Mesh(concatGeometries(b.geos), b.mat);
+        mesh.castShadow = b.cast;
+        mesh.receiveShadow = b.receive;
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        parent.add(mesh);
+        out.push(mesh);
+    }
+    for (const o of loose) {
+        if (typeof parent.attach === 'function') parent.attach(o); else parent.add(o);
+        o.matrixAutoUpdate = false;
+        o.updateMatrix();
+        out.push(o);
+    }
+    return out;
+}
+
 // ===== GABUNG DI DALAM SATU OBJEK (mempertahankan transform & material sendiri) =====
 // Dipakai untuk prop yang TIDAK boleh melebur dengan prop lain karena masih
 // dialamatkan saat main — mis. mobil stage 4 yang MEMUDAR saat menutup pandangan

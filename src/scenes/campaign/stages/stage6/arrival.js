@@ -6,9 +6,12 @@
 //   clearHall-> pintu `-` kedua membuka hall; garnisun bangun begitu player
 //               benar-benar keluar dari SA + gudang
 //   findKey  -> tiga rak `K` bisa digeledah; SATU menyimpan kunci (acak tiap
-//               run). Terminal `I` menunjukkan rak yang benar.
-//   powerGrid-> kunci membuka pintu `=`; tiga generator `G` dipulihkan dari
-//               titik `H`
+//               run). TIDAK ADA petunjuk lain: menggeledah rak itu SATU-SATUNYA
+//               cara membuka ruang generator (permintaan user 2026-08-12 —
+//               terminal `I` yang dulu bisa di-hack di depan pintu `=` DIHAPUS).
+//   powerGrid-> kunci MELEPAS GEMBOK pintu `=` (daunnya tetap tertutup dan baru
+//               bergeser saat player mendekat); tiga generator `G` dipulihkan
+//               dari titik `H`
 //   exfil    -> pintu `@` terbuka; capai titik `F` untuk menutup chapter
 //
 // DUA MESIN PEMBUAT ROBOT (permintaan user 2026-08-09) berdiri di ujung utara
@@ -31,9 +34,9 @@ import { clearMoveTarget } from '../../../../entities/player.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { spawnCrate, resolveCrateBlock } from '../../../../entities/crates.js';
 import { campaignRobotAI, campaignClampRobot, countStageRobots } from '../../utility/common.js';
-import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
 import { beginRepairMinigame, ADVANCED_REPAIR_PARTS } from '../../utility/repairMinigame.js';
 import { slideWalk } from '../../../../utils/collision.js';
+import { setActiveStageLights } from '../../../../world/lighting.js';
 import {
     phase, setPhase, cine, setCine, cineCam, cleanupCine, enterSub,
     queueDialogue, dialogueIdle, clearDialogueQueue, countEncounter, spawnEncounter,
@@ -41,12 +44,12 @@ import {
 } from './runtime.js';
 import {
     CELL, WALL_H, cellPos, mapCellAt, touchesSafeArea,
-    S6_START, S6_INFO, S6_FINISH, RACK_POINTS, GENERATOR_POINTS, MACHINE_POINTS,
+    S6_START, S6_FINISH, RACK_POINTS, GENERATOR_POINTS, MACHINE_POINTS,
     SUPPLY_POINTS, CRATE_POINTS, ENCOUNTER_POINTS,
     stage6Walk, robotWalk, resolve, groundHeight, stage6SegHitsWall,
     doorBlocksShot, doorsWalkable, doorClampShot,
     doorOf, stage6Nav, updateDoors, updateAutoDoors, updateMachinery, updateSparks,
-    activateSparks, pulseMarkers, setMarkers, setRackSearched, setInfoRead,
+    activateSparks, pulseMarkers, setMarkers, setRackSearched,
     setGeneratorOnline, resetWorldVisuals,
     stage6Machines, armMachines, killMachine, updateMachineVisual,
 } from './world.js';
@@ -54,20 +57,20 @@ import { hqScene } from './hq.js';
 
 const C6 = () => CFG.campaign.stage6;
 
-let keyRack = 0, hasKey = false, infoRead = false;
+let keyRack = 0, hasKey = false;
 let rackSearched = [false, false, false], rackProgress = [0, 0, 0];
 let generatorOnline = [false, false, false], generatorStep = [0, 0, 0];
-let generatorArmed = [true, true, true], infoArmed = true, infoHackCd = 0;
+let generatorArmed = [true, true, true];
 let interactionKind = '';
 let hallAwake = false, hallSpawned = false, gridSpawned = false, exfilSpawned = false;
 let enteredSupply = false, enteredHall = false, chapterDone = false, elapsed = 0;
 let machineT = 0, exitWarnArmed = true;
 
 export function resetArrival() {
-    keyRack = 0; hasKey = false; infoRead = false;
+    keyRack = 0; hasKey = false;
     rackSearched = [false, false, false]; rackProgress = [0, 0, 0];
     generatorOnline = [false, false, false]; generatorStep = [0, 0, 0];
-    generatorArmed = [true, true, true]; infoArmed = true; infoHackCd = 0;
+    generatorArmed = [true, true, true];
     interactionKind = '';
     hallAwake = false; hallSpawned = false; gridSpawned = false; exfilSpawned = false;
     enteredSupply = false; enteredHall = false; chapterDone = false; elapsed = 0;
@@ -84,18 +87,16 @@ function near(p, range) {
     return Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < range;
 }
 
-// Penanda lantai: sebelum terminal `I` dibaca ketiga rak ditandai (player harus
-// menggeledah sendiri); sesudahnya HANYA rak yang benar yang tetap menyala.
+// Penanda lantai: SETIAP rak yang belum digeledah tetap ditandai sampai kuncinya
+// ketemu — tak ada lagi petunjuk yang mempersempitnya ke satu rak, jadi player
+// memang harus menggeledah sendiri (permintaan user 2026-08-12).
 function syncMarkers() {
-    const racks = RACK_POINTS.map((_, i) => {
-        if (hasKey || rackSearched[i]) return false;
-        if (phase !== 'findKey') return false;
-        return infoRead ? i === keyRack : true;
-    });
+    const racks = RACK_POINTS.map((_, i) =>
+        phase === 'findKey' && !hasKey && !rackSearched[i]);
     const repairs = GENERATOR_POINTS.map((_, i) => phase === 'powerGrid' && !generatorOnline[i]);
     // Titik `F` baru ditandai kalau kedua mesin sudah hancur — selama masih ada
     // yang berdiri, objektifnya adalah mesin itu.
-    setMarkers({ racks, repairs, info: phase === 'findKey' && !infoRead,
+    setMarkers({ racks, repairs,
         finish: phase === 'exfil' && machinesAlive() === 0 });
 }
 
@@ -140,7 +141,7 @@ function updateOpeningCine(dt) {
     if (cine.fading && (cine.fadeT += dt) >= C.fadeSec) finishOpening();
 }
 
-// --- Rak kunci + terminal informasi ---------------------------------------
+// --- Rak kunci --------------------------------------------------------------
 function updateRacks(dt) {
     const C = C6();
     let active = -1;
@@ -166,56 +167,23 @@ function updateRacks(dt) {
     hasKey = true; setRackSearched(active, true);
     activateSparks(RACK_POINTS[active], 1.4);
     queueDialogue('keyFound');
-    openGridDoor();
+    unlockGridDoor();
 }
 
-function finishInfoHack() {
-    infoRead = true; hideInteraction(); setInfoRead(true);
-    queueDialogue('infoRead');
-    showStageMsg(`MAINTENANCE LOG - KEY LOGGED TO RACK ${keyRack + 1} OF 3`, 4200);
-    syncMarkers();
-}
-
-function infoHackFailed(reason) {
-    infoArmed = false;
-    if (reason !== 'fail') {
-        showStageMsg('SIGNAL TRACE ABORTED - STEP AWAY, THEN TRY AGAIN', 3200);
-        return;
-    }
-    const C = C6();
-    infoHackCd = C.signalCooldownSec;
-    spawnEncounter(encounterPoints('grid'), 'signalAlarm', C.encounters.signalAlarm, true);
-    showStageMsg(`TRACE ALARM - TERMINAL REBOOTS IN ${Math.round(infoHackCd)}s`, 4200);
-}
-
-function updateInfoTerminal(dt) {
-    const C = C6();
-    infoHackCd = Math.max(0, infoHackCd - dt);
-    if (infoRead) return;
-    if (!near(S6_INFO, C.infoRange)) {
-        infoArmed = true;
-        return;
-    }
-    if (!infoArmed || infoHackCd > 0) return;
-    infoArmed = false;
-    beginSignalTraceMinigame({
-        head: 'MAINTENANCE LOG TERMINAL',
-        sub: 'Capture the encrypted maintenance carriers to reveal the service-key record.',
-        onSuccess: finishInfoHack,
-        onFail: infoHackFailed,
-    });
-}
-
-function openGridDoor() {
+// Kunci hanya MELEPAS GEMBOK pintu `=` — daunnya tetap tertutup sampai player
+// benar-benar berdiri di depannya (permintaan user 2026-08-12). Karena itu di
+// sini tak ada `target = 1`: `updateAutoDoors` yang mengurusnya begitu gemboknya
+// lepas, sama seperti pintu otomatis lain di stage ini.
+function unlockGridDoor() {
     const grid = doorOf('grid');
-    if (grid) { grid.target = 1; grid.locked = false; }
+    if (grid) grid.locked = false;
     setPhase('powerGrid');
     if (!gridSpawned) {
         gridSpawned = true;
         spawnEncounter(encounterPoints('grid'), 'grid', C6().encounters.grid, true);
     }
     queueDialogue('gridOpen');
-    showStageMsg('RESTORE ALL THREE GENERATORS — 0/3', 4300);
+    showStageMsg('SERVICE DOOR UNLOCKED — RESTORE ALL THREE GENERATORS', 4300);
     syncMarkers();
 }
 
@@ -336,11 +304,11 @@ function wakeHall() {
 }
 
 export const arrivalDebug = () => ({
-    keyRack, hasKey, infoRead,
+    keyRack, hasKey,
     rackSearched: [...rackSearched], rackProgress: [...rackProgress],
     generatorOnline: [...generatorOnline], generatorStep: [...generatorStep],
     generatorArmed: [...generatorArmed], generatorsOnline: onlineCount(),
-    infoArmed, infoHackCd, interaction: interactionKind,
+    interaction: interactionKind,
     hallAwake, hallSpawned, gridSpawned, exfilSpawned,
     machinesAlive: machinesAlive(), machineT, exitWarnArmed,
     enteredSupply, enteredHall, chapterDone, elapsed,
@@ -350,6 +318,9 @@ export const arrivalScene = {
     id: 'campaign-6-arrival',
 
     enter() {
+        // Chapter 1 memakai set lampu stage (`campaign-6`); chapter 2 punya
+        // sendiri, jadi masuk/ulang ke sini harus mengembalikannya.
+        setActiveStageLights('campaign-6');
         resetArrival(); resetWorldVisuals();
         // Rak mana yang menyimpan kunci DIACAK tiap kali chapter dimasuki.
         keyRack = Math.floor(Math.random() * RACK_POINTS.length) % RACK_POINTS.length;
@@ -397,7 +368,7 @@ export const arrivalScene = {
             }
             return;
         }
-        if (phase === 'findKey') { updateInfoTerminal(dt); updateRacks(dt); return; }
+        if (phase === 'findKey') { updateRacks(dt); return; }
         if (phase === 'powerGrid') { updateGenerators(); return; }
     },
 
@@ -450,9 +421,7 @@ export const arrivalScene = {
         if (phase === 'clearHall') return `SECURE THE TERMINAL HALL — Robots: ${countEncounter('hall')}`;
         if (phase === 'findKey') {
             const left = rackSearched.filter(v => !v).length;
-            return infoRead
-                ? `RECOVER THE SERVICE KEY — RACK ${keyRack + 1} OF ${RACK_POINTS.length}`
-                : `RECOVER THE SERVICE KEY — ${left} RACKS UNSEARCHED`;
+            return `RECOVER THE SERVICE KEY — ${left} RACKS UNSEARCHED`;
         }
         if (phase === 'powerGrid') return `RESTORE THE GENERATORS — ${onlineCount()}/${GENERATOR_POINTS.length}`;
         if (phase === 'exfil') {
@@ -469,12 +438,8 @@ export const arrivalScene = {
         else if (phase === 'exfil' && machinesAlive() > 0) {
             for (const m of stage6Machines()) if (m.alive) marks.push(m);
         } else if (phase === 'findKey') {
-            if (!infoRead) marks.push(S6_INFO);
-            for (let i = 0; i < RACK_POINTS.length; i++) {
-                if (rackSearched[i]) continue;
-                if (infoRead && i !== keyRack) continue;
-                marks.push(RACK_POINTS[i].stand);
-            }
+            for (let i = 0; i < RACK_POINTS.length; i++)
+                if (!rackSearched[i]) marks.push(RACK_POINTS[i].stand);
         } else if (phase === 'powerGrid') {
             for (let i = 0; i < GENERATOR_POINTS.length; i++)
                 if (!generatorOnline[i]) marks.push(GENERATOR_POINTS[i].stand);

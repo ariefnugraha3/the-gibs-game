@@ -8,6 +8,8 @@
 
 **Stage 6 HQ map revision (2026-08-11):** `hqWorld.js` uses the exact 50×50 HQ layout supplied by the user. `+` is the locked server-access door released by hacking `X`; `Y` is a no-robot-spawn safe area; and both 3×3 `M` machine blocks are in their new middle-floor positions. Keep the map, `HQ_LEGEND`, machine points, safe-area checks, and Stage 6 smoke census synchronized.
 
+**Stage 6 HQ machine-hit ordering fix (2026-08-12):** deployed and wrecked `M` cells remain bullet-solid, but `hqScene.bulletBlocked()` must call shared `machineBulletHit()` before `hqSegHitsWall()`. Otherwise a fast shot crossing the narrow hit-radius margin and the 3×3 solid footprint in one frame is deleted as a wall hit without damaging the live machine. Keep the normal batch sweep for Arrival/previous-frame segments; launcher impact must still queue exactly one blast.
+
 **Cutscene layout update (2026-08-10):** campaign-wide `prologue.js`, `prologueArt.js`, and `intro.js` remain in `src/scenes/campaign/cutscenes/`; Stage 4 controllers are in `cutscenes/stage4/`, and Stage 5 controllers are in `cutscenes/stage5/`. Stage facades own the imports from those canonical paths.
 
 **Cutscene rate update (2026-08-10):** while `cinematicActive` is true, `core/cutsceneRate.js` caps cutscene simulation ticks and rendering at 24 FPS; ordinary gameplay remains uncapped.
@@ -72,6 +74,7 @@ never re-wire it.
 | --- | --- |
 | Any module, export, scene hook, config key, adding a stage | [MODULES.md](docs/MODULES.md) — the authoritative catalog |
 | Campaign stages, cutscenes (incl. the text prologue), doors/lifts, minigames, shop, save | [docs/campaign.md](docs/campaign.md) |
+| Planned Campaign Stages 9–13, IKN boss, and final boss at Monas | [CAMPAIGN-STAGES-9-13-PLAN.md](docs/CAMPAIGN-STAGES-9-13-PLAN.md) — approved future blueprint; not implemented yet |
 | Waves, field shop, Monas objective, wave events, scoring | [docs/survival.md](docs/survival.md) |
 | Robots, weapons, gore, loot/barrels/crates, armor, movement/dodge/stamina, collision | [docs/combat.md](docs/combat.md) |
 | Camera rig, avatar, death sequence, HUD, menus, input/pause/cheats, SFX & music | [docs/presentation.md](docs/presentation.md) |
@@ -598,7 +601,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   and are reported through the `city` field of stage6WorldDebug()/hqWorldDebug().
 - Stage 6 chapter 1 is the user's stages(Stage6-Start).csv, a frozen 50x50 transliteration:
   # wall, A (CSV SA) safe area, S start, W supply room, - auto door, = keyed door,
-  @ chapter door, K key rack, I info terminal, G generator, H repair point, F finish.
+  @ chapter door, K key rack, I plain floor (its hackable terminal was removed
+  2026-08-12 — the generator room opens only with the rack key), G generator,
+  H repair point, F finish.
   SOLID_TOKENS is #KG so racks/generators are furniture (solid to everyone, nav-baked,
   bullet-stopping); robotWalk also rejects A/S, so no robot spawns in or walks into the safe
   area. Phases: opening -> stockUp -> clearHall -> findKey -> powerGrid -> exfil -> complete.
@@ -690,11 +695,17 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   deck anchor remains on the median centerline, never at a carriageway edge. Its base is solid but
   both sides remain traversable. The camera eases
   up/out within 110 m without changing aim, movement, collision or the logic pivot.
-  Deterministic defaults place sixteen seven-car gate bands plus 48 scattered cars (160 total), 12
-  jagged broken-asphalt holes, and 250 initial robots. Cars are oriented solid/nav/bullet blockers;
-  holes are real cuts with depressed floors, exposed aggregate lips, surface rubble and cracks, reject
-  player/robot clearance, and remain bullet-transparent. The road skin is split at crater midpoints
-  so each welded ShapeGeometry carries at most one reliable cut, and no car may overlap a crater.
+  Deterministic defaults place sixteen nine-car gate bands plus 96 scattered vehicles (240 total) and
+  250 initial robots. **Stage 7 has no road holes or craters**: the former pothole config, layout export,
+  collision rejection, cut-asphalt geometry and crater props were deleted because the dense traffic
+  already provides the maze. Gate bands use sedan/SUV; scattered traffic
+  also includes container trucks, dump trucks, buses, tanker trucks and open-bed pickups in both route
+  halves. `stage7/roadVehicles.js` owns their low-poly rigs and matching real-scale oriented footprints;
+  placement keeps every vehicle clear of every other vehicle. All vehicles are solid/nav/bullet blockers.
+  The road surface is exactly three continuous profile slabs: upper deck, descent and lower plaza.
+  For runtime performance, abandoned-vehicle geometry is welded per 125 m chunk so offscreen traffic
+  frustum-culls, while the static blocker list is indexed in 50 m X bins for player/robot collision,
+  bullet sweeps and LOS; never restore one route-wide vehicle batch or full-list blocker scans.
   Clearance smoke proves a median-crossing
   detour reaches Pasteur and the landmark cannot seal the level.
 - Stage 7 runs `opening→flyover→tollApproach→factorySiege→vehicleReveal→outro→complete`.
@@ -708,8 +719,9 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   Pasteur toll entrance keeps
   exactly three solid shared spawn-machine rigs as the mandatory finish combat; the last destroyed
   chassis collapses the network and reveals the GRD LTV-45 on the left/south side of the road, never
-  in the median. Defaults place eight supplies, 30
-  crates and 60 barrels; Stage 7's three-value `clampDropPos` result carries road elevation so
+  in the median. Defaults place eight supplies, 90
+  crates and 180 barrels; cars, crates and barrels must span every longitudinal route-coverage bin,
+  and Stage 7's three-value `clampDropPos` result carries road elevation so
   supplies, crate contents and robot loot remain above the slope/lower plaza. Fixed
   96/24/20/12 rain/ripple/spark/exhaust pools remain allocation-stable.
   There is no boss/miniboss/tank/boss HUD/score/music, and the green complete screen opens Field

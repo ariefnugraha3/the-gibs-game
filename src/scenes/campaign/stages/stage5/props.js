@@ -8,6 +8,7 @@ import { mergeObjectInPlace } from '../../../../utils/meshBatch.js';
 import {
     buildSplitDoor, buildDoorSideLights, DOOR_LOCKED_COLOR,
 } from '../../utility/doors.js';
+import { buildStandMarker } from '../../utility/common.js';
 import { CELL, WALL_H, cellPos } from './world.js';
 
 export function box(parent, mat, sx, sy, sz, x, y, z, shadow = true) {
@@ -38,27 +39,9 @@ export function meshCount(root) {
     return n;
 }
 
-export function buildMarker(parent, x, z, color) {
-    // Persis pola `buildStandMarker` Stage 1/2: bidang amber 12×12 dengan
-    // empat bar tebal. Marker adalah AREA PIJAK, bukan cincin waypoint.
-    const g = new THREE.Group();
-    const fillMat = new THREE.MeshBasicMaterial({
-        color, transparent: true, opacity: 0.28, toneMapped: false, depthWrite: false,
-    });
-    const fill = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), fillMat);
-    fill.rotation.x = -Math.PI / 2; fill.position.y = 0.14; g.add(fill);
-    const barMat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
-    for (const [sx, sz, px, pz] of [
-        [12, 1, 0, -6], [12, 1, 0, 6], [1, 12, -6, 0], [1, 12, 6, 0],
-    ]) {
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.5, sz), barMat);
-        bar.position.set(px, 0.22, pz); g.add(bar);
-    }
-    // Alias material menjaga animator/debug lama tanpa membuat material baru.
-    g.material = fillMat; g.userData.fill = fill; g.userData.bars = 4;
-    g.position.set(x, 0, z); g.visible = false;
-    parent.add(g); return g;
-}
+// Kotak pijak 12×12 milik campaign; bentuknya dipegang `utility/common.js`
+// supaya Stage 5 dan Stage 6 HQ tak pernah berbeda sedikit pun.
+export const buildMarker = buildStandMarker;
 
 const screenMaterial = () => new THREE.MeshLambertMaterial({
     color: PAL.screenBg, emissive: PAL.techDim, emissiveIntensity: 0.25,
