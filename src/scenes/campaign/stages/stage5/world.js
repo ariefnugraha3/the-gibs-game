@@ -11,6 +11,7 @@ import { addMergedStatic } from '../../../../utils/meshBatch.js';
 import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { buildCampaignCityscape } from '../../utility/cityscape.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { buildDetailedWallCell } from '../../utility/wallDetail.js';
 import {
     buildSplitDoor, doorBlocksShot, doorClampShot, doorsWalkable,
@@ -647,9 +648,20 @@ function buildWorld() {
 
 const countToken = t => S5_MAP.reduce((n, row) => n + [...row].filter(c => c === t).length, 0);
 
-export function ensureWorld() { if (!built) { built = true; buildWorld(); } }
+export function ensureWorld() {
+    if (built) return;
+    built = true; buildWorld();
+    // Root dunia didaftarkan (2026-08-13, optimasi): stage yang tidak dimainkan
+    // dilewati renderer sama sekali. Lampu tetap diurus setActiveStageLights.
+    registerCampaignWorldRoot({
+        key: 'campaign-5', root: worldRoot, lightsKey: 'campaign-5',
+        bounds: { x0: OX - 4000, x1: OX + 4000, z0: OZ - 2000, z1: OZ + 2000 },
+        warmupViews: [{ x: OX, y: 0, z: OZ }],
+    });
+}
 export const worldBuilt = () => built;
 export const stage5StaticBatchDbg = () => staticBatch;
+export const stage5WorldRootDbg = () => worldRoot;   // smoke test (visibilitas root dunia)
 
 // Marker rute berkedip pelan; hanya yang `visible` yang dihitung.
 export function pulseMarkers() {

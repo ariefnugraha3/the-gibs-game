@@ -18,6 +18,35 @@ The five new worlds are procedural low-poly final assets with deterministic stat
 - **Stage 12 — IKN:** the surface is a deterministic city-in-forest megacity with at least three depth bands, eight archetypes and sixty semantic clusters—forest terraces, ceremonial axis, civic silhouette, cultural roofs, garden towers, administration high-rises, transit/skybridges, water gardens, colonnades and root court. The separate monumental root chapter switches without `setScene`, retaining stats/loadout/checkpoint. Upload is monotonic and pauses only during Warden jams; capacitors and couplings gate the independent six-legged boss before the broadcast can finish.
 - **Stage 13 — Medan Merdeka:** a campaign-owned, noncollapsing Monas rig anchors deployment avenue, park, ring road, plaza, four hardlines, vault, Jakarta civic façades/skyline and damaged periphery. Offline troops and wrecks are cheap inert/merged shells except the 30–45 encounter guards. Mahapatih progresses siege → personal frame → four hardlines in any order → exposed core; it summons no normal adds by default. The world, Monas and boss wreck remain through the sunrise epilogue.
 
+### Stage 1 & 2 performance pass (2026-08-13)
+
+The user reported Stages 1 and 2 "terasa agak berat" after the second arc landed. Profiling found the cost was **not** in those stages' own content — their 3,545 / 3,361 static meshes already weld into **17 / 13 draw groups and cast no shadows at all**, so the Stage 6 shadow-bucket problem does not exist here. It was in two places:
+
+**1. Every other stage was still being drawn-tested.** All thirteen campaign worlds live in one `THREE.Scene`. Stages 9–13 were already hidden through `campaignWorldRegistry`, but Stages 1–8 were not: attributing every scene object to a world by coordinate showed **~12,000 objects (post-merge estimate) belonging to stages nobody was playing** still traversed and frustum-tested every frame — Stage 7's Bandung city (~5,300), Stage 6's two floors (~790), Stage 5's depot (~3,250), plus Stages 2–4 and 8. Each of Stages 1–8 now builds into its own `THREE.Group` (`campaign-stage1-floor2`, `campaign-stage2-floor2`, `campaign-stage3-factory`, `campaign-stage4-alun-alun`, and the roots Stages 5–8 already had), registered with `registerCampaignWorldRoot`. `setScene` derives the active key from the scene id via `worldKeyFor()`, and the Stage 6 chapters (like Stage 12's) select their own root in `enter()`. In r128 `projectObject` returns immediately on an invisible object, so a hidden root removes its whole subtree from the render list **and** from the shadow pass. Measured on the headless world set: objects inside registered stage roots that stay visible while playing Stage 1 fell from **~47,000 to ~7,300**.
+
+Two rules came with it, and both are load-bearing:
+
+- **Room PointLights stay parented to `scene`, never to a stage root.** The number of *visible* lights is what selects the shader variant, and that contract already belongs to `setActiveStageLights` + `precompileStageLightSets`. Moving lamps inside a root would make `renderer.compile` see zero lights for a hidden stage and compile the wrong program. (`renderer.compile` traverses hidden objects for materials but gathers lights with `traverseVisible`, so geometry inside a hidden root still warms correctly.)
+- **A scene that owns no world must not touch the roots.** `worldKeyFor()` returns `null` for the Field Shop, the hack/repair modals and the menu, and `setScene` then leaves visibility exactly as it was — `resumeScene` never re-shows anything, so hiding on the way into a modal would drop the player back into an invisible world.
+
+`buildStageDoors(doorList, cellFn, CELL, H, parent)` gained the optional parent so a stage's doors ride its own root; `buildCampaignCityscape` already accepted `opts.parent`.
+
+**2. Collision swept the whole blocker list, per entity, per frame.** `resolve`/`groundHeight` are called by the player *and* by every robot through AI, clamp and separation. Stage 1 carries 200+ static boxes (168 furniture entries plus barricades, the terminal bank, stairs and lift) and Stage 2 more still. The uniform-grid index built for Stage 6 HQ in August is now the shared **`makeBlockerIndex(blockers, {cell, x0, z0})`** in `utils/collision.js`, adopted by Stages 1 and 2 — and HQ's private copy was deleted in favour of it, so there is exactly one implementation.
+
+| per 40-entity frame | before | after |
+| --- | --- | --- |
+| Stage 1 `resolve` | 0.133 ms | 0.005 ms |
+| Stage 1 `groundHeight` | 0.068 ms | 0.004 ms |
+| Stage 2 `resolve` | 0.167 ms | 0.004 ms |
+| Stage 2 `groundHeight` | 0.158 ms | 0.004 ms |
+
+The shared version is **exact, not approximate** — two details make it so, and neither may be "simplified":
+
+- Query results are re-sorted into original list order. `resolveBlockers` pushes sequentially, so a point inside two boxes lands somewhere different if the order changes; cell order alone produced 97 and 140 divergent points out of 19,600.
+- The query box carries a margin of the largest half-edge in that world, because the point *moves* while being resolved and can reach a box that was outside the original query. A tighter margin of `min(hx, hz)` (justified by "the push always takes the smallest penetration axis") **was tried and rejected**: 3 of 20,000 probes diverged, because consecutive pushes accumulate. Point queries that do not move anything (`groundHeight`) pass `moving:false` and skip the margin entirely. `rebuild()` must be called whenever the blocker list changes (Stage 6 does it when a spawn machine is deployed or removed).
+
+The margin costs Stage 6 HQ some of its old speed (0.041 → ~0.077 ms per 40 calls, still ~6× better than the unindexed 0.44 ms it started from); exact parity with a full sweep was judged worth it. The Stage 6 smoke assert was upgraded accordingly: instead of "every solid prop ejects a probe", it now requires the index to be **identical to a full sweep** at every prop centre. That change also documented a real piece of HQ geometry: four restroom stalls stand 28 units apart with 12-unit half-widths, so the 4-unit gap is narrower than the player's radius 5 and a full sweep cannot resolve a point at their centre either.
+
 ### Acceptance pass — Stages 9–13 (2026-08-13, completing the plan's §14 matrix)
 
 The five stages were finished against [CAMPAIGN-STAGES-9-13-PLAN.md](CAMPAIGN-STAGES-9-13-PLAN.md) §14 with executable smoke sections (`25`, `25a`–`25e` in `tools/smoke.mjs`). Writing them surfaced seven real defects, each now a rule:

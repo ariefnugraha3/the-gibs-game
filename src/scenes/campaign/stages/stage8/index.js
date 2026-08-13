@@ -23,6 +23,7 @@ import {
 import { disposeRobot } from '../../../../entities/robots.js';
 import { spawnCampaignRobot, countStageRobots } from '../../utility/common.js';
 import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { saveCampaignStage } from '../../../../core/saveGame.js';
 import { stage1Scene } from '../stage1/index.js';
 import { stage9Scene } from '../stage9/index.js';
@@ -263,7 +264,15 @@ function buildWorld() {
     }
 }
 
-export function ensureWorld() { if (!built) { built = true; buildWorld(); } }
+export function ensureWorld() {
+    if (built) return;
+    built = true; buildWorld();
+    registerCampaignWorldRoot({
+        key: 'campaign-8', root: worldRoot, lightsKey: 'campaign-8',
+        bounds: { x0: OX - 3000, x1: OX + 3000, z0: OZ - 2000, z1: OZ + 2000 },
+        warmupViews: [{ x: S8_START.x, y: 0, z: S8_START.z }],
+    });
+}
 export const worldBuilt = () => built;
 
 function renderDialogue() {

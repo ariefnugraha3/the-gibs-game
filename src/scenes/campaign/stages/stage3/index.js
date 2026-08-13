@@ -46,6 +46,7 @@ import { rand, segPointDist2 } from '../../../../utils/math.js';
 import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine,
@@ -534,18 +535,26 @@ function buildHackTerminal(face) {
     return { group: g, screens: [glow, strip] };
 }
 
+// ROOT DUNIA STAGE 3 (2026-08-13, optimasi) — sama seperti stage 1 & 2: geometri
+// di bawah satu Group ter-registry, PointLight tetap di `scene`.
+let s3WorldRoot = null;
+export const s3WorldRootDbg = () => s3WorldRoot;
+
 export function buildWorld() {
     buildS3Grid();
     const sizeX = S3.G * S3.CELL, sizeZ = S3.ROWS * S3.CELL;
     const cx = S3.x0 + sizeX / 2, cz = S3.z0 + sizeZ / 2;
+    s3WorldRoot = new THREE.Group();
+    s3WorldRoot.name = 'campaign-stage3-factory';
+    scene.add(s3WorldRoot);
 
     // --- Lantai (panel fasilitas terang) ---
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ), buildInteriorFloorMat(S3.G, S3.ROWS));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(cx, 0.01, cz);
     floor.receiveShadow = true;
-    scene.add(floor);
-    buildCampaignCityscape(cx, cz, sizeX / 2, sizeZ / 2);
+    s3WorldRoot.add(floor);
+    buildCampaignCityscape(cx, cz, sizeX / 2, sizeZ / 2, { parent: s3WorldRoot });
 
     // --- Plafon (disembunyikan; top-down) ---
     const ceilTex = makeTexture(128, 128, (g, w, h) => {
@@ -556,7 +565,7 @@ export function buildWorld() {
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set(cx, S3.H, cz);
     ceil.visible = false;
-    scene.add(ceil);
+    s3WorldRoot.add(ceil);
 
     // --- Dinding (InstancedMesh) ---
     const wallCells = [];
@@ -582,10 +591,10 @@ export function buildWorld() {
     }
     wallMesh.receiveShadow = true;
     wallMesh.frustumCulled = false;
-    scene.add(wallMesh);
+    s3WorldRoot.add(wallMesh);
 
     // --- Pintu geser otomatis ---
-    s3doors = buildStageDoors(S3_DOORS, s3Cell, S3.CELL, S3.H);
+    s3doors = buildStageDoors(S3_DOORS, s3Cell, S3.CELL, S3.H, s3WorldRoot);
 
     // --- Furnitur KANTOR (dikumpulkan lalu DIGABUNG, lihat utils/meshBatch.js) ---
     const staticProps = [];
@@ -653,7 +662,7 @@ export function buildWorld() {
     const liftZ3 = S3.z0 + 16.5 * S3.CELL;           // pusat pasangan (dekat spawn r16)
     const lift = buildLiftBank({ facing: 'east', H: S3.H, open: true, gap: 30 });
     lift.position.set(liftWallX3, 0, liftZ3);
-    scene.add(lift);
+    s3WorldRoot.add(lift);
 
     // === 4 MESIN PEMBUAT ROBOT (blocker DI-BAKE nav, robot memutar) ===
     s3Machines = [];
@@ -662,7 +671,7 @@ export function buildWorld() {
         const mach = buildSpawnMachineMesh();             // hatch di muka +z lokal
         mach.group.position.set(p.x, 0, p.z);
         mach.group.rotation.y = d.face * Math.PI / 2; // putar hatch ke PUSAT ruang (timur/barat)
-        scene.add(mach.group);
+        s3WorldRoot.add(mach.group);
         const blocker = { x: p.x, z: p.z, hx: 14, hz: 14, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(14, 14), top: 17, standable: false };
         blockers.push(blocker);
         const sp = s3Cell(d.sc, d.sr);
@@ -673,14 +682,14 @@ export function buildWorld() {
     const exW = (S3_PLUS.c1 - S3_PLUS.c0 + 1) * S3.CELL;
     const exP = s3Cell((S3_EXIT.c0 + S3_EXIT.c1) / 2, S3_EXIT.r1);   // pusat bukaan @ baris 39
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(exW + 8, 5, 6), new THREE.MeshLambertMaterial({ color: PAL.gunmetal }));
-    lintel.position.set(exP.x, S3.H - 2.5, exP.z); scene.add(lintel);
+    lintel.position.set(exP.x, S3.H - 2.5, exP.z); s3WorldRoot.add(lintel);
     const glassMat = new THREE.MeshPhongMaterial({ color: 0x1a2b28, shininess: 60, specular: 0x4a6a64, transparent: true, opacity: 0.55 });
     const exitRig = buildSplitDoor(scene, glassMat, exP.x, (S3.H - 6) / 2, exP.z - 1.5,
         exW - 2, S3.H - 6, 1.2);
     s3ExitDoor = exitRig.panel;
     s3ExitDoor.userData.doorRig = exitRig;
     s3ExitSign = new THREE.Mesh(new THREE.BoxGeometry(20, 5, 1.2), new THREE.MeshBasicMaterial({ color: 0xff4a3c, toneMapped: false }));
-    s3ExitSign.position.set(exP.x, S3.H - 6, exP.z + 3); scene.add(s3ExitSign);
+    s3ExitSign.position.set(exP.x, S3.H - 6, exP.z + 3); s3WorldRoot.add(s3ExitSign);
     s3ExitLight = new THREE.PointLight(0xff5040, 0.9, 240, 2);
     s3ExitLight.position.set(exP.x, S3.H - 8, exP.z + 6); scene.add(s3ExitLight);
     registerStageLight('campaign-3', s3ExitLight);
@@ -716,7 +725,7 @@ export function buildWorld() {
         const p = s3Cell(def.c + 0.5, def.r);          // pusat pasangan 2 sel
         const t = buildHackTerminal(def.face);
         t.group.position.set(p.x, 0, p.z);
-        scene.add(t.group);
+        s3WorldRoot.add(t.group);
         const sp = s3Cell(def.sc, def.sr);             // titik BERDIRI (pemicu hack)
         const blocker = {
             x: p.x, z: p.z, hx: S3.CELL, hz: S3.CELL / 2,
@@ -735,14 +744,14 @@ export function buildWorld() {
     s3DoorSign = new THREE.Mesh(new THREE.BoxGeometry(16, 4, 1.2),
         new THREE.MeshBasicMaterial({ color: HACK_LOCKED, toneMapped: false }));
     s3DoorSign.position.set(sgP.x, S3.H - 6, sgP.z - (S3.CELL / 2 + 2));
-    scene.add(s3DoorSign);
+    s3WorldRoot.add(s3DoorSign);
     s3DoorLight = new THREE.PointLight(HACK_LOCKED, 0.9, 220, 2);
     s3DoorLight.position.set(sgP.x, S3.H - 8, sgP.z - (S3.CELL / 2 + 5));
     scene.add(s3DoorLight);
     registerStageLight('campaign-3', s3DoorLight);
 
     // GABUNG perabot statis jadi belasan mesh (blockers/nav tak tersentuh).
-    s3StaticBatch = addMergedStatic(scene, staticProps);
+    s3StaticBatch = addMergedStatic(s3WorldRoot, staticProps);
 
     // Bake nav-grid (blocker mesin sudah masuk → robot memutar; pintu blast BELUM)
     const half = S3.CELL / 2;
@@ -759,9 +768,15 @@ export function buildWorld() {
     const dw = (S3_PLUS.c1 - S3_PLUS.c0 + 1) * S3.CELL;
     s3Door = buildBlastDoor(dw);
     s3Door.position.set(dp.x, 0, dp.z);
-    scene.add(s3Door);
+    s3WorldRoot.add(s3Door);
     s3DoorBlocker = { x: dp.x, z: dp.z, hx: dw / 2, hz: S3.CELL / 2, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(dw / 2, S3.CELL / 2), top: S3.H, standable: false };
     blockers.push(s3DoorBlocker);
+
+    registerCampaignWorldRoot({
+        key: 'campaign-3', root: s3WorldRoot, lightsKey: 'campaign-3',
+        bounds: { x0: S3.x0 - sizeX, x1: S3.x0 + sizeX * 2, z0: S3.z0 - sizeZ, z1: S3.z0 + sizeZ * 2 },
+        warmupViews: [{ x: cx, y: 0, z: cz }, s3Cell(S3_START.c, S3_START.r)],
+    });
 }
 
 // ===== ROBOT SPAWN (langsung mengejar) + kelas ACAK BERBOBOT =====

@@ -33,9 +33,10 @@ import { player, _v3, setCinematicActive } from '../../../../core/state.js';
 import { scene, camera } from '../../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../../utils/textures.js';
 import { rand } from '../../../../utils/math.js';
-import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
+import { slideWalk, resolveBlockers, blockersGroundHeight, makeBlockerIndex } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { applyLightPreset, registerStageLight, precompileStageLightSets } from '../../../../world/lighting.js';
 import {
     hideStageMsg, showStageMsg, setCineBars,
@@ -358,6 +359,14 @@ let s1StaticBatch = [];                              // mesh perabot hasil pengg
 export const s1StaticBatchDbg = () => s1StaticBatch; // smoke test (jumlah draw call perabot)
 
 let s1doors = null;
+// ROOT DUNIA STAGE 1 (2026-08-13, optimasi): SELURUH geometri stage hidup di
+// bawah satu Group yang didaftarkan ke campaignWorldRegistry, jadi renderer
+// melewatinya sama sekali (projectObject berhenti di root tak-terlihat) ketika
+// stage lain yang dimainkan. LAMPU sengaja TETAP menempel di `scene`: jumlah
+// PointLight yang terlihat menentukan varian shader, dan itu sudah diurus
+// setActiveStageLights/precompileStageLightSets — jangan pindahkan ke root.
+let s1WorldRoot = null;
+export const s1WorldRootDbg = () => s1WorldRoot;
 let s1compDoor = null;   // ref pintu NAC ruang komputer (dibuka lewat bank komputer '@')
 export const s1CompDoorDbg = () => s1compDoor;   // smoke test (status locked)
 export const s1DoorsDbg = () => s1doors || [];   // smoke test (pintu rusak '+')
@@ -440,9 +449,16 @@ export function s1SegHitsWall(x1, z1, x2, z2) {
     return false;
 }
 
+// Indeks spasial blocker (utils/collision.js): resolve/groundHeight dipanggil
+// player + tiap robot (AI, clamp, separasi) tiap frame, jadi menyapu 200+ balok
+// statis penuh-penuh itu murni pemborosan. Di-rebuild di akhir buildWorld.
+const s1BlockerIdx = makeBlockerIndex(blockers, { cell: S1.CELL, x0: S1.x0, z0: S1.z0 });
+export const s1BlockerIdxDbg = () => s1BlockerIdx.debug();   // smoke test
+export const s1BlockersDbg = () => blockers;   // smoke test (indeks vs sapuan penuh)
+
 // Penghalang pejal stage 1 = furnitur + undakan + lift + rak (balok axis-aligned)
 export function resolve(pos, radius, feetY) {
-    return resolveBlockers(pos, radius, feetY, blockers);
+    return resolveBlockers(pos, radius, feetY, s1BlockerIdx.gather(pos.x, pos.z, radius));
 }
 
 // Nav-grid pathfinder (resolusi setengah sel; di-bake di AKHIR buildWorld)
@@ -491,6 +507,9 @@ export function buildWorld() {
     buildS1Grid();
     const size = S1.G * S1.CELL;                      // 700 unit = 100 m
     const cx = S1.x0 + size / 2, cz = S1.z0 + size / 2;
+    s1WorldRoot = new THREE.Group();
+    s1WorldRoot.name = 'campaign-stage1-floor2';
+    scene.add(s1WorldRoot);
 
     // --- Lantai: satu bidang panel fasilitas TERANG futuristik (interior.js;
     // 1 ubin/sel). TANGGA di stage 1 = TANGGA NAIK (titik masuk = titik selesai),
@@ -500,10 +519,10 @@ export function buildWorld() {
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(cx, 0.01, cz);
     floor.receiveShadow = true;
-    scene.add(floor);
+    s1WorldRoot.add(floor);
 
     // Latar KOTA JAKARTA mengelilingi gedung (dekor, tanpa blocker)
-    buildCampaignCityscape(cx, cz, size / 2, size / 2);
+    buildCampaignCityscape(cx, cz, size / 2, size / 2, { parent: s1WorldRoot });
 
     // --- Plafon: panel akustik gelap (DISEMBUNYIKAN — kamera top-down di atas;
     // dinding tetap berdiri jadi interior terlihat. Fisika granat memantul tak berubah). ---
@@ -518,7 +537,7 @@ export function buildWorld() {
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set(cx, S1.H, cz);
     ceil.visible = false;
-    scene.add(ceil);
+    s1WorldRoot.add(ceil);
 
     // --- Dinding: satu InstancedMesh (hanya sel dinding yang bertetangga lantai) ---
     const wallCells = [];
@@ -549,10 +568,10 @@ export function buildWorld() {
     }
     wallMesh.receiveShadow = true;
     wallMesh.frustumCulled = false;
-    scene.add(wallMesh);
+    s1WorldRoot.add(wallMesh);
 
     // --- Pintu geser otomatis (ruang tertutup; pintu KOMPUTER dibuat terkunci) ---
-    s1doors = buildStageDoors(S1_DOORS, s1Cell, S1.CELL, S1.H);
+    s1doors = buildStageDoors(S1_DOORS, s1Cell, S1.CELL, S1.H, s1WorldRoot);
     s1compDoor = s1doors.find(d => d.locked && !d.broken) || null;   // pintu NAC (pintu rusak juga "locked")
     s1NacDoor = s1compDoor;
 
@@ -814,7 +833,7 @@ export function buildWorld() {
     s1LiftPos = { x: liftWallX + 8, z: liftZ };      // titik peringatan (di depan pintu)
     const lift = buildLiftBank({ facing: 'east', H: S1.H, open: false, gap: LIFT_GAP1 });
     lift.position.set(liftWallX, 0, liftZ);
-    scene.add(lift);
+    s1WorldRoot.add(lift);
     const lf1 = liftBankFootprint('east', LIFT_GAP1);
     blockers.push({
         x: liftWallX + lf1.cx, z: liftZ + lf1.cz, hx: lf1.hx, hz: lf1.hz,
@@ -837,7 +856,7 @@ export function buildWorld() {
     s1ExitSign = new THREE.Mesh(new THREE.BoxGeometry(14, 5, 1.2),
         new THREE.MeshBasicMaterial({ color: 0xff4a3c, toneMapped: false }));
     s1ExitSign.position.set(fp.x, S1.H - 6, fp.z - 3);
-    scene.add(s1ExitSign);
+    s1WorldRoot.add(s1ExitSign);
     s1ExitLight = new THREE.PointLight(0xff5040, 0.85, 200, 2);
     s1ExitLight.position.set(fp.x, S1.H - 8, fp.z);
     scene.add(s1ExitLight);
@@ -880,7 +899,8 @@ export function buildWorld() {
     addLamp(44, 44, 0xbfe4ff, 0.85, 320, 40, 40, 48, 48);// 16 super komputer (dingin)
     // GABUNG semua perabot statis jadi belasan mesh (draw call + update matriks
     // turun drastis; blockers/nav TIDAK tersentuh karena berasal dari tabel).
-    s1StaticBatch = addMergedStatic(scene, staticProps);
+    s1StaticBatch = addMergedStatic(s1WorldRoot, staticProps);
+    s1BlockerIdx.rebuild();   // daftar blocker sudah final -> sebar ke kisi
 
     // Bake nav-grid TERAKHIR (semua blockers terisi): dinding dari grid, furnitur
     // dari resolve. Radius sampel 3 (< badan 3.5) agar celah sempit tetap lewat-able.
@@ -890,6 +910,12 @@ export function buildWorld() {
         _v3.set(x, 0, z);
         resolve(_v3, 3, 0);
         return Math.abs(_v3.x - x) + Math.abs(_v3.z - z) < 0.01;
+    });
+
+    registerCampaignWorldRoot({
+        key: 'campaign-1', root: s1WorldRoot, lightsKey: 'campaign-1',
+        bounds: { x0: S1.x0 - size, x1: S1.x0 + size * 2, z0: S1.z0 - size, z1: S1.z0 + size * 2 },
+        warmupViews: [{ x: cx, y: 0, z: cz }, s1Cell(S1_START.c, S1_START.r)],
     });
 }
 
@@ -1234,7 +1260,9 @@ export const stage1Scene = {
         }
     },
 
-    groundHeight(x, z, feetY) { return blockersGroundHeight(x, z, feetY, blockers); },
+    groundHeight(x, z, feetY) {
+        return blockersGroundHeight(x, z, feetY, s1BlockerIdx.gather(x, z, 2, false));
+    },
 
     // Peluru MATI di dinding + PINTU tertutup (player & robot) — cegah tembus tembok.
     bulletBlocked(b) {

@@ -8,19 +8,31 @@
 import { setActiveStageLights } from '../world/lighting.js';
 import { beginStageStats } from './state.js';
 import { hideBossHud } from './dom.js';
-import { setActiveCampaignWorldRoots } from '../scenes/campaign/utility/campaignWorldRegistry.js';
+import { setActiveCampaignWorldRoots, activeCampaignWorldRoots } from '../scenes/campaign/utility/campaignWorldRegistry.js';
 
 export let activeScene = null;
+
+// Kunci root dunia sebuah scene (2026-08-13: diperluas dari Stage 9–13 ke SEMUA
+// stage campaign). SELURUH dunia campaign hidup bersama dalam satu THREE.Scene;
+// tanpa ini renderer menelusuri + menguji frustum belasan ribu objek milik stage
+// yang sedang tidak dimainkan SETIAP frame (diukur: ~12 ribu objek, dominan
+// Stage 5/6/7). Root tak-terlihat membuat `projectObject` berhenti di akarnya.
+//
+// `null` = scene ini TIDAK punya dunia sendiri (shop antar-stage, modal hack/
+// repair, menu): set root DIBIARKAN apa adanya — sama seperti aturan lightsKey —
+// supaya kembali dari modal tidak meninggalkan dunia yang tersembunyi.
+// Sub-scene (chapter Stage 6 & 12) memanggil registry-nya sendiri di enter().
+function worldKeyFor(id) {
+    if (!id) return null;
+    if (id === 'campaign-12') return 'campaign-12-surface';
+    return /^campaign-(?:[1-9]|1[0-3])$/.test(id) ? id : null;
+}
 
 export function setScene(s, opts = {}) {
     if (activeScene && activeScene.exit) activeScene.exit();
     hideBossHud();
-    // Root dunia besar Stage 9–13 hidup bersama dalam satu THREE.Scene, tetapi
-    // hanya stage aktif yang boleh ikut traversal/render. Stage 12 mengganti
-    // surface -> root sendiri tanpa setScene.
-    const worldKey = /^campaign-(?:9|10|11|13)$/.test(s?.id || '') ? s.id
-        : s?.id === 'campaign-12' ? 'campaign-12-surface' : null;
-    setActiveCampaignWorldRoots(worldKey);
+    const worldKey = worldKeyFor(s?.id);
+    if (worldKey) setActiveCampaignWorldRoots(worldKey);
     activeScene = s;
     // Statistik finish screen bersifat PER-STAGE. Modal hack/repair kembali
     // lewat resumeScene(), dan shop/cutscene tak cocok pola ini, jadi keduanya
@@ -31,8 +43,10 @@ export function setScene(s, opts = {}) {
     // shop antar-stage) MEMPERTAHANKAN set lampu sebelumnya.
     if (s.lightsKey) setActiveStageLights(s.lightsKey);
     s.enter(opts);
-    // enter() dapat baru membangun/mendaftarkan root pada akses langsung.
-    if (worldKey) setActiveCampaignWorldRoots(worldKey);
+    // enter() dapat baru membangun/mendaftarkan root pada akses langsung, dan
+    // chapter Stage 6/12 memilih root-nya sendiri di sana — jadi jangan menimpa
+    // pilihan chapter: hanya set ulang bila belum ada root aktif yang cocok.
+    if (worldKey && !activeCampaignWorldRoots().length) setActiveCampaignWorldRoots(worldKey);
 }
 
 // KEMBALI ke scene yang sedang berjalan setelah sebuah scene MODAL (minigame

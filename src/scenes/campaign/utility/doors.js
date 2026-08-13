@@ -255,7 +255,10 @@ export const splitDoorDebug = door => ({
 //   membentang sumbu-z) / 'ns' (celah di dinding HORIZONTAL, panel membentang
 //   sumbu-x). Sel doorList = SEL LANTAI bukaan; jamb = sel dinding di kedua ujung.
 //   cellFn(c,r)->{x,z}; CELL & H dari konstanta stage.
-export function buildStageDoors(doorList, cellFn, CELL, H) {
+// `parent` (2026-08-13): root dunia stage. Default `scene` supaya pemanggil lama
+// tak berubah; stage yang punya root sendiri mengirimkannya agar pintunya ikut
+// disembunyikan bersama dunianya.
+export function buildStageDoors(doorList, cellFn, CELL, H, parent = null) {
     const bodyMat = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });   // panel matte (tak silau)
     const seamMat = new THREE.MeshLambertMaterial({ color: PAL.ink });        // seam tengah gelap
     const tealMat = new THREE.MeshBasicMaterial({ color: PAL.tech, toneMapped: false });
@@ -272,7 +275,7 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
         const w = span + 0.6, thick = 3.2;                       // lebar menutup celah + seal tipis
 
         // --- DUA DAUN 50:50: bergeser sejajar dinding ke arah berlawanan. ---
-        const rig = buildSplitDoor(scene, bodyMat, cx, H / 2, cz,
+        const rig = buildSplitDoor(parent || scene, bodyMat, cx, H / 2, cz,
             ew ? thick : w, H, ew ? w : thick);
         const panel = rig.panel;
         for (let i = 0; i < rig.leaves.length; i++) {
@@ -315,7 +318,7 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
                     ew ? j.x + s * (halfC + 0.25) : j.x,
                     lampY,
                     ew ? j.z : j.z + s * (halfC + 0.25));
-                scene.add(g);
+                (parent || scene).add(g);
                 lights.push(g);
             }
         }

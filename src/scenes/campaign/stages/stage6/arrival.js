@@ -37,6 +37,7 @@ import { campaignRobotAI, campaignClampRobot, countStageRobots } from '../../uti
 import { beginRepairMinigame, ADVANCED_REPAIR_PARTS } from '../../utility/repairMinigame.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import { setActiveStageLights } from '../../../../world/lighting.js';
+import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 import {
     phase, setPhase, cine, setCine, cineCam, cleanupCine, enterSub,
     queueDialogue, dialogueIdle, clearDialogueQueue, countEncounter, spawnEncounter,
@@ -320,6 +321,9 @@ export const arrivalScene = {
     enter() {
         // Chapter 1 memakai set lampu stage (`campaign-6`); chapter 2 punya
         // sendiri, jadi masuk/ulang ke sini harus mengembalikannya.
+        // Chapter memilih root dunianya sendiri (2026-08-13, optimasi): chapter
+        // yang tak aktif tak boleh ikut ditelusuri renderer.
+        setActiveCampaignWorldRoots('campaign-6');
         setActiveStageLights('campaign-6');
         resetArrival(); resetWorldVisuals();
         // Rak mana yang menyimpan kunci DIACAK tiap kali chapter dimasuki.

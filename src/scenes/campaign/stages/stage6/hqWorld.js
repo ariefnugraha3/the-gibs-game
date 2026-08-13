@@ -33,7 +33,8 @@
 import { registerStageLight } from '../../../../world/lighting.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStatic, addMergedStaticShadowAware } from '../../../../utils/meshBatch.js';
-import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
+import { resolveBlockers, blockersGroundHeight, makeBlockerIndex } from '../../../../utils/collision.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { rand } from '../../../../utils/math.js';
 import {
@@ -432,53 +433,18 @@ function blockedAt(x, z, radius = 3.5) {
     return false;
 }
 
-// INDEKS SPASIAL BLOCKER (2026-08-12, optimasi). `resolveBlockers` menyapu SELURUH
-// daftar tiap kali dipanggil, dan pemanggilnya bukan cuma player: tiap robot
-// memanggilnya lewat AI, clamp, dan separasi — jadi 591 blocker x ~40 entitas x 3
-// panggilan = ~70 ribu uji AABB per frame. Blocker HQ statis (kecuali rangka mesin
-// yang dipasang/dicabut dua kali per run), jadi cukup disebar ke kisi sel: satu
-// query hanya menyentuh petak yang benar-benar bersinggungan.
-//
-// Kebenaran dijaga dua hal: blocker dimasukkan ke SEMUA sel yang disentuh AABB-nya,
-// dan query memakai kotak (pos +- radius) — kalau sebuah blocker berada dalam
-// jangkauan, kedua kotak pasti berbagi minimal satu sel. Stempel `gatherMark`
-// mencegah blocker lebar terpakai dua kali dalam satu query.
-const BGRID = CELL;
-const blockerCells = new Map();
-let gatherStamp = 0;
-const gathered = [];
-const bcellKey = (gx, gz) => gx * 4096 + gz;
-
-function rebuildBlockerIndex() {
-    blockerCells.clear();
-    for (const b of blockers) {
-        const gx0 = Math.floor((b.x - b.hx - HQ_X0) / BGRID), gx1 = Math.floor((b.x + b.hx - HQ_X0) / BGRID);
-        const gz0 = Math.floor((b.z - b.hz - HQ_Z0) / BGRID), gz1 = Math.floor((b.z + b.hz - HQ_Z0) / BGRID);
-        for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
-            const k = bcellKey(gx, gz);
-            let list = blockerCells.get(k);
-            if (!list) { list = []; blockerCells.set(k, list); }
-            list.push(b);
-        }
-    }
-}
-
-function gatherBlockers(x, z, radius) {
-    if (!blockerCells.size) return blockers;
-    gathered.length = 0;
-    const stamp = ++gatherStamp;
-    const gx0 = Math.floor((x - radius - HQ_X0) / BGRID), gx1 = Math.floor((x + radius - HQ_X0) / BGRID);
-    const gz0 = Math.floor((z - radius - HQ_Z0) / BGRID), gz1 = Math.floor((z + radius - HQ_Z0) / BGRID);
-    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
-        const list = blockerCells.get(bcellKey(gx, gz));
-        if (!list) continue;
-        for (const b of list) {
-            if (b.mark === stamp) continue;
-            b.mark = stamp; gathered.push(b);
-        }
-    }
-    return gathered;
-}
+// INDEKS SPASIAL BLOCKER (2026-08-12, optimasi; dijadikan helper BERSAMA
+// 2026-08-13). `resolveBlockers` menyapu SELURUH daftar tiap panggilan, dan
+// pemanggilnya bukan cuma player: tiap robot memanggilnya lewat AI, clamp, dan
+// separasi — jadi 591 blocker x ~40 entitas x 3 panggilan = ~70 ribu uji AABB
+// per frame. Implementasinya kini `makeBlockerIndex` di utils/collision.js
+// (dipakai bersama Stage 1 & 2); versi bersama itu juga MENGURUTKAN hasil query
+// ke urutan daftar asli + memberi marjin sebesar setengah-rusuk terbesar,
+// sehingga hasilnya identik byte-per-byte dengan sapuan penuh — sesuatu yang
+// belum dijamin salinan lokal yang lama.
+const blockerIndex = makeBlockerIndex(blockers, { cell: CELL, x0: HQ_X0, z0: HQ_Z0 });
+function rebuildBlockerIndex() { blockerIndex.rebuild(); }
+const gatherBlockers = (x, z, radius, moving = true) => blockerIndex.gather(x, z, radius, moving);
 
 export function hqResolve(pos, radius, feetY = 0) {
     resolveBlockers(pos, radius, feetY, gatherBlockers(pos.x, pos.z, radius));
@@ -486,7 +452,8 @@ export function hqResolve(pos, radius, feetY = 0) {
 }
 
 export function hqGroundHeight(x, z, feetY) {
-    return blockersGroundHeight(x, z, feetY, gatherBlockers(x, z, 0.1));
+    // Query TITIK (tak menggeser pos) -> tanpa marjin dorongan.
+    return blockersGroundHeight(x, z, feetY, gatherBlockers(x, z, 2, false));
 }
 
 export function hqSegHitsWall(x0, z0, x1, z1, ignoredMachineCells = null) {
@@ -1060,10 +1027,18 @@ export function ensureHqWorld(parent) {
     if (built) return worldRoot;
     built = true; buildWorld();
     if (parent) parent.add(worldRoot);
+    registerCampaignWorldRoot({
+        key: HQ_LIGHTS_KEY, root: worldRoot, lightsKey: HQ_LIGHTS_KEY,
+        bounds: { x0: HQ_X0 - 1500, x1: HQ_X0 + HQ_COLS * CELL + 1500,
+            z0: HQ_Z0 - 1500, z1: HQ_Z0 + HQ_ROWS * CELL + 1500 },
+        warmupViews: [{ x: HQ_START.x, y: 0, z: HQ_START.z }],
+    });
     return worldRoot;
 }
 export const hqWorldBuilt = () => built;
 export const hqStaticBatchDbg = () => staticBatch;
+export const hqWorldRootDbg = () => worldRoot;   // smoke test (visibilitas root dunia)
+export const hqBlockersDbg = () => blockers;   // smoke test (indeks vs sapuan penuh)
 
 // ---------------------------------------------------------------------------
 // Animasi dunia

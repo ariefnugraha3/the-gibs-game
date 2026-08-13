@@ -23,6 +23,7 @@ import {
     countStageRobots,
 } from '../../utility/common.js';
 import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { saveCampaignStage } from '../../../../core/saveGame.js';
 import { stage1Scene } from '../stage1/index.js';
 import { stage8Scene } from '../stage8/index.js';
@@ -1386,10 +1387,21 @@ function buildWorld() {
 }
 
 export function ensureWorld() {
-    if (!built) { built = true; buildWorld(); }
+    if (built) return;
+    built = true; buildWorld();
+    // 2026-08-13 (optimasi): Stage 7 adalah dunia campaign TERBESAR (kota Bandung
+    // + 240 kendaraan). Didaftarkan supaya benar-benar dilewati renderer ketika
+    // stage lain yang dimainkan.
+    registerCampaignWorldRoot({
+        key: 'campaign-7', root: worldRoot, lightsKey: 'campaign-7',
+        bounds: { x0: OX - 3000, x1: OX + 3000, z0: OZ - 3000, z1: OZ + 3000 },
+        warmupViews: [{ x: S7_START.x, y: 0, z: S7_START.z },
+            { x: S7_LANDMARK.x, y: 0, z: S7_LANDMARK.z }],
+    });
 }
 export const worldBuilt = () => built;
 export const stage7StaticBatchDbg = () => staticBatch;
+export const stage7WorldRootDbg = () => worldRoot;   // smoke test (visibilitas root dunia)
 
 function renderDialogue() {
     if (!dialogueCurrent) { hideStageRadioDialogue(); return; }

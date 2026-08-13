@@ -25,6 +25,7 @@ import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../../../ut
 import { rand } from '../../../../utils/math.js';
 import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { addMergedStatic, mergeObjectInPlace } from '../../../../utils/meshBatch.js';
 import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
 import { PAL } from '../../../../world/palette.js';
@@ -234,7 +235,15 @@ function updateOccluders(dt) {
 // Debug/uji: jumlah occluder terdaftar + faktor fade paling kecil saat ini.
 export const occluderDebug = () => ({ count: occluders.length, minF: occluders.reduce((a, o) => Math.min(a, o.f), 1) });
 
+// ROOT DUNIA STAGE 4 (2026-08-13, optimasi) — geometri di bawah satu Group
+// ter-registry; lampu jalan TETAP di `scene` (jumlah lampu = varian shader).
+let s4WorldRoot = null;
+export const s4WorldRootDbg = () => s4WorldRoot;
+
 export function buildWorld() {
+    s4WorldRoot = new THREE.Group();
+    s4WorldRoot.name = 'campaign-stage4-alun-alun';
+    scene.add(s4WorldRoot);
     // DEKOR STATIS dikumpulkan lalu DIGABUNG jadi sedikit mesh di akhir
     // (utils/meshBatch.js). Yang TIDAK masuk sini: apa pun yang materialnya
     // disentuh saat main (mobil/gedung sisi kamera = occluder fade, gerbang),
@@ -257,7 +266,7 @@ export function buildWorld() {
     base.rotation.x = -Math.PI / 2;
     base.position.set(OX + 1700, -0.5, OZ + 40);
     base.receiveShadow = true;
-    scene.add(base);
+    s4WorldRoot.add(base);
 
     // --- Aspal jalan raya (marka lajur) ---
     const asphaltNrm = makeNormalMap(128, 128, (g, w, h) => {
@@ -280,7 +289,7 @@ export function buildWorld() {
     road.rotation.x = -Math.PI / 2;
     road.position.set((ROAD.x0 + ROAD.x1) / 2, 0.02, ROAD.cz);
     road.receiveShadow = true;
-    scene.add(road);
+    s4WorldRoot.add(road);
 
     // --- Beton parkiran ---
     const concTex = makeTexture(128, 128, (g, w, h) => {
@@ -338,7 +347,7 @@ export function buildWorld() {
     alun.rotation.x = -Math.PI / 2;
     alun.position.set((ALUN.x0 + ALUN.x1) / 2, 0.03, (ALUN.z0 + ALUN.z1) / 2);
     alun.receiveShadow = true;
-    scene.add(alun);
+    s4WorldRoot.add(alun);
     const paveMat = new THREE.MeshLambertMaterial({ map: concTex });
     for (const [sx, sz] of [[ALUN.x1 - ALUN.x0, 40], [40, ALUN.z1 - ALUN.z0]]) {
         const path = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), paveMat);
@@ -473,7 +482,7 @@ export function buildWorld() {
         roadGate.add(u);
     }
     roadGate.position.set(S4_GATE.x, 0, S4_GATE.z);
-    scene.add(roadGate);
+    s4WorldRoot.add(roadGate);
     gateBlocker = {
         x: S4_GATE.x, z: S4_GATE.z, hx: 6, hz: ROAD.hz + 4,
         axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(6, ROAD.hz + 4), top: 13, standable: false
@@ -503,7 +512,7 @@ export function buildWorld() {
         car0.position.set(x, 0, z);
         car0.rotation.set(rand(-0.05, 0.05), yaw, rand(-0.06, 0.06));
         const car = mergeObjectInPlace(car0);   // 20 mesh -> segelintir; kaca & fade tetap
-        scene.add(car);
+        s4WorldRoot.add(car);
         const [hx, hz] = carHalf(yaw, 17, 10);
         addBlockerBox(x, z, hx, hz, 9, false);
         registerOccluder(car, 18, 16);   // mobil memudar saat menutup player/robot
@@ -514,7 +523,7 @@ export function buildWorld() {
         car0.position.set(x, 0, z);
         car0.rotation.set(rand(-0.04, 0.04), yaw, rand(-0.05, 0.05));
         const car = mergeObjectInPlace(car0);   // idem sedan
-        scene.add(car);
+        s4WorldRoot.add(car);
         const [hx, hz] = carHalf(yaw, 15, 9);
         addBlockerBox(x, z, hx, hz, 7, false);
         registerOccluder(car, 16, 14);
@@ -527,7 +536,7 @@ export function buildWorld() {
         const win = new THREE.Mesh(carGeo, glassMat);
         win.scale.set(60, 5, 21); win.position.y = 12; bus.add(win);
         bus.position.set(x, 0, z); bus.rotation.y = rand(-0.08, 0.08);
-        scene.add(bus);
+        s4WorldRoot.add(bus);
         addBlockerBox(x, z, 36, 12, 16, false);
         registerOccluder(bus, 38, 18);
     };
@@ -703,7 +712,7 @@ export function buildWorld() {
         registerStageLight('campaign-4', L);
         g.position.set(x, 0, z);
         if (hasArm) g.rotation.y = arm;
-        scene.add(g);
+        s4WorldRoot.add(g);
     };
     // Parkiran: tiang tepi utara, lengan MENGHADAP JALAN (selatan) menyorot aisle
     addLamp(OX - 100, OZ - 216, 0xffe0a0, 0.7, 440);
@@ -739,7 +748,7 @@ export function buildWorld() {
     buildRoadside(staticProps);   // gedung/toko/rumah/warung/pohon/pagar/JPO Jakarta di kiri-kanan jalan (dekor)
 
     // GABUNG semua dekor statis (blocker/nav tak tersentuh — dari tabel & addBlockerBox)
-    s4StaticBatch = addMergedStatic(scene, staticProps);
+    s4StaticBatch = addMergedStatic(s4WorldRoot, staticProps);
 
     // --- Nav-grid pathfinder atas union (cover di-bake lewat resolve) ---
     const gx0 = PARK.x0 - 20, gx1 = SQ.x1 + 20, gz0 = SQ.z0 - 20, gz1 = SQ.z1 + 20;
@@ -752,6 +761,13 @@ export function buildWorld() {
             resolve(_v3, 3.5, 0);
             return Math.abs(_v3.x - x) + Math.abs(_v3.z - z) < 0.01;
         });
+
+    registerCampaignWorldRoot({
+        key: 'campaign-4', root: s4WorldRoot, lightsKey: 'campaign-4',
+        bounds: { x0: gx0 - 400, x1: gx1 + 400, z0: gz0 - 400, z1: gz1 + 400 },
+        warmupViews: [{ x: S4_START.x, y: 0, z: S4_START.z },
+            { x: SQ.x0 + (SQ.x1 - SQ.x0) / 2, y: 0, z: SQ.z0 + (SQ.z1 - SQ.z0) / 2 }],
+    });
 }
 
 // === JAKARTA ROADSIDE (2026-07-18; DIROMBAK 2026-07-19, permintaan user):
@@ -830,14 +846,14 @@ function buildRoadside(staticProps) {
     const jDeckMat = new THREE.MeshLambertMaterial({ color: 0x80808a });
     for (const jx of [RX0 + LEN * 0.4, RX0 + LEN * 0.78]) {
         const deck = new THREE.Mesh(new THREE.BoxGeometry(9, 3, ROAD.hz * 2 + 48), jDeckMat);
-        deck.position.set(jx, 52, 0); scene.add(deck);
+        deck.position.set(jx, 52, 0); s4WorldRoot.add(deck);
         const roof = new THREE.Mesh(new THREE.BoxGeometry(11, 1.4, ROAD.hz * 2 + 48), jMat);
-        roof.position.set(jx, 60, 0); scene.add(roof);
+        roof.position.set(jx, 60, 0); s4WorldRoot.add(roof);
         for (const s of [-1, 1]) {
             const col = new THREE.Mesh(new THREE.BoxGeometry(5, 52, 5), jMat);
-            col.position.set(jx, 26, s * (ROAD.hz + 18)); scene.add(col);
+            col.position.set(jx, 26, s * (ROAD.hz + 18)); s4WorldRoot.add(col);
             const tower = new THREE.Mesh(new THREE.BoxGeometry(13, 52, 15), jMat);
-            tower.position.set(jx, 26, s * (ROAD.hz + 42)); tower.castShadow = true; scene.add(tower);
+            tower.position.set(jx, 26, s * (ROAD.hz + 42)); tower.castShadow = true; s4WorldRoot.add(tower);
             claimDecor(jx - 8, jx + 8, s * (ROAD.hz + 42) - 9, s * (ROAD.hz + 42) + 9);
             if (s > 0) registerOccluder(tower, 13, 52);   // menara sisi kamera = occluder
         }
@@ -923,7 +939,7 @@ function buildRoadside(staticProps) {
                 trees.push({ x: bx + rand(-w * 0.4, w * 0.4), z: bz + rand(-d * 0.4, d * 0.4) });
         }
         const B = mergeObjectInPlace(G);   // tiap lot: 2-8 mesh -> 1-3 (material tetap milik lot)
-        scene.add(B);
+        s4WorldRoot.add(B);
         if (s > 0 && hgt > 0) registerOccluder(B, Math.hypot(w, d) / 2, hgt + 6);
         return w;
     };
@@ -991,7 +1007,7 @@ function buildRoadside(staticProps) {
         _m.compose(_p.set(t.x, hgt * 0.62, t.z), _q, _sc.set(r, hgt * 0.72, r)); fol.setMatrixAt(i, _m);
         _m.compose(_p.set(t.x, hgt * 0.2, t.z), _q, _sc.set(2.2, hgt * 0.42, 2.2)); trk.setMatrixAt(i, _m);
     });
-    fol.frustumCulled = false; trk.frustumCulled = false; scene.add(fol); scene.add(trk);
+    fol.frustumCulled = false; trk.frustumCulled = false; s4WorldRoot.add(fol); s4WorldRoot.add(trk);
 }
 
 // Robot stage 4: 13 spot denah [x, z, jumlah] (relatif OX/OZ) + kelas.

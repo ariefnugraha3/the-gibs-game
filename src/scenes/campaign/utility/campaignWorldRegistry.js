@@ -22,6 +22,8 @@ export function registerCampaignWorldRoot({ key, root, bounds = null,
     return root;
 }
 
+export const activeCampaignWorldRoots = () => [...activeKeys];
+
 export function setActiveCampaignWorldRoots(keys) {
     const list = Array.isArray(keys) ? keys : (keys ? [keys] : []);
     activeKeys = new Set(list);

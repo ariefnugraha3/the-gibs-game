@@ -15,6 +15,7 @@ import { camera } from '../../../../core/renderer.js';
 import { registerStageLight } from '../../../../world/lighting.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { rand } from '../../../../utils/math.js';
@@ -560,10 +561,19 @@ export function ensureWorld(parent) {
     if (built) return worldRoot;
     built = true; buildWorld();
     if (parent) parent.add(worldRoot);
+    // 2026-08-13 (optimasi): root chapter ini didaftarkan supaya chapter/stage
+    // lain tak ikut ditelusuri renderer saat tak dimainkan.
+    registerCampaignWorldRoot({
+        key: 'campaign-6', root: worldRoot, lightsKey: 'campaign-6',
+        bounds: { x0: MAP_X0 - 1500, x1: MAP_X0 + MAP_COLS * CELL + 1500,
+            z0: MAP_Z0 - 1500, z1: MAP_Z0 + MAP_ROWS * CELL + 1500 },
+        warmupViews: [{ x: OX, y: 0, z: OZ }],
+    });
     return worldRoot;
 }
 export const worldBuilt = () => built;
 export const stage6StaticBatchDbg = () => staticBatch;
+export const stage6WorldRootDbg = () => worldRoot;   // smoke test (visibilitas root dunia)
 
 // ---------------------------------------------------------------------------
 // Animasi dunia

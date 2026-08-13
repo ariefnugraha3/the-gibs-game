@@ -36,6 +36,7 @@ import { beginStageTransition } from '../../utility/transition.js';
 import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import { setActiveStageLights } from '../../../../world/lighting.js';
+import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 import { stage7Scene } from '../stage7/index.js';
 import {
     phase, setPhase, complete, setComplete, cine, setCine, cineCam, cleanupCine,
@@ -328,6 +329,9 @@ export const hqScene = {
     enter() {
         // Set lampu chapter 2 (lihat HQ_LIGHTS_KEY): lampu terminal chapter 1
         // padam supaya shader tidak menghitung 26 PointLight per fragmen.
+        // Chapter memilih root dunianya sendiri (2026-08-13, optimasi): chapter
+        // yang tak aktif tak boleh ikut ditelusuri renderer.
+        setActiveCampaignWorldRoots(HQ_LIGHTS_KEY);
         setActiveStageLights(HQ_LIGHTS_KEY);
         resetHq(); resetHqVisuals();
         // Satu-satunya kait dialog stage ini: baris peringatan lockdown MEMULAI

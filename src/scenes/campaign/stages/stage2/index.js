@@ -37,9 +37,10 @@ import { player, robots, _v3, keys, setCinematicActive } from '../../../../core/
 import { scene, camera } from '../../../../core/renderer.js';
 import { makeTexture, speckle } from '../../../../utils/textures.js';
 import { rand } from '../../../../utils/math.js';
-import { slideWalk, resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
+import { slideWalk, resolveBlockers, blockersGroundHeight, makeBlockerIndex } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
 import { PAL } from '../../../../world/palette.js';
 // showDownloadBar/setDownloadProgress TAK dipakai lagi sejak bar "RESTORING
@@ -353,6 +354,13 @@ export const s2DialogueDebug = () => ({
     seen: [...s2DialogueSeen],
 });
 
+// ROOT DUNIA STAGE 2 (2026-08-13, optimasi) — lihat catatan di stage 1: seluruh
+// geometri stage berada di bawah satu Group yang didaftarkan ke
+// campaignWorldRegistry, sementara PointLight tetap menempel di `scene` karena
+// jumlah lampu terlihat menentukan varian shader.
+let s2WorldRoot = null;
+export const s2WorldRootDbg = () => s2WorldRoot;
+
 const blockers = [];
 
 function renderS2Dialogue() {
@@ -456,8 +464,14 @@ export function s2SegHitsWall(x1, z1, x2, z2) {
     return false;
 }
 
+// Indeks spasial blocker (utils/collision.js) — alasan sama dengan Stage 1:
+// resolve/groundHeight dipanggil player + tiap robot tiap frame.
+const s2BlockerIdx = makeBlockerIndex(blockers, { cell: S2.CELL, x0: S2.x0, z0: S2.z0 });
+export const s2BlockerIdxDbg = () => s2BlockerIdx.debug();   // smoke test
+export const s2BlockersDbg = () => blockers;   // smoke test (indeks vs sapuan penuh)
+
 export function resolve(pos, radius, feetY) {
-    return resolveBlockers(pos, radius, feetY, blockers);
+    return resolveBlockers(pos, radius, feetY, s2BlockerIdx.gather(pos.x, pos.z, radius));
 }
 
 export let s2Nav = null;
@@ -554,6 +568,9 @@ export function buildWorld() {
     buildS2Grid();
     const sizeX = S2.G * S2.CELL, sizeZ = S2.ROWS * S2.CELL;   // 700 x 700 unit
     const cx = S2.x0 + sizeX / 2, cz = S2.z0 + sizeZ / 2;
+    s2WorldRoot = new THREE.Group();
+    s2WorldRoot.name = 'campaign-stage2-floor2';
+    scene.add(s2WorldRoot);
 
     // --- Lantai: satu bidang panel fasilitas TERANG (interior.js). LIFT = titik
     // selesai (bukan tangga turun berlubang), jadi lantai penuh tanpa lubang. ---
@@ -562,9 +579,9 @@ export function buildWorld() {
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(cx, 0.01, cz);
     floor.receiveShadow = true;
-    scene.add(floor);
+    s2WorldRoot.add(floor);
 
-    buildCampaignCityscape(cx, cz, sizeX / 2, sizeZ / 2);
+    buildCampaignCityscape(cx, cz, sizeX / 2, sizeZ / 2, { parent: s2WorldRoot });
 
     // --- Plafon (disembunyikan; top-down) ---
     const ceilTex = makeTexture(128, 128, (g, w, h) => {
@@ -576,7 +593,7 @@ export function buildWorld() {
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set(cx, S2.H, cz);
     ceil.visible = false;
-    scene.add(ceil);
+    s2WorldRoot.add(ceil);
 
     // --- Dinding: satu InstancedMesh (sel dinding bertetangga lantai saja) ---
     const wallCells = [];
@@ -606,10 +623,10 @@ export function buildWorld() {
     }
     wallMesh.receiveShadow = true;
     wallMesh.frustumCulled = false;
-    scene.add(wallMesh);
+    s2WorldRoot.add(wallMesh);
 
     // --- Pintu geser ---
-    s2doors = buildStageDoors(S2_DOORS, s2Cell, S2.CELL, S2.H);
+    s2doors = buildStageDoors(S2_DOORS, s2Cell, S2.CELL, S2.H, s2WorldRoot);
 
     // --- Furnitur KANTOR (dikumpulkan lalu DIGABUNG, lihat utils/meshBatch.js) ---
     const staticProps = [];
@@ -718,7 +735,7 @@ export function buildWorld() {
     const genMachine = buildGenerator();
     const gm = s2Cell(S2_GEN.c, S2_GEN.r - 2);   // origin mesin 2 sel di UTARA kotak berdiri
     genMachine.position.set(gm.x, 0, gm.z);
-    scene.add(genMachine);
+    s2WorldRoot.add(genMachine);
     // Blocker LEBAR menutup instalasi (c40-48, sisi utara) — cocok dgn bentuk baru;
     // sisi selatan berhenti ~1 sel di UTARA kotak berdiri (44,3) supaya marker tetap
     // bisa dipijak. hx 56 tetap di dalam ruang (tembok c39/c49).
@@ -731,7 +748,7 @@ export function buildWorld() {
     s2Marker = mk.group; s2MarkerMat = mk.fillMat;
     s2Marker.position.set(genP.x, 0, genP.z);
     s2Marker.visible = false;
-    scene.add(s2Marker);
+    s2WorldRoot.add(s2Marker);
     // Lorong barat c40-41 (r13-28) SENGAJA dikosongkan: sejak barikade '*'
     // c42-43 memotong ruang ini, lorong itulah satu-satunya jalan dari pintu
     // c39 r27-28 menuju sisi timur, jadi perabotnya pindah semua ke c44-48.
@@ -764,7 +781,7 @@ export function buildWorld() {
     s2LiftPos = { x: liftWallX2 + 8, z: liftZ2 };    // titik peringatan (depan pintu) — spt stage 1
     const lift = buildLiftBank({ facing: 'east', H: S2.H, open: true, gap: 30 });
     lift.position.set(liftWallX2, 0, liftZ2);
-    scene.add(lift);
+    s2WorldRoot.add(lift);
 
     // --- Pencahayaan PER-RUANGAN: SELALU MENYALA (mekanisme "mati lampu" +
     // selubung hitam dihapus 2026-08-11, permintaan user) ---
@@ -800,7 +817,8 @@ export function buildWorld() {
     addLamp(37, 39, 0xffc07a, 0.9, 640, 25, 30, 48, 48);     // 12 warehouse E
 
     // GABUNG perabot statis jadi belasan mesh (blockers/nav tak tersentuh).
-    s2StaticBatch = addMergedStatic(scene, staticProps);
+    s2StaticBatch = addMergedStatic(s2WorldRoot, staticProps);
+    s2BlockerIdx.rebuild();   // daftar blocker sudah final -> sebar ke kisi
 
     // Bake nav-grid TERAKHIR
     const half = S2.CELL / 2;
@@ -809,6 +827,12 @@ export function buildWorld() {
         _v3.set(x, 0, z);
         resolve(_v3, 3, 0);
         return Math.abs(_v3.x - x) + Math.abs(_v3.z - z) < 0.01;
+    });
+
+    registerCampaignWorldRoot({
+        key: 'campaign-2', root: s2WorldRoot, lightsKey: 'campaign-2',
+        bounds: { x0: S2.x0 - sizeX, x1: S2.x0 + sizeX * 2, z0: S2.z0 - sizeZ, z1: S2.z0 + sizeZ * 2 },
+        warmupViews: [{ x: cx, y: 0, z: cz }, s2Cell(S2_START.c, S2_START.r)],
     });
 }
 
@@ -925,7 +949,7 @@ export function placeCrates() {
 // berhadapan dengan semua robot penjaga dulu (2026-07-21, permintaan user).
 function pickComponents() {
     // buang marker lama
-    for (const c of s2Components) if (c.marker) scene.remove(c.marker);
+    for (const c of s2Components) if (c.marker) c.marker.parent?.remove(c.marker);   // marker kini anak root dunia stage
     s2Components = []; s2CompGot = 0;
     const zones = [
         S2_SHELF_COLS.slice(0, 4),    // kiri  (c1,5,9,13) — terjauh dari pintu
@@ -940,7 +964,7 @@ function pickComponents() {
         const mp = s2Cell(col + 1, row);   // sel TIMUR rak (tempat player berdiri)
         const mk = buildStandMarker(0x39d0ff);   // marker komponen (teal terang)
         mk.group.position.set(mp.x, 0, mp.z);
-        scene.add(mk.group);
+        s2WorldRoot.add(mk.group);
         s2Components.push({
             col, row, mx: mp.x, mz: mp.z, got: false,
             part: REPAIR_PARTS[zi % REPAIR_PARTS.length],
@@ -977,7 +1001,7 @@ export const stage2Scene = {
         hideDownloadBar();
         // marker generator + komponen bersih
         if (s2Marker) s2Marker.visible = false;
-        for (const c of s2Components) if (c.marker) scene.remove(c.marker);
+        for (const c of s2Components) if (c.marker) c.marker.parent?.remove(c.marker);   // marker kini anak root dunia stage
         s2Components = []; s2CompGot = 0;
         s2HintT = Date.now(); s2LiftT = 0;
         const sp = s2Cell(S2_START.c, S2_START.r);
@@ -1109,7 +1133,9 @@ export const stage2Scene = {
         }
     },
 
-    groundHeight(x, z, feetY) { return blockersGroundHeight(x, z, feetY, blockers); },
+    groundHeight(x, z, feetY) {
+        return blockersGroundHeight(x, z, feetY, s2BlockerIdx.gather(x, z, 2, false));
+    },
 
     bulletBlocked(b) {
         return (b.mesh.position.y < S2.H

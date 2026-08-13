@@ -5267,6 +5267,7 @@ const train5Mod = await import(R('src/entities/train.js'));
 const s5WorldMod = await import(R('src/scenes/campaign/stages/stage5/world.js'));
 const s6WorldMod = await import(R('src/scenes/campaign/stages/stage6/world.js'));
 const s6HqWorldMod = await import(R('src/scenes/campaign/stages/stage6/hqWorld.js'));
+const colMod = await import(R('src/utils/collision.js'));   // primitif tabrakan + indeks blocker bersama
 const doorsMod = await import(R('src/scenes/campaign/utility/doors.js'));
 const s5PathMod = await import(R('src/utils/pathfind.js'));
 const s5PalMod = await import(R('src/world/palette.js'));
@@ -5343,7 +5344,9 @@ T('S5 SPLIT: stage5.js pecah jadi satu folder — 4 sub-scene + fasad/world/prop
     // pintu naik gerbong milik cutscene keberangkatan lima shot) sejak folder
     // dipecah, dan `world.js` memang pemilik peta+collision+nav+pintu+builder
     // untuk semuanya. Penjaga ini melawan monolit 1600 baris, bukan angka pas.
-    && s5Files.every(f => s5FileLines(f) < 800));
+    // 800 -> 840 pada 2026-08-13: `ensureWorld` kini mendaftarkan root dunianya
+    // ke campaignWorldRegistry (optimasi visibilitas antar-stage).
+    && s5Files.every(f => s5FileLines(f) < 840));
 // CUTSCENE KEBERANGKATAN BERDIRI SENDIRI (2026-08-08, permintaan user
 // "pisahkan cutscene ketika kereta berangkat"): dulu ia fase pertama sub-scene
 // journey; sekarang sub-scene keempat di antara stasiun dan perjalanan.
@@ -8120,18 +8123,33 @@ T('S6 HQ DETAIL VISUAL: dinding, workstation, lemari, toilet, dan server berlapi
     //     dan player menembusnya. Uji langsung: taruh probe di TENGAH tiap prop
     //     solid — resolve WAJIB mendorongnya keluar. Satu saja yang lolos berarti
     //     indeksnya bocor.
-    let stuck = 0, ejected = 0;
+    // Sejak indeks dijadikan helper bersama (`makeBlockerIndex`, 2026-08-13) ia
+    // MENGURUTKAN hasil query ke urutan daftar asli dan memberi marjin sebesar
+    // setengah-rusuk terbesar, jadi invariannya kini jauh lebih kuat daripada
+    // "terdorong keluar": hasilnya WAJIB identik dengan sapuan penuh. Itu yang
+    // diuji di sini — sekaligus menangkap indeks yang kehilangan blocker.
+    const hqBlockers = s6HqWorldMod.hqBlockersDbg();
+    let mismatch = 0, ejected = 0, probes = 0;
+    const idxV = new THREE.Vector3(), fullV = new THREE.Vector3();
     for (const pr of s6HqWorld.props) {
-        // Rangka mesin SENGAJA tak punya collider sebelum lockdown (yang terlihat
-        // itulah yang menghalangi), jadi ia memang tak boleh mendorong apa pun.
         if (!pr.solid || pr.kind === 'spawn-machine') continue;
-        stateMod._v3.set(pr.x, 0, pr.z);
-        s6mod.hqResolve(stateMod._v3, stateMod.player.radius, 0);
-        const dx = Math.abs(stateMod._v3.x - pr.x), dz = Math.abs(stateMod._v3.z - pr.z);
-        if (dx > pr.hx || dz > pr.hz) ejected++; else stuck++;
+        probes++;
+        idxV.set(pr.x, 0, pr.z);
+        s6mod.hqResolve(idxV, stateMod.player.radius, 0);
+        fullV.set(pr.x, 0, pr.z);
+        colMod.resolveBlockers(fullV, stateMod.player.radius, 0, hqBlockers);
+        // hqResolve juga menyelesaikan PINTU; bandingkan hanya bila pintu tak
+        // ikut campur (jarak beda > 0 berarti pintu/urutan — diperiksa terpisah).
+        if (Math.hypot(idxV.x - fullV.x, idxV.z - fullV.z) > 1e-9) mismatch++;
+        const dx = Math.abs(idxV.x - pr.x), dz = Math.abs(idxV.z - pr.z);
+        if (dx > pr.hx || dz > pr.hz) ejected++;
     }
-    T(`S6 HQ OPTIMASI: indeks blocker tetap mendorong keluar SEMUA prop solid [${ejected} ok, ${stuck} tembus]`,
-        ejected > 0 && stuck === 0);
+    // 4 bilik toilet berdiri 28 unit dari pusat ke pusat dengan setengah-lebar 12:
+    // celah antar-bilik hanya 4 unit, lebih sempit dari radius player 5. Sapuan
+    // PENUH pun mengembalikan titik di pusat bilik ke dalam footprint-nya — jadi
+    // ambangnya bukan "semua terdorong", melainkan "identik dengan sapuan penuh".
+    T(`S6 HQ OPTIMASI: indeks blocker identik dengan sapuan penuh [${probes} prop, ${mismatch} beda, ${ejected} terdorong]`,
+        probes > 100 && mismatch === 0 && ejected >= probes - 4);
 }
 {
     // (2) LAS SADAR-BAYANGAN. Kulit dinding + pernik perabot tidak boleh masuk
@@ -11968,7 +11986,9 @@ const palMod = await import(R('src/world/palette.js'));
     ];
     T('PINTU VISUAL: blast/exit Stage 3, stasiun Stage 5, dan Stage 6 memakai rig dua-daun bersama',
         splitWired.every(f => srcOf(f).includes('buildSplitDoor'))
-        && srcOf('src/scenes/campaign/utility/doors.js').includes('buildSplitDoor(scene'));
+        // `parent || scene` sejak 2026-08-13: stage boleh menaruh pintunya di
+        // root dunianya sendiri (optimasi visibilitas), rig-nya tetap satu.
+        && srcOf('src/scenes/campaign/utility/doors.js').includes('buildSplitDoor(parent || scene'));
     // Karena rig-nya satu, aturan "10% daun tetap tampak" berlaku SERENTAK di
     // semua stage — tak ada stage yang boleh menghitung offset daunnya sendiri.
     {
@@ -13729,6 +13749,154 @@ const palMod = await import(R('src/world/palette.js'));
         save13.loadCampaignStage() === 0 && sd13.phase === 'complete'
         && sd13.finalScreenShown && dom13.gameOverTitle.innerText === 'CAMPAIGN COMPLETE'
         && smMod.activeScene === stage13.stage13Scene);
+}
+
+// --- 26. OPTIMASI STAGE 1 & 2 (2026-08-13, laporan user "terasa agak berat") --
+// Dua perbaikan yang HANYA terlihat lewat angka, jadi keduanya dipatok di sini.
+{
+    const s1o = await import(R('src/scenes/campaign/stages/stage1/index.js'));
+    const s2o = await import(R('src/scenes/campaign/stages/stage2/index.js'));
+    const regO = await import(R('src/scenes/campaign/utility/campaignWorldRegistry.js'));
+    const transMod26 = await import(R('src/scenes/campaign/utility/transition.js'));
+    const smSrc = fs.readFileSync(ROOT + '/src/core/sceneManager.js', 'utf8');
+
+    // (1) INDEKS SPASIAL BLOCKER (utils/collision.js `makeBlockerIndex`).
+    //     `resolve`/`groundHeight` dipanggil player + tiap robot tiap frame;
+    //     menyapu 200+ balok statis penuh-penuh itu pemborosan murni. Yang
+    //     dijaga BUKAN "kira-kira sama" melainkan IDENTIK dengan sapuan penuh —
+    //     kalau tidak, dorongan keluar berubah dan player bisa nyangkut.
+    {
+        const probeGrid = (S, resolveFn, groundFn, blockers) => {
+            const idx = new THREE.Vector3(), full = new THREE.Vector3();
+            let probes = 0, pushed = 0, mismatch = 0, gmismatch = 0;
+            const rows = S.ROWS || S.G;
+            for (let x = S.x0; x < S.x0 + S.G * S.CELL; x += 7)
+                for (let z = S.z0; z < S.z0 + rows * S.CELL; z += 7) {
+                    probes++;
+                    idx.set(x, 0, z); resolveFn(idx, cfgMod.CFG.player.radius, 0);
+                    full.set(x, 0, z);
+                    colMod.resolveBlockers(full, cfgMod.CFG.player.radius, 0, blockers);
+                    if (Math.hypot(idx.x - full.x, idx.z - full.z) > 1e-9) mismatch++;
+                    if (Math.abs(idx.x - x) + Math.abs(idx.z - z) > 1e-9) pushed++;
+                    if (groundFn(x, z, 0) !== colMod.blockersGroundHeight(x, z, 0, blockers)) gmismatch++;
+                }
+            return { probes, pushed, mismatch, gmismatch };
+        };
+        const r1 = probeGrid(s1o.S1, s1o.resolve, s1o.stage1Scene.groundHeight, s1o.s1BlockersDbg());
+        const r2 = probeGrid(s2o.S2, s2o.resolve, s2o.stage2Scene.groundHeight, s2o.s2BlockersDbg());
+        T(`S1/S2 INDEKS BLOCKER: identik dengan sapuan penuh [${r1.probes}+${r2.probes} titik,`
+            + ` ${r1.mismatch + r2.mismatch} beda]`,
+            r1.probes > 5000 && r2.probes > 5000 && r1.pushed > 100 && r2.pushed > 100
+            && r1.mismatch === 0 && r2.mismatch === 0
+            && r1.gmismatch === 0 && r2.gmismatch === 0);
+        const i1 = s1o.s1BlockerIdxDbg(), i2 = s2o.s2BlockerIdxDbg();
+        T('S1/S2 INDEKS BLOCKER: kisi benar-benar terisi + marjin dorongan disiapkan',
+            i1.cells > 50 && i2.cells > 50 && i1.blockers > 100 && i2.blockers > 100
+            && i1.pad > 0 && i2.pad > 0 && i1.cell === s1o.S1.CELL && i2.cell === s2o.S2.CELL);
+        // Query TITIK (tinggi lantai) sengaja TANPA marjin — kalau ikut memakai
+        // marjin, satu balok raksasa menyeret query-nya jadi selebar peta.
+        const wide = s1o.s1BlockerIdxDbg().pad;
+        T('S1/S2 INDEKS BLOCKER: marjin hanya untuk query yang MENGGESER posisi',
+            wide > cfgMod.CFG.player.radius
+            && colMod.makeBlockerIndex([]).gather(0, 0, 1, false).length === 0);
+    }
+
+    // (2) ROOT DUNIA PER STAGE. Seluruh dunia campaign hidup dalam SATU
+    //     THREE.Scene; tanpa root per stage, renderer menelusuri + menguji
+    //     frustum belasan ribu objek milik stage lain SETIAP frame — itulah
+    //     yang membuat stage 1 & 2 terasa berat sesudah Stage 9-13 dibangun.
+    {
+        const keys = regO.campaignWorldRegistryDebug().worlds.map(w => w.key);
+        const wanted = ['campaign-1', 'campaign-2', 'campaign-3', 'campaign-4', 'campaign-5',
+            'campaign-6', 'campaign-6-hq', 'campaign-7', 'campaign-8', 'campaign-9',
+            'campaign-10', 'campaign-11', 'campaign-12-surface', 'campaign-12-root', 'campaign-13'];
+        T(`S1-13 ROOT DUNIA: setiap stage/chapter punya root terdaftar [${keys.length}]`,
+            wanted.every(k => keys.includes(k)));
+
+        // Diukur pada ROOT TERDAFTAR saja: suite ini meninggalkan ribuan entitas
+        // uji (robot, gore, dunia survival/intro) di scene, jadi rasio global
+        // bukan ukuran yang jujur untuk optimasi ini.
+        const s3RootO = s3mod.s3WorldRootDbg?.() || null;
+        const s4RootO = s4mod.s4WorldRootDbg?.() || null;
+        const s5RootO = s5WorldMod.stage5WorldRootDbg?.() || null;
+        const s6RootO = s6WorldMod.stage6WorldRootDbg?.() || null;
+        const s6HqRootO = s6HqWorldMod.hqWorldRootDbg?.() || null;
+        const s7RootO = s7mod.stage7WorldRootDbg?.() || null;
+        const rootObjects = (onlyVisible) => {
+            let n = 0;
+            const walk = (o) => {
+                if (onlyVisible && o.visible === false) return;
+                n++; for (const c of o.children) walk(c);
+            };
+            for (const r of [s1o.s1WorldRootDbg(), s2o.s2WorldRootDbg(), s3RootO, s4RootO,
+                s5RootO, s6RootO, s6HqRootO, s7RootO]) if (r) walk(r);
+            return n;
+        };
+        const total = rootObjects(false);
+        const visibleObjects = () => rootObjects(true);
+        stateMod.setGameOver(false);
+        smMod.setScene(s1o.stage1Scene, { fresh: true });
+        const liveS1 = visibleObjects();
+        const dbg1 = regO.campaignWorldRegistryDebug();
+        T(`S1 ROOT DUNIA: hanya dunia Stage 1 yang ikut ditelusuri [${liveS1}/${total} objek dunia]`,
+            dbg1.active.length === 1 && dbg1.active[0] === 'campaign-1'
+            && dbg1.worlds.filter(w => w.visible > 0).length === 1
+            && total > 10000 && liveS1 < total * 0.25);
+        // Dunia stage lain BENAR-BENAR tak terlihat (bukan cuma jauh).
+        T('S1 ROOT DUNIA: root Stage 2/5/6/7 tak terlihat selama Stage 1 dimainkan',
+            ['campaign-2', 'campaign-5', 'campaign-6', 'campaign-6-hq', 'campaign-7']
+                .every(k => dbg1.worlds.find(w => w.key === k)?.visible === 0)
+            && s1o.s1WorldRootDbg().visible === true
+            && s2o.s2WorldRootDbg().visible === false);
+
+        smMod.setScene(s2o.stage2Scene, { fresh: true });
+        const dbg2 = regO.campaignWorldRegistryDebug();
+        T(`S2 ROOT DUNIA: berpindah stage memindahkan visibilitas root [${visibleObjects()}/${total}]`,
+            dbg2.active[0] === 'campaign-2' && s2o.s2WorldRootDbg().visible === true
+            && s1o.s1WorldRootDbg().visible === false
+            && visibleObjects() < total * 0.25);
+
+        // Scene TANPA dunia (shop antar-stage, modal hack/repair) TIDAK boleh
+        // menyentuh root: kembali dari modal lewat resumeScene tak menyalakan
+        // ulang apa pun, jadi menyembunyikannya = dunia hilang saat main lagi.
+        const before = regO.campaignWorldRegistryDebug().active.join(',');
+        smMod.setScene({ id: 'campaign-hack', enter() { }, exit() { },
+            playerCollide() { }, groundHeight: () => 0, bulletBlocked: () => false,
+            clampDropPos: (x, z) => [x, z], hudStatus: () => '' });
+        const during = regO.campaignWorldRegistryDebug().active.join(',');
+        smMod.resumeScene(s2o.stage2Scene);
+        T('ROOT DUNIA: scene modal/shop mempertahankan dunia stage yang sedang dimainkan',
+            before === 'campaign-2' && during === before
+            && s2o.s2WorldRootDbg().visible === true
+            && /worldKeyFor/.test(smSrc) && /if \(worldKey\) setActiveCampaignWorldRoots/.test(smSrc));
+
+        // Lompat ke SETIAP stage: masing-masing wajib menyalakan TEPAT root
+        // miliknya sendiri (menangkap kunci yang salah peta — mis. chapter
+        // Stage 6/12 yang memilih root-nya sendiri di enter()).
+        {
+            const expected = { 12: 'campaign-12-surface' };
+            let wrong = '';
+            for (let n = 1; n <= 13; n++) {
+                transMod26.campaignJumpToStage(n);
+                const live = regO.campaignWorldRegistryDebug().worlds
+                    .filter(w => w.visible > 0).map(w => w.key);
+                const want = expected[n] || `campaign-${n}`;
+                if (live.length !== 1 || live[0] !== want) wrong = wrong || `${n}:${live.join('|') || 'none'}`;
+            }
+            T(`S1-13 ROOT DUNIA: tiap stage menyalakan TEPAT root miliknya${wrong ? ` [${wrong}]` : ''}`,
+                wrong === '');
+            transMod26.campaignJumpToStage(2);
+        }
+
+        // LAMPU sengaja TETAP di `scene`, bukan di dalam root: jumlah PointLight
+        // TERLIHAT menentukan varian shader, dan itu sudah diurus
+        // setActiveStageLights + precompileStageLightSets.
+        const lampsInsideRoot = s1o.s1LampsDbg()
+            .filter(lm => lm.L.parent && lm.L.parent !== scene).length;
+        T('S1 ROOT DUNIA: lampu ruangan tetap menempel di scene (kontrak jumlah lampu utuh)',
+            s1o.s1LampsDbg().length > 0 && lampsInsideRoot === 0);
+    }
+    stateMod.setGameOver(false);
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);
