@@ -68,7 +68,7 @@ export async function boot() {
     await hideBootScreen();
 }
 
-// opts.stage (campaign): titik-mulai stage (1..8) — dipakai untuk MELANJUTKAN
+// opts.stage (campaign): titik-mulai stage (1..13) — dipakai untuk MELANJUTKAN
 // game tersimpan (checkpoint). Default 1 = mulai dari awal.
 export async function startGame(mode, opts = {}) {
     try {
@@ -87,7 +87,7 @@ export async function startGame(mode, opts = {}) {
         await loadingStep(30, 'Building the world…');
 
         // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal.
-        // stage1.enter membangun SEMUA dunia campaign (1-8, guard `built`;
+        // stage1.enter membangun SEMUA dunia campaign (1-13, guard `built`;
         // 2026-07-16 — dulu stage 3/4 lazy sehingga loading transisinya lebih
         // lama), jadi lanjut ke stage >1 aman: setScene(stage1) dulu (bangun
         // semua dunia), lalu campaignJumpToStage lompat ke checkpoint (buang

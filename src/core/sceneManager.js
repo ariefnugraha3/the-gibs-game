@@ -1,17 +1,26 @@
 // Scene manager minimal: satu scene aktif dengan lifecycle enter()/exit().
 // "Scene" = objek modul (menu tak lewat sini — DOM murni sebelum game mulai):
-// survival, campaign-stage1..8. Kontrak antarmuka scene lengkap
+// survival, campaign-stage1..13. Kontrak antarmuka scene lengkap
 // terdokumentasi di MODULES.md — sistem bersama (player/peluru/granat/robot)
 // hanya bicara ke scene aktif lewat hook ini, jadi menambah stage baru tidak
 // menyentuh sistem lain.
 
 import { setActiveStageLights } from '../world/lighting.js';
 import { beginStageStats } from './state.js';
+import { hideBossHud } from './dom.js';
+import { setActiveCampaignWorldRoots } from '../scenes/campaign/utility/campaignWorldRegistry.js';
 
 export let activeScene = null;
 
 export function setScene(s, opts = {}) {
     if (activeScene && activeScene.exit) activeScene.exit();
+    hideBossHud();
+    // Root dunia besar Stage 9–13 hidup bersama dalam satu THREE.Scene, tetapi
+    // hanya stage aktif yang boleh ikut traversal/render. Stage 12 mengganti
+    // surface -> root sendiri tanpa setScene.
+    const worldKey = /^campaign-(?:9|10|11|13)$/.test(s?.id || '') ? s.id
+        : s?.id === 'campaign-12' ? 'campaign-12-surface' : null;
+    setActiveCampaignWorldRoots(worldKey);
     activeScene = s;
     // Statistik finish screen bersifat PER-STAGE. Modal hack/repair kembali
     // lewat resumeScene(), dan shop/cutscene tak cocok pola ini, jadi keduanya
@@ -22,6 +31,8 @@ export function setScene(s, opts = {}) {
     // shop antar-stage) MEMPERTAHANKAN set lampu sebelumnya.
     if (s.lightsKey) setActiveStageLights(s.lightsKey);
     s.enter(opts);
+    // enter() dapat baru membangun/mendaftarkan root pada akses langsung.
+    if (worldKey) setActiveCampaignWorldRoots(worldKey);
 }
 
 // KEMBALI ke scene yang sedang berjalan setelah sebuah scene MODAL (minigame

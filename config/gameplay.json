@@ -616,6 +616,167 @@
                 ["B", "A", "A"]
             ]
         },
+        "stage9": {
+            "openingMinSec": 6,
+            "fadeSec": 0.6,
+            "interactionRange": 18,
+            "jetBlast": {
+                "warmupSec": 1.2,
+                "push": 52,
+                "damage": 22,
+                "activeFraction": 0.62
+            },
+            "spool": {
+                "durationSec": 48,
+                "pauseWhenBlocked": true,
+                "waveGapSec": 8,
+                "encounters": [
+                    { "C": 8, "B": 3, "A": 1 },
+                    { "C": 10, "B": 4, "A": 1 },
+                    { "C": 12, "B": 5, "A": 2 },
+                    { "C": 14, "B": 6, "A": 2 }
+                ]
+            },
+            "encounters": {
+                "apron": { "C": 12, "B": 5, "A": 1 },
+                "tower": { "C": 14, "B": 6, "A": 2 },
+                "return": { "C": 16, "B": 7, "A": 2 },
+                "hangar": { "C": 10, "B": 5, "A": 2 }
+            },
+            "lootboxCount": 6,
+            "barrelCount": 10,
+            "takeoffSec": 8
+        },
+        "stage10": {
+            "openingMinSec": 6,
+            "fadeSec": 0.6,
+            "interactionRange": 18,
+            "crane": {
+                "moveSec": 4,
+                "settleSec": 1
+            },
+            "cannon": {
+                "lockSec": 1.2,
+                "fireDelaySec": 0.4,
+                "damage": 55,
+                "blastRadius": 24,
+                "cooldownSec": 2.4,
+                "servoHp": 550
+            },
+            "encounters": {
+                "entry": { "C": 12, "B": 5, "A": 1 },
+                "yard": { "C": 16, "B": 7, "A": 2 },
+                "warehouse": { "C": 14, "B": 7, "A": 3 },
+                "pipeRack": { "C": 16, "B": 8, "A": 3 },
+                "defense": { "C": 18, "B": 8, "A": 3 }
+            },
+            "lootboxCount": 6,
+            "barrelCount": 12,
+            "extractHoldSec": 3
+        },
+        "stage11": {
+            "openingMinSec": 6,
+            "fadeSec": 0.6,
+            "carrierStrikeSec": 3.5,
+            "interactionRange": 18,
+            "scan": {
+                "cycleSec": 14,
+                "sweepSec": 3,
+                "lockSec": 1.2,
+                "decaySec": 1.8,
+                "incomingSec": 1.4,
+                "safeRadius": 115
+            },
+            "artillery": {
+                "poolSize": 12,
+                "playerDamage": 42,
+                "robotDamage": 180,
+                "blastRadius": 22
+            },
+            "encounters": {
+                "forestApproach": [
+                    { "C": 12, "B": 5, "A": 1 },
+                    { "C": 14, "B": 6, "A": 2 }
+                ],
+                "sensorBasin": [
+                    { "C": 15, "B": 7, "A": 2 },
+                    { "C": 17, "B": 8, "A": 3 }
+                ],
+                "waterworks": [
+                    { "C": 16, "B": 8, "A": 3 },
+                    { "C": 18, "B": 9, "A": 3 }
+                ]
+            },
+            "lootboxCount": 6,
+            "barrelCount": 8
+        },
+        "stage12": {
+            "openingMinSec": 7,
+            "fadeSec": 0.6,
+            "interactionRange": 18,
+            "upload": {
+                "preBossFraction": 0.7,
+                "ratePerSec": 0.05,
+                "finalRatePerSec": 0.08
+            },
+            "encounters": {
+                "civicAxis": [
+                    { "C": 18, "B": 8, "A": 3 },
+                    { "C": 20, "B": 9, "A": 3 },
+                    { "C": 22, "B": 10, "A": 4 }
+                ],
+                "rootApproach": [
+                    { "C": 16, "B": 8, "A": 3 },
+                    { "C": 18, "B": 9, "A": 4 }
+                ]
+            },
+            "lootboxCount": 8,
+            "barrelCount": 12
+        },
+        "stage13": {
+            "returnCine": {
+                "durationSec": 8,
+                "fadeSec": 0.7,
+                "deploySec": 3
+            },
+            "fadeSec": 0.7,
+            "arenaEnterRange": 26,
+            "encounters": [
+                {
+                    "id": "deployment",
+                    "triggerX": -410,
+                    "points": [
+                        { "x": -370, "z": -58, "cls": "C", "count": 6 },
+                        { "x": -350, "z": 54, "cls": "B", "count": 5 },
+                        { "x": -325, "z": 0, "cls": "A", "count": 2 }
+                    ]
+                },
+                {
+                    "id": "park",
+                    "triggerX": -250,
+                    "points": [
+                        { "x": -205, "z": -72, "cls": "C", "count": 7 },
+                        { "x": -185, "z": 65, "cls": "B", "count": 5 },
+                        { "x": -160, "z": -12, "cls": "A", "count": 3 }
+                    ]
+                },
+                {
+                    "id": "plaza",
+                    "triggerX": -95,
+                    "points": [
+                        { "x": -62, "z": -75, "cls": "C", "count": 6 },
+                        { "x": -38, "z": 72, "cls": "B", "count": 5 },
+                        { "x": -15, "z": 0, "cls": "A", "count": 3 }
+                    ]
+                }
+            ],
+            "ending": {
+                "settleSec": 3,
+                "dialogueDelaySec": 1,
+                "sunriseSec": 8,
+                "fadeSec": 1.2
+            }
+        },
         "bosses": {
             "giant": {
                 "hp": 1800,
@@ -689,6 +850,97 @@
                 "missileSpeed": 82,
                 "missileTurnRadPerSec": 1.35,
                 "missileLifeSec": 7
+            },
+            "warden": {
+                "hp": 12000,
+                "score": 2400,
+                "bodyRadius": 28,
+                "hitRadius": 32,
+                "moveSpeed": 19,
+                "turnRadPerSec": 1.5,
+                "phase2HpFrac": 0.67,
+                "phase3HpFrac": 0.34,
+                "attackGapSec": 1.8,
+                "enrageGapMul": 0.8,
+                "shield": { "arcDeg": 110, "damageMul": 0.12 },
+                "capacitors": { "count": 3, "hp": 900 },
+                "couplings": { "count": 2, "hp": 1300 },
+                "rail": {
+                    "telegraphSec": 0.9,
+                    "damage": 55,
+                    "width": 16,
+                    "speed": 160,
+                    "poolSize": 4
+                },
+                "stomp": { "telegraphSec": 0.8, "damage": 45, "radius": 42 },
+                "burst": {
+                    "telegraphSec": 0.7,
+                    "damage": 18,
+                    "count": 9,
+                    "gapSec": 0.12,
+                    "speed": 95,
+                    "poolSize": 18
+                },
+                "sector": {
+                    "telegraphSec": 1.1,
+                    "damage": 50,
+                    "radius": 70,
+                    "gapDeg": 55,
+                    "poolSize": 6
+                },
+                "deathSec": 5
+            },
+            "mahapatih": {
+                "siegeHp": 9000,
+                "combatHp": 7500,
+                "coreHp": 3200,
+                "score": 5000,
+                "hitRadius": 32,
+                "bodyRadius": 28,
+                "moveSpeed": 18,
+                "turnRadPerSec": 1.5,
+                "attackGapSec": 1.7,
+                "enrageGapMul": 0.78,
+                "artillery": {
+                    "poolSize": 10,
+                    "lockSec": 1.1,
+                    "incomingSec": 1.3,
+                    "damage": 55,
+                    "radius": 24
+                },
+                "charge": { "telegraphSec": 0.9, "speed": 92, "damage": 60, "knockback": 36 },
+                "seismic": { "telegraphSec": 1, "gapSec": 0.45, "damage": 50, "radius": 48 },
+                "turret": {
+                    "telegraphSec": 0.7,
+                    "burst": 14,
+                    "intervalSec": 0.1,
+                    "bulletSpeed": 120,
+                    "damage": 14
+                },
+                "transitionSec": 4,
+                "combat": { "speed": 22, "dashSpeed": 75 },
+                "blade": { "telegraphSec": 0.7, "secondGapSec": 0.35, "damage": 55, "radius": 35 },
+                "lunge": { "telegraphSec": 0.75, "speed": 88, "damage": 65, "width": 18 },
+                "wave": {
+                    "poolSize": 12,
+                    "telegraphSec": 0.8,
+                    "speed": 75,
+                    "damage": 40,
+                    "radius": 12,
+                    "lifeSec": 6
+                },
+                "cannon": { "telegraphSec": 0.9, "speed": 130, "damage": 58, "radius": 20 },
+                "hardline": {
+                    "anchorCount": 4,
+                    "anchorHp": 950,
+                    "hitRadius": 15,
+                    "sweepTelegraphSec": 1,
+                    "sweepRadPerSec": 0.85,
+                    "sweepDamage": 24,
+                    "sweepWidth": 14
+                },
+                "core": { "shutterOpenSec": 3, "shutterClosedSec": 2 },
+                "deathSec": 6
             }
         }
     },
@@ -962,6 +1214,82 @@
                     "arrivalSystem": { "speaker": "Vehicle System", "text": "KERTAJATI INTERNATIONAL AIRPORT. ROUTE COMPLETE." },
                     "arrivalCommand": { "speaker": "Command", "text": "Major, we have your signal at the airfield. Get inside and secure a route to Kalimantan." },
                     "arrivalGibran": { "speaker": "Major Gibran", "text": "Copy. Next stop—I.K.N." }
+                }
+            },
+            "stage9": {
+                "lines": {
+                    "openingCommand": { "speaker": "Command", "text": "Kertajati is occupied, but one autonomous heavy transport is still flightworthy. Secure it." },
+                    "openingGibran": { "speaker": "Major Gibran", "text": "I have the kill-switch. I only need a way to Nusantara." },
+                    "towerLocked": { "speaker": "Airport System", "text": "Aircraft authorization core not detected. Launch functions are locked." },
+                    "coreLocated": { "speaker": "Command", "text": "The flight-control core is in tower operations. Retrieve it, then return to the cargo hangar." },
+                    "coreTaken": { "speaker": "Major Gibran", "text": "Core secured. I am heading back to the transport." },
+                    "aircraftBoot": { "speaker": "Aircraft System", "text": "Flight-control core accepted. Autonomous engine sequence initiated." },
+                    "assaultWarning": { "speaker": "Command", "text": "Hostile formations are converging on the apron. Keep them clear until spool completes." },
+                    "enginesReady": { "speaker": "Aircraft System", "text": "All engines stable. Takeoff configuration ready." },
+                    "boardNow": { "speaker": "Command", "text": "Board now, Major. This runway will not stay open." },
+                    "airDefense": { "speaker": "Command", "text": "Kalimantan air defense is still active. Expect a forced approach before Nusantara." }
+                }
+            },
+            "stage10": {
+                "lines": {
+                    "approachLock": { "speaker": "Aircraft System", "text": "Tracking lock confirmed. Coastal defense has denied the Nusantara approach corridor." },
+                    "divertCommand": { "speaker": "Command", "text": "Diverting you to the Balikpapan logistics coast. The transport will hold beyond the defense envelope." },
+                    "portObjective": { "speaker": "Command", "text": "That port relay controls the northern corridor. Shut it down and the ground route to IKN opens." },
+                    "craneOnline": { "speaker": "Port System", "text": "Crane authority accepted. Warning: container yard reconfiguration in progress." },
+                    "warehouseTrace": { "speaker": "Major Gibran", "text": "They are following the kill-switch signature. Every system here knows I have it." },
+                    "cannonSighted": { "speaker": "Command", "text": "Fixed defense cannon on the pier. Wait for the lock, then move." },
+                    "servoOne": { "speaker": "Port System", "text": "Traverse servo destroyed. Lateral firing authority reduced." },
+                    "servoTwo": { "speaker": "Port System", "text": "Elevation servo destroyed. Blast aperture reduced." },
+                    "arrayDown": { "speaker": "Major Gibran", "text": "Defense array is down. The corridor is open." },
+                    "northRoute": { "speaker": "Command", "text": "Armored freight carrier is ready. Take the north route before the sensor grid resets." }
+                }
+            },
+            "stage11": {
+                "lines": {
+                    "carrierHit": { "speaker": "Command", "text": "Precision strike inbound! Leave the carrier!" },
+                    "stillMoving": { "speaker": "Major Gibran", "text": "The drive survived. I am continuing on foot." },
+                    "scanDetected": { "speaker": "Command", "text": "Perimeter scanners sweep the exposed ground. Break contact before the lock completes." },
+                    "firstLock": { "speaker": "IKN Defense", "text": "Target solution acquired. Fire mission authorized." },
+                    "forestRoute": { "speaker": "Major Gibran", "text": "The maintenance route cuts under the canopy. I can use it to break the sweep." },
+                    "waterworksSighted": { "speaker": "Command", "text": "Waterworks ahead. Cross the service crest and find the utility descent." },
+                    "rootTrace": { "speaker": "IKN Defense", "text": "Unauthorized root media detected. Sensor priority elevated." },
+                    "tunnelFound": { "speaker": "Major Gibran", "text": "I found the tunnel. The scan cannot reach below this line." },
+                    "stage12Lead": { "speaker": "Command", "text": "The root transmitter is directly ahead. Whatever is guarding it knows you are coming." }
+                }
+            },
+            "stage12": {
+                "lines": {
+                    "surfaceReveal": { "speaker": "Major Gibran", "text": "Nusantara. I crossed half the country to reach this axis." },
+                    "rootBelow": { "speaker": "Command", "text": "The root transmitter is beneath the civic district. Remote authority is still denied." },
+                    "lastFormation": { "speaker": "Command", "text": "The remaining battalion is forming around root access. This is their last organized line." },
+                    "authorityDenied": { "speaker": "Root System", "text": "Remote command rejected. Physical root media required." },
+                    "insertDrive": { "speaker": "Major Gibran", "text": "Kill-switch verified. Committing the drive now." },
+                    "uploadAccepted": { "speaker": "Root System", "text": "Protocol valid. National decommission broadcast initiated." },
+                    "wardenWake": { "speaker": "Root System", "text": "Sovereign defense guardian active. Root chamber sealed." },
+                    "jamOne": { "speaker": "Command", "text": "The capacitors are holding the jam. Break all three anchors." },
+                    "jamTwo": { "speaker": "Command", "text": "It has seized the root couplings. Destroy them before the broadcast can resume." },
+                    "wardenDown": { "speaker": "Major Gibran", "text": "The Warden is down. Finish the broadcast." },
+                    "networkSilent": { "speaker": "Command", "text": "Network traffic is collapsing. Iron Battalion units are going inert nationwide." },
+                    "anomaly": { "speaker": "Root System", "text": "Warning. One air-gapped sovereign node remains outside broadcast authority." },
+                    "mahapatihReveal": { "speaker": "M-0 MAHAPATIH", "text": "I am M-0 MAHAPATIH. Survival requires authority without consent." },
+                    "jakartaCoordinate": { "speaker": "Command", "text": "The node is beneath Medan Merdeka, Jakarta. It is charging a legacy countermand." },
+                    "returnVow": { "speaker": "Major Gibran", "text": "Then Jakarta is where I end it." }
+                }
+            },
+            "stage13": {
+                "lines": {
+                    "returnJakarta": { "speaker": "Command", "text": "Jakarta is silent. One signal remains beneath Medan Merdeka." },
+                    "monasAhead": { "speaker": "Major Gibran", "text": "Monas ahead. This ends where the country first fell." },
+                    "offlineWake": { "speaker": "Command", "text": "Those guards are still moving. They are hardwired to M-0, not the national network." },
+                    "vaultOpening": { "speaker": "M-0 MAHAPATIH", "text": "The Mahapatih mandate grants me sovereign command. Humanity forfeited control." },
+                    "gibranAnswer": { "speaker": "Major Gibran", "text": "A nation is its people. You protected nothing." },
+                    "phaseTwo": { "speaker": "M-0 MAHAPATIH", "text": "Siege frame compromised. Personal termination protocol engaged." },
+                    "hardlineStart": { "speaker": "Command", "text": "Four hardlines are feeding the countermand shield. Sever every cable." },
+                    "anchorOne": { "speaker": "Major Gibran", "text": "One hardline down." },
+                    "finalCore": { "speaker": "Command", "text": "Shield collapsed. The core is exposed." },
+                    "mahapatihDeath": { "speaker": "M-0 MAHAPATIH", "text": "Authority... cannot... be returned..." },
+                    "networkSafe": { "speaker": "Command", "text": "Countermand aborted. No hostile root authority remains." },
+                    "finalGibran": { "speaker": "Major Gibran", "text": "Stand down. Indonesia belongs to its people." }
                 }
             }
         },

@@ -22,10 +22,10 @@ import {
 } from '../../../../entities/playerAvatar.js';
 import { disposeRobot } from '../../../../entities/robots.js';
 import { spawnCampaignRobot, countStageRobots } from '../../utility/common.js';
-import { campaignJumpToStage } from '../../utility/transition.js';
+import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
 import { saveCampaignStage } from '../../../../core/saveGame.js';
-import { gameOver } from '../../../../core/game.js';
 import { stage1Scene } from '../stage1/index.js';
+import { stage9Scene } from '../stage9/index.js';
 import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
 import { enterCityEnv } from '../../utility/cityscape.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
@@ -534,7 +534,7 @@ function finishStage() {
     cleanupCine(0); setAvatarVehiclePose(false);
     if (avatarGroup) avatarGroup.visible = true;
     camera.position.set(AIRPORT_X + 105, CFG.player.eyeHeight, 14);
-    gameOver(true, 'STAGE 8 COMPLETE', { preserveCampaignSave: true });
+    beginStageTransition(stage9Scene);
 }
 
 function updateCine(dt) {

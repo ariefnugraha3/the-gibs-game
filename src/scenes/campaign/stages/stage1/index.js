@@ -80,6 +80,12 @@ import { ensureWorld as ensureStage5World } from '../stage5/world.js';
 import { ensureWorld as ensureStage6World } from '../stage6/index.js';
 import { ensureWorld as ensureStage7World } from '../stage7/index.js';
 import { ensureWorld as ensureStage8World } from '../stage8/index.js';
+import { ensureStage9World } from '../stage9/index.js';
+import { ensureStage10World } from '../stage10/index.js';
+import { ensureStage11World } from '../stage11/index.js';
+import { ensureStage12World } from '../stage12/index.js';
+import { ensureStage13World } from '../stage13/index.js';
+import { prewarmCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 
 // Grid 50 kolom x 50 baris (sel 2 m; PERSEGI 50x50 sesuai plan resmi user).
 // Gedung ~26 km dari jalan raya (stage 2) — kedua dunia hidup berdampingan di
@@ -453,7 +459,7 @@ export const s1MarkersDbg = () => ({
     access: !!s1AccessMarker?.visible, comp: !!s1CompMarker?.visible,
 });   // smoke test
 
-// Bangun SEMUA dunia campaign (stage 1 sendiri + stage 2/3/4/5/6/7/8) SEKALI (guard
+// Bangun SEMUA dunia campaign (stage 1..13) SEKALI (guard
 // `built`). Dipakai stage1.enter() DAN cutscene intro (intro.js).
 export function ensureWorld() {
     if (built) return;
@@ -466,6 +472,14 @@ export function ensureWorld() {
     ensureStage6World();
     ensureStage7World();
     ensureStage8World();
+    ensureStage9World();
+    ensureStage10World();
+    ensureStage11World();
+    ensureStage12World();
+    ensureStage13World();
+    // Root Stage 9–13 biasanya tersembunyi. Reveal sementara dari sudut wakil
+    // agar material chapter/boss/hazard benar-benar masuk jalur render sekarang.
+    prewarmCampaignWorldRoots();
     // Lampu stage non-aktif dimatikan (world/lighting.js) supaya shader tak
     // melooping 57 point light per fragmen; jumlah light jadi berbeda per stage,
     // maka program tiap konfigurasi DIKOMPILASI SEKARANG (masih di layar loading)

@@ -120,6 +120,10 @@ class Obj3D {
     translateX(d) { this.position.x += d; } translateY(d) { this.position.y += d; } translateZ(d) { this.position.z += d; }
     getWorldPosition(v) { let p = this, x = 0, y = 0, z = 0; while (p) { x += p.position.x; y += p.position.y; z += p.position.z; p = p.parent; } return v.set(x, y, z); }
     getWorldDirection(v) { return v.set(0, 0, -1); }
+    // Celah harness (2026-08-13): stage 9 memakai localToWorld untuk anchor mesin.
+    // Stub mengabaikan rotasi/skala, sama seperti getWorldPosition di atas.
+    localToWorld(v) { let p = this; while (p) { v.x += p.position.x; v.y += p.position.y; v.z += p.position.z; p = p.parent; } return v; }
+    worldToLocal(v) { let p = this; while (p) { v.x -= p.position.x; v.y -= p.position.y; v.z -= p.position.z; p = p.parent; } return v; }
     clone() {
         const o = new this.constructor(this.geometry, this.material);
         o.position.copy(this.position); o.rotation.copy(this.rotation); o.scale.copy(this.scale);
@@ -172,12 +176,13 @@ global.THREE = {
     Vector2: class { constructor(x, y) { this.x = x; this.y = y; } set() { } },
     Vector3: V3, Quaternion: Quat, Euler, Color, Matrix4,
     Object3D: Obj3D, Group, Mesh, Sprite, Scene, PerspectiveCamera: PCam, PointLight: PLight,
-    InstancedMesh: class extends Obj3D { constructor(g, m, n) { super(); this.geometry = g; this.material = m; this.count = n; this.instanceColor = { needsUpdate: false }; } setMatrixAt() { } setColorAt() { } },
+    InstancedMesh: class extends Obj3D { constructor(g, m, n) { super(); this.geometry = g; this.material = m; this.count = n; this.instanceColor = { needsUpdate: false }; this.instanceMatrix = { needsUpdate: false }; } setMatrixAt() { } setColorAt() { } },
     SphereGeometry: geo('sph'), CylinderGeometry: geo('cyl'), BoxGeometry: geo('box'),
     ConeGeometry: geo('cone'), RingGeometry: geo('ring'), PlaneGeometry: geo('plane'),
     CircleGeometry: geo('circle'), TorusGeometry: geo('torus'), ExtrudeGeometry: geo('extrude'),
     ShapeGeometry: geo('shape'),
     IcosahedronGeometry: geo('ico'), DodecahedronGeometry: geo('dodeca'), EdgesGeometry: geo('edges'),
+    OctahedronGeometry: geo('octa'),
     LineSegments: class extends Obj3D { constructor(g, m) { super(); this.geometry = g; this.material = m; this.isLine = true; this.isLineSegments = true; } },
     Path: class { moveTo() { } lineTo() { } quadraticCurveTo() { } bezierCurveTo() { } },
     Shape: class {
@@ -5318,8 +5323,8 @@ T('CAMPAIGN CUTSCENES: prologue/art/intro tetap di root, controller Stage 4 masu
     && !fs.existsSync(campaignCutDir + '/tankBossOutro.js')
     && stage4CutFiles.join(',') === 'tankBossIntro.js,tankBossOutro.js');
 const campaignStagesDir = ROOT + '/src/scenes/campaign/stages';
-T('CAMPAIGN STAGES: seluruh Stage 1-8 memakai folder sendiri dengan index.js',
-    Array.from({ length: 8 }, (_, i) => i + 1).every(n =>
+T('CAMPAIGN STAGES: seluruh Stage 1-13 memakai folder sendiri dengan index.js',
+    Array.from({ length: 13 }, (_, i) => i + 1).every(n =>
         fs.existsSync(`${campaignStagesDir}/stage${n}/index.js`)
         && !fs.existsSync(`${campaignStagesDir}/stage${n}.js`))
     && fs.existsSync(`${campaignStagesDir}/stage7/stage7City.js`)
@@ -9437,7 +9442,8 @@ T(`S8 GUNSHIP ENTITY: entity baru dgn HP & skor SENDIRI dari config (bukan lagi 
 T('S8 GUNSHIP CONFIG: statistik bos duduk di campaign.bosses.gunship (bareng giant & tank), jalur lama stage8.gunship hilang',
     !!cfgMod.CFG.campaign.bosses.gunship
     && cfgMod.CFG.campaign.stage8.gunship === undefined
-    && Object.keys(cfgMod.CFG.campaign.bosses).join(',') === 'giant,tank,gunship'
+    && ['giant', 'tank', 'gunship', 'warden', 'mahapatih']
+        .every(key => Object.hasOwn(cfgMod.CFG.campaign.bosses, key))
     && typeof S8G.hitRadius === 'number' && typeof S8G.missileBurst === 'number'
     // Bentuknya menyamai bos lain: `hp` + `score` ada di blok bos itu sendiri.
     && typeof S8G.hp === 'number' && typeof S8G.score === 'number'
@@ -9672,8 +9678,8 @@ jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempat
 T('cheat skip-to-stage-2: pindah ke stage 2 + 50 robot ditempatkan', jr === 2
     && smMod.activeScene === s2mod.stage2Scene && robots.filter(z => z.stage === 2).length === 50);
 const s4before = smMod.activeScene;
-T('cheat skip-to-stage invalid (9) ditolak, scene tak berubah',
-    smMod.activeScene.cheatSkipToStage(9) === null && smMod.activeScene === s4before);
+T('cheat skip-to-stage invalid (14) ditolak, scene tak berubah',
+    smMod.activeScene.cheatSkipToStage(14) === null && smMod.activeScene === s4before);
 T('survival TAK punya hook cheatSkipToStage (campaign-only)',
     survMod.survivalScene.cheatSkipToStage === undefined);
 // Anti-stutter: lompat-langsung WAJIB mengompilasi shader dunia baru via
@@ -9811,8 +9817,20 @@ saveMod.saveCampaignStage(7);
 T('save: checkpoint Stage 7 valid untuk Continue', saveMod.loadCampaignStage() === 7);
 saveMod.saveCampaignStage(8);
 T('save: checkpoint Stage 8 valid untuk Continue', saveMod.loadCampaignStage() === 8);
-saveMod.saveCampaignStage(9);   // di luar 1..8 -> dianggap tak valid
-T('save: nilai invalid (9) dibaca sebagai 0', saveMod.loadCampaignStage() === 0);
+for (let n = 9; n <= 13; n++) {
+    saveMod.saveCampaignStage(n);
+    T(`save: checkpoint Stage ${n} valid untuk Continue`, saveMod.loadCampaignStage() === n);
+}
+const checkpoint13 = saveMod.loadCampaignStage();
+T('save: penulisan nomor pecahan/di luar 1..13 ditolak tanpa merusak checkpoint lama',
+    saveMod.saveCampaignStage(12.5) === false
+    && saveMod.saveCampaignStage(0) === false
+    && saveMod.saveCampaignStage(14) === false
+    && saveMod.loadCampaignStage() === checkpoint13);
+localStorage.setItem('gibsCampaignStage', '12xyz');
+T('save: checkpoint teks campuran ditolak ketat', saveMod.loadCampaignStage() === 0);
+localStorage.setItem('gibsCampaignStage', '12.5');
+T('save: checkpoint pecahan dari storage ditolak ketat', saveMod.loadCampaignStage() === 0);
 saveMod.clearCampaignSave();
 T('save: clear -> 0', saveMod.loadCampaignStage() === 0);
 // enter() stage MENULIS checkpoint (uji lewat cheat jump = enter langsung)
@@ -12400,6 +12418,1317 @@ const palMod = await import(R('src/world/palette.js'));
             && ['bootProgress', 'nextPaint', 'fontsReady', 'hideBootScreen']
                 .every(f => new RegExp('export (async )?function ' + f + '\\(').test(domSrc)));
     }
+}
+
+// --- 25. CAMPAIGN STAGE 9–13 — KONTRAK BERSAMA ---------------------------
+// Plan §14.1: rentang save 1..13, lompatan stage sah/ditolak, origin dunia tak
+// pernah bertabrakan, HANYA root + set lampu stage aktif yang hidup, tiap
+// ensureWorld idempoten, rantai finish 8→9→10→11→12→13 lewat satu gateway, dan
+// setiap dunia baru lulus sapuan palet "GIBS 2045".
+{
+    const save13c = await import(R('src/core/saveGame.js'));
+    const trans = await import(R('src/scenes/campaign/utility/transition.js'));
+    const registry = await import(R('src/scenes/campaign/utility/campaignWorldRegistry.js'));
+    const lightMod = await import(R('src/world/lighting.js'));
+    const s9c = await import(R('src/scenes/campaign/stages/stage9/index.js'));
+    const s10c = await import(R('src/scenes/campaign/stages/stage10/index.js'));
+    const s11c = await import(R('src/scenes/campaign/stages/stage11/index.js'));
+    const s12c = await import(R('src/scenes/campaign/stages/stage12/index.js'));
+    const s13c = await import(R('src/scenes/campaign/stages/stage13/index.js'));
+    const wardenC = await import(R('src/entities/nusantaraWarden.js'));
+
+    // (1) Save: menerima 1..13, menolak di luar rentang / nilai rusak.
+    {
+        let ok = true;
+        for (let n = 1; n <= 13; n++)
+            if (!save13c.saveCampaignStage(n) || save13c.loadCampaignStage() !== n) ok = false;
+        const rejects = [0, 14, 99, -1, 1.5, NaN, '7'].every(v => !save13c.saveCampaignStage(v));
+        save13c.saveCampaignStage(13);
+        globalThis.localStorage.setItem('gibsCampaignStage', '12.5');
+        const corruptA = save13c.loadCampaignStage() === 0;
+        globalThis.localStorage.setItem('gibsCampaignStage', '13abc');
+        const corruptB = save13c.loadCampaignStage() === 0;
+        T('S9-13 SAVE: checkpoint menerima 1..13 dan menolak nilai di luar/rusak',
+            ok && rejects && corruptA && corruptB);
+        save13c.clearCampaignSave();
+    }
+
+    // (2) Lompatan stage: setiap nomor mendarat di scene-nya, di luar rentang null.
+    {
+        const targets = [[9, s9c.stage9Scene], [10, s10c.stage10Scene],
+            [11, s11c.stage11Scene], [12, s12c.stage12Scene], [13, s13c.stage13Scene]];
+        let jumpOk = true;
+        stateMod.setGameOver(false);
+        for (const [n, target] of targets) {
+            if (trans.campaignJumpToStage(n) !== n || smMod.activeScene !== target) jumpOk = false;
+            if (save13c.loadCampaignStage() !== n) jumpOk = false;
+        }
+        T('S9-13 JUMP: 9..13 mendarat di scene + checkpoint yang benar; 0/14 ditolak',
+            jumpOk && trans.campaignJumpToStage(0) === null
+            && trans.campaignJumpToStage(14) === null);
+    }
+
+    // (3) Kontrak hook scene lengkap untuk setiap stage baru.
+    {
+        const hooks = ['enter', 'exit', 'updateMode', 'playerCollide', 'groundHeight',
+            'bulletBlocked', 'grenadeCollide', 'robotAI', 'clampRobot', 'clampDropPos',
+            'awardKill', 'hudStatus', 'radarLandmarks', 'restartScene', 'cheatSkipToStage'];
+        const scenes = [['campaign-9', s9c.stage9Scene], ['campaign-10', s10c.stage10Scene],
+            ['campaign-11', s11c.stage11Scene], ['campaign-12', s12c.stage12Scene],
+            ['campaign-13', s13c.stage13Scene]];
+        T('S9-13 FACADE: setiap stage baru mengekspor id, lightsKey dan seluruh hook',
+            scenes.every(([id, sc]) => sc.id === id && typeof sc.lightsKey === 'string'
+                && hooks.every(h => typeof sc[h] === 'function')));
+    }
+
+    // (4) Origin dunia tak pernah bertabrakan dan terpisah lebih jauh dari far-plane.
+    {
+        const worlds = registry.campaignWorldRegistryDebug().worlds
+            .filter(w => w.bounds && Number.isFinite(w.bounds.x0));
+        let overlap = false;
+        for (let i = 0; i < worlds.length; i++) for (let j = i + 1; j < worlds.length; j++) {
+            const a = worlds[i].bounds, b = worlds[j].bounds;
+            if (a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1) overlap = true;
+        }
+        T('S9-13 ORIGIN: setiap dunia campaign baru punya kotak koordinat sendiri',
+            worlds.length >= 6 && !overlap
+            && worlds.every(w => w.bounds.x1 > w.bounds.x0 && w.bounds.z1 > w.bounds.z0));
+    }
+
+    // (5) Hanya root + set lampu stage aktif yang hidup.
+    {
+        smMod.setScene(s11c.stage11Scene, { fresh: true });
+        const reg = registry.campaignWorldRegistryDebug();
+        const active = reg.worlds.filter(w => w.visible > 0).map(w => w.key);
+        const lights = lightMod.stageLightsDebug();
+        T('S9-13 ROOT: hanya root stage aktif yang terlihat dan hanya set lampunya menyala',
+            reg.active.length === 1 && reg.active[0] === 'campaign-11'
+            && active.length === 1 && active[0] === 'campaign-11'
+            && lights.active === 'campaign-11'
+            && lights.keys.includes('campaign-9') && lights.keys.includes('campaign-10')
+            && lights.visible > 0 && lights.visible < lights.total);
+    }
+
+    // (6) ensureWorld setiap dunia baru idempoten.
+    {
+        const s9wc = await import(R('src/scenes/campaign/stages/stage9/world.js'));
+        const s10wc = await import(R('src/scenes/campaign/stages/stage10/world.js'));
+        const s11wc = await import(R('src/scenes/campaign/stages/stage11/world.js'));
+        const s12sc = await import(R('src/scenes/campaign/stages/stage12/surfaceWorld.js'));
+        const s12rc = await import(R('src/scenes/campaign/stages/stage12/rootWorld.js'));
+        const s13wc = await import(R('src/scenes/campaign/stages/stage13/world.js'));
+        const pairs = [
+            [s9wc.ensureStage9World(scene), s9wc.ensureStage9World(scene)],
+            [s10wc.ensureStage10World(scene), s10wc.ensureStage10World(scene)],
+            [s11wc.ensureStage11World(scene), s11wc.ensureStage11World(scene)],
+            [s12sc.ensureStage12SurfaceWorld(scene), s12sc.ensureStage12SurfaceWorld(scene)],
+            [s12rc.ensureStage12RootWorld(scene), s12rc.ensureStage12RootWorld(scene)],
+            [s13wc.ensureStage13World(scene), s13wc.ensureStage13World(scene)],
+        ];
+        T('S9-13 BUILD: setiap ensureWorld idempoten (root sama, tak membangun ulang)',
+            pairs.every(([a, b]) => a && a === b));
+
+        // (7) Sapuan palet "GIBS 2045" pada SELURUH dunia baru + rig Warden.
+        const roots = [['stage9', s9wc.ensureStage9World(scene)],
+            ['stage10', s10wc.ensureStage10World(scene)],
+            ['stage11', s11wc.ensureStage11World(scene)],
+            ['stage12-surface', s12sc.ensureStage12SurfaceWorld(scene)],
+            ['stage12-root', s12rc.ensureStage12RootWorld(scene)],
+            ['stage13', s13wc.ensureStage13World(scene)],
+            ['warden', wardenC.buildNusantaraWardenMesh().group]];
+        let neon = '', emis = '';
+        for (const [name, root] of roots) root.traverse(o => {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) {
+                if (!m || !m.color) continue;
+                const c = m.color.getHex ? m.color.getHex() : null;
+                const e = m.emissive && m.emissive.getHex ? m.emissive.getHex() : 0;
+                if (palMod.FORBIDDEN_HEX.includes(c) || palMod.FORBIDDEN_HEX.includes(e))
+                    neon = neon || name;
+                if (e !== 0 && typeof m.emissiveIntensity === 'number'
+                    && m.emissiveIntensity > palMod.EMISSIVE_MAX) emis = emis || name;
+            }
+        });
+        T('S9-13 PALET: dunia baru + rig Warden tanpa neon terlarang' + (neon ? ` [${neon}]` : ''),
+            neon === '');
+        T('S9-13 PALET: emissive lingkungan <= EMISSIVE_MAX' + (emis ? ` [${emis}]` : ''),
+            emis === '');
+    }
+
+    // (8) Rantai finish: SATU gateway, 8→9→10→11→12→13, tanpa lompat ke shop.
+    {
+        const chain = [
+            ['stage8', 'stage9Scene'], ['stage9', 'stage10Scene'],
+            ['stage10', 'stage11Scene'], ['stage11', 'stage12Scene'],
+            ['stage12', 'stage13Scene'],
+        ];
+        let ok = true;
+        for (const [stage, next] of chain) {
+            const src = fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/${stage}/index.js`, 'utf8');
+            if (!src.includes('beginStageTransition') || !src.includes(next)) ok = false;
+            if (/openShop\s*\(/.test(src)) ok = false;   // stage TAK boleh membuka shop sendiri
+        }
+        const s13src = fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/stage13/index.js`, 'utf8');
+        T('S9-13 RANTAI: 8→9→10→11→12→13 lewat beginStageTransition, tanpa shop langsung',
+            ok && !s13src.includes('beginStageTransition')
+            && s13src.includes('CAMPAIGN COMPLETE'));
+    }
+
+    stateMod.setGameOver(false);
+}
+
+// --- 25a. CAMPAIGN STAGE 9 — KERTAJATI AIRLIFT ---------------------------
+// Kontrak penerimaan plan §14.2: rute bandara tersambung, flight core sekali
+// ambil, spool HANYA tertahan blocker apron yang hidup (tak pernah mundur),
+// jet blast melukai/mendorong player DAN robot tanpa menembus dinding, boarding
+// mustahil sebelum mesin siap, dan skip = takeoff normal (transform identik).
+{
+    const C9 = cfgMod.CFG.campaign.stage9;
+    const s9 = await import(R('src/scenes/campaign/stages/stage9/index.js'));
+    const s9w = await import(R('src/scenes/campaign/stages/stage9/world.js'));
+    const s9air = await import(R('src/scenes/campaign/stages/stage9/aircraft.js'));
+    const trans9 = await import(R('src/scenes/campaign/utility/transition.js'));
+    const common9 = await import(R('src/scenes/campaign/utility/common.js'));
+
+    const stand9 = (p) => camera.position.set(p.x, cfgMod.CFG.player.eyeHeight, p.z);
+    const tick9 = (sec, dt = 0.1) => {
+        for (let t = 0; t < sec - 1e-9; t += dt) s9.stage9Scene.updateMode(dt);
+    };
+    const s9Robots = () => robots.filter(z => z.stage === 9);
+    const kill9 = () => {
+        for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 9) {
+            scene.remove(robots[i].mesh); robots.splice(i, 1);
+        }
+    };
+    // Spool hanya maju ketika apron bersih -> bersihkan tiap langkah.
+    const runSpool9 = (sec) => {
+        for (let t = 0; t < sec; t += 0.5) { kill9(); tick9(0.5, 0.1); }
+    };
+    const drain9 = () => { for (let i = 0; i < 200 && s9.stage9Debug().cinematic; i++) tick9(0.5); };
+    const runToBoard9 = () => {
+        drain9(); kill9();
+        stand9(s9w.S9_TOWER); tick9(0.3); kill9();
+        stand9(s9w.S9_CORE); tick9(0.3); kill9();
+        stand9(s9w.S9_HANGAR); tick9(0.3); kill9();
+        stand9(s9w.S9_INSTALL); tick9(0.3);
+        for (let i = 0; i < 40 && s9.stage9Debug().phase === 'spoolDefense'; i++) runSpool9(3);
+    };
+
+    // (1) Dunia: idempoten, origin terisolasi, batching + pesawat hero lengkap.
+    const r9a = s9w.ensureStage9World(); const r9b = s9w.ensureStage9World();
+    const w9 = s9w.stage9WorldDebug();
+    T('S9 WORLD: build idempoten di root x=300000 dengan census bandara nyata',
+        r9a === r9b && w9.built && w9.origin.x === 300000 && w9.deterministic
+        && w9.airport.runway > 0 && w9.airport.controlTowers > 0 && w9.airport.hangars > 0
+        && w9.staticBatches > 0 && w9.nav && w9.blockers.total > 0);
+    T('S9 PESAWAT: transport empat mesin punya ramp, core bay, gear dan hull terlas',
+        w9.aircraft.engineCount === 4 && w9.aircraft.hasCargoRamp
+        && w9.aircraft.hasCoreBay && w9.aircraft.landingGearAssemblies > 0
+        && w9.aircraft.independentControlSurfaces >= 5 && w9.aircraft.staticHullWelded);
+
+    // (2) Rute: BFS pada ruang jalan NYATA (walkable + blocker) di radius player.
+    {
+        const RAD = cfgMod.CFG.player.radius, STEP = 14;
+        const key = (x, z) => `${Math.round(x / STEP)},${Math.round(z / STEP)}`;
+        const free = (x, z) => s9w.stage9Walkable(x, z, RAD) && !s9w.stage9BlockedAt(x, z, RAD);
+        const seen = new Set(), queue = [[s9w.S9_START.x, s9w.S9_START.z]];
+        seen.add(key(s9w.S9_START.x, s9w.S9_START.z));
+        while (queue.length) {
+            const [x, z] = queue.shift();
+            for (const [dx, dz] of [[STEP, 0], [-STEP, 0], [0, STEP], [0, -STEP]]) {
+                const nx = x + dx, nz = z + dz, k = key(nx, nz);
+                if (seen.has(k) || !free(nx, nz)) continue;
+                seen.add(k); queue.push([nx, nz]);
+            }
+        }
+        const reach = (p, tol = 3) => {
+            for (let ix = -tol; ix <= tol; ix++) for (let iz = -tol; iz <= tol; iz++)
+                if (seen.has(key(p.x + ix * STEP, p.z + iz * STEP))) return true;
+            return false;
+        };
+        const objectives = [s9w.S9_TOWER, s9w.S9_CORE, s9w.S9_HANGAR, s9w.S9_INSTALL, s9w.S9_BOARD];
+        const spawnsOk = ['apron', 'tower', 'return', 'hangar', 'spool']
+            .every(n => s9w.stage9EncounterPoints(n).every(p => reach(p)));
+        const sup = s9w.stage9SupplyPlacements();
+        // Persediaan tak boleh lahir DI DALAM prop (radius 0) — itu peti/barel
+        // yang tak bisa ditembak/diambil.
+        const inProp = (p) => !s9w.stage9Walkable(p.x, p.z, 0) || s9w.stage9BlockedAt(p.x, p.z, 0);
+        T('S9 RUTE: objective, titik spawn dan persediaan terjangkau + tak tertanam prop',
+            objectives.every(p => reach(p)) && spawnsOk
+            && [...sup.crates, ...sup.barrels, ...sup.drops].every(p => !inProp(p) && reach(p))
+            && sup.drops.every(d => d.type !== 'ammo' || !!cfgMod.CFG.weapons[d.weapon]));
+    }
+
+    // (3) Masuk stage lewat gateway campaign (reset `busy` transisi).
+    stateMod.setGameOver(false);
+    T('S9 JUMP: campaignJumpToStage(9) mendarat di scene Stage 9', trans9.campaignJumpToStage(9) === 9
+        && smMod.activeScene === s9.stage9Scene);
+    let d9 = s9.stage9Debug();
+    T('S9 MASUK: checkpoint 9 + opening sinematik + garrison apron hidup',
+        save5Mod.loadCampaignStage() === 9 && d9.phase === 'opening'
+        && d9.cinematic === 'opening' && stateMod.cinematicActive && s9Robots().length > 0);
+
+    // (4) Menara: apron harus bersih dulu.
+    drain9(); tick9(1);
+    stand9(s9w.S9_TOWER); tick9(0.3);
+    const towerBlocked = s9.stage9Debug().phase === 'reachTower';
+    kill9(); stand9(s9w.S9_TOWER); tick9(0.3);
+    d9 = s9.stage9Debug();
+    T('S9 MENARA: apron harus bersih dulu; sesudahnya menara membuka fase core',
+        towerBlocked && d9.phase === 'takeCore' && !d9.coreAcquired && s9Robots().length > 0);
+
+    // (5) Flight core: TEPAT sekali, membuka rute pulang.
+    kill9(); stand9(s9w.S9_CORE); tick9(0.3);
+    d9 = s9.stage9Debug();
+    const coreOnce = d9.coreAcquired && d9.phase === 'reachHangar' && !d9.coreInstalled;
+    stand9(s9w.S9_CORE); tick9(0.3);
+    T('S9 CORE: diambil TEPAT sekali dan langsung membuka rute kembali ke hangar',
+        coreOnce && s9.stage9Debug().phase === 'reachHangar'
+        && s9w.stage9WorldDebug().aircraft.spool === 0);
+
+    // (6) Boot mustahil tanpa core terpasang.
+    const spoolBefore = s9.stage9Debug().spool.seconds;
+    tick9(3);
+    const spoolStillZero = s9.stage9Debug().spool.seconds === spoolBefore;
+    kill9(); stand9(s9w.S9_HANGAR); tick9(0.3); kill9();
+    stand9(s9w.S9_INSTALL); tick9(0.3);
+    d9 = s9.stage9Debug();
+    T('S9 BOOT: spool mustahil sebelum core terpasang, lalu fase spool dimulai bersih',
+        spoolStillZero && d9.coreInstalled && d9.phase === 'spoolDefense'
+        && d9.spool.beat === 1 && d9.spool.seconds === 0);
+
+    // (7) Spool BEKU selama blocker apron hidup, dan tak pernah mundur.
+    {
+        let last = s9.stage9Debug().spool.seconds, monotonic = true, pausedSeen = false;
+        for (let i = 0; i < 30; i++) {
+            tick9(0.5, 0.1);
+            const sp = s9.stage9Debug().spool;
+            if (sp.seconds + 1e-9 < last) monotonic = false;
+            if (sp.paused) pausedSeen = true;
+            last = sp.seconds;
+        }
+        T('S9 SPOOL: BEKU selama blocker apron hidup dan tak pernah mundur',
+            C9.spool.pauseWhenBlocked && pausedSeen && monotonic
+            && s9.stage9Debug().spool.apronBlockers > 0
+            && s9.stage9Debug().spool.seconds === 0);
+    }
+
+    // (8) Jet blast: hanya sesudah warmup + activeFraction; mendorong & melukai
+    //     player DAN robot, tetapi tak pernah keluar ruang jalan.
+    {
+        runSpool9(C9.spool.durationSec * C9.jetBlast.activeFraction + 2);
+        const zone = s9air.transportJetZones(s9w.stage9Transport())[0];
+        const zx = (zone.x0 + zone.x1) / 2, zz = (zone.z0 + zone.z1) / 2;
+        const ratioOk = s9.stage9Debug().spool.progress >= C9.jetBlast.activeFraction;
+        if (!s9Robots().length) common9.spawnCampaignRobot(zx, zz, 9, 'C');
+        const bot = s9Robots()[0];
+        bot.mesh.position.set(zx, 0, zz);
+        const botX = bot.mesh.position.x, botHp = bot.hp;
+        stand9({ x: zx, z: zz });
+        player.hp = player.maxHp;
+        const px0 = camera.position.x, hp0 = player.hp;
+        tick9(1, 0.1);
+        T('S9 JET BLAST: mendorong + melukai player DAN robot, tanpa menembus dinding',
+            ratioOk && camera.position.x < px0 - 1 && player.hp < hp0
+            && (bot.mesh.position.x < botX - 1 || bot.hp < botHp)
+            && s9w.stage9Walkable(camera.position.x, camera.position.z, cfgMod.CFG.player.radius));
+        player.hp = player.maxHp;
+    }
+
+    // (9) Boarding terkunci sampai seluruh gelombang selesai.
+    stand9(s9w.S9_BOARD); tick9(0.3);
+    const boardTooEarly = s9.stage9Debug().phase === 'spoolDefense';
+    // Menjauh dari titik naik selama sisa spool: berdiri di sana akan langsung
+    // memicu takeoff pada frame gelombang terakhir selesai.
+    stand9(s9w.S9_INSTALL);
+    for (let i = 0; i < 40 && s9.stage9Debug().phase === 'spoolDefense'; i++) runSpool9(3);
+    d9 = s9.stage9Debug();
+    T('S9 BOARDING: terkunci sampai seluruh gelombang selesai dan mesin siap',
+        boardTooEarly && d9.phase === 'board'
+        && d9.spool.beat === C9.spool.encounters.length
+        && d9.spool.seconds >= C9.spool.durationSec - 1e-6);
+
+    // (10) Takeoff NORMAL -> finish hijau, checkpoint tetap 9.
+    stand9(s9w.S9_BOARD); tick9(0.3);
+    T('S9 TAKEOFF: menaiki transport membekukan kontrol dan memulai sinematik lepas landas',
+        s9.stage9Debug().phase === 'takeoff' && stateMod.cinematicActive);
+    tick9(C9.takeoffSec + 1, 0.1);
+    const naturalAir = s9w.stage9WorldDebug().aircraft;
+    const naturalPos = { ...s9w.stage9Transport().position };
+    T('S9 SELESAI: takeoff normal membuka finish hijau STAGE 9 COMPLETE + checkpoint 9',
+        s9.stage9Debug().complete && s9.stage9Debug().transitionSent
+        && stateMod.isGameOver && dom4.gameOverTitle.innerText === 'STAGE 9 COMPLETE'
+        && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
+        && save5Mod.loadCampaignStage() === 9 && !stateMod.cinematicActive
+        && dom4.stageRadioDialogueDebug() === null);
+
+    // (11) Jalur SKIP mendarat pada transform + cleanup yang sama.
+    stateMod.setGameOver(false);
+    trans9.campaignJumpToStage(9);
+    runToBoard9();
+    stand9(s9w.S9_BOARD); tick9(0.3);
+    const skipped9 = dom4.triggerCutsceneSkip();
+    const skipAir = s9w.stage9WorldDebug().aircraft;
+    const skipPos = { ...s9w.stage9Transport().position };
+    T('S9 SKIP: skip takeoff = takeoff normal (transform pesawat + cleanup identik)',
+        skipped9 === true && s9.stage9Debug().complete
+        && Math.abs(skipPos.x - naturalPos.x) < 1e-6
+        && Math.abs(skipPos.y - naturalPos.y) < 1e-6
+        && skipAir.takeoff === naturalAir.takeoff
+        && !stateMod.cinematicActive && dom4.cineFadeDebug()?.opacity === 0
+        && dom4.stageRadioDialogueDebug() === null);
+    T('S9 TRANSISI: gateway finish stage berikutnya dipanggil TEPAT sekali',
+        s9.stage9Debug().transitionSent
+        && dom4.gameOverTitle.innerText === 'STAGE 9 COMPLETE');
+
+    stateMod.setGameOver(false); kill9();
+}
+
+// --- 25b. CAMPAIGN STAGE 10 — THE IRON PORT ------------------------------
+// Kontrak penerimaan plan §14.3: setiap keadaan layout peti kemas tersambung,
+// geometri terlihat = collider di awal/tengah/akhir gerak crane, skip mendarat
+// tepat di layout B, meriam pelabuhan MENGUNCI TITIK MATI (tembakan sesudah
+// kunci tak lagi mengejar player), servo mati permanen dan berurutan, bahaya
+// bersih saat array padam, dan ekstraksi terkunci sampai array padam.
+{
+    const C10 = cfgMod.CFG.campaign.stage10;
+    const s10 = await import(R('src/scenes/campaign/stages/stage10/index.js'));
+    const s10w = await import(R('src/scenes/campaign/stages/stage10/world.js'));
+    const s10c = await import(R('src/scenes/campaign/stages/stage10/cranes.js'));
+    const s10d = await import(R('src/scenes/campaign/stages/stage10/defenseArray.js'));
+    const trans10 = await import(R('src/scenes/campaign/utility/transition.js'));
+    const common10 = await import(R('src/scenes/campaign/utility/common.js'));
+
+    const stand10 = (p) => camera.position.set(p.x, cfgMod.CFG.player.eyeHeight, p.z);
+    const tick10 = (sec, dt = 0.1) => {
+        for (let t = 0; t < sec - 1e-9; t += dt) s10.stage10Scene.updateMode(dt);
+    };
+    const s10Robots = () => robots.filter(z => z.stage === 10);
+    const kill10 = () => {
+        for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 10) {
+            scene.remove(robots[i].mesh); robots.splice(i, 1);
+        }
+    };
+    const drain10 = () => { for (let i = 0; i < 200 && s10.stage10Debug().cinematic; i++) tick10(0.5); };
+
+    // (1) Dunia + konektivitas SEMUA keadaan layout stabil.
+    const r10a = s10w.ensureStage10World(); const r10b = s10w.ensureStage10World();
+    const w10 = s10w.stage10WorldDebug();
+    T('S10 WORLD: build idempoten di root x=330000 dengan census pelabuhan nyata',
+        r10a === r10b && w10.built && w10.origin.x === 330000 && w10.deterministic
+        && w10.port.quays > 0 && w10.port.staticContainers > 0 && w10.port.warehouses > 0
+        && w10.airstrip.runway > 0 && w10.staticBatches > 0 && w10.nav);
+    T('S10 LAYOUT: layout A dan B sama-sama tersambung ke seluruh objective',
+        w10.connectivity.allStableStatesConnected
+        && w10.connectivity.A.connected && w10.connectivity.B.connected
+        && w10.connectivity.B.reached.every(Boolean));
+
+    // (2) Peti kemas bergerak: transform terlihat = collider di A, tengah, B.
+    {
+        const sys = s10w.stage10CraneSystem();
+        s10c.setCraneLayout(sys, 'A');
+        const agree = () => s10c.craneDebug(sys).containers
+            .every(c => Math.abs(c.position.x - c.blocker.x) < 1e-6
+                && Math.abs(c.position.z - c.blocker.z) < 1e-6
+                && Math.abs(c.yaw - c.blocker.yaw) < 1e-6);
+        const atA = agree();
+        s10c.updateCraneShift(sys, 0.5);
+        const atMid = agree() && s10c.craneDebug(sys).state === 'transition';
+        s10c.updateCraneShift(sys, 1);
+        const dbg = s10c.craneDebug(sys);
+        const landed = dbg.state === 'B' && dbg.settled && dbg.progress === 1
+            && sys.containers.every(item => Math.abs(item.group.position.x - item.B.x) < 1e-6
+                && Math.abs(item.group.position.z - item.B.z) < 1e-6
+                && Math.abs(item.group.position.y) < 1e-6);
+        T('S10 CRANE: geometri terlihat = collider di awal/tengah/akhir dan mendarat TEPAT',
+            atA && atMid && agree() && landed);
+        s10c.setCraneLayout(sys, 'A');
+    }
+
+    // (3) Masuk stage lewat gateway; garrison entry hidup, layout mulai di A.
+    stateMod.setGameOver(false);
+    T('S10 JUMP: campaignJumpToStage(10) mendarat di scene Stage 10',
+        trans10.campaignJumpToStage(10) === 10 && smMod.activeScene === s10.stage10Scene);
+    let d10 = s10.stage10Debug();
+    T('S10 MASUK: checkpoint 10 + opening sinematik + layout peti kemas di keadaan A',
+        save5Mod.loadCampaignStage() === 10 && d10.phase === 'opening'
+        && d10.crane.state === 'A' && stateMod.cinematicActive && s10Robots().length > 0);
+
+    // (4) Crane HANYA dipicu dari safe bay dengan yard bersih.
+    drain10(); tick10(1);
+    stand10(s10w.S10_YARD); tick10(0.3); kill10();
+    const yardPhase = s10.stage10Debug().phase;
+    stand10(s10w.S10_SAFE_BAY); tick10(0.3);
+    d10 = s10.stage10Debug();
+    T('S10 SAFE BAY: pergeseran crane hanya dimulai dari safe bay setelah yard bersih',
+        yardPhase === 'craneMazeA' && d10.phase === 'craneShift'
+        && d10.cinematic === 'craneShift' && d10.crane.state !== 'A');
+
+    // (5) Skip pergeseran = layout B stabil, tanpa peti kemas menggantung.
+    const skippedShift = dom4.triggerCutsceneSkip();
+    d10 = s10.stage10Debug();
+    T('S10 SKIP: skip pergeseran mendarat tepat pada layout B yang stabil',
+        skippedShift === true && d10.phase === 'warehouse' && d10.crane.state === 'B'
+        && d10.crane.settled && d10.crane.progress === 1
+        && d10.crane.containers.every(c => Math.abs(c.position.y) < 1e-6)
+        && !stateMod.cinematicActive);
+
+    // (6) Tidak ada robot tertinggal DI DALAM koridor peti kemas yang bergerak.
+    T('S10 KORIDOR: tak ada robot terjebak di footprint peti kemas bergerak / prop statis',
+        s10Robots().length > 0 && s10Robots().every(z =>
+            s10w.stage10PathWalkable(z.mesh.position.x, z.mesh.position.z, 0)));
+
+    // (7) Token relay -> pipe rack -> array pertahanan.
+    kill10(); stand10(s10w.S10_RELAY); tick10(0.3);
+    const relayOk = s10.stage10Debug().relayToken && s10.stage10Debug().phase === 'pipeRack';
+    kill10(); stand10(s10w.S10_DEFENSE); tick10(0.3);
+    d10 = s10.stage10Debug();
+    T('S10 RELAY: token relay membuka pipe rack, lalu array pertahanan aktif',
+        relayOk && d10.phase === 'defenseArray' && d10.defense.active
+        && d10.defense.destroyedCount === 0
+        && d10.defense.vulnerableServo === 'traverse');
+
+    // (8) MERIAM: mengunci TITIK MATI — tembakan sesudah kunci tidak mengejar.
+    {
+        const sys = s10w.stage10DefenseSystem();
+        const shots = [];
+        const fire = (p, radius, damage) => shots.push({ x: p.x, z: p.z, radius, damage });
+        s10d.resetDefenseArray(sys, C10.cannon.servoHp);
+        s10d.activateDefenseArray(sys);
+        camera.position.set(330500, cfgMod.CFG.player.eyeHeight, 40);
+        for (let t = 0; t < C10.cannon.lockSec + 1e-6; t += 0.1)
+            s10d.updateDefenseArray(sys, 0.1, C10.cannon, camera.position.x, camera.position.z, fire);
+        const locked = s10d.defenseArrayDebug(sys);
+        const lockPoint = { ...locked.lockPoint };
+        // Player LARI sesudah kunci: tembakan tetap jatuh di titik mati.
+        camera.position.set(330360, cfgMod.CFG.player.eyeHeight, -150);
+        for (let t = 0; t < C10.cannon.fireDelaySec + 0.2; t += 0.1)
+            s10d.updateDefenseArray(sys, 0.1, C10.cannon, camera.position.x, camera.position.z, fire);
+        T('S10 MERIAM: mengunci titik mati — tembakan sesudah kunci tak mengejar player',
+            locked.phase === 'locked' && shots.length === 1
+            && Math.abs(shots[0].x - lockPoint.x) < 1e-6
+            && Math.abs(shots[0].z - lockPoint.z) < 1e-6
+            && Math.hypot(shots[0].x - camera.position.x, shots[0].z - camera.position.z) > 60
+            && shots[0].damage === C10.cannon.damage
+            && shots[0].radius === C10.cannon.blastRadius);
+
+        // (9) Servo: urutan tetap, kerusakan permanen, hanya servo giliran yang
+        //     bisa dilukai, dan radius blast mengecil sesudah dua servo mati.
+        const bullet10 = (x, z, damage) => ({
+            px: x, pz: z, damage,
+            mesh: { position: { x, y: 6, z } },
+        });
+        const order = [];
+        let wrongServoBlocked = true;
+        for (const servo of sys.servos) {
+            const later = sys.servos[sys.destroyedCount + 1];
+            if (later) {
+                const before = later.hp;
+                s10d.defenseArrayBulletHit(sys, bullet10(later.x, later.z, 400), 400);
+                if (later.hp !== before) wrongServoBlocked = false;
+            }
+            const target = sys.servos[sys.destroyedCount];
+            for (let i = 0; i < 8 && !target.destroyed; i++)
+                s10d.defenseArrayBulletHit(sys, bullet10(target.x, target.z, C10.cannon.servoHp),
+                    C10.cannon.servoHp);
+            order.push(target.id);
+            void servo;
+        }
+        const down = s10d.defenseArrayDebug(sys);
+        T('S10 SERVO: hanya servo giliran yang bisa dihancurkan, urutannya permanen',
+            wrongServoBlocked && order.length === 3
+            && down.destroyedCount === 3 && down.destroyedServos.length === 3
+            && down.shutdown && down.vulnerableServo === null);
+
+        // (10) Array padam: seluruh bahaya bersih dan tak ada tembakan lagi.
+        const after = shots.length;
+        for (let t = 0; t < 6; t += 0.1)
+            s10d.updateDefenseArray(sys, 0.1, C10.cannon, camera.position.x, camera.position.z, fire);
+        const idle = s10d.defenseArrayDebug(sys);
+        T('S10 SHUTDOWN: array padam membersihkan telegraf/cincin dan berhenti menembak',
+            shots.length === after && !idle.active && idle.phase === 'shutdown'
+            && !sys.warning.visible && !sys.targetRing.visible);
+    }
+
+    // (11) Ekstraksi terkunci sampai array benar-benar padam.
+    stand10(s10w.S10_EXTRACT); tick10(1);
+    const extractEarly = s10.stage10Debug().phase;
+    // Jalankan kembali fase array melalui scene supaya hook onServoDestroyed
+    // memindahkan fase ke 'extract' sebagaimana di permainan.
+    {
+        const sys = s10w.stage10DefenseSystem();
+        s10d.resetDefenseArray(sys, C10.cannon.servoHp);
+        s10d.activateDefenseArray(sys);
+        stand10(s10w.S10_DEFENSE);
+        const bullet10 = (x, z, damage) => ({ px: x, pz: z, damage,
+            mesh: { position: { x, y: 6, z } } });
+        for (let s = 0; s < 3; s++) {
+            const target = sys.servos[sys.destroyedCount];
+            for (let i = 0; i < 8 && !target.destroyed; i++)
+                s10.stage10Scene.bulletBlocked(bullet10(target.x, target.z, C10.cannon.servoHp));
+            tick10(0.2);
+        }
+        kill10(); tick10(0.3);
+    }
+    d10 = s10.stage10Debug();
+    T('S10 EKSTRAKSI: terkunci sampai array pertahanan padam, lalu titik angkut terbuka',
+        extractEarly === 'defenseArray' && d10.defense.shutdown && d10.phase === 'extract');
+
+    // (12) Selesai: hold di titik angkut -> cutscene -> finish hijau sekali.
+    stand10(s10w.S10_EXTRACT); tick10(C10.extractHoldSec + 0.5);
+    T('S10 DEPARTURE: menahan posisi di titik angkut memulai cutscene keberangkatan',
+        s10.stage10Debug().phase === 'departure' && stateMod.cinematicActive);
+    const skipped10 = dom4.triggerCutsceneSkip();
+    T('S10 SELESAI: finish hijau STAGE 10 COMPLETE, checkpoint 10, cleanup bersih',
+        skipped10 === true && s10.stage10Debug().complete
+        && s10.stage10Debug().transitionSent && stateMod.isGameOver
+        && dom4.gameOverTitle.innerText === 'STAGE 10 COMPLETE'
+        && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
+        && save5Mod.loadCampaignStage() === 10 && !stateMod.cinematicActive
+        && dom4.stageRadioDialogueDebug() === null
+        && dom4.cineFadeDebug()?.opacity === 0);
+
+    stateMod.setGameOver(false); kill10(); s10w.stage10ResetLayout();
+    void common10;
+}
+
+// --- 25c. CAMPAIGN STAGE 11 — THE GREEN FIREWALL -------------------------
+// Kontrak penerimaan plan §14.4: rute utuh tanpa lompatan, sapuan pemindai
+// bergerak sesuai config dan predikat perlindungan = tempat berteduh yang
+// TERLIHAT, exposure hanya mengunci sesudah lockSec (dan meluruh saat berlindung),
+// titik jatuh MEMBEKU pada kunci, artileri melukai player + robot sesuai config
+// dan menghormati blast blocker, kolam tembakan tak pernah tumbuh, terdeteksi
+// TIDAK menggagalkan stage, occluder hutan pulih, dan finish hanya dari mulut
+// terowongan.
+{
+    const C11 = cfgMod.CFG.campaign.stage11;
+    const s11 = await import(R('src/scenes/campaign/stages/stage11/index.js'));
+    const s11w = await import(R('src/scenes/campaign/stages/stage11/world.js'));
+    const s11s = await import(R('src/scenes/campaign/stages/stage11/sensorGrid.js'));
+    const trans11 = await import(R('src/scenes/campaign/utility/transition.js'));
+    const common11 = await import(R('src/scenes/campaign/utility/common.js'));
+
+    const stand11 = (p) => camera.position.set(p.x, cfgMod.CFG.player.eyeHeight, p.z);
+    const tick11 = (sec, dt = 0.1) => {
+        for (let t = 0; t < sec - 1e-9; t += dt) s11.stage11Scene.updateMode(dt);
+    };
+    const s11Robots = () => robots.filter(z => z.stage === 11);
+    const kill11 = () => {
+        for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 11) {
+            scene.remove(robots[i].mesh); robots.splice(i, 1);
+        }
+    };
+    const drain11 = () => { for (let i = 0; i < 200 && s11.stage11Debug().cine; i++) tick11(0.5); };
+
+    // (1) Dunia + rute: seluruh jalur tersambung TANPA celah (tak ada lompatan).
+    stateMod.setGameOver(false);
+    T('S11 JUMP: campaignJumpToStage(11) mendarat di scene Stage 11',
+        trans11.campaignJumpToStage(11) === 11 && smMod.activeScene === s11.stage11Scene);
+    const w11 = s11w.stage11WorldDebug();
+    T('S11 WORLD: root x=360000, hutan/waterworks terlas, dan nav grid siap',
+        w11.built && w11.origin.x === 360000 && w11.weldedMeshes < w11.rawMeshes
+        && w11.trunks > 0 && w11.shelters.length > 0 && w11.nav.walkable > 0
+        && w11.carrier.persistent && w11.carrier.solid);
+    {
+        // Sampling seperempat sel di sepanjang rute yang diberi wewenang: setiap
+        // titik rute harus bisa dijalani dengan radius player (bukan lompatan).
+        const RAD = cfgMod.CFG.player.radius;
+        const pts = [s11w.S11_START, s11w.S11_WRECK, s11w.S11_SENSOR_ENTRY,
+            s11w.S11_SHELTER, s11w.S11_WATERWORKS, s11w.S11_GALLERY, s11w.S11_FINISH];
+        let continuous = true;
+        for (let i = 1; i < pts.length; i++) {
+            const a = pts[i - 1], b = pts[i];
+            const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 6);
+            let open = 0;
+            for (let s = 0; s <= steps; s++) {
+                const x = a.x + (b.x - a.x) * s / steps, z = a.z + (b.z - a.z) * s / steps;
+                if (s11w.stage11Walk(x, z, RAD)) open++;
+            }
+            // Garis lurus boleh menyerempet vegetasi, tetapi mayoritas rute
+            // WAJIB berupa lantai sah — sebuah jurang hias tak boleh jadi jalur.
+            if (open / (steps + 1) < 0.75) continuous = false;
+        }
+        T('S11 RUTE: seluruh rute wewenang bisa dilalui radius player (tanpa lompatan)',
+            continuous && pts.every(p => s11w.stage11Walk(p.x, p.z, RAD)));
+    }
+
+    // (2) Masuk stage: ambush pembuka, pemindai MATI selama sinematik.
+    let d11 = s11.stage11Debug();
+    T('S11 MASUK: checkpoint 11, cutscene pembuka, dan pemindai belum menyala',
+        save5Mod.loadCampaignStage() === 11 && d11.phase === 'ambush'
+        && !!d11.cine && stateMod.cinematicActive
+        && d11.scan.state === 'CLEAR' && !d11.scan.footprint.visible
+        && s11Robots().length > 0);
+
+    // (3) Sapuan pemindai bergerak sesuai config dan bolak-balik.
+    drain11(); kill11(); tick11(0.5);
+    stand11(s11w.S11_SENSOR_ENTRY); tick11(0.5);
+    d11 = s11.stage11Debug();
+    const belt = d11.phase === 'scanBelt';
+    {
+        const xs = [];
+        for (let i = 0; i < Math.ceil(C11.scan.cycleSec / 0.2); i++) {
+            tick11(0.2, 0.1); xs.push(s11.stage11Debug().scan.footprint.x);
+        }
+        const moved = Math.max(...xs) - Math.min(...xs);
+        T('S11 SAPUAN: jejak pemindai menyala di scan belt dan menyapu rute bolak-balik',
+            belt && s11.stage11Debug().scan.footprint.visible && moved > 200
+            && xs.some((v, i) => i > 0 && v < xs[i - 1])
+            && xs.some((v, i) => i > 0 && v > xs[i - 1]));
+    }
+
+    // (3b) PITA yang terlihat = pita yang diuji, dan sebuah player DIAM yang
+    //      terpapar benar-benar bisa terkunci (dwell >= lockSec). Tanpa ini
+    //      artileri jadi mekanik mati: pita menyapu terlalu cepat untuk mengunci.
+    {
+        const sw = s11.stage11Debug().scan.sweep;
+        T('S11 SAPUAN: lebar pita = 2x safeRadius dan dwell config >= lockSec',
+            Math.abs(sw.speed - 2 * sw.span / C11.scan.cycleSec) < 1e-6
+            && Math.abs(sw.dwellSec - 2 * C11.scan.safeRadius / sw.speed) < 1e-6
+            && sw.dwellSec >= C11.scan.lockSec);
+    }
+
+    // (4) Predikat perlindungan = tempat berteduh yang TERLIHAT (shelter/kanopi).
+    {
+        const shelter = w11.shelters[0], canopy = w11.denseCanopy[0];
+        const open = { x: shelter.x + shelter.hx + 60, z: shelter.z };
+        T('S11 LINDUNG: predikat perlindungan tepat mengikuti shelter + kanopi rapat',
+            s11w.stage11PlayerProtected(shelter.x, shelter.z)
+            && s11w.stage11PlayerProtected(canopy.x, canopy.z)
+            && !s11w.stage11PlayerProtected(open.x, open.z));
+    }
+
+    // (5) Exposure: hanya mengunci SESUDAH lockSec, dan meluruh saat berlindung.
+    //     Sapuan bergerak, jadi diukur dari saat meteran MULAI naik.
+    const exposedSpot = { x: s11w.S11_SENSOR_ENTRY.x, z: s11w.S11_SENSOR_ENTRY.z };
+    const runScan = (sec, dt = 0.05) => {
+        let t = 0, rise = -1, lock = -1;
+        for (let i = 0; i < Math.ceil(sec / dt); i++) {
+            s11s.updateStage11SensorGrid(dt, true); t += dt;
+            const d = s11s.stage11ScanDebug();
+            if (rise < 0 && d.exposureFraction > 0) rise = t;
+            if (d.pool.active > 0) { lock = t; break; }
+        }
+        return { t, rise, lock };
+    };
+    {
+        s11s.resetStage11SensorGrid();
+        stand11(exposedSpot);
+        const run = runScan(C11.scan.cycleSec * 3);
+        // Berlindung: meteran meluruh sampai nol dan tak ada tembakan baru.
+        const shelter = w11.shelters[0];
+        stand11({ x: shelter.x, z: shelter.z });
+        s11s.clearStage11Strikes();
+        for (let t = 0; t < C11.scan.decaySec + 0.4; t += 0.05) s11s.updateStage11SensorGrid(0.05, true);
+        const after = s11s.stage11ScanDebug();
+        T('S11 EXPOSURE: baru mengunci sesudah lockSec dan meluruh penuh saat berlindung',
+            !s11w.stage11PlayerProtected(exposedSpot.x, exposedSpot.z)
+            && run.lock > 0 && run.rise > 0 && run.lock - run.rise >= C11.scan.lockSec - 0.06
+            && after.exposureFraction < 1e-6 && after.playerProtected
+            && after.pool.active === 0);
+    }
+
+    // (6) Titik jatuh MEMBEKU pada kunci: player lari, tembakan tetap di titik lama.
+    //     Artileri melukai player DAN robot sesuai config, kolam tak tumbuh.
+    {
+        s11s.resetStage11SensorGrid();
+        const poolSize = s11s.stage11ScanDebug().pool.size;
+        stand11(exposedSpot);
+        const run = runScan(C11.scan.cycleSec * 3);
+        const frozen = s11s.stage11ScanDebug().frozenImpactPoints[0];
+        const lockOk = run.lock > 0 && !!frozen
+            && Math.abs(frozen.x - exposedSpot.x) < 1e-6
+            && Math.abs(frozen.z - exposedSpot.z) < 1e-6;
+        // Robot ditempatkan TEPAT di titik jatuh; player LARI jauh.
+        common11.spawnCampaignRobot(frozen.x, frozen.z, 11, 'C');
+        const bot = s11Robots()[s11Robots().length - 1];
+        bot.mesh.position.set(frozen.x, 0, frozen.z);
+        const botHp = bot.hp;
+        stand11({ x: frozen.x + 400, z: frozen.z + 300 });
+        player.hp = player.maxHp;
+        for (let t = 0; t < C11.scan.incomingSec + 0.5; t += 0.05) {
+            s11s.updateStage11SensorGrid(0.05, true);
+            // Antrean ledakan diproses di ekor updateRobots (kontrak game).
+            robotsMod.updateRobots(0.05, 3);
+        }
+        const last = s11s.stage11ScanDebug().lastImpact;
+        T('S11 ARTILERI: titik jatuh membeku pada kunci dan tak mengejar player',
+            lockOk && !!last && last.deadPoint && !last.followedPlayer
+            && Math.abs(last.x - frozen.x) < 1e-6 && Math.abs(last.z - frozen.z) < 1e-6
+            && last.radius === C11.artillery.blastRadius
+            && Math.hypot(last.x - camera.position.x, last.z - camera.position.z) > 100);
+        T('S11 ARTILERI: melukai robot sesuai config dan kolam tembakan tak pernah tumbuh',
+            bot.hp <= botHp - C11.artillery.robotDamage + 1e-6
+            && s11s.stage11ScanDebug().pool.size === poolSize
+            && s11s.stage11ScanDebug().pool.active === 0);
+        kill11();
+    }
+
+    // (7) Terdeteksi TIDAK menggagalkan/mereset stage.
+    {
+        const before = s11.stage11Debug().phase;
+        stand11({ x: s11s.stage11ScanDebug().footprint.x, z: 0 });
+        tick11(C11.scan.lockSec + C11.scan.incomingSec + 1, 0.1);
+        T('S11 DETEKSI: terdeteksi hanya tekanan — fase & checkpoint tak pernah direset',
+            s11.stage11Debug().phase === before && !s11.stage11Debug().complete
+            && save5Mod.loadCampaignStage() === 11 && !stateMod.isGameOver);
+        player.hp = player.maxHp;
+    }
+
+    // (8) Occluder hutan memudar saat dilewati dan PULIH sesudah ditinggalkan.
+    {
+        s11w.resetStage11WorldVisuals();
+        const spot = s11w.stage11WorldDebug().occluders.points[0];
+        const full = s11w.stage11WorldDebug().occluders.minFactor;
+        for (let i = 0; i < 40; i++) s11w.updateStage11WorldVisuals(0.1, spot.x, spot.z);
+        const faded = s11w.stage11WorldDebug().occluders.minFactor;
+        for (let i = 0; i < 80; i++)
+            s11w.updateStage11WorldVisuals(0.1, spot.x + spot.radius * 4, spot.z + spot.radius * 4);
+        const restored = s11w.stage11WorldDebug().occluders.minFactor;
+        T('S11 OCCLUDER: kanopi memudar saat dilewati lalu PULIH penuh sesudah ditinggal',
+            full === 1 && faded < 0.3 && restored > 0.95);
+    }
+
+    // (9) Finish HANYA dari mulut terowongan, dan hanya sesudah fase akhir.
+    kill11();
+    stand11({ x: s11w.S11_SHELTER.x, z: s11w.S11_SHELTER.z }); tick11(0.4); kill11();
+    const atWaterworks = s11.stage11Debug();
+    stand11({ x: s11w.S11_WATERWORKS.x - 150, z: 230 }); tick11(0.4); kill11();
+    const atSweep = s11.stage11Debug();
+    stand11(s11w.S11_FINISH); tick11(0.5);
+    const opened = s11.stage11Debug();
+    T('S11 TEROWONGAN: pintu tetap tertutup sampai fase akhir, lalu terbuka di mulutnya',
+        atWaterworks.phase === 'waterworks' && !atWaterworks.world.tunnelOpen
+        && atSweep.phase === 'finalSweep' && !atSweep.world.tunnelOpen
+        && opened.phase === 'tunnelEntry' && opened.world.tunnelOpen);
+
+    // (9b) Berdiri JAUH dari mulut terowongan tak pernah menyelesaikan stage.
+    stand11({ x: s11w.S11_GALLERY.x + 60, z: s11w.S11_GALLERY.z });
+    for (let i = 0; i < 12; i++) tick11(0.5);
+    T('S11 FINISH: menjauh dari mulut terowongan membatalkan hitungan finish',
+        !s11.stage11Debug().complete && s11.stage11Debug().phase === 'tunnelEntry');
+    stand11(s11w.S11_FINISH);
+
+    // (10) Selesai: satu kali transisi ke Stage 12.
+    for (let i = 0; i < 200 && !s11.stage11Debug().complete; i++) tick11(0.5);
+    T('S11 SELESAI: finish hijau STAGE 11 COMPLETE + checkpoint 11 + gateway sekali',
+        s11.stage11Debug().complete && s11.stage11Debug().transitionCommitted
+        && stateMod.isGameOver && dom4.gameOverTitle.innerText === 'STAGE 11 COMPLETE'
+        && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
+        && save5Mod.loadCampaignStage() === 11
+        && dom4.stageRadioDialogueDebug() === null
+        && s11.stage11Debug().scan.pool.active === 0);
+
+    stateMod.setGameOver(false); kill11();
+}
+
+// --- 25d. CAMPAIGN STAGE 12 — NUSANTARA ROOT -----------------------------
+// Kontrak penerimaan plan §14.5: dua bab dalam SATU facade (activeScene tetap
+// `campaign-12`), hanya root/lampu bab aktif yang terlihat, drive hanya bisa
+// dimasukkan sesudah akses root dan TEPAT sekali, upload tak pernah mundur dan
+// hanya berhenti saat jam yang diumumkan, Warden punya volume hit terbatas +
+// kolam projektil pra-alokasi, tiap ambang fase terjadi sekali, perisai depan
+// hanya meredam dari arah depan, kapasitor/kopling hanya bisa dilukai saat jam,
+// kematian membersihkan seluruh bahaya, siaran mencapai 100% SESUDAH bos mati,
+// dan uploadnya BERHASIL (bukan pengulangan twist Stage 6).
+{
+    const C12 = cfgMod.CFG.campaign.stage12;
+    const W12 = cfgMod.CFG.campaign.bosses.warden;
+    const s12 = await import(R('src/scenes/campaign/stages/stage12/index.js'));
+    const s12root = await import(R('src/scenes/campaign/stages/stage12/root.js'));
+    const s12rt = await import(R('src/scenes/campaign/stages/stage12/runtime.js'));
+    const wardenMod = await import(R('src/entities/nusantaraWarden.js'));
+    const registry12 = await import(R('src/scenes/campaign/utility/campaignWorldRegistry.js'));
+    const trans12 = await import(R('src/scenes/campaign/utility/transition.js'));
+    const rootSource12 = fs.readFileSync(ROOT
+        + '/src/scenes/campaign/stages/stage12/root.js', 'utf8');
+
+    const stand12 = (p) => camera.position.set(p.x, cfgMod.CFG.player.eyeHeight, p.z);
+    const tick12 = (sec, dt = 0.1) => {
+        for (let t = 0; t < sec - 1e-9; t += dt) s12.stage12Scene.updateMode(dt);
+    };
+    const kill12 = () => {
+        for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 12) {
+            scene.remove(robots[i].mesh); robots.splice(i, 1);
+        }
+    };
+
+    // (1) Dua dunia terbangun; hanya root bab aktif yang terlihat.
+    stateMod.setGameOver(false);
+    T('S12 JUMP: campaignJumpToStage(12) mendarat di facade Stage 12',
+        trans12.campaignJumpToStage(12) === 12 && smMod.activeScene === s12.stage12Scene
+        && save5Mod.loadCampaignStage() === 12);
+    let d12 = s12.stage12WorldDebug();
+    const reg = () => registry12.campaignWorldRegistryDebug();
+    const rootVisible = (key) => reg().worlds.find(w => w.key === key)?.visible > 0;
+    T('S12 DUNIA: surface x=390000 dan root x=400000 terbangun sebagai dunia terpisah',
+        s12.stage12WorldBuilt() && d12.worlds.surface.built && d12.worlds.root.built
+        && d12.worlds.surface.origin.x === 390000 && d12.worlds.root.origin.x === 400000
+        && d12.warden.built);
+    T('S12 BAB: masuk stage = bab surface, hanya root surface yang terlihat',
+        d12.chapter === 'surface' && d12.sub === 'campaign-12-surface'
+        && d12.activeSceneStable === 'campaign-12'
+        && rootVisible('campaign-12-surface') && !rootVisible('campaign-12-root'));
+
+    // (2) Bab surface: gelombang berurutan, lalu turun ke root chamber.
+    dom4.triggerCutsceneSkip();
+    for (let i = 0; i < 40 && s12rt.phase !== 'rootApproach'; i++) {
+        kill12();
+        stand12({ x: s12.S12_ROOT_COURT.x, z: s12.S12_ROOT_COURT.z });
+        tick12(0.5);
+    }
+    const surfaceCleared = s12rt.phase === 'rootApproach'
+        && s12.stage12WorldDebug().surface.waveQueue.spawnedTotal
+        === s12.stage12WorldDebug().surface.waveQueue.configuredTotal;
+    const seenBeforeDescent = [...s12.stage12WorldDebug().dialogue.seen];
+    const statsBeforeDescent = stateMod.stageStatsDebug();
+    stateMod.updateStageStats(0.5);   // waktu berjalan
+    stateMod.recordLootBoxDestroyed();   // satu peti sebelum turun: harus tetap terhitung
+    stand12(s12.S12_DESCENT); tick12(0.4);
+    d12 = s12.stage12WorldDebug();
+    T('S12 BAB: statistik stage (waktu + lootbox) ikut menyeberang antar bab',
+        stateMod.stageStatsDebug().stageId === statsBeforeDescent.stageId
+        && stateMod.stageStatsDebug().active
+        && stateMod.stageStatsDebug().lootBoxesDestroyed
+            === statsBeforeDescent.lootBoxesDestroyed + 1
+        && stateMod.stageStatsDebug().elapsedSec >= statsBeforeDescent.elapsedSec);
+    if (process.env.S12DBG) console.log('DBG turun', surfaceCleared, d12.chapter, d12.sub,
+        smMod.activeScene?.id, rootVisible('campaign-12-root'), rootVisible('campaign-12-surface'),
+        JSON.stringify(d12.dialogue), JSON.stringify(d12.surface.waveQueue));
+    T('S12 TURUN: seluruh formasi permukaan habis lalu bab root diambil tanpa setScene',
+        surfaceCleared && d12.chapter === 'root' && d12.sub === 'campaign-12-root'
+        && smMod.activeScene === s12.stage12Scene
+        && d12.activeSceneStable === 'campaign-12'
+        && rootVisible('campaign-12-root') && !rootVisible('campaign-12-surface')
+        // Riwayat dialogue (seen) IKUT menyeberang: baris bab 1 tak boleh
+        // terulang di bab 2 hanya karena babnya berganti.
+        && seenBeforeDescent.every(k => d12.dialogue.seen.includes(k)));
+
+    // (3) Drive HANYA bisa dimasukkan sesudah gerbang otoritas bersih.
+    stand12(s12.S12_INSERT); tick12(1);
+    const insertTooEarly = s12rt.phase === 'authorityGate'
+        && !s12.stage12WorldDebug().root.uploadAccepted;
+    for (let i = 0; i < 40 && s12rt.phase === 'authorityGate'; i++) { kill12(); tick12(0.5); }
+    d12 = s12.stage12WorldDebug();
+    const gateOpen = s12rt.phase === 'insertDrive' && d12.worlds.root.authorityOpen
+        && d12.worlds.root.insertMarker;
+    stand12(s12.S12_INSERT); tick12(1.5);
+    d12 = s12.stage12WorldDebug();
+    T('S12 DRIVE: mustahil sebelum gerbang otoritas bersih, lalu diterima TEPAT sekali',
+        insertTooEarly && gateOpen && d12.root.uploadAccepted && d12.root.wardenActivated
+        && d12.warden.active && d12.root.uploadProgress >= 0
+        && d12.dialogue.seen.includes('insertDrive'));
+
+    // (4) Warden: rig terbangun dengan volume hit terbatas + kolam pra-alokasi.
+    const warden = s12.getStage12Warden();
+    let wd = wardenMod.nusantaraWardenDebug(warden);
+    T('S12 WARDEN: rig lengkap, kapasitor/kopling sesuai config, kolam pra-alokasi',
+        wd.rig.capacitors === W12.capacitors.count
+        && wd.rig.couplings === W12.couplings.count
+        && wd.pools.rail.size === W12.rail.poolSize
+        && wd.pools.burst.size === W12.burst.poolSize
+        && wd.pools.sector.size === W12.sector.poolSize
+        && wd.pools.stomp.size === wd.rig.legs
+        && wd.hp === W12.hp && wd.maxHp === W12.hp && wd.score === W12.score);
+
+    // (5) Upload tak pernah mundur dan TERTAHAN di preBossFraction selama bos hidup.
+    for (let i = 0; i < 400 && s12.stage12WorldDebug().root.uploadProgress
+        < C12.upload.preBossFraction - 1e-6; i++) tick12(0.5);
+    d12 = s12.stage12WorldDebug();
+    const clamped = Math.abs(d12.root.uploadProgress - C12.upload.preBossFraction) < 1e-6;
+    tick12(10);
+    d12 = s12.stage12WorldDebug();
+    T('S12 UPLOAD: monoton naik dan berhenti tepat di preBossFraction selama bos hidup',
+        clamped && d12.root.monotonic && d12.root.minObservedDelta >= -1e-9
+        && Math.abs(d12.root.uploadProgress - C12.upload.preBossFraction) < 1e-6
+        && !wardenMod.nusantaraWardenWrecked(warden));
+
+    // (6) Perisai depan: hanya meredam dari arah depan; belakang penuh.
+    {
+        const w = warden, p = w.parts.group.position;
+        w.phase = 'phase1'; w.dead = false; w.hp = w.maxHp = W12.hp;
+        w.parts.group.rotation.y = 0;
+        const front = { x: p.x - 200, z: p.z };   // depan = rotation.y + PI
+        const back = { x: p.x + 200, z: p.z };
+        const before1 = w.hp;
+        wardenMod.damageNusantaraWarden(w, 1000, front);
+        const frontLoss = before1 - w.hp;
+        const before2 = w.hp;
+        wardenMod.damageNusantaraWarden(w, 1000, back);
+        const backLoss = before2 - w.hp;
+        T('S12 PERISAI: tembakan depan diredam sesuai config, tembakan belakang penuh',
+            Math.abs(frontLoss - 1000 * W12.shield.damageMul) < 1e-6
+            && Math.abs(backLoss - 1000) < 1e-6 && backLoss > frontLoss);
+        w.hp = w.maxHp;
+    }
+
+    // (7) Ambang fase TEPAT sekali; kapasitor/kopling hanya bisa dilukai saat jam.
+    {
+        const w = warden, phases12 = [];
+        w.callbacks = { onPhase: (p) => phases12.push(p) };
+        w.phase = 'phase1'; w.hp = w.maxHp = W12.hp; w.dead = false;
+        const back = { x: w.parts.group.position.x + 200, z: w.parts.group.position.z };
+        const capBefore = w.parts.capacitors[0].hp;
+        wardenMod.damageNusantaraWarden(w, W12.hp * (1 - W12.phase2HpFrac) + 1, back);
+        const jam1 = wardenMod.nusantaraWardenDebug(w);
+        const capsExposed = jam1.capacitors.every(c => c.exposed);
+        for (const cap of w.parts.capacitors)
+            for (let i = 0; i < 12 && cap.alive; i++)
+                wardenMod.damageNusantaraWardenTargetForDebug?.(w, cap, W12.capacitors.hp);
+        // Jalur normal: peluru. Pakai bullet sintetis lewat hook bulletBlocked scene.
+        for (const cap of w.parts.capacitors) {
+            for (let i = 0; i < 12 && cap.alive; i++) {
+                const wp = new THREE.Vector3().copy(cap.rig.position);
+                w.parts.group.localToWorld(wp);
+                s12.stage12Scene.bulletBlocked({ px: wp.x, pz: wp.z,
+                    damage: W12.capacitors.hp,
+                    mesh: { position: { x: wp.x, y: wp.y, z: wp.z } } });
+            }
+        }
+        const afterCaps = wardenMod.nusantaraWardenDebug(w);
+        wardenMod.damageNusantaraWarden(w, W12.hp * (W12.phase2HpFrac - W12.phase3HpFrac) + 1, back);
+        const jam2 = wardenMod.nusantaraWardenDebug(w);
+        T('S12 FASE: setiap ambang jam terjadi TEPAT sekali dan membuka target yang benar',
+            capBefore === W12.capacitors.hp && capsExposed
+            && phases12.filter(p => p === 'jam1').length === 1
+            && phases12.filter(p => p === 'jam2').length === 1
+            && phases12.filter(p => p === 'phase2').length === 1
+            && afterCaps.phase === 'phase2'
+            && afterCaps.capacitors.every(c => !c.alive)
+            && jam2.phase === 'jam2' && jam2.couplings.every(c => c.exposed));
+        // Kopling hanya bisa dilukai SAAT jam2; sesudah jam berakhir tidak lagi.
+        for (const cup of w.parts.couplings) {
+            for (let i = 0; i < 12 && cup.alive; i++) {
+                const wp = new THREE.Vector3().copy(cup.rig.position);
+                w.parts.group.localToWorld(wp);
+                s12.stage12Scene.bulletBlocked({ px: wp.x, pz: wp.z,
+                    damage: W12.couplings.hp,
+                    mesh: { position: { x: wp.x, y: wp.y, z: wp.z } } });
+            }
+        }
+        const phase3 = wardenMod.nusantaraWardenDebug(w);
+        T('S12 TITIK LEMAH: kapasitor & kopling hanya rusak saat jam yang diumumkan',
+            phase3.phase === 'phase3' && phase3.couplings.every(c => !c.alive)
+            && phase3.couplings.every(c => !c.exposed)
+            && phases12.filter(p => p === 'phase3').length === 1);
+    }
+
+    // (8) Rail MENGUNCI garis sebelum menembak; pola sektor selalu menyisakan
+    //     satu lorong aman.
+    {
+        const w = warden;
+        for (const r of w.rails) { r.active = false; r.warning.visible = false; r.shot.visible = false; }
+        stand12({ x: w.parts.group.position.x + 260, z: w.parts.group.position.z });
+        w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 0; w.phase = 'phase1';
+        wardenMod.updateNusantaraWarden(w, 0.05, { arena: s12.S12_ARENA, allowAttack: true });
+        const rail = w.rails.find(r => r.active);
+        const dirX = rail && rail.dx, dirZ = rail && rail.dz;
+        const warnedFirst = !!rail && rail.warned && rail.warning.visible && !rail.shot.visible;
+        // Player LARI selama telegraf: arah rail tak boleh ikut berubah.
+        stand12({ x: w.parts.group.position.x, z: w.parts.group.position.z + 260 });
+        for (let t = 0; t < W12.rail.telegraphSec + 0.2; t += 0.05)
+            wardenMod.updateNusantaraWarden(w, 0.05, { arena: s12.S12_ARENA, allowAttack: true });
+        T('S12 RAIL: garis tembak dikunci di telegraf dan tak mengejar player',
+            warnedFirst && Math.abs(rail.dx - dirX) < 1e-9 && Math.abs(rail.dz - dirZ) < 1e-9
+            && rail.shot.visible === true);
+
+        // Sektor: tiga baji + tiga celah. Pola DIBEKUKAN saat telegraf, jadi
+        // baji yang terlihat = area yang benar-benar meledak, dan lorong aman
+        // di antara mereka benar-benar aman.
+        for (const r of w.rails) { r.active = false; r.warning.visible = false; r.shot.visible = false; }
+        for (const b of w.bursts) { b.active = false; b.mesh.visible = false; }
+        for (const q of w.stomps) { q.active = false; q.mesh.visible = false; }
+        w.phase = 'phase2'; w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 0;
+        wardenMod.updateNusantaraWarden(w, 0.05, { arena: s12.S12_ARENA, allowAttack: true });
+        const sectorSeen = w.attackState === 'sectorTelegraph';
+        const base = w.sectorBase;
+        const wedges = w.sectors.filter(q => q.active).map(q => q.angle);
+        const gapCenters = [0, 1, 2].map(i => base + i * Math.PI * 2 / 3 + Math.PI / 3);
+        const wp = w.parts.group.position;
+        const boomAt = (angle, radius) => {
+            robotsMod.resetRobotsFx();
+            camera.position.set(wp.x + Math.cos(angle) * radius,
+                cfgMod.CFG.player.eyeHeight, wp.z + Math.sin(angle) * radius);
+            for (let t = 0; t < W12.sector.telegraphSec + 0.2 && w.attackState.startsWith('sector'); t += 0.05)
+                wardenMod.updateNusantaraWarden(w, 0.05, { arena: s12.S12_ARENA, allowAttack: true });
+            return robotsMod.pendingBoomsDebug().length;
+        };
+        const inGap = boomAt(gapCenters[0], W12.sector.radius * 0.6);
+        w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 0;
+        wardenMod.updateNusantaraWarden(w, 0.05, { arena: s12.S12_ARENA, allowAttack: true });
+        const inWedge = boomAt(w.sectorBase, W12.sector.radius * 0.6);
+        robotsMod.resetRobotsFx();
+        T('S12 SEKTOR: pola dibekukan di telegraf — lorong aman benar-benar aman',
+            sectorSeen && wedges.length === 3 && inGap === 0 && inWedge === 1
+            && w.sectors.length === W12.sector.poolSize);
+    }
+
+    // (9) Kematian bos: seluruh bahaya bersih, siaran melewati preBossFraction
+    //     menuju 100%, dan uploadnya BERHASIL (bukan gagal seperti Stage 6).
+    {
+        const w = warden;
+        w.phase = 'phase3'; w.dead = false; w.deathDone = false; w.hp = 1;
+        stand12(s12.S12_INSERT);
+        wardenMod.damageNusantaraWarden(w, 9999,
+            { x: w.parts.group.position.x + 200, z: w.parts.group.position.z });
+        const dead = wardenMod.nusantaraWardenDebug(w);
+        tick12(W12.deathSec + 1);
+        const wrecked = wardenMod.nusantaraWardenDebug(w);
+        T('S12 KEMATIAN: bos mati membersihkan SEMUA bahaya aktif sebelum epilog',
+            dead.dead && wrecked.deathDone
+            && wrecked.pools.rail.active === 0 && wrecked.pools.burst.active === 0
+            && wrecked.pools.sector.active === 0 && wrecked.pools.stomp.active === 0);
+        for (let i = 0; i < 600 && s12.stage12WorldDebug().root.uploadProgress < 1; i++) tick12(0.5);
+        d12 = s12.stage12WorldDebug();
+        T('S12 SIARAN: mencapai 100% HANYA sesudah bos mati, dan tetap monoton',
+            d12.root.uploadProgress === 1 && d12.root.monotonic
+            && wardenMod.nusantaraWardenWrecked(warden) && d12.root.rewardDropped);
+    }
+
+    // (10) Epilog: jaringan padam DULU, baru anomali M-0, lalu transisi Stage 13.
+    for (let i = 0; i < 800 && !s12rt.complete; i++) tick12(0.5);
+    d12 = s12.stage12WorldDebug();
+    const seen12 = d12.dialogue.seen;
+    T('S12 EPILOG: jaringan padam diumumkan SEBELUM anomali M-0 terungkap',
+        seen12.indexOf('networkSilent') >= 0
+        && seen12.indexOf('networkSilent') < seen12.indexOf('anomaly')
+        && seen12.indexOf('anomaly') < seen12.indexOf('mahapatihReveal')
+        && seen12.includes('jakartaCoordinate') && seen12.includes('returnVow'));
+    T('S12 SELESAI: finish hijau STAGE 12 COMPLETE membuka jalur ke Stage 13',
+        s12rt.complete && d12.root.completionInvoked && stateMod.isGameOver
+        && dom4.gameOverTitle.innerText === 'STAGE 12 COMPLETE'
+        && dom4.gameOverScreen.style.background === 'rgba(0, 90, 30, 0.82)'
+        && save5Mod.loadCampaignStage() === 12);
+    // Mutasi: upload Stage 12 TIDAK BOLEH gagal seperti Stage 6, dan tak boleh
+    // ada jalur yang menyelesaikan siaran selagi Warden masih hidup.
+    T('S12 ANTI-DRIFT: tak ada fraksi gagal, dan 100% mustahil selagi Warden hidup',
+        !/uploadFailFraction|uploadFail/.test(rootSource12)
+        && /nusantaraWardenWrecked\(w\)/.test(rootSource12)
+        && C12.upload.preBossFraction < 1);
+
+    stateMod.setGameOver(false); kill12();
+}
+
+// --- 25e. CAMPAIGN STAGE 13 / M-0 MAHAPATIH -------------------------------
+// Final-stage invariants are intentionally executable in isolation: the world
+// is campaign-owned, guards stay staged below the live cap, the boss consumes
+// the just-moved bullet segment, every phase uses fixed pools, and checkpoint
+// 13 survives until the epilogue's completion callback.
+{
+    const M13 = cfgMod.CFG.campaign.bosses.mahapatih;
+    const C13 = cfgMod.CFG.campaign.stage13;
+    const mahMod = await import(R('src/entities/mahapatih.js'));
+    const world13 = await import(R('src/scenes/campaign/stages/stage13/world.js'));
+    const stage13 = await import(R('src/scenes/campaign/stages/stage13/index.js'));
+    const save13 = await import(R('src/core/saveGame.js'));
+    const dom13 = await import(R('src/core/dom.js'));
+    const worldSource13 = fs.readFileSync(ROOT
+        + '/src/scenes/campaign/stages/stage13/world.js', 'utf8');
+    const entitySource13 = fs.readFileSync(ROOT + '/src/entities/mahapatih.js', 'utf8');
+
+    const encounterTotal = C13.encounters.reduce((sum, e) => sum
+        + e.points.reduce((n, p) => n + p.count, 0), 0);
+    const encounterMax = Math.max(...C13.encounters.map(e =>
+        e.points.reduce((n, p) => n + p.count, 0)));
+    const dialogueKeys13 = ['returnJakarta', 'monasAhead', 'offlineWake',
+        'vaultOpening', 'gibranAnswer', 'phaseTwo', 'hardlineStart',
+        'anchorOne', 'finalCore', 'mahapatihDeath', 'networkSafe', 'finalGibran'];
+
+    T('S13 CONFIG: 30–45 hardwired guards are staged in bounded encounters',
+        encounterTotal >= 30 && encounterTotal <= 45 && encounterMax <= 30
+        && C13.encounters.every(e => e.id && Number.isFinite(e.triggerX)
+            && e.points.every(p => ['A', 'B', 'C'].includes(p.cls) && p.count > 0)));
+    T('S13 CONFIG: boss tuning has one owner and dialogue has every exact beat',
+        !!M13 && !C13.mahapatih && M13.hardline.anchorCount === 4
+        && M13.artillery.poolSize > 0 && M13.wave.poolSize > 0
+        && dialogueKeys13.every(k => cfgMod.CFG.dialogue.campaign.stage13.lines[k]?.text));
+
+    const wr1 = world13.ensureStage13World(scene);
+    const wr2 = world13.ensureStage13World(scene);
+    const wd = world13.stage13WorldDebug();
+    T('S13 WORLD: build is idempotent at isolated x=430000 campaign root',
+        wr1 === wr2 && wd.built && wd.origin.x === 430000
+        && wd.monas.campaignOnly && wd.monas.stable && !wd.monas.destructible
+        && wd.survivalStateImported === false);
+    T('S13 WORLD: full Jakarta/Medan Merdeka production census, not placeholders',
+        wd.census.inertRobots >= 200 && wd.census.liveInertRobots === 0
+        && wd.census.inertVehicles >= 20 && wd.census.parkTrees >= 150
+        && wd.census.cityBuildings >= 50 && wd.census.government > 0
+        && wd.census.offices > 0 && wd.census.ruko > 0
+        && wd.census.damagedBuildings > 0 && wd.census.detailedProps >= 200
+        && wd.semantic['deployment-avenue'] === 1
+        && wd.semantic['ring-road'] === 1 && wd.semantic['monas-plaza'] === 1
+        && wd.semantic['hardline-station'] === M13.hardline.anchorCount
+        && wd.semantic['legacy-vault'] === 1);
+    T('S13 WORLD: inert army/trees are instanced, static props batched, no PointLights',
+        wd.batching.instancedArmy && wd.batching.instancedTrees
+        && wd.batching.sourceMeshes > wd.batching.batches
+        && wd.pointLights === 0 && wd.occluders.count > 0);
+    T('S13 WORLD: every authored boss charge lane clears solid, standing Monas',
+        wd.chargeLanes.length >= 4 && wd.chargeLanes.every(l => l.clearOfMonas)
+        && wd.blockers.monasSolid && wd.hardlineStations.length === M13.hardline.anchorCount);
+    T('S13 WORLD: deterministic builder never imports or mutates Survival Monas',
+        !/Math\.random\s*\(/.test(worldSource13)
+        && !/scenes\/survival|survival\/world/.test(worldSource13)
+        && !/damageMonas|monasHp|collapseMonas/.test(worldSource13));
+
+    const hero = mahMod.buildMahapatihMesh(1);
+    let heroMeshes = 0, heroNonBox = 0, heroPointLights = 0;
+    let heroNeon = false, heroEmissiveOver = false;
+    hero.group.traverse(o => {
+        if (o.isMesh) {
+            heroMeshes++;
+            if (o.geometry?.type !== 'box') heroNonBox++;
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const mat of mats) if (mat) {
+                const color = mat.color?.getHex?.();
+                const emissive = mat.emissive?.getHex?.();
+                if (palMod.FORBIDDEN_HEX.includes(color)
+                    || palMod.FORBIDDEN_HEX.includes(emissive)) heroNeon = true;
+                if (emissive && mat.emissiveIntensity > palMod.EMISSIVE_MAX)
+                    heroEmissiveOver = true;
+            }
+        }
+        if (o.isPointLight) heroPointLights++;
+    });
+    T('MAHAPATIH ART: layered siege/personal rig has articulated addressable parts',
+        heroMeshes >= 60 && heroNonBox >= 20 && hero.legs.length === 4
+        && hero.arms.length === 2 && hero.blades.length === 2
+        && hero.turret?.isObject3D && hero.core?.isMesh
+        && hero.siege !== hero.combat && hero.hull?.name === 'Welded-Siege-Armour');
+    T('MAHAPATIH ART: zero PointLights, forbidden neon, or over-cap emissive',
+        heroPointLights === 0 && !heroNeon && !heroEmissiveOver);
+    T('MAHAPATIH CONFIG: entity source reads only campaign.bosses.mahapatih at call time',
+        entitySource13.includes('CFG.campaign.bosses.mahapatih')
+        && !entitySource13.includes('campaign.stage13.mahapatih')
+        && !/const\s+\w+\s*=\s*CFG\.campaign\.bosses\.mahapatih/.test(entitySource13));
+
+    const bossParent13 = new THREE.Group(); scene.add(bossParent13);
+    const boss13 = mahMod.createMahapatih({ parent: bossParent13, active: true,
+        x: world13.S13_BOSS_CENTER.x, z: world13.S13_BOSS_CENTER.z });
+    let bd = mahMod.mahapatihDebug(boss13);
+    T('MAHAPATIH POOLS: every projectile, warning and hardline is preallocated',
+        bd.pools.artillery === M13.artillery.poolSize
+        && bd.pools.waves === M13.wave.poolSize
+        && bd.pools.shots >= M13.turret.burst
+        && bd.hardlines.length === M13.hardline.anchorCount
+        && bd.zeroPointLights);
+
+    // updateMahapatih no longer reads the previous bullet segment. The
+    // just-moved segment is consumed exactly once through mahapatihBulletHit,
+    // which Stage 13 calls before testing the world/Monas wall.
+    const shot13 = {
+        px: world13.S13_BOSS_CENTER.x - M13.hitRadius * 2, pz: 0,
+        mesh: new THREE.Mesh(new THREE.SphereGeometry(1),
+            new THREE.MeshBasicMaterial({ color: palMod.PAL.amber })),
+        damage: 123,
+    };
+    shot13.mesh.position.set(world13.S13_BOSS_CENTER.x + M13.hitRadius * 2, 9, 0);
+    const hpBeforeUpdate = boss13.hp;
+    mahMod.updateMahapatih(boss13, 1 / 60, { allowAttack: false });
+    const hpBeforeSweep = boss13.hp;
+    const swept = mahMod.mahapatihBulletHit(boss13, shot13, {});
+    T('MAHAPATIH HIT: just-moved swept segment hits once after updateBullets',
+        hpBeforeUpdate === hpBeforeSweep && swept
+        && boss13.hp === hpBeforeSweep - shot13.damage);
+
+    // Closed shutters consume a shot physically without damage; opening them
+    // exposes exactly the same finite swept body volume.
+    boss13.phase = 'core'; boss13.hp = boss13.maxHp = M13.coreHp;
+    boss13.shutterOpen = false;
+    const closedHp = boss13.hp;
+    const closedConsumed = mahMod.mahapatihBulletHit(boss13, shot13, {});
+    boss13.shutterOpen = true;
+    const openConsumed = mahMod.mahapatihBulletHit(boss13, shot13, {});
+    T('MAHAPATIH CORE: closed shutters block damage; open core takes finite-volume hit',
+        closedConsumed && openConsumed && boss13.hp === closedHp - shot13.damage);
+
+    // Independent phase simulation: hazards clear at every transition, anchors
+    // accept arbitrary order, score is granted once, and the wreck persists.
+    const phaseEvents13 = [];
+    const phaseCtx13 = { allowAttack: false,
+        onPhase: p => phaseEvents13.push(p), onAnchor() { },
+        clampBoss: world13.clampStage13Boss, wreckDir: { x: -1, z: .2 } };
+    mahMod.resetMahapatih(boss13, { active: true, x: world13.S13_BOSS_CENTER.x,
+        z: world13.S13_BOSS_CENTER.z });
+    boss13.artillery[0].active = true; boss13.artillery[0].shell.visible = true;
+    boss13.artillery[0].marker.visible = true; boss13.telegraphs.charge.visible = true;
+    mahMod.damageMahapatih(boss13, M13.siegeHp, { ctx: phaseCtx13 });
+    bd = mahMod.mahapatihDebug(boss13);
+    const transitionClean = bd.phase === 'transition' && bd.hazardsCleared;
+    mahMod.updateMahapatih(boss13, M13.transitionSec + .01, phaseCtx13);
+    const personalFull = boss13.phase === 'personal' && boss13.hp === M13.combatHp;
+    mahMod.damageMahapatih(boss13, M13.combatHp, { ctx: phaseCtx13 });
+    const anchorOrder = [2, 0, 3, 1].filter(i => i < M13.hardline.anchorCount);
+    const anchorStates = [];
+    for (const i of anchorOrder) {
+        mahMod.damageMahapatihHardline(boss13, i, M13.hardline.anchorHp, phaseCtx13);
+        anchorStates.push(mahMod.mahapatihDebug(boss13).hardlines.map(h => h.alive));
+    }
+    T('MAHAPATIH PHASES: siege transition is once, clean, and refills personal segment',
+        transitionClean && personalFull
+        && phaseEvents13.filter(p => p === 'transition').length === 1
+        && phaseEvents13.filter(p => p === 'personal').length === 1);
+    T('MAHAPATIH HARDLINES: four anchors die in arbitrary order and disable their sectors',
+        boss13.phase === 'core'
+        && anchorStates.every((state, step) => state.filter(Boolean).length
+            === M13.hardline.anchorCount - step - 1)
+        && mahMod.mahapatihDebug(boss13).hardlines.every(h => !h.hazardSectorEnabled));
+
+    boss13.shutterOpen = true;
+    const scoreBefore13 = stateMod.score;
+    mahMod.damageMahapatih(boss13, M13.coreHp, { force: true, ctx: phaseCtx13 });
+    mahMod.damageMahapatih(boss13, M13.coreHp, { force: true, ctx: phaseCtx13 });
+    const scoreAfter13 = stateMod.score;
+    mahMod.updateMahapatih(boss13, M13.deathSec + .01, phaseCtx13);
+    bd = mahMod.mahapatihDebug(boss13);
+    const collideProbe13 = new THREE.Vector3(boss13.parts.group.position.x,
+        0, boss13.parts.group.position.z);
+    const wreckBlocks13 = mahMod.resolveMahapatihBlock(boss13, collideProbe13, player.radius);
+    T('MAHAPATIH DEATH: reward is exactly once and all lethal hazards clear immediately',
+        scoreAfter13 - scoreBefore13 === M13.score && bd.rewardGranted
+        && bd.hazardsCleared && bd.activeProjectiles === 0);
+    T('MAHAPATIH DEATH: wreck settles visibly away from Monas and remains collision-solid',
+        bd.phase === 'wreck' && bd.wreckVisible && wreckBlocks13
+        && boss13.parts.group.position.x < world13.S13_BOSS_CENTER.x);
+
+    const facadeHooks13 = ['enter', 'exit', 'updateMode', 'playerCollide',
+        'groundHeight', 'bulletBlocked', 'blastBlocked', 'grenadeCollide',
+        'robotAI', 'clampRobot', 'clampDropPos', 'awardKill', 'hudStatus',
+        'radarLandmarks', 'restartScene', 'cheatSkipToStage', 'camBounds'];
+    T('S13 FACADE: complete Campaign scene contract is exported',
+        stage13.stage13Scene.id === 'campaign-13'
+        && stage13.stage13Scene.lightsKey === 'campaign-13'
+        && facadeHooks13.every(k => typeof stage13.stage13Scene[k] === 'function'));
+
+    // Enter is safe after initial prebuild: no guard is live until deployment;
+    // the first configured formation is the only one instantiated after cine.
+    smMod.setScene(stage13.stage13Scene, { fresh: true });
+    let sd13 = stage13.stage13Debug();
+    const checkpointAtEntry13 = save13.loadCampaignStage();
+    for (let i = 0; i < Math.ceil(C13.returnCine.durationSec + 20); i++)
+        stage13.stage13Scene.updateMode(1);
+    sd13 = stage13.stage13Debug();
+    T('S13 GUARDS: entry census is total-configured while only one formation is live',
+        sd13.guards.configured === encounterTotal
+        && sd13.guards.alive <= encounterMax && sd13.guards.alive <= 30
+        && sd13.guards.hardwired === sd13.guards.alive
+        && sd13.guards.encounters.filter(e => e.spawned).length === 1);
+    T('S13 SAVE: checkpoint 13 is written at entry and preserved through unfinished run',
+        checkpointAtEntry13 === 13 && save13.loadCampaignStage() === 13
+        && sd13.checkpointClearTiming === 'preserved' && !sd13.finalScreenShown);
+
+    stage13.stage13BeginEndingForDebug();
+    sd13 = stage13.stage13Debug();
+    T('S13 ENDING: interrupted sunrise has no hazards/guards and still preserves checkpoint 13',
+        sd13.phase === 'ending' && sd13.endingCleanup
+        && save13.loadCampaignStage() === 13 && !sd13.finalScreenShown);
+    stage13.stage13CompleteEndingForDebug();
+    sd13 = stage13.stage13Debug();
+    T('S13 COMPLETE: final callback clears save, opens CAMPAIGN COMPLETE, and schedules no shop',
+        save13.loadCampaignStage() === 0 && sd13.phase === 'complete'
+        && sd13.finalScreenShown && dom13.gameOverTitle.innerText === 'CAMPAIGN COMPLETE'
+        && smMod.activeScene === stage13.stage13Scene);
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

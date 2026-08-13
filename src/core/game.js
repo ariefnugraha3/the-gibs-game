@@ -13,7 +13,7 @@ import { scene } from './renderer.js';
 import { activeScene, setScene } from './sceneManager.js';
 import {
     gameOverScreen, gameOverTitle, finalScoreEl, bestScoreEl,
-    goStageStats, goTotalTime, goLootBoxes,
+    goStageStats, goTotalTime, goLootBoxes, hideBossHud,
 } from './dom.js';
 import { updateUI } from './hud.js';
 import { updateWeaponTimers, updateWeaponState, updateShooting, resetWeapons } from '../entities/weapons.js';
@@ -140,11 +140,12 @@ export function formatStageTime(seconds) {
 
 export function gameOver(won, title, opts = {}) {
     setGameOver(true);
+    hideBossHud();
     endDeathCine();   // lepas slow motion + letterbox; framing jasad dibekukan (no-op bila menang)
     stopMusic();   // stage berakhir (menang/kalah) -> musik battle/boss berhenti (2026-07-19)
     document.exitPointerLock();
-    // Menang final biasanya menghapus checkpoint. Endpoint Stage 8 sengaja
-    // mempertahankannya agar Continue/Restart kembali ke checkpoint 8.
+    // Menang final menghapus checkpoint. Finish Stage 1–12 mempertahankannya
+    // lewat gateway Field Shop; Stage 13 baru memanggil ini setelah epilog.
     if (won && !opts.preserveCampaignSave) clearCampaignSave();
     if (score > highScore) setHighScore(score);
     // Campaign selesai = menang; selain itu (HP habis) = kalah.

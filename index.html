@@ -41,6 +41,17 @@
         <div id="waveText">Wave 1</div>
     </div>
 
+    <!-- HUD boss generik Campaign: Stage 12/13 dapat menampilkan durability
+         boss dan progres sekunder (upload/hardline) bersamaan. -->
+    <div id="bossHud" aria-hidden="true">
+        <div id="bossHudHead"><span id="bossHudName"></span><span id="bossHudState"></span></div>
+        <div id="bossHudShell"><div id="bossHudFill"></div></div>
+        <div id="bossHudSecondary">
+            <span id="bossHudSecondaryLabel"></span>
+            <div id="bossHudSecondaryShell"><div id="bossHudSecondaryFill"></div></div>
+        </div>
+    </div>
+
     <!-- Bar ARMOR (tampil hanya saat memakai armor) + HEALTH & STAMINA:
          pojok kiri-bawah (label + angka di atas bar) -->
     <div id="barsHud">

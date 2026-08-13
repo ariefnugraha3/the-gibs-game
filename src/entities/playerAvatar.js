@@ -23,6 +23,7 @@ import { GEO, player, robots, isPaused } from '../core/state.js';
 import { aimPoint } from '../core/input.js';
 import { eyeHCur, dodgeActive, dodgeProgress, dodgeDirX, dodgeDirZ } from './player.js';
 import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim, meleeDirX, meleeDirZ, meleeSide, shotT, shotDur, shotKick, shotSide, recoilStack } from './weapons.js';   // sirkular aman: dibaca di dalam fungsi
+import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 
 export let avatarGroup = null;
 export let avatarGunTip = null;   // Object3D ujung laras (dibaca weapons.js)
@@ -59,6 +60,9 @@ let gunGrpRef = null;                                 // grup senjata (utk digel
 let radioPoseActive = false, radioPoseYaw = 0, radioPoseGesture = 'gibranCall';
 let radioPoseProgress = 0, radioPoseT = 0;
 let vehiclePoseActive = false, vehiclePoseHeight = 0;
+// Kotak objective fisik Campaign (flight core Stage 9 / root drive). Dipasang
+// pada harness, tidak mengganti senjata dan tidak mengubah movement.
+let missionCase = null, missionCaseIndicator = null, missionCaseKind = '';
 // DIBAWA PLATFORM (2026-08-09, laporan user "ketika kereta berjalan, major
 // gibran malah terlihat sedang berlari"): gait avatar diturunkan dari
 // PERPINDAHAN PIVOT per frame, jadi begitu pivot ikut terbawa gerbong yang
@@ -379,6 +383,24 @@ export function initPlayerAvatar(sc) {
     box(1.4, 0.14, 0.12, dark, 0, 7.9, -1.74, upperG, false);
     cyl(0.32, 0.32, 1.7, fatig, 0, 9.5, -1.25, upperG, 0).rotation.z = Math.PI / 2;   // gulungan matras
     cyl(0.05, 0.04, 2.6, dark, 0.72, 9.4, -1.6, upperG, 0).rotation.x = -0.18;        // antena panjang ransel
+    // Hard-case objective: badan berusuk, corner guards, engsel, pengunci, dan
+    // handle terpisah supaya tetap terbaca sebagai perangkat final dari atas.
+    missionCase = new THREE.Group(); missionCase.position.set(1.75, 7.25, -1.15);
+    missionCase.rotation.z = -0.12; upperG.add(missionCase);
+    box(1.45, 1.8, 0.62, gun, 0, 0, 0, missionCase, false);
+    box(1.52, 0.14, 0.7, metal, 0, 0.48, 0, missionCase, false);
+    box(1.52, 0.14, 0.7, metal, 0, -0.48, 0, missionCase, false);
+    for (const sx of [-1, 1]) for (const sy of [-1, 1])
+        box(0.18, 0.28, 0.72, rubber, sx * 0.67, sy * 0.72, 0, missionCase, false);
+    for (const y of [-0.22, 0.22])
+        box(1.12, 0.09, 0.68, strap, 0, y, 0, missionCase, false);
+    box(0.55, 0.18, 0.18, metal, 0, 0.92, 0, missionCase, false);
+    const caseLight = new THREE.MeshPhongMaterial({
+        color: PAL.amber, emissive: PAL.amber, emissiveIntensity: EMISSIVE_MAX * 0.55,
+        shininess: 12, specular: PAL.ink,
+    });
+    missionCaseIndicator = box(0.42, 0.22, 0.08, caseLight, 0, 0.18, 0.35, missionCase, false);
+    missionCase.visible = false;
     // Bantalan bahu (statis — pangkal visual lengan tertarik) + patch/tab.
     mk(ellip(0.6, 1.1, 0.85, 1.05, 10, 7), fatig, SHOULDER.L.x, SHOULDER.L.y + 0.15, SHOULDER.L.z, upperG, false);
     mk(ellip(0.6, 1.1, 0.85, 1.05, 10, 7), fatig, SHOULDER.R.x, SHOULDER.R.y + 0.15, SHOULDER.R.z, upperG, false);
@@ -1163,6 +1185,7 @@ export function resetAvatarDeath() {
     rappelActive = false;   // batalkan pose rappel intro juga
     radioPoseActive = false;
     vehiclePoseActive = false; vehiclePoseHeight = 0; carriedPose = false;
+    setAvatarMissionCase(false);
     if (hipL) hipL.visible = true;
     if (hipR) hipR.visible = true;
     radioPoseGesture = 'gibranCall'; radioPoseProgress = 0; radioPoseT = 0;
@@ -1258,6 +1281,20 @@ export function setAvatarVehiclePose(on, height = 10.2) {
 export const avatarVehicleDebug = () => ({
     active: vehiclePoseActive, height: vehiclePoseHeight,
     hipsHidden: !!vehiclePoseActive && hipL?.visible === false && hipR?.visible === false,
+});
+
+export function setAvatarMissionCase(on, kind = 'flight-core') {
+    missionCaseKind = on ? kind : '';
+    if (missionCase) missionCase.visible = !!on;
+    if (missionCaseIndicator?.material?.color) {
+        const hex = kind === 'kill-switch' ? PAL.hazard : PAL.amber;
+        missionCaseIndicator.material.color.setHex(hex);
+        missionCaseIndicator.material.emissive?.setHex(hex);
+    }
+}
+export const avatarMissionCaseDebug = () => ({
+    active: !!missionCase?.visible, kind: missionCaseKind,
+    detailedParts: missionCase?.children?.length || 0,
 });
 
 function poseRadio(dt) {

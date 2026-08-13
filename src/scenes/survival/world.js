@@ -672,12 +672,28 @@ function createParkProps() {
     // Titik valid = RUMPUT saja: tolak pelataran tengah, Jalan Silang (diagonal),
     // bak air mancur, dan kolam pantul.
     const diagA = Math.atan2(PARK.hz, PARK.hx);
+    // Koridor polyline cutscene Survival. Dua ruas akhirnya membelok dari Jalan
+    // Silang menuju plaza; hanya mengosongkan pita diagonal membuat batang acak
+    // sesekali muncul tepat di belokan. Salin koordinat panggung (kontrak visual,
+    // bukan tuning gameplay) agar world tidak mengimpor cutscene secara circular.
+    const introPath = [[520, 285], [300, 164], [150, 82], [70, 104], [0, 120]];
+    const introPathDist = (x, z) => {
+        let best = Infinity;
+        for (let i = 1; i < introPath.length; i++) {
+            const a = introPath[i - 1], b = introPath[i];
+            const vx = b[0] - a[0], vz = b[1] - a[1];
+            const t = clamp(((x - a[0]) * vx + (z - a[1]) * vz) / (vx * vx + vz * vz || 1), 0, 1);
+            best = Math.min(best, Math.hypot(x - (a[0] + vx * t), z - (a[1] + vz * t)));
+        }
+        return best;
+    };
     const isOnGrass = (x, z) => {
         if (Math.abs(x) < 120 && Math.abs(z) < 120) return false;                       // pelataran + Monas
         if (Math.abs(x * Math.sin(diagA) - z * Math.cos(diagA)) < 30) return false;     // diagonal 1 (lebar 40/2 + margin)
         if (Math.abs(x * Math.sin(diagA) + z * Math.cos(diagA)) < 30) return false;     // diagonal 2
         if (Math.hypot(x - FOUNTAIN.x, z - FOUNTAIN.z) < FOUNTAIN.r + 12) return false; // air mancur
         if (Math.abs(x) < 88 && Math.abs(z + PARK.hz * 0.55) < 43) return false;        // kolam pantul
+        if (introPathDist(x, z) < CFG.player.radius + 6) return false;                  // koridor intro utuh
         return true;
     };
     let ti = 0, li = 0;

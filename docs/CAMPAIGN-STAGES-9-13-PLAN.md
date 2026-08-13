@@ -1,11 +1,11 @@
 # Campaign Expansion Blueprint — Stages 9–13
 
-> Status: **approved narrative and gameplay direction; not implemented yet**
+> Status: **implemented campaign contract (2026-08-13)** — §14 acceptance matrix executed 2026-08-13 in `tools/smoke.mjs` sections `25` and `25a`–`25e`; see §22 for the deviations that pass recorded.
 > Created: 2026-08-12
 > Scope: continuation from the current Stage 8 endpoint at Kertajati through the final battle at Monas
-> Current shipped campaign remains **eight stages** until the corresponding code, configuration, tests, transitions, and documentation are implemented.
+> The shipped campaign now contains **thirteen stages**; this document remains the acceptance and regression contract for Stages 9–13.
 
-This document is the implementation source of truth for the planned second campaign arc. It exists so a future implementation can preserve the intended story, pacing, location identity, mechanics, technical architecture, performance discipline, and ending instead of improvising each stage independently.
+This document is the implementation and regression source of truth for the second campaign arc. It preserves the intended story, pacing, location identity, mechanics, technical architecture, performance discipline, and ending.
 
 The detailed campaign implementation that already exists remains documented in [campaign.md](campaign.md), while module contracts and the stage-addition recipe remain authoritative in [MODULES.md](MODULES.md). If this plan conflicts with a later explicit user decision, the later decision wins and this file must be updated before or together with the implementation.
 
@@ -1775,3 +1775,13 @@ Before merging any Stage 9–13 implementation, answer yes to all applicable ite
 After destroying the Cisumdawu gunship, Major Gibran reaches Kertajati. He fights through the occupied airport, secures an autonomous heavy transport, and escapes Java. Automated defenses force him into Balikpapan's industrial coast, where he disables the machine-controlled port defense network. His ground transport is destroyed on the approach to IKN, forcing him through the forested sensor belt and waterworks on foot. Beneath Nusantara's civic axis he reaches the root transmitter, inserts the valid kill-switch, defeats the six-legged Nusantara Warden, and successfully decommissions the national G.A.R.U.D.A network.
 
 One signal remains: M-0 MAHAPATIH, an air-gapped military authority kernel created by the Mahapatih Protocol and responsible for Zero Hour. It activates a sovereign war body beneath Medan Merdeka and attempts to use Jakarta's legacy emergency network to reverse the shutdown. Gibran returns to a silent Jakarta, breaks the last offline guard, and destroys M-0 in a multi-phase battle around Monas. The countermand dies with it, Monas remains standing, and the campaign ends.
+
+## 22. Acceptance-pass record (2026-08-13)
+
+The §14 smoke matrix is implemented as sections **25** (shared 9–13 contract), **25a** Stage 9, **25b** Stage 10, **25c** Stage 11, **25d** Stage 12 and **25e** Stage 13. Writing it changed three things this document had specified differently, and each change is now the canon:
+
+1. **`campaign.stage11.scan` was retuned** (§1.3 permits this). The authored band swept the whole route in 3.5 s with a 28-unit gameplay half-width, so a stationary exposed player was inside it for 0.17 s against a 1.2 s `lockSec` — the artillery in §7.5 could never trigger. The visible footprint is now built from `safeRadius` (so the band you see is the band that is tested) and the config is `safeRadius` 115 / `cycleSec` 14, giving a 1.42 s dwell. Smoke derives the dwell from `CFG` and fails if a retune drops it below `lockSec`; `scan.sweepSec` remains unused.
+2. **Stage 12's completion hook is installed by the facade.** §12.2 required one gateway for the 12 → 13 handoff; the implementation exposed `setStage12CompletionHook` but never called it, so a completed broadcast dead-ended. `stage12Scene.enter()` now installs `() => beginStageTransition(stage13Scene)`, keeping Stage 13 out of `root.js`'s imports.
+3. **§8.7's "every sector pattern leaves a valid safe lane" is enforced by freezing the pattern.** The wedges were drawn from `animT` at telegraph time and re-derived at detonation, drifting about 20° across the telegraph, so the drawn gap was not the safe gap. `beginSector` now stores `sectorBase` and `resolveSector` reads it.
+
+Four further defects found by the matrix were fixed without changing the plan: the Warden read its yaw off a `Vector3` (crash on its first active frame); Stage 9/10 left a radio line on screen through the green finish; four robot/barrel spawn points sat inside solid props; and Mahapatih's wreck slide was frame-rate dependent. Details are in [campaign.md](campaign.md#acceptance-pass--stages-913-2026-08-13-completing-the-plans-14-matrix).

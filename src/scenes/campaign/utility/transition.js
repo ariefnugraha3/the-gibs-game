@@ -25,6 +25,11 @@ import { stage5Scene } from '../stages/stage5/index.js';
 import { stage6Scene } from '../stages/stage6/index.js';
 import { stage7Scene } from '../stages/stage7/index.js';
 import { stage8Scene } from '../stages/stage8/index.js';
+import { stage9Scene } from '../stages/stage9/index.js';
+import { stage10Scene } from '../stages/stage10/index.js';
+import { stage11Scene } from '../stages/stage11/index.js';
+import { stage12Scene } from '../stages/stage12/index.js';
+import { stage13Scene } from '../stages/stage13/index.js';
 
 const MIN_LOADING_MS = 900;   // durasi minimum tiap layar loading (konsistensi & terlihat)
 let pendingNext = null;       // stage tujuan setelah shop
@@ -55,15 +60,15 @@ export function beginStageTransition(nextScene) {
     return true;
 }
 
-// ===== CHEAT: lompat LANGSUNG ke stage campaign n (2/3/4/5/6/7/8; 1 juga aman) —
+// ===== CHEAT: lompat LANGSUNG ke stage campaign n (1..13) —
 // tanpa shop/loading (konsol cheat `skip-to-stage-N`, hook `cheatSkipToStage`
 // di tiap stage). Buang SEMUA robot + entitas transien (stage sekarang & yang
 // dilewati) lalu `setScene(target)` → enter() membangun dunia + menempatkan
 // robot (SETIAP stage menempatkan robotnya sendiri di enter() — termasuk stage 2
 // sejak 2026-07-21) + memosisikan player. Kembalikan n bila valid, null bila di
-// luar 1..8. =====
+// luar 1..13. =====
 export function campaignJumpToStage(n) {
-    if (!(n >= 1 && n <= 8)) return null;
+    if (!Number.isInteger(n) || n < 1 || n > 13) return null;
     stopMusic();   // stage lama berakhir (cheat/restart-checkpoint) -> musik battle mati dulu
     for (let i = robots.length - 1; i >= 0; i--) { disposeRobot(robots[i]); scene.remove(robots[i].mesh); }
     robots.length = 0;
@@ -74,7 +79,11 @@ export function campaignJumpToStage(n) {
     clearArray(explosions, scene);
     clearArray(drops, scene);
     busy = false;   // batalkan transisi shop yang mungkin sedang menanti
-    const target = [null, stage1Scene, stage2Scene, stage3Scene, stage4Scene, stage5Scene, stage6Scene, stage7Scene, stage8Scene][n];
+    // Array dibangun di dalam fungsi: binding circular stage facade baru dibaca
+    // setelah seluruh modul selesai dievaluasi.
+    const target = [null, stage1Scene, stage2Scene, stage3Scene, stage4Scene,
+        stage5Scene, stage6Scene, stage7Scene, stage8Scene, stage9Scene,
+        stage10Scene, stage11Scene, stage12Scene, stage13Scene][n];
     setScene(target, { fresh: true });          // enter(): robot + posisi player (dunia sudah pre-built; stage 2 kini tempatkan robotnya sendiri)
     // Kompilasi shader di bawah lampu stage tujuan — jaring pengaman anti-stutter
     // utk jalur lompat-langsung (cheat skip / restart-at-stage). Sejak pre-build

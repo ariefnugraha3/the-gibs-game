@@ -87,6 +87,7 @@ import {
     sfxTankMG, sfxTankMortar, sfxTankBlast, sfxTankExplode,
     sfxTankIncoming, sfxTankMove, sfxTankTurret
 } from '../utils/sfx.js';
+import { EMISSIVE_MAX } from '../world/palette.js';   // batas emissive gaya "GIBS 2045"
 import { addHitStop } from '../core/timeScale.js';   // slow-mo sekuens mati (sumber pelambatan RESMI)
 import { updateUI } from '../core/hud.js';
 import { flashDamage, showHitDir } from '../core/dom.js';
@@ -129,9 +130,11 @@ export function mortarShell() {
             boom: new THREE.CylinderGeometry(0.34, 0.34, 1.7, 8),
             fuze: new THREE.CylinderGeometry(0.24, 0.34, 0.85, 8),
             fin: new THREE.BoxGeometry(0.08, 1.25, 1.15),
-            olive: new THREE.MeshLambertMaterial({ color: 0x40492a, emissive: 0x3a1e00 }),   // HE zaitun (emissive rendah agar terlihat terbang)
+            // emissiveIntensity DITULIS eksplisit: default THREE = 1, di atas
+            // EMISSIVE_MAX gaya "GIBS 2045" (sapuan palet stage 9-13 memakainya).
+            olive: new THREE.MeshLambertMaterial({ color: 0x40492a, emissive: 0x3a1e00, emissiveIntensity: EMISSIVE_MAX }),   // HE zaitun (emissive rendah agar terlihat terbang)
             steel: new THREE.MeshLambertMaterial({ color: 0x9aa0a8 }),                         // sirip/boom baja
-            brass: new THREE.MeshLambertMaterial({ color: 0xb8923e, emissive: 0x2a1800 }),     // fuze kuningan
+            brass: new THREE.MeshLambertMaterial({ color: 0xb8923e, emissive: 0x2a1800, emissiveIntensity: EMISSIVE_MAX }),     // fuze kuningan
         };
     }
     const S = MSHELL, g = new THREE.Group();
