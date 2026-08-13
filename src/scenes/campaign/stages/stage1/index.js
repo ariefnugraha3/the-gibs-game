@@ -8,8 +8,11 @@
 // sesuai plan). Konektivitas (2044 sel lantai, 1 region) diverifikasi BFS.
 //
 // ALUR GAMEPLAY (state machine `s1Phase`):
-//   1. 'clear1'  : spawn di TANGGA. 50 robot KELAS C tersebar — BUNUH SEMUA →
-//                  pintu ruang komputer TERKUNCI (merah) TERBUKA (hijau).
+//   1. 'access'  : spawn di TANGGA dengan 50 robot KELAS C tersebar. TAK ADA
+//                  syarat "bunuh semua dulu" (dihapus 2026-08-12, permintaan
+//                  user): bank komputer '@' hidup sejak awal, tinggal berdiri di
+//                  petak '$' (TANPA minigame) → pintu NAC ruang super komputer
+//                  TERKUNCI (merah) TERBUKA (hijau). Robot boleh dilewati.
 //   2. 'download': datangi SUPER KOMPUTER (kanan-bawah), MENEMPEL → mulai unduh.
 //   3. 'downloading': MINIGAME HACK "ICE BREACH" (2026-07-28 — MENGGANTIKAN bar
 //                  progress 10 dtk yang lama): scene modal berisi puzzle sirkuit
@@ -53,7 +56,12 @@ import { buildFuturisticSofaMesh } from '../../../../entities/futuristicSofa.js'
 import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../../../entities/futuristicConsole.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill, spawnSwarm, spawnAlarmHorde, propClearance } from '../../utility/common.js';
+import { barricadeBlocker, buildFurniturePile, buildWallBreach } from '../../utility/barricade.js';
+import {
+    spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill,
+    spawnSwarm, spawnAlarmHorde, propClearance, buildStandMarker, pulseStandMarker,
+} from '../../utility/common.js';
+import { PAL } from '../../../../world/palette.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../../entities/crates.js';
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../../utility/interior.js';
@@ -91,22 +99,36 @@ export const S1_FINISH = { c0: 1, r0: 1, c1: 5, r1: 3 };
 // player harus MENEMPEL untuk memicu unduh; komputernya sendiri 1 sel di UTARA.
 export const S1_COMP = { c: 44, r: 43 };  // sel berdiri (selatan komputer) — trigger + marker
 export const S1_LIFT = { c: 9, r: 18 };   // LIFT rusak (nook kiri-tengah)
+// BANK KOMPUTER '@' (denah 2026-08-12): deret konsol sepanjang dinding TIMUR
+// ruang akses (c48, r30-38). `S1_ACCESS` = petak pijak '$' di depannya — berdiri
+// di situ MEMBUKA pintu NAC ruang super komputer. Sengaja TANPA minigame
+// (permintaan user): mencapai petaknya sudah menuntaskan event-nya.
+export const S1_TERMINAL_BANK = { c: 48, r0: 30, r1: 38 };
+export const S1_ACCESS = { c: 47, r: 34 };
 
 // Naskah milik user: dipisah dari state/timer supaya urutan dan teks lengkapnya
 // dapat dipatok smoke test tanpa menyalin string dari DOM.
 export const S1_RADIO_DIALOGUE = dialogueList('campaign.stage1.radio');
 
-// DENAH RESMI (stage1-v2.csv). 50x50. '#'=dinding, '.'=lantai (pintu '-'=lantai).
-// JANGAN ubah tanpa update S1_DOORS + robot/furnitur + tes ulang (smoke test).
+// DENAH RESMI (stages(Stage1).csv, revisi user 2026-08-12). 50x50. '#'=dinding,
+// '.'=lantai. Token denah yang BUKAN dinding tetap lantai di grid ini dan
+// diwujudkan oleh tabel di bawahnya:
+//   '-' pintu geser        -> S1_DOORS
+//   '+' pintu RUSAK        -> S1_DOORS { broken: true } (macet permanen)
+//   '/' celah tembok       -> S1_BREACHES (lubang bobol; lantai, bisa dilewati)
+//   '*' tumpukan perabot   -> S1_BARRICADES (pejal ke player DAN robot)
+//   '@' bank komputer      -> S1_TERMINAL_BANK (pejal, dinding timur ruang akses)
+//   '$' petak pijak hack   -> S1_ACCESS
+// JANGAN ubah tanpa update tabel-tabel itu + robot/furnitur + tes ulang (smoke).
 const S1_MAP = [
     '##################################################',   // 0
     '#.......#....................#.........#.........#',   // 1
     '#.......#....................#.........#.........#',   // 2
-    '#...................#........#.........#.........#',   // 3
+    '#...................#........#...................#',   // 3  (c39 = celah '/' ke east-1)
     '#...................#........#.........#.........#',   // 4
     '#.......#...........#........#.........#.........#',   // 5
     '#.......#...........#........#.........#.........#',   // 6
-    '###..########...##############.........#.........#',   // 7
+    '###..########...############.#.........#.........#',   // 7  (c3-4 & c13-15 = pintu RUSAK '+', c28 = celah '/')
     '#.......#............#.......#.........#.........#',   // 8
     '#.......#............#.......#.........#.........#',   // 9
     '#.......#............#.......#.........#.........#',   // 10
@@ -123,13 +145,13 @@ const S1_MAP = [
     '#.......#......#.....#.......#...................#',   // 21
     '#.......#......#.....#.......#...................#',   // 22
     '#.......#......#.................................#',   // 23
-    '#.......#......#.................................#',   // 24
-    '#.......#......#.....#.......#...................#',   // 25
+    '#..............#.................................#',   // 24  (c8 = pintu baru office SW <-> small room 1)
+    '#..............#.....#.......#...................#',   // 25
     '#.......#......#.....#.......#...................#',   // 26
     '#.......#......#.....#.......#...................#',   // 27
     '#.......#......#.....#.......#...................#',   // 28
     '#################################..###############',   // 29
-    '#................................................#',   // 30  (nub c39 dibuka: pintu jadi 3 sel, cegah dinding-ganda)
+    '#......................................#.........#',   // 30  (nub c39 = sudut tembok ruang akses; pintunya 2 sel di r31-32)
     '#................................................#',   // 31
     '#................................................#',   // 32
     '#......................................#.........#',   // 33
@@ -151,14 +173,18 @@ const S1_MAP = [
     '##################################################',   // 49
 ];
 
-// PINTU geser otomatis di SEMUA bukaan '-' plan resmi (17 pintu; grouping dari
-// scratchpad parse). dir 'ew'=dinding VERTIKAL (panel sumbu-z) / 'ns'=HORIZONTAL.
-// Pintu TERAKHIR (ruang komputer) TERKUNCI (merah) sampai semua robot tumbang.
+// PINTU di SEMUA bukaan '-' dan '+' denah resmi (18 pintu). dir 'ew'=dinding
+// VERTIKAL (panel sumbu-z) / 'ns'=HORIZONTAL.
+//   broken: true  -> '+' pintu RUSAK, macet permanen (lampu jamb selalu MERAH,
+//                    daun tak pernah bergerak) — pemain harus memutar.
+//   locked: true  -> pintu NAC ruang super komputer: TERKUNCI sampai bank
+//                    komputer '@' di-hack (lihat S1_ACCESS), bukan lagi sampai
+//                    semua robot tumbang.
 const S1_DOORS = [
     { c0: 20, r0: 1, c1: 20, r1: 2, dir: 'ew' },     // conference W <-> conference E
     { c0: 8, r0: 3, c1: 8, r1: 4, dir: 'ew' },       // start (A) <-> conference W
-    { c0: 3, r0: 7, c1: 4, r1: 7, dir: 'ns' },       // start (A) <-> office W
-    { c0: 13, r0: 7, c1: 15, r1: 7, dir: 'ns' },     // conference W <-> central hall
+    { c0: 3, r0: 7, c1: 4, r1: 7, dir: 'ns', broken: true },     // start (A) -X- office W (RUSAK)
+    { c0: 13, r0: 7, c1: 15, r1: 7, dir: 'ns', broken: true },   // conference W -X- central hall (RUSAK)
     { c0: 8, r0: 11, c1: 8, r1: 12, dir: 'ew' },     // office W <-> central hall
     { c0: 21, r0: 11, c1: 21, r1: 12, dir: 'ew' },   // central hall <-> toilet approach
     { c0: 3, r0: 17, c1: 4, r1: 17, dir: 'ns' },     // office W <-> office SW
@@ -168,11 +194,37 @@ const S1_DOORS = [
     { c0: 16, r0: 20, c1: 17, r1: 20, dir: 'ns' },   // central <-> small room 2
     { c0: 21, r0: 23, c1: 21, r1: 24, dir: 'ew' },   // office SE-mid <-> corridor
     { c0: 29, r0: 23, c1: 29, r1: 24, dir: 'ew' },   // corridor <-> east-mid
+    { c0: 8, r0: 24, c1: 8, r1: 25, dir: 'ew' },     // office SW <-> small room 1 (baru)
     { c0: 33, r0: 29, c1: 34, r1: 29, dir: 'ns' },   // upper block <-> lower hall
-    { c0: 39, r0: 30, c1: 39, r1: 32, dir: 'ew' },   // lower hall <-> east lower (3 sel: r30-32)
+    { c0: 39, r0: 31, c1: 39, r1: 32, dir: 'ew' },   // lower hall <-> ruang akses '@' (2 sel: r31-32)
     { c0: 3, r0: 39, c1: 4, r1: 39, dir: 'ns' },     // lower hall <-> X hall
-    { c0: 39, r0: 43, c1: 39, r1: 45, dir: 'ew', locked: true },   // === RUANG KOMPUTER (TERKUNCI) ===
+    { c0: 39, r0: 43, c1: 39, r1: 45, dir: 'ew', locked: true },   // === PINTU NAC RUANG KOMPUTER ===
 ];
+
+// CELAH TEMBOK '/' (2026-08-12): satu sel lantai berlubang di garis dinding —
+// tembok yang JEBOL, bukan pintu. Sel-nya sudah lantai di S1_MAP; entri ini
+// hanya menempelkan sisa tembok bergerigi di kedua kusen supaya lubangnya
+// terbaca. MURNI DEKOR: player (radius 5) tak pernah bisa berada dalam 2 unit
+// dari tepi sel, jadi tonjolan <= 2 unit tak pernah tersentuh kolisi.
+//   [c, r, dir] — dir 'ns' = lubang di dinding HORIZONTAL, 'ew' = VERTIKAL.
+const S1_BREACHES = [
+    [39, 3, 'ew'],    // supply room W <-> east-1
+    [28, 7, 'ns'],    // conference E <-> ruang toilet
+];
+
+// TUMPUKAN PERABOT '*' (2026-08-12): barikade sel-penuh yang TIDAK BISA dilewati
+// player MAUPUN robot. Sel-nya tetap lantai di grid (jadi BFS denah tak berubah),
+// yang memblokir adalah satu blocker per sel — ikut bake nav di akhir buildWorld,
+// jadi robot memutarinya alih-alih menembus. Tiga garis:
+//   r13 c9-20   : membelah aula tengah jadi sisi utara & selatan
+//   c39 r18-24  : menutup ruang timur-tengah bagian utara
+//   r25 c30-39  : sisi selatan ruang yang sama (bentuk L bersama garis di atas)
+const S1_BARRICADES = [];
+for (let c = 9; c <= 20; c++) S1_BARRICADES.push([c, 13]);
+for (let r = 18; r <= 24; r++) S1_BARRICADES.push([39, r]);
+for (let c = 30; c <= 39; c++) S1_BARRICADES.push([c, 25]);
+export const s1BarricadesDbg = () => S1_BARRICADES;   // smoke test
+export const s1BreachesDbg = () => S1_BREACHES;       // smoke test
 // PERABOT TAMBAHAN per-ruangan (2026-07-26): [kind, c, r, sx, sy, sz].
 // Ditempel dinding/sudut supaya ruangan terasa dipakai TANPA menyumbat jalur —
 // smoke test memverifikasi mulut pintu tetap lapang & nav tetap terhubung.
@@ -185,12 +237,12 @@ const S1_FURNITURE = [
     ['cupboard', 28, 3, 6, 15, 26], ['planter', 22, 5, 8, 11, 8], ['bench', 24, 6, 20, 6, 7],
     // supply room W
     ['cupboard', 30, 5, 6, 15, 30], ['desk', 35, 9, 22, 7, 12], ['box', 33, 15, 14, 9, 14],
-    // east-1 (open office)
-    ['cupboard', 40, 3, 6, 15, 30], ['meeting', 45, 14, 34, 7, 20], ['planter', 41, 8, 8, 11, 8],
+    // east-1 (open office) — rak dinding barat turun ke r8: c40 r2-4 kini mulut celah '/'
+    ['cupboard', 40, 8, 6, 15, 30], ['meeting', 45, 14, 34, 7, 20], ['planter', 41, 8, 8, 11, 8],
     // office W
     ['cupboard', 1, 12, 6, 15, 30], ['sofa', 6, 15, 18, 6, 14], ['planter', 1, 9, 8, 11, 8],
-    // central hall
-    ['cupboard', 20, 16, 6, 15, 30], ['desk', 11, 13, 22, 7, 12],
+    // central hall (meja c11 digeser ke r15: baris r13 kini barikade '*')
+    ['cupboard', 20, 16, 6, 15, 30], ['desk', 12, 15, 22, 7, 12],
     ['box', 15, 9, 14, 9, 14], ['bench', 12, 18, 18, 6, 7],
     // toilet
     ['stall', 26, 14, 2, 15, 20], ['sink', 22, 13, 10, 8, 4],
@@ -202,14 +254,14 @@ const S1_FURNITURE = [
     ['cupboard', 30, 21, 6, 15, 34], ['desk', 41, 22, 22, 7, 12],
     ['box', 35, 19, 14, 9, 14], ['planter', 47, 19, 8, 11, 8], ['sofa', 46, 24, 18, 6, 14],
     // small rooms
-    ['cupboard', 9, 26, 6, 15, 20], ['box', 13, 22, 12, 9, 12],
+    ['cupboard', 9, 27, 6, 15, 20], ['box', 13, 22, 12, 9, 12],   // lemari turun: c8 r24-25 kini pintu
     ['cupboard', 16, 26, 6, 15, 20], ['desk', 17, 22, 18, 7, 10],
     // big lower hall
     ['cupboard', 1, 33, 6, 15, 40], ['meeting', 26, 36, 40, 7, 20],
     ['box', 12, 31, 14, 9, 14], ['box', 34, 36, 14, 9, 14],
     ['planter', 36, 31, 8, 11, 8], ['sofa', 2, 35, 18, 6, 14],
-    // east lower
-    ['cupboard', 48, 33, 6, 15, 30], ['box', 41, 36, 14, 9, 14],
+    // east lower (dinding timur c48 kini bank komputer '@' — rak lamanya dihapus)
+    ['box', 41, 36, 14, 9, 14],
     // X hall (arena gelombang-2 — tetap lapang, hanya pinggirnya diisi)
     ['cupboard', 1, 44, 6, 15, 36], ['box', 24, 41, 14, 9, 14],
     ['box', 31, 47, 14, 9, 14], ['bench', 20, 45, 20, 6, 7],
@@ -224,7 +276,7 @@ const S1_FURNITURE = [
     // conference W
     ['console', 18, 6, 16, 7, 8], ['planter', 12, 1, 8, 11, 8], ['bench', 16, 2, 18, 6, 7],
     // conference E
-    ['planter', 21, 6, 8, 11, 8], ['bench', 28, 5, 7, 6, 18],
+    ['planter', 21, 6, 8, 11, 8], ['bench', 26, 6, 18, 6, 7],   // bangku menyingkir dari mulut celah c28 r7
     // supply room W
     ['box', 30, 1, 14, 9, 14], ['cupboard', 37, 1, 20, 15, 6], ['box', 30, 15, 14, 9, 14],
     ['bench', 33, 1, 18, 6, 7], ['planter', 33, 16, 8, 11, 8],
@@ -237,7 +289,7 @@ const S1_FURNITURE = [
     ['desk', 10, 8, 22, 7, 12], ['cupboard', 16, 17, 6, 15, 20], ['box', 17, 10, 14, 9, 14],
     ['planter', 11, 11, 8, 11, 8], ['bench', 13, 17, 18, 6, 7],
     // toilet
-    ['stall', 22, 8, 10, 15, 2], ['sink', 28, 8, 10, 8, 4], ['stall', 22, 16, 10, 15, 2],
+    ['stall', 22, 8, 10, 15, 2], ['sink', 26, 8, 10, 8, 4], ['stall', 22, 16, 10, 15, 2],   // wastafel menyingkir dari mulut celah c28 r7
     // office SW
     ['desk', 6, 20, 22, 7, 12], ['cupboard', 2, 26, 20, 15, 6], ['box', 2, 21, 14, 9, 14],
     ['planter', 6, 25, 8, 11, 8],
@@ -254,8 +306,8 @@ const S1_FURNITURE = [
     ['desk', 5, 30, 22, 7, 12], ['cupboard', 34, 38, 20, 15, 6], ['box', 8, 30, 14, 9, 14],
     ['sofa', 30, 30, 18, 6, 14], ['planter', 9, 38, 8, 11, 8], ['meeting', 37, 35, 34, 7, 18],
     ['bench', 36, 32, 18, 6, 7], ['desk', 3, 36, 22, 7, 12], ['box', 3, 33, 14, 9, 14],
-    // east lower
-    ['desk', 47, 30, 22, 7, 12], ['cupboard', 40, 37, 6, 15, 20], ['box', 42, 30, 14, 9, 14],
+    // east lower (meja digeser ke c45: c48 dipakai bank komputer '@')
+    ['desk', 45, 30, 22, 7, 12], ['cupboard', 40, 37, 6, 15, 20], ['box', 42, 30, 14, 9, 14],
     // X hall (arena gelombang-2 — tetap lapang di tengah, hanya pinggirnya)
     ['box', 1, 47, 14, 9, 14], ['cupboard', 37, 40, 20, 15, 6], ['planter', 37, 48, 8, 11, 8],
     ['box', 34, 40, 14, 9, 14], ['bench', 34, 48, 18, 6, 7], ['box', 7, 40, 14, 9, 14],
@@ -265,7 +317,7 @@ const S1_FURNITURE = [
     // --- pass 3: sisa sudut & pinggir ruangan besar yang masih melompong ---
     ['planter', 2, 4, 8, 11, 8],                                                   // ruang tangga
     ['cupboard', 31, 16, 20, 15, 6], ['box', 30, 7, 14, 9, 14],                    // supply room W
-    ['desk', 37, 3, 22, 7, 12], ['box', 37, 14, 14, 9, 14],
+    ['desk', 36, 3, 22, 7, 12], ['box', 37, 14, 14, 9, 14],                        // meja menyingkir dari mulut celah c39 r3
     ['cupboard', 48, 15, 6, 15, 20], ['box', 40, 5, 14, 9, 14],                    // east-1
     ['bench', 48, 5, 7, 6, 18], ['desk', 42, 2, 22, 7, 12],
     ['box', 2, 11, 14, 9, 14],                                                     // office W
@@ -281,7 +333,7 @@ const S1_FURNITURE = [
     ['cupboard', 38, 37, 6, 15, 20], ['box', 1, 36, 14, 9, 14],                    // big lower hall
     ['desk', 10, 30, 22, 7, 12], ['planter', 29, 30, 8, 11, 8], ['box', 14, 30, 14, 9, 14],
     ['bench', 14, 38, 18, 6, 7], ['sofa', 24, 30, 18, 6, 14], ['box', 20, 30, 14, 9, 14],
-    ['planter', 48, 38, 8, 11, 8], ['box', 43, 30, 14, 9, 14], ['bench', 40, 35, 7, 6, 18],   // east lower
+    ['planter', 46, 38, 8, 11, 8], ['box', 43, 30, 14, 9, 14], ['bench', 40, 35, 7, 6, 18],   // east lower
     ['box', 35, 40, 14, 9, 14], ['planter', 35, 48, 8, 11, 8], ['box', 8, 40, 14, 9, 14],     // X hall (pinggir)
     ['bench', 31, 40, 18, 6, 7], ['box', 27, 40, 14, 9, 14], ['cupboard', 27, 48, 20, 15, 6],
     ['planter', 48, 47, 8, 11, 8],                                                 // ruang super komputer
@@ -292,12 +344,17 @@ const S1_FURNITURE = [
 ];
 
 export const s1FurnitureDbg = () => S1_FURNITURE;   // smoke test (kepadatan & tumpang tindih)
+let s1BankParts = [];        // mesh bank komputer '@' (smoke: bentuk & batas sel)
+let s1BarricadeMix = [];     // resep tumpukan terpakai per sel '*' (smoke: variasi)
+export const s1BankDbg = () => s1BankParts;
+export const s1BarricadeMixDbg = () => s1BarricadeMix;
 let s1StaticBatch = [];                              // mesh perabot hasil penggabungan
 export const s1StaticBatchDbg = () => s1StaticBatch; // smoke test (jumlah draw call perabot)
 
 let s1doors = null;
-let s1compDoor = null;   // ref pintu ruang komputer (dibuka saat semua robot tumbang)
+let s1compDoor = null;   // ref pintu NAC ruang komputer (dibuka lewat bank komputer '@')
 export const s1CompDoorDbg = () => s1compDoor;   // smoke test (status locked)
+export const s1DoorsDbg = () => s1doors || [];   // smoke test (pintu rusak '+')
 
 // Lampu PER-RUANGAN — SELALU MENYALA (mekanisme "mati lampu" dihapus 2026-08-11).
 // Rect ruangannya masih dipakai smoke test (sebaran peti per ruangan).
@@ -309,7 +366,7 @@ let s1HintT = 0;                            // rate-limit pesan "belum boleh kel
 let s1LiftT = 0;                            // rate-limit peringatan lift rusak
 
 // ===== STATE MACHINE ALUR STAGE 1 =====
-let s1Phase = 'clear1';   // clear1 | download | downloading | radio | clear2 | done
+let s1Phase = 'access';   // access | download | downloading | radio | clear2 | done
 let s1CompPos = null;     // {x,z} dunia sel BERDIRI (selatan komputer) — trigger unduh
 let s1CompArmed = true;   // pemicu hack "terisi": jadi false setelah dipakai, terisi lagi saat player MENJAUH
 let s1HackCd = 0;         // COOLDOWN alarm (dtk): terminal terkunci setelah hack GAGAL
@@ -317,10 +374,12 @@ let s1RadioIndex = -1;    // 0=Pilot, 1=Maj. Gibran; -1 saat tidak aktif
 let s1RadioT = 0;         // waktu mengetik + hold baris aktif (detik)
 let s1RadioChars = 0;     // jumlah karakter yang sudah terlihat
 let s1LiftPos = null;     // {x,z} dunia lift
-let s1Marker = null, s1MarkerMat = null;   // marker lantai "berdiri di sini" + material (denyut)
+let s1AccessPos = null;   // {x,z} dunia petak '$' (bank komputer) — pemicu buka NAC
+let s1NacDoor = null;     // ref pintu NAC (alias s1compDoor)
 export const s1Debug = () => ({
     phase: s1Phase, hacking: isHackOpen(), armed: s1CompArmed, hackCd: s1HackCd,
     radioIndex: s1RadioIndex, radioT: s1RadioT, radioChars: s1RadioChars,
+    nacLocked: !!s1NacDoor?.locked,
 });   // smoke test
 
 const blockers = [];   // furnitur/undakan/lift/rak pejal {x,z,hx,hz,ax*,az*,top,standable}
@@ -383,27 +442,16 @@ export function resolve(pos, radius, feetY) {
 // Nav-grid pathfinder (resolusi setengah sel; di-bake di AKHIR buildWorld)
 export let s1Nav = null;
 
-// MARKER "berdiri di sini" (2026-07-20): kotak lantai amber menyala (aksen
-// human/player) — ditaruh di sel tepat SELATAN super komputer supaya player tahu
-// harus ke situ untuk memicu unduh. Material fill di-return utk animasi denyut.
-function buildStandMarker() {
-    const g = new THREE.Group();
-    const AMBER = 0xffb03b;
-    const fillMat = new THREE.MeshBasicMaterial({
-        color: AMBER, transparent: true, opacity: 0.28, toneMapped: false, depthWrite: false
-    });
-    const fill = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), fillMat);
-    fill.rotation.x = -Math.PI / 2;
-    fill.position.y = 0.14;
-    g.add(fill);
-    const barMat = new THREE.MeshBasicMaterial({ color: AMBER, toneMapped: false });
-    for (const [sx, sz, px, pz] of [[12, 1, 0, -6], [12, 1, 0, 6], [1, 12, -6, 0], [1, 12, 6, 0]]) {
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.5, sz), barMat);
-        bar.position.set(px, 0.22, pz);
-        g.add(bar);
-    }
-    return { group: g, fillMat };
-}
+// MARKER "berdiri di sini": kotak pijak amber 12x12 BERSAMA campaign
+// (buildStandMarker/pulseStandMarker di utility/common.js — standar 2026-08-12).
+// Stage 1 punya DUA titik aksi, dan sama seperti Stage 6 HANYA SATU yang menyala
+// pada satu waktu, selalu sama dengan yang ditunjuk radar:
+//   s1AccessMarker — petak '$' di depan bank komputer '@' (membuka pintu NAC)
+//   s1CompMarker   — petak di selatan super komputer (memicu ICE BREACH)
+let s1AccessMarker = null, s1CompMarker = null;
+export const s1MarkersDbg = () => ({
+    access: !!s1AccessMarker?.visible, comp: !!s1CompMarker?.visible,
+});   // smoke test
 
 // Bangun SEMUA dunia campaign (stage 1 sendiri + stage 2/3/4/5/6/7/8) SEKALI (guard
 // `built`). Dipakai stage1.enter() DAN cutscene intro (intro.js).
@@ -491,7 +539,8 @@ export function buildWorld() {
 
     // --- Pintu geser otomatis (ruang tertutup; pintu KOMPUTER dibuat terkunci) ---
     s1doors = buildStageDoors(S1_DOORS, s1Cell, S1.CELL, S1.H);
-    s1compDoor = s1doors.find(d => d.locked) || null;
+    s1compDoor = s1doors.find(d => d.locked && !d.broken) || null;   // pintu NAC (pintu rusak juga "locked")
+    s1NacDoor = s1compDoor;
 
     // --- Furnitur KANTOR: model (entities/futuristic*.js) + blocker footprint ---
     // PERABOT TIDAK LANGSUNG masuk scene: dikumpulkan lalu DIGABUNG jadi belasan
@@ -567,9 +616,10 @@ export function buildWorld() {
     deskModel(3, 10, 24, 7, 12);
     deskModel(4, 14, 22, 7, 12);
     monitorModel(3, 10, 6, 4, 1.5, 0, -3, 7);
-    // Central hall (c9-20 r8-19): open office cubicle + kabinet
+    // Central hall (c9-20 r8-19): open office cubicle + kabinet. Meja kedua ada
+    // di SISI SELATAN barikade r13 (dulu tepat di atasnya).
     deskModel(13, 10, 24, 7, 12);
-    deskModel(17, 13, 24, 7, 12);
+    deskModel(17, 15, 24, 7, 12);
     cupboardModel(18, 9, 8, 15, 20);
     // Toilet R (c22-28 r8-16): bilik (sekat) + wastafel
     propModel(buildFuturisticStallMesh, 24, 11, 2, 15, 56);
@@ -580,10 +630,14 @@ export function buildWorld() {
     // Office SE-mid (c22-28 r18-28): meja + kabinet
     deskModel(25, 20, 24, 7, 12);
     cupboardModel(27, 25, 8, 16, 28);
-    // Big east-mid (c30-48 r18-28): open office + meja rapat
+    // Big east-mid (c30-48 r18-28): open office + meja rapat. Barikade '*'
+    // (r25 c30-39 + c39 r18-24) memotongnya jadi ruang rapat tertutup c30-38
+    // r18-24 dan lorong r26-28. Meja rapat pindah KE DALAM ruang tertutup itu:
+    // lorong r26-28 kini SATU-SATUNYA jalan ke seluruh lantai bawah, jadi tak
+    // boleh ada perabot besar di sana.
     deskModel(33, 20, 24, 7, 12);
     deskModel(44, 20, 24, 7, 12);
-    meetingModel(38, 25, 56, 7, 26);
+    meetingModel(35, 23, 42, 7, 26);
     // Small rooms (c9-14 & c16-20 r21-28)
     deskModel(11, 24, 22, 7, 12);
     cupboardModel(18, 24, 8, 15, 20);
@@ -616,6 +670,113 @@ export function buildWorld() {
     };
     for (const [kind, c, r, sx, sy, sz] of S1_FURNITURE) FURN[kind](c, r, sx, sy, sz);
 
+    // === BARIKADE '*' (denah 2026-08-12): TUMPUKAN PERABOT setinggi dada yang
+    // menutup satu sel penuh. Satu blocker per sel (14x14, `standable:false`
+    // supaya tak bisa dipanjat) + tiga potong perabot bekas kantor yang ditumpuk
+    // acak-deterministik di dalamnya. Nav ikut ter-bake dari blocker ini di akhir
+    // buildWorld, jadi robot memutar — tak perlu menyentuh grid denah. ===
+    s1BarricadeMix = [];
+    for (let i = 0; i < S1_BARRICADES.length; i++) {
+        const [c, r] = S1_BARRICADES[i];
+        const p = s1Cell(c, r);
+        blockers.push(barricadeBlocker(p.x, p.z, S1.CELL));
+        s1BarricadeMix.push({ c, r, ...buildFurniturePile(staticProps, p.x, p.z, i) });
+    }
+
+    // === CELAH TEMBOK '/' (denah 2026-08-12): sisa tembok bergerigi di kedua
+    // kusen lubang bobol supaya terbaca sebagai DINDING JEBOL, bukan pintu.
+    // TANPA blocker: sel-nya cuma 14 unit, dan player (radius 5) tak pernah bisa
+    // berada < 2 unit dari tepi sel — tonjolan 2 unit ini tak tersentuh kolisi. ===
+    for (const [c, r, dir] of S1_BREACHES) {
+        const p = s1Cell(c, r);
+        buildWallBreach(staticProps, p.x, p.z, dir, S1.CELL, S1.H);
+    }
+
+    // === BANK KOMPUTER '@' + PETAK PIJAK '$' (denah 2026-08-12): deret MAINFRAME
+    // sepanjang dinding TIMUR ruang akses (c48, r30-38). Meng-hack-nya TIDAK
+    // memakai minigame (permintaan user) — cukup berdiri di petak '$'.
+    //
+    // DIBANGUN SENDIRI, bukan lemari yang di-rename (2026-08-12, permintaan user
+    // "terlihat polos seperti placeholder"): tiap sel = kabinet ber-plinth dengan
+    // MUKA TERBUKA menghadap ruangan yang berisi rak modul, kisi ventilasi, deret
+    // LED status, dan LAYAR menyala; di atasnya ada mahkota + talang kabel yang
+    // menyambung sepanjang bank. Sel '$' mendapat STASIUN OPERATOR: layar besar
+    // miring + papan ketik di rak tarik. Semua geometri WAJIB berada di dalam sel
+    // 48 (footprint blocker), warna dari token PAL, emissive <= EMISSIVE_MAX, dan
+    // TANPA PointLight — semuanya ikut addMergedStatic. ===
+    {
+        const b0 = s1Cell(S1_TERMINAL_BANK.c, S1_TERMINAL_BANK.r0);
+        const b1 = s1Cell(S1_TERMINAL_BANK.c, S1_TERMINAL_BANK.r1);
+        const bankZ = (b0.z + b1.z) / 2, bankLen = (S1_TERMINAL_BANK.r1 - S1_TERMINAL_BANK.r0 + 1) * S1.CELL;
+        // Kabinet DIDORONG ke dinding (bx) supaya sisi depan sel masih menyisakan
+        // ~3.4 unit untuk detail muka (layar/papan ketik) TANPA satu pun geometri
+        // keluar dari sel 48 = footprint blocker. fx = bidang muka.
+        const BANK_H = 16, BODY_DX = 1.7, BODY_D = 9.6, FACE = BODY_DX - BODY_D / 2;
+        blockers.push({
+            x: b0.x, z: bankZ, hx: S1.CELL / 2, hz: bankLen / 2, axx: 1, axz: 0, azx: 0, azz: 1,
+            rad: Math.hypot(S1.CELL / 2, bankLen / 2), top: BANK_H, standable: false,
+        });
+        const caseMat = new THREE.MeshLambertMaterial({ color: PAL.gunmetal });
+        const trimMat = new THREE.MeshLambertMaterial({ color: PAL.ink });
+        const steelMat = new THREE.MeshLambertMaterial({ color: PAL.steel });
+        const bayMat = new THREE.MeshLambertMaterial({ color: PAL.panel });
+        const glassMat = new THREE.MeshLambertMaterial({ color: PAL.screenBg });
+        const litMat = new THREE.MeshLambertMaterial({
+            color: PAL.tech, emissive: PAL.tech, emissiveIntensity: 0.75,
+        });
+        const ledMat = new THREE.MeshLambertMaterial({
+            color: PAL.amber, emissive: PAL.amber, emissiveIntensity: 0.7,
+        });
+        const idleMat = new THREE.MeshLambertMaterial({ color: PAL.techDim });
+        s1BankParts = [];
+        const box = (mat, sx, sy, sz, x, y, z) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+            m.position.set(x, y, z);
+            staticProps.push(m);
+            s1BankParts.push(m);
+            return m;
+        };
+        for (let r = S1_TERMINAL_BANK.r0; r <= S1_TERMINAL_BANK.r1; r++) {
+            const q = s1Cell(S1_TERMINAL_BANK.c, r), operator = r === S1_ACCESS.r;
+            const bx = q.x + BODY_DX, fx = q.x + FACE, hsh = (r * 2246822519) >>> 0;
+            box(caseMat, BODY_D, BANK_H - 1.6, 13.2, bx, 0.8 + (BANK_H - 1.6) / 2, q.z);   // badan kabinet
+            box(trimMat, BODY_D + 0.6, 1.2, 13.6, bx, 0.6, q.z);                            // plinth
+            box(steelMat, BODY_D + 0.6, 0.9, 13.6, bx, BANK_H - 0.45, q.z);                 // mahkota
+            box(trimMat, 4, 1.6, 13.6, bx + 2.5, BANK_H + 1.2, q.z);                        // talang kabel atas
+            box(bayMat, 1.2, BANK_H - 4.4, 11.4, fx + 0.6, 2.6 + (BANK_H - 4.4) / 2, q.z);  // bay muka
+            // Rak modul: empat baris blade tipis, kedalaman berselang-seling +
+            // lampu aktivitas kecil di ujungnya.
+            for (let k = 0; k < 4; k++) {
+                const deep = ((hsh >> k) & 1) ? 0.5 : 0;
+                box(trimMat, 1.1 + deep, 1.7, 10.2, fx - deep / 2, 4.4 + k * 2.3, q.z);
+                box((hsh >> (k + 4)) & 1 ? litMat : idleMat, 0.5, 0.5, 0.6,
+                    fx - 0.6 - deep, 4.4 + k * 2.3, q.z - 4.4);
+            }
+            // Kisi ventilasi bawah + deret LED status di puncak muka.
+            for (let k = 0; k < 3; k++)
+                box(trimMat, 0.9, 0.45, 9.6, fx - 0.2, 1.9 + k * 0.9, q.z);
+            for (let k = 0; k < 4; k++)
+                box(k === 1 ? ledMat : litMat, 0.5, 0.55, 0.55, fx - 0.5, 13.4, q.z - 3 + k * 2);
+            // Layar: bingkai gelap + kaca. Sel operator '$' dapat layar BESAR yang
+            // dimiringkan ke bawah plus rak papan ketik yang menjorok ke ruangan.
+            if (operator) {
+                const bez = box(trimMat, 1.1, 7.4, 10.4, fx - 1.2, 10.4, q.z);
+                bez.rotation.z = -0.16;
+                const gl = box(litMat, 0.5, 6.2, 9.2, fx - 1.9, 10.4, q.z);
+                gl.rotation.z = -0.16;
+                box(steelMat, 3, 0.6, 9.6, fx - 1.2, 6.2, q.z);            // rak papan ketik
+                box(trimMat, 2.2, 0.5, 7.6, fx - 1.3, 6.6, q.z);           // papan ketik
+                box(glassMat, 0.5, 1.6, 3.2, fx - 0.2, 3.4, q.z + 4);      // panel akses tertutup
+            } else {
+                box(trimMat, 1.1, 4.6, 8.4, fx - 1.0, 11.4, q.z);
+                box((hsh >> 9) & 1 ? litMat : glassMat, 0.5, 3.6, 7.2, fx - 1.6, 11.4, q.z);
+            }
+        }
+        const accP = s1Cell(S1_ACCESS.c, S1_ACCESS.r);
+        s1AccessPos = { x: accP.x, z: accP.z };
+        s1AccessMarker = buildStandMarker(scene, accP.x, accP.z, PAL.amber);
+    }
+
     // === SUPER KOMPUTER (ruang C, c40-48 r40-48): rak server + terminal unduh.
     // Player HARUS MENEMPEL di sel SELATAN komputer (`S1_COMP`, ber-marker) —
     // komputernya 1 sel di UTARA supaya player mendekat & menghadap ke utara. ===
@@ -627,10 +788,8 @@ export function buildWorld() {
     putModel(buildFuturisticConsoleMesh(16, 11, 10), termP.x, termP.z, 16, 11, 10, false);
     monitorModel(S1_COMP.c, S1_COMP.r - 1, 8, 5, 2, 0, 0, 11);   // monitor besar di atas komputer
     // MARKER "berdiri di sini" tepat di sel selatan komputer
-    const mk = buildStandMarker();
-    s1Marker = mk.group; s1MarkerMat = mk.fillMat;
-    s1Marker.position.set(standP.x, 0, standP.z);
-    scene.add(s1Marker);
+    s1CompMarker = buildStandMarker(scene, standP.x, standP.z, PAL.amber);
+    s1SetMarker('access');   // objektif pertama ('@') sudah aktif sejak dunia berdiri
 
     // === LIFT rusak (nook c9-10 r15-19): SEPASANG lift (kiri-kanan) MENGHADAP
     // TIMUR, MENEMPEL tembok BARAT (col8) — entity lift.js (RUSAK = pintu tertutup,
@@ -805,7 +964,7 @@ const S1_CRATES = [
     [10, 22], [10, 28],            // small room 1
     [19, 22], [20, 28],            // small room 2
     [3, 31], [36, 37], [1, 30], [7, 38], [32, 38], [28, 30],   // big lower hall
-    [46, 36], [48, 37],            // east lower
+    [46, 36], [44, 37],            // east lower (c48 kini bank komputer '@')
     [30, 42], [5, 47], [1, 42], [2, 48], [33, 40],      // X hall
     [41, 41], [46, 40],            // ruang super komputer
 ];
@@ -844,6 +1003,14 @@ function s1AlarmHorde() {
     });
     showStageMsg('ALARM TRIGGERED — the vault locked you out and a hunter squad is closing in! '
         + `Clear them out; the terminal reboots in ${Math.round(s1HackCd)}s.`, 5000);
+}
+
+// SATU petak pijak menyala pada satu waktu (standar marker aksi campaign), dan
+// selalu sama dengan yang ditunjuk radar: 'access' saat objektifnya bank
+// komputer '@', 'comp' saat objektifnya super komputer, null saat tak ada.
+function s1SetMarker(which) {
+    if (s1AccessMarker) s1AccessMarker.visible = which === 'access';
+    if (s1CompMarker) s1CompMarker.visible = which === 'comp';
 }
 
 function showS1RadioLine(index, chars) {
@@ -924,8 +1091,8 @@ export const stage1Scene = {
         resetCrates(); placeCrates();     // peti persediaan (isi loot) di tiap ruangan
         applyLightPreset(scene, 'indoor');
         enterCityEnv();
-        // Reset ALUR ke awal: fase clear1, unduh 0, pintu komputer TERKUNCI lagi.
-        s1Phase = 'clear1'; s1CompArmed = true; s1HackCd = 0;
+        // Reset ALUR ke awal: fase access, unduh 0, pintu NAC TERKUNCI lagi.
+        s1Phase = 'access'; s1CompArmed = true; s1HackCd = 0;
         s1RadioIndex = -1; s1RadioT = 0; s1RadioChars = 0;
         setCinematicActive(false);
         setCineBars(false);
@@ -937,7 +1104,7 @@ export const stage1Scene = {
             s1ExitLight.color.setHex(0xff5040);
         }
         s1HintT = Date.now(); s1LiftT = 0;   // jangan langsung pop hint saat spawn
-        if (s1Marker) s1Marker.visible = true;   // marker "berdiri di sini" tampil lagi
+        s1SetMarker('access');               // objektif pertama = bank komputer '@'
         const sp = s1Cell(S1_START.c, S1_START.r);
         camera.position.set(sp.x, CFG.player.eyeHeight, sp.z);
         camera.quaternion.set(0, 1, 0, 0);   // hadap selatan (ke dalam gedung)
@@ -958,12 +1125,14 @@ export const stage1Scene = {
         const px = camera.position.x, pz = camera.position.z;
         const s1 = CFG.campaign.stage1;
 
-        if (s1Phase === 'clear1') {
-            // Semua robot gelombang-1 tumbang → BUKA pintu ruang komputer.
-            if (n === 0) {
+        if (s1Phase === 'access') {
+            // BERDIRI di petak '$' di depan bank komputer = hack selesai (tanpa
+            // minigame, permintaan user 2026-08-12) → pintu NAC terbuka.
+            if (s1AccessPos && Math.hypot(px - s1AccessPos.x, pz - s1AccessPos.z) < s1.computerRange) {
                 s1Phase = 'download';
-                if (s1compDoor) setDoorLocked(s1compDoor, false);
-                showStageMsg('All robots destroyed — the server room is unlocked. Download the data.', 4600);
+                if (s1NacDoor) setDoorLocked(s1NacDoor, false);
+                s1SetMarker('comp');
+                showStageMsg('Security bank breached — the server-room door is unlocked. Download the data.', 4600);
             }
         } else if (s1Phase === 'download') {
             // Player MENEMPEL terminal komputer → buka MINIGAME HACK (scene modal;
@@ -980,7 +1149,7 @@ export const stage1Scene = {
                     sub: 'The vault firewall is a live circuit. Rotate the chips so the ingress '
                         + 'port links to the data core, then the download runs itself.',
                     onSuccess: () => {
-                        if (s1Marker) s1Marker.visible = false;   // marker tak perlu lagi
+                        s1SetMarker(null);   // tak ada titik aksi lagi
                         beginS1Radio();
                     },
                     onFail: (why) => {
@@ -1011,8 +1180,9 @@ export const stage1Scene = {
         }
 
         // Denyut marker "berdiri di sini" (amber) selagi tampil.
-        if (s1MarkerMat && s1Marker && s1Marker.visible)
-            s1MarkerMat.opacity = 0.22 + 0.16 * (0.5 + 0.5 * Math.sin(Date.now() * 0.004));
+        const mt = Date.now() * 0.004;
+        pulseStandMarker(s1AccessMarker, mt);
+        pulseStandMarker(s1CompMarker, mt);
 
         // Papan EXIT: MERAH sampai 'done', lalu HIJAU.
         const open = s1Phase === 'done';
@@ -1041,8 +1211,8 @@ export const stage1Scene = {
                 beginStageTransition(stage2Scene);
             } else if (Date.now() - s1HintT > 2600) {
                 s1HintT = Date.now();
-                showStageMsg(s1Phase === 'clear1'
-                    ? 'Destroy every robot to unlock the server room first.'
+                showStageMsg(s1Phase === 'access'
+                    ? 'Breach the security console to unlock the server room first.'
                     : (s1Phase === 'clear2'
                         ? 'Eliminate every hostile before you can descend.'
                         : 'Download the data from the server room first.'), 2400);
@@ -1096,7 +1266,7 @@ export const stage1Scene = {
     hudStatus() {
         const n = countStageRobots(1);
         switch (s1Phase) {
-            case 'clear1': return `FLOOR 2 — Robots: ${n} | Destroy ALL robots to unlock the server room`;
+            case 'access': return `FLOOR 2 — Robots: ${n} | Reach the marked security console to unlock the server room`;
             case 'download': return s1HackCd > 0
                 ? `FLOOR 2 — ALARM! Terminal rebooting: ${Math.ceil(s1HackCd)}s | Hostiles: ${n}`
                 : 'FLOOR 2 — Server room unlocked — reach the terminal and download the data';
@@ -1107,12 +1277,17 @@ export const stage1Scene = {
         }
     },
 
-    // Landmark radar: objektif saat ini (komputer SE saat clear1/download, tangga
-    // NW saat clear2/done). Warna = merah bila belum siap / hijau-teal bila siap.
+    // Landmark radar: objektif saat ini — bank komputer '@' saat access, super
+    // komputer saat download..radio, tangga NW saat clear2/done. Warna = merah
+    // bila belum siap / hijau-teal bila siap. Selalu SAMA dengan petak pijak
+    // yang menyala.
     radarLandmarks(plot) {
-        if (s1Phase === 'clear1' || s1Phase === 'download' || s1Phase === 'downloading' || s1Phase === 'radio') {
+        if (s1Phase === 'access') {
+            if (s1AccessPos) plot(s1AccessPos.x - camera.position.x, s1AccessPos.z - camera.position.z,
+                '#7fe3ff', 5, true);
+        } else if (s1Phase === 'download' || s1Phase === 'downloading' || s1Phase === 'radio') {
             if (s1CompPos) plot(s1CompPos.x - camera.position.x, s1CompPos.z - camera.position.z,
-                s1Phase === 'clear1' ? '#ff5040' : '#7fe3ff', 5, true);
+                '#7fe3ff', 5, true);
         } else {
             const fx = S1.x0 + (S1_FINISH.c0 + S1_FINISH.c1 + 1) / 2 * S1.CELL;
             const fz = S1.z0 + (S1_FINISH.r0 + S1_FINISH.r1 + 1) / 2 * S1.CELL;

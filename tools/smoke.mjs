@@ -1957,6 +1957,151 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     T('S2 DENAH: tak ada titik spawn robot/barel/peti tepat di MULUT PINTU', atDoor.length === 0);
 }
 
+// --- REVISI DENAH STAGE 2 (2026-08-13, CSV user): token '+' pintu RUSAK, '/'
+// celah tembok, dan '*' tumpukan perabot — legenda yang sama dgn Stage 1 dan
+// dibangun oleh utility/barricade.js yang sama. Yang diuji = KONSEKUENSI
+// gameplay-nya. Rute barunya keras: pintu c6-7 r9 mati + baris 9 tertumpuk
+// perabot, jadi satu-satunya jalan turun adalah celah c38 r6 (SUPPLY -> toilet),
+// dan lorong sempit c40-41 adalah satu-satunya jalan dari pintu c39 r27-28. ---
+{
+    const doorM2 = await import(R('src/scenes/campaign/utility/doors.js'));
+    const PRAD2 = cfgMod.CFG.player.radius, PROP2 = cfgMod.CFG.player.propRadius;
+    const S2 = s2mod.S2;
+    const free2 = (c, r, rad, propRad) => {
+        const p = s2mod.s2Cell(c, r);
+        if (!s2mod.stage2Walk(p.x, p.z, rad)) return false;
+        stateMod._v3.set(p.x, 0, p.z);
+        s2mod.resolve(stateMod._v3, propRad, 0);
+        return Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) < 1e-6;
+    };
+
+    // (a) BARIKADE: sel tetap lantai di grid, pejal ke player, dan hilang dari nav.
+    const bar2 = s2mod.s2BarricadesDbg();
+    let solid2 = true, navSealed2 = true;
+    for (const [c, r] of bar2) {
+        if (s2mod.s2Wall(c, r) || free2(c, r, 0.5, PROP2)) solid2 = false;
+        for (const ci of [c * 2, c * 2 + 1]) for (const ri of [r * 2, r * 2 + 1])
+            if (s2mod.s2Nav.walk[ri * s2mod.s2Nav.cols + ci]) navSealed2 = false;
+    }
+    T('S2 DENAH: ke-' + bar2.length + ' sel barikade "*" tetap lantai di grid, PEJAL ke player, hilang dari nav',
+        bar2.length === 53 && solid2 && navSealed2);
+
+    // (b) CELAH '/': bisa dilewati badan player penuh, dari kedua sisinya.
+    const brc2 = s2mod.s2BreachesDbg();
+    let breach2 = brc2.length === 1;
+    for (const [c, r, dir] of brc2) {
+        const dc = dir === 'ew' ? 1 : 0, dr = dir === 'ew' ? 0 : 1;
+        for (const k of [-1, 0, 1]) if (!free2(c + dc * k, r + dr * k, PRAD2, PROP2)) breach2 = false;
+    }
+    T('S2 DENAH: celah tembok "/" c38 r6 bisa dilewati player seukuran badan penuh', breach2);
+
+    // (c) PINTU RUSAK '+': terkunci permanen, daun beku, kebal setDoorLocked.
+    const broken2 = s2mod.s2DoorsDbg().filter(d => d.broken);
+    const bd2 = broken2[0];
+    const bp2 = s2mod.s2Cell(6, 8);
+    camera.position.set(bp2.x, cfgMod.CFG.player.eyeHeight, bp2.z);
+    for (let i = 0; i < 40; i++) doorM2.updateStageDoors(s2mod.s2DoorsDbg(), 0.05);
+    doorM2.setDoorLocked(bd2, false);
+    T('S2 DENAH: pintu RUSAK "+" c6-7 r9 macet permanen (daun tak bergerak, kebal setDoorLocked)',
+        broken2.length === 1 && bd2.locked === true && bd2.broken === true
+        && bd2.open === doorM2.DOOR_BROKEN_AJAR
+        && doorM2.doorsWalkable(broken2, bd2.cx, bd2.cz, 0) === false);
+    // BUGFIX 2026-08-13 (laporan user "pintu berlampu merah bisa ditembus"):
+    // playerCollide Stage 2 dulu TAK memanggil resolveDoors sama sekali — robot
+    // dan peluru terhalang, player berjalan santai menembusnya. Diuji lewat
+    // playerCollide SUNGGUHAN, bukan resolveDoors langsung.
+    {
+        stateMod._v3.set(bd2.cx, 0, bd2.cz);
+        s2mod.stage2Scene.playerCollide(stateMod._v3, bd2.cx, bd2.cz - S2.CELL, 0);
+        T('S2 DENAH: pintu RUSAK "+" PEJAL ke player (playerCollide mendorongnya keluar)',
+            Math.abs(stateMod._v3.z - bd2.cz) >= bd2.hz + PRAD2 - 0.01);
+    }
+
+    // (d) Variasi tumpukan: banyak resep & jenis perabot, bukan lemari berulang.
+    const mix2 = s2mod.s2BarricadeMixDbg();
+    const rec2 = new Set(mix2.map(m => m.recipe)), kin2 = new Set(mix2.flatMap(m => m.kinds));
+    T('S2 BARIKADE "*": ' + rec2.size + ' resep & ' + kin2.size + ' jenis perabot berbeda',
+        mix2.length === bar2.length && rec2.size >= 6 && kin2.size >= 7
+        && mix2.every(m => m.kinds.length >= 3));
+
+    // (e) Setelah barikade + perabot berdiri, tiap ruangan / mulut pintu yang bisa
+    //     dibuka / titik objektif MASIH tercapai dari START pada clearance PLAYER.
+    //     Sampel seperempat sel — bukaan selebar satu sel hanya memuat badan
+    //     player dalam pita +-2 unit di tengahnya (setengah sel TIDAK cukup).
+    {
+        //     Pintu RUSAK '+' ikut memblok — tanpa ini BFS menembus pintu rusak
+        //     c6-7 r9 dan MELEWATKAN player yang terkurung di ruang start
+        //     (laporan user 2026-08-13). Hanya yang `broken`: pintu `locked`
+        //     biasa memang dibuka oleh alur permainan, jadi bukan tembok.
+        const step = S2.CELL / 4, N = S2.G * 4;
+        const drs2 = s2mod.s2DoorsDbg().filter(d => d.broken);
+        const ok = new Uint8Array(N * N);
+        let total = 0;
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+            const x = S2.x0 + (i + 0.5) * step, z = S2.z0 + (j + 0.5) * step;
+            if (!s2mod.stage2Walk(x, z, PRAD2)) continue;
+            stateMod._v3.set(x, 0, z);
+            s2mod.resolve(stateMod._v3, PROP2, 0);
+            doorM2.resolveDoors(drs2, stateMod._v3, PRAD2, true);
+            if (Math.abs(stateMod._v3.x - x) + Math.abs(stateMod._v3.z - z) > 0.01) continue;
+            ok[j * N + i] = 1; total++;
+        }
+        const sp = s2mod.s2Cell(s2mod.S2_START.c, s2mod.S2_START.r);
+        const seen = new Uint8Array(N * N);
+        const k0 = Math.floor((sp.z - S2.z0) / step) * N + Math.floor((sp.x - S2.x0) / step);
+        const q = [k0]; seen[k0] = 1;
+        let reach = ok[k0] ? 1 : 0;
+        for (let h = 0; h < q.length; h++) {
+            const k = q[h], i = k % N, j = (k - i) / N;
+            for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const i2 = i + di, j2 = j + dj;
+                if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) continue;
+                const k2 = j2 * N + i2;
+                if (ok[k2] && !seen[k2]) { seen[k2] = 1; reach++; q.push(k2); }
+            }
+        }
+        const ptSeen2 = (x, z) => {
+            const h = S2.CELL / 2;
+            const i0 = Math.max(0, Math.floor((x - h - S2.x0) / step)), i1 = Math.min(N - 1, Math.floor((x + h - S2.x0) / step));
+            const j0 = Math.max(0, Math.floor((z - h - S2.z0) / step)), j1 = Math.min(N - 1, Math.floor((z + h - S2.z0) / step));
+            for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++)
+                if (ok[j * N + i] && seen[j * N + i]) return true;
+            return false;
+        };
+        const cellSeen2 = (c, r) => { const p = s2mod.s2Cell(c, r); return ptSeen2(p.x, p.z); };
+        const rooms2 = s2mod.s2LampsDbg().every(lm => {
+            const c0 = Math.round((lm.x0 - S2.x0) / S2.CELL), c1 = Math.round((lm.x1 - S2.x0) / S2.CELL) - 1;
+            const r0 = Math.round((lm.z0 - S2.z0) / S2.CELL), r1 = Math.round((lm.z1 - S2.z0) / S2.CELL) - 1;
+            for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (cellSeen2(c, r)) return true;
+            return false;
+        });
+        const missed2 = [];
+        for (const [c, r] of [[s2mod.S2_START.c, s2mod.S2_START.r], [s2mod.S2_GEN.c, s2mod.S2_GEN.r],
+        [s2mod.S2_LIFT.c1, s2mod.S2_LIFT.r0], ...s2mod.s2BreachesDbg().map(b => [b[0], b[1]])])
+            if (!cellSeen2(c, r)) missed2.push('c' + c + ',r' + r);
+        for (const d of s2mod.s2DoorsDbg())
+            if (!d.broken && !ptSeen2(d.cx, d.cz)) missed2.push('pintu@' + d.cx.toFixed(0) + ',' + d.cz.toFixed(0));
+        const reachOK2 = total > 3000 && reach / total > 0.99 && rooms2 && missed2.length === 0;
+        if (!reachOK2) {
+            if (missed2.length) console.log('  S2 titik kunci terkurung:', missed2.join(' '));
+            for (let r = 0; r < S2.G; r++) {
+                let ln = '';
+                for (let c = 0; c < S2.G; c++) {
+                    let a = 0, s = 0;
+                    for (let j = r * 4; j < r * 4 + 4; j++) for (let i = c * 4; i < c * 4 + 4; i++) {
+                        if (ok[j * N + i]) a = 1;
+                        if (ok[j * N + i] && seen[j * N + i]) s = 1;
+                    }
+                    ln += s2mod.s2Wall(c, r) ? '#' : (s ? '.' : (a ? 'X' : '-'));
+                }
+                console.log('  ' + String(r).padStart(2) + ' ' + ln);
+            }
+        }
+        T('S2 DENAH: tiap ruangan, tiap mulut pintu & tiap titik objektif tercapai dari START'
+            + ' pada clearance PLAYER (' + reach + '/' + total + ')', reachOK2);
+    }
+}
+
 // Jumlah robot STAGE 1 = 40 (2026-07-19 malam, permintaan user — dulu 30)
 {
     const s1m = await import(R('src/scenes/campaign/stages/stage1/index.js'));
@@ -1994,7 +2139,7 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
         decorMod.setS1FlickerLight === undefined && decorMod.s1FlickerLight === undefined);
 
     // --- FINISH TERKUNCI (2026-07-20): trigger TANGGA (T, titik masuk = titik
-    // selesai) DITOLAK selagi objektif belum tuntas (fase clear1, robot hidup). ---
+    // selesai) DITOLAK selagi objektif belum tuntas (fase access, data belum diunduh). ---
     const scBefore = smMod.activeScene;
     const eFin = s1m.s1Cell(4, 2);   // ruang TANGGA (T, c1-5 r1-3)
     stateMod._v3.set(eFin.x, 0, eFin.z);
@@ -2010,9 +2155,11 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     s1m.stage1Scene.robotAI(zWall, 0.1, 6);
     T('AKTIVASI KETAT: robot dekat di balik DINDING tetap idle (bypass jarak dihapus)',
         zWall.state === 'idle');
-    comMod.spawnCampaignRobot(s1m.s1Cell(3, 8).x, s1m.s1Cell(3, 8).z, 1);   // di balik pintu A<->D
+    // Pintu uji = TANGGA <-> conference W (c8 r3-4). Pintu A<->office W (c3-4 r7)
+    // TIDAK dipakai lagi: denah 2026-08-12 menjadikannya pintu RUSAK permanen.
+    comMod.spawnCampaignRobot(s1m.s1Cell(9, 4).x, s1m.s1Cell(9, 4).z, 1);   // di balik pintu TANGGA<->conference W
     const zDoor = robots[robots.length - 1];
-    const cp2 = s1m.s1Cell(3, 6);
+    const cp2 = s1m.s1Cell(7, 4);
     camera.position.set(cp2.x, cfgMod.CFG.player.eyeHeight, cp2.z);
     s1m.stage1Scene.robotAI(zDoor, 0.1, 6);
     const doorIdle = zDoor.state === 'idle';           // pintu masih TERTUTUP -> tak terlihat
@@ -2588,22 +2735,33 @@ async function waitRepairClosed() {
         repMod.repairDebug().phase === 'idle' && repMod.repairDebug().open === false);
 }
 
-// --- ALUR STAGE 1 (2026-07-20, ROMBAK TOTAL): clear1 (bunuh 50 robot) -> BUKA
-// ruang komputer -> MINIGAME HACK (2026-07-28, dulu bar unduh 10 dtk) -> RADIO
-// Pilot lalu Maj. Gibran (2026-08-01) -> spawn 20 robot wave-2 + horde di
-// ruang X -> clear2 -> done (tangga aktif).
-// Mulai dari state built section sebelumnya (fase clear1). ---
+// --- ALUR STAGE 1 (2026-07-20, ROMBAK TOTAL; langkah '@' ditambah 2026-08-12,
+// gerbang "bunuh semua dulu" DIHAPUS hari yang sama atas permintaan user):
+// access (berdiri di petak '$' bank komputer, TANPA minigame, robot boleh masih
+// hidup) -> BUKA pintu NAC ruang komputer -> MINIGAME HACK (2026-07-28, dulu bar
+// unduh 10 dtk) -> RADIO Pilot lalu Maj. Gibran (2026-08-01) -> spawn 20 robot
+// wave-2 + horde di ruang X -> clear2 -> done (tangga aktif).
+// Mulai dari state built section sebelumnya (fase access, 50 robot hidup). ---
 {
     const s1m = await import(R('src/scenes/campaign/stages/stage1/index.js'));
     const domS1 = await import(R('src/core/dom.js'));
-    // Fase awal = clear1 + pintu ruang komputer TERKUNCI (merah).
-    T('S1 FLOW: fase clear1 + pintu ruang komputer TERKUNCI',
-        s1m.s1Debug().phase === 'clear1' && s1m.s1CompDoorDbg() && s1m.s1CompDoorDbg().locked === true);
-    // Buang SEMUA robot stage 1 -> updateMode -> fase download + pintu TERBUKA.
-    for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 1) { scene.remove(robots[i].mesh); robots.splice(i, 1); }
+    // Fase awal = access (bank '@' sudah hidup) + pintu NAC TERKUNCI (merah).
+    T('S1 FLOW: fase awal access + pintu NAC TERKUNCI (tanpa gerbang bunuh-semua)',
+        s1m.s1Debug().phase === 'access' && s1m.s1CompDoorDbg() && s1m.s1CompDoorDbg().locked === true
+        && s1m.s1MarkersDbg().access === true && s1m.s1MarkersDbg().comp === false);
+    // Petak '$' di depan bank komputer '@' = hack TANPA minigame: cukup berdiri
+    // di situ, SELAGI seluruh robot wave-1 MASIH HIDUP -> pintu NAC terbuka &
+    // petak pijak berpindah ke super komputer.
+    const aliveBefore = robots.filter(z => z.stage === 1).length;
+    const accP = s1m.s1Cell(s1m.S1_ACCESS.c, s1m.S1_ACCESS.r);
+    camera.position.set(accP.x, cfgMod.CFG.player.eyeHeight, accP.z);
     s1m.stage1Scene.updateMode(0.1);
-    T('S1 FLOW: semua robot wave-1 tumbang -> fase download + pintu komputer TERBUKA',
-        s1m.s1Debug().phase === 'download' && s1m.s1CompDoorDbg().locked === false);
+    T('S1 FLOW: berdiri di petak $ membuka pintu NAC WALAU ' + aliveBefore + ' robot masih hidup, tanpa minigame',
+        aliveBefore >= s1m.s1Wave1Count && s1m.s1Debug().phase === 'download'
+        && s1m.s1CompDoorDbg().locked === false && hackMod.hackDebug().open === false
+        && s1m.s1MarkersDbg().access === false && s1m.s1MarkersDbg().comp === true);
+    // Sisa alur dijalankan tanpa robot wave-1 (yang diuji di bawah = hack/radio).
+    for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 1) { scene.remove(robots[i].mesh); robots.splice(i, 1); }
     // Player MENEMPEL komputer -> MINIGAME HACK terbuka sebagai SCENE MODAL
     // (game di-pause; scene stage 1 disimpan untuk dipulihkan).
     const cp = s1m.s1Cell(s1m.S1_COMP.c, s1m.S1_COMP.r);
@@ -2653,7 +2811,7 @@ async function waitRepairClosed() {
     T('S1 HACK: papan bisa dipecahkan (port -> core tersambung) -> ACCESS GRANTED',
         solvedDbg.solved === true && solvedDbg.phase === 'won');
     await waitHackClosed();
-    T('S1 HACK: modal menutup -> scene sebelumnya DIPULIHKAN tanpa enter() (fase lanjut ke radio, bukan reset ke clear1)',
+    T('S1 HACK: modal menutup -> scene sebelumnya DIPULIHKAN tanpa enter() (fase lanjut ke radio, bukan reset ke access)',
         hackMod.hackDebug().open === false && smMod.activeScene === sceneBeforeHack
         && s1m.s1Debug().phase === 'radio');
     const expectedS1Radio = [
@@ -3021,12 +3179,23 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (flr(g, c + dc, r + dr)) return true;
         return false;
     };
+    // DINDING GANDA = dua RUN dinding sejajar berdempetan. Sebuah sel yang di
+    // arah run-nya sendiri hanya sepanjang SATU sel bukan run — itu nub sudut
+    // (mis. Stage 1 c39 r30: pangkal tembok vertikal yang bertemu tembok
+    // horizontal r29 dan langsung disusul pintu). Tanpa pengecualian ini setiap
+    // pertemuan T dua tembok terhitung ganda padahal tak ada celah mati di
+    // dalamnya. Pengecualian sempit: HANYA berlaku bila salah satu sel pasangan
+    // kosong (lantai) di KEDUA sisi tegak-lurusnya.
+    const nubH = (g, c, r) => flr(g, c, r - 1) && flr(g, c, r + 1);   // nub di kolom -> bukan run vertikal
+    const nubV = (g, c, r) => flr(g, c - 1, r) && flr(g, c + 1, r);   // nub di baris -> bukan run horizontal
     const bands = (g) => {
         let n = 0;
         for (let r = 0; r < g.length; r++) for (let c = 0; c < g[0].length; c++) {
-            if (flr(g, c - 1, r) && wcl(g, c, r) && wcl(g, c + 1, r) && flr(g, c + 2, r)) n++;
+            const skipH = nubH(g, c, r) || nubH(g, c + 1, r);
+            const skipV = nubV(g, c, r) || nubV(g, c, r + 1);
+            if (flr(g, c - 1, r) && wcl(g, c, r) && wcl(g, c + 1, r) && flr(g, c + 2, r)) { if (!skipH) n++; }
             else if (flr(g, c - 1, r) && wcl(g, c, r) && wcl(g, c + 1, r) && wcl(g, c + 2, r) && flr(g, c + 3, r) && !rnd(g, c + 1, r)) n++;
-            if (flr(g, c, r - 1) && wcl(g, c, r) && wcl(g, c, r + 1) && flr(g, c, r + 2)) n++;
+            if (flr(g, c, r - 1) && wcl(g, c, r) && wcl(g, c, r + 1) && flr(g, c, r + 2)) { if (!skipV) n++; }
             else if (flr(g, c, r - 1) && wcl(g, c, r) && wcl(g, c, r + 1) && wcl(g, c, r + 2) && flr(g, c, r + 3) && !rnd(g, c, r + 1)) n++;
         }
         return n;
@@ -3056,6 +3225,233 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
         T('S1: SEMUA lantai gedung terhubung dari START (BFS, ' + floorN + ' sel)', reach === floorN && floorN > 1500);
         T('S1: START & KOMPUTER di lantai',
             !s1mod.s1Wall(s1mod.S1_START.c, s1mod.S1_START.r) && !s1mod.s1Wall(s1mod.S1_COMP.c, s1mod.S1_COMP.r));
+    }
+
+    // --- 16b-2. REVISI DENAH STAGE 1 (2026-08-12, CSV user): token '+' pintu
+    // RUSAK, '/' celah tembok, '*' tumpukan perabot, '@' bank komputer + '$'
+    // petak pijak, dan pintu NAC. Yang diuji = KONSEKUENSI GAMEPLAY-nya, bukan
+    // sekadar keberadaan tabelnya: barikade benar-benar menutup, celah benar-
+    // benar bisa dilewati SEUKURAN BADAN PLAYER, dan pintu rusak tak pernah
+    // membuka. ---
+    {
+        const doorMod = await import(R('src/scenes/campaign/utility/doors.js'));
+        const palS1 = await import(R('src/world/palette.js'));
+        const PRAD = cfgMod.CFG.player.radius, PROP = cfgMod.CFG.player.propRadius;
+        const S1 = s1mod.S1;
+        // Lingkaran radius r muat di (c,r) tanpa didorong perabot MAUPUN dinding?
+        const freeAt = (c, r, rad, propRad) => {
+            const p = s1mod.s1Cell(c, r);
+            if (!s1mod.stage1Walk(p.x, p.z, rad)) return false;
+            stateMod._v3.set(p.x, 0, p.z);
+            s1mod.resolve(stateMod._v3, propRad, 0);
+            return Math.hypot(stateMod._v3.x - p.x, stateMod._v3.z - p.z) < 1e-6;
+        };
+
+        // (a) TUMPUKAN PERABOT '*': setiap selnya PEJAL — pusat sel selalu
+        //     terdorong keluar, jadi player tak bisa berdiri apalagi menembus.
+        const bar = s1mod.s1BarricadesDbg();
+        let barSolid = true;
+        for (const [c, r] of bar) {
+            if (s1mod.s1Wall(c, r)) barSolid = false;              // tetap LANTAI di grid (BFS denah utuh)
+            if (freeAt(c, r, 0.5, PROP)) barSolid = false;         // tapi pejal ke perabot
+        }
+        T('S1 DENAH: ke-' + bar.length + ' sel barikade "*" tetap lantai di grid tapi PEJAL ke player',
+            bar.length === 29 && barSolid);
+
+        // (b) Barikade juga menutup untuk ROBOT: nav-grid tak boleh punya sel
+        //     berjalan di dalamnya (kalau bocor, robot menembus tumpukan).
+        const nav = s1mod.s1Nav;                  // resolusi SETENGAH sel -> 2x2 node per sel denah
+        let navSealed = true;
+        for (const [c, r] of bar)
+            for (const ci of [c * 2, c * 2 + 1]) for (const ri of [r * 2, r * 2 + 1])
+                if (nav.walk[ri * nav.cols + ci]) navSealed = false;
+        T('S1 DENAH: barikade "*" ikut ter-bake ke nav-grid (robot memutar, tak menembus)', navSealed);
+
+        // (c) CELAH TEMBOK '/': lubangnya harus benar-benar bisa DILEWATI badan
+        //     player (radius penuh) — sel celah + sel di kedua sisinya lapang.
+        const brc = s1mod.s1BreachesDbg();
+        let breachOK = brc.length === 2;
+        for (const [c, r, dir] of brc) {
+            const dc = dir === 'ew' ? 1 : 0, dr = dir === 'ew' ? 0 : 1;
+            if (!freeAt(c, r, PRAD, PROP)) breachOK = false;
+            if (!freeAt(c - dc, r - dr, PRAD, PROP)) breachOK = false;
+            if (!freeAt(c + dc, r + dr, PRAD, PROP)) breachOK = false;
+        }
+        T('S1 DENAH: kedua celah tembok "/" bisa dilewati player seukuran badan penuh', breachOK);
+
+        // (d) PINTU RUSAK '+': ada dua, keduanya locked+broken, TAK PERNAH
+        //     bergerak walau player berdiri di depannya, dan tetap memblok robot.
+        const brokenDoors = s1mod.s1DoorsDbg().filter(d => d.broken);
+        const bd = brokenDoors[0];
+        const openBefore = bd ? bd.open : -1;
+        const bp = s1mod.s1Cell(4, 6);                            // tepat di depan pintu rusak c3-4 r7
+        camera.position.set(bp.x, cfgMod.CFG.player.eyeHeight, bp.z);
+        for (let i = 0; i < 40; i++) doorMod.updateStageDoors(s1mod.s1DoorsDbg(), 0.05);
+        T('S1 DENAH: dua pintu RUSAK "+" terkunci permanen & daunnya tak pernah bergerak',
+            brokenDoors.length === 2 && brokenDoors.every(d => d.locked && d.broken)
+            && openBefore === doorMod.DOOR_BROKEN_AJAR && bd.open === doorMod.DOOR_BROKEN_AJAR
+            && doorMod.doorsWalkable(brokenDoors, bd.cx, bd.cz, 0) === false);
+        // setDoorLocked TIDAK boleh bisa membukanya (objektif mana pun)
+        doorMod.setDoorLocked(bd, false);
+        T('S1 DENAH: pintu RUSAK kebal setDoorLocked (tak ada objektif yang bisa membukanya)', bd.locked === true);
+        // ...dan PLAYER pun tak boleh menembusnya. Pintu merah yang menahan robot
+        // + peluru tapi meloloskan player adalah bug yang benar-benar terjadi di
+        // Stage 2 (laporan user 2026-08-13): scene-nya tak pernah memanggil
+        // resolveDoors di playerCollide. Diuji lewat playerCollide SUNGGUHAN.
+        {
+            let solidToPlayer = true;
+            for (const d of brokenDoors) {
+                const from = { x: d.cx, z: d.cz - S1.CELL };
+                stateMod._v3.set(d.cx, 0, d.cz);
+                s1mod.stage1Scene.playerCollide(stateMod._v3, from.x, from.z, 0);
+                if (Math.abs(stateMod._v3.z - d.cz) < d.hz + PRAD - 0.01) solidToPlayer = false;
+            }
+            T('S1 DENAH: pintu RUSAK "+" PEJAL ke player (playerCollide mendorongnya keluar)', solidToPlayer);
+        }
+
+        // (e) BANK KOMPUTER '@' pejal di dinding timur ruang akses, dan petak
+        //     pijak '$' tepat di sebelahnya masih lapang untuk berdiri.
+        let bankSolid = true;
+        for (let r = s1mod.S1_TERMINAL_BANK.r0; r <= s1mod.S1_TERMINAL_BANK.r1; r++)
+            if (freeAt(s1mod.S1_TERMINAL_BANK.c, r, 0.5, PROP)) bankSolid = false;
+        const accCell = s1mod.S1_ACCESS, accP = s1mod.s1Cell(accCell.c, accCell.r);
+        const bankP = s1mod.s1Cell(s1mod.S1_TERMINAL_BANK.c, accCell.r);
+        T('S1 DENAH: bank komputer "@" pejal sepanjang dinding & petak "$" di depannya bisa dipijak',
+            bankSolid && freeAt(accCell.c, accCell.r, PRAD, PROP)
+            && Math.hypot(accP.x - bankP.x, accP.z - bankP.z) <= S1.CELL + 0.01);
+
+        // (e2) BANK KOMPUTER benar-benar terbaca sebagai KOMPUTER, bukan kotak
+        //      polos (2026-08-12, permintaan user "seperti placeholder"): tiap sel
+        //      punya belasan bagian, layar MENYALA, dan sel operator '$' punya
+        //      layar besar yang DIMIRINGKAN. Yang struktural: TAK SATU PUN bagian
+        //      boleh keluar dari sel 48 — di sebelah baratnya adalah petak pijak
+        //      tempat player berdiri, jadi geometri yang menjorok = benda melayang
+        //      menembus badan pemain.
+        {
+            const parts = s1mod.s1BankDbg();
+            const cells = s1mod.S1_TERMINAL_BANK.r1 - s1mod.S1_TERMINAL_BANK.r0 + 1;
+            const westX = S1.x0 + s1mod.S1_TERMINAL_BANK.c * S1.CELL;
+            const halfSpan = (m) => {
+                const [sx, sy] = m.geometry.args, rz = m.rotation.z || 0;
+                return Math.abs(sx / 2 * Math.cos(rz)) + Math.abs(sy / 2 * Math.sin(rz));
+            };
+            const outside = parts.filter(m =>
+                m.position.x - halfSpan(m) < westX - 1e-6 || m.position.x + halfSpan(m) > westX + S1.CELL + 1e-6);
+            if (outside.length) console.log('  bagian bank keluar sel:', outside.length,
+                outside.slice(0, 4).map(m => m.position.x.toFixed(2)).join(' '));
+            // Emissive NYATA = warna emissive-nya bukan hitam (stub harness memberi
+            // SEMUA material emissiveIntensity default, jadi jangan pakai itu sbg filter).
+            const emis = parts.filter(m => (m.material?.emissive?.getHex?.() || 0) !== 0);
+            const tilted = parts.filter(m => Math.abs(m.rotation.z || 0) > 0.05);
+            const opZ = s1mod.s1Cell(s1mod.S1_TERMINAL_BANK.c, s1mod.S1_ACCESS.r).z;
+            T('S1 BANK "@": ' + parts.length + ' bagian (rak/bay/kisi/LED/layar) tetap di dalam sel, layar menyala,'
+                + ' sel operator punya layar miring sendiri',
+                parts.length >= cells * 15 && outside.length === 0
+                && emis.length >= cells * 2 && emis.every(m => m.material.emissiveIntensity <= palS1.EMISSIVE_MAX)
+                && tilted.length >= 2 && tilted.every(m => Math.abs(m.position.z - opZ) < S1.CELL / 2)
+                && parts.every(m => !m.isPointLight));
+
+            // (e3) TUMPUKAN BARIKADE bervariasi (2026-08-12, permintaan user "kalo
+            //      cuma lemari gitu terlihat monoton"): banyak RESEP berbeda dan
+            //      banyak JENIS perabot, bukan satu benda yang diulang.
+            const mix = s1mod.s1BarricadeMixDbg();
+            const recipes = new Set(mix.map(m => m.recipe));
+            const kinds = new Set(mix.flatMap(m => m.kinds));
+            const perRow = {};                          // tiap garis barikade ikut bervariasi
+            for (const m of mix) (perRow[m.r] ??= new Set()).add(m.recipe);
+            const longestRow = Object.values(perRow).sort((a, b) => b.size - a.size)[0];
+            T('S1 BARIKADE "*": ' + recipes.size + ' resep & ' + kinds.size + ' jenis perabot berbeda'
+                + ' (bukan lemari berulang)',
+                mix.length === s1mod.s1BarricadesDbg().length
+                && recipes.size >= 6 && kinds.size >= 7
+                && mix.every(m => m.kinds.length >= 3) && longestRow.size >= 4);
+        }
+
+        // (f) Setelah semua perabot/barikade berdiri, SELURUH lantai masih bisa
+        //     dicapai dari START pada CLEARANCE PLAYER (radius penuh) — barikade
+        //     boleh memutus jalur pintas, tak boleh mengurung satu ruangan pun.
+        //     Sampel SEPEREMPAT sel: bukaan selebar satu sel hanya memuat badan
+        //     player (radius 5 dari 14 unit) dalam pita +-2 unit di tengahnya,
+        //     jadi grid seperempat sel (titik +-1.75 dari pusat) adalah resolusi
+        //     terkasar yang masih bisa "melewati" pintu. Setengah sel TIDAK bisa.
+        {
+            const step = S1.CELL / 4, N = S1.G * 4;
+            // Pintu RUSAK '+' ikut memblok (urutan sama dengan playerCollide).
+            // Hanya yang `broken` — pintu `locked` seperti NAC memang dibuka oleh
+            // alur permainan, jadi bukan tembok permanen.
+            const ok = new Uint8Array(N * N);
+            const drs1 = s1mod.s1DoorsDbg().filter(d => d.broken);
+            let total = 0;
+            for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+                const x = S1.x0 + (i + 0.5) * step, z = S1.z0 + (j + 0.5) * step;
+                if (!s1mod.stage1Walk(x, z, PRAD)) continue;
+                stateMod._v3.set(x, 0, z);
+                s1mod.resolve(stateMod._v3, PROP, 0);
+                doorMod.resolveDoors(drs1, stateMod._v3, PRAD, true);
+                if (Math.abs(stateMod._v3.x - x) + Math.abs(stateMod._v3.z - z) > 0.01) continue;
+                ok[j * N + i] = 1; total++;
+            }
+            const sp = s1mod.s1Cell(s1mod.S1_START.c, s1mod.S1_START.r);
+            const seen = new Uint8Array(N * N);
+            const k0 = Math.floor((sp.z - S1.z0) / step) * N + Math.floor((sp.x - S1.x0) / step);
+            const q = [k0]; seen[k0] = 1;
+            let reach = ok[k0] ? 1 : 0;
+            for (let h = 0; h < q.length; h++) {
+                const k = q[h], i = k % N, j = (k - i) / N;
+                for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const i2 = i + di, j2 = j + dj;
+                    if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) continue;
+                    const k2 = j2 * N + i2;
+                    if (ok[k2] && !seen[k2]) { seen[k2] = 1; reach++; q.push(k2); }
+                }
+            }
+            // Sisa <0.5% yang boleh terkurung = celah sempit di belakang perabot
+            // yang menempel dinding (tak pernah jadi tujuan). Yang benar-benar
+            // dijaga: TIAP RUANGAN dan tiap titik objektif harus tercapai.
+            const ptSeen = (x, z) => {                     // ada titik tercapai dalam setengah sel dari (x,z)?
+                const h = S1.CELL / 2;
+                const i0 = Math.max(0, Math.floor((x - h - S1.x0) / step)), i1 = Math.min(N - 1, Math.floor((x + h - S1.x0) / step));
+                const j0 = Math.max(0, Math.floor((z - h - S1.z0) / step)), j1 = Math.min(N - 1, Math.floor((z + h - S1.z0) / step));
+                for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++)
+                    if (ok[j * N + i] && seen[j * N + i]) return true;
+                return false;
+            };
+            const cellSeen = (c, r) => { const p = s1mod.s1Cell(c, r); return ptSeen(p.x, p.z); };
+            const roomsSeen = s1mod.s1LampsDbg().every(lm => {
+                const c0 = Math.round((lm.x0 - S1.x0) / S1.CELL), c1 = Math.round((lm.x1 - S1.x0) / S1.CELL) - 1;
+                const r0 = Math.round((lm.z0 - S1.z0) / S1.CELL), r1 = Math.round((lm.z1 - S1.z0) / S1.CELL) - 1;
+                for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (cellSeen(c, r)) return true;
+                return false;
+            });
+            const fin = { c: (s1mod.S1_FINISH.c0 + s1mod.S1_FINISH.c1) >> 1, r: (s1mod.S1_FINISH.r0 + s1mod.S1_FINISH.r1) >> 1 };
+            const missed = [];
+            for (const [c, r] of [[s1mod.S1_START.c, s1mod.S1_START.r], [s1mod.S1_ACCESS.c, s1mod.S1_ACCESS.r],
+            [s1mod.S1_COMP.c, s1mod.S1_COMP.r], [fin.c, fin.r],
+            ...s1mod.s1BreachesDbg().map(b => [b[0], b[1]])])
+                if (!cellSeen(c, r)) missed.push('c' + c + ',r' + r);
+            for (const d of s1mod.s1DoorsDbg())            // tiap mulut pintu yang BISA dibuka
+                if (!d.broken && !ptSeen(d.cx, d.cz)) missed.push('pintu@' + d.cx.toFixed(0) + ',' + d.cz.toFixed(0));
+            // Sisa <1% yang boleh terkurung = celah setipis badan di belakang rak
+            // yang menempel dinding; yang dijaga keras = ruangan, pintu, objektif.
+            const reachOK = total > 3000 && reach / total > 0.99 && roomsSeen && missed.length === 0;
+            if (!reachOK) {
+                if (missed.length) console.log('  titik kunci terkurung:', missed.join(' '));
+                for (let r = 0; r < S1.G; r++) {           // peta: . tercapai | X terkurung | - tak muat | # dinding
+                    let ln = '';
+                    for (let c = 0; c < S1.G; c++) {
+                        let a = 0, s = 0;
+                        for (let j = r * 4; j < r * 4 + 4; j++) for (let i = c * 4; i < c * 4 + 4; i++) {
+                            if (ok[j * N + i]) a = 1;
+                            if (ok[j * N + i] && seen[j * N + i]) s = 1;
+                        }
+                        ln += s1mod.s1Wall(c, r) ? '#' : (s ? '.' : (a ? 'X' : '-'));
+                    }
+                    console.log('  ' + String(r).padStart(2) + ' ' + ln);
+                }
+            }
+            T('S1 DENAH: tiap ruangan, tiap mulut pintu & tiap titik objektif tercapai dari START'
+                + ' pada clearance PLAYER (' + reach + '/' + total + ')', reachOK);
+        }
     }
 }
 
@@ -10963,16 +11359,20 @@ const palMod = await import(R('src/world/palette.js'));
 
     // (c2) Tiap peti berdiri di LANTAI & tak tertanam di furnitur (kalau tertanam,
     //      peti mustahil didekati/dipecah).
-    const onFloor = (pos, walkFn, resolveFn) => pos.every(k => {
-        if (!walkFn(k.x, k.z, 1)) return false;
-        stateMod._v3.set(k.x, 0, k.z);
-        resolveFn(stateMod._v3, 1, 0);
-        return Math.abs(stateMod._v3.x - k.x) + Math.abs(stateMod._v3.z - k.z) < 0.01;
+    const onFloor = (pos, walkFn, resolveFn, tag) => pos.every(k => {
+        let ok = walkFn(k.x, k.z, 1);
+        if (ok) {
+            stateMod._v3.set(k.x, 0, k.z);
+            resolveFn(stateMod._v3, 1, 0);
+            ok = Math.abs(stateMod._v3.x - k.x) + Math.abs(stateMod._v3.z - k.z) < 0.01;
+        }
+        if (!ok) console.log(`  peti tertanam ${tag}: x=${k.x.toFixed(1)} z=${k.z.toFixed(1)}`);
+        return ok;
     });
     T('peti: semua berdiri di lantai & tak tertanam furnitur (stage 1/2/3)',
-        onFloor(s1CratePos, s1c.stage1Walk, s1c.resolve)
-        && onFloor(s2CratePos, s2c.stage2Walk, s2c.resolve)
-        && onFloor(s3CratePos, s3c.stage3Walk, s3c.resolve));
+        onFloor(s1CratePos, s1c.stage1Walk, s1c.resolve, 'S1')
+        && onFloor(s2CratePos, s2c.stage2Walk, s2c.resolve, 'S2')
+        && onFloor(s3CratePos, s3c.stage3Walk, s3c.resolve, 'S3'));
 
     // (c3) PERABOT TAMBAHAN tak memutus nav robot: flood-fill nav-grid — region
     //      terbesar harus mencakup hampir seluruh sel walkable (bukan pecah jadi
@@ -11006,10 +11406,13 @@ const palMod = await import(R('src/world/palette.js'));
     //      sel lantai tetangga tiap bukaan pintu stage 1 tak boleh terdorong jauh.
     crateMod.resetCrates(); s1c.placeCrates();
     const PR = cfgMod.CFG.player.radius;
+    // Termasuk pintu RUSAK '+' (c3-4 r7, c13-15 r7) dan CELAH '/' (c39 r3, c28 r7):
+    // ketiganya tetap mulut sempit yang tak boleh disumbat perabot/peti.
     const DOORCELLS = [[8, 3], [8, 4], [3, 7], [4, 7], [13, 7], [14, 7], [15, 7], [8, 11], [8, 12],
     [21, 11], [21, 12], [3, 17], [4, 17], [36, 17], [37, 17], [41, 17], [42, 17],
     [13, 20], [14, 20], [16, 20], [17, 20], [21, 23], [21, 24], [29, 23], [29, 24],
-    [33, 29], [34, 29], [39, 30], [39, 31], [39, 32], [3, 39], [4, 39], [39, 43], [39, 44], [39, 45]];
+    [8, 24], [8, 25], [33, 29], [34, 29], [39, 31], [39, 32], [3, 39], [4, 39],
+    [39, 43], [39, 44], [39, 45], [39, 3], [28, 7]];
     let doorsClear = true;
     for (const [cc, rr] of DOORCELLS) {
         for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -11027,7 +11430,7 @@ const palMod = await import(R('src/world/palette.js'));
     //      "ruangan masih terlalu terlihat kosong, taruh lebih banyak box") ----
     const ROOMS = [
         { n: 1, m: s1c, S: s1c.S1, cell: s1c.s1Cell, wall: s1c.s1Wall, res: s1c.resolve, lamps: s1c.s1LampsDbg(), furn: s1c.s1FurnitureDbg(), pos: s1CratePos, doors: DOORCELLS },
-        { n: 2, m: s2c, S: s2c.S2, cell: s2c.s2Cell, wall: s2c.s2Wall, res: s2c.resolve, lamps: s2c.s2LampsDbg(), furn: s2c.s2FurnitureDbg(), pos: s2CratePos, doors: [[43, 6], [44, 6], [17, 4], [17, 5], [6, 9], [7, 9], [30, 11], [30, 12], [27, 19], [27, 20], [1, 20], [2, 20], [13, 23], [13, 24], [39, 27], [39, 28], [44, 29], [45, 29]] },
+        { n: 2, m: s2c, S: s2c.S2, cell: s2c.s2Cell, wall: s2c.s2Wall, res: s2c.resolve, lamps: s2c.s2LampsDbg(), furn: s2c.s2FurnitureDbg(), pos: s2CratePos, doors: [[43, 6], [44, 6], [17, 4], [17, 5], [6, 9], [7, 9], [8, 11], [8, 12], [30, 11], [30, 12], [27, 19], [27, 20], [1, 20], [2, 20], [13, 23], [13, 24], [39, 27], [39, 28], [44, 29], [45, 29], [38, 6]] },
         { n: 3, m: s3c, S: s3c.S3, cell: s3c.s3Cell, wall: s3c.s3Wall, res: s3c.resolve, lamps: s3c.s3LampsDbg(), furn: s3c.s3FurnitureDbg(), pos: s3CratePos, doors: [[24, 8], [25, 8], [32, 9], [32, 10], [8, 12], [8, 13], [32, 15], [32, 16], [11, 21], [11, 22], [32, 21], [32, 22]] },
     ];
     // sel dianggap TERISI perabot bila titik pusatnya terdorong resolve (radius nav 3)

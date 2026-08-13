@@ -69,6 +69,7 @@ import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.j
 import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
 import { buildFuturisticPlanterMesh } from '../../../../entities/futuristicPlanter.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill, propClearance } from '../../utility/common.js';
+import { barricadeBlocker, buildFurniturePile, buildWallBreach } from '../../utility/barricade.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../../entities/crates.js';
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../../utility/interior.js';
@@ -118,13 +119,13 @@ const S2_MAP = [
     '#.......#........#.........#...........#.........#',   // 3
     '#.......#..................#...........#.........#',   // 4
     '#.......#..................#...........#.........#',   // 5
-    '#.......#........##########################..#####',   // 6
+    '#.......#........#####################.####..#####',   // 6  (c38 = celah '/' ruang SUPPLY -> toilet)
     '#.............................#........#.........#',   // 7
     '#.............................#........#.........#',   // 8
     '######..#.....................#........#.........#',   // 9
     '#.......#.....................#........#.........#',   // 10
-    '#.......#..............................#.........#',   // 11
-    '#.......#..............................#.........#',   // 12
+    '#......................................#.........#',   // 11  (c8 = pintu BARU koridor kiri <-> aula)
+    '#......................................#.........#',   // 12
     '#.......#.....................#........#.........#',   // 13
     '#.......#.....................#........#.........#',   // 14
     '#.......#....#................#........#.........#',   // 15
@@ -164,12 +165,15 @@ const S2_MAP = [
     '##################################################',   // 49
 ];
 
-// PINTU geser (8, persis dari plan '-'). dir 'ew'=celah dinding VERTIKAL /
+// PINTU di semua bukaan '-' dan '+' denah (9). dir 'ew'=celah dinding VERTIKAL /
 // 'ns'=celah dinding HORIZONTAL. Semua jamb sudah diverifikasi dinding.
+//   broken: true -> '+' pintu RUSAK, macet permanen (lampu jamb selalu MERAH,
+//                   daun tak pernah bergerak) — pemain harus memutar.
 const S2_DOORS = [
     { c0: 43, r0: 6, c1: 44, r1: 6, dir: 'ns' },     // ruang GENERATOR (r1-5) <-> ruang besar bawahnya (revisi denah user 2026-07-29)
     { c0: 17, r0: 4, c1: 17, r1: 5, dir: 'ew' },     // upper-center <-> cols9-16 area
-    { c0: 6, r0: 9, c1: 7, r1: 9, dir: 'ns' },       // T-area <-> center hall
+    { c0: 6, r0: 9, c1: 7, r1: 9, dir: 'ns', broken: true },     // T-area -X- koridor kiri (RUSAK)
+    { c0: 8, r0: 11, c1: 8, r1: 12, dir: 'ew' },     // koridor kiri <-> center hall (pengganti pintu rusak)
     { c0: 30, r0: 11, c1: 30, r1: 12, dir: 'ew' },   // center hall <-> R-toilet/center-right
     { c0: 27, r0: 19, c1: 27, r1: 20, dir: 'ew' },   // corridor split (center-lower <-> lower-center-right)
     { c0: 1, r0: 20, c1: 2, r1: 20, dir: 'ns' },     // left corridor <-> lower-left
@@ -177,6 +181,30 @@ const S2_DOORS = [
     { c0: 39, r0: 27, c1: 39, r1: 28, dir: 'ew' },   // lower-center-right <-> GENERATOR room
     { c0: 44, r0: 29, c1: 45, r1: 29, dir: 'ns' },   // lower region <-> WAREHOUSE (bawah)
 ];
+
+// CELAH TEMBOK '/' (denah 2026-08-13): satu sel lantai berlubang di garis
+// dinding — tembok yang JEBOL, bukan pintu. Sel-nya sudah lantai di S2_MAP;
+// utility/barricade.js hanya menempelkan sisa tembok bergerigi di kedua kusen.
+// Dengan pintu c6-7 r9 kini RUSAK dan baris 9 tertumpuk perabot, celah inilah
+// SATU-SATUNYA jalan turun dari lantai atas: SUPPLY -> toilet -> aula.
+//   [c, r, dir] — 'ns' = lubang di dinding HORIZONTAL, 'ew' = VERTIKAL.
+const S2_BREACHES = [
+    [38, 6, 'ns'],    // ruang SUPPLY (W) <-> toilet (R)
+];
+
+// TUMPUKAN PERABOT '*' (denah 2026-08-13): barikade sel-penuh yang TIDAK BISA
+// dilewati player MAUPUN robot (utility/barricade.js). Sel tetap lantai di grid.
+//   r9 c9-29    : menyegel aula utama dari koridor r7-8 di atasnya
+//   c42-43 r13-28 : membelah ruang generator jadi lorong barat c40-41 (mulut
+//                   pintu c39 r27-28) dan sisi timur c44-48 (pintu gudang
+//                   c44-45 r29); keduanya bertemu lagi di baris 7-12.
+const S2_BARRICADES = [];
+for (let c = 9; c <= 29; c++) S2_BARRICADES.push([c, 9]);
+for (let r = 13; r <= 28; r++) { S2_BARRICADES.push([42, r]); S2_BARRICADES.push([43, r]); }
+export const s2BarricadesDbg = () => S2_BARRICADES;   // smoke test
+export const s2BreachesDbg = () => S2_BREACHES;       // smoke test
+let s2BarricadeMix = [];
+export const s2BarricadeMixDbg = () => s2BarricadeMix;
 // PERABOT TAMBAHAN per-ruangan (2026-07-26): [kind, c, r, sx, sy, sz]. Ditempel
 // dinding/sudut supaya ruangan terasa dipakai TANPA menyumbat jalur — mulut
 // pintu, lorong rak gudang, kotak generator & sel komponen dibiarkan bersih.
@@ -186,7 +214,7 @@ const S2_FURNITURE = [
     // koridor kiri
     ['cupboard', 1, 13, 6, 15, 30], ['bench', 6, 12, 14, 6, 6],
     // center hall (aula utama)
-    ['cupboard', 29, 8, 6, 15, 24], ['desk', 14, 12, 22, 7, 12],
+    ['cupboard', 29, 7, 6, 15, 18], ['desk', 14, 12, 22, 7, 12],   // rak naik ke r7: baris 9 kini barikade '*'
     ['box', 20, 16, 14, 9, 14], ['planter', 11, 8, 8, 11, 8], ['bench', 23, 19, 18, 6, 7],
     // upper-center
     ['cupboard', 18, 1, 6, 15, 20], ['planter', 26, 5, 8, 11, 8],
@@ -195,8 +223,8 @@ const S2_FURNITURE = [
     // toilet (R)
     ['stall', 36, 9, 2, 15, 10], ['sink', 31, 14, 10, 8, 4],
     // ruang GENERATOR
-    ['cupboard', 48, 10, 6, 15, 40], ['box', 41, 17, 14, 9, 14],
-    ['desk', 46, 25, 20, 7, 12], ['planter', 41, 24, 8, 11, 8],
+    ['cupboard', 48, 10, 6, 15, 40], ['box', 46, 17, 14, 9, 14],
+    ['desk', 46, 25, 20, 7, 12], ['planter', 47, 17, 8, 11, 8],
     // lower-left (ruang 2)
     ['cupboard', 1, 25, 6, 15, 20], ['desk', 9, 22, 20, 7, 12], ['box', 4, 27, 12, 9, 12],
     // center-lower (ruang 1)
@@ -212,17 +240,21 @@ const S2_FURNITURE = [
     // generator, lorong rak gudang & sel komponen tetap bersih. ===
     ['rubble', 1, 8, 12, 9, 12], ['cupboard', 1, 4, 6, 15, 20],                    // ruang tangga rusak
     ['cupboard', 2, 10, 20, 15, 6], ['box', 1, 17, 14, 9, 14], ['planter', 7, 17, 8, 11, 8],   // koridor kiri
-    ['desk', 30, 19, 22, 7, 12], ['cupboard', 28, 7, 20, 15, 6], ['box', 9, 12, 14, 9, 14],    // center hall
+    ['desk', 30, 19, 22, 7, 12], ['cupboard', 28, 7, 20, 15, 6], ['box', 12, 13, 14, 9, 14],    // center hall
     ['planter', 29, 15, 8, 11, 8], ['sofa', 25, 7, 18, 6, 14], ['desk', 22, 7, 22, 7, 12],
-    ['bench', 15, 19, 18, 6, 7], ['meeting', 10, 7, 34, 7, 18], ['box', 27, 10, 14, 9, 14],
+    // Meja rapat (10,7) DIHAPUS 2026-08-13 (laporan user: jalan keluar dari titik
+    // start tersumbat). Meja 34x18 itu berdiri persis di mulut SATU-SATUNYA jalan
+    // keluar ruang tangga (baris 7-8 c8-11) sejak baris 9 jadi barikade '*' dan
+    // pintu c6-7 r9 jadi RUSAK — kombinasinya mengurung player di ruang start.
+    ['bench', 15, 19, 18, 6, 7], ['box', 27, 10, 14, 9, 14],
     ['cupboard', 26, 4, 6, 15, 20], ['planter', 19, 1, 8, 11, 8],                  // upper-center
     ['cupboard', 28, 1, 20, 15, 6], ['box', 28, 4, 14, 9, 14], ['bench', 37, 1, 18, 6, 7],     // ruang SUPPLY
-    ['stall', 31, 7, 10, 15, 2], ['sink', 38, 7, 10, 8, 4], ['stall', 31, 17, 10, 15, 2],      // toilet
+    ['stall', 31, 7, 10, 15, 2], ['sink', 37, 10, 10, 8, 4], ['stall', 31, 17, 10, 15, 2],     // toilet (wastafel menyingkir dari mulut celah c38 r6)
     ['desk', 41, 3, 22, 7, 12], ['cupboard', 47, 3, 20, 15, 6], ['box', 47, 26, 14, 9, 14],    // ruang generator
     // planter(41,6) & bench(47,6) DIPINDAH ke dalam ruang generator: baris 6 kini
     // DINDING (revisi denah user 2026-07-29), jadi keduanya akan tertanam tembok.
-    ['console', 42, 26, 16, 7, 8], ['planter', 42, 5, 8, 11, 8], ['bench', 46, 5, 18, 6, 7],
-    ['box', 41, 23, 14, 9, 14],
+    ['console', 47, 12, 12, 7, 8], ['planter', 42, 5, 8, 11, 8], ['bench', 46, 5, 18, 6, 7],
+    ['box', 47, 19, 14, 9, 14],
     ['desk', 10, 21, 22, 7, 12], ['cupboard', 3, 28, 20, 15, 6], ['box', 5, 21, 14, 9, 14],    // lower-left (ruang 2)
     ['planter', 8, 28, 8, 11, 8],
     ['desk', 25, 27, 22, 7, 12], ['cupboard', 16, 21, 20, 15, 6], ['box', 25, 24, 14, 9, 14],  // center-lower (ruang 1)
@@ -236,15 +268,15 @@ const S2_FURNITURE = [
 
     // --- pass 3: sisa sudut & pinggir ruangan besar yang masih melompong ---
     ['planter', 2, 8, 8, 11, 8],                                                   // ruang tangga rusak
-    ['bench', 6, 19, 18, 6, 7], ['box', 1, 11, 14, 9, 14], ['cupboard', 7, 12, 6, 15, 20],     // koridor kiri
+    ['bench', 6, 19, 18, 6, 7], ['box', 1, 11, 14, 9, 14], ['cupboard', 7, 15, 6, 15, 20],     // koridor kiri (lemari turun: c8 r11-12 kini pintu)
     ['cupboard', 14, 20, 6, 15, 20], ['box', 20, 7, 14, 9, 14], ['desk', 21, 19, 22, 7, 12],   // center hall
-    ['planter', 14, 16, 8, 11, 8], ['box', 30, 20, 14, 9, 14], ['bench', 10, 8, 18, 6, 7],
-    ['sofa', 28, 8, 18, 6, 14], ['console', 28, 16, 16, 7, 8],
+    ['planter', 14, 16, 8, 11, 8], ['box', 30, 20, 14, 9, 14], ['bench', 17, 16, 18, 6, 7],
+    ['sofa', 24, 14, 18, 6, 14], ['console', 28, 16, 16, 7, 8],
     ['box', 20, 1, 14, 9, 14], ['bench', 20, 5, 18, 6, 7],                         // upper-center
     ['planter', 29, 5, 8, 11, 8], ['box', 30, 1, 14, 9, 14],                       // ruang SUPPLY
     ['sink', 38, 17, 10, 8, 4], ['box', 32, 7, 14, 9, 14],                         // toilet
-    ['cupboard', 48, 27, 6, 15, 20], ['box', 40, 4, 14, 9, 14], ['desk', 44, 26, 22, 7, 12],   // ruang generator
-    ['planter', 47, 4, 8, 11, 8], ['sofa', 41, 22, 18, 6, 14], ['box', 47, 22, 14, 9, 14],
+    ['cupboard', 48, 27, 6, 15, 20], ['box', 40, 4, 14, 9, 14], ['desk', 45, 27, 18, 7, 12],   // ruang generator
+    ['planter', 47, 4, 8, 11, 8], ['sofa', 45, 20, 18, 6, 14], ['box', 47, 22, 14, 9, 14],
     ['sofa', 1, 27, 14, 6, 18], ['box', 1, 23, 14, 9, 14], ['bench', 11, 28, 18, 6, 7],        // lower-left (ruang 2)
     ['planter', 8, 21, 8, 11, 8],
     ['box', 25, 26, 14, 9, 14], ['planter', 16, 22, 8, 11, 8], ['cupboard', 19, 21, 20, 15, 6],// center-lower (ruang 1)
@@ -257,12 +289,12 @@ const S2_FURNITURE = [
 
     // --- pass 4: aula & ruang besar (bagian tengah) supaya tak terasa gudang kosong ---
     ['box', 17, 19, 14, 9, 14], ['cupboard', 23, 17, 20, 15, 6], ['planter', 14, 15, 8, 11, 8],// center hall
-    ['desk', 10, 9, 22, 7, 12], ['box', 28, 15, 14, 9, 14], ['bench', 10, 13, 18, 6, 7],
-    ['sofa', 26, 9, 18, 6, 14],
+    ['desk', 11, 11, 22, 7, 12], ['box', 28, 15, 14, 9, 14], ['bench', 10, 13, 18, 6, 7],
+    ['sofa', 26, 11, 18, 6, 14],
     ['stall', 37, 7, 10, 15, 2], ['box', 31, 8, 14, 9, 14],                        // toilet
     // planter(40,6) & bench(48,6) juga DIPINDAH turun ke ruang besar di bawah
     // dinding baru (baris 6 = tembok sejak revisi denah user 2026-07-29).
-    ['box', 40, 24, 14, 9, 14], ['cupboard', 48, 24, 6, 15, 20], ['planter', 40, 8, 8, 11, 8], // ruang generator
+    ['box', 46, 23, 14, 9, 14], ['cupboard', 48, 24, 6, 15, 20], ['planter', 40, 8, 8, 11, 8], // ruang generator
     ['bench', 46, 8, 18, 6, 7],
     ['box', 7, 21, 14, 9, 14], ['cupboard', 6, 28, 20, 15, 6], ['desk', 3, 23, 22, 7, 12],     // lower-left (ruang 2)
     ['box', 16, 23, 14, 9, 14], ['sofa', 23, 27, 18, 6, 14],                       // center-lower (ruang 1)
@@ -623,8 +655,9 @@ export function buildWorld() {
     };
 
     // Center hall (c9-29 r7-19): office + meja rapat + krat
-    deskModel(24, 8, 20, 7, 10);
-    meetingModel(16, 10, 30, 7, 16);
+    deskModel(22, 14, 20, 7, 10);
+    // Meja rapat aula tengah DIHAPUS 2026-08-13 (permintaan user): setelah baris
+    // 9 jadi barikade, meja ini berdiri sendirian di tengah jalur utama aula.
     propModel(buildFuturisticCrateMesh, 26, 15, 14, 9, 14);
     // Upper-center (c18-26 r1-5): meja rapat
     meetingModel(21, 3, 26, 7, 14);
@@ -662,6 +695,23 @@ export function buildWorld() {
     };
     for (const [kind, c, r, sx, sy, sz] of S2_FURNITURE) FURN[kind](c, r, sx, sy, sz);
 
+    // === BARIKADE '*' + CELAH TEMBOK '/' (denah 2026-08-13) — keduanya dari
+    // utility/barricade.js yang sama dengan Stage 1. Barikade = satu blocker
+    // sel-penuh (ikut bake nav di akhir buildWorld, jadi robot memutar) berisi
+    // tumpukan perabot berganti-ganti resep; celah = sisa tembok bergerigi TANPA
+    // blocker (sel 14 unit, player radius 5 tak pernah menyentuh tepinya). ===
+    s2BarricadeMix = [];
+    for (let i = 0; i < S2_BARRICADES.length; i++) {
+        const [c, r] = S2_BARRICADES[i];
+        const p = s2Cell(c, r);
+        blockers.push(barricadeBlocker(p.x, p.z, S2.CELL));
+        s2BarricadeMix.push({ c, r, ...buildFurniturePile(staticProps, p.x, p.z, i) });
+    }
+    for (const [c, r, dir] of S2_BREACHES) {
+        const p = s2Cell(c, r);
+        buildWallBreach(staticProps, p.x, p.z, dir, S2.CELL, S2.H);
+    }
+
     // GENERATOR room (c40-48 r1-28): mesin generator (atas) + meja + bangku + konsol
     const genP = s2Cell(S2_GEN.c, S2_GEN.r);
     s2GenPos = { x: genP.x, z: genP.z };
@@ -682,8 +732,11 @@ export function buildWorld() {
     s2Marker.position.set(genP.x, 0, genP.z);
     s2Marker.visible = false;
     scene.add(s2Marker);
-    deskModel(44, 13, 18, 7, 10);
-    propModel(buildFuturisticBenchMesh, 44, 22, 20, 6, 10);
+    // Lorong barat c40-41 (r13-28) SENGAJA dikosongkan: sejak barikade '*'
+    // c42-43 memotong ruang ini, lorong itulah satu-satunya jalan dari pintu
+    // c39 r27-28 menuju sisi timur, jadi perabotnya pindah semua ke c44-48.
+    deskModel(45, 13, 18, 7, 10);
+    propModel(buildFuturisticBenchMesh, 46, 15, 20, 6, 10);
 
     // === GUDANG (@) — 12 rak (kolom @) sebagai rak logam tinggi (blocker) ===
     for (const col of S2_SHELF_COLS) {
@@ -1037,6 +1090,13 @@ export const stage2Scene = {
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage2Walk, pos, oldX, oldZ, player.radius);
         resolve(pos, propClearance(), feetY);      // perabot: radius lebih ramping (lihat propClearance)
+        // Pintu TERKUNCI/RUSAK memblok PLAYER juga (bugfix 2026-08-13, laporan
+        // user: pintu berlampu merah bisa ditembus). Stage 2 dulu tak punya pintu
+        // terkunci sama sekali sehingga hook ini tak pernah dipasang — begitu
+        // denah baru menambahkan pintu RUSAK c6-7 r9, robot & peluru terhalang
+        // tapi player berjalan menembusnya. `lockedOnly` seperti Stage 1: pintu
+        // biasa tak ikut memblok karena player selalu membukanya lebih dulu.
+        resolveDoors(s2doors, pos, player.radius, true);
         resolveBarrelBlock(pos, player.radius);   // barel peledak pejal ke player
         resolveCrateBlock(pos, player.radius);    // peti persediaan pejal ke player
         slideWalk(stage2Walk, pos, oldX, oldZ, player.radius);

@@ -61,6 +61,15 @@ export function doorMotionSFX(dr, prev, x, z) {
 
 const OPEN_TIME = 0.45;      // detik buka/tutup penuh
 const FRONT_CELLS = 2;       // player HARUS di <= 2 kotak DI DEPAN bukaan (permintaan user 2026-07-18)
+// PINTU RUSAK (2026-08-12, legenda '+' denah Stage 1): pintu yang TIDAK PERNAH
+// bisa dibuka — bukan "terkunci sampai objektif selesai", melainkan macet
+// permanen. Dia memakai rig dua-daun yang sama supaya tetap terbaca sebagai
+// PINTU (bukan tembok), tapi dipaku pada bukaan kecil ini dan dilewati
+// updateStageDoors sepenuhnya: daunnya tak pernah bergerak, jadi tak pernah ada
+// bunyi buka/tutup. 0.14 < DOOR_SOLID_MAX, jadi resolveDoors/doorsWalkable tetap
+// memperlakukannya PEJAL untuk player maupun robot; celahnya (~1 unit) hanya
+// cukup untuk terlihat macet, bukan untuk dilewati peluru.
+export const DOOR_BROKEN_AJAR = 0.14;
 const DOOR_SOLID_MAX = 0.5;  // pintu PEJAL (memblok robot) selama open < ini (masih >=1/2 tertutup)
 const GREEN = 0x39ff7a;      // hijau "bisa dibuka" (senada lampu EXIT)
 const LOCK_RED = 0xff4a3c;   // merah "TERKUNCI" (varian pintu terkunci, mis. ruang komputer stage 1)
@@ -254,6 +263,8 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
     const doors = [];
 
     for (const d of doorList) {
+        const broken = !!d.broken;                 // '+' denah: macet permanen (selalu terkunci)
+        const locked = broken || !!d.locked;
         const a = cellFn(d.c0, d.r0), b = cellFn(d.c1, d.r1);
         const cx = (a.x + b.x) / 2, cz = (a.z + b.z) / 2;
         const ew = d.dir === 'ew';
@@ -287,7 +298,7 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
         //     2026-07-18 (permintaan user): dipindah dari PUNCAK tembok ke kedua
         //     MUKA jamb — DEPAN (+) & BELAKANG (−) — dan DIPERKECIL. Tiap jamb
         //     dapat 2 lampu (satu tiap muka) → keempat titik pintu bertanda. ---
-        const litMat = d.locked
+        const litMat = locked
             ? new THREE.MeshBasicMaterial({ color: LOCK_RED, toneMapped: false })   // material sendiri (bisa di-recolor saat unlock)
             : greenMat;
         const lights = [];
@@ -309,12 +320,17 @@ export function buildStageDoors(doorList, cellFn, CELL, H) {
             }
         }
 
+        // Pintu RUSAK dipaku pada pose macetnya SEKARANG (sekali, saat build):
+        // updateStageDoors melewatinya, jadi tak ada yang menggeser daunnya lagi.
+        if (broken) setSplitDoorOpen(rig, doorEasedOpen(DOOR_BROKEN_AJAR));
         doors.push({
-            panel, rig, leaves: rig.leaves, cx, cz, open: 0, cell: CELL,
+            panel, rig, leaves: rig.leaves, cx, cz, cell: CELL,
+            open: broken ? DOOR_BROKEN_AJAR : 0,
             linger: 0,                             // sisa delay tutup (dtk) setelah player keluar zona (2026-07-20)
             ew,                                    // orientasi: true = dinding vertikal (masuk dari ±x)
-            locked: !!d.locked,                    // TERKUNCI (tak pernah membuka sampai setDoorLocked(false))
-            lockMat: d.locked ? litMat : null,     // material lampu merah -> hijau saat unlock
+            locked,                                // TERKUNCI (tak pernah membuka sampai setDoorLocked(false))
+            broken,                                // RUSAK: terkunci selamanya, tak pernah beranimasi
+            lockMat: locked ? litMat : null,       // material lampu merah -> hijau saat unlock
             lights,
             perpMax: (FRONT_CELLS + 0.5) * CELL,   // tegak-lurus dinding: <= 2 kotak di depan (+ tepi sel)
             paraMax: span / 2 + CELL * 0.4,        // sejajar dinding: dalam lebar bukaan (+ sedikit margin)
@@ -337,6 +353,7 @@ export function updateStageDoors(doors, dt) {
     if (!doors || !doors.length) return;
     const px = camera.position.x, pz = camera.position.z;   // camera = pivot logika player
     for (const dr of doors) {
+        if (dr.broken) continue;   // pintu RUSAK: daun beku di pose macet, tanpa bunyi
         // Pintu TERKUNCI tak pernah membuka berapa pun kedekatan player.
         const target = doorProximityTarget(dr, dt, px, pz, dr.cell, !dr.locked);
         updateDoorMotion(dr, dt, target);
@@ -385,7 +402,7 @@ export function doorsWalkable(doors, x, z, radius = 0) {
 // terkunci tak pernah membuka (updateStageDoors) & memblok player (resolveDoors
 // lockedOnly). `door` = elemen array hasil buildStageDoors.
 export function setDoorLocked(door, locked) {
-    if (!door) return;
+    if (!door || door.broken) return;   // pintu RUSAK tak bisa dibuka oleh objektif apa pun
     door.locked = !!locked;
     if (door.lockMat) door.lockMat.color.setHex(locked ? LOCK_RED : GREEN);   // merah <-> hijau (mis. re-lock saat restart)
 }
