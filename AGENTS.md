@@ -1,10 +1,12 @@
 # AGENTS
 
+**Stages 9–13 acceptance pass (2026-08-13):** the second campaign arc is finished against the plan's §14 matrix, with smoke sections `25` (shared 9–13 contract) and `25a`–`25e` (one per stage). Five rules came out of it. (1) **Stage 12 ends through its FACADE:** `stage12Scene.enter()` installs `setStage12CompletionHook(() => beginStageTransition(stage13Scene))` — the root chapter must never import Stage 13, and without the hook a finished broadcast dead-ends. (2) **A boss's yaw lives on its GROUP, not its position** — `updateMovement` in `nusantaraWarden.js` read `position.rotation.y` and threw on the boss's first active frame. (3) **A telegraphed area attack freezes its pattern at telegraph time** (`w.sectorBase`): recomputing wedge angles at detonation drifted ~20° from the drawn warning. (4) **A scan/lock mechanic must be reachable from its own config** — Stage 11's band swept past a stationary player in 0.17 s against a 1.2 s lock, so the visible band width is now derived from `scan.safeRadius` and smoke asserts `dwell ≥ lockSec` from `CFG`. (5) **A stage finish always closes the radio panel** (both the natural and the skip path), and every stage's spawn/supply table is swept at radius 0 against its own blockers so nothing spawns inside furniture. → [docs/campaign.md](docs/campaign.md#acceptance-pass--stages-913-2026-08-13-completing-the-plans-14-matrix)
+
 **Enemy bullet door fix (2026-08-11):** `entities/robots.js` preflights every A/B robot shot through `activeScene.bulletBlocked()` at the muzzle and along body→muzzle before adding it to `enemyBullets`. This closes the spawn-frame gap that let robots pressed against closed Stage 5/6 doors fire from the far side of the door. Keep the normal per-frame sweep too.
 
 **Robot no-path/line-of-fire update (2026-08-11):** campaign A/B robots use the stage bullet LOS predicate, path around walls or closed doors to obtain a clear shot, and never fall back to walking straight into an unreachable target. `navAim()` returns `reachable:false` when A* has no route; `campaignRobotAI()` then sets `navIdle` so the robot stays exactly in place while `animateRobotIdle()` continues. Closed leaves are dynamic A* obstacles through `doorsWalkable()`; repath continues and chase/aim resumes automatically when LOS or a route returns. The same no-path idle rule applies to melee campaign robots.
 
-**Stage 5-8 location-sign removal (2026-08-11):** these stages contain no place-name, destination, wayfinding, gantry, terminal-name, airport-name, billboard, shop-name, or landmark-plaque boards. Keep gameplay floor markers, terminal screens, traffic signals, and door-status jamb lights; those are controls/status, not location signage.
+**Stage 5-13 location-sign removal (2026-08-11; extended 2026-08-13):** these stages contain no place-name, destination, wayfinding, gantry, terminal-name, airport-name, billboard, shop-name, or landmark-plaque boards. Keep gameplay floor markers, terminal screens, traffic signals, and door-status jamb lights; those are controls/status, not location signage. Locations are communicated through authored architecture and environment.
 
 **Stage 6 HQ map revision (2026-08-11):** `hqWorld.js` uses the exact 50×50 HQ layout supplied by the user. `+` is the locked server-access door released by hacking `X`; `Y` is a no-robot-spawn safe area; and both 3×3 `M` machine blocks are in their new middle-floor positions. Keep the map, `HQ_LEGEND`, machine points, safe-area checks, and Stage 6 smoke census synchronized.
 
@@ -41,8 +43,7 @@ no framework**. Two modes:
 
 - **Survival** — round-based waves defending the Monas monument; a Field Shop opens
   between waves; score = shop currency. Detail: [docs/survival.md](docs/survival.md).
-- **Campaign** — 8 linear stages (text prologue → helicopter intro cutscene → three
-  indoor office floors → an outdoor tank battle → a depot/train journey to Bandung → a failed kill-switch upload inside Bandung Headquarters → a 1.5 km night crossing of the Prof. Dr. Mochtar Kusumaatmadja/Pasupati flyover to Pasteur → an autonomous-vehicle firefight and combat-gunship duel on Cisumdawu), an inter-stage shop, loot
+- **Campaign** — 13 linear stages (Jakarta offices → outdoor tank battle → depot/train journey and Bandung HQ → Pasupati/Cisumdawu → Kertajati airport → Balikpapan port → Kalimantan forest → IKN root transmitter/Warden → Monas/Mahapatih finale), an inter-stage shop through Stage 12, loot
   as currency, hacking/repair minigames, a stage checkpoint save.
   Detail: [docs/campaign.md](docs/campaign.md).
 
@@ -60,7 +61,7 @@ never re-wire it.
 - `src/core/` — engine/orchestration: config, state, renderer, input, HUD, scene manager,
   preload/warm-up, save, pause menu, cheat console, death director, time scale.
 - `src/entities/` — shared gameplay systems: player, avatar, weapons, bullets, robots,
-  tank/gunship bosses, gore, effects, drops/ammo/crates/barrels, helicopter, procedural train/scenery, enemy pickup and props.
+  tank/gunship/Warden/Mahapatih bosses, gore, effects, drops/ammo/crates/barrels, helicopter, procedural train/scenery, enemy pickup and props.
 - `src/scenes/` — one file per scene: `campaign/{stages,cutscenes,utility}/`,
   `survival/{,cutscenes/}`, `menu.js`. Adding a stage = one new file + wiring
   (recipe in docs/MODULES.md).
@@ -76,7 +77,7 @@ never re-wire it.
   robot, prop and building is procedural geometry built in code.
 - `tools/smoke.mjs` — the headless test suite (see below).
 - `package.json` — metadata only (`"type": "module"`). No dependencies.
-- Every Campaign Stage 1-8 lives in `src/scenes/campaign/stages/stageN/index.js`; companion modules stay inside that stage folder.
+- Every Campaign Stage 1-13 lives in `src/scenes/campaign/stages/stageN/index.js`; companion modules stay inside that stage folder.
 
 ## Documentation map — read on demand
 
@@ -84,7 +85,7 @@ never re-wire it.
 | --- | --- |
 | Any module, export, scene hook, config key, adding a stage | [MODULES.md](docs/MODULES.md) — the authoritative catalog |
 | Campaign stages, cutscenes (incl. the text prologue), doors/lifts, minigames, shop, save | [docs/campaign.md](docs/campaign.md) |
-| Planned Campaign Stages 9–13, IKN boss, and final boss at Monas | [CAMPAIGN-STAGES-9-13-PLAN.md](docs/CAMPAIGN-STAGES-9-13-PLAN.md) — approved future blueprint; not implemented yet |
+| Campaign Stages 9–13, IKN boss, and final boss at Monas | [CAMPAIGN-STAGES-9-13-PLAN.md](docs/CAMPAIGN-STAGES-9-13-PLAN.md) — implemented blueprint and acceptance contract |
 | Waves, field shop, Monas objective, wave events, scoring | [docs/survival.md](docs/survival.md) |
 | Robots, weapons, gore, loot/barrels/crates, armor, movement/dodge/stamina, collision | [docs/combat.md](docs/combat.md) |
 | Camera rig, avatar, death sequence, HUD, menus, input/pause/cheats, SFX & music | [docs/presentation.md](docs/presentation.md) |
