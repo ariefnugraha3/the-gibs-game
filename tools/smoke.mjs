@@ -2971,6 +2971,9 @@ T('S2: tak ada boss (boss dibuang; updateMode kini animasi pintu, bukan boss)',
 // (SPACE x2) -> LOADING -> transisi ke stage 3. Spy enter stage3 agar tak
 // membangun dunianya di harness. Poll (bukan await tetap) supaya tahan MIN_LOADING.
 const s3mod = await import(R('src/scenes/campaign/stages/stage3/index.js'));
+const s3dep = await import(R('src/scenes/campaign/stages/stage3/machineDeploy.js'));
+// Palet dipakai sejak uji bay stage 3 (bagian 19 di bawah memakai modul yang sama).
+const palMod = await import(R('src/world/palette.js'));
 const realS3Enter = s3mod.stage3Scene.enter;
 let s3entered = false;
 s3mod.stage3Scene.enter = () => { s3entered = true; };
@@ -3710,7 +3713,7 @@ const expectedS3Dialogue = {
     },
     firstHack: {
         speaker: 'Major Gibran',
-        text: 'Damn it, a multi-stage lock. Looks like there are four more terminals I need to hack.',
+        text: 'Damn it, a multi-stage lock. Looks like there are two more terminals I need to hack.',
     },
     allHacked: {
         speaker: 'Major Gibran',
@@ -3762,12 +3765,44 @@ T('S3: PINTU BLAST terkunci (TAK BISA ditembak) + rambu MERAH + memblok',
 T('S3 PINTU: blast door dan exit door sama-sama memakai dua daun 50:50',
     s3mod.s3DoorDbg().split.leaves.length === 2
     && s3mod.s3DoorDbg().exitSplit.leaves.length === 2);
-T('S3: 4 MESIN pembuat robot (2 kiri + 2 kanan) semua hidup',
-    s3mod.s3MachinesDbg().length === 4 && s3mod.s3MachinesDbg().every(m => m.alive));
+// 2026-08-13 (permintaan user): 4 MESIN -> 2 MESIN, dan keduanya BELUM ADA di
+// ruang pabrik sampai pintu blast terbuka — ditenggelamkan `MACHINE_SINK` di
+// bawah lantai (bukan `visible=false`, supaya tak ada rekompilasi shader saat
+// muncul) dengan collider di-splice selama tak tergambar.
+T('S3: 2 MESIN pembuat robot (1 kiri + 1 kanan) semua hidup',
+    s3mod.s3MachinesDbg().length === 2 && s3mod.s3MachinesDbg().every(m => m.alive));
+{
+    const D = s3mod.s3Debug().deploy;
+    T('S3 MESIN: sebelum pintu terbuka mesin TENGGELAM di silo, tak pejal & tak berproduksi',
+        D.started === false && D.ready === false
+        && D.machines.length === 2
+        && D.machines.every(m => m.y === -s3dep.MACHINE_SINK && m.solid === false
+            && m.deployed === false && m.phase === 'idle'));
+    T('S3 MESIN: mesin tetap `visible` (tersembunyi lantai, bukan dimatikan) — tanpa rekompilasi shader',
+        s3mod.s3MachinesDbg().every(m => m.group.visible === true));
+    // INVARIAN BENTUK BAY: collider mesin hanya ±14 sedangkan player boleh berdiri
+    // di bibir bay, jadi apa pun yang menjulur ke luar itu WAJIB serendah curb.
+    const bays = D.machines.map(m => m.bay);
+    T('S3 BAY: tak ada perabot bay tinggi di luar footprint collider (tertinggi '
+        + bays[0].curbTopOutside + ' u)', bays.every(b => b.curbTopOutside <= 2.6));
+    // Klem berdiri di diagonal 45° sehingga tak terjangkau BADAN avatar: pusat
+    // player didorong keluar KOTAK (14 + propRadius — furnitur stage 1-3 pakai
+    // propRadius, bukan player.radius), lebar avatar ~ player.radius/2.
+    const propR = cfgMod.CFG.player.propRadius, avatarHalf = cfgMod.CFG.player.radius / 2;
+    T('S3 BAY: klem pengunci di luar jangkauan badan avatar (|x| maks ' + bays[0].clampMaxAxis
+        + ' < ' + (14 + propR - avatarHalf) + ')',
+        bays.every(b => b.clampMaxAxis < 14 + propR - avatarHalf));
+    // Klem tersimpan HARUS seluruhnya di bawah lantai selama fase `door`,
+    // kalau tidak puncaknya menyembul di ruang pabrik sebelum waktunya.
+    T('S3 BAY: klem tersimpan seluruhnya di bawah lantai (puncak ' + bays[0].clampStowTop + ')',
+        bays.every(b => b.clampStowTop < 0)
+        && bays.every(b => b.clampY.every(v => v + 12.8 < 0)));
+}
 
-// === 5 TERMINAL HACK (DIROMBAK 2026-07-28, permintaan user: pintu TIDAK BISA
-// dihancurkan lagi; ia terbuka setelah 5 komputer di 5 ruangan di-hack BERURUTAN
-// dgn urutan ACAK, dan spawn-robot-selama-menembaki-pintu DIHAPUS). ===
+// === TERMINAL HACK (DIROMBAK 2026-07-28, permintaan user: pintu TIDAK BISA
+// dihancurkan lagi; ia terbuka setelah komputer-komputer di-hack BERURUTAN
+// dgn urutan ACAK, dan spawn-robot-selama-menembaki-pintu DIHAPUS). 2026-08-13:
+// cukup `hackRequired` (3) dari LIMA terminal fisik; dua sisanya mati. ===
 // Denah ruangan (sel) — fakta layout, bukan angka tuning:
 const S3_ROOM_RECT = {
     'Ruang C': { c0: 19, c1: 29, r0: 1, r1: 7 },
@@ -3788,9 +3823,14 @@ const S3_ROOM_RECT = {
         if (s3mod.s3Wall(t.c, t.r) || s3mod.s3Wall(t.c + 1, t.r)) footOk = false;
         if (!s3mod.s3Wall(t.c, t.r - 1) && !s3mod.s3Wall(t.c, t.r + 1)) wallOk = false;
     }
-    T('S3 HACK: 5 terminal, satu di tiap ruangan (C, D, West Wing, East Wing, Supply)',
+    T('S3 HACK: 5 terminal FISIK, satu di tiap ruangan (C, D, West Wing, East Wing, Supply)',
         H.terms.length === 5 && new Set(rooms).size === 5
         && Object.keys(S3_ROOM_RECT).every(k => rooms.includes(k)) && placeOk);
+    // 2026-08-13 (permintaan user): yang WAJIB di-hack cuma `hackRequired` (3).
+    T('S3 HACK: hanya `hackRequired` (' + s3cfg.hackRequired + ') dari 5 terminal yang harus di-hack',
+        s3cfg.hackRequired === 3 && H.order.length === s3cfg.hackRequired
+        && s3mod.s3Debug().hackTotal === s3cfg.hackRequired
+        && s3mod.s3Debug().hackTerminals === 5);
     T('S3 HACK: tiap terminal 2x1 sel di lantai & MENEMPEL dinding (ujung ruangan) + pejal',
         footOk && wallOk && H.terms.every(t => t.blocked === true));
     // (b) DUA di antaranya berdiri di ruangan yang dulu KOSONG (kiri lift & kanan
@@ -3798,18 +3838,23 @@ const S3_ROOM_RECT = {
     T('S3 HACK: dua terminal mengisi ruangan yang dulu kosong (West/East Wing)',
         rooms.includes('West Wing') && rooms.includes('East Wing'));
 }
-// (c) URUTAN ACAK tiap masuk stage + selalu permutasi sah 0..4.
+// (c) MANA + URUTANnya DIACAK tiap masuk stage; selalu `hackRequired` indeks
+//     berbeda yang sah (0..4), dan ruangan yang diminta ikut berganti antar run.
 {
-    const seenOrders = new Set();
+    const seenOrders = new Set(), seenSets = new Set();
     let permOk = true;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
         smMod.setScene(s3mod.stage3Scene);
         const o = s3mod.s3HackDbg().order;
-        if (o.length !== 5 || new Set(o).size !== 5 || o.some(v => v < 0 || v > 4)) permOk = false;
+        if (o.length !== s3cfg.hackRequired || new Set(o).size !== o.length
+            || o.some(v => v < 0 || v > 4)) permOk = false;
         seenOrders.add(o.join(','));
+        seenSets.add([...o].sort().join(','));
     }
-    T('S3 HACK: urutan hack DIACAK tiap masuk stage (' + seenOrders.size + ' urutan berbeda dari 8) & selalu permutasi sah',
+    T('S3 HACK: urutan hack DIACAK tiap masuk stage (' + seenOrders.size + ' urutan berbeda dari 12) & selalu subset sah',
         permOk && seenOrders.size > 1);
+    T('S3 HACK: TERMINAL MANA yang diminta juga berganti antar run ('
+        + seenSets.size + ' kombinasi berbeda)', seenSets.size > 1);
 }
 finishS3Dialogue();   // enter() terakhir mengantre ulang dialog pembuka
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
@@ -3817,7 +3862,8 @@ stateMod.setCinematicActive(false);
 
 // Helper: terminal yang sedang jadi giliran + jalankan satu hack sampai selesai.
 const s3Term = (i) => s3mod.s3HackDbg().terms[i];
-const s3Active = () => { const d = s3mod.s3HackDbg(); return d.idx < 5 ? d.terms[d.order[d.idx]] : null; };
+const s3Need = () => s3mod.s3HackDbg().order.length;   // = CFG…stage3.hackRequired
+const s3Active = () => { const d = s3mod.s3HackDbg(); return d.idx < d.order.length ? d.terms[d.order[d.idx]] : null; };
 const s3StandAt = (t) => camera.position.set(t.sx, cfgMod.CFG.player.eyeHeight, t.sz);
 // Satu siklus hack penuh: berdiri di terminal giliran -> MINIGAME terbuka ->
 // pecahkan puzzle -> tunggu modal menutup (stage kembali aktif).
@@ -3845,6 +3891,10 @@ T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)
         green.length === 1 && green[0].room === s3Active().room
         && H.terms.filter(t => t.hex === 0xff3b2e).length === 4
         && H.terms.filter(t => t.hex === 0xffd23b).length === 0);
+    // Dua terminal yang TIDAK terpilih tetap MERAH sepanjang run (mati permanen).
+    T('S3 HACK: terminal di luar daftar acak tak pernah jadi giliran (2 mati permanen)',
+        H.terms.filter((t, i) => !H.order.includes(i)).length === 5 - s3cfg.hackRequired
+        && H.terms.filter((t, i) => !H.order.includes(i)).every(t => t.state === 'locked'));
 }
 
 // (2) BERURUTAN: berdiri di terminal yang BUKAN giliran tidak memulai hack.
@@ -3980,26 +4030,54 @@ T('S3 HACK: gelombang TIDAK respawn sendiri — sunyi sampai hack berikutnya (tu
     stateMod.bullets.length = 0;
 }
 
-// (6) Hack sisa terminal -> setelah yang KE-5 pintu membuka kiri/kanan, rambu HIJAU.
-// Hack #5 dipisahkan agar dialognya diuji PERSIS setelah callback sukses, sebelum
-// antrean robot ditiriskan (yang juga memajukan jam typewriter beberapa detik).
-for (let k = 1; k < 4; k++) { await s3RunHack(); s3KillAll(); s3mod.s3SpawnDbg().queued && s3Drain(); s3KillAll(); }
+// (6) Hack sisa terminal -> setelah yang TERAKHIR pintu membuka kiri/kanan, rambu
+// HIJAU. Hack terakhir dipisahkan agar dialognya diuji PERSIS setelah callback
+// sukses, sebelum antrean robot ditiriskan (yang juga memajukan jam typewriter).
+for (let k = 1; k < s3Need() - 1; k++) { await s3RunHack(); s3KillAll(); s3mod.s3SpawnDbg().queued && s3Drain(); s3KillAll(); }
+const s3NeedN = s3Need();
 await s3RunHack();
-T('S3 HACK: kelima terminal selesai -> semua layar KUNING',
-    s3mod.s3Debug().hacked === 5 && s3mod.s3HackDbg().terms.every(t => t.hex === 0xffd23b));
-T('S3 DIALOG 5/5: hack terakhir memicu dialog pintu terbuka exact',
+T('S3 HACK: ' + s3NeedN + ' terminal yang diminta selesai -> ' + s3NeedN + ' layar KUNING',
+    s3mod.s3Debug().hacked === s3NeedN
+    && s3mod.s3HackDbg().terms.filter(t => t.hex === 0xffd23b).length === s3NeedN);
+T('S3 DIALOG ' + s3NeedN + '/' + s3NeedN + ': hack terakhir memicu dialog pintu terbuka exact',
     s3mod.s3DialogueDebug().key === 'allHacked'
     && s3mod.s3DialogueDebug().text === expectedS3Dialogue.allHacked.text
     && s3mod.s3DialogueDebug().typing === true);
 s3KillAll();
-s3mod.s3SpawnDbg().queued && s3Drain();
-s3KillAll();
-s3mod.stage3Scene.updateMode(0.05);
-T('S3 PINTU: 5/5 ter-hack -> pintu blast TERBUKA (blocker lepas, rambu HIJAU) + fase toX',
+s3mod.stage3Scene.updateMode(0.05);   // <- FRAME pintu terbuka + sekuens dimulai
+T('S3 PINTU: ' + s3NeedN + '/' + s3NeedN + ' ter-hack -> pintu blast LANGSUNG TERBUKA (blocker lepas, rambu HIJAU) + fase toX',
     s3mod.s3Debug().phase === 'toX' && s3mod.s3DoorDbg().open === true
     && s3mod.s3DoorDbg().blocked === false && s3mod.s3DoorDbg().signHex === 0x2eff6a);
-// Kedua daun tetap ada lalu bergeser simetris ke sisi dinding (bukan meledak).
-for (let i = 0; i < 60; i++) s3mod.stage3Scene.updateMode(0.05);
+
+// === SEKUENS PENGERAHAN MESIN (2026-08-13, permintaan user) =================
+// Babak murni (`deployPhaseAt`) diuji EKSAK dari config — tak bergantung sama
+// sekali pada berapa detik yang kebetulan berlalu di harness.
+{
+    const MD = s3cfg.machineDeploy, S = s3dep.deployActSecs(s3cfg);
+    const at = (t) => s3dep.deployPhaseAt(s3cfg, t).phase;
+    T('S3 DEPLOY: durasi babak dibaca dari config (bukan angka di kode)',
+        S.warn === MD.warnSec && S.hatch === MD.hatchSec && S.rise === MD.riseSec
+        && S.lock === MD.lockSec && S.online === MD.onlineSec && S.stagger === MD.staggerSec);
+    const b1 = S.warn, b2 = b1 + S.hatch, b3 = b2 + S.rise, b4 = b3 + S.lock, b5 = b4 + S.online;
+    T('S3 DEPLOY: lima babak berurutan warn -> hatch -> rise -> lock -> online -> done',
+        at(-1) === 'idle' && at(b1 * 0.5) === 'warn' && at(b1 + 0.01) === 'hatch'
+        && at(b2 + 0.01) === 'rise' && at(b3 + 0.01) === 'lock'
+        && at(b4 + 0.01) === 'online' && at(b5 + 0.01) === 'done'
+        && s3dep.DEPLOY_ACTS.join(',') === 'warn,hatch,rise,lock,online');
+    const D = s3mod.s3Debug().deploy;
+    T('S3 DEPLOY: pintu terbuka -> sekuens dimulai (jam 0, kedua mesin masih di silo)',
+        D.started === true && D.t === 0 && D.ready === false
+        && D.machines.length === 2
+        && D.machines.every(m => m.phase === 'idle' && m.solid === false
+            && m.deployed === false && m.y === -s3dep.MACHINE_SINK));
+    T('S3 DEPLOY: total durasi = jumlah babak + stagger mesin kedua ('
+        + D.totalSec.toFixed(2) + ' dtk)',
+        Math.abs(D.totalSec - (b5 + S.stagger)) < 1e-6);
+}
+// Dialog 'allHacked' dituntaskan (memajukan jam ~3,6 dtk = masih babak `hatch`),
+// lalu player LANGSUNG masuk ruang pabrik supaya seluruh sisa sekuens terjadi di
+// fase `machines` — di sanalah gerbang gelombang & hit-peluru benar-benar diuji.
+finishS3Dialogue();
 {
     const split = s3mod.s3DoorDbg().split;
     T('S3 PINTU: dua daun blast bergeser simetris kiri/kanan tanpa gerak vertikal',
@@ -4008,25 +4086,82 @@ for (let i = 0; i < 60; i++) s3mod.stage3Scene.updateMode(0.05);
         && Math.abs(split.leaves[1].x - split.leaves[0].x) > split.span * 1.25
         && Math.abs(split.leaves[0].y) < 1e-6 && Math.abs(split.leaves[1].y) < 1e-6);
 }
-finishS3Dialogue();
 s3KillAll();
 
-// (4) Masuk ruang X -> fase machines TANPA spawn langsung; >= machineFirstWaveSec -> 16 (4/mesin)
+// (4) Masuk ruang X SELAGI mesin masih di dalam silo -> fase machines, TAPI tak
+//     ada gelombang dan mesinnya belum bisa ditembak.
 const xin = s3mod.s3Cell(19.5, 33);
 camera.position.set(xin.x, cfgMod.CFG.player.eyeHeight, xin.z);
 s3mod.stage3Scene.updateMode(0.1);
-T('S3 FLOW: masuk ruang X -> fase machines (4 mesin) TANPA spawn langsung',
-    s3mod.s3Debug().phase === 'machines' && s3mod.s3Debug().machinesAlive === 4 && robots.filter(z => z.stage === 3).length === 0);
+T('S3 FLOW: masuk ruang X -> fase machines (2 mesin) TANPA spawn langsung',
+    s3mod.s3Debug().phase === 'machines' && s3mod.s3Debug().machinesAlive === 2 && robots.filter(z => z.stage === 3).length === 0);
 T('S3 DIALOG LOBBY: masuk lobby memicu dialog production unit exact lewat typewriter',
     s3mod.s3DialogueDebug().key === 'enterLobby'
     && s3mod.s3DialogueDebug().text === expectedS3Dialogue.enterLobby.text
     && s3mod.s3DialogueDebug().typing === true);
+{
+    // REKAM seluruh sisa sekuens frame demi frame (dt kecil, seperti game asli
+    // yang menjepit dt di 0.05) — bukan mengintip pada satu detik keberuntungan.
+    const riseFrame = [-1, -1];
+    let riseSolid = true, riseClimb = true, gatedWave = true, hpFull = true;
+    const lastY = [-s3dep.MACHINE_SINK, -s3dep.MACHINE_SINK];
+    const hpBefore = s3mod.s3MachinesDbg().map(m => m.hp);
+    let prevQueued = s3mod.s3SpawnDbg().queued, frame = 0;
+    for (; frame < 900 && !s3mod.s3Debug().deploy.ready; frame++) {
+        // Tembakan tepat di pusat tiap mesin: selama sekuens belum mengunci ia
+        // TAK BOLEH kena — jendela kebal yang disengaja (pola sama dgn lokomotif
+        // mini-boss Stage 5), dan HUD memberitahu player untuk menahan tembakan.
+        const pre = s3mod.s3Debug().deploy.machines;
+        s3mod.s3MachinesDbg().forEach((m0, i) => {
+            if (pre[i].phase === 'lock' || pre[i].phase === 'online' || pre[i].deployed) return;
+            stateMod.bullets.push({ mesh: { position: { x: m0.cx, y: 8, z: m0.cz } },
+                px: m0.cx, pz: m0.cz, dir: { x: 0, y: 0, z: 1 }, damage: 90 });
+        });
+        s3mod.stage3Scene.updateMode(0.05);
+        stateMod.bullets.length = 0;
+        s3KillAll();                        // sisa gelombang hack terakhir dibersihkan
+        const D = s3mod.s3Debug().deploy;
+        // Gelombang mesin akan MENAMBAH antrean sekaligus; gelombang hack lama
+        // hanya bisa menyusut. Antrean yang naik = gerbangnya bocor.
+        const q = s3mod.s3SpawnDbg().queued;
+        if (!D.ready && q > prevQueued) gatedWave = false;
+        prevQueued = q;
+        D.machines.forEach((m, i) => {
+            if (!m.deployed && s3mod.s3MachinesDbg()[i].hp !== hpBefore[i]) hpFull = false;
+            if (m.phase !== 'rise') return;
+            if (riseFrame[i] < 0) riseFrame[i] = frame;
+            if (!m.solid) riseSolid = false;
+            if (m.y < lastY[i] - 1e-6) riseClimb = false;
+            lastY[i] = m.y;
+        });
+    }
+    T('S3 DEPLOY: babak `rise` menaikkan kedua mesin secara monoton & memasang collider di sana',
+        riseFrame[0] >= 0 && riseFrame[1] >= 0 && riseSolid && riseClimb);
+    T('S3 DEPLOY: mesin kedua benar-benar tertinggal `staggerSec` (mulai naik frame '
+        + riseFrame[0] + ' vs ' + riseFrame[1] + ')',
+        riseFrame[1] > riseFrame[0]
+        && Math.abs((riseFrame[1] - riseFrame[0]) * 0.05 - s3cfg.machineDeploy.staggerSec) < 0.12);
+    T('S3 DEPLOY: selama sekuens mesin TIDAK bisa ditembak & TIDAK memproduksi robot',
+        hpFull && gatedWave
+        && s3mod.s3MachinesDbg().every((m, i) => m.hp === hpBefore[i]));
+    const D = s3mod.s3Debug().deploy;
+    T('S3 DEPLOY: selesai -> mesin duduk di y=0, yaw kembali ke arah hadapnya, pejal & online',
+        D.ready === true
+        && D.machines.every((m, i) => m.deployed && m.solid && Math.abs(m.y) < 1e-6
+            && Math.abs(m.yaw - +s3mod.s3MachinesDbg()[i].baseYaw.toFixed(3)) < 1e-3)
+        && D.machines.every(m => m.bay.lightHex === palMod.PAL.tech
+            && m.bay.strobeHex === palMod.PAL.tech));
+    T('S3 DEPLOY: hatch bay membuka penuh & klem pengunci berdiri dari bawah lantai',
+        D.machines.every(m => m.bay.leafTilt.every(v => v > 1.5)
+            && m.bay.clampY.every(v => v > 0) && m.bay.clampJaw.every(v => v > 1.4)));
+}
+s3KillAll();
 for (let t = 0; t < s3cfg.machineFirstWaveSec - 1; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 const beforeMW = robots.filter(z => z.stage === 3).length;
 for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 s3Drain();
-T('S3 FLOW: mesin spawn PERTAMA setelah ~machineFirstWaveSec (3 dtk) = 4/mesin (16)',
-    beforeMW === 0 && robots.filter(z => z.stage === 3).length === s3cfg.machineWaveCount * 4);
+T('S3 FLOW: mesin spawn PERTAMA setelah ~machineFirstWaveSec (3 dtk) = 4/mesin (8)',
+    beforeMW === 0 && robots.filter(z => z.stage === 3).length === s3cfg.machineWaveCount * 2);
 
 // (4b) ANTI-CAMP fase machines: sisa < reinforceThreshold -> gelombang tetap datang
 while (robots.filter(z => z.stage === 3).length > s3thr - 1) { const i3 = robots.findIndex(z => z.stage === 3); scene.remove(robots[i3].mesh); robots.splice(i3, 1); }
@@ -4080,10 +4215,13 @@ T('S3 FLOW: sisa <reinforceThreshold robot TETAP memicu gelombang (anti-camp mac
     T('S3: kelas dgn bobot TERBESAR paling sering keluar (' + JSON.stringify(tally) + ')', top === wantTop);
 }
 
-// (5) Hancurkan 4 MESIN (HP 0) -> hancur; habisi robot -> fase done (EXIT aktif)
+// (5) Hancurkan KEDUA MESIN (HP 0) -> hancur; habisi robot -> fase done (EXIT aktif)
 for (const m of s3mod.s3MachinesDbg()) m.hp = 0;
 s3mod.stage3Scene.updateMode(0.05);
-T('S3 FLOW: 4 MESIN HANCUR saat HP habis', s3mod.s3Debug().machinesAlive === 0);
+T('S3 FLOW: KEDUA MESIN HANCUR saat HP habis', s3mod.s3Debug().machinesAlive === 0);
+T('S3 DEPLOY: bay ikut MATI bersama mesinnya (rambu gelap, lampu padam)',
+    s3mod.s3Debug().deploy.machines.every(m => m.bay.phase === 'wrecked'
+        && m.bay.lightIntensity === 0 && m.bay.strobeHex === palMod.PAL.rubber));
 while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 s3mod.stage3Scene.updateMode(0.05);
 T('S3 FLOW: mesin hancur + robot habis -> fase done (PINTU KELUAR AKTIF)', s3mod.s3Debug().phase === 'done');
@@ -10867,7 +11005,6 @@ for (const [name, build] of Object.entries(propBuilders)) {
 //     (cyan 0x00ffff / magenta 0xff00ff) dan emissive lingkungan <= EMISSIVE_MAX.
 //     Sweep material dilakukan lewat traverse Group hasil builder (aturan tetap
 //     tegak walau warna token di-retune). ---
-const palMod = await import(R('src/world/palette.js'));
 {
     const { PAL, EMISSIVE_MAX, FORBIDDEN_HEX } = palMod;
     T('palette: token PAL lengkap & numerik', PAL &&
@@ -10896,6 +11033,8 @@ const palMod = await import(R('src/world/palette.js'));
     const spawnStyleMod = await import(R('src/entities/spawnMachine.js'));
     const spawnRig = spawnStyleMod.buildSpawnMachineMesh();
     styleGroups.push(['SpawnMachine', spawnRig.group]);
+    // Dudukan/silo mesin stage 3 (2026-08-13) — ikut sapuan neon + emissive.
+    styleGroups.push(['MachineBay', s3dep.buildMachineBay(new THREE.Group(), 0, 0, 15).group]);
     const trainStyleMod = await import(R('src/entities/train.js'));
     styleGroups.push(['MilitaryTrain', trainStyleMod.buildMilitaryTrainMesh(0).group]);
     styleGroups.push(['TrainSceneryPool', trainStyleMod.buildTrainJourneyScenery(0).group]);
@@ -11047,8 +11186,12 @@ const palMod = await import(R('src/world/palette.js'));
     // berulang. Biaya draw call-nya justru TURUN dari versi lama karena lambung
     // statisnya dilas `mergeObjectInPlace` di browser — cap ini mengukur
     // kerumitan yang DITULIS, bukan yang digambar.
+    // MachineBay: SATU set dudukan/silo mesin stage 3 dengan curb, mulut silo,
+    // empat daun hatch pinwheel dan empat klem pengunci — bukan prop berulang,
+    // hanya ada dua di seluruh game. Bagian diamnya dilas (`mergeObjectInPlace`)
+    // di browser, jadi angka ini mengukur kerumitan yang DITULIS, bukan digambar.
     const MESH_CAP = { Helicopter: 70, TacticalVehicle: 60, EnemyPickup: 45,
-        CombatGunship: 95, SmashRuko: 30, SpawnMachine: 80,
+        CombatGunship: 95, SmashRuko: 30, SpawnMachine: 80, MachineBay: 95,
         // TrainSceneryPool: cap MENTAH-nya sengaja longgar (2026-08-09,
         // permintaan user "background perjalanan terlalu kosong, PENUHI").
         // Pool ini bukan satu prop melainkan SELURUH lanskap perjalanan, ia
@@ -11107,10 +11250,76 @@ const palMod = await import(R('src/world/palette.js'));
         && Math.abs(stateMod.drops[0].mesh.position.z - lootPos.z) < 1e-6);
     T('config: kunci magnet loot sudah dihapus dari CFG.drops',
         cfgMod.CFG.drops.lootMagnetMeters === undefined && cfgMod.CFG.drops.lootMagnetSpeed === undefined);
-    camera.position.set(lootPos.x, 11.4, lootPos.z);   // player MENDATANGI uangnya
+    // RADIUS "ITEM LOOTING" = METER (2026-08-13, permintaan user; 1,5 -> 2 -> 3):
+    // kunci lama `lootPickupRadius` (unit mentah) diganti `lootPickupMeters`,
+    // dikali CAMP_M oleh drops.js. Diuji dari KEDUA sisi batas, bukan dgn
+    // menempelkan player tepat di atas kepingnya.
+    const lootR = dropsMod.lootPickupRadius();
+    T('config: radius item looting dinyatakan dalam METER (' + cfgMod.CFG.drops.lootPickupMeters
+        + ' m = ' + lootR.toFixed(2) + ' unit)',
+        cfgMod.CFG.drops.lootPickupRadius === undefined
+        && cfgMod.CFG.drops.lootPickupMeters > 0
+        && Math.abs(lootR - cfgMod.CFG.drops.lootPickupMeters * cfgMod.CAMP_M) < 1e-9);
+    camera.position.set(lootPos.x + lootR + 0.5, 11.4, lootPos.z);   // TEPAT DI LUAR radius
     dropsMod.updateDrops(0.05, 0);
-    T('loot terpungut saat player melewatinya -> skor = nilai C',
-        stateMod.drops.length === 0 && stateMod.score === lootC);
+    T('loot TIDAK terpungut tepat di luar radius item looting',
+        stateMod.drops.length === 1 && stateMod.score === 0
+        && dropsMod.lootFlightDebug().count === 0);
+    const playerX = lootPos.x + lootR - 0.5;
+    camera.position.set(playerX, 11.4, lootPos.z);   // TEPAT DI DALAM radius
+    dropsMod.updateDrops(0.05, 0);
+    T('loot terpungut begitu player masuk radius ' + cfgMod.CFG.drops.lootPickupMeters
+        + ' m -> skor = nilai C', stateMod.drops.length === 0 && stateMod.score === lootC);
+
+    // === ANIMASI ITEM LOOTING TERBANG KE PLAYER (2026-08-13, permintaan user) ===
+    // Efeknya sudah diterapkan pada frame KLAIM (skor sudah naik di atas); yang
+    // tersisa murni visual. BUKAN magnet lama: item di LUAR radius tetap diam
+    // (dijaga assert di atas), yang terbang hanya yang SUDAH diklaim.
+    {
+        const f0 = dropsMod.lootFlightDebug();
+        T('item yang diloot TIDAK langsung lenyap — mesh-nya mulai terbang (masih di scene)',
+            f0.count === 1 && f0.items[0].inScene === true && f0.items[0].scale === 1);
+        let d0 = Math.hypot(f0.items[0].x - playerX, f0.items[0].z - lootPos.z);
+        let closing = true, shrank = false, frames = 0;
+        const ys = [f0.items[0].y];
+        for (let i = 0; i < 200 && dropsMod.lootFlightDebug().count; i++) {
+            dropsMod.updateDrops(0.02, 0);
+            frames++;
+            const f = dropsMod.lootFlightDebug();
+            if (!f.count) break;
+            const it = f.items[0];
+            const d1 = Math.hypot(it.x - playerX, it.z - lootPos.z);
+            if (d1 > d0 + 1e-6) closing = false;      // jaraknya HARUS terus mengecil
+            d0 = d1;
+            ys.push(it.y);
+            if (it.scale < 0.999) shrank = true;      // mengecil menjelang lenyap
+        }
+        // LENGKUNG dibuktikan TANPA menyalin satu konstanta pun: sebuah lerp lurus
+        // tak mungkin melewati kedua ujungnya, jadi puncak yang lebih tinggi dari
+        // awal DAN dari akhir = benar-benar melengkung naik lalu turun.
+        const yPeak = Math.max(...ys);
+        T('item looting terbang MENDEKAT ke player terus-menerus, MELENGKUNG naik lalu mengecil',
+            closing && shrank
+            && yPeak > ys[0] + 2 && yPeak > ys[ys.length - 1] + 1);
+        T('item looting LENYAP setelah LOOT_FLY_SEC (' + dropsMod.LOOT_FLY_SEC + ' dtk, '
+            + frames + ' frame @0.02) & tak menyisakan mesh di scene',
+            dropsMod.lootFlightDebug().count === 0
+            && Math.abs(frames * 0.02 - dropsMod.LOOT_FLY_SEC) < 0.05);
+        // Penerbangan MENGEJAR player yang bergerak: sasarannya dibaca ulang tiap frame.
+        stateMod.setScore(0);
+        dropsMod.spawnLoot(playerX, lootPos.z, lootC, 1);
+        dropsMod.updateDrops(0.02, 0);               // klaim
+        camera.position.set(playerX + 300, 11.4, lootPos.z + 300);   // player MELOMPAT jauh
+        for (let i = 0; i < 6; i++) dropsMod.updateDrops(0.02, 0);
+        const fm = dropsMod.lootFlightDebug();
+        T('penerbangan mengejar player yang berpindah (sasaran dibaca ulang tiap frame)',
+            fm.count === 1 && fm.items[0].x > playerX + 1 && fm.items[0].z > lootPos.z + 1);
+        // resetLootFlights (dipanggil resetGame) membuang mesh yang masih terbang.
+        dropsMod.resetLootFlights();
+        T('resetLootFlights membersihkan mesh yang masih terbang saat restart',
+            dropsMod.lootFlightDebug().count === 0);
+        stateMod.setScore(lootC);   // pulihkan keadaan untuk assert berikutnya
+    }
 
     // (b) campaignAwardKill: killRobot campaign TANPA skor langsung, jatuhkan loot A
     smMod.activeScene.awardKill = comMod2.campaignAwardKill;
@@ -11208,6 +11417,36 @@ const palMod = await import(R('src/world/palette.js'));
     T('ammo pistol: HANYA pistol terisi (+ammoPickup), rifle TETAP 0',
         P.pistol.ammo === cfgMod.CFG.weapons.pistol.ammoPickup && P.rifle.ammo === 0
         && stateMod.drops.length === 0);
+
+    // (a2b) "ITEM LOOTING" = SATU ISTILAH, SATU RADIUS (2026-08-13, permintaan
+    //       user): uang, amunisi DAN medkit memakai `CFG.drops.lootPickupMeters`
+    //       yang sama. Dulu ammo/medkit HARDCODE `player.radius + 2` (7 unit ≈
+    //       1 m) lalu sempat punya kunci `itemPickupMeters` sendiri.
+    {
+        const itemR = dropMod2.lootPickupRadius();
+        T('config: ITEM LOOTING punya SATU radius bersama (uang + ammo + medkit), bukan dua kunci',
+            cfgMod.CFG.drops.itemPickupMeters === undefined
+            && cfgMod.CFG.drops.lootPickupRadius === undefined
+            && cfgMod.CFG.drops.lootPickupMeters > 0
+            && Math.abs(itemR - cfgMod.CFG.drops.lootPickupMeters * cfgMod.CAMP_M) < 1e-9
+            && itemR > cfgMod.CFG.player.radius + 2);   // benar-benar LEBIH LUAS dari aturan lama
+        stateMod.drops.length = 0; dropMod2.resetLootFlights();
+        P.pistol.ammo = 0;
+        dropMod2.spawnAmmoDrop(itemR + 0.5, 0, 'pistol');   // TEPAT DI LUAR radius
+        dropMod2.updateDrops(0.05, 0);
+        T('ammo TIDAK terpungut tepat di luar radius item looting',
+            stateMod.drops.length === 1 && P.pistol.ammo === 0
+            && dropMod2.lootFlightDebug().count === 0);
+        stateMod.drops.length = 0;
+        dropMod2.spawnAmmoDrop(itemR - 0.5, 0, 'pistol');   // TEPAT DI DALAM radius
+        dropMod2.updateDrops(0.05, 0);
+        T('ammo terpungut begitu masuk radius ' + cfgMod.CFG.drops.lootPickupMeters + ' m',
+            stateMod.drops.length === 0 && P.pistol.ammo === cfgMod.CFG.weapons.pistol.ammoPickup);
+        T('ammo yang diloot ikut TERBANG ke player (bukan cuma uang)',
+            dropMod2.lootFlightDebug().count === 1);
+        dropMod2.resetLootFlights();
+        P.pistol.ammo = 0;
+    }
 
     // (a3) Ammo untuk senjata yang TIDAK dimiliki DITINGGAL di lantai (tak mubazir).
     dropMod2.spawnAmmoDrop(0, 0, 'shotgun');

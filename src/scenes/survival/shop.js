@@ -173,7 +173,7 @@ export function openShop(ctx) {
 // (harga beli, nama polos); sudah dimiliki -> kartu YANG SAMA (id tetap = kunci
 // senjata) menjual upgrade Lv2 lalu Lv3 = maks (nama ber-angka romawi tingkat
 // yang dijual, harga CFG.shop.upgradeCosts[w]); Lv3 -> note 'Maxed'. Tiap level
-// menambah +upgradeDamagePct (25%) dari damage BASE — diterapkan weaponDamage()
+// menambah +upgradeDamagePct (30% sejak 2026-08-13) dari damage BASE — diterapkan weaponDamage()
 // di weapons.js saat peluru lahir (peluru launcher meneruskannya ke boom AoE).
 // Level tersimpan per-tipe (player.weaponLvl, per-run) sehingga bertahan bila
 // senjatanya diganti lalu dibeli lagi. PISTOL tidak pernah dijual (loadout
@@ -226,7 +226,7 @@ function weaponItem(w) {
     }
     const maxL = CFG.weapons.maxWeaponLevel;
     const lvl = (player.weaponLvl && player.weaponLvl[w]) || 1;
-    const pct = Math.round((CFG.weapons.upgradeDamagePct || 0.25) * 100);
+    const pct = Math.round((CFG.weapons.upgradeDamagePct || 0.3) * 100);
     const costs = S.upgradeCosts[w] || [];
     const tier = Math.min(lvl, maxL - 1);          // tingkat yang DIJUAL kartu ini (lvl+1)
     return {

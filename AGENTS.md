@@ -371,12 +371,44 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   OWN parts out of pose — no new mesh, material or PointLight, so an exploding machine still
   cannot force a shader recompile; `updateSpawnMachine` returns early on a dead rig, and
   `resetSpawnMachine` restores it for the next entry.
-- VISIBILITY DECIDES COLLISION, in both directions (2026-08-08 report; revised 2026-08-09).
-  A drawn rig blocks; a rig that is not drawn drops its collider. Because the wreck is now
-  drawn, Stages 3, 5, 6 and 7 all KEEP the collider (and Stage 6's `M` cells) after death.
-  The only hidden case left is Stage 6 HQ before lockdown deploys its machines: there
+- VISIBILITY DECIDES COLLISION, in both directions (2026-08-08 report; revised 2026-08-09,
+  and again 2026-08-13). A drawn rig blocks; a rig that is not drawn drops its collider.
+  Because the wreck is now drawn, Stages 3, 5, 6 and 7 all KEEP the collider (and Stage 6's
+  `M` cells) after death. Two pre-deploy hidden cases exist: Stage 6 HQ before lockdown, where
   `setMachineSolid(m,false)` splices the blocker and opens the `M` cells (`openMachineCells`)
-  until `deployMachine` puts them back. Nav is NEVER rebaked in any case.
+  until `deployMachine` puts them back; and Stage 3 before the blast door opens, where the
+  machine is not hidden but SUNK below the opaque floor (`MACHINE_SINK`) with its blocker
+  spliced until the `rise` act. Nav is NEVER rebaked in any case.
+- "ITEM LOOTING" — ONE term, ONE radius, ONE flight animation (2026-08-13 user request).
+  Money chips, ammo packs and medkits are all called item looting; there is exactly one
+  pickup radius, `CFG.drops.lootPickupMeters` (3 m), read only through `lootPickupRadius()`
+  in drops.js. It replaced the money-only `lootPickupRadius` (9 raw units) and the hardcoded
+  `player.radius + 2` used by ammo/medkit — NEVER split it back per item type. On claim the
+  mesh goes to `beginLootFlight` instead of `scene.remove`: it arcs up then whips into the
+  player's chest, spinning and shrinking, over `LOOT_FLY_SEC` (0.26 s, exported); the target
+  is re-read each frame so it chases a moving player, and `resetGame` calls
+  `resetLootFlights()`. This is NOT the magnet removed on 2026-07-27 — do not conflate them
+  and do not delete the animation because "the magnet was removed". The magnet pulled items
+  in BEFORE they were claimed (a gameplay change); here the claim and all its effects still
+  fire exactly when the player enters the radius, an item outside it stays perfectly still,
+  and only a gameplay-meaningless mesh flies. The flight borrows the drop's existing mesh, so
+  looting allocates nothing and cannot force a shader recompile.
+- STAGE 3, 2026-08-13 (user request): only `CFG.campaign.stage3.hackRequired` (3) of the five
+  physical terminals must be hacked — `enter()` shuffles all five then SLICES to that count, so
+  which terminals are wanted and their order both change per run and the two left out stay red;
+  every message/HUD/board title reads `s3HackOrder.length`, and the last hack opens the blast
+  door on that same frame. Four machines became TWO, and they are not in the factory hall until
+  the door opens: `stages/stage3/machineDeploy.js` runs a five-act reveal (`warn` → `hatch` →
+  `rise` → `lock` → `online`, second machine lagging `staggerSec`, durations in
+  `CFG.campaign.stage3.machineDeploy`). Nothing is ever `visible=false` — the machine, hatch
+  leaves and clamps are SUNK below the opaque floor, so materials are drawn from frame one and
+  no shader recompiles at reveal; zero meshes/materials/PointLights are created while it runs
+  (one bay PointLight per machine exists from world build at intensity 0, registered to
+  `campaign-3`); and because the machine collider is a SQUARE ±14 that the player may stand
+  against, anything outside ±14 stays curb height and the clamps stand on the diagonals. The
+  camera is deliberately NOT taken over (the player is usually mid-fight elsewhere) — drama is
+  distance-scaled shake/SFX. A deploying machine cannot be shot and cannot produce; `hudStatus`
+  announces the arm window.
 - Stage 5 boarding WAITS for the station script, THEN holds (2026-08-08 user request). Touching
   the boarding marker no longer hands over on the spot — that cut the departure cutscene
   over `powerBack`/`routeReady`/`letsMove` mid-type. It now only COMMITS the departure

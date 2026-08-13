@@ -21,7 +21,7 @@ import { updatePlayerMovement, resetPlayerState } from '../entities/player.js';
 import { updateGrenades } from '../entities/grenades.js';
 import { updateExplosions, updateBloodPool, resetBloodPool, resetMuzzleFlashes, resetShellCasings } from '../entities/effects.js';
 import { updateGore, resetGore } from '../entities/gore.js';
-import { updateDrops } from '../entities/drops.js';
+import { updateDrops, resetLootFlights } from '../entities/drops.js';
 import { updateBarrels, barrelBulletHits, resetBarrels } from '../entities/barrels.js';
 import { crateBulletHits, updateCrates, resetCrates } from '../entities/crates.js';
 import { updateBullets } from '../entities/bullets.js';
@@ -240,6 +240,7 @@ export function resetGame(atCurrentStage = false) {
     clearArray(grenades, scene);
     clearArray(explosions, scene);
     clearArray(drops, scene);
+    resetLootFlights();   // item looting yang MASIH terbang saat restart (mesh dipinjam dari drops)
 
     // Titik restart: `atCurrentStage` (prompt game-over) campaign → ulang dari
     // AWAL stage checkpoint (campaignJumpToStage: dunia sudah terbangun selama

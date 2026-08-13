@@ -1146,15 +1146,16 @@ export function updateWeaponState(dt) {
     if (muzzleFlash.intensity > 0) muzzleFlash.intensity = Math.max(0, muzzleFlash.intensity - dt * 42);   // kilat SINGKAT (letusan, bukan lampu)
 }
 
-// Damage efektif sebuah senjata = base CFG × level upgrade shop Survival
+// Damage efektif sebuah senjata = base CFG × level upgrade shop
 // (player.weaponLvl, 1..maxWeaponLevel; tiap level +upgradeDamagePct dari base
-// — Lv2 = 125%, Lv3 = 150%). Dipakai saat stempel b.damage (peluru biasa DAN
-// peluru ledak launcher — boom-nya meneruskan b.damage lewat queueBoom).
+// — 0,3 sejak 2026-08-13 atas permintaan user, jadi Lv2 = 130%, Lv3 = 160%).
+// Dipakai saat stempel b.damage (peluru biasa DAN peluru ledak launcher —
+// boom-nya meneruskan b.damage lewat queueBoom).
 export function weaponDamage(w) {
     const wc = CFG.weapons[w];
     const base = wc && wc.damage != null ? wc.damage : CFG.weapons.bulletDamage;
     const lvl = (player.weaponLvl && player.weaponLvl[w]) || 1;
-    return base * (1 + (CFG.weapons.upgradeDamagePct || 0.25) * (lvl - 1));
+    return base * (1 + (CFG.weapons.upgradeDamagePct || 0.3) * (lvl - 1));
 }
 
 // Kadens efektif (ms antar tembakan). Level upgrade TIDAK mengubah kadens

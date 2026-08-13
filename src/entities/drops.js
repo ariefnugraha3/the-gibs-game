@@ -8,7 +8,7 @@
 // `d.weapon` ('pistol'|'shotgun'|'rifle'|'launcher') dan HANYA mengisi senjata
 // itu; bentuk meshnya beda-beda per jenis (entities/ammoPickups.js).
 
-import { CFG } from '../core/config.js';
+import { CFG, CAMP_M } from '../core/config.js';
 import { player, drops, maxAmmoFor, addScore } from '../core/state.js';
 import { scene, camera } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
@@ -91,9 +91,93 @@ export function buildLootMesh() {
     return g;
 }
 
+// ===== "ITEM LOOTING" — SATU ISTILAH, SATU RADIUS (2026-08-13, permintaan user
+// "jadikan 1 istilah item looting saja biar tidak membingungkan") =============
+// Uang, amunisi DAN medkit semuanya adalah ITEM LOOTING. Dulu ada dua angka yang
+// berbeda dan membingungkan (`lootPickupRadius` 9 unit utk uang, HARDCODE
+// `player.radius + 2` = 7 unit utk amunisi/medkit) lalu sempat jadi dua kunci
+// config; sekarang tinggal SATU kunci `CFG.drops.lootPickupMeters` yang berlaku
+// untuk ketiganya. JANGAN memecahnya lagi per jenis item.
+// Dinyatakan dalam METER seperti tunable berjarak lain (`playerAggroMeters`,
+// `rangeMeters`, `blastRadiusMeters`) supaya angka di config langsung terbaca
+// sebagai jarak dunia nyata.
+export const lootPickupRadius = () => (CFG.drops.lootPickupMeters || 0) * CAMP_M;
+
+// ===== ANIMASI TERBANG SAAT DILOOT (2026-08-13, permintaan user "berikan
+// animasi item itu bergerak menuju player dan menghilang") ===================
+// Begitu sebuah item DIKLAIM, mesh-nya tidak lagi lenyap seketika: ia melengkung
+// naik sedikit lalu MENYENTAK masuk ke dada player sambil berputar makin cepat
+// dan mengecil, baru menghilang.
+//
+// INI BUKAN MAGNET LAMA (dihapus 2026-07-27 atas permintaan user) — jangan
+// pernah menyamakan keduanya, dan jangan menghapus animasi ini dengan alasan
+// "magnetnya sudah dibuang". Magnet menyedot item dari radius BESAR SEBELUM
+// diklaim sehingga player tak perlu mendatanginya: itu mengubah GAMEPLAY. Di
+// sini klaim tetap terjadi PERSIS saat player masuk `lootPickupMeters`, seluruh
+// efeknya (uang/amunisi/medkit, termasuk aturan full-item dan pesan feed)
+// diterapkan pada frame itu juga, dan yang terbang cuma mesh yang sudah tidak
+// punya arti gameplay. Item di luar radius tetap DIAM di tempat jatuhnya.
+//
+// NOL ALOKASI: yang dipinjam adalah mesh drop yang SUDAH ada di scene, jadi tak
+// ada geometry/material baru = tak ada rekompilasi shader saat memungut.
+export const LOOT_FLY_SEC = 0.26;    // amplitudo visual: di kode, tapi diekspor utk smoke
+const LOOT_FLY_HOP = 6.5;            // lengkung naik di awal (bukan seret di tanah)
+const LOOT_FLY_MIN = 0.12;           // skala saat lenyap ("masuk" ke badan player)
+const LOOT_FLY_SPIN = 16;            // putaran tambahan sepanjang penerbangan
+const lootFlights = [];              // [{mesh, t, x0, y0, z0, spin}]
+
+function beginLootFlight(mesh) {
+    lootFlights.push({ mesh, t: 0,
+        x0: mesh.position.x, y0: mesh.position.y, z0: mesh.position.z,
+        spin: mesh.rotation.y });
+}
+
+// Dipanggil dari `updateDrops` (tanpa call-site baru → urutan blok updateGame
+// tak tersentuh). Sasarannya dibaca ULANG tiap frame supaya item benar-benar
+// mengejar player yang sedang bergerak.
+function updateLootFlights(dt) {
+    for (let i = lootFlights.length - 1; i >= 0; i--) {
+        const f = lootFlights[i];
+        f.t += dt;
+        const k = f.t / LOOT_FLY_SEC;
+        if (k >= 1) { scene.remove(f.mesh); lootFlights.splice(i, 1); continue; }
+        const e = k * k;                       // easeIn: pelan lalu MENYENTAK = terasa tersedot
+        const tx = camera.position.x, tz = camera.position.z;
+        const ty = camera.position.y * 0.55;   // setinggi dada, bukan mata
+        f.mesh.position.set(
+            f.x0 + (tx - f.x0) * e,
+            f.y0 + (ty - f.y0) * e + Math.sin(k * Math.PI) * LOOT_FLY_HOP,
+            f.z0 + (tz - f.z0) * e);
+        f.mesh.rotation.y = f.spin + e * LOOT_FLY_SPIN;
+        // Mengecil hanya di 45% terakhir: sepanjang perjalanan ia tetap terbaca.
+        const shrink = Math.max(0, (k - 0.55) / 0.45);
+        f.mesh.scale.setScalar(1 - (1 - LOOT_FLY_MIN) * shrink);
+    }
+}
+
+// Dipanggil `resetGame` bersama pembersihan array entitas: tanpa ini sebuah mesh
+// yang sedang terbang saat restart tertinggal selamanya di koordinat lama.
+export function resetLootFlights() {
+    for (const f of lootFlights) {
+        f.mesh.scale.setScalar(1);
+        scene.remove(f.mesh);
+    }
+    lootFlights.length = 0;
+}
+
+export const lootFlightDebug = () => ({
+    count: lootFlights.length,
+    items: lootFlights.map(f => ({
+        t: +f.t.toFixed(4),
+        x: +f.mesh.position.x.toFixed(3), y: +f.mesh.position.y.toFixed(3),
+        z: +f.mesh.position.z.toFixed(3), scale: +f.mesh.scale.x.toFixed(3),
+        inScene: scene.children.indexOf(f.mesh) !== -1,
+    })),
+});
+
 // Taruh loot senilai `value` (dipecah `chips` keping) di (x,z) — dipakai
 // campaignAwardKill (common.js). Keping tersebar sedikit di sekitar titik jatuh
-// dan TETAP DI SANA sampai player melewatinya (lootPickupRadius).
+// dan TETAP DI SANA sampai player melewatinya (lootPickupRadius()).
 export function spawnLoot(x, z, value, chips = 1) {
     const [px, pz, groundY = 0] = activeScene.clampDropPos(x, z);
     const per = Math.max(1, Math.round(value / chips));
@@ -125,6 +209,7 @@ let lootSndCd = 0;    // jeda suara ambil loot (banyak keping = jangan spam audi
 export function updateDrops(dt, T) {
     if (fullInfoCd > 0) fullInfoCd -= dt;
     if (lootSndCd > 0) lootSndCd -= dt;
+    updateLootFlights(dt);   // item yang BARU diklaim sedang terbang ke player
     for (let i = drops.length - 1; i >= 0; i--) {
         const d = drops[i];
         d.timer -= dt;
@@ -134,21 +219,22 @@ export function updateDrops(dt, T) {
         // TANPA MAGNET (2026-07-27, permintaan user): dulu keping loot TERSEDOT
         // ke player begitu masuk radius lootMagnetMeters. Sekarang uang DIAM di
         // tempat jatuhnya — player harus mendatangi & MELEWATINYA sendiri
-        // (lootMagnetMeters/lootMagnetSpeed dihapus dari config).
+        // (lootMagnetMeters/lootMagnetSpeed dihapus dari config). Yang terbang
+        // hanyalah mesh SESUDAH item diklaim (beginLootFlight) — murni visual.
         if (d.type === 'loot') {
             d.spin += 5 * dt; d.mesh.rotation.y = d.spin;
             const distL = Math.hypot(camera.position.x - d.mesh.position.x,
                 camera.position.z - d.mesh.position.z);
             d.mesh.position.y = (d.groundY || 0) + 2
                 + Math.sin(T * 4 + i) * 0.4;
-            if (distL < CFG.drops.lootPickupRadius) {
+            if (distL < lootPickupRadius()) {
                 addScore(d.value);
                 if (lootSndCd <= 0) { lootSndCd = 0.12; playSFX(sfxPickup, 0.5); }
                 // Uang memakai feed pickup yang sama dgn ammo/medkit agar
                 // player langsung melihat nilai yang baru masuk ke MONEY.
                 showPickup(`+${d.value} MONEY`, '#ffb03b');
                 updateUI();
-                scene.remove(d.mesh); drops.splice(i, 1);
+                beginLootFlight(d.mesh); drops.splice(i, 1);
                 continue;
             }
             if (d.timer <= 0) { scene.remove(d.mesh); drops.splice(i, 1); }
@@ -160,7 +246,7 @@ export function updateDrops(dt, T) {
             + Math.sin(T * 3 + i) * 0.3;   // bob (jalan di kedua mode)
 
         const dist = Math.hypot(d.mesh.position.x - camera.position.x, d.mesh.position.z - camera.position.z);
-        if (dist < player.radius + 2) {
+        if (dist < lootPickupRadius()) {
             // Item PENUH tidak diambil (ditinggal untuk nanti) — beri info
             // "already full" di feed, dgn jeda 1.2 dtk agar tidak spam saat
             // player berdiri di atas item. AMUNISI PER-SENJATA (2026-07-26):
@@ -192,7 +278,7 @@ export function updateDrops(dt, T) {
                 }
                 playSFX(sfxPickup);
                 updateUI();
-                scene.remove(d.mesh);
+                beginLootFlight(d.mesh);   // amunisi & medkit ikut terbang ke player
                 drops.splice(i, 1);
                 continue;
             }
