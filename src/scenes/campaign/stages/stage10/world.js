@@ -9,6 +9,9 @@ import { addMergedStatic } from '../../../../utils/meshBatch.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
+import {
+    weldOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
+} from '../../utility/occlusion.js';
 import { buildStandMarker, pulseStandMarker } from '../../utility/common.js';
 import {
     buildPortCranes, setCraneLayout, cranePathWalkable, craneDebug,
@@ -26,6 +29,7 @@ export const S10_DEFENSE = Object.freeze({ x: 330590, z: -112 });
 export const S10_EXTRACT = Object.freeze({ x: 330825, z: 92 });
 export const S10_BOUNDS = Object.freeze({ x0: 329000, x1: 331000, z0: -650, z1: 610 });
 
+export const S10_OCC = 'campaign-10';   // kunci set occluder (lihat utility/occlusion.js)
 let built = false;
 let worldRoot = null;
 let navGrid = null;
@@ -124,10 +128,13 @@ function wheels(parent, M, points) {
 }
 
 function buildStaticContainer(parent, M, x, z, yaw, colorIndex, levels = 1) {
+    // Tumpukan peti kemas = penghalang paling sering di stage ini (10-31 unit).
+    // Dibangun sebagai grup sendiri lalu dilas ke dalam dirinya, bukan dilebur ke
+    // batch pelabuhan, supaya bisa memudar saat menutupi player/robot.
+    void parent;
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     g.rotation.y = yaw;
-    parent.add(g);
     for (let level = 0; level < levels; level++) {
         const y = level * 10.4;
         box(g, M.container[colorIndex % M.container.length], 25, 10, 9, 0, y + 5, 0);
@@ -138,6 +145,8 @@ function buildStaticContainer(parent, M, x, z, yaw, colorIndex, levels = 1) {
         for (const rz of [-3.1, 0, 3.1]) box(g, M.rib, 0.42, 8.5, 0.42, 12.2, y + 5, rz, false);
         box(g, M.white, 3.4, 1.8, 0.2, 7.5, y + 3.1, -4.88, false);
     }
+    weldOccluder(S10_OCC, worldRoot, g,
+        { x, z, radius: 13, top: levels * 10.4 });
     makeBlocker(x, z, 12.5, 4.5, levels * 10.4, yaw, 'container-stack');
     count('staticContainer', levels);
 }
@@ -192,7 +201,8 @@ function buildCargoAirstrip(parent, M) {
 }
 
 function buildForklift(parent, M, x, z, yaw = 0) {
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = yaw; parent.add(g);
+    void parent;
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = yaw;
     box(g, M.hazard, 10, 3, 7, 0, 3, 0);
     box(g, M.gunmetal, 6, 7, 6, -2, 7, 0);
     for (const sx of [-1, 1]) box(g, M.frame, 0.8, 11, 0.8, 5, 7, sx * 2.7);
@@ -200,28 +210,36 @@ function buildForklift(parent, M, x, z, yaw = 0) {
     for (const sz of [-1, 1]) box(g, M.steel, 9, 0.7, 0.8, 9, 1, sz * 2.3);
     box(g, M.glass, 0.4, 4, 4.5, -5.1, 8, 0);
     wheels(g, M, [[-3, 2, -4], [-3, 2, 4], [3, 2, -4], [3, 2, 4]]);
+    weldOccluder(S10_OCC, worldRoot, g, { x, z, radius: 7, top: 14 });
     makeBlocker(x, z, 7, 5, 14, yaw, 'forklift');
     count('forklift');
 }
 
 function buildReachStacker(parent, M, x, z) {
-    box(parent, M.hazard, 28, 5, 12, x, 4, z);
-    box(parent, M.gunmetal, 9, 13, 11, x - 8, 11, z);
-    box(parent, M.glass, 5, 5, 0.4, x - 8, 14, z - 5.7);
-    const boom = box(parent, M.steel, 37, 3, 4, x + 8, 17, z); boom.rotation.z = 0.22;
-    box(parent, M.frame, 3, 12, 14, x + 25, 12, z);
-    box(parent, M.hazard, 2, 2, 23, x + 26, 6.5, z);
-    wheels(parent, M, [[x - 9, 2.8, z - 7], [x - 9, 2.8, z + 7], [x + 8, 2.8, z - 7], [x + 8, 2.8, z + 7]]);
+    void parent;
+    const g = new THREE.Group();
+    box(g, M.hazard, 28, 5, 12, x, 4, z);
+    box(g, M.gunmetal, 9, 13, 11, x - 8, 11, z);
+    box(g, M.glass, 5, 5, 0.4, x - 8, 14, z - 5.7);
+    const boom = box(g, M.steel, 37, 3, 4, x + 8, 17, z); boom.rotation.z = 0.22;
+    box(g, M.frame, 3, 12, 14, x + 25, 12, z);
+    box(g, M.hazard, 2, 2, 23, x + 26, 6.5, z);
+    wheels(g, M, [[x - 9, 2.8, z - 7], [x - 9, 2.8, z + 7], [x + 8, 2.8, z - 7], [x + 8, 2.8, z + 7]]);
+    weldOccluder(S10_OCC, worldRoot, g, { x: x + 4, z, radius: 18, top: 23 });
     makeBlocker(x + 4, z, 25, 8, 23, 0, 'reach-stacker');
     count('reachStacker');
 }
 
 function buildWarehouse(parent, M) {
     const x = S10_WAREHOUSE.x, z = S10_WAREHOUSE.z;
-    box(parent, M.panel, 4, 35, 150, x - 86, 17.5, z);
-    box(parent, M.panel, 4, 35, 150, x + 86, 17.5, z);
-    box(parent, M.panel, 176, 35, 4, x, 17.5, z + 73);
-    box(parent, M.gunmetal, 180, 2.5, 154, x, 37, z);
+    // Cangkang gudang (dinding 35 + atap) memudar: player BERTARUNG DI DALAMNYA,
+    // jadi dinding sisi kamera + atap adalah penghalang pandangan permanen.
+    const shell = new THREE.Group();
+    box(shell, M.panel, 4, 35, 150, x - 86, 17.5, z);
+    box(shell, M.panel, 4, 35, 150, x + 86, 17.5, z);
+    box(shell, M.panel, 176, 35, 4, x, 17.5, z + 73);
+    box(shell, M.gunmetal, 180, 2.5, 154, x, 37, z);
+    weldOccluder(S10_OCC, worldRoot, shell, { x, z: z + 40, radius: 90, top: 38 });
     for (let rx = x - 75; rx <= x + 75; rx += 25) {
         box(parent, M.frame, 1.2, 35, 1.2, rx, 17.5, z - 70);
         box(parent, M.hazard, 18, 1.2, 2, rx, 1, z - 74);
@@ -251,10 +269,14 @@ function buildWarehouse(parent, M) {
 }
 
 function buildPipeRack(parent, M) {
+    // Tiap bent rak pipa (26 unit) berdiri sendiri: cukup tinggi untuk menelan
+    // player yang berdiri di sisi kameranya.
     for (let x = 330225; x <= 330455; x += 24) {
         for (const z of [-88, -24, 42]) {
-            box(parent, M.frame, 2, 26, 2, x, 13, z);
-            box(parent, M.frame, 2, 2, 18, x, 24, z);
+            const g = new THREE.Group();
+            box(g, M.frame, 2, 26, 2, x, 13, z);
+            box(g, M.frame, 2, 2, 18, x, 24, z);
+            weldOccluder(S10_OCC, worldRoot, g, { x, z, radius: 9, top: 26 });
         }
     }
     for (const z of [-82, -28, 36]) {
@@ -263,8 +285,10 @@ function buildPipeRack(parent, M) {
         cylinder(parent, M.gunmetal, 2.1, 244, 330340, 8, z + 11, 'x', 10);
     }
     for (let x = 330250; x <= 330430; x += 45) {
-        cylinder(parent, M.steel, 6, 18, x, 9, 90, 'y', 14);
-        cylinder(parent, M.gunmetal, 6.6, 1.5, x, 18, 90, 'y', 14);
+        const g = new THREE.Group();
+        cylinder(g, M.steel, 6, 18, x, 9, 90, 'y', 14);
+        cylinder(g, M.gunmetal, 6.6, 1.5, x, 18, 90, 'y', 14);
+        weldOccluder(S10_OCC, worldRoot, g, { x, z: 90, radius: 8, top: 19 });
         makeBlocker(x, 90, 7, 7, 19, 0, 'process-tank');
     }
     count('pipeRackBay', 10); count('processPipe', 9); count('processTank', 5);
@@ -511,7 +535,9 @@ export function stage10UpdateWorld(dt, elapsed) {
         pulseStandMarker(marker, elapsed * 4.2);
     }
     if (carrier) carrier.position.y = Math.sin(elapsed * 1.2) * 0.08;
-    void dt;
+    // Peti kemas/gudang/rak pipa yang menutupi player atau robot jadi nyaris
+    // tembus pandang (utility/occlusion.js).
+    updateStageOccluders(S10_OCC, dt);
 }
 
 export function stage10SupplyPlacements() {
@@ -629,6 +655,7 @@ export function stage10WorldDebug() {
         staticBatches: staticBatch.length + cranes.staticBatch.length,
         pointLights: stageLights.length,
         markers: Object.keys(markers),
+        occluders: occlusionDebug(S10_OCC),
         supplies: { crateCandidates: crateCandidates.length, barrelCandidates: barrelCandidates.length },
     };
 }
@@ -636,4 +663,5 @@ export function stage10WorldDebug() {
 export function stage10ResetLayout() {
     ensureStage10World();
     setCraneLayout(cranes, 'A');
+    resetStageOccluders(S10_OCC);
 }

@@ -55,6 +55,7 @@ import {
     setLockdownLights, deployMachine, killMachineVisual,
     unlockHqDoor, setHackMarker, setHackScreenHacked, resetHqVisuals,
     HQ_LIGHTS_KEY,
+    updateHqOccluders,
 } from './hqWorld.js';
 
 const C6 = () => CFG.campaign.stage6;
@@ -358,6 +359,7 @@ export const hqScene = {
 
     updateMode(dt) {
         elapsed += dt;
+        updateHqOccluders(dt);
         updateHqAutoDoors(camera.position.x, camera.position.z, dt);
         updateHqDoors(dt); updateHqFx(dt); pulseHqMarkers(dt, elapsed);
         updateCine(dt);

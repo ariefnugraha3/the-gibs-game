@@ -151,6 +151,17 @@ stub in `tools/smoke.mjs` instead of working around it in game code.
 
 The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-choices-do-not-clean-up); highlights:
 
+- **Occlusion fade is ONE shared system at 20%, on a HALF-BODY threshold, walls included**
+  (2026-08-13/14, user requests): `campaign/utility/occlusion.js` owns every occluder in
+  Stages 1-13 and `CFG.campaign.occlusion.opacity` (0.2) is the only fade value. A prop fades
+  only when it hides ≥ `coverFraction` (0.5) of the character — the entity→camera ray is
+  intersected with the prop footprint (slab test, never distance-to-centre) and both the player
+  pivot **and** nearby robots are swept. `registerOccluder` clones the prop's materials (a shared
+  `M.*` instance would fade the whole batch); a prop that must fade uses `weldOccluder` instead of
+  `addMergedStatic`. WALLS fade through `campaign/utility/wallFade.js`, which swaps a `#` cell out
+  of its InstancedMesh for a pooled proxy; the show/hide matrix must be `identity()`-ed before
+  reuse or the cell never returns. Stage 8 registers none because all its scenery sits outside
+  the sight corridor. → [docs/campaign.md](docs/campaign.md)
 - **No mid-game shader recompiles**: fixed FX pools, constant PointLight counts, every
   lazily-revealed mesh added to `core/preload.js` warm-up.
 - **Art style "GIBS 2045"** (`src/world/palette.js`): PAL tokens only, no neon

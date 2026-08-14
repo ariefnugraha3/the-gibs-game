@@ -50,6 +50,7 @@ import {
     stage6Walk, robotWalk, resolve, groundHeight, stage6SegHitsWall,
     doorBlocksShot, doorsWalkable, doorClampShot,
     doorOf, stage6Nav, updateDoors, updateAutoDoors, updateMachinery, updateSparks,
+    updateArrivalOccluders,
     activateSparks, pulseMarkers, setMarkers, setRackSearched,
     setGeneratorOnline, resetWorldVisuals,
     stage6Machines, armMachines, killMachine, updateMachineVisual,
@@ -341,6 +342,7 @@ export const arrivalScene = {
 
     updateMode(dt) {
         elapsed += dt;
+        updateArrivalOccluders(dt);
         updateAutoDoors(dt); updateDoors(dt); updateSparks(dt);
         updateMachinery(dt, generatorOnline); updateMachineVisual(dt);
         pulseMarkers(dt, elapsed);

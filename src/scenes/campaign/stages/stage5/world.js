@@ -12,7 +12,11 @@ import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collisi
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { buildCampaignCityscape } from '../../utility/cityscape.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
-import { buildDetailedWallCell } from '../../utility/wallDetail.js';
+import {
+    registerOccluder, weldOccluder, updateStageOccluders, resetStageOccluders,
+    occlusionDebug,
+} from '../../utility/occlusion.js';
+import { buildFadeableWalls } from '../../utility/wallFade.js';
 import {
     buildSplitDoor, doorBlocksShot, doorClampShot, doorsWalkable,
     doorMotionSFX, doorProximityTarget,
@@ -176,6 +180,9 @@ export const CAR_SUPPLY_POINTS = Object.freeze([
     Object.freeze({ type: 'medkit', x: TRAIN_BASE_X, z: TRAIN_CENTER_Z + 5 }),
 ]);
 
+export const S5_OCC = 'campaign-5';   // kunci set occluder (utility/occlusion.js)
+let s5Walls = null;                   // dinding yang bisa memudar (wallFade.js)
+export const s5WallsDbg = () => (s5Walls ? s5Walls.debug() : null);
 let built = false, worldRoot = null;
 export let stationRoot = null, train = null, journey = null, navGrid = null;
 let staticBatch = [];
@@ -492,14 +499,22 @@ function buildWorld() {
         }),
     };
     const staticProps = [];
+    // PENANGKAP PROP (2026-08-13): selama perabot hall/peron dibangun, mesh tiap
+    // prop dikumpulkan tersendiri lalu dilas + didaftarkan sebagai OCCLUDER —
+    // rak palet 22 unit & peti kemas 15 unit adalah penelan pandangan utama di
+    // depot. Tiap builder memanggil `reg(...)` TEPAT SEKALI di akhir, jadi
+    // panggilan itulah yang menutup satu prop.
+    let capture = null;
     const addStatic = (sx, sy, sz, x, y, z, mat = M.ground) => {
         const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-        m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; staticProps.push(m); return m;
+        m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+        (capture || staticProps).push(m); return m;
     };
     const addStaticGeo = (geo, x, y, z, mat, rx = 0, ry = 0, rz = 0) => {
         const m = new THREE.Mesh(geo, mat);
         m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
-        m.castShadow = true; m.receiveShadow = true; staticProps.push(m); return m;
+        m.castShadow = true; m.receiveShadow = true;
+        (capture || staticProps).push(m); return m;
     };
 
     // Lantai mengikuti footprint CSV: dua track di baris 1-9, peron baris
@@ -514,28 +529,43 @@ function buildWorld() {
     wallDetailCount = 0; furnitureMeshCount = 0;
     const isWall = (c, r) => c < 0 || c >= MAP_COLS || r < 0 || r >= MAP_ROWS
         || S5_MAP[r][c] === '#' || S5_MAP[r][c] === '@';
+    // DINDING BISA MEMUDAR (2026-08-14, permintaan user): sel `#` tidak lagi
+    // dilebur ke batch statis — badan + kulit mukanya di-instance supaya satu sel
+    // bisa disembunyikan dan digantikan proxy tembus pandang (utility/wallFade.js).
+    const wallCells5 = [];
     for (let r = 0; r < MAP_ROWS; r++) for (let c = 0; c < MAP_COLS; c++) {
         const token = S5_MAP[r][c], p = cellPos(c + 1, r + 1);
         if (token === '#') {
-            wallDetailCount += buildDetailedWallCell(addStatic, {
-                c, r, x: p.x, z: p.z, cell: CELL, wallH: WALL_H, isWall,
-                body: M.body, panel: M.panel, steel: M.steel, ink: M.ink,
-                accent: M.hazard, accentEvery: 11,
-            });
+            wallCells5.push({ c, r, x: p.x, z: p.z });
             addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
         } else if (token === '@') {
             // Dinding berjendela: ambang + header solid, kaca sebagai mesh
             // transparan berdiri sendiri (meshBatch sengaja tidak mengelasnya).
-            addStatic(CELL, 6, CELL, p.x, 3, p.z, M.body);
-            addStatic(CELL, 5, CELL, p.x, WALL_H - 2.5, p.z, M.body);
-            addStatic(2.2, 14, CELL, p.x - CELL / 2 + 1.1, 13, p.z, M.steel);
-            addStatic(2.2, 14, CELL, p.x + CELL / 2 - 1.1, 13, p.z, M.steel);
+            const wg = new THREE.Group();
+            const addWin = (sx, sy, sz, x, y, z, mat) => {
+                const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+                m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+                wg.add(m); return m;
+            };
+            addWin(CELL, 6, CELL, p.x, 3, p.z, M.body);
+            addWin(CELL, 5, CELL, p.x, WALL_H - 2.5, p.z, M.body);
+            addWin(2.2, 14, CELL, p.x - CELL / 2 + 1.1, 13, p.z, M.steel);
+            addWin(2.2, 14, CELL, p.x + CELL / 2 - 1.1, 13, p.z, M.steel);
+            weldOccluder(S5_OCC, stationRoot, wg,
+                { x: p.x, z: p.z, hx: CELL / 2, hz: CELL / 2, top: WALL_H });
             const glass = new THREE.Mesh(new THREE.BoxGeometry(CELL, 14, 1.4), M.glass);
             glass.position.set(p.x, 13, p.z); stationRoot.add(glass);
             windowPanes.push(glass);
             addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
         }
     }
+    s5Walls = buildFadeableWalls({
+        key: S5_OCC, parent: stationRoot, cells: wallCells5,
+        cell: CELL, wallH: WALL_H, bodyMat: M.body,
+        detail: { isWall, panel: M.panel, steel: M.steel, ink: M.ink,
+            accent: M.hazard, accentEvery: 11 },
+    });
+    wallDetailCount = s5Walls.details;
     // Badan jalur = anak stationRoot (bukan journey scenery), gauge SAMA dengan
     // bogie kereta, menjorok ke DUA arah: APRON RUN-OUT timur, karena shot
     // keberangkatan mengunci kamera dan hanya keretanya yang maju sampai
@@ -561,15 +591,31 @@ function buildWorld() {
         addBlocker(p.x, p.z, hx, hz, top);
         (which === 'platform' ? platformFurniture : depotFurniture)
             .push({ kind, x: p.x, z: p.z, hx, hz, top, solid: true });
+        if (capture && capture.length) {
+            const g = new THREE.Group();
+            for (const m of capture) g.add(m);
+            weldOccluder(S5_OCC, stationRoot, g,
+                { x: p.x, z: p.z, radius: (hx + hz) / 2 + 2, top });
+            capture.length = 0;
+        }
     };
+    capture = [];
     furnitureMeshCount = buildStationFurniture(M, addStatic, addStaticGeo, regFurniture).meshes;
+    for (const m of capture) staticProps.push(m);   // sisa (tak ber-reg) tetap dibatch
+    capture = null;
     staticBatch = addMergedStatic(stationRoot, staticProps);
 
     const gen = buildGenerator(M, stationRoot, GENERATOR_OBJECT, addBlocker);
     generatorScreen = gen.screen; generatorRotor = gen.rotor;
+    // Generator & terminal C1 setinggi 26/25 unit: penghalang pandangan nyata di
+    // ruang mesin, jadi keduanya ikut memudar (material di-klon oleh pendaftar).
+    registerOccluder(S5_OCC, gen.group,
+        { x: GENERATOR_OBJECT.x, z: GENERATOR_OBJECT.z, radius: 24, top: 26 });
     landmarkVisual.generatorMeshes = gen.meshes; landmarkVisual.animatedParts++;
     const term = buildTerminal(M, stationRoot, TERMINAL_OBJECT, addBlocker);
     terminalScreen = term.screen; terminalCore = term.core;
+    registerOccluder(S5_OCC, term.group,
+        { x: TERMINAL_OBJECT.x, z: TERMINAL_OBJECT.z, radius: 26, top: 27 });
     landmarkVisual.terminalMeshes = term.meshes; landmarkVisual.animatedParts++;
     stationSpawnMachine = buildSpawnMachineMesh(30, 20, 30);
     stationSpawnMachine.group.position.set(S5_SPAWN_MACHINE.x, 0, S5_SPAWN_MACHINE.z);
@@ -577,6 +623,9 @@ function buildWorld() {
     stationSpawnMachine.group.rotation.y = -Math.PI / 2;
     stationRoot.add(stationSpawnMachine.group);
     machineBlocker = addBlocker(S5_SPAWN_MACHINE.x, S5_SPAWN_MACHINE.z, 16, 16, 25);
+    registerOccluder(S5_OCC, stationSpawnMachine.group,
+        { x: S5_SPAWN_MACHINE.x, z: S5_SPAWN_MACHINE.z, radius: 17, top: 30 });
+    void 0;
     for (const [kind, p, sx, sz] of [
         ['platform', PLATFORM_DOOR_POS, CELL * 1.92, 3.5],
         ['control', CONTROL_DOOR_POS, 3.5, CELL * 1.92],
@@ -711,7 +760,12 @@ export function resetWorldVisual() {
         resetSpawnMachine(stationSpawnMachine, false);
         stationSpawnMachine.hatchFrame.scale.setScalar(1);
     }
+    resetStageOccluders(S5_OCC);
 }
+
+// Perabot depot/peron yang menutupi player atau robot jadi nyaris tembus pandang.
+export function updateStationOccluders(dt) { updateStageOccluders(S5_OCC, dt); }
+export const stage5OcclusionDebug = () => occlusionDebug(S5_OCC);
 
 export const stage5WorldDebug = () => ({
     built,

@@ -228,7 +228,7 @@ export const stage11Scene = {
     awardKill: campaignAwardKill,
     updateMode(dt) {
         elapsed += dt; updateStage11Dialogue(dt);
-        updateStage11WorldVisuals(dt, camera.position.x, camera.position.z);
+        updateStage11WorldVisuals(dt);
         if (cine) updateOpening(dt);
         const sensorEnabled = !cine && phases.indexOf(phase) >= phases.indexOf('scanBelt')
             && phase !== 'tunnelEntry' && phase !== 'complete';

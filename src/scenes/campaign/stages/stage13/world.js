@@ -9,6 +9,9 @@ import { addMergedStatic, mergeObjectInPlace } from '../../../../utils/meshBatch
 import { slideWalk, resolveBlockers } from '../../../../utils/collision.js';
 import { segPointDist2, clamp } from '../../../../utils/math.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
+import {
+    registerOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
+} from '../../utility/occlusion.js';
 
 export const STAGE13_LIGHTS_KEY = 'campaign-13';
 export const S13_ORIGIN = Object.freeze({ x: 430000, z: 0 });
@@ -50,7 +53,8 @@ export const S13_HARDLINE_STATIONS = Object.freeze([0, 1, 2, 3].map(i => {
 
 let built = false, root = null, transport = null, monasRig = null;
 let staticBatch = [], sunrise = 0;
-const blockers = [], occluders = [];
+const blockers = [];
+let occluderCount = 0;   // prop yang didaftarkan ke utility/occlusion.js
 const semantic = new Map();
 let rawMeshes = 0, inertRobotCount = 0, inertVehicleCount = 0;
 let treeCount = 0, cityBuildingCount = 0, propDetailCount = 0;
@@ -199,6 +203,12 @@ function buildMonas(M, props) {
     }
     const welded = mergeObjectInPlace(g);
     if (welded !== g) { root.remove(g); root.add(welded); }
+    // Monas adalah penghalang TERBESAR di stage ini: berdiri di tengah arena
+    // boss, jadi setiap kali player/robot berada di sisi timur-lautnya ia
+    // menelan mereka sepenuhnya. Ikut memudar seperti prop lain.
+    registerOccluder(STAGE13_LIGHTS_KEY, welded,
+        { x: S13_MONAS.x, z: S13_MONAS.z, radius: S13_MONAS.radius, top: 260 });
+    occluderCount++;
     blocker(S13_MONAS.x, S13_MONAS.z, S13_MONAS.radius, S13_MONAS.radius, 245);
     monasRig = { group: welded, stable: true, campaignOnly: true };
     tag('monas'); tag('museum-base'); tag('stable-flame');
@@ -267,8 +277,10 @@ function buildPark(M, props) {
         addMesh(tree, new THREE.SphereGeometry(13, 8, 6), crownMat,
             side * 10, 35, (i % 2 ? 1 : -1) * 6);
         blocker(x, z, 5.5, 5.5, 31);
-        occluders.push({ x, z, radius: 46, f: 1,
-            materials: [trunkMat, crownMat] });
+        // Material sudah instans milik pohon ini sendiri (clone di atas).
+        registerOccluder(STAGE13_LIGHTS_KEY, tree,
+            { x, z, radius: 26, top: 58, clone: false });
+        occluderCount++;
         treeCount++; propDetailCount += 3;
     }
     tag('occluder-tree', 10); tag('lateral-flanking-route', 2);
@@ -357,7 +369,15 @@ function vehicle(props, M, x, z, kind, yaw, damaged = false) {
     for (const side of [-1, 1]) box(g, M.glass, long * 0.45, 2.4, 0.6,
         -long * 0.03, 9.8, side * (wide / 2 + 0.2));
     box(g, M.hazard, 2, 1.1, wide + 0.4, -long / 2 - 0.2, 5.5, 0);
-    props.push(g); inertVehicleCount++; propDetailCount += 9;
+    // Kendaraan mogok BERDIRI SENDIRI (tidak dilebur ke batch besar) supaya bisa
+    // memudar saat menutupi player/robot di boulevard; dilas ke dalam dirinya
+    // sendiri jadi harganya tetap segelintir draw call.
+    const node = mergeObjectInPlace(g);
+    root.add(node);
+    registerOccluder(STAGE13_LIGHTS_KEY, node,
+        { x, z, radius: (long + wide) / 4, top: 12.5 });
+    occluderCount++;
+    inertVehicleCount++; propDetailCount += 9;
 }
 
 function buildInertVehicles(M, props) {
@@ -574,19 +594,15 @@ export function setStage13Sunrise(k) {
     if (dawn) dawn.material.opacity = sunrise * 0.68;
 }
 
-export function updateStage13World(dt, px, pz) {
-    // A few foreground park crowns can fade if the camera/player line passes
-    // beneath them. Current world keeps them instanced and outside the central
-    // corridor, so the collection remains intentionally empty but exposed.
-    for (const o of occluders) {
-        const target = Math.hypot(px - o.x, pz - o.z) < o.radius ? 0.42 : 1;
-        o.f += (target - o.f) * Math.min(1, dt * 6);
-        for (const mat of o.materials) mat.opacity = o.f;
-    }
+// Pohon depan, kendaraan mogok dan Monas memudar lewat uji GARIS PANDANG bersama
+// (player DAN robot) — lihat utility/occlusion.js.
+export function updateStage13World(dt) {
+    updateStageOccluders(STAGE13_LIGHTS_KEY, dt);
 }
 
 export function resetStage13World() {
     setStage13Sunrise(0); resetStage13Transport();
+    resetStageOccluders(STAGE13_LIGHTS_KEY);
 }
 
 function segmentClearOfMonas(path, extra = 0) {
@@ -620,8 +636,7 @@ export function stage13WorldDebug() {
         transport: transport ? { detailed: true, rotors: transport.rotors.length,
             visible: transport.group.visible } : null,
         blockers: { count: blockers.length, monasSolid: blockers.length > 0 },
-        occluders: { count: occluders.length,
-            minFactor: occluders.reduce((v, o) => Math.min(v, o.f), 1) },
+        occluders: occlusionDebug(STAGE13_LIGHTS_KEY),
         sunrise, pointLights: 0, deterministic: true,
         survivalStateImported: false,
     };

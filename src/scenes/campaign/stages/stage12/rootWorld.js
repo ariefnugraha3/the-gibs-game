@@ -3,6 +3,9 @@
 import { scene } from '../../../../core/renderer.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStaticShadowAware } from '../../../../utils/meshBatch.js';
+import {
+    weldOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
+} from '../../utility/occlusion.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { registerStageLight } from '../../../../world/lighting.js';
@@ -19,6 +22,7 @@ export const S12_WARDEN_HOME = Object.freeze({ x: 399910, z: 0 });
 
 const BOUNDS = Object.freeze({ x0: 399540, x1: 400650, z0: -470, z1: 470 });
 const ARENA_R = S12_ARENA.radius;
+export const S12_ROOT_OCC = 'campaign-12-root';   // utility/occlusion.js
 let built = false;
 let root = null;
 let nav = null;
@@ -103,18 +107,22 @@ function buildShell() {
         count('concentric-authority-ring');
     }
     // Monumental outer buttresses frame the entire gameplay camera footprint.
+    // Setinggi 94 unit dan mengelilingi arena: penghalang pandangan nyata, jadi
+    // tiap pilar berdiri sendiri dan ikut memudar (utility/occlusion.js).
     for (let i = 0; i < 20; i++) {
         const a = i * Math.PI * 2 / 20, x = S12_ARENA.x + Math.cos(a) * 378;
         const z = Math.sin(a) * 378;
-        mesh(g, new THREE.BoxGeometry(30, 94, 52), material('outerButtress', PAL.concrete),
+        const b = new THREE.Group();
+        mesh(b, new THREE.BoxGeometry(30, 94, 52), material('outerButtress', PAL.concrete),
             x, 47, z, 0, -a, 0, true, true);
-        mesh(g, new THREE.BoxGeometry(18, 72, 56), material('buttressInset', PAL.gunmetal),
+        mesh(b, new THREE.BoxGeometry(18, 72, 56), material('buttressInset', PAL.gunmetal),
             x - Math.cos(a) * 8, 53, z - Math.sin(a) * 8,
             0, -a, 0, false, false);
-        mesh(g, new THREE.BoxGeometry(8, 58, 58), material('authorityStrip', PAL.amberDim,
+        mesh(b, new THREE.BoxGeometry(8, 58, 58), material('authorityStrip', PAL.amberDim,
             { emissive: PAL.amberDim, emissiveIntensity: .42 }),
         x - Math.cos(a) * 18, 55, z - Math.sin(a) * 18,
         0, -a, 0, false, false);
+        weldOccluder(S12_ROOT_OCC, root, b, { x, z, hx: 26, hz: 26, top: 94 });
         blocker(x, z, 18, 30, 94, -a, 'root-buttress');
     }
     // Overhead radial trusses imply a huge chamber without a view-blocking roof.
@@ -204,10 +212,12 @@ function buildTransmitter() {
 }
 
 function buildCapacitorBanks() {
-    const g = new THREE.Group();
+    // Bank kapasitor mengelilingi arena boss setinggi 50-64 unit: penghalang
+    // pandangan paling sering di ruang akar. Tiap bank berdiri sendiri.
     for (let i = 0; i < 12; i++) {
         const a = i * Math.PI * 2 / 12, r = 270;
         const x = S12_ARENA.x + Math.cos(a) * r, z = Math.sin(a) * r;
+        const g = new THREE.Group();
         mesh(g, new THREE.BoxGeometry(24, 48, 35), material('bankBody', PAL.gunmetal),
             x, 24, z, 0, -a, 0, true, true);
         for (let k = -1; k <= 1; k++)
@@ -218,10 +228,10 @@ function buildCapacitorBanks() {
             { emissive: PAL.amberDim, emissiveIntensity: .35 }),
         x - Math.cos(a) * 13, 25, z - Math.sin(a) * 13,
         0, -a, 0, false, false);
+        weldOccluder(S12_ROOT_OCC, root, g, { x, z, radius: 20, top: 64 });
         blocker(x, z, 14, 20, 50, -a, 'capacitor-bank');
     }
     count('capacitor-bank', 12);
-    weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
 }
 
 function buildLighting() {
@@ -253,8 +263,13 @@ export function updateStage12RootVisuals(dt, progress, jammed = false) {
             jammed ? .22 + .08 * Math.sin(uploadVisual * 7) : .32 + progress * .5);
     }
 }
+// Occluder bank kapasitor diperbarui SETIAP frame (updateMode), terlepas dari
+// fase upload — `updateStage12RootVisuals` hanya dipanggil di jalur upload.
+export function updateStage12RootOccluders(dt) { updateStageOccluders(S12_ROOT_OCC, dt); }
+
 export function resetStage12RootVisuals() {
     uploadVisual = 0; setStage12AuthorityDoor(false); setStage12InsertMarker(false);
+    resetStageOccluders(S12_ROOT_OCC);
     if (consoleCore) consoleCore.material.emissiveIntensity = .56;
     if (broadcastCore) broadcastCore.material.emissiveIntensity = .36;
 }
@@ -283,6 +298,7 @@ export const stage12RootWorldDebug = () => ({
     semantic: Object.fromEntries(semantic), lights: { key: STAGE12_ROOT_LIGHTS_KEY,
         total: lights.length },
     authorityOpen: !!authorityDoor && authorityDoor.position.y > 50,
+    occluders: occlusionDebug(S12_ROOT_OCC),
     insertMarker: !!consoleMarker?.visible,
     nav: nav && { cols: nav.cols, rows: nav.rows,
         walkable: nav.walk.reduce((n, v) => n + v, 0) },

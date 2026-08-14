@@ -29,7 +29,8 @@ import {
     S12_ARENA, S12_WARDEN_HOME, stage12RootWalk, stage12RootResolve,
     stage12RootSegBlocked, stage12RootGroundHeight, stage12RootNav,
     setStage12AuthorityDoor, setStage12InsertMarker,
-    updateStage12RootVisuals, resetStage12RootVisuals, stage12RootWorldDebug,
+    updateStage12RootVisuals, updateStage12RootOccluders,
+    resetStage12RootVisuals, stage12RootWorldDebug,
 } from './rootWorld.js';
 import {
     phase, complete, setStage12Phase, setStage12Complete,
@@ -216,6 +217,7 @@ export const rootScene = {
     },
     updateMode(dt) {
         elapsed += dt; updateAuthorityGate(dt);
+        updateStage12RootOccluders(dt);
         const w = W();
         updateNusantaraWarden(w, dt, { arena: S12_ARENA,
             allowAttack: phase === 'wardenBattle' });

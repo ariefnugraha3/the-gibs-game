@@ -41,6 +41,7 @@ import {
     stage9GroundHeight, stage9NavGrid, stage9Transport, stage9SetCoreInstalled,
     stage9SetMarkers, stage9UpdateWorld, stage9SupplyPlacements,
     stage9EncounterPoints, stage9RadarLandmarks, stage9WorldDebug,
+    resetStage9Occluders,
 } from './world.js';
 
 export { ensureStage9World, stage9WorldDebug } from './world.js';
@@ -210,6 +211,7 @@ function resetStage() {
     setAvatarMissionCase(false);
     stage9SetCoreInstalled(false);
     stage9SetMarkers([]);
+    resetStage9Occluders();
     stage9UpdateWorld(0, 0, 0, 0);
 }
 

@@ -6,6 +6,9 @@ import { scene } from '../../../../core/renderer.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { registerStageLight } from '../../../../world/lighting.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import {
+    weldOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
+} from '../../utility/occlusion.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
@@ -24,6 +27,7 @@ export const S9_INSTALL = Object.freeze({ x: 300205, z: -64 });
 export const S9_BOARD = Object.freeze({ x: 300228, z: -44 });
 export const S9_BOUNDS = Object.freeze({ x0: 299100, x1: 300930, z0: -610, z1: 610 });
 
+export const S9_OCC = 'campaign-9';   // kunci set occluder (utility/occlusion.js)
 let built = false;
 let worldRoot = null;
 let transport = null;
@@ -385,35 +389,50 @@ function buildWorld() {
     addBlocker(300000, -286, 880, 0.3, 12, 0, 'perimeter-fence');
     addBlocker(300000, 305, 880, 0.3, 12, 0, 'perimeter-fence');
 
-    buildTower(staticRoot, M);
-    buildHangar(staticRoot, M);
+    // PROP TINGGI = OCCLUDER (2026-08-13): menara, hangar, gedung operasi dan
+    // seluruh kendaraan pendukung darat dibangun ke grup sendiri lalu dilas ke
+    // dalam dirinya, supaya masing-masing bisa memudar saat menutupi player atau
+    // robot — bukan dilebur ke satu batch apron raksasa.
+    const occProp = (fn, x, z, radius, top, ...rest) => {
+        const g = new THREE.Group();
+        fn(g, M, x, z, ...rest);
+        weldOccluder(S9_OCC, worldRoot, g, { x, z, radius, top });
+    };
+    occProp((p) => buildTower(p, M), S9_TOWER.x, S9_TOWER.z, 27, 80);
+    occProp((p) => buildHangar(p, M), S9_HANGAR.x + 105, S9_HANGAR.z, 68, 47);
     // Airport operations sheds are isolated airfield facilities, not a city.
-    box(staticRoot, M.panel, 86, 19, 34, 299480, 9.5, 238);
-    box(staticRoot, M.roof, 90, 2, 38, 299480, 20, 238);
-    box(staticRoot, M.glass, 45, 4, 0.5, 299480, 12, 220.8);
+    {
+        const g = new THREE.Group();
+        box(g, M.panel, 86, 19, 34, 299480, 9.5, 238);
+        box(g, M.roof, 90, 2, 38, 299480, 20, 238);
+        box(g, M.glass, 45, 4, 0.5, 299480, 12, 220.8);
+        weldOccluder(S9_OCC, worldRoot, g, { x: 299480, z: 238, radius: 45, top: 21 });
+    }
     addBlocker(299480, 238, 43, 17, 20, 0, 'airport-operations');
     count('airportOperationsBuilding');
 
-    buildTug(staticRoot, M, 300025, -96);
-    buildBaggageTrain(staticRoot, M, 299930, -190);
-    buildFuelTruck(staticRoot, M, 300060, 128);
-    buildMobileStairs(staticRoot, M, 300345, -196);
-    buildCargoLoader(staticRoot, M, 299865, 102);
-    buildAirportBus(staticRoot, M, 299755, -174);
-    buildBaggageTractor(staticRoot, M, 299610, -122);
-    buildBaggageTractor(staticRoot, M, 300390, 118);
-    buildBeltLoader(staticRoot, M, 299825, -78);
-    buildBeltLoader(staticRoot, M, 300365, 62);
-    buildGroundPowerUnit(staticRoot, M, 300120, 92);
-    buildGroundPowerUnit(staticRoot, M, 300338, -142);
+    occProp(buildTug, 300025, -96, 8, 9);
+    occProp(buildBaggageTrain, 299930, -190, 22, 8);
+    occProp(buildFuelTruck, 300060, 128, 15, 13);
+    occProp(buildMobileStairs, 300345, -196, 13, 12);
+    occProp(buildCargoLoader, 299865, 102, 12, 11);
+    occProp(buildAirportBus, 299755, -174, 18, 11);
+    occProp(buildBaggageTractor, 299610, -122, 8, 11);
+    occProp(buildBaggageTractor, 300390, 118, 8, 11);
+    occProp(buildBeltLoader, 299825, -78, 14, 13);
+    occProp(buildBeltLoader, 300365, 62, 14, 13);
+    occProp(buildGroundPowerUnit, 300120, 92, 8, 9);
+    occProp(buildGroundPowerUnit, 300338, -142, 8, 9);
     buildSafetyEquipment(staticRoot, M, 300005, -42);
 
     // Pallet/cargo staging with readable straps, labels and forklift lanes.
     for (let i = 0; i < 12; i++) {
         const x = 299815 + (i % 4) * 17, z = 166 + Math.floor(i / 4) * 16;
-        box(staticRoot, M.wood, 12, 1, 10, x, 0.7, z);
-        box(staticRoot, i % 3 ? M.panel : M.hazard, 10, 4 + (i % 2) * 2, 8, x, 3.2, z);
-        box(staticRoot, M.frame, 0.45, 6, 10.5, x, 3.5, z);
+        const g = new THREE.Group();
+        box(g, M.wood, 12, 1, 10, x, 0.7, z);
+        box(g, i % 3 ? M.panel : M.hazard, 10, 4 + (i % 2) * 2, 8, x, 3.2, z);
+        box(g, M.frame, 0.45, 6, 10.5, x, 3.5, z);
+        weldOccluder(S9_OCC, worldRoot, g, { x, z, radius: 7, top: 7 });
         addBlocker(x, z, 6, 5, 7, 0, 'air-cargo-pallet');
     }
     count('airCargoPallet', 12);
@@ -424,8 +443,10 @@ function buildWorld() {
         [300050, 235], [300245, 230], [300420, 180],
     ];
     for (const [x, z] of lampSpecs) {
-        box(staticRoot, M.frame, 1.1, 28, 1.1, x, 14, z);
-        box(staticRoot, M.white, 8, 1, 2.2, x, 28, z);
+        const mast = new THREE.Group();
+        box(mast, M.frame, 1.1, 28, 1.1, x, 14, z);
+        box(mast, M.white, 8, 1, 2.2, x, 28, z);
+        weldOccluder(S9_OCC, worldRoot, mast, { x, z, radius: 5, top: 29 });
         const light = new THREE.PointLight(PAL.amber, 1.15, 72);
         light.position.set(x, 26, z);
         worldRoot.add(light);
@@ -511,7 +532,11 @@ export function stage9UpdateWorld(dt, elapsed, spool, takeoff) {
     for (const marker of Object.values(markers)) if (marker.visible) {
         pulseStandMarker(marker, elapsed * 4);
     }
+    updateStageOccluders(S9_OCC, dt);
 }
+
+// Dipanggil dari `enter()` stage: seluruh prop kembali opak.
+export function resetStage9Occluders() { resetStageOccluders(S9_OCC); }
 
 export function stage9SupplyPlacements() {
     return {
@@ -550,6 +575,7 @@ export function stage9WorldDebug() {
     return {
         built, origin: { ...S9_ORIGIN }, bounds: { ...S9_BOUNDS }, deterministic: true,
         theme: 'rural-kertajati-airport-perimeter',
+        occluders: occlusionDebug(S9_OCC),
         cityBuildingCount: 0,
         rural: {
             cropFields: semantic.cropField || 0,

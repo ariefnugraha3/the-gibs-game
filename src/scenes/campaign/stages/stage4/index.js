@@ -19,13 +19,14 @@
 
 import { CFG } from '../../../../core/config.js';
 import { player, robots, drops, _v3 } from '../../../../core/state.js';
-import { scene, camera, SCREEN_UP } from '../../../../core/renderer.js';
+import { scene, camera } from '../../../../core/renderer.js';
 import { stopMusic } from '../../../../utils/sfx.js';
 import { makeTexture, speckle, makeNormalMap, noiseHeight } from '../../../../utils/textures.js';
 import { rand } from '../../../../utils/math.js';
 import { resolveBlockers, blockersGroundHeight } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
+import { registerOccluder as registerOccluder4, updateStageOccluders, resetStageOccluders, occlusionDebug } from '../../utility/occlusion.js';
 import { addMergedStatic, mergeObjectInPlace } from '../../../../utils/meshBatch.js';
 import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
 import { PAL } from '../../../../world/palette.js';
@@ -187,53 +188,19 @@ let roadGate = null, gateBlocker = null;
 let s4StaticBatch = [];                              // dekor statis hasil penggabungan
 export const s4StaticBatchDbg = () => s4StaticBatch; // smoke test
 
-// === OCCLUSION FADE (2026-07-18, permintaan user): objek dekor yg menutup garis
-// pandang kamera->player/robot dibuat semi-transparan (≈45%) supaya entitas tetap
-// terlihat; pulih opak saat tak menutup. Kamera dari BARAT-DAYA (SCREEN_UP =
-// timur-laut), jadi occluder = objek di sisi kamera (barat-daya) dari entitas &
-// cukup tinggi utk menutup garis pandang miring di titik itu. ===
-const occluders = [];
-function registerOccluder(obj, radius, top) {
-    const items = [], seen = new Set();
-    obj.traverse((m) => {
-        if (!m.material) return;
-        const mats = Array.isArray(m.material) ? m.material : [m.material];
-        for (const mat of mats) {
-            if (seen.has(mat)) continue;
-            seen.add(mat);
-            items.push({ mat, baseOp: (mat.opacity == null ? 1 : mat.opacity), baseTr: !!mat.transparent });
-        }
-    });
-    occluders.push({ x: obj.position.x, z: obj.position.z, radius, top, f: 1, items });
-}
-function updateOccluders(dt) {
-    if (!occluders.length) return;
-    const ux = -SCREEN_UP.x, uz = -SCREEN_UP.z;   // ke arah kamera (barat-daya), unit
-    const vx = SCREEN_UP.z, vz = -SCREEN_UP.x;     // tegak lurus (kanan layar), unit
-    const px = camera.position.x, pz = camera.position.z;
-    const hits = (o, ex, ez) => {
-        const dx = o.x - ex, dz = o.z - ez;
-        const along = dx * ux + dz * uz;                       // sejauh mana ke arah kamera
-        if (along < 3) return false;                            // objek harus DI DEPAN entitas (sisi kamera)
-        if (o.top < (7 + 1.09 * along) - 14) return false;      // terlalu pendek utk menutup garis pandang di titik itu
-        return Math.abs(dx * vx + dz * vz) < o.radius + 12;     // sejajar di layar
-    };
-    for (const o of occluders) {
-        let occ = hits(o, px, pz);
-        if (!occ) {
-            for (const z of robots) {
-                const rx = z.mesh.position.x, rz = z.mesh.position.z;
-                if (Math.abs(rx - px) > 320 || Math.abs(rz - pz) > 320) continue;   // hanya robot dekat/di layar
-                if (hits(o, rx, rz)) { occ = true; break; }
-            }
-        }
-        o.f += ((occ ? 0.45 : 1) - o.f) * Math.min(1, dt * 9);
-        const faded = o.f < 0.985;
-        for (const it of o.items) { it.mat.opacity = it.baseOp * o.f; it.mat.transparent = it.baseTr || faded; }
-    }
-}
+// === OCCLUSION FADE (2026-07-18, permintaan user; DIPINDAHKAN ke modul BERSAMA
+// 2026-08-13): objek dekor yang menutup garis pandang kamera->player/robot dibuat
+// nyaris tembus pandang (`CFG.campaign.occlusion.opacity`) supaya entitas tetap
+// terlihat; pulih opak saat tak menutup. Uji garis pandangnya kini milik
+// `campaign/utility/occlusion.js` dan dipakai stage 1-13 — jangan salin lagi.
+const S4_OCC = 'campaign-4';
+const registerOccluder = (obj, radius, top) => registerOccluder4(S4_OCC, obj, { radius, top });
+const updateOccluders = (dt) => updateStageOccluders(S4_OCC, dt);
 // Debug/uji: jumlah occluder terdaftar + faktor fade paling kecil saat ini.
-export const occluderDebug = () => ({ count: occluders.length, minF: occluders.reduce((a, o) => Math.min(a, o.f), 1) });
+export const occluderDebug = () => {
+    const d = occlusionDebug(S4_OCC);
+    return { count: d.count, minF: d.minFactor, opacity: d.opacity };
+};
 
 // ROOT DUNIA STAGE 4 (2026-08-13, optimasi) — geometri di bawah satu Group
 // ter-registry; lampu jalan TETAP di `scene` (jumlah lampu = varian shader).
@@ -1175,6 +1142,7 @@ export const stage4Scene = {
         if (gateBlocker && !blockers.includes(gateBlocker)) blockers.push(gateBlocker);
         placeRobots();
         resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
+        resetStageOccluders(S4_OCC);      // dekor kembali opak (run sebelumnya bisa berhenti saat memudar)
         applyLightPreset(scene, 'night');
         exitCityEnv();   // stage 4 outdoor: pulihkan kubah kobaran-api global + fog apokaliptik (stage 1-3 menyembunyikannya)
         camera.position.set(S4_START.x, CFG.player.eyeHeight, S4_START.z);

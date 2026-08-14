@@ -30,7 +30,11 @@ import {
     wreckSpawnMachine, spawnMachineHp,
 } from '../../../../entities/spawnMachine.js';
 import { buildCampaignCityscape } from '../../utility/cityscape.js';
-import { buildDetailedWallCell } from '../../utility/wallDetail.js';
+import { buildFadeableWalls } from '../../utility/wallFade.js';
+import {
+    registerOccluder, weldOccluder, updateStageOccluders, resetStageOccluders,
+    occlusionDebug,
+} from '../../utility/occlusion.js';
 
 export const OX = 210000, OZ = 0;
 export const MAP_COLS = 50, MAP_ROWS = 50, CELL = 14, WALL_H = 25;
@@ -183,6 +187,9 @@ const AUTO_DOORS = Object.freeze(['safe', 'hall']);
 // pintunya dari seberang ruangan). Selama masih `locked`, targetnya tetap 0.
 const KEYED_AUTO_DOORS = Object.freeze(['grid']);
 
+export const S6_OCC = 'campaign-6';   // kunci set occluder (utility/occlusion.js)
+let s6Walls = null;                   // dinding yang bisa memudar (wallFade.js)
+export const s6WallsDbg = () => (s6Walls ? s6Walls.debug() : null);
 let built = false, worldRoot = null, navGrid = null, staticBatch = [];
 let wallDetailCount = 0, furnitureMeshCount = 0, rackDetailCount = 0;
 const blockers = [], doors = [], propRecords = [], stageLights = [];
@@ -296,9 +303,21 @@ function markerAt(p, color, ri = 6.5, ro = 8.5) {
     worldRoot.add(m); return m;
 }
 
+// PENANGKAP PROP -> OCCLUDER (2026-08-13): tiap builder perabot memanggil
+// `recordProp` TEPAT SEKALI di akhir, jadi mesh yang terkumpul sejak panggilan
+// sebelumnya adalah isi prop itu. Ia dilas ke dalam grupnya sendiri lalu
+// didaftarkan supaya bisa memudar saat menutupi player/robot.
+let propCapture = null;
 function recordProp(kind, p, hx = 0, hz = 0, top = 0, solid = false) {
     propRecords.push({ kind, x: p.x, z: p.z, hx, hz, top, solid });
     if (solid) addBlocker(p.x, p.z, hx, hz, top);
+    if (propCapture && propCapture.length) {
+        const g = new THREE.Group();
+        for (const m of propCapture) g.add(m);
+        weldOccluder(S6_OCC, worldRoot, g,
+            { x: p.x, z: p.z, radius: (hx + hz) / 2 + 2, top });
+        propCapture.length = 0;
+    }
 }
 
 function addDoor(M, spec) {
@@ -339,6 +358,7 @@ function buildRack(M, spec) {
     }
     const tag = box(g, M.amber, 0.7, 3, 7, -w / 2 - 0.5, 15, 0, false);
     worldRoot.add(g);
+    registerOccluder(S6_OCC, g, { x: spec.x, z: spec.z, radius: (w + len) / 4 + 2, top: 21 });
     recordProp('key-rack', spec, w / 2, len / 2, 21, true);
     rackVisuals.push({ id: spec.id, group: g, tag });
     rackMarkers.push(markerAt(spec.stand, PAL.tech));
@@ -367,6 +387,7 @@ function buildGenerator(M, spec) {
     box(g, M.ink, 11, 6, 5, 0, 3.5, s / 2 + 1.5);
     const screen = box(g, M.screen, 8, 4.2, 0.7, 0, 7, s / 2 + 4.2, false);
     worldRoot.add(g);
+    registerOccluder(S6_OCC, g, { x: spec.x, z: spec.z, radius: s / 2 + 2, top: 26 });
     recordProp('generator', spec, s / 2, s / 2, 26, true);
     generatorVisuals.push({ id: spec.id, group: g, rotor, strip, screen });
     repairMarkers.push(markerAt(spec.stand, PAL.amber));
@@ -449,6 +470,8 @@ function buildMachines() {
         rig.group.position.set(spec.x, 0, spec.z);
         worldRoot.add(rig.group);
         const half = MACHINE_SIZE / 2;
+        registerOccluder(S6_OCC, rig.group,
+            { x: spec.x, z: spec.z, radius: half + 2, top: 26 });
         recordProp('spawn-machine', spec, half, half, 20, true);
         machines.push({ id: spec.id, group: rig.group, rig, x: spec.x, z: spec.z,
             hatch: { x: spec.hatch.x, z: spec.hatch.z },
@@ -487,7 +510,7 @@ function buildWorld() {
     const add = (sx, sy, sz, x, y, z, mat = M.concrete) => {
         const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
         m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
-        staticProps.push(m); return m;
+        (propCapture || staticProps).push(m); return m;
     };
 
     add(MAP_COLS * CELL, 1.5, MAP_ROWS * CELL, OX, -0.75, OZ, M.concrete);
@@ -504,22 +527,30 @@ function buildWorld() {
     wallDetailCount = 0; furnitureMeshCount = 0; rackDetailCount = 0;
     const isWall = (c, r) => c < 0 || c >= MAP_COLS || r < 0 || r >= MAP_ROWS
         || S6_MAP[r][c] === '#';
+    // DINDING BISA MEMUDAR (2026-08-14, permintaan user) — utility/wallFade.js.
+    const s6WallCells = [];
     for (let r = 0; r < MAP_ROWS; r++) for (let c = 0; c < MAP_COLS; c++) {
         const t = S6_MAP[r][c];
         if (t !== '#') continue;
         const p = cellPos(c, r);
-        wallDetailCount += buildDetailedWallCell(add, {
-            c, r, x: p.x, z: p.z, cell: CELL, wallH: WALL_H, isWall,
-            body: M.body, panel: M.panel, steel: M.steel, ink: M.ink,
-            accent: M.hazard, accentEvery: 13,
-        });
+        s6WallCells.push({ c, r, x: p.x, z: p.z });
         addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
     }
+    s6Walls = buildFadeableWalls({
+        key: S6_OCC, parent: worldRoot, cells: s6WallCells,
+        cell: CELL, wallH: WALL_H, bodyMat: M.body,
+        detail: { isWall, panel: M.panel, steel: M.steel, ink: M.ink,
+            accent: M.hazard, accentEvery: 13 },
+    });
+    wallDetailCount = s6Walls.details;
 
     const furnitureAdd = (...args) => { furnitureMeshCount++; return add(...args); };
+    propCapture = [];
     buildSupplyRoomProps(M, furnitureAdd);
     buildHallProps(M, furnitureAdd);
     buildGridHallProps(M, furnitureAdd);
+    for (const m of propCapture) staticProps.push(m);   // sisa tanpa recordProp
+    propCapture = null;
 
     staticBatch = addMergedStatic(worldRoot, staticProps);
 
@@ -679,7 +710,11 @@ export function setRackSearched(id, hasKey) {
     v.tag.material.emissiveIntensity = hasKey ? EMISSIVE_MAX * 0.6 : 0.1;
 }
 
+export function updateArrivalOccluders(dt) { updateStageOccluders(S6_OCC, dt); }
+export const stage6OcclusionDebug = () => occlusionDebug(S6_OCC);
+
 export function resetWorldVisuals() {
+    resetStageOccluders(S6_OCC);
     for (const d of doors) {
         d.open = 0; d.target = 0; d.linger = 0;
         d.locked = !AUTO_DOORS.includes(d.kind);
@@ -699,6 +734,7 @@ export function resetWorldVisuals() {
 }
 
 export const stage6WorldDebug = () => ({
+    occluders: occlusionDebug(S6_OCC),
     built,
     map: { rows: MAP_ROWS, cols: MAP_COLS, cell: CELL, x0: MAP_X0, z0: MAP_Z0,
         walls: S6_MAP.reduce((n, row) => n + [...row].filter(t => t === '#').length, 0),

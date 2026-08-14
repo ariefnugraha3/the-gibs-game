@@ -97,7 +97,7 @@ export function buildGenerator(M, root, at, addBlocker) {
 
     root.add(g);
     addBlocker(at.x, at.z, CELL * 1.78, CELL * 0.5, 26);
-    return { screen, rotor, meshes: meshCount(g) };
+    return { group: g, screen, rotor, meshes: meshCount(g) };
 }
 
 // C1 = access-core station 2045, bukan deretan PC kantor: tujuh server bay,
@@ -145,7 +145,7 @@ export function buildTerminal(M, root, at, addBlocker) {
 
     root.add(g);
     addBlocker(at.x - 3.5, at.z, 12, CELL * 3.9, 19);
-    return { screen, core, meshes: meshCount(g) };
+    return { group: g, screen, core, meshes: meshCount(g) };
 }
 
 // --- Perabot depot & peron -------------------------------------------------

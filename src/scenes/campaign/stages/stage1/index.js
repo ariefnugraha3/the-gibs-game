@@ -57,7 +57,12 @@ import { buildFuturisticSofaMesh } from '../../../../entities/futuristicSofa.js'
 import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
 import { buildFuturisticConsoleMesh } from '../../../../entities/futuristicConsole.js';
-import { barricadeBlocker, buildFurniturePile, buildWallBreach } from '../../utility/barricade.js';
+import { barricadeBlocker, buildFurniturePile, buildWallBreach, BARRICADE_TOP } from '../../utility/barricade.js';
+import {
+    weldOccluder, updateStageOccluders, resetStageOccluders, clearStageOccluders,
+    occlusionDebug,
+} from '../../utility/occlusion.js';
+import { buildFadeableWalls } from '../../utility/wallFade.js';
 import {
     spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill,
     spawnSwarm, spawnAlarmHorde, propClearance, buildStandMarker, pulseStandMarker,
@@ -365,6 +370,10 @@ let s1doors = null;
 // stage lain yang dimainkan. LAMPU sengaja TETAP menempel di `scene`: jumlah
 // PointLight yang terlihat menentukan varian shader, dan itu sudah diurus
 // setActiveStageLights/precompileStageLightSets — jangan pindahkan ke root.
+export const S1_OCC = 'campaign-1';   // kunci set occluder (utility/occlusion.js)
+let s1Walls = null;                   // dinding yang bisa memudar (wallFade.js)
+export const s1WallsDbg = () => (s1Walls ? s1Walls.debug() : null);
+export const s1WallsRigDbg = () => s1Walls;   // smoke: matriks instans dinding
 let s1WorldRoot = null;
 export const s1WorldRootDbg = () => s1WorldRoot;
 let s1compDoor = null;   // ref pintu NAC ruang komputer (dibuka lewat bank komputer '@')
@@ -391,7 +400,9 @@ let s1RadioChars = 0;     // jumlah karakter yang sudah terlihat
 let s1LiftPos = null;     // {x,z} dunia lift
 let s1AccessPos = null;   // {x,z} dunia petak '$' (bank komputer) — pemicu buka NAC
 let s1NacDoor = null;     // ref pintu NAC (alias s1compDoor)
+export const s1OcclusionDebug = () => occlusionDebug(S1_OCC);
 export const s1Debug = () => ({
+    occluders: occlusionDebug(S1_OCC),
     phase: s1Phase, hacking: isHackOpen(), armed: s1CompArmed, hackCd: s1HackCd,
     radioIndex: s1RadioIndex, radioT: s1RadioT, radioChars: s1RadioChars,
     nacLocked: !!s1NacDoor?.locked,
@@ -504,6 +515,9 @@ export function ensureWorld() {
 }
 
 export function buildWorld() {
+    // `buildWorld` diekspor dan harness memanggilnya langsung: kosongkan dulu
+    // set occluder supaya membangun ulang dunia tidak menumpuk pendaftaran.
+    clearStageOccluders(S1_OCC);
     buildS1Grid();
     const size = S1.G * S1.CELL;                      // 700 unit = 100 m
     const cx = S1.x0 + size / 2, cz = S1.z0 + size / 2;
@@ -551,24 +565,20 @@ export function buildWorld() {
             if (nearFloor) wallCells.push([c, r]);
         }
     }
-    const wallMesh = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(S1.CELL, S1.H, S1.CELL),
-        buildInteriorWallMat(),
-        wallCells.length);
+    // DINDING BISA MEMUDAR (2026-08-14, permintaan user "tembok/dinding juga
+    // transparant jika menutupi character"): InstancedMesh-nya tetap satu draw
+    // call; sel yang menutupi player/robot disembunyikan dari instansnya dan
+    // digantikan proxy tembus pandang dari kolam kecil. Lihat utility/wallFade.js.
     {
-        const _m = new THREE.Matrix4(), _c = new THREE.Color();
-        wallCells.forEach(([c, r], i) => {
-            const p = s1Cell(c, r);
-            _m.setPosition(p.x, S1.H / 2, p.z);
-            wallMesh.setMatrixAt(i, _m);
-            _c.setHex(0xffffff).offsetHSL(0, 0, rand(-0.06, 0.04));   // jitter kusam per panel
-            wallMesh.setColorAt(i, _c);
+        const _c = new THREE.Color();
+        s1Walls = buildFadeableWalls({
+            key: S1_OCC, parent: s1WorldRoot,
+            cells: wallCells.map(([c, r]) => ({ c, r, ...s1Cell(c, r) })),
+            cell: S1.CELL, wallH: S1.H, bodyMat: buildInteriorWallMat(),
+            // jitter kusam per panel — urutan rand() dipertahankan apa adanya
+            colorAt: () => _c.setHex(0xffffff).offsetHSL(0, 0, rand(-0.06, 0.04)),
         });
-        if (wallMesh.instanceColor) wallMesh.instanceColor.needsUpdate = true;
     }
-    wallMesh.receiveShadow = true;
-    wallMesh.frustumCulled = false;
-    s1WorldRoot.add(wallMesh);
 
     // --- Pintu geser otomatis (ruang tertutup; pintu KOMPUTER dibuat terkunci) ---
     s1doors = buildStageDoors(S1_DOORS, s1Cell, S1.CELL, S1.H, s1WorldRoot);
@@ -713,7 +723,9 @@ export function buildWorld() {
         const [c, r] = S1_BARRICADES[i];
         const p = s1Cell(c, r);
         blockers.push(barricadeBlocker(p.x, p.z, S1.CELL));
-        s1BarricadeMix.push({ c, r, ...buildFurniturePile(staticProps, p.x, p.z, i) });
+        s1BarricadeMix.push({ c, r, ...buildFurniturePile(staticProps, p.x, p.z, i,
+            (g) => weldOccluder(S1_OCC, s1WorldRoot, g,
+                { x: p.x, z: p.z, radius: S1.CELL / 2 + 2, top: BARRICADE_TOP })) });
     }
 
     // === CELAH TEMBOK '/' (denah 2026-08-12): sisa tembok bergerigi di kedua
@@ -1125,6 +1137,7 @@ export const stage1Scene = {
     enter() {
         saveCampaignStage(1);
         ensureWorld();            // bangun SEMUA dunia campaign sekali (guard `built`)
+        resetStageOccluders(S1_OCC);   // barikade kembali opak
         placeRobots();            // robot GELOMBANG 1 stage 1 (50 kelas C; stage 2 robotnya sendiri di stage2.enter)
         placeSupplies();          // supply room: 4 ammo + 2 medkit
         resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
@@ -1160,6 +1173,7 @@ export const stage1Scene = {
 
     // Pintu geser + STATE MACHINE alur stage.
     updateMode(dt) {
+        updateStageOccluders(S1_OCC, dt);
         updateStageDoors(s1doors, dt);
         const n = countStageRobots(1);
         const px = camera.position.x, pz = camera.position.z;

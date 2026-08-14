@@ -9,6 +9,10 @@ import { resolveBlockers, resolveCylinders } from '../../../../utils/collision.j
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { registerStageLight } from '../../../../world/lighting.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
+import { mergeObjectInPlace } from '../../../../utils/meshBatch.js';
+import {
+    registerOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
+} from '../../utility/occlusion.js';
 
 export const STAGE11_LIGHTS_KEY = 'campaign-11';
 export const S11_ORIGIN = Object.freeze({ x: 360000, z: 0 });
@@ -45,7 +49,7 @@ const trunks = [];
 const blockerScratch = [];
 const shelters = [];
 const denseCanopy = [];
-const occluders = [];
+let occluderCount = 0;   // pohon/bangunan yang didaftarkan ke utility/occlusion.js
 const semantic = new Map();
 const vegetationChunks = [];
 const lights = [];
@@ -232,11 +236,11 @@ function buildDrainage() {
 }
 
 function treeParts(parent, x, z, scale, type, fadeable = false) {
-    const trunkMat = fadeable ? mat(`fade-trunk-${occluders.length}`, PAL.wood,
+    const trunkMat = fadeable ? mat(`fade-trunk-${occluderCount}`, PAL.wood,
         { transparent: true }) : mat('trunk', PAL.wood);
     const leafBase = type === 'palm' ? 0x52733a : type === 'bamboo' ? 0x4a6735
         : type === 'fern' ? 0x355e32 : type === 'banana' ? 0x668044 : PAL.leaf;
-    const leafMat = fadeable ? mat(`fade-leaf-${occluders.length}`, leafBase,
+    const leafMat = fadeable ? mat(`fade-leaf-${occluderCount}`, leafBase,
         { transparent: true }) : mat(`leaf-${type}`, leafBase);
     const h = scale * (type === 'dipterocarp' ? 4.4 : type === 'palm' ? 3.9 : 2.8);
     const group = new THREE.Group();
@@ -291,8 +295,11 @@ function treeParts(parent, x, z, scale, type, fadeable = false) {
     count(type);
     if (fadeable) {
         parent.add(group);
-        const materials = [trunkMat, leafMat];
-        occluders.push({ group, x, z, radius: scale * 4.8, materials, f: 1 });
+        // Material pohon hero sudah instans sendiri (`fade-trunk-N`/`fade-leaf-N`),
+        // jadi tak perlu diklon lagi oleh pendaftar.
+        registerOccluder(STAGE11_LIGHTS_KEY, group,
+            { x, z, radius: scale * 4.8, top: h * 1.2, clone: false });
+        occluderCount++;
     } else parent.add(group);
     return { h, r: scale * 0.5 };
 }
@@ -352,6 +359,8 @@ function buildShelter(parent, x, z, yaw, kind = 'sensor-shelter') {
         mesh(g, new THREE.BoxGeometry(1.2, 5, 1.2), mat('shelterVent', PAL.steel),
             -9 + i * 3, 5, -13.4, 0, 0, 0, false, false);
     parent.add(g);
+    registerOccluder(STAGE11_LIGHTS_KEY, g, { x, z, radius: 21, top: 19.2 });
+    occluderCount++;
     shelters.push({ x, z, hx: 21, hz: 17, kind });
     addBoxBlocker(x - Math.cos(yaw) * 17.5, z + Math.sin(yaw) * 17.5, 2, 14, 18, yaw, kind);
     addBoxBlocker(x + Math.cos(yaw) * 17.5, z - Math.sin(yaw) * 17.5, 2, 14, 18, yaw, kind);
@@ -375,10 +384,16 @@ function buildWaterworks() {
             x, 8, 242 + (x - 359620) * -.12, Math.PI / 2, 0, 0, true, true);
     }
     // Intake tower with bridge, railings, valve housings, and service stairs.
-    mesh(g, new THREE.BoxGeometry(56, 28, 48), mat('intakeHouse', PAL.panel),
+    // Rumah intake berdiri sendiri supaya bisa memudar (28 unit, tepat di rute).
+    const intake = new THREE.Group();
+    mesh(intake, new THREE.BoxGeometry(56, 28, 48), mat('intakeHouse', PAL.panel),
         359720, 14, 338, 0, 0, 0, true, true);
-    mesh(g, new THREE.BoxGeometry(18, 44, 18), mat('intakeCore', PAL.concrete),
+    mesh(intake, new THREE.BoxGeometry(18, 44, 18), mat('intakeCore', PAL.concrete),
         359720, 22, 356, 0, 0, 0, true, true);
+    const intakeNode = mergeObjectInPlace(intake);
+    root.add(intakeNode); weldedMeshes += intakeNode.children.length || 1;
+    registerOccluder(STAGE11_LIGHTS_KEY, intakeNode, { x: 359720, z: 342, radius: 28, top: 44 });
+    occluderCount++;
     mesh(g, new THREE.BoxGeometry(24, 4, 142), mat('serviceBridge', PAL.steel),
         359720, 19, 283, 0, 0, 0, true, true);
     for (const s of [-1, 1]) for (let i = 0; i < 9; i++)
@@ -413,9 +428,12 @@ function buildWaterworks() {
 }
 
 function buildSensorNodes() {
-    const g = new THREE.Group();
+    // Tiang sensor setinggi 32 unit BERDIRI SENDIRI (bukan satu batch bersama):
+    // masing-masing harus bisa memudar saat menutupi player/robot. Biayanya kecil
+    // — tiap tiang dilas ke dalam dirinya sendiri (`mergeObjectInPlace`).
     for (let i = 0; i < 8; i++) {
         const x = 360140 - i * 92, z = (i % 2 ? 1 : -1) * (90 + (i % 3) * 34) + 40;
+        const g = new THREE.Group();
         mesh(g, new THREE.CylinderGeometry(4.5, 6, 30, 8), mat('sensorMast', PAL.gunmetal),
             x, 15, z, 0, 0, 0, true, true);
         mesh(g, new THREE.BoxGeometry(20, 2, 5), mat('sensorArray', PAL.panel),
@@ -426,10 +444,13 @@ function buildSensorNodes() {
         for (const s of [-1, 1])
             mesh(g, new THREE.BoxGeometry(1, 28, 1), mat('mastBrace', PAL.steel),
                 x + s * 5, 12, z, 0, 0, s * .22, false, false);
+        const node = mergeObjectInPlace(g);
+        root.add(node); weldedMeshes += node.children.length || 1;
+        registerOccluder(STAGE11_LIGHTS_KEY, node, { x, z, radius: 11, top: 35 });
+        occluderCount++;
         addBoxBlocker(x, z, 6, 6, 32, 0, 'sensor-mast');
     }
     count('sensor-mast', 8);
-    weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
 }
 
 function buildCarrierWreck() {
@@ -465,6 +486,9 @@ function buildCarrierWreck() {
         mesh(g, new THREE.BoxGeometry(2.2, 2.2, 15), char, 53 + i * 4.5,
             2 + i * .5, -22 - i * 4, .2 * i, 0, .35, false, false);
     root.add(g); carrier = g;
+    registerOccluder(STAGE11_LIGHTS_KEY, g,
+        { x: S11_WRECK.x, z: S11_WRECK.z, radius: 46, top: 30 });
+    occluderCount++;
     addBoxBlocker(S11_WRECK.x, S11_WRECK.z, 70, 22, 30, -0.18, 'carrier-wreck');
     count('carrier-wreck'); count('carrier-wheel', 8); count('carrier-cargo-rib', 5);
     carrier.userData.partCount = 3 + 16 + 10 + 4 + 6;
@@ -498,21 +522,15 @@ export function setCarrierWreckBurning(on) {
     if (carrier) carrier.userData.burning = !!on;
 }
 
-export function updateStage11WorldVisuals(dt, px, pz) {
-    for (const o of occluders) {
-        const d = Math.hypot(px - o.x, pz - o.z);
-        const target = d < o.radius ? .18 : 1;
-        o.f += (target - o.f) * Math.min(1, dt * 5);
-        for (const m of o.materials) m.opacity = o.f;
-    }
+// Fade occluder kini uji GARIS PANDANG bersama (player DAN robot), bukan lagi
+// sekadar jarak ke player — lihat utility/occlusion.js.
+export function updateStage11WorldVisuals(dt) {
+    updateStageOccluders(STAGE11_LIGHTS_KEY, dt);
 }
 
 export function resetStage11WorldVisuals() {
     setStage11TunnelOpen(false); setCarrierWreckBurning(true);
-    for (const o of occluders) {
-        o.f = 1;
-        for (const m of o.materials) m.opacity = 1;
-    }
+    resetStageOccluders(STAGE11_LIGHTS_KEY);
 }
 
 export function ensureStage11World(parent = scene) {
@@ -544,11 +562,9 @@ export const stage11WorldDebug = () => ({
         .map(kind => ({ kind, count: semantic.get(kind) || 0 })),
     semantic: Object.fromEntries(semantic), urbanBuildings: 0,
     shelters: shelters.map(s => ({ ...s })), denseCanopy: denseCanopy.map(s => ({ ...s })),
-    occluders: { count: occluders.length,
-        minFactor: occluders.reduce((v, o) => Math.min(v, o.f), 1),
-        // Posisi/radius diekspor supaya uji asap bisa berdiri TEPAT di bawah
-        // sebuah kanopi tanpa menebak koordinat.
-        points: occluders.map(o => ({ x: o.x, z: o.z, radius: o.radius, factor: o.f })) },
+    // Posisi/radius diekspor supaya uji asap bisa berdiri TEPAT di belakang
+    // sebuah occluder tanpa menebak koordinat.
+    occluders: occlusionDebug(STAGE11_LIGHTS_KEY),
     lights: { key: STAGE11_LIGHTS_KEY, indoor: lights.length, outdoor: 0 },
     carrier: carrier && { persistent: true, solid: true, detailed: true,
         parts: carrier.userData.partCount, burning: !!carrier.userData.burning },

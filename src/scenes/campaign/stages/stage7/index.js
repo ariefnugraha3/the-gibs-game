@@ -32,6 +32,10 @@ import { enterCityEnv } from '../../utility/cityscape.js';
 import { buildBandungCity } from './stage7City.js';
 import { PAL } from '../../../../world/palette.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
+import {
+    weldOccluder, registerOccluder, updateStageOccluders, resetStageOccluders,
+    occlusionDebug,
+} from '../../utility/occlusion.js';
 import { slideWalk, resolveBlockers } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { rand, segPointDist2 } from '../../../../utils/math.js';
@@ -327,6 +331,7 @@ export function stage7Walk(x, z, radius = 0) {
         && Math.abs(z) <= L.deckHalf - d;
 }
 
+export const S7_OCC = 'campaign-7';   // kunci set occluder (utility/occlusion.js)
 let built = false, worldRoot = null, navGrid = null, navBounds = null, staticBatch = [];
 const blockers = [], propRecords = [], stageLights = [], lampSpecs = [];
 const blockerBins = new Map(), blockerScratch = [];
@@ -940,6 +945,7 @@ function buildCars(M, staticProps) {
             heightMeters: spec.height,
             hx: spec.length * CAMP_M / 2, hz: spec.width * CAMP_M / 2,
         };
+        carrier.userData.stage7OcclusionRec = rec;
         carRecords.push(rec);
         recordProp('abandoned-car', p, rec.hx, rec.hz,
             roadY + spec.height * CAMP_M, true,
@@ -950,6 +956,17 @@ function buildCars(M, staticProps) {
     }
 }
 
+// KENDARAAN = OCCLUDER PER UNIT (2026-08-13, permintaan user). Sebelumnya tiap
+// petak 125 m dilebur jadi satu batch; itu bagus untuk frustum culling tapi
+// membuat satu bus MUSTAHIL dipudarkan sendiri — memudarkan materialnya akan
+// memudarkan seluruh lalu lintas sepetak. Sekarang tiap kendaraan DILAS KE DALAM
+// DIRINYA (`weldOccluder` -> `mergeObjectInPlace`), jadi:
+//   - geometrinya tetap segelintir mesh (bukan puluhan mesh kecil),
+//   - frustum culling malah LEBIH halus daripada petak 125 m — di rute 1,5 km
+//     hanya belasan kendaraan yang pernah masuk frustum sekaligus,
+//   - dan setiap kendaraan bisa memudar sendiri saat menutupi player/robot.
+// Statistik petak tetap dilaporkan (uji asap memakainya) sebagai pengelompokan
+// LOGIS: tak boleh ada satu batch yang memuat seluruh rute.
 function addVehicleStaticChunks(parent, objects) {
     const chunks = new Map();
     for (const o of objects) {
@@ -964,7 +981,17 @@ function addVehicleStaticChunks(parent, objects) {
     for (const key of [...chunks.keys()].sort((a, b) => a - b)) {
         const list = chunks.get(key);
         maxRaw = Math.max(maxRaw, list.length);
-        out.push(...addMergedStatic(parent, list));
+        for (const carrier of list) {
+            const rec = carrier.userData.stage7OcclusionRec;
+            const node = weldOccluder(S7_OCC, parent, carrier, {
+                x: rec.x, z: rec.z,
+                radius: (rec.hx + rec.hz) / 2 + 2,
+                top: rec.roadY + rec.heightMeters * CAMP_M,
+            });
+            node.matrixAutoUpdate = false;
+            if (typeof node.updateMatrix === 'function') node.updateMatrix();
+            out.push(node);
+        }
     }
     vehicleChunkStats = {
         chunkMeters: VEHICLE_CHUNK_METERS,
@@ -972,6 +999,7 @@ function addVehicleStaticChunks(parent, objects) {
         raw: objects.length,
         maxRaw,
         batches: out.length,
+        perVehicleOccluders: out.length,
     };
     return out;
 }
@@ -1981,6 +2009,7 @@ function updateMortars(dt) {
 }
 
 function resetStage() {
+    resetStageOccluders(S7_OCC);
     phase = 'opening'; complete = false; landmarkSeen = tollSighted = false;
     stageElapsed = 0; barrierBroken = false; exhaustCursor = 0;
     mortarArmed = false; mortarTimer = mortarCfg().intervalSec;
@@ -2327,6 +2356,7 @@ export const stage7WorldDebug = () => ({
         vehicleChunks: { ...vehicleChunkStats },
         blockerBins: blockerIndexDebug(),
     },
+    occluders: occlusionDebug(S7_OCC),
     pools: {
         rain: rainPool.length, ripples: ripplePool.length,
         sparks: sparkPool.length, exhaust: exhaustPool.length,
@@ -2459,6 +2489,7 @@ export const stage7Scene = {
     updateMode(dt) {
         const L = ensureLayout();
         stageElapsed += dt; updateDialogue(dt); updateCine(dt);
+        updateStageOccluders(S7_OCC, dt);
         updateFx(dt); updateMortars(dt); updateSpawnFactories(dt);
         if (!cine && tacticalVehicle)
             updateTacticalVehicleVisual(tacticalVehicle, dt,

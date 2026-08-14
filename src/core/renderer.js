@@ -66,6 +66,10 @@ export function setQualityLightRef(l) { dirLightRef = l; }
 // "menjentik" (satu sumber kebenaran — jangan salin angkanya ke modul lain).
 export const CAM_OFF_DEFAULT = { x: -70.7, y: 116, z: 70.7 };   // barat daya (memandang timur laut)
 const CAM_OFF = { x: -70.7, y: 116, z: 70.7 };           // AKTIF (di-set dari scene)
+// Ofset kamera AKTIF (salinan baca-saja). Dipakai sistem FADE OCCLUDER campaign
+// (utility/occlusion.js): kemiringan garis pandang = CAM_OFF.y / jarak horizontal,
+// jadi stage ber-`camOffset` sendiri (stage 3/7/8) otomatis memakai sudutnya.
+export const camOffsetActive = () => ({ x: CAM_OFF.x, y: CAM_OFF.y, z: CAM_OFF.z });
 
 // Basis LAYAR di bidang tanah (dunia), diturunkan dari azimuth CAM_OFF AKTIF: arah
 // "atas layar" (SCREEN_UP = arah pandang horizontal kamera) & "kiri layar"

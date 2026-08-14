@@ -111,6 +111,11 @@ import { playSFX, sfxRobotSpawn, sfxExplode } from '../../../../utils/sfx.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../../utility/stairwell.js';
 import { buildLiftBank } from '../../utility/lift.js';
 import { buildCampaignCityscape, enterCityEnv } from '../../utility/cityscape.js';
+import {
+    registerOccluder, updateStageOccluders, resetStageOccluders, clearStageOccluders,
+    occlusionDebug,
+} from '../../utility/occlusion.js';
+import { buildFadeableWalls } from '../../utility/wallFade.js';
 import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
 import { stage1Scene } from '../stage1/index.js';
 import { stage4Scene } from '../stage4/index.js';
@@ -333,7 +338,9 @@ let s3Queue = [];    // [{cell, cls}] menunggu giliran spawn
 let s3QueueT = 0;    // hitung mundur ke pelepasan berikutnya
 let s3Rising = [];   // [{z, t, base}] robot yang sedang animasi tumbuh
 export const s3SpawnDbg = () => ({ queued: s3Queue.length, rising: s3Rising.length });
+export const s3OcclusionDebug = () => occlusionDebug(S3_OCC);
 export const s3Debug = () => ({
+    occluders: occlusionDebug(S3_OCC),
     phase: s3Phase, machinesAlive: s3MachinesAlive(), machines: s3Machines.length,
     robots: countStageRobots(3), spawnT: s3SpawnT,
     hacked: s3HackIdx, hackTotal: s3HackOrder.length, hackTerminals: S3_TERMINALS.length,
@@ -585,10 +592,14 @@ function buildHackTerminal(face) {
 
 // ROOT DUNIA STAGE 3 (2026-08-13, optimasi) — sama seperti stage 1 & 2: geometri
 // di bawah satu Group ter-registry, PointLight tetap di `scene`.
+export const S3_OCC = 'campaign-3';   // kunci set occluder (utility/occlusion.js)
+let s3Walls = null;                   // dinding yang bisa memudar (wallFade.js)
+export const s3WallsDbg = () => (s3Walls ? s3Walls.debug() : null);
 let s3WorldRoot = null;
 export const s3WorldRootDbg = () => s3WorldRoot;
 
 export function buildWorld() {
+    clearStageOccluders(S3_OCC);   // membangun ulang dunia tak boleh menumpuk
     buildS3Grid();
     const sizeX = S3.G * S3.CELL, sizeZ = S3.ROWS * S3.CELL;
     const cx = S3.x0 + sizeX / 2, cz = S3.z0 + sizeZ / 2;
@@ -625,21 +636,16 @@ export function buildWorld() {
                 if (!s3Wall(c + dc, r + dr)) nearFloor = true;
         if (nearFloor) wallCells.push([c, r]);
     }
-    const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(S3.CELL, S3.H, S3.CELL), buildInteriorWallMat(), wallCells.length);
+    // Dinding bisa memudar — lihat catatan yang sama di stage 1 (wallFade.js).
     {
-        const _m = new THREE.Matrix4(), _c = new THREE.Color();
-        wallCells.forEach(([c, r], i) => {
-            const p = s3Cell(c, r);
-            _m.setPosition(p.x, S3.H / 2, p.z);
-            wallMesh.setMatrixAt(i, _m);
-            _c.setHex(0xffffff).offsetHSL(0, 0, rand(-0.06, 0.04));
-            wallMesh.setColorAt(i, _c);
+        const _c = new THREE.Color();
+        s3Walls = buildFadeableWalls({
+            key: S3_OCC, parent: s3WorldRoot,
+            cells: wallCells.map(([c, r]) => ({ c, r, ...s3Cell(c, r) })),
+            cell: S3.CELL, wallH: S3.H, bodyMat: buildInteriorWallMat(),
+            colorAt: () => _c.setHex(0xffffff).offsetHSL(0, 0, rand(-0.06, 0.04)),
         });
-        if (wallMesh.instanceColor) wallMesh.instanceColor.needsUpdate = true;
     }
-    wallMesh.receiveShadow = true;
-    wallMesh.frustumCulled = false;
-    s3WorldRoot.add(wallMesh);
 
     // --- Pintu geser otomatis ---
     s3doors = buildStageDoors(S3_DOORS, s3Cell, S3.CELL, S3.H, s3WorldRoot);
@@ -725,6 +731,10 @@ export function buildWorld() {
         mach.group.position.set(p.x, 0, p.z);
         mach.group.rotation.y = baseYaw;
         s3WorldRoot.add(mach.group);
+        // Mesin pabrik setinggi ~30 unit berdiri di tengah ruang produksi: ia
+        // ikut memudar saat menutupi player/robot. Sementara masih TENGGELAM
+        // (`MACHINE_SINK`) posisinya di bawah lantai buram, jadi tak ada efek.
+        registerOccluder(S3_OCC, mach.group, { x: p.x, z: p.z, radius: 16, top: 30 });
         const bay = buildMachineBay(s3WorldRoot, p.x, p.z, 15);
         scene.add(bay.light);
         registerStageLight('campaign-3', bay.light);
@@ -1214,6 +1224,7 @@ export const stage3Scene = {
     enter() {
         saveCampaignStage(3);
         ensureWorld();
+        resetStageOccluders(S3_OCC);
         // Buang robot stage 2 yang tersisa + sisa robot stage 3 dari run sebelumnya
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 2 || robots[i].stage === 3) { disposeRobot(robots[i]); scene.remove(robots[i].mesh); robots.splice(i, 1); }
@@ -1287,6 +1298,7 @@ export const stage3Scene = {
     awardKill: campaignAwardKill,
 
     updateMode(dt) {
+        updateStageOccluders(S3_OCC, dt);
         updateStageDoors(s3doors, dt);
         updateS3Dialogue(dt);
         const s3 = CFG.campaign.stage3;

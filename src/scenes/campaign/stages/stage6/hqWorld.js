@@ -60,7 +60,11 @@ import { buildFuturisticBenchMesh } from '../../../../entities/futuristicBench.j
 import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
 import { buildCampaignCityscape } from '../../utility/cityscape.js';
 import { buildStandMarker, pulseStandMarker } from '../../utility/common.js';
-import { buildDetailedWallCell } from '../../utility/wallDetail.js';
+import { buildFadeableWalls } from '../../utility/wallFade.js';
+import {
+    registerOccluder, weldOccluder, updateStageOccluders, resetStageOccluders,
+    occlusionDebug,
+} from '../../utility/occlusion.js';
 
 // SET LAMPU SENDIRI UNTUK CHAPTER 2 (2026-08-12, optimasi). Dulu kedua chapter
 // mendaftar di `campaign-6`, jadi 10 lampu terminal chapter 1 ikut menyala
@@ -370,6 +374,9 @@ const FURNITURE = Object.freeze([
     ['bench', 39, 39, 18, 6, 7],
 ]);
 
+export const HQ_OCC = 'campaign-6-hq';   // kunci set occluder (utility/occlusion.js)
+let hqWalls = null;                      // dinding yang bisa memudar (wallFade.js)
+export const hqWallsDbg = () => (hqWalls ? hqWalls.debug() : null);
 let built = false, worldRoot = null, navGrid = null, staticBatch = [];
 let wallDetailCount = 0, furnitureDetailCount = 0, serverDetailCount = 0;
 const blockers = [], doors = [], propRecords = [], stageLights = [];
@@ -790,35 +797,45 @@ function buildRestroom(M, staticProps) {
 // Bank server `C`: rak berjajar dengan panel layar. Selnya sudah solid lewat
 // SOLID_TOKENS, jadi di sini hanya bentuknya.
 function buildServers(M, staticProps) {
+    void staticProps;
     for (let r = 0; r < HQ_ROWS; r++) for (let c = 0; c < HQ_COLS; c++) {
         if (HQ_MAP[r][c] !== 'C') continue;
         const p = hqCellPos(c, r);
+        // Bank server setinggi 19-20 unit dan player berjalan di antaranya, jadi
+        // tiap petak `C` adalah OCCLUDER sendiri (2026-08-13). Isinya dikumpulkan
+        // ke satu grup lalu dilas — harganya beberapa draw call per rak.
+        const bank = [];
+        const staticProps2 = bank;
         const rack = new THREE.Mesh(new THREE.BoxGeometry(CELL - 2.5, 19, CELL - 2.5), M.ink);
         rack.position.set(p.x, 9.5, p.z); rack.castShadow = true; rack.receiveShadow = true;
-        staticProps.push(rack);
+        staticProps2.push(rack);
         for (const y of [5, 10, 15]) {
             // Muka rak (LED/latch/rel/tutup) menempel rata pada rak yang sudah
             // mencetak bayangan — dikeluarkan dari shadow pass.
             const led = new THREE.Mesh(new THREE.BoxGeometry(CELL - 6, 0.7, 0.8), M.amber);
             led.position.set(p.x, y, p.z - CELL / 2 + 1.4);
-            staticProps.push(led); serverDetailCount++;
+            staticProps2.push(led); serverDetailCount++;
             for (const x of [-CELL * 0.27, CELL * 0.27]) {
                 const latch = new THREE.Mesh(new THREE.BoxGeometry(0.65, 2.4, 0.9), M.steel);
                 latch.position.set(p.x + x, y, p.z - CELL / 2 + 1.2);
-                staticProps.push(latch); serverDetailCount++;
+                staticProps2.push(latch); serverDetailCount++;
             }
         }
         for (const x of [-CELL / 2 + 1.3, CELL / 2 - 1.3]) {
             const rail = new THREE.Mesh(new THREE.BoxGeometry(1.1, 20.5, 1.1), M.steel);
             rail.position.set(p.x + x, 10.25, p.z - CELL / 2 + 1.2);
-            staticProps.push(rail); serverDetailCount++;
+            staticProps2.push(rail); serverDetailCount++;
         }
         const cap = new THREE.Mesh(new THREE.BoxGeometry(CELL - 1, 1.1, CELL - 1), M.body);
         cap.position.set(p.x, 19.7, p.z);
-        cap.receiveShadow = true; staticProps.push(cap); serverDetailCount++;
+        cap.receiveShadow = true; staticProps2.push(cap); serverDetailCount++;
         const panel = new THREE.Mesh(new THREE.BoxGeometry(CELL - 6, 5, 0.8), M.screen);
         panel.position.set(p.x, 16, p.z - CELL / 2 + 1.1);
         worldRoot.add(panel); serverPanels.push(panel);
+        const g = new THREE.Group();
+        for (const m of bank) g.add(m);
+        weldOccluder(HQ_OCC, worldRoot, g,
+            { x: p.x, z: p.z, radius: CELL / 2 + 1, top: 20.3 });
         addBlocker(p.x, p.z, CELL / 2, CELL / 2, 19);
     }
 }
@@ -879,6 +896,8 @@ function buildMachines(M) {
         const half = (CELL * 3 - 4) / 2;
         // Collider dipegang supaya bisa DICABUT selama rangkanya belum turun.
         const blocker = recordProp('spawn-machine', spec.x, spec.z, half, half, 19, true);
+        registerOccluder(HQ_OCC, rig.group,
+            { x: spec.x, z: spec.z, radius: half + 2, top: 26 });
         machines.push({ id: spec.id, group: rig.group, rig, eyeMat: rig.eyeMat,
             coreMat: rig.coreMat, x: spec.x, z: spec.z,
             hatch: { x: spec.hatch.x, z: spec.hatch.z },
@@ -964,16 +983,22 @@ function buildWorld() {
     wallDetailCount = 0; furnitureDetailCount = 0; serverDetailCount = 0;
     const isWall = (c, r) => c < 0 || c >= HQ_COLS || r < 0 || r >= HQ_ROWS
         || HQ_MAP[r][c] === '#';
+    // DINDING BISA MEMUDAR (2026-08-14, permintaan user): badan + kulit muka
+    // di-instance, bukan dilebur ke batch — lihat utility/wallFade.js.
+    const hqWallCells = [];
     for (let r = 0; r < HQ_ROWS; r++) for (let c = 0; c < HQ_COLS; c++) {
         if (HQ_MAP[r][c] !== '#') continue;
         const p = hqCellPos(c, r);
-        wallDetailCount += buildDetailedWallCell(add, {
-            c, r, x: p.x, z: p.z, cell: CELL, wallH: WALL_H, isWall,
-            body: M.body, panel: M.panel, steel: M.steel, ink: M.ink,
-            accent: M.hazard, accentEvery: 17, detailAdd: addFlat,
-        });
+        hqWallCells.push({ c, r, x: p.x, z: p.z });
         addBlocker(p.x, p.z, CELL / 2, CELL / 2, WALL_H);
     }
+    hqWalls = buildFadeableWalls({
+        key: HQ_OCC, parent: worldRoot, cells: hqWallCells,
+        cell: CELL, wallH: WALL_H, bodyMat: M.body,
+        detail: { isWall, panel: M.panel, steel: M.steel, ink: M.ink,
+            accent: M.hazard, accentEvery: 17 },
+    });
+    wallDetailCount = hqWalls.details;
     // Sel pintu rusak juga pejal permanen; propnya dibangun di bawah.
     for (let r = 0; r < HQ_ROWS; r++) for (let c = 0; c < HQ_COLS; c++) {
         if (HQ_MAP[r][c] !== '@') continue;
@@ -1168,7 +1193,10 @@ export function updateHqFx(dt) {
     }
 }
 
+export function updateHqOccluders(dt) { updateStageOccluders(HQ_OCC, dt); }
+
 export function resetHqVisuals() {
+    resetStageOccluders(HQ_OCC);
     for (const d of doors) {
         d.open = 0; d.target = 0; d.linger = 0; d.locked = !!d.lockedInit;
         updateDoorMotion(d, 0, 0);
@@ -1190,6 +1218,7 @@ export function resetHqVisuals() {
 }
 
 export const hqWorldDebug = () => ({
+    occluders: occlusionDebug(HQ_OCC),
     built,
     map: { rows: HQ_ROWS, cols: HQ_COLS, cell: CELL, x0: HQ_X0, z0: HQ_Z0,
         walls: HQ_MAP.reduce((n, row) => n + [...row].filter(t => t === '#').length, 0),

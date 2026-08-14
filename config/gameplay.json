@@ -273,6 +273,15 @@
         "robotSpeedScale": 1,
         "activateMeters": 15,
         "cullDistance": 1500,
+        "occlusion": {
+            "opacity": 0.2,
+            "coverFraction": 0.5,
+            "bodyHeight": 0,
+            "fadeRate": 9,
+            "robotRange": 320,
+            "lateralPad": 3,
+            "gridCell": 48
+        },
         "spawnMachine": {
             "hp": 1200
         },

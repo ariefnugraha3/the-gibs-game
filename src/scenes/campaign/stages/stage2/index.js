@@ -70,7 +70,12 @@ import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.j
 import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
 import { buildFuturisticPlanterMesh } from '../../../../entities/futuristicPlanter.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill, propClearance } from '../../utility/common.js';
-import { barricadeBlocker, buildFurniturePile, buildWallBreach } from '../../utility/barricade.js';
+import { barricadeBlocker, buildFurniturePile, buildWallBreach, BARRICADE_TOP } from '../../utility/barricade.js';
+import {
+    weldOccluder, updateStageOccluders, resetStageOccluders, clearStageOccluders,
+    occlusionDebug,
+} from '../../utility/occlusion.js';
+import { buildFadeableWalls } from '../../utility/wallFade.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../../entities/crates.js';
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../../utility/interior.js';
@@ -339,7 +344,9 @@ let s2DialogueCurrent = null;
 let s2DialogueQueue = [];
 let s2DialogueSeen = new Set();
 let s2DialogueT = 0, s2DialogueChars = 0;
+export const s2OcclusionDebug = () => occlusionDebug(S2_OCC);
 export const s2Debug = () => ({
+    occluders: occlusionDebug(S2_OCC),
     phase: s2Phase, comp: s2CompGot, installed: s2Installed, armed: s2GenArmed
 });
 export const s2ComponentsDbg = () => s2Components;   // smoke test (posisi komponen)
@@ -358,6 +365,9 @@ export const s2DialogueDebug = () => ({
 // geometri stage berada di bawah satu Group yang didaftarkan ke
 // campaignWorldRegistry, sementara PointLight tetap menempel di `scene` karena
 // jumlah lampu terlihat menentukan varian shader.
+export const S2_OCC = 'campaign-2';   // kunci set occluder (utility/occlusion.js)
+let s2Walls = null;                   // dinding yang bisa memudar (wallFade.js)
+export const s2WallsDbg = () => (s2Walls ? s2Walls.debug() : null);
 let s2WorldRoot = null;
 export const s2WorldRootDbg = () => s2WorldRoot;
 
@@ -565,6 +575,7 @@ function buildGenerator() {
 }
 
 export function buildWorld() {
+    clearStageOccluders(S2_OCC);   // lihat catatan yang sama di stage 1
     buildS2Grid();
     const sizeX = S2.G * S2.CELL, sizeZ = S2.ROWS * S2.CELL;   // 700 x 700 unit
     const cx = S2.x0 + sizeX / 2, cz = S2.z0 + sizeZ / 2;
@@ -607,23 +618,16 @@ export function buildWorld() {
             if (nearFloor) wallCells.push([c, r]);
         }
     }
-    const wallMesh = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(S2.CELL, S2.H, S2.CELL),
-        buildInteriorWallMat(), wallCells.length);
+    // Dinding bisa memudar — lihat catatan yang sama di stage 1 (wallFade.js).
     {
-        const _m = new THREE.Matrix4(), _c = new THREE.Color();
-        wallCells.forEach(([c, r], i) => {
-            const p = s2Cell(c, r);
-            _m.setPosition(p.x, S2.H / 2, p.z);
-            wallMesh.setMatrixAt(i, _m);
-            _c.setHex(0xffffff).offsetHSL(0, 0, rand(-0.06, 0.04));
-            wallMesh.setColorAt(i, _c);
+        const _c = new THREE.Color();
+        s2Walls = buildFadeableWalls({
+            key: S2_OCC, parent: s2WorldRoot,
+            cells: wallCells.map(([c, r]) => ({ c, r, ...s2Cell(c, r) })),
+            cell: S2.CELL, wallH: S2.H, bodyMat: buildInteriorWallMat(),
+            colorAt: () => _c.setHex(0xffffff).offsetHSL(0, 0, rand(-0.06, 0.04)),
         });
-        if (wallMesh.instanceColor) wallMesh.instanceColor.needsUpdate = true;
     }
-    wallMesh.receiveShadow = true;
-    wallMesh.frustumCulled = false;
-    s2WorldRoot.add(wallMesh);
 
     // --- Pintu geser ---
     s2doors = buildStageDoors(S2_DOORS, s2Cell, S2.CELL, S2.H, s2WorldRoot);
@@ -722,7 +726,9 @@ export function buildWorld() {
         const [c, r] = S2_BARRICADES[i];
         const p = s2Cell(c, r);
         blockers.push(barricadeBlocker(p.x, p.z, S2.CELL));
-        s2BarricadeMix.push({ c, r, ...buildFurniturePile(staticProps, p.x, p.z, i) });
+        s2BarricadeMix.push({ c, r, ...buildFurniturePile(staticProps, p.x, p.z, i,
+            (g) => weldOccluder(S2_OCC, s2WorldRoot, g,
+                { x: p.x, z: p.z, radius: S2.CELL / 2 + 2, top: BARRICADE_TOP })) });
     }
     for (const [c, r, dir] of S2_BREACHES) {
         const p = s2Cell(c, r);
@@ -985,6 +991,7 @@ export const stage2Scene = {
 
     enter() {
         saveCampaignStage(2);
+        resetStageOccluders(S2_OCC);   // barikade kembali opak
         // Buang robot stage 1 yang tersisa (silent)
         for (let i = robots.length - 1; i >= 0; i--) {
             if (robots[i].stage === 1) { disposeRobot(robots[i]); scene.remove(robots[i].mesh); robots.splice(i, 1); }
@@ -1026,6 +1033,7 @@ export const stage2Scene = {
     awardKill: campaignAwardKill,
 
     updateMode(dt) {
+        updateStageOccluders(S2_OCC, dt);
         updateStageDoors(s2doors, dt);
         updateS2Dialogue(dt);
         const s2 = CFG.campaign.stage2;

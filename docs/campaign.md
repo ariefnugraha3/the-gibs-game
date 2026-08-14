@@ -1100,3 +1100,78 @@ Every green Campaign finish screen also reports the completed stage's real compl
 ## Jakarta city backdrop (stages 1–3)
 
 **JAKARTA CITY BACKDROP (2026-07-18, user request — `scenes/campaign/utility/cityscape.js`): stages 1–3 each surround their building with a `buildCampaignCityscape(cx,cz,hx,hz)` ring (a podium under the Floor-2 slab + wide streets at `GY` −70 + a sparse Jakarta skyline of instanced buildings [`world/facades.js`, tall enough to fill the horizon over the walls] + trees + green parks — reuses the intro city recipe; PURE DECOR, adds NO blocker/grid/nav so collision/BFS is unchanged). Their `enter()` calls `enterCityEnv()` (hides the global apocalyptic "burning-city" sky dome, sets `scene.background` to a cool night haze + widens the fog so the city shows and fades to that haze, not orange); stage 4 (outdoor) calls `exitCityEnv()` to restore the global fiery dome + apocalyptic fog. One `startGame` per session, so survival is unaffected.**
+
+
+## Occlusion fade — one system, one number, Stages 1–13 (2026-08-13, user request)
+
+The user asked for a sweep: *"pastikan jika ada object yang menghalangi player ATAU robot, maka object itu akan jadi transparan … saya ingin transparannya menjadi 20%"* — and reported that the behaviour only looked consistent in Stages 1–4.
+
+That was accurate. There were **three unrelated implementations**:
+
+| Where | Test | Fade | Robots counted? |
+| --- | --- | --- | --- |
+| Stage 4 | camera→entity line of sight | 0.45 | yes |
+| Stage 11 | distance from player to tree | 0.18 | no |
+| Stage 13 | distance from player to tree | 0.42 | no |
+| Stages 5–10, 12 | *(none)* | — | — |
+
+All three are gone. `src/scenes/campaign/utility/occlusion.js` is now the only occluder registry, and `CFG.campaign.occlusion.opacity` (**0.2**) is the only fade value. The API and its cost model are catalogued in [MODULES.md](MODULES.md#addendum-shared-occlusion-fade--stages-113-2026-08-13); what follows is why the design is the way it is.
+
+### Line of sight, and a half-body threshold
+
+The camera looks down from the south-west at a fixed pitch, so the only thing that can hide an entity is a prop **on the camera side of it** that is tall enough to cut the sight line *at that distance*. A radius test around the player is wrong in both directions: it fades props standing behind the player (which block nothing) and misses a tall prop 60 units away that is squarely in the way.
+
+The threshold is the user's second request (2026-08-14): *"object apapun yang menghalangi akan menjadi transparan jika minimal menutupi setengah badan character."* So the test measures **how much of the body is hidden**, not merely whether something is in the way:
+
+```
+tEnter = entry of the entity→camera ray into the prop footprint   (2-D slab test,
+                                                                   box widened by lateralPad)
+cover  = (prop.top − entityFeetY) − slope · tEnter
+fades  = cover ≥ bodyHeight × coverFraction          (coverFraction 0.5)
+```
+
+`slope = CAM_OFF.y / |CAM_OFF.xz|` comes from the `camOffsetActive()` export, so Stage 3's north-west view and Stages 7/8's pulled-back offsets are handled without a per-stage copy of the constant. `bodyHeight` derives from `CFG.player.eyeHeight`; a robot's threshold scales with its own mesh scale, so a class-A frame needs more cover than a class-C one.
+
+Two details in that formula are load-bearing. **The ray is intersected with the footprint, not compared against the distance to the prop's centre** — a 4.8 m car occludes from its *rear face*, several metres nearer than its centre, and (the opposite failure) Stage 10's 180-unit warehouse shell must not count as covering somebody standing 100 units off to the side just because they are inside its bounding radius; the ray simply never enters that footprint. And **props that only cover the legs now stay opaque**, which is the visible difference from the first pass: a low sedan no longer flickers as you brush past it.
+
+### Materials are cloned, and props are welded into themselves
+
+Two rules make this affordable and safe:
+
+1. **`registerOccluder` clones the object's materials.** Most stage decor shares a handful of `M.*` materials across the whole world; fading the shared instance would fade the entire batch. The clones are created during world build, while the loading screen is still up, so the no-mid-game-recompile invariant is untouched (`transparent`/`opacity` are not part of the r128 program key).
+2. **`weldOccluder` = `mergeObjectInPlace` + register.** A prop that must fade cannot live inside `addMergedStatic`'s big per-material batch, but it also must not go back to being 20–40 loose meshes. Welding it into *itself* keeps its own transform and material instances at a cost of a few draw calls, and — because each prop is now its own frustum-cullable node — culling gets *finer*, not coarser.
+
+That second rule is what let Stage 7 change from a per-125 m vehicle batch to **one welded node per vehicle** for all 240 cars. The chunk binning is still computed and still reported through `stage7WorldDebug().optimization.vehicleChunks` (nothing may ever become one route-wide batch), but a single bus can now fade on its own.
+
+### Moving occluders
+
+Props that travel — the Iron Port crane's carried containers — register with `dynamic: true`. They stay out of the uniform grid, their `x`/`z` are re-read every frame, and their effective `top` rises with `position.y` so a container held high still reads as an obstruction.
+
+### Stage 8 is deliberately empty
+
+Stage 8 registers no occluders. Its road modules put every tree, shed, hill, gantry and bridge pylon beyond |z| 96 while the player is locked to the carriageways at |z| ≲ 44; at that separation the sight line is already far above anything out there. Adding occluders would be dead weight. If Stage 8 ever gains scenery inside the carriageway band, it needs the same treatment as everyone else.
+
+### What each stage registers
+
+Stage 1/2 the barricade piles (`buildFurniturePile` gained an `onGroup` callback so the shared token builder stays the single implementation); Stage 3 the two factory machines (they are sunk below the opaque floor before deploy, so fading them there is a no-op); Stage 4 its cars and roadside buildings, unchanged apart from the fade value; Stage 5 every depot/platform furniture piece plus the generator, the C1 terminal and the spawn machine; Stage 6 Arrival its shelves, inspection benches, distribution panels, key racks, generators and fabricators; Stage 6 HQ every `C` server bank and both fabricators; Stage 7 all 240 vehicles; Stage 9 the control tower, hangar, operations building, twelve ground-support vehicles, six light masts and twelve cargo pallets; Stage 10 the container stacks, forklifts, reach stacker, warehouse shell, pipe-rack bents, process tanks and the crane-carried containers; Stage 11 the hero trees, both shelters, the carrier wreck, the sensor masts and the intake house; Stage 12 the civic cover and colonnade on the surface and the twelve capacitor banks in the root chamber; Stage 13 the foreground rain trees, the 28 stalled vehicles on the deployment avenue and **Monas itself** — it stands in the middle of the boss arena and is the single largest thing that can swallow the player.
+
+
+### Walls fade too (2026-08-14, user request)
+
+*"saya ingin tembok/dinding juga transparant jika menutupi character."* Walls are the most common occluder in an indoor stage and by far the hardest to fade one cell at a time:
+
+- Stages 1–3 put every `#` cell in a single `InstancedMesh`. One material, one draw call — fading it turns the whole building to glass.
+- Stages 5 and 6 melted the cell body **and** its `buildDetailedWallCell` skin into the shared `addMergedStatic` batch, which has no way to give one cell back.
+
+`campaign/utility/wallFade.js` solves both with the same trick: **a wall cell is never faded — it is swapped.** The cell is hidden from its instanced mesh (its matrix is scaled to zero) and a stand-alone **proxy** from a small pool takes its place, carrying its own cloned materials so each cell eases on its own curve. The pool is 12 slots, far more than the number of cells that can cover the player plus nearby robots at once, and idle slots are invisible and cost nothing.
+
+The face skin is handled the same way. `buildDetailedWallCell` emits identical geometry for every exposed face — only the position differs — so it is recorded once on a canonical cell and turned into **instanced meshes per (face direction × material)**. That is what lets the skin vanish with its cell; without it the translucent proxy would stand behind still-opaque panels. The fixed cost per stage is one body mesh plus at most 16 skin meshes, guarded by smoke at ≤ 17 draw groups — not one welded group per cell, which would have been thousands.
+
+Two rules came out of it:
+
+1. **Re-identify the matrix before showing a cell again.** `Matrix4.setPosition` only writes the translation column, so reusing the matrix that just zero-scaled a cell restores it at scale 0 and the wall disappears for good. `placeMatrix()` calls `identity()` first, and the smoke `Matrix4`/`InstancedMesh` stubs now record scale and position so the round-trip is a real (mutation-tested) assert rather than an assumption.
+2. **Proxy materials are built with the world, never on demand.** `renderer.compile` walks the entire scene including hidden objects, so the proxies are warm before the loading screen clears and the no-mid-game-shader-recompile invariant is untouched.
+
+Adopted by Stage 1 (452 cells), Stage 2 (386), Stage 3 (293), Stage 5's station (175), Stage 6 Arrival (385) and Stage 6 HQ (412). Stage 5's `@` windowed wall cells become welded occluders instead, with their glass pane left as the separate transparent mesh it already was. Stage 12's root chamber registers its twenty 94-unit buttresses.
+
+With walls included, the old note that "interior walls are deliberately not occluders" is retired — it was true only while there was no affordable way to fade one cell.

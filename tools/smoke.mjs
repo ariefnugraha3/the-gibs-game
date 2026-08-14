@@ -97,7 +97,17 @@ class V3 {
     crossVectors() { return this; }
 }
 class Quat { set() { return this; } copy() { return this; } setFromAxisAngle() { return this; } setFromEuler() { return this; } premultiply() { return this; } multiply() { return this; } setFromUnitVectors() { return this; } }
-class Matrix4 { setPosition() { return this; } compose() { return this; } }
+// Matrix4 stub MEREKAM skala + translasi: dinding yang bisa memudar
+// (utility/wallFade.js) menyembunyikan satu sel dengan MENYETEL SKALA NOL pada
+// instansnya, jadi tanpa rekaman ini "sel tak pernah kembali" tak bisa diuji.
+class Matrix4 {
+    constructor() { this.s = 1; this.p = { x: 0, y: 0, z: 0 }; }
+    setPosition(x, y, z) { this.p = { x, y, z }; return this; }
+    compose() { return this; }
+    makeScale(a) { this.s = a; return this; }
+    identity() { this.s = 1; return this; }
+    copy(m) { if (m) { this.s = m.s; this.p = { ...m.p }; } return this; }
+}
 class Euler { constructor() { this.x = 0; this.y = 0; this.z = 0; } set(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; return this; } copy(e) { this.x = e.x; this.y = e.y; this.z = e.z; return this; } }
 class Color {
     constructor(h = 0) { this._h = typeof h === 'object' ? h._h : h; }
@@ -176,7 +186,7 @@ global.THREE = {
     Vector2: class { constructor(x, y) { this.x = x; this.y = y; } set() { } },
     Vector3: V3, Quaternion: Quat, Euler, Color, Matrix4,
     Object3D: Obj3D, Group, Mesh, Sprite, Scene, PerspectiveCamera: PCam, PointLight: PLight,
-    InstancedMesh: class extends Obj3D { constructor(g, m, n) { super(); this.geometry = g; this.material = m; this.count = n; this.instanceColor = { needsUpdate: false }; this.instanceMatrix = { needsUpdate: false }; } setMatrixAt() { } setColorAt() { } },
+    InstancedMesh: class extends Obj3D { constructor(g, m, n) { super(); this.geometry = g; this.material = m; this.count = n; this.instanceColor = { needsUpdate: false }; this.instanceMatrix = { needsUpdate: false }; this.mats = []; } setMatrixAt(i, m) { this.mats[i] = { s: m ? m.s : 1, p: m && m.p ? { ...m.p } : null }; } setColorAt() { } },
     SphereGeometry: geo('sph'), CylinderGeometry: geo('cyl'), BoxGeometry: geo('box'),
     ConeGeometry: geo('cone'), RingGeometry: geo('ring'), PlaneGeometry: geo('plane'),
     CircleGeometry: geo('circle'), TorusGeometry: geo('torus'), ExtrudeGeometry: geo('extrude'),
@@ -228,6 +238,16 @@ const cineRateMod = await import(R('src/core/cutsceneRate.js'));
 const rendererMod = await import(R('src/core/renderer.js'));
 rendererMod.initRenderer();
 const { scene, camera } = rendererMod;
+// FADE OCCLUDER BERSAMA (utility/occlusion.js): satu titik uji untuk semua stage.
+// `occBehind(o, d)` = tempat berdiri supaya occluder `o` PERSIS menutupi garis
+// pandang kamera->entitas; kamera duduk di arah -SCREEN_UP dari entitas, jadi
+// entitasnya berdiri d unit di sisi +SCREEN_UP dari occluder.
+const occlusionMod = await import(R('src/scenes/campaign/utility/occlusion.js'));
+const { occlusionOpacity } = occlusionMod;
+const occBehind = (o, d = 12) => ({
+    x: o.x + rendererMod.SCREEN_UP.x * d,
+    z: o.z + rendererMod.SCREEN_UP.z * d,
+});
 const stateMod = await import(R('src/core/state.js'));
 const { player, robots, enemyBullets, setMode } = stateMod;
 setMode('survival'); stateMod.configurePlayer();
@@ -5484,7 +5504,9 @@ T('S5 SPLIT: stage5.js pecah jadi satu folder — 4 sub-scene + fasad/world/prop
     // untuk semuanya. Penjaga ini melawan monolit 1600 baris, bukan angka pas.
     // 800 -> 840 pada 2026-08-13: `ensureWorld` kini mendaftarkan root dunianya
     // ke campaignWorldRegistry (optimasi visibilitas antar-stage).
-    && s5Files.every(f => s5FileLines(f) < 840));
+    // 840 -> 880 pada 2026-08-13: perabot depot/peron kini didaftarkan sebagai
+    // occluder yang bisa memudar (utility/occlusion.js).
+    && s5Files.every(f => s5FileLines(f) < 880));
 // CUTSCENE KEBERANGKATAN BERDIRI SENDIRI (2026-08-08, permintaan user
 // "pisahkan cutscene ketika kereta berangkat"): dulu ia fase pertama sub-scene
 // journey; sekarang sub-scene keempat di antara stasiun dan perjalanan.
@@ -13434,18 +13456,21 @@ for (const [name, build] of Object.entries(propBuilders)) {
         player.hp = player.maxHp;
     }
 
-    // (8) Occluder hutan memudar saat dilewati dan PULIH sesudah ditinggalkan.
+    // (8) Occluder hutan memudar saat MENUTUPI player (uji garis pandang bersama,
+    // utility/occlusion.js) lalu PULIH sesudah tak lagi menutupi.
     {
+        for (const z of s11Robots()) z.mesh.position.set(360690, 0, -900);   // robot menyingkir
         s11w.resetStage11WorldVisuals();
         const spot = s11w.stage11WorldDebug().occluders.points[0];
         const full = s11w.stage11WorldDebug().occluders.minFactor;
-        for (let i = 0; i < 40; i++) s11w.updateStage11WorldVisuals(0.1, spot.x, spot.z);
+        stand11(occBehind(spot, 12));
+        for (let i = 0; i < 40; i++) s11w.updateStage11WorldVisuals(0.1);
         const faded = s11w.stage11WorldDebug().occluders.minFactor;
-        for (let i = 0; i < 80; i++)
-            s11w.updateStage11WorldVisuals(0.1, spot.x + spot.radius * 4, spot.z + spot.radius * 4);
+        stand11({ x: spot.x - 600, z: spot.z + 600 });
+        for (let i = 0; i < 80; i++) s11w.updateStage11WorldVisuals(0.1);
         const restored = s11w.stage11WorldDebug().occluders.minFactor;
-        T('S11 OCCLUDER: kanopi memudar saat dilewati lalu PULIH penuh sesudah ditinggal',
-            full === 1 && faded < 0.3 && restored > 0.95);
+        T('S11 OCCLUDER: kanopi memudar saat MENUTUPI player lalu PULIH penuh',
+            full === 1 && Math.abs(faded - occlusionOpacity()) < 0.01 && restored > 0.95);
     }
 
     // (9) Finish HANYA dari mulut terowongan, dan hanya sesudah fase akhir.
@@ -14136,6 +14161,292 @@ for (const [name, build] of Object.entries(propBuilders)) {
             s1o.s1LampsDbg().length > 0 && lampsInsideRoot === 0);
     }
     stateMod.setGameOver(false);
+}
+
+
+// --- 27. FADE OCCLUDER BERSAMA — STAGE 1..13 (2026-08-13, permintaan user:
+// "pastikan jika ada object yang menghalangi player ATAU robot, object itu jadi
+// transparan ... transparannya 20%"). Dulu ada TIGA sistem berbeda (stage 4 uji
+// garis pandang @0.45; stage 11/13 uji JARAK @0.18/0.42; stage 5-10 & 12 tak
+// punya apa-apa sama sekali). Sekarang SATU modul, SATU angka. --------------
+{
+    const occSrc = fs.readFileSync(
+        ROOT + '/src/scenes/campaign/utility/occlusion.js', 'utf8');
+
+    // (1) SATU sumber opasitas, dibaca dari CFG — bukan angka di dalam kode.
+    T('OCCLUSION: opasitas fade datang dari CFG.campaign.occlusion.opacity',
+        typeof cfgMod.CFG.campaign.occlusion.opacity === 'number'
+        && occlusionOpacity() === cfgMod.CFG.campaign.occlusion.opacity
+        && occlusionOpacity() > 0 && occlusionOpacity() < 1);
+
+    // (2) TAK ADA salinan sistem fade lain di src/. Stage boleh MEMANGGIL modul
+    //     ini, tapi tak boleh memelihara daftar occluder sendiri lagi.
+    {
+        const files = [];
+        const walk = (dir) => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                const p = dir + '/' + e.name;
+                if (e.isDirectory()) walk(p);
+                else if (e.name.endsWith('.js')) files.push(p);
+            }
+        };
+        walk(ROOT + '/src');
+        const rogue = files.filter(f => !f.endsWith('occlusion.js')
+            && /occluders\s*\.\s*push\s*\(/.test(fs.readFileSync(f, 'utf8')));
+        T('OCCLUSION: hanya utility/occlusion.js yang memelihara daftar occluder'
+            + (rogue.length ? ' [' + rogue.map(f => f.split('/src/')[1]).join(',') + ']' : ''),
+        rogue.length === 0);
+    }
+
+    // (3) Modul memakai UJI GARIS PANDANG kamera->entitas (bukan sekadar jarak)
+    //     dan menyapu ROBOT, bukan hanya player.
+    T('OCCLUSION: uji memakai kemiringan kamera aktif + menyapu robot',
+        occSrc.includes('camOffsetActive') && occSrc.includes('for (const z of robots)'));
+
+    // (4) TIAP dunia campaign punya occluder terdaftar. Stage 8 sengaja TIDAK
+    //     ada di daftar: seluruh sceneryn-ya duduk di |z| >= 96 sementara player
+    //     terkunci di carriageway |z| <= ~44, jadi tak satu pun geometri statis
+    //     pernah berada di koridor pandang kamera.
+    {
+        const s1o = await import(R('src/scenes/campaign/stages/stage1/index.js'));
+        const s2o = await import(R('src/scenes/campaign/stages/stage2/index.js'));
+        const s3o = await import(R('src/scenes/campaign/stages/stage3/index.js'));
+        const s4o = await import(R('src/scenes/campaign/stages/stage4/index.js'));
+        const s5w = await import(R('src/scenes/campaign/stages/stage5/world.js'));
+        const s6w = await import(R('src/scenes/campaign/stages/stage6/world.js'));
+        const s6h = await import(R('src/scenes/campaign/stages/stage6/hqWorld.js'));
+        const s7o = await import(R('src/scenes/campaign/stages/stage7/index.js'));
+        const s9w = await import(R('src/scenes/campaign/stages/stage9/world.js'));
+        const s10w = await import(R('src/scenes/campaign/stages/stage10/world.js'));
+        const s11w = await import(R('src/scenes/campaign/stages/stage11/world.js'));
+        const s12s = await import(R('src/scenes/campaign/stages/stage12/surfaceWorld.js'));
+        const s12r = await import(R('src/scenes/campaign/stages/stage12/rootWorld.js'));
+        const s13w = await import(R('src/scenes/campaign/stages/stage13/world.js'));
+        const sets = [
+            ['1 barikade', s1o.s1OcclusionDebug()],
+            ['2 barikade', s2o.s2OcclusionDebug()],
+            ['3 mesin pabrik', s3o.s3OcclusionDebug()],
+            ['4 mobil/gedung', { count: s4o.occluderDebug().count }],
+            ['5 perabot depot', s5w.stage5OcclusionDebug()],
+            ['6 arrival', s6w.stage6OcclusionDebug()],
+            ['6 HQ', s6h.hqWorldDebug().occluders],
+            ['7 lalu lintas', s7o.stage7WorldDebug().occluders],
+            ['9 apron', s9w.stage9WorldDebug().occluders],
+            ['10 pelabuhan', s10w.stage10WorldDebug().occluders],
+            ['11 hutan', s11w.stage11WorldDebug().occluders],
+            ['12 permukaan', s12s.stage12SurfaceWorldDebug().occluders],
+            ['12 akar', s12r.stage12RootWorldDebug().occluders],
+            ['13 monas', s13w.stage13WorldDebug().occluders],
+        ];
+        if (process.env.OCC_REPORT) console.log('[occ]',
+            sets.map(e => e[0] + '=' + (e[1] ? e[1].count : 'X')).join('  '));
+        const empty = sets.filter(e => !e[1] || !(e[1].count > 0)).map(e => e[0]);
+        T('OCCLUSION: setiap dunia campaign mendaftarkan occluder'
+            + (empty.length ? ' [kosong: ' + empty.join(', ') + ']' : ''),
+        empty.length === 0);
+
+        // Stage 7 = maze lalu lintas: SETIAP kendaraan harus bisa memudar
+        // sendiri, bukan sepetak 125 m sekaligus.
+        const s7dbg = s7o.stage7WorldDebug();
+        T('OCCLUSION S7: tiap kendaraan jadi occluder sendiri (bukan per petak)',
+            s7dbg.occluders.count === s7dbg.optimization.vehicleChunks.raw
+            && s7dbg.optimization.vehicleChunks.chunks > 1);
+    }
+
+    // (5) FADE = TEPAT nilai config, untuk PLAYER dan untuk ROBOT sendirian.
+    //     Dipakai stage 10 (peti kemas pelabuhan): occluder besar dan terbuka,
+    //     jadi hasilnya tak ambigu.
+    {
+        const key = 'campaign-10';
+        const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        const keepRobots = robots.slice();
+        robots.length = 0;
+        occlusionMod.resetStageOccluders(key);
+        // Pilih occluder TINGGI tapi RAMPING (tumpukan peti kemas / rak pipa):
+        // gudang selebar 90 unit tak bisa dipakai — untuk berdiri di luar
+        // radiusnya kita harus mundur sejauh 96 unit, dan di jarak itu garis
+        // pandang sudah jauh di atas puncaknya (memang tidak menghalangi).
+        const pts = occlusionMod.occlusionDebug(key).points;
+        const spot = pts.filter(o => o.top >= 25 && o.radius <= 20)
+            .sort((a, b) => b.top - a.top)[0];
+        const full = occlusionMod.occlusionDebug(key).minFactor;
+
+        const stand = occBehind(spot, 14);
+        camera.position.set(stand.x, cfgMod.CFG.player.eyeHeight, stand.z);
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        const fadedByPlayer = occlusionMod.occlusionDebug(key).minFactor;
+
+        // Player pergi jauh -> penghalang pulih opak.
+        camera.position.set(spot.x + 4000, cfgMod.CFG.player.eyeHeight, spot.z + 4000);
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        const restored = occlusionMod.occlusionDebug(key).minFactor;
+
+        // Player tetap jauh; ROBOT sendirian berdiri di titik yang tadi.
+        camera.position.set(spot.x + 250, cfgMod.CFG.player.eyeHeight, spot.z - 250);
+        robots.push({ mesh: { position: { x: stand.x, y: 0, z: stand.z } }, stage: 10 });
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        const fadedByRobot = occlusionMod.occlusionDebug(key).minFactor;
+
+        robots.length = 0;
+        occlusionMod.resetStageOccluders(key);
+        const reset = occlusionMod.occlusionDebug(key).minFactor;
+        for (const z of keepRobots) robots.push(z);
+        camera.position.set(before.x, before.y, before.z);
+
+        T('OCCLUSION: penghalang memudar TEPAT ke CFG saat menutupi PLAYER',
+            full === 1 && Math.abs(fadedByPlayer - occlusionOpacity()) < 1e-6);
+        T('OCCLUSION: pulih opak sesudah tak lagi menutupi', restored > 0.99);
+        T('OCCLUSION: penghalang juga memudar untuk ROBOT (tanpa player dekat)',
+            Math.abs(fadedByRobot - occlusionOpacity()) < 1e-6);
+        T('OCCLUSION: reset stage mengembalikan seluruh occluder ke opak', reset === 1);
+    }
+
+    // (6) Objek di sisi KAMERA dari entitas (yakni di BELAKANG entitas dilihat
+    //     dari kamera... tepatnya: entitas berada di antara kamera dan objek)
+    //     TIDAK memudar — ia tak menghalangi apa pun. Inilah pembeda uji garis
+    //     pandang dari uji jarak yang dipakai stage 11/13 sebelumnya.
+    {
+        const key = 'campaign-10';
+        const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        const keepRobots = robots.slice();
+        robots.length = 0;
+        occlusionMod.resetStageOccluders(key);
+        const spot = occlusionMod.occlusionDebug(key).points
+            .filter(o => o.top >= 25 && o.radius <= 20)
+            .sort((a, b) => b.top - a.top)[0];
+        // Jarak harus melewati SELURUH tapak prop: berdiri 14 unit saja masih di
+        // DALAM footprint peti kemas, dan di situ ia memang menutupi.
+        const pad10 = cfgMod.CFG.campaign.occlusion.lateralPad || 3;
+        const depth10 = (spot.hx + pad10) * Math.abs(rendererMod.SCREEN_UP.x)
+            + (spot.hz + pad10) * Math.abs(rendererMod.SCREEN_UP.z);
+        const behind = occBehind(spot, -(depth10 + 10));
+        camera.position.set(behind.x, cfgMod.CFG.player.eyeHeight, behind.z);
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        // Occluder INI yang diperiksa: berdiri di sisi kameranya bisa menaruh
+        // peti kemas LAIN di koridor pandang, dan itu memang harus memudar.
+        const stillOpaque = (occlusionMod.occlusionDebug(key).points
+            .find(q => q.x === spot.x && q.z === spot.z) || { factor: 1 }).factor;
+        occlusionMod.resetStageOccluders(key);
+        for (const z of keepRobots) robots.push(z);
+        camera.position.set(before.x, before.y, before.z);
+        T('OCCLUSION: objek yang entitasnya berdiri di SISI KAMERA tetap opak',
+            stillOpaque > 0.99);
+    }
+
+    // (7) AMBANG "MENUTUPI SETENGAH BADAN" (2026-08-14, permintaan user). Yang
+    //     dipatok BUKAN angka jarak melainkan RUMUSNYA terhadap CFG: sebuah sel
+    //     dinding menutupi setengah badan sampai jarak
+    //         d = halfDepth + (top - bodyHeight*coverFraction) / slope
+    //     dan sesudah itu tidak lagi. Kamera memandang dari barat daya, jadi
+    //     halfDepth kotak sel = (hx+hz)/sqrt(2).
+    {
+        const s1o = await import(R('src/scenes/campaign/stages/stage1/index.js'));
+        const key = 'campaign-1';
+        const C = cfgMod.CFG.campaign.occlusion;
+        const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        const keepRobots = robots.slice();
+        robots.length = 0;
+        occlusionMod.resetStageOccluders(key);
+
+        const off = rendererMod.camOffsetActive();
+        const L = Math.hypot(off.x, off.z), slope = off.y / L;
+        const body = C.bodyHeight > 0 ? C.bodyHeight : cfgMod.CFG.player.eyeHeight;
+        const need = body * (C.coverFraction == null ? 0.5 : C.coverFraction);
+
+        const wallPt = occlusionMod.occlusionDebug(key).points.find(p => p.wall);
+        // Kotak dilebarkan `lateralPad` dulu (prop yang menutupi sebagian besar
+        // siluet, bukan tepat titik pusat, tetap terhitung).
+        const pad = C.lateralPad == null ? 3 : C.lateralPad;
+        const halfDepth = (wallPt.hx + pad) * Math.abs(rendererMod.SCREEN_UP.x)
+            + (wallPt.hz + pad) * Math.abs(rendererMod.SCREEN_UP.z);
+        const limit = halfDepth + (wallPt.top - need) / slope;
+
+        const factorAt = () => {
+            const p = occlusionMod.occlusionDebug(key).points
+                .find(q => q.x === wallPt.x && q.z === wallPt.z);
+            return p ? p.factor : 1;
+        };
+        const settle = (d) => {
+            const at = occBehind(wallPt, d);
+            camera.position.set(at.x, cfgMod.CFG.player.eyeHeight, at.z);
+            for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+            return factorAt();
+        };
+        const inside = settle(limit - 4);          // masih menutupi >= setengah badan
+        const outside = settle(limit + 4);         // sudah kurang dari setengah
+        occlusionMod.resetStageOccluders(key);
+        for (const z of keepRobots) robots.push(z);
+        camera.position.set(before.x, before.y, before.z);
+
+        T('OCCLUSION: dinding memudar TEPAT selama menutupi >= setengah badan',
+            limit > 0 && Math.abs(inside - occlusionOpacity()) < 1e-6 && outside > 0.99);
+        T('OCCLUSION: ambang setengah-badan diturunkan dari CFG (bukan angka mati)',
+            (C.coverFraction == null ? 0.5 : C.coverFraction) > 0
+            && need === body * (C.coverFraction == null ? 0.5 : C.coverFraction));
+    }
+
+    // (8) DINDING: sel dipindahkan ke PROXY, bukan seluruh InstancedMesh yang
+    //     dipudarkan — kalau tidak, satu sel yang menutupi akan menembuskan
+    //     SELURUH gedung. Kolam proxy dipakai lalu dilepas lagi.
+    {
+        const s1o = await import(R('src/scenes/campaign/stages/stage1/index.js'));
+        const s2o = await import(R('src/scenes/campaign/stages/stage2/index.js'));
+        const s3o = await import(R('src/scenes/campaign/stages/stage3/index.js'));
+        const s5w = await import(R('src/scenes/campaign/stages/stage5/world.js'));
+        const s6w = await import(R('src/scenes/campaign/stages/stage6/world.js'));
+        const s6h = await import(R('src/scenes/campaign/stages/stage6/hqWorld.js'));
+        const walls = [
+            ['1', s1o.s1WallsDbg()], ['2', s2o.s2WallsDbg()], ['3', s3o.s3WallsDbg()],
+            ['5', s5w.s5WallsDbg()], ['6 arrival', s6w.s6WallsDbg()], ['6 HQ', s6h.hqWallsDbg()],
+        ];
+        const missing = walls.filter(w => !w[1] || !(w[1].cells > 0) || !(w[1].pool > 0))
+            .map(w => w[0]);
+        T('DINDING MEMUDAR: setiap stage berdinding punya sel + kolam proxy'
+            + (missing.length ? ' [' + missing.join(', ') + ']' : ''),
+        missing.length === 0);
+
+        // Biaya tetapnya kecil: satu draw group badan + paling banyak 16 kulit
+        // muka, bukan satu grup per sel.
+        const fat = walls.filter(w => w[1].drawGroups > 17).map(w => w[0]);
+        T('DINDING MEMUDAR: <= 17 draw group per stage (badan + kulit muka)'
+            + (fat.length ? ' [' + fat.join(', ') + ']' : ''),
+        fat.length === 0 && walls.every(w => w[1].drawGroups >= 1));
+
+        const key = 'campaign-1';
+        const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        const keepRobots = robots.slice();
+        robots.length = 0;
+        occlusionMod.resetStageOccluders(key);
+        const idle = s1o.s1WallsDbg().active;
+        const wallPt = occlusionMod.occlusionDebug(key).points.find(p => p.wall);
+        const at = occBehind(wallPt, 14);
+        camera.position.set(at.x, cfgMod.CFG.player.eyeHeight, at.z);
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        const busy = s1o.s1WallsDbg().active;
+        occlusionMod.resetStageOccluders(key);
+        const released = s1o.s1WallsDbg().active;
+        for (const z of keepRobots) robots.push(z);
+        camera.position.set(before.x, before.y, before.z);
+        T('DINDING MEMUDAR: sel yang menutupi mengambil slot proxy lalu melepasnya',
+            idle === 0 && busy > 0 && busy <= s1o.s1WallsDbg().pool && released === 0);
+
+        // Sel yang memudar DISEMBUNYIKAN dari InstancedMesh dengan skala NOL —
+        // dan WAJIB kembali skala 1 sesudahnya. Matriksnya dipakai bergantian
+        // untuk sembunyi/tampil, jadi lupa meng-identity-kan dulu membuat
+        // dindingnya hilang permanen; itu yang dijaga di sini.
+        const wallsRig = s1o.s1WallsRigDbg();
+        const cellIdx = wallsRig.cells.findIndex(
+            q => q.x === wallPt.x && q.z === wallPt.z);
+        const restoredScale = wallsRig.body.mats[cellIdx].s;
+        camera.position.set(at.x, cfgMod.CFG.player.eyeHeight, at.z);
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        const hiddenScale = wallsRig.body.mats[cellIdx].s;
+        occlusionMod.resetStageOccluders(key);
+        const backScale = wallsRig.body.mats[cellIdx].s;
+        camera.position.set(before.x, before.y, before.z);
+        T('DINDING MEMUDAR: instans sel diskala NOL saat memudar lalu PULIH ke 1',
+            cellIdx >= 0 && restoredScale === 1 && hiddenScale === 0 && backScale === 1);
+    }
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

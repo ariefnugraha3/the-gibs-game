@@ -18,7 +18,8 @@ import {
     STAGE12_SURFACE_LIGHTS_KEY, S12_SURFACE_START, S12_AXIS_GATE,
     S12_ROOT_COURT, S12_DESCENT, stage12SurfaceWalk, stage12SurfaceResolve,
     stage12SurfaceSegBlocked, stage12SurfaceGroundHeight, stage12SurfaceNav,
-    resetStage12SurfaceVisuals, setStage12DescentOpen, stage12SurfaceWorldDebug,
+    resetStage12SurfaceVisuals, updateStage12SurfaceVisuals,
+    setStage12DescentOpen, stage12SurfaceWorldDebug,
 } from './surfaceWorld.js';
 import {
     phase, complete, setStage12Phase, enterStage12Sub,
@@ -140,6 +141,7 @@ export const surfaceScene = {
     exit() { cleanupOpening(); },
     updateMode(dt) {
         elapsed += dt;
+        updateStage12SurfaceVisuals(dt);
         if (cine) updateOpening(dt);
         else if (!complete) updateProgress();
     },

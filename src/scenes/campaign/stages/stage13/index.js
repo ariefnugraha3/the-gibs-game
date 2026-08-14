@@ -398,7 +398,7 @@ export const stage13Scene = {
     awardKill: campaignAwardKill,
     updateMode(dt) {
         elapsed += dt; updateDialogue(dt);
-        updateStage13World(dt, camera.position.x, camera.position.z);
+        updateStage13World(dt);
         if (cine?.kind === 'return') updateReturnCine(dt);
         else if (phase === 'silentApproach' || phase === 'blackGuard') updateApproach();
         else if (phase === 'vaultReveal') {

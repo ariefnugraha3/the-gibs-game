@@ -86,19 +86,27 @@ export function barricadeBlocker(x, z, cell) {
 // Bangun isi visual satu sel '*' ke `out` (daftar staticProps stage). `seed` =
 // indeks sel; SEMUA variasi berasal darinya. Mengembalikan resep terpakai supaya
 // smoke bisa membuktikan tumpukannya memang bervariasi.
-export function buildFurniturePile(out, x, z, seed) {
+//
+// `onGroup` (opsional, 2026-08-13): kalau diberikan, potongan tumpukan TIDAK
+// masuk `out` melainkan satu Group tersendiri yang diserahkan ke callback —
+// dipakai stage 1/2 untuk mendaftarkannya sebagai OCCLUDER yang bisa memudar
+// (utility/occlusion.js). Tumpukan setinggi BARRICADE_TOP adalah perabot
+// tertinggi di kedua stage itu, jadi ia yang paling sering menelan player.
+export function buildFurniturePile(out, x, z, seed, onGroup = null) {
     const h = (seed * 2654435761) >>> 0;
     const recipe = (h >>> 5) % BARRICADE_PILES.length;
     const pile = BARRICADE_PILES[recipe];
     const spin = ((h >>> 13) % 4) * (Math.PI / 2);          // orientasi tumpukan
     const jx = (((h >>> 17) % 5) - 2) * 0.5, jz = (((h >>> 21) % 5) - 2) * 0.5;
     const cs = Math.cos(spin), sn = Math.sin(spin);
+    const group = onGroup ? new THREE.Group() : null;
     for (const [kind, sx, sy, sz, dx, dy, dz, ry] of pile) {
         const m = BUILDERS[kind](sx, sy, sz);
         m.position.set(x + jx + dx * cs - dz * sn, dy, z + jz + dx * sn + dz * cs);
         m.rotation.y = ry + spin;
-        out.push(m);
+        if (group) group.add(m); else out.push(m);
     }
+    if (group) onGroup(group);
     return { recipe, kinds: pile.map(e => e[0]) };
 }
 

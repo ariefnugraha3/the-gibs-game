@@ -42,6 +42,7 @@ import {
     repairMarker, terminalMarker, boardMarker, generatorScreen, terminalScreen,
     S5_START, S5_GENERATOR, S5_TERMINAL, S5_BOARD, S5_SPAWN_MACHINE,
     S5_MACHINE_SPAWNS, SUPPLY_POINTS, CRATE_POINTS, BARREL_POINTS,
+    updateStationOccluders,
 } from './world.js';
 import {
     phase, setPhase, cine, setCine, cleanupCine, enterSub, queueDialogue, dialogueIdle,
@@ -378,6 +379,7 @@ export const stationScene = {
 
     updateMode(dt) {
         if (phase === 'opening') updateOpeningCine(dt);
+        updateStationOccluders(dt);
         updateStationDoors(dt, platformUnlocked, depotAwake); updateEnemyTrain(dt);
         pulseMarkers();
         updateLandmarks(dt, repairInstalled >= ADVANCED_REPAIR_PARTS.length, platformUnlocked);

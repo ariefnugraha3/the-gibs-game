@@ -6,6 +6,9 @@
 import { scene } from '../../../../core/renderer.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStaticShadowAware } from '../../../../utils/meshBatch.js';
+import {
+    weldOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
+} from '../../utility/occlusion.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { registerStageLight } from '../../../../world/lighting.js';
@@ -25,6 +28,7 @@ const ARCHETYPES = Object.freeze([
     'skybridge', 'water-garden', 'colonnade', 'forest-terrace', 'civic-spire',
 ]);
 
+export const S12_SURFACE_OCC = 'campaign-12-surface';   // utility/occlusion.js
 let built = false;
 let root = null;
 let nav = null;
@@ -141,9 +145,11 @@ function buildTerrainAndAxis() {
 }
 
 function addCivicCover() {
-    const g = new THREE.Group();
+    // Cover & kolonade adalah penghalang pandangan utama di permukaan IKN, jadi
+    // tiap potong berdiri sendiri (dilas ke dalam dirinya) supaya bisa memudar.
     for (let i = 0; i < 14; i++) {
         const x = 390560 - i * 84, z = i % 2 ? 118 : -84;
+        const g = new THREE.Group();
         mesh(g, new THREE.BoxGeometry(34, 11, 14), material('integratedCover', PAL.concrete),
             x, 5.5, z, 0, -.035, 0, true, true);
         mesh(g, new THREE.BoxGeometry(28, 2, 18), material('coverPlanter', 0x526746),
@@ -151,19 +157,21 @@ function addCivicCover() {
         for (let k = -2; k <= 2; k++)
             mesh(g, new THREE.DodecahedronGeometry(3.4, 0), material('coverShrub', PAL.leaf),
                 x + k * 5, 16 + Math.abs(k % 2), z, 0, 0, 0, false, false);
+        weldOccluder(S12_SURFACE_OCC, root, g, { x, z, radius: 18, top: 18 });
         blocker(x, z, 17, 7, 13, -.035, 'landscape-cover');
     }
     // Administrative colonnade is both place-defining architecture and cover.
     for (const side of [-1, 1]) for (let i = 0; i < 12; i++) {
         const x = 390410 - i * 47, z = side * 195;
+        const g = new THREE.Group();
         mesh(g, new THREE.CylinderGeometry(5, 7, 36, 8), material('column', PAL.panel),
             x, 18, z, 0, 0, 0, true, true);
         mesh(g, new THREE.BoxGeometry(42, 4, 20), material('colonnadeBeam', PAL.concrete),
             x, 37, z, 0, 0, 0, true, true);
+        weldOccluder(S12_SURFACE_OCC, root, g, { x, z, radius: 21, top: 39 });
         blocker(x, z, 7, 7, 36, 0, 'colonnade');
     }
     count('integrated-cover', 14); count('colonnade', 24);
-    weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
 }
 
 function clusterShell(type, x, z, scale, band, id) {
@@ -349,7 +357,17 @@ function buildRootCourt() {
 export function setStage12DescentOpen(open) {
     if (descentDoor) descentDoor.position.y = open ? -12 : 4;
 }
-export function resetStage12SurfaceVisuals() { setStage12DescentOpen(false); }
+export function resetStage12SurfaceVisuals() {
+    setStage12DescentOpen(false);
+    resetStageOccluders(S12_SURFACE_OCC);
+}
+
+// Dipanggil tiap frame dari sub-scene permukaan.
+export function updateStage12SurfaceVisuals(dt) {
+    updateStageOccluders(S12_SURFACE_OCC, dt);
+}
+
+export const stage12SurfaceOcclusionDebug = () => occlusionDebug(S12_SURFACE_OCC);
 
 export function ensureStage12SurfaceWorld(parent = scene) {
     if (built) return root;
@@ -367,6 +385,7 @@ export function ensureStage12SurfaceWorld(parent = scene) {
 }
 
 export const stage12SurfaceWorldDebug = () => ({
+    occluders: occlusionDebug(S12_SURFACE_OCC),
     built, root: root?.name || null, origin: { ...S12_SURFACE_ORIGIN }, bounds: { ...BOUNDS },
     playBounds: { ...PLAY }, start: { ...S12_SURFACE_START }, descent: { ...S12_DESCENT },
     rawMeshes, weldedMeshes, blockerCount: blockers.length,
