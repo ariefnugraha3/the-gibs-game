@@ -112,6 +112,46 @@ export function spawnCampaignRobot(x, z, stage, cls = 'C', active = false) {
     });
 }
 
+// ===== PENGALI JUMLAH ROBOT PER STAGE (2026-08-16, permintaan user) =====
+// `CFG.campaign.stageN.robotCountMul` mengalikan SELURUH populasi robot yang
+// DITEMPATKAN stage itu — garnisun awal, gelombang bala bantuan, dan horde —
+// tanpa menyentuh satu pun tabel titik spawn: satu angka per stage, jadi user
+// bisa menaikkan/menurunkan kepadatan tempur sebuah stage lewat config saja.
+// Yang SENGAJA di luar jangkauannya: pabrik/spawn-machine yang mencetak robot
+// tanpa batas sampai dihancurkan (jumlahnya bukan angka, melainkan laju yang
+// sudah dipagari `machineMaxAlive`), dan konsist musuh Stage 5 (jumlah gerbong
+// = konstanta GEOMETRI `ET_CARGO_CARS`, mesh-nya dipreallokasi).
+export function stageRobotMul(stage) {
+    const s = CFG.campaign['stage' + stage];
+    const m = s && s.robotCountMul;
+    return m != null && m > 0 ? m : 1;
+}
+
+// Kalikan SATU angka jumlah robot (mis. `gateWaveCount`). Tabel yang aslinya
+// berisi robot tak boleh menguap jadi nol karena pembulatan.
+export function scaleRobotCount(n, stage) {
+    const base = Math.max(0, n | 0);
+    if (!base) return 0;
+    return Math.max(1, Math.round(base * stageRobotMul(stage)));
+}
+
+// Kalikan SEDERET jumlah (per titik spawn, atau per kelas C/B/A) dengan
+// pembulatan AKUMULATIF: totalnya PERSIS `Math.round(total × mul)` dan porsi
+// tiap entri tetap proporsional. Membulatkan tiap entri sendiri-sendiri akan
+// menggelembungkan total (mis. 3 × 1,5 = 4,5 dibulatkan NAIK di setiap spot),
+// dan itu mengubah komposisi kelas sebuah encounter.
+export function scaleSpawnCounts(counts, stage) {
+    const mul = stageRobotMul(stage);
+    const out = [];
+    let running = 0, placed = 0;
+    for (const n of counts) {
+        running += Math.max(0, n | 0);
+        const want = Math.max(0, Math.round(running * mul) - placed);
+        out.push(want); placed += want;
+    }
+    return out;
+}
+
 // GANJARAN kill campaign (SECOND-IMPROVEMENT-PLAN point 1, 2026-07-22): campaign
 // TAK memberi skor langsung — jatuhkan LOOT/uang (CFG.drops.loot per KELAS) di
 // posisi robot; player memungutnya (magnet, drops.js) → jadi uang belanja shop

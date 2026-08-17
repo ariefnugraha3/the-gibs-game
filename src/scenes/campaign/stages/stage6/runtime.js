@@ -18,7 +18,7 @@ import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 import { disposeRobot, queueBoom } from '../../../../entities/robots.js';
 import { explodeAt, spawnBloodBurst } from '../../../../entities/effects.js';
 import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
-import { spawnCampaignRobot } from '../../utility/common.js';
+import { spawnCampaignRobot, scaleSpawnCounts } from '../../utility/common.js';
 import { rand, segPointDist2 } from '../../../../utils/math.js';
 
 // Naskah dipatok sebagai data agar smoke bisa memeriksa teks dan urutannya.
@@ -139,11 +139,23 @@ export function spawnOne(cls, p, encounter, active = true) {
     return z;
 }
 
+// SATU pintu masuk untuk seluruh populasi kedua chapter stage 6, jadi
+// `CFG.campaign.stage6.robotCountMul` (2026-08-16, permintaan user: DUA KALI
+// lipat) cukup dipasang di sini — hall, alarm sinyal, grid, exfil, office dan
+// purge ikut sekaligus, dengan perbandingan C/B/A tiap encounter tetap utuh.
+// Fabrikator `M` tak ikut: ia mencetak terus sampai dihancurkan dan sudah
+// dipagari `machineMaxAlive`.
+export const scaledEncounter = counts => {
+    const n = scaleSpawnCounts([counts.C | 0, counts.B | 0, counts.A | 0], 6);
+    return { C: n[0], B: n[1], A: n[2] };
+};
+
 export function spawnEncounter(points, name, counts, active = true) {
     if (!points || !counts) return 0;
+    const want = scaledEncounter(counts);
     let k = 0;
     for (const cls of ['C', 'B', 'A'])
-        for (let i = 0; i < Math.max(0, counts[cls] | 0); i++, k++)
+        for (let i = 0; i < Math.max(0, want[cls] | 0); i++, k++)
             spawnOne(cls, points[k % points.length], name, active);
     return k;
 }

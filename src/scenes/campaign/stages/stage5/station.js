@@ -29,7 +29,7 @@ import { rand, segPointDist2 } from '../../../../utils/math.js';
 import { playSFX, sfxPurchase, sfxRobotSpawn } from '../../../../utils/sfx.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import {
-    campaignRobotAI, campaignClampRobot, countStageRobots, spawnAlarmHorde,
+    campaignRobotAI, campaignClampRobot, countStageRobots, spawnAlarmHorde, scaleSpawnCounts,
 } from '../../utility/common.js';
 import { beginRepairMinigame, ADVANCED_REPAIR_PARTS } from '../../utility/repairMinigame.js';
 import { beginSignalTraceMinigame } from '../../utility/signalTraceMinigame.js';
@@ -89,8 +89,18 @@ function spawnClear(x, z, r = 2) {
     return Math.hypot(_v3.x - x, _v3.z - z) < 0.01;
 }
 
-function spawnDepot() {
+// Garnisun gudang. `CFG.campaign.stage5.robotCountMul` (2026-08-16, permintaan
+// user: chapter STASIUN 50% lebih banyak) mengalikan ketiga kelas sekaligus
+// dengan pembulatan akumulatif, jadi perbandingan C/B/A tabelnya tetap. Pabrik
+// spawn di tengah hall SENGAJA tak ikut: ia mencetak tanpa batas sampai
+// dihancurkan, jadi jumlahnya bukan angka melainkan laju.
+export const s5DepotCounts = () => {
     const C = CFG.campaign.stage5.encounters.depot;
+    const n = scaleSpawnCounts([C.C | 0, C.B | 0, C.A | 0], 5);
+    return { C: n[0], B: n[1], A: n[2] };
+};
+function spawnDepot() {
+    const C = s5DepotCounts();
     // `active=false`: safe-area hold baru dilepas setelah player meninggalkan SA.
     let k = 0;
     for (const cls of ['C', 'B', 'A']) for (let i = 0; i < (C[cls] | 0); i++, k++) {

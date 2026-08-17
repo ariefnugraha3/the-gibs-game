@@ -333,6 +333,7 @@ export function buildStageDoors(doorList, cellFn, CELL, H, parent = null) {
             ew,                                    // orientasi: true = dinding vertikal (masuk dari ±x)
             locked,                                // TERKUNCI (tak pernah membuka sampai setDoorLocked(false))
             broken,                                // RUSAK: terkunci selamanya, tak pernah beranimasi
+            baseLocked: locked, baseBroken: broken,   // keadaan AWAL (dipulihkan resetDoorLocks saat masuk stage)
             lockMat: locked ? litMat : null,       // material lampu merah -> hijau saat unlock
             lights,
             perpMax: (FRONT_CELLS + 0.5) * CELL,   // tegak-lurus dinding: <= 2 kotak di depan (+ tepi sel)
@@ -408,6 +409,41 @@ export function setDoorLocked(door, locked) {
     if (!door || door.broken) return;   // pintu RUSAK tak bisa dibuka oleh objektif apa pun
     door.locked = !!locked;
     if (door.lockMat) door.lockMat.color.setHex(locked ? LOCK_RED : GREEN);   // merah <-> hijau (mis. re-lock saat restart)
+}
+
+// ===== OVERRIDE KENDALI PINTU (2026-08-16, permintaan user) =====
+// Menguasai file kill-switch = menguasai kendali pintu gedung: SEMUA pintu yang
+// terkunci — termasuk yang RUSAK '+', yang `setDoorLocked` sengaja tolak — jadi
+// pintu otomatis biasa. Daun pintu rusak dipaku di pose macetnya saat build dan
+// `updateStageDoors` melewatinya; melepas flag `broken` saja sudah cukup karena
+// `open`-nya (DOOR_BROKEN_AJAR) memang pose daunnya sekarang, jadi animasi
+// lanjut MULUS dari situ. Lampu jamb ikut MERAH -> HIJAU (material lockMat
+// milik pintu itu sendiri, bukan greenMat bersama). Mengembalikan jumlah pintu
+// yang dilepas supaya pemanggil bisa memilih menampilkan pesan atau tidak.
+export function overrideDoorLocks(doors) {
+    if (!doors) return 0;
+    let n = 0;
+    for (const dr of doors) {
+        if (!dr.locked && !dr.broken) continue;
+        dr.locked = false; dr.broken = false; dr.linger = 0;
+        if (dr.lockMat) dr.lockMat.color.setHex(GREEN);
+        n++;
+    }
+    return n;
+}
+
+// Kembalikan seluruh pintu ke keadaan AWAL denah (terkunci/rusak + tertutup).
+// Dipanggil dari `enter()` stage, sebab stage bisa dimasuki lagi setelah mati
+// atau restart — tanpa ini override kill-switch akan terbawa ke run berikutnya.
+export function resetDoorLocks(doors) {
+    if (!doors) return;
+    for (const dr of doors) {
+        dr.locked = !!dr.baseLocked; dr.broken = !!dr.baseBroken;
+        dr.linger = 0;
+        dr.open = dr.broken ? DOOR_BROKEN_AJAR : 0;
+        setSplitDoorOpen(dr.rig, doorEasedOpen(dr.open));
+        if (dr.lockMat) dr.lockMat.color.setHex(dr.locked ? LOCK_RED : GREEN);
+    }
 }
 
 // ===== PELURU vs PINTU (2026-07-19, disesuaikan 2026-08-08): peluru PLAYER &

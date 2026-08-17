@@ -28,6 +28,12 @@
 
 **A locked/broken door must block the PLAYER too (2026-08-13, user report):** robots and bullets are stopped by `resolveDoors`/`doorsWalkable`/`doorClampShot`, but the player only if the scene's `playerCollide` calls `resolveDoors(doors, pos, player.radius, true)` (lockedOnly, so ordinary doors still never block). Stage 2 had no locked door until the CSV revision added a broken one, so its red door was walk-through. Any stage gaining its first `locked`/`broken` door must add that call; smoke drives `playerCollide` at every broken door in Stages 1-2.
 
+**Robot density is ONE number per stage (2026-08-16, user request):** `CFG.campaign.stageN.robotCountMul` multiplies a stage's whole placed population — garrison, reinforcement waves, horde — without touching any spawn-point table: 1.5 (S1), 1.6 (S2), 1.3 (S3), 2 (S4), 1.5 (S5 station chapter), 2 (S6, both chapters); a stage without the key stays 1x. Read it only through `stageRobotMul`/`scaleRobotCount`/`scaleSpawnCounts` in `campaign/utility/common.js`. `scaleSpawnCounts` rounds CUMULATIVELY so the total is exactly `round(total x mul)` and each entry stays proportional — rounding entries individually inflates the total and rewrites an encounter's C/B/A mix. Spawn machines (a rate fenced by `machineMaxAlive`) and Stage 5's enemy consist (`ET_CARGO_CARS` is geometry) are deliberately excluded. Stage 6 needs it in exactly one place: `spawnEncounter` in `stage6/runtime.js`. Stage 4 cycles its class pattern with `k % n` so doubling does not dilute the A/B shooters.
+
+**Stage 1's kill-switch opens every locked door (2026-08-16, user request):** a successful mainframe hack calls `overrideDoorLocks(doors)` (`campaign/utility/doors.js`), which clears `locked` AND `broken` on every still-shut door — including the two `+` doors `setDoorLocked` refuses to touch, which is the point: the jammed shortcuts open as the horde spawns. Clearing `broken` is enough because a broken door's `open` (`DOOR_BROKEN_AJAR`) already is its leaf pose. `buildStageDoors` records `baseLocked`/`baseBroken` and `stage1Scene.enter()` calls `resetDoorLocks(doors)`, so the override never survives into the next run.
+
+**Every bullet has a 1 m area of damage (2026-08-16, user request):** a normal pistol/rifle/shotgun round that hits a robot also damages other robots within `CFG.weapons.splashRadiusMeters` (1 m = 7 units) of the impact point, read only through `bulletSplashRadius()` in `robots.js`; flat damage equal to the round's own `b.damage`. It is queued (`pendingSplash` -> `processPendingSplash`, drained beside `pendingBooms` after the robot loop) because killing a robot mid-loop splices the array being iterated. The direct victim is skipped, `z.invuln` and `blastBlocked` are honoured, launcher rounds keep their single explosion, and splash produces no mesh/light/SFX/coolant at all.
+
 **Barricade/breach tokens are SHARED (2026-08-13):** `campaign/utility/barricade.js` owns `'*'` and `'/'` for every stage using the CSV legend — `barricadeBlocker()` (full-cell `standable:false` blocker, nav-baked), `buildFurniturePile()` (eight recipes, deterministic hash of the cell index) and `buildWallBreach()` (jagged jamb stubs, no blocker). Stages 1 and 2 both use it; never re-implement per stage.
 
 **Stage 2 layout revision (2026-08-13, user CSV `stages(Stage2).csv`):** same legend as Stage 1; `S2_MAP` still holds only walls. `+` = the c6-7 r9 door is now broken; `/` = a breach at c38 r6 (supply → toilet); `*` = 53 cells (r9 c9-29, c42-43 r13-28); plus a new door at c8 r11-12. Routing: the c38 r6 breach is the ONLY way down from the upper floor, and the c40-41 lane is the ONLY path from the c39 r27-28 door — both must stay clear of furniture, as must the now 2-cell-tall r7-8 corridor — its c8-11 stretch is the ONLY exit from the start room, so the `meeting` table at c10 r7 was deleted (it sealed the player in). The Stage 1/2 clearance BFS in smoke now blocks `broken` doors (never plain `locked` ones), which is what missed that softlock.
@@ -160,8 +166,8 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   `M.*` instance would fade the whole batch); a prop that must fade uses `weldOccluder` instead of
   `addMergedStatic`. WALLS fade through `campaign/utility/wallFade.js`, which swaps a `#` cell out
   of its InstancedMesh for a pooled proxy; the show/hide matrix must be `identity()`-ed before
-  reuse or the cell never returns. Stage 8 registers none because all its scenery sits outside
-  the sight corridor. → [docs/campaign.md](docs/campaign.md)
+  reuse or the cell never returns. Stage 8 registers none because only its +z band can
+  occlude and its tops stay below the eye-to-player sight line. → [docs/campaign.md](docs/campaign.md)
 - **No mid-game shader recompiles**: fixed FX pools, constant PointLight counts, every
   lazily-revealed mesh added to `core/preload.js` warm-up.
 - **Art style "GIBS 2045"** (`src/world/palette.js`): PAL tokens only, no neon
@@ -782,6 +788,19 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   96/24/20/12 rain/ripple/spark/exhaust pools remain allocation-stable.
   There is no boss/miniboss/tank/boss HUD/score/music, and the green complete screen opens Field
   Shop before Stage 8.
+- Stage 8's background is a two-act landscape pool (`stage8/scenery.js`, 2026-08-17 user request):
+  KOTA BANDUNG at the start, PERSAWAHAN JAWA BARAT from `CFG.campaign.stage8.scenery.riceAfterFraction`
+  (0.65 of `pickupsDestroyed / groundPickupTarget`) onward, and unconditionally rice from `bossApproach`
+  through the gunship duel and arrival. Every module carries BOTH landscapes and only toggles `visible`
+  (no mid-game allocation); a module may change act only while off screen (wrap or `relayoutAhead`
+  beyond `S8_SCENERY_AHEAD`), dithered on near/mid and never on the far horizon. Four pools at
+  parallax 1.0/1.0/0.62/0.34, deterministic hash layout, welded, pure decor — zero blockers, nav cells
+  and PointLights. It also supplied the ground that used to be missing outside the shoulder.
+- Stage 8 combat leftovers ride the ROAD, not the vehicle (2026-08-17 user request): the arena is
+  coordinate-stable, so `updateRoad` calls `driftGore(dx)` at ground speed and gibs/corpses/coolant are
+  left behind on the asphalt. No `keep` exclusion (nothing rides the LTV, unlike Stage 5's car floor);
+  drops stay pinned by `clampDropPos` so loot remains collectable; carrier wrecks brake 1.35x -> 1.0x
+  ground speed and settle on the road.
 - Stage 8 is the coordinate-stable GRD LTV-45 gunner arena at x≈270000. Seven lateral
   corridors span both three-lane carriageways and the traversable median; `A/D` are
   edge-triggered lane snaps while walking/RMB/dodge/melee are scene-gated off. The

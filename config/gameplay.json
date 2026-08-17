@@ -63,6 +63,7 @@
         "bulletSpeed": 27,
         "bulletLife": 120,
         "bulletDamage": 20,
+        "splashRadiusMeters": 1,
         "spreadBase": 0.055,
         "spreadBloom": 0.05,
         "heatPerShot": 0.22,
@@ -369,9 +370,11 @@
             "downloadSec": 10,
             "computerRange": 10,
             "liftWarnRange": 30,
-            "hordeCount": 16
+            "hordeCount": 16,
+            "robotCountMul": 1.5
         },
         "stage2": {
+            "robotCountMul": 1.6,
             "restoreSec": 10,
             "genApproachRange": 46,
             "genRestoreRange": 10,
@@ -379,6 +382,7 @@
             "liftRange": 26
         },
         "stage3": {
+            "robotCountMul": 1.3,
             "hackSec": 5,
             "hackRange": 13,
             "hackRequired": 3,
@@ -401,7 +405,11 @@
             },
             "classMix": { "C": 0.7, "B": 0.2, "A": 0.1 }
         },
+        "stage4": {
+            "robotCountMul": 2
+        },
         "stage5": {
+            "robotCountMul": 1.5,
             "openingMinSec": 6,
             "openingDialogueDelaySec": 0.6,
             "departureDelaySec": 3,
@@ -501,6 +509,7 @@
             }
         },
         "stage6": {
+            "robotCountMul": 2,
             "openingMinSec": 8,
             "openingDialogueDelaySec": 0.6,
             "fadeSec": 0.5,
@@ -621,6 +630,9 @@
             "gunshipIntroMinSec": 8,
             "gunshipDeathDelaySec": 3,
             "arrivalMinSec": 18,
+            "scenery": {
+                "riceAfterFraction": 0.65
+            },
             "groundLoads": [
                 ["B", "B", "B"],
                 ["B", "B", "A"],

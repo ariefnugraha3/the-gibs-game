@@ -44,7 +44,10 @@ import { buildFuturisticBenchMesh } from '../../../../entities/futuristicBench.j
 import { buildFuturisticPlanterMesh } from '../../../../entities/futuristicPlanter.js';
 import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.js';
 import { buildFuturisticRubbleMesh } from '../../../../entities/futuristicRubble.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill } from '../../utility/common.js';
+import {
+    spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill,
+    scaleSpawnCounts,
+} from '../../utility/common.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../../entities/barrels.js';
 import { spawnSmashBuilding, smashBuilding, updateSmashBuilding, resetSmashBuilding, smashBuildingDebug } from '../../../../entities/smashBuilding.js';
 import { exitCityEnv } from '../../utility/cityscape.js';
@@ -1004,14 +1007,23 @@ const S4_RANGED = {
     9: ['A', 'B'], 10: ['A'], 11: ['B'], 12: ['A', 'B'], 13: ['A', 'A'],
 };
 
+// Jumlah dasar tabel (40) dan jumlah NYATA setelah `robotCountMul` stage 4
+// (2026-08-16, permintaan user: robot stage 4 DUA KALI lipat).
+export const s4RobotBase = S4_ROBOTS.reduce((a, s) => a + s[2], 0);   // 40
+export const s4RobotCount = () =>
+    scaleSpawnCounts(S4_ROBOTS.map(s => s[2]), 4).reduce((a, n) => a + n, 0);
 export function placeRobots() {
+    const counts = scaleSpawnCounts(S4_ROBOTS.map(s => s[2]), 4);
     S4_ROBOTS.forEach(([sx, sz, n], si) => {
         const rangedCls = S4_RANGED[si + 1] || [];
-        for (let k = 0; k < n; k++) {
+        // Kelas robot ke-k spot ini MENGULANG pola aslinya (`k % n`), bukan
+        // "sisanya C": tanpa itu penggandaan justru MENGENCERKAN porsi penembak
+        // A/B yang sengaja dinaikkan pada 2026-07-19.
+        for (let k = 0; k < counts[si]; k++) {
             _v3.set(sx + rand(-24, 24), 0, sz + rand(-18, 18));
             resolve(_v3, 4, 0);
             if (!stage4Walk(_v3.x, _v3.z, 4)) _v3.set(sx, 0, sz);
-            spawnCampaignRobot(_v3.x, _v3.z, 4, rangedCls[k] || 'C');
+            spawnCampaignRobot(_v3.x, _v3.z, 4, rangedCls[k % Math.max(1, n)] || 'C');
         }
     });
     placeSupplies();

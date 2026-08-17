@@ -46,8 +46,13 @@ import {
     createCombatGunship, resetCombatGunship, updateCombatGunship, damageCombatGunship,
     combatGunshipDebug,
 } from '../../../../entities/combatGunship.js';
+import {
+    buildStage8Scenery, updateStage8Scenery, setStage8SceneryAct,
+    resetStage8Scenery, stage8SceneryDebug, stage8SceneryActs,
+    stage8SceneryMaterials, S8_SCENERY_ROWS, S8_SCENERY_AHEAD,
+} from './scenery.js';
 import { explodeAt, spawnGroundPuff } from '../../../../entities/effects.js';
-import { spawnGibs } from '../../../../entities/gore.js';
+import { spawnGibs, driftGore } from '../../../../entities/gore.js';
 import {
     playLoopSFX, stopLoopSFX, playSFX, sfxTankMove, sfxHeli,
     sfxTankExplode, startBossMusic, stopMusic,
@@ -69,7 +74,7 @@ export const S8_AIRPORT = Object.freeze({ x: AIRPORT_X, z: 0 });
 export const STAGE8_DIALOGUE = dialogueMap('campaign.stage8.lines');
 
 let built = false, worldRoot = null, roadRoot = null, airportRoot = null;
-let tacticalVehicle = null, gunship = null, staticBatch = [];
+let tacticalVehicle = null, gunship = null, staticBatch = [], scenery = null;
 const roadModules = [], pickupPool = [], dustPool = [], stageLights = [];
 let roadWraps = 0, dustCursor = 0;
 
@@ -121,25 +126,11 @@ function buildRoadModule(index, M) {
         box(g, M.steel, MODULE_LEN, 0.45, 0.55, 0, 3.7, z);
         for (let x = -36; x <= 36; x += 18) box(g, M.steel, 0.55, 7.4, 0.55, x, 0, z);
     }
-    if (index % 3 === 0) {
-        for (const side of [-1, 1]) {
-            const tree = new THREE.Group(); tree.position.set(rand(-28, 28), 0, side * 96); g.add(tree);
-            box(tree, M.wood, 3, 18, 3, 0, 9, 0);
-            const crown = new THREE.Mesh(new THREE.SphereGeometry(11 + (index % 2) * 3, 8, 6), M.leaf);
-            crown.position.y = 23; crown.castShadow = true; tree.add(crown);
-        }
-    } else if (index % 3 === 1) {
-        for (const side of [-1, 1]) {
-            const shed = new THREE.Group(); shed.position.set(rand(-22, 22), 0, side * 112); g.add(shed);
-            box(shed, M.concrete, 35, 18, 25, 0, 9, 0);
-            box(shed, M.hazard, 37, 2, 27, 0, 19, 0);
-        }
-    } else {
-        for (const side of [-1, 1]) {
-            const hill = new THREE.Mesh(new THREE.ConeGeometry(46, 72, 6), side < 0 ? M.hill : M.hillDark);
-            hill.position.set(rand(-30, 30), 25, side * 156); hill.rotation.y = index * 0.4; g.add(hill);
-        }
-    }
+    // Lanskap latar TIDAK lagi dibangun di sini (2026-08-17, permintaan user
+    // "perbaiki background di Stage 8"): tiga baris prop generik `index % 3`
+    // (dua pohon / dua gudang / dua kerucut abu-abu) diganti pool lanskap dua
+    // babak milik `scenery.js`. Modul jalan sekarang hanya berisi PERKERASAN
+    // dan bangunan jalan tol — dek, marka, guardrail, gantry, portal, jembatan.
     if (index === 2 || index === 7) {
         const gantry = new THREE.Group(); gantry.position.set(0, 0, 0); g.add(gantry);
         const gantryZ = railZ + 3;
@@ -149,13 +140,16 @@ function buildRoadModule(index, M) {
     // Landmark perjalanan ikut pool modul yang sama: tidak ada mesh baru saat
     // runtime. Bentuknya sengaja cutaway agar arena tetap terbaca top-down.
     if (index === 4) {
-        // Mulut terowongan pegunungan: portal berat + deret rib terbuka, tanpa
-        // atap opak yang dapat menutupi player dan riders dari kamera.
+        // Portal cut-and-cover Cisumdawu: rangka berat + deret rib TERBUKA,
+        // tanpa atap opak yang dapat menutupi player dan riders dari kamera.
+        // Talud sampingnya beton (bukan lagi batu gelap) supaya ia terbaca
+        // sebagai bangunan jalan di KEDUA babak lanskap, bukan bukit yang
+        // tiba-tiba nongol di tengah kota.
         for (const x of [-36, -18, 0, 18, 36]) {
             for (const z of [-72, 72]) box(g, M.concrete, 3.5, 31, 6, x, 15.5, z);
             box(g, M.concrete, 3.5, 4, 148, x, 31, 0);
         }
-        for (const z of [-82, 82]) box(g, M.hillDark, MODULE_LEN, 18, 20, 0, 9, z);
+        for (const z of [-84, 84]) box(g, M.concrete, MODULE_LEN, 16, 14, 0, 8, z);
         box(g, M.hazard, 5, 3, 128, -39, 27, 0);
     } else if (index === 6) {
         // Jembatan: pylon di luar carriageway dan rangka samping membuat
@@ -168,14 +162,6 @@ function buildRoadModule(index, M) {
             box(g, M.steel, MODULE_LEN, 2, 2, 0, 12, z);
             for (let x = -36; x <= 36; x += 12)
                 box(g, M.steel, 1, 18, 1, x, 9, z);
-        }
-    } else if (index === 8 || index === 11) {
-        // Sawah Sumedang dengan pematang dan kanal irigasi; seluruh petak ikut
-        // wrap bersama modul, bukan Kertajati yang berada di root statis lain.
-        for (const side of [-1, 1]) for (let row = 0; row < 3; row++) {
-            const z = side * (92 + row * 18);
-            box(g, M.rice, MODULE_LEN - 8, 0.7, 13, 0, -0.15, z);
-            box(g, M.water, MODULE_LEN - 5, 0.16, 2.2, 0, 0.25, z + side * 7.2);
         }
     }
     roadRoot.add(g); roadModules.push(g);
@@ -230,17 +216,14 @@ function buildWorld() {
         hazard: new THREE.MeshLambertMaterial({ color: PAL.hazard }),
         gunmetal: new THREE.MeshLambertMaterial({ color: PAL.gunmetal }),
         panel: new THREE.MeshLambertMaterial({ color: PAL.panel }),
-        wood: new THREE.MeshLambertMaterial({ color: PAL.wood }),
-        leaf: new THREE.MeshLambertMaterial({ color: PAL.leaf }),
-        hill: new THREE.MeshLambertMaterial({ color: PAL.concrete }),
-        hillDark: new THREE.MeshLambertMaterial({ color: PAL.gunmetal }),
-        rice: new THREE.MeshLambertMaterial({ color: PAL.leaf }),
-        water: new THREE.MeshLambertMaterial({ color: PAL.techDim, transparent: true,
-            opacity: 0.64, depthWrite: false }),
         dust: new THREE.MeshBasicMaterial({ color: PAL.concrete, transparent: true,
             opacity: 0.58, depthWrite: false }),
     };
     for (let i = 0; i < ROAD_MODULES; i++) buildRoadModule(i, M);
+    // LANSKAP DUA BABAK (2026-08-17): kota Bandung -> persawahan Jawa Barat.
+    // Ia hidup DI BAWAH `roadRoot` supaya swap ke Kertajati (roadRoot.visible =
+    // false) memadamkannya bersama jalan, tanpa cabang tambahan.
+    scenery = buildStage8Scenery(roadRoot, OX, OZ);
     buildAirport(M); buildFx(M);
 
     tacticalVehicle = buildTacticalVehicleMesh(7, PAL.gunmetal);
@@ -330,6 +313,18 @@ function updateDust(dt) {
         if (d.userData.life <= 0) d.visible = false;
     }
 }
+// BABAK LANSKAP (2026-08-17, permintaan user): Cisumdawu berangkat dari
+// pinggiran KOTA BANDUNG, lalu — "ketika hampir melawan boss" — berpindah ke
+// PERSAWAHAN JAWA BARAT dan TETAP di sana sepanjang duel gunship sampai
+// Kertajati. Ambangnya diturunkan dari kemajuan pengejaran (bagian carrier yang
+// sudah hancur), bukan waktu, supaya peralihannya selalu mendarat tepat sebelum
+// carrier terakhir — jauh sebelum boss benar-benar datang.
+function sceneryTargetAct() {
+    if (phase !== 'opening' && phase !== 'highway' && phase !== 'groundPursuit') return 'rice';
+    const C = CFG.campaign.stage8;
+    const frac = C.scenery?.riceAfterFraction ?? 0.65;
+    return pickupsDestroyed / Math.max(1, C.groundPickupTarget) >= frac ? 'rice' : 'city';
+}
 function updateRoad(dt) {
     if (!roadRoot.visible) return;
     const dx = roadSpeed() * dt;
@@ -337,7 +332,27 @@ function updateRoad(dt) {
         g.position.x -= dx;
         while (g.position.x < OX - ROAD_SPAN / 2) { g.position.x += ROAD_SPAN; roadWraps++; }
     }
+    updateStage8Scenery(scenery, dt, roadSpeed());
+    // SISA TEMPUR IKUT JALAN, BUKAN KENDARAAN PLAYER (2026-08-17, permintaan
+    // user "ketika robot dan mobilnya hancur, serpihan mereka tertinggal di
+    // tempat, tidak ikut bergerak"). Stage 8 adalah arena koordinat-stabil:
+    // GRD LTV-45 diam di `PLAYER_X` dan jalanlah yang bergulir. Serpihan,
+    // bangkai dan genangan coolant yang dibiarkan di koordinat dunianya karena
+    // itu diam TERHADAP KENDARAAN — di layar ia terlihat terseret ikut jalan
+    // selamanya. `driftGore` menggulirkannya pada laju tanah yang sama persis,
+    // jadi ia benar-benar ditinggalkan di aspal. Ini masalah yang sama dengan
+    // perjalanan Stage 5 (2026-08-09) dan memakai helper yang sama.
+    // TANPA pengecualian: berbeda dari gerbong kereta Stage 5 yang punya lantai,
+    // di sini tidak ada satu pun permukaan yang ikut kendaraan — apa pun yang
+    // jatuh (termasuk pelat armor player yang pecah) jatuh ke jalan.
+    driftGore(dx);
 }
+// Babak tujuan dievaluasi SEKALI di ujung frame, sesudah kill carrier dibukukan
+// — kalau dievaluasi di dalam `updateRoad` (yang berjalan sebelum
+// `updatePickups`), carrier ke-N yang melewati ambang baru terbaca satu frame
+// kemudian. Stage hanya menetapkan babak TUJUAN; pergantiannya menjalar lewat
+// wrap dan satu tata-ulang di luar layar (lihat scenery.js aturan 2).
+function syncSceneryAct() { setStage8SceneryAct(scenery, sceneryTargetAct()); }
 
 function syncVehicle(dt = 0) {
     if (!tacticalVehicle) return;
@@ -453,7 +468,11 @@ function updatePickups(dt) {
         const living = p.passengers.filter(z => robots.includes(z));
         if (!p.wreck && living.length === 0) destroyPickup(p);
         if (p.wreck) {
-            p.group.position.x -= roadSpeed() * dt * 1.35;
+            // Bangkai MENGEREM lalu DIAM DI JALAN (2026-08-17, permintaan user):
+            // laju surutnya turun 1,35x -> 1,0x laju tanah dalam setengah detik,
+            // jadi ia terbaca berhenti di aspal dan ditinggalkan — bukan terus
+            // meluncur mundur lebih cepat daripada jalan di bawahnya.
+            p.group.position.x -= roadSpeed() * dt * Math.max(1, 1.35 - p.wreckT * 0.7);
             updateEnemyPickupVisual(p, dt, { active: true, wreck: true, speed: C.pickupSpeed });
             if (p.wreckT >= C.pickupWreckSec || p.group.position.x < PLAYER_X - 250)
                 resetEnemyPickupVisual(p);
@@ -652,6 +671,7 @@ function resetStage() {
     roadRoot.visible = true; airportRoot.visible = false;
     for (let i = 0; i < roadModules.length; i++)
         roadModules[i].position.x = OX + (i - (ROAD_MODULES - 1) / 2) * MODULE_LEN;
+    resetStage8Scenery(scenery);
     for (const p of pickupPool) resetEnemyPickupVisual(p);
     for (const d of dustPool) d.visible = false;
     resetCombatGunship(gunship, { active: false });
@@ -700,6 +720,16 @@ export const stage8RoadDebug = () => ({
     roadVisible: !!roadRoot?.visible, airportVisible: !!airportRoot?.visible,
     laneIndex, laneFrom, laneTo, laneT, laneBuffer, currentZ,
 });
+export const stage8SceneryStateDebug = () => ({
+    ...stage8SceneryDebug(scenery), targetAct: sceneryTargetAct(),
+    riceAfterFraction: CFG.campaign.stage8.scenery?.riceAfterFraction ?? 0.65,
+    aheadThreshold: S8_SCENERY_AHEAD, rows: S8_SCENERY_ROWS,
+});
+export const stage8SceneryActDebug = () => ({
+    ...stage8SceneryActs(scenery), targetAct: sceneryTargetAct(),
+});
+export const stage8SceneryPoolDbg = () => scenery;
+export const stage8SceneryMatsDbg = () => stage8SceneryMaterials();
 export const stage8WorldDebug = () => ({
     built, origin: { x: OX, z: OZ }, airport: { ...S8_AIRPORT },
     lanePositions: LANE_MULTIPLIERS.map((_, i) => laneWorldZ(i)),
@@ -708,6 +738,7 @@ export const stage8WorldDebug = () => ({
         pullback: DRIVE_CAM_PULLBACK },
     pools: { road: roadModules.length, pickups: pickupPool.length, dust: dustPool.length,
         missiles: gunship?.missiles?.length || 0, shells: gunship?.shells?.length || 0 },
+    scenery: stage8SceneryDebug(scenery),
     lights: stageLights.length, staticBatches: staticBatch.length,
     sceneRoots: { world: !!worldRoot, road: !!roadRoot, airport: !!airportRoot },
 });
@@ -755,8 +786,8 @@ export const stage8Scene = {
 
     updateMode(dt) {
         stageElapsed += dt; updateDialogue(dt); updateCine(dt); updateDust(dt);
-        if (cine || complete) { updateUI(); return; }
-        updateJourney(dt); updateBoss(dt); syncVehicle(dt); updateUI();
+        if (cine || complete) { syncSceneryAct(); updateUI(); return; }
+        updateJourney(dt); updateBoss(dt); syncVehicle(dt); syncSceneryAct(); updateUI();
     },
     updatePlayerControl(dt) { updateLaneControl(dt); return true; },
     allowsPlayerAction(action) { return !['moveTarget', 'dodge', 'melee'].includes(action); },

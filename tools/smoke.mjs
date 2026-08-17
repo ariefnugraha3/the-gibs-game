@@ -2136,8 +2136,14 @@ T('S2: nav-grid pathfinder terbangun', s2mod.s2Nav != null);
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
     s1m.placeRobots();
     const n1 = robots.filter(z => z.stage === 1).length;
-    T('S1: placeRobots menaruh 50 robot GELOMBANG-1 (kelas C) tagged stage 1 (' + n1 + ')',
-        n1 === 50 && n1 === s1m.s1Wave1Count && robots.filter(z => z.stage === 1).every(z => z.kind === 'C'));
+    // JUMLAH KINI BER-PENGALI (2026-08-16, permintaan user: stage 1 50% lebih
+    // banyak) — asserti membaca `robotCountMul` dari CFG, bukan angka jadi.
+    const s1Mul = comMod.stageRobotMul(1);
+    T('S1: placeRobots menaruh ' + Math.round(s1m.s1Wave1Base * s1Mul) + ' robot GELOMBANG-1 (kelas C, '
+        + 'base ' + s1m.s1Wave1Base + ' x ' + s1Mul + ') tagged stage 1 (' + n1 + ')',
+        s1m.s1Wave1Base === 50 && s1Mul === cfgMod.CFG.campaign.stage1.robotCountMul
+        && n1 === Math.round(s1m.s1Wave1Base * s1Mul) && n1 === s1m.s1Wave1Count()
+        && robots.filter(z => z.stage === 1).every(z => z.kind === 'C'));
 
     // --- LAMPU PER-RUANGAN (2026-08-11, permintaan user "mekanisme mati lampu
     // dihilangkan"): SEMUA lampu ruangan menyala PENUH sejak dunia dibangun.
@@ -2782,7 +2788,7 @@ async function waitRepairClosed() {
     camera.position.set(accP.x, cfgMod.CFG.player.eyeHeight, accP.z);
     s1m.stage1Scene.updateMode(0.1);
     T('S1 FLOW: berdiri di petak $ membuka pintu NAC WALAU ' + aliveBefore + ' robot masih hidup, tanpa minigame',
-        aliveBefore >= s1m.s1Wave1Count && s1m.s1Debug().phase === 'download'
+        aliveBefore >= s1m.s1Wave1Count() && s1m.s1Debug().phase === 'download'
         && s1m.s1CompDoorDbg().locked === false && hackMod.hackDebug().open === false
         && s1m.s1MarkersDbg().access === false && s1m.s1MarkersDbg().comp === true);
     // Sisa alur dijalankan tanpa robot wave-1 (yang diuji di bawah = hack/radio).
@@ -2839,6 +2845,36 @@ async function waitRepairClosed() {
     T('S1 HACK: modal menutup -> scene sebelumnya DIPULIHKAN tanpa enter() (fase lanjut ke radio, bukan reset ke access)',
         hackMod.hackDebug().open === false && smMod.activeScene === sceneBeforeHack
         && s1m.s1Debug().phase === 'radio');
+    // === OVERRIDE KENDALI PINTU (2026-08-16, permintaan user): hack mainframe
+    //     yang berhasil = file kill-switch didapat = SETIAP pintu terkunci
+    //     terbuka, termasuk dua pintu RUSAK '+' yang `setDoorLocked` tolak. ===
+    {
+        const doorMod = await import(R('src/scenes/campaign/utility/doors.js'));
+        const doorsNow = s1m.s1DoorsDbg();
+        const dbg = s1m.s1Debug();
+        // Yang tersisa terkunci pada detik itu = DUA pintu RUSAK '+' (pintu NAC
+        // sudah dibuka lebih dulu oleh bank '@'), jadi persis itulah yang dibeli
+        // file kill-switch: jalan pintas yang sebelumnya macet permanen.
+        T('S1 KILL-SWITCH: hack mainframe MELEPAS semua pintu yang masih terkunci ('
+            + dbg.doorsFreed + ' pintu rusak) & tak menyisakan satu pun',
+            dbg.doorsFreed === 2 && dbg.lockedDoors === 0
+            && doorsNow.length === 18 && doorsNow.every(d => !d.locked && !d.broken));
+        // Pintu RUSAK yang dilepas benar-benar BISA BERGERAK sekarang, dan tak
+        // lagi mendorong player keluar (resolveDoors lockedOnly).
+        const freed = doorsNow.find(d => d.baseBroken);
+        const beforeOpen = freed.open;
+        const fp = s1m.s1Cell(4, 6);   // tepat di depan pintu rusak c3-4 r7
+        const camBack = { x: camera.position.x, z: camera.position.z };
+        camera.position.set(fp.x, cfgMod.CFG.player.eyeHeight, fp.z);
+        for (let i = 0; i < 40; i++) doorMod.updateStageDoors(doorsNow, 0.05);
+        const push = { x: freed.cx, z: freed.cz };
+        doorMod.resolveDoors(doorsNow, push, cfgMod.CFG.player.radius, true);
+        T('S1 KILL-SWITCH: pintu RUSAK yang dilepas kini beranimasi & tak lagi memblok player',
+            freed && freed.baseBroken === true && beforeOpen === doorMod.DOOR_BROKEN_AJAR
+            && freed.open > beforeOpen && freed.open >= 0.99
+            && Math.hypot(push.x - freed.cx, push.z - freed.cz) < 0.01);
+        camera.position.set(camBack.x, cfgMod.CFG.player.eyeHeight, camBack.z);
+    }
     const expectedS1Radio = [
         {
             speaker: 'Pilot',
@@ -2891,10 +2927,13 @@ async function waitRepairClosed() {
     // SECOND-IMPROVEMENT #3 (2026-07-22): unduh selesai spawn wave-2 (20) + HORDE
     // (CFG.campaign.stage1.hordeCount kelas C yang LANGSUNG menyerbu = 'chasing').
     // 2026-07-26 (permintaan user): stage 1 HANYA kelas C — tak ada B/A sama sekali.
-    const horde = cfgMod.CFG.campaign.stage1.hordeCount;
+    // 2026-08-16: wave-2 DAN horde sama-sama dikali `robotCountMul` stage 1.
+    const s1MulW2 = cfgMod.CFG.campaign.stage1.robotCountMul;
+    const horde = Math.round(cfgMod.CFG.campaign.stage1.hordeCount * s1MulW2);
+    const wave2 = Math.round(20 * s1MulW2);
     T('S1 FLOW: radio selesai -> wave-2 SEMUA kelas C + HORDE (' + horde + ' C) + kendali dikembalikan',
         s1m.s1Debug().phase === 'clear2' && stateMod.cinematicActive === false
-        && w2.length === 20 + horde && nC === 20 + horde && nB === 0 && nA === 0);
+        && w2.length === wave2 + horde && nC === wave2 + horde && nB === 0 && nA === 0);
     T('S1 FLOW: HORDE langsung menyerbu (ada robot chasing di wave-2)',
         horde === 0 || w2.some(z => z.state === 'chasing'));
     // Buang wave-2 -> fase done (tangga aktif).
@@ -2964,8 +3003,12 @@ finishS2Dialogue();
 T('S2 DIALOG START: teks mencapai utuh, melewati hold config, lalu panel bersih',
     s2mod.s2DialogueDebug().key === null && domS2.stageRadioDialogueDebug() === null);
 const nStage2 = robots.filter(z => z.stage === 2).length;
-T('S2: placeRobots menaruh 50 robot GELOMBANG-1 (kelas C) tagged stage 2 (' + nStage2 + ')',
-    nStage2 === 50 && nStage2 === s2mod.s2Wave1Count && robots.filter(z => z.stage === 2).every(z => z.kind === 'C'));
+// JUMLAH BER-PENGALI (2026-08-16, permintaan user: stage 2 60% lebih banyak).
+const s2Mul = cfgMod.CFG.campaign.stage2.robotCountMul;
+T('S2: placeRobots menaruh ' + Math.round(s2mod.s2Wave1Base * s2Mul) + ' robot GELOMBANG-1 (kelas C, base '
+    + s2mod.s2Wave1Base + ' x ' + s2Mul + ') tagged stage 2 (' + nStage2 + ')',
+    s2mod.s2Wave1Base === 50 && nStage2 === Math.round(s2mod.s2Wave1Base * s2Mul)
+    && nStage2 === s2mod.s2Wave1Count() && robots.filter(z => z.stage === 2).every(z => z.kind === 'C'));
 T('S2: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s2dropsBefore);
 
 // KAMERA khusus stage 2 (2026-07-22, permintaan user): memandang dari TIMUR LAUT
@@ -3020,8 +3063,10 @@ T('S2: LIFT DITOLAK selagi belum selesai (fase clear1)', smMod.activeScene === s
 killS2(); s2mod.stage2Scene.updateMode(0.1);
 T('S2 FLOW: wave1 (50 C) tumbang -> fase goGen', s2mod.s2Debug().phase === 'goGen');
 camera.position.set(s2GenC.x, EY2, s2GenC.z); s2mod.stage2Scene.updateMode(0.1);
-T('S2 FLOW: dekati generator -> collect + 20 penjaga gudang + 3 komponen',
-    s2mod.s2Debug().phase === 'collect' && robots.filter(z => z.stage === 2).length === 20 && s2mod.s2ComponentsDbg().length === 3);
+const s2Guards = Math.round(20 * s2Mul);   // 20 penjaga x robotCountMul
+T('S2 FLOW: dekati generator -> collect + ' + s2Guards + ' penjaga gudang + 3 komponen',
+    s2mod.s2Debug().phase === 'collect' && robots.filter(z => z.stage === 2).length === s2Guards
+    && s2mod.s2ComponentsDbg().length === 3);
 T('S2 DIALOG GENERATOR: pemeriksaan pertama generator memicu kebutuhan mencari parts',
     s2mod.s2DialogueDebug().key === 'inspectGenerator'
     && s2mod.s2DialogueDebug().text === expectedS2Dialogue.inspectGenerator.text
@@ -3079,10 +3124,14 @@ T('S2 FLOW: injak marker generator -> MINIGAME FIELD REPAIR (scene modal, game d
     const nC = w2.filter(z => z.kind === 'C').length, nB = w2.filter(z => z.kind === 'B').length, nA = w2.filter(z => z.kind === 'A').length;
     // 3 papan selesai -> LANGSUNG 'done' (TAK ada fase clear2 lagi) + wave2 (25).
     // 2026-07-26 (permintaan user): stage 2 TANPA kelas A — ruang3 yang dulu A jadi B.
-    T('S2 FLOW: 3 komponen terpasang -> DONE LANGSUNG + wave2 bala bantuan (10C/15B, 0 A) + kendali kembali',
+    // Pengali stage 2 memakai pembulatan AKUMULATIF: totalnya persis
+    // round(25 x mul) dan 10 C pertama jadi round(10 x mul) — porsi kelas tetap.
+    const w2Total = Math.round(25 * s2Mul), w2C = Math.round(10 * s2Mul);
+    T('S2 FLOW: 3 komponen terpasang -> DONE LANGSUNG + wave2 bala bantuan ('
+        + w2C + 'C/' + (w2Total - w2C) + 'B, 0 A) + kendali kembali',
         s2mod.s2Debug().phase === 'done' && s2mod.s2Debug().installed === 3
         && repMod.isRepairOpen() === false && stateMod.cinematicActive === false
-        && w2.length === 25 && nC === 10 && nB === 15 && nA === 0);
+        && w2.length === w2Total && nC === w2C && nB === w2Total - w2C && nA === 0);
     T('S2 DIALOG GENERATOR PULIH: sukses repair memicu arahan kembali ke elevator',
         s2mod.s2DialogueDebug().key === 'generatorRestored'
         && s2mod.s2DialogueDebug().text === expectedS2Dialogue.generatorRestored.text
@@ -3101,7 +3150,7 @@ T('S2 COMPLETE: lift membuka layar hijau dulu meski wave2 masih hidup (tak wajib
     stateMod.isGameOver && smMod.activeScene === s2mod.stage2Scene
     && domS2.gameOverTitle.innerText === 'STAGE 2 COMPLETE'
     && domS2.goStageStats.style.display === 'grid'
-    && !shopMod.isShopOpen() && w2alive === 25 && !s3entered);
+    && !shopMod.isShopOpen() && w2alive === Math.round(25 * s2Mul) && !s3entered);
 T('S2 COMPLETE CONTINUE: CONTINUE baru membuka scene Field Shop',
     gameMod.activateGameOverPrimary() && !stateMod.isGameOver
     && smMod.activeScene.id === 'campaign-shop');
@@ -3309,6 +3358,10 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
 
         // (d) PINTU RUSAK '+': ada dua, keduanya locked+broken, TAK PERNAH
         //     bergerak walau player berdiri di depannya, dan tetap memblok robot.
+        //     Section alur di atas sudah menuntaskan hack mainframe, yang kini
+        //     MELEPAS seluruh kunci (override kill-switch 2026-08-16) — jadi
+        //     kembalikan dulu ke keadaan denah, persis seperti `enter()`.
+        doorMod.resetDoorLocks(s1mod.s1DoorsDbg());
         const brokenDoors = s1mod.s1DoorsDbg().filter(d => d.broken);
         const bd = brokenDoors[0];
         const openBefore = bd ? bd.open : -1;
@@ -3724,6 +3777,10 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s3dropsBefore = stateMod.drops.length;
 smMod.setScene(s3mod.stage3Scene);   // enter(): reset destructibles + supply (TANPA placeRobots — robot via gelombang)
 const s3cfg = cfgMod.CFG.campaign.stage3;
+// Kedua hitungan gelombang stage 3 dikali `robotCountMul` (2026-08-16,
+// permintaan user: 30% lebih banyak) — dibulatkan seperti scaleRobotCount.
+const s3GateWave = Math.round(s3cfg.gateWaveCount * s3cfg.robotCountMul);
+const s3MachineWave = Math.round(s3cfg.machineWaveCount * s3cfg.robotCountMul);
 const domS3 = await import(R('src/core/dom.js'));
 const S3DLGCFG = cfgMod.CFG.campaign.dialogue;
 const expectedS3Dialogue = {
@@ -4019,11 +4076,12 @@ T('S3 FLOW: TIDAK ada robot sebelum terminal pertama di-hack (boleh berkeliling)
         && s3mod.s3DialogueDebug().typing === true);
     finishS3Dialogue();
     const queued = s3mod.s3SpawnDbg().queued + s3Count();
-    T('S3 HACK: hack SELESAI -> satu gelombang (6+6=12) diantre, langsung mengejar',
-        queued === s3cfg.gateWaveCount * 2);
+    T('S3 HACK: hack SELESAI -> satu gelombang (' + s3GateWave + '+' + s3GateWave + '='
+        + (s3GateWave * 2) + ') diantre, langsung mengejar',
+        queued === s3GateWave * 2);
     s3Drain();
     T('S3 HACK: gelombang penuh keluar & semuanya chasing',
-        s3Count() === s3cfg.gateWaveCount * 2 && robots.filter(z => z.stage === 3).every(z => z.state === 'chasing'));
+        s3Count() === s3GateWave * 2 && robots.filter(z => z.stage === 3).every(z => z.state === 'chasing'));
     // Layar terminal yang baru selesai jadi KUNING, giliran pindah ke yang berikutnya.
     const HD = s3mod.s3HackDbg();
     T('S3 HACK: layar terminal yang selesai jadi KUNING & giliran pindah (1 hijau baru)',
@@ -4181,7 +4239,7 @@ const beforeMW = robots.filter(z => z.stage === 3).length;
 for (let t = 0; t < 2; t += 0.5) s3mod.stage3Scene.updateMode(0.5);
 s3Drain();
 T('S3 FLOW: mesin spawn PERTAMA setelah ~machineFirstWaveSec (3 dtk) = 4/mesin (8)',
-    beforeMW === 0 && robots.filter(z => z.stage === 3).length === s3cfg.machineWaveCount * 2);
+    beforeMW === 0 && robots.filter(z => z.stage === 3).length === s3MachineWave * 2);
 
 // (4b) ANTI-CAMP fase machines: sisa < reinforceThreshold -> gelombang tetap datang
 while (robots.filter(z => z.stage === 3).length > s3thr - 1) { const i3 = robots.findIndex(z => z.stage === 3); scene.remove(robots[i3].mesh); robots.splice(i3, 1); }
@@ -4418,11 +4476,18 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 const s4dropsBefore = stateMod.drops.length;
 s4mod.placeRobots();
 const nStage4 = robots.filter(z => z.stage === 4).length;
-T('S4: placeRobots menaruh 40 robot (13 spot) tagged stage 4 (' + nStage4 + ')', nStage4 === 40);
-// Komposisi 2026-07-19 (permintaan user): varian penembak A/B diperbanyak
-T('S4: varian kelas A/B diperbanyak (A >= 5, B >= 8)',
-    robots.filter(z => z.stage === 4 && z.kind === 'A').length >= 5
-    && robots.filter(z => z.stage === 4 && z.kind === 'B').length >= 8);
+// JUMLAH BER-PENGALI (2026-08-16, permintaan user: stage 4 DUA KALI lipat).
+const s4Mul = cfgMod.CFG.campaign.stage4.robotCountMul;
+T('S4: placeRobots menaruh ' + Math.round(s4mod.s4RobotBase * s4Mul) + ' robot (13 spot, base '
+    + s4mod.s4RobotBase + ' x ' + s4Mul + ') tagged stage 4 (' + nStage4 + ')',
+    s4mod.s4RobotBase === 40 && nStage4 === Math.round(s4mod.s4RobotBase * s4Mul)
+    && nStage4 === s4mod.s4RobotCount());
+// Komposisi 2026-07-19 (permintaan user): varian penembak A/B diperbanyak.
+// Penggandaan MENGULANG pola kelas tiap spot, jadi porsi A/B ikut naik —
+// bukan diencerkan jadi kelas C (ambangnya diskalakan dari pengali).
+T('S4: varian kelas A/B diperbanyak (A >= ' + Math.round(5 * s4Mul) + ', B >= ' + Math.round(8 * s4Mul) + ')',
+    robots.filter(z => z.stage === 4 && z.kind === 'A').length >= Math.round(5 * s4Mul)
+    && robots.filter(z => z.stage === 4 && z.kind === 'B').length >= Math.round(8 * s4Mul));
 T('S4: placeSupplies menaruh drops (ammo/medkit)', stateMod.drops.length > s4dropsBefore);
 // Layout baru 2026-07-16 (parkiran/stasiun kecil, jalan 2 lajur): semua spot
 // robot & supply hasil retarget harus tetap berdiri DI DALAM union walkable.
@@ -5430,6 +5495,15 @@ const doorsMod = await import(R('src/scenes/campaign/utility/doors.js'));
 const s5PathMod = await import(R('src/utils/pathfind.js'));
 const s5PalMod = await import(R('src/world/palette.js'));
 const S5C = cfgMod.CFG.campaign.stage5;
+// PENGALI JUMLAH ROBOT (2026-08-16, permintaan user): tabel encounter di config
+// adalah angka DASAR; yang benar-benar di-spawn = dasar x `robotCountMul` stage
+// itu, dengan pembulatan akumulatif `scaleSpawnCounts` (porsi C/B/A tetap).
+const commonS56 = await import(R('src/scenes/campaign/utility/common.js'));
+const scaledMix = (counts, stage) => {
+    const n = commonS56.scaleSpawnCounts([counts.C | 0, counts.B | 0, counts.A | 0], stage);
+    return { C: n[0], B: n[1], A: n[2] };
+};
+const mixTotal = m => (m.C | 0) + (m.B | 0) + (m.A | 0);
 // HP mesin pembuat robot = SATU angka bersama untuk semua stage (permintaan user
 // 2026-08-09) — tidak ada lagi kunci HP per stage yang boleh dibaca di sini.
 const MACHINE_HP = () => cfgMod.CFG.campaign.spawnMachine.hp;
@@ -6326,9 +6400,9 @@ for (const z of depotBots) {
         s5PlacementOK = false;
 }
 T('S5 WORLD: supplies, crates, marker route, dan SEMUA spawn depot berada di area valid',
-    s5PlacementOK && depotBots.length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
-T('S5 DEPOT: komposisi awal C/B/A mengikuti CFG dan tidak memuat boss',
-    sameMix(depotMix, S5C.encounters.depot)
+    s5PlacementOK && depotBots.length === mixTotal(scaledMix(S5C.encounters.depot, 5)));
+T('S5 DEPOT: komposisi awal C/B/A mengikuti CFG x robotCountMul dan tidak memuat boss',
+    sameMix(depotMix, scaledMix(S5C.encounters.depot, 5))
     && robots.filter(z => z.stage === 5).every(z => ['C', 'B', 'A'].includes(z.kind))
     && depotBots.every(z => !['A', 'S', 'T'].includes(s5TokenAt(z.mesh.position.x, z.mesh.position.z)))
     && depotBots.every(z => z.state === 'idle') && !s5mod.stage5Debug().depotAwake);
@@ -7958,7 +8032,7 @@ const s6HallBots = robots.filter(z => z.stage === 6 && z.encounter === 'hall');
         noneInSafe && pushedOut);
 }
 T('S6 HALL: komposisi awal mengikuti CFG, seluruh robot idle, tanpa boss/miniboss',
-    sameMix(s6Mix('hall'), S6C.encounters.hall)
+    sameMix(s6Mix('hall'), scaledMix(S6C.encounters.hall, 6))
     && s6HallBots.every(z => z.state === 'idle' && ['C', 'B', 'A'].includes(z.kind))
     && !s6mod.stage6Debug().hallAwake);
 
@@ -8050,7 +8124,7 @@ T('S6 KUNCI DITEMUKAN: rak yang benar MELEPAS GEMBOK `=` tanpa membukanya',
     && s6Door('grid').locked === false
     && s6Door('grid').target === 0 && s6Door('grid').open === 0
     && s6Door('chapter').target === 0
-    && sameMix(s6Mix('grid'), S6C.encounters.grid));
+    && sameMix(s6Mix('grid'), scaledMix(S6C.encounters.grid, 6)));
 {
     // Berdiri di depan daunnya membukanya; menjauh menutupnya lagi setelah
     // linger `closeDelaySec` habis — perilaku pintu otomatis standar.
@@ -8097,7 +8171,7 @@ for (let i = 0; i < s6mod.GENERATOR_POINTS.length; i++) {
 T('S6 LISTRIK PULIH: tiga generator membuka pintu `@` dan melepas gelombang exfil',
     s6mod.stage6Debug().generatorsOnline === 3 && s6mod.stage6Debug().phase === 'exfil'
     && s6Door('chapter').target === 1
-    && sameMix(s6Mix('exfil'), S6C.encounters.exfil)
+    && sameMix(s6Mix('exfil'), scaledMix(S6C.encounters.exfil, 6))
     // Penanda `F` MENUNGGU kedua mesin: selama masih berdiri, objektifnya mesin.
     && s6mod.stage6WorldDebug().markers.finish === false);
 drainS6Dialogue();
@@ -8158,7 +8232,7 @@ T('S6 CHAPTER: arrival -> HQ berpindah langsung tanpa dialog/cutscene/fade',
 T('S6 CHAPTER: sisa robot chapter 1 ditinggal, garnisun kantor sesuai CFG',
     s6ExfilLeft > 0 && s6Alive('exfil') === 0
     && s6mod.stage6Debug().phase === 'office'
-    && sameMix(s6Mix('office'), S6C.encounters.office));
+    && sameMix(s6Mix('office'), scaledMix(S6C.encounters.office, 6)));
 
 // --- CHAPTER 2 "FINISH": kantor markas dari `stages(Stage6-Finish).csv`.
 // Masuk dari SF -> cari jalan ke ruang server (tiga pintu RUSAK memaksa memutar)
@@ -8416,7 +8490,7 @@ T('S6 HQ PINTU RUSAK: sel `@` benar-benar PEJAL, bukan sekadar prop',
 }
 const s6OfficeBots = robots.filter(z => z.stage === 6 && z.encounter === 'office');
 T('S6 HQ GARNISUN: komposisi CFG, semua idle selagi player di safe area, tanpa boss',
-    sameMix(s6Mix('office'), S6C.encounters.office)
+    sameMix(s6Mix('office'), scaledMix(S6C.encounters.office, 6))
     && s6OfficeBots.every(z => z.state === 'idle' && ['C', 'B', 'A'].includes(z.kind))
     && !s6mod.stage6Debug().hq.officeAwake
     && s6mod.stage6Debug().phase === 'office');
@@ -8498,7 +8572,7 @@ T('S6 HQ HACK: terminal ruang rapat membuka SIGNAL TRACE',
 signalMod.signalTick(cfgMod.CFG.campaign.signalTrace.traceSec + 1);
 await waitSignalClosed();
 T('S6 HQ HACK: timeout melepas squad alarm config-driven dan mengunci terminal',
-    sameMix(s6Mix('alarm'), S6C.encounters.signalAlarm)
+    sameMix(s6Mix('alarm'), scaledMix(S6C.encounters.signalAlarm, 6))
     && Math.abs(s6mod.stage6Debug().hq.hackCd - S6C.signalCooldownSec) < 0.01
     && !s6mod.stage6Debug().hq.serverHacked
     && s6HqDoor('server-access').locked === true
@@ -8538,7 +8612,7 @@ T('S6 LOCKDOWN: peringatan MENURUNKAN dua mesin (baru muncul di sini) + purge te
     s6mod.stage6Debug().phase === 'purge' && s6mod.stage6Debug().hq.lockdown
     && s6mod.hqWorldDebug().machines.every(m => m.active && m.alive && m.deployed
         && m.visible && m.blocking && m.hp === MACHINE_HP() && !m.rig.dead)
-    && sameMix(s6Mix('purge'), S6C.encounters.purge)
+    && sameMix(s6Mix('purge'), scaledMix(S6C.encounters.purge, 6))
     && robots.some(z => z.stage === 6 && z.encounter === 'purge'
         && s6mod.HQ_MAP[Math.floor((z.mesh.position.z - s6HqWorld.map.z0) / s6HqWorld.map.cell)]
             [Math.floor((z.mesh.position.x - s6HqWorld.map.x0) / s6HqWorld.map.cell)] === 'A'));
@@ -9578,6 +9652,127 @@ T('S8 WORLD: tujuh corridor, fixed road/pickup/dust/projectile pools, airport, d
     && s8World0.pools.dust === 24 && s8World0.pools.missiles === S8G.missileBurst
     && s8World0.pools.shells === 2 && s8World0.lights === 12
     && s8World0.sceneRoots.airport && s8mod.stage8Walk(s8mod.S8_START.x, s8mod.S8_START.z, 1));
+// --- LANSKAP DUA BABAK (2026-08-17, permintaan user "perbaiki background di
+// Stage 8 ... perkotaan kota Bandung ... transisikan jadi persawahan khas Jawa
+// Barat menjelang boss, dan tetap persawahan selama melawan boss"). Sebelumnya
+// latar Stage 8 hanya tiga baris prop generik `index % 3` DAN di luar bahu jalan
+// tidak ada permukaan tanah sama sekali (haze `scene.background` yang tampil).
+{
+    const s8ScenerySrc = fs.readFileSync(
+        ROOT + '/src/scenes/campaign/stages/stage8/scenery.js', 'utf8');
+    const s8Scenery0 = s8mod.stage8SceneryStateDebug();
+    const s8ScnPool = s8mod.stage8SceneryPoolDbg();
+    const meshesOf = g => { let n = 0; g.traverse(o => { if (o.isMesh) n++; }); return n; };
+    const minOf = (arr, f) => arr.reduce((m, g) => Math.min(m, f(g)), Infinity);
+    T(`S8 LANSKAP: tiga pool parallax, tiap modul membawa KEDUA babak, dan perjalanan dibuka di kota [near ${s8Scenery0.counts.near}/mid ${s8Scenery0.counts.mid}/far ${s8Scenery0.counts.far}]`,
+        s8Scenery0.counts.near >= 10 && s8Scenery0.counts.mid >= 8 && s8Scenery0.counts.far >= 6
+        && s8Scenery0.counts.base === s8Scenery0.counts.near
+        // Ketiga pool berbentang sama: satu konstanta wrap, tanpa lubang.
+        && [s8Scenery0.counts.near * s8Scenery0.steps.near,
+            s8Scenery0.counts.mid * s8Scenery0.steps.mid,
+            s8Scenery0.counts.far * s8Scenery0.steps.far]
+            .every(v => Math.abs(v - s8Scenery0.steps.span) < 1e-9)
+        && s8Scenery0.act === 'city' && s8Scenery0.targetAct === 'city'
+        && s8Scenery0.cityVisible === s8Scenery0.counts.near && s8Scenery0.riceVisible === 0
+        && minOf(s8ScnPool.near, g => meshesOf(g.userData.cityG)) >= 30
+        && minOf(s8ScnPool.near, g => meshesOf(g.userData.riceG)) >= 30
+        && minOf(s8ScnPool.mid, g => meshesOf(g.userData.cityG)) >= 14
+        && minOf(s8ScnPool.mid, g => meshesOf(g.userData.riceG)) >= 14
+        && minOf(s8ScnPool.far, g => meshesOf(g.userData.cityG)) >= 8
+        && minOf(s8ScnPool.far, g => meshesOf(g.userData.riceG)) >= 8);
+    // KOTA BANDUNG vs PERSAWAHAN harus benar-benar dua pemandangan berbeda —
+    // bukan satu set prop yang dicat ulang. Diukur dari siluet & palet aktual.
+    {
+        const sig = groups => {
+            const hexes = new Set(), shapes = new Set();
+            for (const g of groups) g.traverse(o => {
+                if (!o.isMesh) return;
+                if (o.material?.color?.getHex) hexes.add(o.material.color.getHex());
+                if (o.geometry?.args) shapes.add(o.geometry.type + ':'
+                    + o.geometry.args.map(v => Math.round(v * 10)).join(','));
+            });
+            return { hexes, shapes };
+        };
+        const all = [...s8ScnPool.near, ...s8ScnPool.mid, ...s8ScnPool.far];
+        const city = sig(all.map(g => g.userData.cityG));
+        const rice = sig(all.map(g => g.userData.riceG));
+        const shared = [...city.shapes].filter(s => rice.shapes.has(s)).length;
+        T(`S8 LANSKAP: kota dan sawah benar-benar dua pemandangan berbeda [kota ${city.shapes.size} bentuk/${city.hexes.size} warna, sawah ${rice.shapes.size}/${rice.hexes.size}, beririsan ${shared}]`,
+            city.shapes.size >= 90 && rice.shapes.size >= 60
+            && city.hexes.size >= 6 && rice.hexes.size >= 4
+            && shared < Math.min(city.shapes.size, rice.shapes.size) * 0.25);
+    }
+    // TANAH BENAR-BENAR ADA DI LUAR BAHU JALAN. Inilah yang membuat latar lama
+    // terbaca kosong: |z| > 74 tidak punya permukaan apa pun, jadi yang tampil
+    // adalah haze latar. Slab dasarnya harus menutup KEDUA sisi.
+    {
+        const spanZ = { back: [0, 0], front: [0, 0] };
+        for (const g of s8ScnPool.base) g.userData.baseG.traverse(o => {
+            if (!o.isMesh || !o.geometry?.args) return;
+            const [, , sz] = o.geometry.args;
+            const z0 = o.position.z - sz / 2, z1 = o.position.z + sz / 2;
+            if (z1 < 0) { spanZ.back[0] = Math.min(spanZ.back[0], z0); spanZ.back[1] = Math.max(spanZ.back[1], z1); }
+            if (z0 > 0) { spanZ.front[0] = Math.min(spanZ.front[0], z0); spanZ.front[1] = Math.max(spanZ.front[1], z1); }
+        });
+        T(`S8 LANSKAP: pita tanah menutup kedua sisi di luar bahu jalan [backdrop ${spanZ.back[0].toFixed(0)}..${spanZ.back[1].toFixed(0)}, kamera ${spanZ.front[0].toFixed(0)}..${spanZ.front[1].toFixed(0)}]`,
+            spanZ.back[1] >= -(s8Scenery0.rows.verge + 12) && spanZ.back[0] <= s8Scenery0.rows.back[1]
+            && spanZ.front[0] <= s8Scenery0.rows.verge + 12
+            && spanZ.front[1] >= s8Scenery0.rows.foreground[1] - 12);
+    }
+    // PENJAGA YANG SESUNGGUHNYA: biaya draw call SESUDAH pengelasan — bukan
+    // jumlah mesh mentah (latar padat memang mahal secara mesh, murah secara
+    // draw call), dan hanya SATU babak yang tergambar sekaligus.
+    T(`S8 LANSKAP: biaya draw call tetap kecil walau padat [${s8Scenery0.weldedActive} tergambar, ${s8Scenery0.welded} dilas dari ${s8Scenery0.raw} mentah]`,
+        s8Scenery0.raw > 1600 && s8Scenery0.welded < 520
+        && s8Scenery0.welded < s8Scenery0.raw / 4
+        // Hanya SATU babak yang tergambar sekaligus — itulah harga per frame,
+        // dan modul yang tak di layar masih di-frustum-cull di atasnya.
+        && s8Scenery0.weldedActive < s8Scenery0.welded * 0.7);
+    {
+        const { FORBIDDEN_HEX, EMISSIVE_MAX } = await import(R('src/world/palette.js'));
+        const flat = Object.values(s8mod.stage8SceneryMatsDbg())
+            .flatMap(v => Array.isArray(v) ? v : [v]);
+        T('S8 LANSKAP: seluruh material memakai token PAL (tanpa neon, emissive <= EMISSIVE_MAX)',
+            flat.length >= 12 && flat.every(m2 => !FORBIDDEN_HEX.includes(m2.color.getHex())
+                && !FORBIDDEN_HEX.includes(m2.emissive.getHex())
+                && (m2.emissive.getHex() === 0 || m2.emissiveIntensity <= EMISSIVE_MAX)));
+    }
+    // Dibangun saat loading bersama seluruh dunia campaign: memakai RNG global
+    // akan menggeser penempatan acak stage lain (aturan sama dgn Stage 5/7).
+    {
+        const src = s8ScenerySrc
+            .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+        const roadSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage8/index.js', 'utf8');
+        T('S8 LANSKAP: penataan deterministik — tanpa RNG global, dan modul jalan tak lagi mengacak saat build',
+            !/Math\s*\.\s*random\s*\(/.test(src)
+            && !/rand\(/.test(roadSrc.split('function buildRoadModule')[1]?.split('\nfunction ')[0] || 'rand('));
+    }
+    // POHON TIDAK BOLEH TERBALIK (2026-08-17, laporan user "sepertinya ada pohon
+    // yang bentuk daunnya terbalik"). Mahkota kelapa dulu sebuah KERUCUT yang
+    // diputar `rotation.x = PI`; dari kamera oblique itu terbaca sebagai
+    // segitiga menunjuk ke bawah. Dua hal dijaga: tak ada satu pun mesh lanskap
+    // yang dibalik pada sumbu x/z, dan mahkota kelapa memang terdiri dari
+    // beberapa pelepah terpisah, bukan satu kerucut.
+    {
+        let flipped = 0, cones = 0;
+        for (const arr of [s8ScnPool.base, s8ScnPool.near, s8ScnPool.mid, s8ScnPool.far])
+            for (const g of arr) g.traverse(o => {
+                if (!o.isMesh) return;
+                const r = o.rotation || {};
+                const half = Math.PI / 2 - 1e-6;
+                if (Math.abs(r.x || 0) > half || Math.abs(r.z || 0) > half) flipped++;
+                if (o.geometry?.type === 'cone' || o.geometry?.type === 'ConeGeometry') cones++;
+            });
+        T(`S8 LANSKAP: tak ada bentuk yang berdiri terbalik — mahkota kelapa kini pelepah, bukan kerucut terbalik [${cones} kerucut, ${flipped} terbalik]`,
+            flipped === 0 && cones > 40);
+    }
+    // Lampu per stage HARUS tetap 12 (aturan "tanpa rekompilasi shader"): latar
+    // sepadat ini tidak boleh menyelundupkan satu PointLight pun.
+    T('S8 LANSKAP: murni dekor — nol PointLight, nol blocker',
+        s8World0.lights === 12
+        && !/PointLight/.test(s8ScenerySrc
+            .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')));
+}
 T('S8 DISTANCE: 100 KM hanya menjadi informasi opening tanpa countdown perjalanan',
     s8mod.STAGE8_DIALOGUE.openingSystem.text.includes('DISTANCE: 100 KILOMETERS')
     && !('distanceKm' in s8Road0) && !('kmPerSec' in s8Road0)
@@ -9635,6 +9830,100 @@ T('S8 OPENING SKIP: skip memberi state highway bersih yang sama tanpa dialog/fad
     dom4.triggerCutsceneSkip() === true && s8mod.stage8Debug().phase === 'highway'
     && !stateMod.cinematicActive && s8mod.stage8DialogueDebug().key === null
     && dom4.stageRadioDialogueDebug() === null && dom4.cineFadeDebug()?.opacity === 0);
+// Diukur SESUDAH cutscene pembuka dilewati: `camOffset` Stage 8 baru menjadi
+// kamera GAMEPLAY di sini, dan kamera itulah yang berlaku sepanjang pengejaran,
+// duel gunship, dan seluruh peralihan babak lanskap.
+{
+    const s8ScnPool = s8mod.stage8SceneryPoolDbg();
+    const s8Scenery0 = s8mod.stage8SceneryStateDebug();
+    // SELURUH PROP HARUS BERADA DI DALAM TAPAK PANDANG KAMERA. Ini yang diam-diam
+    // rusak pada lanskap Stage 5 sebelum 2026-08-09: pool cakrawala dibangun di
+    // luar jangkauan kamera dan tak pernah tampil satu piksel pun. Batasnya
+    // DIBACA dari renderer memakai camOffset Stage 8 sendiri, bukan angka mati.
+    {
+        rendererMod.followViewCam(0.016);
+        // Bidang tanah lanskap duduk sedikit DI BAWAH y=0, dan bidang yang lebih
+        // rendah terlihat sedikit lebih jauh — jadi tapaknya diukur di sana.
+        const GY = -0.9;
+        const ext = rendererMod.groundViewExtents(cfgMod.CFG.player.eyeHeight, GY);
+        // Setiap mesh diuji lewat RENTANG-nya, bukan titik pusatnya: sebuah slab
+        // tanah memang HARUS menjulur melewati tepi frame (lihat tes cakupan di
+        // bawah), sementara prop yang seluruhnya di luar tapak tetap tertangkap.
+        // Stub harness memakai nama tipe pendek ('box'), three asli 'BoxGeometry'.
+        const isBox = t => t === 'box' || t === 'BoxGeometry';
+        let worstBack = 0, worstFront = 0, outside = 0;
+        for (const arr of [s8ScnPool.base, s8ScnPool.near, s8ScnPool.mid, s8ScnPool.far])
+            for (const g of arr) g.traverse(o => {
+                if (!o.isMesh) return;
+                let z = o.position.z, q = o.parent;
+                while (q && q !== g) { z += q.position.z; q = q.parent; }
+                worstBack = Math.min(worstBack, z); worstFront = Math.max(worstFront, z);
+                const d = (isBox(o.geometry?.type) && o.geometry.args)
+                    ? Math.abs(o.geometry.args[2]) : 0;
+                if (z + d / 2 < ext.minZ || z - d / 2 > ext.maxZ) outside++;
+            });
+        T(`S8 LANSKAP: tak ada prop yang dibangun di luar tapak pandang kamera [terjauh ${worstBack.toFixed(0)}..${worstFront.toFixed(0)}, tepi ${ext.minZ.toFixed(0)}..${ext.maxZ.toFixed(0)}]`,
+            outside === 0 && worstBack < -400 && worstFront > 100);
+        // CAKUPAN TANAH (2026-08-17, laporan user "di sisi kanan jalan masih
+        // terlihat area biru yang kosong"). Versi pertama menghentikan tanah di
+        // z +155 dan -520 padahal frame mencapai +160/-718 pada 16:9 (dan
+        // +187/-838 pada 21:9), jadi haze `scene.background` menganga di tepi
+        // BAWAH-KANAN — justru tempat skala dunia paling besar. Yang dijaga di
+        // sini bukan "prop ada di dalam frame" melainkan kebalikannya: TANAHNYA
+        // harus MENUTUP seluruh tapak, dengan kelebihan untuk layar lebih lebar,
+        // dan itu harus berlaku pada KEDUA babak.
+        {
+            const rows = s8Scenery0.rows;
+            const HEADROOM = 1.15;            // cadangan utk rasio layar lebih lebar
+            const needFar = ext.minZ * HEADROOM, needNear = ext.maxZ * HEADROOM;
+            const groundSpans = groups => {
+                const out = [];
+                for (const g of groups) g.traverse(o => {
+                    if (!o.isMesh || !isBox(o.geometry?.type) || !o.geometry.args) return;
+                    const [, sy, sz] = o.geometry.args;
+                    let z = o.position.z, y = o.position.y, q = o.parent;
+                    while (q && q !== g) { z += q.position.z; y += q.position.y; q = q.parent; }
+                    // "Tanah" = balok lebar-dalam yang puncaknya di sekitar/di
+                    // bawah permukaan; bangunan dan pematang tidak ikut terhitung.
+                    if (Math.abs(sz) < 10 || y + sy / 2 > 6) return;
+                    out.push([z - Math.abs(sz) / 2, z + Math.abs(sz) / 2]);
+                });
+                return out;
+            };
+            const gapIn = (spans, a, b) => {
+                const m = spans.filter(v => v[1] > a && v[0] < b).sort((u, v) => u[0] - v[0]);
+                let at = a, worst = 0;
+                for (const [z0, z1] of m) {
+                    if (z0 > at) worst = Math.max(worst, z0 - at);
+                    at = Math.max(at, z1);
+                }
+                return Math.max(worst, b - at);
+            };
+            let worstGap = 0, worstAct = '';
+            for (const key of ['cityG', 'riceG']) {
+                const spans = groundSpans([
+                    ...s8ScnPool.base.map(g => g.userData.baseG),
+                    ...s8ScnPool.near.map(g => g.userData[key]),
+                    ...s8ScnPool.mid.map(g => g.userData[key]),
+                    ...s8ScnPool.far.map(g => g.userData[key]),
+                ]);
+                // Pita jalan sendiri (|z| <= rows.groundIn) milik modul jalan.
+                const gap = Math.max(gapIn(spans, needFar, -rows.groundIn),
+                    gapIn(spans, rows.groundIn, needNear));
+                if (gap > worstGap) { worstGap = gap; worstAct = key; }
+            }
+            // Tepi dalam slab benar-benar menyelinap di bawah perkerasan jalan.
+            const paved = S8C.laneWidth * 3.5 + 6 + 6;
+            T(`S8 LANSKAP: tanah menutup SELURUH tapak pandang di kedua babak — tak ada celah haze [celah terburuk ${worstGap.toFixed(1)} di ${worstAct || '-'}, tapak ${(ext.minZ * 1.15).toFixed(0)}..${(ext.maxZ * 1.15).toFixed(0)}]`,
+                worstGap <= 0.001 && rows.groundIn < paved
+                && rows.ground[0] <= ext.minZ * HEADROOM && rows.ground[1] >= ext.maxZ * HEADROOM);
+        }
+        // Ambang "aman di luar layar ke depan" dipakai relayout babak: ia HARUS
+        // benar-benar di luar tapak pandang, atau modul akan berganti di layar.
+        T(`S8 LANSKAP: ambang tata-ulang babak sungguh di luar layar [${s8Scenery0.aheadThreshold} vs tepi ${ext.maxX.toFixed(0)}]`,
+            s8Scenery0.aheadThreshold > ext.maxX + s8Scenery0.steps.near / 2);
+    }
+}
 
 // Mulai di carriageway kiri. Hold tidak auto-repeat: satu edge D hanya pindah
 // dari slot 1 ke 2, lalu edge berikutnya baru membawa kendaraan ke median.
@@ -9657,10 +9946,67 @@ function killS8Riders(predicate = () => true) {
         robotsMod.disposeRobot(z); scene.remove(z.mesh); robots.splice(i, 1);
     }
 }
+// AUDIT PERGANTIAN BABAK LANSKAP (2026-08-17). Dua aturan sekaligus, diperiksa
+// pada SETIAP tick sepanjang stage:
+//  (a) babaknya turun dari ambang config `scenery.riceAfterFraction` — kota
+//      selama pengejaran masih di bawahnya, persawahan begitu terlewat, dan
+//      TIDAK PERNAH kembali ke kota (boss harus tetap di persawahan);
+//  (b) tak satu pun modul boleh berganti kota<->sawah selagi BERADA DI LAYAR.
+//      Sebuah pergantian hanya sah kalau modulnya baru saja wrap (posisinya
+//      melompat ke ujung depan pool) atau memang menunggu di luar ambang
+//      `S8_SCENERY_AHEAD`. Tanpa ini transisinya kembali "tiba-tiba berubah"
+//      seperti lanskap Stage 5 sebelum 2026-08-09.
+const s8Scn = { prev: null, swaps: 0, onScreen: 0, badEarly: 0, badLate: 0,
+    backToCity: 0, acts: new Set(), ticks: 0 };
+// BANGKAI CARRIER HARUS DITINGGALKAN (2026-08-17, permintaan user "ketika robot
+// dan mobilnya hancur, serpihan mereka tertinggal di tempat"). Laju surutnya
+// diukur dalam KELIPATAN laju tanah: < 1 berarti bangkainya ikut terseret maju
+// bersama kendaraan player, dan ia harus MENGEREM sampai tepat 1 (diam di aspal)
+// alih-alih meluncur mundur selamanya.
+const s8Wreck = { prev: new Map(), min: Infinity, max: 0, samples: 0 };
+function auditS8Wreck(dt) {
+    const ground = S8C.roadSpeed * dt;
+    if (!(ground > 0)) return;
+    const now = new Map();
+    for (const p of s8mod.stage8ConvoyDebug().pickups) {
+        if (!p.active || !p.wreck || !p.position) continue;
+        now.set(p.eventIndex, p.position.x);
+        const was = s8Wreck.prev.get(p.eventIndex);
+        if (was == null) continue;
+        const f = (was - p.position.x) / ground;
+        if (f < 0 || f > 4) continue;                     // pool baru dipakai ulang
+        s8Wreck.samples++;
+        s8Wreck.min = Math.min(s8Wreck.min, f); s8Wreck.max = Math.max(s8Wreck.max, f);
+    }
+    s8Wreck.prev = now;
+}
+function auditS8Scenery() {
+    const d = s8mod.stage8SceneryActDebug();
+    if (!d || !d.near) return;
+    const frac = S8C.scenery.riceAfterFraction;
+    const done = s8mod.stage8ConvoyDebug().destroyed / Math.max(1, S8C.groundPickupTarget);
+    const pursuing = ['opening', 'highway', 'groundPursuit'].includes(s8mod.stage8Debug().phase);
+    s8Scn.ticks++; s8Scn.acts.add(d.act);
+    if (pursuing && done < frac && d.act !== 'city') s8Scn.badEarly++;
+    if (done >= frac && d.act !== 'rice') s8Scn.badLate++;
+    if (s8Scn.prev && s8Scn.prev.act === 'rice' && d.act === 'city') s8Scn.backToCity++;
+    if (s8Scn.prev) for (const k of ['near', 'mid', 'far'])
+        for (let i = 0; i < d[k].length; i++) {
+            const was = s8Scn.prev[k][i], now = d[k][i];
+            if (was.act === now.act) continue;
+            s8Scn.swaps++;
+            // Sah: baru wrap (x melompat maju) ATAU sedang parkir di luar layar.
+            const wrapped = now.x > was.x + 1;
+            const parked = was.x - d.baseX > d.ahead && now.x - d.baseX > d.ahead;
+            if (!wrapped && !parked) s8Scn.onScreen++;
+        }
+    s8Scn.prev = d;
+}
 function tickS8(total, step = 0.1) {
     let left = Math.max(0, total), guard = 0;
     while (left > 1e-9 && guard++ < 50000) {
         const dt = Math.min(step, left); s8mod.stage8Scene.updateMode(dt); left -= dt;
+        auditS8Scenery(); auditS8Wreck(dt);
     }
 }
 function drainS8Dialogue() {
@@ -9689,6 +10035,35 @@ T('S8 PICKUP ENTRY: carrier pertama lahir di ujung road pool belakang, bukan ten
     && firstPickupEntry.entryX < firstPickupEntry.entryViewEdgeX - S8C.pickupOffscreenMargin
     && firstPickupEntry.lane <= 2 && Math.abs(firstPickupEntry.yaw) < 1e-9);
 
+// SERPIHAN DITINGGALKAN DI ASPAL (2026-08-17, permintaan user "ketika robot dan
+// mobilnya hancur, serpihan mereka tertinggal di tempat. tidak ikut bergerak
+// seperti sekarang ini"). Stage 8 adalah arena koordinat-stabil: GRD LTV-45
+// diam di PLAYER_X dan jalanlah yang bergulir, jadi sisa tempur yang dibiarkan
+// di koordinat dunianya diam TERHADAP KENDARAAN dan terlihat terseret ikut
+// selamanya. Genangan coolant dipakai sebagai probe karena ia TIDAK punya
+// kecepatan sendiri — perpindahannya murni hasil drift. Masalah & helper yang
+// sama dengan perjalanan Stage 5 (2026-08-09).
+{
+    goreMod.resetGore();
+    const probeX = s8mod.S8_START.x + 40, probeZ = s8mod.S8_LANES[0];
+    goreMod.spawnBloodDecal(probeX, probeZ, 3);
+    const before = goreMod.goreDebug().decals.map(d => ({ ...d }));
+    const roadBefore = s8mod.stage8RoadDebug().modulePositions.slice();
+    const dt = 0.1;
+    tickS8(dt, dt);
+    const after = goreMod.goreDebug().decals;
+    const roadAfter = s8mod.stage8RoadDebug().modulePositions;
+    // Modul jalan yang TIDAK wrap pada frame ini = laju tanah sesungguhnya.
+    const roadStep = roadBefore.map((x, i) => x - roadAfter[i]).filter(d => d > 0 && d < 1e3)[0];
+    const drift = before.length ? before[0].x - after[0].x : 0;
+    T(`S8 SERPIHAN: sisa tempur tertinggal di aspal, persis selaju tanah [${drift.toFixed(2)} unit/frame vs jalan ${roadStep.toFixed(2)}]`,
+        before.length === 1 && S8C.roadSpeed > 0
+        && Math.abs(drift - S8C.roadSpeed * dt) < 1e-9
+        && Math.abs(drift - roadStep) < 1e-9
+        // Z tidak boleh ikut bergeser: jalan hanya bergulir pada sumbu x.
+        && Math.abs(after[0].z - before[0].z) < 1e-9);
+    goreMod.resetGore();
+}
 // Hancurkan carrier satu per satu sampai tersisa carrier target terakhir. Audit
 // setiap entry memastikan kedua ujung road pool dipakai tanpa melawan arus.
 let maxS8Pickups = 0, allMountedTriples = true, entryFacingOK = true;
@@ -9740,6 +10115,19 @@ T('S8 PURSUIT COMPLETE: kendaraan ke-20 memulai approach tanpa spawn tambahan',
     && s8mod.stage8ConvoyDebug().spawned === S8C.groundPickupTarget
     && s8mod.stage8Debug().phase === 'bossApproach'
     && !s8mod.stage8GunshipDebug().active);
+// Menjelang boss lanskapnya HARUS sudah persawahan — dan sudah TUNTAS, bukan
+// setengah jalan: ini inti permintaan user "ketika hampir melawan boss,
+// transisikan backgroundnya menjadi di persawahan khas Jawa Barat".
+{
+    const scn = s8mod.stage8SceneryStateDebug();
+    T(`S8 BABAK: pengejaran berakhir di persawahan Jawa Barat, kota sudah habis dari ketiga pool [near ${scn.riceVisible}/${scn.counts.near} sawah, relayout ${scn.relayouts}x, wrap ${scn.wraps}x]`,
+        scn.act === 'rice' && scn.targetAct === 'rice'
+        && scn.cityVisible === 0 && scn.midCity === 0 && scn.farCity === 0
+        && scn.riceVisible === scn.counts.near
+        // Peralihannya MENJALAR: satu tata-ulang di luar layar + wrap, bukan
+        // satu frame yang membalik seluruh pool.
+        && scn.relayouts === 1 && scn.wraps > scn.counts.near);
+}
 tickS8(Math.max(0, S8C.bossApproachDelaySec - 0.1), 0.1);
 T('S8 BOSS APPROACH: gunship menunggu delay config setelah 20 carrier hancur',
     s8mod.stage8Debug().phase === 'bossApproach' && !s8mod.stage8GunshipDebug().active);
@@ -9756,6 +10144,12 @@ T('S8 GUNSHIP INTRO SKIP: cleanup identik dan boss battle tetap aktif'
     s8GunshipSkipResult === true && s8mod.stage8Debug().phase === 'gunshipBattle'
     && !stateMod.cinematicActive
     && s8GunshipAfterSkip.hp === S8G.hp);
+
+T('S8 BABAK: duel gunship berlangsung di atas persawahan, bukan kembali ke kota',
+    s8mod.stage8SceneryActDebug().act === 'rice'
+    && s8mod.stage8SceneryStateDebug().cityVisible === 0
+    && [...s8mod.stage8SceneryActDebug().near, ...s8mod.stage8SceneryActDebug().mid,
+        ...s8mod.stage8SceneryActDebug().far].every(m => m.act === 'rice'));
 
 // Siklus serangan aktual: median ikut ditarget, MG telegraph, cannon, lalu burst
 // homing yang tidak pernah dapat melebihi tiga proyektil pool.
@@ -9795,6 +10189,19 @@ T('S8 COMPLETE: arrival skip membersihkan pose/overlay/audio dan membuka finish 
     && !avMod.avatarVehicleDebug().active && dom4.stageRadioDialogueDebug() === null
     && dom4.cineFadeDebug()?.opacity === 0
     && JSON.stringify(s8mod.stage8WorldDebug().pools) === s8PoolsBeforeDeath);
+
+T(`S8 BANGKAI: bangkai carrier mengerem lalu DIAM di aspal — tak pernah terseret ikut kendaraan player [laju surut ${s8Wreck.min.toFixed(2)}x..${s8Wreck.max.toFixed(2)}x laju tanah, ${s8Wreck.samples} sampel]`,
+    s8Wreck.samples > 5
+    // Tak pernah lebih lambat dari tanah: kalau < 1 ia ikut terbawa maju.
+    && s8Wreck.min >= 1 - 1e-6
+    // Benar-benar MENGEREM sampai laju tanah, bukan meluncur mundur selamanya.
+    && s8Wreck.min <= 1.02 && s8Wreck.max <= 1.36);
+
+T(`S8 BABAK: sepanjang stage — kota sebelum ambang config, sawah sesudahnya, tanpa satu pun modul yang berganti di depan mata [${s8Scn.swaps} pergantian, ${s8Scn.ticks} tick]`,
+    s8Scn.acts.has('city') && s8Scn.acts.has('rice')
+    && s8Scn.badEarly === 0 && s8Scn.badLate === 0 && s8Scn.backToCity === 0
+    && s8Scn.onScreen === 0 && s8Scn.swaps > 20
+    && S8C.scenery.riceAfterFraction > 0 && S8C.scenery.riceAfterFraction < 1);
 
 // Kembali ke Stage 7 untuk menguji jalur skip outro-nya secara independen.
 stateMod.setGameOver(false);
@@ -9843,18 +10250,19 @@ T('cheat skip-to-stage-7: pindah ke Pasupati + checkpoint/robot Stage 7', jr ===
 jr = smMod.activeScene.cheatSkipToStage(6);
 T('cheat skip-to-stage-6: pindah ke Bandung HQ + checkpoint/robot Stage 6', jr === 6
     && smMod.activeScene === s6mod.stage6Scene && save5Mod.loadCampaignStage() === 6
-    && robots.filter(z => z.stage === 6).length === Object.values(S6C.encounters.hall).reduce((a, b) => a + b, 0));
+    && robots.filter(z => z.stage === 6).length === Object.values(scaledMix(S6C.encounters.hall, 6)).reduce((a, b) => a + b, 0));
 jr = smMod.activeScene.cheatSkipToStage(5);
 T('cheat skip-to-stage-5: pindah ke depot + checkpoint/robot Stage 5', jr === 5
     && smMod.activeScene === s5mod.stage5Scene && save5Mod.loadCampaignStage() === 5
-    && robots.filter(z => z.stage === 5).length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
+    && robots.filter(z => z.stage === 5).length === mixTotal(scaledMix(S5C.encounters.depot, 5)));
 jr = smMod.activeScene.cheatSkipToStage(3);   // dari stage 5 aktif -> STAGE 3
 await s3RunHack(); s3Drain();   // stage 3 MULAI kosong; HACK terminal (minigame) -> gelombang robot
 T('cheat skip-to-stage-3: pindah ke stage 3 + hack terminal -> gelombang robot (3-tag)', jr === 3
     && smMod.activeScene === s3mod.stage3Scene && robots.length > 0 && robots.every(z => z.stage === 3));
 jr = smMod.activeScene.cheatSkipToStage(2);        // -> STAGE 2 (robot ditempatkan ulang oleh helper)
-T('cheat skip-to-stage-2: pindah ke stage 2 + 50 robot ditempatkan', jr === 2
-    && smMod.activeScene === s2mod.stage2Scene && robots.filter(z => z.stage === 2).length === 50);
+T('cheat skip-to-stage-2: pindah ke stage 2 + ' + s2mod.s2Wave1Count() + ' robot ditempatkan', jr === 2
+    && smMod.activeScene === s2mod.stage2Scene
+    && robots.filter(z => z.stage === 2).length === s2mod.s2Wave1Count());
 const s4before = smMod.activeScene;
 T('cheat skip-to-stage invalid (14) ditolak, scene tak berubah',
     smMod.activeScene.cheatSkipToStage(14) === null && smMod.activeScene === s4before);
@@ -10031,14 +10439,14 @@ const restart5 = saveMod.loadCampaignStage() || 1;
 smMod.activeScene.cheatSkipToStage(restart5);
 T('restart/continue checkpoint 5: mendarat di awal depot dengan encounter awal utuh',
     restart5 === 5 && smMod.activeScene === s5mod.stage5Scene
-    && robots.filter(z => z.stage === 5).length === Object.values(S5C.encounters.depot).reduce((a, b) => a + b, 0));
+    && robots.filter(z => z.stage === 5).length === mixTotal(scaledMix(S5C.encounters.depot, 5)));
 saveMod.saveCampaignStage(6);
 const restart6 = saveMod.loadCampaignStage() || 1;
 smMod.activeScene.cheatSkipToStage(restart6);
 T('restart/continue checkpoint 6: mendarat di safe area chapter arrival dengan garnisun hall utuh',
     restart6 === 6 && smMod.activeScene === s6mod.stage6Scene
     && s6mod.stage6Debug().chapter === 'arrival'
-    && robots.filter(z => z.stage === 6).length === Object.values(S6C.encounters.hall).reduce((a, b) => a + b, 0));
+    && robots.filter(z => z.stage === 6).length === Object.values(scaledMix(S6C.encounters.hall, 6)).reduce((a, b) => a + b, 0));
 saveMod.saveCampaignStage(7);
 const restart7 = saveMod.loadCampaignStage() || 1;
 smMod.activeScene.cheatSkipToStage(restart7);
@@ -14447,6 +14855,161 @@ for (const [name, build] of Object.entries(propBuilders)) {
         T('DINDING MEMUDAR: instans sel diskala NOL saat memudar lalu PULIH ke 1',
             cellIdx >= 0 && restoredScale === 1 && hiddenScale === 0 && backScale === 1);
     }
+}
+
+// --- 28. AREA OF DAMAGE PELURU BIASA (2026-08-16, permintaan user: "senjata
+//     lain juga memiliki radius area of damage sebesar 1 meter"). Pistol/rifle/
+//     shotgun kini melukai robot LAIN dalam radius `weapons.splashRadiusMeters`
+//     dari titik tumbuk. Semua assert membaca CFG (user me-retune JSON) —
+//     jangan hardcode 7 unit.
+{
+    const SPL = robotsMod.bulletSplashRadius();
+    const M = cfgMod.CFG.weapons.splashRadiusMeters;
+    T('SPLASH PELURU: radius dibaca dari config (' + M + ' m = ' + SPL.toFixed(1) + ' unit)',
+        M != null && Math.abs(SPL - M * cfgMod.CAMP_M) < 1e-9 && SPL > 0);
+
+    // Panggung bersih: scene stub yang sama seperti bagian awal suite.
+    smMod.setScene({
+        id: 'test-splash', enter() { },
+        robotAI: () => ({ chaseDist: 9999 }),
+        bulletBlocked: () => false,
+        playerCollide() { }, groundHeight: () => 0,
+        clampDropPos: (x, z) => [x, z],
+    });
+    const clearBots = () => { while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); } };
+    const hitR = cfgMod.CFG.robot.bodyHitRadius * cfgMod.CFG.robot.classes.C.scale;
+    // `inner` di LUAR jangkauan tumbukan langsung tapi di DALAM radius splash;
+    // hanya bermakna bila splash memang lebih lebar dari badan robot.
+    const inner = (hitR + SPL) / 2, outer = SPL * 1.4;
+    const X0 = 62000, Z0 = 0, DMG = 30;
+    // Peluru menempuh ruas (x-20,z) -> (x,z): titik tumbuk = ujungnya.
+    const shootAt = (x, z, dmg, extra = {}) => stateMod.bullets.push(Object.assign({
+        mesh: { position: new THREE.Vector3(x, 8, z) }, px: x - 20, py: 8, pz: z,
+        dir: new THREE.Vector3(1, 0, 0), damage: dmg,
+    }, extra));
+    stateMod.player.dmgMul = 1;
+    camera.position.set(X0, cfgMod.CFG.player.eyeHeight, Z0 - 4000);   // player jauh: tak ada cakar
+
+    if (SPL > hitR + 0.5) {
+        clearBots(); stateMod.bullets.length = 0; stateMod.drops.length = 0; goreMod.resetGore();
+        const zHit = mkBot('C', X0, Z0);
+        const zNear = mkBot('C', X0, Z0 + inner);      // di dalam radius splash
+        const zFar = mkBot('C', X0, Z0 + outer);       // di luar radius splash
+        for (const z of [zHit, zNear, zFar]) { z.hp = z.maxHp = 500; robots.push(z); }
+        shootAt(X0, Z0, DMG);
+        robotsMod.updateRobots(0.016, 1);
+        T('SPLASH PELURU: robot lain dalam radius ikut terluka (-' + (500 - zNear.hp) + ')',
+            zHit.hp === 500 - DMG && zNear.hp === 500 - DMG && zFar.hp === 500);
+        T('SPLASH PELURU: korban tumbukan langsung TIDAK kena dua kali',
+            zHit.hp === 500 - DMG);
+
+        // invuln (robot gerbong kereta musuh yang masih tersegel) kebal splash.
+        zNear.invuln = true; zNear.hp = 500;
+        shootAt(X0, Z0, DMG);
+        robotsMod.updateRobots(0.016, 1);
+        T('SPLASH PELURU: robot invuln tak tersentuh splash', zNear.hp === 500);
+        zNear.invuln = false;
+
+        // Hook blastBlocked (daun pintu tertutup) menahan splash, sama spt AoE launcher.
+        const blocker = (x0, z0, x1, z1) => true;
+        smMod.activeScene.blastBlocked = blocker;
+        zNear.hp = 500;
+        shootAt(X0, Z0, DMG);
+        robotsMod.updateRobots(0.016, 1);
+        T('SPLASH PELURU: pintu tertutup (blastBlocked) menahan splash', zNear.hp === 500);
+        delete smMod.activeScene.blastBlocked;
+
+        // Banyak robot MATI oleh splash dalam satu frame: pembunuhan diantre dan
+        // diproses SETELAH loop utama (mematikan di tengah loop = splice indeks
+        // yang sedang diiterasi). Semua harus hilang, loot jatuh, tanpa error.
+        clearBots(); stateMod.bullets.length = 0; stateMod.drops.length = 0; goreMod.resetGore();
+        const victim = mkBot('C', X0, Z0); victim.hp = victim.maxHp = 500; robots.push(victim);
+        const mob = [];
+        for (let k = 0; k < 3; k++) {
+            const z = mkBot('C', X0 + (k - 1) * 0.6, Z0 + inner);
+            z.hp = z.maxHp = DMG; robots.push(z); mob.push(z);
+        }
+        const kills0 = stateMod.stats.kills;
+        shootAt(X0, Z0, DMG);
+        robotsMod.updateRobots(0.016, 1);
+        T('SPLASH PELURU: banyak kematian sekaligus aman (antre di luar loop robot)',
+            robots.length === 1 && robots[0] === victim && mob.every(z => !robots.includes(z))
+            && stateMod.stats.kills === kills0 + 3);
+
+        // Peluru LAUNCHER tak lewat jalur ini: ia sudah meledak sendiri, jadi
+        // tetangga hanya kena SATU kali damage (blast), bukan blast + splash.
+        clearBots(); stateMod.bullets.length = 0; stateMod.drops.length = 0; goreMod.resetGore();
+        const zEx = mkBot('C', X0, Z0), zExN = mkBot('C', X0, Z0 + inner);
+        for (const z of [zEx, zExN]) { z.hp = z.maxHp = 900; robots.push(z); }
+        shootAt(X0, Z0, DMG, { explosive: true, explodeR: cfgMod.CFG.grenade.killRadius + 3.5 });
+        robotsMod.updateRobots(0.016, 1);
+        T('SPLASH PELURU: peluru launcher tetap SATU ledakan (tanpa splash ganda)',
+            zEx.hp === 900 - DMG && zExN.hp === 900 - DMG);
+    }
+
+    clearBots(); stateMod.bullets.length = 0; stateMod.drops.length = 0; goreMod.resetGore();
+    robotsMod.resetRobotsFx();
+    T('SPLASH PELURU: resetRobotsFx mengosongkan antrean splash',
+        robotsMod.pendingSplashDebug().length === 0);
+}
+
+// --- 29. PENGALI JUMLAH ROBOT PER STAGE + OVERRIDE PINTU STAGE 1 (2026-08-16,
+//     permintaan user: stage 1 +50%, stage 2 +60%, stage 3 +30%, stage 4 2x,
+//     stage 5 chapter stasiun +50%, stage 6 2x; dan hack komputer utama membuka
+//     semua pintu terkunci). Semua assert membaca CFG — retune config tetap hijau.
+{
+    const com29 = await import(R('src/scenes/campaign/utility/common.js'));
+    const s1m29 = await import(R('src/scenes/campaign/stages/stage1/index.js'));
+    const door29 = await import(R('src/scenes/campaign/utility/doors.js'));
+
+    // (a) Pengali TERPASANG di config, satu angka per stage.
+    const wanted = { 1: 1.5, 2: 1.6, 3: 1.3, 4: 2, 5: 1.5, 6: 2 };
+    let mulOK = true, badMul = '';
+    for (const [stage, v] of Object.entries(wanted)) {
+        const got = com29.stageRobotMul(+stage);
+        if (got !== cfgMod.CFG.campaign['stage' + stage].robotCountMul || got !== v) {
+            mulOK = false; badMul = badMul || ('stage' + stage + '=' + got);
+        }
+    }
+    T('ROBOT MUL: keenam stage memakai robotCountMul dari config'
+        + (badMul ? ' [' + badMul + ']' : ''), mulOK);
+    // Stage tanpa kunci itu TIDAK ikut terkena (mis. stage 7-13).
+    T('ROBOT MUL: stage tanpa robotCountMul tetap 1x (fitur opt-in per stage)',
+        com29.stageRobotMul(7) === 1 && com29.stageRobotMul(13) === 1
+        && cfgMod.CFG.campaign.stage7.robotCountMul === undefined);
+
+    // (b) Pembulatan AKUMULATIF: total persis round(total x mul) dan tak ada
+    //     entri berisi robot yang menguap jadi nol.
+    const base = [3, 3, 3, 2, 2, 4, 1];
+    const total = base.reduce((a, b) => a + b, 0);
+    const scaled = com29.scaleSpawnCounts(base, 4);   // stage 4 = 2x
+    T('ROBOT MUL: scaleSpawnCounts menjaga TOTAL tepat round(total x mul), bukan pembulatan per entri',
+        scaled.length === base.length
+        && scaled.reduce((a, b) => a + b, 0) === Math.round(total * com29.stageRobotMul(4))
+        && scaled.every((n, i) => (base[i] > 0 ? n > 0 : n === 0)));
+    T('ROBOT MUL: scaleRobotCount tak pernah mengosongkan tabel yang aslinya berisi',
+        com29.scaleRobotCount(1, 3) >= 1 && com29.scaleRobotCount(0, 3) === 0
+        && com29.scaleRobotCount(6, 3) === Math.round(6 * com29.stageRobotMul(3)));
+
+    // (c) Populasi NYATA tiap stage = tabel dasarnya x pengalinya.
+    T('ROBOT MUL: stage 1/2/4 mengalikan tabel spawn-nya sendiri',
+        s1m29.s1Wave1Count() === Math.round(s1m29.s1Wave1Base * com29.stageRobotMul(1))
+        && s2mod.s2Wave1Count() === Math.round(s2mod.s2Wave1Base * com29.stageRobotMul(2))
+        && s4mod.s4RobotCount() === Math.round(s4mod.s4RobotBase * com29.stageRobotMul(4)));
+
+    // (d) MASUK STAGE MENGUNCI ULANG: override kill-switch tidak boleh terbawa
+    //     ke run berikutnya (mati/restart selalu mengulang stage 1).
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+    s1m29.stage1Scene.enter();
+    const afterEnter = s1m29.s1Debug();
+    const brokenAgain = s1m29.s1DoorsDbg().filter(d => d.broken);
+    T('S1 KILL-SWITCH: enter() mengunci ulang seluruh pintu (override tak terbawa ke run berikutnya)',
+        afterEnter.doorsFreed === 0 && afterEnter.lockedDoors === 3
+        && brokenAgain.length === 2
+        && brokenAgain.every(d => d.locked && d.open === door29.DOOR_BROKEN_AJAR));
+    T('S1 KILL-SWITCH: enter() juga menempatkan garnisun ber-pengali (' + s1m29.s1Wave1Count() + ')',
+        robots.filter(z => z.stage === 1).length === s1m29.s1Wave1Count());
+    while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

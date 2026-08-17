@@ -66,6 +66,7 @@ import { buildFadeableWalls } from '../../utility/wallFade.js';
 import {
     spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill,
     spawnSwarm, spawnAlarmHorde, propClearance, buildStandMarker, pulseStandMarker,
+    scaleSpawnCounts, scaleRobotCount,
 } from '../../utility/common.js';
 import { PAL } from '../../../../world/palette.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../../entities/barrels.js';
@@ -73,7 +74,7 @@ import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../../entities
 import { buildInteriorWallMat, buildInteriorFloorMat } from '../../utility/interior.js';
 import {
     buildStageDoors, updateStageDoors, resolveDoors, doorsWalkable,
-    doorBlocksShot, doorClampShot, setDoorLocked,
+    doorBlocksShot, doorClampShot, setDoorLocked, overrideDoorLocks, resetDoorLocks,
 } from '../../utility/doors.js';
 import { buildStairwellUp, stairwellUpFootprint } from '../../utility/stairwell.js';
 import { buildLiftBank, liftBankFootprint } from '../../utility/lift.js';
@@ -400,12 +401,15 @@ let s1RadioChars = 0;     // jumlah karakter yang sudah terlihat
 let s1LiftPos = null;     // {x,z} dunia lift
 let s1AccessPos = null;   // {x,z} dunia petak '$' (bank komputer) — pemicu buka NAC
 let s1NacDoor = null;     // ref pintu NAC (alias s1compDoor)
+let s1DoorsFreed = 0;     // jumlah pintu terkunci/rusak yang dilepas override kill-switch
 export const s1OcclusionDebug = () => occlusionDebug(S1_OCC);
 export const s1Debug = () => ({
     occluders: occlusionDebug(S1_OCC),
     phase: s1Phase, hacking: isHackOpen(), armed: s1CompArmed, hackCd: s1HackCd,
     radioIndex: s1RadioIndex, radioT: s1RadioT, radioChars: s1RadioChars,
     nacLocked: !!s1NacDoor?.locked,
+    doorsFreed: s1DoorsFreed,
+    lockedDoors: (s1doors || []).filter(d => d.locked || d.broken).length,
 });   // smoke test
 
 const blockers = [];   // furnitur/undakan/lift/rak pejal {x,z,hx,hz,ax*,az*,top,standable}
@@ -939,9 +943,16 @@ const S1_ROBOTS = [
     [34, 22, 3], [44, 24, 2], [11, 26, 3], [18, 26, 3],             // east-mid / small rooms
     [10, 34, 2], [20, 34, 2], [30, 34, 2], [44, 34, 2],             // lower halls
 ];
-export const s1Wave1Count = S1_ROBOTS.reduce((a, s) => a + s[2], 0);   // 50 (smoke test)
+// Jumlah dasar tabel (50) dan jumlah NYATA setelah `robotCountMul` stage 1
+// (2026-08-16, permintaan user: robot stage 1 50% lebih banyak). Keduanya
+// fungsi/const terpisah supaya smoke bisa menguji ATURANnya, bukan angkanya.
+export const s1Wave1Base = S1_ROBOTS.reduce((a, s) => a + s[2], 0);   // 50
+export const s1Wave1Count = () =>
+    scaleSpawnCounts(S1_ROBOTS.map(s => s[2]), 1).reduce((a, n) => a + n, 0);
 export function placeRobots() {
-    for (const [c, r, n] of S1_ROBOTS) {
+    const counts = scaleSpawnCounts(S1_ROBOTS.map(s => s[2]), 1);
+    for (let si = 0; si < S1_ROBOTS.length; si++) {
+        const [c, r] = S1_ROBOTS[si], n = counts[si];
         const p = s1Cell(c, r);
         for (let k = 0; k < n; k++) {
             _v3.set(p.x + rand(-7, 7), 0, p.z + rand(-7, 7));
@@ -963,12 +974,18 @@ const S1_WAVE2 = [
     ['C', 9, 44], ['C', 15, 41], ['C', 17, 47], ['C', 11, 43], ['C', 8, 42],
 ];
 export function spawnWave2() {
-    for (const [cls, c, r] of S1_WAVE2) {
+    // Satu entri = satu robot; `robotCountMul` menambah salinan di jangkar yang
+    // sama (kelas entri ikut tersalin, jadi komposisi kelasnya tak berubah).
+    const counts = scaleSpawnCounts(S1_WAVE2.map(() => 1), 1);
+    for (let i = 0; i < S1_WAVE2.length; i++) {
+        const [cls, c, r] = S1_WAVE2[i];
         const p = s1Cell(c, r);
-        _v3.set(p.x + rand(-6, 6), 0, p.z + rand(-6, 6));
-        resolve(_v3, 4, 0);
-        if (!stage1Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
-        spawnCampaignRobot(_v3.x, _v3.z, 1, cls);
+        for (let k = 0; k < counts[i]; k++) {
+            _v3.set(p.x + rand(-6, 6), 0, p.z + rand(-6, 6));
+            resolve(_v3, 4, 0);
+            if (!stage1Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
+            spawnCampaignRobot(_v3.x, _v3.z, 1, cls);
+        }
     }
 }
 
@@ -1031,7 +1048,7 @@ export function placeCrates() {
 // (config-driven), disebar ke sudut ruang X via spawnSwarm (active = 'chasing'). =====
 const S1_HORDE_ANCHORS = [[4, 41], [16, 41], [4, 47], [16, 47], [10, 44]];
 export function spawnStage1Horde() {
-    const n = CFG.campaign.stage1.hordeCount || 0;
+    const n = scaleRobotCount(CFG.campaign.stage1.hordeCount || 0, 1);
     if (n <= 0) return;
     const per = Math.floor(n / S1_HORDE_ANCHORS.length), rem = n % S1_HORDE_ANCHORS.length;
     const spots = S1_HORDE_ANCHORS.map((a, i) => [a[0], a[1], per + (i < rem ? 1 : 0)]);
@@ -1099,7 +1116,8 @@ function finishS1Radio() {
     s1Phase = 'clear2';
     spawnWave2();                // 20 robot tambahan di ruang X
     spawnStage1Horde();          // + HORDE kelas C langsung menyerbu
-    showStageMsg('Data secured! A HORDE of robots swarms in — fight your way back to the stairs!', 5200);
+    showStageMsg('Data secured — door control is yours, every sealed door opens now. '
+        + 'A HORDE of robots swarms in — fight your way back to the stairs!', 5200);
 }
 
 function updateS1Radio(dt) {
@@ -1150,7 +1168,10 @@ export const stage1Scene = {
         setCinematicActive(false);
         setCineBars(false);
         hideStageRadioDialogue();
-        if (s1compDoor) setDoorLocked(s1compDoor, true);
+        // Pintu kembali ke keadaan denah: NAC terkunci lagi, kedua pintu '+'
+        // rusak lagi, semuanya tertutup — override kill-switch run sebelumnya
+        // tidak boleh terbawa (mati/restart selalu mengulang stage ini).
+        resetDoorLocks(s1doors); s1DoorsFreed = 0;
         s1ExitOpen = false;
         if (s1ExitSign) {
             s1ExitSign.material.color.setHex(0xff4a3c);
@@ -1204,6 +1225,12 @@ export const stage1Scene = {
                         + 'port links to the data core, then the download runs itself.',
                     onSuccess: () => {
                         s1SetMarker(null);   // tak ada titik aksi lagi
+                        // FILE KILL-SWITCH DIDAPAT = KENDALI PINTU GEDUNG JATUH
+                        // KE PLAYER (2026-08-16, permintaan user): setiap pintu
+                        // yang masih terkunci — termasuk kedua pintu RUSAK '+' —
+                        // berubah jadi pintu otomatis biasa, jadi jalan pulang
+                        // ke tangga terbuka lebar saat horde menyerbu.
+                        s1DoorsFreed = overrideDoorLocks(s1doors);
                         beginS1Radio();
                     },
                     onFail: (why) => {

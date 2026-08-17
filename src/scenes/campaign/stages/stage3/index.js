@@ -94,7 +94,10 @@ import { buildFuturisticPlanterMesh } from '../../../../entities/futuristicPlant
 import { buildFuturisticSofaMesh } from '../../../../entities/futuristicSofa.js';
 import { buildFuturisticConsoleMesh } from '../../../../entities/futuristicConsole.js';
 import { buildFuturisticRubbleMesh } from '../../../../entities/futuristicRubble.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill, spawnAlarmHorde, propClearance } from '../../utility/common.js';
+import {
+    spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill,
+    spawnAlarmHorde, propClearance, scaleRobotCount,
+} from '../../utility/common.js';
 import { spawnBarrel, resolveBarrelBlock, resetBarrels } from '../../../../entities/barrels.js';
 import { spawnCrate, resolveCrateBlock, resetCrates } from '../../../../entities/crates.js';
 import { buildInteriorFloorMat, buildInteriorWallMat } from '../../utility/interior.js';
@@ -940,13 +943,15 @@ function s3PathWalkable(x, z, radius = 0) {
 // GELOMBANG robot fase door: 6 dari TANGGA + 6 dari LIFT. DIANTRE (bukan
 // serentak) — dilepas satu per satu oleh s3TickSpawns.
 function spawnDoorWave() {
-    const n = CFG.campaign.stage3.gateWaveCount;
+    // Seluruh populasi stage 3 datang dari gelombang, jadi `robotCountMul`
+    // (2026-08-16, permintaan user: 30% lebih banyak) bekerja di sini.
+    const n = scaleRobotCount(CFG.campaign.stage3.gateWaveCount, 3);
     for (let k = 0; k < n; k++) { queueSpawn(S3_STAIRS_SPAWN, randClass3()); queueSpawn(S3_LIFT_SPAWN, randClass3()); }
 }
 // GELOMBANG robot fase machines: machineWaveCount robot PER MESIN yang masih
 // hidup, keluar berurutan dari hatch tiap mesin (diantre juga).
 function spawnMachineWave() {
-    const n = CFG.campaign.stage3.machineWaveCount;
+    const n = scaleRobotCount(CFG.campaign.stage3.machineWaveCount, 3);
     for (let k = 0; k < n; k++) for (const m of s3Machines) if (m.alive && m.deployed) queueSpawn(m.spawn, randClass3());
 }
 function s3MachineBulletHits() {

@@ -69,7 +69,10 @@ import { buildFuturisticMeetingTableMesh } from '../../../../entities/futuristic
 import { buildFuturisticStallMesh } from '../../../../entities/futuristicStall.js';
 import { buildFuturisticSinkMesh } from '../../../../entities/futuristicSink.js';
 import { buildFuturisticPlanterMesh } from '../../../../entities/futuristicPlanter.js';
-import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill, propClearance } from '../../utility/common.js';
+import {
+    spawnCampaignRobot, campaignRobotAI, campaignClampRobot, countStageRobots, campaignAwardKill,
+    propClearance, scaleSpawnCounts,
+} from '../../utility/common.js';
 import { barricadeBlocker, buildFurniturePile, buildWallBreach, BARRICADE_TOP } from '../../utility/barricade.js';
 import {
     weldOccluder, updateStageOccluders, resetStageOccluders, clearStageOccluders,
@@ -851,11 +854,17 @@ const S2_ROBOTS = [
     [44, 24, 3], [20, 11, 5], [24, 15, 4], [35, 11, 3], [35, 15, 3],
     [20, 23, 5], [31, 23, 4], [6, 24, 3],
 ];
-export const s2Wave1Count = S2_ROBOTS.reduce((a, s) => a + s[2], 0);   // 50
+// Jumlah dasar tabel (50) dan jumlah NYATA setelah `robotCountMul` stage 2
+// (2026-08-16, permintaan user: robot stage 2 60% lebih banyak).
+export const s2Wave1Base = S2_ROBOTS.reduce((a, s) => a + s[2], 0);   // 50
+export const s2Wave1Count = () =>
+    scaleSpawnCounts(S2_ROBOTS.map(s => s[2]), 2).reduce((a, n) => a + n, 0);
 export function placeRobots() {
-    for (const [c, r, n] of S2_ROBOTS) {
+    const counts = scaleSpawnCounts(S2_ROBOTS.map(s => s[2]), 2);
+    for (let si = 0; si < S2_ROBOTS.length; si++) {
+        const [c, r] = S2_ROBOTS[si];
         const p = s2Cell(c, r);
-        for (let k = 0; k < n; k++) {
+        for (let k = 0; k < counts[si]; k++) {
             _v3.set(p.x + rand(-7, 7), 0, p.z + rand(-7, 7));
             resolve(_v3, 4, 0);
             if (!stage2Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
@@ -875,12 +884,16 @@ const S2_GUARDS = [
     ['B', 27, 39], ['B', 3, 46], ['B', 47, 31],
 ];
 function spawnGuards() {
-    for (const [cls, c, r] of S2_GUARDS) {
+    const counts = scaleSpawnCounts(S2_GUARDS.map(() => 1), 2);
+    for (let i = 0; i < S2_GUARDS.length; i++) {
+        const [cls, c, r] = S2_GUARDS[i];
         const p = s2Cell(c, r);
-        _v3.set(p.x + rand(-5, 5), 0, p.z + rand(-5, 5));
-        resolve(_v3, 4, 0);
-        if (!stage2Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
-        spawnCampaignRobot(_v3.x, _v3.z, 2, cls);
+        for (let k = 0; k < counts[i]; k++) {
+            _v3.set(p.x + rand(-5, 5), 0, p.z + rand(-5, 5));
+            resolve(_v3, 4, 0);
+            if (!stage2Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
+            spawnCampaignRobot(_v3.x, _v3.z, 2, cls);
+        }
     }
 }
 
@@ -896,12 +909,16 @@ const S2_WAVE2 = [
     ['B', 4, 13], ['B', 4, 15], ['B', 4, 17], ['B', 4, 12], ['B', 4, 16],         // 5 B (ruang 3)
 ];
 export function spawnWave2() {
-    for (const [cls, c, r] of S2_WAVE2) {
+    const counts = scaleSpawnCounts(S2_WAVE2.map(() => 1), 2);
+    for (let i = 0; i < S2_WAVE2.length; i++) {
+        const [cls, c, r] = S2_WAVE2[i];
         const p = s2Cell(c, r);
-        _v3.set(p.x + rand(-6, 6), 0, p.z + rand(-6, 6));
-        resolve(_v3, 4, 0);
-        if (!stage2Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
-        spawnCampaignRobot(_v3.x, _v3.z, 2, cls);
+        for (let k = 0; k < counts[i]; k++) {
+            _v3.set(p.x + rand(-6, 6), 0, p.z + rand(-6, 6));
+            resolve(_v3, 4, 0);
+            if (!stage2Walk(_v3.x, _v3.z, 4)) _v3.set(p.x, 0, p.z);
+            spawnCampaignRobot(_v3.x, _v3.z, 2, cls);
+        }
     }
 }
 

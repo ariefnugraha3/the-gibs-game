@@ -4,7 +4,7 @@
 // hook scene.robotAI(z, dt, step) — modul ini menangani bagian yang sama di
 // semua scene: cakaran, animasi rig, dan hit test peluru.
 
-import { CFG } from '../core/config.js';
+import { CFG, CAMP_M } from '../core/config.js';
 import { player, robots, bullets, enemyBullets, addScore, stats, _dir, godMode, dodgeInvuln, GEO, MAT } from '../core/state.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
@@ -820,7 +820,7 @@ export function queueBoom(x, y, z, r, hurtPlayer = false, playerDmg = 0, dmg = n
     // — roket Lv3 (rocket-explode) & proyektil tank (tank-explosive-attack).
     pendingBooms.push({ pos: new THREE.Vector3(x, y, z), r, hurtPlayer, playerDmg, dmg, sfx });
 }
-export function resetRobotsFx() { pendingBooms.length = 0; }   // dipanggil resetGame
+export function resetRobotsFx() { pendingBooms.length = 0; pendingSplash.length = 0; }   // dipanggil resetGame
 // Antrean ledakan yang BELUM diproses (read-only, utk smoke). Dipakai menguji
 // kontrak ledakan yang diantre sebuah senjata musuh — radius, hurtPlayer, dan
 // damage ke player — tanpa harus menjalankan loop robot penuh.
@@ -828,6 +828,61 @@ export const pendingBoomsDebug = () => pendingBooms.map(b => ({
     x: b.pos.x, y: b.pos.y, z: b.pos.z, r: b.r,
     hurtPlayer: !!b.hurtPlayer, playerDmg: b.playerDmg, dmg: b.dmg,
 }));
+
+// ===== SPLASH PELURU BIASA (2026-08-16, permintaan user) =====
+// Pistol/rifle/shotgun kini juga punya AREA OF DAMAGE: peluru yang MENGENAI
+// robot ikut melukai robot LAIN dalam radius `weapons.splashRadiusMeters`
+// (1 m -> CAMP_M unit). Ini BUKAN ledakan: tak ada mesh, cahaya, SFX, maupun
+// umpan balik visual (invarian "robot tanpa damage feedback" tetap berlaku),
+// jadi ia tak bisa memicu shader recompile dan tak menguras pool darah walau
+// shotgun menembakkan 10 pelet sekaligus. Peluru Grenade Launcher TIDAK lewat
+// sini — ia sudah meledak sendiri lewat queueBoom dengan radiusnya yang jauh
+// lebih besar. Damage-nya RATA di dalam radius (model yang sama dgn explodeAt)
+// dan besarnya = damage peluru itu sendiri (sudah termasuk level upgrade +
+// player.dmgMul). Jarak diukur di bidang XZ, sama seperti hit test peluru.
+// Radius efektif dalam unit dunia. 0/absen = fitur mati (peluru kembali
+// menjadi hit tunggal) — dibaca run-time supaya retune JSON langsung terasa.
+export function bulletSplashRadius() {
+    const m = CFG.weapons.splashRadiusMeters;
+    return (m != null ? m : 0) * CAMP_M;
+}
+// Sama seperti pendingBooms: dampaknya DIANTRE, karena mematikan robot di
+// tengah loop utama updateRobots = splice indeks yang sedang diiterasi.
+// `skip` = robot yang kena tumbukan langsung (sudah dapat damage penuhnya).
+const pendingSplash = [];
+function queueBulletSplash(x, y, z, dmg, skip) {
+    if (bulletSplashRadius() > 0) pendingSplash.push({ x, y, z, dmg, skip });
+}
+export const pendingSplashDebug = () => pendingSplash.map(s => ({
+    x: s.x, y: s.y, z: s.z, dmg: s.dmg,
+}));
+function processPendingSplash() {
+    if (!pendingSplash.length) return;
+    const R = bulletSplashRadius(), R2 = R * R;
+    let killed = false;
+    while (pendingSplash.length) {
+        const s = pendingSplash.shift();
+        for (let i = robots.length - 1; i >= 0; i--) {
+            const z = robots[i];
+            // skip = korban tumbukan langsung; invuln = belum boleh dilukai
+            // (mis. robot gerbong kereta musuh yang ramp-nya belum terbuka).
+            if (z === s.skip || z.invuln) continue;
+            const p = z.mesh.position;
+            const dx = p.x - s.x, dz = p.z - s.z;
+            if (dx * dx + dz * dz >= R2) continue;
+            // Daun pintu tertutup menahan splash, persis seperti AoE launcher.
+            if (activeScene && activeScene.blastBlocked
+                && activeScene.blastBlocked(s.x, s.z, p.x, p.z, s.y)) continue;
+            z.hp -= Math.max(1, s.dmg - (z.armor || 0));
+            if (z.state === 'idle') { z.state = 'chasing'; z.groundY = 0; }   // kena serpihan = terbangun
+            if (z.hp > 0) continue;
+            spawnDrop(p);
+            killRobot(i, { dirx: p.x - s.x, dirz: p.z - s.z });
+            killed = true;
+        }
+    }
+    if (killed) updateUI();
+}
 
 // Skor per kematian: boss = `CFG.campaign.bosses.giant.score`; selain itu dari
 // `CFG.robot.score` — special = kelas penembak A/B (150), normal = kelas C (100).
@@ -1206,6 +1261,11 @@ export function updateRobots(dt, step) {
                 const at = al2 > 0 ? clamp(((z.mesh.position.x - b.px) * abx
                     + (z.mesh.position.z - b.pz) * abz) / al2, 0, 1) : 0;
                 spawnBloodBurst(b.px + abx * at, hitY, b.pz + abz * at, b.dir.x, b.dir.z, 3, 0.6);
+                // AREA OF DAMAGE peluru biasa (2026-08-16): robot LAIN dalam
+                // radius splash ikut terluka dari TITIK TUMBUK yang sama.
+                // Diantre (lihat pendingSplash) — mematikan robot di sini =
+                // splice indeks yang sedang diiterasi loop luar.
+                queueBulletSplash(b.px + abx * at, hitY, b.pz + abz * at, base, z);
                 scene.remove(b.mesh);
                 bullets.splice(j, 1);
                 crosshair.classList.add('hit');
@@ -1220,6 +1280,8 @@ export function updateRobots(dt, step) {
     // Ledakan yang antre (peluru Grenade Launcher yang kena robot frame ini) —
     // diproses DI LUAR loop utama; lihat komentar pendingBooms.
     processPendingBooms();
+    // Splash peluru biasa (radius 1 m) — alasan antre yang sama dgn boom.
+    processPendingSplash();
 
     // Pemisahan robot-robot: cegah menumpuk di satu titik (setelah semua gerak).
     separateRobots();
