@@ -808,6 +808,12 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   down off the lip -> close. The barrel is born at the mesh `dropAnchor` (the lip itself), airborne and
   half-upright, and lies flat exactly as it lands (`dropFallSec`). So
   `dropTelegraphSec + dropFallSec + dropCloseSec` MUST fit inside `dropGapSec` (smoke-asserted).
+- Gunship projectiles (2026-08-18 user report): a tracer's long axis MUST follow its flight direction.
+  `GEO.bullet` is a sphere, so `scale` alone stretches it — the MG stretched it on z while firing along -x,
+  so tracers lay across the road. Yaw now derives from the fire direction (`atan2(dir.x, dir.z)`). Missile
+  and cannon shell were also ~1/10 the length of what they target; both are now at least one lane long,
+  at least a quarter-lane wide, and still narrower than a lane (so dodging still means something), with
+  hazard bands and a pulsing exhaust flare.
 - ALL THREE vehicles shatter through ONE shared system, `entities/vehicleWreck.js` (2026-08-18 user
   requests): `shatterVehicle(rig, {loose, skip, tilt, sink})` / `restoreVehicle(rig)`, used by the
   GRD LTV-45, the Raven-K carrier and the VULTURE-B hauler; each module only names which children come

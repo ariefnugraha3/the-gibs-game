@@ -47,31 +47,66 @@ function mk(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
     m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
 }
 
+// UKURAN PROYEKTIL (2026-08-18, permintaan user "buat agar lebih besar dan lebih
+// terlihat jelas agar player menyadari kedatangannya"). Patokannya BUKAN selera:
+// kendaraan player panjangnya 5,20 m x 7 = 36,4 unit dan lebar lajur 17,5 unit,
+// sementara rudal lama hanya ~5 unit dan shell ~3,9 unit — sekitar sepersepuluh
+// panjang kendaraan yang ditujunya, pada kamera oblique yang menatap dari jauh.
+// Keduanya kini dibangun pada skala yang membuat panjangnya sebanding dengan
+// SATU LAJUR, jadi kedatangannya terbaca beberapa detik sebelum mendarat.
+const MISSILE_SCALE = 2.9, SHELL_SCALE = 3.2;
+// Tracer MG: panjang searah jalan, bukan melintang (lihat `fireMG`).
+const MG_TRACER_LEN = 9;
+
 export function buildCombatGunshipMissileMesh() {
     const g = new THREE.Group();
     const body = new THREE.MeshLambertMaterial({ color: PAL.steel });
     const dark = new THREE.MeshLambertMaterial({ color: PAL.ink });
+    const warn = new THREE.MeshLambertMaterial({ color: PAL.hazard,
+        emissive: PAL.hazard, emissiveIntensity: EMISSIVE_MAX * 0.7 });
     const hot = new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false });
     const tube = mk(g, new THREE.CylinderGeometry(0.44, 0.5, 4.0, 8), body, 0, 0, 0, 0, 0, Math.PI / 2);
     tube.castShadow = false;
     mk(g, new THREE.CylinderGeometry(0.52, 0.52, 0.5, 8), dark, 0.9, 0, 0, 0, 0, Math.PI / 2);
     mk(g, new THREE.ConeGeometry(0.46, 1.5, 6), body, 2.7, 0, 0, 0, 0, -Math.PI / 2);
+    // PITA BAHAYA: dari atas, sebuah tabung abu-abu di atas aspal abu-abu nyaris
+    // tak terbaca. Dua pita merah inilah yang membuatnya terlihat bergerak.
+    for (const x of [1.7, -0.4])
+        mk(g, new THREE.CylinderGeometry(0.54, 0.54, 0.42, 8), warn, x, 0, 0, 0, 0, Math.PI / 2);
     mk(g, new THREE.ConeGeometry(0.34, 0.9, 6), hot, -2.4, 0, 0, 0, 0, Math.PI / 2).castShadow = false;
     // Sirip kanard depan + sirip ekor: siluet rudal jelajah, bukan tabung polos.
+    // Diperlebar bersama pembesaran: dari kamera atas, LEBAR-lah yang terbaca.
     for (const a of [0, Math.PI / 2]) {
-        mk(g, new THREE.BoxGeometry(0.7, 0.07, 1.35), body, -1.5, 0, 0, a, 0, 0);
-        mk(g, new THREE.BoxGeometry(0.5, 0.06, 0.85), body, 1.45, 0, 0, a, 0, 0);
+        mk(g, new THREE.BoxGeometry(0.9, 0.09, 2.1), body, -1.5, 0, 0, a, 0, 0);
+        mk(g, new THREE.BoxGeometry(0.6, 0.08, 1.3), body, 1.45, 0, 0, a, 0, 0);
     }
+    // Nyala buang: satu kerucut Basic yang DIDENYUTKAN `updateMissiles`, jadi
+    // rudal yang mendekat berkedip alih-alih meluncur diam-diam.
+    const flame = mk(g, new THREE.ConeGeometry(0.5, 2.6, 6), hot, -3.6, 0, 0, 0, 0, Math.PI / 2);
+    flame.castShadow = false;
+    g.userData.flame = flame;
+    g.scale.setScalar(MISSILE_SCALE);
     g.visible = false; return g;
 }
 
 export function buildCombatGunshipShellMesh() {
     const g = new THREE.Group();
     const mat = new THREE.MeshLambertMaterial({ color: PAL.ink, emissive: PAL.amberDim, emissiveIntensity: 0.5 });
+    const warn = new THREE.MeshLambertMaterial({ color: PAL.hazard,
+        emissive: PAL.hazard, emissiveIntensity: EMISSIVE_MAX * 0.75 });
     const hot = new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false });
     mk(g, new THREE.CylinderGeometry(0.58, 0.66, 2.6, 8), mat, 0, 0, 0, 0, 0, Math.PI / 2);
     mk(g, new THREE.ConeGeometry(0.6, 1.3, 8), mat, 1.9, 0, 0, 0, 0, -Math.PI / 2);
+    // Sabuk pendorong bercahaya + pita bahaya: shell polos berwarna tinta hilang
+    // di atas aspal, dan inilah yang membuatnya terbaca sebagai proyektil.
+    mk(g, new THREE.CylinderGeometry(0.7, 0.7, 0.5, 8), warn, 0.5, 0, 0, 0, 0, Math.PI / 2);
+    mk(g, new THREE.CylinderGeometry(0.68, 0.68, 0.4, 8), warn, -0.9, 0, 0, 0, 0, Math.PI / 2);
     mk(g, new THREE.CylinderGeometry(0.34, 0.2, 0.9, 8), hot, -1.7, 0, 0, 0, 0, Math.PI / 2).castShadow = false;
+    // Jejak nyala yang didenyutkan `updateShells`.
+    const flame = mk(g, new THREE.ConeGeometry(0.62, 3.2, 8), hot, -3.2, 0, 0, 0, 0, Math.PI / 2);
+    flame.castShadow = false;
+    g.userData.flame = flame;
+    g.scale.setScalar(SHELL_SCALE);
     g.visible = false; return g;
 }
 
@@ -326,9 +361,19 @@ function fireMG(g, ctx) {
     const C = CFG.campaign.bosses.gunship, p = g.parts;
     const sx = p.group.position.x - 8, sy = 13, sz = laneZ(ctx, g.targetLane);
     const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
-    m.scale.set(1.15, 1.15, 7); m.position.set(sx, sy, sz); scene.add(m);
+    // TRACER MEMANJANG SEARAH JALAN (2026-08-18, laporan user "peluru machine gun
+    // malah melintang"). `GEO.bullet` adalah BOLA, jadi `scale` sajalah yang
+    // memanjangkannya — dan versi lama memanjangkannya pada sumbu Z sementara
+    // pelurunya terbang di sumbu -X, sehingga tiap tracer terlihat MELINTANG
+    // jalan seperti palang. Sumbu panjangnya diambil dari ARAH TEMBAK itu
+    // sendiri, bukan dipatok, supaya tetap benar kalau arahnya berubah:
+    // `atan2(dx, dz)` memutar +z lokal ke arah terbangnya.
+    const dir = new THREE.Vector3(-1, 0, 0);
+    m.scale.set(1.15, 1.15, MG_TRACER_LEN);
+    m.rotation.y = Math.atan2(dir.x, dir.z);
+    m.position.set(sx, sy, sz); scene.add(m);
     enemyBullets.push({
-        mesh: m, dir: new THREE.Vector3(-1, 0, 0), speed: C.mgBulletSpeed,
+        mesh: m, dir, speed: C.mgBulletSpeed,
         life: CFG.robot.rangedBulletLife, dmg: C.mgDamage, monasDmg: 0,
         px: sx, py: sy, pz: sz, source: 'gunship',
     });
@@ -394,10 +439,18 @@ function updateAttacks(g, dt, ctx) {
     }
 }
 
+// Denyut nyala buang proyektil. Murni visual dan hanya menyentuh transform mesh
+// yang SUDAH ada — tak ada mesh/material lahir saat bermain.
+function pulseFlame(mesh, t) {
+    const f = mesh.userData.flame; if (!f) return;
+    f.scale.set(1, 0.75 + Math.sin(t * 34) * 0.3, 1);
+}
+
 function updateShells(g, dt) {
     const C = CFG.campaign.bosses.gunship;
     for (const s of g.shells) if (s.active) {
         s.mesh.position.x -= C.cannonSpeed * dt; s.life -= dt;
+        pulseFlame(s.mesh, s.life);
         if (s.mesh.position.x <= camera.position.x + 2 || s.life <= 0) {
             queueBoom(camera.position.x, 5, s.laneZ, C.cannonBlastRadius,
                 true, C.cannonDamage, 1, sfxTankBlast);
@@ -424,6 +477,7 @@ function updateMissiles(g, dt) {
         m.mesh.position.x += m.dirx * m.speed * dt;
         m.mesh.position.z += m.dirz * m.speed * dt;
         m.mesh.rotation.y = -cur; m.life -= dt;
+        pulseFlame(m.mesh, m.life);
         if (Math.hypot(m.mesh.position.x - camera.position.x,
             m.mesh.position.z - camera.position.z) < player.radius + 4) {
             queueBoom(m.mesh.position.x, 5, m.mesh.position.z, C.missileBlastRadius,

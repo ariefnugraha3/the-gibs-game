@@ -10459,6 +10459,30 @@ tickS8(1.05, 0.05);
 T('S8 GUNSHIP MG: corridor median ikut ditarget dan telegraph muncul sebelum tembakan',
     s8mod.stage8GunshipDebug().attackState === 'telegraph'
     && s8mod.stage8GunshipDebug().targetLane === 3 && s8mod.stage8GunshipDebug().telegraph);
+// ARAH TRACER MG (2026-08-18, laporan user "peluru machine gun malah
+// melintang"). `GEO.bullet` adalah BOLA: yang memanjangkannya cuma `scale`, dan
+// versi lama memanjangkannya pada sumbu Z sementara pelurunya terbang di sumbu
+// -X. Yang dijaga di sini BUKAN angka rotasinya, melainkan hubungannya: sumbu
+// PANJANG tracer, setelah yaw-nya, harus sejajar dengan ARAH TERBANGNYA.
+{
+    let mgGuard = 0, shot = null;
+    while (!shot && mgGuard++ < 400) {
+        tickS8(0.05, 0.05);
+        shot = enemyBullets.find(b => b.source === 'gunship');
+    }
+    const yaw = shot ? shot.mesh.rotation.y : 0;
+    const ax = Math.sin(yaw), az = Math.cos(yaw);
+    const dot = shot ? ax * shot.dir.x + az * shot.dir.z : 0;
+    T(`S8 GUNSHIP MG: tracer memanjang SEARAH terbangnya, bukan melintang jalan [selaras ${Math.abs(dot).toFixed(3)}]`,
+        !!shot
+        // Sumbu panjangnya memang +z lokal (itu yang di-scale)...
+        && shot.mesh.scale.z > shot.mesh.scale.x * 3
+        // ...dan setelah yaw, sumbu itu sejajar arah terbang. |dot| = 1 sejajar,
+        // 0 = tegak lurus alias melintang jalan seperti palang.
+        && Math.abs(dot) > 0.999
+        // Terbangnya sendiri memang searah jalan (sumbu x).
+        && Math.abs(shot.dir.x) > 0.999 && Math.abs(shot.dir.z) < 1e-9);
+}
 let missilePeak = 0, attackGuard = 0;
 while (attackGuard++ < 600 && missilePeak < S8G.missileBurst) {
     tickS8(0.05, 0.05);
@@ -10467,6 +10491,42 @@ while (attackGuard++ < 600 && missilePeak < S8G.missileBurst) {
 T('S8 GUNSHIP MISSILE: siklus MG/cannon/missile menghasilkan burst tepat tiga, tak lebih dari pool',
     missilePeak === S8G.missileBurst
     && s8mod.stage8WorldDebug().pools.missiles === S8G.missileBurst);
+
+// UKURAN PROYEKTIL (2026-08-18, permintaan user "buat agar lebih besar dan lebih
+// terlihat jelas agar player menyadari kedatangannya"). Patokannya diambil dari
+// DUNIA, bukan angka selera: keduanya harus setidaknya sepanjang satu lajur dan
+// selebar seperempat lajur, supaya terbaca dari kamera oblique jauh sebelum
+// mendarat. Versi lama (rudal ~5 unit, shell ~3,9 unit) gagal di ambang ini.
+{
+    const gsMod = await import(R('src/entities/combatGunship.js'));
+    // Silinder/kerucut proyektil direbahkan ke sumbu x (rz = +-PI/2), jadi
+    // TINGGI geometrinya adalah panjangnya; sirip kotak yang tegak (rx = PI/2)
+    // menyumbang tinggi, bukan lebar.
+    const spanOf = g => {
+        let x0 = Infinity, x1 = -Infinity, w = 0;
+        for (const o of g.children) {
+            const a = o.geometry?.args; if (!a) continue;
+            const t = o.geometry.type;
+            let lx = 0, lz = 0;
+            if (t === 'cyl') { lx = a[2]; lz = Math.max(a[0], a[1]) * 2; }
+            else if (t === 'cone') { lx = a[1]; lz = a[0] * 2; }
+            else if (t === 'box') { lx = a[0]; lz = Math.abs(o.rotation.x) < 1e-6 ? a[2] : 0; }
+            x0 = Math.min(x0, o.position.x - lx / 2);
+            x1 = Math.max(x1, o.position.x + lx / 2);
+            w = Math.max(w, lz);
+        }
+        return { len: (x1 - x0) * g.scale.x, width: w * g.scale.z };
+    };
+    const mis = spanOf(gsMod.buildCombatGunshipMissileMesh());
+    const she = spanOf(gsMod.buildCombatGunshipShellMesh());
+    const lane = S8C.laneWidth;
+    T(`S8 GUNSHIP PROYEKTIL: rudal & shell cukup besar untuk terbaca dari kamera oblique [rudal ${mis.len.toFixed(0)}x${mis.width.toFixed(0)}, shell ${she.len.toFixed(0)}x${she.width.toFixed(0)} vs lajur ${lane}]`,
+        mis.len >= lane && she.len >= lane
+        && mis.width >= lane * 0.25 && she.width >= lane * 0.25
+        // Tetap muat di lajurnya sendiri: proyektil yang lebih lebar dari lajur
+        // membuat menghindar ke kiri/kanan jadi omong kosong.
+        && mis.width < lane && she.width < lane);
+}
 
 const s8PoolsBeforeDeath = JSON.stringify(s8mod.stage8WorldDebug().pools);
 s8mod.stage8DamageGunshipForDebug(S8G.hp);
