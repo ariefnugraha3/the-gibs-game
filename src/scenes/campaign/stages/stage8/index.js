@@ -50,7 +50,7 @@ import {
     createBarrelDropperRig, resetBarrelDroppers, spawnBarrelDropper,
     updateBarrelDroppers, barrelDropperBulletHits, clearBarrelDroppers, damageBarrelDropper,
     barrelDropperDebug, activeBarrelDroppers, activeDroppedBarrels,
-    BARREL_DROPPER_DIMENSIONS,
+    BARREL_DROPPER_DIMENSIONS, barrelSlotsNeeded,
 } from './barrelDropper.js';
 import {
     buildStage8Scenery, updateStage8Scenery, setStage8SceneryAct,
@@ -84,7 +84,7 @@ export const STAGE8_DIALOGUE = dialogueMap('campaign.stage8.lines');
 
 let built = false, worldRoot = null, roadRoot = null, airportRoot = null;
 let tacticalVehicle = null, gunship = null, staticBatch = [], scenery = null;
-let barrelRig = null, haulersSpawned = 0, haulerShown = false;
+let barrelRig = null, haulersSpawned = 0, haulerShown = false, bossHaulerT = 0;
 const roadModules = [], pickupPool = [], dustPool = [], stageLights = [];
 let roadWraps = 0, dustCursor = 0;
 
@@ -250,8 +250,12 @@ function buildWorld() {
     // player) lebih panjang daripada seluruh rentetan jatuhnya — jadi pool yang
     // dipatok akan kelaparan diam-diam begitu `dropCount` dinaikkan.
     const bdC = CFG.campaign.stage8.barrelDropper;
-    barrelRig = createBarrelDropperRig(worldRoot, 7, 2,
-        Math.max(8, (bdC.maxActive || 1) * (bdC.dropCount || 3) + 4));
+    // Cap terbesar ada di DUEL BOS (2026-08-19): sampai `bossMaxActive` truk
+    // MENETAP yang menjatuhkan barel tanpa henti. Slot truknya dilebihkan karena
+    // BANGKAI masih memakai slotnya beberapa detik walau tak lagi dihitung aktif.
+    const maxTrucks = Math.max(bdC.maxActive || 1, bdC.bossMaxActive || 1);
+    barrelRig = createBarrelDropperRig(worldRoot, 7, maxTrucks + 2,
+        barrelSlotsNeeded(maxTrucks));
 
     // Konfigurasi lampu tetap: delapan lampu arena + empat apron, tidak pernah
     // dibuat/dihapus saat boss atau arrival muncul.
@@ -556,8 +560,8 @@ function updateGroundSpawner(dt) {
         if (pickupsSpawned % every === 0) spawnHauler();
     }
 }
-function spawnHauler() {
-    if (!spawnBarrelDropper(barrelRig, barrelCtx(0))) return false;
+function spawnHauler(opts) {
+    if (!spawnBarrelDropper(barrelRig, barrelCtx(0), opts)) return false;
     haulersSpawned++;
     if (!haulerShown) {
         haulerShown = true;
@@ -608,6 +612,11 @@ function finishGunshipIntro(skipped = false) {
 function startArrival() {
     if (phase === 'arrival' || complete) return;
     phase = 'arrival'; releaseInputs(); clearMoveTarget();
+    // Truk barel MENETAP tak pernah berlalu sendiri (2026-08-19), jadi sisa yang
+    // masih hidup saat bos jatuh harus dibersihkan di sini — persis seperti
+    // intro gunship membersihkannya — supaya tak ada truk musuh yang ikut
+    // terbawa ke dalam cutscene kedatangan Kertajati.
+    clearBarrelDroppers(barrelRig);
     setCinematicActive(true); setCineBars(true); setCineFade(1, CFG.campaign.stage8.fadeSec);
     cine = { kind: 'arrival', stage: 'fadeOut', t: 0, stageT: 0, swapped: false };
     cineCam.set(-120, 86, 88); showCutsceneSkip(finishStage);
@@ -713,9 +722,31 @@ function updateJourney(dt) {
     }
 }
 
+// PENGANGKUT BAREL MENETAP DI PARUH KEDUA DUEL BOS (2026-08-19, permintaan user
+// "ketika HP gunship sudah 50% atau kurang, sesekali munculkan 1 atau 2 mobil
+// barrel, tapi mobil barel ini akan terus menurunkan barel sampai dia
+// dihancurkan"). Ambangnya dibaca dari HP bos, bukan dari waktu, jadi tekanan
+// tambahan ini selalu tiba tepat saat duelnya berbalik. Truknya dilahirkan
+// `endless`: ia tak pernah berlalu, jadi player harus benar-benar membagi
+// tembakan antara bos di udara dan truk di aspal.
+function updateBossHaulers(dt) {
+    const C = CFG.campaign.stage8.barrelDropper;
+    if (phase !== 'gunshipBattle' || !gunship || gunship.dead) return;
+    if (gunship.hp > gunship.maxHp * (C.bossHpFrac ?? 0.5)) return;
+    if (bossHaulerT === 0) bossHaulerT = C.bossFirstDelaySec ?? 4;
+    bossHaulerT -= dt;
+    if (bossHaulerT > 0) return;
+    bossHaulerT = C.bossIntervalSec ?? 11;
+    const cap = Math.max(1, C.bossMaxActive || 1);
+    // "sesekali 1 atau 2": jumlahnya diundi, lalu dibatasi cap yang sama.
+    const want = 1 + (Math.random() < 0.5 ? 1 : 0);
+    for (let i = 0; i < Math.min(want, Math.max(1, C.bossSpawnMax || 2)); i++)
+        if (!spawnHauler({ endless: true, maxActive: cap })) break;
+}
+
 function updateBoss(dt) {
     if (phase !== 'gunshipBattle' && phase !== 'gunshipDeath') return;
-    updateRoad(dt); updatePickups(dt);
+    updateRoad(dt); updatePickups(dt); updateBossHaulers(dt);
     updateCombatGunship(gunship, dt, {
         playerLane: laneIndex, laneZ: laneWorldZ, roadX: PLAYER_X,
         bossX: PLAYER_X + 130, bossZ: 0, allowAttack: phase === 'gunshipBattle',
@@ -774,7 +805,7 @@ function resetStage() {
     for (let i = 0; i < roadModules.length; i++)
         roadModules[i].position.x = OX + (i - (ROAD_MODULES - 1) / 2) * MODULE_LEN;
     resetStage8Scenery(scenery); resetBarrelDroppers(barrelRig);
-    haulersSpawned = 0; haulerShown = false;
+    haulersSpawned = 0; haulerShown = false; bossHaulerT = 0;
     for (const p of pickupPool) resetEnemyPickupVisual(p);
     for (const d of dustPool) d.visible = false;
     resetCombatGunship(gunship, { active: false });
@@ -837,7 +868,12 @@ export const stage8HaulerDebug = () => ({
 });
 // Kait debug pengangkut barel: pola yang sama dengan `stage8DamageGunshipForDebug`
 // — smoke menguji KONTRAK-nya tanpa harus merakit peluru palsu.
-export const stage8SpawnHaulerDbg = () => !!spawnHauler();
+export const stage8SpawnHaulerDbg = opts => !!spawnHauler(opts);
+export const stage8BossHaulerDbg = () => ({
+    timer: bossHaulerT, hpFrac: CFG.campaign.stage8.barrelDropper.bossHpFrac,
+    armed: !!gunship && !gunship.dead && phase === 'gunshipBattle'
+        && gunship.hp <= gunship.maxHp * (CFG.campaign.stage8.barrelDropper.bossHpFrac ?? 0.5),
+});
 export const stage8ClearHaulersDbg = () => clearBarrelDroppers(barrelRig);
 export const stage8DamageHaulerDbg = dmg => {
     const t = barrelRig?.trucks.find(v => v.active && !v.wreck);

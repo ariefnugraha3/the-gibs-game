@@ -10199,9 +10199,25 @@ T('S8 CONVOY ENTRY: kedua ujung jalan dipakai, semua carrier menghadap maju di l
         && Math.abs(born.targetX - (s8World0.origin.x + BD.leadOffset)) < 1e-9
         && Math.abs(born.yaw) < 1e-9 && born.cargoVisible === bedLoad);
 
-    // --- Barel pertama: harus mendarat DI PUSAT lajur player saat itu.
-    let guard = 0;
-    while (s8mod.stage8HaulerDebug().barrelsOut === 0 && guard++ < 3000) tickS8(0.1, 0.1);
+    // --- Barel pertama: harus mendarat DI PUSAT lajur player saat itu, dan
+    //     harus keluar SEGERA setelah truknya sampai di posisinya (2026-08-19,
+    //     laporan user "terasa ada jeda yang cukup lama"). Hitungan `armSec` dan
+    //     bukaan pintunya kini berjalan SELAMA truk meluncur masuk, jadi begitu
+    //     ia parkir barelnya langsung turun; dulu keduanya baru mulai sesudah
+    //     sampai, menyisakan jeda kosong sepanjang `armSec`.
+    let guard = 0, tArrive = -1, tDrop = -1, simT = 0;
+    while (s8mod.stage8HaulerDebug().barrelsOut === 0 && guard++ < 3000) {
+        tickS8(0.1, 0.1); simT += 0.1;
+        const t = s8mod.stage8HaulerDebug().trucks.find(v => v.active);
+        if (tArrive < 0 && t && t.phase === 'drop') tArrive = simT;
+    }
+    tDrop = simT;
+    const arriveGap = tArrive < 0 ? 99 : tDrop - tArrive;
+    T(`S8 PENGANGKUT BAREL: barel pertama turun SEGERA setelah truk sampai di posisinya [${arriveGap.toFixed(1)}s vs arm ${BD.armSec}s]`,
+        tArrive >= 0
+        // Paling lama satu bukaan pintu — bukan lagi sepanjang `armSec`.
+        && arriveGap <= BD.dropTelegraphSec + 0.1 + 1e-9
+        && arriveGap < BD.armSec);
     const dropped = s8mod.stage8HaulerDebug();
     const lane0 = s8mod.stage8RoadDebug().laneIndex;
     const laneZ0 = s8mod.stage8WorldDebug().lanePositions[lane0];
@@ -10472,7 +10488,11 @@ T('S8 GUNSHIP MG: corridor median ikut ditarget dan telegraph muncul sebelum tem
     }
     const yaw = shot ? shot.mesh.rotation.y : 0;
     const ax = Math.sin(yaw), az = Math.cos(yaw);
-    const dot = shot ? ax * shot.dir.x + az * shot.dir.z : 0;
+    // Dibandingkan terhadap PROYEKSI BIDANG TANAH dari arah terbang: itulah arah
+    // coretan yang benar-benar terlihat dari kamera oblique (pelurunya sendiri
+    // juga menurun dari moncong ke lajur, jadi arah 3D-nya punya komponen y).
+    const dh = shot ? Math.hypot(shot.dir.x, shot.dir.z) || 1 : 1;
+    const dot = shot ? (ax * shot.dir.x + az * shot.dir.z) / dh : 0;
     T(`S8 GUNSHIP MG: tracer memanjang SEARAH terbangnya, bukan melintang jalan [selaras ${Math.abs(dot).toFixed(3)}]`,
         !!shot
         // Sumbu panjangnya memang +z lokal (itu yang di-scale)...
@@ -10480,17 +10500,88 @@ T('S8 GUNSHIP MG: corridor median ikut ditarget dan telegraph muncul sebelum tem
         // ...dan setelah yaw, sumbu itu sejajar arah terbang. |dot| = 1 sejajar,
         // 0 = tegak lurus alias melintang jalan seperti palang.
         && Math.abs(dot) > 0.999
-        // Terbangnya sendiri memang searah jalan (sumbu x).
-        && Math.abs(shot.dir.x) > 0.999 && Math.abs(shot.dir.z) < 1e-9);
+        // Terbangnya sendiri tetap MENYUSURI jalan (didominasi sumbu x), bukan
+        // menyeberanginya.
+        && Math.abs(shot.dir.x) / dh > 0.9);
+
+    // LAHIR DI MONCONG, BUKAN DI TENGAH JALAN (2026-08-18, permintaan user
+    // "buat agar peluru gunship benar-benar keluar dari moncong senjatanya").
+    // Jangkarnya sudah ada di rig sejak dibangun; yang dulu salah adalah ketiga
+    // fungsi tembak memakai offset karangan di dekat aspal (y 8-13) pada lajur
+    // SASARAN, jadi tembakan seolah muncul begitu saja di depan player.
+    const gpos = s8mod.stage8GunshipDebug().position;
+    T(`S8 GUNSHIP MG: peluru lahir di moncong chin turret, bukan di tengah jalan [y ${shot ? shot.py.toFixed(0) : '-'} vs bos ${gpos.y.toFixed(0)}]`,
+        !!shot
+        // Setinggi bos (chin turret), bukan setinggi aspal.
+        && Math.abs(shot.py - gpos.y) < 20 && shot.py > 20
+        // Dan benar-benar DI bos, bukan di depan player.
+        && Math.abs(shot.px - gpos.x) < 60
+        && shot.px > s8World0.origin.x + 40);
 }
 let missilePeak = 0, attackGuard = 0;
+// Titik LAHIR tiap proyektil direkam pada frame ia pertama kali aktif: sesudah
+// itu ia sudah bergerak, dan yang diuji justru dari mana ia keluar.
+const misBirth = [], sheBirth = [];
+let misWas = [], sheWas = [];
 while (attackGuard++ < 600 && missilePeak < S8G.missileBurst) {
     tickS8(0.05, 0.05);
-    missilePeak = Math.max(missilePeak, s8mod.stage8GunshipDebug().missilesActive);
+    const gd = s8mod.stage8GunshipDebug();
+    gd.missiles.forEach((m, i) => {
+        if (m.active && !misWas[i]) misBirth.push({ ...m, g: { ...gd.position } });
+    });
+    gd.shells.forEach((sh, i) => {
+        if (sh.active && !sheWas[i]) sheBirth.push({ ...sh, g: { ...gd.position } });
+    });
+    misWas = gd.missiles.map(m => m.active); sheWas = gd.shells.map(sh => sh.active);
+    missilePeak = Math.max(missilePeak, gd.missilesActive);
 }
 T('S8 GUNSHIP MISSILE: siklus MG/cannon/missile menghasilkan burst tepat tiga, tak lebih dari pool',
     missilePeak === S8G.missileBurst
     && s8mod.stage8WorldDebug().pools.missiles === S8G.missileBurst);
+
+// SUNGGUH-SUNGGUH DITEMBAK JATUH (2026-08-18, laporan user "homming missile
+// sangat susah ditembak"). Bukan sekadar hubungan angka: satu peluru rifle
+// standar yang MELINTASI badan rudal harus benar-benar menghancurkannya dalam
+// satu tick permainan nyata.
+{
+    const live = s8mod.stage8GunshipDebug().missiles.findIndex(m => m.active);
+    const m0 = live >= 0 ? s8mod.stage8GunshipDebug().missiles[live] : null;
+    const hits0 = stateMod.stats.hits;
+    if (m0) stateMod.bullets.push({
+        mesh: { position: new THREE.Vector3(m0.x, m0.y, m0.z) },
+        // Ruas sapuan datang dari belakang rudal menuju titik pusatnya, persis
+        // seperti peluru player yang melesat ke arah bos.
+        px: m0.x + cfgMod.CFG.weapons.bulletSpeed, pz: m0.z,
+        dir: { x: -1, y: 0, z: 0 }, damage: cfgMod.CFG.weapons.rifle.damage,
+    });
+    tickS8(0.05, 0.05);
+    const after = live >= 0 ? s8mod.stage8GunshipDebug().missiles[live] : null;
+    T(`S8 GUNSHIP RUDAL: satu peluru rifle yang melintasi badannya benar-benar menjatuhkannya [HP ${S8G.missileHp}]`,
+        !!m0 && !!after && !after.active && stateMod.stats.hits > hits0);
+    stateMod.bullets.length = 0;
+}
+
+// MERIAM DARI MONCONG DEPAN, RUDAL DARI SAYAP KIRI DAN KANAN (2026-08-18,
+// permintaan user "canon dan mgun berada di bagian depan gunship. homming
+// missile dari sayapnya kiri dan kanan").
+{
+    const sideOf = b => Math.sign(Math.round((b.z - b.g.z) * 1000));
+    const sides = new Set(misBirth.map(sideOf));
+    T(`S8 GUNSHIP RUDAL: lahir di rel SAYAP kiri dan kanan, setinggi bosnya [${misBirth.length} peluncuran, sisi ${[...sides].join('/')}]`,
+        misBirth.length >= 2
+        // Bergantian kiri/kanan: kedua sayap benar-benar dipakai.
+        && sides.has(-1) && sides.has(1)
+        // Setinggi sayap bos, bukan mengambang di dekat aspal.
+        && misBirth.every(b => Math.abs(b.y - b.g.y) < 20 && b.y > 20)
+        // Melebar ke samping badan, bukan di garis tengahnya.
+        && misBirth.every(b => Math.abs(b.z - b.g.z) > 1));
+    T(`S8 GUNSHIP MERIAM: shell lahir di moncong turret DEPAN, sejajar moncong MG [${sheBirth.length} tembakan]`,
+        sheBirth.length >= 1
+        && sheBirth.every(b => Math.abs(b.y - b.g.y) < 20 && b.y > 20
+            // Di DEPAN badan (nose menghadap -x), bukan di belakang atau di
+            // tengah jalan.
+            && b.x < b.g.x && Math.abs(b.x - b.g.x) < 60));
+}
 
 // UKURAN PROYEKTIL (2026-08-18, permintaan user "buat agar lebih besar dan lebih
 // terlihat jelas agar player menyadari kedatangannya"). Patokannya diambil dari
@@ -10517,8 +10608,9 @@ T('S8 GUNSHIP MISSILE: siklus MG/cannon/missile menghasilkan burst tepat tiga, t
         }
         return { len: (x1 - x0) * g.scale.x, width: w * g.scale.z };
     };
-    const mis = spanOf(gsMod.buildCombatGunshipMissileMesh());
-    const she = spanOf(gsMod.buildCombatGunshipShellMesh());
+    const misG = gsMod.buildCombatGunshipMissileMesh();
+    const sheG = gsMod.buildCombatGunshipShellMesh();
+    const mis = spanOf(misG), she = spanOf(sheG);
     const lane = S8C.laneWidth;
     T(`S8 GUNSHIP PROYEKTIL: rudal & shell cukup besar untuk terbaca dari kamera oblique [rudal ${mis.len.toFixed(0)}x${mis.width.toFixed(0)}, shell ${she.len.toFixed(0)}x${she.width.toFixed(0)} vs lajur ${lane}]`,
         mis.len >= lane && she.len >= lane
@@ -10526,6 +10618,115 @@ T('S8 GUNSHIP MISSILE: siklus MG/cannon/missile menghasilkan burst tepat tiga, t
         // Tetap muat di lajurnya sendiri: proyektil yang lebih lebar dari lajur
         // membuat menghindar ke kiri/kanan jadi omong kosong.
         && mis.width < lane && she.width < lane);
+
+    // DUA SILUET YANG BERBEDA (2026-08-18, permintaan user "bedakan bentuk
+    // homming missile dan canon"). Ini bukan soal rasa: RUDAL dapat ditembak
+    // jatuh sementara SHELL hanya dapat dihindari, jadi keduanya harus terbaca
+    // berbeda dalam sekejap dari kamera oblique. Tiga pembeda yang dijaga —
+    // rasio aspek, ada/tiadanya sirip, dan tanda warnanya.
+    const boxes = g => g.children.filter(o => o.geometry?.type === 'box').length;
+    const hasHex = (g, hex) => g.children.some(o => o.material?.color?.getHex?.() === hex);
+    const misAspect = mis.len / mis.width, sheAspect = she.len / she.width;
+    T(`S8 GUNSHIP PROYEKTIL: rudal LANGSING bersirip vs shell GEMPAL tanpa sirip, dan bertanda warna berbeda [aspek ${misAspect.toFixed(2)} vs ${sheAspect.toFixed(2)}, sirip ${boxes(misG)} vs ${boxes(sheG)}]`,
+        // 1. Rasio panjang:lebar — yang pertama terbaca dari jauh.
+        misAspect >= 3.5 && sheAspect <= 3.0 && misAspect >= sheAspect * 1.4
+        // 2. Salib sirip hanya milik rudal; meriam tak punya satu pun.
+        && boxes(misG) >= 4 && boxes(sheG) === 0
+        // 3. Merah HAZARD = yang bisa ditembak jatuh (rudal); shell tak boleh
+        //    memakainya, supaya penandanya tetap berarti.
+        && hasHex(misG, palMod.PAL.hazard) && !hasHex(sheG, palMod.PAL.hazard));
+
+    // RUDAL HARUS MUDAH DITEMBAK JATUH (2026-08-18, laporan user "homming
+    // missile sangat susah ditembak, buat agar mudah ditembak dan
+    // dihancurkan"). Dua sebabnya, dan keduanya dijaga di sini.
+    //
+    // 1. YANG DIGAMBAR ADALAH YANG KENA. `missileHitRadius` tertinggal di 5
+    //    (lingkaran sasaran 10 unit) sementara badan rudalnya digambar sepanjang
+    //    ~31 unit — peluru yang jelas-jelas menembus badannya tidak teregistrasi.
+    //    Kotak kenanya kini menutup sebagian besar panjang yang terlihat, TAPI
+    //    tidak boleh melebihinya: kena di udara kosong sama buruknya.
+    // 2. Satu peluru rifle standar harus cukup menghancurkannya.
+    const misR = S8G.missileHitRadius;
+    T(`S8 GUNSHIP RUDAL: kotak kena menutup badan yang DIGAMBAR dan sekali tembak rifle hancur [diameter ${(misR * 2).toFixed(0)} vs badan ${mis.len.toFixed(0)}, HP ${S8G.missileHp} vs rifle ${cfgMod.CFG.weapons.rifle.damage}]`,
+        misR > 0
+        && misR * 2 >= mis.len * 0.6 && misR * 2 <= mis.len
+        && S8G.missileHp <= cfgMod.CFG.weapons.rifle.damage
+        // Tetap lebih kecil daripada kotak kena bosnya sendiri: rudal adalah
+        // sasaran kecil yang lewat, bukan dinding.
+        && misR < S8G.hitRadius);
+}
+
+// PENGANGKUT BAREL MENETAP DI PARUH KEDUA DUEL BOS (2026-08-19, permintaan user
+// "ketika HP gunship sudah 50% atau kurang, sesekali munculkan 1 atau 2 mobil
+// barrel, tapi mobil barel ini akan terus menurunkan barel sampai dia
+// dihancurkan, tidak pergi setelah menurunkan barel seperti biasanya").
+{
+    const BD = S8C.barrelDropper;
+    stateMod.setGodMode(true);
+    s8mod.stage8ClearHaulersDbg();
+
+    // --- SEBELUM ambang: bos masih penuh HP, tak boleh ada satu pun truk.
+    let preSpawn = 0;
+    for (let i = 0; i < 400; i++) {
+        tickS8(0.05, 0.05);
+        preSpawn = Math.max(preSpawn, s8mod.stage8HaulerDebug().active);
+    }
+    T(`S8 BOS+BAREL: selama HP bos di atas ambang config, tak ada truk barel sama sekali [hp ${(s8mod.stage8GunshipDebug().hp / S8G.hp * 100).toFixed(0)}% vs ambang ${(BD.bossHpFrac * 100).toFixed(0)}%]`,
+        preSpawn === 0
+        && !s8mod.stage8BossHaulerDbg().armed
+        && s8mod.stage8GunshipDebug().hp > S8G.hp * BD.bossHpFrac);
+
+    // --- Turunkan HP bos TEPAT ke ambangnya.
+    s8mod.stage8DamageGunshipForDebug(Math.ceil(S8G.hp * (1 - BD.bossHpFrac)));
+    T(`S8 BOS+BAREL: ambangnya dibaca dari HP bos, bukan dari waktu [${(s8mod.stage8GunshipDebug().hp / S8G.hp * 100).toFixed(0)}%]`,
+        s8mod.stage8BossHaulerDbg().armed
+        && s8mod.stage8GunshipDebug().hp <= S8G.hp * BD.bossHpFrac);
+
+    // --- Sesudah ambang: truk muncul, 1-2 sekaligus, tak melewati capnya.
+    let peak = 0, guard = 0;
+    while (peak === 0 && guard++ < 600) {
+        tickS8(0.05, 0.05);
+        peak = Math.max(peak, s8mod.stage8HaulerDebug().active);
+    }
+    for (let i = 0; i < 600; i++) {
+        tickS8(0.05, 0.05);
+        peak = Math.max(peak, s8mod.stage8HaulerDebug().active);
+    }
+    const born = s8mod.stage8HaulerDebug().trucks.filter(t => t.active && !t.wreck);
+    T(`S8 BOS+BAREL: sesudah ambang truk barel datang, 1-2 sekaligus dan tak pernah melewati cap [puncak ${peak} vs cap ${BD.bossMaxActive}]`,
+        peak >= 1 && peak <= BD.bossMaxActive && BD.bossMaxActive >= 1
+        && born.length > 0 && born.every(t => t.endless));
+
+    // --- MENETAP: menjatuhkan JAUH melebihi satu muatan dan tak pernah berlalu.
+    const stay = s8mod.stage8HaulerDebug().trucks.find(t => t.active && !t.wreck && t.endless);
+    let departed = false, maxDropped = stay ? stay.dropped : 0;
+    for (let i = 0; i < 900; i++) {
+        tickS8(0.05, 0.05);
+        const t = s8mod.stage8HaulerDebug().trucks.find(v => v.active && v.endless && !v.wreck);
+        if (!t) break;
+        if (t.phase === 'depart') departed = true;
+        maxDropped = Math.max(maxDropped, t.dropped);
+    }
+    T(`S8 BOS+BAREL: truk MENETAP — terus menjatuhkan barel melewati satu muatan penuh dan tak pernah berlalu [${maxDropped} barel vs muatan ${BD.dropCount}]`,
+        maxDropped > BD.dropCount && !departed
+        // Poolnya ikut diturunkan dari fisika, jadi tak pernah kelaparan:
+        // truk yang kelaparan slot akan berhenti menjatuhkan tanpa alasan.
+        && s8mod.stage8HaulerDebug().pools.barrels >= BD.dropCount);
+
+    // --- Berhenti HANYA kalau dihancurkan.
+    const before = s8mod.stage8HaulerDebug().trucks.find(t => t.active && t.endless && !t.wreck);
+    s8mod.stage8DamageHaulerDbg(BD.hp);
+    const killed = s8mod.stage8HaulerDebug().trucks.find(t => t.wreck);
+    const dropAtKill = killed ? killed.dropped : -1;
+    for (let i = 0; i < 40; i++) tickS8(0.05, 0.05);
+    const post = s8mod.stage8HaulerDebug().trucks.find(t => t.wreck);
+    T(`S8 BOS+BAREL: berhenti HANYA setelah dihancurkan [${dropAtKill} barel saat mati]`,
+        !!before && !!killed && killed.hp === 0
+        // Bangkai tak menjatuhkan apa pun lagi.
+        && (!post || post.dropped === dropAtKill));
+
+    stateMod.setGodMode(false);
+    s8mod.stage8ClearHaulersDbg(); robotsMod.resetRobotsFx(); barrel5Mod.resetBarrels();
 }
 
 const s8PoolsBeforeDeath = JSON.stringify(s8mod.stage8WorldDebug().pools);
@@ -10543,6 +10744,8 @@ tickS8(S8C.gunshipDeathDelaySec + 0.1, 0.1); drainS8Dialogue(); tickS8(0.1, 0.1)
 T('S8 ARRIVAL: tiga detik sesudah animasi + dialog boss-down membuka cutscene Kertajati',
     s8mod.stage8Debug().phase === 'arrival' && stateMod.cinematicActive);
 const s8ArrivalSkip = dom4.triggerCutsceneSkip();
+T('S8 BOS+BAREL: truk menetap yang masih hidup ikut dibersihkan saat kedatangan dimulai, tak terbawa ke cutscene',
+    s8mod.stage8HaulerDebug().active === 0 && s8mod.stage8HaulerDebug().barrelsOut === 0);
 T('S8 COMPLETE: arrival skip membersihkan pose/overlay/audio dan membuka finish hijau dengan checkpoint 8',
     s8ArrivalSkip === true && stateMod.isGameOver && s8mod.stage8Debug().complete
     && dom4.gameOverTitle.innerText === 'STAGE 8 COMPLETE'

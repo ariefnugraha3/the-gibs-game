@@ -54,9 +54,36 @@ function mk(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
 // panjang kendaraan yang ditujunya, pada kamera oblique yang menatap dari jauh.
 // Keduanya kini dibangun pada skala yang membuat panjangnya sebanding dengan
 // SATU LAJUR, jadi kedatangannya terbaca beberapa detik sebelum mendarat.
-const MISSILE_SCALE = 2.9, SHELL_SCALE = 3.2;
+// UKURAN PROYEKTIL (2026-08-18, permintaan user "buat agar lebih besar dan lebih
+// terlihat jelas agar player menyadari kedatangannya"). Patokannya BUKAN selera:
+// kendaraan player panjangnya 5,20 m x 7 = 36,4 unit dan lebar lajur 17,5 unit,
+// sementara rudal lama hanya ~5 unit dan shell ~3,9 unit — sekitar sepersepuluh
+// panjang kendaraan yang ditujunya, pada kamera oblique yang menatap dari jauh.
+//
+// DUA SILUET YANG BERBEDA (2026-08-18, permintaan lanjutan user "bedakan bentuk
+// homming missile dan canon"). Perbedaannya MENGIKUTI GAMEPLAY, bukan selera —
+// dan inilah alasan pembedaannya penting: RUDAL DAPAT DITEMBAK JATUH (`missileHp`
+// di `projectileHits`), SHELL METRIAM TIDAK BISA, ia hanya dapat dihindari. Jadi
+// player harus dapat membedakannya dalam sekejap, dari atas:
+//
+//   RUDAL   = LANGSING + BERSIRIP + PITA MERAH. Rasio panjang:lebar tinggi,
+//             empat sirip ekor + empat kanard membentuk salib yang terbaca dari
+//             atas, hidungnya runcing (seeker), warnanya baja berpita HAZARD —
+//             merah = "ini yang bisa dan harus kau tembak".
+//   SHELL   = GEMPAL + TANPA SIRIP + MENYALA AMBER. Slug tumpul beraspek rendah
+//             dengan sabuk pendorong bercahaya dan inti panas, BERPUTAR pada
+//             sumbunya sendiri seperti proyektil beralur — amber menyala =
+//             "tak bisa dihentikan, keluar dari lajurnya".
+//
+// Rasio aspek keduanya sengaja dijauhkan (rudal >= 3,5; shell <= 3,0) karena
+// dari kamera oblique, PERBANDINGAN PANJANG-LEBAR-lah yang pertama terbaca —
+// jauh sebelum detail permukaan.
+const MISSILE_SCALE = 2.9, SHELL_SCALE = 3.9;
 // Tracer MG: panjang searah jalan, bukan melintang (lihat `fireMG`).
 const MG_TRACER_LEN = 9;
+// Putaran alur shell meriam (rad/detik): gerak yang MEMBEDAKANNYA dari rudal,
+// yang justru membelok mulus mengikuti player.
+const SHELL_SPIN = 9;
 
 export function buildCombatGunshipMissileMesh() {
     const g = new THREE.Group();
@@ -65,24 +92,27 @@ export function buildCombatGunshipMissileMesh() {
     const warn = new THREE.MeshLambertMaterial({ color: PAL.hazard,
         emissive: PAL.hazard, emissiveIntensity: EMISSIVE_MAX * 0.7 });
     const hot = new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false });
-    const tube = mk(g, new THREE.CylinderGeometry(0.44, 0.5, 4.0, 8), body, 0, 0, 0, 0, 0, Math.PI / 2);
+    // Badan LANGSING dan panjang — kebalikan slug meriam.
+    const tube = mk(g, new THREE.CylinderGeometry(0.42, 0.48, 5.0, 8), body, 0, 0, 0, 0, 0, Math.PI / 2);
     tube.castShadow = false;
-    mk(g, new THREE.CylinderGeometry(0.52, 0.52, 0.5, 8), dark, 0.9, 0, 0, 0, 0, Math.PI / 2);
-    mk(g, new THREE.ConeGeometry(0.46, 1.5, 6), body, 2.7, 0, 0, 0, 0, -Math.PI / 2);
+    mk(g, new THREE.CylinderGeometry(0.5, 0.5, 0.45, 8), dark, 1.2, 0, 0, 0, 0, Math.PI / 2);
+    // Hidung RUNCING + kepala seeker: rudal berpandu, bukan proyektil tumpul.
+    mk(g, new THREE.ConeGeometry(0.42, 2.1, 6), body, 3.55, 0, 0, 0, 0, -Math.PI / 2);
+    mk(g, new THREE.SphereGeometry(0.26, 6, 6), dark, 4.5, 0, 0);
     // PITA BAHAYA: dari atas, sebuah tabung abu-abu di atas aspal abu-abu nyaris
-    // tak terbaca. Dua pita merah inilah yang membuatnya terlihat bergerak.
-    for (const x of [1.7, -0.4])
-        mk(g, new THREE.CylinderGeometry(0.54, 0.54, 0.42, 8), warn, x, 0, 0, 0, 0, Math.PI / 2);
-    mk(g, new THREE.ConeGeometry(0.34, 0.9, 6), hot, -2.4, 0, 0, 0, 0, Math.PI / 2).castShadow = false;
-    // Sirip kanard depan + sirip ekor: siluet rudal jelajah, bukan tabung polos.
-    // Diperlebar bersama pembesaran: dari kamera atas, LEBAR-lah yang terbaca.
+    // tak terbaca. Pita merah inilah yang membuatnya terbaca DAN menandainya
+    // sebagai satu-satunya proyektil bos yang dapat ditembak jatuh.
+    for (const x of [2.1, 0.2, -1.6])
+        mk(g, new THREE.CylinderGeometry(0.52, 0.52, 0.4, 8), warn, x, 0, 0, 0, 0, Math.PI / 2);
+    mk(g, new THREE.ConeGeometry(0.32, 0.9, 6), hot, -2.9, 0, 0, 0, 0, Math.PI / 2).castShadow = false;
+    // SALIB SIRIP: empat sirip ekor + empat kanard. Inilah tanda pengenal utama
+    // rudal dari kamera atas — meriam tidak punya satu pun sirip.
     for (const a of [0, Math.PI / 2]) {
-        mk(g, new THREE.BoxGeometry(0.9, 0.09, 2.1), body, -1.5, 0, 0, a, 0, 0);
-        mk(g, new THREE.BoxGeometry(0.6, 0.08, 1.3), body, 1.45, 0, 0, a, 0, 0);
+        mk(g, new THREE.BoxGeometry(1.15, 0.09, 2.5), body, -1.95, 0, 0, a, 0, 0);
+        mk(g, new THREE.BoxGeometry(0.65, 0.08, 1.45), body, 2.0, 0, 0, a, 0, 0);
     }
-    // Nyala buang: satu kerucut Basic yang DIDENYUTKAN `updateMissiles`, jadi
-    // rudal yang mendekat berkedip alih-alih meluncur diam-diam.
-    const flame = mk(g, new THREE.ConeGeometry(0.5, 2.6, 6), hot, -3.6, 0, 0, 0, 0, Math.PI / 2);
+    // Nyala buang TIPIS dan panjang: jejak roket, bukan semburan meriam.
+    const flame = mk(g, new THREE.ConeGeometry(0.42, 3.4, 6), hot, -4.4, 0, 0, 0, 0, Math.PI / 2);
     flame.castShadow = false;
     g.userData.flame = flame;
     g.scale.setScalar(MISSILE_SCALE);
@@ -92,18 +122,22 @@ export function buildCombatGunshipMissileMesh() {
 export function buildCombatGunshipShellMesh() {
     const g = new THREE.Group();
     const mat = new THREE.MeshLambertMaterial({ color: PAL.ink, emissive: PAL.amberDim, emissiveIntensity: 0.5 });
-    const warn = new THREE.MeshLambertMaterial({ color: PAL.hazard,
-        emissive: PAL.hazard, emissiveIntensity: EMISSIVE_MAX * 0.75 });
+    const glow = new THREE.MeshLambertMaterial({ color: PAL.amberDim,
+        emissive: PAL.amber, emissiveIntensity: EMISSIVE_MAX * 0.8 });
     const hot = new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false });
-    mk(g, new THREE.CylinderGeometry(0.58, 0.66, 2.6, 8), mat, 0, 0, 0, 0, 0, Math.PI / 2);
-    mk(g, new THREE.ConeGeometry(0.6, 1.3, 8), mat, 1.9, 0, 0, 0, 0, -Math.PI / 2);
-    // Sabuk pendorong bercahaya + pita bahaya: shell polos berwarna tinta hilang
-    // di atas aspal, dan inilah yang membuatnya terbaca sebagai proyektil.
-    mk(g, new THREE.CylinderGeometry(0.7, 0.7, 0.5, 8), warn, 0.5, 0, 0, 0, 0, Math.PI / 2);
-    mk(g, new THREE.CylinderGeometry(0.68, 0.68, 0.4, 8), warn, -0.9, 0, 0, 0, 0, Math.PI / 2);
-    mk(g, new THREE.CylinderGeometry(0.34, 0.2, 0.9, 8), hot, -1.7, 0, 0, 0, 0, Math.PI / 2).castShadow = false;
-    // Jejak nyala yang didenyutkan `updateShells`.
-    const flame = mk(g, new THREE.ConeGeometry(0.62, 3.2, 8), hot, -3.2, 0, 0, 0, 0, Math.PI / 2);
+    // Slug GEMPAL: pendek, tebal, tumpul. TANPA satu pun sirip — itu yang
+    // membedakannya dari rudal dalam sekejap.
+    mk(g, new THREE.CylinderGeometry(1.02, 1.1, 2.4, 10), mat, 0, 0, 0, 0, 0, Math.PI / 2);
+    // Ogive tumpul + tudung panas, bukan hidung runcing seeker.
+    mk(g, new THREE.ConeGeometry(1.02, 1.5, 10), mat, 1.95, 0, 0, 0, 0, -Math.PI / 2);
+    mk(g, new THREE.SphereGeometry(0.44, 8, 6), hot, 2.6, 0, 0).castShadow = false;
+    // SABUK PENDORONG bercahaya: cincin lebar khas proyektil meriam beralur,
+    // dan penanda "tak bisa dihentikan" — amber menyala, bukan merah hazard.
+    for (const x of [0.75, -0.75])
+        mk(g, new THREE.CylinderGeometry(1.35, 1.35, 0.46, 10), glow, x, 0, 0, 0, 0, Math.PI / 2);
+    mk(g, new THREE.CylinderGeometry(0.92, 0.6, 0.9, 10), hot, -1.65, 0, 0, 0, 0, Math.PI / 2).castShadow = false;
+    // Semburan LEBAR dan pendek: kebalikan jejak tipis panjang rudal.
+    const flame = mk(g, new THREE.ConeGeometry(1.05, 2.0, 10), hot, -2.6, 0, 0, 0, 0, Math.PI / 2);
     flame.castShadow = false;
     g.userData.flame = flame;
     g.scale.setScalar(SHELL_SCALE);
@@ -172,12 +206,21 @@ export function buildCombatGunshipMesh(scale = 4.8) {
     mk(hull, new THREE.BoxGeometry(0.32, 1.00, 1.80), M.dark, -1.66, 0.96, 0);
 
     // Sayap stub anhedral + pylon + pod rudal berlaras tiga.
+    const missileRails = [];
     for (const s of [-1, 1]) {
         mk(hull, new THREE.BoxGeometry(3.10, 0.30, 2.85), M.armor, 0.30, -0.32, s * 2.35, s * 0.24);
         mk(hull, new THREE.BoxGeometry(1.55, 0.26, 1.30), M.plate, -0.95, -0.52, s * 3.05, s * 0.24);
         mk(hull, new THREE.BoxGeometry(0.85, 0.55, 0.95), M.dark, 0.35, -0.62, s * 3.45, s * 0.24);
         const pod = mk(hull, new THREE.BoxGeometry(2.70, 0.90, 1.10), M.dark, -0.20, -1.02, s * 3.52);
         pod.name = s < 0 ? 'missilePodL' : 'missilePodR';
+        // JANGKAR PELUNCUR di MULUT pod (podnya sendiri dilas ke lambung, jadi
+        // jangkarnya digantung di `group`): rudal harus benar-benar keluar dari
+        // sayap kiri/kanan (2026-08-18, permintaan user), bukan dari titik
+        // karangan di udara.
+        const rail = new THREE.Object3D();
+        rail.position.set(-1.60, -1.02, s * 3.52);
+        rail.name = s < 0 ? 'missileRailL' : 'missileRailR';
+        group.add(rail); missileRails.push(rail);
         mk(hull, new THREE.BoxGeometry(2.80, 0.22, 1.20), M.hazard, -0.20, -1.48, s * 3.52);
         for (let i = -1; i <= 1; i++)
             mk(hull, new THREE.CylinderGeometry(0.17, 0.17, 0.22, 6), M.warn,
@@ -267,7 +310,7 @@ export function buildCombatGunshipMesh(scale = 4.8) {
 
     group.scale.setScalar(scale);
     return { group, rotor, rotorBlur, tailRotor, turret, gatling, sensorRig, sensor,
-        mgMuzzle, cannonMuzzle, muzzleFlash, exhausts, materials: M, scale };
+        mgMuzzle, cannonMuzzle, missileRails, muzzleFlash, exhausts, materials: M, scale };
 }
 
 function makeTelegraph() {
@@ -287,7 +330,7 @@ export function createCombatGunship(scale = 4.8) {
     const shells = [];
     for (let i = 0; i < 2; i++) {
         const mesh = buildCombatGunshipShellMesh(); scene.add(mesh);
-        shells.push({ mesh, active: false, life: 0, laneZ: 0 });
+        shells.push({ mesh, active: false, life: 0, laneZ: 0, vx: -1, vy: 0, vz: 0 });
     }
     const gunship = {
         parts, missiles, shells, telegraph: makeTelegraph(), active: false,
@@ -333,6 +376,18 @@ function clearGunshipBullets() {
     }
 }
 
+// SEMUA PROYEKTIL LAHIR DI MONCONGNYA (2026-08-18, permintaan user "buat agar
+// peluru gunship benar-benar keluar dari moncong senjatanya, bukan tiba-tiba
+// spawn di tengah jalan"). Jangkarnya sudah ada sejak rig ini dibangun —
+// `mgMuzzle`/`cannonMuzzle` di chin turret DEPAN dan `missileRails` di sayap
+// kiri/kanan — hanya saja ketiga fungsi tembak dulu mengabaikannya dan memakai
+// offset karangan di dekat aspal (y 8-13) pada lajur SASARAN, jadi tiap tembakan
+// seolah muncul begitu saja di tengah jalan. Polanya sama dengan tank.js:
+// `getWorldPosition` ke satu vektor scratch, tanpa alokasi per tembakan.
+const _wp = new THREE.Vector3();
+// Ketinggian jelajah rudal setelah menukik lepas dari rel sayap.
+const MISSILE_CRUISE_Y = 9;
+
 function laneZ(ctx, lane) {
     return ctx.laneZ ? ctx.laneZ(lane) : camera.position.z;
 }
@@ -359,7 +414,16 @@ function endAttack(g) {
 
 function fireMG(g, ctx) {
     const C = CFG.campaign.bosses.gunship, p = g.parts;
-    const sx = p.group.position.x - 8, sy = 13, sz = laneZ(ctx, g.targetLane);
+    // LAHIR DI MONCONG GATLING chin turret, lalu MENGERUCUT ke koridor lajur
+    // sasaran pada posisi player. Koridor telegraph tetap terjaga: penyimpangan
+    // lateralnya paling besar di dekat moncong dan menyusut ke nol tepat di x
+    // player, jadi peluru tak pernah menyapu lajur sebelah di tempat player
+    // benar-benar berdiri.
+    p.mgMuzzle.getWorldPosition(_wp);
+    const sx = _wp.x, sy = _wp.y, sz = _wp.z;
+    const tz = laneZ(ctx, g.targetLane);
+    const dx = camera.position.x - sx, dy = camera.position.y - sy, dz = tz - sz;
+    const dl = Math.hypot(dx, dy, dz) || 1;
     const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
     // TRACER MEMANJANG SEARAH JALAN (2026-08-18, laporan user "peluru machine gun
     // malah melintang"). `GEO.bullet` adalah BOLA, jadi `scale` sajalah yang
@@ -368,8 +432,10 @@ function fireMG(g, ctx) {
     // jalan seperti palang. Sumbu panjangnya diambil dari ARAH TEMBAK itu
     // sendiri, bukan dipatok, supaya tetap benar kalau arahnya berubah:
     // `atan2(dx, dz)` memutar +z lokal ke arah terbangnya.
-    const dir = new THREE.Vector3(-1, 0, 0);
+    const dir = new THREE.Vector3(dx / dl, dy / dl, dz / dl);
     m.scale.set(1.15, 1.15, MG_TRACER_LEN);
+    // Sumbu panjang tracer mengikuti arah terbangnya DI BIDANG TANAH — itulah
+    // arah coretan yang benar-benar terlihat dari kamera oblique.
     m.rotation.y = Math.atan2(dir.x, dir.z);
     m.position.set(sx, sy, sz); scene.add(m);
     enemyBullets.push({
@@ -381,21 +447,36 @@ function fireMG(g, ctx) {
 }
 
 function fireCannon(g, ctx) {
-    const C = CFG.campaign.bosses.gunship;
+    const C = CFG.campaign.bosses.gunship, p = g.parts;
     const s = g.shells.find(x => !x.active); if (!s) { endAttack(g); return; }
     s.active = true; s.life = 3; s.laneZ = laneZ(ctx, g.targetLane);
-    s.mesh.visible = true; s.mesh.position.set(g.parts.group.position.x - 5, 8, s.laneZ);
+    // LAHIR DI MONCONG MERIAM chin turret (sebelah gatling, sama-sama di DEPAN).
+    p.cannonMuzzle.getWorldPosition(_wp);
+    s.mesh.visible = true; s.mesh.position.copy(_wp);
+    s.mesh.rotation.set(0, 0, 0);
+    // Arah ke titik hantam: pusat lajur sasaran di ketinggian dada, pada x
+    // player. Kecepatannya diskalakan supaya komponen X-nya TETAP `cannonSpeed`
+    // — waktu tempuhnya, dan karenanya jendela menghindar, tidak berubah sedikit
+    // pun oleh perpindahan titik lahir ini.
+    const dx = camera.position.x - _wp.x, dy = 5 - _wp.y, dz = s.laneZ - _wp.z;
+    const k = 1 / Math.max(1e-6, Math.abs(dx));
+    s.vx = dx * k; s.vy = dy * k; s.vz = dz * k;
+    p.muzzleFlash.material.opacity = 1;
     playSFX(sfxTankMortar, 0.75); addCamShake(1.8);
 }
 
 function fireMissile(g) {
-    const C = CFG.campaign.bosses.gunship;
+    const C = CFG.campaign.bosses.gunship, p = g.parts;
     const m = g.missiles.find(x => !x.active); if (!m) return;
     const slot = g.missileLeft;
     m.active = true; m.hp = C.missileHp; m.life = C.missileLifeSec;
     m.speed = C.missileSpeed; m.dirx = -1; m.dirz = 0;
     m.mesh.visible = true;
-    m.mesh.position.set(g.parts.group.position.x - 7, 9, g.parts.group.position.z + (slot - 2) * 8);
+    // LAHIR DI REL SAYAP, berganti kiri/kanan tiap tembakan (2026-08-18,
+    // permintaan user "homming missile dari sayapnya kiri dan kanan").
+    const rail = p.missileRails[slot % p.missileRails.length];
+    rail.getWorldPosition(_wp);
+    m.mesh.position.copy(_wp);
     playSFX(sfxRocketShot, 0.75);
 }
 
@@ -449,7 +530,18 @@ function pulseFlame(mesh, t) {
 function updateShells(g, dt) {
     const C = CFG.campaign.bosses.gunship;
     for (const s of g.shells) if (s.active) {
-        s.mesh.position.x -= C.cannonSpeed * dt; s.life -= dt;
+        // Bergerak sepanjang vektor moncong->titik hantam; `vx` dinormalisasi
+        // ke -1 saat ditembakkan, jadi laju X-nya tepat `cannonSpeed`.
+        const v = C.cannonSpeed * dt;
+        s.mesh.position.x += s.vx * v;
+        s.mesh.position.y += s.vy * v;
+        s.mesh.position.z += s.vz * v;
+        s.life -= dt;
+        // BERPUTAR PADA SUMBUNYA SENDIRI. Badannya direbahkan ke sumbu x, jadi
+        // `rotation.x` adalah putaran alur laras — gerak yang membedakannya dari
+        // rudal, yang justru MEMBELOK mulus mengikuti player (2026-08-18,
+        // permintaan user "bedakan bentuk homming missile dan canon").
+        s.mesh.rotation.x += SHELL_SPIN * dt;
         pulseFlame(s.mesh, s.life);
         if (s.mesh.position.x <= camera.position.x + 2 || s.life <= 0) {
             queueBoom(camera.position.x, 5, s.laneZ, C.cannonBlastRadius,
@@ -476,6 +568,10 @@ function updateMissiles(g, dt) {
         cur += turn; m.dirx = Math.cos(cur); m.dirz = Math.sin(cur);
         m.mesh.position.x += m.dirx * m.speed * dt;
         m.mesh.position.z += m.dirz * m.speed * dt;
+        // MENUKIK lepas dari rel sayap ke ketinggian jelajah. Kemudi homing-nya
+        // tetap murni di bidang XZ — yang berubah hanya ketinggiannya, supaya
+        // rudal tak melayang di ketinggian sayap sampai ke wajah player.
+        m.mesh.position.y += (MISSILE_CRUISE_Y - m.mesh.position.y) * Math.min(1, dt * 1.8);
         m.mesh.rotation.y = -cur; m.life -= dt;
         pulseFlame(m.mesh, m.life);
         if (Math.hypot(m.mesh.position.x - camera.position.x,
@@ -635,6 +731,12 @@ export function combatGunshipDebug(g) {
         missileLeft: g?.missileLeft || 0,
         missilesActive: g?.missiles?.filter(m => m.active).length || 0,
         shellsActive: g?.shells?.filter(s => s.active).length || 0,
+        // Posisi tiap proyektil: dipakai smoke untuk membuktikan semuanya lahir
+        // di MONCONG senjatanya, bukan di tengah jalan.
+        missiles: g?.missiles?.map(m => ({ active: m.active,
+            x: m.mesh.position.x, y: m.mesh.position.y, z: m.mesh.position.z })) || [],
+        shells: g?.shells?.map(s => ({ active: s.active,
+            x: s.mesh.position.x, y: s.mesh.position.y, z: s.mesh.position.z })) || [],
         telegraph: !!g?.telegraph?.visible,
         position: g ? { x: g.parts.group.position.x, y: g.parts.group.position.y,
             z: g.parts.group.position.z } : null,

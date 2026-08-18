@@ -635,7 +635,7 @@
             },
             "barrelDropper": {
                 "everyPickups": 5,
-                "hp": 230,
+                "hp": 300,
                 "barrelHp": 150,
                 "hitRadius": 20,
                 "maxActive": 1,
@@ -649,7 +649,12 @@
                 "dropCount": 6,
                 "departSpeed": 130,
                 "wreckSec": 3.5,
-                "loot": 55
+                "loot": 55,
+                "bossHpFrac": 0.5,
+                "bossFirstDelaySec": 4,
+                "bossIntervalSec": 11,
+                "bossMaxActive": 2,
+                "bossSpawnMax": 2
             },
             "groundLoads": [
                 ["B", "B", "B"],
@@ -873,8 +878,8 @@
                 "shockDps": 20
             },
             "gunship": {
-                "hp": 8000,
-                "score": 1600,
+                "hp": 9000,
+                "score": 1650,
                 "hitRadius": 25,
                 "attackGapSec": 1.5,
                 "enrageHpFrac": 0.5,
@@ -891,8 +896,8 @@
                 "missileLockSec": 1,
                 "missileBurst": 3,
                 "missileGapSec": 0.55,
-                "missileHp": 80,
-                "missileHitRadius": 5,
+                "missileHp": 40,
+                "missileHitRadius": 12,
                 "missileDamage": 45,
                 "missileBlastRadius": 15,
                 "missileSpeed": 82,

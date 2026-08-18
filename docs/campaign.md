@@ -954,6 +954,59 @@ The load-bearing consequence: **`dropTelegraphSec + dropFallSec + dropCloseSec` 
 
 **The truck itself** has HP 230 and its own swept player-bullet test (a rifle round covers tens of units per frame, so a per-frame point test would tunnel through it — the same reasoning as the gunship and the Stage 5 locomotive). Its bed drums disappear one by one as they are dropped, so shooting it early genuinely denies the remaining barrels. On death it explodes and its wreck brakes to a stop on the road like every other Stage 8 leftover, and it pays out `barrelDropper.loot`. Zero PointLights, PAL tokens only, and the whole rig is cleared when the gunship intro begins so no ground hazard hangs over the boss cutscene. The radar plots both the hauler and its rolling barrels in red.
 
+### The hauler arms while it flies in (2026-08-19, user report)
+
+> *"buat agar ketika mobil barel sudah mencapai posisinya, barel akan langsung diturunkan. sekarang terasa ada jeda yang cukup lama."*
+
+Two separate things were adding up to that pause, and only one of them was a timer.
+
+**The arm timer waited for arrival.** `armSec` (1.2 s) and the tailgate telegraph were only counted down inside the `drop` phase, so the truck flew all the way into station, stopped, and *then* began arming with its door still shut. The countdown and the door now run during `approach` as well: the truck arrives already loaded and already opening, and the first drum leaves the lip on the next frame. It still drops nothing while approaching — the drop condition remains owned by the `drop` phase — so no barrel is ever born far up the road where the player cannot see it leave the truck.
+
+**"Arrived" was measured with a 6-unit threshold on an exponential ease.** The approach closes the remaining distance by a fixed *fraction* per second, so the truck crawls the last stretch: it visually parks long before it is within 6 units of station, and the code kept waiting through that crawl. The threshold is now a fraction of the truck's **own length**, which is what the eye is actually judging. The general rule: an exponential approach needs its arrival threshold scaled to the size of the thing approaching, never to a small constant.
+
+Measured dead time between parking and the first barrel: **1.3 s → 0.1 s** (one tick at the test's resolution). Smoke measures exactly that interval in a live run rather than asserting on the config, and reverting either half puts it back to 1.3 s.
+
+### Stationary barrel haulers in the second half of the duel (2026-08-19, user request)
+
+> *"ketika melawan gunship, ketika HP gunship sudah 50% atau kurang, sesekali munculkan 1 atau 2 mobil barrel, tapi mobil barel ini akan terus menurunkan barel sampai dia dihancurkan, tidak pergi setelah menurunkan barel seperti biasanya."*
+
+`spawnBarrelDropper` gained `{endless: true, maxActive}`, which disables the `depart` phase: the truck holds station ahead of the player and keeps unloading until its HP is gone. That single flag **changes what the hauler is**. During the ground pursuit it is an obstacle that passes through — you can ignore it and simply change lane. During the duel it is a target that has to be destroyed, so the player must split fire between the gunship in the air and the truck on the asphalt while still dodging both. That is the pressure the request is really asking for.
+
+Four rules hold it together:
+
+- **The trigger is HP, never elapsed time.** `gunship.hp <= maxHp × bossHpFrac` (0.5), so the extra pressure always arrives exactly when the duel turns, regardless of how long the player took to get there. After the first `bossFirstDelaySec`, a wave of one or two trucks arrives every `bossIntervalSec`, capped by `bossMaxActive`.
+- **An endless truck's bed cycles rather than emptying forever.** `showCargo` uses `dropped % cargo.length` for these, so the drums still visibly deplete within each batch — the cue that makes shooting the truck feel worthwhile — while the truck plainly never runs dry. A bed stuck visibly empty would read as a bug.
+- **The barrel pool is derived, not fixed.** `barrelSlotsNeeded(maxTrucks)` computes it from the barrel's actual lifetime (`leadOffset + BARREL_TRAIL_UNITS`, over `roadSpeed`) divided by `dropGapSec`. Trucks that drop forever starve a hardcoded pool, and a starved pool does not announce itself — the truck simply stops dropping for no visible reason. The truck pool gets slack on top, because a **wreck still occupies its slot** for `wreckSec` while no longer counting toward the active cap.
+- **They are cleared when the arrival cutscene starts.** An endless truck never leaves on its own, so a survivor of the boss fight would drive straight into the Kertajati arrival cutscene. `startArrival` now clears them, exactly as `startGunshipIntro` already did going in.
+
+Smoke drives the whole arc in a real duel: no truck may appear while the boss is above the threshold, the threshold is then crossed by damage rather than by waiting, one or two trucks arrive without exceeding the cap, a truck drops well past a full load without ever entering `depart`, it stops only once destroyed, and nothing survives into the arrival cutscene. Reverting the HP gate reports `hp 100% vs ambang 50%`; reverting the endless flag reports `6 barel vs muatan 6` — one load and gone.
+
+### The missile's hitbox has to cover the missile (2026-08-18, user report)
+
+> *"kok sepertinya homming missile sangat susah ditembak, buat agar mudah ditembak dan dihancurkan."*
+
+Two causes, and the first one was a side effect of the size pass earlier the same day. `missileHitRadius` had been sitting at **5** — a 10-unit target circle — since the missile was a ~8-unit stub. Making the missile readable grew its drawn body to about **31 units long**, and nothing updated the radius, so rounds that visibly passed straight through the missile registered nothing at all. That is the same failure the project already has a rule for with spawn machines and Stage 3's deploying factories: **what is drawn is what you hit.**
+
+The radius is now **12** — a 24-unit circle, covering most of the drawn length but deliberately never more than it, since registering hits on empty air beside the missile is just as wrong as missing the body. And `missileHp` drops **80 → 40**, so one standard rifle round destroys a missile rather than two; shooting one down is now a reaction, not a burst.
+
+Both are `config/gameplay.json` values, so they stay retunable. What smoke pins is the *relation*, in two independent ways: the built mesh is measured against the configured radius (hitbox ≥ 60% of the drawn length, ≤ 100% of it, and still smaller than the boss's own `hitRadius` — a missile is a small thing passing by, not a wall), and a real rifle-damage round is pushed through a live missile during the duel to confirm it actually dies in one game tick. Reverting the two numbers fails both, reporting `diameter 10 vs badan 31, HP 80 vs rifle 40`.
+
+### Gunship projectiles leave their muzzles (2026-08-18, user request)
+
+> *"buat agar peluru gunship benar-benar keluar dari moncong senjatanya. buat tiba-tiba spawn di tengah jalan. canon dan mgun berada di bagian depan gunship. homming missile dari sayapnya kiri dan kanan."*
+
+**The anchors already existed; the fire functions simply ignored them.** The rig has carried `mgMuzzle` and `cannonMuzzle` on its front chin turret since it was built, and the wing pods have been there just as long — but `fireMG`, `fireCannon` and `fireMissile` each used an invented offset a few units from the hull origin, at y 8-13 (road level), already sitting in the **target lane** rather than at the aircraft. The result was exactly what the report says: every shot popped into existence in the middle of the road in front of the player, with no visible connection to the boss.
+
+All three now spawn from real anchors read through `getWorldPosition` into a single module-level scratch vector — the pattern `tank.js` already uses for its own cannon and coax, so no allocation happens per shot. The wings gained `missileRails`, two `Object3D` anchors at the pod mouths; they hang off `group` rather than the hull, because the hull is welded with `mergeObjectInPlace` and anything inside it stops being addressable. Missiles alternate between the left and right rail.
+
+Three things had to hold for this to be a purely visual improvement:
+
+- **The MG corridor still means something.** Fire now converges: each round flies from the chin turret to the target lane's centre *at the player's own x*. The lateral offset is therefore largest at the muzzle and zero exactly where the player stands, so a burst can never rake a neighbouring lane at the point where someone is actually standing. The telegraph corridor keeps its meaning.
+- **The cannon keeps its timing.** The shell's velocity is scaled so its **X component stays exactly `cannonSpeed`**, which means moving the spawn cannot silently shorten or lengthen the dodge window. The one intended change is that the nose muzzle sits about 22 units nearer the player than the old spawn point, trimming ~0.18 s from a warning that is dominated by the 1.1 s telegraph.
+- **The missile dives.** It launches at wing height and eases down to `MISSILE_CRUISE_Y`, because the homing logic steers purely in XZ: a missile left at wing height would sail over the player's head while still registering a hit, since the enemy-bullet test projects to the ground plane.
+
+Smoke pins each origin against the boss's own position rather than against fixed coordinates — MG and cannon at turret height in front of the hull, missiles at wing height with launches recorded on **both** sides. Reverting the three spawns reports `y 13 vs bos 41` for the MG and sides `1/0/-1` for the missiles, the middle one being the old centreline launch that never came from a wing at all.
+
 ### Gunship projectile readability (2026-08-18, user report)
 
 > *"arah peluru machine gun nya masih tidak searah dengan jalan, peluru machine gun malah melintang."* — and: *"perbaiki bentuk peluru dari canon dan homming missile. buat agar lebih besar dan lebih terlihat jelas agar player menyadari kedatangannya."*
@@ -963,6 +1016,18 @@ The load-bearing consequence: **`dropTelegraphSec + dropFallSec + dropCloseSec` 
 **The cannon shell and the homing missile were about a tenth the size of what they were aimed at.** The reference is the world, not taste: the player's GRD LTV-45 is 36 units long and a lane is 17.5 wide, while the old missile measured roughly 8 units and the shell 7 — on an oblique camera that watches from a long way back. Both now measure **at least one lane long and at least a quarter-lane wide, and deliberately remain narrower than a lane**: a projectile wider than the lane it is aimed at would make dodging left or right meaningless, so "bigger" has a ceiling as well as a floor. Smoke measures the built meshes against `laneWidth` from config in both directions.
 
 Size alone is not readability from directly above, so both also gained cues that read in silhouette: **hazard bands** (a grey tube over grey asphalt is nearly invisible from the top), fatter fins on the missile, a glowing drive belt on the shell, and a **pulsing exhaust flare** on each, so an incoming round flickers instead of gliding in silently. The pulse only rescales a cone that already exists on the pooled mesh, so nothing is allocated while the duel runs and the no-mid-game-shader-recompile invariant is untouched.
+
+**The two projectiles now read as different weapons (2026-08-18, follow-up: *"bedakan bentuk homming missile dan canon"*).** After the size pass both were still the same silhouette — a tube with a cone on the front — differing only in length. The distinction is not decorative, because the two behave differently in a way the player has to act on: **the missile can be shot down** (it carries `missileHp` and is tested in `projectileHits`), while **the cannon shell can only be dodged**. Telling them apart at a glance is therefore a gameplay requirement, and the visual language follows it:
+
+| | Homing missile | Cannon shell |
+| --- | --- | --- |
+| Silhouette | slender, aspect **4.28** | stubby, aspect **2.33** |
+| Fins | cruciform tail fins + canards | **none at all** |
+| Nose | sharp ogive + seeker head | blunt ogive + hot cap |
+| Marking | **red hazard bands** — "you can destroy this" | **amber-glowing driving bands** — "unstoppable, leave the lane" |
+| Motion | banks smoothly as it homes | **spins on its own axis** (`SHELL_SPIN`) |
+
+Aspect ratio does the heavy lifting because it is the first thing legible from an oblique camera watching from a long way back — long before any surface detail. The two are held apart deliberately: missile ≥ 3.5, shell ≤ 3.0, and the missile at least 1.4× the shell. Smoke measures all three of the distinctions from the built meshes — the aspect band, finned-versus-finless, and `PAL.hazard` being exclusive to the missile so the red marking keeps its meaning.
 
 ### Every vehicle shatters, through one shared system (2026-08-18, user requests)
 

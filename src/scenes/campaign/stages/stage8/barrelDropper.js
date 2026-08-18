@@ -69,6 +69,18 @@
 //
 // 5. NOL POINTLIGHT, PAL-only, dan bangkainya ikut jalan (drift laju tanah)
 //    seperti seluruh sisa tempur Stage 8 yang lain.
+//
+// 6. MODE MENETAP UNTUK DUEL BOS (2026-08-19, permintaan user "ketika HP gunship
+//    sudah 50% atau kurang, sesekali munculkan 1 atau 2 mobil barrel, tapi mobil
+//    barel ini akan terus menurunkan barel sampai dia dihancurkan, tidak pergi
+//    setelah menurunkan barel seperti biasanya"). `spawnBarrelDropper(rig, ctx,
+//    {endless:true})` mematikan fase `depart`: truknya menahan posisi dan terus
+//    memuntahkan barel sampai HP-nya habis. Karena itu ia berubah sifat — di
+//    pengejaran darat ia RINTANGAN yang berlalu, di duel bos ia SASARAN yang
+//    harus dihancurkan, dan itulah yang membuat player harus membagi tembakan
+//    antara bos di udara dan truk di aspal. Muatan baknya BERPUTAR
+//    (`dropped % cargo.length`) alih-alih habis: yang terlihat tetap "sisa satu
+//    batch", tetapi truknya jelas tidak pernah kehabisan.
 
 import { CFG } from '../../../../core/config.js';
 import { scene } from '../../../../core/renderer.js';
@@ -252,7 +264,7 @@ export function createBarrelDropperRig(parent, scale = 7, trucks = 2, barrelSlot
             parts, active: false, hp: 0, maxHp: 0, phase: 'idle', t: 0,
             x: 0, z: 0, lane: 0, entryX: 0, entryViewEdgeX: 0, targetX: 0,
             dropped: 0, dropT: 0, gate: 0, hitT: 0, wreck: false, wreckT: 0,
-            wheelPhase: 0,
+            wheelPhase: 0, endless: false,
             // Sisa waktu pintu WAJIB tetap menganga (barel sedang keluar), lalu
             // sisa waktu penutupannya. Lihat `updateBarrelDroppers`.
             gateHold: 0, gateShut: 0,
@@ -313,6 +325,14 @@ function setGate(t, k) {
 // Satu siklus pintu belakang. `telegraph` = bukaan yang diminta fase truk
 // (aba-aba menjelang barel berikutnya); tahap MENAHAN dan MENUTUP selalu
 // mendahuluinya, supaya penutupan setelah sebuah barel tak pernah terpotong.
+// Bukaan pintu yang DIMINTA oleh hitungan mundur barel berikutnya: menganga
+// penuh saat hitungannya habis. Dipakai fase `approach` maupun `drop`, supaya
+// truk tiba dengan pintu yang sudah membuka.
+function gateTelegraph(t, C) {
+    const tele = C.dropTelegraphSec || 0.7;
+    return t.dropT < tele ? 1 - Math.max(0, t.dropT) / tele : 0;
+}
+
 function runGate(t, dt, telegraph) {
     if (t.gateHold > 0) { t.gateHold = Math.max(0, t.gateHold - dt); setGate(t, 1); return; }
     if (t.gateShut > 0) {
@@ -323,8 +343,12 @@ function runGate(t, dt, telegraph) {
 }
 
 function showCargo(t) {
-    const left = t.parts.cargo.length - t.dropped;
-    for (let i = 0; i < t.parts.cargo.length; i++)
+    const n = t.parts.cargo.length;
+    // Truk MENETAP tak pernah kehabisan muatan, jadi baknya berputar per batch:
+    // drumnya tetap habis satu per satu (itu yang membuat menembaknya terasa
+    // berarti) lalu terisi lagi, bukan tampak kosong selamanya.
+    const left = t.endless ? n - (t.dropped % n) : n - t.dropped;
+    for (let i = 0; i < n; i++)
         t.parts.cargo[i].visible = !t.wreck && i < left;
 }
 
@@ -333,7 +357,7 @@ export function resetBarrelDroppers(rig) {
     for (const t of rig.trucks) {
         t.active = false; t.phase = 'idle'; t.t = 0; t.hp = 0; t.dropped = 0;
         t.dropT = 0; t.hitT = 0; t.wreck = false; t.wreckT = 0;
-        t.gateHold = 0; t.gateShut = 0;
+        t.gateHold = 0; t.gateShut = 0; t.endless = false;
         restoreVehicle(t.parts);
         t.parts.group.visible = false;
         for (const m of t.parts.cargo) m.visible = true;
@@ -360,6 +384,18 @@ function releaseBarrel(rig, slot) {
     slot.inScene = false; slot.mesh.visible = false;
 }
 
+// Jarak hidup satu barel: dari `leadOffset` di depan player sampai dibuang di
+// belakangnya (lihat `updateBarrelDroppers`). Dipakai untuk MENURUNKAN ukuran
+// pool, karena truk MENETAP menjatuhkan barel tanpa henti dan pool yang dipatok
+// akan kelaparan diam-diam.
+export const BARREL_TRAIL_UNITS = 320;
+export function barrelSlotsNeeded(maxTrucks) {
+    const C = CFG.campaign.stage8.barrelDropper, S = CFG.campaign.stage8;
+    const lifeSec = ((C.leadOffset || 150) + BARREL_TRAIL_UNITS) / Math.max(1, S.roadSpeed);
+    const perTruck = Math.ceil(lifeSec / Math.max(0.05, C.dropGapSec)) + 1;
+    return Math.max(8, Math.max(1, maxTrucks) * perTruck);
+}
+
 export function activeBarrelDroppers(rig) {
     return rig ? rig.trucks.filter(t => t.active && !t.wreck).length : 0;
 }
@@ -370,10 +406,13 @@ export function activeDroppedBarrels(rig) {
 // ===== SPAWN ============================================================
 // SELALU dari ujung DEPAN dan selalu di luar tapak pandang: `viewMaxX` datang
 // dari `groundViewExtents` milik stage, sama seperti carrier Raven-K.
-export function spawnBarrelDropper(rig, ctx) {
+export function spawnBarrelDropper(rig, ctx, opts = {}) {
     const C = CFG.campaign.stage8.barrelDropper;
-    if (!rig || activeBarrelDroppers(rig) >= (C.maxActive || 1)) return null;
+    // Cap aktifnya boleh ditimpa pemanggil: duel bos memakai capnya sendiri.
+    const cap = opts.maxActive != null ? opts.maxActive : (C.maxActive || 1);
+    if (!rig || activeBarrelDroppers(rig) >= cap) return null;
     const t = freeTruck(rig); if (!t) return null;
+    t.endless = !!opts.endless;
     t.active = true; t.wreck = false; t.wreckT = 0; t.phase = 'approach'; t.t = 0;
     t.hp = t.maxHp = C.hp; t.dropped = 0; t.dropT = C.armSec; t.hitT = 0;
     t.lane = ctx.laneIndex;
@@ -472,7 +511,7 @@ export function updateBarrelDroppers(rig, ctx) {
             && Math.abs(e.z - ctx.playerZ) < hitZ) {
             detonateBarrel(e); releaseBarrel(rig, slot); continue;
         }
-        if (e.x < ctx.playerX - 320) releaseBarrel(rig, slot);
+        if (e.x < ctx.playerX - BARREL_TRAIL_UNITS) releaseBarrel(rig, slot);
     }
 
     // --- Truk.
@@ -497,10 +536,25 @@ export function updateBarrelDroppers(rig, ctx) {
         t.t += dt;
         if (t.phase === 'approach') {
             t.x += (t.targetX - t.x) * Math.min(1, dt * (C.approachRate || 1.1));
-            if (Math.abs(t.x - t.targetX) < 6) t.phase = 'drop';
+            // MENGISI SENJATANYA SAMBIL TERBANG (2026-08-19, laporan user "ketika
+            // mobil barel sudah mencapai posisinya, barel akan langsung
+            // diturunkan. sekarang terasa ada jeda yang cukup lama"): hitungan
+            // `armSec` dan bukaan pintunya berjalan SELAMA meluncur masuk, bukan
+            // baru dimulai setelah sampai. Dulu keduanya menunggu fase `drop`,
+            // jadi sesudah truk terlihat parkir masih ada 1,2 detik kosong
+            // sebelum barel pertama keluar. Ia tetap tak menjatuhkan apa pun di
+            // sini — syarat menjatuhkan tetap milik fase `drop` — jadi tak ada
+            // barel yang lahir jauh di depan sana.
+            t.dropT -= ctx.dropping ? dt : 0;
+            runGate(t, dt, gateTelegraph(t, C));
+            // "Sampai di posisinya" diukur dengan PANJANG TRUKNYA sendiri, bukan
+            // angka 6 unit: pendekatannya melambat secara eksponensial, jadi ia
+            // sudah terlihat parkir jauh sebelum ambang sesempit itu tercapai —
+            // dan selisih itulah yang ikut terasa sebagai jeda.
+            const parked = t.parts.dimensionsWorld.length * 0.4;
+            if (Math.abs(t.x - t.targetX) < parked) t.phase = 'drop';
         } else if (t.phase === 'drop') {
             t.x += (t.targetX - t.x) * Math.min(1, dt * (C.approachRate || 1.1));
-            const tele = C.dropTelegraphSec || 0.7;
             t.dropT -= ctx.dropping ? dt : 0;
             // SATU SIKLUS PINTU PER BAREL (2026-08-18, permintaan user "pintu
             // belakang mobil itu terbuka kemudian barel menggelinding jatuh
@@ -513,7 +567,7 @@ export function updateBarrelDroppers(rig, ctx) {
             // Dulu tahap 1-2 tidak ada: pintu terbanting tertutup pada frame yang
             // sama dengan lahirnya barel, jadi tak pernah ada barel yang terlihat
             // KELUAR dari pintu itu.
-            runGate(t, dt, t.dropT < tele ? 1 - Math.max(0, t.dropT) / tele : 0);
+            runGate(t, dt, gateTelegraph(t, C));
             // Barel baru lepas ketika truk benar-benar SEJAJAR dengan lajur yang
             // sedang dikejarnya; kalau belum, hitungannya menggantung di <= 0 dan
             // barel jatuh tepat pada frame ia sampai (aturan 2).
@@ -526,7 +580,9 @@ export function updateBarrelDroppers(rig, ctx) {
                 // baru kemudian menutup.
                 t.gateHold = dropFallSec(); t.gateShut = dropCloseSec();
                 setGate(t, 1);
-                if (t.dropped >= (C.dropCount || 3)) { t.phase = 'depart'; }
+                // Truk MENETAP tak pernah berlalu: ia hanya berhenti kalau
+                // dihancurkan (aturan 6).
+                if (!t.endless && t.dropped >= (C.dropCount || 3)) t.phase = 'depart';
             }
         } else if (t.phase === 'depart') {
             // Muatan terakhir tetap mendapat siklus pintunya sampai selesai —
@@ -610,7 +666,8 @@ function killBarrelDropper(rig, t, onKill) {
 export function clearBarrelDroppers(rig) {
     if (!rig) return;
     for (const t of rig.trucks) {
-        t.active = false; t.wreck = false; t.parts.group.visible = false;
+        t.active = false; t.wreck = false; t.endless = false;
+        t.parts.group.visible = false;
         // Truk yang dibersihkan SELAGI jadi bangkai (mis. intro gunship dimulai)
         // memakai rig yang sama untuk pengangkut berikutnya — tanpa ini ia lahir
         // kembali dalam keadaan gosong dan berkeping-keping.
@@ -635,7 +692,7 @@ export function barrelDropperDebug(rig) {
             x: t.x, z: t.z, lane: t.lane, entryX: t.entryX,
             entryViewEdgeX: t.entryViewEdgeX, targetX: t.targetX,
             dropped: t.dropped, dropT: t.dropT, gate: t.gate, wreck: t.wreck,
-            gateHold: t.gateHold, gateShut: t.gateShut,
+            gateHold: t.gateHold, gateShut: t.gateShut, endless: !!t.endless,
             shattered: !!t.parts.shattered,
             shards: vehicleWreckDebug(t.parts).shards,
             poseSum: vehicleWreckDebug(t.parts).poseSum,

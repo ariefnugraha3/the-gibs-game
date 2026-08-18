@@ -808,12 +808,36 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   down off the lip -> close. The barrel is born at the mesh `dropAnchor` (the lip itself), airborne and
   half-upright, and lies flat exactly as it lands (`dropFallSec`). So
   `dropTelegraphSec + dropFallSec + dropCloseSec` MUST fit inside `dropGapSec` (smoke-asserted).
+- A hauler ARMS WHILE IT FLIES IN (2026-08-19 user report): `armSec` and the tailgate telegraph run during
+  the `approach` phase, so the first barrel drops the moment it parks (1.3s -> 0.1s of dead time). It still
+  drops nothing during approach. The "arrived" threshold is also now a fraction of the truck's own length
+  instead of 6 units, because the approach eases exponentially and it looked parked long before the code
+  agreed. Any exponential approach needs its arrival threshold scaled to the object, not a small constant.
+- Boss duel second half spawns STATIONARY barrel haulers (2026-08-19 user request): past
+  `gunship.hp <= maxHp * bossHpFrac` (0.5), 1-2 trucks spawned with `{endless:true}` hold station and keep
+  unloading until destroyed — an obstacle becomes a target, so fire must be split between air and road.
+  Their bed cycles instead of emptying forever; the barrel pool is DERIVED (`barrelSlotsNeeded`) because
+  endless dropping starves a fixed pool silently; and they are cleared when the arrival cutscene starts
+  since an endless truck never leaves on its own.
+- A gunship missile's hitbox must cover the body that is DRAWN (2026-08-18 user report): `missileHitRadius`
+  stayed at 5 while the missile's drawn body grew to ~31 units, so rounds passing visibly through it did
+  nothing. Now 12 (most of the drawn length, never more than it) and `missileHp` 80 -> 40, one rifle round.
+  Whenever a projectile mesh is resized, its hit radius is part of that change.
+- Gunship projectiles ALL spawn at real muzzles (2026-08-18 user request): `mgMuzzle`/`cannonMuzzle` on the
+  FRONT chin turret, `missileRails` on the left/right wings, read via `getWorldPosition` (the tank.js
+  pattern). The old code used invented offsets at road level in the target lane, so shots appeared out of
+  thin air. MG fire converges on the target lane at the PLAYER's x, so the corridor still holds; the cannon
+  shell's velocity is scaled to keep its X component exactly `cannonSpeed` so timing is unchanged; the
+  missile dives from wing height to `MISSILE_CRUISE_Y` since homing steers in XZ only.
 - Gunship projectiles (2026-08-18 user report): a tracer's long axis MUST follow its flight direction.
   `GEO.bullet` is a sphere, so `scale` alone stretches it — the MG stretched it on z while firing along -x,
   so tracers lay across the road. Yaw now derives from the fire direction (`atan2(dir.x, dir.z)`). Missile
   and cannon shell were also ~1/10 the length of what they target; both are now at least one lane long,
   at least a quarter-lane wide, and still narrower than a lane (so dodging still means something), with
-  hazard bands and a pulsing exhaust flare.
+  hazard bands and a pulsing exhaust flare. The two must READ AS DIFFERENT WEAPONS, and the difference
+  follows gameplay: the missile is destructible (`missileHp`), the shell is not. Missile = slender,
+  finned, red hazard bands, banks toward you; shell = stubby, FINLESS, amber-glowing, spins on its own
+  axis. Aspect ratio holds them apart (missile >= 3.5, shell <= 3.0, missile >= 1.4x shell).
 - ALL THREE vehicles shatter through ONE shared system, `entities/vehicleWreck.js` (2026-08-18 user
   requests): `shatterVehicle(rig, {loose, skip, tilt, sink})` / `restoreVehicle(rig)`, used by the
   GRD LTV-45, the Raven-K carrier and the VULTURE-B hauler; each module only names which children come
