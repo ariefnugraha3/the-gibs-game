@@ -57,6 +57,12 @@ export function startPlayerDeath(dirx = 0, dirz = 1) {
     const dl = Math.hypot(dirx, dirz) || 1;
     const dx = dirx / dl, dz = dirz / dl;
     playAvatarDeath(dx, dz);   // tubuh runtuh searah dorongan (avatar TETAP tampil)
+    // Hook scene: apa yang ikut hancur bersama player adalah urusan scene, bukan
+    // sistem bersama (Stage 8 meledakkan GRD LTV-45 yang ditumpanginya).
+    // Dipanggil SEKALI di sini karena `updateMode` TIDAK dijalankan selama
+    // sekuens kematian — animasi lanjutannya harus menumpang sistem yang tetap
+    // ditick saat sekarat (gib balistik, ledakan).
+    activeScene?.onPlayerDeath?.(dx, dz);
     // Sutradara mengambil alih presentasi (slow motion, kamera, layar, darah,
     // audio) — termasuk semburan & genangan darah pertama di titik jatuh.
     const p = avatarGroup.position;

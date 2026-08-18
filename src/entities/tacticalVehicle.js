@@ -7,6 +7,7 @@
 // animasi hanya mengubah transform/material yang sudah dibuat.
 
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
+import { shatterVehicle, restoreVehicle, vehicleWreckDebug } from './vehicleWreck.js';
 import { makeTexture } from '../utils/textures.js';
 
 // Dimensi akhir hero vehicle dalam meter. Mesh sumber sengaja dinormalisasi
@@ -157,8 +158,33 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
     return vehicle;
 }
 
+// ===== HANCUR BERKEPING-KEPING ==========================================
+// 2026-08-18, permintaan user: "buat agar saat player mati, mobil GRD LTV-45
+// meledak dan hancur berkeping-keping."
+//
+// Perilakunya SENDIRI hidup di entities/vehicleWreck.js, dipakai bersama dengan
+// carrier Raven-K dan pengangkut barel VULTURE-B (permintaan lanjutan user hari
+// yang sama: "mobil yang dikendarai musuh juga hancur berkeping-keping").
+// Modul ini hanya menyebutkan APA yang khas kendaraan ini: bagian mana yang
+// benar-benar terlepas, dan bagian mana yang haram disentuh.
+export function wreckTacticalVehicle(vehicle) {
+    if (!vehicle || vehicle.wrecked) return false;
+    const done = shatterVehicle(vehicle, {
+        // Yang benar-benar TERLEPAS; sisanya (pelat bodi) hanya terpuntir.
+        loose: [vehicle.driverDoor, vehicle.sensor, vehicle.mount,
+            vehicle.roofHatch, vehicle.barrierRam, ...vehicle.wheels],
+        // `gunnerMount` DILEWATI: itu jangkar pose avatar, bukan bagian bodi —
+        // menggesernya akan memindahkan tubuh Major Gibran yang justru sedang
+        // dianimasikan sekarat di atasnya.
+        skip: [vehicle.gunnerMount],
+    });
+    vehicle.wrecked = done;
+    return done;
+}
+
 export function resetTacticalVehicleVisual(vehicle) {
     if (!vehicle) return;
+    if (vehicle.wrecked) { restoreVehicle(vehicle); vehicle.wrecked = false; }
     vehicle.wheelPhase = 0; vehicle.doorOpen = 0; vehicle.hatchOpen = 0;
     vehicle.engineOn = false; vehicle.speed = 0;
     vehicle.driverDoor.rotation.y = 0;
@@ -176,6 +202,10 @@ export function resetTacticalVehicleVisual(vehicle) {
 
 export function updateTacticalVehicleVisual(vehicle, dt, state = {}) {
     if (!vehicle) return;
+    // Bangkai DIBEKUKAN: tak ada roda berputar, lampu menyala, atau sensor
+    // berputar pada kendaraan yang sudah hancur (pola yang sama dengan
+    // `updateSpawnMachine` pada rig mati).
+    if (vehicle.wrecked) return;
     const doorTarget = Math.max(0, Math.min(1, Number(state.doorOpen ?? vehicle.doorOpen)));
     vehicle.doorOpen += (doorTarget - vehicle.doorOpen) * Math.min(1, dt * 5.5);
     const e = vehicle.doorOpen * vehicle.doorOpen * (3 - 2 * vehicle.doorOpen);
@@ -206,6 +236,14 @@ export function updateTacticalVehicleVisual(vehicle, dt, state = {}) {
 export function tacticalVehicleDebug(vehicle) {
     return {
         built: !!vehicle,
+        // Sidik jari pose SELURUH keping + warna catnya: dipakai smoke untuk
+        // membuktikan bangkainya benar-benar berhamburan lalu PULIH PERSIS.
+        wrecked: !!vehicle?.wrecked,
+        wreckParts: vehicleWreckDebug(vehicle).shards,
+        wreckTilt: vehicleWreckDebug(vehicle).tilt,
+        poseSum: vehicleWreckDebug(vehicle).poseSum,
+        parts: vehicleWreckDebug(vehicle).parts,
+        bodyHex: vehicle ? vehicle.materials.body.color.getHex() : 0,
         wheels: vehicle?.wheels?.length || 0,
         doorOpen: vehicle?.doorOpen || 0,
         hatchOpen: vehicle?.hatchOpen || 0,

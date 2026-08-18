@@ -3,6 +3,7 @@
 // ditempel scene ke passengerOffsets. Chassis sengaja tidak mempunyai HP.
 
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
+import { shatterVehicle, restoreVehicle, vehicleWreckDebug } from './vehicleWreck.js';
 
 // Carrier juga harus muat di lajur 2,5 m. Sedikit lebih lebar dari GRD LTV-45
 // untuk ruang tiga rider, tetapi masih menyisakan clearance terhadap marka.
@@ -98,8 +99,28 @@ export function buildEnemyPickupMesh(scale = 7) {
     return pickup;
 }
 
+// HANCUR BERKEPING-KEPING (2026-08-18, permintaan user "buat agar mobil yang
+// dikendarai musuh juga hancur berkeping-keping"). Sistemnya sama persis dengan
+// GRD LTV-45 milik player — entities/vehicleWreck.js — jadi kendaraan musuh
+// tidak punya versi bangkainya sendiri. Yang khas carrier ini hanya daftar
+// bagian yang benar-benar terlepas: roda dan bak belakangnya.
+//
+// TIDAK ADA yang dilewati di sini: penumpangnya diposisikan lewat
+// `passengerOffsets` (aritmatika, bukan anak grup), jadi kepingan yang
+// berhamburan tak dapat menyeret robot yang menumpang.
+export function wreckEnemyPickup(pickup) {
+    if (!pickup || pickup.shattered) return false;
+    return shatterVehicle(pickup, {
+        loose: [...pickup.wheels],
+        // Sasisnya sudah dimiringkan oleh `updateEnemyPickupVisual` frame demi
+        // frame, jadi jangan dua kali: biarkan easing itu yang mengerjakannya.
+        tilt: { x: pickup.group.rotation.x, z: pickup.group.rotation.z }, sink: 0,
+    });
+}
+
 export function resetEnemyPickupVisual(pickup) {
     if (!pickup) return;
+    restoreVehicle(pickup);
     pickup.active = false; pickup.wreck = false; pickup.wheelPhase = 0;
     pickup.speed = 0; pickup.wreckT = 0; pickup.passengers = [];
     pickup.lane = 0; pickup.eventIndex = -1;
@@ -128,8 +149,12 @@ export function updateEnemyPickupVisual(pickup, dt, state = {}) {
         pickup.group.rotation.x *= Math.max(0, 1 - dt * 6);
         pickup.group.rotation.z *= Math.max(0, 1 - dt * 6);
     }
-    pickup.wheelPhase += dt * pickup.speed * 0.13;
-    for (const w of pickup.wheels) w.rotation.z = -pickup.wheelPhase;
+    // Bangkai berkeping-keping tidak memutar bannya lagi — rodanya sudah
+    // terlepas dari as-nya.
+    if (!pickup.shattered) {
+        pickup.wheelPhase += dt * pickup.speed * 0.13;
+        for (const w of pickup.wheels) w.rotation.z = -pickup.wheelPhase;
+    }
     pickup.group.position.y = Math.sin(pickup.wheelPhase * 0.62) * (pickup.wreck ? 0.04 : 0.09);
     const on = pickup.wreck ? 0 : 1;
     pickup.materials.lamp.emissiveIntensity = EMISSIVE_MAX * 0.72 * on;
@@ -159,6 +184,10 @@ export function enemyPickupDebug(pickup) {
         entryViewEdgeX: pickup?.entryViewEdgeX || 0,
         targetX: pickup?.targetX || 0, yaw: pickup?.group?.rotation?.y || 0,
         speed: pickup?.speed || 0, wreckT: pickup?.wreckT || 0,
+        shattered: !!pickup?.shattered,
+        shards: vehicleWreckDebug(pickup).shards,
+        poseSum: vehicleWreckDebug(pickup).poseSum,
+        bodyHex: pickup?.materials?.armor ? pickup.materials.armor.color.getHex() : 0,
         dimensionsMeters: pickup?.dimensionsMeters ? { ...pickup.dimensionsMeters } : null,
         dimensionsWorld: pickup?.dimensionsWorld ? { ...pickup.dimensionsWorld } : null,
         anchors: pickup?.passengerOffsets?.length || 0,

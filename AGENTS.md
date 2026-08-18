@@ -796,6 +796,42 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   beyond `S8_SCENERY_AHEAD`), dithered on near/mid and never on the far horizon. Four pools at
   parallax 1.0/1.0/0.62/0.34, deterministic hash layout, welded, pure decor — zero blockers, nav cells
   and PointLights. It also supplied the ground that used to be missing outside the shoulder.
+- Stage 8 has a SECOND enemy type, the N.U.S.A. VULTURE-B barrel hauler (`stage8/barrelDropper.js`,
+  2026-08-17 user request): one per `barrelDropper.everyPickups` (5) robot carriers that SPAWN, always
+  entering from the FRONT outside `groundViewExtents`, holding `leadOffset` ahead, chasing the player's
+  lane and releasing a barrel only once aligned, snapped to the lane centre. Dropped barrels join the
+  shared `barrels` array (inheriting the swept bullet test, `detonateBarrel`, chains and damage) with
+  their own `barrelHp` 150 and pooled meshes; they detonate ONLY if the lane still matches, so a dodged
+  barrel rolls past inertly. Truck HP 230 with its own swept bullet test; cleared when the gunship
+  intro starts; zero PointLights.
+- Hauler tailgate = ONE FULL CYCLE PER BAREL (2026-08-18 user request): open -> HOLD while the drum rolls
+  down off the lip -> close. The barrel is born at the mesh `dropAnchor` (the lip itself), airborne and
+  half-upright, and lies flat exactly as it lands (`dropFallSec`). So
+  `dropTelegraphSec + dropFallSec + dropCloseSec` MUST fit inside `dropGapSec` (smoke-asserted).
+- ALL THREE vehicles shatter through ONE shared system, `entities/vehicleWreck.js` (2026-08-18 user
+  requests): `shatterVehicle(rig, {loose, skip, tilt, sink})` / `restoreVehicle(rig)`, used by the
+  GRD LTV-45, the Raven-K carrier and the VULTURE-B hauler; each module only names which children come
+  OFF and which are untouchable. No per-vehicle copies (smoke sweeps the sources). No mesh/material/
+  PointLight is created; loose parts fly while body plates only twist; yaw is preserved; the scatter is
+  a deterministic hash; and restoration is EXACT because every one of these rigs is reused — including
+  on paths that clear a vehicle while it is still a wreck.
+- Player death destroys the GRD LTV-45 (2026-08-18 user request). ONE new shared hook,
+  `activeScene.onPlayerDeath(dx, dz)`, called once from `startPlayerDeath` — `updateMode` is NOT called
+  while dying, so continuing motion rides gibs + explodeAt, which still tick. The chassis is a one-shot
+  pose from `wreckTacticalVehicle` (entities/tacticalVehicle.js): no mesh/material/PointLight created,
+  every shard is one of the rig's own children, `gunnerMount` skipped (avatar pose anchor), and
+  `resetTacticalVehicleVisual` restores pose + paint EXACTLY because dying replays the stage.
+- Hauler payload density (2026-08-18 user request, `dropCount` 3->6 and `dropGapSec` 2.2->1.1): each
+  barrel keeps its own `leadOffset / roadSpeed` reaction window, so a shorter gap only raises density.
+  `dropTelegraphSec` must stay BELOW `dropGapSec` (else the tailgate never closes and stops reading as
+  a warning); the bed's drum count is DERIVED from `dropCount` up to the physical 3x2
+  `BARREL_DROPPER_CARGO_MAX`, since the visible drums ARE the remaining payload; and the barrel pool is
+  sized `maxActive * dropCount`, because one barrel outlives the whole drop sequence.
+- ROLLING AXES (2026-08-17 user report): a three.js cylinder's axis is +Y, so an upright barrel spun on
+  `rotation.z` topples instead of rolling — dropped barrels are wrapped in a pivot (`rotation.x = PI/2`)
+  that lays them across the road, and `rotation.y` is then the roll about their own axis. Wheels bake the
+  axle into the GEOMETRY (`geo.rotateX(PI/2)`) and roll on `rotation.z`, the convention `enemyPickup.js`
+  and `tacticalVehicle.js` already use; any new wheeled prop must follow it.
 - Stage 8 combat leftovers ride the ROAD, not the vehicle (2026-08-17 user request): the arena is
   coordinate-stable, so `updateRoad` calls `driftGore(dx)` at ground speed and gibs/corpses/coolant are
   left behind on the asphalt. No `keep` exclusion (nothing rides the LTV, unlike Stage 5's car floor);

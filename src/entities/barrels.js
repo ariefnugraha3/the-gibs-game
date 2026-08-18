@@ -25,6 +25,10 @@ import { spawnGibs } from './gore.js';            // call-time
 export const barrels = [];   // { mesh, x, z, y, groundY, hp }
 
 const BR = 4.0, BH = 13;     // radius & tinggi tong (unit dunia)
+// Radius tong dipakai di luar modul ini sejak 2026-08-17 (barel yang
+// dijatuhkan pengangkut Stage 8 memakainya untuk jendela tabrakan lajur).
+export const BARREL_RADIUS = BR;
+export const BARREL_HEIGHT = BH;
 
 // Geometri & material BERSAMA antar instance (JANGAN dispose).
 const BG = {

@@ -1661,11 +1661,20 @@ player.hp = 1;   // satu peluru (attack B per config) pasti mematikan
 camera.position.set(300, 11.4, 300);
 avMod.updatePlayerAvatar(0.016);   // satu frame HIDUP dulu (pose genggam terisi)
 sfxM.startBattleMusic();           // musik battle harus SURUT selama sekuens
+// Hook `onPlayerDeath` (2026-08-18): apa yang ikut hancur bersama player adalah
+// urusan scene — Stage 8 memakainya untuk meledakkan GRD LTV-45. Dipasang di
+// sini karena `updateMode` scene TIDAK dijalankan selama sekuens kematian, jadi
+// panggilan SEKALI inilah satu-satunya jalannya.
+let deathHook = null;
+smMod.activeScene.onPlayerDeath = (dx, dz) => { deathHook = { dx, dz }; };
 const zK = mkBot('B', 300, 330);
 robotsMod.fireRobotBullet(zK);
 for (let i = 0; i < 2000 && enemyBullets.length; i++) robotsMod.updateEnemyBullets(0.016, 1);
 T('HP habis -> sekuens kematian (BUKAN game over instan)',
     gameMod.isPlayerDying() && stateMod.isGameOver === false && player.hp <= 0);
+T('KEMATIAN: scene diberi tahu lewat hook onPlayerDeath, lengkap dgn arah dorongannya',
+    !!deathHook && Math.abs(Math.hypot(deathHook.dx, deathHook.dz) - 1) < 1e-6);
+delete smMod.activeScene.onPlayerDeath;
 
 // --- 12b. KEMATIAN DRAMATIS (2026-07-26): slow motion + keruntuhan 4 fase +
 // senjata terlepas + death cam + layar menutup. Durasi fase dibaca dari modul
@@ -9628,6 +9637,8 @@ const expectedS8Dialogue = {
     openingCommand: { speaker: 'Command', text: 'Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving.' },
     pickupSystem: { speaker: 'Vehicle System', text: 'HOSTILE VEHICLES APPROACHING.' },
     pickupGibran: { speaker: 'Major Gibran', text: 'Open-bed carriers. I’ll take out the riders and leave the vehicles behind.' },
+    haulerSystem: { speaker: 'Vehicle System', text: 'HAZARDOUS CARGO HAULER AHEAD. IT IS RELEASING BARRELS INTO YOUR LANE.' },
+    haulerGibran: { speaker: 'Major Gibran', text: 'Then I won’t be in that lane. Shoot the drums or steer around them.' },
     gunshipCommand: { speaker: 'Command', text: 'Major, airborne contact! Combat gunship closing fast!' },
     gunshipGibran: { speaker: 'Major Gibran', text: 'So that’s what they were saving for me.' },
     bossDown: { speaker: 'Major Gibran', text: 'Gunship’s down. Kertajati, I’m coming in.' },
@@ -9772,6 +9783,46 @@ T('S8 WORLD: tujuh corridor, fixed road/pickup/dust/projectile pools, airport, d
         s8World0.lights === 12
         && !/PointLight/.test(s8ScenerySrc
             .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')));
+}
+// --- MUSUH BARU: PENGANGKUT BAREL N.U.S.A. VULTURE-B (2026-08-17, permintaan
+// user "tambahkan musuh baru. mobil pickup yang akan menurunkan barrel ... di
+// lajur mobil player berada ... selalu muncul dari depan ... barel HP 150 ...
+// pickup HP 230 ... munculkan 1 setiap setelah 5 mobil pickup robot").
+{
+    const BD = S8C.barrelDropper, H0 = s8mod.stage8HaulerDebug();
+    T(`S8 PENGANGKUT BAREL: pool tetap, HP dari config, dan tetap muat satu lajur [truk ${H0.pools.trucks} / slot barel ${H0.pools.barrels}, HP ${H0.hp} / barel ${H0.barrelHp}]`,
+        H0.pools.trucks >= 2
+        // Slot barel DITURUNKAN dari config: satu muatan penuh tiap truk aktif
+        // bisa berada di aspal sekaligus, karena umur satu barel lebih panjang
+        // daripada seluruh rentetan jatuhnya. Kalau ini kurang, pool kelaparan
+        // diam-diam dan sebagian barel tak pernah jatuh.
+        && H0.pools.barrels >= (BD.maxActive || 1) * BD.dropCount
+        && H0.active === 0 && H0.barrelsOut === 0 && H0.spawned === 0
+        // Angka HP milik config (user me-retune JSON antar sesi) — yang dijaga
+        // adalah rig BENAR-BENAR membacanya, bukan nilainya.
+        && H0.hp === BD.hp && H0.barrelHp === BD.barrelHp
+        && BD.hp > 0 && BD.barrelHp > 0
+        && H0.everyPickups === BD.everyPickups && BD.everyPickups >= 1
+        // Seperti seluruh kendaraan Stage 8: harus muat di satu lajur.
+        && H0.dimensionsMeters.width * cfgMod.CAMP_M <= S8C.laneWidth
+        // Waktu reaksi = jarak tahan / laju jalan, harus melebihi satu manuver lajur.
+        && BD.leadOffset / S8C.roadSpeed > S8C.laneChangeSec * 2);
+    // KEPADATAN MUATAN (2026-08-18, permintaan user "barrel yang dijatuhkannya
+    // lebih banyak dengan interval waktu yang lebih singkat"). Angkanya milik
+    // config, yang dijaga di sini hubungannya:
+    //   * jumlah drum yang TERPASANG di bak = sisa muatan sungguhan, jadi ia
+    //     harus sama dengan `dropCount` selama masih muat di baknya,
+    //   * pintu belakang harus sempat MENUTUP di antara dua barel — kalau
+    //     `dropTelegraphSec` >= `dropGapSec` ia menganga terus dan berhenti
+    //     terbaca sebagai aba-aba,
+    //   * tiap barel tetap punya waktu reaksi penuh: jeda antar barel sama
+    //     sekali tidak memotongnya, jadi kerapatan naik tanpa jadi mustahil.
+    const bedTruck = H0.trucks[0];
+    T(`S8 MUATAN BAREL: jumlah drum di bak = sisa muatan, dan pintu masih sempat menutup antar barel [${bedTruck.cargoSlots} drum, jeda ${BD.dropGapSec}s vs telegraph ${BD.dropTelegraphSec}s]`,
+        BD.dropCount >= 1 && BD.dropGapSec > 0
+        && bedTruck.cargoSlots === Math.min(BD.dropCount, H0.cargoMax)
+        && BD.dropTelegraphSec < BD.dropGapSec
+        && BD.leadOffset / S8C.roadSpeed > S8C.laneChangeSec * 2);
 }
 T('S8 DISTANCE: 100 KM hanya menjadi informasi opening tanpa countdown perjalanan',
     s8mod.STAGE8_DIALOGUE.openingSystem.text.includes('DISTANCE: 100 KILOMETERS')
@@ -9963,8 +10014,28 @@ const s8Scn = { prev: null, swaps: 0, onScreen: 0, badEarly: 0, badLate: 0,
 // diukur dalam KELIPATAN laju tanah: < 1 berarti bangkainya ikut terseret maju
 // bersama kendaraan player, dan ia harus MENGEREM sampai tepat 1 (diam di aspal)
 // alih-alih meluncur mundur selamanya.
+// MOBIL MUSUH JUGA HANCUR BERKEPING-KEPING (2026-08-18, permintaan user).
+// Dua arah yang dijaga tiap tick: tiap carrier yang HANCUR harus berkeping dan
+// gosong, dan tiap carrier yang MASIH HIDUP harus utuh dan bercat asli — yang
+// kedua itulah bukti bahwa pool yang dipakai ulang benar-benar dipulihkan,
+// bukan lahir kembali sebagai bangkai gosong.
+const s8Shard = { wrecked: 0, unshattered: 0, uncharred: 0, live: 0, liveBad: 0,
+    liveHex: null, wreckHex: null };
 const s8Wreck = { prev: new Map(), min: Infinity, max: 0, samples: 0 };
 function auditS8Wreck(dt) {
+    for (const p of s8mod.stage8ConvoyDebug().pickups) {
+        if (!p.active) continue;
+        if (p.wreck) {
+            s8Shard.wrecked++;
+            if (!p.shattered || !(p.shards > 0)) s8Shard.unshattered++;
+            else s8Shard.wreckHex = p.bodyHex;
+            if (s8Shard.liveHex != null && p.bodyHex === s8Shard.liveHex) s8Shard.uncharred++;
+        } else {
+            s8Shard.live++;
+            if (s8Shard.liveHex == null) s8Shard.liveHex = p.bodyHex;
+            if (p.shattered || p.bodyHex !== s8Shard.liveHex) s8Shard.liveBad++;
+        }
+    }
     const ground = S8C.roadSpeed * dt;
     if (!(ground > 0)) return;
     const now = new Map();
@@ -10105,6 +10176,237 @@ T('S8 CONVOY: target config tercapai, tiap pickup triple A/B, dan cap aktif tida
     && allMountedTriples && maxS8Pickups <= S8C.maxActivePickups);
 T('S8 CONVOY ENTRY: kedua ujung jalan dipakai, semua carrier menghadap maju di lajur kiri',
     s8EntrySides.has('rear') && s8EntrySides.has('front') && entryFacingOK);
+// PERILAKU PENGANGKUT BAREL. Dijalankan di sini karena seluruh loop pengejaran
+// baru saja berjalan: irama kemunculannya sudah teruji oleh permainan nyata,
+// bukan oleh satu pemanggilan paksa.
+{
+    const BD = S8C.barrelDropper;
+    // Muatan yang benar-benar TERPASANG di bak: `dropCount` sampai batas
+    // kapasitas fisiknya (lihat blok kepadatan muatan di atas).
+    const bedLoad = Math.min(BD.dropCount, s8mod.stage8HaulerDebug().cargoMax);
+    const spawnedH = s8mod.stage8HaulerDebug().spawned;
+    T(`S8 PENGANGKUT BAREL: tepat satu per ${BD.everyPickups} carrier robot yang MUNCUL [${spawnedH} dari ${convoyBeforeFinal.spawned} carrier]`,
+        spawnedH > 0 && spawnedH === Math.floor(convoyBeforeFinal.spawned / BD.everyPickups));
+
+    // Satu truk dipaksa muncul supaya perilakunya dapat diamati utuh.
+    s8mod.stage8ClearHaulersDbg(); robotsMod.resetRobotsFx();
+    const spawnOK = s8mod.stage8SpawnHaulerDbg();
+    const born = s8mod.stage8HaulerDebug().trucks.find(t => t.active);
+    T(`S8 PENGANGKUT BAREL: SELALU lahir di ujung DEPAN dan di luar tapak pandang [x ${born ? born.entryX.toFixed(0) : '-'} vs tepi ${born ? born.entryViewEdgeX.toFixed(0) : '-'}]`,
+        spawnOK && !!born
+        && born.entryX > s8World0.origin.x
+        && born.entryX >= born.entryViewEdgeX + S8C.pickupOffscreenMargin
+        && Math.abs(born.targetX - (s8World0.origin.x + BD.leadOffset)) < 1e-9
+        && Math.abs(born.yaw) < 1e-9 && born.cargoVisible === bedLoad);
+
+    // --- Barel pertama: harus mendarat DI PUSAT lajur player saat itu.
+    let guard = 0;
+    while (s8mod.stage8HaulerDebug().barrelsOut === 0 && guard++ < 3000) tickS8(0.1, 0.1);
+    const dropped = s8mod.stage8HaulerDebug();
+    const lane0 = s8mod.stage8RoadDebug().laneIndex;
+    const laneZ0 = s8mod.stage8WorldDebug().lanePositions[lane0];
+    const b0 = dropped.dropped[0];
+    T(`S8 BAREL: dijatuhkan TEPAT di pusat lajur player, ber-HP config, dan ikut sistem barel bersama [lajur ${lane0}, HP ${b0 ? b0.hp : '-'}]`,
+        !!b0 && Math.abs(b0.z - laneZ0) < 1e-9 && b0.lane === lane0
+        && b0.hp === BD.barrelHp
+        // Ia BENAR-BENAR anggota array `barrels` bersama, jadi sweep peluru,
+        // ledakan, rambatan dan damage-nya diwarisi apa adanya.
+        && barrel5Mod.barrels.some(v => v.hp === BD.barrelHp && Math.abs(v.z - laneZ0) < 1e-9)
+        && dropped.trucks.find(t => t.active).cargoVisible === bedLoad - 1
+        // Barel keluar dari BAK TRUK, bukan dari udara kosong di sampingnya:
+        // truknya sudah mengejar lajur player dan sejajar saat melepasnya.
+        && dropped.trucks.find(t => t.active).lane === lane0
+        && Math.abs(dropped.trucks.find(t => t.active).z - b0.z) < S8C.laneWidth * 0.6);
+
+    // --- KELUAR DARI PINTU, BUKAN MUNCUL DI ASPAL (2026-08-18, permintaan user
+    //     "pintu belakang mobil itu terbuka kemudian barel menggelinding jatuh
+    //     kemudian pintu tertutup"). Pada frame kelahirannya barel masih di
+    //     UDARA, tepat di bibir pintu truk itu, dan pintunya menganga penuh
+    //     serta sedang MENAHAN bukaannya. Versi lama menaruh barel langsung di
+    //     aspal sementara pintunya tertutup pada frame yang sama.
+    {
+        const air = s8mod.stage8HaulerDebug();
+        const at = air.trucks.find(v => v.active), ab = air.dropped[0];
+        T(`S8 BAREL: keluar dari BIBIR PINTU yang menganga, bukan muncul di aspal [y ${ab ? ab.y.toFixed(1) : '-'} vs radius ${barrel5Mod.BARREL_RADIUS}, pintu ${at ? at.gate.toFixed(2) : '-'}]`,
+            !!ab && !!at && ab.airborne
+            && ab.y > barrel5Mod.BARREL_RADIUS + 1
+            // Lahir di jangkar pintu truk, bukan di titik kira-kira.
+            && Math.abs(ab.x - (at.x + air.dropAnchor.x)) < S8C.roadSpeed * 0.1 + 1
+            && at.gate > 0.99 && at.gateHold > 0 && at.gateShut > 0);
+    }
+    // Tunggu sampai benar-benar MENDARAT sebelum menguji perilaku "diam di
+    // aspal": selama masih jatuh ia memang belum menyapu selaju tanah penuh.
+    let landGuard = 0;
+    while (s8mod.stage8HaulerDebug().dropped[0]?.airborne && landGuard++ < 400)
+        tickS8(0.02, 0.02);
+    T(`S8 BAREL: mendarat rata di aspal setelah animasi jatuhnya selesai [${(landGuard * 0.02).toFixed(2)}s <= dropFallSec ${BD.dropFallSec}s]`,
+        landGuard > 0 && landGuard * 0.02 <= BD.dropFallSec + 0.02
+        && !s8mod.stage8HaulerDebug().dropped[0].airborne);
+
+    // --- Diam di aspal: menyapu mundur tepat pada laju tanah.
+    const roll0 = s8mod.stage8HaulerDebug().dropped[0];
+    const bx0 = roll0.x;
+    tickS8(0.1, 0.1);
+    const roll1 = s8mod.stage8HaulerDebug().dropped[0];
+    const bx1 = roll1.x;
+    T(`S8 BAREL: diam di aspal — menyapu mundur ke player tepat selaju tanah [${(bx0 - bx1).toFixed(2)} unit/frame]`,
+        Math.abs((bx0 - bx1) - S8C.roadSpeed * 0.1) < 1e-9 && bx0 > s8World0.origin.x);
+    // POROS GELINDING (2026-08-17, laporan user "barrel menggelinding dengan
+    // posisi poros yang salah"). Silinder three bersumbu +Y, jadi tong yang
+    // BERDIRI dan diputar pada z akan TERGULING ke samping alih-alih
+    // menggelinding. Yang dijaga di sini: tongnya benar-benar direbahkan
+    // melintang jalan (pivot x = PI/2), putarannya HANYA pada sumbu tong itu
+    // sendiri, dan lajunya memenuhi gelinding tanpa slip (dtheta = dx / R).
+    {
+        const R = barrel5Mod.BARREL_RADIUS;
+        const dTheta = roll1.spin.y - roll0.spin.y, dX = bx0 - bx1;
+        T(`S8 BAREL: menggelinding pada POROS-nya sendiri, melintang jalan, tanpa slip [dsudut ${dTheta.toFixed(3)} vs dx/R ${(dX / R).toFixed(3)}]`,
+            Math.abs(roll1.spin.x - Math.PI / 2) < 1e-9      // direbahkan melintang jalan
+            && Math.abs(roll1.spin.z) < 1e-9                 // tidak terguling ke samping
+            && dTheta > 0 && Math.abs(dTheta - dX / R) < 1e-9
+            // Berbaring di ATAS aspal: pusatnya setinggi radius, tidak terbenam.
+            && Math.abs(roll1.y - R) < 1e-9);
+    }
+    // POROS RODA (laporan user yang sama, "ban mobilnya juga berputar dengan
+    // posisi poros yang salah"): poros roda dipanggang di GEOMETRI-nya
+    // (`rotateX(PI/2)`) sehingga rotasi objeknya bebas dipakai sebagai gelinding
+    // pada `rotation.z` — konvensi yang sama dengan Raven-K dan GRD LTV-45.
+    // Versi pertama memutar `rotation.x`, yaitu sumbu ARAH JALAN.
+    {
+        const w = s8mod.stage8HaulerDebug().trucks.find(t => t.active);
+        T(`S8 PENGANGKUT BAREL: ban berputar pada poros melintang (rotation.z), bukan pada sumbu arah jalan [z ${w ? w.wheelSpin.z.toFixed(2) : '-'}]`,
+            !!w && !!w.wheelSpin && w.wheelSpin.z !== 0
+            && w.wheelSpin.x === 0 && w.wheelSpin.y === 0
+            && w.wheelPhase > 0);
+    }
+
+    // --- MENGHINDAR: pindah lajur, barel harus LEWAT tanpa meledak. Kalau ia
+    //     tetap meledak, radius blast 6 m akan menghantam lajur sebelah juga dan
+    //     manuvernya jadi sia-sia.
+    const boomsBefore = robotsMod.pendingBoomsDebug().length;
+    // Satu tepi tombol yang bersih, lalu ditahan sepanjang durasi manuver
+    // TERPANJANG — perpindahan yang menyentuh median memakai `medianChangeSec`,
+    // dan `laneIndex` baru berubah setelah easing-nya benar-benar selesai.
+    const laneSec = Math.max(S8C.laneChangeSec, S8C.medianChangeSec) + 0.02;
+    stateMod.keys.a = false; s8mod.stage8Scene.updatePlayerControl(0.01);
+    stateMod.keys.a = true; s8mod.stage8Scene.updatePlayerControl(0.01);
+    stateMod.keys.a = false; s8mod.stage8Scene.updatePlayerControl(laneSec);
+    const dodgedLane = s8mod.stage8RoadDebug().laneIndex;
+    // Ditunggu HANYA sampai barel itu melewati x player — barel berikutnya baru
+    // jatuh `dropGapSec` kemudian, jadi tidak ada yang mencemari pengamatan.
+    let passGuard = 0;
+    const stillAhead = () => s8mod.stage8HaulerDebug().dropped
+        .some(b => Math.abs(b.z - laneZ0) < 1e-9 && b.x > s8World0.origin.x);
+    while (stillAhead() && passGuard++ < 400) tickS8(0.05, 0.05);
+    T(`S8 BAREL: player yang berpindah lajur DILEWATI begitu saja — tanpa ledakan [lajur ${lane0} -> ${dodgedLane}]`,
+        dodgedLane !== lane0 && passGuard < 400
+        && robotsMod.pendingBoomsDebug().length === boomsBefore);
+    // Truknya IKUT PINDAH mengejar lajur baru — itulah telegraph muatan
+    // berikutnya, dan alasan menghindar sekali saja tidak cukup.
+    {
+        const chase = s8mod.stage8HaulerDebug().trucks.find(t => t.active);
+        const chaseZ = s8mod.stage8WorldDebug().lanePositions[dodgedLane];
+        T(`S8 PENGANGKUT BAREL: truk MENGEJAR lajur player, jadi menghindar sekali saja tak cukup [lajur truk ${chase ? chase.lane : '-'} vs player ${dodgedLane}]`,
+            !!chase && chase.lane === dodgedLane
+            && Math.abs(chase.z - chaseZ) < S8C.laneWidth * 0.6);
+    }
+
+    // --- TERTABRAK: tetap di lajur, barel BERIKUTNYA jatuh di lajur baru itu
+    //     dan harus meledak DI SANA, melukai player lewat kontrak `queueBoom`
+    //     barel bersama.
+    robotsMod.resetRobotsFx();
+    let hitGuard = 0, boomed = null;
+    while (!boomed && hitGuard++ < 600) {
+        tickS8(0.05, 0.05);
+        boomed = robotsMod.pendingBoomsDebug().find(b => b.hurtPlayer);
+    }
+    T(`S8 BAREL: player yang TETAP di lajurnya tertabrak — ledakan diantre di titik barel dgn damage barel bersama [dmg ${boomed ? boomed.playerDmg : '-'}]`,
+        !!boomed && boomed.playerDmg === cfgMod.CFG.barrels.playerDamage
+        && Math.abs(boomed.r - cfgMod.CFG.barrels.blastRadiusMeters * cfgMod.CAMP_M) < 1e-6
+        && Math.abs(boomed.x - s8World0.origin.x) < S8C.roadSpeed * 0.05 + 1
+        && Math.abs(boomed.z - s8mod.stage8RoadDebug().currentZ) < S8C.laneWidth);
+
+    // --- HP truk: mati TEPAT pada nilai config, tidak sebelum itu.
+    robotsMod.resetRobotsFx();
+    s8mod.stage8ClearHaulersDbg(); s8mod.stage8SpawnHaulerDbg();
+    s8mod.stage8DamageHaulerDbg(BD.hp - 1);
+    const nearly = s8mod.stage8HaulerDebug();
+    const alive = nearly.trucks.find(t => t.active);
+    s8mod.stage8DamageHaulerDbg(1);
+    const dead = s8mod.stage8HaulerDebug();
+    T(`S8 PENGANGKUT BAREL: hancur TEPAT pada HP config, bangkainya tertinggal di jalan [${BD.hp} HP]`,
+        nearly.active === 1 && alive.hp === 1
+        && dead.active === 0
+        && dead.trucks.some(t => t.wreck && t.hp === 0));
+    // BERKEPING-KEPING (2026-08-18, permintaan user "mobil yang dikendarai musuh
+    // juga hancur berkeping-keping"). Diukur TANPA satu tick pun di antaranya,
+    // supaya fase putaran rodanya identik dan sidik jari pose-nya sebanding.
+    {
+        const wi = dead.trucks.findIndex(t => t.wreck), w = dead.trucks[wi];
+        s8mod.stage8ClearHaulersDbg();
+        const back = s8mod.stage8HaulerDebug().trucks[wi];
+        T(`S8 PENGANGKUT BAREL: bangkainya berkeping-keping dan gosong, lalu PULIH PERSIS saat rignya dipakai ulang [${w.shards} keping]`,
+            w.shattered && w.shards > 10 && w.partCount === alive.partCount
+            && Math.abs(w.poseSum - alive.poseSum) > 1
+            && w.bodyHex !== alive.bodyHex
+            // Rig ini dipakai pengangkut berikutnya: pemulihannya harus PERSIS.
+            && !back.shattered && back.shards === 0
+            && Math.abs(back.poseSum - alive.poseSum) < 1e-9
+            && back.bodyHex === alive.bodyHex);
+    }
+    s8mod.stage8ClearHaulersDbg(); robotsMod.resetRobotsFx(); barrel5Mod.resetBarrels();
+
+    // --- MUATAN PENUH (2026-08-18, permintaan user "barrel yang dijatuhkannya
+    //     lebih banyak dengan interval waktu yang lebih singkat"). Angka-angkanya
+    //     milik config; yang dijaga di sini adalah rentetannya benar-benar
+    //     SELESAI di permainan sungguhan — pool barel tidak boleh kelaparan di
+    //     tengah jalan (dulu dipatok 8 slot) dan baknya harus habis. God-mode
+    //     dinyalakan karena seluruh muatan memang jatuh di lajur player dan
+    //     akan meledak di sana; yang diuji di sini iramanya, bukan damagenya.
+    {
+        stateMod.setGodMode(true);
+        s8mod.stage8SpawnHaulerDbg();
+        const gaps = []; let last = null, simT = 0, seen = 0, loadGuard = 0;
+        // Siklus pintu PER BAREL: sesudah tiap barel, pintu harus benar-benar
+        // kembali menutup sebelum barel berikutnya lepas. `shutBetween` mencatat
+        // bukaan TERKECIL di sela dua barel; kalau animasinya tak muat di dalam
+        // `dropGapSec`, angka ini tidak pernah turun ke nol.
+        const shutBetween = []; let minGate = 1;
+        while (seen < BD.dropCount && loadGuard++ < 4000) {
+            tickS8(0.05, 0.05); simT += 0.05;
+            const t = s8mod.stage8HaulerDebug().trucks.find(v => v.active);
+            if (!t) break;
+            if (t.dropped > seen) {
+                seen = t.dropped;
+                if (last !== null) { gaps.push(simT - last); shutBetween.push(minGate); }
+                last = simT; minGate = 1;
+            } else if (last !== null) minGate = Math.min(minGate, t.gate);
+        }
+        const spent = s8mod.stage8HaulerDebug().trucks.find(t => t.active);
+        const worstGap = gaps.length
+            ? Math.max(...gaps.map(g => Math.abs(g - BD.dropGapSec))) : 99;
+        T(`S8 MUATAN BAREL: satu truk menuntaskan ${BD.dropCount} barel berjarak ${BD.dropGapSec}s tanpa pool kelaparan [${seen} barel, simpangan jeda terburuk ${worstGap.toFixed(2)}s]`,
+            seen === BD.dropCount && gaps.length === BD.dropCount - 1
+            && worstGap <= 0.06
+            // Baknya benar-benar habis, jadi "sisa muatan" tetap terbaca jujur.
+            && !!spent && spent.cargoVisible === Math.max(0, bedLoad - BD.dropCount));
+        const worstShut = shutBetween.length ? Math.max(...shutBetween) : 1;
+        T(`S8 PINTU BELAKANG: membuka -> menahan -> MENUTUP untuk setiap barel, muat di dalam satu jeda [bukaan tersisa terburuk ${worstShut.toFixed(2)}]`,
+            shutBetween.length === BD.dropCount - 1 && worstShut <= 0.02
+            // Yang membuat itu mungkin: seluruh animasinya muat di satu jeda.
+            && BD.dropTelegraphSec + BD.dropFallSec + BD.dropCloseSec <= BD.dropGapSec);
+        stateMod.setGodMode(false);
+        s8mod.stage8ClearHaulersDbg(); robotsMod.resetRobotsFx(); barrel5Mod.resetBarrels();
+    }
+    // Kembalikan player ke lajur SEMULA: sisa berkas ini menguji bahwa corridor
+    // MEDIAN pun ikut ditarget telegraph MG bos, jadi posisinya bagian dari
+    // prasyarat tes berikutnya — bukan kebetulan.
+    while (s8mod.stage8RoadDebug().laneIndex < lane0) {
+        stateMod.keys.d = false; s8mod.stage8Scene.updatePlayerControl(0.01);
+        stateMod.keys.d = true; s8mod.stage8Scene.updatePlayerControl(0.01);
+        stateMod.keys.d = false; s8mod.stage8Scene.updatePlayerControl(laneSec);
+    }
+}
 T('S8 BOSS GATE: boss belum datang selama kendaraan ke-20 belum dihancurkan',
     s8mod.stage8Debug().phase === 'groundPursuit'
     && convoyBeforeFinal.activeRiders === 3
@@ -10190,6 +10492,32 @@ T('S8 COMPLETE: arrival skip membersihkan pose/overlay/audio dan membuka finish 
     && dom4.cineFadeDebug()?.opacity === 0
     && JSON.stringify(s8mod.stage8WorldDebug().pools) === s8PoolsBeforeDeath);
 
+T(`S8 BANGKAI CARRIER: mobil musuh yang hancur ikut berkeping-keping dan gosong, yang masih hidup tetap utuh [${s8Shard.wrecked} sampel bangkai, ${s8Shard.live} sampel hidup]`,
+    s8Shard.wrecked > 5 && s8Shard.live > 5
+    // Tiap bangkai berkeping dan bercat gosong...
+    && s8Shard.unshattered === 0 && s8Shard.uncharred === 0
+    // ...dan tiap carrier hidup utuh serta bercat asli, jadi entri pool yang
+    // dipakai ulang benar-benar dipulihkan, bukan lahir kembali sbg bangkai.
+    && s8Shard.liveBad === 0
+    && s8Shard.wreckHex !== null && s8Shard.wreckHex !== s8Shard.liveHex);
+
+// SATU SISTEM BANGKAI untuk KETIGA kendaraan (2026-08-18). Fade oklusi dulu
+// sempat punya tiga salinan yang saling menyimpang; jangan ulangi polanya di
+// sini. Yang dijaga: ketiga modul kendaraan memanggil sistem bersama, dan tak
+// satu pun memelihara acakan/penggosongan versinya sendiri.
+{
+    const vsrc = [
+        'src/entities/tacticalVehicle.js',
+        'src/entities/enemyPickup.js',
+        'src/scenes/campaign/stages/stage8/barrelDropper.js',
+    ].map(f => fs.readFileSync(ROOT + '/' + f, 'utf8'));
+    T('BANGKAI KENDARAAN: satu sistem bersama (vehicleWreck.js) dipakai player, carrier, dan pengangkut barel',
+        vsrc.every(s => /from '[^']*vehicleWreck\.js'/.test(s)
+            && /shatterVehicle\(/.test(s) && /restoreVehicle\(/.test(s)
+            // Tak ada salinan lokal dari acakan/penggosongannya.
+            && !/function wreckHash/.test(s) && !/CHAR_BODY\s*=/.test(s)));
+}
+
 T(`S8 BANGKAI: bangkai carrier mengerem lalu DIAM di aspal — tak pernah terseret ikut kendaraan player [laju surut ${s8Wreck.min.toFixed(2)}x..${s8Wreck.max.toFixed(2)}x laju tanah, ${s8Wreck.samples} sampel]`,
     s8Wreck.samples > 5
     // Tak pernah lebih lambat dari tanah: kalau < 1 ia ikut terbawa maju.
@@ -10202,6 +10530,45 @@ T(`S8 BABAK: sepanjang stage — kota sebelum ambang config, sawah sesudahnya, t
     && s8Scn.badEarly === 0 && s8Scn.badLate === 0 && s8Scn.backToCity === 0
     && s8Scn.onScreen === 0 && s8Scn.swaps > 20
     && S8C.scenery.riceAfterFraction > 0 && S8C.scenery.riceAfterFraction < 1);
+
+// KENDARAAN PLAYER IKUT HANCUR SAAT PLAYER MATI (2026-08-18, permintaan user
+// "buat agar saat player mati, mobil GRD LTV-45 meledak dan hancur
+// berkeping-keping"). Yang dijaga: bangkainya adalah keping rig ITU SENDIRI yang
+// dilempar keluar tempatnya — jumlah anak grup tidak boleh bertambah, karena
+// melahirkan mesh saat mati berarti membuka peluang kompilasi shader di detik
+// paling sensitif — dan seluruh pose/warnanya PULIH PERSIS saat stage diulang.
+{
+    // Pose acuan diambil dari kendaraan yang BARU direset — pintu/hatch stage
+    // yang kebetulan sedang membuka bukan bagian dari yang harus dipulihkan.
+    // Kolam gib juga dikosongkan dulu: pertempuran stage sudah mengisinya penuh,
+    // jadi "bertambah" tak lagi terukur.
+    s8mod.stage8RestoreVehicleDbg(); goreMod.resetGore();
+    const v0 = s8mod.stage8Debug().vehicle;
+    const boom0 = stateMod.explosions.length;
+    s8mod.stage8Scene.onPlayerDeath(-1, 0);
+    const v1 = s8mod.stage8Debug().vehicle;
+    const gibs = goreMod.goreDebug().gibs;
+    T(`S8 KENDARAAN: player mati -> LTV-45 meledak dan berkeping-keping, tanpa satu pun mesh baru [${v1.wreckParts} keping, ${stateMod.explosions.length - boom0} ledakan, ${gibs.length} serpihan]`,
+        !v0.wrecked && v1.wrecked
+        && v1.wreckParts > 10 && v1.parts === v0.parts
+        // Kepingnya benar-benar berpindah, sasisnya ambles miring, catnya gosong.
+        && Math.abs(v1.poseSum - v0.poseSum) > 1
+        && Math.abs(v1.wreckTilt.z) > 0.05
+        && v1.bodyHex !== v0.bodyHex
+        && stateMod.explosions.length > boom0
+        // Serpihan beterbangan lahir DI kendaraan itu, bukan di titik lain.
+        && gibs.length > 12
+        && gibs.every(g => Math.abs(g.x - v1.position.x) < 60
+            && Math.abs(g.z - v1.position.z) < 60));
+    // Mati = mengulang stage, jadi pemulihannya harus PERSIS, bukan mendekati.
+    s8mod.stage8RestoreVehicleDbg();
+    const v2 = s8mod.stage8Debug().vehicle;
+    T('S8 KENDARAAN: mengulang stage memulihkan pose dan cat bangkainya PERSIS seperti semula',
+        !v2.wrecked && v2.wreckParts === 0 && v2.parts === v0.parts
+        && Math.abs(v2.poseSum - v0.poseSum) < 1e-9
+        && v2.bodyHex === v0.bodyHex
+        && v2.wreckTilt.x === 0 && v2.wreckTilt.z === 0);
+}
 
 // Kembali ke Stage 7 untuk menguji jalur skip outro-nya secara independen.
 stateMod.setGameOver(false);
@@ -11455,6 +11822,7 @@ for (const [name, build] of Object.entries(propBuilders)) {
             s7RoadVehicleMod.buildStage7RoadVehicle(type, PAL.gunmetal, 7)]);
     styleGroups.push(['TacticalVehicle', (await import(R('src/entities/tacticalVehicle.js'))).buildTacticalVehicleMesh(7).group]);
     styleGroups.push(['EnemyPickup', (await import(R('src/entities/enemyPickup.js'))).buildEnemyPickupMesh(7).group]);
+    styleGroups.push(['BarrelDropper', (await import(R('src/scenes/campaign/stages/stage8/barrelDropper.js'))).buildBarrelDropperMesh(7).group]);
     styleGroups.push(['CombatGunship', (await import(R('src/entities/combatGunship.js'))).buildCombatGunshipMesh(4.8).group]);
     styleGroups.push(['Helicopter', (await import(R('src/entities/helicopter.js'))).buildHelicopterMesh().group]);
     styleGroups.push(['Barrel', (await import(R('src/entities/barrels.js'))).buildBarrelMesh()]);
@@ -11621,6 +11989,15 @@ for (const [name, build] of Object.entries(propBuilders)) {
     // hanya ada dua di seluruh game. Bagian diamnya dilas (`mergeObjectInPlace`)
     // di browser, jadi angka ini mengukur kerumitan yang DITULIS, bukan digambar.
     const MESH_CAP = { Helicopter: 70, TacticalVehicle: 60, EnemyPickup: 45,
+        // BarrelDropper (2026-08-17): kendaraan musuh yang dilihat dari dekat,
+        // sekelas TacticalVehicle/EnemyPickup — kabin, bak berusuk, gantry,
+        // drum muatan yang habis satu per satu, pintu belakang berengsel
+        // dan tiga gandar. Bukan prop dekor, jadi capnya sekelas mereka.
+        // Dinaikkan 60 -> 78 pada 2026-08-18 karena muatannya kini mengikuti
+        // `dropCount` (permintaan user "barrel yang dijatuhkannya lebih
+        // banyak") sampai kapasitas bak 3x2 — enam drum = 24 mesh, dan jumlah
+        // drum yang tampak WAJIB sama dengan sisa muatan sungguhan.
+        BarrelDropper: 78,
         CombatGunship: 95, SmashRuko: 30, SpawnMachine: 80, MachineBay: 95,
         // TrainSceneryPool: cap MENTAH-nya sengaja longgar (2026-08-09,
         // permintaan user "background perjalanan terlalu kosong, PENUHI").

@@ -633,6 +633,24 @@
             "scenery": {
                 "riceAfterFraction": 0.65
             },
+            "barrelDropper": {
+                "everyPickups": 5,
+                "hp": 230,
+                "barrelHp": 150,
+                "hitRadius": 20,
+                "maxActive": 1,
+                "leadOffset": 150,
+                "approachRate": 1.1,
+                "armSec": 1.2,
+                "dropGapSec": 1.1,
+                "dropTelegraphSec": 0.4,
+                "dropFallSec": 0.34,
+                "dropCloseSec": 0.3,
+                "dropCount": 6,
+                "departSpeed": 130,
+                "wreckSec": 3.5,
+                "loot": 55
+            },
             "groundLoads": [
                 ["B", "B", "B"],
                 ["B", "B", "A"],
@@ -1238,6 +1256,8 @@
                     "openingCommand": { "speaker": "Command", "text": "Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving." },
                     "pickupSystem": { "speaker": "Vehicle System", "text": "HOSTILE VEHICLES APPROACHING." },
                     "pickupGibran": { "speaker": "Major Gibran", "text": "Open-bed carriers. I’ll take out the riders and leave the vehicles behind." },
+                    "haulerSystem": { "speaker": "Vehicle System", "text": "HAZARDOUS CARGO HAULER AHEAD. IT IS RELEASING BARRELS INTO YOUR LANE." },
+                    "haulerGibran": { "speaker": "Major Gibran", "text": "Then I won’t be in that lane. Shoot the drums or steer around them." },
                     "gunshipCommand": { "speaker": "Command", "text": "Major, airborne contact! Combat gunship closing fast!" },
                     "gunshipGibran": { "speaker": "Major Gibran", "text": "So that’s what they were saving for me." },
                     "bossDown": { "speaker": "Major Gibran", "text": "Gunship’s down. Kertajati, I’m coming in." },

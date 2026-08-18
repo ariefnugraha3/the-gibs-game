@@ -36,16 +36,22 @@ import { spawnAmmoDrop, spawnLoot } from '../../../../entities/drops.js';
 import { currentWeapon } from '../../../../entities/weapons.js';
 import {
     buildTacticalVehicleMesh, resetTacticalVehicleVisual,
-    updateTacticalVehicleVisual, tacticalVehicleDebug,
+    updateTacticalVehicleVisual, tacticalVehicleDebug, wreckTacticalVehicle,
 } from '../../../../entities/tacticalVehicle.js';
 import {
     buildEnemyPickupMesh, resetEnemyPickupVisual, updateEnemyPickupVisual,
-    enemyPickupPassengerWorld, enemyPickupDebug,
+    enemyPickupPassengerWorld, enemyPickupDebug, wreckEnemyPickup,
 } from '../../../../entities/enemyPickup.js';
 import {
     createCombatGunship, resetCombatGunship, updateCombatGunship, damageCombatGunship,
     combatGunshipDebug,
 } from '../../../../entities/combatGunship.js';
+import {
+    createBarrelDropperRig, resetBarrelDroppers, spawnBarrelDropper,
+    updateBarrelDroppers, barrelDropperBulletHits, clearBarrelDroppers, damageBarrelDropper,
+    barrelDropperDebug, activeBarrelDroppers, activeDroppedBarrels,
+    BARREL_DROPPER_DIMENSIONS,
+} from './barrelDropper.js';
 import {
     buildStage8Scenery, updateStage8Scenery, setStage8SceneryAct,
     resetStage8Scenery, stage8SceneryDebug, stage8SceneryActs,
@@ -59,6 +65,9 @@ import {
 } from '../../../../utils/sfx.js';
 
 const OX = 270000, OZ = 0, PLAYER_X = OX;
+// Nada genangan bangkai kendaraan: HITAM, bukan hijau. Hanya robot yang
+// punya cairan coolant hijau (aturan user 2026-07-18).
+const LTV_OIL = 0x141210;
 const ROAD_MODULES = 20, MODULE_LEN = 84, ROAD_SPAN = ROAD_MODULES * MODULE_LEN;
 const AIRPORT_X = OX + 1320;
 const ASPHALT_LANES = Object.freeze([0, 1, 2, 4, 5, 6]);
@@ -75,6 +84,7 @@ export const STAGE8_DIALOGUE = dialogueMap('campaign.stage8.lines');
 
 let built = false, worldRoot = null, roadRoot = null, airportRoot = null;
 let tacticalVehicle = null, gunship = null, staticBatch = [], scenery = null;
+let barrelRig = null, haulersSpawned = 0, haulerShown = false;
 const roadModules = [], pickupPool = [], dustPool = [], stageLights = [];
 let roadWraps = 0, dustCursor = 0;
 
@@ -232,6 +242,16 @@ function buildWorld() {
         const p = buildEnemyPickupMesh(7); worldRoot.add(p.group); pickupPool.push(p);
     }
     gunship = createCombatGunship(4.8);
+    // MUSUH BAREL (2026-08-17, permintaan user). Pool tetap seperti pool lain
+    // Stage 8: dua truk + slot barel, semuanya lahir di sini. Jumlah slotnya
+    // DITURUNKAN DARI CONFIG (2026-08-18, permintaan user "lebih banyak ...
+    // interval lebih singkat"): satu muatan penuh dapat berada di aspal
+    // sekaligus — umur satu barel (dari `leadOffset` sampai dibuang di belakang
+    // player) lebih panjang daripada seluruh rentetan jatuhnya — jadi pool yang
+    // dipatok akan kelaparan diam-diam begitu `dropCount` dinaikkan.
+    const bdC = CFG.campaign.stage8.barrelDropper;
+    barrelRig = createBarrelDropperRig(worldRoot, 7, 2,
+        Math.max(8, (bdC.maxActive || 1) * (bdC.dropCount || 3) + 4));
 
     // Konfigurasi lampu tetap: delapan lampu arena + empat apron, tidak pernah
     // dibuat/dihapus saat boss atau arrival muncul.
@@ -354,6 +374,32 @@ function updateRoad(dt) {
 // wrap dan satu tata-ulang di luar layar (lihat scenery.js aturan 2).
 function syncSceneryAct() { setStage8SceneryAct(scenery, sceneryTargetAct()); }
 
+// KONTEKS PENGANGKUT BAREL. `viewMaxX`/`roadEdge` memakai perhitungan yang sama
+// persis dengan `spawnPickup`, jadi truk pun tak pernah menyembul di tengah layar.
+function barrelCtx(dt) {
+    const C = CFG.campaign.stage8;
+    const view = groundViewExtents(camera.position.y, 0);
+    const gameplay = !cine && !complete;
+    return {
+        dt, playerX: PLAYER_X, playerZ: currentZ,
+        laneIndex, laneZ: laneWorldZ, roadSpeed: roadSpeed(),
+        viewMaxX: view.maxX, roadEdge: ROAD_SPAN / 2 - C.pickupEntryInset,
+        offscreenMargin: C.pickupOffscreenMargin,
+        // Menjatuhkan barel dan menabrak player hanya saat permainan berjalan;
+        // sepanjang cutscene truknya tetap ikut jalan tetapi berhenti bekerja.
+        dropping: gameplay, canHit: gameplay,
+    };
+}
+function onHaulerKilled(t) {
+    const value = CFG.campaign.stage8.barrelDropper.loot;
+    if (value > 0) spawnLoot(PLAYER_X, t.z, value, 1);
+}
+function updateHaulers(dt) {
+    if (!barrelRig || !roadRoot.visible) return;
+    updateBarrelDroppers(barrelRig, barrelCtx(dt));
+    if (!cine && !complete) barrelDropperBulletHits(barrelRig, onHaulerKilled);
+}
+
 function syncVehicle(dt = 0) {
     if (!tacticalVehicle) return;
     // Gunner anchor lokal x=-0,62 m; scaleX sudah memuat normalisasi panjang,
@@ -452,9 +498,16 @@ function spawnPickup(classes, eventIndex) {
 function destroyPickup(p) {
     if (p.wreck) return;
     p.wreck = true; p.wreckT = 0; pickupsDestroyed++;
-    explodeAt(new THREE.Vector3(p.group.position.x, 7, p.group.position.z), 0.1, 0, sfxTankExplode);
-    spawnGibs(p.group.position.x, 7, p.group.position.z, 8, -1, 0,
-        1.5, PAL.gunmetal, 0.4);
+    const px = p.group.position.x, pz = p.group.position.z;
+    explodeAt(new THREE.Vector3(px, 7, pz), 0.1, 0, sfxTankExplode);
+    // HANCUR BERKEPING-KEPING (2026-08-18, permintaan user "mobil yang dikendarai
+    // musuh juga hancur berkeping-keping") — sistem bangkai yang sama dengan
+    // GRD LTV-45 milik player. Nada genangannya HITAM: hanya robot yang punya
+    // coolant hijau.
+    spawnGibs(px, 9, pz, 14, -1, 0, 2.0, PAL.gunmetal, 0.4, LTV_OIL);
+    spawnGibs(px, 6, pz, 8, 1, 0.4, 1.5, PAL.steel, 0.4, LTV_OIL);
+    spawnGroundPuff(px, pz, 0x6b5a44, 6, 1.6);
+    wreckEnemyPickup(p);
     addCamShake(2.6);
     if (pickupsDestroyed % Math.max(1, CFG.campaign.stage8.ammoEveryDestroyedPickups) === 0) {
         const w = player.owned[currentWeapon] ? currentWeapon : 'pistol';
@@ -493,7 +546,25 @@ function updateGroundSpawner(dt) {
     if (groundSpawnT > 0 || activePickupCount() >= C.maxActivePickups || !freePickup()) return;
     const loads = C.groundLoads || [];
     const classes = loads.length ? loads[pickupsSpawned % loads.length] : ['B', 'B', 'A'];
-    if (spawnPickup(classes, pickupsSpawned)) groundSpawnT = C.groundSpawnGapSec;
+    if (spawnPickup(classes, pickupsSpawned)) {
+        groundSpawnT = C.groundSpawnGapSec;
+        // SATU PENGANGKUT BAREL SETIAP `everyPickups` CARRIER ROBOT (2026-08-17,
+        // permintaan user "munculkan 1 setiap setelah 5 mobil pickup robot yang
+        // muncul"). Hitungannya memakai carrier yang MUNCUL, bukan yang hancur,
+        // jadi ia tidak bisa dihindari dengan menunda pertempuran.
+        const every = Math.max(1, C.barrelDropper.everyPickups | 0);
+        if (pickupsSpawned % every === 0) spawnHauler();
+    }
+}
+function spawnHauler() {
+    if (!spawnBarrelDropper(barrelRig, barrelCtx(0))) return false;
+    haulersSpawned++;
+    if (!haulerShown) {
+        haulerShown = true;
+        queueDialogue('haulerSystem'); queueDialogue('haulerGibran');
+        showStageMsg('BARREL HAULER — IT DROPS INTO YOUR LANE, CHANGE LANE OR SHOOT THE DRUMS', 5200);
+    }
+    return true;
 }
 
 function finishOpening(skipped = false) {
@@ -515,6 +586,10 @@ function startOpening() {
 
 function startGunshipIntro() {
     if (phase === 'gunshipIntro' || phase === 'gunshipBattle') return;
+    // Duel udara adalah babak sendiri: truk barel yang masih hidup dan barel
+    // yang masih menggelinding dibersihkan supaya tak ada rintangan darat yang
+    // menggantung selama cutscene bos.
+    clearBarrelDroppers(barrelRig);
     phase = 'gunshipIntro'; releaseInputs(); clearMoveTarget();
     setCinematicActive(true); setCineBars(true); setCineFade(1, 0);
     resetCombatGunship(gunship, { active: true, x: PLAYER_X + 150, y: 55, z: 0, holdSec: 1 });
@@ -659,6 +734,33 @@ function updateBoss(dt) {
     }
 }
 
+// KENDARAAN IKUT MATI BERSAMA PENGEMUDINYA (2026-08-18, permintaan user "buat
+// agar saat player mati, mobil GRD LTV-45 meledak dan hancur berkeping-keping").
+// Dipanggil satu kali dari `startPlayerDeath` lewat hook `onPlayerDeath`, karena
+// `updateMode` scene TIDAK dijalankan selama sekuens kematian. Karena itu
+// gerakannya dititipkan pada dua sistem yang tetap ditick saat sekarat: gib
+// balistik (`spawnGibs`) dan ledakan (`explodeAt`) — sementara bangkai
+// kendaraannya sendiri adalah pose sekali-jadi dari `wreckTacticalVehicle`.
+// Nol mesh/material/PointLight baru, jadi mati pun tak bisa memicu recompile.
+function wreckPlayerVehicle(dirx = -1, dirz = 0) {
+    if (!tacticalVehicle || tacticalVehicle.wrecked) return;
+    const x = tacticalVehicle.group.position.x || PLAYER_X;
+    const z = tacticalVehicle.group.position.z || currentZ;
+    stopVehicleLoop();
+    // Satu bola api besar di kabin, satu lagi rendah di kolong: sekali ledak di
+    // satu titik terbaca datar dari kamera oblik Stage 8.
+    explodeAt(new THREE.Vector3(x, 12, z), 0.1, 0, sfxTankExplode);
+    explodeAt(new THREE.Vector3(x - 6, 4, z), 0.1, 0, sfxTankExplode);
+    spawnGroundPuff(x, z, 0x6b5a44, 10, 2.2);
+    // Kepingan: pelat bodi ke arah dorongan yang membunuh player, sisanya
+    // menyebar 360 derajat. Genangannya HITAM — hanya robot yang bercairan hijau.
+    spawnGibs(x, 14, z, 16, dirx, dirz, 2.6, PAL.gunmetal, 0.4, LTV_OIL);
+    spawnGibs(x, 9, z, 12, -dirx, -dirz, 2.0, PAL.steel, 0.4, LTV_OIL);
+    spawnGibs(x, 6, z, 8, 0, 1, 1.5, PAL.rubber, 0.4, LTV_OIL);
+    addCamShake(26);
+    wreckTacticalVehicle(tacticalVehicle);
+}
+
 function resetStage() {
     phase = 'opening'; complete = false; stageElapsed = 0;
     groundSpawnT = CFG.campaign.stage8.groundStartDelaySec; bossApproachT = 0;
@@ -671,7 +773,8 @@ function resetStage() {
     roadRoot.visible = true; airportRoot.visible = false;
     for (let i = 0; i < roadModules.length; i++)
         roadModules[i].position.x = OX + (i - (ROAD_MODULES - 1) / 2) * MODULE_LEN;
-    resetStage8Scenery(scenery);
+    resetStage8Scenery(scenery); resetBarrelDroppers(barrelRig);
+    haulersSpawned = 0; haulerShown = false;
     for (const p of pickupPool) resetEnemyPickupVisual(p);
     for (const d of dustPool) d.visible = false;
     resetCombatGunship(gunship, { active: false });
@@ -728,6 +831,18 @@ export const stage8SceneryStateDebug = () => ({
 export const stage8SceneryActDebug = () => ({
     ...stage8SceneryActs(scenery), targetAct: sceneryTargetAct(),
 });
+export const stage8HaulerDebug = () => ({
+    ...barrelDropperDebug(barrelRig), spawned: haulersSpawned,
+    shown: haulerShown, dimensionsMeters: { ...BARREL_DROPPER_DIMENSIONS },
+});
+// Kait debug pengangkut barel: pola yang sama dengan `stage8DamageGunshipForDebug`
+// — smoke menguji KONTRAK-nya tanpa harus merakit peluru palsu.
+export const stage8SpawnHaulerDbg = () => !!spawnHauler();
+export const stage8ClearHaulersDbg = () => clearBarrelDroppers(barrelRig);
+export const stage8DamageHaulerDbg = dmg => {
+    const t = barrelRig?.trucks.find(v => v.active && !v.wreck);
+    return t ? damageBarrelDropper(barrelRig, t, dmg, onHaulerKilled) : false;
+};
 export const stage8SceneryPoolDbg = () => scenery;
 export const stage8SceneryMatsDbg = () => stage8SceneryMaterials();
 export const stage8WorldDebug = () => ({
@@ -739,6 +854,7 @@ export const stage8WorldDebug = () => ({
     pools: { road: roadModules.length, pickups: pickupPool.length, dust: dustPool.length,
         missiles: gunship?.missiles?.length || 0, shells: gunship?.shells?.length || 0 },
     scenery: stage8SceneryDebug(scenery),
+    haulers: { trucks: barrelRig?.trucks.length || 0, barrels: barrelRig?.barrels.length || 0 },
     lights: stageLights.length, staticBatches: staticBatch.length,
     sceneRoots: { world: !!worldRoot, road: !!roadRoot, airport: !!airportRoot },
 });
@@ -747,6 +863,8 @@ export const stage8Debug = () => ({
     groundSpawnT, bossApproachT,
     laneIndex, currentZ, cinematic: !!cine,
     convoy: stage8ConvoyDebug(), gunship: combatGunshipDebug(gunship),
+    haulersActive: activeBarrelDroppers(barrelRig),
+    barrelsOut: activeDroppedBarrels(barrelRig),
     vehicle: tacticalVehicleDebug(tacticalVehicle), avatar: avatarVehicleDebug(),
     deathDelayT,
 });
@@ -754,6 +872,7 @@ export const stage8EnemyPickupDebug = (index = 0) => enemyPickupDebug(pickupPool
 export const stage8GunshipDebug = () => combatGunshipDebug(gunship);
 export const stage8DamageGunshipForDebug = dmg => damageCombatGunship(gunship, dmg);
 export const stage8StaticBatchDbg = () => staticBatch;
+export const stage8RestoreVehicleDbg = () => resetTacticalVehicleVisual(tacticalVehicle);
 
 export const stage8Scene = {
     id: 'campaign-8', lightsKey: 'campaign-8',
@@ -773,6 +892,7 @@ export const stage8Scene = {
         setAvatarVehiclePose(false); setAvatarRadioPose(false);
         if (avatarGroup) avatarGroup.visible = true;
         for (const p of pickupPool) resetEnemyPickupVisual(p);
+        clearBarrelDroppers(barrelRig);
         resetCombatGunship(gunship, { active: false });
     },
     restartScene: () => stage1Scene,
@@ -786,10 +906,12 @@ export const stage8Scene = {
 
     updateMode(dt) {
         stageElapsed += dt; updateDialogue(dt); updateCine(dt); updateDust(dt);
+        updateHaulers(dt);
         if (cine || complete) { syncSceneryAct(); updateUI(); return; }
         updateJourney(dt); updateBoss(dt); syncVehicle(dt); syncSceneryAct(); updateUI();
     },
     updatePlayerControl(dt) { updateLaneControl(dt); return true; },
+    onPlayerDeath(dirx, dirz) { wreckPlayerVehicle(dirx, dirz); },
     allowsPlayerAction(action) { return !['moveTarget', 'dodge', 'melee'].includes(action); },
 
     playerCollide(pos) {
@@ -842,6 +964,15 @@ export const stage8Scene = {
         for (const p of pickupPool) if (p.active && !p.wreck)
             plot(p.group.position.x - camera.position.x, p.group.position.z - camera.position.z,
                 '#ffb03b', 4, true);
+        // Pengangkut barel dan barel yang menggelinding dipetakan MERAH: ancaman
+        // posisi, bukan tembakan — player harus membacanya sebelum ia tiba.
+        const bd = barrelDropperDebug(barrelRig);
+        if (bd) {
+            for (const t of bd.trucks) if (t.active && !t.wreck)
+                plot(t.x - camera.position.x, t.z - camera.position.z, '#ff4a3c', 5, true);
+            for (const b of bd.dropped)
+                plot(b.x - camera.position.x, b.z - camera.position.z, '#ff4a3c', 3, true);
+        }
     },
     get camOffset() { return cine ? cineCam : driveCam; },
 };
