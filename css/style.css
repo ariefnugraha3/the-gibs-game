@@ -3069,39 +3069,48 @@ body.cine #medkitBar, body.cine #stageMsg {
     cursor: pointer;
 }
 .repValveBtn:hover { background: rgba(255, 176, 59, 0.2); }
-/* ----- Stage 5-6 board 1: FUSE LOADOUT ----- */
-.repFuseWrap { display: grid; grid-template-columns: minmax(260px, 1fr) 190px; gap: 16px; width: 100%; }
-.repFusePanel, .repFuseRack {
-    min-width: 0; padding: 12px; background: #151a18; border: 1px solid #3d4742;
-    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.45) inset;
+/* ----- Stage 5-6 board 1: START INTERLOCK ----- */
+.repIlkWrap { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.repIlkPanel {
+    padding: 12px 12px 10px; border: 1px solid #4b514d; background: #12160f;
 }
-.repFuseLbl { margin-bottom: 10px; color: #87918d; font-size: 10px; letter-spacing: 0.14em; }
-.repFuseCircuit {
-    display: grid; grid-template-columns: 116px minmax(90px, 1fr) 116px; gap: 12px; align-items: center;
-    min-height: 54px; margin-top: 9px; padding: 9px; background: #0d1110; border: 1px solid #39423e;
-    cursor: pointer; user-select: none;
+.repIlkLbl { margin-bottom: 10px; color: #87918d; font-size: 10px; letter-spacing: 0.14em; }
+/* Baris breaker: indentasi kiri = kedalaman pohon feed (ditulis inline oleh JS). */
+.repIlkRow {
+    position: relative; display: grid;
+    grid-template-columns: 12px 12px 132px 1fr 62px; align-items: center; gap: 10px;
+    margin-bottom: 6px; padding: 7px 10px 7px 0;
+    border: 1px solid #3d443e; background: #171d16; cursor: pointer;
 }
-.repFuseCircuit.ok { border-color: #56865f; background: #122018; }
-.repFuseCircuit.bad { border-color: #8b3b2c; background: #201210; }
-.repFuseName { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.repFuseName span { color: #d9d2c6; font-size: 12px; letter-spacing: 0.1em; }
-.repFuseName strong { color: #ffb03b; font-size: 15px; }
-.repFuseCircuit.ok .repFuseName strong { color: #9de68d; }
-.repFuseMeter { position: relative; height: 16px; background: #080b0a; border: 1px solid #4b514d; overflow: hidden; }
-.repFuseBand { position: absolute; top: 0; bottom: 0; background: #365f3e; }
-.repFuseNeedle { position: absolute; top: -3px; bottom: -3px; width: 3px; transform: translateX(-1px); background: #ffe5a3; }
-.repFuseRead { color: #87918d; font-size: 9px; letter-spacing: 0.08em; text-align: right; }
-.repFuseRack { display: grid; grid-template-columns: 1fr; align-content: start; gap: 9px; }
-.repFuseRack .repFuseLbl { margin-bottom: 1px; }
-.repFuse {
-    display: flex; align-items: center; justify-content: space-between; min-height: 39px; padding: 7px 10px;
-    color: #d9d2c6; background: #242923; border: 2px solid #59615c; cursor: pointer; user-select: none;
+.repIlkRow:hover { background: #1e261c; border-color: #59634f; }
+.repIlkRow.on { border-color: #56865f; background: #122018; cursor: default; }
+.repIlkRow.bad { border-color: #8b3b2c; background: #201210; }
+/* Sambungan ke induk: garis siku kecil di tepi kiri baris. */
+.repIlkFeed {
+    width: 10px; height: 10px; margin-left: -4px;
+    border-left: 1px solid #4b514d; border-bottom: 1px solid #4b514d;
 }
-.repFuse:hover { background: #30372f; }
-.repFuse.sel { border-color: #ffb03b; box-shadow: 0 0 0 2px rgba(255, 176, 59, 0.18); }
-.repFuse.used { opacity: 0.34; }
-.repFuse span { font-size: 18px; font-weight: bold; color: #ffb03b; }
-.repFuse b { font-size: 9px; letter-spacing: 0.16em; color: #87918d; }
+.repIlkRow:not(.fed) .repIlkFeed { border: 0; }
+.repIlkPip {
+    width: 9px; height: 9px; border-radius: 50%;
+    border: 1px solid #6c7568; background: #0b0f0a;
+}
+.repIlkRow.on .repIlkPip { background: #9de68d; border-color: #9de68d; box-shadow: 0 0 7px rgba(157, 230, 141, 0.55); }
+.repIlkName { color: #d9d2c6; font-size: 12px; letter-spacing: 0.1em; }
+.repIlkRow.on .repIlkName { color: #9de68d; }
+.repIlkReq { color: #87918d; font-size: 9px; letter-spacing: 0.08em; }
+.repIlkReq i { font-style: normal; color: #c8bda6; }
+.repIlkReq i + i::before { content: ' + '; color: #6b746a; }
+.repIlkState {
+    justify-self: end; padding-right: 10px;
+    font-size: 9px; letter-spacing: 0.16em; color: #87918d;
+}
+.repIlkRow.on .repIlkState { color: #9de68d; }
+.repIlkNote {
+    padding: 7px 10px; border: 1px solid #3d443e; background: #10140f;
+    color: #87918d; font-size: 10px; letter-spacing: 0.1em; text-align: center;
+}
+.repIlkNote.bad { border-color: #8b3b2c; background: #1b100e; color: #ef755a; }
 
 /* ----- Stage 5-6 board 2: ROTOR KICKSTART ----- */
 .repRotorWrap { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(250px, 1fr); gap: 24px; align-items: center; width: 100%; }
@@ -3134,6 +3143,12 @@ body.cine #medkitBar, body.cine #stageMsg {
 .repMaster.on { color: #d8f0d8; background: #34553a; border-color: #608a64; }
 .repRotorState { min-height: 17px; color: #84908a; font-size: 10px; letter-spacing: 0.13em; text-align: center; }
 .repRotorWrap.bad .repRotorState { color: #ef755a; }
+/* RPM meluruh terus, jadi berada DI DALAM green band adalah keadaan sesaat:
+   jarum, tombol ignition dan teks status semuanya menyala bersama supaya
+   jendelanya tak bisa terlewat. */
+.repRotorWrap.live .repRpmNeedle { background: #9de68d; box-shadow: 0 0 10px rgba(157, 230, 141, 0.7); }
+.repRotorWrap.live .repRotorState { color: #9de68d; }
+.repIgnition.armed { color: #d8f0d8; border-color: #74a978; box-shadow: 0 0 0 2px rgba(157, 230, 141, 0.22); }
 /* ----- Kaki panel ----- */
 .repFoot { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
 .repHint { flex: 1; text-align: center; font-size: 11px; letter-spacing: 0.06em; color: #6f807d; }
@@ -3173,14 +3188,16 @@ body.cine #medkitBar, body.cine #stageMsg {
     .sigRow { grid-template-columns: 42px minmax(110px, 1fr) 48px; gap: 7px; min-height: 40px; padding: 0 6px; }
     .sigTimer { width: 100%; }
     .sigLock { margin-left: 0; flex: 1; }
-    .repFuseWrap { grid-template-columns: 1fr 160px; gap: 10px; }
-    .repFuseCircuit { grid-template-columns: 96px minmax(80px, 1fr); }
-    .repFuseRead { grid-column: 1 / -1; text-align: left; }
+    .repIlkRow { grid-template-columns: 10px 10px 106px 1fr 52px; gap: 7px; }
+    .repIlkName { font-size: 11px; letter-spacing: 0.06em; }
     .repRotorWrap { grid-template-columns: 1fr 1fr; gap: 12px; }
     .repRotor { width: min(26vh, 190px); }
 }
 @media (max-width: 500px) {
-    .repFuseWrap { grid-template-columns: 1fr; }
+    .repIlkRow { grid-template-columns: 10px 10px 1fr 52px; row-gap: 4px; }
+    .repIlkName { grid-area: 1 / 3; }
+    .repIlkState { grid-area: 1 / 4; }
+    .repIlkReq { grid-area: 2 / 3 / 3 / 5; }
     .repRotorWrap { grid-template-columns: 1fr; }
     .repRotor { width: min(25vh, 176px); }
 }

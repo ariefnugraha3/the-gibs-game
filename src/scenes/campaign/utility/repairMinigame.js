@@ -3,6 +3,9 @@
 // tersendiri (`repairScene`) yang mengambil alih layar saat player memasang
 // KETIGA komponen generator di Campaign Stage 2.
 //
+// Stage 5-6 memakai daftar papan LAIN (ADVANCED_REPAIR_PARTS di bawah):
+// START INTERLOCK lalu ROTOR KICKSTART.
+//
 // TIGA papan, SATU per komponen yang tadi dikumpulkan player di gudang
 // (REPAIR_PARTS — stage2 memakai daftar yang sama untuk menamai tiap komponen
 // saat dipungut), dimainkan BERURUTAN dalam satu modal:
@@ -79,19 +82,22 @@ export const REPAIR_PARTS = [
     },
 ];
 
-// Dua pekerjaan mekanis khusus generator Stage 5-6. Keduanya sengaja berbeda
-// dari kabel, chip, dan katup Stage 2: setel load fuse, lalu putar rotor dan
-// hidupkan mesin pada rentang RPM yang aman.
+// Dua pekerjaan mekanis khusus generator Stage 5-6. Sengaja berbeda dari
+// kabel, chip, dan katup Stage 2 — dan berbeda satu sama lain: papan pertama
+// MENALAR (urutan penyalaan), papan kedua BERTINDAK (putar roda gila lalu
+// nyalakan mesin di dalam jendela RPM yang terus menyusut).
 export const ADVANCED_REPAIR_PARTS = [
     {
-        id: 'fuse', label: 'FUSE LOADOUT', type: 'fuse',
-        sub: 'Fit the correct amp fuses so every generator circuit lands inside its safe load band.',
-        hint: 'Click a fuse, then a circuit bay - click a loaded bay to pull its fuse back out',
+        id: 'interlock', label: 'START INTERLOCK', type: 'interlock',
+        sub: 'Close every breaker in a legal order. Each breaker lists the breakers that must '
+            + 'ALREADY be closed before it will latch, and some of those run across the feed '
+            + 'diagram - reading the branches alone is not enough.',
+        hint: 'Click a breaker to close it - closing one out of order only trips it back open',
     },
     {
         id: 'kickstart', label: 'ROTOR KICKSTART', type: 'kickstart',
         sub: 'Crank the flywheel clockwise, fire ignition inside the green RPM band, then close the master breaker.',
-        hint: 'Drag the flywheel clockwise - bad ignition timing costs momentum, never the whole repair',
+        hint: 'The flywheel bleeds speed - reach the green band, then hit ignition promptly',
     },
 ];
 
@@ -130,6 +136,11 @@ let wireLinesEl = null;   // kotak SVG kabel (dilukis ulang tiap gerak seret)
 // semuanya no-op saat `drag` null), ghost = chip bayangan yang mengikuti kursor.
 let drag = null, dragEl = null, ghostEl = null, docWired = false;
 let rotorDrag = null;
+// Referensi elemen papan ROTOR: tick peluruhan mengecat ulang jarum/roda saja,
+// bukan membangun ulang seluruh papan 20x per detik.
+let rotorTimer = 0, rotorWrapEl = null, rotorFaceEl = null, rotorNeedleEl = null;
+let rotorRpmEl = null, rotorStateEl = null, rotorIgnEl = null, rotorCrankEl = null;
+const ROTOR_TICK_MS = 50;
 const DRAG_SLOP = 5;      // px sebelum gerakan dianggap seret (di bawah ini = klik biasa)
 
 const overlayEl = () => document.getElementById('repairOverlay');
@@ -185,27 +196,92 @@ function buildValves(count, steps) {
     return { type: 'valves', n, steps, pos, target, bad: null };
 }
 
-const FUSE_NAMES = ['PUMP', 'IGNITION', 'COOLANT', 'FIELD', 'AUX'];
-const FUSE_AMPS = [10, 15, 20, 25, 30, 35, 40, 45];
+// --- INTERLOCK: URUTAN PENYALAAN (2026-08-19, menggantikan FUSE LOADOUT) ----
+// Papan lama punya satu jawaban tetap selamanya (rak fuse & amp target adalah
+// konstanta), jadi sesudah sekali main tiga generator sisanya cuma hafalan.
+// Papan ini menukar "cocokkan angka" dengan satu dimensi yang belum dipakai
+// papan mana pun di game ini: URUTAN.
+//
+// Player menutup semua breaker; tiap breaker mensyaratkan breaker lain SUDAH
+// tertutup. Syarat datang dari dua tempat:
+//   - INDUK (`parent`) — digambar sebagai cabang di diagram satu-garis,
+//   - LINTAS-CABANG (`cross`) — hanya tertulis di kartu breaker.
+// Karena itu membaca diagram saja TIDAK cukup; generator bahkan menolak papan
+// yang bisa diselesaikan dengan mengklik baris dari atas ke bawah.
+const BREAKER_NAMES = [
+    'LUBE OIL', 'FUEL PUMP', 'COOLANT', 'EXCITER',
+    'FIELD', 'AVR', 'BUS TIE', 'STARTER',
+];
 
-function buildFuse(count) {
-    const A = CFG.campaign.repair.advanced;
-    const n = Math.max(2, Math.min(FUSE_NAMES.length, count | 0));
-    const spread = Math.max(0, A.fuseSafeSpread | 0);
-    const spareCount = Math.max(0, Math.min(3, A.fuseSpareCount | 0));
-    const solution = FUSE_AMPS.slice(2, 2 + n);
-    const circuits = solution.map((amp, i) => {
-        const load = 45 + i * 7 + ((Math.random() * 7) | 0);
-        const safe = load + amp;
-        return {
-            id: FUSE_NAMES[i], load, min: safe - spread, max: safe + spread,
-            fuse: -1, targetAmp: amp,
-        };
-    });
-    const used = new Set(solution);
-    const spares = FUSE_AMPS.filter(a => !used.has(a)).slice(0, spareCount);
-    const fuses = solution.concat(spares).sort((a, b) => a - b).map((amp) => ({ amp, at: -1 }));
-    return { type: 'fuse', n, circuits, fuses, sel: -1, bad: null };
+// SELALU SOLVABLE tanpa perlu dicek: `order` adalah permutasi acak yang menjadi
+// urutan benar, dan SETIAP syarat hanya boleh menunjuk breaker yang lebih awal
+// di `order`. Graf syarat karena itu mustahil bersiklus — menutup menurut
+// `order` selalu berhasil dari awal sampai habis.
+function interlockAttempt(n) {
+    const R = CFG.campaign.repair.advanced;
+    const order = shuffle([...Array(n).keys()]);
+    const names = shuffle(BREAKER_NAMES.slice()).slice(0, n);   // nama tak boleh membocorkan urutan
+    const parent = new Array(n).fill(-1);
+    const cross = Array.from({ length: n }, () => []);
+    const crossMin = Math.max(0, R.interlockCrossMin | 0);
+    const crossMax = Math.max(crossMin, R.interlockCrossMax | 0);
+    for (let k = 1; k < n; k++) {
+        const i = order[k];
+        parent[i] = order[(Math.random() * k) | 0];
+        const pool = [];
+        for (let j = 0; j < k; j++) if (order[j] !== parent[i]) pool.push(order[j]);
+        shuffle(pool);
+        const want = crossMin + ((Math.random() * (crossMax - crossMin + 1)) | 0);
+        for (let c = 0; c < want && c < pool.length; c++) cross[i].push(pool[c]);
+    }
+    // Baris ditampilkan menurut KEDALAMAN pohon, tapi urutan di dalam satu tier
+    // diacak (sort stabil di atas array teracak) supaya "dari atas ke bawah"
+    // bukan jawaban gratis.
+    const tier = new Array(n).fill(0);
+    for (let k = 0; k < n; k++) {
+        const i = order[k];
+        tier[i] = parent[i] < 0 ? 0 : tier[parent[i]] + 1;
+    }
+    const rows = shuffle([...Array(n).keys()]).sort((a, b) => tier[a] - tier[b]);
+    return {
+        type: 'interlock', n, order, names, parent, cross, tier, rows,
+        closed: new Array(n).fill(false), trip: null, bad: null,
+    };
+}
+
+// Syarat satu breaker = induknya + seluruh syarat lintas-cabangnya.
+export function interlockReqs(g, i) {
+    const out = [];
+    if (g.parent[i] >= 0) out.push(g.parent[i]);
+    for (const j of g.cross[i]) out.push(j);
+    return out;
+}
+export const interlockReady = (g, i) => interlockReqs(g, i).every(j => g.closed[j]);
+
+// Simulasi "player malas": klik baris dari atas ke bawah berulang kali. Papan
+// yang LOLOS tanpa sekali pun trip berarti diagramnya sudah membocorkan
+// jawaban — papan seperti itu dibuang oleh buildInterlock.
+function interlockNaiveTrips(g) {
+    const closed = new Array(g.n).fill(false);
+    let trips = 0;
+    for (let pass = 0; pass < g.n + 2 && closed.some(v => !v); pass++) {
+        for (const i of g.rows) {
+            if (closed[i]) continue;
+            if (interlockReqs(g, i).every(j => closed[j])) closed[i] = true;
+            else trips++;
+        }
+    }
+    return trips;
+}
+
+function buildInterlock(count) {
+    const n = Math.max(3, Math.min(BREAKER_NAMES.length, count | 0));
+    let last = null;
+    for (let attempt = 0; attempt < 40; attempt++) {
+        last = interlockAttempt(n);
+        if (interlockNaiveTrips(last) > 0) return last;
+    }
+    return last;   // jaring pengaman: tetap sah & solvable, hanya lebih mudah
 }
 
 function buildKickstart(segments) {
@@ -219,7 +295,7 @@ function buildKickstart(segments) {
 export function buildRepairGame(type, n) {
     if (type === 'wires') return buildWires(n);
     if (type === 'chips') return buildChips(n);
-    if (type === 'fuse') return buildFuse(n);
+    if (type === 'interlock') return buildInterlock(n);
     if (type === 'kickstart') return buildKickstart(n);
     return buildValves(n, CFG.campaign.repair.valveSteps);
 }
@@ -228,7 +304,7 @@ export function repairIsSolved(g) {
     if (!g) return false;
     if (g.type === 'wires') return g.links.every(v => v >= 0);
     if (g.type === 'chips') return g.chips.every(c => c.at >= 0);
-    if (g.type === 'fuse') return g.circuits.every(c => fuseCircuitSafe(g, c));
+    if (g.type === 'interlock') return g.closed.every(Boolean);
     if (g.type === 'kickstart') return g.breaker;
     return g.pos.every((v, i) => v === g.target[i]);
 }
@@ -319,45 +395,21 @@ export function applyValveTurn(g, i, dir = 1) {
     return 'link';
 }
 
-function fuseCircuitSafe(g, c) {
-    const f = c && g.fuses[c.fuse];
-    if (!f) return false;
-    const load = c.load + f.amp;
-    return load >= c.min && load <= c.max;
-}
-
-export function applyFusePick(g, zone, i) {
-    if (!g || g.type !== 'fuse') return 'none';
-    if (zone === 'fuse') {
-        const f = g.fuses[i];
-        if (!f) return 'none';
-        if (f.at >= 0) {
-            g.circuits[f.at].fuse = -1;
-            f.at = -1;
-            g.sel = -1;
-            return 'unlink';
-        }
-        g.sel = g.sel === i ? -1 : i;
-        return 'select';
-    }
-    if (zone !== 'circuit') return 'none';
-    const c = g.circuits[i];
-    if (!c) return 'none';
-    if (g.sel < 0) {
-        if (c.fuse < 0) return 'none';
-        g.fuses[c.fuse].at = -1;
-        c.fuse = -1;
+// Menutup breaker `i`. Di luar urutan = INTERLOCK TRIP: breaker itu TIDAK
+// terkunci (jadi papan tak pernah masuk keadaan buntu) dan `trip` mencatat
+// syarat mana yang belum terpenuhi supaya panel bisa menjelaskannya. Breaker
+// yang sudah tertutup terkunci di sana — tak ada cara merusak kemajuan sendiri.
+export function applyBreakerClose(g, i) {
+    if (!g || g.type !== 'interlock' || i < 0 || i >= g.n) return 'none';
+    if (g.closed[i]) return 'none';
+    if (!interlockReady(g, i)) {
+        g.trip = { i, missing: interlockReqs(g, i).filter(j => !g.closed[j]) };
         g.bad = { i };
-        return 'unlink';
+        return 'reject';
     }
-    const f = g.fuses[g.sel];
-    if (!f || f.at >= 0) return 'none';
-    if (c.fuse >= 0) g.fuses[c.fuse].at = -1;
-    c.fuse = g.sel;
-    f.at = i;
-    g.sel = -1;
-    g.bad = fuseCircuitSafe(g, c) ? null : { i };
-    return g.bad ? 'reject' : 'link';
+    g.closed[i] = true;
+    g.trip = null;
+    return 'link';
 }
 
 export function applyRotorTurn(g, deltaRad) {
@@ -368,6 +420,20 @@ export function applyRotorTurn(g, deltaRad) {
     else g.rpm = Math.max(0, g.rpm + deltaRad / (Math.PI * 2) * A.rotorReverseLossPerTurn);
     g.bad = false;
     return 'link';
+}
+
+// Roda gila KEHILANGAN putaran terus-menerus (2026-08-19). Tanpa ini
+// "green band" bukan jendela waktu sama sekali — RPM tak pernah turun, jadi
+// papan cuma "klik crank sampai cukup, lalu ignition kapan saja". Peluruhan
+// hanya berlaku SEBELUM mesin menyala; sesudah ignition mesin memutar dirinya
+// sendiri. Nilai balik = true bila ada yang berubah (dipakai repaint ringan).
+export function applyRotorDecay(g, dt) {
+    if (!g || g.type !== 'kickstart' || g.phase !== 'spin' || !(dt > 0)) return false;
+    if (g.rpm <= 0) return false;
+    const A = CFG.campaign.repair.advanced;
+    g.rpm = Math.max(0, g.rpm - A.rotorDecayPerSec * dt);
+    g.angle += g.rpm * dt * Math.PI * 2;   // roda tetap berputar selagi melambat
+    return true;
 }
 
 export function applyRotorIgnition(g) {
@@ -446,7 +512,7 @@ function renderBoard() {
     if (G.type === 'wires') renderWires();
     else if (G.type === 'chips') renderChips();
     else if (G.type === 'valves') renderValves();
-    else if (G.type === 'fuse') renderFuse();
+    else if (G.type === 'interlock') renderInterlock();
     else renderKickstart();
 }
 
@@ -689,76 +755,125 @@ function renderValves() {
     }
 }
 
-function renderFuse() {
-    const wrap = mkEl('repFuseWrap', boardEl);
-    const panel = mkEl('repFusePanel', wrap);
-    mkEl('repFuseLbl', panel, 'GENERATOR LOAD BUS');
-    for (let i = 0; i < G.circuits.length; i++) {
-        const c = G.circuits[i];
-        const f = G.fuses[c.fuse];
-        const total = c.load + (f ? f.amp : 0);
-        const safe = fuseCircuitSafe(G, c);
-        const bad = G.bad && G.bad.i === i && !safe;
-        const row = mkEl('repFuseCircuit' + (safe ? ' ok' : '') + (bad ? ' bad' : ''), panel);
-        row.addEventListener('click', () => repairFusePick('circuit', i));
-        const meterPct = Math.max(0, Math.min(100, (total / Math.max(1, c.max + 20)) * 100));
-        const minPct = Math.max(0, Math.min(100, (c.min / Math.max(1, c.max + 20)) * 100));
-        const maxPct = Math.max(0, Math.min(100, (c.max / Math.max(1, c.max + 20)) * 100));
+function renderInterlock() {
+    const wrap = mkEl('repIlkWrap', boardEl);
+    const panel = mkEl('repIlkPanel', wrap);
+    mkEl('repIlkLbl', panel, 'GENERATOR START INTERLOCK');
+    // Baris SENGAJA tidak menandai "siap ditutup": begitu ditandai, papan
+    // berubah jadi "klik yang menyala" dan tekanan urutannya hilang. Semua
+    // informasinya ada (status tiap breaker + daftar syarat) — player yang
+    // melakukan pencocokannya.
+    for (const i of G.rows) {
+        const badp = G.bad && G.bad.i === i;
+        const row = mkEl('repIlkRow' + (G.closed[i] ? ' on' : '') + (badp ? ' bad' : '')
+            + (G.parent[i] >= 0 ? ' fed' : ''), panel);
+        row.style.paddingLeft = (14 + G.tier[i] * 22) + 'px';
+        const reqs = interlockReqs(G, i).map(j => G.names[j]);
         row.innerHTML =
-            `<div class="repFuseName"><span>${c.id}</span><strong>${f ? f.amp + 'A' : '--'}</strong></div>`
-            + '<div class="repFuseMeter">'
-            + `<i class="repFuseBand" style="left:${minPct}%;width:${Math.max(4, maxPct - minPct)}%"></i>`
-            + `<i class="repFuseNeedle" style="left:${meterPct}%"></i>`
-            + '</div>'
-            + `<div class="repFuseRead">${total} LOAD / SAFE ${c.min}-${c.max}</div>`;
+            '<span class="repIlkFeed"></span>'
+            + '<span class="repIlkPip"></span>'
+            + `<span class="repIlkName">${G.names[i]}</span>`
+            + `<span class="repIlkReq">${reqs.length
+                ? 'REQUIRES ' + reqs.map(t => `<i>${t}</i>`).join('')
+                : 'SOURCE FEED'}</span>`
+            + `<span class="repIlkState">${G.closed[i] ? 'CLOSED' : 'OPEN'}</span>`;
+        row.addEventListener('click', () => repairBreakerClose(i));
     }
-    const rack = mkEl('repFuseRack', wrap);
-    mkEl('repFuseLbl', rack, 'FUSE RACK');
-    for (let i = 0; i < G.fuses.length; i++) {
-        const f = G.fuses[i];
-        const e = mkEl('repFuse' + (G.sel === i ? ' sel' : '') + (f.at >= 0 ? ' used' : ''), rack);
-        e.innerHTML = `<span>${f.amp}</span><b>AMP</b>`;
-        e.addEventListener('click', () => repairFusePick('fuse', i));
-    }
+    const note = mkEl('repIlkNote' + (G.trip ? ' bad' : ''), wrap);
+    note.innerText = G.trip
+        ? `INTERLOCK TRIP - ${G.names[G.trip.i]} NEEDS ${G.trip.missing.map(j => G.names[j]).join(', ')}`
+        : `${G.closed.filter(Boolean).length} / ${G.n} BREAKERS CLOSED`;
+}
+
+const rotorInBand = () => {
+    const A = CFG.campaign.repair.advanced;
+    return !!G && G.type === 'kickstart' && G.rpm >= A.rotorGreenMin && G.rpm <= A.rotorGreenMax;
+};
+const rotorRpmHtml = () => `<span>ROTOR SPEED</span><strong>${Math.round(G.rpm * 100)}%</strong>`;
+function rotorStateText() {
+    if (G.bad) return `ENGINE STALLED - ${G.stalls}`;
+    if (G.phase === 'ignited') return 'COMBUSTION STABLE';
+    if (G.phase === 'online') return 'GENERATOR COUPLED';
+    return rotorInBand() ? 'GREEN BAND - FIRE IGNITION' : 'CRANKING';
 }
 
 function renderKickstart() {
     const A = CFG.campaign.repair.advanced;
     const wrap = mkEl('repRotorWrap' + (G.bad ? ' bad' : ''), boardEl);
+    rotorWrapEl = wrap;
     const machine = mkEl('repRotorMachine', wrap);
     const wheel = mkEl('repRotor', machine);
     let spokes = '';
     for (let i = 0; i < G.n; i++) spokes += `<i style="transform:rotate(${(i / G.n) * 360}deg)"></i>`;
     wheel.innerHTML = `<div class="repRotorFace" style="transform:rotate(${G.angle}rad)">${spokes}<b></b></div>`;
+    rotorFaceEl = wheel.children && wheel.children[0] ? wheel.children[0] : null;
     wheel.addEventListener('mousedown', (ev) => beginRotorDrag(ev, wheel));
     const crank = document.createElement('button');
     crank.className = 'repCrank'; crank.innerText = 'CRANK CLOCKWISE';
     crank.disabled = G.phase !== 'spin';
     crank.addEventListener('click', () => repairRotorTurn(A.rotorCrankStepRad));
     machine.appendChild(crank);
+    rotorCrankEl = crank;
 
     const controls = mkEl('repRotorControls', wrap);
-    mkEl('repRpmLabel', controls, `<span>ROTOR SPEED</span><strong>${Math.round(G.rpm * 100)}%</strong>`);
+    rotorRpmEl = mkEl('repRpmLabel', controls, rotorRpmHtml());
     const meter = mkEl('repRpmMeter', controls);
     const green = mkEl('repRpmGreen', meter);
     green.style.left = `${A.rotorGreenMin * 100}%`;
     green.style.width = `${(A.rotorGreenMax - A.rotorGreenMin) * 100}%`;
-    const needle = mkEl('repRpmNeedle', meter);
-    needle.style.left = `${G.rpm * 100}%`;
+    rotorNeedleEl = mkEl('repRpmNeedle', meter);
     const ignition = document.createElement('button');
     ignition.className = 'repIgnition' + (G.ignited ? ' on' : '');
     ignition.innerText = G.ignited ? 'IGNITION LIT' : 'IGNITION';
     ignition.disabled = G.phase !== 'spin';
     ignition.addEventListener('click', repairRotorIgnition);
     controls.appendChild(ignition);
+    rotorIgnEl = ignition;
     const breaker = document.createElement('button');
     breaker.className = 'repMaster' + (G.breaker ? ' on' : '');
     breaker.innerText = G.breaker ? 'MASTER CLOSED' : 'CLOSE MASTER BREAKER';
     breaker.disabled = G.phase !== 'ignited';
     breaker.addEventListener('click', repairMasterBreaker);
     controls.appendChild(breaker);
-    mkEl('repRotorState', controls, G.bad ? `ENGINE STALLED - ${G.stalls}`
-        : G.phase === 'spin' ? 'CRANKING' : G.phase === 'ignited' ? 'COMBUSTION STABLE' : 'GENERATOR COUPLED');
+    rotorStateEl = mkEl('repRotorState', controls, rotorStateText());
+    paintRotor();
+}
+
+// Repaint RINGAN papan rotor (jarum, angka, muka roda, status). Dipakai tiap
+// tick peluruhan dan tiap gerak seret — membangun ulang papan sesering itu
+// akan mencabut elemen yang sedang diseret.
+function paintRotor() {
+    if (!G || G.type !== 'kickstart') return;
+    const armed = rotorInBand() && G.phase === 'spin';
+    if (rotorFaceEl) rotorFaceEl.style.transform = `rotate(${G.angle}rad)`;
+    if (rotorNeedleEl) rotorNeedleEl.style.left = `${Math.max(0, Math.min(1, G.rpm)) * 100}%`;
+    if (rotorRpmEl) rotorRpmEl.innerHTML = rotorRpmHtml();
+    if (rotorStateEl) rotorStateEl.innerText = rotorStateText();
+    if (rotorWrapEl && rotorWrapEl.classList) {
+        rotorWrapEl.classList.toggle('live', armed);
+        rotorWrapEl.classList.toggle('bad', !!G.bad);
+    }
+    if (rotorIgnEl && rotorIgnEl.classList) rotorIgnEl.classList.toggle('armed', armed);
+}
+
+// Loop game sedang PAUSE selama modal terbuka, jadi waktu peluruhan datang dari
+// setInterval sendiri (pola yang sama dengan hitung mundur ICE BREACH).
+// Diekspor supaya smoke bisa memajukannya tanpa menunggu waktu nyata.
+export function repairRotorTick(dt) {
+    if (!open || phase !== 'play' || !G || G.type !== 'kickstart') return false;
+    if (!applyRotorDecay(G, dt)) return false;
+    paintRotor();
+    return true;
+}
+
+function startRotorTick() {
+    stopRotorTick();
+    rotorTimer = setInterval(() => repairRotorTick(ROTOR_TICK_MS / 1000), ROTOR_TICK_MS);
+}
+
+function stopRotorTick() {
+    if (rotorTimer) clearInterval(rotorTimer);
+    rotorTimer = 0;
 }
 
 function beginRotorDrag(ev, wheel) {
@@ -836,9 +951,9 @@ export function repairValveTurn(i, dir = 1) {
     return true;
 }
 
-export function repairFusePick(zone, i) {
-    if (!open || phase !== 'play' || !G || G.type !== 'fuse') return false;
-    const ev = applyFusePick(G, zone, i);
+export function repairBreakerClose(i) {
+    if (!open || phase !== 'play' || !G || G.type !== 'interlock') return false;
+    const ev = applyBreakerClose(G, i);
     if (ev === 'none') return false;
     afterAction(ev);
     return true;
@@ -848,7 +963,7 @@ export function repairRotorTurn(deltaRad) {
     if (!open || phase !== 'play' || !G || G.type !== 'kickstart') return false;
     const ev = applyRotorTurn(G, deltaRad);
     if (ev === 'none') return false;
-    renderBoard();
+    paintRotor();   // repaint ringan: jangan bangun ulang papan tiap gerak seret
     return true;
 }
 
@@ -898,15 +1013,17 @@ function stepSolved() {
 function loadGame(k) {
     gi = k;
     drag = null; dragEl = null; killGhost();   // papan baru: seret yang tertinggal dibuang
-    rotorDrag = null;
+    rotorDrag = null; stopRotorTick();
     wireLinesEl = null;
     const type = parts[k].type;
     const A = CFG.campaign.repair.advanced;
-    const count = type === 'fuse' ? A.fuseCircuits
-        : type === 'kickstart' ? A.rotorSegments : repairCount();
+    // INTERLOCK ikut ukuran papan biasa (repairCount: 3/4/5 per difficulty);
+    // hanya jumlah jeruji roda gila yang punya angka sendiri.
+    const count = type === 'kickstart' ? A.rotorSegments : repairCount();
     G = buildRepairGame(type, count);
     phase = 'play';
     renderBoard();
+    if (type === 'kickstart') startRotorTick();
 }
 
 // Tutup modal, kembalikan scene stage (TANPA enter()), jalankan callback, lalu
@@ -917,11 +1034,14 @@ function finish(result) {
     phase = 'idle';
     if (stepTimer) { clearTimeout(stepTimer); stepTimer = 0; }
     if (badTimer) { clearTimeout(badTimer); badTimer = 0; }
+    stopRotorTick();
     killGhost();
     drag = null; dragEl = null; rotorDrag = null;
     const root = overlayEl();
     if (root) { root.style.display = 'none'; root.innerHTML = ''; }
     boardEl = bannerEl = subEl = stepEl = cbBtn = hintEl = wireLinesEl = null;
+    rotorWrapEl = rotorFaceEl = rotorNeedleEl = rotorRpmEl = rotorStateEl = null;
+    rotorIgnEl = rotorCrankEl = null;
     G = null;
     const c = cb; cb = null;
     if (prevScene) resumeScene(prevScene);

@@ -354,16 +354,16 @@
             "count": { "easy": 3, "normal": 4, "hard": 5 },
             "valveSteps": 6,
             "advanced": {
-                "fuseCircuits": 3,
-                "fuseSafeSpread": 3,
-                "fuseSpareCount": 2,
+                "interlockCrossMin": 1,
+                "interlockCrossMax": 2,
                 "rotorSegments": 12,
                 "rotorRpmPerTurn": 0.5,
                 "rotorReverseLossPerTurn": 0.35,
                 "rotorGreenMin": 0.62,
                 "rotorGreenMax": 0.82,
                 "rotorStallRetain": 0.32,
-                "rotorCrankStepRad": 0.75
+                "rotorCrankStepRad": 1.8,
+                "rotorDecayPerSec": 0.1
             }
         },
         "stage1": {

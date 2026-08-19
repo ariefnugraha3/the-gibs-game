@@ -2393,16 +2393,19 @@ function solveRepairModel(g, viaDrag = false) {
             const need = ((g.target[i] - g.pos[i]) % g.steps + g.steps) % g.steps;
             for (let k = 0; k < need; k++) repMod.applyValveTurn(g, i, 1);
         }
-    } else if (g.type === 'fuse') {
-        for (let ci = 0; ci < g.circuits.length; ci++) {
-            const c = g.circuits[ci];
-            const fi = g.fuses.findIndex(f => f.at < 0 && f.amp === c.targetAmp);
-            repMod.applyFusePick(g, 'fuse', fi);
-            repMod.applyFusePick(g, 'circuit', ci);
+    } else if (g.type === 'interlock') {
+        // Prosedur pemain yang wajar: `order` adalah urutan sah, dan kontrak
+        // papan menjanjikan menutup menurut urutan itu tak pernah kena trip.
+        for (const i of g.order) {
+            if (g.closed[i]) continue;                       // sudah tertutup di langkah uji sebelumnya
+            if (repMod.applyBreakerClose(g, i) !== 'link') return false;
         }
     } else if (g.type === 'kickstart') {
         const A = cfgMod.CFG.campaign.repair.advanced;
-        while (g.rpm < A.rotorGreenMin) repMod.applyRotorTurn(g, A.rotorCrankStepRad);
+        // Crank TEPAT ke tengah green band (bukan langkah tombol) supaya
+        // penyelesai tak ikut rusak saat langkah crank diretune.
+        const mid = (A.rotorGreenMin + A.rotorGreenMax) / 2;
+        if (g.rpm < mid) repMod.applyRotorTurn(g, (mid - g.rpm) / A.rotorRpmPerTurn * Math.PI * 2);
         repMod.applyRotorIgnition(g);
         repMod.applyMasterBreaker(g);
     }
@@ -2426,16 +2429,12 @@ function solveOpenRepairBoard() {
             const need = ((g.target[i] - g.pos[i]) % g.steps + g.steps) % g.steps;
             for (let k = 0; k < need; k++) repMod.repairValveTurn(i, 1);
         }
-    } else if (g.type === 'fuse') {
-        for (let ci = 0; ci < g.circuits.length; ci++) {
-            const c = g.circuits[ci];
-            const fi = g.fuses.findIndex(f => f.at < 0 && f.amp === c.targetAmp);
-            repMod.repairFusePick('fuse', fi);
-            repMod.repairFusePick('circuit', ci);
-        }
+    } else if (g.type === 'interlock') {
+        for (const i of g.order) repMod.repairBreakerClose(i);
     } else if (g.type === 'kickstart') {
         const A = cfgMod.CFG.campaign.repair.advanced;
-        while (g.rpm < A.rotorGreenMin) repMod.repairRotorTurn(A.rotorCrankStepRad);
+        const mid = (A.rotorGreenMin + A.rotorGreenMax) / 2;
+        if (g.rpm < mid) repMod.repairRotorTurn((mid - g.rpm) / A.rotorRpmPerTurn * Math.PI * 2);
         repMod.repairRotorIgnition();
         repMod.repairMasterBreaker();
     }
@@ -2489,35 +2488,103 @@ async function waitRepairClosed() {
         const A = RC.advanced;
         let advancedSolvable = true, advancedStartsWrong = true;
         for (const part of repMod.ADVANCED_REPAIR_PARTS) {
-            const n = part.type === 'fuse' ? A.fuseCircuits : A.rotorSegments;
+            const n = part.type === 'kickstart' ? A.rotorSegments : RC.count.normal;
             for (let k = 0; k < 40; k++) {
                 const g = repMod.buildRepairGame(part.type, n);
                 if (g.n !== n || repMod.repairIsSolved(g)) advancedStartsWrong = false;
                 if (!solveRepairModel(g)) advancedSolvable = false;
             }
         }
-        T('ADVANCED REPAIR: FUSE LOADOUT + ROTOR KICKSTART config-driven dan selalu solvable',
-            repMod.ADVANCED_REPAIR_PARTS.map(p => p.type).join(',') === 'fuse,kickstart'
+        T('ADVANCED REPAIR: START INTERLOCK + ROTOR KICKSTART config-driven dan selalu solvable',
+            repMod.ADVANCED_REPAIR_PARTS.map(p => p.type).join(',') === 'interlock,kickstart'
             && advancedStartsWrong && advancedSolvable);
-        const fuse = repMod.buildRepairGame('fuse', A.fuseCircuits);
-        const wrongCircuit = fuse.circuits[0];
-        const wrongFuse = fuse.fuses.findIndex(f => f.amp !== wrongCircuit.targetAmp);
-        repMod.applyFusePick(fuse, 'fuse', wrongFuse);
-        const wrong = repMod.applyFusePick(fuse, 'circuit', 0);
-        const unsafe = !repMod.repairIsSolved(fuse) && fuse.bad && fuse.bad.i === 0;
-        repMod.applyFusePick(fuse, 'circuit', 0);
-        const pulled = fuse.circuits[0].fuse === -1;
-        solveRepairModel(fuse);
-        T('FUSE LOADOUT: fuse salah menandai load tidak aman, bisa dicabut, lalu target amp menuntaskan panel',
-            wrong === 'reject' && unsafe && pulled && repMod.repairIsSolved(fuse));
+
+        // --- START INTERLOCK ---------------------------------------------
+        // (1) Regresi yang MEMBUNUH papan fuse lama: jawabannya konstan, jadi
+        //     tiga generator sisanya cuma hafalan. Papan ini wajib beragam.
+        const ilkSigs = new Set(), ilkNames = new Set();
+        let ilkForwardOnly = true, ilkNaive = 0, ilkBoards = 0;
+        // Ketiga ukuran papan diuji: EASY (n=3) paling sempit, jadi di sanalah
+        // jaminan "diagram saja tak cukup" paling mudah runtuh.
+        for (let k = 0; k < 200; k++) {
+            const diff = ['easy', 'normal', 'hard'][k % 3];
+            const g = repMod.buildRepairGame('interlock', RC.count[diff]);
+            ilkSigs.add(g.order.map(i => g.names[i]).join('>'));
+            ilkNames.add(g.rows.map(i => g.names[i]).join(','));
+            // (2) Syarat HANYA boleh menunjuk breaker yang lebih awal di `order`
+            //     -> graf mustahil bersiklus -> papan mustahil buntu.
+            const pos = new Array(g.n);
+            g.order.forEach((b, k2) => { pos[b] = k2; });
+            for (let i = 0; i < g.n; i++)
+                for (const j of repMod.interlockReqs(g, i)) if (pos[j] >= pos[i]) ilkForwardOnly = false;
+            // (3) Membaca diagram dari atas ke bawah tak boleh cukup.
+            const closed = new Array(g.n).fill(false);
+            let naive = 0;
+            for (let pass = 0; pass < g.n + 2 && closed.some(v => !v); pass++)
+                for (const i of g.rows) {
+                    if (closed[i]) continue;
+                    if (repMod.interlockReqs(g, i).every(j => closed[j])) closed[i] = true; else naive++;
+                }
+            if (naive > 0) ilkNaive++;
+            ilkBoards++;
+        }
+        // Ambangnya sengaja longgar (setengah sampel): dengan kolam nama terbatas
+        // sebagian tabrakan itu wajar (ulang tahun), sementara regresi yang
+        // diincar — jawaban KONSTAN seperti papan fuse lama — hanya menghasilkan 1.
+        T(`START INTERLOCK: urutan jawaban BERBEDA tiap papan [${ilkSigs.size}/${ilkBoards} unik] (papan fuse lama hanya punya 1)`,
+            ilkSigs.size > ilkBoards * 0.5 && ilkNames.size > 1);
+        T('START INTERLOCK: semua syarat menunjuk breaker yang lebih awal -> mustahil bersiklus/buntu',
+            ilkForwardOnly);
+        T(`START INTERLOCK: mengklik baris dari atas ke bawah selalu kena trip [${ilkNaive}/${ilkBoards}] -> diagram saja tak cukup`,
+            ilkNaive === ilkBoards);
+
+        // (4) Trip TIDAK merusak kemajuan: breaker salah tetap OPEN, lalu
+        //     urutan benar tetap menuntaskan papan yang sama.
+        const ilk = repMod.buildRepairGame('interlock', RC.count.normal);
+        const lastB = ilk.order[ilk.n - 1];
+        const early = repMod.applyBreakerClose(ilk, lastB);
+        const tripped = early === 'reject' && ilk.closed[lastB] === false
+            && !!ilk.trip && ilk.trip.i === lastB && ilk.trip.missing.length > 0;
+        const first = repMod.applyBreakerClose(ilk, ilk.order[0]);
+        const relatch = repMod.applyBreakerClose(ilk, ilk.order[0]);   // sudah tertutup = terkunci
+        solveRepairModel(ilk);
+        T('START INTERLOCK: menutup di luar urutan hanya trip (tak nyangkut), breaker tertutup terkunci, papan tetap tuntas',
+            tripped && first === 'link' && relatch === 'none' && repMod.repairIsSolved(ilk));
+
+        // --- ROTOR KICKSTART ---------------------------------------------
         const rotor = repMod.buildRepairGame('kickstart', A.rotorSegments);
         const badIgnition = repMod.applyRotorIgnition(rotor);
-        while (rotor.rpm < A.rotorGreenMin) repMod.applyRotorTurn(rotor, A.rotorCrankStepRad);
+        const midBand = (A.rotorGreenMin + A.rotorGreenMax) / 2;
+        repMod.applyRotorTurn(rotor, (midBand - rotor.rpm) / A.rotorRpmPerTurn * Math.PI * 2);
         const goodIgnition = repMod.applyRotorIgnition(rotor);
         const master = repMod.applyMasterBreaker(rotor);
         T('ROTOR KICKSTART: ignition di luar band stall; green-band + master breaker menuntaskan mesin',
             badIgnition === 'reject' && rotor.stalls === 1 && goodIgnition === 'link'
             && master === 'link' && repMod.repairIsSolved(rotor));
+
+        // Peluruhan RPM (2026-08-19): green band harus jadi JENDELA WAKTU,
+        // bukan pencacah klik. Tanpa ini player bisa crank santai lalu
+        // menekan ignition kapan pun.
+        const dec = repMod.buildRepairGame('kickstart', A.rotorSegments);
+        repMod.applyRotorTurn(dec, Math.PI * 2);
+        const beforeDecay = dec.rpm;
+        const decayed = repMod.applyRotorDecay(dec, 1);
+        const bleeds = decayed === true
+            && Math.abs((beforeDecay - dec.rpm) - A.rotorDecayPerSec) < 1e-6;
+        repMod.applyRotorTurn(dec, (midBand - dec.rpm) / A.rotorRpmPerTurn * Math.PI * 2);
+        repMod.applyRotorIgnition(dec);
+        const litRpm = dec.rpm;
+        const afterLit = repMod.applyRotorDecay(dec, 1) === false && dec.rpm === litRpm;
+        T('ROTOR KICKSTART: roda gila kehilangan RPM config-driven selagi dicrank, dan berhenti meluruh sesudah menyala',
+            bleeds && afterLit);
+        // Dua invarian tuning: satu klik CRANK tak boleh melompati green band
+        // (jalur tombol harus selalu bisa mendarat), dan jendela ignition harus
+        // masih manusiawi.
+        const stepRpm = A.rotorCrankStepRad / (Math.PI * 2) * A.rotorRpmPerTurn;
+        const windowSec = (A.rotorGreenMax - A.rotorGreenMin) / A.rotorDecayPerSec;
+        T(`ROTOR KICKSTART: satu klik CRANK (${stepRpm.toFixed(3)}) lebih kecil dari lebar band, jendela ignition ${windowSec.toFixed(1)}s`,
+            stepRpm > 0 && stepRpm < (A.rotorGreenMax - A.rotorGreenMin)
+            && windowSec >= 1 && windowSec <= 8);
     }
     // (c) KABEL: hanya pasangan warna yang sama boleh tersambung; klik ulang melepas.
     {
@@ -2677,31 +2744,24 @@ async function waitRepairClosed() {
         smMod.activeScene.shopKey('escape');
         stateMod.setPaused(false);
 
-        // Papan advanced 1: Fuse Loadout memakai klik cepat rack -> circuit,
-        // salah fuse boleh dikoreksi tanpa reset modal.
+        // Papan advanced 1: Start Interlock diklik langsung di barisnya —
+        // urutan salah hanya trip, urutan benar menuntaskan panel.
         dragResult = null;
         repMod.beginRepairMinigame({
-            head: 'FUSE TEST', parts: [repMod.ADVANCED_REPAIR_PARTS[0]],
+            head: 'INTERLOCK TEST', parts: [repMod.ADVANCED_REPAIR_PARTS[0]],
             onSuccess: () => { dragResult = 'ok'; }, onFail: (w) => { dragResult = w; },
         });
-        const fuseG = repMod.repairDebug().game;
-        const circuits = () => find(boardOf(), 'repFuseCircuit');
-        const fuses = () => find(boardOf(), 'repFuse');
-        const wrongFi = fuseG.fuses.findIndex(f => f.amp !== fuseG.circuits[0].targetAmp);
-        fire(fuses()[wrongFi], 'click', ev(0, 0));
-        fire(circuits()[0], 'click', ev(0, 0));
-        const rejectedFuse = repMod.repairDebug().game.bad && repMod.repairDebug().game.bad.i === 0;
-        fire(circuits()[0], 'click', ev(0, 0));
-        for (let ci = 0; ci < repMod.repairDebug().game.circuits.length; ci++) {
-            const fg = repMod.repairDebug().game;
-            const target = fg.circuits[ci].targetAmp;
-            const fi = fg.fuses.findIndex(f => f.at < 0 && f.amp === target);
-            fire(fuses()[fi], 'click', ev(0, 0));
-            fire(circuits()[ci], 'click', ev(0, 0));
-        }
+        const ilkG = repMod.repairDebug().game;
+        // Baris dibangun ulang tiap aksi, jadi elemennya dicari ulang tiap klik.
+        const ilkRowOf = (b) => find(boardOf(), 'repIlkRow')[repMod.repairDebug().game.rows.indexOf(b)];
+        const lastBreaker = ilkG.order[ilkG.n - 1];
+        fire(ilkRowOf(lastBreaker), 'click', ev(0, 0));
+        const ilkTripped = repMod.repairDebug().game.closed[lastBreaker] === false
+            && !!repMod.repairDebug().game.trip;
+        for (const b of ilkG.order) fire(ilkRowOf(b), 'click', ev(0, 0));
         await waitRepairClosed();
-        T('FUSE LOADOUT DOM: rack -> circuit menandai fuse salah, bisa dicabut, lalu panel selesai',
-            rejectedFuse && dragResult === 'ok');
+        T('START INTERLOCK DOM: klik baris di luar urutan hanya trip, lalu urutan benar menyelesaikan panel',
+            ilkTripped && dragResult === 'ok');
         stateMod.setPaused(false);
 
         // Papan advanced 2: satu putaran drag clockwise dibaca sebagai RPM,
@@ -2720,12 +2780,25 @@ async function waitRepairClosed() {
         }
         fireDoc('mouseup', ev(50, 90));
         const dragRpm = repMod.repairDebug().game.rpm;
+        // Jendela ignition itu NYATA: menunggu terlalu lama membuat roda gila
+        // jatuh keluar band dan ignition jadi stall (bukan gagal papan).
+        const waitSec = (RA.rotorGreenMax - RA.rotorGreenMin) / RA.rotorDecayPerSec + 1;
+        repMod.repairRotorTick(waitSec);
+        const droppedOut = repMod.repairDebug().game.rpm < RA.rotorGreenMin;
+        fire(find(boardOf(), 'repIgnition')[0], 'click', ev(0, 0));
+        const stalledLate = repMod.repairDebug().game.ignited === false
+            && repMod.repairDebug().game.stalls === 1;
+        // Crank balik ke tengah band lalu nyalakan tepat waktu.
+        const midB = (RA.rotorGreenMin + RA.rotorGreenMax) / 2;
+        repMod.repairRotorTurn((midB - repMod.repairDebug().game.rpm) / RA.rotorRpmPerTurn * Math.PI * 2);
         fire(find(boardOf(), 'repIgnition')[0], 'click', ev(0, 0));
         const lit = repMod.repairDebug().game.ignited;
         fire(find(boardOf(), 'repMaster')[0], 'click', ev(0, 0));
         await waitRepairClosed();
         T('ROTOR KICKSTART DOM: circular drag -> green ignition -> master menyelesaikan modal',
             dragRpm >= RA.rotorGreenMin && dragRpm <= RA.rotorGreenMax && lit && dragResult === 'ok');
+        T('ROTOR KICKSTART DOM: menunda ignition membuat RPM meluruh keluar band -> stall, lalu crank ulang tetap bisa menyala',
+            droppedOut && stalledLate);
 
         global.document = realDoc;
         T('REPAIR DRAG DOM: modal ditutup bersih setelah seluruh uji gesture', !repMod.isRepairOpen());
@@ -6650,7 +6723,7 @@ s5mod.stage5Scene.updateMode(0.1);
 T('S5 REPAIR C2: generator membuka tepat dua papan advanced dan pause',
     s5mod.stage5Debug().phase === 'repairing' && repMod.isRepairOpen()
     && repMod.repairDebug().total === repMod.ADVANCED_REPAIR_PARTS.length
-    && repMod.repairDebug().type === 'fuse' && stateMod.isPaused);
+    && repMod.repairDebug().type === 'interlock' && stateMod.isPaused);
 solveOpenRepairBoard();
 await waitRepairNext(1);
 smMod.activeScene.shopKey('escape'); stateMod.setPaused(false);
@@ -8150,8 +8223,8 @@ T('S6 KUNCI DITEMUKAN: rak yang benar MELEPAS GEMBOK `=` tanpa membukanya',
 drainS6Dialogue();
 
 s6Put(s6mod.GENERATOR_POINTS[0].stand); s6mod.stage6Scene.updateMode(0.1);
-T('S6 GENERATOR: generator pertama membuka FUSE LOADOUT lalu ROTOR KICKSTART',
-    repMod.isRepairOpen() && repMod.repairDebug().total === 2 && repMod.repairDebug().type === 'fuse');
+T('S6 GENERATOR: generator pertama membuka START INTERLOCK lalu ROTOR KICKSTART',
+    repMod.isRepairOpen() && repMod.repairDebug().total === 2 && repMod.repairDebug().type === 'interlock');
 solveOpenRepairBoard(); await waitRepairNext(1);
 smMod.activeScene.shopKey('escape'); stateMod.setPaused(false);
 T('S6 GENERATOR: abort menyimpan papan pertama dan pemicu harus re-arm dengan menjauh',

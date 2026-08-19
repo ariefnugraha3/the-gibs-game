@@ -197,7 +197,7 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - **Stage 5-6 minigames are a separate interaction set** (2026-08-09): Stage 5 C1
   and the Stage 6 `I` terminal use `signalTraceMinigame.js` (SIGNAL TRACE), never
   ICE BREACH/progress bars. Stage 5 C2 and all three Stage 6 generators run exactly
-  `ADVANCED_REPAIR_PARTS`: FUSE LOADOUT then ROTOR KICKSTART, preserving the completed-board
+  `ADVANCED_REPAIR_PARTS`: START INTERLOCK then ROTOR KICKSTART, preserving the completed-board
   index after abort. Welding heat only rolls back the active seam; a mistimed ignition
   only costs rotor RPM. The Stage 6 HQ upload remains a story cutscene.
 - **Dialogue source contract:** spoken/cinematic text lives in `config/gameplay.json`
