@@ -795,6 +795,9 @@ function updateBoss(dt) {
     updateRoad(dt); updatePickups(dt); updateBossHaulers(dt);
     updateCombatGunship(gunship, dt, {
         playerLane: laneIndex, laneZ: laneWorldZ, roadX: PLAYER_X,
+        // Kecepatan lateral + pemeta lajur: dipakai meriam untuk MEMIMPIN
+        // gerakan player alih-alih mengunci lajur saat telegraph dimulai.
+        playerVZ: steerVel, laneOf: nearestLane,
         bossX: PLAYER_X + 130, bossZ: 0, allowAttack: phase === 'gunshipBattle',
     });
     if (phase === 'gunshipBattle' && gunship.dead) {

@@ -894,6 +894,8 @@
                 "cannonDamage": 50,
                 "cannonBlastRadius": 18,
                 "cannonSpeed": 125,
+                "cannonLeadSec": 0.9,
+                "cannonLeadMaxLanes": 2.5,
                 "missileLockSec": 1,
                 "missileBurst": 3,
                 "missileGapSec": 0.55,

@@ -9946,6 +9946,96 @@ T('S8 GUNSHIP CONFIG: statistik bos duduk di campaign.bosses.gunship (bareng gia
     // Pacing adegan stage tetap di stage8.
     && typeof S8C.gunshipIntroMinSec === 'number'
     && typeof S8C.gunshipDeathDelaySec === 'number');
+// === S8 GUNSHIP: SIKLUS SERANGAN (2026-08-19, permintaan user "lebih menantang
+// tapi tidak terlalu susah"). Dua perubahan diuji di sini, pada rig TERPISAH
+// supaya murah — yang diperiksa cuma PEMILIHAN & PEMBIDIKAN serangannya, bukan
+// seluruh stage. ===
+{
+    const prevGod = stateMod.godMode;
+    stateMod.setGodMode(true);                       // rudal boleh mendarat, HP tak diganggu
+    const LW = 17.5, PLANE = 3;
+    const mkCtx = (vz) => ({
+        playerLane: PLANE, laneZ: (i) => i * LW, roadX: 0,
+        bossX: camera.position.x + 130, bossZ: 0, allowAttack: true,
+        playerVZ: vz, laneOf: (z) => Math.max(0, Math.min(6, Math.round(z / LW))),
+    });
+    camera.position.z = PLANE * LW;
+
+    // --- (1) URUTAN TAK LAGI HAFALAN ---------------------------------------
+    // Dulu `(attackIdx + 1) % 3`: MG, CANNON, MISSILE, selamanya. Sesudah satu
+    // siklus player hafal seluruh duel dan telegraph-nya tak lagi berarti.
+    combatGunshipMod.resetCombatGunship(gunshipRig,
+        { active: true, x: camera.position.x + 130, y: 42, z: 0 });
+    const ctx0 = mkCtx(0);
+    const seq = [];
+    let prevState = '', guard = 0;
+    while (guard++ < 6000 && seq.length < 31) {
+        combatGunshipMod.updateCombatGunship(gunshipRig, 0.1, ctx0);
+        const gd = combatGunshipMod.combatGunshipDebug(gunshipRig);
+        if (gd.attackState === 'telegraph' && prevState !== 'telegraph') seq.push(gd.attackIdx);
+        prevState = gd.attackState;
+    }
+    // Pola LAMA memenuhi seq[i] === (seq[0] + i) % 3 untuk seluruh deret.
+    const fixedRotation = seq.length > 3 && seq.every((v, i) => v === (seq[0] + i) % 3);
+    // Tak pernah dua serangan sejenis berturut-turut (termasuk sambungan kantong).
+    const noRepeat = seq.every((v, i) => i === 0 || v !== seq[i - 1]);
+    // Pembuka duel sengaja MG: serangan paling ringan yang mengajari telegraph.
+    const opensWithMG = seq[0] === 0;
+    // KANTONG: sesudah pembuka, tiap tiga serangan memuat ketiga jenis tepat
+    // sekali — tak ada jenis yang menghilang lama atau datang bertubi-tubi.
+    let bagsOk = true, bags = 0;
+    for (let i = 1; i + 3 <= seq.length; i += 3) {
+        bags++;
+        if (new Set(seq.slice(i, i + 3)).size !== 3) bagsOk = false;
+    }
+    // Dan urutannya benar-benar berubah antar kantong (bukan kantong yang sama
+    // diulang, yang tetap akan lolos ketiga cek di atas).
+    const bagOrders = new Set();
+    for (let i = 1; i + 3 <= seq.length; i += 3) bagOrders.add(seq.slice(i, i + 3).join(''));
+    T(`S8 GUNSHIP URUTAN: serangan diacak per KANTONG, bukan rotasi tetap MG->CANNON->MISSILE [${seq.length} serangan, ${bags} kantong, ${bagOrders.size} pola]`,
+        seq.length >= 31 && !fixedRotation && noRepeat && opensWithMG && bagsOk
+        && bagOrders.size > 1);
+
+    // --- (2) MERIAM MEMIMPIN, MG MENGUNCI ----------------------------------
+    // Inti perubahannya: dulu MG dan meriam sama-sama mengunci lajur di AWAL
+    // telegraph, jadi DUA dari tiga serangan dijawab satu input identik
+    // ("geser keluar lajur itu"). Yang diuji HUBUNGANNYA, bukan angka lajurnya.
+    const armTelegraph = (idx, vz) => {
+        const g = gunshipRig;
+        for (const m of g.missiles) { m.active = false; m.mesh.visible = false; }
+        for (const sh of g.shells) { sh.active = false; sh.mesh.visible = false; }
+        g.attackIdx = idx; g.attackState = 'cooldown'; g.attackT = 0;
+        combatGunshipMod.updateCombatGunship(g, 0.05, mkCtx(vz));
+        return combatGunshipMod.combatGunshipDebug(g);
+    };
+    const maxV = S8C.laneWidth / Math.max(0.05, S8C.laneChangeSec);
+    const still = armTelegraph(1, 0);
+    const right = armTelegraph(1, maxV);
+    const left = armTelegraph(1, -maxV);
+    const mgSliding = armTelegraph(0, maxV);
+    // Jepitan diberi toleransi satu langkah pembulatan lajur.
+    const leadLanes = Math.abs(right.targetLane - PLANE);
+    T(`S8 GUNSHIP MERIAM: menembak ke tempat player AKAN berada, bukan lajur saat ini [diam ${still.targetLane}, geser+ ${right.targetLane}, geser- ${left.targetLane}]`,
+        still.attackState === 'telegraph' && still.targetLane === PLANE
+        && right.targetLane > PLANE && left.targetLane < PLANE
+        && leadLanes >= 1 && leadLanes <= Math.ceil(S8G.cannonLeadMaxLanes)
+        // Simetris kiri/kanan sampai satu langkah pembulatan pusat lajur.
+        && Math.abs(Math.abs(left.targetLane - PLANE) - leadLanes) <= 1);
+    T('S8 GUNSHIP MG: tetap MENGUNCI lajur saat telegraph dimulai — tiga serangan, tiga jawaban berbeda',
+        mgSliding.attackState === 'telegraph' && mgSliding.targetLane === PLANE
+        && right.targetLane !== mgSliding.targetLane);
+    T('S8 GUNSHIP MERIAM: tuning lead ada di config bos, bukan angka tanam',
+        typeof S8G.cannonLeadSec === 'number' && S8G.cannonLeadSec > 0
+        && typeof S8G.cannonLeadMaxLanes === 'number' && S8G.cannonLeadMaxLanes > 0
+        // Lead-nya harus SEDIKIT DI BAWAH waktu terbang shell, supaya prediksinya
+        // selalu meleset ke arah yang menguntungkan player.
+        && S8G.cannonLeadSec < 130 / S8G.cannonSpeed);
+
+    combatGunshipMod.resetCombatGunship(gunshipRig);   // bersihkan peluru/rudal sisa
+    robotsMod.resetRobotsFx();
+    stateMod.setGodMode(prevGod);
+    player.hp = player.maxHp;
+}
 combatGunshipMod.disposeCombatGunship(gunshipRig);
 
 T('S8 OPENING SKIP: skip memberi state highway bersih yang sama tanpa dialog/fade tersisa',
@@ -10724,7 +10814,11 @@ T('S8 BABAK: duel gunship berlangsung di atas persawahan, bukan kembali ke kota'
 // Siklus serangan aktual: median ikut ditarget, MG telegraph, cannon, lalu burst
 // homing yang tidak pernah dapat melebihi tiga proyektil pool.
 tickS8(1.05, 0.05);
-T('S8 GUNSHIP MG: corridor median ikut ditarget dan telegraph muncul sebelum tembakan',
+// Player berdiri DIAM di median, jadi lajur sasaran = lajurnya sendiri untuk
+// ketiga jenis serangan (meriam yang memimpin pun tak punya kecepatan lateral
+// untuk diprediksi). Jenis serangan pembuka tak lagi diandaikan sejak urutannya
+// diacak (2026-08-19).
+T('S8 GUNSHIP: corridor median ikut ditarget dan telegraph muncul sebelum tembakan',
     s8mod.stage8GunshipDebug().attackState === 'telegraph'
     && s8mod.stage8GunshipDebug().targetLane === 3 && s8mod.stage8GunshipDebug().telegraph);
 // ARAH TRACER MG (2026-08-18, laporan user "peluru machine gun malah
@@ -10734,7 +10828,7 @@ T('S8 GUNSHIP MG: corridor median ikut ditarget dan telegraph muncul sebelum tem
 // PANJANG tracer, setelah yaw-nya, harus sejajar dengan ARAH TERBANGNYA.
 {
     let mgGuard = 0, shot = null;
-    while (!shot && mgGuard++ < 400) {
+    while (!shot && mgGuard++ < 900) {
         tickS8(0.05, 0.05);
         shot = enemyBullets.find(b => b.source === 'gunship');
     }
@@ -10775,7 +10869,10 @@ let missilePeak = 0, attackGuard = 0;
 // itu ia sudah bergerak, dan yang diuji justru dari mana ia keluar.
 const misBirth = [], sheBirth = [];
 let misWas = [], sheWas = [];
-while (attackGuard++ < 600 && missilePeak < S8G.missileBurst) {
+// Sejak urutan serangan diacak (2026-08-19), meriam bisa datang SESUDAH rudal —
+// jadi berhenti pada burst rudal saja bisa keluar sebelum satu shell pun lahir.
+// Loop-nya kini menunggu KEDUA-DUANYA teramati.
+while (attackGuard++ < 1200 && (missilePeak < S8G.missileBurst || !sheBirth.length)) {
     tickS8(0.05, 0.05);
     const gd = s8mod.stage8GunshipDebug();
     gd.missiles.forEach((m, i) => {
@@ -10796,6 +10893,11 @@ T('S8 GUNSHIP MISSILE: siklus MG/cannon/missile menghasilkan burst tepat tiga, t
 // standar yang MELINTASI badan rudal harus benar-benar menghancurkannya dalam
 // satu tick permainan nyata.
 {
+    // Urutan serangan acak: burst rudal bisa sudah lewat saat loop di atas
+    // berhenti, jadi tunggu dulu sampai benar-benar ada rudal di udara.
+    let liveGuard = 0;
+    while (liveGuard++ < 900 && !s8mod.stage8GunshipDebug().missiles.some(m => m.active))
+        tickS8(0.05, 0.05);
     const live = s8mod.stage8GunshipDebug().missiles.findIndex(m => m.active);
     const m0 = live >= 0 ? s8mod.stage8GunshipDebug().missiles[live] : null;
     const hits0 = stateMod.stats.hits;

@@ -335,7 +335,8 @@ export function createCombatGunship(scale = 4.8) {
     const gunship = {
         parts, missiles, shells, telegraph: makeTelegraph(), active: false,
         hp: 0, maxHp: 0, score: 0, dead: false, deathDone: false, deathT: 0, deathBlast: false,
-        attackIdx: 0, attackState: 'cooldown', attackT: 0, targetLane: 0,
+        attackIdx: 0, attackBag: [], lastAttack: -1,
+        attackState: 'cooldown', attackT: 0, targetLane: 0,
         mgLeft: 0, mgT: 0, missileLeft: 0, missileT: 0, hoverT: 0, hitT: 0,
         gatSpin: 0,
     };
@@ -350,7 +351,11 @@ export function resetCombatGunship(gunship, opts = {}) {
     gunship.hp = B.hp; gunship.maxHp = B.hp; gunship.score = B.score;
     gunship.active = !!opts.active;
     gunship.dead = false; gunship.deathDone = false; gunship.deathT = 0; gunship.deathBlast = false;
-    gunship.attackIdx = 0; gunship.attackState = 'cooldown'; gunship.attackT = opts.holdSec || 1;
+    // Pembuka duel SENGAJA selalu MG (idx 0): serangan paling ringan mengajari
+    // player membaca telegraph sebelum meriam/rudal ikut masuk. `lastAttack`
+    // disetel ke pembuka itu supaya kantong acak pertama tak mengulanginya.
+    gunship.attackIdx = 0; gunship.attackBag = []; gunship.lastAttack = 0;
+    gunship.attackState = 'cooldown'; gunship.attackT = opts.holdSec || 1;
     gunship.targetLane = 0; gunship.mgLeft = 0; gunship.mgT = 0;
     gunship.missileLeft = 0; gunship.missileT = 0; gunship.hoverT = 0; gunship.hitT = 0;
     gunship.gatSpin = 0;
@@ -392,9 +397,29 @@ function laneZ(ctx, lane) {
     return ctx.laneZ ? ctx.laneZ(lane) : camera.position.z;
 }
 
+// MERIAM MEMIMPIN GERAK LATERAL PLAYER (2026-08-19). MG mengunci lajur di AWAL
+// telegraph, jadi jawabannya "geser keluar lajur itu" — dan dulu meriam memakai
+// penguncian yang sama, sehingga DUA dari tiga serangan diselesaikan satu input
+// yang identik. Sekarang meriam menembak ke tempat player AKAN berada:
+//   diam meluncur  -> mendarat di DEPANmu   -> jawabannya BERHENTI / membalik
+//   berdiri diam   -> mendarat di lajurmu   -> jawabannya BERGERAK
+// Titik hantamnya tetap disnap ke PUSAT LAJUR (invarian Stage 8: proyektil
+// commit ke pusat lajur supaya telegraph tetap terbaca), dan lebar lajurnya
+// diturunkan dari `ctx.laneZ` sendiri supaya modul bos ini tak perlu tahu
+// config stage mana pun. Pemanggil lama yang tak mengirim `playerVZ`/`laneOf`
+// tetap mendapat perilaku kunci-lajur yang lama.
+function cannonTargetLane(g, ctx) {
+    const C = CFG.campaign.bosses.gunship;
+    if (!ctx.laneOf || ctx.playerVZ == null) return ctx.playerLane;
+    const w = Math.abs(laneZ(ctx, 1) - laneZ(ctx, 0)) || 1;
+    const maxLead = w * C.cannonLeadMaxLanes;
+    const lead = clamp(ctx.playerVZ * C.cannonLeadSec, -maxLead, maxLead);
+    return ctx.laneOf(camera.position.z + lead);
+}
+
 function startTelegraph(g, ctx) {
     const C = CFG.campaign.bosses.gunship;
-    g.targetLane = ctx.playerLane;
+    g.targetLane = g.attackIdx === 1 ? cannonTargetLane(g, ctx) : ctx.playerLane;
     g.attackState = 'telegraph';
     g.attackT = g.attackIdx === 0 ? C.mgTelegraphSec
         : g.attackIdx === 1 ? C.cannonTelegraphSec : C.missileLockSec;
@@ -403,10 +428,37 @@ function startTelegraph(g, ctx) {
     g.telegraph.material.opacity = 0.22;
 }
 
+// URUTAN SERANGAN DIACAK (2026-08-19, permintaan user "lebih menantang tapi
+// tidak terlalu susah"). Dulu `(attackIdx + 1) % 3` — MG, CANNON, MISSILE,
+// selamanya — sehingga sesudah satu siklus (~15 dtk) player HAFAL seluruh duel
+// dan telegraph-nya tak lagi berarti: ia sudah tahu apa yang datang.
+//
+// Yang dipakai KANTONG ACAK, bukan acak murni. Acak murni bisa memberi rudal
+// tiga kali beruntun (tak adil) atau menghilangkan meriam belasan detik
+// (membosankan); kantong menjamin tiap TIGA serangan memuat ketiga jenis tepat
+// sekali, sementara urutan di dalam tiga itu tak bisa ditebak. Sambungan antar
+// kantong ditukar bila jenisnya sama dengan yang barusan, jadi tak pernah ada
+// dua serangan sejenis berturut-turut.
+function nextAttack(g) {
+    if (!g.attackBag.length) {
+        g.attackBag = [0, 1, 2];
+        for (let i = g.attackBag.length - 1; i > 0; i--) {
+            const j = (Math.random() * (i + 1)) | 0;
+            [g.attackBag[i], g.attackBag[j]] = [g.attackBag[j], g.attackBag[i]];
+        }
+        // `pop()` mengambil dari EKOR, jadi ekor itulah yang dibandingkan.
+        const tail = g.attackBag.length - 1;
+        if (g.attackBag[tail] === g.lastAttack)
+            [g.attackBag[tail], g.attackBag[0]] = [g.attackBag[0], g.attackBag[tail]];
+    }
+    g.attackIdx = g.attackBag.pop();
+    g.lastAttack = g.attackIdx;
+}
+
 function endAttack(g) {
     const C = CFG.campaign.bosses.gunship;
     const enraged = g.hp <= g.maxHp * C.enrageHpFrac;
-    g.attackIdx = (g.attackIdx + 1) % 3;
+    nextAttack(g);
     g.attackState = 'cooldown';
     g.attackT = C.attackGapSec * (enraged ? C.enrageGapMul : 1);
     g.telegraph.visible = false; g.telegraph.material.opacity = 0;
@@ -493,6 +545,14 @@ function updateAttacks(g, dt, ctx) {
     }
     if (g.attackState === 'telegraph') {
         g.attackT -= dt;
+        // Penanda MERIAM terus mengejar prediksi sampai detik tembak — geseran
+        // penanda itulah isyarat "ia memimpin gerakmu", dan ia mengunci tepat
+        // saat menembak. MG tetap terkunci sejak awal telegraph (koridornya
+        // memang janji yang tak boleh berpindah).
+        if (g.attackIdx === 1) {
+            g.targetLane = cannonTargetLane(g, ctx);
+            g.telegraph.position.z = laneZ(ctx, g.targetLane);
+        }
         g.telegraph.material.opacity = 0.16 + Math.sin(g.hoverT * 18) * 0.08;
         if (g.attackT > 0) return;
         g.telegraph.visible = false;
@@ -727,6 +787,7 @@ export function combatGunshipDebug(g) {
         score: g?.score || 0,
         dead: !!g?.dead, deathDone: !!g?.deathDone, deathT: g?.deathT || 0,
         attackIdx: g?.attackIdx ?? -1, attackState: g?.attackState || 'none',
+        attackBag: g?.attackBag ? [...g.attackBag] : [], lastAttack: g?.lastAttack ?? -1,
         targetLane: g?.targetLane ?? null, mgLeft: g?.mgLeft || 0,
         missileLeft: g?.missileLeft || 0,
         missilesActive: g?.missiles?.filter(m => m.active).length || 0,

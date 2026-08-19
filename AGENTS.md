@@ -897,7 +897,11 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   carriers each mount exactly three ordinary A/B robots and keep spawning until the
   config-driven target of 20 carriers is destroyed. Only then does the standalone
   `combatGunship.js` boss (tuning in `CFG.campaign.bosses.gunship` since 2026-08-09 — a boss belongs beside `giant`/`tank`, and it has its own `hp`/`score` there instead of live-reading tank HP; only its scene pacing stays in `stage8`) arrive and cycle telegraphed
-  MG/cannon/three homing missiles. Its shape was totally reworked 2026-08-08 (user request):
+  MG/cannon/three homing missiles. **The order is a SHUFFLE BAG, not a fixed rotation, and the
+  cannon LEADS the player's lateral movement while the MG locks its lane at telegraph start
+  (2026-08-19, user request "lebih menantang tapi tidak terlalu susah")** — each type appears
+  exactly once per three attacks, never twice in a row, the opener stays MG, and no damage/HP/
+  speed number changed. Its shape was totally reworked 2026-08-08 (user request):
   faceted hull, gimballed chin turret with a four-barrel gatling, anhedral stub wings with
   missile pods, twin nacelles, a SHROUDED five-blade rotor and a twin-boom tail with a
   fenestron; the nose faces -X so the boss looks at the player. The static hull is welded
