@@ -18,7 +18,7 @@ import { releaseInputs } from '../../../../core/input.js';
 import { clearMoveTarget } from '../../../../entities/player.js';
 import {
     avatarGroup, setAvatarVehiclePose, setAvatarRadioPose,
-    avatarVehicleDebug,
+    avatarVehicleDebug, setAvatarCarried, setAvatarVehicleLean, setAvatarVehicleLeanCage,
 } from '../../../../entities/playerAvatar.js';
 import { disposeRobot } from '../../../../entities/robots.js';
 import { spawnCampaignRobot, countStageRobots } from '../../utility/common.js';
@@ -31,7 +31,7 @@ import { applyLightPreset, registerStageLight } from '../../../../world/lighting
 import { enterCityEnv } from '../../utility/cityscape.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
-import { rand, clamp, smooth01 } from '../../../../utils/math.js';
+import { rand, clamp } from '../../../../utils/math.js';
 import { spawnAmmoDrop, spawnLoot } from '../../../../entities/drops.js';
 import { currentWeapon } from '../../../../entities/weapons.js';
 import {
@@ -84,15 +84,20 @@ export const STAGE8_DIALOGUE = dialogueMap('campaign.stage8.lines');
 
 let built = false, worldRoot = null, roadRoot = null, airportRoot = null;
 let tacticalVehicle = null, gunship = null, staticBatch = [], scenery = null;
-let barrelRig = null, haulersSpawned = 0, haulerShown = false, bossHaulerT = 0;
+let barrelRig = null, haulersSpawned = 0, bossHaulerT = 0;
 const roadModules = [], pickupPool = [], dustPool = [], stageLights = [];
 let roadWraps = 0, dustCursor = 0;
 
 let phase = 'opening', complete = false, stageElapsed = 0;
 let groundSpawnT = 0, bossApproachT = 0;
 let pickupsSpawned = 0, pickupsDestroyed = 0, firstPickupShown = false;
-let laneIndex = 1, laneFrom = 1, laneTo = 1, laneT = 1, laneBuffer = 0;
-let aHeld = false, dHeld = false, currentZ = S8_START.z;
+// KEMUDI BEBAS, BUKAN SNAP ANTAR LAJUR (2026-08-19, permintaan user "coba buat
+// agar mobil player tidak snap ke kiri dan ke kanan dong. coba bikin lebih
+// fleksibel"). `currentZ` kini SUMBER KEBENARAN — posisi lateral yang menerus —
+// dan `laneIndex` hanyalah pembacaan lajur TERDEKAT darinya. Itulah yang membuat
+// perubahan ini murah: seluruh sistem yang bertanya "player di lajur mana"
+// (telegraph bos, kejaran truk barel) tetap berjalan apa adanya.
+let laneIndex = 1, currentZ = S8_START.z, steerVel = 0;
 let deathDelayT = 0, cine = null, vehicleLoop = null, rotorLoop = null;
 const cineCam = new THREE.Vector3().copy(CAM_OFF_DEFAULT);
 // Gameplay Stage 8 membutuhkan pandangan lebar untuk membaca carrier dari
@@ -409,39 +414,78 @@ function syncVehicle(dt = 0) {
     // Gunner anchor lokal x=-0,62 m; scaleX sudah memuat normalisasi panjang,
     // jadi body tetap tepat di bawah pivot setelah dimensi GRD berubah.
     tacticalVehicle.group.position.set(PLAYER_X + 0.62 * tacticalVehicle.scaleX, 0, currentZ);
-    tacticalVehicle.group.rotation.y = 0;
+    // Moncong ikut mengarah ke tujuan kemudi. Objek menghadap +x, dan Ry positif
+    // memutar hidungnya ke -z, jadi tandanya dibalik. Murni visual, tetapi
+    // inilah yang membuat kemudi bebas terbaca sebagai menyetir.
+    const maxV = CFG.campaign.stage8.laneWidth
+        / Math.max(0.05, CFG.campaign.stage8.laneChangeSec);
+    const bodyYaw = -clamp(steerVel / maxV, -1, 1) * 0.16;
+    tacticalVehicle.group.rotation.y = bodyYaw;
+    // BAN DEPAN IKUT BERBELOK (2026-08-19, permintaan user). Sudutnya bukan
+    // angka rasa: kendaraan melaju ke depan pada `roadSpeed` sambil bergeser
+    // menyamping pada `steerVel`, jadi arah jalannya yang sebenarnya adalah
+    // `atan2(lateral, maju)` — dan itulah ke mana ban depan harus menunjuk.
+    // Yaw badan dikurangkan karena rodanya anak dari grup yang SUDAH ter-yaw;
+    // tanpa itu setirnya terhitung dua kali. Tanda negatif: objek menghadap +x,
+    // dan Ry positif memutar hidungnya ke -z.
+    const travelYaw = -Math.atan2(steerVel, Math.max(1, roadSpeed()));
     updateTacticalVehicleVisual(tacticalVehicle, dt, {
         doorOpen: 0, hatchOpen: phase === 'arrival' || phase === 'complete' ? 0 : 1,
         engineOn: !complete, speed: roadSpeed(),
+        steer: travelYaw - bodyYaw,
     });
 }
 
-function requestLane(dir) {
-    if (!dir) return false;
-    if (laneT < 1) { laneBuffer = dir; return false; }
-    const next = clamp(laneIndex + dir, 0, S8_LANES.length - 1);
-    if (next === laneIndex) return false;
-    laneFrom = laneIndex; laneTo = next; laneT = 0;
-    if (laneFrom === 3 || laneTo === 3) { spawnDust(PLAYER_X - 8, currentZ, true); addCamShake(0.8); }
-    return true;
+// Lajur TERDEKAT dari posisi lateral menerus: satu-satunya cara `laneIndex`
+// diperbarui sekarang.
+function nearestLane(z) {
+    const w = CFG.campaign.stage8.laneWidth;
+    return clamp(Math.round((z - OZ) / w) + 3, 0, LANE_MULTIPLIERS.length - 1);
+}
+// Pita median (rumput/tanah) — dipakai untuk perlambatan dan debu, bukan lagi
+// untuk memilih durasi perpindahan slot.
+function onMedianBand(z) {
+    return Math.abs(z - laneWorldZ(3)) < CFG.campaign.stage8.laneWidth * 0.5;
 }
 function updateLaneControl(dt) {
-    const pressA = !!keys.a && !aHeld, pressD = !!keys.d && !dHeld;
-    aHeld = !!keys.a; dHeld = !!keys.d;
-    if (pressA !== pressD) requestLane(pressA ? -1 : 1);
-    if (laneT < 1) {
-        const C = CFG.campaign.stage8;
-        const dur = (laneFrom === 3 || laneTo === 3) ? C.medianChangeSec : C.laneChangeSec;
-        laneT = Math.min(1, laneT + dt / Math.max(0.05, dur));
-        const k = smooth01(laneT);
-        currentZ = laneWorldZ(laneFrom) + (laneWorldZ(laneTo) - laneWorldZ(laneFrom)) * k;
-        if ((laneFrom === 3 || laneTo === 3) && Math.random() < dt * 18)
-            spawnDust(PLAYER_X - 10, currentZ, false);
-        if (laneT >= 1) {
-            laneIndex = laneTo; currentZ = laneWorldZ(laneIndex);
-            if (laneBuffer) { const q = laneBuffer; laneBuffer = 0; requestLane(q); }
-        }
-    } else currentZ = laneWorldZ(laneIndex);
+    const C = CFG.campaign.stage8;
+    // A/D DITAHAN, bukan tepi tombol: kendaraan menyetir selama tombolnya
+    // ditekan dan berhenti di mana pun ia dilepas.
+    const dir = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
+    // Laju menyamping maksimum diturunkan dari `laneChangeSec` yang sudah ada,
+    // jadi satu lajur tetap memakan waktu yang sama seperti sebelum kemudi ini
+    // ada — yang berubah rasanya, bukan kecepatannya.
+    const maxV = C.laneWidth / Math.max(0.05, C.laneChangeSec);
+    const wasMedian = onMedianBand(currentZ);
+    // Rumput median memperlambat, memakai perbandingan `medianChangeSec` yang
+    // sudah ada supaya angka itu tetap berarti setelah snap-nya hilang.
+    const cap = maxV * (wasMedian
+        ? Math.max(0.05, C.laneChangeSec) / Math.max(0.05, C.medianChangeSec) : 1);
+    // Percepatan/redaman: INILAH yang membuatnya terasa analog. Dilepas pun ia
+    // masih meluncur sebentar, bukan berhenti mendadak di garis lajur.
+    const ease = Math.min(1, dt / Math.max(0.02, C.steerEaseSec ?? 0.18));
+    const prevVel = steerVel;
+    steerVel += (dir * cap - steerVel) * ease;
+    if (!dir && Math.abs(steerVel) < 0.4) steerVel = 0;
+    const lo = laneWorldZ(0), hi = laneWorldZ(LANE_MULTIPLIERS.length - 1);
+    const next = clamp(currentZ + steerVel * dt, lo, hi);
+    if (next <= lo || next >= hi) steerVel = 0;   // menekan pagar tepi jalan
+    // HEMPASAN INERSIA (2026-08-19, permintaan user "ketika berbelok, major
+    // gibran tidak menampilkan animasi jalan. tampilkan animasi seperti
+    // terhempas. tau kan? aksi reaksi newton"). Yang dikirim adalah PERCEPATAN
+    // menyampingnya, dinormalisasi terhadap percepatan puncak yang mungkin
+    // (laju puncak dicapai dalam `steerEaseSec`) — bukan kecepatannya, karena
+    // yang melempar tubuh memang perubahan kecepatan. Rig avatar yang membalik
+    // tandanya.
+    const peakAccel = maxV / Math.max(0.02, C.steerEaseSec ?? 0.18);
+    const accel = dt > 0 ? (steerVel - prevVel) / dt : 0;
+    setAvatarVehicleLean(clamp(accel / peakAccel, -1, 1));
+    currentZ = next;
+    laneIndex = nearestLane(currentZ);
+    const nowMedian = onMedianBand(currentZ);
+    if (nowMedian !== wasMedian) { spawnDust(PLAYER_X - 8, currentZ, true); addCamShake(0.8); }
+    else if (nowMedian && Math.abs(steerVel) > 1 && Math.random() < dt * 18)
+        spawnDust(PLAYER_X - 10, currentZ, false);
     camera.position.set(PLAYER_X, CFG.player.eyeHeight, currentZ);
     player.vy = 0; player.onGround = true; syncVehicle(dt);
 }
@@ -560,14 +604,16 @@ function updateGroundSpawner(dt) {
         if (pickupsSpawned % every === 0) spawnHauler();
     }
 }
+// TANPA PENGUMUMAN KEDATANGAN (2026-08-19, permintaan user "hilangkan prompt
+// info kedatangan mobil barel, player gak sebodoh itu"). Dulu pengangkut
+// pertama memicu dua baris radio + satu pesan tutorial yang mengeja mekaniknya.
+// Semuanya dibuang: truknya sudah menelegraphkan dirinya sendiri — ia masuk dari
+// depan, meluncur ke lajur player, dan membuka pintu belakangnya sebelum barel
+// pertama keluar. Menjelaskan tiga isyarat yang sudah terlihat itu meremehkan
+// pemainnya.
 function spawnHauler(opts) {
     if (!spawnBarrelDropper(barrelRig, barrelCtx(0), opts)) return false;
     haulersSpawned++;
-    if (!haulerShown) {
-        haulerShown = true;
-        queueDialogue('haulerSystem'); queueDialogue('haulerGibran');
-        showStageMsg('BARREL HAULER — IT DROPS INTO YOUR LANE, CHANGE LANE OR SHOOT THE DRUMS', 5200);
-    }
     return true;
 }
 
@@ -624,7 +670,7 @@ function startArrival() {
 function swapToAirport() {
     if (cine?.swapped) return;
     cine.swapped = true; roadRoot.visible = false; airportRoot.visible = true;
-    currentZ = 0; laneIndex = laneFrom = laneTo = 3; laneT = 1;
+    currentZ = 0; laneIndex = nearestLane(0); steerVel = 0;
     camera.position.set(AIRPORT_X - 210, CFG.player.eyeHeight, 0);
     tacticalVehicle.group.position.set(camera.position.x + 0.62 * tacticalVehicle.scaleX, 0, 0);
     setAvatarVehiclePose(true, tacticalVehicle.gunnerPoseHeight);
@@ -643,7 +689,7 @@ function finishStage() {
     roadRoot.visible = false; airportRoot.visible = true;
     stopVehicleLoop(); stopRotorLoop(); stopMusic();
     resetCombatGunship(gunship, { active: false });
-    cleanupCine(0); setAvatarVehiclePose(false);
+    cleanupCine(0); setAvatarVehiclePose(false); setAvatarCarried(false);
     if (avatarGroup) avatarGroup.visible = true;
     camera.position.set(AIRPORT_X + 105, CFG.player.eyeHeight, 14);
     beginStageTransition(stage9Scene);
@@ -797,21 +843,31 @@ function resetStage() {
     groundSpawnT = CFG.campaign.stage8.groundStartDelaySec; bossApproachT = 0;
     pickupsSpawned = 0; pickupsDestroyed = 0;
     firstPickupShown = false; deathDelayT = 0;
-    laneIndex = laneFrom = laneTo = 1; laneT = 1; laneBuffer = 0;
-    aHeld = dHeld = false; currentZ = laneWorldZ(1); roadWraps = 0; dustCursor = 0;
+    laneIndex = 1; steerVel = 0;
+    currentZ = laneWorldZ(1); roadWraps = 0; dustCursor = 0;
     resetDialogue(); stopVehicleLoop(); stopRotorLoop(); stopMusic();
     if (cine) cleanupCine(0);
     roadRoot.visible = true; airportRoot.visible = false;
     for (let i = 0; i < roadModules.length; i++)
         roadModules[i].position.x = OX + (i - (ROAD_MODULES - 1) / 2) * MODULE_LEN;
     resetStage8Scenery(scenery); resetBarrelDroppers(barrelRig);
-    haulersSpawned = 0; haulerShown = false; bossHaulerT = 0;
+    haulersSpawned = 0; bossHaulerT = 0;
     for (const p of pickupPool) resetEnemyPickupVisual(p);
     for (const d of dustPool) d.visible = false;
     resetCombatGunship(gunship, { active: false });
     resetTacticalVehicleVisual(tacticalVehicle); tacticalVehicle.group.visible = true;
     if (avatarGroup) avatarGroup.visible = true;
     setAvatarVehiclePose(true, tacticalVehicle.gunnerPoseHeight); setAvatarRadioPose(false);
+    // PIVOTNYA DIBAWA KENDARAAN, BUKAN BERJALAN (pola yang sama dengan gerbong
+    // Stage 5): gait avatar diturunkan dari perpindahan pivot, dan sejak kemudi
+    // bebas ada, pivot itu bergeser menyamping tiap kali menyetir — tanpa ini
+    // Major Gibran terlihat BERJALAN ke samping setiap kali membanting setir.
+    setAvatarCarried(true); setAvatarVehicleLean(0);
+    // Batas hempasan = bukaan hatch tempat ia berdiri, diambil dari rig
+    // kendaraannya sendiri (2026-08-19, permintaan user "agar major gibran masih
+    // tetap berada di area lubang di atas mobil") — bukan angka yang dikarang di
+    // sini, jadi mengubah bentuk hatch ikut mengubah batasnya.
+    setAvatarVehicleLeanCage(tacticalVehicle.hatchHalfZ);
     setCineBars(false); setCineFade(0, 0); syncVehicle(0);
 }
 
@@ -852,7 +908,10 @@ export const stage8RoadDebug = () => ({
     roadSpan: ROAD_SPAN, pickupEntryInset: CFG.campaign.stage8.pickupEntryInset,
     moduleCount: roadModules.length, modulePositions: roadModules.map(g => g.position.x),
     roadVisible: !!roadRoot?.visible, airportVisible: !!airportRoot?.visible,
-    laneIndex, laneFrom, laneTo, laneT, laneBuffer, currentZ,
+    laneIndex, currentZ, steerVel, onMedian: onMedianBand(currentZ),
+    steerMaxV: CFG.campaign.stage8.laneWidth
+        / Math.max(0.05, CFG.campaign.stage8.laneChangeSec),
+    vehicleYaw: tacticalVehicle ? tacticalVehicle.group.rotation.y : 0,
 });
 export const stage8SceneryStateDebug = () => ({
     ...stage8SceneryDebug(scenery), targetAct: sceneryTargetAct(),
@@ -864,7 +923,7 @@ export const stage8SceneryActDebug = () => ({
 });
 export const stage8HaulerDebug = () => ({
     ...barrelDropperDebug(barrelRig), spawned: haulersSpawned,
-    shown: haulerShown, dimensionsMeters: { ...BARREL_DROPPER_DIMENSIONS },
+    dimensionsMeters: { ...BARREL_DROPPER_DIMENSIONS },
 });
 // Kait debug pengangkut barel: pola yang sama dengan `stage8DamageGunshipForDebug`
 // — smoke menguji KONTRAK-nya tanpa harus merakit peluru palsu.
@@ -926,6 +985,7 @@ export const stage8Scene = {
         resetDialogue(); if (cine) cleanupCine(0);
         stopVehicleLoop(); stopRotorLoop(); stopMusic();
         setAvatarVehiclePose(false); setAvatarRadioPose(false);
+        setAvatarCarried(false); setAvatarVehicleLean(0); setAvatarVehicleLeanCage(0);
         if (avatarGroup) avatarGroup.visible = true;
         for (const p of pickupPool) resetEnemyPickupVisual(p);
         clearBarrelDroppers(barrelRig);

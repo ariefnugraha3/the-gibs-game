@@ -72,6 +72,48 @@ let missionCase = null, missionCaseIndicator = null, missionCaseKind = '';
 let carriedPose = false;
 export function setAvatarCarried(on) { carriedPose = !!on; }
 export const avatarCarriedDebug = () => carriedPose;
+
+// TERHEMPAS SAAT KENDARAAN MENGELAK (2026-08-19, permintaan user "ketika
+// berbelok, major gibran tidak menampilkan animasi jalan. tampilkan animasi
+// seperti terhempas. tau kan? aksi reaksi newton").
+//
+// Nilai yang masuk adalah PERCEPATAN menyamping kendaraan, sudah dinormalisasi
+// ke -1..1. Rig-lah yang membalik tandanya, karena hukum ketiga Newton adalah
+// alasan gerakan ini ada: yang melempar tubuh bukan kecepatan kendaraan
+// melainkan PERUBAHANNYA, dan tubuh terlempar ke arah BERLAWANAN. Karena itu
+// menahan kemudi pada laju tetap tidak membuatnya miring terus — ia terhempas
+// saat mulai membanting setir dan terhempas balik saat berhenti.
+//
+// Pegasnya sengaja SEDIKIT MELAMPAUI lalu kembali: itulah yang membuatnya
+// terbaca sebagai hentakan, bukan kemiringan statis.
+// Amplitudonya DIKECILKAN 2026-08-19 atas laporan user "terhempasnya terlalu
+// berlebihan ... agar major gibran masih tetap berada di area lubang di atas
+// mobil": ini sentakan tubuh orang yang berpegangan, bukan terlempar dari
+// kendaraan. Yang menjaganya bukan hanya angka kecil ini melainkan `leanCage` —
+// batas KERAS yang dikirim scene dari lebar bukaan hatch tempat ia berdiri, jadi
+// pergeserannya tak pernah bisa membawanya keluar dari lubang itu berapa pun
+// nilai konstanta di sini.
+let vehicleLeanTarget = 0, vehicleLean = 0, vehicleLeanVel = 0, leanCage = 0;
+const LEAN_TILT = 0.15;    // radian pada puncak hempasan (dulu 0,42)
+const LEAN_SHIFT = 0.9;    // unit; tubuhnya ikut tergeser sedikit (dulu 2,6)
+const LEAN_CAGE_FRAC = 0.45;   // bagian dari setengah-lebar lubang yang boleh dipakai
+const LEAN_K = 150, LEAN_DAMP = 15;
+export function setAvatarVehicleLean(accel) {
+    vehicleLeanTarget = Math.max(-1, Math.min(1, Number(accel) || 0));
+}
+// Setengah lebar bukaan tempat avatar berdiri (0 = tanpa batas). Pergeseran
+// hempasan dijepit ke sebagian darinya, jadi kaki penembak tetap di dalam lubang.
+export function setAvatarVehicleLeanCage(halfWidth) {
+    leanCage = Math.max(0, Number(halfWidth) || 0);
+}
+function leanShiftMax() {
+    return leanCage > 0 ? Math.min(LEAN_SHIFT, leanCage * LEAN_CAGE_FRAC) : LEAN_SHIFT;
+}
+export const avatarVehicleLeanDebug = () => ({
+    target: vehicleLeanTarget, lean: vehicleLean, vel: vehicleLeanVel,
+    tilt: -vehicleLean * LEAN_TILT, shift: -vehicleLean * leanShiftMax(),
+    cage: leanCage, shiftMax: leanShiftMax(),
+});
 let radioPoseDbg = {
     active: false, yaw: 0, gesture: '', progress: 0, t: 0,
     leftY: 0, rightY: 0, gunPitch: 0, torsoPitch: 0, headYaw: 0, bodyY: 0,
@@ -1185,6 +1227,7 @@ export function resetAvatarDeath() {
     rappelActive = false;   // batalkan pose rappel intro juga
     radioPoseActive = false;
     vehiclePoseActive = false; vehiclePoseHeight = 0; carriedPose = false;
+    vehicleLeanTarget = 0; vehicleLean = 0; vehicleLeanVel = 0; leanCage = 0;
     setAvatarMissionCase(false);
     if (hipL) hipL.visible = true;
     if (hipR) hipR.visible = true;
@@ -1499,7 +1542,11 @@ export function updatePlayerAvatar(dt) {
         if (s === 'chasing' || s === 'jumping') { anyThreat = true; break; }
     }
     const afkBlocked = !aimPoint || isPaused || moving || inMelee || dodgeActive || medkitMode
-        || gunRecoil > 0.05 || switchAnim >= 0 || aimMoved || anyThreat;
+        || gunRecoil > 0.05 || switchAnim >= 0 || aimMoved || anyThreat
+        // Mengawaki kendaraan BUKAN diam menganggur: `carriedPose` menahan gait
+        // di nol selama perjalanan, jadi tanpa baris ini penembak yang kursornya
+        // diam akan melambai lalu berbaring di atas roof hatch.
+        || vehiclePoseActive;
     if (afkBlocked) afkT = 0; else afkT += dt;
 
     let mode = 'none';
@@ -2061,5 +2108,22 @@ export function updatePlayerAvatar(dt) {
         const k = 1 + Math.sin(markerT * 6) * 0.18;
         marker.scale.setScalar(3.2 * k);
         marker.material.opacity = 0.55 + Math.sin(markerT * 6) * 0.25;
+    }
+
+    // HEMPASAN INERSIA — paling akhir, supaya ia menumpang DI ATAS pose apa pun
+    // yang dipilih di atas (idle, menembak, sekarat) alih-alih ditimpa olehnya.
+    // Sumbu putarnya sengaja `rotation.x`: Euler XYZ menempatkan Rx paling luar,
+    // jadi miringnya tetap terhadap sumbu DUNIA (arah jalan) berapa pun arah
+    // hadap avatar terhadap kursor.
+    if (vehiclePoseActive) {
+        vehicleLeanVel += ((vehicleLeanTarget - vehicleLean) * LEAN_K
+            - vehicleLeanVel * LEAN_DAMP) * dt;
+        vehicleLean += vehicleLeanVel * dt;
+        // Tubuh terlempar BERLAWANAN dengan percepatan kendaraan.
+        avatarGroup.rotation.x = -vehicleLean * LEAN_TILT;
+        avatarGroup.position.z -= vehicleLean * leanShiftMax();
+    } else if (vehicleLean || vehicleLeanVel) {
+        vehicleLean = 0; vehicleLeanVel = 0; vehicleLeanTarget = 0;
+        avatarGroup.rotation.x = 0;
     }
 }

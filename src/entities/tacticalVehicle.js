@@ -33,6 +33,17 @@ function dashboardTexture() {
     });
 }
 
+// Geometri daun roof hatch, dipakai bersama oleh pembangun DAN animasinya —
+// dan sejak 2026-08-19 juga oleh `hatchHalfZ`, lebar bukaan tempat penembaknya
+// berdiri. Itulah batas fisik yang menahan hempasan inersia avatar: Major
+// Gibran harus tetap berada di dalam lubang ini.
+const HATCH_LEAF_Z = 0.24, HATCH_SLIDE = 0.58, HATCH_LEAF_D = 0.46;
+
+// Batas mekanis setir gandar depan dan kelambanannya. Dimiliki modul kendaraan,
+// bukan scene: seberapa jauh rodanya BISA membelok adalah sifat kendaraannya.
+const STEER_MAX = 0.52, STEER_RATE = 9;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
 function mk(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
@@ -110,8 +121,8 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
     // adalah anchor publik tempat scene menaruh pivot logika/pose Major.
     const roofHatch = new THREE.Group(); roofHatch.position.set(-0.62, 2.57, 0); group.add(roofHatch);
     const hatchLeaves = [
-        mk(roofHatch, new THREE.BoxGeometry(0.78, 0.09, 0.46), M.body, 0, 0.11, -0.24),
-        mk(roofHatch, new THREE.BoxGeometry(0.78, 0.09, 0.46), M.body, 0, 0.11, 0.24),
+        mk(roofHatch, new THREE.BoxGeometry(0.78, 0.09, HATCH_LEAF_D), M.body, 0, 0.11, -HATCH_LEAF_Z),
+        mk(roofHatch, new THREE.BoxGeometry(0.78, 0.09, HATCH_LEAF_D), M.body, 0, 0.11, HATCH_LEAF_Z),
     ];
     const gunnerMount = new THREE.Object3D(); gunnerMount.position.set(-0.62, 2.72, 0); group.add(gunnerMount);
 
@@ -125,13 +136,24 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
     const dashboard = mk(group, new THREE.BoxGeometry(0.08, 0.58, 1.30), M.dash,
         0.58, 1.87, 0, 0, 0, 0.30);
 
-    // Roda besar, poros Z, menapak y=0.
-    const wheels = [];
+    // Roda besar, poros Z, menapak y=0. Porosnya dipanggang di GEOMETRI, jadi
+    // `rotation.z` bebas dipakai sebagai gelinding — dan `rotation.y` bebas
+    // dipakai sebagai KEMUDI. Urutan Euler XYZ menyusunnya Ry*Rz: rodanya
+    // berputar pada porosnya sendiri lebih dulu, lalu seluruh rakitan
+    // dibelokkan. Itulah urutan yang benar untuk roda yang dikemudikan.
+    const wheels = [], steerWheels = [];
     const wheelGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.42, 14); wheelGeo.rotateX(Math.PI / 2);
     const hubGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.46, 10); hubGeo.rotateX(Math.PI / 2);
-    for (const x of [-1.82, 1.72]) for (const z of [-1.17, 1.17]) {
-        wheels.push(mk(group, wheelGeo, M.rubber, x, 0.62, z));
-        mk(group, hubGeo, M.steel, x, 0.62, z);
+    const FRONT_AXLE_X = 1.72;
+    for (const x of [-1.82, FRONT_AXLE_X]) for (const z of [-1.17, 1.17]) {
+        const tyre = mk(group, wheelGeo, M.rubber, x, 0.62, z);
+        const hub = mk(group, hubGeo, M.steel, x, 0.62, z);
+        wheels.push(tyre);
+        // GANDAR DEPAN ikut dibelokkan (2026-08-19, permintaan user "ketika
+        // berbelok, buat agar ban depan GRD LTV-45 juga berbelok dong").
+        // Peleknya harus ikut, kalau tidak ban berbelok sementara peleknya tetap
+        // lurus di dalamnya.
+        if (x === FRONT_AXLE_X) steerWheels.push(tyre, hub);
     }
 
     const scaleX = scale * MODEL_RATIO.x;
@@ -139,9 +161,9 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
     const scaleZ = scale * MODEL_RATIO.z;
     group.scale.set(scaleX, scaleY, scaleZ);
     const vehicle = {
-        group, wheels, driverDoor, headlights, taillights, dashboard, barrierRam: ram,
+        group, wheels, steerWheels, driverDoor, headlights, taillights, dashboard, barrierRam: ram,
         sensor, mount, roofHatch, hatchLeaves, gunnerMount, materials: M,
-        wheelPhase: 0, doorOpen: 0, hatchOpen: 0, engineOn: false,
+        wheelPhase: 0, doorOpen: 0, hatchOpen: 0, engineOn: false, steer: 0,
         speed: 0, baseY: 0, scale, scaleX, scaleY, scaleZ,
         dimensionsMeters: TACTICAL_VEHICLE_DIMENSIONS,
         dimensionsWorld: {
@@ -152,6 +174,11 @@ export function buildTacticalVehicleMesh(scale = 7, bodyColor = null) {
         // Pose lama 10,2 unit mengikuti tinggi mesh lama; pertahankan rasio
         // tubuh terhadap roof hatch setelah tinggi kendaraan dinormalisasi.
         gunnerPoseHeight: 10.2 * MODEL_RATIO.y,
+        // Setengah lebar BUKAAN hatch dalam satuan dunia: tepi DALAM daun yang
+        // sudah tergeser penuh. Scene meneruskannya ke rig avatar sebagai batas
+        // hempasan inersia (2026-08-19, permintaan user "agar major gibran masih
+        // tetap berada di area lubang di atas mobil").
+        hatchHalfZ: (HATCH_LEAF_Z + HATCH_SLIDE - HATCH_LEAF_D / 2) * scaleZ,
     };
     group.userData.tacticalVehicle = vehicle;
     resetTacticalVehicleVisual(vehicle);
@@ -186,11 +213,12 @@ export function resetTacticalVehicleVisual(vehicle) {
     if (!vehicle) return;
     if (vehicle.wrecked) { restoreVehicle(vehicle); vehicle.wrecked = false; }
     vehicle.wheelPhase = 0; vehicle.doorOpen = 0; vehicle.hatchOpen = 0;
-    vehicle.engineOn = false; vehicle.speed = 0;
+    vehicle.engineOn = false; vehicle.speed = 0; vehicle.steer = 0;
+    for (const w of vehicle.steerWheels || []) w.rotation.y = 0;
     vehicle.driverDoor.rotation.y = 0;
     if (vehicle.hatchLeaves) {
-        vehicle.hatchLeaves[0].position.z = -0.24;
-        vehicle.hatchLeaves[1].position.z = 0.24;
+        vehicle.hatchLeaves[0].position.z = -HATCH_LEAF_Z;
+        vehicle.hatchLeaves[1].position.z = HATCH_LEAF_Z;
     }
     for (const w of vehicle.wheels) w.rotation.z = 0;
     vehicle.materials.head.emissiveIntensity = 0;
@@ -215,14 +243,20 @@ export function updateTacticalVehicleVisual(vehicle, dt, state = {}) {
     vehicle.hatchOpen += (hatchTarget - vehicle.hatchOpen) * Math.min(1, dt * 6.5);
     const he = vehicle.hatchOpen * vehicle.hatchOpen * (3 - 2 * vehicle.hatchOpen);
     if (vehicle.hatchLeaves) {
-        vehicle.hatchLeaves[0].position.z = -0.24 - he * 0.58;
-        vehicle.hatchLeaves[1].position.z = 0.24 + he * 0.58;
+        vehicle.hatchLeaves[0].position.z = -HATCH_LEAF_Z - he * HATCH_SLIDE;
+        vehicle.hatchLeaves[1].position.z = HATCH_LEAF_Z + he * HATCH_SLIDE;
     }
 
     vehicle.engineOn = state.engineOn == null ? vehicle.engineOn : !!state.engineOn;
     vehicle.speed = Number.isFinite(state.speed) ? Math.max(0, state.speed) : vehicle.speed;
     vehicle.wheelPhase += dt * vehicle.speed * 0.12;
     for (const w of vehicle.wheels) w.rotation.z = -vehicle.wheelPhase;
+    // KEMUDI GANDAR DEPAN. `state.steer` datang dalam RADIAN karena hanya scene
+    // yang tahu laju maju vs laju menyampingnya; modul ini yang memiliki BATAS
+    // MEKANISNYA dan kelambanan setirnya.
+    const steerWant = clamp(Number(state.steer) || 0, -STEER_MAX, STEER_MAX);
+    vehicle.steer += (steerWant - vehicle.steer) * Math.min(1, dt * STEER_RATE);
+    for (const w of vehicle.steerWheels || []) w.rotation.y = vehicle.steer;
 
     const on = vehicle.engineOn ? 1 : 0;
     vehicle.materials.head.emissiveIntensity = EMISSIVE_MAX * 0.94 * on;
@@ -250,9 +284,13 @@ export function tacticalVehicleDebug(vehicle) {
         dimensionsMeters: vehicle?.dimensionsMeters ? { ...vehicle.dimensionsMeters } : null,
         dimensionsWorld: vehicle?.dimensionsWorld ? { ...vehicle.dimensionsWorld } : null,
         doorYaw: vehicle?.driverDoor?.rotation?.y || 0,
+        hatchHalfZ: vehicle?.hatchHalfZ || 0,
         engineOn: !!vehicle?.engineOn,
         wheelPhase: vehicle?.wheelPhase || 0,
         speed: vehicle?.speed || 0,
+        steer: vehicle?.steer || 0, steerMax: STEER_MAX,
+        steerWheelYaw: vehicle?.steerWheels?.[0]?.rotation?.y || 0,
+        fixedWheelYaw: vehicle?.wheels?.[0]?.rotation?.y || 0,
         lights: vehicle ? {
             head: vehicle.materials.head.emissiveIntensity,
             tail: vehicle.materials.tail.emissiveIntensity,

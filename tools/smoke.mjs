@@ -9637,8 +9637,6 @@ const expectedS8Dialogue = {
     openingCommand: { speaker: 'Command', text: 'Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving.' },
     pickupSystem: { speaker: 'Vehicle System', text: 'HOSTILE VEHICLES APPROACHING.' },
     pickupGibran: { speaker: 'Major Gibran', text: 'Open-bed carriers. I’ll take out the riders and leave the vehicles behind.' },
-    haulerSystem: { speaker: 'Vehicle System', text: 'HAZARDOUS CARGO HAULER AHEAD. IT IS RELEASING BARRELS INTO YOUR LANE.' },
-    haulerGibran: { speaker: 'Major Gibran', text: 'Then I won’t be in that lane. Shoot the drums or steer around them.' },
     gunshipCommand: { speaker: 'Command', text: 'Major, airborne contact! Combat gunship closing fast!' },
     gunshipGibran: { speaker: 'Major Gibran', text: 'So that’s what they were saving for me.' },
     bossDown: { speaker: 'Major Gibran', text: 'Gunship’s down. Kertajati, I’m coming in.' },
@@ -9976,19 +9974,190 @@ T('S8 OPENING SKIP: skip memberi state highway bersih yang sama tanpa dialog/fad
     }
 }
 
-// Mulai di carriageway kiri. Hold tidak auto-repeat: satu edge D hanya pindah
-// dari slot 1 ke 2, lalu edge berikutnya baru membawa kendaraan ke median.
-stateMod.keys.d = true; s8mod.stage8Scene.updatePlayerControl(S8C.laneChangeSec + 0.01);
-const heldLane = s8mod.stage8RoadDebug().laneIndex;
-s8mod.stage8Scene.updatePlayerControl(S8C.laneChangeSec * 3);
-T('S8 LANE: mulai di kiri dan menahan D hanya memindahkan tepat satu slot', heldLane === 2
-    && s8mod.stage8RoadDebug().laneIndex === 2);
-stateMod.keys.d = false; s8mod.stage8Scene.updatePlayerControl(0.01);
-stateMod.keys.d = true; s8mod.stage8Scene.updatePlayerControl(S8C.medianChangeSec + 0.01);
-stateMod.keys.d = false; s8mod.stage8Scene.updatePlayerControl(0.01);
-T('S8 MEDIAN: tanah/rumput adalah slot valid dan memakai timing lebih lambat',
-    s8mod.stage8RoadDebug().laneIndex === 3 && S8C.medianChangeSec > S8C.laneChangeSec
-    && Math.abs(s8mod.stage8RoadDebug().currentZ - s8mod.S8_LANES[3]) < 1e-6);
+// KEMUDI BEBAS, BUKAN SNAP ANTAR LAJUR (2026-08-19, permintaan user "coba buat
+// agar mobil player tidak snap ke kiri dan ke kanan dong. coba bikin lebih
+// fleksibel"). Kendaraan menyetir selama A/D DITAHAN dan berhenti di mana pun ia
+// dilepas; `laneIndex` tinggal pembacaan lajur TERDEKAT dari posisi lateral
+// menerus, itulah sebabnya telegraph bos dan kejaran truk barel tetap utuh.
+// Helper ini menahan tombol sekian detik lalu melepasnya sampai benar-benar
+// berhenti meluncur.
+function steerS8(key, sec, step = 0.02) {
+    stateMod.keys[key] = true;
+    for (let t = 0; t < sec; t += step) s8mod.stage8Scene.updatePlayerControl(step);
+    stateMod.keys[key] = false;
+    for (let i = 0; i < 40 && Math.abs(s8mod.stage8RoadDebug().steerVel) > 1e-9; i++)
+        s8mod.stage8Scene.updatePlayerControl(step);
+}
+function steerToLaneS8(target) {
+    const want = s8mod.stage8WorldDebug().lanePositions[target];
+    for (let i = 0; i < 400; i++) {
+        const r = s8mod.stage8RoadDebug();
+        const gap = want - r.currentZ;
+        if (Math.abs(gap) <= S8C.laneWidth * 0.12) break;
+        // Tahanan sebanding sisa jarak: dekat tujuan cukup sentuhan pendek,
+        // supaya tidak terus melampaui dan berayun.
+        const sec = Math.max(0.02, Math.min(0.12, Math.abs(gap) / r.steerMaxV * 0.6));
+        steerS8(gap > 0 ? 'd' : 'a', sec);
+    }
+    return s8mod.stage8RoadDebug().laneIndex;
+}
+{
+    // MENAHAN D melewati satu lajur: dulu satu tekanan = tepat satu slot,
+    // apa pun lamanya ditahan.
+    const z0 = s8mod.stage8RoadDebug().currentZ;
+    steerS8('d', S8C.laneChangeSec * 2.2);
+    const far = s8mod.stage8RoadDebug();
+    T(`S8 KEMUDI: menahan D menyetir menerus melewati satu lajur, bukan snap satu slot [${((far.currentZ - z0) / S8C.laneWidth).toFixed(2)} lajur]`,
+        far.currentZ - z0 > S8C.laneWidth * 1.5
+        // Laju puncaknya diturunkan dari `laneChangeSec`, jadi satu lajur tetap
+        // memakan waktu yang sama seperti sebelum kemudi ini ada.
+        && Math.abs(far.steerMaxV - S8C.laneWidth / S8C.laneChangeSec) < 1e-9);
+
+    // BERHENTI DI MANA PUN DILEPAS: tidak ditarik ke pusat lajur mana pun.
+    // Dibuktikan dua arah — beberapa durasi tahan yang berbeda harus dapat
+    // berhenti JELAS di luar pusat lajur, dan sesudah berhenti waktu tambahan
+    // tidak boleh menggesernya lagi (itulah tarikan snap yang dihapus).
+    let worstOff = 0, drift = 0;
+    for (const sec of [0.12, 0.22, 0.34, 0.46]) {
+        steerS8('d', sec);
+        const r = s8mod.stage8RoadDebug();
+        const off = Math.abs(r.currentZ - s8mod.stage8WorldDebug().lanePositions[r.laneIndex]);
+        worstOff = Math.max(worstOff, off);
+        const held = r.currentZ;
+        for (let i = 0; i < 30; i++) s8mod.stage8Scene.updatePlayerControl(0.02);
+        drift = Math.max(drift, Math.abs(s8mod.stage8RoadDebug().currentZ - held));
+    }
+    T(`S8 KEMUDI: berhenti di mana pun tombolnya dilepas, tanpa ditarik ke pusat lajur [simpangan ${worstOff.toFixed(1)} unit, hanyut ${drift.toFixed(3)}]`,
+        s8mod.stage8RoadDebug().steerVel === 0
+        // Benar-benar bisa berhenti di antara dua lajur...
+        && worstOff > S8C.laneWidth * 0.2
+        // ...dan tak ada tarikan apa pun sesudah berhenti.
+        && drift < 1e-9
+        // Tetapi lajur TERDEKAT-nya tetap terbaca, itulah yang dipakai sistem lain.
+        && worstOff <= S8C.laneWidth * 0.5 + 1e-6);
+
+    // MEDIAN: tetap dapat dilintasi, dan menyeberanginya lebih lambat.
+    steerToLaneS8(3);
+    const med = s8mod.stage8RoadDebug();
+    T('S8 MEDIAN: tanah/rumput tetap dapat dilintasi dan MEMPERLAMBAT kemudi',
+        med.laneIndex === 3 && med.onMedian
+        && S8C.medianChangeSec > S8C.laneChangeSec
+        && Math.abs(med.currentZ - s8mod.S8_LANES[3]) <= S8C.laneWidth * 0.5);
+    {
+        // Laju puncak di rumput harus benar-benar lebih rendah daripada di aspal.
+        const vAt = (sec) => {
+            stateMod.keys.d = true;
+            let peak = 0;
+            for (let t = 0; t < sec; t += 0.02) {
+                s8mod.stage8Scene.updatePlayerControl(0.02);
+                peak = Math.max(peak, Math.abs(s8mod.stage8RoadDebug().steerVel));
+            }
+            stateMod.keys.d = false;
+            return peak;
+        };
+        steerToLaneS8(3);
+        const vMedian = vAt(0.12);
+        steerToLaneS8(5);
+        const vAsphalt = vAt(0.12);
+        T(`S8 MEDIAN: laju menyeberang di rumput lebih lambat daripada di aspal [${vMedian.toFixed(0)} vs ${vAsphalt.toFixed(0)} unit/dtk]`,
+            vMedian > 0 && vAsphalt > vMedian * 1.15);
+    }
+    // MENYETIR BUKAN BERJALAN, DAN TUBUHNYA TERHEMPAS (2026-08-19, permintaan
+    // user "ketika berbelok, major gibran tidak menampilkan animasi jalan.
+    // tampilkan animasi seperti terhempas. tau kan? aksi reaksi newton").
+    {
+        const frame = (key, n) => {
+            stateMod.keys.d = key === 'd'; stateMod.keys.a = key === 'a';
+            for (let i = 0; i < n; i++) {
+                s8mod.stage8Scene.updatePlayerControl(1 / 60);
+                avMod.updatePlayerAvatar(1 / 60);
+            }
+            stateMod.keys.d = stateMod.keys.a = false;
+        };
+        // 1. GAIT MATI. Gait avatar diturunkan dari perpindahan pivot, dan
+        //    kemudi bebas menggeser pivot itu menyamping — tanpa `carriedPose`
+        //    Major Gibran terlihat berjalan menyamping tiap kali menyetir.
+        frame('d', 12);
+        T(`S8 AVATAR: menyetir BUKAN berjalan — siklus larinya tetap nol [runK ${avMod.avatarGaitDebug().runK.toFixed(2)}]`,
+            avMod.avatarCarriedDebug() === true
+            && avMod.avatarGaitDebug().runK === 0);
+
+        // 2. AKSI-REAKSI. Membanting setir ke +z melempar tubuhnya ke -z:
+        //    tandanya WAJIB berlawanan dengan percepatan kendaraan.
+        frame('a', 40);                       // benar-benar diam dulu
+        frame('d', 4);                        // mulai membanting setir ke +z
+        const kick = avMod.avatarVehicleLeanDebug();
+        T(`S8 AVATAR: terhempas BERLAWANAN arah percepatan, bukan mengikutinya [condong ${kick.tilt.toFixed(3)} rad]`,
+            kick.lean > 0.05 && kick.tilt < 0 && kick.shift < 0);
+
+        // 3. NEWTON, BUKAN SEKADAR MIRING KE ARAH KEMUDI: ditahan pada laju
+        //    TETAP percepatannya habis, jadi tubuhnya kembali tegak walau
+        //    kendaraannya masih melaju menyamping.
+        frame('d', 45);
+        const cruise = avMod.avatarVehicleLeanDebug();
+        T(`S8 AVATAR: pada laju menyamping TETAP ia kembali tegak — yang melempar tubuh adalah PERUBAHAN laju [${Math.abs(cruise.lean).toFixed(3)} vs puncak ${Math.abs(kick.lean).toFixed(3)}]`,
+            Math.abs(cruise.lean) < Math.abs(kick.lean) * 0.5
+            && Math.abs(s8mod.stage8RoadDebug().steerVel) > 1);
+
+        // 4. Dilepas = perlambatan, jadi ia terhempas ke ARAH SEBALIKNYA.
+        frame(null, 4);
+        const settle = avMod.avatarVehicleLeanDebug();
+        T(`S8 AVATAR: melepas kemudi menghempaskannya ke arah sebaliknya [${kick.tilt.toFixed(3)} -> ${settle.tilt.toFixed(3)}]`,
+            settle.tilt > 0 && kick.tilt < 0);
+
+        // 5. TETAP DI DALAM LUBANG HATCH (2026-08-19, laporan user "terhempasnya
+        //    terlalu berlebihan ... agar major gibran masih tetap berada di area
+        //    lubang di atas mobil"). Batasnya BUKAN angka di berkas ini melainkan
+        //    bukaan hatch milik rig kendaraan itu sendiri, jadi mengubah bentuk
+        //    hatch ikut mengubah ambang ini.
+        const hatchHalf = s8mod.stage8Debug().vehicle.hatchHalfZ;
+        let worstShift = 0, worstTilt = 0;
+        for (const key of ['d', 'a', 'd', null, 'a', null]) {
+            for (let i = 0; i < 16; i++) {
+                stateMod.keys.d = key === 'd'; stateMod.keys.a = key === 'a';
+                s8mod.stage8Scene.updatePlayerControl(1 / 60);
+                avMod.updatePlayerAvatar(1 / 60);
+                const L = avMod.avatarVehicleLeanDebug();
+                worstShift = Math.max(worstShift, Math.abs(L.shift));
+                worstTilt = Math.max(worstTilt, Math.abs(L.tilt));
+            }
+        }
+        stateMod.keys.d = stateMod.keys.a = false;
+        T(`S8 AVATAR: hempasannya tetap DI DALAM lubang hatch dan hanya sentakan kecil [geser ${worstShift.toFixed(2)} vs setengah lubang ${hatchHalf.toFixed(2)}, condong ${worstTilt.toFixed(2)} rad]`,
+            hatchHalf > 0 && worstShift > 0
+            // Kakinya tak pernah keluar dari bukaan tempat ia berdiri.
+            && worstShift < hatchHalf
+            // Dan memang cuma sentakan: jauh di bawah setengah lubang, serta
+            // miringnya masih jelas di bawah 15 derajat.
+            && worstShift <= hatchHalf * 0.5
+            && worstTilt < 0.262);
+        frame(null, 60);
+
+        // BAN DEPAN IKUT BERBELOK (2026-08-19, permintaan user "ketika berbelok,
+        // buat agar ban depan GRD LTV-45 juga berbelok dong"). Yang dijaga:
+        // hanya GANDAR DEPAN yang berbelok, arahnya mengikuti arah jalan yang
+        // sebenarnya, besarnya di dalam batas mekanis rignya, dan ia kembali
+        // lurus saat kemudi dilepas.
+        frame('d', 30);
+        const wR = s8mod.stage8Debug().vehicle;
+        frame('a', 60);
+        const wL = s8mod.stage8Debug().vehicle;
+        frame(null, 90);
+        const wStraight = s8mod.stage8Debug().vehicle;
+        T(`S8 RODA: hanya gandar DEPAN yang berbelok, mengikuti arah jalan, dan kembali lurus [${wR.steerWheelYaw.toFixed(2)} / ${wL.steerWheelYaw.toFixed(2)} rad, batas ${wR.steerMax}]`,
+            // Menyetir ke +z memutar hidung ke +z, dan Ry positif memutar
+            // hidungnya ke -z — jadi tandanya negatif, dan terbalik untuk A.
+            wR.steerWheelYaw < -0.05 && wL.steerWheelYaw > 0.05
+            // Gandar belakang TIDAK ikut berbelok.
+            && wR.fixedWheelYaw === 0 && wL.fixedWheelYaw === 0
+            // Di dalam batas mekanis milik rig kendaraannya sendiri.
+            && Math.abs(wR.steer) <= wR.steerMax + 1e-9
+            && Math.abs(wL.steer) <= wL.steerMax + 1e-9
+            // Dilepas: kembali lurus.
+            && Math.abs(wStraight.steerWheelYaw) < 0.02);
+    }
+    steerToLaneS8(3);
+}
 
 function killS8Riders(predicate = () => true) {
     for (let i = robots.length - 1; i >= 0; i--) {
@@ -10190,7 +10359,21 @@ T('S8 CONVOY ENTRY: kedua ujung jalan dipakai, semua carrier menghadap maju di l
 
     // Satu truk dipaksa muncul supaya perilakunya dapat diamati utuh.
     s8mod.stage8ClearHaulersDbg(); robotsMod.resetRobotsFx();
+    // TANPA PENGUMUMAN KEDATANGAN (2026-08-19, permintaan user "hilangkan prompt
+    // info kedatangan mobil barel, player gak sebodoh itu"). Diperiksa dari
+    // keadaan SEBELUM spawn, jadi sah berapa pun dialog yang sedang berjalan.
+    const dlg0 = s8mod.stage8DialogueDebug();
     const spawnOK = s8mod.stage8SpawnHaulerDbg();
+    const dlg1 = s8mod.stage8DialogueDebug();
+    T('S8 PENGANGKUT BAREL: kedatangannya TIDAK memicu dialog/tutorial apa pun — truknya sudah menelegraphkan dirinya sendiri',
+        spawnOK
+        && dlg1.key === dlg0.key && dlg1.queued.length === dlg0.queued.length
+        // Naskahnya pun tak lagi menyimpan barisnya, dan tak ada pesan panggung
+        // bernada tutorial soal hauler yang tertinggal di sumbernya.
+        && !('haulerSystem' in s8mod.STAGE8_DIALOGUE)
+        && !('haulerGibran' in s8mod.STAGE8_DIALOGUE)
+        && !/showStageMsg\([^)]*HAULER/i.test(
+            fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage8/index.js', 'utf8')));
     const born = s8mod.stage8HaulerDebug().trucks.find(t => t.active);
     T(`S8 PENGANGKUT BAREL: SELALU lahir di ujung DEPAN dan di luar tapak pandang [x ${born ? born.entryX.toFixed(0) : '-'} vs tepi ${born ? born.entryViewEdgeX.toFixed(0) : '-'}]`,
         spawnOK && !!born
@@ -10300,23 +10483,23 @@ T('S8 CONVOY ENTRY: kedua ujung jalan dipakai, semua carrier menghadap maju di l
     //     tetap meledak, radius blast 6 m akan menghantam lajur sebelah juga dan
     //     manuvernya jadi sia-sia.
     const boomsBefore = robotsMod.pendingBoomsDebug().length;
-    // Satu tepi tombol yang bersih, lalu ditahan sepanjang durasi manuver
-    // TERPANJANG — perpindahan yang menyentuh median memakai `medianChangeSec`,
-    // dan `laneIndex` baru berubah setelah easing-nya benar-benar selesai.
-    const laneSec = Math.max(S8C.laneChangeSec, S8C.medianChangeSec) + 0.02;
-    stateMod.keys.a = false; s8mod.stage8Scene.updatePlayerControl(0.01);
-    stateMod.keys.a = true; s8mod.stage8Scene.updatePlayerControl(0.01);
-    stateMod.keys.a = false; s8mod.stage8Scene.updatePlayerControl(laneSec);
-    const dodgedLane = s8mod.stage8RoadDebug().laneIndex;
+    // Menghindar dengan KEMUDI BEBAS (2026-08-19): tahan A sampai lajur
+    // terdekatnya benar-benar berganti, lalu lepas.
+    const dodgedLane = steerToLaneS8(Math.max(0, lane0 - 1));
     // Ditunggu HANYA sampai barel itu melewati x player — barel berikutnya baru
     // jatuh `dropGapSec` kemudian, jadi tidak ada yang mencemari pengamatan.
     let passGuard = 0;
     const stillAhead = () => s8mod.stage8HaulerDebug().dropped
         .some(b => Math.abs(b.z - laneZ0) < 1e-9 && b.x > s8World0.origin.x);
     while (stillAhead() && passGuard++ < 400) tickS8(0.05, 0.05);
+    // Yang diuji: barel DI LAJUR SEMULA lewat tanpa meledak. Barel lain yang
+    // sementara itu dijatuhkan di lajur baru bukan bagian dari klaim ini —
+    // truknya memang mengejar, dan itu diuji terpisah di bawah.
+    const boomInLane0 = robotsMod.pendingBoomsDebug()
+        .some(b => Math.abs(b.z - laneZ0) < S8C.laneWidth * 0.5);
     T(`S8 BAREL: player yang berpindah lajur DILEWATI begitu saja — tanpa ledakan [lajur ${lane0} -> ${dodgedLane}]`,
-        dodgedLane !== lane0 && passGuard < 400
-        && robotsMod.pendingBoomsDebug().length === boomsBefore);
+        dodgedLane !== lane0 && passGuard < 400 && !boomInLane0
+        && robotsMod.pendingBoomsDebug().length >= boomsBefore);
     // Truknya IKUT PINDAH mengejar lajur baru — itulah telegraph muatan
     // berikutnya, dan alasan menghindar sekali saja tidak cukup.
     {
@@ -10417,11 +10600,7 @@ T('S8 CONVOY ENTRY: kedua ujung jalan dipakai, semua carrier menghadap maju di l
     // Kembalikan player ke lajur SEMULA: sisa berkas ini menguji bahwa corridor
     // MEDIAN pun ikut ditarget telegraph MG bos, jadi posisinya bagian dari
     // prasyarat tes berikutnya — bukan kebetulan.
-    while (s8mod.stage8RoadDebug().laneIndex < lane0) {
-        stateMod.keys.d = false; s8mod.stage8Scene.updatePlayerControl(0.01);
-        stateMod.keys.d = true; s8mod.stage8Scene.updatePlayerControl(0.01);
-        stateMod.keys.d = false; s8mod.stage8Scene.updatePlayerControl(laneSec);
-    }
+    steerToLaneS8(lane0);
 }
 T('S8 BOSS GATE: boss belum datang selama kendaraan ke-20 belum dihancurkan',
     s8mod.stage8Debug().phase === 'groundPursuit'

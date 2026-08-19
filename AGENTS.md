@@ -804,10 +804,29 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   their own `barrelHp` 150 and pooled meshes; they detonate ONLY if the lane still matches, so a dodged
   barrel rolls past inertly. Truck HP 230 with its own swept bullet test; cleared when the gunship
   intro starts; zero PointLights.
+- The hauler's arrival announces itself and nothing else does (2026-08-19 user request): the two radio
+  lines and the tutorial banner that fired on the first hauler are deleted, script entries included. The
+  truck already telegraphs itself three times (front entry, slide into your lane, tailgate opening).
+  Smoke fails if a hauler spawn queues dialogue or a hauler-themed `showStageMsg` returns.
 - Hauler tailgate = ONE FULL CYCLE PER BAREL (2026-08-18 user request): open -> HOLD while the drum rolls
   down off the lip -> close. The barrel is born at the mesh `dropAnchor` (the lip itself), airborne and
   half-upright, and lies flat exactly as it lands (`dropFallSec`). So
   `dropTelegraphSec + dropFallSec + dropCloseSec` MUST fit inside `dropGapSec` (smoke-asserted).
+- The GRD LTV-45's FRONT AXLE steers (2026-08-19 user request). Wheels bake the axle into the geometry, so
+  `rotation.z` rolls and `rotation.y` steers (Euler XYZ composes Ry*Rz = spin-then-yaw, exactly a steered
+  wheel). The angle is derived: `atan2(lateralVel, roadSpeed)` is the true heading, and the body yaw is
+  SUBTRACTED because the wheels are children of an already-yawed group. Hubs steer with their tyres.
+  `STEER_MAX` and the steering lag belong to the vehicle module, the kinematics to the scene.
+- A pivot carried by a vehicle is never a walk cycle, and a swerve THROWS the rider (2026-08-19 user
+  request): Stage 8 calls `setAvatarCarried(true)` for the whole ride (avatar gait comes from pivot
+  displacement, and free steering moves the pivot sideways), plus
+  `setAvatarVehicleLean(normalisedLateralAccel)` which rolls/shifts the avatar OPPOSITE the vehicle's
+  acceleration on a lightly overshooting spring. It is fed ACCELERATION, never velocity — a steady
+  sideways speed lets him settle upright; starting and stopping the swerve is what throws him. Applied
+  last in the frame on `avatarGroup.rotation.x`. Manning a vehicle also blocks the AFK idle poses.
+  Amplitude is CAGED by the hatch: `setAvatarVehicleLeanCage(vehicle.hatchHalfZ)` clamps the shift to a
+  fraction of the roof opening's own half-width, so retuning the feel constants can never throw the
+  gunner out of the hole (2026-08-19 follow-up; peak 0.79 units against a 3.29-unit half-opening).
 - A hauler ARMS WHILE IT FLIES IN (2026-08-19 user report): `armSec` and the tailgate telegraph run during
   the `approach` phase, so the first barrel drops the moment it parks (1.3s -> 0.1s of dead time). It still
   drops nothing during approach. The "arrived" threshold is also now a fraction of the truck's own length
@@ -869,7 +888,11 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   ground speed and settle on the road.
 - Stage 8 is the coordinate-stable GRD LTV-45 gunner arena at x≈270000. Seven lateral
   corridors span both three-lane carriageways and the traversable median; `A/D` are
-  edge-triggered lane snaps while walking/RMB/dodge/melee are scene-gated off. The
+  FREE lateral steering (2026-08-19; edge-triggered lane snaps until then) while walking/RMB/dodge/melee
+  are scene-gated off. `currentZ` is the source of truth and `laneIndex` is just the nearest-lane
+  read-out, so telegraphs and the hauler's lane chase are untouched; peak steer speed is derived from
+  `laneWidth / laneChangeSec` and the median still slows you by the `laneChangeSec : medianChangeSec`
+  ratio. Never reintroduce a snap-to-centre pull on release. The
   opening announces 100 km, but there is no runtime distance counter. Timed pickup
   carriers each mount exactly three ordinary A/B robots and keep spawning until the
   config-driven target of 20 carriers is destroyed. Only then does the standalone

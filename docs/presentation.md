@@ -132,6 +132,26 @@ The swing bump is deliberately **asymmetric** (narrow toward toe-off, wide towar
 
 All of it is visual only: bullet direction still comes from `camera` and the player's logical position is untouched. Amplitudes scale with `runK` (from real horizontal speed) and with `dirAmp` (strafing takes shorter steps); the cadence scales with speed too. `avatarGaitDebug()` exposes `{phase, runK, bob, counter, gunY, gunX, lean, headY, handRY}`, and the smoke suite asserts the properties that distinguish this curve from the old one: the knee never inverts, the stance leg flexes at the body's lowest point, the knee is extended (not curled) at the most-forward step, the bob is 2×/step and never positive, the hand moves with the weapon on every frame, cadence and lean follow speed and direction, everything decays to 0 on stop, and the bounce is damped while firing.
 
+## Riding a vehicle — carried gait and the inertia lurch (2026-08-19, user request)
+
+> *"buat agar ketika berbelok, major gibran tidak menampilkan animasi jalan. tampilkan animasi seperti terhempas. tau kan? aksi reaksi newton"*
+
+**The walk cycle had to be switched off, not hidden.** The avatar's gait is derived from **pivot displacement** — how far the logic pivot moved this frame — so anything that moves the pivot without the player taking a step reads as walking. Stage 5's train hit this first (`setAvatarCarried`), and Stage 8's new free steering brought it back: every swerve slides the pivot sideways, so Major Gibran walked sideways in the roof hatch. Stage 8 now sets `setAvatarCarried(true)` for the whole ride, which pins the gait speed at zero while leaving the position updates alone.
+
+**Then the swerve had to throw him.** `setAvatarVehicleLean(accel)` takes the vehicle's lateral acceleration, normalised to ±1, and rolls plus shifts the whole avatar in the **opposite** direction, on a lightly overshooting spring so the motion whips and settles instead of sliding into a static tilt.
+
+Three details carry the physics:
+
+- **It is fed acceleration, never velocity.** That is precisely the action-reaction the request asked for: holding a steady sideways speed lets the body come back upright, and it is *starting* and *stopping* the swerve that throws him — in opposite directions. A velocity-driven lean would look like a motorcycle banking into a corner, which is the wrong body language for someone standing in a hatch being shoved around.
+- **The tilt is applied last in the frame**, on `avatarGroup.rotation.x`, so it rides on top of whatever pose the rig already chose — idle, firing recoil, the death collapse — rather than being overwritten by it. Euler `XYZ` puts Rx outermost, so the axis stays the world travel axis no matter which way he is aiming.
+- **He physically shifts, not only tilts.** A pure rotation about the feet reads as posing; a small lateral displacement in the same direction sells being thrown.
+
+**The amplitude is caged by the hatch, not by taste** (2026-08-19 follow-up: *"terhempasnya terlalu berlebihan, buat agar sedikit saja, agar major gibran masih tetap berada di area lubang di atas mobil"*). The feel constants came down to 0.15 rad of tilt and 0.9 units of shift (from 0.42 and 2.6) — this is the jolt of someone braced against a hatch rim, not someone being thrown off the vehicle. But the actual guarantee is `setAvatarVehicleLeanCage(halfWidth)`: the scene passes the roof hatch's **own** opening half-width, which `tacticalVehicle.js` derives from the leaf geometry and its slide rather than restating it as a literal, and the lateral shift is clamped to a fraction of that. So no later retune of the feel constants can put the gunner outside the hole he is standing in, and reshaping the hatch moves the limit with it. Measured peak across a full swerve-and-release cycle: **0.79 units of shift against a 3.29-unit half-opening, and 0.13 rad (7.5°) of tilt** — the values before this pass were 2.29 and 0.37 rad, which is 70% of the way out of the opening.
+
+Manning a vehicle now also blocks the **AFK idle poses**. With the gait pinned at zero, `moving` is permanently false, so a gunner whose cursor sat still would previously have waved at the camera and eventually lain down on the roof of a moving vehicle.
+
+Smoke drives all four properties in a live Stage 8 run: the run cycle stays at exactly zero while steering, the first frames of a swerve tilt him against the acceleration, holding the steer at constant speed returns him upright while the vehicle is still moving sideways, and releasing throws him back the other way. Reverting the carried flag reports `runK 0.62` — the walk cycle the report was about.
+
 ## Combat roll (dodge, rewritten 2026-07-27)
 
 **Shift rolls, and it no longer looks like a mannequin spinning.** The 2026-07-12 version rotated the whole rig 360° on a smoothstep with a leg tuck — from the top-down camera that reads as *"just rotating 360°"* (user's words). The rewrite keeps the two things that were load-bearing and changes everything else.
