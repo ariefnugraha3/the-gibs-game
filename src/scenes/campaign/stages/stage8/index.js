@@ -20,7 +20,7 @@ import {
     avatarGroup, setAvatarVehiclePose, setAvatarRadioPose,
     avatarVehicleDebug, setAvatarCarried, setAvatarVehicleLean, setAvatarVehicleLeanCage,
 } from '../../../../entities/playerAvatar.js';
-import { disposeRobot } from '../../../../entities/robots.js';
+import { disposeRobot, killRobot } from '../../../../entities/robots.js';
 import { spawnCampaignRobot, countStageRobots } from '../../utility/common.js';
 import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
@@ -69,6 +69,11 @@ const OX = 270000, OZ = 0, PLAYER_X = OX;
 // punya cairan coolant hijau (aturan user 2026-07-18).
 const LTV_OIL = 0x141210;
 const ROAD_MODULES = 20, MODULE_LEN = 84, ROAD_SPAN = ROAD_MODULES * MODULE_LEN;
+// PENGAWAL BOS = SATU PASANG (2026-08-19, permintaan user): tepat satu truk
+// barel + satu carrier robot. Jumlahnya adalah bentuk mekaniknya, bukan
+// angka yang bisa diretune, jadi ia konstan di sini — persis seperti
+// `TRAIN_CAR_COUNT` Stage 5 — dan poolnya diturunkan darinya.
+const BOSS_ESCORT_TRUCKS = 1, BOSS_ESCORT_CARRIERS = 1;
 const AIRPORT_X = OX + 1320;
 const ASPHALT_LANES = Object.freeze([0, 1, 2, 4, 5, 6]);
 const LANE_MULTIPLIERS = Object.freeze([-3, -2, -1, 0, 1, 2, 3]);
@@ -84,7 +89,11 @@ export const STAGE8_DIALOGUE = dialogueMap('campaign.stage8.lines');
 
 let built = false, worldRoot = null, roadRoot = null, airportRoot = null;
 let tacticalVehicle = null, gunship = null, staticBatch = [], scenery = null;
-let barrelRig = null, haulersSpawned = 0, bossHaulerT = 0;
+let barrelRig = null, haulersSpawned = 0;
+// PENGAWAL BOS: satu PASANGAN (truk barel + carrier robot) yang dilacak
+// lewat referensinya sendiri, bukan lewat pencacah. `bossEscortT < 0`
+// berarti belum ada jadwal berjalan.
+let bossEscortT = -1, bossEscortWaves = 0, bossHauler = null, bossCarrier = null;
 const roadModules = [], pickupPool = [], dustPool = [], stageLights = [];
 let roadWraps = 0, dustCursor = 0;
 
@@ -243,7 +252,12 @@ function buildWorld() {
 
     tacticalVehicle = buildTacticalVehicleMesh(7, PAL.gunmetal);
     worldRoot.add(tacticalVehicle.group);
-    for (let i = 0; i < Math.max(3, CFG.campaign.stage8.maxActivePickups); i++) {
+    // Slot carrier: cap jalanan, dan minimal satu pengawal bos + satu slot
+    // cadangan karena BANGKAI pengawal masih memakai slotnya beberapa detik
+    // sesudah mati sementara penggantinya sudah boleh lahir.
+    const pickupSlots = Math.max(3, CFG.campaign.stage8.maxActivePickups,
+        BOSS_ESCORT_CARRIERS + 1);
+    for (let i = 0; i < pickupSlots; i++) {
         const p = buildEnemyPickupMesh(7); worldRoot.add(p.group); pickupPool.push(p);
     }
     gunship = createCombatGunship(4.8);
@@ -255,10 +269,11 @@ function buildWorld() {
     // player) lebih panjang daripada seluruh rentetan jatuhnya — jadi pool yang
     // dipatok akan kelaparan diam-diam begitu `dropCount` dinaikkan.
     const bdC = CFG.campaign.stage8.barrelDropper;
-    // Cap terbesar ada di DUEL BOS (2026-08-19): sampai `bossMaxActive` truk
-    // MENETAP yang menjatuhkan barel tanpa henti. Slot truknya dilebihkan karena
-    // BANGKAI masih memakai slotnya beberapa detik walau tak lagi dihitung aktif.
-    const maxTrucks = Math.max(bdC.maxActive || 1, bdC.bossMaxActive || 1);
+    // Duel bos memakai TEPAT SATU truk MENETAP (2026-08-19) — satu pasang
+    // pengawal, tak pernah dua — jadi capnya tak pernah melebihi cap jalanan.
+    // Slot truknya tetap dilebihkan karena BANGKAI masih memakai slotnya
+    // beberapa detik walau tak lagi dihitung aktif.
+    const maxTrucks = Math.max(bdC.maxActive || 1, BOSS_ESCORT_TRUCKS);
     barrelRig = createBarrelDropperRig(worldRoot, 7, maxTrucks + 2,
         barrelSlotsNeeded(maxTrucks));
 
@@ -496,8 +511,10 @@ function activePursuerCount() {
 }
 function activePickupCount() { return pickupPool.filter(p => p.active && !p.wreck).length; }
 
+// Mengembalikan carrier yang lahir (bukan boolean) supaya duel bos bisa
+// melacak pasangan pengawalnya lewat referensi, bukan lewat pencacah.
 function spawnPickup(classes, eventIndex) {
-    const p = freePickup(); if (!p) return false;
+    const p = freePickup(); if (!p) return null;
     const C = CFG.campaign.stage8;
     resetEnemyPickupVisual(p); p.active = true; p.group.visible = true;
     p.eventIndex = eventIndex;
@@ -540,7 +557,7 @@ function spawnPickup(classes, eventIndex) {
         firstPickupShown = true; queueDialogue('pickupSystem'); queueDialogue('pickupGibran');
         showStageMsg('DESTROY ALL THREE RIDERS TO DISABLE EACH PURSUIT VEHICLE', 5200);
     }
-    return true;
+    return p;
 }
 
 function destroyPickup(p) {
@@ -612,9 +629,10 @@ function updateGroundSpawner(dt) {
 // pertama keluar. Menjelaskan tiga isyarat yang sudah terlihat itu meremehkan
 // pemainnya.
 function spawnHauler(opts) {
-    if (!spawnBarrelDropper(barrelRig, barrelCtx(0), opts)) return false;
+    const t = spawnBarrelDropper(barrelRig, barrelCtx(0), opts);
+    if (!t) return null;
     haulersSpawned++;
-    return true;
+    return t;
 }
 
 function finishOpening(skipped = false) {
@@ -670,6 +688,10 @@ function startArrival() {
 function swapToAirport() {
     if (cine?.swapped) return;
     cine.swapped = true; roadRoot.visible = false; airportRoot.visible = true;
+    // Bangkai pengawal bos (2026-08-19) bisa masih tergeletak di aspal ketika
+    // cutscene kedatangan mulai; `updatePickups` berhenti selama cine, jadi ia
+    // didaur ulang di sini — selagi layar HITAM, bukan saat masih terlihat.
+    for (const p of pickupPool) resetEnemyPickupVisual(p);
     currentZ = 0; laneIndex = nearestLane(0); steerVel = 0;
     camera.position.set(AIRPORT_X - 210, CFG.player.eyeHeight, 0);
     tacticalVehicle.group.position.set(camera.position.x + 0.62 * tacticalVehicle.scaleX, 0, 0);
@@ -768,31 +790,69 @@ function updateJourney(dt) {
     }
 }
 
-// PENGANGKUT BAREL MENETAP DI PARUH KEDUA DUEL BOS (2026-08-19, permintaan user
-// "ketika HP gunship sudah 50% atau kurang, sesekali munculkan 1 atau 2 mobil
-// barrel, tapi mobil barel ini akan terus menurunkan barel sampai dia
-// dihancurkan"). Ambangnya dibaca dari HP bos, bukan dari waktu, jadi tekanan
-// tambahan ini selalu tiba tepat saat duelnya berbalik. Truknya dilahirkan
-// `endless`: ia tak pernah berlalu, jadi player harus benar-benar membagi
-// tembakan antara bos di udara dan truk di aspal.
-function updateBossHaulers(dt) {
-    const C = CFG.campaign.stage8.barrelDropper;
+// PENGAWAL BOS: SATU PASANG TRUK BAREL + CARRIER ROBOT (2026-08-19, permintaan
+// user "ketika HP gunship kurang dari 50% maka akan muncul 1 mobil barel dan 1
+// mobil robot. dan jika mobil barel DAN mobil robot itu hancur, maka 3 detik
+// kemudian akan spawn lagi"). Empat aturan.
+//
+// (1) Gerbangnya dibaca dari HP BOS, bukan dari waktu, jadi tekanan darat ini
+//     selalu tiba tepat saat duelnya berbalik.
+// (2) Pasangannya DILACAK LEWAT REFERENSI, bukan lewat timer berulang: selama
+//     salah satu dari keduanya masih hidup tak ada jadwal yang berjalan sama
+//     sekali. Inilah bedanya dengan versi interval sebelumnya — player yang
+//     menembak cepat DIBERI jeda, player yang mengabaikannya tidak pernah
+//     ditumpuki truk baru.
+// (3) Jeda respawn baru mulai berdetak ketika KEDUANYA hancur, jadi menyisakan
+//     satu kendaraan berarti menahan gelombang berikutnya.
+// (4) Truk baremnya `endless`: ia tak pernah berlalu, jadi player benar-benar
+//     harus membagi tembakan antara bos di udara dan dua kendaraan di aspal.
+function bossEscortLive() {
+    const t = bossHauler, p = bossCarrier;
+    return (!!t && t.active && !t.wreck) || (!!p && p.active && !p.wreck);
+}
+function spawnBossEscort() {
+    const C = CFG.campaign.stage8.bossEscort || {};
+    bossHauler = spawnHauler({ endless: true, maxActive: BOSS_ESCORT_TRUCKS });
+    const load = C.load && C.load.length === 3 ? C.load : ['B', 'B', 'A'];
+    bossCarrier = spawnPickup(load, pickupsSpawned);
+    bossEscortWaves++;
+    return !!(bossHauler || bossCarrier);
+}
+function updateBossEscort(dt) {
+    const C = CFG.campaign.stage8.bossEscort || {};
     if (phase !== 'gunshipBattle' || !gunship || gunship.dead) return;
-    if (gunship.hp > gunship.maxHp * (C.bossHpFrac ?? 0.5)) return;
-    if (bossHaulerT === 0) bossHaulerT = C.bossFirstDelaySec ?? 4;
-    bossHaulerT -= dt;
-    if (bossHaulerT > 0) return;
-    bossHaulerT = C.bossIntervalSec ?? 11;
-    const cap = Math.max(1, C.bossMaxActive || 1);
-    // "sesekali 1 atau 2": jumlahnya diundi, lalu dibatasi cap yang sama.
-    const want = 1 + (Math.random() < 0.5 ? 1 : 0);
-    for (let i = 0; i < Math.min(want, Math.max(1, C.bossSpawnMax || 2)); i++)
-        if (!spawnHauler({ endless: true, maxActive: cap })) break;
+    if (gunship.hp > gunship.maxHp * (C.hpFrac ?? 0.5)) return;
+    // Selama pasangannya masih ada yang hidup, tak ada hitungan mundur apa pun.
+    if (bossEscortLive()) { bossEscortT = -1; return; }
+    if (bossEscortT < 0)
+        bossEscortT = bossEscortWaves === 0
+            ? (C.firstDelaySec ?? 4) : (C.respawnDelaySec ?? 3);
+    bossEscortT -= dt;
+    if (bossEscortT > 0) return;
+    bossEscortT = -1;
+    spawnBossEscort();
+}
+// PENGAWAL IKUT MELEDAK SAAT BOS JATUH (2026-08-19, permintaan user "jika
+// gunship dikalahkan dan masih ada mobil itu, maka mobil itu akan langsung
+// meledak juga"). Keduanya dihabisi lewat jalur kematian NORMAL-nya —
+// `damageBarrelDropper` dan `destroyPickup` — jadi ledakan, bangkai, gib dan
+// loot-nya identik dengan kendaraan yang ditembak player; tak ada jalur
+// penghapusan diam-diam. Penumpang yang masih hidup mati bersama kendaraannya
+// dengan sebab `explosion`, jadi rangkanya benar-benar hancur.
+function detonateBossEscort() {
+    if (barrelRig) for (const t of barrelRig.trucks)
+        if (t.active && !t.wreck) damageBarrelDropper(barrelRig, t, t.hp, onHaulerKilled);
+    for (const p of pickupPool) if (p.active && !p.wreck) {
+        for (let i = robots.length - 1; i >= 0; i--)
+            if (robots[i].pickup === p) killRobot(i, { cause: 'explosion' });
+        destroyPickup(p);
+    }
+    bossHauler = null; bossCarrier = null; bossEscortT = -1;
 }
 
 function updateBoss(dt) {
     if (phase !== 'gunshipBattle' && phase !== 'gunshipDeath') return;
-    updateRoad(dt); updatePickups(dt); updateBossHaulers(dt);
+    updateRoad(dt); updatePickups(dt); updateBossEscort(dt);
     updateCombatGunship(gunship, dt, {
         playerLane: laneIndex, laneZ: laneWorldZ, roadX: PLAYER_X,
         // Kecepatan lateral + pemeta lajur: dipakai meriam untuk MEMIMPIN
@@ -802,6 +862,9 @@ function updateBoss(dt) {
     });
     if (phase === 'gunshipBattle' && gunship.dead) {
         phase = 'gunshipDeath'; stopMusic(); stopRotorLoop(); deathDelayT = -1;
+        // Kendaraan pengawal yang masih hidup ikut meledak SEKETIKA di frame
+        // yang sama — bukan dibersihkan diam-diam nanti saat cutscene.
+        detonateBossEscort();
     }
     if (phase === 'gunshipDeath' && gunship.deathDone) {
         if (deathDelayT < 0) {
@@ -854,7 +917,8 @@ function resetStage() {
     for (let i = 0; i < roadModules.length; i++)
         roadModules[i].position.x = OX + (i - (ROAD_MODULES - 1) / 2) * MODULE_LEN;
     resetStage8Scenery(scenery); resetBarrelDroppers(barrelRig);
-    haulersSpawned = 0; bossHaulerT = 0;
+    haulersSpawned = 0;
+    bossEscortT = -1; bossEscortWaves = 0; bossHauler = null; bossCarrier = null;
     for (const p of pickupPool) resetEnemyPickupVisual(p);
     for (const d of dustPool) d.visible = false;
     resetCombatGunship(gunship, { active: false });
@@ -931,11 +995,23 @@ export const stage8HaulerDebug = () => ({
 // Kait debug pengangkut barel: pola yang sama dengan `stage8DamageGunshipForDebug`
 // — smoke menguji KONTRAK-nya tanpa harus merakit peluru palsu.
 export const stage8SpawnHaulerDbg = opts => !!spawnHauler(opts);
-export const stage8BossHaulerDbg = () => ({
-    timer: bossHaulerT, hpFrac: CFG.campaign.stage8.barrelDropper.bossHpFrac,
-    armed: !!gunship && !gunship.dead && phase === 'gunshipBattle'
-        && gunship.hp <= gunship.maxHp * (CFG.campaign.stage8.barrelDropper.bossHpFrac ?? 0.5),
-});
+export const stage8BossEscortDbg = () => {
+    const C = CFG.campaign.stage8.bossEscort || {};
+    const truck = bossHauler, car = bossCarrier;
+    return {
+        timer: bossEscortT, waves: bossEscortWaves,
+        hpFrac: C.hpFrac ?? 0.5, respawnDelaySec: C.respawnDelaySec ?? 3,
+        firstDelaySec: C.firstDelaySec ?? 4,
+        trucks: BOSS_ESCORT_TRUCKS, carriers: BOSS_ESCORT_CARRIERS,
+        truckLive: !!truck && truck.active && !truck.wreck,
+        carrierLive: !!car && car.active && !car.wreck,
+        truckWreck: !!truck && truck.wreck, carrierWreck: !!car && car.wreck,
+        pairLive: bossEscortLive(),
+        armed: !!gunship && !gunship.dead && phase === 'gunshipBattle'
+            && gunship.hp <= gunship.maxHp * (C.hpFrac ?? 0.5),
+    };
+};
+export const stage8DetonateEscortDbg = () => detonateBossEscort();
 export const stage8ClearHaulersDbg = () => clearBarrelDroppers(barrelRig);
 export const stage8DamageHaulerDbg = dmg => {
     const t = barrelRig?.trucks.find(v => v.active && !v.wreck);

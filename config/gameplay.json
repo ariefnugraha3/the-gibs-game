@@ -354,8 +354,13 @@
             "count": { "easy": 3, "normal": 4, "hard": 5 },
             "valveSteps": 6,
             "advanced": {
-                "interlockCrossMin": 1,
-                "interlockCrossMax": 2,
+                "syncPhases": { "easy": 3, "normal": 3, "hard": 4 },
+                "syncCoupling": 0.16,
+                "syncTolerance": 0.05,
+                "syncBusHz": 50,
+                "syncHzSpan": 6,
+                "syncBusCycles": 3,
+                "syncCycleSpan": 2.2,
                 "rotorSegments": 12,
                 "rotorRpmPerTurn": 0.5,
                 "rotorReverseLossPerTurn": 0.35,
@@ -650,12 +655,13 @@
                 "dropCount": 6,
                 "departSpeed": 130,
                 "wreckSec": 3.5,
-                "loot": 55,
-                "bossHpFrac": 0.5,
-                "bossFirstDelaySec": 4,
-                "bossIntervalSec": 11,
-                "bossMaxActive": 2,
-                "bossSpawnMax": 2
+                "loot": 55
+            },
+            "bossEscort": {
+                "hpFrac": 0.5,
+                "firstDelaySec": 4,
+                "respawnDelaySec": 3,
+                "load": ["B", "B", "A"]
             },
             "groundLoads": [
                 ["B", "B", "B"],

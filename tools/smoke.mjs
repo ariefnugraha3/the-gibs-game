@@ -2393,13 +2393,12 @@ function solveRepairModel(g, viaDrag = false) {
             const need = ((g.target[i] - g.pos[i]) % g.steps + g.steps) % g.steps;
             for (let k = 0; k < need; k++) repMod.applyValveTurn(g, i, 1);
         }
-    } else if (g.type === 'interlock') {
-        // Prosedur pemain yang wajar: `order` adalah urutan sah, dan kontrak
-        // papan menjanjikan menutup menurut urutan itu tak pernah kena trip.
-        for (const i of g.order) {
-            if (g.closed[i]) continue;                       // sudah tertutup di langkah uji sebelumnya
-            if (repMod.applyBreakerClose(g, i) !== 'link') return false;
-        }
+    } else if (g.type === 'sync') {
+        // Prosedur pemain yang wajar: setel tiap tuas ke sasarannya, lalu
+        // ulangi — kopling menggeser tuas lain, jadi satu sapuan tak cukup.
+        // Kontrak papan menjanjikan sapuan berulang SELALU menyatu.
+        for (let sweep = 0; sweep < 30 && !repMod.syncAligned(g); sweep++)
+            for (let i = 0; i < g.n; i++) repMod.applySyncSet(g, i, g.target[i]);
     } else if (g.type === 'kickstart') {
         const A = cfgMod.CFG.campaign.repair.advanced;
         // Crank TEPAT ke tengah green band (bukan langkah tombol) supaya
@@ -2429,8 +2428,9 @@ function solveOpenRepairBoard() {
             const need = ((g.target[i] - g.pos[i]) % g.steps + g.steps) % g.steps;
             for (let k = 0; k < need; k++) repMod.repairValveTurn(i, 1);
         }
-    } else if (g.type === 'interlock') {
-        for (const i of g.order) repMod.repairBreakerClose(i);
+    } else if (g.type === 'sync') {
+        for (let sweep = 0; sweep < 30 && !repMod.syncAligned(g); sweep++)
+            for (let i = 0; i < g.n; i++) repMod.repairSyncSet(i, g.target[i]);
     } else if (g.type === 'kickstart') {
         const A = cfgMod.CFG.campaign.repair.advanced;
         const mid = (A.rotorGreenMin + A.rotorGreenMax) / 2;
@@ -2488,68 +2488,114 @@ async function waitRepairClosed() {
         const A = RC.advanced;
         let advancedSolvable = true, advancedStartsWrong = true;
         for (const part of repMod.ADVANCED_REPAIR_PARTS) {
-            const n = part.type === 'kickstart' ? A.rotorSegments : RC.count.normal;
+            const n = part.type === 'kickstart' ? A.rotorSegments
+                : part.type === 'sync' ? repMod.syncCount('normal') : RC.count.normal;
             for (let k = 0; k < 40; k++) {
                 const g = repMod.buildRepairGame(part.type, n);
                 if (g.n !== n || repMod.repairIsSolved(g)) advancedStartsWrong = false;
                 if (!solveRepairModel(g)) advancedSolvable = false;
             }
         }
-        T('ADVANCED REPAIR: START INTERLOCK + ROTOR KICKSTART config-driven dan selalu solvable',
-            repMod.ADVANCED_REPAIR_PARTS.map(p => p.type).join(',') === 'interlock,kickstart'
+        T('ADVANCED REPAIR: PHASE SYNC + ROTOR KICKSTART config-driven dan selalu solvable',
+            repMod.ADVANCED_REPAIR_PARTS.map(p => p.type).join(',') === 'sync,kickstart'
             && advancedStartsWrong && advancedSolvable);
 
-        // --- START INTERLOCK ---------------------------------------------
-        // (1) Regresi yang MEMBUNUH papan fuse lama: jawabannya konstan, jadi
-        //     tiga generator sisanya cuma hafalan. Papan ini wajib beragam.
-        const ilkSigs = new Set(), ilkNames = new Set();
-        let ilkForwardOnly = true, ilkNaive = 0, ilkBoards = 0;
-        // Ketiga ukuran papan diuji: EASY (n=3) paling sempit, jadi di sanalah
-        // jaminan "diagram saja tak cukup" paling mudah runtuh.
+        // --- PHASE SYNC ----------------------------------------------------
+        // Papan ini menggantikan FAULT ISOLATION ("terlalu rumit"), yang
+        // menggantikan START INTERLOCK, yang menggantikan FUSE LOADOUT. Assert
+        // di bawah menjaga kegagalan KETIGA papan mati itu sekaligus: jawaban
+        // konstan (fuse), brute force sebagai strategi terbaik (interlock), dan
+        // beban baca (fault) — plus jaminan penyatuan yang khas papan ini.
+        const SY = RC.advanced;
+        const syncSigs = new Set();
+        let syncStartsOff = true, syncTargetsInRange = true, syncBoards = 0;
         for (let k = 0; k < 200; k++) {
             const diff = ['easy', 'normal', 'hard'][k % 3];
-            const g = repMod.buildRepairGame('interlock', RC.count[diff]);
-            ilkSigs.add(g.order.map(i => g.names[i]).join('>'));
-            ilkNames.add(g.rows.map(i => g.names[i]).join(','));
-            // (2) Syarat HANYA boleh menunjuk breaker yang lebih awal di `order`
-            //     -> graf mustahil bersiklus -> papan mustahil buntu.
-            const pos = new Array(g.n);
-            g.order.forEach((b, k2) => { pos[b] = k2; });
-            for (let i = 0; i < g.n; i++)
-                for (const j of repMod.interlockReqs(g, i)) if (pos[j] >= pos[i]) ilkForwardOnly = false;
-            // (3) Membaca diagram dari atas ke bawah tak boleh cukup.
-            const closed = new Array(g.n).fill(false);
-            let naive = 0;
-            for (let pass = 0; pass < g.n + 2 && closed.some(v => !v); pass++)
-                for (const i of g.rows) {
-                    if (closed[i]) continue;
-                    if (repMod.interlockReqs(g, i).every(j => closed[j])) closed[i] = true; else naive++;
-                }
-            if (naive > 0) ilkNaive++;
-            ilkBoards++;
+            const g = repMod.buildRepairGame('sync', repMod.syncCount(diff));
+            syncBoards++;
+            syncSigs.add(g.target.map(t => t.toFixed(3)).join(','));
+            // (1) Tak pernah terbuka (hampir) selesai: tiap tuas jelas meleset.
+            for (let i = 0; i < g.n; i++) {
+                if (repMod.syncLocked(g, i)) syncStartsOff = false;
+                // (2) Sasaran dijauhkan dari kedua ujung track, jadi kopling tak
+                //     pernah bisa mendorong jawaban keluar rentang tuas.
+                if (g.target[i] < 0.1 || g.target[i] > 0.9) syncTargetsInRange = false;
+            }
+            if (repMod.repairIsSolved(g)) syncStartsOff = false;
         }
-        // Ambangnya sengaja longgar (setengah sampel): dengan kolam nama terbatas
-        // sebagian tabrakan itu wajar (ulang tahun), sementara regresi yang
-        // diincar — jawaban KONSTAN seperti papan fuse lama — hanya menghasilkan 1.
-        T(`START INTERLOCK: urutan jawaban BERBEDA tiap papan [${ilkSigs.size}/${ilkBoards} unik] (papan fuse lama hanya punya 1)`,
-            ilkSigs.size > ilkBoards * 0.5 && ilkNames.size > 1);
-        T('START INTERLOCK: semua syarat menunjuk breaker yang lebih awal -> mustahil bersiklus/buntu',
-            ilkForwardOnly);
-        T(`START INTERLOCK: mengklik baris dari atas ke bawah selalu kena trip [${ilkNaive}/${ilkBoards}] -> diagram saja tak cukup`,
-            ilkNaive === ilkBoards);
+        T(`PHASE SYNC: sasaran BERBEDA tiap papan [${syncSigs.size}/${syncBoards} unik] (papan fuse lama hanya punya 1)`,
+            syncSigs.size > syncBoards * 0.95 && syncStartsOff && syncTargetsInRange);
 
-        // (4) Trip TIDAK merusak kemajuan: breaker salah tetap OPEN, lalu
-        //     urutan benar tetap menuntaskan papan yang sama.
-        const ilk = repMod.buildRepairGame('interlock', RC.count.normal);
-        const lastB = ilk.order[ilk.n - 1];
-        const early = repMod.applyBreakerClose(ilk, lastB);
-        const tripped = early === 'reject' && ilk.closed[lastB] === false
-            && !!ilk.trip && ilk.trip.i === lastB && ilk.trip.missing.length > 0;
-        const first = repMod.applyBreakerClose(ilk, ilk.order[0]);
-        const relatch = repMod.applyBreakerClose(ilk, ilk.order[0]);   // sudah tertutup = terkunci
-        solveRepairModel(ilk);
-        T('START INTERLOCK: menutup di luar urutan hanya trip (tak nyangkut), breaker tertutup terkunci, papan tetap tuntas',
-            tripped && first === 'link' && relatch === 'none' && repMod.repairIsSolved(ilk));
+        // (3) KOPLING itu nyata DAN dijepit di bawah ambang dominan-diagonal
+        //     `(n-1)*c < 1`. Inilah yang membuat "setel satu per satu, ulangi"
+        //     dijamin menyatu berapa pun angka yang diketik user di config.
+        {
+            let couplingMoves = true, couplingCapped = true;
+            for (const diff of ['easy', 'normal', 'hard']) {
+                const g = repMod.buildRepairGame('sync', repMod.syncCount(diff));
+                if (!(g.coupling > 0) || g.coupling * (g.n - 1) >= 1) couplingCapped = false;
+                const before = g.v.slice();
+                repMod.applySyncSet(g, 0, Math.min(1, before[0] + 0.3));
+                // Tuas yang digeser mendarat TEPAT; sisanya bergeser SEDIKIT.
+                for (let j = 1; j < g.n; j++) {
+                    const moved = Math.abs(g.v[j] - before[j]);
+                    if (!(moved > 1e-6) || moved >= Math.abs(g.v[0] - before[0])) couplingMoves = false;
+                }
+            }
+            T(`PHASE SYNC: menggeser satu tuas ikut menggeser tuas lain SEDIKIT, dan koplingnya dijepit di bawah ambang penyatuan [c=${repMod.syncCoupling(4).toFixed(3)} vs batas ${(0.9 / 3).toFixed(3)}]`,
+                couplingMoves && couplingCapped);
+        }
+
+        // (4) SELALU SOLVABLE, dibuktikan bukan diharapkan: prosedur pemain yang
+        //     wajar — setel tuas satu per satu ke sasarannya, ulangi — harus
+        //     mendarat di SETIAP papan, dalam jumlah sapuan yang manusiawi.
+        {
+            let converged = 0, worstSweeps = 0, boards = 0;
+            for (let k = 0; k < 200; k++) {
+                const g = repMod.buildRepairGame('sync', repMod.syncCount(['easy', 'normal', 'hard'][k % 3]));
+                boards++;
+                let sweeps = 0;
+                while (!repMod.syncAligned(g) && sweeps < 30) {
+                    for (let i = 0; i < g.n; i++) repMod.applySyncSet(g, i, g.target[i]);
+                    sweeps++;
+                }
+                if (repMod.syncAligned(g) && repMod.repairIsSolved(g)) converged++;
+                worstSweeps = Math.max(worstSweeps, sweeps);
+            }
+            T(`PHASE SYNC: setel satu per satu lalu ulangi SELALU menyatu [${converged}/${boards} papan, sapuan terburuk ${worstSweeps}]`,
+                converged === boards && worstSweeps <= 6);
+        }
+
+        // (5) Papan dibaca dari GAMBAR, bukan teks: pembacaan Hz/amplitudo dan
+        //     lampu kunci semuanya turunan dari SATU selisih tuas, jadi panel
+        //     tak mungkin berbohong tentang keadaan model. Tepat di sasaran =
+        //     tepat frekuensi bus dan amplitudo penuh.
+        {
+            const g = repMod.buildRepairGame('sync', repMod.syncCount('hard'));
+            let honest = true;
+            for (let i = 0; i < g.n; i++) {
+                repMod.applySyncSet(g, i, g.target[i]);
+                if (Math.abs(repMod.syncHz(g, i) - SY.syncBusHz) > 1e-9) honest = false;
+                if (Math.abs(repMod.syncAmp(g, i) - 1) > 1e-9) honest = false;
+                if (!repMod.syncLocked(g, i)) honest = false;
+            }
+            // ...dan meleset jauh terbaca jauh, di kedua besaran.
+            repMod.applySyncSet(g, 0, Math.abs(g.target[0] - 0.9) > 0.3 ? 0.9 : 0.1);
+            const off = Math.abs(repMod.syncHz(g, 0) - SY.syncBusHz) > 0.5
+                && repMod.syncAmp(g, 0) < 0.9 && !repMod.syncLocked(g, 0);
+            T('PHASE SYNC: Hz, amplitudo dan lampu semuanya turunan dari SATU selisih tuas — panel tak bisa berbohong',
+                honest && off);
+        }
+
+        // (6) Gulirnya MURNI visual: tick gelombang tak boleh menyentuh satu pun
+        //     nilai gameplay, atau papan bisa "selesai sendiri" sambil ditonton.
+        {
+            const g = repMod.buildRepairGame('sync', repMod.syncCount('normal'));
+            const before = g.v.slice(), t0 = g.t;
+            for (let k = 0; k < 120; k++) repMod.applySyncTick(g, 0.05);
+            T('PHASE SYNC: gelombang bergulir MURNI visual — tick tak pernah menggeser tuas atau menyelesaikan papan',
+                g.t > t0 && g.v.every((v, i) => v === before[i]) && !repMod.repairIsSolved(g));
+        }
 
         // --- ROTOR KICKSTART ---------------------------------------------
         const rotor = repMod.buildRepairGame('kickstart', A.rotorSegments);
@@ -2744,24 +2790,34 @@ async function waitRepairClosed() {
         smMod.activeScene.shopKey('escape');
         stateMod.setPaused(false);
 
-        // Papan advanced 1: Start Interlock diklik langsung di barisnya —
-        // urutan salah hanya trip, urutan benar menuntaskan panel.
+        // Papan advanced 1: Phase Sync digerakkan lewat event mouse SUNGGUHAN
+        // pada track tuasnya (mousedown -> mousemove -> mouseup). Yang diuji di
+        // sini adalah kontrak DOM-nya: track bisa diklik langsung (bukan cuma
+        // knob-nya), seret benar-benar menggeser nilai, dan tuas LAIN ikut
+        // bergeser karena kopling.
         dragResult = null;
         repMod.beginRepairMinigame({
-            head: 'INTERLOCK TEST', parts: [repMod.ADVANCED_REPAIR_PARTS[0]],
+            head: 'SYNC TEST', parts: [repMod.ADVANCED_REPAIR_PARTS[0]],
             onSuccess: () => { dragResult = 'ok'; }, onFail: (w) => { dragResult = w; },
         });
-        const ilkG = repMod.repairDebug().game;
-        // Baris dibangun ulang tiap aksi, jadi elemennya dicari ulang tiap klik.
-        const ilkRowOf = (b) => find(boardOf(), 'repIlkRow')[repMod.repairDebug().game.rows.indexOf(b)];
-        const lastBreaker = ilkG.order[ilkG.n - 1];
-        fire(ilkRowOf(lastBreaker), 'click', ev(0, 0));
-        const ilkTripped = repMod.repairDebug().game.closed[lastBreaker] === false
-            && !!repMod.repairDebug().game.trip;
-        for (const b of ilkG.order) fire(ilkRowOf(b), 'click', ev(0, 0));
+        const syncG = repMod.repairDebug().game;
+        // Track selebar 100 px di mini-DOM, jadi clientX = persen nilai tuas.
+        const syncTracks = () => find(boardOf(), 'repSyncTrack');
+        const beforeSync = syncG.v.slice();
+        fire(syncTracks()[0], 'mousedown', ev(80, 5));
+        const syncClicked = Math.abs(syncG.v[0] - 0.8) < 1e-6;
+        const syncCoupled = syncG.v.every((v, i) => i === 0 || Math.abs(v - beforeSync[i]) > 1e-6);
+        fireDoc('mousemove', ev(20, 5));
+        const syncDragged = Math.abs(syncG.v[0] - 0.2) < 1e-6;
+        fireDoc('mouseup', ev(20, 5));
+        // Dilepas: gerak kursor berikutnya tak boleh menggeser apa pun lagi.
+        const afterUp = syncG.v[0];
+        fireDoc('mousemove', ev(90, 5));
+        const syncReleased = syncG.v[0] === afterUp;
+        solveOpenRepairBoard();
         await waitRepairClosed();
-        T('START INTERLOCK DOM: klik baris di luar urutan hanya trip, lalu urutan benar menyelesaikan panel',
-            ilkTripped && dragResult === 'ok');
+        T('PHASE SYNC DOM: klik track menggeser tuas, seret mengikutinya, tuas lain ikut terkopling, dan lepas benar-benar melepas',
+            syncClicked && syncCoupled && syncDragged && syncReleased && dragResult === 'ok');
         stateMod.setPaused(false);
 
         // Papan advanced 2: satu putaran drag clockwise dibaca sebagai RPM,
@@ -6723,7 +6779,7 @@ s5mod.stage5Scene.updateMode(0.1);
 T('S5 REPAIR C2: generator membuka tepat dua papan advanced dan pause',
     s5mod.stage5Debug().phase === 'repairing' && repMod.isRepairOpen()
     && repMod.repairDebug().total === repMod.ADVANCED_REPAIR_PARTS.length
-    && repMod.repairDebug().type === 'interlock' && stateMod.isPaused);
+    && repMod.repairDebug().type === 'sync' && stateMod.isPaused);
 solveOpenRepairBoard();
 await waitRepairNext(1);
 smMod.activeScene.shopKey('escape'); stateMod.setPaused(false);
@@ -8223,8 +8279,8 @@ T('S6 KUNCI DITEMUKAN: rak yang benar MELEPAS GEMBOK `=` tanpa membukanya',
 drainS6Dialogue();
 
 s6Put(s6mod.GENERATOR_POINTS[0].stand); s6mod.stage6Scene.updateMode(0.1);
-T('S6 GENERATOR: generator pertama membuka START INTERLOCK lalu ROTOR KICKSTART',
-    repMod.isRepairOpen() && repMod.repairDebug().total === 2 && repMod.repairDebug().type === 'interlock');
+T('S6 GENERATOR: generator pertama membuka PHASE SYNC lalu ROTOR KICKSTART',
+    repMod.isRepairOpen() && repMod.repairDebug().total === 2 && repMod.repairDebug().type === 'sync');
 solveOpenRepairBoard(); await waitRepairNext(1);
 smMod.activeScene.shopKey('escape'); stateMod.setPaused(false);
 T('S6 GENERATOR: abort menyimpan papan pertama dan pemicu harus re-arm dengan menjauh',
@@ -11010,50 +11066,56 @@ T('S8 GUNSHIP MISSILE: siklus MG/cannon/missile menghasilkan burst tepat tiga, t
         && misR < S8G.hitRadius);
 }
 
-// PENGANGKUT BAREL MENETAP DI PARUH KEDUA DUEL BOS (2026-08-19, permintaan user
-// "ketika HP gunship sudah 50% atau kurang, sesekali munculkan 1 atau 2 mobil
-// barrel, tapi mobil barel ini akan terus menurunkan barel sampai dia
-// dihancurkan, tidak pergi setelah menurunkan barel seperti biasanya").
+// PENGAWAL BOS: SATU PASANG TRUK BAREL + CARRIER ROBOT (2026-08-19, permintaan
+// user "ketika HP gunship kurang dari 50% maka akan muncul 1 mobil barel dan 1
+// mobil robot. dan jika mobil barel DAN mobil robot itu hancur, maka 3 detik
+// kemudian akan spawn lagi. jika gunship dikalahkan dan masih ada mobil itu,
+// maka mobil itu akan langsung meledak juga").
 {
-    const BD = S8C.barrelDropper;
+    const BD = S8C.barrelDropper, BE = S8C.bossEscort;
     stateMod.setGodMode(true);
     s8mod.stage8ClearHaulersDbg();
 
-    // --- SEBELUM ambang: bos masih penuh HP, tak boleh ada satu pun truk.
+    // --- SEBELUM ambang: bos masih penuh HP, tak boleh ada satu pun kendaraan.
     let preSpawn = 0;
     for (let i = 0; i < 400; i++) {
         tickS8(0.05, 0.05);
-        preSpawn = Math.max(preSpawn, s8mod.stage8HaulerDebug().active);
+        preSpawn = Math.max(preSpawn, s8mod.stage8HaulerDebug().active
+            + (s8mod.stage8BossEscortDbg().carrierLive ? 1 : 0));
     }
-    T(`S8 BOS+BAREL: selama HP bos di atas ambang config, tak ada truk barel sama sekali [hp ${(s8mod.stage8GunshipDebug().hp / S8G.hp * 100).toFixed(0)}% vs ambang ${(BD.bossHpFrac * 100).toFixed(0)}%]`,
+    T(`S8 BOS+PENGAWAL: selama HP bos di atas ambang config, tak ada kendaraan pengawal sama sekali [hp ${(s8mod.stage8GunshipDebug().hp / S8G.hp * 100).toFixed(0)}% vs ambang ${(BE.hpFrac * 100).toFixed(0)}%]`,
         preSpawn === 0
-        && !s8mod.stage8BossHaulerDbg().armed
-        && s8mod.stage8GunshipDebug().hp > S8G.hp * BD.bossHpFrac);
+        && !s8mod.stage8BossEscortDbg().armed
+        && s8mod.stage8BossEscortDbg().waves === 0
+        && s8mod.stage8GunshipDebug().hp > S8G.hp * BE.hpFrac);
 
     // --- Turunkan HP bos TEPAT ke ambangnya.
-    s8mod.stage8DamageGunshipForDebug(Math.ceil(S8G.hp * (1 - BD.bossHpFrac)));
-    T(`S8 BOS+BAREL: ambangnya dibaca dari HP bos, bukan dari waktu [${(s8mod.stage8GunshipDebug().hp / S8G.hp * 100).toFixed(0)}%]`,
-        s8mod.stage8BossHaulerDbg().armed
-        && s8mod.stage8GunshipDebug().hp <= S8G.hp * BD.bossHpFrac);
+    s8mod.stage8DamageGunshipForDebug(Math.ceil(S8G.hp * (1 - BE.hpFrac)));
+    T(`S8 BOS+PENGAWAL: ambangnya dibaca dari HP bos, bukan dari waktu [${(s8mod.stage8GunshipDebug().hp / S8G.hp * 100).toFixed(0)}%]`,
+        s8mod.stage8BossEscortDbg().armed
+        && s8mod.stage8GunshipDebug().hp <= S8G.hp * BE.hpFrac);
 
-    // --- Sesudah ambang: truk muncul, 1-2 sekaligus, tak melewati capnya.
-    let peak = 0, guard = 0;
-    while (peak === 0 && guard++ < 600) {
+    // --- Sesudah ambang: TEPAT SATU truk barel + SATU carrier robot.
+    let guard = 0;
+    while (!s8mod.stage8BossEscortDbg().pairLive && guard++ < 600) tickS8(0.05, 0.05);
+    const wave1 = s8mod.stage8BossEscortDbg();
+    const riders1 = stateMod.robots.filter(z => z.stage === 8 && z.mounted).length;
+    let peakTrucks = 0, peakCarriers = 0;
+    for (let i = 0; i < 400; i++) {
         tickS8(0.05, 0.05);
-        peak = Math.max(peak, s8mod.stage8HaulerDebug().active);
+        peakTrucks = Math.max(peakTrucks, s8mod.stage8HaulerDebug().active);
+        peakCarriers = Math.max(peakCarriers,
+            s8mod.stage8BossEscortDbg().carrierLive ? 1 : 0);
     }
-    for (let i = 0; i < 600; i++) {
-        tickS8(0.05, 0.05);
-        peak = Math.max(peak, s8mod.stage8HaulerDebug().active);
-    }
-    const born = s8mod.stage8HaulerDebug().trucks.filter(t => t.active && !t.wreck);
-    T(`S8 BOS+BAREL: sesudah ambang truk barel datang, 1-2 sekaligus dan tak pernah melewati cap [puncak ${peak} vs cap ${BD.bossMaxActive}]`,
-        peak >= 1 && peak <= BD.bossMaxActive && BD.bossMaxActive >= 1
-        && born.length > 0 && born.every(t => t.endless));
+    T(`S8 BOS+PENGAWAL: satu PASANG — 1 truk barel + 1 carrier robot, tak pernah lebih [truk ${peakTrucks}/${wave1.trucks}, carrier ${peakCarriers}/${wave1.carriers}, ${riders1} penumpang]`,
+        wave1.truckLive && wave1.carrierLive && wave1.waves === 1
+        && peakTrucks === wave1.trucks && peakCarriers === wave1.carriers
+        && riders1 === 3
+        // Truknya MENETAP: satu-satunya alasan ia berhenti adalah dihancurkan.
+        && s8mod.stage8HaulerDebug().trucks.some(t => t.active && !t.wreck && t.endless));
 
     // --- MENETAP: menjatuhkan JAUH melebihi satu muatan dan tak pernah berlalu.
-    const stay = s8mod.stage8HaulerDebug().trucks.find(t => t.active && !t.wreck && t.endless);
-    let departed = false, maxDropped = stay ? stay.dropped : 0;
+    let departed = false, maxDropped = 0;
     for (let i = 0; i < 900; i++) {
         tickS8(0.05, 0.05);
         const t = s8mod.stage8HaulerDebug().trucks.find(v => v.active && v.endless && !v.wreck);
@@ -11061,23 +11123,56 @@ T('S8 GUNSHIP MISSILE: siklus MG/cannon/missile menghasilkan burst tepat tiga, t
         if (t.phase === 'depart') departed = true;
         maxDropped = Math.max(maxDropped, t.dropped);
     }
-    T(`S8 BOS+BAREL: truk MENETAP — terus menjatuhkan barel melewati satu muatan penuh dan tak pernah berlalu [${maxDropped} barel vs muatan ${BD.dropCount}]`,
+    T(`S8 BOS+PENGAWAL: truk barel MENETAP — terus menjatuhkan melewati satu muatan penuh dan tak pernah berlalu [${maxDropped} barel vs muatan ${BD.dropCount}]`,
         maxDropped > BD.dropCount && !departed
-        // Poolnya ikut diturunkan dari fisika, jadi tak pernah kelaparan:
-        // truk yang kelaparan slot akan berhenti menjatuhkan tanpa alasan.
+        // Poolnya diturunkan dari fisika, jadi tak pernah kelaparan slot.
         && s8mod.stage8HaulerDebug().pools.barrels >= BD.dropCount);
 
-    // --- Berhenti HANYA kalau dihancurkan.
-    const before = s8mod.stage8HaulerDebug().trucks.find(t => t.active && t.endless && !t.wreck);
+    // --- SATU kendaraan hancur BELUM memicu apa pun: jedanya baru berdetak
+    //     ketika KEDUANYA habis. Ini bagian mekanik yang paling mudah salah —
+    //     versi interval lama tetap mengirim truk baru walau yang lama hidup.
     s8mod.stage8DamageHaulerDbg(BD.hp);
-    const killed = s8mod.stage8HaulerDebug().trucks.find(t => t.wreck);
-    const dropAtKill = killed ? killed.dropped : -1;
     for (let i = 0; i < 40; i++) tickS8(0.05, 0.05);
-    const post = s8mod.stage8HaulerDebug().trucks.find(t => t.wreck);
-    T(`S8 BOS+BAREL: berhenti HANYA setelah dihancurkan [${dropAtKill} barel saat mati]`,
-        !!before && !!killed && killed.hp === 0
-        // Bangkai tak menjatuhkan apa pun lagi.
-        && (!post || post.dropped === dropAtKill));
+    const halfDead = s8mod.stage8BossEscortDbg();
+    T(`S8 BOS+PENGAWAL: menyisakan satu kendaraan MENAHAN gelombang berikutnya [truk mati, carrier hidup, gelombang ${halfDead.waves}]`,
+        !halfDead.truckLive && halfDead.carrierLive && halfDead.pairLive
+        && halfDead.waves === 1 && halfDead.timer < 0);
+
+    // --- Habisi penumpang carrier: pasangan lengkap -> jeda respawn mulai.
+    for (let i = stateMod.robots.length - 1; i >= 0; i--)
+        if (stateMod.robots[i].stage === 8 && stateMod.robots[i].mounted)
+            robotsMod.killRobot(i);
+    tickS8(0.1, 0.05);
+    const cleared = s8mod.stage8BossEscortDbg();
+    T('S8 BOS+PENGAWAL: pasangan habis -> jeda respawn config mulai berdetak'
+        + ` [${cleared.timer.toFixed(2)}s vs ${BE.respawnDelaySec}s]`,
+        !cleared.pairLive && !cleared.truckLive && !cleared.carrierLive
+        && cleared.waves === 1
+        && cleared.timer > 0 && cleared.timer <= BE.respawnDelaySec);
+
+    // --- Sebelum jedanya habis TAK BOLEH ada pasangan baru; sesudahnya ADA.
+    tickS8(Math.max(0, BE.respawnDelaySec - 0.4), 0.05);
+    const preRespawn = s8mod.stage8BossEscortDbg();
+    let g2 = 0;
+    while (!s8mod.stage8BossEscortDbg().pairLive && g2++ < 200) tickS8(0.05, 0.05);
+    const wave2 = s8mod.stage8BossEscortDbg();
+    T(`S8 BOS+PENGAWAL: pasangan baru lahir SETELAH jeda ${BE.respawnDelaySec}s, bukan sebelumnya [gelombang ${wave2.waves}]`,
+        !preRespawn.pairLive && wave2.waves === 2
+        && wave2.truckLive && wave2.carrierLive);
+
+    // --- BOS JATUH: kendaraan yang masih hidup ikut MELEDAK seketika, lewat
+    //     jalur kematian normalnya (bangkai, bukan penghapusan diam-diam).
+    const boomsBefore = stateMod.explosions.length;
+    s8mod.stage8DamageGunshipForDebug(S8G.hp);
+    tickS8(0.05, 0.05);
+    const afterBoss = s8mod.stage8BossEscortDbg();
+    const wrecked = s8mod.stage8HaulerDebug().trucks.filter(t => t.wreck).length;
+    T(`S8 BOS+PENGAWAL: bos jatuh -> kendaraan pengawal yang tersisa langsung meledak [${wrecked} truk bangkai, ledakan ${boomsBefore}->${stateMod.explosions.length}]`,
+        s8mod.stage8Debug().phase === 'gunshipDeath'
+        && !afterBoss.truckLive && !afterBoss.carrierLive && !afterBoss.pairLive
+        && wrecked > 0 && stateMod.explosions.length > boomsBefore
+        // Tak ada penumpang yang tertinggal hidup di aspal.
+        && stateMod.robots.filter(z => z.stage === 8 && z.mounted).length === 0);
 
     stateMod.setGodMode(false);
     s8mod.stage8ClearHaulersDbg(); robotsMod.resetRobotsFx(); barrel5Mod.resetBarrels();

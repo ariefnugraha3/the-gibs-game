@@ -197,9 +197,15 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - **Stage 5-6 minigames are a separate interaction set** (2026-08-09): Stage 5 C1
   and the Stage 6 `I` terminal use `signalTraceMinigame.js` (SIGNAL TRACE), never
   ICE BREACH/progress bars. Stage 5 C2 and all three Stage 6 generators run exactly
-  `ADVANCED_REPAIR_PARTS`: START INTERLOCK then ROTOR KICKSTART, preserving the completed-board
-  index after abort. Welding heat only rolls back the active seam; a mistimed ignition
-  only costs rotor RPM. The Stage 6 HQ upload remains a story cutscene.
+  `ADVANCED_REPAIR_PARTS`: PHASE SYNC then ROTOR KICKSTART, preserving the completed-board
+  index after abort. PHASE SYNC (2026-08-19 user request, replaced FAULT ISOLATION as "terlalu
+  rumit") is an oscilloscope: slide each phase trim until its wave lies on the bus reference and
+  the scope collapses to one line. Its ONLY difficulty is COUPLING — moving one slider drags the
+  others a fraction of the same distance. No hidden information and nothing to read; every
+  readout and lamp derives from one quantity (`syncError`) so the panel cannot lie, and
+  `syncCoupling` is CLAMPED below the diagonal-dominance bound `(n-1)*c < 1` so no config retune
+  can make a board unsolvable. A mistimed ignition only costs rotor RPM. The Stage 6 HQ upload
+  remains a story cutscene.
 - **Dialogue source contract:** spoken/cinematic text lives in `config/gameplay.json`
   under `dialogue`; scenes read it through `src/core/dialogue.js`. Keep objective/HUD
   status strings separate from the dialogue data.
@@ -832,12 +838,16 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   drops nothing during approach. The "arrived" threshold is also now a fraction of the truck's own length
   instead of 6 units, because the approach eases exponentially and it looked parked long before the code
   agreed. Any exponential approach needs its arrival threshold scaled to the object, not a small constant.
-- Boss duel second half spawns STATIONARY barrel haulers (2026-08-19 user request): past
-  `gunship.hp <= maxHp * bossHpFrac` (0.5), 1-2 trucks spawned with `{endless:true}` hold station and keep
-  unloading until destroyed — an obstacle becomes a target, so fire must be split between air and road.
-  Their bed cycles instead of emptying forever; the barrel pool is DERIVED (`barrelSlotsNeeded`) because
-  endless dropping starves a fixed pool silently; and they are cleared when the arrival cutscene starts
-  since an endless truck never leaves on its own.
+- Boss duel second half spawns an ESCORT PAIR (2026-08-19 user request): past
+  `gunship.hp <= maxHp * bossEscort.hpFrac` (0.5), exactly ONE barrel hauler (`{endless:true}` — it holds
+  station and keeps unloading until destroyed, so an obstacle becomes a target) plus ONE robot carrier with
+  three riders. The pair is tracked BY REFERENCE, not by a repeating timer: while either is alive no
+  countdown runs at all, and `respawnDelaySec` (3s) starts only when BOTH are destroyed — leaving one alive
+  holds the next wave back. Pair size is a scene constant (`BOSS_ESCORT_TRUCKS`/`BOSS_ESCORT_CARRIERS`), not
+  config, because it sizes preallocated pools; the barrel pool stays DERIVED (`barrelSlotsNeeded`) because
+  endless dropping starves a fixed pool silently. When the gunship dies, `detonateBossEscort()` blows up any
+  survivor through its NORMAL death path (damage the truck, `killRobot({cause:'explosion'})` the riders, then
+  `destroyPickup`) — never a silent removal — and the wrecks are recycled in `swapToAirport` behind black.
 - A gunship missile's hitbox must cover the body that is DRAWN (2026-08-18 user report): `missileHitRadius`
   stayed at 5 while the missile's drawn body grew to ~31 units, so rounds passing visibly through it did
   nothing. Now 12 (most of the drawn length, never more than it) and `missileHp` 80 -> 40, one rifle round.

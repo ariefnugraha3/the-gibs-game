@@ -4,7 +4,7 @@
 // KETIGA komponen generator di Campaign Stage 2.
 //
 // Stage 5-6 memakai daftar papan LAIN (ADVANCED_REPAIR_PARTS di bawah):
-// START INTERLOCK lalu ROTOR KICKSTART.
+// PHASE SYNC lalu ROTOR KICKSTART.
 //
 // TIGA papan, SATU per komponen yang tadi dikumpulkan player di gudang
 // (REPAIR_PARTS — stage2 memakai daftar yang sama untuk menamai tiap komponen
@@ -49,7 +49,7 @@ import { activeScene, setScene, resumeScene } from '../../../core/sceneManager.j
 import { requestLock } from '../../../core/input.js';
 import { blocker } from '../../../core/dom.js';
 import { clearMoveTarget } from '../../../entities/player.js';
-import { playSFX, sfxSwitch, sfxPurchase, sfxEmpty, sfxPickup } from '../../../utils/sfx.js';
+import { playSFX, sfxSwitch, sfxPurchase, sfxEmpty, sfxPickup, sfxHeli } from '../../../utils/sfx.js';
 import { stage1Scene } from '../stages/stage1/index.js';   // hanya utk restartScene (circular aman: dipakai DI DALAM fungsi)
 
 const STEP_MS = 700;      // jeda banner "COMPONENT k/n INSTALLED" antar papan
@@ -84,15 +84,18 @@ export const REPAIR_PARTS = [
 
 // Dua pekerjaan mekanis khusus generator Stage 5-6. Sengaja berbeda dari
 // kabel, chip, dan katup Stage 2 — dan berbeda satu sama lain: papan pertama
-// MENALAR (urutan penyalaan), papan kedua BERTINDAK (putar roda gila lalu
-// nyalakan mesin di dalam jendela RPM yang terus menyusut).
+// MENYELARASKAN (geser tuas tiap fasa sampai gelombangnya berimpit dengan bus,
+// melawan kopling antar tuas), papan kedua BERTINDAK (putar roda gila lalu
+// nyalakan mesin di dalam jendela RPM yang menyusut). Keduanya dibaca dari
+// GAMBAR, bukan dari teks: itulah alasan papan diagnosis sebelumnya dibuang.
 export const ADVANCED_REPAIR_PARTS = [
     {
-        id: 'interlock', label: 'START INTERLOCK', type: 'interlock',
-        sub: 'Close every breaker in a legal order. Each breaker lists the breakers that must '
-            + 'ALREADY be closed before it will latch, and some of those run across the feed '
-            + 'diagram - reading the branches alone is not enough.',
-        hint: 'Click a breaker to close it - closing one out of order only trips it back open',
+        id: 'sync', label: 'PHASE SYNC', type: 'sync',
+        sub: 'The generator cannot couple to the grid until every phase runs with the bus. '
+            + 'Slide each phase trim until its wave lies on the bus reference and the whole '
+            + 'scope collapses into one steady line. The phases load each other, so moving '
+            + 'one nudges the rest - come back and trim again.',
+        hint: 'Drag a slider (or click its track) - every lamp green and the turbine spins up',
     },
     {
         id: 'kickstart', label: 'ROTOR KICKSTART', type: 'kickstart',
@@ -141,6 +144,12 @@ let rotorDrag = null;
 let rotorTimer = 0, rotorWrapEl = null, rotorFaceEl = null, rotorNeedleEl = null;
 let rotorRpmEl = null, rotorStateEl = null, rotorIgnEl = null, rotorCrankEl = null;
 const ROTOR_TICK_MS = 50;
+// Papan PHASE SYNC: gelombang bergulir sendiri, jadi ia punya tick sendiri
+// dengan alasan yang sama seperti roda gila — loop game di-pause selagi modal
+// terbuka. `syncDrag` = tuas yang sedang diseret (dipegang terpisah dari
+// `drag`, yang milik kabel/chip).
+let syncTimer = 0, syncScopeEl = null, syncNoteEl = null, syncRowEls = [], syncDrag = null;
+const SYNC_TICK_MS = 50;
 const DRAG_SLOP = 5;      // px sebelum gerakan dianggap seret (di bawah ini = klik biasa)
 
 const overlayEl = () => document.getElementById('repairOverlay');
@@ -196,92 +205,126 @@ function buildValves(count, steps) {
     return { type: 'valves', n, steps, pos, target, bad: null };
 }
 
-// --- INTERLOCK: URUTAN PENYALAAN (2026-08-19, menggantikan FUSE LOADOUT) ----
-// Papan lama punya satu jawaban tetap selamanya (rak fuse & amp target adalah
-// konstanta), jadi sesudah sekali main tiga generator sisanya cuma hafalan.
-// Papan ini menukar "cocokkan angka" dengan satu dimensi yang belum dipakai
-// papan mana pun di game ini: URUTAN.
+//// --- PHASE SYNCHRONIZATION: SINKRONISASI GELOMBANG (2026-08-19) ------------
+// Papan pertama generator Stage 5-6, permintaan user. Menggantikan FAULT
+// ISOLATION ("terlalu rumit"), yang menggantikan START INTERLOCK, yang
+// menggantikan FUSE LOADOUT. Tiga papan mati, tiga pelajaran, dan yang terakhir
+// adalah yang paling penting:
 //
-// Player menutup semua breaker; tiap breaker mensyaratkan breaker lain SUDAH
-// tertutup. Syarat datang dari dua tempat:
-//   - INDUK (`parent`) — digambar sebagai cabang di diagram satu-garis,
-//   - LINTAS-CABANG (`cross`) — hanya tertulis di kartu breaker.
-// Karena itu membaca diagram saja TIDAK cukup; generator bahkan menolak papan
-// yang bisa diselesaikan dengan mengklik baris dari atas ke bawah.
-const BREAKER_NAMES = [
-    'LUBE OIL', 'FUEL PUMP', 'COOLANT', 'EXCITER',
-    'FIELD', 'AVR', 'BUS TIE', 'STARTER',
-];
+//   FUSE LOADOUT    : jawabannya konstan -> hafalan.
+//   START INTERLOCK : semua informasi tercetak dan salah klik gratis, jadi
+//                     brute force JUSTRU strategi tercepat.
+//   FAULT ISOLATION : puzzlenya bagus tapi harus DIBACA dulu — pohon, meter,
+//                     probe, PAR. Ini papan perbaikan generator di tengah
+//                     stage tempur, bukan teka-teki logika: yang dibutuhkan
+//                     adalah sesuatu yang langsung DIPAHAMI dari melihatnya.
+//
+// Karena itu papan ini TIDAK punya informasi tersembunyi sama sekali dan tidak
+// butuh dibaca: sebuah osiloskop menampilkan gelombang tiap fasa terhadap
+// gelombang acuan bus. Yang melenceng terlihat melenceng. Player menggeser satu
+// tuas per fasa sampai semua gelombang berimpit jadi SATU garis stabil, lalu
+// papan selesai sendiri dengan deru turbin.
+//
+// SATU-SATUNYA tantangannya adalah KOPLING: menggeser satu tuas ikut menggeser
+// tuas lain sedikit (`syncCoupling`) — persis generator sungguhan yang saling
+// membebani. Tak ada hitung mundur, tak ada cara kalah (aturan user
+// 2026-07-29): salah geser hanya perlu digeser lagi.
+//
+// SELALU SOLVABLE, DAN INI DIBUKTIKAN BUKAN DIHARAPKAN. Menyetel tuas i tepat
+// ke sasarannya lalu lanjut ke tuas berikutnya adalah iterasi Gauss-Seidel pada
+// matriks berdiagonal satu dengan elemen luar `c`. Ia menyatu (converge) bila
+// matriksnya dominan diagonal ketat, yaitu `(n-1)*|c| < 1`. `buildSync` MENJEPIT
+// koplingnya tepat di bawah batas itu (`SYNC_COUPLING_SAFETY`), jadi berapa pun
+// nilai config yang diketik user, prosedur "setel satu per satu, ulangi"
+// dijamin mendarat — smoke menjalankan prosedur itu di ratusan papan.
+const SYNC_NAMES = ['PHASE R', 'PHASE S', 'PHASE T', 'PHASE N'];
+// Batas keamanan kopling: 0.9 dari ambang dominan-diagonal, supaya penyatuannya
+// tak cuma terjamin secara matematis tapi juga CEPAT (tiap sapuan memangkas
+// galat sisa setidaknya 10%).
+const SYNC_COUPLING_SAFETY = 0.9;
 
-// SELALU SOLVABLE tanpa perlu dicek: `order` adalah permutasi acak yang menjadi
-// urutan benar, dan SETIAP syarat hanya boleh menunjuk breaker yang lebih awal
-// di `order`. Graf syarat karena itu mustahil bersiklus — menutup menurut
-// `order` selalu berhasil dari awal sampai habis.
-function interlockAttempt(n) {
-    const R = CFG.campaign.repair.advanced;
-    const order = shuffle([...Array(n).keys()]);
-    const names = shuffle(BREAKER_NAMES.slice()).slice(0, n);   // nama tak boleh membocorkan urutan
-    const parent = new Array(n).fill(-1);
-    const cross = Array.from({ length: n }, () => []);
-    const crossMin = Math.max(0, R.interlockCrossMin | 0);
-    const crossMax = Math.max(crossMin, R.interlockCrossMax | 0);
-    for (let k = 1; k < n; k++) {
-        const i = order[k];
-        parent[i] = order[(Math.random() * k) | 0];
-        const pool = [];
-        for (let j = 0; j < k; j++) if (order[j] !== parent[i]) pool.push(order[j]);
-        shuffle(pool);
-        const want = crossMin + ((Math.random() * (crossMax - crossMin + 1)) | 0);
-        for (let c = 0; c < want && c < pool.length; c++) cross[i].push(pool[c]);
+// Jumlah fasa menurut difficulty (user: "3 atau 4 slider").
+export function syncCount(diff = difficulty) {
+    const S = CFG.campaign.repair.advanced.syncPhases;
+    if (!S) return 3;
+    return S[diff] != null ? S[diff] : S.normal;
+}
+export function syncTolerance() {
+    return CFG.campaign.repair.advanced.syncTolerance || 0.05;
+}
+// Kopling efektif = nilai config, DIJEPIT di bawah ambang dominan diagonal.
+export function syncCoupling(n) {
+    const raw = Math.abs(CFG.campaign.repair.advanced.syncCoupling || 0);
+    const cap = SYNC_COUPLING_SAFETY / Math.max(1, n - 1);
+    return Math.min(raw, cap);
+}
+
+const clamp01 = v => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+function buildSync(count) {
+    const n = Math.max(2, Math.min(SYNC_NAMES.length, count | 0));
+    const tol = syncTolerance();
+    const target = [], v = [];
+    for (let i = 0; i < n; i++) {
+        // Sasaran dijauhkan dari kedua ujung track supaya kopling tak pernah
+        // mendorong jawabannya keluar rentang tuas.
+        target.push(0.22 + Math.random() * 0.56);
+        v.push(0);
     }
-    // Baris ditampilkan menurut KEDALAMAN pohon, tapi urutan di dalam satu tier
-    // diacak (sort stabil di atas array teracak) supaya "dari atas ke bawah"
-    // bukan jawaban gratis.
-    const tier = new Array(n).fill(0);
-    for (let k = 0; k < n; k++) {
-        const i = order[k];
-        tier[i] = parent[i] < 0 ? 0 : tier[parent[i]] + 1;
+    for (let i = 0; i < n; i++) {
+        // Mulai jelas MELENCENG: minimal empat kali toleransi dari sasaran,
+        // jadi papan tak pernah terbuka dalam keadaan (hampir) selesai.
+        let x;
+        do { x = 0.05 + Math.random() * 0.9; } while (Math.abs(x - target[i]) < tol * 4);
+        v[i] = x;
     }
-    const rows = shuffle([...Array(n).keys()]).sort((a, b) => tier[a] - tier[b]);
     return {
-        type: 'interlock', n, order, names, parent, cross, tier, rows,
-        closed: new Array(n).fill(false), trip: null, bad: null,
+        type: 'sync', n, target, v, coupling: syncCoupling(n), tol,
+        names: SYNC_NAMES.slice(0, n),
+        // Fasa acak per kanal: pada frame pertama gelombangnya terlihat kacau,
+        // bukan tumpukan rapi yang kebetulan sudah sejajar.
+        seed: Array.from({ length: n }, () => Math.random() * Math.PI * 2),
+        t: 0, last: -1, moves: 0,
     };
 }
 
-// Syarat satu breaker = induknya + seluruh syarat lintas-cabangnya.
-export function interlockReqs(g, i) {
-    const out = [];
-    if (g.parent[i] >= 0) out.push(g.parent[i]);
-    for (const j of g.cross[i]) out.push(j);
-    return out;
-}
-export const interlockReady = (g, i) => interlockReqs(g, i).every(j => g.closed[j]);
+// Selisih tuas i terhadap sasarannya. Inilah SATU-SATUNYA besaran papan ini —
+// frekuensi, amplitudo, warna lampu dan bentuk gelombang semuanya turunan
+// darinya, jadi tampilan tak mungkin berbohong tentang keadaan model.
+export const syncError = (g, i) => g.v[i] - g.target[i];
+export const syncLocked = (g, i) => Math.abs(syncError(g, i)) <= g.tol;
+export const syncAligned = g => g.v.every((_, i) => syncLocked(g, i));
 
-// Simulasi "player malas": klik baris dari atas ke bawah berulang kali. Papan
-// yang LOLOS tanpa sekali pun trip berarti diagramnya sudah membocorkan
-// jawaban — papan seperti itu dibuang oleh buildInterlock.
-function interlockNaiveTrips(g) {
-    const closed = new Array(g.n).fill(false);
-    let trips = 0;
-    for (let pass = 0; pass < g.n + 2 && closed.some(v => !v); pass++) {
-        for (const i of g.rows) {
-            if (closed[i]) continue;
-            if (interlockReqs(g, i).every(j => closed[j])) closed[i] = true;
-            else trips++;
-        }
-    }
-    return trips;
+// Pembacaan panel. Keduanya mendarat TEPAT di nilai bus saat tuas pas, jadi
+// angka dan gelombang selalu sepakat.
+export function syncHz(g, i) {
+    const A = CFG.campaign.repair.advanced;
+    return (A.syncBusHz || 50) + syncError(g, i) * (A.syncHzSpan || 6);
+}
+export function syncAmp(g, i) {
+    return 1 - Math.min(1, Math.abs(syncError(g, i)) * 1.35);
 }
 
-function buildInterlock(count) {
-    const n = Math.max(3, Math.min(BREAKER_NAMES.length, count | 0));
-    let last = null;
-    for (let attempt = 0; attempt < 40; attempt++) {
-        last = interlockAttempt(n);
-        if (interlockNaiveTrips(last) > 0) return last;
-    }
-    return last;   // jaring pengaman: tetap sah & solvable, hanya lebih mudah
+// Menggeser tuas `i` ke `value`. Tuas LAIN ikut bergeser sebagian kecil searah
+// gerakan ini — satu-satunya kesulitan papan, dan kenapa "geser sekali lalu
+// lupakan" tak cukup.
+export function applySyncSet(g, i, value) {
+    if (!g || g.type !== 'sync' || i < 0 || i >= g.n || !Number.isFinite(value)) return 'none';
+    const next = clamp01(value);
+    const delta = next - g.v[i];
+    if (Math.abs(delta) < 1e-6) return 'none';
+    g.v[i] = next;
+    for (let j = 0; j < g.n; j++) if (j !== i) g.v[j] = clamp01(g.v[j] + delta * g.coupling);
+    g.last = i; g.moves++;
+    return syncLocked(g, i) ? 'link' : 'select';
+}
+
+// Gelombang bergulir sendiri (tick `setInterval` milik modal, karena loop game
+// sedang di-pause). MURNI visual: tak satu pun nilai gameplay bergantung padanya.
+export function applySyncTick(g, dt) {
+    if (!g || g.type !== 'sync' || !Number.isFinite(dt)) return 'none';
+    g.t += dt;
+    return 'none';
 }
 
 function buildKickstart(segments) {
@@ -295,7 +338,7 @@ function buildKickstart(segments) {
 export function buildRepairGame(type, n) {
     if (type === 'wires') return buildWires(n);
     if (type === 'chips') return buildChips(n);
-    if (type === 'interlock') return buildInterlock(n);
+    if (type === 'sync') return buildSync(n);
     if (type === 'kickstart') return buildKickstart(n);
     return buildValves(n, CFG.campaign.repair.valveSteps);
 }
@@ -304,7 +347,7 @@ export function repairIsSolved(g) {
     if (!g) return false;
     if (g.type === 'wires') return g.links.every(v => v >= 0);
     if (g.type === 'chips') return g.chips.every(c => c.at >= 0);
-    if (g.type === 'interlock') return g.closed.every(Boolean);
+    if (g.type === 'sync') return syncAligned(g);
     if (g.type === 'kickstart') return g.breaker;
     return g.pos.every((v, i) => v === g.target[i]);
 }
@@ -392,23 +435,6 @@ export function applyChipDrop(g, ci, toZone, toI) {
 export function applyValveTurn(g, i, dir = 1) {
     if (!g || g.type !== 'valves' || i < 0 || i >= g.n) return 'none';
     for (let j = i; j < g.n; j++) g.pos[j] = mod(g.pos[j] + (dir < 0 ? -1 : 1), g.steps);
-    return 'link';
-}
-
-// Menutup breaker `i`. Di luar urutan = INTERLOCK TRIP: breaker itu TIDAK
-// terkunci (jadi papan tak pernah masuk keadaan buntu) dan `trip` mencatat
-// syarat mana yang belum terpenuhi supaya panel bisa menjelaskannya. Breaker
-// yang sudah tertutup terkunci di sana — tak ada cara merusak kemajuan sendiri.
-export function applyBreakerClose(g, i) {
-    if (!g || g.type !== 'interlock' || i < 0 || i >= g.n) return 'none';
-    if (g.closed[i]) return 'none';
-    if (!interlockReady(g, i)) {
-        g.trip = { i, missing: interlockReqs(g, i).filter(j => !g.closed[j]) };
-        g.bad = { i };
-        return 'reject';
-    }
-    g.closed[i] = true;
-    g.trip = null;
     return 'link';
 }
 
@@ -512,7 +538,7 @@ function renderBoard() {
     if (G.type === 'wires') renderWires();
     else if (G.type === 'chips') renderChips();
     else if (G.type === 'valves') renderValves();
-    else if (G.type === 'interlock') renderInterlock();
+    else if (G.type === 'sync') renderSync();
     else renderKickstart();
 }
 
@@ -642,6 +668,11 @@ function beginDrag(ev, src, el) {
 
 function onDragMove(ev) {
     if (!open || phase !== 'play') return;
+    if (syncDrag) {
+        const v = syncValueAt(syncDrag.track, ev.clientX);
+        if (v != null) repairSyncSet(syncDrag.i, v);
+        return;
+    }
     if (rotorDrag) {
         const angle = Math.atan2(ev.clientY - rotorDrag.cy, ev.clientX - rotorDrag.cx);
         let delta = angle - rotorDrag.angle;
@@ -676,7 +707,7 @@ function dropOn(target) {
 }
 
 function endDrag() {
-    rotorDrag = null;
+    rotorDrag = null; syncDrag = null;
     if (!drag) { killGhost(); return; }
     const stale = drag.moved && !drag.done;   // dilepas di ruang kosong -> batal
     drag = null; dragEl = null;
@@ -755,34 +786,119 @@ function renderValves() {
     }
 }
 
-function renderInterlock() {
-    const wrap = mkEl('repIlkWrap', boardEl);
-    const panel = mkEl('repIlkPanel', wrap);
-    mkEl('repIlkLbl', panel, 'GENERATOR START INTERLOCK');
-    // Baris SENGAJA tidak menandai "siap ditutup": begitu ditandai, papan
-    // berubah jadi "klik yang menyala" dan tekanan urutannya hilang. Semua
-    // informasinya ada (status tiap breaker + daftar syarat) — player yang
-    // melakukan pencocokannya.
-    for (const i of G.rows) {
-        const badp = G.bad && G.bad.i === i;
-        const row = mkEl('repIlkRow' + (G.closed[i] ? ' on' : '') + (badp ? ' bad' : '')
-            + (G.parent[i] >= 0 ? ' fed' : ''), panel);
-        row.style.paddingLeft = (14 + G.tier[i] * 22) + 'px';
-        const reqs = interlockReqs(G, i).map(j => G.names[j]);
-        row.innerHTML =
-            '<span class="repIlkFeed"></span>'
-            + '<span class="repIlkPip"></span>'
-            + `<span class="repIlkName">${G.names[i]}</span>`
-            + `<span class="repIlkReq">${reqs.length
-                ? 'REQUIRES ' + reqs.map(t => `<i>${t}</i>`).join('')
-                : 'SOURCE FEED'}</span>`
-            + `<span class="repIlkState">${G.closed[i] ? 'CLOSED' : 'OPEN'}</span>`;
-        row.addEventListener('click', () => repairBreakerClose(i));
+// OSILOSKOP. Jejaknya dilukis sebagai polyline SVG dan dicat ulang oleh tick
+// modal — HANYA atribut `points`, `class` dan teks pembacaan, tak pernah
+// `renderBoard()` penuh, karena membangun ulang papan 20x per detik akan
+// mencabut tuas yang sedang diseret (pelajaran yang sama dengan `paintRotor`).
+const SYNC_W = 520, SYNC_H = 168, SYNC_STEPS = 130;
+
+// Satu jejak: gelombang sinus yang frekuensi, amplitudo dan fasanya SEMUA
+// turunan dari selisih tuas terhadap sasaran. Selisih nol -> identik dengan
+// acuan bus, jadi "berimpit jadi satu garis" persis sama dengan "menang".
+function syncTracePoints(i) {
+    const err = i < 0 ? 0 : syncError(G, i);
+    const A = CFG.campaign.repair.advanced;
+    const cycles = (A.syncBusCycles || 3) + err * (A.syncCycleSpan || 2.2);
+    const amp = (SYNC_H / 2 - 12) * (i < 0 ? 1 : 0.45 + syncAmp(G, i) * 0.55);
+    const phase = i < 0 ? 0 : G.seed[i] * Math.min(1, Math.abs(err) * 6);
+    const pts = [];
+    for (let k = 0; k <= SYNC_STEPS; k++) {
+        const u = k / SYNC_STEPS;
+        const y = SYNC_H / 2 - Math.sin((u * cycles + G.t * 0.35) * Math.PI * 2 + phase) * amp;
+        pts.push(`${(u * SYNC_W).toFixed(1)},${y.toFixed(1)}`);
     }
-    const note = mkEl('repIlkNote' + (G.trip ? ' bad' : ''), wrap);
-    note.innerText = G.trip
-        ? `INTERLOCK TRIP - ${G.names[G.trip.i]} NEEDS ${G.trip.missing.map(j => G.names[j]).join(', ')}`
-        : `${G.closed.filter(Boolean).length} / ${G.n} BREAKERS CLOSED`;
+    return pts.join(' ');
+}
+
+function syncTraceClass(i) {
+    return 'repSyncTrace' + (syncLocked(G, i) ? ' lock' : '') + (G.last === i ? ' active' : '');
+}
+const syncReadout = i =>
+    `<span class="repSyncHz">${syncHz(G, i).toFixed(1)} Hz</span>`
+    + `<span class="repSyncAmp">${Math.round(syncAmp(G, i) * 100)}%</span>`;
+
+function syncScopeHtml() {
+    const A = CFG.campaign.repair.advanced;
+    return `<svg class="repSyncSvg" viewBox="0 0 ${SYNC_W} ${SYNC_H}" preserveAspectRatio="none">`
+        + `<line class="repSyncMid" x1="0" y1="${SYNC_H / 2}" x2="${SYNC_W}" y2="${SYNC_H / 2}"/>`
+        + `<polyline class="repSyncBus" points="${syncTracePoints(-1)}"/>`
+        + G.v.map((_, i) => `<polyline class="${syncTraceClass(i)}" points="${syncTracePoints(i)}"/>`).join('')
+        + '</svg>'
+        + `<div class="repSyncBusLbl">BUS REFERENCE ${(A.syncBusHz || 50).toFixed(1)} Hz</div>`;
+}
+const syncNoteText = () => syncAligned(G) ? 'ALL PHASES SYNCHRONISED'
+    : `${G.v.filter((_, i) => syncLocked(G, i)).length} / ${G.n} PHASES IN SYNC`;
+
+function renderSync() {
+    const wrap = mkEl('repSyncWrap', boardEl);
+    // Osiloskop dicat ulang lewat innerHTML-nya SENDIRI, bukan lewat
+    // `renderBoard()`: membangun ulang seluruh papan 20x per detik akan
+    // mencabut tuas yang sedang diseret dari bawah kursor (pelajaran yang sama
+    // dengan `paintRotor`). Elemen tuas dipegang sebagai referensi, jadi
+    // pengecatan tak pernah bergantung pada penelusuran DOM.
+    syncScopeEl = mkEl('repSyncScope', wrap, syncScopeHtml());
+
+    const rows = mkEl('repSyncRows', wrap);
+    syncRowEls = [];
+    for (let i = 0; i < G.n; i++) {
+        const row = mkEl('repSyncRow' + (syncLocked(G, i) ? ' lock' : ''), rows);
+        mkEl('repSyncPip', row);
+        mkEl('repSyncName', row, G.names[i]);
+        const read = mkEl('repSyncRead', row, syncReadout(i));
+        const track = mkEl('repSyncTrack', row);
+        const fill = mkEl('repSyncFill', track);
+        const knob = mkEl('repSyncKnob', track);
+        fill.style.width = (G.v[i] * 100) + '%';
+        knob.style.left = (G.v[i] * 100) + '%';
+        // Seret DAN klik-di-track: keduanya jalur resmi, pola yang sama dengan
+        // papan kabel/chip sejak 2026-07-29.
+        track.addEventListener('mousedown', e => beginSyncDrag(e, i, track));
+        syncRowEls.push({ row, track, fill, knob, read });
+    }
+    syncNoteEl = mkEl('repSyncNote' + (syncAligned(G) ? ' ok' : ''), wrap, syncNoteText());
+}
+
+// Cat ulang RINGAN: dipanggil tiap tick gelombang dan tiap gerak tuas.
+function paintSync() {
+    if (!G || G.type !== 'sync') return;
+    if (syncScopeEl) syncScopeEl.innerHTML = syncScopeHtml();
+    for (let i = 0; i < syncRowEls.length; i++) {
+        const r = syncRowEls[i];
+        if (!r) continue;
+        r.row.className = 'repSyncRow' + (syncLocked(G, i) ? ' lock' : '');
+        r.fill.style.width = (G.v[i] * 100) + '%';
+        r.knob.style.left = (G.v[i] * 100) + '%';
+        r.read.innerHTML = syncReadout(i);
+    }
+    if (syncNoteEl) {
+        syncNoteEl.className = 'repSyncNote' + (syncAligned(G) ? ' ok' : '');
+        syncNoteEl.innerText = syncNoteText();
+    }
+}
+
+function startSyncTick() {
+    stopSyncTick();
+    syncTimer = setInterval(() => repairSyncTick(SYNC_TICK_MS / 1000), SYNC_TICK_MS);
+}
+function stopSyncTick() {
+    if (syncTimer) clearInterval(syncTimer);
+    syncTimer = 0;
+}
+
+// Nilai tuas dari posisi kursor pada track-nya.
+function syncValueAt(track, clientX) {
+    const r = track.getBoundingClientRect ? track.getBoundingClientRect() : null;
+    if (!r || !r.width) return null;
+    return Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+}
+
+function beginSyncDrag(ev, i, track) {
+    if (!open || phase !== 'play' || !G || G.type !== 'sync') return;
+    if (ev && ev.button != null && ev.button !== 0) return;
+    if (ev && ev.preventDefault) ev.preventDefault();
+    syncDrag = { i, track };
+    const v = syncValueAt(track, ev ? ev.clientX : 0);
+    if (v != null) repairSyncSet(i, v);
 }
 
 const rotorInBand = () => {
@@ -951,11 +1067,22 @@ export function repairValveTurn(i, dir = 1) {
     return true;
 }
 
-export function repairBreakerClose(i) {
-    if (!open || phase !== 'play' || !G || G.type !== 'interlock') return false;
-    const ev = applyBreakerClose(G, i);
+// Menggeser tuas fasa. Dicat RINGAN (bukan renderBoard) supaya tuas yang
+// sedang diseret tak tercabut dari bawah kursor di tengah gerakan.
+export function repairSyncSet(i, value) {
+    if (!open || phase !== 'play' || !G || G.type !== 'sync') return false;
+    const ev = applySyncSet(G, i, value);
     if (ev === 'none') return false;
-    afterAction(ev);
+    paintSync();
+    if (repairIsSolved(G)) { syncDrag = null; afterAction(ev); }
+    else if (ev === 'link') playSFX(sfxPickup, 0.45);
+    return true;
+}
+
+export function repairSyncTick(dt) {
+    if (!open || phase !== 'play' || !G || G.type !== 'sync') return false;
+    applySyncTick(G, dt);
+    paintSync();
     return true;
 }
 
@@ -999,6 +1126,12 @@ function stepSolved() {
     phase = 'step';
     done = Math.min(parts.length, done + 1);
     playSFX(sfxPurchase);
+    // DERU TURBIN (2026-08-19, permintaan user: "diikuti suara putaran turbin
+    // yang menderu"). Fasa yang selaras berarti generator benar-benar boleh
+    // naik putaran, jadi papan PHASE SYNC ditutup dengan turbin spool-up di
+    // atas nada sukses biasa. Klip yang dipakai adalah aset turbin yang sudah
+    // ada — tak ada aset baru hanya untuk satu papan.
+    if (parts[gi] && parts[gi].type === 'sync') playSFX(sfxHeli, 0.55);
     if (cb && cb.onProgress) cb.onProgress(done);
     const last = gi + 1 >= parts.length;
     banner(last ? 'GENERATOR ONLINE' : `${parts[gi].label} INSTALLED — ${done}/${parts.length}`, 'ok');
@@ -1014,16 +1147,19 @@ function loadGame(k) {
     gi = k;
     drag = null; dragEl = null; killGhost();   // papan baru: seret yang tertinggal dibuang
     rotorDrag = null; stopRotorTick();
+    syncDrag = null; stopSyncTick(); syncScopeEl = null; syncNoteEl = null; syncRowEls = [];
     wireLinesEl = null;
     const type = parts[k].type;
     const A = CFG.campaign.repair.advanced;
-    // INTERLOCK ikut ukuran papan biasa (repairCount: 3/4/5 per difficulty);
-    // hanya jumlah jeruji roda gila yang punya angka sendiri.
-    const count = type === 'kickstart' ? A.rotorSegments : repairCount();
+    // FAULT ISOLATION dan roda gila punya angka sendiri; papan Stage 2
+    // (kabel/chip/katup) tetap memakai `repairCount()` 3/4/5 per difficulty.
+    const count = type === 'kickstart' ? A.rotorSegments
+        : type === 'sync' ? syncCount() : repairCount();
     G = buildRepairGame(type, count);
     phase = 'play';
     renderBoard();
     if (type === 'kickstart') startRotorTick();
+    if (type === 'sync') startSyncTick();
 }
 
 // Tutup modal, kembalikan scene stage (TANPA enter()), jalankan callback, lalu
@@ -1034,9 +1170,9 @@ function finish(result) {
     phase = 'idle';
     if (stepTimer) { clearTimeout(stepTimer); stepTimer = 0; }
     if (badTimer) { clearTimeout(badTimer); badTimer = 0; }
-    stopRotorTick();
+    stopRotorTick(); stopSyncTick();
     killGhost();
-    drag = null; dragEl = null; rotorDrag = null;
+    drag = null; dragEl = null; rotorDrag = null; syncDrag = null;
     const root = overlayEl();
     if (root) { root.style.display = 'none'; root.innerHTML = ''; }
     boardEl = bannerEl = subEl = stepEl = cbBtn = hintEl = wireLinesEl = null;

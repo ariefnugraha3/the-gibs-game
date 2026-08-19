@@ -3069,49 +3069,68 @@ body.cine #medkitBar, body.cine #stageMsg {
     cursor: pointer;
 }
 .repValveBtn:hover { background: rgba(255, 176, 59, 0.2); }
-/* ----- Stage 5-6 board 1: START INTERLOCK ----- */
-.repIlkWrap { display: flex; flex-direction: column; gap: 10px; width: 100%; }
-.repIlkPanel {
-    padding: 12px 12px 10px; border: 1px solid #4b514d; background: #12160f;
+/* ----- Stage 5-6 board 1: PHASE SYNC ----- */
+.repSyncWrap { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.repSyncScope {
+    position: relative; padding: 10px 12px 18px;
+    border: 1px solid #4b514d; background: #0b1210;
+    /* Kisi osiloskop: dua gradien halus, bukan aset gambar. */
+    background-image:
+        linear-gradient(rgba(110, 190, 150, 0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(110, 190, 150, 0.07) 1px, transparent 1px);
+    background-size: 100% 21px, 26px 100%;
 }
-.repIlkLbl { margin-bottom: 10px; color: #87918d; font-size: 10px; letter-spacing: 0.14em; }
-/* Baris breaker: indentasi kiri = kedalaman pohon feed (ditulis inline oleh JS). */
-.repIlkRow {
-    position: relative; display: grid;
-    grid-template-columns: 12px 12px 132px 1fr 62px; align-items: center; gap: 10px;
-    margin-bottom: 6px; padding: 7px 10px 7px 0;
-    border: 1px solid #3d443e; background: #171d16; cursor: pointer;
+.repSyncSvg { display: block; width: 100%; height: min(26vh, 170px); }
+.repSyncMid { stroke: #2c4137; stroke-width: 1; }
+/* Acuan bus: garis terang yang harus diikuti semua fasa. */
+.repSyncBus { fill: none; stroke: #dfe6c9; stroke-width: 2.2; opacity: 0.85; }
+.repSyncTrace { fill: none; stroke: #6d8f7d; stroke-width: 1.7; opacity: 0.75; }
+.repSyncTrace.active { stroke: #d8b478; opacity: 0.95; }
+.repSyncTrace.lock {
+    stroke: #9de68d; stroke-width: 2.4; opacity: 1;
+    filter: drop-shadow(0 0 5px rgba(157, 230, 141, 0.55));
 }
-.repIlkRow:hover { background: #1e261c; border-color: #59634f; }
-.repIlkRow.on { border-color: #56865f; background: #122018; cursor: default; }
-.repIlkRow.bad { border-color: #8b3b2c; background: #201210; }
-/* Sambungan ke induk: garis siku kecil di tepi kiri baris. */
-.repIlkFeed {
-    width: 10px; height: 10px; margin-left: -4px;
-    border-left: 1px solid #4b514d; border-bottom: 1px solid #4b514d;
+.repSyncBusLbl {
+    position: absolute; right: 12px; bottom: 5px;
+    color: #87918d; font-size: 9px; letter-spacing: 0.16em;
 }
-.repIlkRow:not(.fed) .repIlkFeed { border: 0; }
-.repIlkPip {
+.repSyncRows { display: flex; flex-direction: column; gap: 7px; }
+.repSyncRow {
+    display: grid; grid-template-columns: 12px 92px 132px 1fr; align-items: center; gap: 12px;
+    padding: 7px 12px; border: 1px solid #3d443e; background: #171d16;
+}
+.repSyncRow.lock { border-color: #56865f; background: #122018; }
+.repSyncPip {
     width: 9px; height: 9px; border-radius: 50%;
     border: 1px solid #6c7568; background: #0b0f0a;
 }
-.repIlkRow.on .repIlkPip { background: #9de68d; border-color: #9de68d; box-shadow: 0 0 7px rgba(157, 230, 141, 0.55); }
-.repIlkName { color: #d9d2c6; font-size: 12px; letter-spacing: 0.1em; }
-.repIlkRow.on .repIlkName { color: #9de68d; }
-.repIlkReq { color: #87918d; font-size: 9px; letter-spacing: 0.08em; }
-.repIlkReq i { font-style: normal; color: #c8bda6; }
-.repIlkReq i + i::before { content: ' + '; color: #6b746a; }
-.repIlkState {
-    justify-self: end; padding-right: 10px;
-    font-size: 9px; letter-spacing: 0.16em; color: #87918d;
+.repSyncRow.lock .repSyncPip {
+    background: #9de68d; border-color: #9de68d; box-shadow: 0 0 8px rgba(157, 230, 141, 0.6);
 }
-.repIlkRow.on .repIlkState { color: #9de68d; }
-.repIlkNote {
+.repSyncName { color: #d9d2c6; font-size: 12px; letter-spacing: 0.1em; }
+.repSyncRow.lock .repSyncName { color: #9de68d; }
+.repSyncRead { display: flex; gap: 10px; font-size: 10px; letter-spacing: 0.08em; }
+.repSyncHz { color: #c8bda6; }
+.repSyncAmp { color: #87918d; }
+.repSyncRow.lock .repSyncHz, .repSyncRow.lock .repSyncAmp { color: #9de68d; }
+/* Tuas geser: track penuh bisa diklik, bukan hanya knob-nya. */
+.repSyncTrack {
+    position: relative; height: 22px; cursor: ew-resize;
+    border: 1px solid #4b514d; background: #10160f;
+}
+.repSyncTrack:hover { border-color: #7d8a72; }
+.repSyncFill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(216, 180, 120, 0.16); }
+.repSyncRow.lock .repSyncFill { background: rgba(157, 230, 141, 0.18); }
+.repSyncKnob {
+    position: absolute; top: -3px; width: 12px; height: 26px; margin-left: -6px;
+    border: 1px solid #8b937f; background: #2b332a; box-shadow: 0 0 0 1px #0d110c;
+}
+.repSyncRow.lock .repSyncKnob { border-color: #9de68d; background: #1c3021; }
+.repSyncNote {
     padding: 7px 10px; border: 1px solid #3d443e; background: #10140f;
     color: #87918d; font-size: 10px; letter-spacing: 0.1em; text-align: center;
 }
-.repIlkNote.bad { border-color: #8b3b2c; background: #1b100e; color: #ef755a; }
-
+.repSyncNote.ok { border-color: #56865f; background: #101a12; color: #9de68d; }
 /* ----- Stage 5-6 board 2: ROTOR KICKSTART ----- */
 .repRotorWrap { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(250px, 1fr); gap: 24px; align-items: center; width: 100%; }
 .repRotorMachine { display: flex; flex-direction: column; align-items: center; gap: 10px; }
@@ -3188,16 +3207,14 @@ body.cine #medkitBar, body.cine #stageMsg {
     .sigRow { grid-template-columns: 42px minmax(110px, 1fr) 48px; gap: 7px; min-height: 40px; padding: 0 6px; }
     .sigTimer { width: 100%; }
     .sigLock { margin-left: 0; flex: 1; }
-    .repIlkRow { grid-template-columns: 10px 10px 106px 1fr 52px; gap: 7px; }
-    .repIlkName { font-size: 11px; letter-spacing: 0.06em; }
+    .repSyncRow { grid-template-columns: 12px 74px 112px 1fr; gap: 8px; padding: 6px 9px; }
+    .repSyncName { font-size: 11px; letter-spacing: 0.06em; }
     .repRotorWrap { grid-template-columns: 1fr 1fr; gap: 12px; }
     .repRotor { width: min(26vh, 190px); }
 }
 @media (max-width: 500px) {
-    .repIlkRow { grid-template-columns: 10px 10px 1fr 52px; row-gap: 4px; }
-    .repIlkName { grid-area: 1 / 3; }
-    .repIlkState { grid-area: 1 / 4; }
-    .repIlkReq { grid-area: 2 / 3 / 3 / 5; }
+    .repSyncRow { grid-template-columns: 12px 1fr auto; row-gap: 6px; }
+    .repSyncTrack { grid-area: 2 / 1 / 3 / 4; }
     .repRotorWrap { grid-template-columns: 1fr; }
     .repRotor { width: min(25vh, 176px); }
 }
