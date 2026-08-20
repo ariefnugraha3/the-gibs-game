@@ -73,7 +73,6 @@ export function buildFourEngineTransport() {
         glass: new THREE.MeshStandardMaterial({ color: PAL.screenBg, roughness: 0.2, metalness: 0.25, emissive: PAL.techDim, emissiveIntensity: 0.45 }),
         warning: new THREE.MeshStandardMaterial({ color: PAL.amber, roughness: 0.5, metalness: 0.2 }),
         red: new THREE.MeshStandardMaterial({ color: PAL.hazard, roughness: 0.58, metalness: 0.15 }),
-        green: new THREE.MeshStandardMaterial({ color: PAL.tech, roughness: 0.35, emissive: PAL.techDim, emissiveIntensity: 0.2 }),
         tire: new THREE.MeshStandardMaterial({ color: PAL.rubber, roughness: 0.94 }),
         exhaust: new THREE.MeshStandardMaterial({ color: PAL.amber, roughness: 0.2, transparent: true, opacity: 0.05, emissive: PAL.amberDim, emissiveIntensity: 0.1 }),
     };
@@ -152,17 +151,14 @@ export function buildFourEngineTransport() {
         const rail = box(rampPivot, materials.warning, 7.6, 0.16, 0.16, -3.7, -1.72, z);
         rail.rotation.z = -0.54;
     }
-    const coreBay = box(group, materials.dark, 2.8, 2.8, 2.8, -12.5, 7.5, -4.76);
-    const coreGlow = box(group, materials.green, 2.15, 2.15, 0.25, -12.5, 7.5, -4.95);
-    coreGlow.visible = false;
+    const cargoBay = box(group, materials.dark, 3.2, 3.2, 2.8, -12.5, 7.5, -4.76);
 
     group.userData.transport = {
         engines,
         gear,
         rampPivot,
         ramp,
-        coreBay,
-        coreGlow,
+        cargoBay,
         controlSurfaces: [leftFlap, rightFlap, leftAileron, rightAileron, rudder],
         staticHullWelded: true,
         partCensus: {
@@ -173,7 +169,7 @@ export function buildFourEngineTransport() {
         },
         basePosition: new THREE.Vector3(),
         fanAngle: 0,
-        spool: 0,
+        fuel: 0,
         takeoff: 0,
     };
     return group;
@@ -186,10 +182,9 @@ export function resetTransport(transport, x, z, yaw = 0) {
     transport.rotation.set(0, yaw, 0);
     data.basePosition.set(x, 0, z);
     data.fanAngle = 0;
-    data.spool = 0;
+    data.fuel = 0;
     data.takeoff = 0;
     data.rampPivot.rotation.z = 0;
-    data.coreGlow.visible = false;
     for (const engine of data.engines) {
         engine.fan.rotation.x = 0;
         engine.exhaust.material.opacity = 0.05;
@@ -197,23 +192,19 @@ export function resetTransport(transport, x, z, yaw = 0) {
     }
 }
 
-export function setTransportCoreInstalled(transport, installed) {
-    transport.userData.transport.coreGlow.visible = !!installed;
-}
-
-export function updateTransport(transport, dt, spoolProgress, takeoffProgress = 0) {
+export function updateTransport(transport, dt, fuelProgress, takeoffProgress = 0) {
     const data = transport.userData.transport;
-    const spool = Math.max(0, Math.min(1, spoolProgress));
+    const fuel = Math.max(0, Math.min(1, fuelProgress));
     const takeoff = Math.max(0, Math.min(1, takeoffProgress));
-    data.spool = spool;
+    data.fuel = fuel;
     data.takeoff = takeoff;
-    data.fanAngle += dt * (2 + spool * 36);
+    data.fanAngle += dt * (2 + fuel * 36);
     for (const engine of data.engines) {
         engine.fan.rotation.x = data.fanAngle;
-        engine.exhaust.material.opacity = 0.05 + spool * 0.5;
-        engine.exhaust.material.emissiveIntensity = 0.1 + spool * (EMISSIVE_MAX - 0.1);
+        engine.exhaust.material.opacity = 0.05 + fuel * 0.5;
+        engine.exhaust.material.emissiveIntensity = 0.1 + fuel * (EMISSIVE_MAX - 0.1);
     }
-    data.rampPivot.rotation.z = -spool * 0.52;
+    data.rampPivot.rotation.z = -fuel * 0.52;
     const flapAngle = takeoff * 0.22;
     data.controlSurfaces[0].rotation.z = flapAngle;
     data.controlSurfaces[1].rotation.z = flapAngle;
@@ -231,35 +222,18 @@ export function updateTransport(transport, dt, spoolProgress, takeoffProgress = 
     }
 }
 
-export function transportJetZones(transport) {
-    const data = transport.userData.transport;
-    return data.engines.map((engine, index) => {
-        const p = new THREE.Vector3(-4.8, 0, 0);
-        engine.group.localToWorld(p);
-        return {
-            id: `engine-${index + 1}`,
-            x0: p.x - 48,
-            x1: p.x + 3,
-            z0: p.z - 3.5,
-            z1: p.z + 3.5,
-            directionX: -1,
-            directionZ: 0,
-        };
-    });
-}
-
 export function transportDebug(transport) {
     const data = transport.userData.transport;
     return {
         semantic: 'four-engine-heavy-transport',
         engineCount: data.engines.length,
         hasCargoRamp: !!data.ramp,
-        hasCoreBay: !!data.coreBay,
+        hasCargoBay: !!data.cargoBay,
         landingGearAssemblies: data.gear.length,
         independentControlSurfaces: data.controlSurfaces.length,
         staticHullWelded: data.staticHullWelded,
         parts: { ...data.partCensus },
-        spool: data.spool,
+        fuel: data.fuel,
         takeoff: data.takeoff,
     };
 }

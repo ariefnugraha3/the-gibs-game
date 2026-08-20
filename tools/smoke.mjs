@@ -14469,12 +14469,8 @@ for (const [name, build] of Object.entries(propBuilders)) {
     stateMod.setGameOver(false);
 }
 
-// --- 25a. CAMPAIGN STAGE 9 — KERTAJATI AIRLIFT ---------------------------
-// Kontrak penerimaan plan §14.2: rute bandara tersambung, flight core sekali
-// ambil, spool HANYA tertahan blocker apron yang hidup (tak pernah mundur),
-// jet blast melukai/mendorong player DAN robot tanpa menembus dinding, boarding
-// mustahil sebelum mesin siap, dan skip = takeoff normal (transform identik).
-{
+// --- 25a. LEGACY STAGE 9 CONTRACT (disabled after the three-chapter rework) ---
+if (false) {
     const C9 = cfgMod.CFG.campaign.stage9;
     const s9 = await import(R('src/scenes/campaign/stages/stage9/index.js'));
     const s9w = await import(R('src/scenes/campaign/stages/stage9/world.js'));
@@ -14673,6 +14669,97 @@ for (const [name, build] of Object.entries(propBuilders)) {
         s9.stage9Debug().transitionSent
         && dom4.gameOverTitle.innerText === 'STAGE 9 COMPLETE');
 
+    stateMod.setGameOver(false); kill9();
+}
+
+// Stage 9 rework: three chapters, no computer/generator objective, and a
+// physical fuel-pump interaction before boarding the aircraft.
+{
+    const C9 = cfgMod.CFG.campaign.stage9;
+    const s9 = await import(R('src/scenes/campaign/stages/stage9/index.js'));
+    const s9w = await import(R('src/scenes/campaign/stages/stage9/world.js'));
+    const trans9 = await import(R('src/scenes/campaign/utility/transition.js'));
+    const source9 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage9/index.js', 'utf8');
+    const stand9 = (p) => camera.position.set(p.x, cfgMod.CFG.player.eyeHeight, p.z);
+    const tick9 = (sec, dt = 0.1) => {
+        for (let t = 0; t < sec - 1e-9; t += dt) s9.stage9Scene.updateMode(dt);
+    };
+    const robots9 = () => robots.filter(z => z.stage === 9);
+    const kill9 = () => {
+        for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 9) {
+            scene.remove(robots[i].mesh); robots.splice(i, 1);
+        }
+    };
+    const drain9 = () => { for (let i = 0; i < 200 && s9.stage9Debug().cinematic; i++) tick9(0.5); };
+
+    const w9 = s9w.stage9WorldDebug();
+    T('S9 WORLD: tiga chapter memakai gedung playable + pompa bahan bakar',
+        w9.built && w9.airport.playableBuildings === 1
+        && w9.airport.serviceEquipment.fuelPumps === 1
+        && s9w.S9_BUILDING_ENTRY && s9w.S9_BUILDING_EXIT && s9w.S9_PUMP);
+    T('S9 CONFIG: objective lama core/spool/jet-blast sudah tidak ada',
+        !!C9.fuel && C9.fuel.durationSec > 0 && !C9.spool && !C9.jetBlast
+        && C9.encounters.outside && C9.encounters.inside && C9.encounters.runway
+        && !source9.includes('hack') && !source9.includes('generator'));
+
+    stateMod.setGameOver(false);
+    T('S9 JUMP: masuk chapter 1 di luar gedung',
+        trans9.campaignJumpToStage(9) === 9 && smMod.activeScene === s9.stage9Scene
+        && s9.stage9Debug().chapter === 1 && s9.stage9Debug().phase === 'opening'
+        && stateMod.cinematicActive && robots9().length > 0);
+    drain9();
+    kill9();
+    stand9(s9w.S9_BUILDING_ENTRY);
+    tick9(0.3);
+    let d9 = s9.stage9Debug();
+    T('S9 CHAPTER 1 → 2: clear area luar lalu masuk gedung bandara',
+        d9.chapter === 2 && d9.phase === 'insideClear' && robots9().length > 0
+        && d9.encounters.inside > 0);
+
+    kill9();
+    stand9(s9w.S9_BUILDING_EXIT);
+    tick9(0.3);
+    d9 = s9.stage9Debug();
+    T('S9 CHAPTER 2 → 3: clear interior lalu keluar ke landasan',
+        d9.chapter === 3 && d9.phase === 'fuelPump'
+        && d9.encounters.runway > 0 && camera.position.x === s9w.S9_RUNWAY_START.x);
+
+    kill9();
+    stand9(s9w.S9_PUMP);
+    tick9(0.3);
+    d9 = s9.stage9Debug();
+    T('S9 POMPA: player menyalakan pompa sebelum bahan bakar mengalir',
+        d9.chapter === 3 && d9.fuel.pumpOn && d9.fuel.progress < 1);
+    tick9(C9.fuel.durationSec * 0.5);
+    const halfFuel = s9.stage9Debug().fuel;
+    tick9(C9.fuel.durationSec * 0.6);
+    d9 = s9.stage9Debug();
+    T('S9 BAHAN BAKAR: progress naik monoton sampai penuh',
+        halfFuel.progress > 0 && halfFuel.progress < 1
+        && d9.fuel.progress === 1 && d9.phase === 'board');
+
+    stand9(s9w.S9_BOARD);
+    tick9(0.3);
+    T('S9 BOARDING: mendekati pesawat setelah tangki penuh memulai cutscene',
+        s9.stage9Debug().phase === 'takeoff' && stateMod.cinematicActive);
+    tick9(C9.takeoffSec + 1, 0.1);
+    T('S9 SELESAI: takeoff mengakhiri stage lewat gateway normal',
+        s9.stage9Debug().complete && s9.stage9Debug().transitionSent
+        && stateMod.isGameOver && dom4.gameOverTitle.innerText === 'STAGE 9 COMPLETE'
+        && dom4.stageRadioDialogueDebug() === null);
+
+    // Skip path tetap melewati ketiga chapter dan hanya memotong cutscene.
+    stateMod.setGameOver(false);
+    trans9.campaignJumpToStage(9);
+    drain9(); kill9(); stand9(s9w.S9_BUILDING_ENTRY); tick9(0.3);
+    kill9(); stand9(s9w.S9_BUILDING_EXIT); tick9(0.3);
+    kill9(); stand9(s9w.S9_PUMP); tick9(0.3);
+    tick9(C9.fuel.durationSec + 0.1);
+    stand9(s9w.S9_BOARD); tick9(0.3);
+    const skipped9 = dom4.triggerCutsceneSkip();
+    T('S9 SKIP: skip cutscene keberangkatan tetap finish dan cleanup',
+        skipped9 === true && s9.stage9Debug().complete
+        && !stateMod.cinematicActive && dom4.stageRadioDialogueDebug() === null);
     stateMod.setGameOver(false); kill9();
 }
 

@@ -80,7 +80,7 @@ The second arc answers three questions that the first arc deliberately leaves op
 
 | Stage | Narrative function | Dominant space | Primary pressure | Climax | Emotional beat |
 | --- | --- | --- | --- | --- | --- |
-| 9 | Escape Java with the kill-switch | Airport apron, tower, hangar, runway | Layered ground assault | Defend the aircraft during engine spool | Momentum and determination |
+| 9 | Escape Java with the kill-switch | Airport grounds, building interior, runway | Three-part airport assault | Activate the fuel pump, fill the aircraft, and take off | Momentum and determination |
 | 10 | Break the coastal defense cordon | Container yard, warehouses, pipe racks, dock | Reconfiguring cover and turret lanes | Disable the harbor defense cannon | Hostile industrial scale |
 | 11 | Penetrate IKN's outer sensor belt | Rainforest, service road, dam, utility tunnel | Tracking scans and artillery locks | Cross the exposed waterworks and reach the tunnel | Isolation and approaching the source |
 | 12 | Broadcast the kill-switch | IKN civic axis and root facility | Last Iron Battalion formations | Nusantara Warden boss | Earned national-scale victory, followed by one anomaly |
@@ -138,9 +138,9 @@ These stages must not all feel like increasingly dense corridors. Their rhythm i
 
 ### 5.1 Stage thesis
 
-Stage 9 converts the static Kertajati arrival from Stage 8 into a playable airport under machine occupation. Gibran has reached the correct departure point but still needs an aircraft, a valid flight-control core, and enough uninterrupted time to launch.
+Stage 9 converts the static Kertajati arrival from Stage 8 into a playable airport under machine occupation. Gibran has reached the correct departure point and must cross the airport in three chapters before fuelling a transport and escaping.
 
-This stage is not an airport sightseeing level. Its identity comes from broad apron sight lines, large aircraft silhouettes, service vehicles as cover, jet-blast danger lanes, and combat around a machine that is visibly preparing to take off.
+This stage is not an airport sightseeing level. Its identity comes from broad apron sight lines, a readable cutaway building interior, large aircraft silhouettes, service vehicles as cover, and combat around the final runway escape.
 
 ### 5.2 Start and end states
 
@@ -148,11 +148,12 @@ Start:
 
 - The GRD LTV-45 from Stage 8 stops in the airport service area.
 - Stage 8's gunship is gone and must not respawn.
-- Command identifies one autonomous heavy transport in a sealed cargo hangar.
-- The transport cannot boot without a removable flight-control core stored in the tower operations room.
+- Command identifies one autonomous heavy transport waiting on the runway.
+- Chapter 1 starts outside the airport building.
 
 End:
 
+- Gibran turns on the runway fuel pump and waits until the aircraft is full.
 - Gibran boards the transport.
 - The aircraft accelerates and takes off during a short in-engine cinematic.
 - Command reports that IKN air defense is still active and the planned approach may be diverted.
@@ -160,21 +161,20 @@ End:
 
 ### 5.3 State machine
 
-Recommended runtime phases:
+Implemented runtime phases:
 
 | Phase | Entry condition | Player objective | Exit condition |
 | --- | --- | --- | --- |
 | `opening` | Stage entry | Receive route and aircraft briefing | Dialogue and establishing camera finish |
-| `reachTower` | Opening ends | Cross the service apron and enter tower access | Player reaches operations level |
-| `takeCore` | Tower reached | Clear defenders and remove flight-control core | Core interaction completes |
-| `reachHangar` | Core acquired | Return through a newly opened service route | Player enters cargo hangar |
-| `installCore` | At aircraft stand marker | Install core and initiate autonomous launch | Short interaction completes |
-| `spoolDefense` | Aircraft boot begins | Keep apron clear while engines spool | Progress reaches 100% and no blocking assault unit remains |
-| `board` | Engines ready | Reach aircraft ramp | Player enters boarding marker |
+| `outsideClear` | Opening ends | Clear the airport grounds and reach the building entrance | Chapter 1 enemies are cleared and the entrance is reached |
+| `insideClear` | Building entrance reached | Clear the airport-building interior and reach the apron exit | Chapter 2 enemies are cleared and the exit is reached |
+| `fuelPump` | Runway reached | Approach and activate the physical fuel pump | Pump is turned on |
+| `fueling` | Pump active | Keep the pump running until the aircraft is full | Configured fuel duration completes |
+| `board` | Aircraft full | Reach the aircraft | Player approaches the boarding point |
 | `takeoff` | Boarding committed | Cinematic only | Aircraft leaves runway envelope |
 | `complete` | Takeoff finishes | None | Stage transition invoked once |
 
-The aircraft has no conventional escort HP bar. During `spoolDefense`, progress pauses while assault robots occupy the protected apron but never rolls backward. This avoids a frustrating defense target that can be destroyed off-screen while preserving pressure to clear each wave.
+The aircraft has no conventional escort HP bar. Chapter 3 is deliberately simpler: the player activates a physical fuel pump and the fuel gauge advances for the configured duration. There is no computer-hacking, generator-repair, flight-core, or engine-spool objective in this stage.
 
 ### 5.4 World layout
 
@@ -189,63 +189,30 @@ Zones:
 2. **Baggage and maintenance apron**
    - Wide concrete space broken by baggage carts, tow tractors, buses, fuel trucks, mobile stairs, and cargo pallets.
    - At least two viable routes to the tower approach.
-3. **Control tower base**
-   - Compact interior or roofless cutaway layout.
-   - Stair/elevator fiction may be compressed into one playable operations floor; do not build many empty floors.
-4. **Operations room**
-   - Flight-control core objective.
-   - Windows visually connect the player to the distant hangar and aircraft.
-5. **Return service corridor**
-   - A gate opens after the core is taken, creating a shorter return route and preventing backtracking through an identical space.
-6. **Cargo hangar**
-   - Heavy transport is fully visible before the player reaches it.
-   - Aircraft footprint, ramp, landing gear, crates, and maintenance equipment produce cover without trapping the player.
-7. **Engine-spool apron**
-   - Deliberately broad boss-like arena without an HP-bar boss.
-   - Four or more attack entrances, but only two active simultaneously.
-8. **Runway and takeoff corridor**
-   - Primarily cinematic.
+3. **Airport-building interior**
+   - A playable roofless/cutaway interior with a south entrance and apron exit.
+   - Desks, lockers and service furniture provide cover without any hackable terminal objective.
+4. **Runway and takeoff corridor**
+   - The heavy transport is visible on the runway before the player reaches it.
+   - A physical fuel pump sits beside the service lane; the aircraft becomes boardable only after it reaches 100% fuel.
    - Runway lighting uses emissive markers rather than a line of PointLights.
 
 ### 5.5 Core mechanics
 
-#### Jet blast
+#### Fuel pump
 
-- Engine exhaust lanes are clearly telegraphed by dust, heat shimmer proxies, loose debris, and an amber warning on the ground.
-- During early spool they push but do not damage.
-- During final spool they deal modest damage and stronger knockback if the player remains in the lane.
-- Robots are affected by the same push, creating tactical opportunities.
-- Jet blast must never push player or robots through solid geometry.
-
-#### Flight-control core
-
-- The core is a physical carry objective in narrative terms but does not replace weapons or slow movement.
-- The pickup is represented on Gibran's gear or as a compact case attached to the avatar.
-- It cannot be dropped, lost, or destroyed.
-- Restarting Stage 9 resets it to the tower.
-
-#### Engine-spool defense
-
-- Initial target: four assault beats with a short readable pause between them.
-- Suggested role mix:
-  - Beat 1: class C pressure from ground service entries.
-  - Beat 2: class B firing line from baggage cover.
-  - Beat 3: mixed B/A insertion from hangar side doors.
-  - Beat 4: compact all-class final push while jet-blast lanes become active.
-- New spawns appear outside the current view footprint and on valid walkable points.
-- Spool progress advances only while no designated `apronBlocker` robot is alive; ordinary stragglers outside the arena cannot softlock it.
+- The player must approach the physical runway pump to activate it.
+- Fuel progresses from 0 to 100% using `campaign.stage9.fuel.durationSec`.
+- Once full, the active objective moves to the aircraft; approaching its boarding point starts the takeoff cutscene.
+- Restarting Stage 9 resets the pump and aircraft fuel state.
 
 ### 5.6 Encounter and economy targets
 
 Initial playtest target:
 
-- Total authored/spawned combatants: approximately 85–105.
-- Maximum simultaneously active near the player: 24–30.
-- Class C dominates the first half; class B becomes common in the apron; class A remains limited and purposeful.
-- Loot boxes: 20–30, concentrated in maintenance and cargo spaces rather than scattered uniformly.
-- Explosive barrels: 24–36, never beside the aircraft boarding marker or inside unavoidable jet-blast lanes.
-- Ammo drops: one guaranteed cache before spool defense and one adaptive current-weapon resupply before boarding.
-- Medkits: at least one guaranteed before the final defense on Normal difficulty.
+- Three config-driven encounter groups: outside grounds, building interior, and runway.
+- Class C dominates the first half; class B becomes common inside; class A remains limited and purposeful.
+- Supplies stay concentrated in the airport service area and away from the pump/boarding points.
 
 All final counts are config-driven and coverage-tested. No count in this section is permission to hardcode it.
 
@@ -255,16 +222,14 @@ Suggested config keys and intent:
 
 | Key | Speaker | Intent |
 | --- | --- | --- |
-| `openingCommand` | Command | The airport is occupied; one autonomous transport remains viable. |
-| `openingGibran` | Major Gibran | Confirms he will secure it and carry the kill-switch to IKN. |
-| `towerLocked` | Airport System | Aircraft authorization core unavailable at the hangar. |
-| `coreLocated` | Command | Directs Gibran to tower operations. |
-| `coreTaken` | Major Gibran | Confirms acquisition and return to hangar. |
-| `aircraftBoot` | Aircraft System | Flight core accepted; engine sequence initiated. |
-| `assaultWarning` | Command | Large hostile movement converging on the apron. |
-| `enginesReady` | Aircraft System | Takeoff configuration ready. |
-| `boardNow` | Command | Orders immediate boarding. |
-| `airDefense` | Command | Warns that the Kalimantan approach remains under automated defense. |
+| `openingCommand` | Command | Orders the three-chapter airport crossing. |
+| `openingGibran` | Major Gibran | Confirms he will get the transport airborne. |
+| `outsideCommand` | Command | Directs the clear-out of the outer grounds. |
+| `buildingEntry` | Major Gibran | Confirms the fight has moved inside the building. |
+| `runwayEntry` | Command | Directs Gibran to the runway fuel pump. |
+| `pumpStarted` | Airport System | Confirms refuelling has begun. |
+| `fuelFull` | Airport System | Confirms the aircraft is ready to board. |
+| `departure` | Command | Orders immediate departure. |
 
 Draft wording must be finalized later under `dialogue.campaign.stage9.lines` and then exact-string tested.
 
@@ -274,7 +239,7 @@ Draft wording must be finalized later under `dialogue.campaign.stage9.lines` and
 - Palette: cool concrete and aviation gray, warm runway amber, dark N.U.S.A. equipment, restrained red threat indicators.
 - Aircraft is a hero asset with a welded static hull and separate ramp, landing gear compression, control surfaces, fans/propellers or engines, exhaust indicators, and interior boarding volume.
 - Avoid a dense fully modeled terminal facade. The active apron and aircraft are the visual focus.
-- Audio needs: distant airport wind, hangar reverb, engine start layers, warning klaxon, jet blast, tire/runway rumble, and takeoff loop. Reuse existing clips only when the sound identity genuinely fits.
+- Audio needs: distant airport wind, building reverb, pump hum, tire/runway rumble, and takeoff loop. Reuse existing clips only when the sound identity genuinely fits.
 - Engine loops must use a gapless-safe path if encoder padding is audible.
 
 ### 5.9 Technical module plan
@@ -285,13 +250,12 @@ Recommended folder:
 src/scenes/campaign/stages/stage9/
   index.js          # facade, scene hooks, phase state, transition
   world.js          # airport geometry, blockers, nav, lights, batching
-  runtime.js        # encounters, core objective, spool defense
   aircraft.js       # stage-local heavy transport rig and takeoff animation
 ```
 
 The aircraft stays stage-local unless a later stage truly reuses the same runtime rig. A cinematic silhouette alone is not sufficient reason to promote it into `src/entities/`.
 
-Required debug surfaces should expose phase, spool progress, core state, active apron blockers, encounter counts, aircraft state, collision census, nav connectivity, batch metrics, and light counts.
+Required debug surfaces should expose chapter/phase, fuel progress and pump state, encounter counts, aircraft state, collision census, nav connectivity, batch metrics, and light counts.
 
 ## 6. Stage 10 — THE IRON PORT
 
@@ -1207,16 +1171,10 @@ campaign.stage9
   openingMinSec
   fadeSec
   interactionRange
-  jetBlast
-    warmupSec
-    push
-    damage
-    activeFraction
-  spool
+  fuel
     durationSec
-    pauseWhenBlocked
-    waveGapSec
-    encounters[] / classMix
+    interactionRange
+  encounters
   encounters
   lootboxCount
   barrelCount
@@ -1499,12 +1457,11 @@ Smoke must prove:
 ### 14.2 Stage 9 coverage
 
 - Airport world builds, route is connected, and all objectives/supplies/spawns are walkable.
-- Flight core begins in tower, cannot be taken twice, and survives the narrative carry state.
-- Return shortcut opens only after core acquisition.
-- Aircraft boot cannot start without core.
-- Spool pauses only for designated live apron blockers, never rolls backward, and completes after all required waves.
-- Jet blast telegraphs before applying push/damage, affects robots and player, and cannot push through blockers.
-- Boarding cannot trigger before engines are ready.
+- Chapter 1 ends only after the outside garrison is cleared and the building entrance is reached.
+- Chapter 2 uses a playable airport-building interior and ends only after its garrison is cleared and the apron exit is reached.
+- Chapter 3 requires the physical pump to be activated before fuel progresses.
+- Fuel progress is monotonic, config-driven, and reaches 100% before boarding is enabled.
+- Boarding cannot trigger before the aircraft is full.
 - Skip and natural takeoff produce identical final transforms and cleanup.
 - Completion invokes Stage 10 transition once.
 
@@ -1604,7 +1561,7 @@ Do not attempt all five stages in one unreviewed code pass. Complete them vertic
 1. Approve a 2D layout/blockout before detailed geometry.
 2. Build airport world, nav, collision, markers, and supplies.
 3. Build aircraft hero rig and warm-up path.
-4. Implement core objective and spool defense.
+4. Implement the three-chapter flow and physical fuel-pump objective.
 5. Implement opening/takeoff cinematics and dialogue.
 6. Add full smoke coverage and profile.
 7. Wire Stage 8→9, checkpoint 9, cheat 9, and Stage 9→10 only when Stage 10 has at least a valid integrated destination. Until then Stage 9 may temporarily preserve checkpoint as an endpoint in a development branch, but final merged behavior must follow the normal transition contract.

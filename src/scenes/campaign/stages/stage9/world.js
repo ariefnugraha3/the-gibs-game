@@ -14,17 +14,20 @@ import { resolveBlockers } from '../../../../utils/collision.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { buildStandMarker, pulseStandMarker } from '../../utility/common.js';
 import {
-    buildFourEngineTransport, resetTransport, setTransportCoreInstalled,
+    buildFourEngineTransport, resetTransport,
     updateTransport, transportDebug,
 } from './aircraft.js';
 
 export const S9_ORIGIN = Object.freeze({ x: 300000, z: 0 });
 export const S9_START = Object.freeze({ x: 299350, z: 156 });
-export const S9_TOWER = Object.freeze({ x: 299665, z: 176 });
-export const S9_CORE = Object.freeze({ x: 299690, z: 144 });
-export const S9_HANGAR = Object.freeze({ x: 300115, z: -145 });
-export const S9_INSTALL = Object.freeze({ x: 300205, z: -64 });
+export const S9_BUILDING_ENTRY = Object.freeze({ x: 299480, z: 260 });
+export const S9_BUILDING_START = Object.freeze({ x: 299480, z: 246 });
+export const S9_BUILDING_EXIT = Object.freeze({ x: 299535, z: 238 });
+export const S9_RUNWAY_START = Object.freeze({ x: 300085, z: 78 });
+export const S9_PUMP = Object.freeze({ x: 300145, z: 78 });
 export const S9_BOARD = Object.freeze({ x: 300228, z: -44 });
+const S9_CONTROL_TOWER = Object.freeze({ x: 299665, z: 176 });
+const S9_CARGO_HANGAR = Object.freeze({ x: 300115, z: -145 });
 export const S9_BOUNDS = Object.freeze({ x0: 299100, x1: 300930, z0: -610, z1: 610 });
 
 export const S9_OCC = 'campaign-9';   // kunci set occluder (utility/occlusion.js)
@@ -37,6 +40,7 @@ const blockers = [];
 const stageLights = [];
 const markers = {};
 const semantic = Object.create(null);
+let fuelPump = null;
 
 const crateCandidates = [
     [-545, 122], [-448, -174], [-350, 248], [-255, 66], [-138, -236],
@@ -141,7 +145,7 @@ function buildFence(parent, M, x0, x1, z) {
 }
 
 function buildTower(parent, M) {
-    const x = S9_TOWER.x, z = S9_TOWER.z;
+    const x = S9_CONTROL_TOWER.x, z = S9_CONTROL_TOWER.z;
     box(parent, M.concrete, 54, 12, 42, x, 6, z);
     box(parent, M.panel, 34, 45, 26, x, 28.5, z);
     box(parent, M.glass, 48, 10, 40, x, 55, z);
@@ -158,7 +162,7 @@ function buildTower(parent, M) {
 }
 
 function buildHangar(parent, M) {
-    const x = S9_HANGAR.x + 105, z = S9_HANGAR.z;
+    const x = S9_CARGO_HANGAR.x + 105, z = S9_CARGO_HANGAR.z;
     // Open apron-facing mouth; three structural walls and visible roof trusses.
     box(parent, M.panel, 4, 43, 104, x - 66, 21.5, z);
     box(parent, M.panel, 4, 43, 104, x + 66, 21.5, z);
@@ -322,6 +326,55 @@ function buildAirportBus(parent, M, x, z) {
     count('apronBus');
 }
 
+function buildAirportBuilding(parent, M) {
+    const x = 299480, z = 238;
+    // Gedung dibuat sebagai cutaway agar interior tetap terbaca dari kamera
+    // top-down. Dinding selatan memiliki satu pintu masuk, dinding timur satu
+    // pintu keluar menuju apron/runway.
+    box(parent, M.floor, 82, 0.35, 30, x, -0.45, z, false);
+    box(parent, M.panel, 2.2, 18, 30, x - 42, 9, z);
+    box(parent, M.panel, 2.2, 18, 30, x + 42, 9, z - 9);
+    box(parent, M.panel, 2.2, 18, 10, x + 42, 9, z + 10);
+    box(parent, M.panel, 82, 18, 2.2, x, 9, z - 15);
+    box(parent, M.roof, 86, 1.4, 3, x, 19, z - 14);
+    box(parent, M.roof, 3, 1.4, 30, x - 40, 19, z);
+    box(parent, M.roof, 3, 1.4, 30, x + 40, 19, z);
+    for (let px = x - 30; px <= x + 30; px += 15) {
+        box(parent, M.frame, 0.7, 16, 0.7, px, 8, z - 13.6, false);
+        box(parent, M.glass, 10, 4, 0.25, px, 12, z - 14.2, false);
+    }
+    // Interior dressing: desks, lockers and a central security island. None
+    // of these is an interactive computer objective.
+    for (let i = -2; i <= 2; i++) {
+        box(parent, M.panel, 8, 3, 3, x - 25 + i * 12, 1.5, z - 3, false);
+        box(parent, M.frame, 8.6, 0.35, 3.5, x - 25 + i * 12, 3.2, z - 3, false);
+    }
+    box(parent, M.concrete, 18, 2.5, 5, x + 4, 1.25, z + 6, false);
+    box(parent, M.hazard, 18, 0.25, 0.35, x + 4, 2.6, z + 3.6, false);
+    addBlocker(x - 42, z, 1.1, 15, 18, 0, 'airport-building-wall');
+    addBlocker(x + 42, z - 9, 1.1, 6, 18, 0, 'airport-building-wall');
+    addBlocker(x + 42, z + 10, 1.1, 5, 18, 0, 'airport-building-wall');
+    addBlocker(x, z - 15, 41, 1.1, 18, 0, 'airport-building-wall');
+    count('airportBuilding');
+}
+
+function buildFuelPump(parent, M) {
+    const x = S9_PUMP.x, z = S9_PUMP.z;
+    const g = new THREE.Group();
+    box(g, M.frame, 10, 0.8, 7, x, 0.4, z, false);
+    box(g, M.panel, 6, 7, 4.5, x, 4.2, z, false);
+    box(g, M.hazard, 6.4, 0.35, 4.8, x, 6.8, z, false);
+    box(g, M.tech, 2.3, 1.5, 0.25, x, 5.1, z - 2.3, false);
+    const indicator = box(g, M.hazard, 0.65, 0.65, 0.25, x, 7.25, z - 2.3, false);
+    indicator.userData.fuelIndicator = true;
+    const hose = cylinder(g, M.rubber, 0.22, 5.5, x - 3.3, 3.3, z + 2.4, 8, 'z');
+    hose.rotation.x = 0.22;
+    parent.add(g);
+    fuelPump = { group: g, indicator };
+    addBlocker(x, z, 5.5, 4.2, 8, 0, 'fuel-pump');
+    count('fuelPump');
+}
+
 function buildRunwayAndApron(parent, M) {
     box(parent, M.grass, 1800, 1, 900, S9_ORIGIN.x, -0.75, 0, false);
     box(parent, M.asphalt, 1660, 0.45, 94, S9_ORIGIN.x + 10, -0.05, 0, false);
@@ -359,6 +412,8 @@ function buildWorld() {
         fieldSoil: material(0x795c3c, 0.98), crop: material(0x78904e, 1),
         earthRidge: material(0x5c422c, 1), water: material(0x496c72, 0.48, 0.08),
         asphalt: material(0x363a3b, 0.96), apron: material(0x68655f, 0.94),
+        floor: material(PAL.concrete, 0.96), tech: material(PAL.tech, 0.42, 0.05,
+            { emissive: PAL.techDim, emissiveIntensity: 0.35 }),
         concrete: material(PAL.concrete), panel: material(PAL.panel), roof: material(PAL.gunmetal, 0.62, 0.38),
         frame: material(PAL.gunmetal, 0.52, 0.52), steel: material(PAL.steel, 0.48, 0.6),
         fence: material(PAL.steel, 0.65, 0.45), rubber: material(PAL.rubber, 0.96),
@@ -398,18 +453,16 @@ function buildWorld() {
         fn(g, M, x, z, ...rest);
         weldOccluder(S9_OCC, worldRoot, g, { x, z, radius, top });
     };
-    occProp((p) => buildTower(p, M), S9_TOWER.x, S9_TOWER.z, 27, 80);
-    occProp((p) => buildHangar(p, M), S9_HANGAR.x + 105, S9_HANGAR.z, 68, 47);
-    // Airport operations sheds are isolated airfield facilities, not a city.
+    occProp((p) => buildTower(p, M), S9_CONTROL_TOWER.x, S9_CONTROL_TOWER.z, 27, 80);
+    occProp((p) => buildHangar(p, M), S9_CARGO_HANGAR.x + 105, S9_CARGO_HANGAR.z, 68, 47);
+    // Airport operations building: a playable cutaway interior, not a solid
+    // facade. The chapter transition happens at its south/east thresholds.
     {
         const g = new THREE.Group();
-        box(g, M.panel, 86, 19, 34, 299480, 9.5, 238);
-        box(g, M.roof, 90, 2, 38, 299480, 20, 238);
-        box(g, M.glass, 45, 4, 0.5, 299480, 12, 220.8);
-        weldOccluder(S9_OCC, worldRoot, g, { x: 299480, z: 238, radius: 45, top: 21 });
+        buildAirportBuilding(g, M);
+        weldOccluder(S9_OCC, worldRoot, g, { x: 299480, z: 238, radius: 45, top: 20 });
+        count('airportOperationsBuilding');
     }
-    addBlocker(299480, 238, 43, 17, 20, 0, 'airport-operations');
-    count('airportOperationsBuilding');
 
     occProp(buildTug, 300025, -96, 8, 9);
     occProp(buildBaggageTrain, 299930, -190, 22, 8);
@@ -458,10 +511,11 @@ function buildWorld() {
     transport = buildFourEngineTransport();
     worldRoot.add(transport);
     resetTransport(transport, 300272, -47, 0);
+    buildFuelPump(worldRoot, M);
 
-    createMarker(worldRoot, M, 'tower', S9_TOWER.x - 48, S9_TOWER.z - 5);
-    createMarker(worldRoot, M, 'core', S9_CORE.x, S9_CORE.z);
-    createMarker(worldRoot, M, 'install', S9_INSTALL.x, S9_INSTALL.z);
+    createMarker(worldRoot, M, 'building', S9_BUILDING_ENTRY.x, S9_BUILDING_ENTRY.z);
+    createMarker(worldRoot, M, 'buildingExit', S9_BUILDING_EXIT.x, S9_BUILDING_EXIT.z);
+    createMarker(worldRoot, M, 'pump', S9_PUMP.x, S9_PUMP.z);
     createMarker(worldRoot, M, 'board', S9_BOARD.x, S9_BOARD.z);
 
     // Static merge is safe because only hero aircraft and markers animate.
@@ -476,8 +530,8 @@ function buildWorld() {
     registerCampaignWorldRoot({
         key: 'campaign-9', root: worldRoot, lightsKey: 'campaign-9', bounds: S9_BOUNDS,
         warmupViews: [
-            { x: S9_TOWER.x, y: 0, z: S9_TOWER.z },
-            { x: S9_HANGAR.x, y: 0, z: S9_HANGAR.z },
+            { x: S9_BUILDING_ENTRY.x, y: 0, z: S9_BUILDING_ENTRY.z },
+            { x: S9_PUMP.x, y: 0, z: S9_PUMP.z },
             { x: 300300, y: 0, z: 0 },
         ],
     });
@@ -515,20 +569,27 @@ export function stage9GroundHeight() { return 0; }
 export function stage9NavGrid() { ensureStage9World(); return navGrid; }
 export function stage9Transport() { ensureStage9World(); return transport; }
 
-export function stage9SetCoreInstalled(installed) {
-    ensureStage9World();
-    setTransportCoreInstalled(transport, installed);
-}
-
 export function stage9SetMarkers(names) {
     ensureStage9World();
     const wanted = new Set(names || []);
     for (const [name, marker] of Object.entries(markers)) marker.visible = wanted.has(name);
 }
 
-export function stage9UpdateWorld(dt, elapsed, spool, takeoff) {
+export function stage9SetFuelPumpOn(on) {
+    ensureStage9World();
+    if (!fuelPump) return;
+    const mat = fuelPump.indicator.material;
+    mat.color.setHex(on ? PAL.tech : PAL.hazard);
+    mat.emissive.setHex(on ? PAL.techDim : PAL.hazard);
+}
+
+export function stage9UpdateWorld(dt, elapsed, fuel, pumpOn, takeoff) {
     if (!built) return;
-    updateTransport(transport, dt, spool, takeoff);
+    updateTransport(transport, dt, fuel, takeoff);
+    if (fuelPump) {
+        const blink = pumpOn && Math.sin(elapsed * 8) > -0.35;
+        fuelPump.indicator.material.emissiveIntensity = blink ? 0.9 : 0.18;
+    }
     for (const marker of Object.values(markers)) if (marker.visible) {
         pulseStandMarker(marker, elapsed * 4);
     }
@@ -553,19 +614,17 @@ export function stage9SupplyPlacements() {
 
 export function stage9EncounterPoints(name) {
     const sets = {
-        apron: [[299420, 120], [299465, 58], [299520, -40], [299590, -126], [299685, -70], [299760, 35], [299825, 118]],
-        tower: [[299590, 210], [299620, 118], [299682, 92], [299730, 174], [299705, 246], [299570, 254]],
-        return: [[299770, 38], [299820, -58], [299885, -142], [299945, -52], [300010, 52], [300065, 136]],
-        hangar: [[300020, -210], [300075, -118], [300135, -32], [300190, -212], [300250, 86], [300355, 116], [300405, -118]],
-        spool: [[300090, 124], [300020, 15], [300080, -208], [300170, -235], [300330, -218], [300410, -95], [300420, 85], [300320, 162]],
+        outside: [[299420, 120], [299465, 58], [299520, -40], [299590, -126], [299685, -70], [299705, 174]],
+        inside: [[299455, 247], [299470, 227], [299500, 247], [299515, 226], [299535, 247]],
+        runway: [[300020, 124], [300060, 15], [300080, -208], [300170, -235], [300330, -218], [300410, -95], [300420, 85], [300320, 162]],
     };
-    return (sets[name] || sets.apron).map(([x, z]) => ({ x, z }));
+    return (sets[name] || sets.outside).map(([x, z]) => ({ x, z }));
 }
 
 export function stage9RadarLandmarks() {
     return [
-        { x: S9_TOWER.x, z: S9_TOWER.z, type: 'objective' },
-        { x: S9_HANGAR.x, z: S9_HANGAR.z, type: 'objective' },
+        { x: S9_BUILDING_ENTRY.x, z: S9_BUILDING_ENTRY.z, type: 'objective' },
+        { x: S9_PUMP.x, z: S9_PUMP.z, type: 'objective' },
         { x: 300272, z: -47, type: 'vehicle' },
     ];
 }
@@ -588,6 +647,7 @@ export function stage9WorldDebug() {
             controlTowers: semantic.controlTower || 0,
             hangars: semantic.maintenanceHangar || 0,
             operationsBuildings: semantic.airportOperationsBuilding || 0,
+            playableBuildings: semantic.airportBuilding || 0,
             serviceEquipment: {
                 pushbackTugs: semantic.pushbackTug || 0,
                 baggageCarts: semantic.baggageCart || 0,
@@ -601,6 +661,7 @@ export function stage9WorldDebug() {
                 safetyCones: semantic.safetyCone || 0,
                 wheelChockPairs: semantic.wheelChockPair || 0,
                 cargoPallets: semantic.airCargoPallet || 0,
+                fuelPumps: semantic.fuelPump || 0,
             },
         },
         aircraft: transportDebug(transport),

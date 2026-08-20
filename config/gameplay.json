@@ -683,28 +683,14 @@
             "openingMinSec": 6,
             "fadeSec": 0.6,
             "interactionRange": 18,
-            "jetBlast": {
-                "warmupSec": 1.2,
-                "push": 52,
-                "damage": 22,
-                "activeFraction": 0.62
-            },
-            "spool": {
-                "durationSec": 48,
-                "pauseWhenBlocked": true,
-                "waveGapSec": 8,
-                "encounters": [
-                    { "C": 8, "B": 3, "A": 1 },
-                    { "C": 10, "B": 4, "A": 1 },
-                    { "C": 12, "B": 5, "A": 2 },
-                    { "C": 14, "B": 6, "A": 2 }
-                ]
+            "fuel": {
+                "durationSec": 24,
+                "interactionRange": 14
             },
             "encounters": {
-                "apron": { "C": 12, "B": 5, "A": 1 },
-                "tower": { "C": 14, "B": 6, "A": 2 },
-                "return": { "C": 16, "B": 7, "A": 2 },
-                "hangar": { "C": 10, "B": 5, "A": 2 }
+                "outside": { "C": 12, "B": 5, "A": 1 },
+                "inside": { "C": 14, "B": 6, "A": 2 },
+                "runway": { "C": 10, "B": 5, "A": 2 }
             },
             "lootboxCount": 6,
             "barrelCount": 10,
@@ -1283,16 +1269,14 @@
             },
             "stage9": {
                 "lines": {
-                    "openingCommand": { "speaker": "Command", "text": "Kertajati is occupied, but one autonomous heavy transport is still flightworthy. Secure it." },
-                    "openingGibran": { "speaker": "Major Gibran", "text": "I have the kill-switch. I only need a way to Nusantara." },
-                    "towerLocked": { "speaker": "Airport System", "text": "Aircraft authorization core not detected. Launch functions are locked." },
-                    "coreLocated": { "speaker": "Command", "text": "The flight-control core is in tower operations. Retrieve it, then return to the cargo hangar." },
-                    "coreTaken": { "speaker": "Major Gibran", "text": "Core secured. I am heading back to the transport." },
-                    "aircraftBoot": { "speaker": "Aircraft System", "text": "Flight-control core accepted. Autonomous engine sequence initiated." },
-                    "assaultWarning": { "speaker": "Command", "text": "Hostile formations are converging on the apron. Keep them clear until spool completes." },
-                    "enginesReady": { "speaker": "Aircraft System", "text": "All engines stable. Takeoff configuration ready." },
-                    "boardNow": { "speaker": "Command", "text": "Board now, Major. This runway will not stay open." },
-                    "airDefense": { "speaker": "Command", "text": "Kalimantan air defense is still active. Expect a forced approach before Nusantara." }
+                    "openingCommand": { "speaker": "Command", "text": "Kertajati is occupied. Reach the airport building, cross it, and get to the runway." },
+                    "openingGibran": { "speaker": "Major Gibran", "text": "Understood. I will get that transport airborne." },
+                    "outsideCommand": { "speaker": "Command", "text": "The outer grounds are crawling with hostiles. Clear a path to the building." },
+                    "buildingEntry": { "speaker": "Major Gibran", "text": "Inside the airport. Push through and find the runway exit." },
+                    "runwayEntry": { "speaker": "Command", "text": "The transport is on the runway. Start the fuel pump before you approach it." },
+                    "pumpStarted": { "speaker": "Airport System", "text": "Fuel pump active. Aircraft refuelling in progress." },
+                    "fuelFull": { "speaker": "Airport System", "text": "Fuel tanks full. Transport ready for departure." },
+                    "departure": { "speaker": "Command", "text": "Board now, Major. We are leaving this airfield." }
                 }
             },
             "stage10": {
