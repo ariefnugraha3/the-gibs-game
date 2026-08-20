@@ -898,11 +898,16 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   ground speed and settle on the road.
 - Stage 8 is the coordinate-stable GRD LTV-45 gunner arena at x≈270000. Seven lateral
   corridors span both three-lane carriageways and the traversable median; `A/D` are
-  FREE lateral steering (2026-08-19; edge-triggered lane snaps until then) while walking/RMB/dodge/melee
-  are scene-gated off. `currentZ` is the source of truth and `laneIndex` is just the nearest-lane
-  read-out, so telegraphs and the hauler's lane chase are untouched; peak steer speed is derived from
-  `laneWidth / laneChangeSec` and the median still slows you by the `laneChangeSec : medianChangeSec`
-  ratio. Never reintroduce a snap-to-centre pull on release. The
+  FREE lateral steering (2026-08-19; edge-triggered lane snaps until then) and `W/S` are FREE
+  longitudinal drive inside `advanceRange` of the arena centre (2026-08-20), while walking/RMB/dodge/melee
+  are scene-gated off. `currentZ`/`currentX` are the source of truth and `laneIndex` is just the
+  nearest-lane read-out, so telegraphs and the hauler's lane chase are untouched; peak steer speed is
+  derived from `laneWidth / laneChangeSec`, the median still slows you by the `laneChangeSec :
+  medianChangeSec` ratio, and peak drive speed is CLAMPED below `roadSpeed` so braking never becomes
+  reversing (wheels roll at `roadSpeed + advanceVel`). `PLAYER_X` is now the arena CENTRE, not the
+  player: things that CHASE the player read live `currentX`, things that are part of the WORLD (road
+  pool ends, `stage8Walk` bounds, `S8_START`) stay anchored to the centre — mixing those up spawns
+  carriers past the end of the asphalt. Never reintroduce a snap-to-centre pull on release. The
   opening announces 100 km, but there is no runtime distance counter. Timed pickup
   carriers each mount exactly three ordinary A/B robots and keep spawning until the
   config-driven target of 20 carriers is destroyed. Only then does the standalone

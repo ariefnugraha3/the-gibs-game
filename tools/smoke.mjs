@@ -10281,6 +10281,120 @@ function steerToLaneS8(target) {
         T(`S8 MEDIAN: laju menyeberang di rumput lebih lambat daripada di aspal [${vMedian.toFixed(0)} vs ${vAsphalt.toFixed(0)} unit/dtk]`,
             vMedian > 0 && vAsphalt > vMedian * 1.15);
     }
+    // MAJU/MUNDUR, BUKAN CUMA KIRI/KANAN (2026-08-20, permintaan user "selain
+    // mobil player bisa belok kiri kanan, mobil player bisa bergerak ke depan
+    // dan ke belakang"). Bentuknya sengaja kembar dengan kemudi menyamping di
+    // atas: W/S DITAHAN, berhenti di mana pun dilepas, dan `currentX` jadi
+    // sumber kebenaran posisi memanjang sementara `PLAYER_X` turun pangkat jadi
+    // PUSAT arena.
+    {
+        const rd = () => s8mod.stage8RoadDebug();
+        const driveS8 = (key, sec, step = 0.02) => {
+            stateMod.keys[key] = true;
+            for (let t = 0; t < sec; t += step) s8mod.stage8Scene.updatePlayerControl(step);
+            stateMod.keys[key] = false;
+            // Redaman memanjang (`advanceEaseSec`) jauh lebih malas daripada
+            // kemudi menyamping, jadi perlu jauh lebih banyak frame untuk
+            // benar-benar diam — dan ia BENAR-BENAR mencapai nol (snap 0.4).
+            for (let i = 0; i < 400 && rd().advanceVel !== 0; i++)
+                s8mod.stage8Scene.updatePlayerControl(step);
+        };
+        // Kembali ke pusat arena: ketukan sebanding sisa jarak, tiap ketukan
+        // sudah berhenti penuh sebelum yang berikutnya, jadi ia konvergen.
+        const centerS8 = () => {
+            for (let i = 0; i < 80; i++) {
+                const r = rd(), gap = r.centerX - r.currentX;
+                if (Math.abs(gap) <= 0.5) break;
+                driveS8(gap > 0 ? 'w' : 's',
+                    Math.max(0.02, Math.min(0.5, Math.abs(gap) / r.advanceMaxV * 0.5)));
+            }
+            return Math.abs(rd().currentX - rd().centerX);
+        };
+
+        // (1) W benar-benar MEMAJUKAN mobil, S memundurkannya, dan keduanya
+        //     diukur terhadap PUSAT arena — bukan terhadap koordinat mutlak.
+        const base = rd();
+        driveS8('w', 1.2);
+        const ahead = rd();
+        driveS8('s', 2.4);
+        const behind = rd();
+        T(`S8 MAJU/MUNDUR: W memajukan dan S memundurkan mobil terhadap pusat arena [+${(ahead.currentX - base.centerX).toFixed(0)} / ${(behind.currentX - base.centerX).toFixed(0)} unit]`,
+            ahead.currentX > base.centerX + 10 && behind.currentX < base.centerX - 10
+            && base.centerX === s8mod.S8_START.x);
+
+        // (2) BERHENTI DI MANA PUN DILEPAS, tanpa tarikan balik ke pusat —
+        //     aturan yang sama dengan kemudi menyamping, dan regresi yang paling
+        //     mungkin: memasang pegas balik ke `PLAYER_X` terasa "rapi" tapi
+        //     justru mengembalikan snap yang baru saja dibuang.
+        centerS8();
+        driveS8('w', 0.6);
+        const held = rd().currentX;
+        for (let i = 0; i < 120; i++) s8mod.stage8Scene.updatePlayerControl(0.02);
+        T(`S8 MAJU/MUNDUR: berhenti di mana pun tombol dilepas, tak ditarik balik ke pusat [hanyut ${Math.abs(rd().currentX - held).toExponential(1)}]`,
+            rd().advanceVel === 0 && Math.abs(rd().currentX - held) < 1e-9
+            && Math.abs(held - rd().centerX) > 10);
+
+        // (3) MENGEREM TAK BOLEH BERUBAH JADI MUNDUR. Laju puncaknya dijepit di
+        //     bawah `roadSpeed`, jadi laju terhadap ASPAL — yang memutar roda —
+        //     tak pernah menyentuh nol sementara seluruh pemandangan masih
+        //     menyapu ke belakang. Diukur dari TENGAH jendela: di ujungnya laju
+        //     memang dipaksa nol, jadi mengukur di sana tak membuktikan apa pun.
+        centerS8();
+        stateMod.keys.s = true;
+        let worstGround = Infinity, peakBack = 0;
+        for (let t = 0; t < 1.6; t += 0.02) {
+            s8mod.stage8Scene.updatePlayerControl(0.02);
+            worstGround = Math.min(worstGround, rd().groundSpeed);
+            peakBack = Math.max(peakBack, -rd().advanceVel);
+        }
+        stateMod.keys.s = false;
+        for (let i = 0; i < 400 && rd().advanceVel !== 0; i++)
+            s8mod.stage8Scene.updatePlayerControl(0.02);
+        T(`S8 MAJU/MUNDUR: mengerem melambat tapi TAK PERNAH jadi mundur — roda selalu maju [sisa ${worstGround.toFixed(1)} vs jalan ${S8C.roadSpeed}, puncak mundur ${peakBack.toFixed(1)}]`,
+            // Benar-benar melambat...
+            peakBack > 1 && worstGround < S8C.roadSpeed - 1
+            // ...tapi tak pernah berbalik, dan itu dijamin oleh jepitan laju.
+            && worstGround > 0 && peakBack <= S8C.roadSpeed * 0.9 + 1e-6
+            && rd().advanceMaxV <= S8C.roadSpeed * 0.9 + 1e-6
+            // Dilepas: laju terhadap aspal kembali persis ke laju gulir jalan.
+            && Math.abs(rd().groundSpeed - S8C.roadSpeed) < 1e-9);
+
+        // (4) JENDELA TERBATAS: menahan W/S selamanya tak boleh membawa mobil
+        //     keluar arena — kalau bisa, pool jalan/scenery habis di depan mata
+        //     dan `stage8Walk` (batas arena) kehilangan artinya.
+        driveS8('w', 12);
+        const maxX = rd();
+        driveS8('s', 24);
+        const minX = rd();
+        T(`S8 MAJU/MUNDUR: dijepit di jendela config dan tetap jauh di dalam batas arena [${(minX.currentX - minX.centerX).toFixed(0)} .. ${(maxX.currentX - maxX.centerX).toFixed(0)} vs +-${maxX.advanceRange}]`,
+            Math.abs(maxX.currentX - maxX.centerX - maxX.advanceRange) < 1e-6
+            && Math.abs(minX.currentX - minX.centerX + minX.advanceRange) < 1e-6
+            && maxX.advanceVel === 0 && minX.advanceVel === 0
+            && s8mod.stage8Walk(maxX.currentX, minX.currentZ, 0)
+            && s8mod.stage8Walk(minX.currentX, minX.currentZ, 0));
+
+        // (5) DUA JANGKAR YANG BERBEDA. Yang MENGEJAR player ikut posisi
+        //     HIDUPNYA; yang merupakan benda DUNIA (ujung pool jalan) tetap
+        //     terikat PUSAT arena. Inilah yang paling mudah tertinggal saat
+        //     `PLAYER_X` turun pangkat — dan memang sempat tertinggal: truk
+        //     lahir di luar ujung aspal begitu player memacu ke depan.
+        centerS8();
+        driveS8('w', 1.4);
+        const now = rd();
+        const ctx = s8mod.stage8HaulerCtxDbg();
+        T(`S8 MAJU/MUNDUR: pengejar ikut posisi HIDUP player, tapi ujung pool jalan tetap terikat PUSAT arena [player ${(now.currentX - now.centerX).toFixed(0)}, pool ${(ctx.roadMaxX - now.centerX).toFixed(0)}]`,
+            Math.abs(ctx.playerX - now.currentX) < 1e-9
+            && Math.abs(ctx.playerX - now.centerX) > 10
+            // Ujung pool TIDAK ikut bergeser bersama player.
+            && Math.abs(ctx.roadMaxX - (now.centerX + now.roadSpan / 2 - S8C.pickupEntryInset)) < 1e-9
+            // Drop dijepit di sebelah MOBIL, bukan di sebelah pusat arena, atau
+            // loot mendarat di aspal yang sudah ditinggalkan.
+            && Math.abs(s8mod.stage8Scene.clampDropPos(now.currentX, now.currentZ)[0] - now.currentX) < 25);
+
+        // Kembalikan ke pusat supaya blok sesudah ini tak mewarisi simpangan.
+        T(`S8 MAJU/MUNDUR: dapat dikembalikan tepat ke pusat arena [sisa ${centerS8().toFixed(2)} unit]`,
+            Math.abs(rd().currentX - rd().centerX) <= 0.5 && rd().advanceVel === 0);
+    }
     // MENYETIR BUKAN BERJALAN, DAN TUBUHNYA TERHEMPAS (2026-08-19, permintaan
     // user "ketika berbelok, major gibran tidak menampilkan animasi jalan.
     // tampilkan animasi seperti terhempas. tau kan? aksi reaksi newton").
@@ -10598,7 +10712,7 @@ T('S8 CONVOY ENTRY: kedua ujung jalan dipakai, semua carrier menghadap maju di l
         spawnOK && !!born
         && born.entryX > s8World0.origin.x
         && born.entryX >= born.entryViewEdgeX + S8C.pickupOffscreenMargin
-        && Math.abs(born.targetX - (s8World0.origin.x + BD.leadOffset)) < 1e-9
+        && Math.abs(born.targetX - (s8mod.stage8RoadDebug().currentX + BD.leadOffset)) < 1e-9
         && Math.abs(born.yaw) < 1e-9 && born.cargoVisible === bedLoad);
 
     // --- Barel pertama: harus mendarat DI PUSAT lajur player saat itu, dan

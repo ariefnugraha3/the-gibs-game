@@ -968,6 +968,29 @@ The load-bearing consequence: **`dropTelegraphSec + dropFallSec + dropCloseSec` 
 
 **The truck itself** has HP 230 and its own swept player-bullet test (a rifle round covers tens of units per frame, so a per-frame point test would tunnel through it — the same reasoning as the gunship and the Stage 5 locomotive). Its bed drums disappear one by one as they are dropped, so shooting it early genuinely denies the remaining barrels. On death it explodes and its wreck brakes to a stop on the road like every other Stage 8 leftover, and it pays out `barrelDropper.loot`. Zero PointLights, PAL tokens only, and the whole rig is cleared when the gunship intro begins so no ground hazard hangs over the boss cutscene. The radar plots both the hauler and its rolling barrels in red.
 
+### Forward and back, not only left and right (2026-08-20, user request)
+
+> *"saya ingin di stage 8, selain mobil player bisa belok kiri kanan, mobil player bisa bergerak ke depan dan ke belakang."*
+
+`W` and `S` now drive the GRD LTV-45 up and down the road inside a window around the arena centre, alongside the free `A`/`D` steering. The control is deliberately the same shape as the steering added the day before — **held, not edge-triggered, and it stops wherever it is released** — but with its own `advanceEaseSec`, because an armoured vehicle changes its longitudinal speed far more lazily than it slides its tail out.
+
+**`PLAYER_X` was demoted from "where the player is" to "the centre of the arena".** `currentX` is now the source of truth for the longitudinal position, exactly as `currentZ` became the source of truth for the lateral one when the lane snap was removed. That single rename is what made the change tractable — but it also split a distinction that had been invisible for as long as the player could not move:
+
+- **Things that CHASE the player** — the barrel hauler's station and lane lock, carrier combat offsets, the gunship's `roadX`/`bossX`, loot and ammo drop positions, `clampDropPos`, cutscene framing — read the **live** `currentX`.
+- **Things that are part of the WORLD** — the ends of the fixed road pool, the arena bounds in `stage8Walk`, `S8_START` — stay anchored to the **centre**.
+
+Getting that backwards is not a subtle bug. Entry positions have to satisfy *both* constraints at once — a carrier must be born beyond the end of the road pool **and** outside the player's view — and while the player was pinned those were the same number. Pointing the road-pool end at the live player made carriers and barrel haulers spawn past the end of the asphalt as soon as the player drove forward. Smoke caught it immediately; the ctx field is now the absolute `roadMaxX` rather than a relative `roadEdge`, so the two anchors can no longer be confused by whoever reads them next.
+
+Three things are derived rather than invented:
+
+- **Peak speed is clamped below `roadSpeed`** (`ADVANCE_SPEED_CAP`, 0.9). If the player could fall back faster than the asphalt scrolls, the wheels would have to spin *backwards* while the entire landscape still swept rearwards. Braking must never become reversing. Measured: holding `S` takes the vehicle's ground speed from 92 down to 48.6 and no further.
+- **The wheels roll at `groundSpeed()`** — `roadSpeed + advanceVel`, the speed relative to the asphalt — not at the scroll rate. Accelerating and braking are visible in the tyres, and the front-wheel steer angle uses the same figure, so the steering geometry stays honest at every speed.
+- **The window is a config distance and a config crossing time** (`advanceRange` 96, `advanceSec` 2.2), and the window sits well inside the ±260 arena bound, so the road and scenery pools always cover the view.
+
+**What it changes in play.** Because everything that pursues the player tracks the live position, driving forward does not shake off a carrier or the gunship — they keep station on you, which is what pursuit means. What *does* change is your relationship with everything already on the road: **a dropped barrel is fixed in world space and sweeps rearwards at ground speed**, so pushing forward shortens the time you have to deal with it and backing off buys more. That consequence falls out of the coordinate model rather than being scripted, and it is the reason the throttle is worth having at all.
+
+Two things deliberately not done, to keep the change to what was asked: the avatar's inertia lurch is still fed lateral acceleration only, so braking and accelerating do not pitch Major Gibran forward and back the way a swerve rolls him; and the road scroll rate is untouched, so the world's speed is the world's, not the player's.
+
 ### Free steering replaces the lane snap (2026-08-19, user request)
 
 > *"coba buat agar mobil player tidak snap ke kiri dan ke kanan dong. coba bikin lebih fleksibel."*

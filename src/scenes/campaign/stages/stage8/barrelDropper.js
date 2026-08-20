@@ -417,7 +417,10 @@ export function spawnBarrelDropper(rig, ctx, opts = {}) {
     t.hp = t.maxHp = C.hp; t.dropped = 0; t.dropT = C.armSec; t.hitT = 0;
     t.lane = ctx.laneIndex;
     t.entryViewEdgeX = ctx.playerX + ctx.viewMaxX;
-    t.entryX = Math.max(ctx.playerX + ctx.roadEdge,
+    // `roadMaxX` adalah ujung pool jalan dalam koordinat MUTLAK (terikat pusat
+    // arena), sedangkan tepi pandang ikut player — sejak player bisa maju/mundur
+    // (2026-08-20) keduanya tak lagi sama, dan truk harus di luar KEDUANYA.
+    t.entryX = Math.max(ctx.roadMaxX,
         t.entryViewEdgeX + (ctx.offscreenMargin || 0));
     t.targetX = ctx.playerX + C.leadOffset;
     t.x = t.entryX; t.z = ctx.laneZ(ctx.laneIndex);
