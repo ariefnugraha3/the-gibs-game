@@ -303,7 +303,9 @@
              sebagai entri daftar — bentuknya sama persis dgn .navRow menu
              utama. Yang dibuang: subtitle "Select an operation", kotak kartu
              berbingkai + efek angkatnya, baris keterangan .mcSub, dan satu
-             kalimat paragraf per mode. Yang TETAP: baris difficulty (itu
+             kalimat paragraf per mode; yang kembali kemudian hanyalah satu
+             baris .mcNote pendek di bawah tiap nama (lihat komentar di
+             .modeCards). Yang TETAP: baris difficulty (itu
              kontrol, bukan hiasan) beserta ringkasan angkanya dari CFG, dan
              seluruh kontrak JS lama (#diffRow .dbtn[data-d],
              .modeCard[data-mode], #modeBack). -->
@@ -324,9 +326,16 @@
                 <div id="diffNote"></div>
             </div>
 
+            <!-- Satu baris keterangan pendek di BAWAH nama tiap mode (2026-08-21,
+                 permintaan user: "berikan sedikit, hanya sedikit saja deskripsi
+                 setiap mode, taruh di bawah tombolnya"). Sengaja SATU laras
+                 pendek, di dalam entri yang sama supaya sapuan sorot tetap
+                 menutupi keduanya dan susunan kolomnya tak berubah. Bukan
+                 paragraf — kalau tumbuh jadi kalimat, layar ini balik padat
+                 seperti versi "berkas misi" yang sudah dibuang. -->
             <div class="modeCards">
-                <div class="modeCard" data-mode="survival"><h2>Survival</h2></div>
-                <div class="modeCard" data-mode="campaign"><h2>Campaign</h2></div>
+                <div class="modeCard" data-mode="survival"><h2>Survival</h2><p class="mcNote">Endless waves. Keep the Monument standing.</p></div>
+                <div class="modeCard" data-mode="campaign"><h2>Campaign</h2><p class="mcNote">Robot AI rules Indonesia. Major Gibran must stop it.</p></div>
             </div>
 
             <button id="modeBack" class="menuBtn menuBack">Back</button>

@@ -28,15 +28,16 @@ export const S9_INTERIOR_ORIGIN = Object.freeze({ x: 312000, z: 0 });
 export const S9_START = Object.freeze({ x: 304930, z: 160 });
 export const S9_FRONT_CHECKPOINT = Object.freeze({ x: 305650, z: 160 });
 export const S9_BUILDING_ENTRY = Object.freeze({ x: 306500, z: 160 });
-export const S9_BUILDING_START = Object.freeze({ x: 312000, z: 520 });
-export const S9_INTERIOR_CHECKPOINT = Object.freeze({ x: 312000, z: 80 });
-export const S9_BUILDING_EXIT = Object.freeze({ x: 312000, z: -520 });
-export const S9_RUNWAY_START = Object.freeze({ x: 299220, z: 250 });
-export const S9_RUNWAY_CHECKPOINT = Object.freeze({ x: 299760, z: 105 });
-export const S9_PUMP = Object.freeze({ x: 300145, z: 78 });
-export const S9_BOARD = Object.freeze({ x: 300228, z: -44 });
-const S9_CONTROL_TOWER = Object.freeze({ x: 299665, z: 176 });
-const S9_CARGO_HANGAR = Object.freeze({ x: 300115, z: -145 });
+export const S9_BUILDING_START = Object.freeze({ x: 312285, z: 245 });
+export const S9_INTERIOR_CHECKPOINT = Object.freeze({ x: 312025, z: 55 });
+export const S9_BUILDING_EXIT = Object.freeze({ x: 311700, z: -275 });
+export const S9_RUNWAY_START = Object.freeze({ x: 299125, z: 180 });
+export const S9_RUNWAY_CHECKPOINT = Object.freeze({ x: 300055, z: 55 });
+export const S9_PUMP = Object.freeze({ x: 300800, z: 180 });
+export const S9_AIRCRAFT = Object.freeze({ x: 300700, z: -220 });
+export const S9_BOARD = Object.freeze({ x: 300662, z: -220 });
+const S9_CONTROL_TOWER = Object.freeze({ x: 299995, z: 455 });
+const S9_CARGO_HANGAR = Object.freeze({ x: 300650, z: 250 });
 export const S9_BOUNDS = Object.freeze({ x0: 299100, x1: 300930, z0: -610, z1: 610 });
 export const S9_FRONT_BOUNDS = Object.freeze({ x0: 304800, x1: 306650, z0: -360, z1: 520 });
 export const S9_INTERIOR_BOUNDS = Object.freeze({ x0: 311650, x1: 312350, z0: -560, z1: 560 });
@@ -65,16 +66,25 @@ const semantic = Object.create(null);
 const frontParkingRecords = [];
 const frontPlanterRecords = [];
 const frontBoundaryRuns = [];
+const interiorLayoutRecords = {
+    zones: [], amenityRows: { north: [], south: [] },
+    checkinCounters: 0, securityLanes: 0, seatBanks: 0,
+    selfCheckKiosks: 0, baggageBelts: 0,
+};
+const runwayLayoutRecords = {
+    zones: [], parkedAircraft: 0, jetBridges: 0,
+    taxiwayConnectors: 0, fireStations: 0,
+};
 let fuelPump = null;
 
 const crateCandidates = [
-    [-545, 122], [-448, -174], [-350, 248], [-255, 66], [-138, -236],
-    [-28, 172], [78, -220], [164, 178], [286, 132], [390, -178],
+    [-730, 85], [-560, 40], [-390, 80], [-220, 40], [-70, 80],
+    [90, 40], [240, 65], [380, 40], [520, 65], [680, 40],
 ];
 const barrelCandidates = [
-    [-570, 96], [-494, 206], [-392, -154], [-306, 90], [-234, -206],
-    [-118, 220], [-42, -232], [38, 128], [112, -224], [174, 126],
-    [264, -164], [348, 92], [424, -96], [506, 176],
+    [-700, 120], [-610, 45], [-470, 115], [-320, 45], [-170, 65],
+    [-30, 45], [110, 80], [250, 45], [390, 75], [500, 45],
+    [610, 70], [700, 45], [720, -95], [820, -220],
 ];
 
 function count(kind, amount = 1) {
@@ -173,13 +183,6 @@ function buildTree(parent, M, x, z, scale = 1) {
     count('windbreakTree');
 }
 
-function buildFence(parent, M, x0, x1, z) {
-    box(parent, M.fence, x1 - x0, 0.35, 0.35, (x0 + x1) * 0.5, 6.1, z);
-    box(parent, M.fence, x1 - x0, 0.35, 0.35, (x0 + x1) * 0.5, 3.2, z);
-    for (let x = x0; x <= x1; x += 22) box(parent, M.fence, 0.5, 12, 0.5, x, 6, z);
-    count('airportFenceRun');
-}
-
 function buildTower(parent, M) {
     const x = S9_CONTROL_TOWER.x, z = S9_CONTROL_TOWER.z;
     box(parent, M.concrete, 54, 12, 42, x, 6, z);
@@ -198,21 +201,90 @@ function buildTower(parent, M) {
 }
 
 function buildHangar(parent, M) {
-    const x = S9_CARGO_HANGAR.x + 105, z = S9_CARGO_HANGAR.z;
-    // Open apron-facing mouth; three structural walls and visible roof trusses.
-    box(parent, M.panel, 4, 43, 104, x - 66, 21.5, z);
-    box(parent, M.panel, 4, 43, 104, x + 66, 21.5, z);
-    box(parent, M.panel, 132, 43, 4, x, 21.5, z - 50);
-    box(parent, M.roof, 136, 3, 108, x, 45, z);
-    for (let rz = z - 42; rz <= z + 42; rz += 14) {
-        box(parent, M.frame, 136, 1.2, 1.2, x, 42.5, rz);
-        for (const sx of [-1, 1]) box(parent, M.frame, 1.2, 42, 1.2, x + sx * 61, 21, rz);
+    const x = S9_CARGO_HANGAR.x, z = S9_CARGO_HANGAR.z;
+    // Hanggar tiga bentang di sisi kanan-atas denah. Mulutnya terbuka ke
+    // SELATAN (arah taxiway/runway), sedangkan dinding belakang berada di utara.
+    box(parent, M.panel, 4, 43, 120, x - 125, 21.5, z);
+    box(parent, M.panel, 4, 43, 120, x + 125, 21.5, z);
+    box(parent, M.panel, 250, 43, 4, x, 21.5, z + 58);
+    for (const bayX of [x - 83, x, x + 83]) {
+        const roof = box(parent, M.roof, 82, 3, 124, bayX, 45, z);
+        roof.rotation.z = (bayX === x ? -1 : 1) * .025;
     }
-    for (let i = -3; i <= 3; i++) box(parent, M.hazard, 10, 0.18, 2, x + i * 18, 0.16, z + 53);
-    addBlocker(x - 66, z, 2, 52, 43, 0, 'hangar-wall');
-    addBlocker(x + 66, z, 2, 52, 43, 0, 'hangar-wall');
-    addBlocker(x, z - 50, 66, 2, 43, 0, 'hangar-wall');
+    for (let rz = z - 50; rz <= z + 50; rz += 16) {
+        box(parent, M.frame, 250, 1.2, 1.2, x, 42.5, rz);
+        for (const px of [x - 120, x - 42, x + 42, x + 120])
+            box(parent, M.frame, 1.2, 42, 1.2, px, 21, rz);
+    }
+    for (let i = -5; i <= 5; i++)
+        box(parent, M.hazard, 14, 0.18, 2, x + i * 21, 0.16, z - 63);
+    addBlocker(x - 125, z, 2, 60, 43, 0, 'hangar-wall');
+    addBlocker(x + 125, z, 2, 60, 43, 0, 'hangar-wall');
+    addBlocker(x, z + 58, 125, 2, 43, 0, 'hangar-wall');
     count('maintenanceHangar');
+}
+
+function buildParkedAirliner(parent, M, x, z, variant = 0) {
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    const body = variant & 1 ? M.panel : M.white;
+    cylinder(g, body, 4.2, 44, 0, 7, 0, 16, 'z');
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(4.15, 12, 8), body);
+    nose.position.set(0, 7, 22); nose.scale.z = 1.35; g.add(nose);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(4, 11, 12), body);
+    tail.position.set(0, 7, -26); tail.rotation.x = -Math.PI * .5; g.add(tail);
+    box(g, body, 42, 1.1, 9, 0, 9.2, 1);
+    box(g, M.frame, 48, .35, 4, 0, 8.6, -1);
+    box(g, body, 18, .8, 7, 0, 10.5, -19);
+    const fin = box(g, variant % 3 ? M.hazard : M.tech,
+        2.2, 10, 10, 0, 14, -20);
+    fin.rotation.x = -.18;
+    for (const side of [-1, 1]) for (let pz = -13; pz <= 15; pz += 4)
+        box(g, M.glass, .35, .7, 1.8, side * 4.05, 8.2, pz, false);
+    for (const px of [-17, 17])
+        cylinder(g, M.frame, 2.4, 6.5, px, 6.4, 1, 12, 'z');
+    weldOccluder(S9_OCC, parent, g, { x, z, hx: 25, hz: 31, top: 19 });
+    addBlocker(x, z, 24, 29, 16, 0, 'parked-airliner');
+    count('parkedAirliner');
+    runwayLayoutRecords.parkedAircraft++;
+}
+
+function buildJetBridge(parent, M, x) {
+    const z = 270;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    box(g, M.frame, 17, 3, 122, 0, 19, 0);
+    box(g, M.panel, 14, 7, 118, 0, 21, 0);
+    for (let pz = -50; pz <= 50; pz += 20)
+        box(g, M.glass, 14.3, 3, 7, 0, 22, pz, false);
+    box(g, M.frame, 25, 12, 22, 0, 16, -60);
+    for (const pz of [-28, 28]) {
+        box(g, M.frame, 2, 18, 2, -6, 9, pz);
+        box(g, M.frame, 2, 18, 2, 6, 9, pz);
+        addBlocker(x - 6, z + pz, 1.2, 1.2, 18, 0, 'jet-bridge-column');
+        addBlocker(x + 6, z + pz, 1.2, 1.2, 18, 0, 'jet-bridge-column');
+    }
+    weldOccluder(S9_OCC, parent, g, { x, z, hx: 13, hz: 63, top: 25 });
+    count('jetBridge');
+    runwayLayoutRecords.jetBridges++;
+}
+
+function buildFireStation(parent, M, x, z) {
+    box(parent, M.concrete, 94, 18, 62, x, 9, z);
+    box(parent, M.roof, 100, 2, 68, x, 19, z);
+    for (let i = -1; i <= 1; i++) {
+        const px = x + i * 28;
+        box(parent, M.hazard, 22, 12, 2, px, 6, z - 31.5);
+        for (let y = 2; y <= 10; y += 2)
+            box(parent, M.frame, 22, .35, .35, px, y, z - 32.6, false);
+    }
+    box(parent, M.panel, 28, 6, 8, x, 3, z + 35);
+    addBlocker(x, z, 47, 31, 20, 0, 'airport-fire-station');
+    count('airportFireStation');
+    runwayLayoutRecords.fireStations++;
+    runwayLayoutRecords.zones.push({
+        kind: 'fire-station', x, z, hx: 47, hz: 31,
+    });
 }
 
 function wheels(parent, M, points, yaw = 0) {
@@ -362,38 +434,6 @@ function buildAirportBus(parent, M, x, z) {
     count('apronBus');
 }
 
-function buildAirportBuilding(parent, M) {
-    const x = 299480, z = 238;
-    // Gedung dibuat sebagai cutaway agar interior tetap terbaca dari kamera
-    // top-down. Dinding selatan memiliki satu pintu masuk, dinding timur satu
-    // pintu keluar menuju apron/runway.
-    box(parent, M.floor, 82, 0.35, 30, x, -0.45, z, false);
-    box(parent, M.panel, 2.2, 18, 30, x - 42, 9, z);
-    box(parent, M.panel, 2.2, 18, 30, x + 42, 9, z - 9);
-    box(parent, M.panel, 2.2, 18, 10, x + 42, 9, z + 10);
-    box(parent, M.panel, 82, 18, 2.2, x, 9, z - 15);
-    box(parent, M.roof, 86, 1.4, 3, x, 19, z - 14);
-    box(parent, M.roof, 3, 1.4, 30, x - 40, 19, z);
-    box(parent, M.roof, 3, 1.4, 30, x + 40, 19, z);
-    for (let px = x - 30; px <= x + 30; px += 15) {
-        box(parent, M.frame, 0.7, 16, 0.7, px, 8, z - 13.6, false);
-        box(parent, M.glass, 10, 4, 0.25, px, 12, z - 14.2, false);
-    }
-    // Interior dressing: desks, lockers and a central security island. None
-    // of these is an interactive computer objective.
-    for (let i = -2; i <= 2; i++) {
-        box(parent, M.panel, 8, 3, 3, x - 25 + i * 12, 1.5, z - 3, false);
-        box(parent, M.frame, 8.6, 0.35, 3.5, x - 25 + i * 12, 3.2, z - 3, false);
-    }
-    box(parent, M.concrete, 18, 2.5, 5, x + 4, 1.25, z + 6, false);
-    box(parent, M.hazard, 18, 0.25, 0.35, x + 4, 2.6, z + 3.6, false);
-    addBlocker(x - 42, z, 1.1, 15, 18, 0, 'airport-building-wall');
-    addBlocker(x + 42, z - 9, 1.1, 6, 18, 0, 'airport-building-wall');
-    addBlocker(x + 42, z + 10, 1.1, 5, 18, 0, 'airport-building-wall');
-    addBlocker(x, z - 15, 41, 1.1, 18, 0, 'airport-building-wall');
-    count('airportBuilding');
-}
-
 function buildFuelPump(parent, M) {
     const x = S9_PUMP.x, z = S9_PUMP.z;
     const g = new THREE.Group();
@@ -412,23 +452,53 @@ function buildFuelPump(parent, M) {
 }
 
 function buildRunwayAndApron(parent, M) {
-    box(parent, M.grass, 1800, 1, 900, S9_ORIGIN.x, -0.75, 0, false);
-    box(parent, M.asphalt, 1660, 0.45, 94, S9_ORIGIN.x + 10, -0.05, 0, false);
-    box(parent, M.apron, 750, 0.42, 330, S9_ORIGIN.x + 110, -0.04, -75, false);
-    box(parent, M.asphalt, 420, 0.4, 42, S9_ORIGIN.x - 475, -0.02, 155, false);
-    box(parent, M.asphalt, 60, 0.4, 170, S9_ORIGIN.x - 335, -0.01, 100, false);
-    for (let x = S9_ORIGIN.x - 760; x <= S9_ORIGIN.x + 760; x += 62) {
-        box(parent, M.white, 30, 0.08, 1.4, x, 0.23, 0, false);
-        for (const z of [-43, 43]) box(parent, M.runwayLight, 3.2, 0.35, 1, x, 0.35, z, false);
+    // Translasi denah user: utara/+z = apron dan fasilitas; taxiway melintang
+    // di tengah; runway 14–32 melintang di selatan/-z.
+    box(parent, M.grass, 1800, 1, 1120, S9_ORIGIN.x, -0.75, 30, false);
+    box(parent, M.apron, 940, .42, 250, 299580, -.04, 180, false);
+    box(parent, M.apron, 800, .42, 310, 300450, -.04, 175, false);
+    box(parent, M.asphalt, 1760, .44, 70, 300000, -.04, 25, false);
+    box(parent, M.asphalt, 1720, .46, 110, 300010, -.03, -220, false);
+    runwayLayoutRecords.zones.push(
+        { kind: 'apron', x: 299580, z: 180, hx: 470, hz: 125 },
+        { kind: 'service-yard', x: 300450, z: 175, hx: 400, hz: 155 },
+        { kind: 'taxiway-b', x: 300000, z: 25, hx: 880, hz: 35 },
+        { kind: 'runway-14-32', x: 300010, z: -220, hx: 860, hz: 55 },
+    );
+
+    // Tiga konektor C3/C2/D1 dari taxiway ke runway.
+    for (const x of [299860, 300250, 300700]) {
+        box(parent, M.asphalt, 86, .43, 180, x, -.02, -87.5, false);
+        box(parent, M.hazard, 2, .08, 160, x, .23, -87.5, false);
+        for (const side of [-1, 1])
+            box(parent, M.hazard, 1, .08, 145, x + side * 31, .23, -87.5, false);
+        runwayLayoutRecords.taxiwayConnectors++;
     }
-    for (let x = S9_ORIGIN.x - 250; x <= S9_ORIGIN.x + 420; x += 48)
-        box(parent, M.hazard, 24, 0.08, 0.7, x, 0.22, -118, false);
-    for (let i = 0; i < 8; i++) {
-        const x = S9_ORIGIN.x - 790 + i * 16;
-        box(parent, i % 2 ? M.white : M.hazard, 13, 0.1, 7, x, 0.24, -31, false);
-        box(parent, i % 2 ? M.white : M.hazard, 13, 0.1, 7, x, 0.24, 31, false);
+
+    // Garis tengah taxiway dan panduan lima stand apron.
+    box(parent, M.hazard, 1710, .08, 1.5, 300000, .23, 25, false);
+    for (const x of [299250, 299425, 299600, 299775, 299950]) {
+        box(parent, M.hazard, 1.4, .08, 128, x, .23, 124, false);
+        for (const side of [-1, 1]) {
+            const branch = box(parent, M.hazard, 38, .08, 1.2,
+                x + side * 15, .23, 72, false);
+            branch.rotation.y = side * .48;
+        }
     }
-    count('runway'); count('apron'); count('taxiway', 2);
+
+    // Markah runway: centreline, edge light dan threshold bar pada kedua ujung.
+    for (let x = 299205; x <= 300815; x += 68) {
+        box(parent, M.white, 32, .08, 2, x, .24, -220, false);
+        for (const z of [-270, -170])
+            box(parent, M.runwayLight, 3.2, .35, 1, x, .35, z, false);
+    }
+    for (const edgeX of [299175, 300845]) for (let i = -4; i <= 4; i++)
+        box(parent, M.white, 5, .1, 8, edgeX + i * 8, .24, -220, false);
+    for (let i = 0; i < 6; i++) {
+        box(parent, M.hazard, 18, .08, 2, 299175 + i * 18, .23, -155, false);
+        box(parent, M.hazard, 18, .08, 2, 300845 - i * 18, .23, -285, false);
+    }
+    count('runway'); count('apron'); count('taxiway', 4);
 }
 
 function createMarker(parent, M, name, x, z, color = PAL.amber) {
@@ -842,78 +912,233 @@ function buildInteriorChapter(parent, M) {
     const statics = new THREE.Group();
     const x = S9_INTERIOR_ORIGIN.x;
     box(statics, M.floor, 660, 0.5, 1080, x, -0.35, 0, false);
-    // Cutaway terminal shell. Entrance and apron exit are centered openings.
-    const wall = (sx, sz, px, pz) => {
+
+    // Kisi lantai krem mengikuti bahasa visual denah bandara: aula check-in
+    // terang di kanan dan ruang tunggu berkarpet gelap di kiri tetap terbaca
+    // sebagai dua massa besar meski dilihat dari kamera top-down.
+    for (let px = x - 300; px <= x + 300; px += 40)
+        box(statics, M.panel, .55, .08, 1040, px, -.02, 0, false);
+    for (let pz = -500; pz <= 500; pz += 40)
+        box(statics, M.panel, 620, .08, .55, x, -.01, pz, false);
+    box(statics, M.asphalt, 270, .08, 700, x - 185, .03, -5, false);
+
+    const recordZone = (kind, px, pz, hx, hz, extra = null) => {
+        const zone = { kind, x: px, z: pz, hx, hz, ...(extra || {}) };
+        interiorLayoutRecords.zones.push(zone);
+        return zone;
+    };
+    const wall = (sx, sz, px, pz, kind = 'terminal-wall') => {
         const g = new THREE.Group();
         box(g, M.panel, sx, 22, sz, px, 11, pz);
         weldOccluder(S9_INTERIOR_KEY, parent, g,
             { x: px, z: pz, hx: sx * .5, hz: sz * .5, top: 22 });
+        addChapterBlocker(interiorBlockers, px, pz, sx * .5, sz * .5,
+            22, 0, kind);
     };
-    wall(4, 1080, x - 330, 0);
-    wall(4, 1080, x + 330, 0);
-    for (const z of [-1, 1]) {
-        wall(290, 4, x - 185, z * 540);
-        wall(290, 4, x + 185, z * 540);
-    }
-    addChapterBlocker(interiorBlockers, x - 330, 0, 2, 540, 22, 0, 'terminal-wall');
-    addChapterBlocker(interiorBlockers, x + 330, 0, 2, 540, 22, 0, 'terminal-wall');
-    for (const z of [-540, 540]) {
-        addChapterBlocker(interiorBlockers, x - 185, z, 145, 2, 22, 0, 'terminal-wall');
-        addChapterBlocker(interiorBlockers, x + 185, z, 145, 2, 22, 0, 'terminal-wall');
-    }
 
-    // Check-in hall: long counter islands and queuing rails, with three routes.
-    for (const side of [-1, 1]) for (const z of [430, 350]) {
-        const px = x + side * 205;
-        box(statics, M.panel, 150, 3.5, 14, px, 1.75, z);
-        box(statics, M.tech, 9, 2.2, 0.3, px, 4.4, z - 6.1, false);
-        addChapterBlocker(interiorBlockers, px, z, 75, 7, 5, 0, 'checkin-island');
-        for (let i = -3; i <= 3; i++) {
-            box(statics, M.frame, 1, 3, 1, px + i * 20, 1.5, z - 34);
-            box(statics, M.frame, 1, 3, 1, px + i * 20, 1.5, z - 62);
+    // Selubung cutaway. Bukaan timur adalah pintu dari forecourt; bukaan barat
+    // di ruang tunggu adalah jalur apron. Dinding utara/selatan tetap utuh.
+    wall(4, 785, x - 330, 147.5);
+    wall(4, 235, x - 330, -422.5);
+    wall(4, 723, x + 330, -178.5);
+    wall(4, 285, x + 330, 397.5);
+    wall(660, 4, x, 540);
+    wall(660, 4, x, -540);
+
+    // Dua deret fasilitas pada denah: toko/restoran/kafe/toilet menempel pada
+    // sisi utara dan selatan ruang tunggu. Bentuk dibedakan lewat isi, tanpa
+    // papan nama atau wayfinding lokasi.
+    const buildAmenity = (kind, cx, cz, width, depth, frontDir, row) => {
+        const left = cx - width * .5, right = cx + width * .5;
+        const backZ = cz - frontDir * depth * .5;
+        box(statics, M.wood, width - 5, .14, depth - 5, cx, -.02, cz, false);
+        // Tiga dinding didaftarkan sendiri-sendiri: toko berongga tidak boleh
+        // memakai satu footprint occluder sebesar seluruh ruang kosongnya.
+        wall(3, depth, left, cz, `${kind}-partition`);
+        wall(3, depth, right, cz, `${kind}-partition`);
+        wall(width, 3, cx, backZ, `${kind}-back-wall`);
+        box(statics, M.frame, width, 2, 3,
+            cx, 18, cz + frontDir * depth * .5);
+
+        if (kind === 'souvenir') {
+            for (let i = -1; i <= 1; i++) {
+                const px = cx + i * width * .24;
+                const shelf = new THREE.Group();
+                box(shelf, M.wood, 13, 8, 7, px, 4, backZ + frontDir * 18);
+                box(shelf, M.hazard, 8, 1, 4,
+                    px, 8.5, backZ + frontDir * 18, false);
+                weldOccluder(S9_INTERIOR_KEY, parent, shelf, {
+                    x: px, z: backZ + frontDir * 18, hx: 6.5, hz: 3.5, top: 9,
+                });
+                addChapterBlocker(interiorBlockers, px, backZ + frontDir * 18,
+                    6.5, 3.5, 9, 0, 'souvenir-shelf');
+            }
+        } else if (kind === 'restaurant') {
+            for (const ox of [-.26, .26]) for (const oz of [-.20, .20]) {
+                const px = cx + ox * width, pz = cz + oz * depth;
+                box(statics, M.wood, 18, 2, 12, px, 3.6, pz);
+                for (const dz of [-9, 9]) box(statics, M.panel, 12, 3, 5,
+                    px, 1.7, pz + dz);
+                addChapterBlocker(interiorBlockers, px, pz, 9, 6, 5,
+                    0, 'restaurant-table');
+            }
+        } else if (kind === 'cafe') {
+            const counterZ = backZ + frontDir * 20;
+            box(statics, M.wood, width - 16, 5, 12, cx, 2.5, counterZ);
+            for (let i = -2; i <= 2; i++) cylinder(statics, M.steel, 2.2, 3,
+                cx + i * (width - 24) / 5, 1.5, counterZ + frontDir * 15, 8);
+            addChapterBlocker(interiorBlockers, cx, counterZ,
+                (width - 16) * .5, 6, 6, 0, 'cafe-counter');
+        } else {
+            const stallDepth = Math.max(28, depth * .42);
+            for (let i = -1; i <= 1; i++) {
+                const px = cx + i * (width - 18) / 3;
+                const partition = new THREE.Group();
+                box(partition, M.glass, 2, 12, stallDepth, px, 6,
+                    backZ + frontDir * stallDepth * .5, false);
+                weldOccluder(S9_INTERIOR_KEY, parent, partition, {
+                    x: px, z: backZ + frontDir * stallDepth * .5,
+                    hx: 1, hz: stallDepth * .5, top: 12,
+                });
+                cylinder(statics, M.white, 4, 3, px + 7, 1.5,
+                    backZ + frontDir * 12, 10);
+                addChapterBlocker(interiorBlockers, px + 7,
+                    backZ + frontDir * 12, 4, 4, 4, 0, 'toilet-fixture');
+            }
+        }
+        recordZone(kind, cx, cz, width * .5, depth * .5, { row });
+        interiorLayoutRecords.amenityRows[row].push(kind);
+    };
+    buildAmenity('souvenir', x - 275, 450, 80, 170, -1, 'north');
+    buildAmenity('restaurant', x - 165, 450, 130, 170, -1, 'north');
+    buildAmenity('cafe', x - 48, 450, 95, 170, -1, 'north');
+    buildAmenity('toilet', x + 43, 450, 75, 170, -1, 'north');
+    buildAmenity('souvenir', x - 285, -450, 60, 170, 1, 'south');
+    buildAmenity('restaurant', x - 190, -450, 125, 170, 1, 'south');
+    buildAmenity('cafe', x - 70, -450, 105, 170, 1, 'south');
+    buildAmenity('toilet', x + 35, -450, 95, 170, 1, 'south');
+
+    // Aula check-in menempati bidang kanan yang lapang seperti referensi.
+    // Dua pulau konter memanjang berada di bagian atas; jalur antre hanya
+    // berupa rel rendah agar tiga koridor tempur tetap terbuka.
+    recordZone('checkin-hall', x + 205, 70, 115, 445);
+    for (const z of [455, 350]) {
+        box(statics, M.frame, 212, 1.1, 22, x + 205, .7, z);
+        for (let i = -4; i <= 4; i++) {
+            const px = x + 205 + i * 22;
+            box(statics, M.panel, 19, 5, 16, px, 2.6, z);
+            box(statics, M.tech, 9, 2.2, .3, px, 5.1, z - 8.1, false);
+        }
+        addChapterBlocker(interiorBlockers, x + 205, z, 106, 11,
+            6, 0, 'checkin-island');
+        interiorLayoutRecords.checkinCounters++;
+        for (let i = -4; i <= 4; i++) for (const dz of [-35, -65]) {
+            const px = x + 205 + i * 22;
+            cylinder(statics, M.frame, .7, 3, px, 1.5, z + dz, 8);
+            if (i < 4) box(statics, M.frame, 21, .35, .35,
+                px + 11, 2.7, z + dz, false);
         }
     }
 
-    // Security hall at z≈180: six scanner lanes, broken alternate cover.
-    for (const px of [x - 250, x - 150, x - 50, x + 50, x + 150, x + 250]) {
-        box(statics, M.frame, 28, 11, 18, px, 5.5, 190);
-        box(statics, M.hazard, 28, 0.5, 2, px, 11, 190);
-        addChapterBlocker(interiorBlockers, px, 190, 14, 9, 12, 0, 'security-scanner');
-        box(statics, M.panel, 36, 3, 12, px, 1.5, 145);
-        addChapterBlocker(interiorBlockers, px, 145, 18, 6, 4, 0, 'security-table');
+    // Empat kiosk mandiri di tengah aula kanan.
+    for (let i = 0; i < 4; i++) {
+        const px = x + 135 + i * 48, pz = -35;
+        box(statics, M.frame, 12, 3, 10, px, 1.5, pz);
+        const screen = box(statics, M.tech, 8, 9, 2, px, 6, pz, false);
+        screen.rotation.x = -.12;
+        addChapterBlocker(interiorBlockers, px, pz, 6, 5, 11,
+            0, 'self-check-kiosk');
+        interiorLayoutRecords.selfCheckKiosks++;
     }
 
-    // Concourse: storefront shells at the flanks, central information island,
-    // seating banks and service partitions. No location/destination signage.
-    for (const side of [-1, 1]) for (const z of [45, -75, -195]) {
-        const px = x + side * 270;
-        const shop = new THREE.Group();
-        box(shop, M.panel, 92, 20, 72, px, 10, z);
-        box(shop, M.glass, 76, 12, 1, px, 7, z + 36, false);
-        weldOccluder(S9_INTERIOR_KEY, parent, shop,
-            { x: px, z, hx: 46, hz: 36, top: 20 });
-        addChapterBlocker(interiorBlockers, px, z, 46, 36, 20, 0, 'concourse-shell');
+    // Ruang pemeriksaan keamanan berada tepat di antara aula kanan dan ruang
+    // tunggu kiri. Dua bukaan samping sejajar dengan lane atas; lane bawah
+    // memberi pilihan cover dan menggemakan dua stasiun pada denah.
+    recordZone('security-screening', x + 25, 45, 70, 190);
+    wall(140, 4, x + 25, 235, 'security-wall');
+    wall(140, 4, x + 25, -145, 'security-wall');
+    for (const px of [x - 45, x + 95]) {
+        wall(4, 165, px, -62.5, 'security-wall');
+        wall(4, 145, px, 162.5, 'security-wall');
     }
-    box(statics, M.concrete, 90, 5, 48, x, 2.5, -40);
-    addChapterBlocker(interiorBlockers, x, -40, 45, 24, 6, 0, 'information-island');
-    for (const side of [-1, 1]) for (const z of [20, -100, -220]) {
-        const px = x + side * 125;
-        box(statics, M.frame, 115, 1.4, 18, px, 1.2, z);
-        for (let i = -4; i <= 4; i++) box(statics, M.panel, 9, 3, 14, px + i * 12, 2.8, z);
-        addChapterBlocker(interiorBlockers, px, z, 58, 9, 5, 0, 'terminal-seating');
+    box(statics, M.white, 132, .1, 370, x + 25, .06, 45, false);
+    for (const laneZ of [55, -55]) {
+        const gateX = x + 25;
+        for (const dz of [-12, 12]) {
+            box(statics, M.frame, 4, 13, 4, gateX, 6.5, laneZ + dz);
+            addChapterBlocker(interiorBlockers, gateX, laneZ + dz,
+                2, 2, 13, 0, 'security-scanner-post');
+        }
+        box(statics, M.hazard, 4, 2, 28, gateX, 13, laneZ);
+        box(statics, M.panel, 36, 4, 10, x + 68, 2, laneZ + 21);
+        addChapterBlocker(interiorBlockers, x + 68, laneZ + 21,
+            18, 5, 5, 0, 'security-tray-table');
+        interiorLayoutRecords.securityLanes++;
     }
 
-    // Baggage reclaim hall and apron-side service cages.
-    for (const side of [-1, 1]) for (const z of [-350, -445]) {
-        const px = x + side * 185;
-        box(statics, M.rubber, 190, 2, 28, px, 1.3, z);
-        box(statics, M.frame, 198, 0.7, 34, px, 0.5, z);
-        addChapterBlocker(interiorBlockers, px, z, 99, 17, 4, 0, 'baggage-belt');
+    // Ruang tunggu keberangkatan besar di kiri. Bank kursi berulang mengikuti
+    // kisi denah, tetapi menyisakan lorong keliling dan jalur lebar ke pintu
+    // apron di barat-bawah.
+    recordZone('departure-concourse', x - 185, -5, 130, 350);
+    const seatXs = [x - 285, x - 225, x - 165, x - 105];
+    const seatZs = [300, 235, 170, 105, 40, -25, -90, -155, -220, -285];
+    for (const px of seatXs) for (const z of seatZs) {
+        if (px === x - 285 && z <= -220) continue;
+        box(statics, M.frame, 34, 1.2, 13, px, 1.2, z);
+        for (let i = -1; i <= 2; i++) {
+            box(statics, M.panel, 7, 3, 9, px + (i - .5) * 8, 2.8, z);
+            box(statics, M.panel, 7, 5, 2, px + (i - .5) * 8, 4.2, z + 5);
+        }
+        addChapterBlocker(interiorBlockers, px, z, 17, 7,
+            5, 0, 'departure-seating');
+        interiorLayoutRecords.seatBanks++;
     }
-    for (const side of [-1, 1]) {
-        box(statics, M.fence, 120, 15, 3, x + side * 245, 7.5, -500);
-        addChapterBlocker(interiorBlockers, x + side * 245, -500,
-            60, 2, 15, 0, 'service-cage');
+
+    // Kafe kecil memisahkan security dari fasilitas bawah, sama seperti pulau
+    // kafe di tengah denah. Sisi-sisinya terbuka untuk sirkulasi.
+    recordZone('central-cafe', x + 28, -255, 55, 40);
+    box(statics, M.wood, 100, 5, 20, x + 28, 2.5, -255);
+    box(statics, M.frame, 90, 1, 30, x + 28, .5, -255);
+    for (let i = -3; i <= 3; i++) cylinder(statics, M.steel, 2.2, 3,
+        x - 8 + i * 12, 1.5, -235, 8);
+    addChapterBlocker(interiorBlockers, x + 28, -255, 50, 10,
+        6, 0, 'central-cafe-counter');
+
+    // Baggage reclaim tunggal di kanan-bawah: torus direntangkan menjadi belt
+    // persegi-bulat, dengan empat collider terpisah agar lubang tengah tetap
+    // benar-benar kosong (bukan satu balok placeholder).
+    const baggageX = x + 210, baggageZ = -380;
+    recordZone('baggage-reclaim', baggageX, baggageZ, 72, 58);
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(44, 9, 6, 28), M.rubber);
+    belt.position.set(baggageX, 2.2, baggageZ);
+    belt.rotation.x = Math.PI * .5;
+    belt.scale.x = 1.45;
+    belt.castShadow = true; belt.receiveShadow = true;
+    statics.add(belt);
+    box(statics, M.concrete, 90, .08, 54, baggageX, .05, baggageZ, false);
+    addChapterBlocker(interiorBlockers, baggageX, baggageZ - 48,
+        64, 9, 5, 0, 'baggage-belt');
+    addChapterBlocker(interiorBlockers, baggageX, baggageZ + 48,
+        64, 9, 5, 0, 'baggage-belt');
+    addChapterBlocker(interiorBlockers, baggageX - 64, baggageZ,
+        9, 39, 5, 0, 'baggage-belt');
+    addChapterBlocker(interiorBlockers, baggageX + 64, baggageZ,
+        9, 39, 5, 0, 'baggage-belt');
+    interiorLayoutRecords.baggageBelts++;
+
+    // Deret troli di tepi aula check-in dan dekat baggage reclaim.
+    for (const [px, pz, length, yaw] of [
+        [x + 305, -165, 90, Math.PI * .5], [x + 305, 75, 90, Math.PI * .5],
+        [x + 112, -305, 75, Math.PI * .5], [x + 112, -470, 75, Math.PI * .5],
+    ]) {
+        const cart = new THREE.Group();
+        cart.position.set(px, 0, pz); cart.rotation.y = yaw;
+        box(cart, M.frame, length, .8, 8, 0, .6, 0);
+        for (let i = -Math.floor(length / 18) / 2; i <= Math.floor(length / 18) / 2; i++) {
+            box(cart, M.steel, 10, 3, 5, i * 14, 2.1, 0);
+            cylinder(cart, M.rubber, .7, .5, i * 14 - 3, .7, 3, 8, 'z');
+        }
+        statics.add(cart);
     }
 
     for (const z of [490, 390, 290, 210, 90, -30, -150, -270, -390, -490]) {
@@ -930,51 +1155,29 @@ function buildInteriorChapter(parent, M) {
     createMarker(parent, M, 'interiorCheckpoint', S9_INTERIOR_CHECKPOINT.x,
         S9_INTERIOR_CHECKPOINT.z);
     createMarker(parent, M, 'buildingExit', S9_BUILDING_EXIT.x, S9_BUILDING_EXIT.z);
-    for (const z of [480, 360, 240, 120, 0, -120, -240, -360, -480])
-        addChapterLight(S9_INTERIOR_KEY, PAL.white, 1.2, 145, x, 20, z);
+    for (const z of [430, 220, 10, -200, -410]) for (const side of [-1, 1])
+        addChapterLight(S9_INTERIOR_KEY, PAL.white, 1.05, 150,
+            x + side * 195, 20, z);
     count('playableTerminalInterior');
-    count('terminalZone', 4);
+    count('terminalZone', interiorLayoutRecords.zones.length);
 }
 
 function buildRunwayServiceApproach(parent, M) {
-    // Chapter 3 begins at the apron-side terminal exit, then crosses a service
-    // yard, fire lane, taxiway and aircraft stand before reaching the pump.
-    box(parent, M.apron, 620, 0.4, 420, 299430, -0.02, 105, false);
-    box(parent, M.asphalt, 920, 0.42, 58, 299650, 0, 105, false);
-    for (let x = 299180; x <= 300020; x += 46) {
-        box(parent, M.white, 24, 0.08, 1, x, 0.23, 105, false);
-        box(parent, M.hazard, 20, 0.08, 1, x, 0.23, 76, false);
-    }
-    // Apron-side terminal fingers flank the exit but leave a broad mouth.
-    box(parent, M.panel, 42, 24, 150, 299150, 12, 115);
-    box(parent, M.panel, 42, 24, 92, 299150, 12, 273);
-    box(parent, M.glass, 120, 14, 18, 299225, 14, 58, false);
-    addBlocker(299150, 115, 21, 75, 24, 0, 'apron-terminal-finger');
-    addBlocker(299150, 273, 21, 46, 24, 0, 'apron-terminal-finger');
+    // Garis merah batas apron dan hold-short bars mengikuti pembagian bidang
+    // pada denah tanpa menambah dinding collision tak terlihat.
+    box(parent, M.hazard, 930, .08, 1.2, 299580, .24, 304, false);
+    box(parent, M.hazard, 1.2, .08, 248, 299112, .24, 180, false);
+    box(parent, M.hazard, 1.2, .08, 248, 300048, .24, 180, false);
+    for (const x of [299860, 300250, 300700]) for (const z of [-155, -145])
+        for (let i = -2; i <= 2; i++)
+            box(parent, M.white, 13, .08, 1.4, x + i * 15, .24, z, false);
 
-    // Crash-fire station, equipment cages and blast-fence teeth form cover.
-    box(parent, M.concrete, 120, 18, 70, 299390, 9, -190);
-    for (let i = -2; i <= 2; i++)
-        box(parent, M.hazard, 18, 12, 2, 299390 + i * 22, 6, -154);
-    addBlocker(299390, -190, 60, 35, 18, 0, 'airport-fire-station');
-    for (const z of [205, -45]) {
-        box(parent, M.fence, 150, 16, 3, 299610, 8, z);
-        addBlocker(299610, z, 75, 2, 16, 0, 'equipment-cage');
-    }
-    for (let i = 0; i < 9; i++) {
-        const x = 299805 + i * 18, z = 225 - (i % 2) * 8;
-        box(parent, M.concrete, 12, 8, 4, x, 4, z);
-        addBlocker(x, z, 6, 2, 8, 0, 'blast-fence-tooth');
-    }
-    // Painted aircraft stand arcs approximated with segmented bars.
-    for (let i = 0; i < 12; i++) {
-        const a = -1.2 + i * .22;
-        const x = 299940 + Math.cos(a) * 185;
-        const z = 20 + Math.sin(a) * 145;
-        const stripe = box(parent, M.hazard, 26, .08, 1.2, x, .24, z, false);
-        stripe.rotation.y = -a;
-    }
-    count('runwayServiceZone'); count('blastFenceTooth', 9);
+    // Jalur kendaraan servis di belakang stand dan di depan hanggar.
+    box(parent, M.white, 900, .08, 1, 299580, .24, 78, false);
+    box(parent, M.white, 720, .08, 1, 300450, .24, 94, false);
+    for (let x = 300090; x <= 300790; x += 46)
+        box(parent, M.white, 22, .08, .8, x, .24, 94, false);
+    count('runwayServiceZone', 4);
 }
 
 function buildWorld() {
@@ -1011,24 +1214,19 @@ function buildWorld() {
     buildRunwayAndApron(staticRoot, M);
     buildRunwayServiceApproach(staticRoot, M);
 
-    // Complete rural surround: rice/maize/fallow plots, irrigation, windbreaks.
-    buildField(staticRoot, M, 299380, -390, 520, 230, true);
-    buildField(staticRoot, M, 299980, -430, 540, 190, false);
-    buildField(staticRoot, M, 300580, -390, 520, 230, true);
-    buildField(staticRoot, M, 299320, 425, 430, 220, false);
-    buildField(staticRoot, M, 299840, 445, 500, 190, true);
-    buildField(staticRoot, M, 300430, 420, 580, 230, false);
-    for (const z of [-300, 315]) box(staticRoot, M.water, 1650, 0.18, 8, 300000, -0.04, z, false);
+    // Lahan rural dipindah ke pita terluar agar bidang hijau di sekitar tower,
+    // apron dan hanggar tetap sama bersihnya dengan denah referensi.
+    buildField(staticRoot, M, 299360, 505, 400, 130, true);
+    buildField(staticRoot, M, 300470, 505, 520, 130, false);
+    buildField(staticRoot, M, 299390, -475, 470, 150, false);
+    buildField(staticRoot, M, 300420, -475, 560, 150, true);
+    for (const z of [-355, 370])
+        box(staticRoot, M.water, 1650, 0.18, 8, 300000, -0.04, z, false);
     count('irrigationCanal', 2);
     for (let x = 299140; x <= 300860; x += 48) {
         buildTree(staticRoot, M, x, -540 + ((x / 48) % 3) * 8, 0.78 + ((x / 48) % 4) * 0.05);
         buildTree(staticRoot, M, x, 550 - ((x / 48) % 3) * 7, 0.74 + ((x / 48) % 5) * 0.04);
     }
-
-    buildFence(staticRoot, M, 299120, 300880, -286);
-    buildFence(staticRoot, M, 299120, 300880, 305);
-    addBlocker(300000, -286, 880, 0.3, 12, 0, 'perimeter-fence');
-    addBlocker(300000, 305, 880, 0.3, 12, 0, 'perimeter-fence');
 
     // PROP TINGGI = OCCLUDER (2026-08-13): menara, hangar, gedung operasi dan
     // seluruh kendaraan pendukung darat dibangun ke grup sendiri lalu dilas ke
@@ -1040,33 +1238,34 @@ function buildWorld() {
         weldOccluder(S9_OCC, worldRoot, g, { x, z, radius, top });
     };
     occProp((p) => buildTower(p, M), S9_CONTROL_TOWER.x, S9_CONTROL_TOWER.z, 27, 80);
-    occProp((p) => buildHangar(p, M), S9_CARGO_HANGAR.x + 105, S9_CARGO_HANGAR.z, 68, 47);
-    // Airport operations building: a playable cutaway interior, not a solid
-    // facade. The chapter transition happens at its south/east thresholds.
-    {
-        const g = new THREE.Group();
-        buildAirportBuilding(g, M);
-        weldOccluder(S9_OCC, worldRoot, g, { x: 299480, z: 238, radius: 45, top: 20 });
-        count('airportOperationsBuilding');
-    }
+    occProp((p) => buildHangar(p, M), S9_CARGO_HANGAR.x, S9_CARGO_HANGAR.z, 135, 47);
+    occProp(buildFireStation, 300155, 210, 50, 20);
 
-    occProp(buildTug, 300025, -96, 8, 9);
-    occProp(buildBaggageTrain, 299930, -190, 22, 8);
-    occProp(buildFuelTruck, 300060, 128, 15, 13);
-    occProp(buildMobileStairs, 300345, -196, 13, 12);
-    occProp(buildCargoLoader, 299865, 102, 12, 11);
-    occProp(buildAirportBus, 299755, -174, 18, 11);
-    occProp(buildBaggageTractor, 299610, -122, 8, 11);
-    occProp(buildBaggageTractor, 300390, 118, 8, 11);
-    occProp(buildBeltLoader, 299825, -78, 14, 13);
-    occProp(buildBeltLoader, 300365, 62, 14, 13);
-    occProp(buildGroundPowerUnit, 300120, 92, 8, 9);
-    occProp(buildGroundPowerUnit, 300338, -142, 8, 9);
-    buildSafetyEquipment(staticRoot, M, 300005, -42);
+    const parkedX = [299250, 299425, 299600, 299775, 299950];
+    parkedX.forEach((x, i) => {
+        buildParkedAirliner(worldRoot, M, x, 180, i);
+        buildJetBridge(worldRoot, M, x);
+    });
+
+    // Ground-support equipment follows the apron stands and the hanggar-side
+    // service road instead of being scattered over the runway.
+    occProp(buildTug, 299330, 105, 8, 9);
+    occProp(buildBaggageTrain, 299470, 105, 22, 8);
+    occProp(buildFuelTruck, 299665, 105, 15, 13);
+    occProp(buildMobileStairs, 299830, 110, 13, 12);
+    occProp(buildCargoLoader, 299965, 105, 12, 11);
+    occProp(buildAirportBus, 299470, 265, 18, 11);
+    occProp(buildBaggageTractor, 300310, 112, 8, 11);
+    occProp(buildBaggageTractor, 300620, 108, 8, 11);
+    occProp(buildBeltLoader, 300410, 116, 14, 13);
+    occProp(buildBeltLoader, 300705, 105, 14, 13);
+    occProp(buildGroundPowerUnit, 300520, 108, 8, 9);
+    occProp(buildGroundPowerUnit, 300735, 82, 8, 9);
+    buildSafetyEquipment(staticRoot, M, 300250, 72);
 
     // Pallet/cargo staging with readable straps, labels and forklift lanes.
     for (let i = 0; i < 12; i++) {
-        const x = 299815 + (i % 4) * 17, z = 166 + Math.floor(i / 4) * 16;
+        const x = 300270 + (i % 4) * 17, z = 255 + Math.floor(i / 4) * 16;
         const g = new THREE.Group();
         box(g, M.wood, 12, 1, 10, x, 0.7, z);
         box(g, i % 3 ? M.panel : M.hazard, 10, 4 + (i % 2) * 2, 8, x, 3.2, z);
@@ -1078,8 +1277,8 @@ function buildWorld() {
 
     // Apron mast fixtures; actual dynamic lights are deliberately bounded.
     const lampSpecs = [
-        [299520, -210], [299690, -215], [299860, -245],
-        [300050, 235], [300245, 230], [300420, 180],
+        [299180, 300], [299520, 300], [299860, 300],
+        [300180, 90], [300500, 90], [300820, 90],
     ];
     for (const [x, z] of lampSpecs) {
         const mast = new THREE.Group();
@@ -1096,7 +1295,7 @@ function buildWorld() {
 
     transport = buildFourEngineTransport();
     worldRoot.add(transport);
-    resetTransport(transport, 300272, -47, 0);
+    resetTransport(transport, S9_AIRCRAFT.x, S9_AIRCRAFT.z, 0);
     buildFuelPump(worldRoot, M);
 
     createMarker(worldRoot, M, 'runwayCheckpoint', S9_RUNWAY_CHECKPOINT.x,
@@ -1143,7 +1342,7 @@ function buildWorld() {
             { x: S9_RUNWAY_START.x, y: 0, z: S9_RUNWAY_START.z },
             { x: S9_RUNWAY_CHECKPOINT.x, y: 0, z: S9_RUNWAY_CHECKPOINT.z },
             { x: S9_PUMP.x, y: 0, z: S9_PUMP.z },
-            { x: 300300, y: 0, z: 0 },
+            { x: S9_AIRCRAFT.x, y: 0, z: S9_AIRCRAFT.z },
         ],
     });
 }
@@ -1170,13 +1369,18 @@ export function stage9InteriorWalkable(x, z, radius = 0) {
 }
 
 export function stage9RunwayWalkable(x, z, radius = 0) {
+    const apron = x >= 299112 + radius && x <= 300050 - radius
+        && z >= 55 + radius && z <= 305 - radius;
+    const serviceYard = x >= 300050 + radius && x <= 300850 - radius
+        && z >= 20 + radius && z <= 330 - radius;
+    const taxiway = x >= 299120 + radius && x <= 300880 - radius
+        && z >= -10 + radius && z <= 60 - radius;
     const runway = x >= 299150 + radius && x <= 300870 - radius
-        && z >= -276 + radius && z <= 295 - radius;
-    const access = x >= 299300 + radius && x <= 299720 - radius
-        && z >= 115 + radius && z <= 286 - radius;
-    const hangarApron = x >= 299850 + radius && x <= 300500 - radius
-        && z >= -270 + radius && z <= 220 - radius;
-    return runway || access || hangarApron;
+        && z >= -275 + radius && z <= -165 - radius;
+    const connector = [299860, 300250, 300700].some((cx) =>
+        x >= cx - 43 + radius && x <= cx + 43 - radius
+        && z >= -175 + radius && z <= 0 - radius);
+    return apron || serviceYard || taxiway || runway || connector;
 }
 
 export function stage9Walkable(x, z, radius = 0) {
@@ -1258,17 +1462,17 @@ export function stage9SupplyPlacements() {
     return {
         crates: [
             { x: 305835, z: 165 }, { x: 306105, z: 132 },
-            { x: 311925, z: 148 }, { x: 312000, z: 115 },
+            { x: 312230, z: 115 }, { x: 311740, z: 340 },
             ...crateCandidates.map(([x, z]) => ({ x: S9_ORIGIN.x + x, z })),
         ],
         barrels: [
             { x: 305835, z: 135 }, { x: 306090, z: 182 },
-            { x: 311980, z: 70 }, { x: 312070, z: -42 },
+            { x: 312260, z: -160 }, { x: 311715, z: -185 },
             ...barrelCandidates.map(([x, z]) => ({ x: S9_ORIGIN.x + x, z })),
         ],
         drops: [
             { x: 305970, z: 178, type: 'ammo', weapon: 'pistol' },
-            { x: 312070, z: 145, type: 'medkit' },
+            { x: 312250, z: 120, type: 'medkit' },
             { x: 299970, z: 84, type: 'ammo', weapon: 'rifle' },
             { x: 300370, z: 86, type: 'medkit' },
         ],
@@ -1281,16 +1485,16 @@ export function stage9EncounterPoints(name) {
             [305310, 215], [305440, 145], [305520, 75], [305545, 245]],
         frontForecourt: [[305760, 85], [305780, 245], [305900, -90], [305960, 315],
             [306080, 70], [306160, 250], [306290, 145], [306400, 235], [306470, 75]],
-        interiorCheckin: [[311760, 480], [312000, 470], [312240, 480], [311820, 300],
-            [312000, 285], [312180, 300], [311720, 235], [312280, 235], [312000, 110]],
-        interiorConcourse: [[311760, 85], [312000, 90], [312240, 85], [311810, -35],
-            [312190, -35], [311800, -160], [312000, -165], [312200, -160],
-            [311850, -285], [312150, -285], [312000, -495]],
-        runwayApron: [[299250, 215], [299300, 105], [299380, 35], [299440, 115],
-            [299520, 270], [299650, 115], [299720, 35], [299750, 175]],
-        runwayAircraft: [[299850, 105], [299920, 15], [300020, 124], [300060, 15],
-            [300080, -208], [300170, -235], [300330, -218], [300410, -95],
-            [300420, 85], [300320, 162]],
+        interiorCheckin: [[312270, 285], [312150, 280], [312260, 180], [312140, 170],
+            [312280, 80], [312170, 75], [312120, -100], [312270, -105], [312115, 30]],
+        interiorConcourse: [[311745, 270], [311805, 205], [311865, 140], [311925, 75],
+            [311745, 75], [311805, 10], [311865, -60], [311925, -125],
+            [311745, -125], [311805, -190], [311865, -255], [311720, -320]],
+        runwayApron: [[299180, 90], [299180, 270], [299335, 60], [299400, 270],
+            [299570, 60], [299650, 270], [299820, 60], [299930, 270]],
+        runwayAircraft: [[300115, 70], [300115, 290], [300270, 60], [300390, 190],
+            [300470, 55], [300500, 190], [300610, 55], [300700, 145],
+            [300700, -80], [300820, -220]],
     };
     return (sets[name] || sets.frontToll).map(([x, z]) => ({ x, z }));
 }
@@ -1299,7 +1503,7 @@ export function stage9RadarLandmarks() {
     return [
         { x: S9_BUILDING_ENTRY.x, z: S9_BUILDING_ENTRY.z, type: 'objective' },
         { x: S9_PUMP.x, z: S9_PUMP.z, type: 'objective' },
-        { x: 300272, z: -47, type: 'vehicle' },
+        { x: S9_AIRCRAFT.x, z: S9_AIRCRAFT.z, type: 'vehicle' },
     ];
 }
 
@@ -1338,6 +1542,9 @@ export function stage9WorldDebug() {
             runway: semantic.runway || 0, apron: semantic.apron || 0,
             controlTowers: semantic.controlTower || 0,
             hangars: semantic.maintenanceHangar || 0,
+            fireStations: semantic.airportFireStation || 0,
+            parkedAircraft: semantic.parkedAirliner || 0,
+            jetBridges: semantic.jetBridge || 0,
             operationsBuildings: semantic.airportOperationsBuilding || 0,
             playableBuildings: semantic.playableTerminalInterior || 0,
             serviceEquipment: {
@@ -1417,12 +1624,38 @@ export function stage9WorldDebug() {
                 width: S9_INTERIOR_BOUNDS.x1 - S9_INTERIOR_BOUNDS.x0,
                 depth: S9_INTERIOR_BOUNDS.z1 - S9_INTERIOR_BOUNDS.z0,
                 zones: semantic.terminalZone || 0,
+                layout: {
+                    zones: interiorLayoutRecords.zones.map((z) => ({ ...z })),
+                    amenityRows: {
+                        north: [...interiorLayoutRecords.amenityRows.north],
+                        south: [...interiorLayoutRecords.amenityRows.south],
+                    },
+                    checkinCounters: interiorLayoutRecords.checkinCounters,
+                    securityLanes: interiorLayoutRecords.securityLanes,
+                    seatBanks: interiorLayoutRecords.seatBanks,
+                    selfCheckKiosks: interiorLayoutRecords.selfCheckKiosks,
+                    baggageBelts: interiorLayoutRecords.baggageBelts,
+                },
             },
             runway: {
                 travelDistance: Math.hypot(S9_BOARD.x - S9_RUNWAY_START.x,
                     S9_BOARD.z - S9_RUNWAY_START.z),
                 serviceZones: semantic.runwayServiceZone || 0,
                 blastFenceTeeth: semantic.blastFenceTooth || 0,
+                layout: {
+                    zones: runwayLayoutRecords.zones.map((z) => ({ ...z })),
+                    start: { ...S9_RUNWAY_START },
+                    checkpoint: { ...S9_RUNWAY_CHECKPOINT },
+                    pump: { ...S9_PUMP },
+                    aircraft: { ...S9_AIRCRAFT },
+                    board: { ...S9_BOARD },
+                    tower: { ...S9_CONTROL_TOWER },
+                    hangar: { ...S9_CARGO_HANGAR },
+                    parkedAircraft: runwayLayoutRecords.parkedAircraft,
+                    jetBridges: runwayLayoutRecords.jetBridges,
+                    taxiwayConnectors: runwayLayoutRecords.taxiwayConnectors,
+                    fireStations: runwayLayoutRecords.fireStations,
+                },
             },
         },
         staticBatches: staticBatch.length,

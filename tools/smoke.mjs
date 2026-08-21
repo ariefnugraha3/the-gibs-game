@@ -14175,16 +14175,24 @@ for (const [name, build] of Object.entries(propBuilders)) {
     // nama kelasnya, dan catatan itu justru yang harus tetap ada.
     const htmlMNoC = htmlM.replace(/<!--[\s\S]*?-->/g, '');
     const cssMNoC = cssM.replace(/\/\*[\s\S]*?\*\//g, '');
-    const modeCardsM = htmlMNoC.match(/<div class="modeCard" data-mode="\w+">[\s\S]*?<\/div>/g) || [];
-    T('MENU: entri mode NAMA SAJA — tanpa ilustrasi, sub-baris, maupun paragraf',
+    const modeCardsM = htmlMNoC.match(/<div class="modeCard" data-mode="\w+">[\s\S]*?<\/div>$/gm) || [];
+    T('MENU: entri mode = nama + SATU baris keterangan, tanpa ilustrasi/paragraf',
         !/mcArt|data-art=|maSvg/.test(htmlMNoC) && !/\.mcArt|\.maSvg|\.maRing/.test(cssMNoC)
         && !('modeArtSvg' in artM)
         && (htmlM.match(/class="modeCard" data-mode=/g) || []).length === 2
         && !/mcSub|mcSpec|mcGo|mcTop|mcCode|mcStripe/.test(htmlMNoC)
         && !/\.mcSub/.test(cssMNoC)
-        // isi tiap entri PERSIS satu nama, tak ada laras teks lain di dalamnya
+        // isi tiap entri PERSIS satu nama + satu .mcNote, tak ada laras lain
         && modeCardsM.length === 2
-        && modeCardsM.every(c => /^<div class="modeCard" data-mode="\w+"><h2>[A-Za-z ]+<\/h2><\/div>$/.test(c)));
+        && modeCardsM.every(c => /^<div class="modeCard" data-mode="\w+"><h2>[A-Za-z ]+<\/h2><p class="mcNote">[^<]+<\/p><\/div>$/.test(c)));
+    // Keterangan mode: SATU laras pendek per entri (2026-08-21, "sedikit saja").
+    // Batas kata dikunci supaya tak pelan-pelan tumbuh jadi paragraf lagi.
+    const mcNotesM = (htmlMNoC.match(/<p class="mcNote">([^<]+)<\/p>/g) || [])
+        .map(s2 => s2.replace(/<[^>]+>/g, '').trim());
+    T('MENU: tiap mode punya 1 keterangan pendek (<=10 kata) di bawah namanya',
+        mcNotesM.length === 2
+        && mcNotesM.every(t => t.split(/\s+/).length <= 10 && t.length <= 60)
+        && /\.mcNote \{/.test(cssMNoC));
     // Layar pilih mode memakai KERANGKA menu utama: kolom rata kiri, bukan
     // tumpukan di tengah layar, dan tanpa subtitle "Select an operation".
     T('MENU: layar pilih mode rata kiri seperti menu utama, tanpa subtitle',
@@ -14736,8 +14744,61 @@ if (false) {
         && w9.complexity.interior.width >= 700 && w9.complexity.interior.depth >= 1100
         && w9.complexity.interior.zones >= 4 && w9.chapters.interior.blockers >= 55
         && w9.complexity.runway.travelDistance >= 1000
-        && w9.complexity.runway.serviceZones >= 1
-        && w9.complexity.runway.blastFenceTeeth >= 9);
+        && w9.complexity.runway.serviceZones >= 4);
+    {
+        const layout = w9.complexity.interior.layout;
+        const zone = kind => layout.zones.find(z => z.kind === kind);
+        const departure = zone('departure-concourse');
+        const security = zone('security-screening');
+        const checkin = zone('checkin-hall');
+        const baggage = zone('baggage-reclaim');
+        const contains = (z, p) => !!z && Math.abs(p.x - z.x) <= z.hx
+            && Math.abs(p.z - z.z) <= z.hz;
+        const amenityKinds = ['souvenir', 'restaurant', 'cafe', 'toilet'];
+        T('S9 CH2 DENAH: concourse kiri, security tengah, check-in kanan, baggage kanan-bawah',
+            departure.x < security.x && security.x < checkin.x
+            && baggage.x > security.x && baggage.z < security.z
+            && contains(checkin, s9w.S9_BUILDING_START)
+            && contains(security, s9w.S9_INTERIOR_CHECKPOINT)
+            && contains(departure, s9w.S9_BUILDING_EXIT)
+            && amenityKinds.every(kind => layout.amenityRows.north.includes(kind)
+                && layout.amenityRows.south.includes(kind)));
+        T('S9 CH2 ISI DENAH: konter, scanner, kursi, kiosk dan belt bukan placeholder',
+            layout.checkinCounters >= 2 && layout.securityLanes >= 2
+            && layout.seatBanks >= 36 && layout.selfCheckKiosks >= 4
+            && layout.baggageBelts === 1 && layout.zones.length >= 13);
+    }
+    {
+        const layout = w9.complexity.runway.layout;
+        const zone = kind => layout.zones.find(z => z.kind === kind);
+        const contains = (z, p) => !!z && Math.abs(p.x - z.x) <= z.hx
+            && Math.abs(p.z - z.z) <= z.hz;
+        const apron = zone('apron'), service = zone('service-yard');
+        const runway = zone('runway-14-32'), fire = zone('fire-station');
+        T('S9 CH3 DENAH: start apron kiri, pump hanggar kanan, pesawat runway kanan',
+            contains(apron, layout.start) && contains(service, layout.pump)
+            && contains(runway, layout.aircraft) && contains(runway, layout.board)
+            && layout.start.x < layout.checkpoint.x
+            && layout.checkpoint.x < layout.aircraft.x
+            && layout.aircraft.x < layout.pump.x
+            && layout.start.z > layout.aircraft.z && layout.pump.z > layout.aircraft.z
+            && layout.tower.z > apron.z + apron.hz
+            && layout.hangar.x > fire.x
+            && Math.hypot(layout.board.x - layout.aircraft.x,
+                layout.board.z - layout.aircraft.z) <= C9.interactionRange * 3
+            && [layout.start, layout.checkpoint, layout.board].every(p =>
+                s9w.stage9RunwayWalkable(p.x, p.z, cfgMod.CFG.player.radius)
+                && !s9w.stage9BlockedAt(p.x, p.z, cfgMod.CFG.player.radius))
+            && s9w.stage9RunwayWalkable(layout.pump.x, layout.pump.z, 0)
+            && s9w.stage9BlockedAt(layout.pump.x, layout.pump.z, 0));
+        T('S9 CH3 ISI DENAH: lima stand+jet bridge, tower, damkar, hanggar dan tiga konektor',
+            layout.parkedAircraft === 5 && layout.jetBridges === 5
+            && layout.taxiwayConnectors === 3 && layout.fireStations === 1
+            && w9.airport.controlTowers === 1 && w9.airport.hangars === 1
+            && w9.airport.fireStations === 1
+            && w9.airport.parkedAircraft === layout.parkedAircraft
+            && w9.airport.jetBridges === layout.jetBridges);
+    }
     T('S9 CH1 PROPERTY: frontage padat bertingkat dari struktur besar sampai clutter rendah',
         w9.complexity.front.propertyCount >= 500
         && w9.complexity.front.parkedCars >= 36

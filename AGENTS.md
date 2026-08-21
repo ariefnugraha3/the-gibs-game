@@ -241,7 +241,10 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   shaped like `.navRow`, Back. Deleted: the bordered card + hover lift, `.mcSub`, the
   per-mode sentence, the "Select an operation" subtitle and `.subtitle` from the shared
   micro-label rule. The difficulty row STAYS (it is a control, and `#diffNote` quotes CFG).
-  Markup/CSS only — every JS contract is untouched.
+  Same-day follow-up (user: "berikan sedikit, hanya sedikit saja deskripsi setiap mode,
+  taruh di bawah tombolnya"): each entry gets ONE short dim line under its name
+  (`.mcNote`, inside the same clickable row, smoke-capped at 10 words) — one line, not a
+  return of `.mcSub` + paragraph. Markup/CSS only — every JS contract is untouched.
 - BOOT: the Three.js CDN scripts are `defer` (as plain classic scripts they BLOCK rendering)
   and `#bootScreen` is visible straight from CSS — never gate the first-paint splash behind
   JS, since waiting for JS is exactly the delay it hides. `boot()` reveals the menu only

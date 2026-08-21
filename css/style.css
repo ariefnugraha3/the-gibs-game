@@ -1023,7 +1023,10 @@ body {
    difficulty, dua entri bernama Survival/Campaign berbentuk .navRow, lalu
    Back. Subtitle "Select an operation", bingkai kartu + efek angkatnya, baris
    .mcSub dan paragraf per mode sudah tak ada; baris difficulty tinggal karena
-   ia KONTROL, bukan keterangan.
+   ia KONTROL, bukan keterangan. Susulan hari yang sama (user: "berikan sedikit,
+   hanya sedikit saja deskripsi setiap mode, taruh di bawah tombolnya"): tiap
+   entri mode dapat SATU baris .mcNote di bawah namanya — batasnya satu laras
+   pendek, bukan paragraf, dan kerangka kolomnya tetap.
 
    Yang TETAP: panggung latar berlapis (langit → 3 lapis siluet Jakarta 2045
    dari scenes/menuArt.js → kabut → vignette), judul + daftar RATA KIRI,
@@ -1731,14 +1734,29 @@ body {
     transform: translateX(7px);
 }
 
+/* Keterangan pendek di bawah nama mode (2026-08-21). Satu laras redup,
+   ukurannya jauh di bawah nama supaya hirarkinya jelas dan kolomnya tetap
+   terbaca sebagai daftar, bukan kartu. Kalau ini pernah tumbuh jadi lebih
+   dari satu baris, potong teksnya — jangan besarkan kotaknya. */
+.mcNote {
+    margin: 4px 0 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    color: var(--aiTextDim);
+    transition: color 0.16s;
+}
+
 .modeCard:hover h2 { color: #fff; }
+.modeCard:hover .mcNote { color: var(--aiText); }
 
 /* Back mengikuti kolom, bukan tengah layar (.menuBtn default align-self:center) */
 #modeBack { align-self: flex-start; }
 
 /* Gaya kartu lama DIBUANG: skema misi (.maSvg + seluruh kelas .ma*) 2026-08-10
    bersama gambarnya, lalu bingkai kartu + .mcSub + paragraf 2026-08-21. Jangan
-   dihidupkan lagi — lihat komentar entri mode di atas. */
+   dihidupkan lagi — lihat komentar entri mode di atas. Yang kembali hanyalah
+   SATU baris keterangan (.mcNote), bukan bingkai kartu maupun paragrafnya. */
 
 /* ---------- Prompt Continue game? (checkpoint campaign) ---------- */
 #continuePrompt {
