@@ -688,9 +688,12 @@
                 "interactionRange": 14
             },
             "encounters": {
-                "outside": { "C": 12, "B": 5, "A": 1 },
-                "inside": { "C": 14, "B": 6, "A": 2 },
-                "runway": { "C": 10, "B": 5, "A": 2 }
+                "frontToll": { "C": 22, "B": 8, "A": 3 },
+                "frontForecourt": { "C": 25, "B": 10, "A": 4 },
+                "interiorCheckin": { "C": 16, "B": 7, "A": 2 },
+                "interiorConcourse": { "C": 20, "B": 9, "A": 3 },
+                "runwayApron": { "C": 10, "B": 5, "A": 1 },
+                "runwayAircraft": { "C": 12, "B": 6, "A": 2 }
             },
             "lootboxCount": 6,
             "barrelCount": 10,

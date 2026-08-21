@@ -14165,18 +14165,37 @@ for (const [name, build] of Object.entries(propBuilders)) {
     // KEPADATANNYA. Ketiga assert di bawah mengunci pengurangannya supaya tak
     // pelan-pelan tumbuh kembali.
     // PAS KETIGA 2026-08-10 (user: "jauh lebih sederhana, tidak usah ada gambar
-    // ilustrasi setiap mode"): skema vektor kartu mode ikut dibuang — kartunya
-    // tinggal nama + satu baris + satu kalimat, dan modeArtSvg dihapus.
+    // ilustrasi setiap mode"): skema vektor kartu mode ikut dibuang.
+    // PAS KEEMPAT 2026-08-21 (user: "sesuaikan menu game mode dong, buat agar
+    // menjadi minimalis seperti main menu dengan teks yang seperlunya saja"):
+    // kartunya sendiri dibuang — entri mode kini NAMA SAJA, sebentuk .navRow
+    // menu utama, di dalam satu kolom rata kiri. Assert ini mengunci
+    // pengurangan itu supaya tak pelan-pelan tumbuh kembali.
     // Komentar dilucuti: catatan "sudah dibuang, jangan dihidupkan" menyebut
     // nama kelasnya, dan catatan itu justru yang harus tetap ada.
     const htmlMNoC = htmlM.replace(/<!--[\s\S]*?-->/g, '');
     const cssMNoC = cssM.replace(/\/\*[\s\S]*?\*\//g, '');
-    T('MENU: kartu mode TEKS SAJA — nama + satu baris + satu kalimat, tanpa ilustrasi',
+    const modeCardsM = htmlMNoC.match(/<div class="modeCard" data-mode="\w+">[\s\S]*?<\/div>/g) || [];
+    T('MENU: entri mode NAMA SAJA — tanpa ilustrasi, sub-baris, maupun paragraf',
         !/mcArt|data-art=|maSvg/.test(htmlMNoC) && !/\.mcArt|\.maSvg|\.maRing/.test(cssMNoC)
         && !('modeArtSvg' in artM)
         && (htmlM.match(/class="modeCard" data-mode=/g) || []).length === 2
-        && (htmlM.match(/class="mcSub"/g) || []).length === 2
-        && !/mcSpec|mcGo|mcTop|mcCode|mcStripe/.test(htmlM));
+        && !/mcSub|mcSpec|mcGo|mcTop|mcCode|mcStripe/.test(htmlMNoC)
+        && !/\.mcSub/.test(cssMNoC)
+        // isi tiap entri PERSIS satu nama, tak ada laras teks lain di dalamnya
+        && modeCardsM.length === 2
+        && modeCardsM.every(c => /^<div class="modeCard" data-mode="\w+"><h2>[A-Za-z ]+<\/h2><\/div>$/.test(c)));
+    // Layar pilih mode memakai KERANGKA menu utama: kolom rata kiri, bukan
+    // tumpukan di tengah layar, dan tanpa subtitle "Select an operation".
+    T('MENU: layar pilih mode rata kiri seperti menu utama, tanpa subtitle',
+        // sekali lagi: komentar "sudah dibuang" memang menyebut teks lamanya
+        !/Select an operation/.test(htmlMNoC)
+        && !/#modeSelect \.subtitle/.test(cssMNoC)
+        && /#modeSelect \{[^}]*justify-content:\s*flex-start/.test(cssMNoC)
+        && /\.msBody \{[^}]*align-items:\s*flex-start/.test(cssMNoC)
+        // logotype ikut arus kolom, tak lagi ditempel absolut di pojok
+        && !/\.msMark \{[^}]*position:\s*absolute/.test(cssMNoC)
+        && /<div class="msBody">\s*<div class="msMark">/.test(htmlMNoC));
     T('MENU: NOL rel telemetri palsu dan NOL baris petunjuk per entri menu',
         !/mRail|railKey|railDim|railLive|liveDot|class="eyebrow"/.test(htmlM)
         && !/nrHint|nrIdx|nrArrow/.test(htmlM)
@@ -14678,13 +14697,19 @@ if (false) {
     const C9 = cfgMod.CFG.campaign.stage9;
     const s9 = await import(R('src/scenes/campaign/stages/stage9/index.js'));
     const s9w = await import(R('src/scenes/campaign/stages/stage9/world.js'));
+    const s9rt = await import(R('src/scenes/campaign/stages/stage9/runtime.js'));
     const trans9 = await import(R('src/scenes/campaign/utility/transition.js'));
+    const registry9 = await import(R('src/scenes/campaign/utility/campaignWorldRegistry.js'));
+    const lights9 = await import(R('src/world/lighting.js'));
     const source9 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage9/index.js', 'utf8');
+    const worldSource9 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage9/world.js', 'utf8');
     const stand9 = (p) => camera.position.set(p.x, cfgMod.CFG.player.eyeHeight, p.z);
     const tick9 = (sec, dt = 0.1) => {
         for (let t = 0; t < sec - 1e-9; t += dt) s9.stage9Scene.updateMode(dt);
     };
     const robots9 = () => robots.filter(z => z.stage === 9);
+    const encounterTotal9 = name => Object.values(C9.encounters[name])
+        .reduce((sum, n) => sum + Math.max(0, n | 0), 0);
     const kill9 = () => {
         for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 9) {
             scene.remove(robots[i].mesh); robots.splice(i, 1);
@@ -14693,38 +14718,221 @@ if (false) {
     const drain9 = () => { for (let i = 0; i < 200 && s9.stage9Debug().cinematic; i++) tick9(0.5); };
 
     const w9 = s9w.stage9WorldDebug();
-    T('S9 WORLD: tiga chapter memakai gedung playable + pompa bahan bakar',
+    T('S9 WORLD: tiga chapter punya root, nav dan blocker sendiri + pompa fisik',
         w9.built && w9.airport.playableBuildings === 1
         && w9.airport.serviceEquipment.fuelPumps === 1
-        && s9w.S9_BUILDING_ENTRY && s9w.S9_BUILDING_EXIT && s9w.S9_PUMP);
+        && ['front', 'interior', 'runway'].every(name => w9.chapters[name].nav
+            && w9.chapters[name].blockers > 0)
+        && ['front', 'interior', 'runway'].every(name =>
+            w9.occluders.chapters[name]?.count > 0)
+        && new Set(['front', 'interior', 'runway'].map(name => w9.chapters[name].key)).size === 3
+        && Math.abs(s9w.S9_BUILDING_START.x - s9w.S9_BUILDING_ENTRY.x) > rendererMod.viewCam.far
+        && Math.abs(s9w.S9_RUNWAY_START.x - s9w.S9_BUILDING_START.x) > rendererMod.viewCam.far);
+    T('S9 SKALA: frontage, terminal dan rute runway jauh lebih luas dari versi awal',
+        w9.complexity.front.width >= 1800 && w9.complexity.front.depth >= 850
+        && w9.complexity.front.parkingCourts >= 2
+        && w9.complexity.front.abandonedVehicles >= 8
+        && w9.chapters.front.blockers >= 25
+        && w9.complexity.interior.width >= 700 && w9.complexity.interior.depth >= 1100
+        && w9.complexity.interior.zones >= 4 && w9.chapters.interior.blockers >= 55
+        && w9.complexity.runway.travelDistance >= 1000
+        && w9.complexity.runway.serviceZones >= 1
+        && w9.complexity.runway.blastFenceTeeth >= 9);
+    T('S9 CH1 PROPERTY: frontage padat bertingkat dari struktur besar sampai clutter rendah',
+        w9.complexity.front.propertyCount >= 500
+        && w9.complexity.front.parkedCars >= 36
+        && w9.complexity.front.buses >= 4
+        && w9.complexity.front.serviceVans >= 12
+        && w9.complexity.front.parkingCanopies >= 6
+        && w9.complexity.front.utilityCabinets >= 12
+        && w9.complexity.front.fenceSegments >= 50
+        && w9.complexity.front.securityBooths >= 4
+        && w9.complexity.front.lightMasts >= 10
+        && w9.complexity.front.trolleyBays >= 4
+        && w9.complexity.front.bollards >= 40
+        && w9.complexity.front.safetyCones >= 30
+        && w9.complexity.front.benches >= 16
+        && w9.complexity.front.wasteBins >= 16
+        && w9.complexity.front.luggage >= 24
+        && w9.complexity.front.motorcycles >= 40
+        && w9.complexity.front.wheelStops >= 70
+        && w9.complexity.front.laneDelineators >= 40
+        && w9.complexity.front.drainGrates >= 40);
+    T('S9 CH1 OCCLUDER: seluruh properti tinggi dipisah dari static batch',
+        w9.complexity.front.occluders >= 160
+        && w9.occluders.chapters.front.count === w9.complexity.front.occluders);
+    {
+        const runs = w9.complexity.front.boundaryFences.runs;
+        const bad = runs.filter((r) =>
+            !s9w.stage9FrontWalkable(r.inside.x, r.inside.z, 0)
+            || s9w.stage9FrontWalkable(r.outside.x, r.outside.z, 0)
+            || !s9w.stage9BlockedAt(r.midpoint.x, r.midpoint.z, 0));
+        T('S9 CH1 PAGAR BATAS: setiap dinding walkable luar punya visual+collider tepat di batas'
+            + (bad.length ? ` [${bad.map(r => `${r.x0},${r.z0}->${r.x1},${r.z1}`).join('; ')}]` : ''),
+        runs.length >= 11 && bad.length === 0
+            && runs.reduce((n, r) => n + r.segments, 0)
+                === w9.complexity.front.fenceSegments);
+    }
+    T('S9 CH1 MOBIL: parkiran memakai model FuturisticSedan/SUV yang sama dengan Stage 7',
+        w9.complexity.front.stage7CarModels.sedans > 0
+        && w9.complexity.front.stage7CarModels.suvs > 0
+        && w9.complexity.front.stage7CarModels.sedans
+            + w9.complexity.front.stage7CarModels.suvs
+            === w9.complexity.front.parkedCars + w9.complexity.front.abandonedVehicles
+        && worldSource9.includes("from '../../../../entities/futuristicSedan.js'")
+        && worldSource9.includes("from '../../../../entities/futuristicSUV.js'"));
+    T('S9 CH1 PARKIR: semua mobil tegak lurus petak dan muka mengarah ke pembatas',
+        w9.complexity.front.parkingFacingDivider === true);
+    T('S9 CH1 PLANTER: seluruh tajuk tanaman berada di dalam kotak planter',
+        w9.complexity.front.planters.count >= 4
+        && w9.complexity.front.planters.treesInside === true);
     T('S9 CONFIG: objective lama core/spool/jet-blast sudah tidak ada',
         !!C9.fuel && C9.fuel.durationSec > 0 && !C9.spool && !C9.jetBlast
-        && C9.encounters.outside && C9.encounters.inside && C9.encounters.runway
+        && ['frontToll', 'frontForecourt', 'interiorCheckin', 'interiorConcourse',
+            'runwayApron', 'runwayAircraft'].every(name => C9.encounters[name])
         && !source9.includes('hack') && !source9.includes('generator'));
+    {
+        const points = ['frontToll', 'frontForecourt', 'interiorCheckin',
+            'interiorConcourse', 'runwayApron', 'runwayAircraft']
+            .flatMap(name => s9w.stage9EncounterPoints(name));
+        const supplies = s9w.stage9SupplyPlacements();
+        const bad = [...points, ...supplies.crates, ...supplies.barrels, ...supplies.drops]
+            .filter(p => !s9w.stage9Walkable(p.x, p.z, 0)
+                || s9w.stage9BlockedAt(p.x, p.z, 0));
+        T('S9 PLACEMENT: spawn dan persediaan ketiga chapter tidak tertanam collider'
+            + (bad.length ? ` [${bad.map(p => `${p.x},${p.z}`).join('; ')}]` : ''),
+        bad.length === 0);
+    }
+    {
+        const reach = (walk, bounds, start, target, tolerance) => {
+            const step = 7, key = (x, z) => `${Math.round(x / step)},${Math.round(z / step)}`;
+            const queue = [[start.x, start.z]], seen = new Set([key(start.x, start.z)]);
+            while (queue.length) {
+                const [x, z] = queue.shift();
+                if (Math.hypot(x - target.x, z - target.z) <= tolerance) return true;
+                for (const [dx, dz] of [[step, 0], [-step, 0], [0, step], [0, -step]]) {
+                    const nx = x + dx, nz = z + dz, k = key(nx, nz);
+                    if (seen.has(k) || nx < bounds.x0 || nx > bounds.x1
+                        || nz < bounds.z0 || nz > bounds.z1
+                        || !walk(nx, nz, cfgMod.CFG.player.radius)
+                        || s9w.stage9BlockedAt(nx, nz, cfgMod.CFG.player.radius)) continue;
+                    seen.add(k); queue.push([nx, nz]);
+                }
+            }
+            return false;
+        };
+        const routeChecks = [
+            ['front-a', reach(s9w.stage9FrontWalkable, s9w.S9_FRONT_BOUNDS,
+                s9w.S9_START, s9w.S9_FRONT_CHECKPOINT, C9.interactionRange * 2)
+            ],
+            ['front-b', reach(s9w.stage9FrontWalkable, s9w.S9_FRONT_BOUNDS,
+                s9w.S9_FRONT_CHECKPOINT, s9w.S9_BUILDING_ENTRY, C9.interactionRange * 2)],
+            ['inside-a', reach(s9w.stage9InteriorWalkable, s9w.S9_INTERIOR_BOUNDS,
+                s9w.S9_BUILDING_START, s9w.S9_INTERIOR_CHECKPOINT, C9.interactionRange * 2)],
+            ['inside-b', reach(s9w.stage9InteriorWalkable, s9w.S9_INTERIOR_BOUNDS,
+                s9w.S9_INTERIOR_CHECKPOINT, s9w.S9_BUILDING_EXIT, C9.interactionRange)],
+            ['runway-a', reach(s9w.stage9RunwayWalkable, s9w.S9_BOUNDS,
+                s9w.S9_RUNWAY_START, s9w.S9_RUNWAY_CHECKPOINT, C9.interactionRange * 2)],
+            ['runway-b', reach(s9w.stage9RunwayWalkable, s9w.S9_BOUNDS,
+                s9w.S9_RUNWAY_CHECKPOINT, s9w.S9_PUMP, C9.fuel.interactionRange)],
+            ['runway-c', reach(s9w.stage9RunwayWalkable, s9w.S9_BOUNDS,
+                s9w.S9_RUNWAY_CHECKPOINT, s9w.S9_BOARD, C9.interactionRange)],
+        ];
+        const failedRoutes = routeChecks.filter(([, ok]) => !ok).map(([name]) => name);
+        T('S9 RUTE: tiap chapter tersambung dari pintu masuk ke pintu keluar/objective'
+            + (failedRoutes.length ? ` [${failedRoutes.join(', ')}]` : ''),
+        failedRoutes.length === 0);
+    }
 
     stateMod.setGameOver(false);
     T('S9 JUMP: masuk chapter 1 di luar gedung',
         trans9.campaignJumpToStage(9) === 9 && smMod.activeScene === s9.stage9Scene
         && s9.stage9Debug().chapter === 1 && s9.stage9Debug().phase === 'opening'
+        && s9.stage9Debug().sub === 'campaign-9-front'
+        && registry9.activeCampaignWorldRoots().join() === s9w.S9_FRONT_KEY
+        && lights9.stageLightsDebug().active === s9w.S9_FRONT_KEY
         && stateMod.cinematicActive && robots9().length > 0);
     drain9();
+    T('S9 ROBOT DENSITY: populasi awal Chapter 1 persis mengikuti tabel encounter config',
+        robots9().length === encounterTotal9('frontToll'));
+    {
+        const bot = robots9()[0];
+        let stayedIdle = false, wokeOnScreen = false, stayedAwake = false;
+        if (bot) {
+            bot.state = 'idle';
+            bot.mesh.position.set(camera.position.x + 5000, 0, camera.position.z + 5000);
+            s9.stage9Scene.robotAI(bot, 0.1, 6);
+            stayedIdle = bot.state === 'idle' && !s9rt.stage9RobotInView(bot);
+            bot.mesh.position.set(camera.position.x, 0, camera.position.z);
+            s9.stage9Scene.robotAI(bot, 0.1, 6);
+            wokeOnScreen = bot.state === 'chasing' && s9rt.stage9RobotInView(bot);
+            bot.mesh.position.set(camera.position.x + 5000, 0, camera.position.z + 5000);
+            s9.stage9Scene.robotAI(bot, 0.1, 6);
+            stayedAwake = bot.state === 'chasing';
+        }
+        T('S9 AGGRO LAYAR: idle di luar layar, langsung mengejar saat terlihat, lalu permanen aktif',
+            stayedIdle && wokeOnScreen && stayedAwake);
+    }
+    {
+        const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        const keepRobots = robots.slice(); robots.length = 0;
+        occlusionMod.resetStageOccluders(s9w.S9_FRONT_KEY);
+        const spot = occlusionMod.occlusionDebug(s9w.S9_FRONT_KEY).points
+            .filter(o => o.top >= 25 && o.radius <= 8)[0];
+        const stand = occBehind(spot, 12);
+        camera.position.set(stand.x, cfgMod.CFG.player.eyeHeight, stand.z);
+        for (let i = 0; i < 60; i++)
+            occlusionMod.updateStageOccluders(s9w.S9_FRONT_KEY, 0.1);
+        const faded = occlusionMod.occlusionDebug(s9w.S9_FRONT_KEY).minFactor;
+        occlusionMod.resetStageOccluders(s9w.S9_FRONT_KEY);
+        robots.length = 0; for (const bot of keepRobots) robots.push(bot);
+        camera.position.set(before.x, before.y, before.z);
+        T('S9 CH1 TRANSPARAN: properti yang menutupi player memudar ke opacity bersama',
+            !!spot && Math.abs(faded - cfgMod.CFG.campaign.occlusion.opacity) < 1e-6);
+    }
+    kill9();
+    stand9(s9w.S9_BUILDING_ENTRY); tick9(0.3);
+    const frontGateHeld = s9.stage9Debug().phase === 'frontToll';
+    stand9(s9w.S9_FRONT_CHECKPOINT); tick9(0.3);
+    let d9 = s9.stage9Debug();
+    T('S9 CHAPTER 1A: pintu terminal ditahan sampai toll access dilalui',
+        frontGateHeld && d9.phase === 'frontForecourt'
+        && d9.encounters.frontForecourt === encounterTotal9('frontForecourt'));
     kill9();
     stand9(s9w.S9_BUILDING_ENTRY);
     tick9(0.3);
-    let d9 = s9.stage9Debug();
+    d9 = s9.stage9Debug();
     T('S9 CHAPTER 1 → 2: clear area luar lalu masuk gedung bandara',
-        d9.chapter === 2 && d9.phase === 'insideClear' && robots9().length > 0
-        && d9.encounters.inside > 0);
+        d9.chapter === 2 && d9.phase === 'interiorCheckin' && robots9().length > 0
+        && d9.encounters.interiorCheckin === encounterTotal9('interiorCheckin')
+        && d9.sub === 'campaign-9-interior'
+        && smMod.activeScene === s9.stage9Scene && d9.activeSceneStable === 'campaign-9'
+        && registry9.activeCampaignWorldRoots().join() === s9w.S9_INTERIOR_KEY
+        && lights9.stageLightsDebug().active === s9w.S9_INTERIOR_KEY);
 
+    kill9();
+    stand9(s9w.S9_INTERIOR_CHECKPOINT); tick9(0.3);
+    d9 = s9.stage9Debug();
+    T('S9 CHAPTER 2A: check-in/security membuka encounter concourse kedua',
+        d9.phase === 'interiorConcourse'
+        && d9.encounters.interiorConcourse === encounterTotal9('interiorConcourse'));
     kill9();
     stand9(s9w.S9_BUILDING_EXIT);
     tick9(0.3);
     d9 = s9.stage9Debug();
     T('S9 CHAPTER 2 → 3: clear interior lalu keluar ke landasan',
-        d9.chapter === 3 && d9.phase === 'fuelPump'
-        && d9.encounters.runway > 0 && camera.position.x === s9w.S9_RUNWAY_START.x);
+        d9.chapter === 3 && d9.phase === 'runwayApron'
+        && d9.encounters.runwayApron > 0 && d9.sub === 'campaign-9-runway'
+        && camera.position.x === s9w.S9_RUNWAY_START.x
+        && registry9.activeCampaignWorldRoots().join() === s9w.S9_RUNWAY_KEY
+        && lights9.stageLightsDebug().active === s9w.S9_RUNWAY_KEY);
 
     kill9();
+    stand9(s9w.S9_RUNWAY_CHECKPOINT); tick9(0.3);
+    d9 = s9.stage9Debug();
+    T('S9 CHAPTER 3A: service yard membuka pertahanan aircraft stand kedua',
+        d9.phase === 'runwayAircraft' && d9.encounters.runwayAircraft > 0);
+    kill9(); tick9(0.3);
     stand9(s9w.S9_PUMP);
     tick9(0.3);
     d9 = s9.stage9Debug();
@@ -14751,9 +14959,12 @@ if (false) {
     // Skip path tetap melewati ketiga chapter dan hanya memotong cutscene.
     stateMod.setGameOver(false);
     trans9.campaignJumpToStage(9);
-    drain9(); kill9(); stand9(s9w.S9_BUILDING_ENTRY); tick9(0.3);
+    drain9(); kill9(); stand9(s9w.S9_FRONT_CHECKPOINT); tick9(0.3);
+    kill9(); stand9(s9w.S9_BUILDING_ENTRY); tick9(0.3);
+    kill9(); stand9(s9w.S9_INTERIOR_CHECKPOINT); tick9(0.3);
     kill9(); stand9(s9w.S9_BUILDING_EXIT); tick9(0.3);
-    kill9(); stand9(s9w.S9_PUMP); tick9(0.3);
+    kill9(); stand9(s9w.S9_RUNWAY_CHECKPOINT); tick9(0.3);
+    kill9(); tick9(0.3); stand9(s9w.S9_PUMP); tick9(0.3);
     tick9(C9.fuel.durationSec + 0.1);
     stand9(s9w.S9_BOARD); tick9(0.3);
     const skipped9 = dom4.triggerCutsceneSkip();

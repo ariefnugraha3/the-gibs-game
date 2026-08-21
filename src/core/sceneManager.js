@@ -21,7 +21,7 @@ export let activeScene = null;
 // `null` = scene ini TIDAK punya dunia sendiri (shop antar-stage, modal hack/
 // repair, menu): set root DIBIARKAN apa adanya — sama seperti aturan lightsKey —
 // supaya kembali dari modal tidak meninggalkan dunia yang tersembunyi.
-// Sub-scene (chapter Stage 6 & 12) memanggil registry-nya sendiri di enter().
+// Sub-scene (chapter Stage 6, 9 & 12) memanggil registry-nya sendiri di enter().
 function worldKeyFor(id) {
     if (!id) return null;
     if (id === 'campaign-12') return 'campaign-12-surface';
@@ -44,7 +44,7 @@ export function setScene(s, opts = {}) {
     if (s.lightsKey) setActiveStageLights(s.lightsKey);
     s.enter(opts);
     // enter() dapat baru membangun/mendaftarkan root pada akses langsung, dan
-    // chapter Stage 6/12 memilih root-nya sendiri di sana — jadi jangan menimpa
+    // chapter Stage 6/9/12 memilih root-nya sendiri di sana — jadi jangan menimpa
     // pilihan chapter: hanya set ulang bila belum ada root aktif yang cocok.
     if (worldKey && !activeCampaignWorldRoots().length) setActiveCampaignWorldRoots(worldKey);
 }

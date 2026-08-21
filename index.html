@@ -296,15 +296,21 @@
             <div class="mScan"></div>
         </div>
 
-        <!-- Logotype kecil di pojok kiri atas, bukan rel status selebar layar.
-             Tagline "NUSANTARA 2045" dibuang 2026-08-10 (permintaan user) —
-             sama seperti di menu utama: judulnya nama saja. -->
-        <div class="msMark">
-            <h1><span class="titleMain">DECOMMISSION DAY</span></h1>
-        </div>
-
+        <!-- LAYAR PILIH MODE DISAMAKAN DGN MENU UTAMA (2026-08-21, permintaan
+             user: "buat agar menjadi minimalis seperti main menu dengan teks
+             yang seperlunya saja"). Satu kolom RATA KIRI di atas siluet kota
+             yang sama: logotype kecil, baris difficulty, lalu NAMA MODE saja
+             sebagai entri daftar — bentuknya sama persis dgn .navRow menu
+             utama. Yang dibuang: subtitle "Select an operation", kotak kartu
+             berbingkai + efek angkatnya, baris keterangan .mcSub, dan satu
+             kalimat paragraf per mode. Yang TETAP: baris difficulty (itu
+             kontrol, bukan hiasan) beserta ringkasan angkanya dari CFG, dan
+             seluruh kontrak JS lama (#diffRow .dbtn[data-d],
+             .modeCard[data-mode], #modeBack). -->
         <div class="msBody">
-            <div class="subtitle">Select an operation</div>
+            <div class="msMark">
+                <h1><span class="titleMain">DECOMMISSION DAY</span></h1>
+            </div>
 
             <div id="diffRow">
                 <span class="qlabel">Difficulty</span>
@@ -318,21 +324,9 @@
                 <div id="diffNote"></div>
             </div>
 
-            <!-- Kartu mode TEKS SAJA (2026-08-10, permintaan user "jauh lebih
-                 sederhana"): nama, satu baris keterangan, satu kalimat. Skema
-                 vektor .mcArt dibuang — kode OP / tabel spesifikasi / footer
-                 "Deploy" sudah lebih dulu dibuang 2026-08-10. -->
             <div class="modeCards">
-                <div class="modeCard" data-mode="survival">
-                    <h2>Survival</h2>
-                    <div class="mcSub">Merdeka Square, held to the last wave</div>
-                    <p>Machines come from every side of the monument. Clear a wave, spend what you earned, brace for a bigger one.</p>
-                </div>
-                <div class="modeCard" data-mode="campaign">
-                    <h2>Campaign</h2>
-                    <div class="mcSub">Jakarta to Kertajati, eight stages</div>
-                    <p>A dead office block, a highway held by armour, a train east — carrying a kill switch only one transmitter can still broadcast.</p>
-                </div>
+                <div class="modeCard" data-mode="survival"><h2>Survival</h2></div>
+                <div class="modeCard" data-mode="campaign"><h2>Campaign</h2></div>
             </div>
 
             <button id="modeBack" class="menuBtn menuBack">Back</button>

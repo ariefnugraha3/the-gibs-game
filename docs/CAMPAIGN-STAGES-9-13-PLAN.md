@@ -138,7 +138,7 @@ These stages must not all feel like increasingly dense corridors. Their rhythm i
 
 ### 5.1 Stage thesis
 
-Stage 9 converts the static Kertajati arrival from Stage 8 into a playable airport under machine occupation. Gibran has reached the correct departure point and must cross the airport in three chapters before fuelling a transport and escaping.
+Stage 9 converts the static Kertajati arrival from Stage 8 into a playable airport under machine occupation. Gibran must cross three physically separate internal chapters before fuelling a transport and escaping: the toll-access/front road to the terminal entrance, the terminal interior from entrance to apron exit, and the runway from that exit to the aircraft.
 
 This stage is not an airport sightseeing level. Its identity comes from broad apron sight lines, a readable cutaway building interior, large aircraft silhouettes, service vehicles as cover, and combat around the final runway escape.
 
@@ -146,10 +146,10 @@ This stage is not an airport sightseeing level. Its identity comes from broad ap
 
 Start:
 
-- The GRD LTV-45 from Stage 8 stops in the airport service area.
+- The GRD LTV-45 from Stage 8 stops near the toll-access road approaching the airport frontage.
 - Stage 8's gunship is gone and must not respawn.
 - Command identifies one autonomous heavy transport waiting on the runway.
-- Chapter 1 starts outside the airport building.
+- Chapter 1 starts on the access road before the road and forecourt in front of the airport building.
 
 End:
 
@@ -166,33 +166,38 @@ Implemented runtime phases:
 | Phase | Entry condition | Player objective | Exit condition |
 | --- | --- | --- | --- |
 | `opening` | Stage entry | Receive route and aircraft briefing | Dialogue and establishing camera finish |
-| `outsideClear` | Opening ends | Clear the airport grounds and reach the building entrance | Chapter 1 enemies are cleared and the entrance is reached |
-| `insideClear` | Building entrance reached | Clear the airport-building interior and reach the apron exit | Chapter 2 enemies are cleared and the exit is reached |
-| `fuelPump` | Runway reached | Approach and activate the physical fuel pump | Pump is turned on |
+| `frontToll` | Opening ends | Clear the toll approach and reach the frontage checkpoint | Toll group is clear and the checkpoint is reached |
+| `frontForecourt` | Frontage checkpoint reached | Cross the boulevard, parking courts and terminal forecourt | Forecourt group is clear and the entrance is reached |
+| `interiorCheckin` | Building entrance reached | Fight through check-in and security | Check-in group is clear and the security checkpoint is reached |
+| `interiorConcourse` | Security checkpoint reached | Cross concourse and baggage reclaim to the apron exit | Concourse group is clear and the exit is reached |
+| `runwayApron` | Apron exit reached | Clear the service yard and reach the taxiway checkpoint | Apron group is clear and the checkpoint is reached |
+| `runwayAircraft` | Taxiway checkpoint reached | Secure the aircraft stand and fuel-pump approach | Aircraft-stand group is clear |
+| `fuelPump` | Aircraft stand secured | Approach and activate the physical fuel pump | Pump is turned on |
 | `fueling` | Pump active | Keep the pump running until the aircraft is full | Configured fuel duration completes |
 | `board` | Aircraft full | Reach the aircraft | Player approaches the boarding point |
 | `takeoff` | Boarding committed | Cinematic only | Aircraft leaves runway envelope |
 | `complete` | Takeoff finishes | None | Stage transition invoked once |
 
-The aircraft has no conventional escort HP bar. Chapter 3 is deliberately simpler: the player activates a physical fuel pump and the fuel gauge advances for the configured duration. There is no computer-hacking, generator-repair, flight-core, or engine-spool objective in this stage.
+The aircraft has no conventional escort HP bar. The physical pump remains Chapter 3's final interaction after its two traversal/combat zones; fuel then advances for the configured duration. There is no computer-hacking, generator-repair, flight-core, or engine-spool objective in this stage.
 
 ### 5.4 World layout
 
-Recommended direction of travel: southwest service arrival to northeast runway, with the camera chosen so the runway remains readable and major objectives do not sit behind tall terminal facades.
+The chapters use separate origins farther apart than the camera far-plane and switch registered roots rather than coexisting in one rendered world. `activeScene` remains the Stage 9 facade throughout.
 
 Zones:
 
-1. **Arrival service court**
-   - Stage 8 vehicle handoff.
-   - Low service buildings and road barriers.
-   - Small opening encounter used to return control after the cinematic.
-2. **Baggage and maintenance apron**
-   - Wide concrete space broken by baggage carts, tow tractors, buses, fuel trucks, mobile stairs, and cargo pallets.
-   - At least two viable routes to the tower approach.
-3. **Airport-building interior**
-   - A playable roofless/cutaway interior with a south entrance and apron exit.
-   - Desks, lockers and service furniture provide cover without any hackable terminal objective.
-4. **Runway and takeoff corridor**
+1. **Toll-access road and terminal frontage (Chapter 1)**
+   - Stage 8 vehicle handoff near the old toll approach.
+   - Approximately 1850×880 units: four-lane toll canopy, frontage boulevard, pedestrian bridge, bus shelters, two parking courts, abandoned vehicles and a broad drop-off forecourt.
+   - The frontage is intentionally populated with at least 500 semantic airport-road properties. Parking canopies, service vans, lot fences and utility cabinets provide large silhouettes; parked/wrecked cars, buses, security booths, trolley bays and lamp masts fill the middle scale; motorcycles, wheel stops, delineators, grates, bollards, cones, benches, bins and luggage fill the ground scale. Tall structures and vehicles use the shared Chapter 1 occluder key individually (160+ registered footprints); low merged clutter stays below the half-body fade threshold. All passenger cars reuse Stage 7's exact sedan/SUV models and dimensions. Parked cars run along the bay axis with local +X/front facing the central divider; their collider/occluder footprint follows the same yaw. Planter trees use local coordinates and their full crown radii remain inside the box. Eleven visible fence runs follow every exposed edge of the walkable union and are split into ≤90-unit panels whose visual, blocker and occluder transforms coincide; the terminal entrance remains open.
+   - Toll and forecourt are separate config-driven encounter zones; the entrance cannot skip the frontage checkpoint.
+   - Chapters 1 and 2 contain 72 and 57 config-driven robots. All four encounters begin idle; a robot's body entering the active camera frustum is the immediate, permanent `idle → chasing` trigger, independent of LOS.
+2. **Airport-building interior (Chapter 2)**
+   - Approximately 700×1120 units: check-in islands/queue rails, six security lanes, concourse shells, seating banks, baggage reclaim and apron-side service cages.
+   - Check-in/security and concourse/baggage are separate encounter zones, with a continuous center spine plus alternate flank routes.
+3. **Runway and takeoff corridor (Chapter 3)**
+   - More than 1000 units from apron exit to aircraft: terminal fingers, service yard, crash-fire station, equipment cages, blast fence, taxiway and aircraft stand.
+   - Service-yard and aircraft-stand defenses are separate encounter zones.
    - The heavy transport is visible on the runway before the player reaches it.
    - A physical fuel pump sits beside the service lane; the aircraft becomes boardable only after it reaches 100% fuel.
    - Runway lighting uses emissive markers rather than a line of PointLights.
@@ -210,7 +215,7 @@ Zones:
 
 Initial playtest target:
 
-- Three config-driven encounter groups: outside grounds, building interior, and runway.
+- Six config-driven encounter groups, exactly two per chapter: `frontToll`, `frontForecourt`, `interiorCheckin`, `interiorConcourse`, `runwayApron`, `runwayAircraft`.
 - Class C dominates the first half; class B becomes common inside; class A remains limited and purposeful.
 - Supplies stay concentrated in the airport service area and away from the pump/boarding points.
 
@@ -248,12 +253,16 @@ Recommended folder:
 
 ```text
 src/scenes/campaign/stages/stage9/
-  index.js          # facade, scene hooks, phase state, transition
-  world.js          # airport geometry, blockers, nav, lights, batching
+  index.js          # facade, stable scene hooks, Stage 10 completion hook
+  runtime.js        # shared phase/sub/dialogue/timer/fuel/encounter state
+  front.js          # Chapter 1: toll-access/front road → building entrance
+  interior.js       # Chapter 2: entrance → terminal → apron exit
+  runway.js         # Chapter 3: apron exit → fuel pump → aircraft/takeoff
+  world.js          # three roots, blockers/nav/light sets, batching
   aircraft.js       # stage-local heavy transport rig and takeoff animation
 ```
 
-The aircraft stays stage-local unless a later stage truly reuses the same runtime rig. A cinematic silhouette alone is not sufficient reason to promote it into `src/entities/`.
+The three chapter objects switch only through `enterStage9Sub`; they never call `setScene`, so checkpoint, stage statistics, loadout and dialogue history remain owned by `stage9Scene`. The aircraft stays stage-local unless a later stage truly reuses the same runtime rig. A cinematic silhouette alone is not sufficient reason to promote it into `src/entities/`.
 
 Required debug surfaces should expose chapter/phase, fuel progress and pump state, encounter counts, aircraft state, collision census, nav connectivity, batch metrics, and light counts.
 

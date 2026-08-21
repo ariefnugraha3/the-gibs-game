@@ -1010,10 +1010,20 @@ body {
      * kartu mode DIPIMPIN GAMBAR: skema misi, nama, satu kalimat — kode OP,
        tabel spesifikasi, footer "Deploy", dan pita bahaya dibuang;
      * garis pindai CRT dibuang; .mScan tinggal vignette;
-     * label mikro disatukan jadi SATU gaya (.qlabel/.setGroupHead/.subtitle/
+     * label mikro disatukan jadi SATU gaya (.qlabel/.setGroupHead/#diffNote/
        .mStamp semuanya 10.5px + 0.28em) — sebelumnya ada sebelas
        varian 9.5-10.5px dgn tracking berbeda-beda, yang membuat tiap sudut
        layar tampak "diisi" alih-alih dirancang.
+
+   Pas ketiga (2026-08-10) membuang skema vektor kartu mode. Pas KEEMPAT
+   (2026-08-21, permintaan user "sesuaikan menu game mode ... minimalis seperti
+   main menu dengan teks yang seperlunya saja") membuang kartunya sendiri:
+   layar pilih mode kini memakai kerangka menu utama apa adanya — satu kolom
+   RATA KIRI di atas siluet kota yang sama, berisi logotype kecil, baris
+   difficulty, dua entri bernama Survival/Campaign berbentuk .navRow, lalu
+   Back. Subtitle "Select an operation", bingkai kartu + efek angkatnya, baris
+   .mcSub dan paragraf per mode sudah tak ada; baris difficulty tinggal karena
+   ia KONTROL, bukan keterangan.
 
    Yang TETAP: panggung latar berlapis (langit → 3 lapis siluet Jakarta 2045
    dari scenes/menuArt.js → kabut → vignette), judul + daftar RATA KIRI,
@@ -1054,11 +1064,15 @@ body {
     box-sizing: border-box;
 }
 
+/* Layar pilih mode memakai KERANGKA YANG SAMA dgn menu utama (2026-08-21,
+   permintaan user): satu kolom rata kiri, bukan tumpukan di tengah layar. */
 #modeSelect {
     z-index: 30;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    padding: 0 clamp(26px, 7vw, 128px);
+    box-sizing: border-box;
 }
 
 /* Panel Settings/Credits mengambil alih layar -> menu utama ikut ke tengah */
@@ -1206,19 +1220,13 @@ body {
             rgba(6, 7, 10, 0.1) 84%, rgba(6, 7, 10, 0.62) 100%);
 }
 
-#modeSelect .mScene::after {
-    background: linear-gradient(180deg, rgba(9, 10, 13, 0.94) 0%, rgba(9, 10, 13, 0.76) 38%,
-            rgba(9, 10, 13, 0.8) 68%, rgba(9, 10, 13, 0.94) 100%);
-}
-
 /* ---------- Label mikro BERSAMA ----------
    Satu gaya untuk setiap teks kecil di seluruh front-end (label Settings, judul
-   kelompok, "Select an operation", peran di Credits, cap build). Sebelas varian
-   yang nyaris sama adalah salah satu sebab layar ini terbaca sebagai template. */
+   kelompok, peran di Credits, cap build). Sebelas varian yang nyaris sama
+   adalah salah satu sebab layar ini terbaca sebagai template. */
 .qlabel,
 .setGroupHead,
 .mStamp,
-#modeSelect .subtitle,
 #diffNote {
     font-size: 10.5px;
     letter-spacing: 0.28em;
@@ -1289,13 +1297,10 @@ body {
 
 #mainMenu h1 .titleMain { max-width: 12ch; }
 
-/* Layar pilih mode memakai logotype KECIL di pojok kiri atas, bukan judul raksasa */
-.msMark {
-    position: absolute;
-    left: clamp(18px, 4vw, 46px);
-    top: clamp(16px, 3vh, 30px);
-    z-index: 3;
-}
+/* Layar pilih mode memakai logotype KECIL sebagai kepala kolom (2026-08-21) —
+   sebelumnya ditempel absolut di pojok kiri atas, jadi ia melayang lepas dari
+   isi layar yang duduk di tengah. Sekarang ia baris pertama kolom itu sendiri. */
+.msMark { z-index: 3; }
 
 #modeSelect h1 {
     margin: 0;
@@ -1643,28 +1648,30 @@ body {
     color: var(--aiTextFaint);
 }
 
-/* ---------- Layar pilih mode ---------- */
+/* ---------- Layar pilih mode ----------
+   MINIMALIS SEPERTI MENU UTAMA (2026-08-21, permintaan user: "buat agar
+   menjadi minimalis seperti main menu dengan teks yang seperlunya saja").
+   Layar ini dulu masih menyimpan sisa bahasa lama: judul kecil "Select an
+   operation", dua kartu berbingkai dgn efek angkat, satu baris keterangan
+   dan satu kalimat paragraf per mode — tujuh laras teks untuk dua pilihan.
+   Sekarang bentuknya sama persis dgn daftar menu utama: satu kolom rata kiri
+   berisi nama mode saja. Baris difficulty TETAP karena ia kontrol, bukan
+   keterangan, dan ringkasan angkanya tetap dibaca dari CFG. */
 .msBody {
     position: relative;
     z-index: 3;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: clamp(14px, 2.4vh, 26px);
-    width: 100%;
-    padding: 82px clamp(18px, 4vw, 48px) 34px;
+    align-items: flex-start;
+    gap: clamp(20px, 3.6vh, 44px);
     box-sizing: border-box;
 }
-
-/* Judul kecil biasa. Versi lama = huruf besar ber-tracking 8px diapit dua
-   garis gradien yang memudar — hiasan simetris yang dipasang begitu saja. */
-#modeSelect .subtitle { font-size: 12px; color: var(--aiTextDim); }
 
 /* Baris difficulty: segmented control + ringkasan angka dari CFG */
 #diffRow {
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     gap: 9px;
 }
 
@@ -1677,65 +1684,61 @@ body {
     font-weight: bold;
 }
 
-/* ---------- Kartu mode: TEKS SAJA ----------
-   Rombak 2026-08-10, dua tahap. Versi "berkas misi" menumpuk enam laras teks
-   dalam satu kartu (kode OP + kelas + skema + nama + sub + paragraf + tabel
-   spesifikasi + footer Deploy) — itu bukan kartu, itu formulir. Tahap kedua
-   (permintaan user: "jauh lebih sederhana") membuang skema vektornya juga:
-   sekarang nama, satu baris keterangan, satu kalimat. Selesai. */
+/* ---------- Entri mode: NAMA SAJA ----------
+   Rombak 2026-08-21, tahap keempat. Versi "berkas misi" menumpuk enam laras
+   teks per kartu; tahap kedua/ketiga membuang chrome berkas + skema vektornya;
+   tahap ini membuang KARTU-nya. Yang tersisa persis sebentuk entri menu utama (.navRow):
+   transparan saat diam, sapuan amber + geseran kecil saat tersorot. Aturannya
+   sengaja tidak digabung ke .navRow — dua layar boleh berbeda lebar/irama
+   nanti, dan menyatukannya membuat perubahan di satu layar bocor ke layar
+   lain. */
 .modeCards {
     display: flex;
-    gap: clamp(16px, 2.6vw, 30px);
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
 }
 
 .modeCard {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-    width: min(352px, 88vw);
-    padding: 22px 0 20px;
-    box-sizing: border-box;
-    background: linear-gradient(180deg, rgba(21, 23, 27, 0.94), rgba(11, 12, 15, 0.96));
-    border: 1px solid var(--aiLine);
+    display: block;
+    width: min(460px, 84vw);
+    /* padding kiri sama dgn .navRow supaya kedua layar sebaris persis */
+    padding: 11px 16px 11px 17px;
+    text-align: left;
+    background: transparent;
+    border: 0;
     cursor: pointer;
-    transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
+    transition: background 0.16s, transform 0.16s;
+    animation: mmRise 0.5s cubic-bezier(.2, .7, .3, 1) backwards;
 }
 
-.modeCard:hover {
-    transform: translateY(-4px);
-    border-color: var(--aiLineHot);
-    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.6);
-}
-
-.modeCard h2,
-.mcSub,
-.modeCard p { padding: 0 20px; }
+.modeCards .modeCard:nth-child(1) { animation-delay: 0.05s; }
+.modeCards .modeCard:nth-child(2) { animation-delay: 0.12s; }
 
 .modeCard h2 {
     margin: 0;
-    font-size: clamp(21px, 2.4vw, 27px);
-    letter-spacing: 0.14em;
+    font-size: clamp(18px, 2vw, 24px);
+    font-weight: bold;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #efe9dc;
+    color: var(--aiText);
+    transition: color 0.16s;
 }
 
-.mcSub {
-    font-size: 12px;
-    color: var(--aiTech);
+.modeCard:hover {
+    background: linear-gradient(90deg, rgba(255, 176, 59, 0.16) 0%,
+            rgba(255, 176, 59, 0) 82%);
+    transform: translateX(7px);
 }
 
-.modeCard p {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.7;
-    color: var(--aiTextDim);
-}
+.modeCard:hover h2 { color: #fff; }
 
-/* Gaya skema misi (.maSvg + seluruh kelas .ma*) DIBUANG 2026-08-10 bersama
-   gambarnya — lihat komentar kartu mode di atas. */
+/* Back mengikuti kolom, bukan tengah layar (.menuBtn default align-self:center) */
+#modeBack { align-self: flex-start; }
+
+/* Gaya kartu lama DIBUANG: skema misi (.maSvg + seluruh kelas .ma*) 2026-08-10
+   bersama gambarnya, lalu bingkai kartu + .mcSub + paragraf 2026-08-21. Jangan
+   dihidupkan lagi — lihat komentar entri mode di atas. */
 
 /* ---------- Prompt Continue game? (checkpoint campaign) ---------- */
 #continuePrompt {
@@ -1798,6 +1801,13 @@ body {
     #mainMenu .mainTitleLogo { width: min(88vw, 680px); max-width: 88vw; }
     .mScene::after { background: linear-gradient(180deg, rgba(9, 10, 13, 0.93), rgba(9, 10, 13, 0.78) 44%, rgba(9, 10, 13, 0.94)); }
     .mStamp { display: none; }
+    /* Layar pilih mode ikut aturan yang sama dgn menu utama sejak keduanya
+       memakai satu kerangka (2026-08-21): di layar sempit kolomnya ke tengah. */
+    #modeSelect { justify-content: center; padding: 0 22px; }
+    .msBody { align-items: center; }
+    #diffRow, .modeCards { align-items: center; }
+    .modeCard { text-align: center; }
+    #modeBack { align-self: center; }
     .credRow { grid-template-columns: 1fr; row-gap: 2px; }
     .volRow { grid-template-columns: 70px 1fr 46px; gap: 10px; }
 }
@@ -1805,7 +1815,7 @@ body {
 /* Hormati preferensi sistem: latar menu tetap, geraknya yang berhenti */
 @media (prefers-reduced-motion: reduce) {
     .mSky::before, .mSky::after, .mHaze, .miBeacon,
-    .navRow, .menuPanel {
+    .navRow, .modeCard, .menuPanel {
         animation: none;
     }
     .mCity { transition: none; }
