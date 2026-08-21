@@ -3876,13 +3876,19 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     const menuCredits = menuMusicMod.MENU_CREDITS;
     const menuHtml = fs.readFileSync(ROOT + '/index.html', 'utf8');
     T('Menu Credits: bersumber dari menu.js dan memuat kredit proyek utama',
-        menuCredits.groups.length >= 7
-        && menuCredits.groups.some(c => c.name === 'Arief Nugraha')
-        && menuCredits.groups.some(c => c.name.includes('Anthropic Claude')
-            && c.name.includes('OpenAI Codex'))
+        menuCredits.groups.length >= 6
+        && menuCredits.groups.some(c => c.name === 'Sunday Afternoon Games')
         && menuCredits.groups.some(c => c.name.includes('Three.js r128'))
         && menuCredits.footer.includes('MADE IN INDONESIA')
         && menuHtml.includes('id="creditsBody"'));
+    // 2026-08-21 (permintaan user): NOL jejak "dibantu AI" di Credits — baris
+    // AI Development dibuang dan nama vendor model tak boleh muncul lagi di
+    // panel ini, baik lewat menu.js maupun sebagai salinan statis di index.html.
+    const credTextM = menuCredits.groups.map(c => c.role + ' ' + c.name).join(' | ')
+        + ' | ' + menuCredits.footer;
+    T('Menu Credits: tanpa kredit AI (tak ada Anthropic/Claude/OpenAI/Codex/AI Development)',
+        !/anthropic|claude|openai|codex|\bAI\b|artificial intelligence/i.test(credTextM)
+        && !/anthropic|claude|openai|codex/i.test(menuHtml));
     // ATRIBUSI LISENSI wajib bertahan walau panel disederhanakan (2026-08-10):
     // kalimat `detail` dibuang, jadi lisensinya dilipat ke baris nama.
     T('Menu Credits: atribusi lisensi Three.js + Courier Prime tetap tertulis',

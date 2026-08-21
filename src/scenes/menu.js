@@ -34,10 +34,13 @@ import { paintMenuArt } from './menuArt.js';
 // kalimat `detail` di bawah tiap nama — tujuh kalimat itulah yang membuat
 // panel ini terbaca padat. Keterangan lisensi TIDAK ikut dibuang (itu
 // kewajiban atribusi, bukan hiasan) — ia dilipat ke dalam baris namanya.
+//
+// 2026-08-21 (permintaan user): nama pembuat memakai nama studio "Sunday
+// Afternoon Games", dan baris "AI Development" DIBUANG — tak ada lagi kredit
+// yang menyebut game ini dibantu AI. Jangan ditambahkan kembali tanpa diminta.
 export const MENU_CREDITS = Object.freeze({
     groups: Object.freeze([
-        Object.freeze({ role: 'Created & Directed by', name: 'Arief Nugraha' }),
-        Object.freeze({ role: 'AI Development', name: 'Anthropic Claude & OpenAI Codex' }),
+        Object.freeze({ role: 'Created & Directed by', name: 'Sunday Afternoon Games' }),
         Object.freeze({ role: 'Engine', name: 'Three.js r128 — MIT License' }),
         Object.freeze({ role: 'Visuals', name: 'Original procedural 3D' }),
         Object.freeze({ role: 'Audio', name: 'Royalty-free sources' }),
