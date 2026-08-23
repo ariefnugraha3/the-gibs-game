@@ -1,4 +1,4 @@
-// Detailed Stage 10 port cranes and the three-state container layout.
+// Detailed Stage 10 Chapter 1 port cranes and three-state container layout.
 // Collision records are the same objects mutated alongside visible containers.
 
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
@@ -183,7 +183,7 @@ export function buildPortCranes(parent, M, origin, makeDynamicBlocker) {
             layout.A.yaw, `moving-container-${index + 1}`);
         // Peti kemas yang DIPINDAH crane ikut memudar; ia bergerak, jadi
         // posisinya dibaca ulang tiap frame (`dynamic`).
-        registerOccluder('campaign-10', group, { radius: 13, top: 10, dynamic: true });
+        registerOccluder('campaign-10-port', group, { radius: 13, top: 10, dynamic: true });
         return { id: index + 1, group, blocker, ...layout };
     });
 

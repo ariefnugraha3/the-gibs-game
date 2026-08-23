@@ -151,7 +151,7 @@ export function gameOver(won, title, opts = {}) {
     stopMusic();   // stage berakhir (menang/kalah) -> musik battle/boss berhenti (2026-07-19)
     document.exitPointerLock();
     // Menang final menghapus checkpoint. Finish Stage 1–12 mempertahankannya
-    // lewat gateway Field Shop; Stage 13 baru memanggil ini setelah epilog.
+    // lewat gateway Field Shop; Stage 12 baru memanggil ini setelah epilog.
     if (won && !opts.preserveCampaignSave) clearCampaignSave();
     if (score > highScore) setHighScore(score);
     // Campaign selesai = menang; selain itu (HP habis) = kalah.

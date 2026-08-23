@@ -1,4 +1,4 @@
-// Campaign Stage 10 — Balikpapan-inspired industrial coast.
+// Stage 10 Chapter 1 — Balikpapan-inspired industrial coast.
 // The complete world includes a cargo airstrip, working port, small city edge,
 // and visible sea. Coordinates and prop placement are deterministic.
 
@@ -29,7 +29,7 @@ export const S10_DEFENSE = Object.freeze({ x: 330590, z: -112 });
 export const S10_EXTRACT = Object.freeze({ x: 330825, z: 92 });
 export const S10_BOUNDS = Object.freeze({ x0: 329000, x1: 331000, z0: -650, z1: 610 });
 
-export const S10_OCC = 'campaign-10';   // kunci set occluder (lihat utility/occlusion.js)
+export const S10_OCC = 'campaign-10-port';
 let built = false;
 let worldRoot = null;
 let navGrid = null;
@@ -378,7 +378,7 @@ function createMarker(parent, name, x, z) {
 
 function buildWorld() {
     worldRoot = new THREE.Group();
-    worldRoot.name = 'campaign-stage10-iron-port-world';
+    worldRoot.name = 'campaign-stage10-chapter1-iron-port-world';
     scene.add(worldRoot);
     const staticRoot = new THREE.Group();
     const M = {
@@ -453,7 +453,7 @@ function buildWorld() {
         const light = new THREE.PointLight(PAL.amber, 1.15, 80);
         light.position.set(x, 29, z);
         worldRoot.add(light);
-        registerStageLight('campaign-10', light);
+        registerStageLight(S10_OCC, light);
         stageLights.push(light);
     }
     count('portLightMast', lampSpecs.length);
@@ -473,7 +473,7 @@ function buildWorld() {
         (x, z) => stage10Walkable(x, z, 4) && !stage10StaticBlockedAt(x, z, 3.5));
 
     registerCampaignWorldRoot({
-        key: 'campaign-10', root: worldRoot, lightsKey: 'campaign-10', bounds: S10_BOUNDS,
+        key: S10_OCC, root: worldRoot, lightsKey: S10_OCC, bounds: S10_BOUNDS,
         warmupViews: [
             { x: S10_START.x, y: 0, z: S10_START.z },
             { x: S10_SAFE_BAY.x, y: 0, z: S10_SAFE_BAY.z },

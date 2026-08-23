@@ -1,4 +1,4 @@
-// Stage 11 sensor network. Scan is tracking pressure, never a stealth fail.
+// Stage 10 Chapter 2 sensor network. Scan is tracking pressure, never a stealth fail.
 // Every shell, marker, and footprint exists at world-build time; impacts only
 // toggle pooled objects and reuse the shared queued explosion/light system.
 
@@ -8,7 +8,7 @@ import { player, robots } from '../../../../core/state.js';
 import { queueBoom } from '../../../../entities/robots.js';
 import { PAL } from '../../../../world/palette.js';
 import { mortarShell } from '../../../../entities/tank.js';
-import { stage11PlayerProtected, stage11SegBlocked } from './world.js';
+import { stage10ForestPlayerProtected, stage10ForestSegBlocked } from './forestWorld.js';
 
 let parent = null;
 let footprint = null;
@@ -30,12 +30,12 @@ const velocity = new THREE.Vector3();
 // (lebar pita / laju sapuan) alih-alih menghardcode angka.
 const SWEEP_X0 = 359270, SWEEP_SPAN = 1130;
 
-function C() { return CFG.campaign.stage11.scan; }
+function C() { return CFG.campaign.stage10.chapter2.scan; }
 // Laju sapuan: satu siklus = pergi + pulang sepanjang rentang.
 function sweepSpeed() { return 2 * SWEEP_SPAN / Math.max(.1, C().cycleSec); }
 // Lama seorang player DIAM berada di dalam pita saat pita melewatinya.
 function dwellSec() { return 2 * C().safeRadius / Math.max(1e-6, sweepSpeed()); }
-function A() { return CFG.campaign.stage11.artillery; }
+function A() { return CFG.campaign.stage10.chapter2.artillery; }
 
 function ring(radius, color, opacity) {
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity,
@@ -45,7 +45,7 @@ function ring(radius, color, opacity) {
     return m;
 }
 
-export function buildStage11SensorGrid(root) {
+export function buildStage10ForestSensorGrid(root) {
     if (parent) return;
     parent = root;
     footprintMat = new THREE.MeshBasicMaterial({ color: PAL.hazard, transparent: true,
@@ -64,7 +64,7 @@ export function buildStage11SensorGrid(root) {
     }
 }
 
-export function resetStage11SensorGrid() {
+export function resetStage10ForestSensorGrid() {
     scanT = 0; exposure = 0; state = 'CLEAR'; strikeCursor = 0; serial = 0;
     lastImpact = null; firstLockPending = false;
     if (footprint) footprint.visible = false;
@@ -74,7 +74,7 @@ export function resetStage11SensorGrid() {
     }
 }
 
-export function clearStage11Strikes() {
+export function clearStage10ForestStrikes() {
     exposure = 0; state = 'CLEAR';
     for (const s of strikes) {
         s.active = false; s.shell.visible = false; s.marker.visible = false;
@@ -115,18 +115,18 @@ function scheduleStrike(x, z) {
 function robotBlastDamage(x, z) {
     const r = A().blastRadius;
     for (const bot of robots) {
-        if (bot.stage !== 11) continue;
+        if (bot.stage !== 10) continue;
         if (Math.hypot(bot.mesh.position.x - x, bot.mesh.position.z - z) > r) continue;
-        if (stage11SegBlocked(x, z, bot.mesh.position.x, bot.mesh.position.z, false)) continue;
+        if (stage10ForestSegBlocked(x, z, bot.mesh.position.x, bot.mesh.position.z, false)) continue;
         bot.hp -= A().robotDamage;
     }
 }
 
 function impact(s) {
     // Shared explosion applies armor, dodge, death and visual-light pooling to
-    // player. Robot damage is authored here so Stage 11 artillery uses its own
+    // player. Robot damage is authored here so Stage 10 Chapter 2 artillery uses its own
     // config value and respects the same concrete LOS predicate.
-    const playerBlocked = stage11SegBlocked(s.x, s.z,
+    const playerBlocked = stage10ForestSegBlocked(s.x, s.z,
         camera.position.x, camera.position.z, false);
     queueBoom(s.x, 4, s.z, A().blastRadius, !playerBlocked, A().playerDamage, 0);
     robotBlastDamage(s.x, s.z);
@@ -154,14 +154,14 @@ function updateStrikes(dt) {
     if (strikes.every(s => !s.active) && state === 'INCOMING') state = 'CLEAR';
 }
 
-export function updateStage11SensorGrid(dt, enabled = true) {
+export function updateStage10ForestSensorGrid(dt, enabled = true) {
     if (!parent) return;
     scanT += dt;
     const cx = sweepCenter();
     footprint.position.x = cx; footprint.position.z = 0;
     footprint.visible = enabled;
     if (enabled) {
-        const protectedNow = stage11PlayerProtected(camera.position.x, camera.position.z);
+        const protectedNow = stage10ForestPlayerProtected(camera.position.x, camera.position.z);
         const exposed = !protectedNow && playerInFootprint(cx);
         if (exposed) {
             state = 'SCANNING';
@@ -180,17 +180,17 @@ export function updateStage11SensorGrid(dt, enabled = true) {
     if (footprintMat) footprintMat.opacity = .12 + .08 * (1 + Math.sin(scanT * 5)) / 2;
 }
 
-export function consumeStage11FirstLock() {
+export function consumeStage10ForestFirstLock() {
     const v = firstLockPending; firstLockPending = false; return v;
 }
 
-export const stage11ScanDebug = () => ({
+export const stage10ForestScanDebug = () => ({
     state, scanT, exposure, exposureFraction: exposure / Math.max(.01, C().lockSec),
     sweep: { x0: SWEEP_X0, span: SWEEP_SPAN, speed: sweepSpeed(), dwellSec: dwellSec(),
         lockSec: C().lockSec },
     footprint: footprint && { x: footprint.position.x, z: footprint.position.z,
         halfWidth: C().safeRadius, visible: footprint.visible },
-    playerProtected: stage11PlayerProtected(camera.position.x, camera.position.z),
+    playerProtected: stage10ForestPlayerProtected(camera.position.x, camera.position.z),
     frozenImpactPoints: strikes.filter(s => s.active).map(s => ({
         serial: s.serial, x: s.x, z: s.z, remainingSec: s.t })),
     lastImpact, pool: { size: strikes.length,

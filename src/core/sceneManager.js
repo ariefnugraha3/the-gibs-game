@@ -1,6 +1,6 @@
 // Scene manager minimal: satu scene aktif dengan lifecycle enter()/exit().
 // "Scene" = objek modul (menu tak lewat sini — DOM murni sebelum game mulai):
-// survival, campaign-stage1..13. Kontrak antarmuka scene lengkap
+// survival, campaign-stage1..12. Kontrak antarmuka scene lengkap
 // terdokumentasi di MODULES.md — sistem bersama (player/peluru/granat/robot)
 // hanya bicara ke scene aktif lewat hook ini, jadi menambah stage baru tidak
 // menyentuh sistem lain.
@@ -21,11 +21,12 @@ export let activeScene = null;
 // `null` = scene ini TIDAK punya dunia sendiri (shop antar-stage, modal hack/
 // repair, menu): set root DIBIARKAN apa adanya — sama seperti aturan lightsKey —
 // supaya kembali dari modal tidak meninggalkan dunia yang tersembunyi.
-// Sub-scene (chapter Stage 6, 9 & 12) memanggil registry-nya sendiri di enter().
+// Sub-scene (chapter Stage 6, 9, 10 & 11) memanggil registry-nya sendiri di enter().
 function worldKeyFor(id) {
     if (!id) return null;
-    if (id === 'campaign-12') return 'campaign-12-surface';
-    return /^campaign-(?:[1-9]|1[0-3])$/.test(id) ? id : null;
+    if (id === 'campaign-10') return 'campaign-10-port';
+    if (id === 'campaign-11') return 'campaign-11-surface';
+    return /^campaign-(?:[1-9]|1[0-2])$/.test(id) ? id : null;
 }
 
 export function setScene(s, opts = {}) {

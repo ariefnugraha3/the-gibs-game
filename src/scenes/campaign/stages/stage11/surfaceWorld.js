@@ -1,4 +1,4 @@
-// Stage 12 surface — a complete low-poly IKN city-in-forest composition.
+// Stage 11 surface — a complete low-poly IKN city-in-forest composition.
 // The playable civic axis is surrounded by deterministic semantic districts in
 // three depth bands. Far architecture is visual-only and shadowless; authored
 // cover and colonnades alone participate in collision/navigation.
@@ -14,12 +14,12 @@ import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { registerStageLight } from '../../../../world/lighting.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 
-export const STAGE12_SURFACE_LIGHTS_KEY = 'campaign-12-surface';
-export const S12_SURFACE_ORIGIN = Object.freeze({ x: 390000, z: 0 });
-export const S12_SURFACE_START = Object.freeze({ x: 390720, z: -115 });
-export const S12_AXIS_GATE = Object.freeze({ x: 390355, z: -35 });
-export const S12_ROOT_COURT = Object.freeze({ x: 389430, z: 120 });
-export const S12_DESCENT = Object.freeze({ x: 389275, z: 125 });
+export const STAGE11_SURFACE_LIGHTS_KEY = 'campaign-11-surface';
+export const S11_SURFACE_ORIGIN = Object.freeze({ x: 390000, z: 0 });
+export const S11_SURFACE_START = Object.freeze({ x: 390720, z: -115 });
+export const S11_AXIS_GATE = Object.freeze({ x: 390355, z: -35 });
+export const S11_ROOT_COURT = Object.freeze({ x: 389430, z: 120 });
+export const S11_DESCENT = Object.freeze({ x: 389275, z: 125 });
 
 const BOUNDS = Object.freeze({ x0: 389050, x1: 390900, z0: -850, z1: 850 });
 const PLAY = Object.freeze({ x0: 389180, x1: 390800, z0: -220, z1: 260 });
@@ -28,7 +28,7 @@ const ARCHETYPES = Object.freeze([
     'skybridge', 'water-garden', 'colonnade', 'forest-terrace', 'civic-spire',
 ]);
 
-export const S12_SURFACE_OCC = 'campaign-12-surface';   // utility/occlusion.js
+export const S11_SURFACE_OCC = 'campaign-11-surface';   // utility/occlusion.js
 let built = false;
 let root = null;
 let nav = null;
@@ -89,23 +89,23 @@ function segBox(x0, z0, x1, z1, b) {
     return false;
 }
 
-export function stage12SurfaceWalk(x, z, r = 0) {
+export function stage11SurfaceWalk(x, z, r = 0) {
     return x >= PLAY.x0 + r && x <= PLAY.x1 - r
         && z >= PLAY.z0 + r && z <= PLAY.z1 - r;
 }
-export function stage12SurfaceResolve(pos, radius, feetY = 0) {
+export function stage11SurfaceResolve(pos, radius, feetY = 0) {
     resolveBlockers(pos, radius, feetY, blockers);
 }
-export function stage12SurfaceSegBlocked(x0, z0, x1, z1) {
+export function stage11SurfaceSegBlocked(x0, z0, x1, z1) {
     return blockers.some(b => segBox(x0, z0, x1, z1, b));
 }
-export function stage12SurfaceGroundHeight() { return 0; }
-export function stage12SurfaceNav() { return nav; }
+export function stage11SurfaceGroundHeight() { return 0; }
+export function stage11SurfaceNav() { return nav; }
 
 function buildTerrainAndAxis() {
     const g = new THREE.Group();
     mesh(g, new THREE.PlaneGeometry(2250, 1850), material('greenGround', 0x4a603b),
-        S12_SURFACE_ORIGIN.x, -1.4, 0, -Math.PI / 2, 0, 0, false, true);
+        S11_SURFACE_ORIGIN.x, -1.4, 0, -Math.PI / 2, 0, 0, false, true);
     // Ceremonial axis: pale paving, red-white restrained datum strips and
     // tiered planted shoulders. It spans the entire playable route.
     mesh(g, new THREE.BoxGeometry(1710, 2, 300), material('axisStone', PAL.panel),
@@ -153,11 +153,11 @@ function addCivicCover() {
         mesh(g, new THREE.BoxGeometry(34, 11, 14), material('integratedCover', PAL.concrete),
             x, 5.5, z, 0, -.035, 0, true, true);
         mesh(g, new THREE.BoxGeometry(28, 2, 18), material('coverPlanter', 0x526746),
-            x, 12, z, 0, -.035, 0, false, true);
+            x, 11, z, 0, -.035, 0, false, true);
         for (let k = -2; k <= 2; k++)
             mesh(g, new THREE.DodecahedronGeometry(3.4, 0), material('coverShrub', PAL.leaf),
                 x + k * 5, 16 + Math.abs(k % 2), z, 0, 0, 0, false, false);
-        weldOccluder(S12_SURFACE_OCC, root, g, { x, z, radius: 18, top: 18 });
+        weldOccluder(S11_SURFACE_OCC, root, g, { x, z, radius: 18, top: 18 });
         blocker(x, z, 17, 7, 13, -.035, 'landscape-cover');
     }
     // Administrative colonnade is both place-defining architecture and cover.
@@ -168,7 +168,7 @@ function addCivicCover() {
             x, 18, z, 0, 0, 0, true, true);
         mesh(g, new THREE.BoxGeometry(42, 4, 20), material('colonnadeBeam', PAL.concrete),
             x, 37, z, 0, 0, 0, true, true);
-        weldOccluder(S12_SURFACE_OCC, root, g, { x, z, radius: 21, top: 39 });
+        weldOccluder(S11_SURFACE_OCC, root, g, { x, z, radius: 21, top: 39 });
         blocker(x, z, 7, 7, 36, 0, 'colonnade');
     }
     count('integrated-cover', 14); count('colonnade', 24);
@@ -320,13 +320,13 @@ function buildMegacity() {
 
 function buildRootCourt() {
     const g = new THREE.Group();
-    mesh(g, new THREE.CylinderGeometry(170, 190, 12, 20), material('courtPlinth', PAL.concrete),
-        S12_ROOT_COURT.x, 4, S12_ROOT_COURT.z, 0, 0, 0, true, true);
+    mesh(g, new THREE.CylinderGeometry(170, 190, 11, 20), material('courtPlinth', PAL.concrete),
+        S11_ROOT_COURT.x, 4, S11_ROOT_COURT.z, 0, 0, 0, true, true);
     mesh(g, new THREE.TorusGeometry(118, 8, 8, 28), material('courtRing', PAL.panel),
-        S12_ROOT_COURT.x, 12, S12_ROOT_COURT.z, Math.PI / 2, 0, 0, true, true);
+        S11_ROOT_COURT.x, 11, S11_ROOT_COURT.z, Math.PI / 2, 0, 0, true, true);
     for (let i = 0; i < 12; i++) {
-        const a = i * Math.PI * 2 / 12, x = S12_ROOT_COURT.x + Math.cos(a) * 145;
-        const z = S12_ROOT_COURT.z + Math.sin(a) * 145;
+        const a = i * Math.PI * 2 / 12, x = S11_ROOT_COURT.x + Math.cos(a) * 145;
+        const z = S11_ROOT_COURT.z + Math.sin(a) * 145;
         mesh(g, new THREE.BoxGeometry(14, 46, 14), material('courtPylon', PAL.panel),
             x, 28, z, 0, -a, 0, true, true);
         mesh(g, new THREE.BoxGeometry(8, 25, 18), material('courtInset', PAL.techDim,
@@ -338,10 +338,10 @@ function buildRootCourt() {
     for (let i = 0; i < 7; i++) {
         const a = -1.1 + i * .36;
         mesh(g, new THREE.BoxGeometry(16, 58, 8), material('descentRib', PAL.gunmetal),
-            S12_DESCENT.x, 29, S12_DESCENT.z, 0, 0, a, true, true);
+            S11_DESCENT.x, 29, S11_DESCENT.z, 0, 0, a, true, true);
     }
     descentDoor = mesh(g, new THREE.CylinderGeometry(44, 44, 8, 16),
-        material('descentDoor', PAL.gunmetal), S12_DESCENT.x, 4, S12_DESCENT.z,
+        material('descentDoor', PAL.gunmetal), S11_DESCENT.x, 4, S11_DESCENT.z,
         Math.PI / 2, 0, 0, true, true);
     mesh(g, new THREE.BoxGeometry(210, 5, 38), material('authorityBridge', PAL.panel),
         389360, 7, 125, 0, 0, 0, true, true);
@@ -350,50 +350,50 @@ function buildRootCourt() {
     for (const p of [{ x: 389430, z: 40 }, { x: 389430, z: 200 }]) {
         const l = new THREE.PointLight(PAL.amber, .7, 90, 2);
         l.position.set(p.x, 26, p.z); root.add(l); lights.push(l);
-        registerStageLight(STAGE12_SURFACE_LIGHTS_KEY, l);
+        registerStageLight(STAGE11_SURFACE_LIGHTS_KEY, l);
     }
 }
 
-export function setStage12DescentOpen(open) {
+export function setStage11DescentOpen(open) {
     if (descentDoor) descentDoor.position.y = open ? -12 : 4;
 }
-export function resetStage12SurfaceVisuals() {
-    setStage12DescentOpen(false);
-    resetStageOccluders(S12_SURFACE_OCC);
+export function resetStage11SurfaceVisuals() {
+    setStage11DescentOpen(false);
+    resetStageOccluders(S11_SURFACE_OCC);
 }
 
 // Dipanggil tiap frame dari sub-scene permukaan.
-export function updateStage12SurfaceVisuals(dt) {
-    updateStageOccluders(S12_SURFACE_OCC, dt);
+export function updateStage11SurfaceVisuals(dt) {
+    updateStageOccluders(S11_SURFACE_OCC, dt);
 }
 
-export const stage12SurfaceOcclusionDebug = () => occlusionDebug(S12_SURFACE_OCC);
+export const stage11SurfaceOcclusionDebug = () => occlusionDebug(S11_SURFACE_OCC);
 
-export function ensureStage12SurfaceWorld(parent = scene) {
+export function ensureStage11SurfaceWorld(parent = scene) {
     if (built) return root;
-    built = true; root = new THREE.Group(); root.name = 'campaign-stage12-ikn-surface';
+    built = true; root = new THREE.Group(); root.name = 'campaign-stage11-ikn-surface';
     parent.add(root);
     buildTerrainAndAxis(); addCivicCover(); buildMegacity(); buildRootCourt();
     nav = makeNavGrid(PLAY.x0, PLAY.z0, 14,
         Math.ceil((PLAY.x1 - PLAY.x0) / 14), Math.ceil((PLAY.z1 - PLAY.z0) / 14),
-        (x, z) => stage12SurfaceWalk(x, z, 3.5) && !pointBlocked(x, z, 3.5));
-    registerCampaignWorldRoot({ key: STAGE12_SURFACE_LIGHTS_KEY, root,
-        bounds: { ...BOUNDS }, lightsKey: STAGE12_SURFACE_LIGHTS_KEY,
-        warmupViews: [S12_SURFACE_START, S12_AXIS_GATE, S12_ROOT_COURT],
+        (x, z) => stage11SurfaceWalk(x, z, 3.5) && !pointBlocked(x, z, 3.5));
+    registerCampaignWorldRoot({ key: STAGE11_SURFACE_LIGHTS_KEY, root,
+        bounds: { ...BOUNDS }, lightsKey: STAGE11_SURFACE_LIGHTS_KEY,
+        warmupViews: [S11_SURFACE_START, S11_AXIS_GATE, S11_ROOT_COURT],
     });
     return root;
 }
 
-export const stage12SurfaceWorldDebug = () => ({
-    occluders: occlusionDebug(S12_SURFACE_OCC),
-    built, root: root?.name || null, origin: { ...S12_SURFACE_ORIGIN }, bounds: { ...BOUNDS },
-    playBounds: { ...PLAY }, start: { ...S12_SURFACE_START }, descent: { ...S12_DESCENT },
+export const stage11SurfaceWorldDebug = () => ({
+    occluders: occlusionDebug(S11_SURFACE_OCC),
+    built, root: root?.name || null, origin: { ...S11_SURFACE_ORIGIN }, bounds: { ...BOUNDS },
+    playBounds: { ...PLAY }, start: { ...S11_SURFACE_START }, descent: { ...S11_DESCENT },
     rawMeshes, weldedMeshes, blockerCount: blockers.length,
     clusters: clusters.map(c => ({ ...c })), clusterCount: clusters.length,
     depthBands: [...new Set(clusters.map(c => c.band))], archetypes: [...ARCHETYPES],
     archetypeCounts: ARCHETYPES.map(type => ({ type, count: semantic.get(type) || 0 })),
     chunks: chunkStats.map(c => ({ ...c })), semantic: Object.fromEntries(semantic),
-    lights: { key: STAGE12_SURFACE_LIGHTS_KEY, count: lights.length },
+    lights: { key: STAGE11_SURFACE_LIGHTS_KEY, count: lights.length },
     cameraSideMaxTop: clusters.filter(c => c.band === 0)
         .reduce((n, c) => Math.max(n, c.top), 0),
     farMaxTop: clusters.filter(c => c.band === 2).reduce((n, c) => Math.max(n, c.top), 0),

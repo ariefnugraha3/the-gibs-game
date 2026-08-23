@@ -1,621 +1,383 @@
-// Campaign Stage 10 — THE IRON PORT.
-// Full campaign facade for the port traversal, safe crane reconfiguration,
-// ordered harbor-cannon servos, and freight-carrier extraction.
+// Campaign Stage 10 facade — Chapter 1 THE IRON PORT -> Chapter 2 THE GREEN FIREWALL.
+// sceneManager only ever sees `stage10Scene`; chapter handoff keeps
+// checkpoint, loadout, stats and dialogue lifecycle inside one campaign stage.
 
 import { CFG } from '../../../../core/config.js';
-import { dialogueMap } from '../../../../core/dialogue.js';
 import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
-import { scene, camera, setCineFocus, addCamShake } from '../../../../core/renderer.js';
+import { scene, camera, CAM_OFF_DEFAULT, setCineFocus } from '../../../../core/renderer.js';
 import {
-    showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
+    showStageMsg, hideStageRadioDialogue, hideDownloadBar,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
 } from '../../../../core/dom.js';
 import { updateUI } from '../../../../core/hud.js';
+import { saveCampaignStage } from '../../../../core/saveGame.js';
 import { releaseInputs } from '../../../../core/input.js';
 import { clearMoveTarget } from '../../../../entities/player.js';
-import { avatarGroup, setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
-import { disposeRobot, damagePlayerHp } from '../../../../entities/robots.js';
-import { spawnCrate, resetCrates, resolveCrateBlock } from '../../../../entities/crates.js';
-import { spawnBarrel, resetBarrels, resolveBarrelBlock } from '../../../../entities/barrels.js';
+import { resetCrates, spawnCrate, resolveCrateBlock } from '../../../../entities/crates.js';
+import { resetBarrels, spawnBarrel, resolveBarrelBlock } from '../../../../entities/barrels.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
-import { currentWeapon } from '../../../../entities/weapons.js';
-import { explodeAt } from '../../../../entities/effects.js';
-import { slideWalk } from '../../../../utils/collision.js';
+import {
+    campaignAwardKill, campaignRobotAI, campaignClampRobot, countStageRobots,
+} from '../../utility/common.js';
+import { campaignJumpToStage, beginStageTransition } from '../../utility/transition.js';
+import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 import { applyLightPreset, setActiveStageLights } from '../../../../world/lighting.js';
 import { enterCityEnv } from '../../utility/cityscape.js';
-import {
-    spawnCampaignRobot, campaignAwardKill, campaignRobotAI,
-    campaignClampRobot, countStageRobots,
-} from '../../utility/common.js';
-import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
-import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
-import { saveCampaignStage } from '../../../../core/saveGame.js';
-import { stopMusic } from '../../../../utils/sfx.js';
+import { slideWalk } from '../../../../utils/collision.js';
 import { stage1Scene } from '../stage1/index.js';
 import { stage11Scene } from '../stage11/index.js';
 import {
-    beginCraneShift, setCraneLayout, updateCraneShift, craneDebug,
-} from './cranes.js';
+    stage10PortScene, stage10PortDebug, ensureStage10World as ensureStage10PortWorld,
+    setStage10CompletionHook,
+} from './port.js';
 import {
-    resetDefenseArray, activateDefenseArray, defenseArrayBulletHit,
-    updateDefenseArray, defenseArrayDebug,
-} from './defenseArray.js';
+    STAGE10_FOREST_LIGHTS_KEY, S10_FOREST_START, S10_FOREST_WRECK,
+    S10_FOREST_SENSOR_ENTRY, S10_FOREST_SHELTER, S10_FOREST_WATERWORKS,
+    S10_FOREST_GALLERY, S10_FOREST_FINISH,
+    ensureStage10ForestWorld, stage10ForestWorldDebug,
+    stage10ForestWalk, stage10ForestResolve, stage10ForestGroundHeight,
+    stage10ForestNav, stage10ForestSegBlocked,
+    updateStage10ForestWorldVisuals, resetStage10ForestWorldVisuals,
+    setStage10ForestTunnelOpen,
+} from './forestWorld.js';
 import {
-    ensureStage10World, S10_START, S10_YARD, S10_SAFE_BAY, S10_WAREHOUSE,
-    S10_RELAY, S10_PIPE_RACK, S10_DEFENSE, S10_EXTRACT, S10_BOUNDS,
-    stage10Walkable, stage10BlockedAt, stage10PathWalkable, stage10Resolve,
-    stage10SegHitsWall, stage10GroundHeight, stage10NavGrid,
-    stage10CraneSystem, stage10DefenseSystem, stage10SetMarkers,
-    stage10UpdateWorld, stage10SupplyPlacements, stage10EncounterPoints,
-    stage10ConnectivityDebug, stage10WorldDebug, stage10ResetLayout,
-} from './world.js';
+    buildStage10ForestSensorGrid, resetStage10ForestSensorGrid,
+    clearStage10ForestStrikes, updateStage10ForestSensorGrid,
+    consumeStage10ForestFirstLock, stage10ForestScanDebug,
+} from './sensorGrid.js';
+import {
+    STAGE10_FOREST_DIALOGUE, queueStage10ForestDialogue, updateStage10ForestDialogue,
+    resetStage10ForestDialogue, stage10ForestDialogueIdle, stage10ForestDialogueDebug,
+    clearStage10ForestRobots, spawnStage10ForestWave, stage10ForestWaveTotals,
+    activateStage10ForestPrefix, stage10ForestPrefixAlive,
+} from './forestRuntime.js';
 
-export { ensureStage10World, stage10WorldDebug } from './world.js';
-export const STAGE10_DIALOGUE = dialogueMap('campaign.stage10.lines');
+export { stage10PortScene, STAGE10_DIALOGUE } from './port.js';
+export { stage10ForestWorldDebug, STAGE10_FOREST_DIALOGUE };
 
-let phase = 'opening';
-let complete = false;
-let stageElapsed = 0;
-let relayToken = false;
-let craneT = 0;
-let craneSettleT = 0;
-let defenseWave = 0;
-let extractHoldT = 0;
-let transitionSent = false;
-let cine = null;
-const cineCam = new THREE.Vector3(-118, 108, 122);
-const spawnedEncounters = Object.create(null);
-
-let dialogueCurrent = null;
-let dialogueQueue = [];
-let dialogueSeen = new Set();
-let dialogueT = 0;
-let dialogueChars = 0;
-
-const config = () => CFG.campaign.stage10;
-
-function distanceTo(point) {
-    return Math.hypot(camera.position.x - point.x, camera.position.z - point.z);
-}
-
-function renderDialogue() {
-    if (!dialogueCurrent) { hideStageRadioDialogue(); return; }
-    dialogueChars = Math.max(0, Math.min(dialogueCurrent.text.length, dialogueChars | 0));
-    showStageRadioDialogue(dialogueCurrent.speaker,
-        dialogueCurrent.text.slice(0, dialogueChars), dialogueChars < dialogueCurrent.text.length);
-}
-
-function nextDialogue() {
-    dialogueCurrent = dialogueQueue.shift() || null;
-    dialogueT = 0;
-    dialogueChars = 0;
-    setAvatarRadioPose(!!dialogueCurrent);
-    renderDialogue();
-}
-
-function queueDialogue(key, repeat = false) {
-    const line = STAGE10_DIALOGUE[key];
-    if (!line || (!repeat && dialogueSeen.has(key))) return false;
-    if (!repeat) dialogueSeen.add(key);
-    dialogueQueue.push({ key, ...line });
-    if (!dialogueCurrent) nextDialogue();
-    return true;
-}
-
-function updateDialogue(dt) {
-    if (!dialogueCurrent) return;
-    const D = CFG.campaign.dialogue;
-    dialogueT += dt;
-    while (dialogueCurrent) {
-        const seconds = dialogueCurrent.text.length / Math.max(1, D.cps)
-            + Math.max(0, D.holdSec);
-        if (dialogueT < seconds) {
-            dialogueChars = Math.floor(dialogueT * Math.max(1, D.cps));
-            renderDialogue();
-            return;
-        }
-        dialogueChars = dialogueCurrent.text.length;
-        renderDialogue();
-        dialogueT -= seconds;
-        nextDialogue();
-    }
-}
-
-function resetDialogue() {
-    dialogueCurrent = null;
-    dialogueQueue = [];
-    dialogueSeen = new Set();
-    dialogueT = 0;
-    dialogueChars = 0;
-    setAvatarRadioPose(false);
-    hideStageRadioDialogue();
-}
-
-function removeStage10Robots() {
-    for (let i = robots.length - 1; i >= 0; i--) {
-        if (robots[i].stage !== 10) continue;
-        disposeRobot(robots[i]);
-        scene.remove(robots[i].mesh);
-        robots.splice(i, 1);
-    }
-}
-
-function clearSpawnPoint(point, seed) {
-    const radius = Math.floor(seed / 6) * 9;
-    const angle = seed * 2.399963;
-    let x = point.x + Math.cos(angle) * radius;
-    let z = point.z + Math.sin(angle) * radius;
-    if (!stage10PathWalkable(x, z, 4)) {
-        x = point.x;
-        z = point.z;
-    }
-    return { x, z };
-}
-
-function spawnEncounter(name, counts, active = false) {
-    if (!counts || spawnedEncounters[name]) return 0;
-    spawnedEncounters[name] = true;
-    const baseName = name.startsWith('defense-') ? 'defense' : name;
-    const points = stage10EncounterPoints(baseName);
-    let cursor = 0;
-    for (const cls of ['C', 'B', 'A']) {
-        const amount = Math.max(0, counts[cls] | 0);
-        for (let i = 0; i < amount; i++, cursor++) {
-            const point = clearSpawnPoint(points[cursor % points.length], cursor);
-            spawnCampaignRobot(point.x, point.z, 10, cls, active);
-            robots[robots.length - 1].encounter = name;
-        }
-    }
-    return cursor;
-}
-
-function encounterCount(name) {
-    let n = 0;
-    for (const robot of robots)
-        if (robot.stage === 10 && robot.encounter === name) n++;
-    return n;
-}
-
-function activeDefenseEnemyCount() {
-    let n = 0;
-    for (const robot of robots)
-        if (robot.stage === 10 && String(robot.encounter).startsWith('defense-')) n++;
-    return n;
-}
-
-function placeSupplies() {
-    const placements = stage10SupplyPlacements();
-    const C = config();
-    for (const p of placements.crates.slice(0, C.lootboxCount)) spawnCrate(p.x, p.z, 0);
-    for (const p of placements.barrels.slice(0, C.barrelCount)) spawnBarrel(p.x, p.z, 0);
-    for (const p of placements.drops) {
-        if (p.type === 'ammo') spawnAmmoDrop(p.x, p.z, p.weapon, 1e9);
-        else spawnMedkitDrop(p.x, p.z, 1e9);
-    }
-}
-
-function resetStage() {
-    phase = 'opening';
-    complete = false;
-    stageElapsed = 0;
-    relayToken = false;
-    craneT = 0;
-    craneSettleT = 0;
-    defenseWave = 0;
-    extractHoldT = 0;
-    transitionSent = false;
-    cine = null;
-    for (const key of Object.keys(spawnedEncounters)) delete spawnedEncounters[key];
-    resetDialogue();
-    stage10ResetLayout();
-    resetDefenseArray(stage10DefenseSystem(), config().cannon.servoHp);
-    stage10SetMarkers([]);
-}
-
-function cleanupCine(revealSec = 0) {
-    cine = null;
-    hideCutsceneSkip();
-    setCineFocus(null);
-    setCineBars(false);
-    setCineFade(0, revealSec);
-    setCinematicActive(false);
-    if (avatarGroup) avatarGroup.visible = true;
-}
-
-function finishOpening(skipped = false) {
-    if (!cine || cine.kind !== 'opening') return;
-    if (skipped) resetDialogue();
-    cleanupCine(config().fadeSec);
-    phase = 'yardEntry';
-    stage10SetMarkers(['yard']);
-    queueDialogue('portObjective');
-    showStageMsg('ENTER THE CONTAINER TERMINAL', 4400);
-}
-
-function startOpening() {
-    releaseInputs();
-    clearMoveTarget();
-    keys.w = keys.a = keys.s = keys.d = false;
-    setCinematicActive(true);
-    setCineBars(true);
-    setCineFade(1, 0);
-    setCineFade(0, config().fadeSec);
-    cine = { kind: 'opening', t: 0, shot: -1 };
-    queueDialogue('approachLock');
-    queueDialogue('divertCommand');
-    setCineFocus(329350, 260, true);
-    showCutsceneSkip(() => finishOpening(true));
-}
-
-function finishCraneShift(skipped = false) {
-    if (!cine || cine.kind !== 'craneShift') return;
-    if (skipped) {
-        setCraneLayout(stage10CraneSystem(), 'B');
-        craneT = config().crane.moveSec;
-        craneSettleT = config().crane.settleSec;
-    }
-    cleanupCine(config().fadeSec);
-    phase = 'warehouse';
-    stage10SetMarkers(['relay']);
-    spawnEncounter('warehouse', config().encounters.warehouse, false);
-    showStageMsg('ROUTE B OPEN — SECURE THE WAREHOUSE RELAY TOKEN', 4800);
-}
-
-function startCraneShift() {
-    if (phase !== 'craneMazeA') return;
-    phase = 'craneShift';
-    stage10SetMarkers([]);
-    releaseInputs();
-    clearMoveTarget();
-    keys.w = keys.a = keys.s = keys.d = false;
-    setCinematicActive(true);
-    setCineBars(true);
-    cine = { kind: 'craneShift', t: 0 };
-    craneT = 0;
-    craneSettleT = 0;
-    beginCraneShift(stage10CraneSystem());
-    queueDialogue('craneOnline');
-    setCineFocus(S10_SAFE_BAY.x - 70, S10_SAFE_BAY.z, true);
-    showCutsceneSkip(() => finishCraneShift(true));
-}
-
-function finishExtraction(skipped = false) {
-    if (complete) return;
-    resetDialogue();   // sama seperti Stage 9: finish selalu menutup panel radio
-    complete = true;
-    phase = 'complete';
-    cleanupCine(0);
-    if (!transitionSent) {
-        transitionSent = true;
-        beginStageTransition(stage11Scene);
-    }
-}
-
-function startExtraction() {
-    if (phase !== 'extract') return;
-    phase = 'departure';
-    stage10SetMarkers([]);
-    releaseInputs();
-    clearMoveTarget();
-    setCinematicActive(true);
-    setCineBars(true);
-    cine = { kind: 'departure', t: 0 };
-    if (avatarGroup) avatarGroup.visible = false;
-    queueDialogue('northRoute');
-    setCineFocus(S10_EXTRACT.x, S10_EXTRACT.z, true);
-    showCutsceneSkip(() => finishExtraction(true));
-}
-
-function updateCine(dt) {
-    if (!cine) return;
-    cine.t += dt;
-    if (cine.kind === 'opening') {
-        const third = config().openingMinSec / 3;
-        const shot = Math.min(2, Math.floor(cine.t / Math.max(0.01, third)));
-        if (shot !== cine.shot) {
-            cine.shot = shot;
-            if (shot === 0) setCineFocus(329350, 260, shot > 0);
-            else if (shot === 1) setCineFocus(S10_SAFE_BAY.x, S10_SAFE_BAY.z, true);
-            else setCineFocus(S10_DEFENSE.x, S10_DEFENSE.z, true);
-        }
-        if (cine.t >= config().openingMinSec && !dialogueCurrent && !dialogueQueue.length)
-            finishOpening(false);
-        return;
-    }
-    if (cine.kind === 'craneShift') {
-        if (craneT < config().crane.moveSec) {
-            craneT = Math.min(config().crane.moveSec, craneT + dt);
-            updateCraneShift(stage10CraneSystem(), craneT / config().crane.moveSec);
-        } else {
-            setCraneLayout(stage10CraneSystem(), 'B');
-            craneSettleT += dt;
-            if (craneSettleT >= config().crane.settleSec) finishCraneShift(false);
-        }
-        return;
-    }
-    if (cine.kind === 'departure' && cine.t >= config().extractHoldSec
-        && !dialogueCurrent && !dialogueQueue.length) finishExtraction(false);
-}
-
-function enterYard() {
-    if (phase !== 'yardEntry') return;
-    phase = 'craneMazeA';
-    stage10SetMarkers(['safeBay']);
-    spawnEncounter('yard', config().encounters.yard, false);
-    showStageMsg('CROSS CONTAINER YARD A — REACH THE CRANE SAFE BAY', 4800);
-}
-
-function takeRelayToken() {
-    if (phase !== 'warehouse') return;
-    relayToken = true;
-    phase = 'pipeRack';
-    stage10SetMarkers(['defense']);
-    spawnEncounter('pipeRack', config().encounters.pipeRack, true);
-    queueDialogue('warehouseTrace');
-    showStageMsg('RELAY TOKEN SECURED — REACH THE DEFENSE PIER', 4400);
-}
-
-function startDefenseArray() {
-    if (phase !== 'pipeRack') return;
-    phase = 'defenseArray';
-    stage10SetMarkers([]);
-    defenseWave = 0;
-    activateDefenseArray(stage10DefenseSystem());
-    spawnDefenseWave(0);
-    queueDialogue('cannonSighted');
-    spawnAmmoDrop(S10_DEFENSE.x - 105, S10_DEFENSE.z + 106, currentWeapon, 1e9);
-    showStageMsg('DESTROY THE EXPOSED TRAVERSE SERVO', 4800);
-}
-
-function defenseMixForWave(index) {
-    const configured = config().encounters.defense;
-    if (Array.isArray(configured)) return configured[index] || configured[configured.length - 1];
-    // The configured aggregate is deterministically partitioned across the
-    // three bounded inter-servo groups. No independent mechanical count exists.
-    const mix = {};
-    for (const cls of ['C', 'B', 'A']) {
-        const total = Math.max(0, configured[cls] | 0);
-        const base = Math.floor(total / 3), remainder = total % 3;
-        mix[cls] = base + (index < remainder ? 1 : 0);
-    }
-    return mix;
-}
-
-function spawnDefenseWave(index) {
-    const name = `defense-${index + 1}`;
-    spawnEncounter(name, defenseMixForWave(index), true);
-}
-
-function onServoDestroyed(servo) {
-    addCamShake(4);
-    const defenseState = stage10DefenseSystem();
-    if (servo.id === 'traverse') {
-        queueDialogue('servoOne');
-        showStageMsg('TRAVERSE SERVO DESTROYED — SWEEP AUTHORITY LOST', 3800);
-    } else if (servo.id === 'elevation') {
-        queueDialogue('servoTwo');
-        showStageMsg('ELEVATION SERVO DESTROYED — BLAST WIDTH REDUCED', 3800);
-    } else {
-        queueDialogue('arrayDown');
-        showStageMsg('HARBOR DEFENSE ARRAY OFFLINE', 4400);
-    }
-    defenseWave = defenseState.destroyedCount;
-    if (!defenseState.shutdown && defenseWave < 3) spawnDefenseWave(defenseWave);
-    if (defenseState.shutdown) {
-        phase = 'extract';
-        stage10SetMarkers(['extract']);
-        showStageMsg('AIR-DEFENSE CORRIDOR OPEN — REACH THE FREIGHT CARRIER', 4800);
-    }
-}
-
-function cannonFire(point, radius, damage) {
-    explodeAt(new THREE.Vector3(point.x, point.y, point.z), radius, damage);
-    const distance = Math.hypot(camera.position.x - point.x, camera.position.z - point.z);
-    if (distance <= radius) damagePlayerHp(damage);
-    addCamShake(7);
-}
-
-function updateObjectives(dt) {
-    const range = config().interactionRange;
-    if (phase === 'yardEntry' && distanceTo(S10_YARD) <= range * 3) enterYard();
-    else if (phase === 'craneMazeA' && encounterCount('yard') === 0
-        && distanceTo(S10_SAFE_BAY) <= range) startCraneShift();
-    else if (phase === 'warehouse' && encounterCount('warehouse') === 0
-        && distanceTo(S10_RELAY) <= range) takeRelayToken();
-    else if (phase === 'pipeRack' && encounterCount('pipeRack') === 0
-        && distanceTo(S10_DEFENSE) <= range * 4) startDefenseArray();
-    else if (phase === 'defenseArray') {
-        updateDefenseArray(stage10DefenseSystem(), dt, config().cannon,
-            camera.position.x, camera.position.z, cannonFire);
-    } else if (phase === 'extract') {
-        if (distanceTo(S10_EXTRACT) <= range) {
-            extractHoldT += dt;
-            if (extractHoldT >= config().extractHoldSec) startExtraction();
-        } else extractHoldT = 0;
-    }
-}
-
-function objectivePoint() {
-    if (phase === 'yardEntry') return S10_YARD;
-    if (phase === 'craneMazeA') return S10_SAFE_BAY;
-    if (phase === 'warehouse') return S10_RELAY;
-    if (phase === 'pipeRack') return S10_DEFENSE;
-    if (phase === 'extract') return S10_EXTRACT;
-    return null;
-}
-
-export function stage10Debug() {
-    const defenseState = stage10DefenseSystem();
+export function ensureStage10World(parent = scene) {
     return {
-        phase, complete, stageElapsed, relayToken,
-        crane: craneDebug(stage10CraneSystem()),
-        craneTiming: { move: craneT, settle: craneSettleT },
-        defense: defenseArrayDebug(defenseState),
-        defenseWave, activeDefenseEnemies: activeDefenseEnemyCount(),
-        extractHold: extractHoldT,
-        encounters: Object.fromEntries(Object.keys(spawnedEncounters)
-            .map((name) => [name, encounterCount(name)])),
-        cinematic: cine?.kind || null,
-        transitionSent,
-        connectivity: stage10ConnectivityDebug(),
-        world: stage10WorldDebug(),
+        port: ensureStage10PortWorld(),
+        forest: ensureStage10ForestWorld(parent),
     };
 }
 
+const PLAY_CAM = Object.freeze({ x: -70.7, y: 116, z: 70.7 });
+const cineCam = { ...CAM_OFF_DEFAULT };
+const phases = ['ambush', 'forestApproach', 'scanBelt', 'waterworks',
+    'finalSweep', 'tunnelEntry', 'complete'];
+let phase = 'ambush';
+let complete = false;
+let elapsed = 0;
+let cine = null;
+let transitionCommitted = false;
+let interactionT = 0;
+let spawned = { forest: false, sensor: false, water: false };
+let waveCursor = { forest: -1, sensor: -1, water: -1 };
+let configuredTotals = { forest: [], sensor: [], water: [] };
+let encounterDebug = [];
+
+const FOREST_POINTS = [
+    { x: 360590, z: -245 }, { x: 360470, z: -160 },
+    { x: 360350, z: -245 }, { x: 360300, z: -55 },
+];
+const SENSOR_POINTS = [
+    { x: 360125, z: -80 }, { x: 360050, z: 70 },
+    { x: 359970, z: -20 }, { x: 359890, z: 145 },
+];
+const WATER_POINTS = [
+    { x: 359790, z: 130 }, { x: 359700, z: 215 },
+    { x: 359590, z: 125 }, { x: 359500, z: 245 }, { x: 359360, z: 205 },
+];
+
+function near(p, r) { return Math.hypot(camera.position.x - p.x, camera.position.z - p.z) <= r; }
+
+function resetStage() {
+    phase = 'ambush'; complete = false; elapsed = 0; cine = null;
+    transitionCommitted = false; interactionT = 0;
+    spawned = { forest: false, sensor: false, water: false }; encounterDebug = [];
+    waveCursor = { forest: -1, sensor: -1, water: -1 };
+    const e = CFG.campaign.stage10.chapter2.encounters;
+    configuredTotals = {
+        forest: stage10ForestWaveTotals(e.forestApproach),
+        sensor: stage10ForestWaveTotals(e.sensorBasin),
+        water: stage10ForestWaveTotals(e.waterworks),
+    };
+    resetStage10ForestDialogue(); resetStage10ForestSensorGrid();
+    resetStage10ForestWorldVisuals();
+    hideDownloadBar(); hideCutsceneSkip(); setCineBars(false); setCineFade(0, 0);
+}
+
+function spawnNextWave(kind) {
+    const e = CFG.campaign.stage10.chapter2.encounters;
+    const raw = kind === 'forest' ? e.forestApproach
+        : kind === 'sensor' ? e.sensorBasin : e.waterworks;
+    const points = kind === 'forest' ? FOREST_POINTS
+        : kind === 'sensor' ? SENSOR_POINTS : WATER_POINTS;
+    const next = waveCursor[kind] + 1;
+    if (next >= configuredTotals[kind].length) return false;
+    waveCursor[kind] = next; spawned[kind] = true;
+    encounterDebug.push(...spawnStage10ForestWave(raw, next, points, kind));
+    return true;
+}
+
+function deterministicRoutePoint(i, n) {
+    const t = (i + .5) / Math.max(1, n);
+    return {
+        x: 360580 - t * 1120,
+        z: -205 + t * 435 + (((i * 37) % 7) - 3) * 16,
+    };
+}
+
+function placeSupplies() {
+    const C = CFG.campaign.stage10.chapter2;
+    for (let i = 0; i < Math.max(0, C.lootboxCount | 0); i++) {
+        const p = deterministicRoutePoint(i, C.lootboxCount);
+        if (stage10ForestWalk(p.x, p.z, 8)) spawnCrate(p.x, p.z, 0);
+    }
+    for (let i = 0; i < Math.max(0, C.barrelCount | 0); i++) {
+        const p = deterministicRoutePoint(i * 3 + 1, C.barrelCount * 3);
+        if (stage10ForestWalk(p.x, p.z, 8)) spawnBarrel(p.x, p.z, 0);
+    }
+    // Guaranteed control-gallery resupply before the final crossing.
+    spawnAmmoDrop(S10_FOREST_GALLERY.x + 22, S10_FOREST_GALLERY.z - 10, 'rifle', 1e9);
+    spawnAmmoDrop(S10_FOREST_GALLERY.x + 8, S10_FOREST_GALLERY.z - 10, 'pistol', 1e9);
+    spawnMedkitDrop(S10_FOREST_GALLERY.x - 10, S10_FOREST_GALLERY.z - 10, 1e9);
+}
+
+function finishOpening(skipped = false) {
+    if (skipped) resetStage10ForestDialogue();
+    cine = null; cleanupCine(); phase = 'ambush';
+    showStageMsg('SURVIVE THE WRECK AMBUSH', 4200);
+}
+
+function cleanupCine() {
+    hideCutsceneSkip(); setCineFocus(null); setCineBars(false);
+    setCineFade(0, CFG.campaign.stage10.chapter2.fadeSec); setCinematicActive(false);
+}
+
+function startOpening() {
+    releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
+    setCinematicActive(true); setCineBars(true); setCineFade(0, 0);
+    cine = { t: 0, strike: false, dialogue: false };
+    cineCam.x = 118; cineCam.y = 128; cineCam.z = 105;
+    setCineFocus(S10_FOREST_WRECK.x, S10_FOREST_WRECK.z, true);
+    showCutsceneSkip(() => finishOpening(true));
+}
+
+function updateOpening(dt) {
+    if (!cine) return;
+    const C = CFG.campaign.stage10.chapter2;
+    cine.t += dt;
+    if (!cine.dialogue) { cine.dialogue = true; queueStage10ForestDialogue('carrierHit'); }
+    if (!cine.strike && cine.t >= C.carrierStrikeSec) {
+        cine.strike = true; queueStage10ForestDialogue('stillMoving');
+        setCineFocus(S10_FOREST_START.x, S10_FOREST_START.z, true);
+    }
+    if (cine.t >= C.openingMinSec && stage10ForestDialogueIdle()) finishOpening(false);
+}
+
+function updateProgression(dt) {
+    if (phase === 'ambush' && stage10ForestPrefixAlive('forest-0') === 0) {
+        phase = 'forestApproach'; queueStage10ForestDialogue('forestRoute');
+        showStageMsg('FOLLOW THE FOREST SERVICE CORRIDOR', 4300);
+        spawnNextWave('forest');
+    }
+    if (phase === 'forestApproach' && waveCursor.forest >= 1
+        && stage10ForestPrefixAlive(`forest-${waveCursor.forest}`) === 0)
+        activateStage10ForestPrefix('forest');
+    if (phase === 'forestApproach' && camera.position.x <= S10_FOREST_SENSOR_ENTRY.x) {
+        phase = 'scanBelt'; queueStage10ForestDialogue('scanDetected');
+        showStageMsg('SCAN BELT — BREAK TRACKING UNDER ROOFED COVER', 4700);
+        spawnNextWave('sensor');
+    }
+    if (phase === 'scanBelt' && waveCursor.sensor >= 0
+        && stage10ForestPrefixAlive(`sensor-${waveCursor.sensor}`) === 0)
+        spawnNextWave('sensor');
+    if (consumeStage10ForestFirstLock()) queueStage10ForestDialogue('firstLock');
+    if (phase === 'scanBelt' && camera.position.x <= S10_FOREST_SHELTER.x) {
+        phase = 'waterworks'; queueStage10ForestDialogue('waterworksSighted');
+        spawnNextWave('water');
+    }
+    if ((phase === 'waterworks' || phase === 'finalSweep') && waveCursor.water >= 0
+        && stage10ForestPrefixAlive(`water-${waveCursor.water}`) === 0)
+        spawnNextWave('water');
+    if (phase === 'waterworks' && camera.position.x <= S10_FOREST_WATERWORKS.x - 80) {
+        phase = 'finalSweep'; queueStage10ForestDialogue('rootTrace');
+        showStageMsg('CONCENTRATED SWEEP — CROSS THE DAM CREST', 4500);
+    }
+    if (phase === 'finalSweep' && near(S10_FOREST_FINISH, CFG.campaign.stage10.chapter2.interactionRange)) {
+        phase = 'tunnelEntry'; setStage10ForestTunnelOpen(true);
+        queueStage10ForestDialogue('tunnelFound'); queueStage10ForestDialogue('stage11Lead');
+        showStageMsg('UTILITY DESCENT OPEN — ENTER THE TUNNEL', 4200);
+    }
+    if (phase === 'tunnelEntry' && near(S10_FOREST_FINISH, CFG.campaign.stage10.chapter2.interactionRange)) {
+        interactionT += dt;
+        if (interactionT >= .75 && stage10ForestDialogueIdle()) finishStage();
+    } else interactionT = 0;
+}
+
+function finishStage() {
+    if (transitionCommitted) return;
+    transitionCommitted = true; complete = true; phase = 'complete';
+    clearStage10ForestStrikes(); resetStage10ForestDialogue(); cleanupCine();
+    beginStageTransition(stage11Scene);
+}
+
+export const stage10ForestScene = {
+    id: 'campaign-10-forest', lightsKey: STAGE10_FOREST_LIGHTS_KEY,
+    enter() {
+        const r = ensureStage10ForestWorld(scene); buildStage10ForestSensorGrid(r);
+        setActiveCampaignWorldRoots(STAGE10_FOREST_LIGHTS_KEY);
+        setActiveStageLights(STAGE10_FOREST_LIGHTS_KEY); applyLightPreset(scene, 'outdoor');
+        enterCityEnv({ background: 0x38443b, fogColor: 0x303b32, fogNear: 150, fogFar: 1200 });
+        clearStage10ForestRobots(); resetCrates(); resetBarrels(); resetStage();
+        spawnNextWave('forest'); placeSupplies();
+        camera.position.set(S10_FOREST_START.x, CFG.player.eyeHeight, S10_FOREST_START.z);
+        camera.quaternion.set(0, -0.7071, 0, 0.7071);
+        player.vy = 0; player.onGround = true;
+        startOpening(); updateUI();
+    },
+    exit() {
+        clearStage10ForestStrikes(); resetStage10ForestDialogue(); hideStageRadioDialogue();
+        hideDownloadBar(); cleanupCine();
+    },
+    restartScene: () => stage1Scene,
+    cheatSkipToStage: n => campaignJumpToStage(n),
+    awardKill: campaignAwardKill,
+    updateMode(dt) {
+        elapsed += dt; updateStage10ForestDialogue(dt);
+        updateStage10ForestWorldVisuals(dt);
+        if (cine) updateOpening(dt);
+        const sensorEnabled = !cine && phases.indexOf(phase) >= phases.indexOf('scanBelt')
+            && phase !== 'tunnelEntry' && phase !== 'complete';
+        updateStage10ForestSensorGrid(dt, sensorEnabled);
+        if (!cine && !complete) updateProgression(dt);
+        updateUI();
+    },
+    playerCollide(pos, oldX, oldZ, feetY) {
+        slideWalk(stage10ForestWalk, pos, oldX, oldZ, player.radius);
+        stage10ForestResolve(pos, player.radius, feetY);
+        resolveCrateBlock(pos, player.radius); resolveBarrelBlock(pos, player.radius);
+        slideWalk(stage10ForestWalk, pos, oldX, oldZ, player.radius);
+    },
+    groundHeight: stage10ForestGroundHeight,
+    get camOffset() { return cine ? cineCam : PLAY_CAM; },
+    bulletBlocked(b) {
+        return stage10ForestSegBlocked(b.px, b.pz, b.mesh.position.x, b.mesh.position.z, true);
+    },
+    blastBlocked(x0, z0, x1, z1) { return stage10ForestSegBlocked(x0, z0, x1, z1, false); },
+    grenadeCollide(g, oldX, oldZ) {
+        if (!stage10ForestWalk(g.mesh.position.x, g.mesh.position.z, 2)) {
+            g.mesh.position.x = oldX; g.mesh.position.z = oldZ;
+            g.vx *= -.4; g.vz *= -.4;
+        }
+        stage10ForestResolve(g.mesh.position, 2, 0);
+    },
+    robotAI(bot, dt, step) {
+        return campaignRobotAI(bot, dt, step, {
+            walkable: stage10ForestWalk, resolve: stage10ForestResolve, nav: stage10ForestNav(),
+            los: (x0, z0, x1, z1) => !stage10ForestSegBlocked(x0, z0, x1, z1, true),
+        });
+    },
+    clampRobot(bot, oldX, oldZ) {
+        campaignClampRobot(bot, oldX, oldZ,
+            { walkable: stage10ForestWalk, resolve: stage10ForestResolve });
+    },
+    clampDropPos(x, z) { return stage10ForestWalk(x, z, 2) ? [x, z] : [S10_FOREST_START.x, S10_FOREST_START.z]; },
+    hudStatus() {
+        const s = stage10ForestScanDebug();
+        const scan = s.state === 'CLEAR' ? '' : ` | ${s.state} ${Math.round(s.exposureFraction * 100)}%`;
+        return `THE GREEN FIREWALL — ${phase.toUpperCase()} | Robots: ${countStageRobots(10)}${scan}`;
+    },
+    radarLandmarks(plot) {
+        const target = phase === 'forestApproach' ? S10_FOREST_SENSOR_ENTRY
+            : phase === 'scanBelt' ? S10_FOREST_SHELTER
+                : phase === 'waterworks' ? S10_FOREST_WATERWORKS : S10_FOREST_FINISH;
+        plot(target.x - camera.position.x, target.z - camera.position.z, '#ffb03b', 5, true);
+        const scan = stage10ForestScanDebug();
+        if (scan.footprint?.visible)
+            plot(scan.footprint.x - camera.position.x, -camera.position.z, '#b3402e', 4, true);
+    },
+};
+
+export const stage10ForestWorldDebugFull = () => stage10ForestWorldDebug();
+const forestDebug = () => ({
+    phase, complete, elapsed, cine: cine && { ...cine }, transitionCommitted,
+    objective: stage10ForestScene.hudStatus(), robots: countStageRobots(10),
+    activeRobots: robots.reduce((n, r) => n + (r.stage === 10 && r.state !== 'idle' ? 1 : 0), 0),
+    finishEligible: phase === 'tunnelEntry' && stage10ForestDialogueIdle(),
+    spawned: { ...spawned }, encounters: encounterDebug.map(x => ({ ...x })),
+    waves: {
+        cursor: { ...waveCursor }, configured: {
+            forest: [...configuredTotals.forest], sensor: [...configuredTotals.sensor],
+            water: [...configuredTotals.water],
+        },
+        spawnedTotal: encounterDebug.length,
+        remainingConfigTotal: Object.keys(configuredTotals).reduce((sum, kind) =>
+            sum + configuredTotals[kind].slice(waveCursor[kind] + 1)
+                .reduce((n, v) => n + v, 0), 0),
+    },
+    dialogue: stage10ForestDialogueDebug(), scan: stage10ForestScanDebug(), world: stage10ForestWorldDebug(),
+});
+
+let chapter = null;
+
+function activeChapter() { return chapter || stage10PortScene; }
+
+function enterForestChapter() {
+    if (chapter === stage10ForestScene) return;
+    chapter?.exit?.();
+    chapter = stage10ForestScene;
+    stage10ForestScene.enter();
+}
+
+export const enterStage10Chapter2 = enterForestChapter;
+
 export const stage10Scene = {
     id: 'campaign-10',
-    lightsKey: 'campaign-10',
+    lightsKey: 'campaign-10-port',
 
     enter() {
         saveCampaignStage(10);
         ensureStage10World();
-        setActiveCampaignWorldRoots('campaign-10');
-        setActiveStageLights('campaign-10');
-        removeStage10Robots();
-        resetCrates();
-        resetBarrels();
-        resetStage();
-        spawnEncounter('entry', config().encounters.entry, false);
-        placeSupplies();
-        applyLightPreset(scene, 'outdoor');
-        enterCityEnv({ background: 0x596465, fogColor: 0x505b59, fogNear: 210, fogFar: 1700 });
-        camera.position.set(S10_START.x, CFG.player.eyeHeight, S10_START.z);
-        camera.quaternion.set(0, -0.7071, 0, 0.7071);
-        player.vy = 0;
-        player.onGround = true;
-        startOpening();
-        updateUI();
+        setStage10CompletionHook(enterForestChapter);
+        chapter = stage10PortScene;
+        chapter.enter();
     },
 
     exit() {
-        resetDialogue();
-        if (cine) cleanupCine(0);
-        stage10SetMarkers([]);
-        stopMusic();
-        setActiveCampaignWorldRoots([]);
+        activeChapter().exit?.();
+        setStage10CompletionHook(null);
+        chapter = null;
     },
 
     restartScene: () => stage1Scene,
-    cheatSkipToStage: (n) => campaignJumpToStage(n),
+    cheatSkipToStage: n => campaignJumpToStage(n),
     awardKill: campaignAwardKill,
-
-    updateMode(dt) {
-        stageElapsed += dt;
-        updateDialogue(dt);
-        updateCine(dt);
-        stage10UpdateWorld(dt, stageElapsed);
-        if (!cine && !complete) updateObjectives(dt);
-        updateUI();
-    },
-
+    updateMode(dt) { activeChapter().updateMode(dt); },
     playerCollide(pos, oldX, oldZ, feetY) {
-        slideWalk(stage10Walkable, pos, oldX, oldZ, player.radius);
-        stage10Resolve(pos, player.radius, feetY);
-        resolveCrateBlock(pos, player.radius);
-        resolveBarrelBlock(pos, player.radius);
-        slideWalk(stage10Walkable, pos, oldX, oldZ, player.radius);
-        if (player.onGround) {
-            pos.y = CFG.player.eyeHeight;
-            player.vy = 0;
-        }
+        activeChapter().playerCollide(pos, oldX, oldZ, feetY);
     },
-
-    groundHeight: stage10GroundHeight,
-    get camOffset() { return cine ? cineCam : null; },
-
-    bulletBlocked(b) {
-        if (phase === 'defenseArray') {
-            const damage = b.damage != null ? b.damage : CFG.weapons.bulletDamage;
-            const result = defenseArrayBulletHit(stage10DefenseSystem(), b, damage);
-            if (result.destroyed) onServoDestroyed(result.destroyed);
-            if (result.hit) return true;
-        }
-        return stage10SegHitsWall(b.px, b.pz, b.mesh.position.x,
-            b.mesh.position.z, b.mesh.position.y);
-    },
-
+    groundHeight(x, z, feetY) { return activeChapter().groundHeight(x, z, feetY); },
+    get camOffset() { return activeChapter().camOffset || null; },
+    bulletBlocked(b) { return activeChapter().bulletBlocked(b); },
     blastBlocked(x0, z0, x1, z1, y = 0) {
-        return stage10SegHitsWall(x0, z0, x1, z1, y);
+        return activeChapter().blastBlocked(x0, z0, x1, z1, y);
     },
-
-    grenadeCollide(g, oldX, oldZ) {
-        if (!stage10Walkable(g.mesh.position.x, g.mesh.position.z, 2)) {
-            g.mesh.position.x = oldX;
-            g.mesh.position.z = oldZ;
-            g.vx = -g.vx * 0.4;
-            g.vz = -g.vz * 0.4;
-        }
-        stage10Resolve(g.mesh.position, 2, 0);
-    },
-
-    robotAI(robot, dt, step) {
-        if (robot.stage !== 10) return { skip: true };
-        if (phase === 'opening' || phase === 'craneShift'
-            || phase === 'departure' || phase === 'complete') {
-            robot.state = 'idle';
-            robot.moving = false;
-            robot.aiming = false;
-            return {};
-        }
-        return campaignRobotAI(robot, dt, step, {
-            walkable: stage10Walkable,
-            resolve: stage10Resolve,
-            nav: stage10NavGrid(),
-            pathWalkable: (x, z, radius) => stage10PathWalkable(x, z, radius),
-            los: (x0, z0, x1, z1) => !stage10SegHitsWall(x0, z0, x1, z1, 8),
-        });
-    },
-
-    clampRobot(robot, oldX, oldZ) {
-        campaignClampRobot(robot, oldX, oldZ, {
-            walkable: stage10Walkable,
-            resolve: stage10Resolve,
-            pathWalkable: (x, z, radius) => stage10PathWalkable(x, z, radius),
-        });
-    },
-
-    clampDropPos(x, z) {
-        if (stage10Walkable(x, z, 2) && !stage10BlockedAt(x, z, 2)) return [x, z, 0];
-        return [
-            Math.max(S10_BOUNDS.x0 + 30, Math.min(S10_BOUNDS.x1 - 30, x)),
-            Math.max(-220, Math.min(220, z)),
-            0,
-        ];
-    },
-
-    hudStatus() {
-        if (phase === 'opening') return 'STAGE 10 — THE IRON PORT';
-        if (phase === 'yardEntry') return `ENTER CONTAINER TERMINAL — HOSTILES ${encounterCount('entry')}`;
-        if (phase === 'craneMazeA') return `REACH CRANE SAFE BAY — YARD HOSTILES ${encounterCount('yard')}`;
-        if (phase === 'craneShift') return 'PORT CRANES — RECONFIGURING TO LAYOUT B';
-        if (phase === 'warehouse') return `SECURE RELAY TOKEN — WAREHOUSE HOSTILES ${encounterCount('warehouse')}`;
-        if (phase === 'pipeRack') return `REACH DEFENSE PIER — HOSTILES ${encounterCount('pipeRack')}`;
-        if (phase === 'defenseArray') {
-            const D = stage10DefenseSystem();
-            const servo = D.servos[D.destroyedCount];
-            return servo
-                ? `${servo.label} — ${Math.ceil(Math.max(0, servo.hp))} HP — HOSTILES ${activeDefenseEnemyCount()}`
-                : 'HARBOR DEFENSE ARRAY OFFLINE';
-        }
-        if (phase === 'extract') {
-            const percent = Math.floor(extractHoldT / config().extractHoldSec * 100);
-            return `BOARD ARMORED FREIGHT CARRIER — ${percent}%`;
-        }
-        if (phase === 'departure') return 'NORTHBOUND ROUTE TO IKN';
-        return 'STAGE 10 COMPLETE';
-    },
-
-    radarLandmarks(plot) {
-        const objective = objectivePoint();
-        if (objective) plot(objective.x - camera.position.x,
-            objective.z - camera.position.z, '#ffb03b', 5, true);
-        if (phase === 'defenseArray') {
-            const system = stage10DefenseSystem();
-            const servo = system.servos[system.destroyedCount];
-            if (servo) plot(servo.x - camera.position.x,
-                servo.z - camera.position.z, '#ff4a3c', 5, true);
-        }
-    },
-
+    grenadeCollide(g, oldX, oldZ) { activeChapter().grenadeCollide(g, oldX, oldZ); },
+    robotAI(bot, dt, step) { return activeChapter().robotAI(bot, dt, step); },
+    clampRobot(bot, oldX, oldZ) { activeChapter().clampRobot(bot, oldX, oldZ); },
+    clampDropPos(x, z) { return activeChapter().clampDropPos(x, z); },
+    hudStatus() { return activeChapter().hudStatus(); },
+    radarLandmarks(plot) { activeChapter().radarLandmarks(plot); },
     countStageRobots: () => countStageRobots(10),
 };
+
+export const stage10Debug = () => ({
+    chapter: chapter === stage10ForestScene ? 2 : 1,
+    sub: activeChapter().id,
+    chapter1: stage10PortDebug(),
+    chapter2: forestDebug(),
+    ...(chapter === stage10ForestScene ? forestDebug() : stage10PortDebug()),
+});

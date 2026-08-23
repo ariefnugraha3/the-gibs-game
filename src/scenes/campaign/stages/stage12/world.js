@@ -1,4 +1,4 @@
-// Stage 13 — campaign-only Medan Merdeka / Monas world.
+// Stage 12 — campaign-only Medan Merdeka / Monas world.
 // Nothing in this module imports or mutates the Survival monument. The Monas
 // rig, collision, inert army, transport, skyline and ending lighting all belong
 // exclusively to this root and can safely coexist with every other world.
@@ -13,42 +13,42 @@ import {
     registerOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
 } from '../../utility/occlusion.js';
 
-export const STAGE13_LIGHTS_KEY = 'campaign-13';
-export const S13_ORIGIN = Object.freeze({ x: 430000, z: 0 });
-export const S13_START = Object.freeze({ x: S13_ORIGIN.x - 760, z: 0 });
-export const S13_ARENA_ENTRY = Object.freeze({ x: S13_ORIGIN.x - 120, z: 0 });
-export const S13_BOSS_CENTER = Object.freeze({ x: S13_ORIGIN.x + 38, z: 0 });
-export const S13_MONAS = Object.freeze({ x: S13_ORIGIN.x + 300, z: 0, radius: 54 });
-export const S13_BOUNDS = Object.freeze({
-    x0: S13_ORIGIN.x - 930, x1: S13_ORIGIN.x + 930,
+export const STAGE12_LIGHTS_KEY = 'campaign-12';
+export const S12_ORIGIN = Object.freeze({ x: 430000, z: 0 });
+export const S12_START = Object.freeze({ x: S12_ORIGIN.x - 760, z: 0 });
+export const S12_ARENA_ENTRY = Object.freeze({ x: S12_ORIGIN.x - 120, z: 0 });
+export const S12_BOSS_CENTER = Object.freeze({ x: S12_ORIGIN.x + 38, z: 0 });
+export const S12_MONAS = Object.freeze({ x: S12_ORIGIN.x + 300, z: 0, radius: 54 });
+export const S12_BOUNDS = Object.freeze({
+    x0: S12_ORIGIN.x - 930, x1: S12_ORIGIN.x + 930,
     z0: -680, z1: 680,
 });
-export const S13_ARENA_BOUNDS = Object.freeze({
-    x0: S13_ORIGIN.x - 255, x1: S13_ORIGIN.x + 565,
+export const S12_ARENA_BOUNDS = Object.freeze({
+    x0: S12_ORIGIN.x - 255, x1: S12_ORIGIN.x + 565,
     z0: -390, z1: 390, groundY: 0,
 });
-export const S13_BOSS_BOUNDS = Object.freeze({
-    x0: S13_ORIGIN.x - 165, x1: S13_ORIGIN.x + 145,
+export const S12_BOSS_BOUNDS = Object.freeze({
+    x0: S12_ORIGIN.x - 165, x1: S12_ORIGIN.x + 145,
     z0: -205, z1: 205,
 });
 
 // Authored tangential/vertical lanes stay west of the monument. Both endpoint
 // circles (boss body included) clear the Monas base by a wide margin.
-export const S13_CHARGE_LANES = Object.freeze([
-    Object.freeze({ x0: S13_ORIGIN.x - 150, z0: -155,
-        x1: S13_ORIGIN.x + 128, z1: -155 }),
-    Object.freeze({ x0: S13_ORIGIN.x + 128, z0: 155,
-        x1: S13_ORIGIN.x - 150, z1: 155 }),
-    Object.freeze({ x0: S13_ORIGIN.x - 92, z0: -195,
-        x1: S13_ORIGIN.x - 92, z1: 195 }),
-    Object.freeze({ x0: S13_ORIGIN.x + 82, z0: 195,
-        x1: S13_ORIGIN.x + 82, z1: -195 }),
+export const S12_CHARGE_LANES = Object.freeze([
+    Object.freeze({ x0: S12_ORIGIN.x - 150, z0: -155,
+        x1: S12_ORIGIN.x + 128, z1: -155 }),
+    Object.freeze({ x0: S12_ORIGIN.x + 128, z0: 155,
+        x1: S12_ORIGIN.x - 150, z1: 155 }),
+    Object.freeze({ x0: S12_ORIGIN.x - 92, z0: -195,
+        x1: S12_ORIGIN.x - 92, z1: 195 }),
+    Object.freeze({ x0: S12_ORIGIN.x + 82, z0: 195,
+        x1: S12_ORIGIN.x + 82, z1: -195 }),
 ]);
 
-export const S13_HARDLINE_STATIONS = Object.freeze([0, 1, 2, 3].map(i => {
+export const S12_HARDLINE_STATIONS = Object.freeze([0, 1, 2, 3].map(i => {
     const a = i / 4 * Math.PI * 2 + Math.PI / 4;
-    return Object.freeze({ x: S13_BOSS_CENTER.x + Math.cos(a) * 128,
-        z: S13_BOSS_CENTER.z + Math.sin(a) * 128, index: i });
+    return Object.freeze({ x: S12_BOSS_CENTER.x + Math.cos(a) * 128,
+        z: S12_BOSS_CENTER.z + Math.sin(a) * 128, index: i });
 }));
 
 let built = false, root = null, transport = null, monasRig = null;
@@ -115,39 +115,39 @@ function blocker(x, z, hx, hz, top, standable = false) {
 
 function buildSurfaces(M, props) {
     const ground = addMesh(root, new THREE.PlaneGeometry(1900, 1380), M.grassDark,
-        S13_ORIGIN.x, -0.8, 0, -Math.PI / 2);
+        S12_ORIGIN.x, -0.8, 0, -Math.PI / 2);
     ground.receiveShadow = true; ground.castShadow = false;
     // National-axis deployment avenue: divided six-lane boulevard with service
     // shoulders and deliberate vehicle-free player corridor.
     staticBox(props, M.asphalt, 760, 0.8, 154,
-        S13_ORIGIN.x - 500, -0.28, 0);
-    staticBox(props, M.concrete, 760, 0.55, 13,
-        S13_ORIGIN.x - 500, 0.1, 0);
+        S12_ORIGIN.x - 500, -0.28, 0);
+    staticBox(props, M.concrete, 760, 0.55, 12,
+        S12_ORIGIN.x - 500, 0.1, 0);
     for (const z of [-66, -43, -20, 20, 43, 66]) for (let x = -840; x <= -180; x += 32)
         staticBox(props, M.white, 15, 0.08, 0.8,
-            S13_ORIGIN.x + x, 0.22, z);
+            S12_ORIGIN.x + x, 0.22, z);
     for (const z of [-83, 83]) staticBox(props, M.roadEdge, 770, 1.2, 12,
-        S13_ORIGIN.x - 500, 0, z);
+        S12_ORIGIN.x - 500, 0, z);
     // Medan Merdeka ring road and civic plaza.
     staticBox(props, M.asphalt, 840, 0.75, 690,
-        S13_ORIGIN.x + 170, -0.32, 0);
+        S12_ORIGIN.x + 170, -0.32, 0);
     staticBox(props, M.grass, 682, 0.5, 532,
-        S13_ORIGIN.x + 170, 0.08, 0);
+        S12_ORIGIN.x + 170, 0.08, 0);
     staticBox(props, M.concrete, 570, 0.38, 420,
-        S13_ORIGIN.x + 190, 0.34, 0);
+        S12_ORIGIN.x + 190, 0.34, 0);
     staticBox(props, M.pale, 410, 0.35, 330,
-        S13_ORIGIN.x + 208, 0.58, 0);
+        S12_ORIGIN.x + 208, 0.58, 0);
     // Ring road lane markings and plaza radial joints make the large surface
     // read as authored civic space rather than one placeholder slab.
     for (const z of [-305, -280, 280, 305]) for (let x = -230; x <= 580; x += 42)
         staticBox(props, M.white, 20, 0.08, 0.7,
-            S13_ORIGIN.x + x, 0.16, z);
+            S12_ORIGIN.x + x, 0.16, z);
     for (const x of [-224, -198, 538, 564]) for (let z = -260; z <= 260; z += 42)
         staticBox(props, M.white, 0.7, 0.08, 20,
-            S13_ORIGIN.x + x, 0.17, z);
+            S12_ORIGIN.x + x, 0.17, z);
     for (let r = 70; r <= 205; r += 45) {
         const ring = addMesh(root, new THREE.RingGeometry(r - 0.8, r + 0.8, 64),
-            M.concrete, S13_MONAS.x, 0.82, S13_MONAS.z, -Math.PI / 2);
+            M.concrete, S12_MONAS.x, 0.82, S12_MONAS.z, -Math.PI / 2);
         ring.castShadow = false;
     }
     tag('deployment-avenue'); tag('ring-road'); tag('monas-plaza');
@@ -155,12 +155,12 @@ function buildSurfaces(M, props) {
 
 function buildMonas(M, props) {
     const g = new THREE.Group(); g.name = 'Campaign-Monas-Stable'; root.add(g);
-    g.position.set(S13_MONAS.x, 0, S13_MONAS.z);
+    g.position.set(S12_MONAS.x, 0, S12_MONAS.z);
     // Museum base, stepped apron and raised cup: a dedicated detailed landmark,
     // never the mutable Survival monument.
     for (let i = 0; i < 5; i++) box(g, i % 2 ? M.concrete : M.pale,
         108 - i * 10, 2.2, 108 - i * 10, 0, 1.1 + i * 2.1, 0);
-    box(g, M.dark, 72, 6, 72, 0, 13, 0);
+    box(g, M.dark, 72, 6, 72, 0, 12, 0);
     for (const side of [-1, 1]) {
         box(g, M.pale, 12, 11, 76, side * 38, 15, 0);
         box(g, M.pale, 76, 11, 12, 0, 15, side * 38);
@@ -206,10 +206,10 @@ function buildMonas(M, props) {
     // Monas adalah penghalang TERBESAR di stage ini: berdiri di tengah arena
     // boss, jadi setiap kali player/robot berada di sisi timur-lautnya ia
     // menelan mereka sepenuhnya. Ikut memudar seperti prop lain.
-    registerOccluder(STAGE13_LIGHTS_KEY, welded,
-        { x: S13_MONAS.x, z: S13_MONAS.z, radius: S13_MONAS.radius, top: 260 });
+    registerOccluder(STAGE12_LIGHTS_KEY, welded,
+        { x: S12_MONAS.x, z: S12_MONAS.z, radius: S12_MONAS.radius, top: 260 });
     occluderCount++;
-    blocker(S13_MONAS.x, S13_MONAS.z, S13_MONAS.radius, S13_MONAS.radius, 245);
+    blocker(S12_MONAS.x, S12_MONAS.z, S12_MONAS.radius, S12_MONAS.radius, 245);
     monasRig = { group: welded, stable: true, campaignOnly: true };
     tag('monas'); tag('museum-base'); tag('stable-flame');
     propDetailCount += 90;
@@ -221,21 +221,21 @@ function buildPark(M, props) {
     for (const side of [-1, 1]) {
         const z = side * 445;
         staticBox(props, M.grass, 720, 0.6, 190,
-            S13_ORIGIN.x + 120, -0.05, z);
+            S12_ORIGIN.x + 120, -0.05, z);
         staticBox(props, M.water, 680, 0.16, 11,
-            S13_ORIGIN.x + 120, 0.3, z - side * 70);
+            S12_ORIGIN.x + 120, 0.3, z - side * 70);
         for (let x = -210; x <= 500; x += 52) {
             staticBox(props, M.concrete, 32, 0.24, 5,
-                S13_ORIGIN.x + x, 0.35, z - side * 34);
+                S12_ORIGIN.x + x, 0.35, z - side * 34);
             // Proper bench: concrete feet, timber seat and backrest slats.
             staticBox(props, M.concrete, 2, 4, 2,
-                S13_ORIGIN.x + x - 8, 2, z - side * 25);
+                S12_ORIGIN.x + x - 8, 2, z - side * 25);
             staticBox(props, M.concrete, 2, 4, 2,
-                S13_ORIGIN.x + x + 8, 2, z - side * 25);
+                S12_ORIGIN.x + x + 8, 2, z - side * 25);
             staticBox(props, M.wood, 22, 1.4, 5,
-                S13_ORIGIN.x + x, 4.2, z - side * 25);
+                S12_ORIGIN.x + x, 4.2, z - side * 25);
             staticBox(props, M.wood, 22, 6, 1.1,
-                S13_ORIGIN.x + x, 7.2, z - side * 28);
+                S12_ORIGIN.x + x, 7.2, z - side * 28);
             propDetailCount += 6;
         }
     }
@@ -248,7 +248,7 @@ function buildPark(M, props) {
         const side = i % 2 ? 1 : -1;
         const row = (i >> 1) % 4;
         const col = (i >> 3);
-        const x = S13_ORIGIN.x - 250 + (col % 24) * 32 + ((row * 17) % 21);
+        const x = S12_ORIGIN.x - 250 + (col % 24) * 32 + ((row * 17) % 21);
         const z = side * (374 + row * 43 + (col % 3) * 5);
         const h = 15 + (i * 7 % 10), r = 8 + (i * 11 % 6);
         matrix.compose(pos.set(x, h / 2, z), q, scale.set(2.3, h, 2.3));
@@ -265,7 +265,7 @@ function buildPark(M, props) {
     // broad lateral flanking routes between trunks.
     for (let i = 0; i < 10; i++) {
         const side = i % 2 ? 1 : -1;
-        const x = S13_ORIGIN.x - 295 + (i >> 1) * 56;
+        const x = S12_ORIGIN.x - 295 + (i >> 1) * 56;
         const z = side * (273 + (i % 3) * 13);
         const trunkMat = M.wood.clone(); trunkMat.transparent = true;
         const crownMat = M.grass.clone(); crownMat.transparent = true;
@@ -278,7 +278,7 @@ function buildPark(M, props) {
             side * 10, 35, (i % 2 ? 1 : -1) * 6);
         blocker(x, z, 5.5, 5.5, 31);
         // Material sudah instans milik pohon ini sendiri (clone di atas).
-        registerOccluder(STAGE13_LIGHTS_KEY, tree,
+        registerOccluder(STAGE12_LIGHTS_KEY, tree,
             { x, z, radius: 26, top: 58, clone: false });
         occluderCount++;
         treeCount++; propDetailCount += 3;
@@ -331,7 +331,7 @@ function buildSkyline(M, props) {
     // Government frontage along the north/south horizon.
     for (let i = 0; i < 12; i++) {
         const side = i % 2 ? 1 : -1;
-        specs.push({ x: S13_ORIGIN.x - 510 + (i >> 1) * 195,
+        specs.push({ x: S12_ORIGIN.x - 510 + (i >> 1) * 195,
             z: side * (575 + (i % 3) * 18), w: 112 + i % 3 * 18,
             d: 58 + i % 2 * 16, h: 62 + (i * 17) % 42,
             kind: 'government', damage: i === 3 || i === 8 ? 1 : 0 });
@@ -341,14 +341,14 @@ function buildSkyline(M, props) {
     for (let i = 0; i < 32; i++) {
         const side = i % 2 ? 1 : -1;
         const z = -520 + (i % 9) * 130;
-        specs.push({ x: S13_ORIGIN.x + side * (730 + (i % 4) * 38), z,
+        specs.push({ x: S12_ORIGIN.x + side * (730 + (i % 4) * 38), z,
             w: 54 + (i * 13) % 42, d: 52 + (i * 19) % 38,
             h: 110 + (i * 37) % 210, kind: 'office', damage: i % 13 === 0 ? 1 : 0 });
     }
     // Low mixed-use ruko rows anchor this final world back in Jakarta.
     for (let i = 0; i < 20; i++) {
         const side = i < 10 ? -1 : 1, j = i % 10;
-        specs.push({ x: S13_ORIGIN.x - 700 + j * 150,
+        specs.push({ x: S12_ORIGIN.x - 700 + j * 150,
             z: side * 625, w: 62, d: 38, h: 30 + j % 3 * 8,
             kind: 'ruko', damage: j === 2 || j === 7 ? 1 : 0 });
     }
@@ -374,7 +374,7 @@ function vehicle(props, M, x, z, kind, yaw, damaged = false) {
     // sendiri jadi harganya tetap segelintir draw call.
     const node = mergeObjectInPlace(g);
     root.add(node);
-    registerOccluder(STAGE13_LIGHTS_KEY, node,
+    registerOccluder(STAGE12_LIGHTS_KEY, node,
         { x, z, radius: (long + wide) / 4, top: 12.5 });
     occluderCount++;
     inertVehicleCount++; propDetailCount += 9;
@@ -383,7 +383,7 @@ function vehicle(props, M, x, z, kind, yaw, damaged = false) {
 function buildInertVehicles(M, props) {
     for (let i = 0; i < 28; i++) {
         const side = i % 2 ? 1 : -1;
-        const x = S13_ORIGIN.x - 805 + i * 43;
+        const x = S12_ORIGIN.x - 805 + i * 43;
         const z = side * (112 + (i % 4) * 19);
         vehicle(props, M, x, z, i % 7 === 0 ? 'bus' : i % 4 === 0 ? 'truck' : 'car',
             side * (Math.PI / 2 + (i % 3 - 1) * 0.08), i % 6 === 0);
@@ -401,9 +401,9 @@ function buildInertArmy(M) {
     for (let i = 0; i < N; i++) {
         const band = i < 100 ? 0 : i < 175 ? 1 : 2;
         const col = i % (band === 0 ? 25 : 15), row = Math.floor(i / (band === 0 ? 25 : 15));
-        const x = band === 0 ? S13_ORIGIN.x - 810 + col * 25
-            : band === 1 ? S13_ORIGIN.x - 110 + col * 27
-                : S13_ORIGIN.x + 460 + col * 19;
+        const x = band === 0 ? S12_ORIGIN.x - 810 + col * 25
+            : band === 1 ? S12_ORIGIN.x - 110 + col * 27
+                : S12_ORIGIN.x + 460 + col * 19;
         let z = band === 0 ? (row % 2 ? 1 : -1) * (130 + (row % 4) * 18)
             : band === 1 ? -245 + (row % 9) * 58
                 : (row % 2 ? 1 : -1) * (245 + (row % 4) * 18);
@@ -430,7 +430,7 @@ function buildInertArmy(M) {
 function buildDamagedPerimeter(M, props) {
     for (let i = 0; i < 72; i++) {
         const side = i % 2 ? 1 : -1;
-        const x = S13_ORIGIN.x - 850 + (i % 36) * 48;
+        const x = S12_ORIGIN.x - 850 + (i % 36) * 48;
         const z = side * (330 + (i * 19) % 54);
         staticBox(props, i % 3 ? M.concrete : M.gunmetal,
             5 + i % 4 * 2, 2 + i % 5, 4 + (i * 7) % 8,
@@ -440,7 +440,7 @@ function buildDamagedPerimeter(M, props) {
     for (let i = 0; i < 10; i++) {
         const crater = addMesh(root, new THREE.RingGeometry(9 + i % 3 * 3,
             14 + i % 3 * 3, 18), M.dark,
-            S13_ORIGIN.x - 650 + i * 145, 0.5,
+            S12_ORIGIN.x - 650 + i * 145, 0.5,
             (i % 2 ? 1 : -1) * (285 + i % 3 * 22), -Math.PI / 2);
         crater.castShadow = false;
     }
@@ -448,7 +448,7 @@ function buildDamagedPerimeter(M, props) {
 }
 
 function buildHardlineInfrastructure(M, props) {
-    for (const s of S13_HARDLINE_STATIONS) {
+    for (const s of S12_HARDLINE_STATIONS) {
         staticBox(props, M.dark, 39, 3, 39, s.x, 1.5, s.z, 0, Math.PI / 4);
         staticBox(props, M.concrete, 31, 2, 31, s.x, 3.5, s.z, 0, Math.PI / 4);
         for (let i = 0; i < 4; i++) {
@@ -460,7 +460,7 @@ function buildHardlineInfrastructure(M, props) {
     }
     // Legacy vault aperture west of Monas, with layered shutters, rails and a
     // visible cable trench leading to the four station sockets.
-    const vx = S13_BOSS_CENTER.x, vz = S13_BOSS_CENTER.z;
+    const vx = S12_BOSS_CENTER.x, vz = S12_BOSS_CENTER.z;
     staticBox(props, M.dark, 82, 4, 68, vx, 1.7, vz);
     for (let i = 0; i < 6; i++) {
         staticBox(props, i % 2 ? M.gunmetal : M.concrete,
@@ -472,9 +472,9 @@ function buildHardlineInfrastructure(M, props) {
 }
 
 function buildTransport(M) {
-    const g = new THREE.Group(); g.name = 'Stage13-Autonomous-Return-Transport'; root.add(g);
+    const g = new THREE.Group(); g.name = 'Stage12-Autonomous-Return-Transport'; root.add(g);
     const fuselage = new THREE.Group(); g.add(fuselage);
-    box(fuselage, M.gunmetal, 58, 10, 15, 0, 13, 0);
+    box(fuselage, M.gunmetal, 58, 10, 15, 0, 12, 0);
     box(fuselage, M.pale, 39, 7, 17, -4, 19, 0);
     addMesh(fuselage, new THREE.ConeGeometry(8.5, 21, 8), M.gunmetal,
         -38, 14, 0, 0, 0, Math.PI / 2);
@@ -494,14 +494,14 @@ function buildTransport(M) {
     }
     const ramp = box(g, M.concrete, 15, 2, 17, 29, 9, 0, 0, 0, -0.12);
     const nav = box(g, M.red, 2, 1, 2, -30, 19, 0); nav.castShadow = false;
-    g.position.set(S13_START.x - 160, 95, -120); g.rotation.y = Math.PI / 2;
+    g.position.set(S12_START.x - 160, 95, -120); g.rotation.y = Math.PI / 2;
     transport = { group: g, rotors: g.children.filter(o => o.userData.rotor)
         .map(o => o.userData.rotor), ramp, nav };
     tag('return-transport'); propDetailCount += 35;
 }
 
 function buildWorld() {
-    root = new THREE.Group(); root.name = 'campaign-stage13-monas-jakarta'; scene.add(root);
+    root = new THREE.Group(); root.name = 'campaign-stage12-monas-jakarta'; scene.add(root);
     const M = materialSet(), props = [];
     buildSurfaces(M, props); buildPark(M, props); buildSkyline(M, props);
     buildInertVehicles(M, props); buildDamagedPerimeter(M, props);
@@ -510,71 +510,71 @@ function buildWorld() {
     staticBatch = addMergedStatic(root, props);
     // Horizon sunrise layer exists from boot and only changes opacity.
     const dawn = addMesh(root, new THREE.PlaneGeometry(1500, 520), M.dawn,
-        S13_ORIGIN.x + 610, 220, -560, 0, 0, 0);
-    dawn.name = 'Stage13-Sunrise-Horizon'; dawn.castShadow = false;
+        S12_ORIGIN.x + 610, 220, -560, 0, 0, 0);
+    dawn.name = 'Stage12-Sunrise-Horizon'; dawn.castShadow = false;
     root.userData.dawn = dawn;
     registerCampaignWorldRoot({
-        key: STAGE13_LIGHTS_KEY, root, bounds: { ...S13_BOUNDS },
-        lightsKey: STAGE13_LIGHTS_KEY,
-        warmupViews: [S13_START, S13_ARENA_ENTRY, S13_BOSS_CENTER, S13_MONAS],
+        key: STAGE12_LIGHTS_KEY, root, bounds: { ...S12_BOUNDS },
+        lightsKey: STAGE12_LIGHTS_KEY,
+        warmupViews: [S12_START, S12_ARENA_ENTRY, S12_BOSS_CENTER, S12_MONAS],
     });
 }
 
-export function ensureStage13World() {
+export function ensureStage12World() {
     if (!built) { built = true; buildWorld(); }
     return root;
 }
 
-export function stage13Walk(x, z, radius = 0) {
-    const avenue = x >= S13_ORIGIN.x - 845 + radius
-        && x <= S13_ORIGIN.x - 185 - radius && Math.abs(z) <= 102 - radius;
-    const parkMouth = x >= S13_ORIGIN.x - 360 + radius
-        && x <= S13_ORIGIN.x + 20 - radius && Math.abs(z) <= 252 - radius;
-    const merdeka = x >= S13_ORIGIN.x - 245 + radius
-        && x <= S13_ORIGIN.x + 570 - radius && Math.abs(z) <= 382 - radius;
+export function stage12Walk(x, z, radius = 0) {
+    const avenue = x >= S12_ORIGIN.x - 845 + radius
+        && x <= S12_ORIGIN.x - 185 - radius && Math.abs(z) <= 102 - radius;
+    const parkMouth = x >= S12_ORIGIN.x - 360 + radius
+        && x <= S12_ORIGIN.x + 20 - radius && Math.abs(z) <= 252 - radius;
+    const merdeka = x >= S12_ORIGIN.x - 245 + radius
+        && x <= S12_ORIGIN.x + 570 - radius && Math.abs(z) <= 382 - radius;
     return avenue || parkMouth || merdeka;
 }
 
-export function resolveStage13World(pos, radius, feetY = 0) {
+export function resolveStage12World(pos, radius, feetY = 0) {
     resolveBlockers(pos, radius, feetY, blockers);
     return pos;
 }
 
-export function clampStage13Point(pos, radius = 0, oldX = pos.x, oldZ = pos.z) {
-    slideWalk(stage13Walk, pos, oldX, oldZ, radius);
-    resolveStage13World(pos, radius, 0); return pos;
+export function clampStage12Point(pos, radius = 0, oldX = pos.x, oldZ = pos.z) {
+    slideWalk(stage12Walk, pos, oldX, oldZ, radius);
+    resolveStage12World(pos, radius, 0); return pos;
 }
 
-export function clampStage13Boss(pos) {
-    pos.x = clamp(pos.x, S13_BOSS_BOUNDS.x0, S13_BOSS_BOUNDS.x1);
-    pos.z = clamp(pos.z, S13_BOSS_BOUNDS.z0, S13_BOSS_BOUNDS.z1);
+export function clampStage12Boss(pos) {
+    pos.x = clamp(pos.x, S12_BOSS_BOUNDS.x0, S12_BOSS_BOUNDS.x1);
+    pos.z = clamp(pos.z, S12_BOSS_BOUNDS.z0, S12_BOSS_BOUNDS.z1);
     return pos;
 }
 
-export function stage13BulletBlocked(b) {
+export function stage12BulletBlocked(b) {
     const x = b.mesh.position.x, z = b.mesh.position.z;
-    if (!stage13Walk(x, z, 0)) return true;
+    if (!stage12Walk(x, z, 0)) return true;
     return segPointDist2(b.px, 0, b.pz, x, 0, z,
-        S13_MONAS.x, 0, S13_MONAS.z) < S13_MONAS.radius ** 2;
+        S12_MONAS.x, 0, S12_MONAS.z) < S12_MONAS.radius ** 2;
 }
 
-export function stage13BlastBlocked(x0, z0, x1, z1) {
+export function stage12BlastBlocked(x0, z0, x1, z1) {
     return segPointDist2(x0, 0, z0, x1, 0, z1,
-        S13_MONAS.x, 0, S13_MONAS.z) < S13_MONAS.radius ** 2;
+        S12_MONAS.x, 0, S12_MONAS.z) < S12_MONAS.radius ** 2;
 }
 
-export function resetStage13Transport() {
+export function resetStage12Transport() {
     if (!transport) return;
     transport.group.visible = true;
-    transport.group.position.set(S13_START.x - 160, 95, -120);
+    transport.group.position.set(S12_START.x - 160, 95, -120);
     transport.group.rotation.set(0, Math.PI / 2, 0);
     transport.ramp.rotation.z = -0.12;
 }
 
-export function updateStage13Transport(dt, progress = 0, deployed = false) {
+export function updateStage12Transport(dt, progress = 0, deployed = false) {
     if (!transport) return;
     const k = clamp(progress, 0, 1), smooth = k * k * (3 - 2 * k);
-    transport.group.position.x = S13_START.x - 160 + smooth * 150;
+    transport.group.position.x = S12_START.x - 160 + smooth * 150;
     transport.group.position.z = -120 + smooth * 112;
     transport.group.position.y = 95 - smooth * 91;
     transport.group.rotation.z = (1 - smooth) * -0.08;
@@ -584,11 +584,11 @@ export function updateStage13Transport(dt, progress = 0, deployed = false) {
         - transport.ramp.rotation.z) * Math.min(1, dt * 4));
 }
 
-export function hideStage13Transport() {
+export function hideStage12Transport() {
     if (transport) transport.group.visible = false;
 }
 
-export function setStage13Sunrise(k) {
+export function setStage12Sunrise(k) {
     sunrise = clamp(k, 0, 1);
     const dawn = root?.userData?.dawn;
     if (dawn) dawn.material.opacity = sunrise * 0.68;
@@ -596,31 +596,31 @@ export function setStage13Sunrise(k) {
 
 // Pohon depan, kendaraan mogok dan Monas memudar lewat uji GARIS PANDANG bersama
 // (player DAN robot) — lihat utility/occlusion.js.
-export function updateStage13World(dt) {
-    updateStageOccluders(STAGE13_LIGHTS_KEY, dt);
+export function updateStage12World(dt) {
+    updateStageOccluders(STAGE12_LIGHTS_KEY, dt);
 }
 
-export function resetStage13World() {
-    setStage13Sunrise(0); resetStage13Transport();
-    resetStageOccluders(STAGE13_LIGHTS_KEY);
+export function resetStage12World() {
+    setStage12Sunrise(0); resetStage12Transport();
+    resetStageOccluders(STAGE12_LIGHTS_KEY);
 }
 
 function segmentClearOfMonas(path, extra = 0) {
     return segPointDist2(path.x0, 0, path.z0, path.x1, 0, path.z1,
-        S13_MONAS.x, 0, S13_MONAS.z) >= (S13_MONAS.radius + extra) ** 2;
+        S12_MONAS.x, 0, S12_MONAS.z) >= (S12_MONAS.radius + extra) ** 2;
 }
 
-export function stage13WorldDebug() {
+export function stage12WorldDebug() {
     return {
         built, root: root?.name || null, visible: !!root?.visible,
-        origin: { ...S13_ORIGIN }, bounds: { ...S13_BOUNDS },
-        start: { ...S13_START }, arenaEntry: { ...S13_ARENA_ENTRY },
-        bossCenter: { ...S13_BOSS_CENTER }, bossBounds: { ...S13_BOSS_BOUNDS },
-        monas: { ...S13_MONAS, campaignOnly: monasRig?.campaignOnly === true,
+        origin: { ...S12_ORIGIN }, bounds: { ...S12_BOUNDS },
+        start: { ...S12_START }, arenaEntry: { ...S12_ARENA_ENTRY },
+        bossCenter: { ...S12_BOSS_CENTER }, bossBounds: { ...S12_BOSS_BOUNDS },
+        monas: { ...S12_MONAS, campaignOnly: monasRig?.campaignOnly === true,
             stable: monasRig?.stable === true, destructible: false },
-        chargeLanes: S13_CHARGE_LANES.map(p => ({ ...p,
+        chargeLanes: S12_CHARGE_LANES.map(p => ({ ...p,
             clearOfMonas: segmentClearOfMonas(p, 34) })),
-        hardlineStations: S13_HARDLINE_STATIONS.map(s => ({ ...s })),
+        hardlineStations: S12_HARDLINE_STATIONS.map(s => ({ ...s })),
         census: {
             inertRobots: inertRobotCount, liveInertRobots: 0,
             inertVehicles: inertVehicleCount, parkTrees: treeCount,
@@ -636,7 +636,7 @@ export function stage13WorldDebug() {
         transport: transport ? { detailed: true, rotors: transport.rotors.length,
             visible: transport.group.visible } : null,
         blockers: { count: blockers.length, monasSolid: blockers.length > 0 },
-        occluders: occlusionDebug(STAGE13_LIGHTS_KEY),
+        occluders: occlusionDebug(STAGE12_LIGHTS_KEY),
         sunrise, pointLights: 0, deterministic: true,
         survivalStateImported: false,
     };

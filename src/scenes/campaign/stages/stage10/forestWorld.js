@@ -1,4 +1,4 @@
-// Stage 11 — THE GREEN FIREWALL, dunia hutan tropis + waterworks.
+// Stage 10 Chapter 2 — THE GREEN FIREWALL, dunia hutan tropis + waterworks.
 // Seluruh tata letak statis deterministik. Identitas tempat datang dari vegetasi,
 // topografi, jalan layanan, dan bendungan; tidak ada skyline/gedung kota.
 
@@ -14,15 +14,15 @@ import {
     registerOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
 } from '../../utility/occlusion.js';
 
-export const STAGE11_LIGHTS_KEY = 'campaign-11';
-export const S11_ORIGIN = Object.freeze({ x: 360000, z: 0 });
-export const S11_START = Object.freeze({ x: 360690, z: -250 });
-export const S11_WRECK = Object.freeze({ x: 360620, z: -210 });
-export const S11_SENSOR_ENTRY = Object.freeze({ x: 360170, z: -35 });
-export const S11_SHELTER = Object.freeze({ x: 359915, z: 95 });
-export const S11_WATERWORKS = Object.freeze({ x: 359650, z: 155 });
-export const S11_GALLERY = Object.freeze({ x: 359430, z: 230 });
-export const S11_FINISH = Object.freeze({ x: 359270, z: 265 });
+export const STAGE10_FOREST_LIGHTS_KEY = 'campaign-10-forest';
+export const S10_FOREST_ORIGIN = Object.freeze({ x: 360000, z: 0 });
+export const S10_FOREST_START = Object.freeze({ x: 360690, z: -250 });
+export const S10_FOREST_WRECK = Object.freeze({ x: 360620, z: -210 });
+export const S10_FOREST_SENSOR_ENTRY = Object.freeze({ x: 360170, z: -35 });
+export const S10_FOREST_SHELTER = Object.freeze({ x: 359915, z: 95 });
+export const S10_FOREST_WATERWORKS = Object.freeze({ x: 359650, z: 155 });
+export const S10_FOREST_GALLERY = Object.freeze({ x: 359430, z: 230 });
+export const S10_FOREST_FINISH = Object.freeze({ x: 359270, z: 265 });
 
 const GROUND_Y = 0;
 const BOUNDS = Object.freeze({ x0: 359100, x1: 360850, z0: -690, z1: 690 });
@@ -103,7 +103,7 @@ function inRect(x, z, r, q) {
         && z >= q.z - q.hz + r && z <= q.z + q.hz - r;
 }
 
-export function stage11Walk(x, z, radius = 0) {
+export function stage10ForestWalk(x, z, radius = 0) {
     if (x < BOUNDS.x0 + radius || x > BOUNDS.x1 - radius
         || z < BOUNDS.z0 + radius || z > BOUNDS.z1 - radius) return false;
     if (routeDist2(x, z) <= 1) return true;
@@ -151,23 +151,23 @@ function segmentBox(x0, z0, x1, z1, b, pad = 0) {
     return lo <= hi;
 }
 
-export function stage11SegBlocked(x0, z0, x1, z1, bullet = true) {
+export function stage10ForestSegBlocked(x0, z0, x1, z1, bullet = true) {
     for (const b of blockers) if ((!bullet || b.bullet) && segmentBox(x0, z0, x1, z1, b)) return true;
     for (const t of trunks) if (segmentCircle(x0, z0, x1, z1, t, bullet ? 0 : 2)) return true;
     return false;
 }
 
-export function stage11Resolve(pos, radius, feetY = 0) {
+export function stage10ForestResolve(pos, radius, feetY = 0) {
     blockerScratch.length = 0;
     for (const b of blockers) blockerScratch.push(b);
     resolveBlockers(pos, radius, feetY, blockerScratch);
     resolveCylinders(pos, radius, trunks);
 }
 
-export function stage11GroundHeight() { return GROUND_Y; }
-export function stage11Nav() { return nav; }
+export function stage10ForestGroundHeight() { return GROUND_Y; }
+export function stage10ForestNav() { return nav; }
 
-export function stage11PlayerProtected(x, z) {
+export function stage10ForestPlayerProtected(x, z) {
     return shelters.some(s => Math.abs(x - s.x) <= s.hx && Math.abs(z - s.z) <= s.hz)
         || denseCanopy.some(s => (x - s.x) ** 2 + (z - s.z) ** 2 <= s.r ** 2);
 }
@@ -175,7 +175,7 @@ export function stage11PlayerProtected(x, z) {
 function buildGround() {
     const g = new THREE.Group();
     mesh(g, new THREE.PlaneGeometry(2100, 1500), mat('forestSoil', 0x35432b),
-        S11_ORIGIN.x, -1.5, 0, -Math.PI / 2, 0, 0, false, true);
+        S10_FOREST_ORIGIN.x, -1.5, 0, -Math.PI / 2, 0, 0, false, true);
     // Broad terrain facets keep the world filled beyond the route and fog edge.
     for (let i = 0; i < 24; i++) {
         const x = BOUNDS.x0 + 35 + hash(i, 1) * (BOUNDS.x1 - BOUNDS.x0 - 70);
@@ -297,7 +297,7 @@ function treeParts(parent, x, z, scale, type, fadeable = false) {
         parent.add(group);
         // Material pohon hero sudah instans sendiri (`fade-trunk-N`/`fade-leaf-N`),
         // jadi tak perlu diklon lagi oleh pendaftar.
-        registerOccluder(STAGE11_LIGHTS_KEY, group,
+        registerOccluder(STAGE10_FOREST_LIGHTS_KEY, group,
             { x, z, radius: scale * 4.8, top: h * 1.2, clone: false });
         occluderCount++;
     } else parent.add(group);
@@ -359,7 +359,7 @@ function buildShelter(parent, x, z, yaw, kind = 'sensor-shelter') {
         mesh(g, new THREE.BoxGeometry(1.2, 5, 1.2), mat('shelterVent', PAL.steel),
             -9 + i * 3, 5, -13.4, 0, 0, 0, false, false);
     parent.add(g);
-    registerOccluder(STAGE11_LIGHTS_KEY, g, { x, z, radius: 21, top: 19.2 });
+    registerOccluder(STAGE10_FOREST_LIGHTS_KEY, g, { x, z, radius: 21, top: 19.2 });
     occluderCount++;
     shelters.push({ x, z, hx: 21, hz: 17, kind });
     addBoxBlocker(x - Math.cos(yaw) * 17.5, z + Math.sin(yaw) * 17.5, 2, 14, 18, yaw, kind);
@@ -379,7 +379,7 @@ function buildWaterworks() {
     for (let i = 0; i < 8; i++) {
         const x = 359845 - i * 58;
         mesh(g, new THREE.BoxGeometry(7, 27, 42), mat('spillPier', PAL.panel),
-            x, 11, 268 + (x - 359620) * -.12, 0, -.12, 0, true, true);
+            x, 10, 268 + (x - 359620) * -.12, 0, -.12, 0, true, true);
         mesh(g, new THREE.CylinderGeometry(4.8, 4.8, 34, 8), mat('intakePipe', PAL.gunmetal),
             x, 8, 242 + (x - 359620) * -.12, Math.PI / 2, 0, 0, true, true);
     }
@@ -392,7 +392,7 @@ function buildWaterworks() {
         359720, 22, 356, 0, 0, 0, true, true);
     const intakeNode = mergeObjectInPlace(intake);
     root.add(intakeNode); weldedMeshes += intakeNode.children.length || 1;
-    registerOccluder(STAGE11_LIGHTS_KEY, intakeNode, { x: 359720, z: 342, radius: 28, top: 44 });
+    registerOccluder(STAGE10_FOREST_LIGHTS_KEY, intakeNode, { x: 359720, z: 342, radius: 28, top: 44 });
     occluderCount++;
     mesh(g, new THREE.BoxGeometry(24, 4, 142), mat('serviceBridge', PAL.steel),
         359720, 19, 283, 0, 0, 0, true, true);
@@ -417,13 +417,13 @@ function buildWaterworks() {
     count('service-bridge'); count('valve-housing', 5); count('concrete-cover', 7);
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
 
-    buildShelter(root, S11_SHELTER.x, S11_SHELTER.z, 0.12);
-    buildShelter(root, S11_GALLERY.x, S11_GALLERY.z, -0.12, 'control-gallery');
+    buildShelter(root, S10_FOREST_SHELTER.x, S10_FOREST_SHELTER.z, 0.12);
+    buildShelter(root, S10_FOREST_GALLERY.x, S10_FOREST_GALLERY.z, -0.12, 'control-gallery');
     // Fixed service lights: count is constant throughout the stage.
-    for (const p of [S11_SHELTER, S11_GALLERY]) {
+    for (const p of [S10_FOREST_SHELTER, S10_FOREST_GALLERY]) {
         const l = new THREE.PointLight(PAL.amber, 0.8, 85, 2);
         l.position.set(p.x, 13, p.z); root.add(l); lights.push(l);
-        registerStageLight(STAGE11_LIGHTS_KEY, l);
+        registerStageLight(STAGE10_FOREST_LIGHTS_KEY, l);
     }
 }
 
@@ -446,7 +446,7 @@ function buildSensorNodes() {
                 x + s * 5, 12, z, 0, 0, s * .22, false, false);
         const node = mergeObjectInPlace(g);
         root.add(node); weldedMeshes += node.children.length || 1;
-        registerOccluder(STAGE11_LIGHTS_KEY, node, { x, z, radius: 11, top: 35 });
+        registerOccluder(STAGE10_FOREST_LIGHTS_KEY, node, { x, z, radius: 11, top: 35 });
         occluderCount++;
         addBoxBlocker(x, z, 6, 6, 32, 0, 'sensor-mast');
     }
@@ -454,8 +454,8 @@ function buildSensorNodes() {
 }
 
 function buildCarrierWreck() {
-    const g = new THREE.Group(); g.name = 'stage11-armored-carrier-wreck';
-    g.position.set(S11_WRECK.x, 0, S11_WRECK.z); g.rotation.y = -0.18;
+    const g = new THREE.Group(); g.name = 'stage10Forest-armored-carrier-wreck';
+    g.position.set(S10_FOREST_WRECK.x, 0, S10_FOREST_WRECK.z); g.rotation.y = -0.18;
     const armor = mat('wreckArmor', 0x30353a), char = mat('wreckChar', PAL.rubber);
     const steel = mat('wreckSteel', PAL.steel), hazard = mat('wreckHazard', PAL.hazard);
     // Eight-wheel armored freight carrier: independent damaged hull sections,
@@ -486,16 +486,16 @@ function buildCarrierWreck() {
         mesh(g, new THREE.BoxGeometry(2.2, 2.2, 15), char, 53 + i * 4.5,
             2 + i * .5, -22 - i * 4, .2 * i, 0, .35, false, false);
     root.add(g); carrier = g;
-    registerOccluder(STAGE11_LIGHTS_KEY, g,
-        { x: S11_WRECK.x, z: S11_WRECK.z, radius: 46, top: 30 });
+    registerOccluder(STAGE10_FOREST_LIGHTS_KEY, g,
+        { x: S10_FOREST_WRECK.x, z: S10_FOREST_WRECK.z, radius: 46, top: 30 });
     occluderCount++;
-    addBoxBlocker(S11_WRECK.x, S11_WRECK.z, 70, 22, 30, -0.18, 'carrier-wreck');
+    addBoxBlocker(S10_FOREST_WRECK.x, S10_FOREST_WRECK.z, 70, 22, 30, -0.18, 'carrier-wreck');
     count('carrier-wreck'); count('carrier-wheel', 8); count('carrier-cargo-rib', 5);
     carrier.userData.partCount = 3 + 16 + 10 + 4 + 6;
 }
 
 function buildTunnel() {
-    const g = new THREE.Group(); g.position.set(S11_FINISH.x, 0, S11_FINISH.z);
+    const g = new THREE.Group(); g.position.set(S10_FOREST_FINISH.x, 0, S10_FOREST_FINISH.z);
     mesh(g, new THREE.BoxGeometry(18, 34, 64), mat('tunnelPier', PAL.concrete),
         0, 17, -31, 0, 0, 0, true, true);
     mesh(g, new THREE.BoxGeometry(18, 34, 64), mat('tunnelPier', PAL.concrete),
@@ -514,7 +514,7 @@ function buildTunnel() {
     count('utility-tunnel'); count('sealed-door');
 }
 
-export function setStage11TunnelOpen(open) {
+export function setStage10ForestTunnelOpen(open) {
     if (tunnelDoor) tunnelDoor.position.y = open ? 38 : 14;
 }
 
@@ -524,38 +524,38 @@ export function setCarrierWreckBurning(on) {
 
 // Fade occluder kini uji GARIS PANDANG bersama (player DAN robot), bukan lagi
 // sekadar jarak ke player — lihat utility/occlusion.js.
-export function updateStage11WorldVisuals(dt) {
-    updateStageOccluders(STAGE11_LIGHTS_KEY, dt);
+export function updateStage10ForestWorldVisuals(dt) {
+    updateStageOccluders(STAGE10_FOREST_LIGHTS_KEY, dt);
 }
 
-export function resetStage11WorldVisuals() {
-    setStage11TunnelOpen(false); setCarrierWreckBurning(true);
-    resetStageOccluders(STAGE11_LIGHTS_KEY);
+export function resetStage10ForestWorldVisuals() {
+    setStage10ForestTunnelOpen(false); setCarrierWreckBurning(true);
+    resetStageOccluders(STAGE10_FOREST_LIGHTS_KEY);
 }
 
-export function ensureStage11World(parent = scene) {
+export function ensureStage10ForestWorld(parent = scene) {
     if (built) return root;
-    built = true; root = new THREE.Group(); root.name = 'campaign-stage11-green-firewall';
+    built = true; root = new THREE.Group(); root.name = 'campaign-stage10-chapter2-green-firewall';
     parent.add(root);
     buildGround(); buildDrainage(); buildForest(); buildCarrierWreck();
     buildSensorNodes(); buildWaterworks(); buildTunnel();
     nav = makeNavGrid(BOUNDS.x0, BOUNDS.z0, 14,
         Math.ceil((BOUNDS.x1 - BOUNDS.x0) / 14),
         Math.ceil((BOUNDS.z1 - BOUNDS.z0) / 14),
-        (x, z) => stage11Walk(x, z, 3.5)
+        (x, z) => stage10ForestWalk(x, z, 3.5)
             && !blockers.some(b => segmentBox(x, z, x, z, b, 3.5))
             && !trunks.some(t => (x - t.x) ** 2 + (z - t.z) ** 2 <= (t.r + 3.5) ** 2));
     registerCampaignWorldRoot({
-        key: STAGE11_LIGHTS_KEY, root, bounds: { ...BOUNDS },
-        lightsKey: STAGE11_LIGHTS_KEY,
-        warmupViews: [S11_START, S11_SENSOR_ENTRY, S11_WATERWORKS, S11_FINISH],
+        key: STAGE10_FOREST_LIGHTS_KEY, root, bounds: { ...BOUNDS },
+        lightsKey: STAGE10_FOREST_LIGHTS_KEY,
+        warmupViews: [S10_FOREST_START, S10_FOREST_SENSOR_ENTRY, S10_FOREST_WATERWORKS, S10_FOREST_FINISH],
     });
     return root;
 }
 
-export const stage11WorldDebug = () => ({
-    built, origin: { ...S11_ORIGIN }, bounds: { ...BOUNDS }, route: ROUTE.map(p => ({ ...p })),
-    start: { ...S11_START }, finish: { ...S11_FINISH }, worldRoot: root?.name || null,
+export const stage10ForestWorldDebug = () => ({
+    built, origin: { ...S10_FOREST_ORIGIN }, bounds: { ...BOUNDS }, route: ROUTE.map(p => ({ ...p })),
+    start: { ...S10_FOREST_START }, finish: { ...S10_FOREST_FINISH }, worldRoot: root?.name || null,
     rawMeshes, weldedMeshes, blockers: blockers.length, trunks: trunks.length,
     vegetationChunks: vegetationChunks.map(c => ({ ...c })),
     vegetationArchetypes: ['dipterocarp', 'palm', 'bamboo', 'fern', 'banana']
@@ -564,8 +564,8 @@ export const stage11WorldDebug = () => ({
     shelters: shelters.map(s => ({ ...s })), denseCanopy: denseCanopy.map(s => ({ ...s })),
     // Posisi/radius diekspor supaya uji asap bisa berdiri TEPAT di belakang
     // sebuah occluder tanpa menebak koordinat.
-    occluders: occlusionDebug(STAGE11_LIGHTS_KEY),
-    lights: { key: STAGE11_LIGHTS_KEY, indoor: lights.length, outdoor: 0 },
+    occluders: occlusionDebug(STAGE10_FOREST_LIGHTS_KEY),
+    lights: { key: STAGE10_FOREST_LIGHTS_KEY, indoor: lights.length, outdoor: 0 },
     carrier: carrier && { persistent: true, solid: true, detailed: true,
         parts: carrier.userData.partCount, burning: !!carrier.userData.burning },
     tunnelOpen: !!tunnelDoor && tunnelDoor.position.y > 20,

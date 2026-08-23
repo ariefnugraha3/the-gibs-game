@@ -1,4 +1,4 @@
-// Stage 10 harbor-defense cannon. It is an environmental setpiece, not a boss:
+// Stage 10 Chapter 1 harbor-defense cannon. Environmental setpiece, not a boss:
 // three ordered exposed servos, fixed lock point, and no HP-bar integration.
 
 import { segPointDist2 } from '../../../../utils/math.js';

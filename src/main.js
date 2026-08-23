@@ -68,7 +68,7 @@ export async function boot() {
     await hideBootScreen();
 }
 
-// opts.stage (campaign): titik-mulai stage (1..13) — dipakai untuk MELANJUTKAN
+// opts.stage (campaign): titik-mulai stage (1..12) — dipakai untuk MELANJUTKAN
 // game tersimpan (checkpoint). Default 1 = mulai dari awal.
 export async function startGame(mode, opts = {}) {
     try {
