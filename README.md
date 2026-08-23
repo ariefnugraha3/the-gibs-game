@@ -1,6 +1,6 @@
 # Decommission Day
 
-A Three.js browser **top-down shooter** (Alien Shooter-style). Two modes: **Survival** (defend Monas from endless waves) and **Campaign** (a 4-stage story — rappel onto a rooftop, clear three floors of an abandoned office block, then fight a tank boss at the alun-alun).
+A Three.js browser **top-down shooter** (Alien Shooter-style). Two modes: **Survival** (defend Monas from endless waves) and **Campaign** (a 13-stage story across Jakarta, Bandung, Kertajati, Balikpapan, IKN, and Monas).
 
 ## Run
 
@@ -25,8 +25,8 @@ node --check src/<file>.js    # syntax check a file
 
 ## Tweak the gameplay
 
-Edit `config/gameplay.json` — max HP, ammo, movement speed, stamina, grenade physics, wave difficulty, etc. Reload the page to apply.
+Edit `config/gameplay.json` — max HP, ammo, movement speed, stamina, weapon behavior, wave difficulty, dialogue, and campaign tuning. Reload the page to apply.
 
 ## Code layout
 
-Everything is documented in [MODULES.md](docs/MODULES.md) (module catalog + scene interface + config keys). Architecture notes for AI assistants: [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md), with per-system detail split into [docs/campaign.md](docs/campaign.md), [docs/survival.md](docs/survival.md), [docs/combat.md](docs/combat.md) and [docs/presentation.md](docs/presentation.md). Desktop/Steam port plan: [STEAM-DESKTOP-PLAN.md](docs/STEAM-DESKTOP-PLAN.md). Gameplay roadmap: [SECOND-IMPROVEMENT-PLAN.md](docs/SECOND-IMPROVEMENT-PLAN.md) (current) / [IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md) (older).
+The reconstruction-grade product specification is [GAME-DESIGN-DOCUMENT.md](docs/GAME-DESIGN-DOCUMENT.md). Everything is documented in [MODULES.md](docs/MODULES.md) (module catalog + scene interface + config keys). Architecture notes for AI assistants: [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md), with per-system detail split into [docs/campaign.md](docs/campaign.md), [docs/survival.md](docs/survival.md), [docs/combat.md](docs/combat.md) and [docs/presentation.md](docs/presentation.md). Desktop/Steam port plan: [STEAM-DESKTOP-PLAN.md](docs/STEAM-DESKTOP-PLAN.md). Gameplay roadmap: [SECOND-IMPROVEMENT-PLAN.md](docs/SECOND-IMPROVEMENT-PLAN.md) (current) / [IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md) (older).
