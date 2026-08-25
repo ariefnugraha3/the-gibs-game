@@ -2,7 +2,7 @@
 // Everything is generated from fixed coordinates: no runtime/random skyline and
 // deliberately no city buildings around the airfield.
 
-import { CAMP_M } from '../../../../core/config.js';
+import { CAMP_M, CFG } from '../../../../core/config.js';
 import { scene } from '../../../../core/renderer.js';
 import { FuturisticSedan } from '../../../../entities/futuristicSedan.js';
 import { FuturisticSUV } from '../../../../entities/futuristicSUV.js';
@@ -41,11 +41,35 @@ const S9_CARGO_HANGAR = Object.freeze({ x: 300650, z: 250 });
 export const S9_BOUNDS = Object.freeze({ x0: 299100, x1: 300930, z0: -610, z1: 610 });
 export const S9_FRONT_BOUNDS = Object.freeze({ x0: 304800, x1: 306650, z0: -360, z1: 520 });
 export const S9_INTERIOR_BOUNDS = Object.freeze({ x0: 311650, x1: 312350, z0: -560, z1: 560 });
+export const S9_FRONT_PARKING_LOTS = Object.freeze({
+    left: Object.freeze({ x0: 305675, x1: 306325, z0: -295, z1: -115 }),
+    right: Object.freeze({ x0: 305675, x1: 306325, z0: 335, z1: 490 }),
+});
+// Geometri parkir DITURUNKAN dari bodi mobil Stage 7, bukan angka tangan: sebuah
+// baris yang digeser tanpa menghitung ulang setengah panjangnya membuat mobil
+// menembus pagar batas / wheel stop, dan itu terbaca sebagai bug.
+export const S9_PARK_CAR_HALF_LEN = STAGE7_ROAD_VEHICLE_SPECS.sedan.length * CAMP_M * .5;
+export const S9_PARK_ROW_OFFSET = S9_PARK_CAR_HALF_LEN + 28.2;   // pusat baris <-> aisle
+export const S9_PARK_WHEEL_STOP_OFFSET = S9_PARK_CAR_HALF_LEN + 1.8;
+// Tinggi bebas kanopi surya. Atap SUV Stage 7 setinggi 2,2 m (15,4 unit), jadi
+// slab lama pada y 14,25 memotong atap mobil yang parkir di bawahnya.
+export const S9_PARK_CANOPY_CLEAR = 21;
+// Dua kantong parkir: aisle (pembatas wheel stop) plus dua baris simetris.
+export const S9_FRONT_PARKING_COURTS = Object.freeze([
+    Object.freeze({ divider: -210, lot: 'left' }),
+    Object.freeze({ divider: 420, lot: 'right' }),
+]);
 
 export const S9_OCC = 'campaign-9-runway';
 export const S9_FRONT_KEY = 'campaign-9';
 export const S9_INTERIOR_KEY = 'campaign-9-interior';
 export const S9_RUNWAY_KEY = 'campaign-9-runway';
+export const S9_EXTERIOR_ENV = Object.freeze({
+    background: 0x263222, fogColor: 0x263222, fogNear: 260, fogFar: 1800,
+});
+export const S9_INTERIOR_ENV = Object.freeze({
+    background: 0x000000, fogColor: 0x000000, fogNear: 260, fogFar: 1800,
+});
 let built = false;
 let stageRoot = null;
 let worldRoot = null;
@@ -64,6 +88,7 @@ const stageLights = [];
 const markers = {};
 const semantic = Object.create(null);
 const frontParkingRecords = [];
+const frontCanopyRecords = [];
 const frontPlanterRecords = [];
 const frontBoundaryRuns = [];
 const interiorLayoutRecords = {
@@ -77,10 +102,6 @@ const runwayLayoutRecords = {
 };
 let fuelPump = null;
 
-const crateCandidates = [
-    [-730, 85], [-560, 40], [-390, 80], [-220, 40], [-70, 80],
-    [90, 40], [240, 65], [380, 40], [520, 65], [680, 40],
-];
 const barrelCandidates = [
     [-700, 120], [-610, 45], [-470, 115], [-320, 45], [-170, 65],
     [-30, 45], [110, 80], [250, 45], [390, 75], [500, 45],
@@ -144,6 +165,55 @@ function pointInBlocker(x, z, r, b) {
     const lx = dx * b.axx + dz * b.axz;
     const lz = dx * b.azx + dz * b.azz;
     return Math.abs(lx) <= b.hx + r && Math.abs(lz) <= b.hz + r;
+}
+
+// Kedalaman tumpang tindih dua footprint OBB (SAT). Dipakai kontrak "tidak ada
+// kendaraan yang parkir menembus benda apa pun": nilai <= 0 berarti terpisah.
+function blockerOverlapDepth(a, b) {
+    const axes = [[a.axx, a.axz], [a.azx, a.azz], [b.axx, b.axz], [b.azx, b.azz]];
+    let depth = Infinity;
+    for (const [ux, uz] of axes) {
+        const reach = (o) => Math.abs(o.hx * (o.axx * ux + o.axz * uz))
+            + Math.abs(o.hz * (o.azx * ux + o.azz * uz));
+        const gap = reach(a) + reach(b)
+            - Math.abs((b.x - a.x) * ux + (b.z - a.z) * uz);
+        if (gap <= 0) return 0;
+        depth = Math.min(depth, gap);
+    }
+    return depth;
+}
+
+const VEHICLE_KINDS = ['parked-car', 'abandoned-vehicle', 'airport-front-bus',
+    'airport-service-van'];
+
+// Laporan bentrok kendaraan Chapter 1. Toleransi 0,5 unit (~7 cm) menyerap
+// pembulatan float; apa pun di atasnya benar-benar terlihat menembus.
+function frontVehicleOverlaps(tolerance = 0.5) {
+    const bad = [];
+    for (let i = 0; i < frontBlockers.length; i++) {
+        const a = frontBlockers[i];
+        if (!VEHICLE_KINDS.includes(a.kind)) continue;
+        for (let j = 0; j < frontBlockers.length; j++) {
+            if (i === j) continue;
+            const b = frontBlockers[j];
+            if (j < i && VEHICLE_KINDS.includes(b.kind)) continue;
+            const depth = blockerOverlapDepth(a, b);
+            if (depth > tolerance)
+                bad.push({ kind: a.kind, x: a.x, z: a.z, into: b.kind, depth });
+        }
+        // Slab kanopi surya adalah dekor tanpa blocker: atap mobil di bawahnya
+        // harus tetap lebih rendah daripada sisi bawah slab.
+        const worldHalfX = a.hx * Math.abs(a.axx) + a.hz * Math.abs(a.azx);
+        const worldHalfZ = a.hx * Math.abs(a.axz) + a.hz * Math.abs(a.azz);
+        for (const c of frontCanopyRecords) {
+            if (Math.abs(a.x - c.x) >= c.hx + worldHalfX) continue;
+            if (Math.abs(a.z - c.z) >= c.hz + worldHalfZ) continue;
+            if (a.top > c.underside - tolerance)
+                bad.push({ kind: a.kind, x: a.x, z: a.z, into: 'parking-canopy-roof',
+                    depth: a.top - c.underside });
+        }
+    }
+    return bad;
 }
 
 function segmentHitsBlocker(x0, z0, x1, z1, b) {
@@ -457,21 +527,24 @@ function buildRunwayAndApron(parent, M) {
     box(parent, M.grass, 1800, 1, 1120, S9_ORIGIN.x, -0.75, 30, false);
     box(parent, M.apron, 940, .42, 250, 299580, -.04, 180, false);
     box(parent, M.apron, 800, .42, 310, 300450, -.04, 175, false);
-    box(parent, M.asphalt, 1760, .44, 70, 300000, -.04, 25, false);
+    // Bidang yang saling menyambung harus punya overlap lebih lebar daripada
+    // diameter player. Kalau hanya bertemu pada satu garis setelah radius
+    // diterapkan, `slideWalk` membacanya sebagai dinding tak terlihat.
+    box(parent, M.asphalt, 1760, .44, 90, 300000, -.04, 25, false);
     box(parent, M.asphalt, 1720, .46, 110, 300010, -.03, -220, false);
     runwayLayoutRecords.zones.push(
         { kind: 'apron', x: 299580, z: 180, hx: 470, hz: 125 },
         { kind: 'service-yard', x: 300450, z: 175, hx: 400, hz: 155 },
-        { kind: 'taxiway-b', x: 300000, z: 25, hx: 880, hz: 35 },
+        { kind: 'taxiway-b', x: 300000, z: 25, hx: 880, hz: 45 },
         { kind: 'runway-14-32', x: 300010, z: -220, hx: 860, hz: 55 },
     );
 
     // Tiga konektor C3/C2/D1 dari taxiway ke runway.
     for (const x of [299860, 300250, 300700]) {
-        box(parent, M.asphalt, 86, .43, 180, x, -.02, -87.5, false);
-        box(parent, M.hazard, 2, .08, 160, x, .23, -87.5, false);
+        box(parent, M.asphalt, 86, .43, 190, x, -.02, -85, false);
+        box(parent, M.hazard, 2, .08, 170, x, .23, -85, false);
         for (const side of [-1, 1])
-            box(parent, M.hazard, 1, .08, 145, x + side * 31, .23, -87.5, false);
+            box(parent, M.hazard, 1, .08, 170, x + side * 31, .23, -85, false);
         runwayLayoutRecords.taxiwayConnectors++;
     }
 
@@ -577,16 +650,21 @@ function buildFrontVan(parent, M, x, z, yaw = 0, variant = 0) {
 function buildParkingCanopy(parent, M, x, z) {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
-    box(g, M.roof, 196, 1.5, 82, 0, 15, 0);
+    // Slab menggantung TEPAT di atas tinggi bebas: kalau disamakan dengan tinggi
+    // kolom lama (15) atap SUV yang parkir di bawahnya menembus beton.
+    const clear = S9_PARK_CANOPY_CLEAR;
+    box(g, M.roof, 196, 1.5, 82, 0, clear + .75, 0);
     // Panel surya lebar memberi massa visual tanpa menambah PointLight.
     for (const px of [-68, -23, 23, 68])
-        box(g, M.glass, 38, .7, 72, px, 16.1, 0, false);
+        box(g, M.glass, 38, .7, 72, px, clear + 1.85, 0, false);
     for (const px of [-88, -29, 29, 88]) {
-        box(g, M.frame, 2, 15, 2, px, 7.5, 0);
-        addChapterBlocker(frontBlockers, x + px, z, 1.5, 1.5, 15,
+        box(g, M.frame, 2, clear, 2, px, clear * .5, 0);
+        addChapterBlocker(frontBlockers, x + px, z, 1.5, 1.5, clear,
             0, 'parking-canopy-column');
     }
-    weldOccluder(S9_FRONT_KEY, parent, g, { x, z, hx: 98, hz: 41, top: 17 });
+    weldOccluder(S9_FRONT_KEY, parent, g,
+        { x, z, hx: 98, hz: 41, top: clear + 2.5 });
+    frontCanopyRecords.push({ x, z, hx: 98, hz: 41, underside: clear });
     count('frontParkingCanopy');
 }
 
@@ -684,7 +762,26 @@ function buildFrontChapter(parent, M) {
     const statics = new THREE.Group();
     // Ruas tol lama, simpang akses, boulevard frontage, dua kantong parkir dan
     // forecourt terminal membentuk perjalanan hampir 1,6 km unit-game.
-    box(statics, M.grass, 1820, 0.8, 850, 305720, -0.7, 80, false);
+    // Backdrop rural nyata: bidang rumput jauh lebih lebar daripada footprint
+    // kamera ultrawide, dengan petak meadow dan sabuk pohon di seluruh horizon.
+    // Semuanya dekor murni di luar union walkable (tanpa blocker/nav).
+    box(statics, M.grass, 2800, 0.8, 1800, 305720, -0.7, 80, false);
+    for (const [x, z, sx, sz] of [
+        [304760, -510, 620, 250], [305520, -570, 700, 210],
+        [306360, -540, 720, 240], [304820, 700, 700, 260],
+        [305650, 740, 720, 220], [306470, 690, 650, 270],
+    ]) {
+        box(statics, M.fieldGreen, sx, .38, sz, x, -.28, z, false);
+        count('frontBackdropMeadow');
+    }
+    for (let x = 304450; x <= 306990; x += 58) for (const z of [-650, 820]) {
+        buildTree(statics, M, x, z, .62 + ((x / 58) % 4) * .08);
+        count('frontBackdropTree');
+    }
+    for (let z = -530; z <= 720; z += 62) for (const x of [304470, 306970]) {
+        buildTree(statics, M, x, z, .58 + ((z / 62) % 5) * .07);
+        count('frontBackdropTree');
+    }
     box(statics, M.asphalt, 900, 0.45, 126, 305280, -0.06, 160, false);
     box(statics, M.asphalt, 930, 0.45, 168, 306020, -0.05, 160, false);
     box(statics, M.apron, 310, 0.42, 650, 306390, -0.04, 110, false);
@@ -762,9 +859,11 @@ function buildFrontChapter(parent, M) {
 
     // Kendaraan mati, bus, pos keamanan, planter dan concrete teeth memecah
     // arena menjadi banyak cover lane tanpa menutup sumbu utama z=160.
+    // Setiap bangkai berdiri di jalur bebas: dulu dua di antaranya menembus
+    // pagar batas barat dan kolom kanopi parkir utara.
     const wrecks = [
-        [305360, 48, .08], [305520, 275, -.12], [305880, 38, .05],
-        [305940, 280, -.06], [306120, -190, .02], [306250, 430, -.04],
+        [305360, 48, .08], [305570, 278, -.12], [305880, 38, .05],
+        [305940, 280, -.06], [306120, -190, .02], [306150, 300, -.04],
         [306330, 52, .1], [306385, 270, -.08], [306450, -145, .04],
     ];
     wrecks.forEach(([x, z, yaw], i) => buildFrontCar(parent, M, x, z,
@@ -772,10 +871,14 @@ function buildFrontChapter(parent, M) {
 
     // Parkir depan terminal sengaja padat tetapi teratur: empat baris mobil
     // menyisakan boulevard utama dan sumbu masuk z=160 tetap lapang.
-    const parkingRows = [-255, -165, 385, 475];
+    const parkingRows = S9_FRONT_PARKING_COURTS.flatMap((court) =>
+        [court.divider - S9_PARK_ROW_OFFSET, court.divider + S9_PARK_ROW_OFFSET]);
+    const dividerFor = (z) => S9_FRONT_PARKING_COURTS
+        .reduce((best, court) => Math.abs(court.divider - z)
+            < Math.abs(best - z) ? court.divider : best, S9_FRONT_PARKING_COURTS[0].divider);
     let parked = 0;
     for (const z of parkingRows) for (let x = 305760; x <= 306320; x += 70) {
-        const dividerZ = z < 0 ? -210 : 430;
+        const dividerZ = dividerFor(z);
         // Model Stage 7 menghadap +X lokal. ±90° membuat panjangnya mengikuti
         // petak z dan bagian DEPAN selalu menunjuk wheel-stop/pembatas tengah.
         const yaw = dividerZ > z ? -Math.PI * .5 : Math.PI * .5;
@@ -785,25 +888,25 @@ function buildFrontChapter(parent, M) {
     }
     // Kanopi surya membuat dua lapangan parkir terbaca sebagai massa arsitektur,
     // bukan hamparan aspal. Kolom berada di sela dua baris mobil.
-    for (const x of [305850, 306070, 306290]) {
-        buildParkingCanopy(parent, M, x, -210);
-        buildParkingCanopy(parent, M, x, 430);
-    }
+    for (const x of [305850, 306070, 306290])
+        for (const court of S9_FRONT_PARKING_COURTS)
+            buildParkingCanopy(parent, M, x, court.divider);
     // Kendaraan servis mengisi tepi terluar lot tanpa menyempitkan rute tempur.
+    // Deret van berhenti sebelum bus sudut lot; versi lama menabrak badannya.
     let van = 0;
-    for (const z of [-310, 510]) for (let x = 305650; x <= 306400; x += 150) {
+    for (const z of [-310, 510]) for (let x = 305600; x <= 306350; x += 150) {
         buildFrontVan(parent, M, x, z, z > 0 ? Math.PI : 0, van++);
     }
     for (const [x, z, yaw] of [[305820, -110, 0], [305820, 330, Math.PI],
-        [306395, -285, Math.PI * .5], [306395, 505, Math.PI * .5]])
+        [306395, -285, Math.PI * .5], [306395, 445, Math.PI * .5]])
         buildFrontBus(parent, M, x, z, yaw, z > 0 ? 1 : 0);
     for (const [x, z] of [[305585, 25], [305585, 295], [306360, 15], [306360, 305]])
         buildFrontBooth(parent, M, x, z, z > 160 ? Math.PI : 0);
     for (const [x, z] of [[306490, -270], [306490, -85], [306490, 315], [306490, 485]])
         buildTrolleyBay(parent, M, x, z, Math.PI * .5);
     for (const x of [305650, 305850, 306050, 306250, 306450]) {
-        buildFrontMast(parent, M, x, -320);
-        buildFrontMast(parent, M, x, 515);
+        buildFrontMast(parent, M, x, -345);
+        buildFrontMast(parent, M, x, 535);
     }
     // Pagar mengikuti PERSIS tepi union walkable. Dulu pagar lot berada 18â€“28
     // unit DI LUAR batas collision, sehingga player lebih dulu menabrak dinding
@@ -826,8 +929,8 @@ function buildFrontChapter(parent, M) {
         buildFrontUtilityCabinet(parent, M, 306515, z, Math.PI);
     }
 
-    for (const [x, z, sx, sz] of [[305980, -35, 90, 18], [306150, 350, 110, 18],
-        [306335, -25, 74, 18], [306425, 350, 84, 18]]) {
+    for (const [x, z, sx, sz] of [[305980, -35, 90, 18], [306150, 340, 110, 18],
+        [306335, -25, 74, 18], [306425, 340, 84, 18]]) {
         const planter = new THREE.Group();
         planter.position.set(x, 0, z);
         box(planter, M.concrete, sx, 3, sz, 0, 1.5, 0);
@@ -870,7 +973,7 @@ function buildFrontChapter(parent, M) {
         count('frontWasteBin');
     }
     for (let i = 0; i < 24; i++) {
-        const x = 305690 + (i % 8) * 82, z = i < 8 ? -290 : i < 16 ? 355 : 505;
+        const x = 305690 + (i % 8) * 82, z = i < 8 ? -290 : i < 16 ? 355 : 497;
         const h = 4 + (i % 2);
         box(statics, i % 3 ? M.panel : M.hazard, 7, h, 5, x, h * .5, z);
         count('frontLuggage');
@@ -886,9 +989,8 @@ function buildFrontChapter(parent, M) {
         count('frontMotorcycle');
     }
     for (const z of parkingRows) for (let x = 305745; x <= 306375; x += 35) {
-        const dividerZ = z < 0 ? -210 : 430;
         box(statics, M.concrete, 10, .8, 2.2, x, .4,
-            z + Math.sign(dividerZ - z) * 18, false);
+            z + Math.sign(dividerFor(z) - z) * S9_PARK_WHEEL_STOP_OFFSET, false);
         count('frontWheelStop');
     }
     for (const z of [78, 242]) for (let x = 305500; x <= 306500; x += 42) {
@@ -1373,14 +1475,18 @@ export function stage9RunwayWalkable(x, z, radius = 0) {
         && z >= 55 + radius && z <= 305 - radius;
     const serviceYard = x >= 300050 + radius && x <= 300850 - radius
         && z >= 20 + radius && z <= 330 - radius;
+    // Apron dan service yard berbagi satu bidang lantai. Kontraksikan tepi LUAR
+    // union, bukan tepi internal x=300050, agar tidak tercipta seam collision.
+    const apronServiceCore = x >= 299112 + radius && x <= 300850 - radius
+        && z >= 55 + radius && z <= 305 - radius;
     const taxiway = x >= 299120 + radius && x <= 300880 - radius
-        && z >= -10 + radius && z <= 60 - radius;
+        && z >= -20 + radius && z <= 70 - radius;
     const runway = x >= 299150 + radius && x <= 300870 - radius
         && z >= -275 + radius && z <= -165 - radius;
     const connector = [299860, 300250, 300700].some((cx) =>
         x >= cx - 43 + radius && x <= cx + 43 - radius
-        && z >= -175 + radius && z <= 0 - radius);
-    return apron || serviceYard || taxiway || runway || connector;
+        && z >= -180 + radius && z <= 10 - radius);
+    return apron || serviceYard || apronServiceCore || taxiway || runway || connector;
 }
 
 export function stage9Walkable(x, z, radius = 0) {
@@ -1459,12 +1565,28 @@ export function resetStage9Occluders() {
 }
 
 export function stage9SupplyPlacements() {
+    const parkingCrates = [];
+    const counts = CFG.campaign.stage9.parkingLootBoxes;
+    const placeParking = (parking, amount, rows) => {
+        const lot = S9_FRONT_PARKING_LOTS[parking];
+        const picked = [];
+        const xs = [];
+        for (let x = lot.x0 + 25; x <= lot.x1 - 25; x += 30) xs.push(x);
+        for (let pass = 0; pass < rows.length && picked.length < amount; pass++) {
+            for (let i = 0; i < xs.length && picked.length < amount; i++) {
+                const x = xs[i], z = rows[(i + pass) % rows.length];
+                if (!stage9FrontWalkable(x, z, 8)
+                    || frontBlockers.some((b) => pointInBlocker(x, z, 8, b))
+                    || picked.some((p) => Math.hypot(p.x - x, p.z - z) < 18)) continue;
+                picked.push({ x, z, parking });
+            }
+        }
+        parkingCrates.push(...picked);
+    };
+    placeParking('left', Math.max(0, counts.left | 0), [-285, -225, -210, -135]);
+    placeParking('right', Math.max(0, counts.right | 0), [345, 415, 430, 475]);
     return {
-        crates: [
-            { x: 305835, z: 165 }, { x: 306105, z: 132 },
-            { x: 312230, z: 115 }, { x: 311740, z: 340 },
-            ...crateCandidates.map(([x, z]) => ({ x: S9_ORIGIN.x + x, z })),
-        ],
+        crates: parkingCrates,
         barrels: [
             { x: 305835, z: 135 }, { x: 306090, z: 182 },
             { x: 312260, z: -160 }, { x: 311715, z: -185 },
@@ -1509,6 +1631,7 @@ export function stage9RadarLandmarks() {
 
 export function stage9WorldDebug() {
     ensureStage9World();
+    const supplies = stage9SupplyPlacements();
     const occ = [S9_FRONT_KEY, S9_INTERIOR_KEY, S9_OCC].map(occlusionDebug);
     const blockerTotal = frontBlockers.length + interiorBlockers.length + blockers.length;
     const frontPropertyCount = ['frontParkedCar', 'frontAbandonedVehicle', 'frontBus',
@@ -1582,6 +1705,10 @@ export function stage9WorldDebug() {
                 depth: S9_FRONT_BOUNDS.z1 - S9_FRONT_BOUNDS.z0,
                 zones: 3,
                 parkingCourts: semantic.frontParkingCourt || 0,
+                backdrop: {
+                    meadows: semantic.frontBackdropMeadow || 0,
+                    trees: semantic.frontBackdropTree || 0,
+                },
                 abandonedVehicles: semantic.frontAbandonedVehicle || 0,
                 parkedCars: semantic.frontParkedCar || 0,
                 stage7CarModels: {
@@ -1589,6 +1716,10 @@ export function stage9WorldDebug() {
                     suvs: semantic.frontStage7SUV || 0,
                 },
                 parkingFacingDivider,
+                parkingRows: frontParkingRecords.map((p) => p.z)
+                    .filter((z, i, all) => all.indexOf(z) === i).sort((a, b) => a - b),
+                canopies: frontCanopyRecords.map((c) => ({ ...c })),
+                vehicleOverlaps: frontVehicleOverlaps(),
                 planters: {
                     count: frontPlanterRecords.length,
                     treesInside: planterTreesInside,
@@ -1661,6 +1792,13 @@ export function stage9WorldDebug() {
         staticBatches: staticBatch.length,
         pointLights: stageLights.length,
         markers: Object.keys(markers),
-        supplies: { crateCandidates: crateCandidates.length, barrelCandidates: barrelCandidates.length },
+        supplies: {
+            crateCandidates: supplies.crates.length,
+            parkingCrates: {
+                left: supplies.crates.filter((p) => p.parking === 'left').length,
+                right: supplies.crates.filter((p) => p.parking === 'right').length,
+            },
+            barrelCandidates: barrelCandidates.length,
+        },
     };
 }

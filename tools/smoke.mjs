@@ -14827,6 +14827,31 @@ if (false) {
             && w9.airport.fireStations === 1
             && w9.airport.parkedAircraft === layout.parkedAircraft
             && w9.airport.jetBridges === layout.jetBridges);
+
+        // Uji sampel RAPAT, bukan BFS 7-unit yang bisa melompati seam sempit.
+        // Ketiga bidang airside harus dapat dilalui collider player secara
+        // kontinu: apron -> service yard -> taxiway -> connector -> runway.
+        const clearPolyline = (points) => points.slice(1).every((end, i) => {
+            const start = points[i];
+            const dist = Math.hypot(end.x - start.x, end.z - start.z);
+            const steps = Math.max(1, Math.ceil(dist));
+            for (let j = 0; j <= steps; j++) {
+                const t = j / steps;
+                const x = start.x + (end.x - start.x) * t;
+                const z = start.z + (end.z - start.z) * t;
+                if (!s9w.stage9RunwayWalkable(x, z, cfgMod.CFG.player.radius)
+                    || s9w.stage9BlockedAt(x, z, cfgMod.CFG.player.radius)) return false;
+            }
+            return true;
+        });
+        const apronToCheckpoint = clearPolyline([layout.start,
+            { x: 299125, z: 65 }, { x: 300040, z: 65 }, layout.checkpoint]);
+        const checkpointToPump = clearPolyline([layout.checkpoint,
+            { x: 300100, z: 40 }, { x: 300800, z: 40 }, { x: 300800, z: 166 }]);
+        const checkpointToBoard = clearPolyline([layout.checkpoint,
+            { x: 300700, z: 40 }, { x: 300700, z: -220 }, layout.board]);
+        T('S9 CH3 COLLISION: tak ada seam/dinding tak terlihat pada seluruh rute misi',
+            apronToCheckpoint && checkpointToPump && checkpointToBoard);
     }
     T('S9 CH1 PROPERTY: frontage padat bertingkat dari struktur besar sampai clutter rendah',
         w9.complexity.front.propertyCount >= 500
@@ -14848,6 +14873,14 @@ if (false) {
         && w9.complexity.front.wheelStops >= 70
         && w9.complexity.front.laneDelineators >= 40
         && w9.complexity.front.drainGrates >= 40);
+    {
+        const bg = s9w.S9_EXTERIOR_ENV.background;
+        const green = (bg >> 8) & 255, blue = bg & 255;
+        T('S9 CH1 BACKDROP: horizon berupa meadow+pohon dan haze tidak lagi biru',
+            w9.complexity.front.backdrop.meadows >= 6
+            && w9.complexity.front.backdrop.trees >= 100
+            && green > blue);
+    }
     T('S9 CH1 OCCLUDER: seluruh properti tinggi dipisah dari static batch',
         w9.complexity.front.occluders >= 160
         && w9.occluders.chapters.front.count === w9.complexity.front.occluders);
@@ -14873,6 +14906,22 @@ if (false) {
         && worldSource9.includes("from '../../../../entities/futuristicSUV.js'"));
     T('S9 CH1 PARKIR: semua mobil tegak lurus petak dan muka mengarah ke pembatas',
         w9.complexity.front.parkingFacingDivider === true);
+    {
+        // TIDAK ADA KENDARAAN YANG PARKIR MENEMBUS BENDA (2026-08-25, laporan
+        // user). Footprint OBB tiap mobil/bus/van diuji terhadap seluruh blocker
+        // Chapter 1 plus sisi bawah slab kanopi surya.
+        const bad = w9.complexity.front.vehicleOverlaps;
+        const rows = w9.complexity.front.parkingRows;
+        const halfLen = s9w.S9_PARK_CAR_HALF_LEN;
+        const canopyClear = w9.complexity.front.canopies.every((c) =>
+            c.underside >= 15.4);
+        T('S9 CH1 KENDARAAN: tak ada mobil/bus/van yang menembus prop atau kanopi'
+            + (bad.length ? ` [${bad.map(b => `${b.kind}@${b.x},${b.z}->${b.into}`)
+                .join('; ')}]` : ''),
+        bad.length === 0 && canopyClear
+            && rows.length === 4
+            && rows.every((z) => z + halfLen <= 490 && z - halfLen >= -330));
+    }
     T('S9 CH1 PLANTER: seluruh tajuk tanaman berada di dalam kotak planter',
         w9.complexity.front.planters.count >= 4
         && w9.complexity.front.planters.treesInside === true);
@@ -14892,6 +14941,23 @@ if (false) {
         T('S9 PLACEMENT: spawn dan persediaan ketiga chapter tidak tertanam collider'
             + (bad.length ? ` [${bad.map(p => `${p.x},${p.z}`).join('; ')}]` : ''),
         bad.length === 0);
+        const P = C9.parkingLootBoxes;
+        const groups = Object.fromEntries(['left', 'right'].map(name => [name,
+            supplies.crates.filter(p => p.parking === name)]));
+        const insideLot = (p) => {
+            const lot = s9w.S9_FRONT_PARKING_LOTS[p.parking];
+            return !!lot && p.x >= lot.x0 && p.x <= lot.x1
+                && p.z >= lot.z0 && p.z <= lot.z1;
+        };
+        T('S9 CH1 LOOT BOX: 15 di parkiran kiri + 12 di parkiran kanan, tersebar dan bebas prop',
+            groups.left.length === P.left && groups.right.length === P.right
+            && supplies.crates.length === C9.lootboxCount
+            && P.left + P.right === C9.lootboxCount
+            && supplies.crates.every(p => insideLot(p)
+                && s9w.stage9FrontWalkable(p.x, p.z, 8)
+                && !s9w.stage9BlockedAt(p.x, p.z, 8))
+            && new Set(supplies.crates.map(p => `${p.x},${p.z}`)).size
+                === supplies.crates.length);
     }
     {
         const reach = (walk, bounds, start, target, tolerance) => {
@@ -14945,24 +15011,26 @@ if (false) {
     drain9();
     T('S9 ROBOT DENSITY: populasi awal Chapter 1 persis mengikuti tabel encounter config',
         robots9().length === encounterTotal9('frontToll'));
+    T('S9 CH1 AGGRO: seluruh robot wave awal langsung mengejar tanpa menunggu masuk layar',
+        robots9().length > 0 && robots9().every(bot => bot.state === 'chasing'));
     {
-        const bot = robots9()[0];
-        let stayedIdle = false, wokeOnScreen = false, stayedAwake = false;
-        if (bot) {
-            bot.state = 'idle';
-            bot.mesh.position.set(camera.position.x + 5000, 0, camera.position.z + 5000);
-            s9.stage9Scene.robotAI(bot, 0.1, 6);
-            stayedIdle = bot.state === 'idle' && !s9rt.stage9RobotInView(bot);
-            bot.mesh.position.set(camera.position.x, 0, camera.position.z);
-            s9.stage9Scene.robotAI(bot, 0.1, 6);
-            wokeOnScreen = bot.state === 'chasing' && s9rt.stage9RobotInView(bot);
-            bot.mesh.position.set(camera.position.x + 5000, 0, camera.position.z + 5000);
-            s9.stage9Scene.robotAI(bot, 0.1, 6);
-            stayedAwake = bot.state === 'chasing';
-        }
-        T('S9 AGGRO LAYAR: idle di luar layar, langsung mengejar saat terlihat, lalu permanen aktif',
-            stayedIdle && wokeOnScreen && stayedAwake);
+        // SPAWN DI LUAR LAYAR + GELEMBUNG 15 M (2026-08-25, permintaan user):
+        // saat play dimulai tidak boleh ada robot berdiri di depan mata player,
+        // dan tidak boleh ada yang lahir di dalam frustum kamera.
+        const place = s9.stage9Debug().spawnPlacement;
+        const toll = place.encounters.frontToll;
+        const spread = new Set(robots9().map(bot =>
+            `${Math.round(bot.mesh.position.x / 20)},${Math.round(bot.mesh.position.z / 20)}`));
+        T('S9 CH1 SPAWN: wave awal lahir di luar frustum kamera dan di luar gelembung '
+            + C9.spawnClearMeters + ' m, tanpa menumpuk',
+        place.clearRadius === C9.spawnClearMeters * cfgMod.CAMP_M
+            && toll.total === encounterTotal9('frontToll')
+            && toll.inView === 0
+            && toll.minPlayerDist >= place.clearRadius
+            && spread.size >= 12);
     }
+    T('S9 CH1 LOOT RUNTIME: semua loot box parkiran benar-benar di-spawn',
+        crate5Mod.crates.length === C9.lootboxCount);
     {
         const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
         const keepRobots = robots.slice(); robots.length = 0;
@@ -14987,7 +15055,17 @@ if (false) {
     let d9 = s9.stage9Debug();
     T('S9 CHAPTER 1A: pintu terminal ditahan sampai toll access dilalui',
         frontGateHeld && d9.phase === 'frontForecourt'
-        && d9.encounters.frontForecourt === encounterTotal9('frontForecourt'));
+        && d9.encounters.frontForecourt === encounterTotal9('frontForecourt')
+        && robots9().every(bot => bot.encounter !== 'frontForecourt'
+            || bot.state === 'chasing'));
+    {
+        // Gelombang kedua lahir SAAT player menonton: aturan luar-layar justru
+        // paling penting di sini, karena robot pop-in terbaca sebagai bug.
+        const wave = s9.stage9Debug().spawnPlacement.encounters.frontForecourt;
+        T('S9 CH1 SPAWN 2: gelombang forecourt juga lahir di luar penglihatan kamera',
+            wave.total === encounterTotal9('frontForecourt') && wave.inView === 0
+            && wave.minPlayerDist >= s9.stage9Debug().spawnPlacement.clearRadius);
+    }
     kill9();
     stand9(s9w.S9_BUILDING_ENTRY);
     tick9(0.3);
@@ -14998,7 +15076,9 @@ if (false) {
         && d9.sub === 'campaign-9-interior'
         && smMod.activeScene === s9.stage9Scene && d9.activeSceneStable === 'campaign-9'
         && registry9.activeCampaignWorldRoots().join() === s9w.S9_INTERIOR_KEY
-        && lights9.stageLightsDebug().active === s9w.S9_INTERIOR_KEY);
+        && lights9.stageLightsDebug().active === s9w.S9_INTERIOR_KEY
+        && scene.background.getHex() === s9w.S9_INTERIOR_ENV.background
+        && scene.fog.color.getHex() === s9w.S9_INTERIOR_ENV.fogColor);
 
     kill9();
     stand9(s9w.S9_INTERIOR_CHECKPOINT); tick9(0.3);
@@ -15015,7 +15095,9 @@ if (false) {
         && d9.encounters.runwayApron > 0 && d9.sub === 'campaign-9-runway'
         && camera.position.x === s9w.S9_RUNWAY_START.x
         && registry9.activeCampaignWorldRoots().join() === s9w.S9_RUNWAY_KEY
-        && lights9.stageLightsDebug().active === s9w.S9_RUNWAY_KEY);
+        && lights9.stageLightsDebug().active === s9w.S9_RUNWAY_KEY
+        && scene.background.getHex() === s9w.S9_EXTERIOR_ENV.background
+        && scene.fog.color.getHex() === s9w.S9_EXTERIOR_ENV.fogColor);
 
     kill9();
     stand9(s9w.S9_RUNWAY_CHECKPOINT); tick9(0.3);
@@ -15085,6 +15167,7 @@ if (false) {
         for (let t = 0; t < sec - 1e-9; t += dt) s10.stage10Scene.updateMode(dt);
     };
     const s10Robots = () => robots.filter(z => z.stage === 10);
+    const mixCount10 = mix => Object.values(mix).reduce((sum, n) => sum + (n | 0), 0);
     const kill10 = () => {
         for (let i = robots.length - 1; i >= 0; i--) if (robots[i].stage === 10) {
             scene.remove(robots[i].mesh); robots.splice(i, 1);
@@ -15099,10 +15182,45 @@ if (false) {
         r10a === r10b && w10.built && w10.origin.x === 330000 && w10.deterministic
         && w10.port.quays > 0 && w10.port.staticContainers > 0 && w10.port.warehouses > 0
         && w10.airstrip.runway > 0 && w10.staticBatches > 0 && w10.nav);
-    T('S10 LAYOUT: layout A dan B sama-sama tersambung ke seluruh objective',
+    T('S10 CONTAINER APPROACH: rute awal tepat 2x panjang dan diisi stack tambahan',
+        w10.containerApproach.multiplier === 2
+        && w10.containerApproach.length
+            === w10.containerApproach.previousLength * w10.containerApproach.multiplier
+        && s10w.S10_SAFE_BAY.x - s10w.S10_START.x === w10.containerApproach.length
+        && w10.containerApproach.authoredStacks >= 40);
+    T('S10 CRANE GATE: layout A menutup SEMUA jalan maju; layout B membuka koridor player',
         w10.connectivity.allStableStatesConnected
         && w10.connectivity.A.connected && w10.connectivity.B.connected
-        && w10.connectivity.B.reached.every(Boolean));
+        && w10.connectivity.B.reached.every(Boolean)
+        && w10.connectivity.gate.closedInA
+        && !w10.connectivity.gate.A.forwardConnected
+        && w10.connectivity.gate.A.openSamples === 0
+        && w10.connectivity.gate.openInB
+        && w10.connectivity.gate.B.forwardConnected
+        && w10.connectivity.gate.B.longestOpenSpan > cfgMod.CFG.player.radius * 2);
+    T('S10 CRANE LAYOUT: tiga gantry terpisah rapi dan seluruh bagian crane fade-ready',
+        w10.cranes.gantriesSeparated
+        && w10.cranes.rtgs.length === w10.cranes.containers.length
+        && w10.cranes.rtgs.every(rig => rig.staticFadeReady && rig.trolleyFadeReady)
+        && w10.cranes.qccFadeReady);
+    {
+        const gateRig = w10.cranes.rtgs.find(rig => rig.id === 'gate');
+        const craneOcc = w10.occluders.points.find(p => gateRig
+            && p.x === gateRig.x && p.z === gateRig.z && p.top === 61);
+        const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        occlusionMod.resetStageOccluders('campaign-10-port');
+        const stand = craneOcc ? occBehind(craneOcc, 12) : before;
+        camera.position.set(stand.x, cfgMod.CFG.player.eyeHeight, stand.z);
+        for (let i = 0; i < 60; i++)
+            occlusionMod.updateStageOccluders('campaign-10-port', 0.1);
+        const fadedCrane = (occlusionMod.occlusionDebug('campaign-10-port').points
+            .find(p => craneOcc && p.x === craneOcc.x && p.z === craneOcc.z && p.top === 61)
+            || { factor: 1 }).factor;
+        occlusionMod.resetStageOccluders('campaign-10-port');
+        camera.position.set(before.x, before.y, before.z);
+        T('S10 CRANE OCCLUSION: gantry menjadi transparan saat menutupi player',
+            craneOcc && Math.abs(fadedCrane - occlusionOpacity()) < 1e-6);
+    }
 
     // (2) Peti kemas bergerak: transform terlihat = collider di A, tengah, B.
     {
@@ -15112,18 +15230,49 @@ if (false) {
             .every(c => Math.abs(c.position.x - c.blocker.x) < 1e-6
                 && Math.abs(c.position.z - c.blocker.z) < 1e-6
                 && Math.abs(c.yaw - c.blocker.yaw) < 1e-6);
-        const atA = agree();
+        const supported = () => s10c.craneDebug(sys).containers.every(c =>
+            c.liftRig.craneId && c.liftRig.horizontallyAligned
+            && c.liftRig.attached && c.liftRig.cablesExtended
+            && c.liftRig.trolleyWithinGantry
+            && Math.abs(c.liftRig.spreaderY - c.liftRig.containerTopY - 1) < 1e-6);
+        const gateX = w10.connectivity.gate.A.x;
+        let runtimeGateClosed = true;
+        for (let z = -233; z <= 233; z++)
+            if (s10w.stage10PathWalkable(gateX, z, cfgMod.CFG.player.radius))
+                runtimeGateClosed = false;
+        const atA = agree() && supported() && runtimeGateClosed;
         s10c.updateCraneShift(sys, 0.5);
-        const atMid = agree() && s10c.craneDebug(sys).state === 'transition';
+        const midDbg = s10c.craneDebug(sys);
+        const atMid = agree() && supported() && midDbg.state === 'transition'
+            && midDbg.containers.every(c => c.position.y > 0);
         s10c.updateCraneShift(sys, 1);
         const dbg = s10c.craneDebug(sys);
         const landed = dbg.state === 'B' && dbg.settled && dbg.progress === 1
+            && supported() && dbg.rtgCount === dbg.containers.length
+            && s10w.stage10PathWalkable(gateX, 0, cfgMod.CFG.player.radius)
             && sys.containers.every(item => Math.abs(item.group.position.x - item.B.x) < 1e-6
                 && Math.abs(item.group.position.z - item.B.z) < 1e-6
                 && Math.abs(item.group.position.y) < 1e-6);
-        T('S10 CRANE: geometri terlihat = collider di awal/tengah/akhir dan mendarat TEPAT',
+        T('S10 CRANE ANIMASI: tiap container selalu ditahan trolley+spreader+kabel sendiri',
             atA && atMid && agree() && landed);
         s10c.setCraneLayout(sys, 'A');
+    }
+
+    {
+        const supplies10 = s10w.stage10SupplyPlacements();
+        const zones = new Set(supplies10.crates.map(p => p.zone));
+        const blockedCrates10 = supplies10.crates.filter(p =>
+            !s10w.stage10Walkable(p.x, p.z, 4)
+            || s10w.stage10BlockedAt(p.x, p.z, 4));
+        T('S10 LOOT BOX: jumlah mengikuti config dan tersebar lintas sedikitnya enam zona'
+            + (blockedCrates10.length ? ` [blocked ${blockedCrates10.map(p =>
+                `${p.x},${p.z}`).join('; ')}]` : ''),
+            supplies10.crates.length === C10.lootboxCount
+            && w10.supplies.crateCandidates === C10.lootboxCount
+            && zones.size >= 6
+            && blockedCrates10.length === 0
+            && new Set(supplies10.crates.map(p => `${p.x},${p.z}`)).size
+                === C10.lootboxCount);
     }
 
     // (3) Masuk Stage 10 facade; Chapter 1 hidup dan layout mulai di A.
@@ -15134,16 +15283,36 @@ if (false) {
     let d10 = s10.stage10Debug();
     T('S10 C1 MASUK: checkpoint 10 + opening sinematik + layout peti kemas A',
         save5Mod.loadCampaignStage() === 10 && d10.phase === 'opening'
-        && d10.crane.state === 'A' && stateMod.cinematicActive && s10Robots().length > 0);
+        && d10.crane.state === 'A' && stateMod.cinematicActive
+        && s10Robots().length === mixCount10(C10.encounters.entry)
+        && crate5Mod.crates.length === C10.lootboxCount);
 
     // (4) Crane HANYA dipicu dari safe bay dengan yard bersih.
     drain10(); tick10(1);
-    stand10(s10w.S10_YARD); tick10(0.3); kill10();
+    {
+        const bot = s10Robots()[0];
+        let idleOutside = false, chasedOnScreen = false;
+        if (bot) {
+            bot.state = 'idle';
+            bot.mesh.position.set(camera.position.x + 5000, 0, camera.position.z + 5000);
+            s10.stage10Scene.robotAI(bot, 0.1, 6);
+            idleOutside = bot.state === 'idle' && !s10.stage10RobotInView(bot);
+            bot.mesh.position.set(camera.position.x, 0, camera.position.z);
+            s10.stage10Scene.robotAI(bot, 0.1, 6);
+            chasedOnScreen = bot.state === 'chasing' && s10.stage10RobotInView(bot);
+        }
+        T('S10 AGGRO KAMERA: robot langsung mengejar saat tubuh masuk viewport tanpa range deteksi',
+            idleOutside && chasedOnScreen);
+    }
+    stand10(s10w.S10_YARD); tick10(0.3);
+    const yardPopulation = s10.stage10Debug().encounters.yard;
+    kill10();
     const yardPhase = s10.stage10Debug().phase;
     stand10(s10w.S10_SAFE_BAY); tick10(0.3);
     d10 = s10.stage10Debug();
     T('S10 SAFE BAY: pergeseran crane hanya dimulai dari safe bay setelah yard bersih',
         yardPhase === 'craneMazeA' && d10.phase === 'craneShift'
+        && yardPopulation === mixCount10(C10.encounters.yard)
         && d10.cinematic === 'craneShift' && d10.crane.state !== 'A');
 
     // (5) Skip pergeseran = layout B stabil, tanpa peti kemas menggantung.
@@ -15194,14 +15363,43 @@ if (false) {
             && shots[0].damage === C10.cannon.damage
             && shots[0].radius === C10.cannon.blastRadius);
 
+        const mounted = s10d.defenseArrayDebug(sys);
+        T('S10 MERIAM WUJUD: recoil tidak memindahkan turret dari koordinat dunia pelabuhan',
+            mounted.turret.visible
+            && Math.abs(mounted.turret.x - mounted.turret.baseX) <= 3
+            && mounted.turret.y === 8 && mounted.turret.z === sys.z
+            && Math.abs(mounted.turret.baseX) > 100000);
+
+        T('S10 SERVO TERBACA: tiga bentuk berbeda dan hanya target rentan yang diberi penanda',
+            new Set(mounted.servos.map(servo => servo.profile)).size === 3
+            && mounted.servos.filter(servo => servo.currentTarget).length === 1
+            && mounted.servos[0].currentTarget
+            && mounted.servos.slice(1).every(servo => !servo.currentTarget));
+
         // (9) Servo: urutan tetap, kerusakan permanen, hanya servo giliran yang
         //     bisa dilukai, dan radius blast mengecil sesudah dua servo mati.
         const bullet10 = (x, z, damage) => ({
             px: x, pz: z, damage,
             mesh: { position: { x, y: 6, z } },
         });
+        const hitTarget = sys.servos[0];
+        const hitHp = hitTarget.hp;
+        const hitResult = s10d.defenseArrayBulletHit(sys,
+            bullet10(hitTarget.x, hitTarget.z, 1), 1);
+        const hitStart = s10d.defenseArrayDebug(sys).servos[0];
+        s10d.updateDefenseArrayVisuals(sys, s10d.SERVO_HIT_SEC * 0.5);
+        const hitMid = s10d.defenseArrayDebug(sys).servos[0];
+        s10d.updateDefenseArrayVisuals(sys, s10d.SERVO_HIT_SEC);
+        const hitEnd = s10d.defenseArrayDebug(sys).servos[0];
+        T('S10 SERVO HIT: tembakan memicu feedback singkat lalu pose kembali stabil',
+            hitResult.hit && hitResult.damaged && hitTarget.hp === hitHp - 1
+            && hitStart.hitAnimating && hitStart.hitCount === 1
+            && hitMid.hitAnimating && !hitEnd.hitAnimating);
+
         const order = [];
         let wrongServoBlocked = true;
+        let firstDestroyStart = null;
+        let nextTargetMarked = false;
         for (const servo of sys.servos) {
             const later = sys.servos[sys.destroyedCount + 1];
             if (later) {
@@ -15214,6 +15412,11 @@ if (false) {
                 s10d.defenseArrayBulletHit(sys, bullet10(target.x, target.z, C10.cannon.servoHp),
                     C10.cannon.servoHp);
             order.push(target.id);
+            if (order.length === 1) {
+                const afterFirst = s10d.defenseArrayDebug(sys);
+                firstDestroyStart = afterFirst.servos[0];
+                nextTargetMarked = afterFirst.servos[1].currentTarget;
+            }
             void servo;
         }
         const down = s10d.defenseArrayDebug(sys);
@@ -15221,6 +15424,9 @@ if (false) {
             wrongServoBlocked && order.length === 3
             && down.destroyedCount === 3 && down.destroyedServos.length === 3
             && down.shutdown && down.vulnerableServo === null);
+        T('S10 SERVO HANCUR: live assembly runtuh, wreck muncul, target pindah ke servo berikutnya',
+            firstDestroyStart?.destroying && firstDestroyStart.liveVisible
+            && firstDestroyStart.wreckVisible && nextTargetMarked);
 
         // (10) Array padam: seluruh bahaya bersih dan tak ada tembakan lagi.
         const after = shots.length;
@@ -15229,7 +15435,9 @@ if (false) {
         const idle = s10d.defenseArrayDebug(sys);
         T('S10 SHUTDOWN: array padam membersihkan telegraf/cincin dan berhenti menembak',
             shots.length === after && !idle.active && idle.phase === 'shutdown'
-            && !sys.warning.visible && !sys.targetRing.visible);
+            && !sys.warning.visible && !sys.targetRing.visible
+            && idle.servos.every(servo => !servo.destroying
+                && !servo.liveVisible && servo.wreckVisible));
     }
 
     // (11) Ekstraksi terkunci sampai array benar-benar padam.
@@ -15256,10 +15464,15 @@ if (false) {
     T('S10 EKSTRAKSI: terkunci sampai array pertahanan padam, lalu titik angkut terbuka',
         extractEarly === 'defenseArray' && d10.defense.shutdown && d10.phase === 'extract');
 
-    // (12) Selesai: hold -> cutscene -> Chapter 2 langsung, tanpa finish/shop.
-    stand10(s10w.S10_EXTRACT); tick10(C10.extractHoldSec + 0.5);
-    T('S10 DEPARTURE: menahan posisi di titik angkut memulai cutscene keberangkatan',
-        s10.stage10Debug().phase === 'departure' && stateMod.cinematicActive);
+    // (12) Selesai: masuk titik angkut -> langsung berangkat -> Chapter 2,
+    // tanpa progress hold, finish screen, atau shop.
+    stand10(s10w.S10_EXTRACT); tick10(0.05);
+    T('S10 DEPARTURE: masuk titik angkut langsung memulai keberangkatan tanpa hold 3 detik',
+        s10w.stage10Walkable(s10w.S10_EXTRACT.x, s10w.S10_EXTRACT.z,
+            cfgMod.CFG.player.radius)
+        && !s10w.stage10BlockedAt(s10w.S10_EXTRACT.x, s10w.S10_EXTRACT.z,
+            cfgMod.CFG.player.radius)
+        && s10.stage10Debug().phase === 'departure' && stateMod.cinematicActive);
     stateMod.updateStageStats(0.5);
     stateMod.recordLootBoxDestroyed();
     const statsBeforeHandoff = stateMod.stageStatsDebug();

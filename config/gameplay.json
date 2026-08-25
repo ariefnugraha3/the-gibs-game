@@ -683,6 +683,7 @@
             "openingMinSec": 6,
             "fadeSec": 0.6,
             "interactionRange": 18,
+            "spawnClearMeters": 15,
             "fuel": {
                 "durationSec": 24,
                 "interactionRange": 14
@@ -695,7 +696,8 @@
                 "runwayApron": { "C": 10, "B": 5, "A": 1 },
                 "runwayAircraft": { "C": 12, "B": 6, "A": 2 }
             },
-            "lootboxCount": 6,
+            "lootboxCount": 27,
+            "parkingLootBoxes": { "left": 15, "right": 12 },
             "barrelCount": 10,
             "takeoffSec": 8
         },
@@ -716,15 +718,14 @@
                 "servoHp": 550
             },
             "encounters": {
-                "entry": { "C": 12, "B": 5, "A": 1 },
-                "yard": { "C": 16, "B": 7, "A": 2 },
+                "entry": { "C": 22, "B": 9, "A": 1 },
+                "yard": { "C": 29, "B": 12, "A": 4 },
                 "warehouse": { "C": 14, "B": 7, "A": 3 },
                 "pipeRack": { "C": 16, "B": 8, "A": 3 },
                 "defense": { "C": 18, "B": 8, "A": 3 }
             },
-            "lootboxCount": 6,
+            "lootboxCount": 30,
             "barrelCount": 12,
-            "extractHoldSec": 3,
             "chapter2": {
                 "openingMinSec": 6,
                 "fadeSec": 0.6,

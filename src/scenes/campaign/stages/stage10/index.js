@@ -52,7 +52,7 @@ import {
     activateStage10ForestPrefix, stage10ForestPrefixAlive,
 } from './forestRuntime.js';
 
-export { stage10PortScene, STAGE10_DIALOGUE } from './port.js';
+export { stage10PortScene, STAGE10_DIALOGUE, stage10RobotInView } from './port.js';
 export { stage10ForestWorldDebug, STAGE10_FOREST_DIALOGUE };
 
 export function ensureStage10World(parent = scene) {

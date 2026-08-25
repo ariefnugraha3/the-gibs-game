@@ -21,7 +21,7 @@ import {
 import {
     phase, cine, stageElapsed, setStage9Phase, setStage9Cine, cleanupStage9Cine,
     queueStage9Dialogue, resetStage9Dialogue, stage9DialogueIdle, spawnStage9Encounter,
-    stage9EncounterCount, stage9RobotInView, enterStage9Sub,
+    stage9EncounterCount, enterStage9Sub,
 } from './runtime.js';
 import { interiorScene } from './interior.js';
 
@@ -84,7 +84,7 @@ function updateProgress() {
         setStage9Phase('frontForecourt');
         stage9SetMarkers(['building']);
         spawnStage9Encounter('frontForecourt',
-            CFG.campaign.stage9.encounters.frontForecourt, false);
+            CFG.campaign.stage9.encounters.frontForecourt, true);
         showStageMsg('TOLL ACCESS CLEAR — CROSS THE TERMINAL FORECOURT', 4600);
     } else if (phase === 'frontForecourt'
         && stage9EncounterCount('frontForecourt') === 0
@@ -104,7 +104,7 @@ export const frontScene = {
         movePlayerTo(S9_START);
         camera.quaternion.set(0, -0.7071, 0, 0.7071);
         stage9SetMarkers([]);
-        spawnStage9Encounter('frontToll', CFG.campaign.stage9.encounters.frontToll, false);
+        spawnStage9Encounter('frontToll', CFG.campaign.stage9.encounters.frontToll, true);
         startOpening();
     },
     exit() {
@@ -141,12 +141,13 @@ export const frontScene = {
     robotAI(robot, dt, step) {
         if (robot.stage !== 9) return { skip: true };
         if (phase === 'opening') {
-            robot.state = 'idle'; robot.moving = false; robot.aiming = false; return {};
+            // Garnisun sudah berstatus chasing sejak spawn, tetapi dibekukan
+            // selama establishing shot agar tidak menyerang di dalam cutscene.
+            robot.moving = false; robot.aiming = false; return {};
         }
         return campaignRobotAI(robot, dt, step, {
             walkable: stage9FrontWalkable, resolve: stage9Resolve,
             nav: stage9NavGrid('front'),
-            activate: stage9RobotInView,
             los: (x0, z0, x1, z1) => !stage9SegHitsWall(x0, z0, x1, z1, 8),
         });
     },

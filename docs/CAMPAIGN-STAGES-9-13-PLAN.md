@@ -331,7 +331,11 @@ Moving containers are the signature mechanic but must be engineered against soft
 - Crane motion starts only after the player reaches the marked safe bay.
 - Input may be briefly frozen with cinematic bars while containers cross playable lanes.
 - No robot may remain in a lane whose container is about to move. Clear, relocate, or defer those encounter spawns before motion starts.
+- Layout A must physically seal every safe-bay→warehouse route with visible containers; layout B must open a player-width corridor and reconnect all later objectives.
 - Visible container footprints and collision must move together every frame.
+- Every simultaneously moving container must have its own trolley, cables, and spreader aligned directly above it for the full lift/travel/lower curve.
+- Gantry footprints must not overlap, and a trolley must remain inside its own frame for the whole local route.
+- Static crane frames and moving trolley assemblies use the shared campaign occlusion fade when they hide the player or a robot.
 - Dynamic pathfinding must reject the moving footprint; no nav rebake occurs per frame.
 - Container motion must land exactly on its target to avoid perpetual movement, audio loops, or blocker jitter.
 - A skipped cinematic must apply the exact final transforms and blocker state before restoring control.
@@ -342,6 +346,8 @@ The defense cannon is a setpiece objective, not a named boss:
 
 - It sits on a fixed track and cannot be damaged directly through its armored housing.
 - Three exposed servo/control boxes become vulnerable in a fixed readable order.
+- Traverse, elevation, and relay use distinct mechanical silhouettes; exactly the current vulnerable servo carries a pulsing halo/pointer.
+- Bullet hits produce a short shake/flash, and a destroyed servo visibly collapses into a persistent wreck using prebuilt meshes.
 - The cannon telegraphs a broad linear firing lane, locks a dead point, and fires after enough time to dodge.
 - The cannon never tracks the player after the lock completes.
 - Destroying a servo permanently removes or weakens one behavior:
@@ -352,6 +358,8 @@ The defense cannon is a setpiece objective, not a named boss:
 - The setpiece does not display a boss HP bar and does not award boss loot.
 
 ### 6.7 Encounter and economy targets
+
+Implemented Chapter 1 amendment (2026-08-25): the west container approach is exactly twice its former length, its `entry` + `yard` mixes total 77 robots (~80% above 43), dormant port robots wake on their first camera-visible frame, and 30 blocker-clear loot boxes are distributed across six or more port zones.
 
 Initial playtest target:
 
@@ -1476,15 +1484,24 @@ Smoke must prove:
 
 ### 14.3 Stage 10 coverage
 
-- Every container layout state is BFS-connected.
+- START→safe-bay container approach is exactly 2× its former length and remains connected.
+- Runtime `entry`/`yard` populations match their increased config mixes; visible dormant robots wake without a range gate.
+- Exactly 30 unique loot-box candidates cover six or more port zones and avoid blockers.
+- Layout A connects START→safe bay but blocks every forward route; layout B reconnects safe bay→all later objectives.
+- A one-unit gate cross-section has zero player-radius openings in A and a >player-diameter opening in B.
+- Every moving container remains aligned with a dedicated trolley/cable/spreader rig at start, midpoint, and finish.
+- RTG footprints do not overlap, every trolley stays within its gantry, and crane occluders reach the configured fade opacity when obstructing the player.
 - Crane motion starts only from safe bay and lands exactly.
 - Visible container and collider transforms agree at start, midpoint, and finish.
 - No robot remains/traps inside a moving-container corridor.
 - Skip applies stable layout B.
 - Cannon locks a dead point; shots after lock pass through that point rather than tracking the player.
+- Cannon recoil remains relative to its authored world transform; activation cannot move or hide the turret.
 - Servo destruction order/state is permanent and config-driven.
+- The active-servo marker, hit feedback, and complete collapse-to-wreck animation match servo state.
 - Cannon hazards clear on shutdown.
 - Extraction remains locked until the defense array is down.
+- The blocker-clear carrier boarding point starts departure on entry with no hold/progress delay.
 - Completion invokes Stage 11 transition once.
 
 ### 14.4 Stage 11 coverage

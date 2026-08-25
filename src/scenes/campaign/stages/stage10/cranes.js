@@ -1,8 +1,7 @@
 // Detailed Stage 10 Chapter 1 port cranes and three-state container layout.
 // Collision records are the same objects mutated alongside visible containers.
 
-import { addMergedStatic } from '../../../../utils/meshBatch.js';
-import { registerOccluder } from '../../utility/occlusion.js';
+import { registerOccluder, weldOccluder } from '../../utility/occlusion.js';
 
 function box(parent, material, sx, sy, sz, x, y, z, shadow = true) {
     const part = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), material);
@@ -30,8 +29,8 @@ function diagonal(parent, material, x, y, z, height, direction) {
     return brace;
 }
 
-function buildRTG(staticRoot, dynamicRoot, M, x, z, id) {
-    const width = 52, length = 34, height = 55;
+function buildRTG(staticRoot, dynamicRoot, M, x, z, id, width = 82) {
+    const length = 38, height = 55;
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
         const lx = x + sx * width * 0.5, lz = z + sz * length * 0.5;
         box(staticRoot, M.crane, 4.5, height, 4.5, lx, height * 0.5, lz);
@@ -65,7 +64,10 @@ function buildRTG(staticRoot, dynamicRoot, M, x, z, id) {
     const cableA = cylinder(trolley, M.cable, 0.22, 34, -4, -18, -3, 'y', 8);
     const cableB = cylinder(trolley, M.cable, 0.22, 34, 4, -18, 3, 'y', 8);
     const spreader = box(trolley, M.hazard, 24, 1.8, 8, 0, -35, 0);
-    return { id, type: 'RTG', trolley, cables: [cableA, cableB], spreader, baseX: x, baseZ: z };
+    return {
+        id, type: 'RTG', trolley, cables: [cableA, cableB], spreader,
+        baseX: x, baseZ: z, width, length, height,
+    };
 }
 
 function buildQCC(staticRoot, dynamicRoot, M, x, z) {
@@ -152,29 +154,67 @@ function setItemTransform(item, state) {
     syncBlocker(item);
 }
 
+function syncLiftRig(item) {
+    const crane = item.crane;
+    if (!crane) return;
+    // Trolley, spreader, dan ujung kabel selalu tepat di atas pusat peti.
+    // Tiga peti memakai tiga RTG berbeda; tak ada lagi trolley yang ditimpa
+    // peti lain pada frame yang sama.
+    crane.trolley.position.x = item.group.position.x;
+    crane.trolley.position.z = item.group.position.z;
+    const hookY = item.group.position.y + 11;
+    crane.spreader.position.y = hookY - crane.trolley.position.y;
+    const distance = Math.max(2, crane.trolley.position.y - hookY);
+    for (const cable of crane.cables) {
+        cable.scale.y = distance / 34;
+        cable.position.y = -distance * 0.5;
+    }
+}
+
+function smooth(k) {
+    const t = Math.max(0, Math.min(1, k));
+    return t * t * (3 - 2 * t);
+}
+
 export function buildPortCranes(parent, M, origin, makeDynamicBlocker) {
-    const staticRoot = new THREE.Group();
     const dynamicRoot = new THREE.Group();
     parent.add(dynamicRoot);
 
-    const rtgs = [
-        buildRTG(staticRoot, dynamicRoot, M, origin.x - 325, origin.z - 12, 'west'),
-        buildRTG(staticRoot, dynamicRoot, M, origin.x - 120, origin.z + 18, 'east'),
+    // Tiga gantry memiliki area kerja terpisah dan lintasan lokal. Setiap root
+    // dilas sendiri agar bisa memudar tanpa membuat crane lain ikut transparan.
+    const rtgSpecs = [
+        [origin.x - 385, origin.z - 72, 'west'],
+        [origin.x - 260, origin.z + 72, 'east'],
+        [origin.x - 110, origin.z, 'gate'],
     ];
-    const qcc = buildQCC(staticRoot, dynamicRoot, M, origin.x + 535, origin.z - 218);
+    const rtgs = rtgSpecs.map(([x, z, id]) => {
+        const staticRoot = new THREE.Group();
+        const rig = buildRTG(staticRoot, dynamicRoot, M, x, z, id);
+        rig.staticNode = weldOccluder('campaign-10-port', parent, staticRoot,
+            { x, z, hx: rig.width * 0.5 + 5, hz: rig.length * 0.5 + 5, top: 61 });
+        rig.trolleyOccluder = registerOccluder('campaign-10-port', rig.trolley,
+            { hx: 8, hz: 7, top: 7, dynamic: true });
+        return rig;
+    });
+    const qccRoot = new THREE.Group();
+    const qcc = buildQCC(qccRoot, dynamicRoot, M, origin.x + 535, origin.z - 218);
+    qcc.staticNode = weldOccluder('campaign-10-port', parent, qccRoot,
+        { x: origin.x + 570, z: origin.z - 218, hx: 105, hz: 28, top: 190 });
 
     const transforms = [
         {
             A: { x: origin.x - 410, y: 0, z: -72, yaw: 0 },
-            B: { x: origin.x - 300, y: 0, z: 48, yaw: Math.PI * 0.5 },
+            B: { x: origin.x - 360, y: 0, z: -72, yaw: 0 },
         },
         {
-            A: { x: origin.x - 285, y: 0, z: 26, yaw: Math.PI * 0.5 },
-            B: { x: origin.x - 175, y: 0, z: -82, yaw: 0 },
+            A: { x: origin.x - 285, y: 0, z: 72, yaw: 0 },
+            B: { x: origin.x - 235, y: 0, z: 72, yaw: 0 },
         },
         {
-            A: { x: origin.x - 165, y: 0, z: -68, yaw: 0 },
-            B: { x: origin.x - 82, y: 0, z: 70, yaw: Math.PI * 0.5 },
+            // Peti ketiga adalah daun gate pusat. Layout A menutup satu-satunya
+            // celah; layout B menariknya lurus ke bahu barat di bawah RTG-nya.
+            A: { x: origin.x - 85, y: 0, z: 0, yaw: Math.PI * 0.5 },
+            B: { x: origin.x - 135, y: 0, z: 0, yaw: Math.PI * 0.5 },
         },
     ];
     const containers = transforms.map((layout, index) => {
@@ -184,10 +224,10 @@ export function buildPortCranes(parent, M, origin, makeDynamicBlocker) {
         // Peti kemas yang DIPINDAH crane ikut memudar; ia bergerak, jadi
         // posisinya dibaca ulang tiap frame (`dynamic`).
         registerOccluder('campaign-10-port', group, { radius: 13, top: 10, dynamic: true });
-        return { id: index + 1, group, blocker, ...layout };
+        return { id: index + 1, group, blocker, crane: rtgs[index], ...layout };
     });
 
-    const staticBatch = addMergedStatic(parent, [staticRoot]);
+    const staticBatch = [...rtgs.map(rig => rig.staticNode), qcc.staticNode];
     const system = {
         root: dynamicRoot, rtgs, qcc, containers, staticBatch,
         state: 'A', progress: 0, settled: true,
@@ -198,14 +238,13 @@ export function buildPortCranes(parent, M, origin, makeDynamicBlocker) {
 
 export function setCraneLayout(system, state) {
     const target = state === 'B' ? 'B' : 'A';
-    for (const item of system.containers) setItemTransform(item, target);
+    for (const item of system.containers) {
+        setItemTransform(item, target);
+        syncLiftRig(item);
+    }
     system.state = target;
     system.progress = target === 'B' ? 1 : 0;
     system.settled = true;
-    for (let i = 0; i < system.rtgs.length; i++) {
-        const item = system.containers[Math.min(i, system.containers.length - 1)];
-        system.rtgs[i].trolley.position.x = item.group.position.x;
-    }
 }
 
 export function beginCraneShift(system) {
@@ -222,30 +261,22 @@ export function updateCraneShift(system, progress) {
         const item = system.containers[i];
         let travel;
         if (p < 0.25) {
-            const k = p / 0.25;
+            const k = smooth(p / 0.25);
             travel = 0;
             item.group.position.y = k * 40;
         } else if (p < 0.75) {
-            travel = (p - 0.25) / 0.5;
+            travel = smooth((p - 0.25) / 0.5);
             item.group.position.y = 40;
         } else {
             travel = 1;
-            item.group.position.y = (1 - (p - 0.75) / 0.25) * 40;
+            item.group.position.y = (1 - smooth((p - 0.75) / 0.25)) * 40;
         }
         item.group.position.x = item.A.x + (item.B.x - item.A.x) * travel;
         item.group.position.z = item.A.z + (item.B.z - item.A.z) * travel;
         item.group.rotation.y = item.A.yaw + (item.B.yaw - item.A.yaw) * travel;
         syncBlocker(item);
 
-        const crane = system.rtgs[i % system.rtgs.length];
-        crane.trolley.position.x = item.group.position.x;
-        crane.trolley.position.z = crane.baseZ;
-        crane.spreader.position.y = item.group.position.y - crane.trolley.position.y + 11;
-        for (const cable of crane.cables) {
-            const distance = Math.max(2, crane.trolley.position.y - item.group.position.y - 11);
-            cable.scale.y = distance / 34;
-            cable.position.y = -distance * 0.5;
-        }
+        syncLiftRig(item);
     }
     if (p >= 1) setCraneLayout(system, 'B');
 }
@@ -262,12 +293,27 @@ export function cranePathWalkable(system, x, z, radius = 0) {
 }
 
 export function craneDebug(system) {
+    const rtgs = system.rtgs.map(rig => ({
+        id: rig.id, x: rig.baseX, z: rig.baseZ,
+        hx: rig.width * 0.5 + 5, hz: rig.length * 0.5 + 5,
+        staticFadeReady: !!rig.staticNode,
+        trolleyFadeReady: !!rig.trolleyOccluder,
+    }));
+    let gantriesSeparated = true;
+    for (let i = 0; i < rtgs.length; i++) for (let j = i + 1; j < rtgs.length; j++) {
+        if (Math.abs(rtgs[i].x - rtgs[j].x) < rtgs[i].hx + rtgs[j].hx
+            && Math.abs(rtgs[i].z - rtgs[j].z) < rtgs[i].hz + rtgs[j].hz)
+            gantriesSeparated = false;
+    }
     return {
         state: system.state,
         progress: system.progress,
         settled: system.settled,
         rtgCount: system.rtgs.length,
+        rtgs,
+        gantriesSeparated,
         qccCount: system.qcc ? 1 : 0,
+        qccFadeReady: !!system.qcc?.staticNode,
         staticBatches: system.staticBatch.length,
         containers: system.containers.map((item) => ({
             id: item.id,
@@ -282,6 +328,27 @@ export function craneDebug(system) {
             },
             colliderSynced: Math.abs(item.blocker.x - item.group.position.x) < 1e-6
                 && Math.abs(item.blocker.z - item.group.position.z) < 1e-6,
+            liftRig: {
+                craneId: item.crane?.id || null,
+                trolleyX: item.crane?.trolley.position.x,
+                trolleyZ: item.crane?.trolley.position.z,
+                spreaderY: item.crane
+                    ? item.crane.trolley.position.y + item.crane.spreader.position.y : null,
+                containerTopY: item.group.position.y + 10,
+                horizontallyAligned: !!item.crane
+                    && Math.abs(item.crane.trolley.position.x - item.group.position.x) < 1e-6
+                    && Math.abs(item.crane.trolley.position.z - item.group.position.z) < 1e-6,
+                attached: !!item.crane
+                    && Math.abs(item.crane.trolley.position.y
+                        + item.crane.spreader.position.y - (item.group.position.y + 11)) < 1e-6,
+                cablesExtended: !!item.crane
+                    && item.crane.cables.every(cable => cable.scale.y > 0),
+                trolleyWithinGantry: !!item.crane
+                    && Math.abs(item.crane.trolley.position.x - item.crane.baseX)
+                        <= item.crane.width * 0.5
+                    && Math.abs(item.crane.trolley.position.z - item.crane.baseZ)
+                        <= item.crane.length * 0.5,
+            },
         })),
     };
 }

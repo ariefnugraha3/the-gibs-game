@@ -21,7 +21,7 @@ import { stage10Scene } from '../stage10/index.js';
 import {
     ensureStage9World, stage9WorldDebug, stage9SupplyPlacements,
     stage9SetFuelPumpOn, stage9SetMarkers, stage9UpdateWorld,
-    resetStage9Occluders,
+    resetStage9Occluders, S9_EXTERIOR_ENV,
 } from './world.js';
 import {
     STAGE9_DIALOGUE, sub, cine, enterStage9Sub, updateStage9SubFade,
@@ -75,8 +75,7 @@ export const stage9Scene = {
         resetStage();
         placeSupplies();
         applyLightPreset(scene, 'night');
-        enterCityEnv({ background: 0x50606a, fogColor: 0x46555a,
-            fogNear: 260, fogFar: 1800 });
+        enterCityEnv(S9_EXTERIOR_ENV);
         enterStage9Sub(frontScene, { fade: false });
         updateUI();
     },

@@ -2,7 +2,7 @@
 // module owns state that must survive every hand-off (dialogue, timer, fuel,
 // encounter identity and the single Stage 9 completion gateway).
 
-import { CFG } from '../../../../core/config.js';
+import { CAMP_M, CFG } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
 import { robots, setCinematicActive } from '../../../../core/state.js';
 import {
@@ -32,6 +32,9 @@ export let takeoffT = 0;
 export let transitionSent = false;
 export let cine = null;
 const spawnedEncounters = Object.create(null);
+// Bukti penempatan spawn, DIREKAM saat lahir: sesudahnya kamera sudah bergerak
+// sehingga "apakah robot ini muncul di layar" tidak bisa dihitung ulang.
+const spawnPlacements = Object.create(null);
 let completionHook = null;
 let subFadePending = false;
 
@@ -134,10 +137,12 @@ export function resetStage9Dialogue() {
 
 export const stage9DialogueIdle = () => !dialogueCurrent && !dialogueQueue.length;
 
-// Aktivasi Chapter 1â€“2 mengikuti frustum kamera, bukan radius dunia. Begitu
-// bagian tengah badan robot pertama kali masuk layar, campaignRobotAI mengubah
-// state idle -> chasing dan state itu tidak pernah kembali menjadi idle.
-export function stage9RobotInView(robotOrX, zArg = 0, yArg = 0) {
+// Chapter 2 saja memakai aktivasi frustum. Kedua wave Chapter 1 spawn aktif
+// dan langsung memburu player setelah establishing cutscene selesai.
+// `margin` melebarkan frustum uji (0,15 = 15% di luar tepi layar): dipakai
+// penempatan spawn agar robot tidak lahir tepat di garis tepi lalu "muncul"
+// begitu kamera bergeser satu langkah.
+export function stage9RobotInView(robotOrX, zArg = 0, yArg = 0, margin = 0) {
     let x = robotOrX, z = zArg, y = yArg;
     if (robotOrX && typeof robotOrX === 'object') {
         const p = robotOrX.mesh?.position || robotOrX.position || robotOrX;
@@ -163,7 +168,8 @@ export function stage9RobotInView(robotOrX, zArg = 0, yArg = 0) {
     const tanX = tanY * (viewCam?.aspect || 1);
     const screenX = (dx * rx + dz * rz) / (depth * tanX);
     const screenY = (dx * ux + dy * uy + dz * uz) / (depth * tanY);
-    return Math.abs(screenX) <= 1 && Math.abs(screenY) <= 1;
+    const edge = 1 + Math.max(0, margin);
+    return Math.abs(screenX) <= edge && Math.abs(screenY) <= edge;
 }
 
 export const stage9DialogueDebug = () => ({
@@ -182,12 +188,56 @@ export function clearStage9Robots() {
     }
 }
 
+// Gelembung bebas robot di sekitar player saat sebuah encounter dilahirkan.
+export const stage9SpawnClearRadius = () =>
+    Math.max(0, CFG.campaign.stage9.spawnClearMeters || 0) * CAMP_M;
+const SPAWN_VIEW_MARGIN = 0.14;
+const SPAWN_RING_STEP = 34;
+const SPAWN_RINGS = 20;
+const SPAWN_ARC = 16;
+// Tinggi dada robot: yang diuji terhadap frustum adalah badannya, bukan kaki.
+const SPAWN_PROBE_Y = 9;
+
+const spawnSpotFree = (x, z) =>
+    stage9Walkable(x, z, 4) && !stage9BlockedAt(x, z, 4);
+
+function spawnSpotOk(x, z, clearR, checkView) {
+    if (!spawnSpotFree(x, z)) return false;
+    if (Math.hypot(x - camera.position.x, z - camera.position.z) < clearR) return false;
+    return !checkView || !stage9RobotInView(x, z, SPAWN_PROBE_Y, SPAWN_VIEW_MARGIN);
+}
+
+// Titik lahir sebuah robot. Aturannya dua, dan keduanya permintaan user:
+// (1) tak seorang pun lahir di dalam gelembung `spawnClearMeters` sekitar player,
+// (2) tak seorang pun lahir DI DALAM frustum kamera — robot harus datang dari
+// luar layar lalu mengejar. Pencarian menyapu keluar dari arah MENJAUHI kamera
+// lebih dulu supaya robot tetap sedekat mungkin dengan titik encounter aslinya.
 function clearSpawnPoint(p, seed) {
+    const clearR = stage9SpawnClearRadius();
     const radius = Math.floor(seed / 7) * 9;
     const angle = seed * 2.399963;
-    const x = p.x + Math.cos(angle) * radius;
-    const z = p.z + Math.sin(angle) * radius;
-    if (stage9Walkable(x, z, 4) && !stage9BlockedAt(x, z, 4)) return { x, z };
+    const base = { x: p.x + Math.cos(angle) * radius, z: p.z + Math.sin(angle) * radius };
+    if (spawnSpotOk(base.x, base.z, clearR, true)) return base;
+    const away = Math.atan2(base.z - camera.position.z, base.x - camera.position.x);
+    // Beberapa robot dari satu titik encounter sering direlokasi bersamaan.
+    // Offset sub-langkah + jitter radius per-seed mencegah mereka menumpuk
+    // persis di petak valid pertama yang sama.
+    const spin = (seed % SPAWN_ARC) * (Math.PI * 2 / (SPAWN_ARC * SPAWN_ARC));
+    const push = (seed % 5) * 11;
+    for (const checkView of [true, false]) {
+        for (let ring = 1; ring <= SPAWN_RINGS; ring++) {
+            for (let i = 0; i < SPAWN_ARC; i++) {
+                const half = (i + 1) >> 1;
+                const dir = i % 2 ? -1 : 1;
+                const a = away + spin + dir * half * (Math.PI * 2 / SPAWN_ARC);
+                const r = ring * SPAWN_RING_STEP + push;
+                const x = base.x + Math.cos(a) * r;
+                const z = base.z + Math.sin(a) * r;
+                if (spawnSpotOk(x, z, clearR, checkView)) return { x, z };
+            }
+        }
+    }
+    if (spawnSpotFree(base.x, base.z)) return base;
     return { x: p.x, z: p.z };
 }
 
@@ -195,6 +245,7 @@ export function spawnStage9Encounter(name, counts, active = false) {
     if (!counts || spawnedEncounters[name]) return 0;
     spawnedEncounters[name] = true;
     const points = stage9EncounterPoints(name);
+    const record = spawnPlacements[name] = [];
     let cursor = 0;
     for (const cls of ['C', 'B', 'A']) {
         const amount = Math.max(0, counts[cls] | 0);
@@ -202,6 +253,12 @@ export function spawnStage9Encounter(name, counts, active = false) {
             const point = clearSpawnPoint(points[cursor % points.length], cursor);
             spawnCampaignRobot(point.x, point.z, 9, cls, active);
             robots[robots.length - 1].encounter = name;
+            record.push({
+                x: point.x, z: point.z,
+                inView: stage9RobotInView(point.x, point.z, SPAWN_PROBE_Y),
+                playerDist: Math.hypot(point.x - camera.position.x,
+                    point.z - camera.position.z),
+            });
         }
     }
     return cursor;
@@ -240,6 +297,7 @@ export function resetStage9Runtime() {
     cine = null;
     subFadePending = false;
     for (const name of Object.keys(spawnedEncounters)) delete spawnedEncounters[name];
+    for (const name of Object.keys(spawnPlacements)) delete spawnPlacements[name];
     resetStage9Dialogue();
 }
 
@@ -257,6 +315,17 @@ export function stage9RuntimeDebug() {
         },
         encounters: Object.fromEntries(Object.keys(spawnedEncounters)
             .map(name => [name, stage9EncounterCount(name)])),
+        spawnPlacement: {
+            clearRadius: stage9SpawnClearRadius(),
+            viewMargin: SPAWN_VIEW_MARGIN,
+            encounters: Object.fromEntries(Object.entries(spawnPlacements)
+                .map(([name, list]) => [name, {
+                    total: list.length,
+                    inView: list.filter(p => p.inView).length,
+                    minPlayerDist: list.reduce((m, p) =>
+                        Math.min(m, p.playerDist), Infinity),
+                }])),
+        },
         takeoff: { seconds: takeoffT, duration: C.takeoffSec },
         cinematic: cine?.kind || null,
         transitionSent,

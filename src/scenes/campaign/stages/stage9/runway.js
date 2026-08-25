@@ -14,10 +14,11 @@ import { resolveBarrelBlock } from '../../../../entities/barrels.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 import { setActiveStageLights } from '../../../../world/lighting.js';
+import { enterCityEnv } from '../../utility/cityscape.js';
 import { campaignRobotAI, campaignClampRobot } from '../../utility/common.js';
 import {
     S9_RUNWAY_KEY, S9_RUNWAY_START, S9_RUNWAY_CHECKPOINT,
-    S9_PUMP, S9_BOARD, S9_BOUNDS,
+    S9_PUMP, S9_BOARD, S9_BOUNDS, S9_EXTERIOR_ENV,
     stage9RunwayWalkable, stage9Resolve, stage9SegHitsWall, stage9NavGrid,
     stage9BlockedAt, stage9Transport, stage9SetFuelPumpOn, stage9SetMarkers,
     stage9UpdateWorld, setStage9WorldChapter,
@@ -120,6 +121,7 @@ export const runwayScene = {
         setStage9WorldChapter('runway');
         setActiveCampaignWorldRoots(S9_RUNWAY_KEY);
         setActiveStageLights(S9_RUNWAY_KEY);
+        enterCityEnv(S9_EXTERIOR_ENV);
         camera.position.set(S9_RUNWAY_START.x, CFG.player.eyeHeight, S9_RUNWAY_START.z);
         player.vy = 0; player.onGround = true;
         stage9SetMarkers(['runwayCheckpoint']);

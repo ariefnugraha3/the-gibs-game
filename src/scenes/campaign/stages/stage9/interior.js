@@ -9,10 +9,11 @@ import { resolveBarrelBlock } from '../../../../entities/barrels.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 import { setActiveStageLights } from '../../../../world/lighting.js';
+import { enterCityEnv } from '../../utility/cityscape.js';
 import { campaignRobotAI, campaignClampRobot } from '../../utility/common.js';
 import {
     S9_INTERIOR_KEY, S9_BUILDING_START, S9_INTERIOR_CHECKPOINT,
-    S9_BUILDING_EXIT, S9_INTERIOR_BOUNDS,
+    S9_BUILDING_EXIT, S9_INTERIOR_BOUNDS, S9_INTERIOR_ENV,
     stage9InteriorWalkable, stage9Resolve, stage9SegHitsWall, stage9NavGrid,
     stage9BlockedAt, stage9SetMarkers, stage9UpdateWorld, setStage9WorldChapter,
 } from './world.js';
@@ -51,6 +52,7 @@ export const interiorScene = {
         setStage9WorldChapter('interior');
         setActiveCampaignWorldRoots(S9_INTERIOR_KEY);
         setActiveStageLights(S9_INTERIOR_KEY);
+        enterCityEnv(S9_INTERIOR_ENV);
         camera.position.set(S9_BUILDING_START.x, CFG.player.eyeHeight, S9_BUILDING_START.z);
         player.vy = 0; player.onGround = true;
         stage9SetMarkers(['interiorCheckpoint']);

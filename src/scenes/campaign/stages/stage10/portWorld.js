@@ -19,15 +19,19 @@ import {
 import { buildDefenseArray, defenseArrayDebug } from './defenseArray.js';
 
 export const S10_ORIGIN = Object.freeze({ x: 330000, z: 0 });
-export const S10_START = Object.freeze({ x: 329130, z: 135 });
+export const S10_CONTAINER_APPROACH = Object.freeze({
+    x0: 328370, x1: 329890, previousLength: 760, length: 1520, multiplier: 2,
+});
+export const S10_START = Object.freeze({ x: S10_CONTAINER_APPROACH.x0, z: 30 });
 export const S10_YARD = Object.freeze({ x: 329470, z: 30 });
 export const S10_SAFE_BAY = Object.freeze({ x: 329890, z: 12 });
 export const S10_WAREHOUSE = Object.freeze({ x: 330070, z: 10 });
 export const S10_RELAY = Object.freeze({ x: 330135, z: 4 });
 export const S10_PIPE_RACK = Object.freeze({ x: 330345, z: -42 });
 export const S10_DEFENSE = Object.freeze({ x: 330590, z: -112 });
-export const S10_EXTRACT = Object.freeze({ x: 330825, z: 92 });
-export const S10_BOUNDS = Object.freeze({ x0: 329000, x1: 331000, z0: -650, z1: 610 });
+const S10_CARRIER = Object.freeze({ x: 330825, z: 92 });
+export const S10_EXTRACT = Object.freeze({ x: 330783, z: 92 });
+export const S10_BOUNDS = Object.freeze({ x0: 328240, x1: 331000, z0: -650, z1: 610 });
 
 export const S10_OCC = 'campaign-10-port';
 let built = false;
@@ -45,9 +49,20 @@ const stageLights = [];
 const semantic = Object.create(null);
 
 const crateCandidates = [
-    [-790, 90], [-690, -92], [-585, 146], [-488, -118], [-380, 92],
-    [-270, -135], [-158, 150], [-72, -58], [32, 58], [128, -128],
-    [222, 138], [322, -126], [418, 52], [516, -190], [626, 164], [738, 22],
+    [-1580, 25, 'approach-west'], [-1515, -105, 'approach-west'],
+    [-1450, 112, 'approach-west'], [-1380, -25, 'approach-west'],
+    [-1310, 105, 'approach-west'], [-1240, -108, 'approach-west'],
+    [-1170, 28, 'approach-west'], [-1100, 110, 'approach-west'],
+    [-1030, -110, 'approach-west'], [-960, 25, 'approach-west'],
+    [-890, 110, 'approach-west'], [-820, -108, 'approach-west'],
+    [-750, 28, 'approach-west'], [-690, -92, 'approach-west'],
+    [-790, 90, 'container-yard'], [-585, 35, 'container-yard'],
+    [-488, -118, 'container-yard'], [-380, 92, 'container-yard'],
+    [-270, -135, 'container-yard'], [-175, -205, 'container-yard'],
+    [-72, -58, 'warehouse'], [32, 30, 'warehouse'], [128, -128, 'warehouse'],
+    [222, 138, 'pipe-rack'], [322, -126, 'pipe-rack'], [418, 52, 'pipe-rack'],
+    [516, -190, 'defense-pier'], [626, 164, 'defense-pier'],
+    [738, 22, 'defense-pier'], [780, 188, 'extraction-route'],
 ];
 const barrelCandidates = [
     [-820, 170], [-735, -138], [-652, 65], [-566, -170], [-474, 174], [-392, -48],
@@ -355,7 +370,7 @@ function buildSeaAndShips(parent, M) {
 }
 
 function buildCarrier(parent, M) {
-    const g = new THREE.Group(); g.position.set(S10_EXTRACT.x, 0, S10_EXTRACT.z); parent.add(g);
+    const g = new THREE.Group(); g.position.set(S10_CARRIER.x, 0, S10_CARRIER.z); parent.add(g);
     box(g, M.gunmetal, 54, 8, 22, 0, 7, 0);
     box(g, M.armor, 32, 13, 20, -4, 16, 0);
     box(g, M.glass, 8, 5, 21, 11, 20, 0);
@@ -367,7 +382,7 @@ function buildCarrier(parent, M) {
     }
     box(g, M.frame, 18, 2, 13, -27, 8, 0);
     cylinder(g, M.tech, 1.1, 2, 8, 25, 0, 'y', 10);
-    makeBlocker(S10_EXTRACT.x, S10_EXTRACT.z, 29, 14, 27, 0, 'armored-freight-carrier');
+    makeBlocker(S10_CARRIER.x, S10_CARRIER.z, 29, 14, 27, 0, 'armored-freight-carrier');
     count('armoredFreightCarrier');
     return g;
 }
@@ -403,10 +418,33 @@ function buildWorld() {
             opacity: 0.62, toneMapped: false, depthWrite: false }),
     };
 
-    box(staticRoot, M.concrete, 1920, 1, 520, 330000, -0.7, 10, false);
+    // Perpanjangan barat membuat rute START -> safe bay tepat dua kali versi
+    // awal. Dunia setelah safe bay tidak digeser, sehingga flow crane/warehouse
+    // dan pier tetap memakai transform authored yang sama.
+    box(staticRoot, M.concrete, 2680, 1, 520, 329620, -0.7, 10, false);
     buildSeaAndShips(staticRoot, M);
     buildCargoAirstrip(staticRoot, M);
     buildSmallCity(staticRoot, M);
+
+    // Tambahan approach barat: dua dinding stack panjang dan satu baris
+    // berselang-seling membentuk lorong tempur, dengan koridor tengah tetap luas.
+    for (let i = 0; i < 19; i++) {
+        const x = 328430 + i * 48;
+        if (i !== 4 && i !== 11) {
+            buildStaticContainer(staticRoot, M, x, -146, 0, i + 2, 2 + (i % 3 === 0 ? 1 : 0));
+            count('openingContainerStack');
+        }
+        if (i !== 7 && i !== 15) {
+            buildStaticContainer(staticRoot, M, x, 146, 0, i + 3, 2 + (i % 4 === 0 ? 1 : 0));
+            count('openingContainerStack');
+        }
+    }
+    for (let i = 0; i < 9; i++) {
+        const x = 328480 + i * 98;
+        const z = i % 2 ? -76 : 76;
+        buildStaticContainer(staticRoot, M, x, z, Math.PI * 0.5, i + 1, 1 + (i % 3 === 0 ? 1 : 0));
+        count('openingContainerStack');
+    }
 
     // Container yard stacks define long lanes but preserve broad cross aisles.
     for (let i = 0; i < 13; i++) {
@@ -423,6 +461,15 @@ function buildWorld() {
     buildForklift(staticRoot, M, 329425, 76, 0.2);
     buildForklift(staticRoot, M, 329705, -112, -0.25);
     buildReachStacker(staticRoot, M, 329820, 116);
+
+    // Dinding gate crane memotong seluruh lebar port. Dua flank statis hanya
+    // menyisakan celah tengah selebar 29 unit; moving-container #3 menutupnya
+    // pada layout A dan dipindah ke bahu utara pada layout B.
+    for (const side of [-1, 1]) for (let dz = 32; dz <= 232; dz += 25) {
+        buildStaticContainer(staticRoot, M, 329915, side * dz,
+            Math.PI * 0.5, Math.round(dz / 25) + (side > 0 ? 3 : 7), 2);
+        count('craneGateFlank');
+    }
     buildWarehouse(staticRoot, M);
     buildPipeRack(staticRoot, M);
 
@@ -462,14 +509,14 @@ function buildWorld() {
     createMarker(worldRoot, 'safeBay', S10_SAFE_BAY.x, S10_SAFE_BAY.z);
     createMarker(worldRoot, 'relay', S10_RELAY.x, S10_RELAY.z);
     createMarker(worldRoot, 'defense', S10_DEFENSE.x - 74, S10_DEFENSE.z + 72);
-    createMarker(worldRoot, 'extract', S10_EXTRACT.x - 42, S10_EXTRACT.z);
+    createMarker(worldRoot, 'extract', S10_EXTRACT.x, S10_EXTRACT.z);
 
     staticBatch = addMergedStatic(worldRoot, [staticRoot]);
 
     const cell = 14;
-    const cols = Math.ceil((330940 - 329050) / cell);
+    const cols = Math.ceil((330940 - 328290) / cell);
     const rows = Math.ceil((265 - (-240)) / cell);
-    navGrid = makeNavGrid(329050, -240, cell, cols, rows,
+    navGrid = makeNavGrid(328290, -240, cell, cols, rows,
         (x, z) => stage10Walkable(x, z, 4) && !stage10StaticBlockedAt(x, z, 3.5));
 
     registerCampaignWorldRoot({
@@ -488,7 +535,7 @@ export function ensureStage10World() {
 }
 
 export function stage10Walkable(x, z, radius = 0) {
-    const port = x >= 329055 + radius && x <= 330930 - radius
+    const port = x >= 328295 + radius && x <= 330930 - radius
         && z >= -238 + radius && z <= 238 - radius;
     const airstripApron = x >= 329045 + radius && x <= 329620 - radius
         && z >= 115 + radius && z <= 286 - radius;
@@ -542,7 +589,7 @@ export function stage10UpdateWorld(dt, elapsed) {
 
 export function stage10SupplyPlacements() {
     return {
-        crates: crateCandidates.map(([x, z]) => ({ x: S10_ORIGIN.x + x, z })),
+        crates: crateCandidates.map(([x, z, zone]) => ({ x: S10_ORIGIN.x + x, z, zone })),
         barrels: barrelCandidates.map(([x, z]) => ({ x: S10_ORIGIN.x + x, z })),
         drops: [
             { x: 329290, z: 72, type: 'ammo', weapon: 'pistol' },
@@ -555,8 +602,11 @@ export function stage10SupplyPlacements() {
 
 export function stage10EncounterPoints(name) {
     const sets = {
-        entry: [[329185, 72], [329245, -32], [329310, 112], [329355, -105], [329420, 46]],
-        yard: [[329455, -105], [329510, 102], [329575, -32], [329645, 112], [329710, -96], [329785, 35]],
+        entry: [[328420, 28], [328490, -108], [328560, 112], [328640, -28],
+            [328720, 104], [328800, -106], [328885, 24], [328970, 108],
+            [329055, -104], [329145, 30], [329235, 106], [329330, -96]],
+        yard: [[329390, 32], [329455, -105], [329510, 102], [329575, -32],
+            [329645, 112], [329710, -96], [329785, 35], [329840, -118]],
         warehouse: [[329965, -52], [330020, 66], [330075, -58], [330125, 64], [330180, -42]],
         pipeRack: [[330220, 128], [330270, -136], [330330, 46], [330390, -104], [330450, 122]],
         defense: [[330465, 118], [330515, -182], [330565, 62], [330645, 128], [330705, -182], [330770, 28]],
@@ -614,18 +664,48 @@ function connectedInLayout(state, start, goals) {
     return { connected: reached.every(Boolean), reachableCells: tail, reached };
 }
 
+function gateCrossSection(state, radius = 5) {
+    const x = 329915;
+    let openSamples = 0, run = 0, longestOpenSpan = 0;
+    for (let z = -233; z <= 233; z++) {
+        const open = stage10Walkable(x, z, radius)
+            && !stage10StaticBlockedAt(x, z, radius)
+            && layoutContainerFree(x, z, radius, state);
+        if (open) {
+            openSamples++;
+            run++;
+            longestOpenSpan = Math.max(longestOpenSpan, run);
+        } else run = 0;
+    }
+    return { x, radius, openSamples, longestOpenSpan };
+}
+
 export function stage10ConnectivityDebug() {
     ensureStage10World();
     const A = connectedInLayout('A', S10_START, [S10_SAFE_BAY]);
+    const AForward = connectedInLayout('A', S10_SAFE_BAY, [S10_RELAY]);
     const B = connectedInLayout('B', S10_SAFE_BAY,
         [S10_RELAY, S10_PIPE_RACK, { x: S10_DEFENSE.x - 70, z: S10_DEFENSE.z + 70 }, S10_EXTRACT]);
-    return { A, B, allStableStatesConnected: A.connected && B.connected };
+    const sectionA = gateCrossSection('A');
+    const sectionB = gateCrossSection('B');
+    const gate = {
+        A: { ...sectionA, forwardConnected: AForward.connected },
+        B: { ...sectionB, forwardConnected: B.connected },
+        closedInA: !AForward.connected && sectionA.openSamples === 0,
+        openInB: B.connected && sectionB.longestOpenSpan > 10,
+    };
+    return { A, B, gate, allStableStatesConnected: A.connected && B.connected
+        && gate.closedInA && gate.openInB };
 }
 
 export function stage10WorldDebug() {
     ensureStage10World();
     return {
         built, origin: { ...S10_ORIGIN }, bounds: { ...S10_BOUNDS }, deterministic: true,
+        containerApproach: {
+            ...S10_CONTAINER_APPROACH,
+            authoredStacks: semantic.openingContainerStack || 0,
+        },
         theme: 'balikpapan-cargo-airstrip-industrial-port-coast',
         airstrip: {
             runway: semantic.cargoAirstrip || 0,
@@ -656,7 +736,11 @@ export function stage10WorldDebug() {
         pointLights: stageLights.length,
         markers: Object.keys(markers),
         occluders: occlusionDebug(S10_OCC),
-        supplies: { crateCandidates: crateCandidates.length, barrelCandidates: barrelCandidates.length },
+        supplies: {
+            crateCandidates: crateCandidates.length,
+            crateZones: [...new Set(crateCandidates.map(item => item[2]))],
+            barrelCandidates: barrelCandidates.length,
+        },
     };
 }
 

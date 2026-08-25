@@ -3,6 +3,11 @@
 
 import { segPointDist2 } from '../../../../utils/math.js';
 
+// Durasi visual murni. Seluruh mesh sudah dibangun saat world dibuat agar
+// feedback servo tidak menambah object atau shader baru di tengah permainan.
+export const SERVO_HIT_SEC = 0.16;
+export const SERVO_DESTROY_SEC = 0.72;
+
 function box(parent, material, sx, sy, sz, x, y, z, shadow = true) {
     const part = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), material);
     part.position.set(x, y, z);
@@ -28,21 +33,100 @@ function buildServo(parent, M, id, label, x, z) {
     group.position.set(x, 0, z);
     group.name = `defense-${id}-servo`;
     parent.add(group);
-    box(group, M.servoBody, 13, 10, 11, 0, 5, 0);
-    box(group, M.frame, 14, 1.1, 12, 0, 10.4, 0);
+    const live = new THREE.Group();
+    live.name = `${id}-servo-live-parts`;
+    group.add(live);
+
+    // Siluet dasar jauh lebih besar daripada kabinet lama. Bentuk mekanisme di
+    // atasnya berbeda per fungsi supaya tiga sasaran terbaca tanpa papan teks.
+    box(live, M.servoBody, 18, 8, 14, 0, 4, 0);
+    box(live, M.frame, 20, 1.4, 16, 0, 8.7, 0);
     for (const sx of [-1, 1]) for (const sz of [-1, 1])
-        box(group, M.frame, 1.1, 11, 1.1, sx * 6.1, 5, sz * 5.1);
-    const face = box(group, M.servoFace, 8.5, 5.5, 0.5, 0, 5.4, -5.65, false);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.5, 6, 18), M.servoGlow);
-    ring.position.set(0, 5.4, -6);
-    group.add(ring);
-    const axle = cylinder(group, M.steel, 1.2, 15, 0, 5, 0, 'z');
-    const wreck = box(group, M.wreck, 10, 1.1, 9, 0, 1, 0);
+        box(live, M.frame, 1.5, 9.5, 1.5, sx * 8.2, 4.5, sz * 6.2);
+    const face = box(live, M.servoFace, 11.5, 5.8, 0.7, 0, 4.6, -7.35, false);
+
+    const rotor = new THREE.Group();
+    rotor.name = `${id}-servo-rotor`;
+    live.add(rotor);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(4.5, 0.72, 6, 20), M.servoGlow);
+    ring.position.set(0, 5, -7.8);
+    rotor.add(ring);
+    const axle = cylinder(rotor, M.steel, 1.55, 19, 0, 5, 0, 'z', 12);
+
+    if (id === 'traverse') {
+        // Roda penggerak horizontal lebar: mekanisme pemutar dudukan meriam.
+        for (const side of [-1, 1])
+            cylinder(live, M.steel, 3.2, 5.2, side * 5.1, 12.2, 0, 'z', 12);
+        box(live, M.frame, 15.5, 2, 3, 0, 12.2, 0);
+    } else if (id === 'elevation') {
+        // Sepasang aktuator tinggi dengan batang silang pengangkat laras.
+        for (const side of [-1, 1]) {
+            cylinder(live, M.steel, 2.2, 10, side * 4.5, 13, 0, 'y', 12);
+            cylinder(live, M.frame, 1.1, 8, side * 4.5, 19, 0, 'y', 10);
+        }
+        box(live, M.frame, 13, 2.2, 3.2, 0, 22.2, 0);
+    } else {
+        // Relay berbentuk hub bertingkat dengan tiga sirip kontrol tembakan.
+        cylinder(live, M.steel, 4.2, 9, 0, 13, 0, 'y', 10);
+        for (let i = 0; i < 3; i++) {
+            const angle = i * Math.PI * 2 / 3;
+            const fin = box(live, M.frame, 2, 8, 7, Math.cos(angle) * 5,
+                14, Math.sin(angle) * 5);
+            fin.rotation.y = -angle;
+        }
+        cylinder(live, M.servoGlow, 1.15, 8, 0, 21, 0, 'y', 8);
+    }
+
+    // Halo lantai + penunjuk melayang hanya menyala pada servo yang saat ini
+    // dapat dirusak. Keduanya dibangun sejak awal dan hanya ditransformasikan.
+    const target = new THREE.Group();
+    target.name = `${id}-servo-current-target`;
+    target.visible = false;
+    group.add(target);
+    const targetHalo = new THREE.Mesh(new THREE.TorusGeometry(10, 0.9, 6, 24), M.servoGlow);
+    targetHalo.rotation.x = Math.PI * 0.5;
+    targetHalo.position.y = 0.35;
+    target.add(targetHalo);
+    const targetPointer = new THREE.Mesh(new THREE.ConeGeometry(3.2, 7, 4), M.servoGlow);
+    targetPointer.position.y = 27;
+    targetPointer.rotation.z = Math.PI;
+    target.add(targetPointer);
+
+    // Flash benturan dan bentuk reruntuhan selalu tersedia di pool world.
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(4.4, 8, 5), M.servoGlow);
+    flash.position.set(0, 7, -7.9);
+    flash.visible = false;
+    group.add(flash);
+    const wreck = new THREE.Group();
+    wreck.name = `${id}-servo-wreck`;
     wreck.visible = false;
+    group.add(wreck);
+    const wreckPlate = box(wreck, M.wreck, 14, 2.2, 11, -1.5, 1.4, 0);
+    wreckPlate.rotation.y = 0.18;
+    const wreckRotor = cylinder(wreck, M.wreck, 4.2, 2.6, 4.8, 2.7, -3.4, 'z', 10);
+    wreckRotor.rotation.z = 0.35;
+    box(wreck, M.frame, 2.2, 6.5, 2.2, -6.2, 3.2, 3.5);
+
     return {
-        id, label, group, face, ring, axle, wreck,
-        x, z, hp: 0, maxHp: 0, destroyed: false,
+        id, label, profile: id, group, live, face, rotor, ring, axle,
+        target, targetHalo, targetPointer, flash, wreck,
+        x, z, hitRadius: 10.5, hp: 0, maxHp: 0, destroyed: false,
+        hitT: 0, hitCount: 0, hitDamaged: false,
+        destroyT: 0, destroying: false,
     };
+}
+
+function syncServoTargets(system) {
+    for (let i = 0; i < system.servos.length; i++)
+        system.servos[i].target.visible = system.active && !system.shutdown
+            && !system.servos[i].destroyed && i === system.destroyedCount;
+}
+
+function markServoHit(servo, damaged) {
+    servo.hitT = SERVO_HIT_SEC;
+    servo.hitCount++;
+    servo.hitDamaged = damaged;
+    servo.flash.visible = true;
 }
 
 function updateWarning(system, x, z, visible) {
@@ -129,7 +213,7 @@ export function buildDefenseArray(parent, M, x, z) {
         x, z, warningBaseLength: 1,
         active: false, shutdown: false, destroyedCount: 0,
         phase: 'offline', timer: 0, lockPoint: { x, z },
-        limitedYaw: 0, shots: 0, recoil: 0,
+        limitedYaw: 0, shots: 0, recoil: 0, visualT: 0,
     };
 }
 
@@ -141,6 +225,9 @@ export function resetDefenseArray(system, servoHp) {
     system.timer = 0;
     system.shots = 0;
     system.recoil = 0;
+    system.visualT = 0;
+    system.turret.visible = true;
+    system.turret.position.set(system.x, 8, system.z);
     system.turret.rotation.y = 0;
     system.radar.rotation.y = 0;
     system.warning.visible = false;
@@ -150,11 +237,26 @@ export function resetDefenseArray(system, servoHp) {
         servo.maxHp = servoHp;
         servo.destroyed = false;
         servo.group.visible = true;
-        servo.face.visible = true;
-        servo.ring.visible = true;
-        servo.axle.visible = true;
+        servo.group.position.set(servo.x, 0, servo.z);
+        servo.group.rotation.set(0, 0, 0);
+        servo.live.visible = true;
+        servo.live.position.set(0, 0, 0);
+        servo.live.rotation.set(0, 0, 0);
+        servo.rotor.rotation.set(0, 0, 0);
+        servo.target.visible = false;
+        servo.target.rotation.set(0, 0, 0);
+        servo.target.scale.set(1, 1, 1);
+        servo.flash.visible = false;
+        servo.flash.scale.set(1, 1, 1);
         servo.wreck.visible = false;
+        servo.wreck.scale.set(1, 1, 1);
+        servo.hitT = 0;
+        servo.hitCount = 0;
+        servo.hitDamaged = false;
+        servo.destroyT = 0;
+        servo.destroying = false;
     }
+    syncServoTargets(system);
 }
 
 export function activateDefenseArray(system) {
@@ -162,6 +264,7 @@ export function activateDefenseArray(system) {
     system.active = true;
     system.phase = 'tracking';
     system.timer = 0;
+    syncServoTargets(system);
 }
 
 function destroyCurrentServo(system) {
@@ -169,10 +272,10 @@ function destroyCurrentServo(system) {
     if (!servo) return null;
     servo.destroyed = true;
     servo.hp = 0;
-    servo.face.visible = false;
-    servo.ring.visible = false;
-    servo.axle.visible = false;
+    servo.destroyT = 0;
+    servo.destroying = true;
     servo.wreck.visible = true;
+    servo.wreck.scale.set(0.2, 0.2, 0.2);
     system.destroyedCount++;
     system.limitedYaw = -system.turret.rotation.y;
     system.phase = 'cooldown';
@@ -184,6 +287,7 @@ function destroyCurrentServo(system) {
         system.active = false;
         system.phase = 'shutdown';
     }
+    syncServoTargets(system);
     return servo;
 }
 
@@ -191,24 +295,93 @@ export function defenseArrayBulletHit(system, bullet, damage) {
     const bx = bullet.mesh.position.x, bz = bullet.mesh.position.z;
     for (let index = 0; index < system.servos.length; index++) {
         const servo = system.servos[index];
-        if (segPointDist2(bullet.px, 0, bullet.pz, bx, 0, bz, servo.x, 0, servo.z) > 49)
+        if (segPointDist2(bullet.px, 0, bullet.pz, bx, 0, bz, servo.x, 0, servo.z)
+            > servo.hitRadius * servo.hitRadius)
             continue;
+        const vulnerable = !servo.destroyed && index === system.destroyedCount && system.active;
+        markServoHit(servo, vulnerable);
         let destroyed = null;
-        if (!servo.destroyed && index === system.destroyedCount && system.active) {
+        if (vulnerable) {
             servo.hp -= damage;
             if (servo.hp <= 0) destroyed = destroyCurrentServo(system);
         }
-        return { hit: true, damaged: index === system.destroyedCount || !!destroyed, destroyed };
+        return { hit: true, damaged: vulnerable, destroyed };
     }
     return { hit: false, damaged: false, destroyed: null };
 }
 
+export function updateDefenseArrayVisuals(system, dt) {
+    system.visualT += dt;
+    const current = system.servos[system.destroyedCount];
+    for (const servo of system.servos) {
+        servo.group.position.x = servo.x;
+        servo.group.position.y = 0;
+        servo.group.position.z = servo.z;
+        servo.group.rotation.x = 0;
+        servo.group.rotation.z = 0;
+
+        if (servo.hitT > 0) {
+            servo.hitT = Math.max(0, servo.hitT - dt);
+            const k = servo.hitT / SERVO_HIT_SEC;
+            const strength = servo.hitDamaged ? 1 : 0.45;
+            servo.group.position.x += Math.sin(k * Math.PI * 7) * strength * 0.9;
+            servo.group.rotation.z = Math.sin(k * Math.PI * 5) * strength * 0.065;
+            servo.flash.visible = true;
+            servo.flash.scale.set(0.65 + k * 0.7, 0.65 + k * 0.7, 0.65 + k * 0.7);
+        } else if (!servo.destroying) {
+            servo.flash.visible = false;
+        }
+
+        if (servo.destroyed) {
+            servo.destroyT = Math.min(SERVO_DESTROY_SEC, servo.destroyT + dt);
+            const k = servo.destroyT / SERVO_DESTROY_SEC;
+            servo.destroying = k < 1;
+            servo.wreck.visible = true;
+            const wreckScale = Math.min(1, 0.2 + k * 1.35);
+            servo.wreck.scale.set(wreckScale, wreckScale, wreckScale);
+            if (servo.destroying) {
+                servo.live.visible = true;
+                servo.live.position.y = -k * 5;
+                servo.live.rotation.x = k * 0.62;
+                servo.live.rotation.z = Math.sin(k * Math.PI * 8) * (1 - k) * 0.18;
+                servo.rotor.rotation.z += dt * (8 + k * 15);
+                servo.flash.visible = Math.floor(k * 12) % 2 === 0;
+                servo.flash.scale.set(1.15 + (1 - k), 1.15 + (1 - k), 1.15 + (1 - k));
+            } else {
+                servo.live.visible = false;
+                servo.live.position.set(0, 0, 0);
+                servo.live.rotation.set(0, 0, 0);
+                servo.flash.visible = false;
+            }
+        } else {
+            servo.live.visible = true;
+            servo.live.position.set(0, 0, 0);
+            servo.live.rotation.set(0, 0, 0);
+            if (servo === current && system.active)
+                servo.rotor.rotation.z += dt * 1.8;
+        }
+
+        const isCurrent = servo === current && system.active && !system.shutdown
+            && !servo.destroyed;
+        servo.target.visible = isCurrent;
+        if (isCurrent) {
+            const pulse = 1 + Math.sin(system.visualT * 7) * 0.12;
+            servo.target.scale.set(pulse, pulse, pulse);
+            servo.target.rotation.y += dt * 1.4;
+            servo.targetPointer.position.y = 27 + Math.sin(system.visualT * 6) * 1.8;
+        }
+    }
+}
+
 export function updateDefenseArray(system, dt, C, playerX, playerZ, onFire) {
+    updateDefenseArrayVisuals(system, dt);
     system.radar.rotation.y += dt * (system.shutdown ? 0 : 0.7);
     if (system.recoil > 0) {
         system.recoil = Math.max(0, system.recoil - dt * 4);
-        system.turret.position.x = -system.recoil * 3;
-    } else system.turret.position.x = 0;
+        system.turret.position.x = system.x - system.recoil * 3;
+    } else system.turret.position.x = system.x;
+    system.turret.position.y = 8;
+    system.turret.position.z = system.z;
     if (!system.active || system.shutdown) {
         updateWarning(system, 0, 0, false);
         system.targetRing.visible = false;
@@ -269,11 +442,26 @@ export function defenseArrayDebug(system) {
         destroyedServos: system.servos.filter((servo) => servo.destroyed).map((servo) => servo.id),
         vulnerableServo: system.servos[system.destroyedCount]?.id || null,
         servos: system.servos.map((servo) => ({
-            id: servo.id, label: servo.label, hp: servo.hp,
-            maxHp: servo.maxHp, destroyed: servo.destroyed,
+            id: servo.id, label: servo.label, profile: servo.profile,
+            hp: servo.hp, maxHp: servo.maxHp, hitRadius: servo.hitRadius,
+            destroyed: servo.destroyed,
+            currentTarget: servo.target.visible,
+            hitAnimating: servo.hitT > 0,
+            hitCount: servo.hitCount,
+            destroying: servo.destroying,
+            destroyProgress: servo.destroyed ? servo.destroyT / SERVO_DESTROY_SEC : 0,
+            liveVisible: servo.live.visible,
+            wreckVisible: servo.wreck.visible,
         })),
         lockPoint: { ...system.lockPoint },
         tracksAfterLock: false,
         shots: system.shots,
+        turret: {
+            visible: system.turret.visible,
+            x: system.turret.position.x,
+            y: system.turret.position.y,
+            z: system.turret.position.z,
+            baseX: system.x,
+        },
     };
 }

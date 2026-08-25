@@ -5,7 +5,10 @@
 import { CFG } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
 import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
-import { scene, camera, setCineFocus, addCamShake } from '../../../../core/renderer.js';
+import {
+    scene, camera, viewCam, setCineFocus, addCamShake,
+    camFocusPos, camOffsetActive, CAM_LOOK_DROP,
+} from '../../../../core/renderer.js';
 import {
     showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
@@ -36,7 +39,7 @@ import {
 } from './cranes.js';
 import {
     resetDefenseArray, activateDefenseArray, defenseArrayBulletHit,
-    updateDefenseArray, defenseArrayDebug,
+    updateDefenseArray, updateDefenseArrayVisuals, defenseArrayDebug,
 } from './defenseArray.js';
 import {
     ensureStage10World, S10_START, S10_YARD, S10_SAFE_BAY, S10_WAREHOUSE,
@@ -58,7 +61,6 @@ let relayToken = false;
 let craneT = 0;
 let craneSettleT = 0;
 let defenseWave = 0;
-let extractHoldT = 0;
 let transitionSent = false;
 let completionHook = null;
 let cine = null;
@@ -75,6 +77,37 @@ const config = () => CFG.campaign.stage10;
 
 function distanceTo(point) {
     return Math.hypot(camera.position.x - point.x, camera.position.z - point.z);
+}
+
+// Robot dorman bangun pada frame pertama tubuhnya masuk viewport. Predikat ini
+// memakai pose render top-down yang sama seperti kamera, bukan radius deteksi AI.
+export function stage10RobotInView(robotOrX, zArg = 0, yArg = 0) {
+    let x = robotOrX, z = zArg, y = yArg;
+    if (robotOrX && typeof robotOrX === 'object') {
+        const p = robotOrX.mesh?.position || robotOrX.position || robotOrX;
+        x = p.x; z = p.z;
+        y = p.y + (robotOrX.scl || 1) * 6.5;
+    }
+    const off = camOffsetActive();
+    let focus = camFocusPos();
+    // Teleport objective/test dapat mendahului followViewCam satu frame.
+    if (Math.hypot(focus.x - camera.position.x, focus.z - camera.position.z) > 400)
+        focus = camera.position;
+    const ex = focus.x + off.x, ey = focus.y + off.y, ez = focus.z + off.z;
+    let fx = -off.x, fy = -off.y - CAM_LOOK_DROP, fz = -off.z;
+    const fl = Math.hypot(fx, fy, fz) || 1;
+    fx /= fl; fy /= fl; fz /= fl;
+    const rh = Math.hypot(fx, fz) || 1;
+    const rx = -fz / rh, rz = fx / rh;
+    const ux = -fy * rz, uy = fx * rz - fz * rx, uz = fy * rx;
+    const dx = x - ex, dy = y - ey, dz = z - ez;
+    const depth = dx * fx + dy * fy + dz * fz;
+    if (depth <= 1) return false;
+    const tanY = Math.tan(((viewCam?.fov || 50) * Math.PI / 180) / 2);
+    const tanX = tanY * (viewCam?.aspect || 1);
+    const screenX = (dx * rx + dz * rz) / (depth * tanX);
+    const screenY = (dx * ux + dy * uy + dz * uz) / (depth * tanY);
+    return Math.abs(screenX) <= 1 && Math.abs(screenY) <= 1;
 }
 
 function renderDialogue() {
@@ -201,7 +234,6 @@ function resetStage() {
     craneT = 0;
     craneSettleT = 0;
     defenseWave = 0;
-    extractHoldT = 0;
     transitionSent = false;
     cine = null;
     for (const key of Object.keys(spawnedEncounters)) delete spawnedEncounters[key];
@@ -242,7 +274,7 @@ function startOpening() {
     cine = { kind: 'opening', t: 0, shot: -1 };
     queueDialogue('approachLock');
     queueDialogue('divertCommand');
-    setCineFocus(329350, 260, true);
+    setCineFocus(S10_START.x + 170, S10_START.z, true);
     showCutsceneSkip(() => finishOpening(true));
 }
 
@@ -313,7 +345,7 @@ function updateCine(dt) {
         const shot = Math.min(2, Math.floor(cine.t / Math.max(0.01, third)));
         if (shot !== cine.shot) {
             cine.shot = shot;
-            if (shot === 0) setCineFocus(329350, 260, shot > 0);
+            if (shot === 0) setCineFocus(S10_START.x + 170, S10_START.z, shot > 0);
             else if (shot === 1) setCineFocus(S10_SAFE_BAY.x, S10_SAFE_BAY.z, true);
             else setCineFocus(S10_DEFENSE.x, S10_DEFENSE.z, true);
         }
@@ -332,8 +364,8 @@ function updateCine(dt) {
         }
         return;
     }
-    if (cine.kind === 'departure' && cine.t >= config().extractHoldSec
-        && !dialogueCurrent && !dialogueQueue.length) finishExtraction(false);
+    if (cine.kind === 'departure' && !dialogueCurrent && !dialogueQueue.length)
+        finishExtraction(false);
 }
 
 function enterYard() {
@@ -426,12 +458,7 @@ function updateObjectives(dt) {
     else if (phase === 'defenseArray') {
         updateDefenseArray(stage10DefenseSystem(), dt, config().cannon,
             camera.position.x, camera.position.z, cannonFire);
-    } else if (phase === 'extract') {
-        if (distanceTo(S10_EXTRACT) <= range) {
-            extractHoldT += dt;
-            if (extractHoldT >= config().extractHoldSec) startExtraction();
-        } else extractHoldT = 0;
-    }
+    } else if (phase === 'extract' && distanceTo(S10_EXTRACT) <= range) startExtraction();
 }
 
 function objectivePoint() {
@@ -451,7 +478,6 @@ export function stage10PortDebug() {
         craneTiming: { move: craneT, settle: craneSettleT },
         defense: defenseArrayDebug(defenseState),
         defenseWave, activeDefenseEnemies: activeDefenseEnemyCount(),
-        extractHold: extractHoldT,
         encounters: Object.fromEntries(Object.keys(spawnedEncounters)
             .map((name) => [name, encounterCount(name)])),
         cinematic: cine?.kind || null,
@@ -508,6 +534,10 @@ export const stage10PortScene = {
         updateCine(dt);
         stage10UpdateWorld(dt, stageElapsed);
         if (!cine && !complete) updateObjectives(dt);
+        // Animasi servo terakhir tetap selesai setelah fase langsung berpindah
+        // ke extraction/departure. Saat array aktif, updateObjectives sudah
+        // menjalankan visual bersama logika meriam.
+        if (phase !== 'defenseArray') updateDefenseArrayVisuals(stage10DefenseSystem(), dt);
         updateUI();
     },
 
@@ -564,6 +594,7 @@ export const stage10PortScene = {
             walkable: stage10Walkable,
             resolve: stage10Resolve,
             nav: stage10NavGrid(),
+            activate: stage10RobotInView,
             pathWalkable: (x, z, radius) => stage10PathWalkable(x, z, radius),
             los: (x0, z0, x1, z1) => !stage10SegHitsWall(x0, z0, x1, z1, 8),
         });
@@ -600,10 +631,7 @@ export const stage10PortScene = {
                 ? `${servo.label} — ${Math.ceil(Math.max(0, servo.hp))} HP — HOSTILES ${activeDefenseEnemyCount()}`
                 : 'HARBOR DEFENSE ARRAY OFFLINE';
         }
-        if (phase === 'extract') {
-            const percent = Math.floor(extractHoldT / config().extractHoldSec * 100);
-            return `BOARD ARMORED FREIGHT CARRIER — ${percent}%`;
-        }
+        if (phase === 'extract') return 'BOARD ARMORED FREIGHT CARRIER';
         if (phase === 'departure') return 'NORTHBOUND ROUTE TO IKN';
         return 'STAGE 10 — CHAPTER 1 COMPLETE';
     },
