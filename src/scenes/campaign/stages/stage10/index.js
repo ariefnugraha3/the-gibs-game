@@ -2,9 +2,17 @@
 // sceneManager only ever sees `stage10Scene`; chapter handoff keeps
 // checkpoint, loadout, stats and dialogue lifecycle inside one campaign stage.
 
-import { CFG } from '../../../../core/config.js';
-import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
-import { scene, camera, CAM_OFF_DEFAULT, setCineFocus } from '../../../../core/renderer.js';
+import { CFG, CAMP_M } from '../../../../core/config.js';
+import {
+    player, robots, keys, setCinematicActive, setPaused,
+    bullets, enemyBullets, grenades, explosions, drops, clearArray,
+} from '../../../../core/state.js';
+import {
+    scene, camera, viewCam, renderer, composer, postFxOn,
+    CAM_OFF_DEFAULT, setCineFocus,
+} from '../../../../core/renderer.js';
+import { showLoading, loadingStep, hideLoading } from '../../../../core/preload.js';
+import { resetRobotsFx } from '../../../../entities/robots.js';
 import {
     showStageMsg, hideStageRadioDialogue, hideDownloadBar,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
@@ -73,6 +81,7 @@ let cine = null;
 let transitionCommitted = false;
 let interactionT = 0;
 let spawned = { forest: false, sensor: false, water: false };
+let ambushReleased = false;   // player sudah keluar dari zona aman 20 m?
 let waveCursor = { forest: -1, sensor: -1, water: -1 };
 let configuredTotals = { forest: [], sensor: [], water: [] };
 let encounterDebug = [];
@@ -92,10 +101,26 @@ const WATER_POINTS = [
 
 function near(p, r) { return Math.hypot(camera.position.x - p.x, camera.position.z - p.z) <= r; }
 
+// ZONA AMAN PEMBUKA (2026-08-26, permintaan user): radius bebas-robot di
+// sekitar titik masuk Chapter 2. Tak satu pun robot boleh lahir di dalamnya,
+// dan gelombang penyergapan baru bangun setelah player MAJU keluar darinya —
+// jadi player tak lagi langsung diserbu begitu bab berganti.
+function safeStartRadius() {
+    return Math.max(0, CFG.campaign.stage10.chapter2.safeStartMeters || 0) * CAMP_M;
+}
+function safeStartZone() {
+    return { x: S10_FOREST_START.x, z: S10_FOREST_START.z, r: safeStartRadius() };
+}
+function playerAdvance() {
+    return Math.hypot(camera.position.x - S10_FOREST_START.x,
+        camera.position.z - S10_FOREST_START.z);
+}
+
 function resetStage() {
     phase = 'ambush'; complete = false; elapsed = 0; cine = null;
     transitionCommitted = false; interactionT = 0;
     spawned = { forest: false, sensor: false, water: false }; encounterDebug = [];
+    ambushReleased = false;
     waveCursor = { forest: -1, sensor: -1, water: -1 };
     const e = CFG.campaign.stage10.chapter2.encounters;
     configuredTotals = {
@@ -117,7 +142,11 @@ function spawnNextWave(kind) {
     const next = waveCursor[kind] + 1;
     if (next >= configuredTotals[kind].length) return false;
     waveCursor[kind] = next; spawned[kind] = true;
-    encounterDebug.push(...spawnStage10ForestWave(raw, next, points, kind));
+    // Gelombang penyergapan PEMBUKA lahir DORMANT dan di luar zona aman;
+    // sisanya tetap langsung mengejar seperti sebelumnya.
+    const opening = kind === 'forest' && next === 0;
+    encounterDebug.push(...spawnStage10ForestWave(raw, next, points, kind,
+        { active: !opening, keepOut: safeStartZone() }));
     return true;
 }
 
@@ -178,6 +207,13 @@ function updateOpening(dt) {
 }
 
 function updateProgression(dt) {
+    // Penyergapan hanya lepas setelah player MAJU keluar zona aman.
+    if (!ambushReleased && playerAdvance() >= safeStartRadius()) {
+        ambushReleased = true;
+        activateStage10ForestPrefix('forest-0');
+        queueStage10ForestDialogue('ambushSprung');
+        showStageMsg('CONTACT — HOSTILES CLOSING ON THE WRECK LINE', 4000);
+    }
     if (phase === 'ambush' && stage10ForestPrefixAlive('forest-0') === 0) {
         phase = 'forestApproach'; queueStage10ForestDialogue('forestRoute');
         showStageMsg('FOLLOW THE FOREST SERVICE CORRIDOR', 4300);
@@ -278,6 +314,9 @@ export const stage10ForestScene = {
         return campaignRobotAI(bot, dt, step, {
             walkable: stage10ForestWalk, resolve: stage10ForestResolve, nav: stage10ForestNav(),
             los: (x0, z0, x1, z1) => !stage10ForestSegBlocked(x0, z0, x1, z1, true),
+            // Robot penyergap pembuka TIDUR sampai zona aman ditinggalkan;
+            // sesudah itu jarak aktivasi campaign yang biasa berlaku lagi.
+            activate: (z, d) => ambushReleased && d < CFG.campaign.activateMeters * CAMP_M,
         });
     },
     clampRobot(bot, oldX, oldZ) {
@@ -308,6 +347,9 @@ const forestDebug = () => ({
     activeRobots: robots.reduce((n, r) => n + (r.stage === 10 && r.state !== 'idle' ? 1 : 0), 0),
     finishEligible: phase === 'tunnelEntry' && stage10ForestDialogueIdle(),
     spawned: { ...spawned }, encounters: encounterDebug.map(x => ({ ...x })),
+    safeStart: { x: S10_FOREST_START.x, z: S10_FOREST_START.z,
+        radius: safeStartRadius(), released: ambushReleased,
+        advance: playerAdvance() },
     waves: {
         cursor: { ...waveCursor }, configured: {
             forest: [...configuredTotals.forest], sensor: [...configuredTotals.sensor],
@@ -322,17 +364,69 @@ const forestDebug = () => ({
 });
 
 let chapter = null;
+let handoff = null;             // Promise transisi Chapter 1 -> Chapter 2
+const HANDOFF_MIN_MS = 900;     // sama dengan layar loading transisi stage
 
 function activeChapter() { return chapter || stage10PortScene; }
 
-function enterForestChapter() {
-    if (chapter === stage10ForestScene) return;
-    chapter?.exit?.();
+// ===== TRANSISI CHAPTER 1 -> CHAPTER 2 (2026-08-26, laporan user:
+// "terasa aneh akibat ada lag, delay, dan freeze") =====
+// Pergantian bab dulu dijalankan SINKRON di tengah frame dari
+// `finishExtraction`: satu frame harus membuang ~150 robot pelabuhan, menukar
+// set lampu + preset kabut, membangun sensor grid, melahirkan gelombang hutan
+// dan menaruh seluruh suplai — jadi gambar membeku beberapa ratus milidetik
+// tanpa satu pun umpan balik ke player.
+//
+// Sekarang kerja itu dipecah di balik LAYAR LOADING yang sama dengan transisi
+// antar-stage: `setPaused(true)` menghentikan `updateGame` (bukan sekadar
+// melambatkannya), tiap `await loadingStep` memberi browser kesempatan MELUKIS
+// di antara potongan kerja berat, lalu shader dikompilasi + beberapa frame
+// nyata dirender selagi layar masih tertutup. Pointer TIDAK pernah dilepas
+// (tak ada `exitPointerLock`), jadi tak ada `pointerlockchange` -> tak ada menu
+// jeda dan tak perlu klik untuk melanjutkan: begitu loading ditutup, permainan
+// langsung lanjut di Chapter 2.
+async function runChapterHandoff() {
+    const t0 = Date.now();
+    setPaused(true);
+    showLoading();
+    await loadingStep(10, 'Leaving the iron port…');
+
+    stage10PortScene.exit?.();
+    clearStage10ForestRobots();     // seluruh robot Chapter 1 (stage 10) sekaligus
+    clearArray(bullets, scene); clearArray(enemyBullets, scene);
+    clearArray(grenades, scene); clearArray(explosions, scene); clearArray(drops, scene);
+    resetRobotsFx();
+    await loadingStep(40, 'Entering the green firewall…');
+
     chapter = stage10ForestScene;
     stage10ForestScene.enter();
+    await loadingStep(68, 'Preparing the forest corridor…');
+
+    if (renderer) renderer.compile(scene, viewCam);
+    for (let i = 0; i < 3; i++) {   // frame render NYATA: unggah tekstur, link program
+        if (composer && postFxOn) composer.render();
+        else if (renderer) renderer.render(scene, viewCam);
+        await loadingStep(76 + i * 7, 'Warming up…');
+    }
+    await loadingStep(100, 'Ready!');
+    const rem = HANDOFF_MIN_MS - (Date.now() - t0);
+    if (rem > 0) await new Promise(r => setTimeout(r, rem));
+    hideLoading();
+    setPaused(false);
+}
+
+function enterForestChapter() {
+    if (chapter === stage10ForestScene) return handoff || Promise.resolve();
+    if (handoff) return handoff;
+    handoff = runChapterHandoff().then(() => { handoff = null; },
+        (e) => { handoff = null; throw e; });
+    return handoff;
 }
 
 export const enterStage10Chapter2 = enterForestChapter;
+// Transisi bab bersifat async (layar loading). Pemanggil headless/uji menunggu
+// lewat sini; null = tak ada transisi yang sedang berjalan.
+export const stage10ChapterHandoff = () => handoff;
 
 export const stage10Scene = {
     id: 'campaign-10',
@@ -349,7 +443,7 @@ export const stage10Scene = {
     exit() {
         activeChapter().exit?.();
         setStage10CompletionHook(null);
-        chapter = null;
+        chapter = null; handoff = null;
     },
 
     restartScene: () => stage1Scene,
@@ -376,6 +470,7 @@ export const stage10Scene = {
 
 export const stage10Debug = () => ({
     chapter: chapter === stage10ForestScene ? 2 : 1,
+    chapterHandoff: !!handoff,
     sub: activeChapter().id,
     chapter1: stage10PortDebug(),
     chapter2: forestDebug(),

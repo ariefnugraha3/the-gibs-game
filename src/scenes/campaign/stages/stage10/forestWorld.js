@@ -53,6 +53,7 @@ let occluderCount = 0;   // pohon/bangunan yang didaftarkan ke utility/occlusion
 const semantic = new Map();
 const vegetationChunks = [];
 const lights = [];
+let roadOutline = null;   // tepi kiri/kanan pita jalan (uji kesinambungan)
 
 const mats = {};
 function mat(name, color, opts = {}) {
@@ -172,6 +173,53 @@ export function stage10ForestPlayerProtected(x, z) {
         || denseCanopy.some(s => (x - s.x) ** 2 + (z - s.z) ** 2 <= s.r ** 2);
 }
 
+// ===== PITA MITER (2026-08-26, permintaan user: "jalannya menyambung") =====
+// Jalan & saluran dulu dibangun sebagai KOTAK PER-RUAS: tiap ruas memakai
+// lebar min(a.w, b.w) sendiri dan diputar sendiri, sehingga tiap simpul rute
+// memperlihatkan UNDAKAN lebar sekaligus takik di sisi luar belokan — persis
+// "patahan pada belokan yang tidak rapih" yang dilaporkan. Sekarang seluruh
+// rute jadi SATU poligon dengan sambungan miter dan lebar per-TITIK, jadi tepi
+// jalan menyambung mulus dari bangkai carrier sampai mulut terowongan.
+function miterFrames(pts) {
+    const n = pts.length, out = [];
+    const dir = (a, b) => {
+        const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1;
+        return { x: dx / l, z: dz / l };
+    };
+    for (let i = 0; i < n; i++) {
+        const p = pts[i];
+        const din = i > 0 ? dir(pts[i - 1], p) : dir(p, pts[1]);
+        const dout = i < n - 1 ? dir(p, pts[i + 1]) : dir(pts[n - 2], p);
+        const tx = din.x + dout.x, tz = din.z + dout.z;
+        const l = Math.hypot(tx, tz) || 1;
+        const nx = -tz / l, nz = tx / l;                       // normal kiri rata-rata
+        const c = Math.max(0.35, nx * -dout.z + nz * dout.x);  // cos(theta/2)
+        out.push({ x: p.x, z: p.z, nx, nz, m: 1 / c });
+    }
+    return out;
+}
+
+// Satu bidang datar menerus dari kerangka miter. `half(i)`/`off(i)` = setengah
+// lebar & geseran lateral di titik i (saluran tepi memakai `off`). Koordinat
+// shape RELATIF terhadap origin dunia supaya presisi float32 tetap sehat.
+function ribbon(parent, material, frames, half, off, y, receive = true) {
+    const left = [], right = [];
+    for (let i = 0; i < frames.length; i++) {
+        const f = frames[i], w = half(i) * f.m, o = off(i) * f.m;
+        left.push([f.x + f.nx * (o + w), f.z + f.nz * (o + w)]);
+        right.push([f.x + f.nx * (o - w), f.z + f.nz * (o - w)]);
+    }
+    const ring = left.concat(right.reverse());
+    const shape = new THREE.Shape();
+    for (let i = 0; i < ring.length; i++) {
+        const sx = ring[i][0] - S10_FOREST_ORIGIN.x;
+        const sy = -(ring[i][1] - S10_FOREST_ORIGIN.z);   // rot -90 deg X: shape +Y -> dunia -Z
+        if (i === 0) shape.moveTo(sx, sy); else shape.lineTo(sx, sy);
+    }
+    return mesh(parent, new THREE.ShapeGeometry(shape), material,
+        S10_FOREST_ORIGIN.x, y, S10_FOREST_ORIGIN.z, -Math.PI / 2, 0, 0, false, receive);
+}
+
 function buildGround() {
     const g = new THREE.Group();
     mesh(g, new THREE.PlaneGeometry(2100, 1500), mat('forestSoil', 0x35432b),
@@ -185,39 +233,54 @@ function buildGround() {
             i % 3 ? 0x493a29 : 0x40552f), x, -0.7, z,
         -Math.PI / 2, 0, hash(i, 5) * Math.PI, false, true).scale.set(sx, sz, 1);
     }
-    // Service road: segmented to follow the authored route.
+    // Service road: SATU pita menerus (bahu kerikil + aspal) mengikuti rute.
+    const frames = miterFrames(ROUTE);
+    const halfW = i => ROUTE[i].w * 0.6;
+    ribbon(g, mat('roadShoulder', 0x4a4534), frames, i => halfW(i) + 9, () => 0, 0.34);
+    ribbon(g, mat('wetRoad', 0x41413b), frames, halfW, () => 0, 0.5);
+    // Tepi pita disimpan supaya uji asap bisa membuktikan jalannya MENYAMBUNG
+    // (satu poligon, lebar berubah bertahap, tak keluar koridor berjalan).
+    roadOutline = {
+        left: frames.map((f, i) => ({ x: f.x + f.nx * halfW(i) * f.m,
+            z: f.z + f.nz * halfW(i) * f.m })),
+        right: frames.map((f, i) => ({ x: f.x - f.nx * halfW(i) * f.m,
+            z: f.z - f.nz * halfW(i) * f.m })),
+    };
     for (let i = 0; i < ROUTE.length - 1; i++) {
         const a = ROUTE[i], b = ROUTE[i + 1], dx = b.x - a.x, dz = b.z - a.z;
         const len = Math.hypot(dx, dz), yaw = Math.atan2(dz, dx);
-        mesh(g, new THREE.BoxGeometry(len + 5, 1.2, Math.min(a.w, b.w) * 1.2),
-            mat('wetRoad', 0x41413b), (a.x + b.x) / 2, -0.1, (a.z + b.z) / 2,
-            0, -yaw, 0, false, true);
-        // Split asphalt and repaired concrete seams give scale from above.
+        // Sambungan beton melintang: lebarnya ikut pita, jadi tak menonjol keluar.
         for (let k = 1; k < 5; k++) {
-            const t = k / 5;
-            mesh(g, new THREE.BoxGeometry(1.1, 0.18, Math.min(a.w, b.w) * 0.96),
-                mat('roadSeam', 0x625f55), a.x + dx * t, 0.55, a.z + dz * t,
+            const t = k / 5, w = (a.w + (b.w - a.w) * t) * 0.6;
+            mesh(g, new THREE.BoxGeometry(1.1, 0.18, w * 1.86),
+                mat('roadSeam', 0x625f55), a.x + dx * t, 0.6, a.z + dz * t,
                 0, -yaw, 0, false, false);
+        }
+        // Marka tengah putus-putus: penegas bahwa rute ini SATU jalur menerus.
+        const dashes = Math.max(1, Math.floor(len / 34));
+        for (let k = 0; k < dashes; k++) {
+            const t = (k + .5) / dashes;
+            mesh(g, new THREE.BoxGeometry(15, 0.16, 1.8), mat('roadMark', 0x8d8a7e),
+                a.x + dx * t, 0.62, a.z + dz * t, 0, -yaw, 0, false, false);
         }
     }
     count('broken-asphalt', ROUTE.length - 1); count('terrain-facet', 24);
+    count('road-ribbon', 2);
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
 }
 
 function buildDrainage() {
     const g = new THREE.Group();
-    for (let i = 0; i < ROUTE.length - 3; i++) {
-        const a = ROUTE[i], b = ROUTE[i + 1], dx = b.x - a.x, dz = b.z - a.z;
-        const len = Math.hypot(dx, dz), yaw = Math.atan2(dz, dx);
-        const nx = -dz / len, nz = dx / len;
-        for (const side of [-1, 1]) {
-            const off = (Math.min(a.w, b.w) * 0.68 + 5) * side;
-            const cx = (a.x + b.x) / 2 + nx * off, cz = (a.z + b.z) / 2 + nz * off;
-            mesh(g, new THREE.BoxGeometry(len, 2.0, 6), mat('drainConcrete', PAL.concrete),
-                cx, -0.1, cz, 0, -yaw, side * 0.05, false, true);
-            mesh(g, new THREE.BoxGeometry(len - 3, 0.35, 3.2), mat('drainWater', 0x294c43),
-                cx, 0.95, cz, 0, -yaw, 0, false, false);
-        }
+    // Saluran tepi: pita miter juga, jadi ia MENGIKUTI belokan jalan alih-alih
+    // putus tiap ruas seperti versi kotak-per-ruas.
+    const drainPts = ROUTE.slice(0, ROUTE.length - 2);
+    const drainFrames = miterFrames(drainPts);
+    const drainOff = i => drainPts[i].w * 0.6 + 11;
+    for (const side of [-1, 1]) {
+        ribbon(g, mat('drainConcrete', PAL.concrete), drainFrames,
+            () => 5, i => side * drainOff(i), 0.9);
+        ribbon(g, mat('drainWater', 0x294c43), drainFrames,
+            () => 2.6, i => side * drainOff(i), 0.98, false);
     }
     // Natural streams cross under culverts, visibly continuing into forest.
     for (const [x, z, yaw, len] of [
@@ -231,8 +294,29 @@ function buildDrainage() {
                 0, yaw, s * 0.07, false, true);
         count('stream');
     }
-    count('drainage-channel', (ROUTE.length - 3) * 2);
+    count('drainage-channel', 2);
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
+}
+
+// ===== DAUN/PELEPAH (2026-08-26, laporan user "daunnya aneh") =====
+// Bug lama: pelepah palem & paku memakai `rotation.set(PI/2, a, ...)`. Dengan
+// urutan euler XYZ, rotasi Y adalah rotasi DALAM sehingga TIDAK menyentuh sumbu
+// +Y lokal — jadi seluruh pelepah satu pohon menunjuk ke arah dunia +Z yang
+// sama, menembus batang, sementara `scale.z` malah memendekkan (bukan
+// memipihkan) kerucutnya. Sekarang arah dipetakan lewat (0, ry, rz): dengan
+// x=0, sumbu +Y lokal jatuh tepat di
+//     (-cos(ry)*sin(rz), cos(rz), sin(ry)*sin(rz))
+// sehingga rz = sudut dari tegak (T) dan ry = PI - azimut (A).
+function frondAngles(A, T) { return { ry: Math.PI - A, rz: T }; }
+
+// Satu helai daun: kerucut yang PANGKALNYA di titik tumbuh (geometri digeser
+// +len/2) lalu dipipihkan pada sumbu lokal Z -> bilah, bukan tanduk.
+function frond(parent, m, x, y, z, len, wide, thin, A, T, seg = 4, cast = false) {
+    const a = frondAngles(A, T);
+    const f = mesh(parent, new THREE.ConeGeometry(wide, len, seg).translate(0, len / 2, 0),
+        m, x, y, z, 0, a.ry, a.rz, cast, false);
+    f.scale.set(1, 1, thin);
+    return f;
 }
 
 function treeParts(parent, x, z, scale, type, fadeable = false) {
@@ -242,55 +326,90 @@ function treeParts(parent, x, z, scale, type, fadeable = false) {
         : type === 'fern' ? 0x355e32 : type === 'banana' ? 0x668044 : PAL.leaf;
     const leafMat = fadeable ? mat(`fade-leaf-${occluderCount}`, leafBase,
         { transparent: true }) : mat(`leaf-${type}`, leafBase);
-    const h = scale * (type === 'dipterocarp' ? 4.4 : type === 'palm' ? 3.9 : 2.8);
+    // Tinggi per SPESIES (dulu paku & pisang ikut angka pohon 2.8 sehingga
+    // proporsinya salah: paku setinggi pohon, pisang sekurus bambu).
+    const h = scale * (type === 'dipterocarp' ? 4.4 : type === 'palm' ? 3.9
+        : type === 'bamboo' ? 3.2 : type === 'fern' ? 1.35 : 2.3);
+    const seed = Math.floor(x * 0.31 + z * 0.17);
     const group = new THREE.Group();
     if (type === 'bamboo') {
+        // Rumpun bambu: batang RAMPING beruas dengan semburat daun kecil di
+        // pucuk. Versi lama menaruh kerucut selebar ~2 m di tiap batang —
+        // dari kamera atas terbaca seperti topi kerucut, bukan bambu.
         for (let k = -2; k <= 2; k++) {
-            const bx = x + k * scale * 0.25, bz = z + ((k * 7) % 3) * scale * 0.16;
-            mesh(group, new THREE.CylinderGeometry(scale * 0.12, scale * 0.16, h, 6),
-                trunkMat, bx, h / 2, bz, 0, 0, k * 0.035, false, false);
-            mesh(group, new THREE.ConeGeometry(scale * 0.95, scale * 1.8, 7), leafMat,
-                bx, h * 0.78, bz, 0, k * 0.5, 0, false, false);
+            const bx = x + k * scale * 0.3, bz = z + (((k * 7) % 3) - 1) * scale * 0.24;
+            const ch = h * (0.76 + hash(seed, 30 + k) * 0.5), lean = k * 0.028;
+            mesh(group, new THREE.CylinderGeometry(scale * 0.075, scale * 0.1, ch, 6),
+                trunkMat, bx, ch / 2, bz, 0, 0, lean, false, false);
+            for (let r = 0; r < 3; r++)   // ruas
+                mesh(group, new THREE.CylinderGeometry(scale * 0.105, scale * 0.105,
+                    scale * 0.07, 6), trunkMat, bx, ch * (0.34 + r * 0.2), bz,
+                0, 0, lean, false, false);
+            for (let d = 0; d < 4; d++) {
+                const A = (k + 2) * 1.1 + d * 1.571 + hash(seed, 40 + d) * 0.5;
+                frond(group, leafMat, bx, ch * (0.74 + (d % 2) * 0.17), bz,
+                    scale * 1.15, scale * 0.15, 0.34, A, 1.0 + (d % 2) * 0.28, 3);
+            }
         }
+    } else if (type === 'palm') {
+        mesh(group, new THREE.CylinderGeometry(scale * 0.2, scale * 0.32, h, 8),
+            trunkMat, x, h / 2, z, 0, hash(seed, 6) * Math.PI, 0, !fadeable, true);
+        // Mahkota: pangkal semua pelepah bertemu di satu titik di pucuk batang,
+        // jadi tak ada lagi pelepah yang muncul dari sisi lain batang.
+        mesh(group, new THREE.DodecahedronGeometry(scale * 0.34, 0), trunkMat,
+            x, h, z, 0, 0, 0, false, false);
+        for (let k = 0; k < 9; k++) {
+            const A = k * Math.PI * 2 / 9 + hash(seed, 50 + k) * 0.22;
+            frond(group, leafMat, x, h, z, scale * 3.1, scale * 0.44, 0.2,
+                A, 1.16 + (k % 3) * 0.12, 4, !fadeable);
+        }
+        for (let k = 0; k < 3; k++)   // pelepah muda masih tegak di tengah
+            frond(group, leafMat, x, h, z, scale * 1.7, scale * 0.3, 0.2,
+                k * 2.094 + 0.5, 0.42, 4);
+    } else if (type === 'banana') {
+        mesh(group, new THREE.CylinderGeometry(scale * 0.26, scale * 0.36, h, 7),
+            trunkMat, x, h / 2, z, 0, hash(seed, 6) * Math.PI, 0, !fadeable, true);
+        for (let k = 0; k < 7; k++) {
+            const A = k * Math.PI * 2 / 7 + hash(seed, 60 + k) * 0.3;
+            // Daun pisang: LEBAR dan sangat tipis, menjuntai ke bawah.
+            frond(group, leafMat, x, h * 0.94, z, scale * 2.8, scale * 0.82, 0.1,
+                A, 1.05 + (k % 2) * 0.3, 4, !fadeable);
+        }
+        for (let k = 0; k < 2; k++)   // pucuk gulung yang masih tegak
+            frond(group, leafMat, x, h * 0.94, z, scale * 1.5, scale * 0.26, 0.35,
+                k * 3.14 + 0.9, 0.3, 4);
+    } else if (type === 'fern') {
+        mesh(group, new THREE.CylinderGeometry(scale * 0.17, scale * 0.26, h, 6),
+            trunkMat, x, h / 2, z, 0, 0, 0, false, true);
+        for (let k = 0; k < 8; k++) {
+            const A = k * Math.PI / 4 + hash(seed, 70 + k) * 0.2;
+            frond(group, leafMat, x, h, z, scale * 2.0, scale * 0.32, 0.28,
+                A, 1.28 + (k % 2) * 0.14, 4);
+        }
+        for (let k = 0; k < 4; k++)   // mahkota dalam yang lebih tegak
+            frond(group, leafMat, x, h, z, scale * 1.2, scale * 0.24, 0.28,
+                k * 1.571 + 0.4, 0.72, 4);
     } else {
-        const trunk = mesh(group,
-            new THREE.CylinderGeometry(scale * (type === 'dipterocarp' ? 0.36 : 0.24),
-                scale * 0.52, h, 7), trunkMat, x, h / 2, z,
-            0, hash(Math.floor(x + z), 6) * Math.PI, 0, !fadeable, true);
-        void trunk;
-        if (type === 'dipterocarp') {
-            // Buttress roots make the species readable even under the top-down camera.
-            for (let k = 0; k < 5; k++) {
-                const a = k * Math.PI * 2 / 5;
-                mesh(group, new THREE.BoxGeometry(scale * 1.8, scale * 0.35, scale * 0.32),
-                    trunkMat, x + Math.cos(a) * scale * 0.62, scale * 0.25,
-                    z + Math.sin(a) * scale * 0.62, 0, -a, 0.18, !fadeable, true);
-            }
+        mesh(group, new THREE.CylinderGeometry(scale * 0.36, scale * 0.52, h, 7),
+            trunkMat, x, h / 2, z, 0, hash(seed, 6) * Math.PI, 0, !fadeable, true);
+        // Buttress roots make the species readable even under the top-down camera.
+        for (let k = 0; k < 5; k++) {
+            const a = k * Math.PI * 2 / 5;
+            mesh(group, new THREE.BoxGeometry(scale * 1.8, scale * 0.35, scale * 0.32),
+                trunkMat, x + Math.cos(a) * scale * 0.62, scale * 0.25,
+                z + Math.sin(a) * scale * 0.62, 0, -a, 0.18, !fadeable, true);
         }
-        if (type === 'palm' || type === 'banana') {
-            const leaves = type === 'palm' ? 9 : 7;
-            for (let k = 0; k < leaves; k++) {
-                const a = k * Math.PI * 2 / leaves;
-                const leaf = mesh(group,
-                    new THREE.ConeGeometry(scale * 0.58, scale * 4.1, 5), leafMat,
-                    x + Math.cos(a) * scale * 1.45, h * 0.92,
-                    z + Math.sin(a) * scale * 1.45,
-                    Math.PI / 2, a, 0.22, false, false);
-                leaf.scale.z = 0.42;
-            }
-        } else if (type === 'fern') {
-            for (let k = 0; k < 8; k++) {
-                const a = k * Math.PI / 4;
-                mesh(group, new THREE.ConeGeometry(scale * 0.38, scale * 2.5, 5), leafMat,
-                    x + Math.cos(a) * scale, scale * 0.9, z + Math.sin(a) * scale,
-                    Math.PI / 2, a, 0.35, false, false);
-            }
-        } else {
-            for (const [ox, oy, oz, r] of [[0, .82, 0, 1.9], [-1.0, .76, .4, 1.35],
-                [.9, .72, -.5, 1.45], [.25, 1.03, .45, 1.2]])
-                mesh(group, new THREE.DodecahedronGeometry(scale * r, 0), leafMat,
-                    x + ox * scale, h * oy, z + oz * scale, 0, 0, 0, false, false);
-        }
+        // Dahan menopang tajuk supaya gumpalan daun tak melayang lepas dari batang.
+        for (let k = 0; k < 3; k++)
+            frond(group, trunkMat, x, h * 0.74, z, scale * 1.6, scale * 0.13, 1,
+                k * 2.094 + hash(seed, 80) * 1.5, 1.02, 5);
+        // Tajuk dipipihkan (scale.y): kanopi hutan hujan itu lebar & datar,
+        // bukan bola-bola benjol seperti versi lama.
+        for (const [ox, oy, oz, r] of [[0, .84, 0, 1.95], [-1.05, .78, .42, 1.4],
+            [.95, .74, -.52, 1.5], [.28, 1.0, .48, 1.25], [-.35, .95, -.6, 1.15]])
+            mesh(group, new THREE.DodecahedronGeometry(scale * r, 0), leafMat,
+                x + ox * scale, h * oy, z + oz * scale, 0, 0, 0, false, false)
+                .scale.set(1, 0.62, 1);
     }
     count(type);
     if (fadeable) {
@@ -514,6 +633,122 @@ function buildTunnel() {
     count('utility-tunnel'); count('sealed-door');
 }
 
+// ===== PAGAR BATAS AREA MAIN (2026-08-26, permintaan user) =====
+// Tepi `stage10ForestWalk` dulu berupa DINDING TAK TERLIHAT: player mentok di
+// tengah hutan tanpa satu pun petunjuk visual. Kontur predikat itu ditelusuri
+// dengan marching squares (grid `FENCE_STEP`, titik potong dicari bisection
+// supaya konturnya halus, bukan tangga) lalu ditandai pagar dinas kehutanan:
+// kerb beton menerus (yang terbaca dari kamera top-down), tiang baja, dua rel,
+// dan pelat bahaya berkala.
+//
+// MURNI PENANDA — tak ada `addBoxBlocker`, tak ada `addTrunk`: yang memblokir
+// tetap predikat walkable yang sama, jadi pagar ini tak pernah bisa menggeser
+// batas main atau menghalangi peluru. Ia digambar TEPAT di kontur radius-0
+// (batas geometris), sementara pusat player berhenti `player.radius` lebih
+// awal — jadi player berjalan sampai menyentuh pagar, persis seperti dugaannya.
+const FENCE_STEP = 20;     // resolusi grid kontur (unit dunia)
+const FENCE_TOP = 9;       // tinggi tiang (~1,3 m) — terlihat, tak menutupi pandangan
+const fencePosts = [];
+let fenceSegments = 0;
+
+// Pasangan sisi sel yang dipotong kontur, per kode marching-squares
+// (bit 1 = sudut (i,j), 2 = (i+1,j), 4 = (i+1,j+1), 8 = (i,j+1);
+//  sisi 0 = bawah, 1 = kanan, 2 = atas, 3 = kiri).
+const MS_EDGES = [[], [[3, 0]], [[0, 1]], [[3, 1]], [[1, 2]], [[3, 0], [1, 2]],
+    [[0, 2]], [[3, 2]], [[2, 3]], [[0, 2]], [[0, 1], [2, 3]], [[1, 2]],
+    [[1, 3]], [[0, 1]], [[0, 3]], []];
+
+function fenceCrossX(z, xIn, xOut) {
+    let a = xIn, b = xOut;
+    for (let i = 0; i < 5; i++) {
+        const m = (a + b) / 2;
+        if (stage10ForestWalk(m, z, 0)) a = m; else b = m;
+    }
+    return (a + b) / 2;
+}
+function fenceCrossZ(x, zIn, zOut) {
+    let a = zIn, b = zOut;
+    for (let i = 0; i < 5; i++) {
+        const m = (a + b) / 2;
+        if (stage10ForestWalk(x, m, 0)) a = m; else b = m;
+    }
+    return (a + b) / 2;
+}
+
+function boundaryContour() {
+    const step = FENCE_STEP;
+    const cols = Math.ceil((BOUNDS.x1 - BOUNDS.x0) / step);
+    const rows = Math.ceil((BOUNDS.z1 - BOUNDS.z0) / step);
+    const gx = i => BOUNDS.x0 + i * step, gz = j => BOUNDS.z0 + j * step;
+    const segs = [];
+    let rowA = [];
+    for (let i = 0; i <= cols; i++) rowA.push(stage10ForestWalk(gx(i), gz(0), 0));
+    for (let j = 0; j < rows; j++) {
+        const rowB = [];
+        for (let i = 0; i <= cols; i++) rowB.push(stage10ForestWalk(gx(i), gz(j + 1), 0));
+        for (let i = 0; i < cols; i++) {
+            const p00 = rowA[i], p10 = rowA[i + 1], p11 = rowB[i + 1], p01 = rowB[i];
+            const code = (p00 ? 1 : 0) | (p10 ? 2 : 0) | (p11 ? 4 : 0) | (p01 ? 8 : 0);
+            const pairs = MS_EDGES[code];
+            if (!pairs.length) continue;
+            const pt = (e) => {
+                if (e === 0) return { z: gz(j), x: fenceCrossX(gz(j),
+                    p00 ? gx(i) : gx(i + 1), p00 ? gx(i + 1) : gx(i)) };
+                if (e === 1) return { x: gx(i + 1), z: fenceCrossZ(gx(i + 1),
+                    p10 ? gz(j) : gz(j + 1), p10 ? gz(j + 1) : gz(j)) };
+                if (e === 2) return { z: gz(j + 1), x: fenceCrossX(gz(j + 1),
+                    p01 ? gx(i) : gx(i + 1), p01 ? gx(i + 1) : gx(i)) };
+                return { x: gx(i), z: fenceCrossZ(gx(i),
+                    p00 ? gz(j) : gz(j + 1), p00 ? gz(j + 1) : gz(j)) };
+            };
+            for (const pair of pairs) segs.push([pt(pair[0]), pt(pair[1])]);
+        }
+        rowA = rowB;
+    }
+    return segs;
+}
+
+function buildBoundaryFence() {
+    const g = new THREE.Group();
+    // Mulut terowongan dibiarkan bersih: pagar di sana akan menembus pier/pintu
+    // dan membuat titik finish terbaca seperti tertutup.
+    const skip = [{ x: S10_FOREST_FINISH.x, z: S10_FOREST_FINISH.z, r: 70 }];
+    const kerbMat = mat('fenceKerb', 0x6f6a5e);
+    const postMat = mat('fencePost', PAL.gunmetal);
+    const railMat = mat('fenceRail', PAL.steel);
+    const markMat = mat('fenceMark', PAL.hazard);
+    let n = 0;
+    for (const seg of boundaryContour()) {
+        const a = seg[0], b = seg[1];
+        const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len = Math.hypot(dx, dz);
+        if (len < 0.8) continue;
+        if (skip.some(s => (mx - s.x) ** 2 + (mz - s.z) ** 2 < s.r * s.r)) continue;
+        // Jangan menanam pagar DI DALAM struktur/pohon yang sudah berdiri di
+        // tepi (tiang sensor, penutup crest, rumah intake, batang pohon):
+        // pagarnya akan menembus mereka dan — karena pagar sendiri tak punya
+        // collider — terlihat seperti penanda yang berbohong.
+        if (stage10ForestSegBlocked(a.x, a.z, b.x, b.z, false)) continue;
+        const yaw = -Math.atan2(dz, dx);
+        mesh(g, new THREE.BoxGeometry(len + 1.6, 1.7, 3.4), kerbMat,
+            mx, 0.85, mz, 0, yaw, 0, false, true);
+        mesh(g, new THREE.BoxGeometry(1.3, FENCE_TOP, 1.3), postMat,
+            a.x, FENCE_TOP / 2, a.z, 0, yaw, 0, true, false);
+        for (const y of [3.3, 6.7])
+            mesh(g, new THREE.BoxGeometry(len + 1.6, 0.55, 0.55), railMat,
+                mx, y, mz, 0, yaw, 0, false, false);
+        if (n % 7 === 0)
+            mesh(g, new THREE.BoxGeometry(3.6, 3.6, 0.5), markMat,
+                mx, 6.2, mz, 0, yaw, 0, false, false);
+        fencePosts.push({ x: a.x, z: a.z });
+        n++;
+    }
+    fenceSegments = n;
+    count('boundary-fence', n);
+    weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
+}
+
 export function setStage10ForestTunnelOpen(open) {
     if (tunnelDoor) tunnelDoor.position.y = open ? 38 : 14;
 }
@@ -538,7 +773,7 @@ export function ensureStage10ForestWorld(parent = scene) {
     built = true; root = new THREE.Group(); root.name = 'campaign-stage10-chapter2-green-firewall';
     parent.add(root);
     buildGround(); buildDrainage(); buildForest(); buildCarrierWreck();
-    buildSensorNodes(); buildWaterworks(); buildTunnel();
+    buildSensorNodes(); buildWaterworks(); buildTunnel(); buildBoundaryFence();
     nav = makeNavGrid(BOUNDS.x0, BOUNDS.z0, 14,
         Math.ceil((BOUNDS.x1 - BOUNDS.x0) / 14),
         Math.ceil((BOUNDS.z1 - BOUNDS.z0) / 14),
@@ -562,6 +797,12 @@ export const stage10ForestWorldDebug = () => ({
         .map(kind => ({ kind, count: semantic.get(kind) || 0 })),
     semantic: Object.fromEntries(semantic), urbanBuildings: 0,
     shelters: shelters.map(s => ({ ...s })), denseCanopy: denseCanopy.map(s => ({ ...s })),
+    // Pagar batas: penanda VISUAL tepi area main (bukan blocker).
+    fence: { step: FENCE_STEP, top: FENCE_TOP, segments: fenceSegments,
+        posts: fencePosts.map(p => ({ ...p })) },
+    road: roadOutline && { ribbons: 2,
+        left: roadOutline.left.map(p => ({ ...p })),
+        right: roadOutline.right.map(p => ({ ...p })) },
     // Posisi/radius diekspor supaya uji asap bisa berdiri TEPAT di belakang
     // sebuah occluder tanpa menebak koordinat.
     occluders: occlusionDebug(STAGE10_FOREST_LIGHTS_KEY),

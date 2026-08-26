@@ -15477,6 +15477,16 @@ if (false) {
     stateMod.recordLootBoxDestroyed();
     const statsBeforeHandoff = stateMod.stageStatsDebug();
     const skipped10 = dom4.triggerCutsceneSkip();
+    // Handoff bab kini ASYNC di balik layar loading (2026-08-26): pergantian
+    // bab hanya boleh terjadi SESUDAH loading, dan permainan dijeda selama itu.
+    const handoffPending = !!s10.stage10ChapterHandoff();
+    const pausedDuringHandoff = stateMod.isPaused;
+    const chapterDuringHandoff = s10.stage10Debug().chapter;
+    await s10.stage10ChapterHandoff();
+    T('S10 C1->C2: transisi bab lewat layar loading (dijeda, bab baru menyusul)',
+        handoffPending && pausedDuringHandoff && chapterDuringHandoff === 1
+        && !stateMod.isPaused && s10.stage10ChapterHandoff() === null
+        && s10.stage10Debug().chapter === 2 && !s10.stage10Debug().chapterHandoff);
     const rootsAfterHandoff = registry10.activeCampaignWorldRoots();
     T('S10 C1 SELESAI: pindah internal ke Chapter 2, checkpoint/stat facade tetap',
         skipped10 === true && s10.stage10Debug().chapter1.complete
@@ -15528,7 +15538,8 @@ if (false) {
         && s10f.stage10Debug().chapter === 1);
     // Chapter 2 normally starts through Chapter 1's extraction hook (asserted
     // in 25b). Enter it directly here to isolate the forest mechanics.
-    s10f.enterStage10Chapter2();
+    // Transisi bab async (layar loading) -> ditunggu.
+    await s10f.enterStage10Chapter2();
     const w10f = s10fw.stage10ForestWorldDebug();
     T('S10 C2 WORLD: root x=360000, hutan/waterworks terlas, dan nav grid siap',
         w10f.built && w10f.origin.x === 360000 && w10f.weldedMeshes < w10f.rawMeshes
@@ -15566,6 +15577,83 @@ if (false) {
         && !!d10f.cine && stateMod.cinematicActive
         && d10f.scan.state === 'CLEAR' && !d10f.scan.footprint.visible
         && s10fRobots().length > 0);
+
+    // (2b) ZONA AMAN 20 m (2026-08-26, permintaan user): tak satu pun robot lahir
+    //      di dalamnya, dan penyergap pembuka DIAM sampai player maju keluar.
+    drain10f();   // sinematik pembuka selesai dulu (progression baru berjalan)
+    {
+        const safe = s10f.stage10Debug().safeStart;
+        const opening = s10fRobots().filter(z => z.encounter === 'forest-0');
+        const minDist = opening.reduce((m, z) => Math.min(m,
+            Math.hypot(z.mesh.position.x - safe.x, z.mesh.position.z - safe.z)), Infinity);
+        // Player masih di titik masuk: seluruh penyergap wajib tetap 'idle'.
+        stand10f(s10fw.S10_FOREST_START); tick10f(0.4);
+        for (const z of opening) s10f.stage10Scene.robotAI(z, 0.1, 6);
+        const heldBefore = s10f.stage10Debug().safeStart.released;
+        const stillDormant = opening.every(z => z.state === 'idle');
+        // Maju keluar zona aman -> penyergapan lepas dan robot mengejar.
+        stand10f({ x: s10fw.S10_FOREST_START.x - safe.radius - 20,
+            z: s10fw.S10_FOREST_START.z });
+        tick10f(0.2);
+        const released = s10f.stage10Debug().safeStart.released;
+        const chasing = opening.every(z => z.state !== 'idle');
+        T('S10 C2 ZONA AMAN: 20 m awal bersih robot; penyergap baru bangun sesudah player maju',
+            Math.abs(safe.radius - C10F.safeStartMeters * cfgMod.CAMP_M) < 1e-6
+            && opening.length > 0 && minDist >= safe.radius - 1e-6
+            && !heldBefore && stillDormant && released && chasing);
+    }
+
+    // (2c) PAGAR BATAS: penanda VISUAL tepi area main. Tiap tiang berdiri di
+    //      KONTUR walkable (ada sisi yang bisa dijalani DAN sisi yang tidak),
+    //      dan tak satu pun menambah blocker/trunk.
+    {
+        const f = w10f.fence;
+        const onBoundary = f.posts.every(p => {
+            let inside = false, outside = false;
+            for (let k = 0; k < 8; k++) {
+                const a = k * Math.PI / 4;
+                if (s10fw.stage10ForestWalk(p.x + Math.cos(a) * f.step,
+                    p.z + Math.sin(a) * f.step, 0)) inside = true; else outside = true;
+            }
+            return inside && outside;
+        });
+        const noCollider = f.posts.every(p =>
+            !s10fw.stage10ForestSegBlocked(p.x, p.z, p.x, p.z, false));
+        T('S10 C2 PAGAR: tepi area main ditandai pagar di konturnya, tanpa blocker baru',
+            f.segments > 40 && f.posts.length === f.segments && f.top > 0
+            && onBoundary && noCollider);
+    }
+
+    // (2d) JALAN MENYAMBUNG: satu pita miter, bukan kotak per-ruas. Tepi kiri
+    //      dan kanan bergerak BERTAHAP (tak ada undakan lebar di simpul) dan
+    //      seluruh permukaannya tetap di dalam koridor yang bisa dijalani —
+    //      jadi tak ada takik/patahan yang menonjol keluar di belokan.
+    {
+        const road = w10f.road;
+        const edgeOK = (edge) => {
+            let ok = true, prevW = null;
+            for (let i = 0; i < edge.length; i++) {
+                const c = w10f.route[i];
+                const wNow = Math.hypot(edge[i].x - c.x, edge[i].z - c.z);
+                if (prevW != null && Math.abs(wNow - prevW) / Math.max(wNow, prevW) > 0.35) ok = false;
+                prevW = wNow;
+                if (i) {   // sampel rapat di sepanjang tepi: selalu di dalam koridor
+                    const a = edge[i - 1], b = edge[i];
+                    const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 5);
+                    for (let k = 0; k <= n; k++)
+                        if (!s10fw.stage10ForestWalk(a.x + (b.x - a.x) * k / n,
+                            a.z + (b.z - a.z) * k / n, 0)) ok = false;
+                }
+            }
+            return ok;
+        };
+        T('S10 C2 JALAN: rute satu pita menerus — tepi berubah bertahap dan tak keluar koridor',
+            !!road && road.ribbons === 2
+            && road.left.length === w10f.route.length
+            && road.right.length === w10f.route.length
+            && edgeOK(road.left) && edgeOK(road.right)
+            && (w10f.semantic['road-ribbon'] || 0) === 2);
+    }
 
     // (3) Sapuan pemindai bergerak sesuai config dan bolak-balik.
     drain10f(); kill10f(); tick10f(0.5);

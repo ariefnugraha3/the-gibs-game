@@ -731,6 +731,7 @@
                 "fadeSec": 0.6,
                 "carrierStrikeSec": 3.5,
                 "interactionRange": 18,
+                "safeStartMeters": 20,
                 "scan": {
                     "cycleSec": 14,
                     "sweepSec": 3,
@@ -1300,6 +1301,7 @@
                     "lines": {
                         "carrierHit": { "speaker": "Command", "text": "Precision strike inbound! Leave the carrier!" },
                         "stillMoving": { "speaker": "Major Gibran", "text": "The drive survived. I am continuing on foot." },
+                        "ambushSprung": { "speaker": "Command", "text": "Movement on the wreck line. They waited for you to leave the crash site." },
                         "scanDetected": { "speaker": "Command", "text": "Perimeter scanners sweep the exposed ground. Break contact before the lock completes." },
                         "firstLock": { "speaker": "IKN Defense", "text": "Target solution acquired. Fire mission authorized." },
                         "forestRoute": { "speaker": "Major Gibran", "text": "The maintenance route cuts under the canopy. I can use it to break the sweep." },

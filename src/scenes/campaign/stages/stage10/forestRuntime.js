@@ -80,13 +80,31 @@ export function stage10ForestWaveTotals(raw) {
         .reduce((n, cls) => n + Math.max(0, w?.[cls] | 0), 0));
 }
 
+// Dorong sebuah titik spawn KELUAR dari gelembung bebas-robot (mis. 20 m di
+// sekitar titik masuk Chapter 2). Didorong SETELAH jitter supaya posisi akhir
+// yang dijamin bersih, bukan titik tabelnya.
+function pushOutside(x, z, keep) {
+    if (!keep || !(keep.r > 0)) return [x, z];
+    const dx = x - keep.x, dz = z - keep.z;
+    const d = Math.hypot(dx, dz);
+    if (d >= keep.r) return [x, z];
+    if (d < 1e-3) return [keep.x - keep.r, keep.z];
+    const k = keep.r / d;
+    return [keep.x + dx * k, keep.z + dz * k];
+}
+
 // Spawn exactly ONE configured wave. Stages 9–13 are prebuilt, but combatants
 // are not: keeping future waves as config data avoids feeding 100+ idle meshes
 // through the shared robot update before their geographic gate is reached.
-export function spawnStage10ForestWave(raw, waveIndex, placements, prefix) {
+// `opts.active` (default true) = langsung mengejar; gelombang penyergapan
+// pembuka Chapter 2 memakai false supaya robot MENUNGGU player maju dulu.
+// `opts.keepOut` = {x, z, r} area yang wajib bersih dari robot saat spawn.
+export function spawnStage10ForestWave(raw, waveIndex, placements, prefix, opts = {}) {
     const waves = normalizeWave(raw);
     const w = Math.max(0, waveIndex | 0);
     if (!waves[w]) return [];
+    const active = opts.active !== false;
+    const keep = opts.keepOut || null;
     const records = [];
     const counts = waves[w] || {};
     let slot = 0;
@@ -95,7 +113,8 @@ export function spawnStage10ForestWave(raw, waveIndex, placements, prefix) {
             const p = placements[(w * 7 + slot) % placements.length];
             const dx = ((slot * 17 + w * 11) % 31) - 15;
             const dz = ((slot * 23 + w * 5) % 29) - 14;
-            spawnCampaignRobot(p.x + dx, p.z + dz, 10, cls, true);
+            const out = pushOutside(p.x + dx, p.z + dz, keep);
+            spawnCampaignRobot(out[0], out[1], 10, cls, active);
             const bot = robots[robots.length - 1];
             bot.encounter = `${prefix}-${w}`;
             records.push({ cls, wave: w, x: bot.mesh.position.x, z: bot.mesh.position.z });
