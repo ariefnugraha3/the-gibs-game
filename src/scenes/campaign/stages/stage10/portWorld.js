@@ -14,6 +14,7 @@ import {
     weldOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
 } from '../../utility/occlusion.js';
 import { buildStandMarker, pulseStandMarker } from '../../utility/common.js';
+import { buildTurbofan } from '../../utility/turbofan.js';
 import {
     buildPortCranes, setCraneLayout, cranePathWalkable, craneDebug,
 } from './cranes.js';
@@ -42,6 +43,8 @@ let cranes = null;
 let defense = null;
 let carrier = null;
 let staticBatch = [];
+// Bukti pesawat kargo ini bermesin JET: kipas terkurung (fan < cowl).
+let parkedAircraftEngines = null;
 const blockers = [];
 const staticBlockers = [];
 const dynamicBlockers = [];
@@ -187,7 +190,9 @@ function buildCargoAirstrip(parent, M) {
         cylinder(parent, M.steel, 4, 3, x, 28, 430, 'y', 12);
     makeBlocker(329090, 430, 72.5, 26, 26, 0, 'air-freight-terminal');
 
-    // Parked twin-engine cargo turboprop: complete silhouette, gear and ramp.
+    // Pesawat kargo bermesin JET (permintaan user 2026-08-27: "mana ada pesawat
+    // pakai baling-baling"). Dua nacelle turbofan lewat modul bersama, pada
+    // footprint yang PERSIS sama seperti nacelle turboprop lamanya.
     const plane = new THREE.Group();
     plane.position.set(329265, 2, 171);
     parent.add(plane);
@@ -198,14 +203,25 @@ function buildCargoAirstrip(parent, M) {
     box(plane, M.gunmetal, 6, 0.5, 35, -1, 9.3, 0);
     box(plane, M.panel, 7, 0.7, 14, -13, 12, 0);
     box(plane, M.hazard, 5, 7, 0.8, -13, 16, 0);
+    let cargoNacelle = null;
     for (const ez of [-10, 10]) {
-        cylinder(plane, M.gunmetal, 1.8, 5, 3, 8.4, ez, 'x', 14);
-        cylinder(plane, M.steel, 0.35, 8, 6, 8.4, ez, 'x', 10);
-        for (let i = 0; i < 5; i++) {
-            const blade = box(plane, M.ink, 0.35, 7, 0.35, 8, 8.4, ez);
-            blade.rotation.x = i * Math.PI * 0.4;
-        }
+        // Badan pesawat membujur di sumbu x, sedangkan nacelle bersama
+        // menghadap +z lokal — bungkus satu grup yang memutarnya.
+        const axis = new THREE.Group();
+        axis.rotation.y = Math.PI * 0.5;
+        plane.add(axis);
+        box(plane, M.gunmetal, 3.4, 2.6, 1.6, 4.4, 9.4, ez);          // pilon
+        cargoNacelle = buildTurbofan(axis, {
+            cowl: M.panel, lip: M.steel, duct: M.ink,
+            hub: M.gunmetal, fan: M.steel, nozzle: M.gunmetal,
+        }, { x: -ez, y: 6.6, z: 4.5, cowlRadius: 3.1, length: 9.5, blades: 10 });
     }
+    plane.userData.engines = {
+        type: 'ducted-turbofan', perAircraft: 2,
+        cowlRadius: cargoNacelle.cowlRadius, fanRadius: cargoNacelle.fanRadius,
+        ducted: cargoNacelle.fanRadius < cargoNacelle.cowlRadius,
+    };
+    parkedAircraftEngines = { ...plane.userData.engines };
     for (const [gx, gz] of [[11, 0], [-7, -3], [-7, 3]]) {
         cylinder(plane, M.steel, 0.3, 4, gx, 3.5, gz, 'y', 8);
         cylinder(plane, M.rubber, 0.9, 0.6, gx, 1.8, gz, 'z', 10);
@@ -713,6 +729,7 @@ export function stage10WorldDebug() {
             runway: semantic.cargoAirstrip || 0,
             freightTerminals: semantic.airFreightTerminal || 0,
             parkedCargoAircraft: semantic.parkedCargoAircraft || 0,
+            engines: parkedAircraftEngines ? { ...parkedAircraftEngines } : null,
         },
         port: {
             sea: semantic.sea || 0, quays: semantic.quay || 0,

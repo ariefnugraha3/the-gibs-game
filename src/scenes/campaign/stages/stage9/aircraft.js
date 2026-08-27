@@ -1,5 +1,20 @@
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { mergeObjectInPlace } from '../../../../utils/meshBatch.js';
+import { buildTurbofan } from '../../utility/turbofan.js';
+
+// The hero aircraft is authored as a compact rig, then scaled once. Keeping the
+// outer transform separate preserves Stage 9's boarding/takeoff animation while
+// letting the inner rig become Stage 10's future flight craft.
+const ORIGINAL_TRANSPORT_SCALE = 3.4;
+const SCALE_REDUCTION = 0.25;
+const TRANSPORT_SCALE = ORIGINAL_TRANSPORT_SCALE * (1 - SCALE_REDUCTION);
+const TAKEOFF_RUN = 560;
+const TAKEOFF_CLIMB = 145;
+const AIRCRAFT_LENGTH = 56;
+const AIRCRAFT_SPAN = 54;
+const COWL_RADIUS = 2.15;
+const ENGINE_LENGTH = 6.2;
+const FAN_BLADES = 12;
 
 function mesh(geometry, material, parent, x = 0, y = 0, z = 0) {
     const part = new THREE.Mesh(geometry, material);
@@ -21,30 +36,20 @@ function cylinder(parent, material, radius, length, x, y, z, axis = 'x', radial 
     return part;
 }
 
-function buildFan(materials, x, y, z) {
-    const fan = new THREE.Group();
-    fan.position.set(x, y, z);
-    cylinder(fan, materials.dark, 1.05, 0.5, 0, 0, 0, 'x', 16);
-    cylinder(fan, materials.metal, 0.25, 0.74, 0, 0, 0, 'x', 12);
-    for (let i = 0; i < 10; i++) {
-        const blade = box(fan, materials.metal, 0.18, 1.46, 0.15, -0.4, 0, 0);
-        blade.rotation.x = i * Math.PI / 5;
-    }
-    return fan;
-}
-
 function buildEngine(materials, z) {
     const engine = new THREE.Group();
-    engine.position.set(3.5, 9.5, z);
-    cylinder(engine, materials.engine, 2.15, 6.2, 0, 0, 0, 'x', 18);
-    cylinder(engine, materials.dark, 1.68, 0.75, 3.05, 0, 0, 'x', 18);
-    cylinder(engine, materials.dark, 1.58, 0.7, -3.08, 0, 0, 'x', 18);
-    const stripe = cylinder(engine, materials.warning, 2.18, 0.24, 0.65, 0, 0, 'x', 18);
-    const fan = buildFan(materials, 2.9, 0, 0);
-    engine.add(fan);
+    engine.position.set(1.8, 10.8, z);
+    // The shared nacelle faces local +z. Rotate it onto the aircraft's +x axis.
+    const axis = new THREE.Group();
+    axis.rotation.y = Math.PI * 0.5;
+    engine.add(axis);
+    const nacelle = buildTurbofan(axis, {
+        cowl: materials.engine, lip: materials.metal, duct: materials.dark,
+        hub: materials.dark, fan: materials.metal, nozzle: materials.dark,
+    }, { cowlRadius: COWL_RADIUS, length: ENGINE_LENGTH, blades: FAN_BLADES, radial: 18 });
+    const stripe = cylinder(engine, materials.warning, COWL_RADIUS + 0.03, 0.24, 0.65, 0, 0, 'x', 18);
     const exhaust = cylinder(engine, materials.exhaust, 1.18, 1.15, -3.55, 0, 0, 'x', 16);
-    exhaust.material = materials.exhaust;
-    return { group: engine, fan, exhaust, stripe, lateral: z };
+    return { group: engine, fan: nacelle.fan, exhaust, stripe, lateral: z, nacelle };
 }
 
 function buildLandingGear(parent, materials, x, z, paired = true) {
@@ -59,15 +64,70 @@ function buildLandingGear(parent, materials, x, z, paired = true) {
     return { strut, wheels };
 }
 
+function buildSweptWing(parent, materials, side) {
+    const wing = new THREE.Group();
+    wing.position.set(0, 11.75, side * 4.2);
+    parent.add(wing);
+
+    // Two overlapping slabs form a cranked, swept planform. The old model used
+    // one rectangular bar, so this changes the silhouette at gameplay distance.
+    const inner = box(wing, materials.body, 14.5, 1.05, 17.5, -0.4, 0, side * 5.0);
+    inner.rotation.y = side * 0.25;
+    const outer = box(wing, materials.lower, 9.5, 0.68, 12.0, -3.8, -0.2, side * 14.2);
+    outer.rotation.y = side * 0.46;
+    const leading = box(wing, materials.metal, 10.8, 0.24, 1.05, 3.3, 0.4, side * 13.0);
+    leading.rotation.y = side * 0.36;
+    const tip = box(wing, materials.warning, 4.8, 0.34, 1.35, -5.7, -0.08, side * 21.0);
+    tip.rotation.y = side * 0.52;
+    return wing;
+}
+
+function buildWingMachineGun(parent, materials, side, station, x, z) {
+    const gun = new THREE.Group();
+    gun.name = `wing-machine-gun-${side < 0 ? 'left' : 'right'}-${station}`;
+    gun.position.set(x, 9.95, z);
+    parent.add(gun);
+
+    const cradle = box(gun, materials.dark, 4.6, 1.15, 1.65, 0, 0, 0);
+    cradle.rotation.z = -0.04;
+    box(gun, materials.metal, 1.5, 0.32, 1.82, 0.9, 0.42, 0);
+    cylinder(gun, materials.gun, 0.2, 5.4, 4.65, -0.03, 0, 'x', 10);
+    const muzzle = new THREE.Group();
+    muzzle.name = 'muzzle';
+    muzzle.position.set(7.38, -0.03, 0);
+    gun.add(muzzle);
+    cylinder(muzzle, materials.metal, 0.3, 0.34, 0, 0, 0, 'x', 10);
+    return { group: gun, muzzle, side, station, type: 'machine-gun' };
+}
+
+function buildNoseCannon(parent, materials, side) {
+    const cannon = new THREE.Group();
+    cannon.name = `nose-cannon-${side < 0 ? 'left' : 'right'}`;
+    cannon.position.set(17.4, 7.25, side * 2.45);
+    parent.add(cannon);
+
+    box(cannon, materials.lower, 4.7, 1.45, 1.72, 0, 0, 0);
+    box(cannon, materials.metal, 1.35, 1.68, 1.94, 1.05, 0, 0);
+    cylinder(cannon, materials.gun, 0.34, 7.2, 5.55, 0, 0, 'x', 12);
+    cylinder(cannon, materials.dark, 0.48, 1.45, 3.05, 0, 0, 'x', 12);
+    const muzzle = new THREE.Group();
+    muzzle.name = 'muzzle';
+    muzzle.position.set(9.2, 0, 0);
+    cannon.add(muzzle);
+    cylinder(muzzle, materials.metal, 0.5, 0.48, 0, 0, 0, 'x', 12);
+    return { group: cannon, muzzle, side, type: 'cannon' };
+}
+
 /**
- * Builds the Stage 9 hero aircraft. The model deliberately stays mesh-based so
- * its fans, ramp, landing gear and control surfaces can animate independently.
+ * Builds the armed Stage 9 hero aircraft. Weapons are visual hardpoints only;
+ * stable muzzle anchors are retained for the planned Stage 10 sky combat.
  */
-export function buildFourEngineTransport() {
+export function buildArmedHeavyAircraft() {
     const materials = {
         body: new THREE.MeshStandardMaterial({ color: PAL.concrete, roughness: 0.72, metalness: 0.2 }),
         lower: new THREE.MeshStandardMaterial({ color: PAL.gunmetal, roughness: 0.78, metalness: 0.25 }),
         dark: new THREE.MeshStandardMaterial({ color: PAL.ink, roughness: 0.55, metalness: 0.55 }),
+        gun: new THREE.MeshStandardMaterial({ color: PAL.ink, roughness: 0.32, metalness: 0.78 }),
         metal: new THREE.MeshStandardMaterial({ color: PAL.steel, roughness: 0.38, metalness: 0.7 }),
         engine: new THREE.MeshStandardMaterial({ color: PAL.gunmetal, roughness: 0.52, metalness: 0.52 }),
         glass: new THREE.MeshStandardMaterial({ color: PAL.screenBg, roughness: 0.2, metalness: 0.25, emissive: PAL.techDim, emissiveIntensity: 0.45 }),
@@ -78,80 +138,111 @@ export function buildFourEngineTransport() {
     };
 
     const group = new THREE.Group();
-    group.name = 'stage9-four-engine-heavy-transport';
+    group.name = 'stage9-armed-heavy-aircraft';
+    const rig = new THREE.Group();
+    rig.scale.setScalar(TRANSPORT_SCALE);
+    group.add(rig);
 
+    // Faceted armored fuselage: low keel, broad shoulder, pointed nose and a
+    // compact dorsal spine replace the former single cylindrical transport.
     let fuselage = new THREE.Group();
-    cylinder(fuselage, materials.body, 4.8, 35, 0, 9, 0, 'x', 20);
-    cylinder(fuselage, materials.lower, 4.25, 24, -4.8, 7.7, 0, 'x', 18);
-    const nose = mesh(new THREE.SphereGeometry(4.76, 18, 12), materials.body, fuselage, 17.35, 9, 0);
-    nose.scale.set(1.35, 0.98, 0.98);
-    const tailCone = mesh(new THREE.ConeGeometry(4.62, 12, 18), materials.body, fuselage, -23, 9, 0);
-    tailCone.rotation.z = -Math.PI * 0.5;
+    cylinder(fuselage, materials.body, 4.35, 31, -1.2, 8.7, 0, 'x', 8);
+    cylinder(fuselage, materials.lower, 3.85, 29, -2.8, 7.25, 0, 'x', 8);
+    box(fuselage, materials.lower, 25, 2.2, 7.4, -1.5, 5.55, 0);
+    const shoulder = box(fuselage, materials.body, 19, 2.6, 9.6, 5.7, 9.3, 0);
+    shoulder.rotation.z = -0.05;
+    const nose = mesh(new THREE.ConeGeometry(4.45, 10.5, 8), materials.body, fuselage, 20.2, 8.35, 0);
+    nose.rotation.z = -Math.PI * 0.5;
+    const chin = mesh(new THREE.ConeGeometry(3.2, 8.2, 6), materials.lower, fuselage, 18.25, 6.45, 0);
+    chin.rotation.z = -Math.PI * 0.5;
+    const tailCone = mesh(new THREE.ConeGeometry(4.1, 13.5, 8), materials.lower, fuselage, -21.7, 8.2, 0);
+    tailCone.rotation.z = Math.PI * 0.5;
+    box(fuselage, materials.dark, 18, 1.05, 2.8, -5.8, 12.1, 0);
 
-    // Cockpit glazing and sensor/radar details.
-    for (const z of [-2.15, -0.75, 0.75, 2.15]) {
-        const pane = box(fuselage, materials.glass, 0.28, 1.15, 1.02, 20.95, 10.65, z);
-        pane.rotation.z = -0.22;
+    // Low panoramic canopy and separated frames keep the crew deck legible.
+    const canopy = mesh(new THREE.SphereGeometry(3.2, 12, 8), materials.glass, fuselage, 13.4, 11.0, 0);
+    canopy.scale.set(1.65, 0.56, 1.1);
+    for (const z of [-2.5, -0.85, 0.85, 2.5]) {
+        const frame = box(fuselage, materials.metal, 0.2, 1.25, 0.16, 14.25, 11.25, z);
+        frame.rotation.z = -0.22;
     }
-    cylinder(fuselage, materials.dark, 0.38, 1.3, 21.4, 7.7, 0, 'x', 10);
-    box(fuselage, materials.red, 13, 0.28, 0.18, 5.5, 8.3, -4.73);
-    box(fuselage, materials.red, 13, 0.28, 0.18, 5.5, 8.3, 4.73);
-    for (const z of [-4.74, 4.74]) {
-        for (let x = -10; x <= 12; x += 3.2) {
-            box(fuselage, materials.dark, 0.7, 0.7, 0.16, x, 10.6, z);
-        }
+    box(fuselage, materials.red, 13.5, 0.3, 0.18, 1.8, 8.45, -4.38);
+    box(fuselage, materials.red, 13.5, 0.3, 0.18, 1.8, 8.45, 4.38);
+    for (const z of [-4.4, 4.4]) {
+        for (let x = -10; x <= 8; x += 3) box(fuselage, materials.dark, 0.65, 0.55, 0.16, x, 10.1, z);
     }
-    // Cargo-door ribs make the rear silhouette readable at gameplay distance.
-    for (let x = -16; x <= -9; x += 1.75) {
-        box(fuselage, materials.metal, 0.16, 6.1, 0.18, x, 8.7, -4.73);
-        box(fuselage, materials.metal, 0.16, 6.1, 0.18, x, 8.7, 4.73);
+    for (let x = -15; x <= -9; x += 1.5) {
+        box(fuselage, materials.metal, 0.16, 5.3, 0.18, x, 8.0, -4.1);
+        box(fuselage, materials.metal, 0.16, 5.3, 0.18, x, 8.0, 4.1);
     }
-    // The authored shell is welded separately from fans/ramp/gear/control
-    // surfaces, so the hero silhouette stays detailed without per-part draws.
     fuselage = mergeObjectInPlace(fuselage);
-    fuselage.name = 'welded-static-fuselage-shell';
-    group.add(fuselage);
+    fuselage.name = 'welded-armored-fuselage-shell';
+    rig.add(fuselage);
 
-    // High wing with layered spars, flaps and a central carry-through box.
-    box(group, materials.body, 18, 1.3, 45, 1.5, 12.5, 0);
-    box(group, materials.lower, 12, 0.42, 52, 0, 11.75, 0);
-    box(group, materials.metal, 4, 0.38, 51, -2.4, 12.15, 0);
-    const leftFlap = box(group, materials.dark, 6.5, 0.34, 11, -3, 11.8, -18.5);
-    const rightFlap = box(group, materials.dark, 6.5, 0.34, 11, -3, 11.8, 18.5);
-    const leftAileron = box(group, materials.warning, 5, 0.28, 4.5, -4.7, 11.7, -25.2);
-    const rightAileron = box(group, materials.warning, 5, 0.28, 4.5, -4.7, 11.7, 25.2);
+    // Cranked wings, layered carry-through armor and articulated trailing edge.
+    buildSweptWing(rig, materials, -1);
+    buildSweptWing(rig, materials, 1);
+    box(rig, materials.body, 17, 1.4, 11.5, -0.2, 12.0, 0);
+    box(rig, materials.dark, 9.5, 0.36, 43, -6.2, 11.25, 0);
+    const leftFlap = box(rig, materials.dark, 6.2, 0.34, 8.5, -7.0, 11.1, -11.5);
+    const rightFlap = box(rig, materials.dark, 6.2, 0.34, 8.5, -7.0, 11.1, 11.5);
+    leftFlap.rotation.y = -0.24;
+    rightFlap.rotation.y = 0.24;
+    const leftAileron = box(rig, materials.warning, 4.8, 0.28, 4.2, -8.2, 10.95, -22.2);
+    const rightAileron = box(rig, materials.warning, 4.8, 0.28, 4.2, -8.2, 10.95, 22.2);
+    leftAileron.rotation.y = -0.46;
+    rightAileron.rotation.y = 0.46;
 
-    // Tail plane and vertical stabilizer.
-    box(group, materials.body, 7.8, 0.72, 20, -17.6, 14.2, 0);
-    box(group, materials.dark, 2.8, 0.3, 19.5, -21.5, 14, 0);
-    const fin = box(group, materials.body, 9.6, 10.5, 1.05, -17.8, 18, 0);
-    fin.rotation.z = -0.26;
-    const rudder = box(group, materials.red, 3.8, 8, 0.32, -22.2, 19.1, 0);
-    rudder.rotation.z = -0.26;
+    // Swept tailplane plus twin canted fins create the new gunship tail profile.
+    const tailLeft = box(rig, materials.body, 8.5, 0.72, 10.5, -17.1, 13.0, -5.5);
+    const tailRight = box(rig, materials.body, 8.5, 0.72, 10.5, -17.1, 13.0, 5.5);
+    tailLeft.rotation.y = -0.38;
+    tailRight.rotation.y = 0.38;
+    const leftFin = box(rig, materials.body, 7.6, 8.8, 0.85, -17.2, 17.0, -3.35);
+    const rightFin = box(rig, materials.body, 7.6, 8.8, 0.85, -17.2, 17.0, 3.35);
+    leftFin.rotation.set(0.12, 0, -0.31);
+    rightFin.rotation.set(-0.12, 0, -0.31);
+    const leftRudder = box(rig, materials.red, 2.8, 6.4, 0.28, -20.65, 17.9, -3.8);
+    const rightRudder = box(rig, materials.red, 2.8, 6.4, 0.28, -20.65, 17.9, 3.8);
+    leftRudder.rotation.z = -0.31;
+    rightRudder.rotation.z = -0.31;
 
-    const engines = [-17.2, -8.8, 8.8, 17.2].map((z) => {
+    const engines = [-17.0, -9.0, 9.0, 17.0].map((z) => {
         const engine = buildEngine(materials, z);
-        group.add(engine.group);
-        box(group, materials.body, 3.8, 1.1, 1.25, 3.3, 12, z);
+        rig.add(engine.group);
+        const pylon = box(rig, materials.body, 4.4, 1.25, 1.35, 0.2, 12.2, z);
+        pylon.rotation.y = z < 0 ? -0.12 : 0.12;
         return engine;
     });
 
+    // Four independent wing guns (two per side) and two heavy forward cannons.
+    const wingMachineGuns = [
+        buildWingMachineGun(rig, materials, -1, 1, 5.4, -13.1),
+        buildWingMachineGun(rig, materials, -1, 2, 1.8, -21.2),
+        buildWingMachineGun(rig, materials, 1, 1, 5.4, 13.1),
+        buildWingMachineGun(rig, materials, 1, 2, 1.8, 21.2),
+    ];
+    const noseCannons = [
+        buildNoseCannon(rig, materials, -1),
+        buildNoseCannon(rig, materials, 1),
+    ];
+
     const gear = [
-        buildLandingGear(group, materials, 13.3, 0, false),
-        buildLandingGear(group, materials, -7.5, -3.2, true),
-        buildLandingGear(group, materials, -7.5, 3.2, true),
+        buildLandingGear(rig, materials, 13.0, 0, false),
+        buildLandingGear(rig, materials, -7.5, -3.0, true),
+        buildLandingGear(rig, materials, -7.5, 3.0, true),
     ];
 
     const rampPivot = new THREE.Group();
-    rampPivot.position.set(-17.2, 6.5, 0);
-    group.add(rampPivot);
-    const ramp = box(rampPivot, materials.lower, 8.7, 0.75, 8.4, -3.6, -2.2, 0);
+    rampPivot.position.set(-16.7, 6.15, 0);
+    rig.add(rampPivot);
+    const ramp = box(rampPivot, materials.lower, 8.7, 0.75, 7.6, -3.6, -2.2, 0);
     ramp.rotation.z = -0.54;
-    for (const z of [-3.1, -1.05, 1.05, 3.1]) {
+    for (const z of [-2.8, -0.95, 0.95, 2.8]) {
         const rail = box(rampPivot, materials.warning, 7.6, 0.16, 0.16, -3.7, -1.72, z);
         rail.rotation.z = -0.54;
     }
-    const cargoBay = box(group, materials.dark, 3.2, 3.2, 2.8, -12.5, 7.5, -4.76);
+    const cargoBay = box(rig, materials.dark, 3.2, 3.2, 2.8, -12.2, 7.1, -4.2);
 
     group.userData.transport = {
         engines,
@@ -159,13 +250,25 @@ export function buildFourEngineTransport() {
         rampPivot,
         ramp,
         cargoBay,
-        controlSurfaces: [leftFlap, rightFlap, leftAileron, rightAileron, rudder],
+        controlSurfaces: [leftFlap, rightFlap, leftAileron, rightAileron, leftRudder, rightRudder],
+        weapons: { wingMachineGuns, noseCannons, firingEnabled: false },
         staticHullWelded: true,
+        engine: {
+            type: 'ducted-turbofan',
+            cowlRadius: engines[0].nacelle.cowlRadius,
+            fanRadius: engines[0].nacelle.fanRadius,
+            ducted: engines[0].nacelle.fanRadius < engines[0].nacelle.cowlRadius,
+            blades: engines[0].nacelle.blades,
+        },
         partCensus: {
-            fuselage: 1, nose: 1, tailCone: 1, cockpitPanes: 4,
-            highWing: 1, engineNacelles: 4, engineFans: 4,
+            armoredFuselage: 1, pointedNose: 1, panoramicCanopy: 1,
+            crankedWingHalves: 2, twinTailFins: 2,
+            engineNacelles: 4, engineFans: 4,
+            wingMachineGuns: wingMachineGuns.length,
+            noseCannons: noseCannons.length,
+            weaponMuzzles: wingMachineGuns.length + noseCannons.length,
             landingGearAssemblies: 3, cargoRamp: 1, cargoInterior: 1,
-            controlSurfaces: 5,
+            controlSurfaces: 6,
         },
         basePosition: new THREE.Vector3(),
         fanAngle: 0,
@@ -186,7 +289,7 @@ export function resetTransport(transport, x, z, yaw = 0) {
     data.takeoff = 0;
     data.rampPivot.rotation.z = 0;
     for (const engine of data.engines) {
-        engine.fan.rotation.x = 0;
+        engine.fan.rotation.z = 0;
         engine.exhaust.material.opacity = 0.05;
         engine.exhaust.material.emissiveIntensity = 0.1;
     }
@@ -200,7 +303,7 @@ export function updateTransport(transport, dt, fuelProgress, takeoffProgress = 0
     data.takeoff = takeoff;
     data.fanAngle += dt * (2 + fuel * 36);
     for (const engine of data.engines) {
-        engine.fan.rotation.x = data.fanAngle;
+        engine.fan.rotation.z = data.fanAngle;
         engine.exhaust.material.opacity = 0.05 + fuel * 0.5;
         engine.exhaust.material.emissiveIntensity = 0.1 + fuel * (EMISSIVE_MAX - 0.1);
     }
@@ -211,10 +314,11 @@ export function updateTransport(transport, dt, fuelProgress, takeoffProgress = 0
     data.controlSurfaces[2].rotation.z = -flapAngle * 0.65;
     data.controlSurfaces[3].rotation.z = -flapAngle * 0.65;
     data.controlSurfaces[4].rotation.y = Math.sin(takeoff * Math.PI) * 0.05;
+    data.controlSurfaces[5].rotation.y = -Math.sin(takeoff * Math.PI) * 0.05;
 
     const eased = takeoff * takeoff * (3 - 2 * takeoff);
-    transport.position.x = data.basePosition.x + eased * 185;
-    transport.position.y = Math.max(0, (takeoff - 0.28) * 78);
+    transport.position.x = data.basePosition.x + eased * TAKEOFF_RUN;
+    transport.position.y = Math.max(0, (takeoff - 0.28) * TAKEOFF_CLIMB);
     transport.rotation.z = -Math.max(0, takeoff - 0.24) * 0.15;
     for (const item of data.gear) {
         item.strut.visible = takeoff < 0.7;
@@ -225,13 +329,29 @@ export function updateTransport(transport, dt, fuelProgress, takeoffProgress = 0
 export function transportDebug(transport) {
     const data = transport.userData.transport;
     return {
-        semantic: 'four-engine-heavy-transport',
+        semantic: 'armed-heavy-aircraft',
+        silhouette: 'faceted-gunship-cranked-wing-twin-tail',
         engineCount: data.engines.length,
         hasCargoRamp: !!data.ramp,
         hasCargoBay: !!data.cargoBay,
         landingGearAssemblies: data.gear.length,
         independentControlSurfaces: data.controlSurfaces.length,
         staticHullWelded: data.staticHullWelded,
+        engine: { ...data.engine },
+        weapons: {
+            wingMachineGuns: data.weapons.wingMachineGuns.length,
+            leftWingMachineGuns: data.weapons.wingMachineGuns.filter(w => w.side < 0).length,
+            rightWingMachineGuns: data.weapons.wingMachineGuns.filter(w => w.side > 0).length,
+            noseCannons: data.weapons.noseCannons.length,
+            muzzleAnchors: data.weapons.wingMachineGuns.length + data.weapons.noseCannons.length,
+            firingEnabled: data.weapons.firingEnabled,
+        },
+        fanAngle: data.fanAngle,
+        fanSpin: data.engines[0].fan.rotation.z,
+        scale: TRANSPORT_SCALE,
+        scaleReduction: SCALE_REDUCTION,
+        lengthUnits: AIRCRAFT_LENGTH * TRANSPORT_SCALE,
+        spanUnits: AIRCRAFT_SPAN * TRANSPORT_SCALE,
         parts: { ...data.partCensus },
         fuel: data.fuel,
         takeoff: data.takeoff,

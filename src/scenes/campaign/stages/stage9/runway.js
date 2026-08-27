@@ -30,7 +30,9 @@ import {
     spawnStage9Encounter, stage9EncounterCount, finishStage9,
 } from './runtime.js';
 
-const cineCam = new THREE.Vector3(-112, 102, 116);
+// Diskalakan bersama transport (2026-08-27): pesawat 25 m dengan offset lama
+// akan memenuhi layar dan memanjat melewati kamera.
+const cineCam = new THREE.Vector3(-205, 185, 215);
 
 function near(p, r) {
     return Math.hypot(camera.position.x - p.x, camera.position.z - p.z) <= r;
@@ -185,7 +187,7 @@ export const runwayScene = {
     clampDropPos(x, z) {
         if (stage9RunwayWalkable(x, z, 2) && !stage9BlockedAt(x, z, 2)) return [x, z, 0];
         const nx = Math.max(S9_BOUNDS.x0 + 20, Math.min(S9_BOUNDS.x1 - 20, x));
-        const nz = Math.max(-250, Math.min(270, z));
+        const nz = Math.max(-285, Math.min(300, z));
         return [nx, nz, 0];
     },
     hudStatus() {

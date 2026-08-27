@@ -15101,6 +15101,131 @@ if (false) {
             { x: 300700, z: 40 }, { x: 300700, z: -220 }, layout.board]);
         T('S9 CH3 COLLISION: tak ada seam/dinding tak terlihat pada seluruh rute misi',
             apronToCheckpoint && checkpointToPump && checkpointToBoard);
+
+        // SKALA AIRSIDE (2026-08-27, permintaan user "ukurannya masih tidak
+        // sesuai dengan badan Major Gibran"). Sensus di bawah DITURUNKAN dari
+        // collider tiap prop, jadi ia sekaligus menjaga "yang digambar adalah
+        // yang memblokir"; patokan bandingnya tinggi mata pemain, bukan angka
+        // unit hasil ketikan.
+        const R3 = w9.complexity.runway;
+        const P3 = R3.propMeters, D3 = R3.drawnMeters;
+        const gibranM = cfgMod.CFG.player.eyeHeight / cfgMod.CAMP_M;
+        const gse = ['pushback-tug', 'baggage-cart', 'aviation-fuel-truck',
+            'mobile-stairs', 'cargo-loader', 'apron-bus', 'baggage-tractor',
+            'belt-loader', 'ground-power-unit', 'fuel-pump'];
+        const tooSmall = gse.filter(k => !P3[k] || P3[k].heightM < gibranM
+            || P3[k].lengthM < 2.4 || P3[k].widthM < 1.4);
+        T('S9 CH3 SKALA GSE: tiap kendaraan/alat apron lebih tinggi daripada Major Gibran'
+            + (tooSmall.length ? ` [${tooSmall.join(' ')}]` : ''),
+        tooSmall.length === 0 && gibranM > 1.5
+            && P3['apron-bus'].lengthM >= 10
+            && P3['aviation-fuel-truck'].lengthM >= 9
+            && P3['belt-loader'].lengthM >= 7
+            // Tangga penumpang harus benar-benar mencapai tinggi pintu pesawat.
+            && P3['mobile-stairs'].heightM >= 4);
+
+        T('S9 CH3 SKALA STRUKTUR: menara/hanggar/pier/tiang lampu menjulang, bukan kotak setinggi orang',
+            D3['control-tower'] >= 30 && P3['control-tower'].lengthM >= 20
+            && D3['maintenance-hangar'] >= 12 && D3['maintenance-hangar-span'] >= 35
+            && P3['hangar-wall'].heightM >= 12
+            && D3['fire-station-bay-door'] >= 4 && D3['fire-station-hose-tower'] >= 10
+            && D3['apron-light-mast'] >= 15 && D3['terminal-pier'] >= 8
+            && D3['safety-cone'] >= 0.6
+            && P3['airport-fire-station'].lengthM >= 20);
+
+        // Pesawat parkir + transport hero: bentang sayap seukuran pesawat nyata,
+        // stand lebih lebar daripada bentangnya (ujung sayap tak saling tembus),
+        // dan collider-nya hanya BADAN — sayap tinggi dilewati di bawahnya.
+        const spanUnits = D3['parked-airliner-span'] * cfgMod.CAMP_M;
+        const gap = R3.standPitch - P3['parked-airliner'].lengthM * cfgMod.CAMP_M;
+        T('S9 CH3 PESAWAT: bentang 25 m, stand lebih lebar dari sayap, lorong antar-stand terbuka',
+            D3['parked-airliner-span'] >= 20 && D3['parked-airliner-length'] >= 18
+            && D3['parked-airliner'] >= 7
+            && R3.standXs.length === 5 && R3.standPitch > spanUnits
+            && gap > cfgMod.CFG.player.radius * 4
+            && w9.aircraft.lengthUnits / cfgMod.CAMP_M >= 19
+            && w9.aircraft.lengthUnits / cfgMod.CAMP_M <= 21
+            && w9.aircraft.spanUnits / cfgMod.CAMP_M >= 19
+            && w9.aircraft.spanUnits / cfgMod.CAMP_M <= 21
+            // Landasan tak boleh lebih sempit daripada pesawat yang memakainya.
+            && zone('runway-14-32').hz * 2 >= w9.aircraft.spanUnits * 0.9);
+
+        // Pesawat HERO yang dibawa ke Stage 10 bukan lagi transport bersayap
+        // kotak. Keenam senjata masih visual di Stage 9, tetapi tiap laras punya
+        // anchor muzzle stabil agar flight combat nanti tidak menebak offset.
+        T('S9 CH3 HERO: gunship baru punya 2 senapan tiap sayap + 2 meriam depan',
+            w9.aircraft.semantic === 'armed-heavy-aircraft'
+            && w9.aircraft.silhouette === 'faceted-gunship-cranked-wing-twin-tail'
+            && Math.abs(w9.aircraft.scale - 2.55) < 1e-9
+            && Math.abs(w9.aircraft.scaleReduction - 0.25) < 1e-9
+            && w9.aircraft.weapons.wingMachineGuns === 4
+            && w9.aircraft.weapons.leftWingMachineGuns === 2
+            && w9.aircraft.weapons.rightWingMachineGuns === 2
+            && w9.aircraft.weapons.noseCannons === 2
+            && w9.aircraft.weapons.muzzleAnchors === 6
+            && w9.aircraft.weapons.firingEnabled === false
+            && w9.aircraft.parts.crankedWingHalves === 2
+            && w9.aircraft.parts.twinTailFins === 2);
+
+        // Jet bridge berlabuh pada MUKA TERMINAL, bukan berujung di udara kosong.
+        T('S9 CH3 PIER: lima jet bridge berlabuh pada muka terminal di luar apron',
+            w9.airport.terminalPiers === 1 && layout.jetBridges === 5
+            && D3['jet-bridge-length'] >= 15 && D3['jet-bridge-floor'] >= 2.5
+            && layout.pier.z > apron.z + apron.hz
+            && Math.min(...R3.standXs) > layout.pier.x - 500
+            && Math.max(...R3.standXs) < layout.pier.x + 500);
+
+        T('S9 CH3 PROP: tak ada prop airside yang menembus prop lain'
+            + (R3.propOverlaps.length ? ` [${R3.propOverlaps.slice(0, 3)
+                .map(o => `${o.a}/${o.b}`).join(' ')}]` : ''),
+        R3.propOverlaps.length === 0);
+
+        // MARKA (permintaan user: "jalannya terlalu banyak ornamen garis").
+        // Versi lama menaruh >120 batang: edge light berbaris, hold-short
+        // berlapis lima-di-dua-baris, dan cabang pemandu ganda tiap stand.
+        T(`S9 CH3 MARKA: aspal disederhanakan (${R3.markings} batang)`,
+            R3.markings >= 15 && R3.markings <= 50);
+
+        // Indikator pompa punya material SENDIRI: menyalakannya tidak boleh
+        // mewarnai ulang marka/hanggar/pesawat yang berbagi M.hazard.
+        T('S9 CH3 POMPA: indikator memakai material eksklusif, bukan M.hazard bersama',
+            R3.fuelIndicatorMeshes === 1);
+
+        // SEMUA PESAWAT BERMESIN JET (2026-08-27, permintaan user: "ini kan di
+        // masa depan, mana ada pesawat pakai baling-baling"). Bedanya jet dan
+        // baling-baling dapat diukur: kipas turbofan TERKURUNG di dalam cowl.
+        // Rasionya milik modul BERSAMA `campaign/utility/turbofan.js`, tidak
+        // bisa dioper per stage, jadi tak ada pesawat yang bisa diam-diam
+        // menumbuhkan bilahnya keluar lagi.
+        const turbofanMod = await import(R('src/scenes/campaign/utility/turbofan.js'));
+        const jets = [
+            ['airliner Stage 9', R3.engines],
+            ['transport Stage 9', w9.aircraft.engine],
+        ];
+        const ducted = jets.every(([, e]) => e && e.type === 'ducted-turbofan'
+            && e.ducted === true
+            && (e.fanRadiusM ?? e.fanRadius) < (e.cowlRadiusM ?? e.cowlRadius)
+            && Math.abs((e.fanRadiusM ?? e.fanRadius)
+                - turbofanMod.turbofanFanRadius(e.cowlRadiusM ?? e.cowlRadius)) < 1e-3);
+        const airSources = ['src/scenes/campaign/stages/stage9/world.js',
+            'src/scenes/campaign/stages/stage9/aircraft.js',
+            'src/scenes/campaign/stages/stage10/portWorld.js']
+            .map(f => fs.readFileSync(ROOT + '/' + f, 'utf8'));
+        T('S9 JET: setiap pesawat memakai turbofan BERCOWL bersama, bukan baling-baling',
+            turbofanMod.FAN_DUCT_RATIO < 1 && ducted
+            && airSources.every(src => src.includes("utility/turbofan.js"))
+            // Sayap menyapu: isyarat jet paling terbaca dari kamera oblique.
+            && R3.engines.wingSweep >= 0.2 && R3.engines.perAircraft === 2);
+        {
+            // Kipas transport kini berputar pada sumbu lokal +z (poros nacelle
+            // bersama), bukan +x seperti rig lamanya — buktikan ia benar-benar
+            // berputar, lalu kembalikan pesawat ke keadaan diam.
+            for (let i = 0; i < 4; i++) s9w.stage9UpdateWorld(0.25, 0, 1, false, 0);
+            const spun = s9w.stage9WorldDebug().aircraft;
+            s9w.stage9UpdateWorld(0, 0, 0, false, 0);
+            T('S9 JET: kipas transport berputar pada poros nacelle-nya sendiri',
+                spun.fanAngle > 0 && Math.abs(spun.fanSpin - spun.fanAngle) < 1e-6);
+        }
     }
     T('S9 CH1 PROPERTY: frontage padat bertingkat dari struktur besar sampai clutter rendah',
         w9.complexity.front.propertyCount >= 500
@@ -15520,6 +15645,13 @@ if (false) {
         r10a === r10b && w10.built && w10.origin.x === 330000 && w10.deterministic
         && w10.port.quays > 0 && w10.port.staticContainers > 0 && w10.port.warehouses > 0
         && w10.airstrip.runway > 0 && w10.staticBatches > 0 && w10.nav);
+    {
+        // Pesawat kargo airstrip ikut aturan "semua pesawat bermesin jet".
+        const e10 = w10.airstrip.engines;
+        T('S10 PESAWAT KARGO: turbofan bercowl, bukan baling-baling',
+            !!e10 && e10.type === 'ducted-turbofan' && e10.ducted === true
+            && e10.fanRadius < e10.cowlRadius && e10.perAircraft === 2);
+    }
     T('S10 CONTAINER APPROACH: rute awal tepat 2x panjang dan diisi stack tambahan',
         w10.containerApproach.multiplier === 2
         && w10.containerApproach.length

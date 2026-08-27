@@ -132,12 +132,12 @@
             "fireDelayByLevel": [
                 900,
                 900,
-                600
+                450
             ],
             "cameraKick": 0.03,
-            "pellets": 10,
+            "pellets": 15,
             "pelletSpread": 0.1,
-            "damage": 10
+            "damage": 15
         },
         "launcher": {
             "maxAmmo": 25,

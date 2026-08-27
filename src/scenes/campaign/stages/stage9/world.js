@@ -22,8 +22,9 @@ import {
 import {
     BARRICADE_TOP, barricadeBlocker, buildFurniturePile, buildWallBreach,
 } from '../../utility/barricade.js';
+import { buildTurbofan } from '../../utility/turbofan.js';
 import {
-    buildFourEngineTransport, resetTransport,
+    buildArmedHeavyAircraft, resetTransport,
     updateTransport, transportDebug,
 } from './aircraft.js';
 import { STAGE7_ROAD_VEHICLE_SPECS } from '../stage7/roadVehicles.js';
@@ -44,9 +45,15 @@ export const S9_RUNWAY_START = Object.freeze({ x: 299125, z: 180 });
 export const S9_RUNWAY_CHECKPOINT = Object.freeze({ x: 300055, z: 55 });
 export const S9_PUMP = Object.freeze({ x: 300800, z: 180 });
 export const S9_AIRCRAFT = Object.freeze({ x: 300700, z: -220 });
-export const S9_BOARD = Object.freeze({ x: 300662, z: -220 });
-const S9_CONTROL_TOWER = Object.freeze({ x: 299995, z: 455 });
-const S9_CARGO_HANGAR = Object.freeze({ x: 300650, z: 250 });
+// Marker tetap di titik ramp setelah rig pesawat diperkecil 25%: ujung ramp
+// sekarang sekitar 62 unit di belakang pusat dan marker berjarak 52 unit, jadi
+// player masih menaiki pesawat dari belakang tanpa mengubah alur Chapter 3.
+export const S9_BOARD = Object.freeze({ x: 300648, z: -220 });
+// Menara digeser ke timur pier terminal supaya keduanya tak saling menembus;
+// hanggar digeser ke barat supaya pompa bahan bakar tetap berdiri BEBAS di
+// mulut tenggaranya setelah bentang hanggar dilebarkan.
+const S9_CONTROL_TOWER = Object.freeze({ x: 300260, z: 452 });
+const S9_CARGO_HANGAR = Object.freeze({ x: 300620, z: 250 });
 export const S9_BOUNDS = Object.freeze({ x0: 299100, x1: 300930, z0: -610, z1: 610 });
 export const S9_FRONT_BOUNDS = Object.freeze({ x0: 304800, x1: 306650, z0: -360, z1: 520 });
 export const S9_INTERIOR_BOUNDS = Object.freeze({ x0: 311650, x1: 312350, z0: -560, z1: 560 });
@@ -184,7 +191,24 @@ function fixture(kind, amount = 1) {
 const runwayLayoutRecords = {
     zones: [], parkedAircraft: 0, jetBridges: 0,
     taxiwayConnectors: 0, fireStations: 0,
+    // Tinggi/panjang yang DIGAMBAR untuk struktur yang siluetnya jauh melewati
+    // collider-nya (menara, hanggar, jet bridge, tiang lampu, pesawat). Dicatat
+    // dari konstanta yang sama yang membangunnya, dalam METER, supaya smoke
+    // menguji ukuran nyata alih-alih angka unit yang bisa berarti apa saja.
+    drawnMeters: Object.create(null),
+    // Jumlah batang marka perkerasan: "terlalu banyak ornamen garis" itu angka,
+    // bukan selera.
+    markings: 0,
+    // Bukti "SEMUA pesawat bermesin JET" (permintaan user 2026-08-27). Sebuah
+    // turbofan itu kipas TERKURUNG: radius kipas < radius cowl. Baling-baling
+    // justru kebalikannya, jadi angka inilah yang membedakan keduanya.
+    engines: null,
 };
+
+function drawnM(kind, meters) {
+    runwayLayoutRecords.drawnMeters[kind] =
+        Math.max(runwayLayoutRecords.drawnMeters[kind] || 0, +meters.toFixed(2));
+}
 let fuelPump = null;
 
 const barrelCandidates = [
@@ -306,6 +330,28 @@ export function stage9InteriorOverlaps(tolerance = 0.5) {
     return bad;
 }
 
+// Kontrak "tak ada prop airside yang menembus prop lain" — versi Chapter 3 dari
+// aturan mobil parkir Chapter 1. Dinding hanggar sengaja dikecualikan terhadap
+// sesamanya (mereka satu bangunan) dan kolom jet bridge terhadap dirinya.
+const S9_RUNWAY_OVERLAP_OK = new Set(['hangar-wall|hangar-wall']);
+
+export function stage9RunwayOverlaps(tolerance = 0.5) {
+    const bad = [];
+    for (let i = 0; i < blockers.length; i++) {
+        const a = blockers[i];
+        for (let j = i + 1; j < blockers.length; j++) {
+            const b = blockers[j];
+            if (S9_RUNWAY_OVERLAP_OK.has([a.kind, b.kind].sort().join('|'))) continue;
+            const depth = blockerOverlapDepth(a, b);
+            if (depth > tolerance) bad.push({
+                a: a.kind, b: b.kind, depth: +depth.toFixed(2),
+                x: Math.round(a.x), z: Math.round(a.z),
+            });
+        }
+    }
+    return bad;
+}
+
 // Laporan bentrok kendaraan Chapter 1. Toleransi 0,5 unit (~7 cm) menyerap
 // pembulatan float; apa pun di atasnya benar-benar terlihat menembus.
 function frontVehicleOverlaps(tolerance = 0.5) {
@@ -373,44 +419,172 @@ function buildTree(parent, M, x, z, scale = 1) {
     count('windbreakTree');
 }
 
+// ============================================================================
+// CHAPTER 3 — AIRSIDE KERTAJATI. SEMUA UKURAN DITURUNKAN DARI METER.
+// ============================================================================
+// Properti airside ditulis dalam METER lalu dikali CAMP_M, bukan angka unit
+// tangan (permintaan user 2026-08-27: "ukurannya masih tidak sesuai dengan
+// badan Major Gibran"). Patokannya badan pemain: eyeHeight 11,4 unit = 1,63 m.
+// Bus apron versi lama setinggi 9 unit = 1,29 m — JUSTRU lebih pendek daripada
+// Gibran — dan pesawat parkirnya hanya sepanjang 6,3 m, sehingga seluruh apron
+// terbaca sebagai diorama mainan. Ubah angka METER-nya, jangan unitnya.
+const am = (meters) => meters * CAMP_M;
+
+// Lima stand apron. SATU-SATUNYA sumber posisi pesawat parkir, jet bridge, muka
+// terminal dan garis lead-in, supaya jarak antar-stand tak pernah lebih sempit
+// daripada bentang sayap yang benar-benar digambar.
+const S9_STAND_XS = Object.freeze([299240, 299430, 299620, 299810, 300000]);
+const S9_STAND_Z = 180;                 // sumbu badan pesawat parkir
+const S9_AIRLINER_SPAN = am(25);        // jet regional 25 m
+const S9_AIRLINER_SWEEP = .34;          // sapuan sayap — isyarat jet paling terbaca
+const S9_AIRLINER_LEN = am(22);
+// Jembatan penumpang berlabuh ke PINTU DEPAN SISI PORT, bukan ke hidung: sumbu
+// terowongannya digeser am(3.6) ke +x (kiri pesawat yang menghadap +z) dan
+// kabinnya berhenti sejajar pintu di z 224. Terowongan yang lurus di atas garis
+// tengah stand akan menembus radome.
+const S9_BRIDGE_OFFSET = am(3.6);
+const S9_BRIDGE_CAB_Z = 224;            // kabin jembatan, sejajar pintu penumpang
+const S9_BRIDGE_ROT_Z = 402;            // rotunda pada muka terminal
+const S9_PIER_Z = 434;                  // muka pier terminal (dekor, luar walkable)
+
+function buildAirsideTree(parent, M, x, z, seed = 0) {
+    // Pohon pematang ~10 m. Satu bola di atas silinder terbaca placeholder pada
+    // skala sebesar ini, jadi batangnya meruncing dan tajuknya berlapis tiga.
+    const h = am(6.4 + (seed % 3) * .9), r = am(2.3 + (seed % 4) * .3);
+    const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(am(.22), am(.46), h, 8), M.wood);
+    trunk.position.set(x, h * .5, z);
+    trunk.castShadow = true; trunk.receiveShadow = true;
+    parent.add(trunk);
+    for (const [bx, by, bz, br] of [
+        [0, h + r * .3, 0, r],
+        [r * .6, h * .85, r * .22, r * .64],
+        [-r * .52, h * .9, -r * .3, r * .58],
+    ]) {
+        const crown = new THREE.Mesh(new THREE.SphereGeometry(br, 8, 6), M.leaf);
+        crown.position.set(x + bx, by, z + bz);
+        crown.castShadow = true;
+        parent.add(crown);
+    }
+    for (const s of [-1, 1]) {
+        const limb = cylinder(parent, M.wood, am(.13), r * .95,
+            x + s * r * .32, h * .8, z, 6);
+        limb.rotation.z = s * .72;
+    }
+    count('windbreakTree');
+}
+
 function buildTower(parent, M) {
     const x = S9_CONTROL_TOWER.x, z = S9_CONTROL_TOWER.z;
-    box(parent, M.concrete, 54, 12, 42, x, 6, z);
-    box(parent, M.panel, 34, 45, 26, x, 28.5, z);
-    box(parent, M.glass, 48, 10, 40, x, 55, z);
-    box(parent, M.roof, 54, 2.2, 46, x, 61, z);
-    for (const side of [-1, 1]) {
-        box(parent, M.frame, 2, 9, 42, x + side * 18, 54.5, z);
-        for (let i = -2; i <= 2; i++) box(parent, M.frame, 1.1, 8, 1, x + i * 9, 55, z + side * 20);
+    // Menara kontrol 39 m: blok operasi 6 m, batang 22 m, kabin 4,2 m dan dek
+    // radar di atasnya. Versi lama hanya 11 m — kabinnya bahkan lebih pendek
+    // daripada seorang manusia.
+    const baseW = am(30), baseD = am(18), baseH = am(6);
+    const shaftW = am(9), cabY = baseH + am(22), cabW = am(13), cabH = am(4.2);
+    box(parent, M.concrete, baseW, baseH, baseD, x, baseH * .5, z);
+    box(parent, M.roof, baseW + am(.8), am(.6), baseD + am(.8), x, baseH + am(.3), z);
+    for (let i = -5; i <= 5; i++)
+        box(parent, M.frame, am(.4), baseH, am(.4),
+            x + i * baseW / 11, baseH * .5, z - baseD * .5 - am(.25), false);
+    box(parent, M.glass, baseW - am(6), am(1.7), am(.35),
+        x, baseH * .62, z - baseD * .5 - am(.45), false);
+    box(parent, M.panel, am(2.6), am(2.6), am(.5),
+        x - baseW * .32, am(1.3), z - baseD * .5 - am(.5));
+    // Batang: inti beton, empat kolom sudut, celah tangga berkaca, cincin lantai.
+    const shaftH = cabY - baseH, shaftMidY = (cabY + baseH) * .5;
+    box(parent, M.concrete, shaftW, shaftH, shaftW, x, shaftMidY, z);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1])
+        box(parent, M.panel, am(.95), shaftH, am(.95),
+            x + sx * shaftW * .5, shaftMidY, z + sz * shaftW * .5);
+    for (const sz of [-1, 1])
+        box(parent, M.glass, am(1.2), shaftH * .84, am(.3),
+            x, shaftMidY, z + sz * (shaftW * .5 + am(.2)), false);
+    for (let y = baseH + am(4); y < cabY - am(2); y += am(4))
+        box(parent, M.frame, shaftW + am(.7), am(.28), shaftW + am(.7), x, y, z, false);
+    // Kabin: lantai menggantung, kaca MIRING KELUAR (memantulkan langit, bukan
+    // apron) dan gallery rail — kotak kaca tegak lurus itulah yang dulu terbaca
+    // sebagai placeholder.
+    box(parent, M.panel, cabW + am(1.6), am(.8), cabW + am(1.6), x, cabY, z);
+    for (const s of [-1, 1]) {
+        const pz = box(parent, M.glass, cabW, cabH, am(.3),
+            x, cabY + cabH * .55, z + s * cabW * .52, false);
+        pz.rotation.x = -s * .26;
+        const px = box(parent, M.glass, am(.3), cabH, cabW,
+            x + s * cabW * .52, cabY + cabH * .55, z, false);
+        px.rotation.z = s * .26;
+        box(parent, M.frame, cabW + am(3.2), am(.22), am(.22),
+            x, cabY - am(1.1), z + s * (cabW * .5 + am(1.5)), false);
+        box(parent, M.frame, am(.22), am(.22), cabW + am(3.2),
+            x + s * (cabW * .5 + am(1.5)), cabY - am(1.1), z, false);
     }
-    cylinder(parent, M.frame, 0.7, 17, x, 70, z, 10);
-    const radar = box(parent, M.white, 9, 1.4, 2.2, x, 79, z);
-    radar.rotation.y = 0.45;
-    addBlocker(x, z, 27, 21, 62, 0, 'control-tower');
+    box(parent, M.roof, cabW + am(3), am(.9), cabW + am(3), x, cabY + cabH + am(.6), z);
+    // Dek peralatan: radar, antena whip dan lampu obstruksi.
+    const topY = cabY + cabH + am(1.1);
+    box(parent, M.panel, am(4), am(1.2), am(4), x, topY + am(.6), z);
+    cylinder(parent, M.frame, am(.26), am(5), x, topY + am(3.5), z, 8);
+    const radar = box(parent, M.white, am(4.6), am(.5), am(1.1), x, topY + am(6), z);
+    radar.rotation.y = .45;
+    for (const s of [-1, 1])
+        cylinder(parent, M.steel, am(.1), am(3.6),
+            x + s * am(1.7), topY + am(2.6), z + s * am(1.5), 6);
+    box(parent, M.hazard, am(.5), am(.5), am(.5), x, topY + am(6.7), z, false);
+    drawnM('control-tower', (topY + am(6.9)) / CAMP_M);
+    addBlocker(x, z, baseW * .5, baseD * .5, baseH, 0, 'control-tower');
     count('controlTower');
 }
 
 function buildHangar(parent, M) {
     const x = S9_CARGO_HANGAR.x, z = S9_CARGO_HANGAR.z;
-    // Hanggar tiga bentang di sisi kanan-atas denah. Mulutnya terbuka ke
-    // SELATAN (arah taxiway/runway), sedangkan dinding belakang berada di utara.
-    box(parent, M.panel, 4, 43, 120, x - 125, 21.5, z);
-    box(parent, M.panel, 4, 43, 120, x + 125, 21.5, z);
-    box(parent, M.panel, 250, 43, 4, x, 21.5, z + 58);
-    for (const bayX of [x - 83, x, x + 83]) {
-        const roof = box(parent, M.roof, 82, 3, 124, bayX, 45, z);
-        roof.rotation.z = (bayX === x ? -1 : 1) * .025;
+    // Hanggar perawatan tiga bentang, 41 x 24 m dan setinggi 14 m — ekor
+    // pesawat harus muat di dalamnya. Mulut menghadap SELATAN (taxiway),
+    // dinding belakang di utara.
+    const halfW = am(20.7), halfD = am(12.2), wallH = am(14), ridge = am(16.4);
+    for (const s of [-1, 1]) {
+        box(parent, M.panel, am(.7), wallH, halfD * 2, x + s * halfW, wallH * .5, z);
+        for (let pz = -halfD + am(2); pz <= halfD - am(2); pz += am(3))
+            box(parent, M.frame, am(.9), wallH, am(.35),
+                x + s * (halfW + am(.45)), wallH * .5, z + pz, false);
     }
-    for (let rz = z - 50; rz <= z + 50; rz += 16) {
-        box(parent, M.frame, 250, 1.2, 1.2, x, 42.5, rz);
-        for (const px of [x - 120, x - 42, x + 42, x + 120])
-            box(parent, M.frame, 1.2, 42, 1.2, px, 21, rz);
+    box(parent, M.panel, halfW * 2, wallH, am(.7), x, wallH * .5, z + halfD);
+    for (let px = -halfW + am(3); px <= halfW - am(3); px += am(3.4))
+        box(parent, M.frame, am(.35), wallH, am(.9),
+            x + px, wallH * .5, z + halfD + am(.45), false);
+    for (const bay of [-1, 0, 1]) {
+        const bx = x + bay * halfW * (2 / 3);
+        const roof = box(parent, M.roof, halfW * .68, am(1.1), halfD * 2 + am(1.4),
+            bx, ridge - am(.6), z);
+        roof.rotation.z = -bay * .05;
+        box(parent, M.steel, halfW * .58, am(.35), halfD * 2, bx, ridge + am(.15), z, false);
     }
-    for (let i = -5; i <= 5; i++)
-        box(parent, M.hazard, 14, 0.18, 2, x + i * 21, 0.16, z - 63);
-    addBlocker(x - 125, z, 2, 60, 43, 0, 'hangar-wall');
-    addBlocker(x + 125, z, 2, 60, 43, 0, 'hangar-wall');
-    addBlocker(x, z + 58, 125, 2, 43, 0, 'hangar-wall');
+    for (let pz = -halfD + am(1.5); pz <= halfD; pz += am(4)) {
+        box(parent, M.frame, halfW * 2, am(.5), am(.5), x, wallH + am(.4), z + pz);
+        for (const px of [-halfW * .66, 0, halfW * .66])
+            box(parent, M.frame, am(.45), wallH * .32, am(.45),
+                x + px, wallH * .84, z + pz, false);
+    }
+    // Daun pintu geser diparkir TERBUKA di kedua tepi mulut: dekor, tanpa
+    // collider, supaya mulut hanggar tetap bisa dimasuki.
+    box(parent, M.frame, halfW * 2, am(.7), am(1.2), x, wallH + am(.25), z - halfD + am(.5));
+    for (const s of [-1, 1])
+        box(parent, M.steel, halfW * .3, wallH - am(.7), am(.5),
+            x + s * halfW * .84, wallH * .5, z - halfD + am(.5));
+    box(parent, M.steel, halfW * 2 + am(1), am(.5), am(.6),
+        x, ridge - am(1.3), z - halfD - am(.35), false);
+    for (const s of [-1, 1])
+        cylinder(parent, M.steel, am(.19), wallH,
+            x + s * (halfW + am(.55)), wallH * .5, z - halfD + am(1.2), 6);
+    box(parent, M.frame, am(1.3), am(2.4), am(.4),
+        x - halfW + am(2.6), am(1.2), z - halfD - am(.25));
+    // Rel derek di bay tengah — tanda hanggar ini benar-benar bengkel.
+    box(parent, M.steel, halfW * 1.5, am(.55), am(.8), x, wallH - am(1.4), z - am(2));
+    box(parent, M.hazard, am(3), am(.8), am(1.1), x + halfW * .2, wallH - am(2.1), z - am(2));
+    for (let i = -6; i <= 6; i++)
+        box(parent, M.hazard, am(2.4), .18, am(.35), x + i * am(3.2), .16, z - halfD - am(1.7), false);
+    drawnM('maintenance-hangar', ridge / CAMP_M);
+    drawnM('maintenance-hangar-span', halfW * 2 / CAMP_M);
+    addBlocker(x - halfW, z, am(.6), halfD, wallH, 0, 'hangar-wall');
+    addBlocker(x + halfW, z, am(.6), halfD, wallH, 0, 'hangar-wall');
+    addBlocker(x, z + halfD, halfW, am(.6), wallH, 0, 'hangar-wall');
     count('maintenanceHangar');
 }
 
@@ -418,279 +592,689 @@ function buildParkedAirliner(parent, M, x, z, variant = 0) {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     const body = variant & 1 ? M.panel : M.white;
-    cylinder(g, body, 4.2, 44, 0, 7, 0, 16, 'z');
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(4.15, 12, 8), body);
-    nose.position.set(0, 7, 22); nose.scale.z = 1.35; g.add(nose);
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(4, 11, 12), body);
-    tail.position.set(0, 7, -26); tail.rotation.x = -Math.PI * .5; g.add(tail);
-    box(g, body, 42, 1.1, 9, 0, 9.2, 1);
-    box(g, M.frame, 48, .35, 4, 0, 8.6, -1);
-    box(g, body, 18, .8, 7, 0, 10.5, -19);
-    const fin = box(g, variant % 3 ? M.hazard : M.tech,
-        2.2, 10, 10, 0, 14, -20);
-    fin.rotation.x = -.18;
-    for (const side of [-1, 1]) for (let pz = -13; pz <= 15; pz += 4)
-        box(g, M.glass, .35, .7, 1.8, side * 4.05, 8.2, pz, false);
-    for (const px of [-17, 17])
-        cylinder(g, M.frame, 2.4, 6.5, px, 6.4, 1, 12, 'z');
-    weldOccluder(S9_OCC, parent, g, { x, z, hx: 25, hz: 31, top: 19 });
-    addBlocker(x, z, 24, 29, 16, 0, 'parked-airliner');
+    // JET REGIONAL 2045 (permintaan user 2026-08-27: "mana ada pesawat pakai
+    // baling-baling"). Dua isyarat jet yang paling terbaca dari kamera oblique
+    // adalah SAYAP MENYAPU dan NACELLE BERCOWL, jadi keduanya yang dipakai.
+    //
+    // Nacelle duduk DI ATAS sayap, dan itu bukan gaya-gayaan: pesawat 22 m
+    // dengan sayap tinggi 4,1 m tak punya ruang untuk menggantung fan
+    // berdiameter 2,1 m di bawahnya tanpa menaruhnya setinggi kepala player —
+    // sementara ruang di bawah sayap HARUS tetap kosong, karena collider
+    // pesawat ini hanya badannya dan player memang berjalan di bawah sayap
+    // untuk berpindah antar-stand. Bonusnya: dari atas, mesinnya justru terlihat.
+    const R = am(1.45), LEN = S9_AIRLINER_LEN, SPAN = S9_AIRLINER_SPAN;
+    const deck = am(2.9), wingY = am(4.1), finH = am(5);
+    const sweep = S9_AIRLINER_SWEEP, tanS = Math.tan(sweep);
+    const half = SPAN * .5, zRoot = am(.6);
+    cylinder(g, body, R, LEN * .72, 0, deck, LEN * .02, 16, 'z');
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(R, 14, 10), body);
+    nose.position.set(0, deck, LEN * .38); nose.scale.z = 1.7;
+    nose.castShadow = true; g.add(nose);
+    const radome = new THREE.Mesh(new THREE.SphereGeometry(R * .55, 10, 8), M.frame);
+    radome.position.set(0, deck - am(.1), LEN * .49); radome.scale.z = 1.3; g.add(radome);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(R, LEN * .4, 14), body);
+    tail.position.set(0, deck + am(.95), -LEN * .52); tail.rotation.x = -Math.PI * .5;
+    tail.castShadow = true; g.add(tail);
+    // Sayap: dua panel per sisi pada SATU garis sapu yang menerus. Panjang tiap
+    // panel dibagi cos(sweep) supaya rentang sayapnya tetap SPAN setelah diputar.
+    box(g, body, am(4.8), am(1.3), am(3.8), 0, wingY - am(.55), zRoot);
+    for (const s of [-1, 1]) {
+        for (const [y0, y1, chord] of [
+            [am(1.1), half * .58, am(2.7)],
+            [half * .58, half - am(.5), am(1.7)],
+        ]) {
+            const ym = (y0 + y1) * .5, span = (y1 - y0) / Math.cos(sweep);
+            const panel = box(g, body, span, am(.45), chord, s * ym, wingY, zRoot - tanS * ym);
+            panel.rotation.y = s * sweep;
+        }
+        const tipY = half - am(.35);
+        const wl = box(g, M.hazard, am(.4), am(1.7), am(1.2),
+            s * tipY, wingY + am(.75), zRoot - tanS * tipY);
+        wl.rotation.z = -s * .2; wl.rotation.y = s * sweep;
+    }
+    // Dua TURBOFAN bercowl lewat modul bersama: kipasnya terkurung di dalam
+    // cowl, jadi pesawat ini tak bisa diam-diam kembali berbaling-baling.
+    const nacelleMats = {
+        cowl: body, lip: M.steel, duct: M.rubber,
+        hub: M.frame, fan: M.steel, nozzle: M.frame,
+    };
+    const cowlR = am(1.05);
+    let nacelle = null;
+    for (const s of [-1, 1]) {
+        const ey = s * am(4.4), ez = zRoot - tanS * am(4.4) + am(1);
+        const nacY = wingY + am(1.3);
+        box(g, body, am(1.6), am(1.7), am(3.2), ey, wingY + am(.6), ez);   // pilon
+        nacelle = buildTurbofan(g, nacelleMats,
+            { x: ey, y: nacY, z: ez, cowlRadius: cowlR, length: am(3.8), blades: 11 });
+    }
+    // Roda pendarat: nose gear + main gear ganda dalam sponson badan.
+    cylinder(g, M.steel, am(.15), am(2.3), 0, am(1.15), LEN * .3, 8);
+    for (const dz of [-am(.32), am(.32)])
+        cylinder(g, M.rubber, am(.42), am(.28), 0, am(.42), LEN * .3 + dz, 10, 'z');
+    for (const s of [-1, 1]) {
+        box(g, body, am(1.6), am(1.5), am(4.4), s * am(1.6), am(1.6), -LEN * .05);
+        cylinder(g, M.steel, am(.16), am(2), s * am(1.6), am(1), -LEN * .06, 8);
+        for (const dz of [-am(.62), am(.62)])
+            cylinder(g, M.rubber, am(.5), am(.32), s * am(1.6), am(.5), -LEN * .06 + dz, 10, 'z');
+    }
+    // Ekor T dengan sirip MENYAPU; bidang datarnya diletakkan di puncak sirip
+    // yang dihitung, bukan diketik, supaya sapuan sirip bisa diubah bebas.
+    const finSweep = .44, finZ = -LEN * .43;
+    const fin = box(g, body, am(.6), finH, am(3.4), 0, deck + am(1.5) + finH * .5, finZ);
+    fin.rotation.x = -finSweep;
+    const finTopY = deck + am(1.5) + finH * .5 * (1 + Math.cos(finSweep));
+    const finTopZ = finZ - finH * .5 * Math.sin(finSweep);
+    box(g, variant % 3 ? M.hazard : M.tech, am(.66), finH * .42, am(1.6),
+        0, finTopY - finH * .28, finTopZ + finH * .12, false);
+    box(g, body, am(2.2), am(.6), am(2.4), 0, finTopY, finTopZ);
+    const stabSweep = .3, stabHalf = am(4.3);
+    for (const s of [-1, 1]) {
+        const stab = box(g, body, stabHalf / Math.cos(stabSweep), am(.4), am(1.9),
+            s * stabHalf * .5, finTopY, finTopZ - Math.tan(stabSweep) * stabHalf * .5);
+        stab.rotation.y = s * stabSweep;
+    }
+    // Jendela kabin, pintu penumpang, pintu kargo dan cheatline.
+    for (const s of [-1, 1]) {
+        for (let pz = -LEN * .26; pz <= LEN * .3; pz += am(1.05))
+            box(g, M.glass, am(.06), am(.5), am(.36), s * R, deck + am(.6), pz, false);
+        box(g, M.frame, am(.07), am(1.7), am(.8), s * R, deck + am(.1), LEN * .27, false);
+        box(g, M.hazard, am(.07), am(.24), LEN * .6, s * R, deck - am(.3), 0, false);
+    }
+    box(g, M.frame, am(.07), am(1.3), am(1.7), R, deck - am(.15), -LEN * .18, false);
+    runwayLayoutRecords.engines = {
+        type: 'ducted-turbofan',
+        perAircraft: 2,
+        cowlRadiusM: +(nacelle.cowlRadius / CAMP_M).toFixed(3),
+        fanRadiusM: +(nacelle.fanRadius / CAMP_M).toFixed(3),
+        ducted: nacelle.fanRadius < nacelle.cowlRadius,
+        wingSweep: +sweep.toFixed(3),
+    };
+    drawnM('parked-airliner', (finTopY + am(.4)) / CAMP_M);
+    drawnM('parked-airliner-span', SPAN / CAMP_M);
+    drawnM('parked-airliner-length', LEN / CAMP_M);
+    weldOccluder(S9_OCC, parent, g, {
+        x, z, hx: SPAN * .5, hz: LEN * .58, top: finTopY + am(.8),
+    });
+    addBlocker(x, z, am(5), LEN * .5, am(4), 0, 'parked-airliner');
     count('parkedAirliner');
     runwayLayoutRecords.parkedAircraft++;
 }
 
-function buildJetBridge(parent, M, x) {
-    const z = 270;
+function buildJetBridge(parent, M, standX) {
     const g = new THREE.Group();
-    g.position.set(x, 0, z);
-    box(g, M.frame, 17, 3, 122, 0, 19, 0);
-    box(g, M.panel, 14, 7, 118, 0, 21, 0);
-    for (let pz = -50; pz <= 50; pz += 20)
-        box(g, M.glass, 14.3, 3, 7, 0, 22, pz, false);
-    box(g, M.frame, 25, 12, 22, 0, 16, -60);
-    for (const pz of [-28, 28]) {
-        box(g, M.frame, 2, 18, 2, -6, 9, pz);
-        box(g, M.frame, 2, 18, 2, 6, 9, pz);
-        addBlocker(x - 6, z + pz, 1.2, 1.2, 18, 0, 'jet-bridge-column');
-        addBlocker(x + 6, z + pz, 1.2, 1.2, 18, 0, 'jet-bridge-column');
+    const x = standX + S9_BRIDGE_OFFSET;
+    g.position.set(0, 0, 0);
+    // Jembatan penumpang 20 m: rotunda pada muka terminal, dua bentang
+    // teleskopik dan kabin berkanopi karet. Lantainya am(3.6) = 25 unit, jadi
+    // player lewat di bawahnya; hanya bogie penyangganya yang jadi collider.
+    const cabZ = S9_BRIDGE_CAB_Z, rotZ = S9_BRIDGE_ROT_Z;
+    const midZ = (cabZ + rotZ) * .5, len = rotZ - cabZ;
+    const w = am(3), h = am(2.7), floor = am(3.6), bogieZ = 280;
+    cylinder(g, M.panel, am(2.4), floor + h + am(.7), x, (floor + h) * .5, rotZ, 12);
+    box(g, M.roof, am(5.6), am(.4), am(5.6), x, floor + h + am(.85), rotZ);
+    for (const [zc, zl, ww, hh] of [
+        [midZ + len * .22, len * .56, w + am(.35), h + am(.3)],
+        [midZ - len * .26, len * .54, w, h],
+    ]) {
+        box(g, M.panel, ww, hh, zl, x, floor + hh * .5, zc);
+        box(g, M.frame, ww + am(.3), am(.35), zl, x, floor, zc, false);
+        box(g, M.roof, ww + am(.35), am(.32), zl + am(.4), x, floor + hh + am(.16), zc);
+        for (let pz = -zl * .5 + am(1.8); pz <= zl * .5 - am(1.2); pz += am(2.4))
+            box(g, M.glass, ww + am(.08), hh * .4, am(1.5),
+                x, floor + hh * .62, zc + pz, false);
     }
-    weldOccluder(S9_OCC, parent, g, { x, z, hx: 13, hz: 63, top: 25 });
+    // Kabin + kanopi karet: kanopi menjulur ke -x sampai menyentuh kulit badan
+    // pesawat (jari-jari am(1.45) dari garis tengah stand), jadi jembatan ini
+    // benar-benar tersambung alih-alih menggantung di sebelahnya.
+    box(g, M.panel, am(3.4), h + am(1), am(3.6), x, floor + (h + am(1)) * .5, cabZ);
+    box(g, M.rubber, am(1.2), h + am(.6), am(2.6), x - am(1.9), floor + h * .55, cabZ);
+    box(g, M.glass, am(3.4), am(1.1), am(.3), x, floor + h * .85, cabZ + am(1.9), false);
+    box(g, M.hazard, am(3.6), am(.3), am(.3), x, floor - am(.25), cabZ, false);
+    // Bogie beroda + dua kolom hidrolik: satu-satunya bagian yang memblokir.
+    box(g, M.steel, am(5.4), am(.9), am(1.7), x, am(.65), bogieZ);
+    for (const s of [-1, 1]) {
+        box(g, M.frame, am(.75), floor - am(.5), am(.75),
+            x + s * am(2), (floor - am(.5)) * .5, bogieZ);
+        cylinder(g, M.steel, am(.22), floor * .7, x + s * am(2), floor * .55, bogieZ + am(.9), 8);
+        cylinder(g, M.rubber, am(.55), am(.42), x + s * am(2.5), am(.55), bogieZ, 10, 'z');
+        addBlocker(x + s * am(2), bogieZ, am(.6), am(.6), floor, 0, 'jet-bridge-column');
+    }
+    for (let i = 0; i < 7; i++)
+        box(g, M.frame, am(1.5), am(.16), am(.44),
+            x + am(2.7), floor - (i + 1) * floor / 8, rotZ - am(2.2) - i * am(.6), false);
+    drawnM('jet-bridge', (floor + h) / CAMP_M);
+    drawnM('jet-bridge-length', len / CAMP_M);
+    drawnM('jet-bridge-floor', floor / CAMP_M);
+    weldOccluder(S9_OCC, parent, g,
+        { x, z: midZ, hx: am(3.2), hz: len * .56, top: floor + h + am(1.4) });
     count('jetBridge');
     runwayLayoutRecords.jetBridges++;
 }
 
-function buildFireStation(parent, M, x, z) {
-    box(parent, M.concrete, 94, 18, 62, x, 9, z);
-    box(parent, M.roof, 100, 2, 68, x, 19, z);
-    for (let i = -1; i <= 1; i++) {
-        const px = x + i * 28;
-        box(parent, M.hazard, 22, 12, 2, px, 6, z - 31.5);
-        for (let y = 2; y <= 10; y += 2)
-            box(parent, M.frame, 22, .35, .35, px, y, z - 32.6, false);
+function buildTerminalPier(parent, M) {
+    // Muka terminal tempat kelima jet bridge berlabuh. Jembatan yang berujung di
+    // udara kosong itulah yang membuat apron terbaca belum jadi. Dekor MURNI di
+    // luar ruang walkable: tanpa blocker, tanpa nav, tanpa PointLight.
+    const g = new THREE.Group();
+    const x0 = 299150, x1 = 300085, cx = (x0 + x1) * .5, w = x1 - x0;
+    const z = S9_PIER_Z, h = am(11);
+    box(g, M.concrete, w, h, am(9), cx, h * .5, z);
+    box(g, M.roof, w + am(2), am(1.2), am(11.5), cx, h + am(.6), z);
+    box(g, M.glass, w - am(5), am(4.6), am(.4), cx, am(5.6), z - am(4.75), false);
+    box(g, M.frame, w - am(4), am(.4), am(.7), cx, am(8.2), z - am(4.9), false);
+    for (let px = x0 + am(3.5); px <= x1 - am(3.5); px += am(6.5)) {
+        box(g, M.panel, am(1.2), h, am(1.2), px, h * .5, z - am(4.6));
+        box(g, M.frame, am(1.5), am(.5), am(2.4), px, h + am(1.3), z - am(5.6), false);
     }
-    box(parent, M.panel, 28, 6, 8, x, 3, z + 35);
-    addBlocker(x, z, 47, 31, 20, 0, 'airport-fire-station');
-    count('airportFireStation');
-    runwayLayoutRecords.fireStations++;
-    runwayLayoutRecords.zones.push({
-        kind: 'fire-station', x, z, hx: 47, hz: 31,
-    });
+    for (const sx of S9_STAND_XS) {
+        const gx = sx + S9_BRIDGE_OFFSET;   // mulut gate = sumbu jet bridge
+        box(g, M.frame, am(5.4), am(3.4), am(.5), gx, am(2.4), z - am(4.95));
+        box(g, M.glass, am(4.2), am(2.2), am(.25), gx, am(2.3), z - am(5.2), false);
+    }
+    drawnM('terminal-pier', h / CAMP_M);
+    weldOccluder(S9_OCC, parent, g,
+        { x: cx, z, hx: w * .5, hz: am(7), top: h + am(2.4) });
+    count('terminalPier');
 }
 
-function wheels(parent, M, points, yaw = 0) {
+function buildLightMast(parent, M, x, z) {
+    // Tiang lampu apron 21 m berangka empat kaki. Balok tunggal setinggi 4 m
+    // yang lama tidak pernah terbaca sebagai tiang lampu bandara.
+    const g = new THREE.Group();
+    const h = am(21), leg = am(.85);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1])
+        box(g, M.frame, am(.3), h, am(.3), x + sx * leg, h * .5, z + sz * leg);
+    for (let y = am(3); y < h - am(1); y += am(4)) {
+        for (const sz of [-1, 1])
+            box(g, M.frame, leg * 2, am(.18), am(.18), x, y, z + sz * leg, false);
+        for (const sx of [-1, 1])
+            box(g, M.frame, am(.18), am(.18), leg * 2, x + sx * leg, y, z, false);
+        const brace = box(g, M.frame, leg * 2.4, am(.14), am(.14), x, y + am(2), z - leg, false);
+        brace.rotation.z = .55;
+    }
+    box(g, M.panel, am(4.6), am(.6), am(2.2), x, h + am(.4), z);
+    box(g, M.frame, am(4.6), am(.3), am(.4), x, h - am(.1), z + am(1), false);
+    for (let i = -2; i <= 2; i++) {
+        const lamp = box(g, M.white, am(.82), am(.5), am(.95),
+            x + i * am(1), h + am(.05), z - am(.45));
+        lamp.rotation.x = .5;
+    }
+    box(g, M.hazard, am(.36), am(.36), am(.36), x, h + am(1), z, false);
+    drawnM('apron-light-mast', h / CAMP_M);
+    weldOccluder(S9_OCC, parent, g, { x, z, radius: am(3), top: h + am(1.4) });
+    count('apronLightMast');
+}
+
+function buildFireStation(parent, M, x, z) {
+    // Stasiun pemadam 25 x 15 m setinggi 8 m dengan tiga bay berpintu rol
+    // 4,6 m — versi lama pintunya 1,7 m, tak ada mobil damkar yang bisa lewat.
+    const halfW = am(12.5), halfD = am(7.5), h = am(8), bayDoor = am(4.6);
+    drawnM('fire-station-bay-door', bayDoor / CAMP_M);
+    drawnM('fire-station-hose-tower', am(13.2) / CAMP_M);
+    box(parent, M.concrete, halfW * 2, h, halfD * 2, x, h * .5, z);
+    box(parent, M.roof, halfW * 2 + am(1), am(.9), halfD * 2 + am(1), x, h + am(.45), z);
+    box(parent, M.hazard, halfW * 2 + am(1.1), am(1), am(.4),
+        x, h * .84, z - halfD - am(.6), false);
+    for (let i = -1; i <= 1; i++) {
+        const px = x + i * am(7.7);
+        box(parent, M.steel, am(6), bayDoor, am(.5), px, bayDoor * .5, z - halfD - am(.3));
+        for (let y = am(.5); y < bayDoor - am(.2); y += am(.6))
+            box(parent, M.frame, am(6), am(.16), am(.22), px, y, z - halfD - am(.6), false);
+        box(parent, M.hazard, am(.7), am(.36), am(.32), px, am(5.2), z - halfD - am(.55), false);
+    }
+    box(parent, M.glass, halfW * .85, am(1.6), am(.35), x, am(6.4), z - halfD - am(.45), false);
+    // Menara pengering selang + tiang sirene: siluet khas stasiun pemadam.
+    box(parent, M.concrete, am(3.2), am(13), am(3.2),
+        x + halfW - am(2.6), am(6.5), z + halfD - am(2.6));
+    box(parent, M.roof, am(4), am(.7), am(4),
+        x + halfW - am(2.6), am(13.2), z + halfD - am(2.6));
+    box(parent, M.glass, am(.9), am(6), am(.3),
+        x + halfW - am(2.6), am(7), z + halfD - am(4.25), false);
+    cylinder(parent, M.frame, am(.17), am(5.2),
+        x - halfW + am(1.7), h + am(2.6), z + halfD - am(1.7), 6);
+    box(parent, M.hazard, am(1.4), am(.5), am(.4),
+        x - halfW + am(1.7), h + am(5.1), z + halfD - am(1.7), false);
+    box(parent, M.panel, am(4.2), am(2.6), am(1.5), x, am(1.3), z + halfD + am(.75));
+    addBlocker(x, z, halfW, halfD, h, 0, 'airport-fire-station');
+    count('airportFireStation');
+    runwayLayoutRecords.fireStations++;
+    runwayLayoutRecords.zones.push({ kind: 'fire-station', x, z, hx: halfW, hz: halfD });
+}
+
+function wheels(parent, M, points, yaw = 0, radius = am(.5), width = am(.32)) {
     for (const p of points) {
-        const w = cylinder(parent, M.rubber, 1.75, 1.1, p[0], p[1], p[2], 10, 'z');
-        w.rotation.y = yaw;
+        const tyre = cylinder(parent, M.rubber, radius, width, p[0], p[1], p[2], 10, 'z');
+        tyre.rotation.y = yaw;
+        const hub = cylinder(parent, M.steel, radius * .5, width * 1.1, p[0], p[1], p[2], 8, 'z');
+        hub.rotation.y = yaw;
     }
 }
 
 function buildTug(parent, M, x, z) {
+    // Pushback tug 5,0 x 2,4 x 2,9 m.
     const g = new THREE.Group(); parent.add(g);
-    box(g, M.hazard, 12, 3.3, 7, x, 2.4, z);
-    box(g, M.white, 5.2, 5.4, 6.4, x - 2.8, 5.5, z);
-    box(g, M.glass, 0.5, 2, 4.8, x - 5.5, 6.1, z);
-    box(g, M.frame, 10, 0.7, 2.4, x + 10, 1.9, z);
-    cylinder(g, M.hazard, 0.65, 1.1, x - 2.8, 9, z, 8);
-    wheels(g, M, [[x - 3.5, 1.6, z - 3.6], [x - 3.5, 1.6, z + 3.6], [x + 3.5, 1.6, z - 3.6], [x + 3.5, 1.6, z + 3.6]]);
-    addBlocker(x, z, 7, 4.2, 9, 0, 'pushback-tug');
+    const L = am(5), W = am(2.4);
+    box(g, M.hazard, L, am(.95), W, x, am(.8), z);
+    box(g, M.frame, L * .97, am(.28), W + am(.35), x, am(1.32), z, false);
+    box(g, M.white, am(2), am(1.7), W - am(.3), x - am(.85), am(2.15), z);
+    box(g, M.glass, am(.1), am(.95), W - am(.8), x - am(1.85), am(2.45), z, false);
+    for (const s of [-1, 1]) {
+        box(g, M.glass, am(1.5), am(.9), am(.1),
+            x - am(.85), am(2.45), z + s * (W * .5 - am(.15)), false);
+        box(g, M.frame, am(1.1), am(.14), am(.5),
+            x - am(.4), am(1.05), z + s * (W * .5 + am(.15)), false);
+        box(g, M.white, am(.35), am(.3), am(.28),
+            x - am(2.1), am(1.5), z + s * am(.85), false);
+    }
+    box(g, M.frame, am(2.2), am(.16), W - am(.2), x - am(.85), am(3.05), z, false);
+    box(g, M.steel, am(2.4), am(.4), am(.7), x + L * .48, am(1.15), z);
+    box(g, M.frame, am(.5), am(.5), am(.5), x + L * .62, am(1.15), z);
+    box(g, M.panel, am(.9), am(.7), W - am(.5), x + am(1.1), am(1.65), z, false);
+    cylinder(g, M.hazard, am(.16), am(.3), x - am(.85), am(3.25), z, 8);
+    cylinder(g, M.frame, am(.09), am(1.1), x + am(.1), am(2.4), z - W * .42, 6);
+    wheels(g, M, [[x - am(1.4), am(.5), z - am(1)], [x - am(1.4), am(.5), z + am(1)],
+        [x + am(1.5), am(.5), z - am(1)], [x + am(1.5), am(.5), z + am(1)]],
+    0, am(.5), am(.34));
+    addBlocker(x, z, am(2.6), am(1.3), am(3.4), 0, 'pushback-tug');
     count('pushbackTug');
 }
 
 function buildBaggageTrain(parent, M, x, z) {
-    box(parent, M.frame, 11, 1.3, 1, x - 7, 2.1, z);
+    // Tiga gerobak bagasi berkanvas 3,2 x 1,9 x 2,0 m dalam satu rangkai.
+    const L = am(3.2), W = am(1.9), pitch = am(3.8);
+    box(parent, M.frame, am(1.7), am(.18), am(.18), x - pitch * 1.5, am(.75), z, false);
     for (let i = 0; i < 3; i++) {
-        const cx = x + i * 14;
-        box(parent, M.frame, 11, 1, 7, cx, 2, z);
-        box(parent, i % 2 ? M.panel : M.hazard, 9.5, 4.6, 6.2, cx, 4.8, z);
-        box(parent, M.frame, 12.5, 0.45, 0.45, cx, 7.3, z - 3.2);
-        box(parent, M.frame, 12.5, 0.45, 0.45, cx, 7.3, z + 3.2);
-        wheels(parent, M, [[cx - 3.5, 1.2, z - 3.5], [cx - 3.5, 1.2, z + 3.5], [cx + 3.5, 1.2, z - 3.5], [cx + 3.5, 1.2, z + 3.5]]);
-        addBlocker(cx, z, 6, 4, 8, 0, 'baggage-cart');
+        const cx = x + (i - 1) * pitch;
+        box(parent, M.frame, L, am(.3), W, cx, am(.72), z);
+        box(parent, M.steel, L * .96, am(.18), W - am(.2), cx, am(.9), z, false);
+        for (const s of [-1, 1]) {
+            box(parent, M.frame, am(.16), am(1.35), am(.16),
+                cx - L * .45, am(1.55), z + s * (W * .5 - am(.1)));
+            box(parent, M.frame, am(.16), am(1.35), am(.16),
+                cx + L * .45, am(1.55), z + s * (W * .5 - am(.1)));
+        }
+        box(parent, i % 2 ? M.panel : M.hazard, L * .98, am(1.1), W - am(.15), cx, am(1.6), z);
+        box(parent, M.frame, L, am(.22), W + am(.1), cx, am(2.22), z);
+        for (let r = -1; r <= 1; r++)
+            box(parent, M.frame, am(.14), am(1.15), W + am(.14), cx + r * L * .3, am(1.6), z, false);
+        box(parent, M.frame, am(1.5), am(.16), am(.16), cx - L * .78, am(.72), z, false);
+        wheels(parent, M, [[cx - L * .3, am(.34), z - W * .42], [cx - L * .3, am(.34), z + W * .42],
+            [cx + L * .3, am(.34), z - W * .42], [cx + L * .3, am(.34), z + W * .42]],
+        0, am(.34), am(.24));
+        addBlocker(cx, z, am(1.6), am(1), am(2.3), 0, 'baggage-cart');
     }
     count('baggageCart', 3);
 }
 
 function buildFuelTruck(parent, M, x, z) {
-    box(parent, M.frame, 29, 2, 9, x, 2.2, z);
-    box(parent, M.white, 9, 9, 8.6, x + 9, 7.4, z);
-    box(parent, M.glass, 0.5, 3.4, 6.4, x + 13.7, 8.7, z);
-    cylinder(parent, M.panel, 4.2, 17, x - 4.5, 8, z, 14, 'x');
-    for (const pz of [-1, 1]) box(parent, M.hazard, 17, 0.7, 0.25, x - 4.5, 8, z + pz * 4.05);
-    cylinder(parent, M.rubber, 1.5, 0.7, x - 4.5, 11, z - 4.6, 10, 'z');
-    wheels(parent, M, [[x - 8, 1.7, z - 5], [x - 8, 1.7, z + 5], [x + 8, 1.7, z - 5], [x + 8, 1.7, z + 5]]);
-    addBlocker(x, z, 15, 5.5, 13, 0, 'aviation-fuel-truck');
+    // Refueller 11 x 2,55 x 3,5 m: kabin, sasis, tangki berkelim, walkway atas,
+    // gulungan selang dan plakat bahaya.
+    const L = am(11), W = am(2.55);
+    box(parent, M.frame, L, am(.5), W - am(.35), x, am(1.05), z);
+    box(parent, M.white, am(2.5), am(2.1), W, x + L * .38, am(2.15), z);
+    box(parent, M.glass, am(.12), am(1), W - am(.55), x + L * .38 + am(1.2), am(2.7), z, false);
+    for (const s of [-1, 1]) {
+        box(parent, M.glass, am(1.2), am(.9), am(.1),
+            x + L * .38, am(2.75), z + s * (W * .5 - am(.05)), false);
+        box(parent, M.frame, am(.5), am(.16), am(.4),
+            x + L * .3, am(3.15), z + s * (W * .5 + am(.2)), false);
+        box(parent, M.frame, am(1.2), am(.14), am(.35),
+            x + L * .24, am(1.1), z + s * (W * .5 + am(.1)), false);
+    }
+    box(parent, M.roof, am(2.6), am(.3), W + am(.1), x + L * .38, am(3.25), z);
+    cylinder(parent, M.panel, am(1.28), L * .56, x - L * .12, am(2.5), z, 14, 'x');
+    for (let i = -2; i <= 2; i++)
+        cylinder(parent, M.frame, am(1.31), am(.16), x - L * .12 + i * L * .12, am(2.5), z, 14, 'x');
+    box(parent, M.steel, L * .56, am(.2), am(1.5), x - L * .12, am(3.8), z);
+    for (const s of [-1, 1]) {
+        box(parent, M.frame, L * .56, am(.12), am(.12),
+            x - L * .12, am(4.3), z + s * am(.7), false);
+        for (let i = -2; i <= 2; i++)
+            box(parent, M.frame, am(.1), am(.5), am(.1),
+                x - L * .12 + i * L * .12, am(4.05), z + s * am(.7), false);
+        box(parent, M.hazard, am(1.8), am(.9), am(.06),
+            x - L * .12, am(2.6), z + s * (W * .5 + am(.02)), false);
+    }
+    box(parent, M.panel, am(1.6), am(1.4), W - am(.3), x - L * .46, am(2), z);
+    cylinder(parent, M.rubber, am(.72), am(.36), x - L * .46, am(2.6), z - am(.7), 12, 'z');
+    box(parent, M.frame, am(.9), am(1.1), am(.9), x - L * .3, am(1.7), z + W * .38, false);
+    for (let i = 0; i < 4; i++)
+        box(parent, M.frame, am(.8), am(.12), am(.3),
+            x + L * .27, am(.5) + i * am(.42), z + W * .52, false);
+    wheels(parent, M, [[x + L * .34, am(.58), z - W * .46], [x + L * .34, am(.58), z + W * .46],
+        [x - L * .18, am(.58), z - W * .46], [x - L * .18, am(.58), z + W * .46],
+        [x - L * .35, am(.58), z - W * .46], [x - L * .35, am(.58), z + W * .46]],
+    0, am(.58), am(.36));
+    addBlocker(x, z, am(5.6), am(1.4), am(4.5), 0, 'aviation-fuel-truck');
     count('fuelTruck');
 }
 
 function buildMobileStairs(parent, M, x, z) {
-    box(parent, M.frame, 24, 1.1, 8, x, 1.5, z);
-    for (let i = 0; i < 10; i++) {
-        box(parent, M.white, 2.2, 0.6, 7, x - 10 + i * 2.1, 2.3 + i * 0.8, z);
+    // Tangga penumpang: platform atas 4,2 m (setinggi pintu pesawat), dua belas
+    // anak tangga, pegangan berbalustrade dan kanopi.
+    const L = am(8), W = am(2.6), top = am(4.2);
+    box(parent, M.frame, L, am(.35), W, x, am(.75), z);
+    box(parent, M.steel, L * .94, am(.16), W - am(.3), x, am(.95), z, false);
+    for (let i = 0; i < 12; i++) {
+        const sx = x - L * .42 + i * (L * .72 / 12), sy = am(1.1) + i * (top - am(1.1)) / 12;
+        box(parent, M.white, L * .06, am(.14), W - am(.5), sx, sy, z);
+        box(parent, M.frame, am(.08), (top - am(1.1)) / 12, W - am(.5),
+            sx + L * .028, sy - am(.14), z, false);
     }
-    for (const side of [-1, 1]) {
-        box(parent, M.hazard, 24, 0.45, 0.45, x, 10.7, z + side * 3.7);
-        for (let i = -10; i <= 10; i += 4) box(parent, M.frame, 0.35, 9, 0.35, x + i, 6.2 + i * 0.34, z + side * 3.7);
+    box(parent, M.white, am(1.8), am(.2), W - am(.35), x + L * .38, top, z);
+    for (const s of [-1, 1]) {
+        const rail = box(parent, M.hazard, L * .78, am(.14), am(.14),
+            x - am(.2), am(2.9), z + s * (W * .5 - am(.2)));
+        rail.rotation.z = .36;
+        for (let i = 0; i < 6; i++)
+            box(parent, M.frame, am(.09), am(1.1), am(.09),
+                x - L * .4 + i * L * .14, am(1.5) + i * am(.28), z + s * (W * .5 - am(.2)), false);
+        box(parent, M.frame, am(1.9), am(.13), am(.13),
+            x + L * .38, am(5.3), z + s * (W * .5 - am(.2)));
+        box(parent, M.frame, am(.11), am(1.1), am(.11),
+            x + L * .46, am(4.75), z + s * (W * .5 - am(.2)));
+        box(parent, M.frame, am(.22), am(.9), am(.22),
+            x + L * .4, am(.5), z + s * (W * .5 + am(.2)), false);
     }
-    wheels(parent, M, [[x - 8, 1.2, z - 4], [x - 8, 1.2, z + 4], [x + 8, 1.2, z - 4], [x + 8, 1.2, z + 4]]);
-    addBlocker(x, z, 13, 5, 12, 0, 'mobile-stairs');
+    box(parent, M.roof, am(2.4), am(.16), W, x + L * .38, am(5.9), z);
+    box(parent, M.panel, am(.9), am(1), W - am(.5), x - L * .48, am(1.4), z, false);
+    box(parent, M.frame, am(1.6), am(.16), am(.16), x - L * .62, am(.85), z, false);
+    wheels(parent, M, [[x - L * .3, am(.5), z - W * .42], [x - L * .3, am(.5), z + W * .42],
+        [x + L * .3, am(.5), z - W * .42], [x + L * .3, am(.5), z + W * .42]],
+    0, am(.5), am(.3));
+    addBlocker(x, z, am(4), am(1.4), am(4.4), 0, 'mobile-stairs');
     count('mobileStairs');
 }
 
 function buildCargoLoader(parent, M, x, z) {
-    box(parent, M.frame, 22, 1.2, 9, x, 1.2, z);
-    box(parent, M.hazard, 16, 0.8, 10, x, 9.3, z);
-    for (const side of [-1, 1]) {
-        const a = box(parent, M.frame, 1, 10, 1, x - 4, 5, z + side * 3.2); a.rotation.z = 0.62;
-        const b = box(parent, M.frame, 1, 10, 1, x + 4, 5, z + side * 3.2); b.rotation.z = -0.62;
+    // Main-deck loader 9 x 3,2 m: dua platform roller bergunting, pagar
+    // pengaman dan stand operator.
+    const L = am(9), W = am(3.2);
+    box(parent, M.frame, L, am(.55), W, x, am(.85), z);
+    for (const [px, py, pw] of [[-L * .26, am(2.4), L * .4], [L * .26, am(3.2), L * .4]]) {
+        box(parent, M.hazard, pw, am(.3), W - am(.2), x + px, py, z);
+        for (let r = -3; r <= 3; r++)
+            cylinder(parent, M.steel, am(.14), W - am(.35),
+                x + px + r * pw * .13, py + am(.24), z, 8, 'z');
+        for (const s of [-1, 1]) {
+            box(parent, M.frame, pw, am(.12), am(.12),
+                x + px, py + am(1.05), z + s * (W * .5 - am(.12)));
+            for (const dx of [-pw * .4, 0, pw * .4])
+                box(parent, M.frame, am(.1), am(1), am(.1),
+                    x + px + dx, py + am(.6), z + s * (W * .5 - am(.12)), false);
+            const a = box(parent, M.frame, am(.22), py * .9, am(.22),
+                x + px - pw * .28, py * .55, z + s * (W * .5 - am(.35)));
+            a.rotation.z = .5;
+            const b = box(parent, M.frame, am(.22), py * .9, am(.22),
+                x + px + pw * .28, py * .55, z + s * (W * .5 - am(.35)));
+            b.rotation.z = -.5;
+        }
     }
-    for (let rx = -6; rx <= 6; rx += 3) cylinder(parent, M.steel, 0.45, 8.4, x + rx, 10, z, 8, 'z');
-    wheels(parent, M, [[x - 8, 1.1, z - 5], [x - 8, 1.1, z + 5], [x + 8, 1.1, z - 5], [x + 8, 1.1, z + 5]]);
-    addBlocker(x, z, 12, 5.5, 11, 0, 'cargo-loader');
+    box(parent, M.panel, am(1.1), am(1.5), am(1.1), x - L * .44, am(1.9), z + W * .3);
+    box(parent, M.tech, am(.7), am(.5), am(.1), x - L * .44, am(2.3), z + W * .3 - am(.6), false);
+    box(parent, M.frame, am(.9), am(1.1), am(.9), x - L * .44, am(1.2), z - W * .28, false);
+    wheels(parent, M, [[x - L * .32, am(.55), z - W * .4], [x - L * .32, am(.55), z + W * .4],
+        [x + L * .32, am(.55), z - W * .4], [x + L * .32, am(.55), z + W * .4]],
+    0, am(.55), am(.34));
+    addBlocker(x, z, am(4.6), am(1.7), am(3.6), 0, 'cargo-loader');
     count('cargoLoader');
 }
 
 function buildBaggageTractor(parent, M, x, z) {
-    box(parent, M.hazard, 13, 3.1, 7, x, 2.6, z);
-    box(parent, M.frame, 5, 6.3, 6.4, x - 3, 6.2, z);
-    box(parent, M.glass, 0.45, 2.8, 4.8, x - 5.7, 7.1, z);
-    box(parent, M.frame, 7, 0.7, 5.8, x - 1.6, 10, z);
-    box(parent, M.steel, 7, 0.9, 1.8, x + 9, 1.5, z);
-    cylinder(parent, M.hazard, 0.6, 0.9, x - 1, 11, z, 8);
-    wheels(parent, M, [[x - 4, 1.6, z - 3.8], [x - 4, 1.6, z + 3.8],
-        [x + 4, 1.6, z - 3.8], [x + 4, 1.6, z + 3.8]]);
-    addBlocker(x, z, 7, 4.2, 11, 0, 'baggage-tractor');
+    // Traktor bagasi 4,0 x 1,7 x 2,1 m berkanopi terbuka.
+    const L = am(4), W = am(1.7);
+    box(parent, M.hazard, L, am(.85), W, x, am(.78), z);
+    box(parent, M.frame, L * .96, am(.24), W + am(.25), x, am(1.24), z, false);
+    box(parent, M.panel, am(1.1), am(.75), W - am(.3), x - L * .28, am(1.7), z);
+    box(parent, M.frame, am(.9), am(.9), am(.12), x - L * .1, am(1.85), z, false);
+    box(parent, M.glass, am(.1), am(.85), W - am(.4), x + L * .32, am(1.9), z, false);
+    for (const s of [-1, 1]) {
+        box(parent, M.frame, am(.11), am(1.2), am(.11),
+            x - L * .05, am(2.05), z + s * (W * .5 - am(.1)));
+        box(parent, M.white, am(.3), am(.28), am(.26),
+            x + L * .48, am(1.3), z + s * am(.5), false);
+    }
+    box(parent, M.roof, am(1.7), am(.14), W + am(.1), x - am(.15), am(2.7), z);
+    box(parent, M.steel, am(.9), am(.35), am(.6), x - L * .52, am(.95), z);
+    box(parent, M.frame, am(.4), am(.4), am(.4), x - L * .6, am(.95), z);
+    cylinder(parent, M.hazard, am(.15), am(.28), x - am(.15), am(2.9), z, 8);
+    wheels(parent, M, [[x - L * .3, am(.42), z - W * .45], [x - L * .3, am(.42), z + W * .45],
+        [x + L * .3, am(.42), z - W * .45], [x + L * .3, am(.42), z + W * .45]],
+    0, am(.42), am(.26));
+    addBlocker(x, z, am(2.1), am(.95), am(3), 0, 'baggage-tractor');
     count('baggageTractor');
 }
 
 function buildBeltLoader(parent, M, x, z) {
-    box(parent, M.frame, 23, 1.2, 8, x, 1.4, z);
-    const belt = box(parent, M.rubber, 26, 1, 6.4, x + 1, 7.2, z);
-    belt.rotation.z = -0.28;
-    for (let i = -10; i <= 10; i += 2.5) {
-        const slat = box(parent, M.steel, 0.5, 1.1, 6.7, x + i, 7.2 - i * 0.28, z);
-        slat.rotation.z = -0.28;
+    // Belt loader 9 m: sabuk miring bersirip dari lantai bagasi ke pintu kargo,
+    // rel samping, roller ujung dan pos kendali.
+    const L = am(9), W = am(2.4), tilt = -.3;
+    box(parent, M.frame, L * .78, am(.5), W, x - am(.5), am(.8), z);
+    const belt = box(parent, M.rubber, L, am(.24), W - am(.6), x + am(.6), am(2.5), z);
+    belt.rotation.z = tilt;
+    for (let i = -6; i <= 6; i++) {
+        const slat = box(parent, M.steel, am(.16), am(.26), W - am(.6),
+            x + am(.6) + i * L * .075, am(2.5) - i * L * .075 * Math.tan(-tilt), z, false);
+        slat.rotation.z = tilt;
     }
-    for (const side of [-1, 1]) {
-        const strut = box(parent, M.frame, 1, 10, 1, x + 6, 5, z + side * 3);
-        strut.rotation.z = -0.42;
+    for (const s of [-1, 1]) {
+        const rail = box(parent, M.hazard, L, am(.3), am(.14),
+            x + am(.6), am(2.72), z + s * (W * .5 - am(.24)));
+        rail.rotation.z = tilt;
+        const strut = box(parent, M.frame, am(.24), am(2.4), am(.24),
+            x + am(1.6), am(1.8), z + s * (W * .5 - am(.3)));
+        strut.rotation.z = .4;
+        const back = box(parent, M.frame, am(.2), am(1.7), am(.2),
+            x - am(1.9), am(1.3), z + s * (W * .5 - am(.3)));
+        back.rotation.z = -.35;
     }
-    box(parent, M.hazard, 4, 4, 7, x - 9, 4, z);
-    wheels(parent, M, [[x - 8, 1.2, z - 4], [x - 8, 1.2, z + 4],
-        [x + 8, 1.2, z - 4], [x + 8, 1.2, z + 4]]);
-    addBlocker(x, z, 14, 5, 13, 0, 'belt-loader');
+    for (const [px, py] of [[L * .46, am(3.9)], [-L * .4, am(1.35)]])
+        cylinder(parent, M.steel, am(.3), W - am(.55), x + am(.6) + px, py, z, 10, 'z');
+    box(parent, M.panel, am(1), am(1.4), am(1), x - L * .44, am(1.75), z + W * .28);
+    box(parent, M.tech, am(.6), am(.45), am(.1), x - L * .44, am(2.1), z + W * .28 - am(.55), false);
+    box(parent, M.frame, am(1.7), am(.16), am(.16), x - L * .56, am(.9), z, false);
+    wheels(parent, M, [[x - L * .3, am(.5), z - W * .42], [x - L * .3, am(.5), z + W * .42],
+        [x + L * .18, am(.5), z - W * .42], [x + L * .18, am(.5), z + W * .42]],
+    0, am(.5), am(.3));
+    addBlocker(x, z, am(4.6), am(1.3), am(4.2), 0, 'belt-loader');
     count('beltLoader');
 }
 
 function buildGroundPowerUnit(parent, M, x, z) {
-    box(parent, M.frame, 13, 1.1, 8, x, 1.1, z);
-    box(parent, M.hazard, 11, 6.5, 7, x, 4.8, z);
-    for (let rx = -4; rx <= 4; rx += 2)
-        box(parent, M.ink, 0.4, 4.2, 0.35, x + rx, 5, z - 3.65, false);
-    box(parent, M.tech, 3.2, 2.2, 0.3, x + 3, 5.2, z - 3.85, false);
-    cylinder(parent, M.frame, 0.55, 13, x + 10, 1.2, z, 8, 'x');
-    cylinder(parent, M.rubber, 1.2, 1, x + 16, 1.2, z, 10, 'z');
-    wheels(parent, M, [[x - 4, 1, z - 4.3], [x - 4, 1, z + 4.3],
-        [x + 4, 1, z - 4.3], [x + 4, 1, z + 4.3]]);
-    addBlocker(x, z, 7, 4.5, 9, 0, 'ground-power-unit');
+    // GPU 4,2 x 1,9 x 2,1 m: kabin genset berlouvre, cerobong, gulungan kabel
+    // dan tow bar.
+    const L = am(4.2), W = am(1.9);
+    box(parent, M.frame, L, am(.4), W, x, am(.62), z);
+    box(parent, M.hazard, L * .9, am(1.35), W - am(.15), x, am(1.5), z);
+    box(parent, M.roof, L * .94, am(.18), W + am(.1), x, am(2.24), z);
+    for (let i = -2; i <= 2; i++)
+        box(parent, M.frame, am(.12), am(.9), am(.1), x + i * am(.55), am(1.5), z - W * .5, false);
+    for (const s of [-1, 1])
+        box(parent, M.frame, am(1.5), am(.75), am(.1),
+            x - am(.6), am(1.5), z + s * (W * .5 - am(.02)), false);
+    box(parent, M.panel, am(.9), am(.85), am(.12), x + L * .32, am(1.6), z - W * .52);
+    box(parent, M.tech, am(.55), am(.4), am(.08), x + L * .32, am(1.75), z - W * .58, false);
+    cylinder(parent, M.steel, am(.13), am(1.1), x - L * .34, am(2.7), z + am(.4), 8);
+    cylinder(parent, M.rubber, am(.42), am(.3), x - L * .3, am(1.5), z + W * .55, 10);
+    box(parent, M.frame, am(1.7), am(.16), am(.16), x + L * .62, am(.65), z, false);
+    box(parent, M.frame, am(.4), am(.4), am(.4), x + L * .78, am(.65), z, false);
+    box(parent, M.hazard, am(.24), am(.24), am(.24), x, am(2.45), z, false);
+    wheels(parent, M, [[x - L * .28, am(.4), z - W * .45], [x - L * .28, am(.4), z + W * .45],
+        [x + L * .28, am(.4), z - W * .45], [x + L * .28, am(.4), z + W * .45]],
+    0, am(.4), am(.24));
+    addBlocker(x, z, am(2.3), am(1), am(2.9), 0, 'ground-power-unit');
     count('groundPowerUnit');
 }
 
 function buildSafetyEquipment(parent, M, x, z) {
+    // Kerucut 0,75 m dan pasangan wheel chock 0,25 m — ukuran nyata, bukan
+    // kerucut 37 cm yang tenggelam di bawah lutut Gibran.
     for (let i = 0; i < 8; i++) {
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.75, 2.6, 8), M.hazard);
-        cone.position.set(x + i * 4, 1.3, z + (i % 2) * 2.5);
+        const cx = x + i * am(2.6), cz = z + (i % 2) * am(1.1);
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(am(.32), am(.75), 8), M.hazard);
+        drawnM('safety-cone', .75);
+        cone.position.set(cx, am(.42), cz);
+        cone.castShadow = true;
         parent.add(cone);
-        box(parent, M.white, 1.25, 0.35, 1.25, cone.position.x, 0.35, cone.position.z, false);
+        box(parent, M.white, am(.52), am(.08), am(.52), cx, am(.05), cz, false);
+        const band = new THREE.Mesh(new THREE.ConeGeometry(am(.21), am(.14), 8), M.white);
+        band.position.set(cx, am(.52), cz);
+        parent.add(band);
     }
     for (let i = 0; i < 6; i++) {
-        const cx = x + 3 + i * 5, cz = z + 8;
-        const left = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.2, 4), M.hazard);
-        left.rotation.z = Math.PI * 0.5; left.position.set(cx, 1.1, cz); parent.add(left);
-        const right = left.clone(); right.rotation.z = -Math.PI * 0.5; right.position.x += 2.1; parent.add(right);
-        box(parent, M.frame, 4.2, 0.35, 0.7, cx + 1.05, 0.25, cz, false);
+        const cx = x + am(1.2) + i * am(3.4), cz = z + am(2.6);
+        for (const s of [-1, 1]) {
+            const chock = new THREE.Mesh(new THREE.ConeGeometry(am(.3), am(.42), 4), M.hazard);
+            chock.rotation.z = s * Math.PI * .5;
+            chock.position.set(cx + s * am(.42), am(.21), cz);
+            parent.add(chock);
+        }
+        box(parent, M.frame, am(1.2), am(.07), am(.1), cx, am(.05), cz, false);
     }
     count('safetyCone', 8); count('wheelChockPair', 6);
 }
 
 function buildAirportBus(parent, M, x, z) {
-    box(parent, M.white, 34, 9, 10, x, 6.2, z);
-    box(parent, M.hazard, 34, 1.2, 10.2, x, 5.4, z);
-    for (let ix = -13; ix <= 11; ix += 6) {
-        box(parent, M.glass, 4.3, 3.2, 0.35, x + ix, 8, z - 5.1);
-        box(parent, M.glass, 4.3, 3.2, 0.35, x + ix, 8, z + 5.1);
+    // Bus apron lantai rendah 12 x 2,7 x 3,1 m — versi lama setinggi 1,29 m,
+    // lebih pendek daripada penumpangnya sendiri.
+    const L = am(12), W = am(2.7), H = am(3.1);
+    box(parent, M.white, L, H - am(.55), W, x, am(1.15) + (H - am(.55)) * .5, z);
+    box(parent, M.frame, L, am(.5), W - am(.1), x, am(.95), z);
+    box(parent, M.roof, L - am(.4), am(.35), W + am(.1), x, H + am(.75), z);
+    box(parent, M.panel, am(3.2), am(.5), am(1.8), x - L * .18, H + am(1.1), z);
+    box(parent, M.hazard, L, am(.4), W + am(.06), x, am(1.5), z, false);
+    for (const s of [-1, 1]) {
+        for (let i = -4; i <= 4; i++)
+            box(parent, M.glass, am(1.15), am(1.15), am(.1),
+                x + i * am(1.24), am(3.1), z + s * (W * .5 + am(.01)), false);
+        box(parent, M.frame, am(.16), am(2.3), am(.1),
+            x + L * .22, am(2.5), z + s * (W * .5 + am(.03)), false);
+        box(parent, M.frame, am(.16), am(2.3), am(.1),
+            x - L * .3, am(2.5), z + s * (W * .5 + am(.03)), false);
+        box(parent, M.frame, L - am(.6), am(.14), am(.14),
+            x, am(1.75), z + s * (W * .5 + am(.06)), false);
+        box(parent, M.white, am(.4), am(.35), am(.32),
+            x + L * .49, am(1.85), z + s * (W * .5 - am(.35)), false);
+        box(parent, M.hazard, am(.35), am(.3), am(.3),
+            x - L * .49, am(1.85), z + s * (W * .5 - am(.35)), false);
+        box(parent, M.frame, am(.5), am(.2), am(.4),
+            x + L * .38, am(3.6), z + s * (W * .5 + am(.28)), false);
     }
-    wheels(parent, M, [[x - 11, 2, z - 5.3], [x - 11, 2, z + 5.3], [x + 11, 2, z - 5.3], [x + 11, 2, z + 5.3]]);
-    addBlocker(x, z, 18, 6, 11, 0, 'apron-bus');
+    box(parent, M.glass, am(.12), am(1.5), W - am(.5), x + L * .5, am(3.2), z, false);
+    box(parent, M.glass, am(.12), am(1.4), W - am(.5), x - L * .5, am(3.2), z, false);
+    box(parent, M.frame, am(1.1), am(.5), W - am(.2), x + L * .52, am(1.25), z, false);
+    box(parent, M.frame, am(1.1), am(.5), W - am(.2), x - L * .52, am(1.25), z, false);
+    wheels(parent, M, [[x + L * .34, am(.58), z - W * .48], [x + L * .34, am(.58), z + W * .48],
+        [x - L * .28, am(.58), z - W * .48], [x - L * .28, am(.58), z + W * .48]],
+    0, am(.58), am(.36));
+    addBlocker(x, z, am(6), am(1.45), am(4), 0, 'apron-bus');
     count('apronBus');
+}
+
+function buildCargoPallet(parent, M, x, z, variant = 0) {
+    // ULD 3,2 x 2,4 x 1,6 m: pelat dasar, badan bersudut potong, jaring pengikat
+    // dan tie-down — bukan kotak polos di atas palet.
+    const g = new THREE.Group();
+    const L = am(3.2), W = am(2.4), H = am(1.6);
+    box(g, M.wood, L, am(.22), W, x, am(.11), z);
+    for (let i = -1; i <= 1; i++)
+        box(g, M.wood, am(.3), am(.14), W, x + i * L * .32, am(.03), z, false);
+    box(g, variant % 3 ? M.panel : M.steel, L * .96, H, W - am(.12), x, am(.22) + H * .5, z);
+    const bevel = box(g, variant % 3 ? M.panel : M.steel, L * .96, H * .5, am(.9),
+        x, am(.22) + H * .3, z - W * .5 + am(.35));
+    bevel.rotation.x = -.5;
+    box(g, M.frame, L * .98, am(.14), W, x, am(.22) + H, z, false);
+    for (const s of [-1, 1])
+        box(g, M.frame, am(.14), H, am(.14),
+            x + s * L * .47, am(.22) + H * .5, z + s * W * .45, false);
+    box(g, M.hazard, L * .5, am(.5), am(.08), x, am(.22) + H * .62, z + W * .5, false);
+    for (let i = -2; i <= 2; i++)
+        box(g, M.frame, am(.09), H * .8, am(.09), x + i * L * .2, am(.22) + H * .5, z + W * .5, false);
+    weldOccluder(S9_OCC, parent, g, { x, z, radius: am(2), top: am(2) });
+    addBlocker(x, z, am(1.7), am(1.3), am(1.9), 0, 'air-cargo-pallet');
 }
 
 function buildFuelPump(parent, M) {
     const x = S9_PUMP.x, z = S9_PUMP.z;
     const g = new THREE.Group();
-    box(g, M.frame, 10, 0.8, 7, x, 0.4, z, false);
-    box(g, M.panel, 6, 7, 4.5, x, 4.2, z, false);
-    box(g, M.hazard, 6.4, 0.35, 4.8, x, 6.8, z, false);
-    box(g, M.tech, 2.3, 1.5, 0.25, x, 5.1, z - 2.3, false);
-    const indicator = box(g, M.hazard, 0.65, 0.65, 0.25, x, 7.25, z - 2.3, false);
+    // Dispenser hidran bahan bakar 2,6 x 1,6 x 2,2 m. Indikatornya memakai
+    // MATERIAL SENDIRI: `stage9SetFuelPumpOn` mengubah warna material itu, dan
+    // M.hazard dipakai bersama oleh marka/hanggar/pesawat — mewarnai instance
+    // bersama akan menghijaukan separuh apron begitu pompa menyala.
+    const indMat = material(PAL.hazard, .4, .05,
+        { emissive: PAL.hazard, emissiveIntensity: .18 });
+    box(g, M.concrete, am(3.4), am(.4), am(2.4), x, am(.2), z, false);
+    box(g, M.frame, am(2.6), am(.4), am(1.6), x, am(.55), z);
+    box(g, M.panel, am(2.2), am(1.7), am(1.4), x, am(1.6), z);
+    box(g, M.frame, am(2.4), am(.22), am(1.6), x, am(2.5), z);
+    box(g, M.hazard, am(2.45), am(.3), am(1.65), x, am(2.72), z);
+    box(g, M.tech, am(1.1), am(.7), am(.1), x, am(2), z - am(.75), false);
+    box(g, M.frame, am(1.6), am(.5), am(.12), x, am(1.05), z - am(.75), false);
+    for (const s of [-1, 1])
+        box(g, M.frame, am(.16), am(1.7), am(.16), x + s * am(1.15), am(1.6), z + am(.75), false);
+    cylinder(g, M.steel, am(.5), am(.9), x - am(.7), am(1.7), z + am(.85), 10, 'z');
+    const hose = cylinder(g, M.rubber, am(.11), am(2.6), x - am(1.3), am(.9), z + am(1.1), 8, 'z');
+    hose.rotation.x = .35;
+    box(g, M.frame, am(.5), am(.3), am(.3), x - am(1.6), am(.35), z + am(2.1), false);
+    cylinder(g, M.frame, am(.1), am(1.5), x + am(1.5), am(.75), z - am(.6), 6);
+    box(g, M.frame, am(.24), am(.5), am(.24), x, am(2.85), z - am(.4), false);
+    const indicator = box(g, indMat, am(.42), am(.42), am(.3), x, am(3.05), z - am(.4), false);
     indicator.userData.fuelIndicator = true;
-    const hose = cylinder(g, M.rubber, 0.22, 5.5, x - 3.3, 3.3, z + 2.4, 8, 'z');
-    hose.rotation.x = 0.22;
     parent.add(g);
     fuelPump = { group: g, indicator };
-    addBlocker(x, z, 5.5, 4.2, 8, 0, 'fuel-pump');
+    addBlocker(x, z, am(1.3), am(.8), am(2.4), 0, 'fuel-pump');
     count('fuelPump');
 }
 
+// Setiap batang marka perkerasan lewat sini supaya jumlahnya terukur.
+function paint(parent, mat, sx, sy, sz, x, y, z) {
+    runwayLayoutRecords.markings++;
+    return box(parent, mat, sx, sy, sz, x, y, z, false);
+}
+
 function buildRunwayAndApron(parent, M) {
-    // Translasi denah user: utara/+z = apron dan fasilitas; taxiway melintang
-    // di tengah; runway 14–32 melintang di selatan/-z.
-    box(parent, M.grass, 1800, 1, 1120, S9_ORIGIN.x, -0.75, 30, false);
+    // Denah user: apron + fasilitas di utara/+z, taxiway melintang di tengah,
+    // runway 14-32 di selatan/-z. MARKA SENGAJA SEDIKIT (permintaan user
+    // 2026-08-27, "jalannya terlalu banyak ornamen garis"): satu centreline per
+    // bidang, satu ambang per ujung runway, satu lead-in per stand. Tidak ada
+    // lagi deretan edge light, hold-short berlapis, atau cabang pemandu ganda.
+    // Bidang rumput dilebarkan ke timur supaya lari lepas landas transport
+    // berakhir di ATAS tanah, bukan di atas haze latar.
+    box(parent, M.grass, 2700, 1, 1120, S9_ORIGIN.x + 200, -0.75, 30, false);
     box(parent, M.apron, 940, .42, 250, 299580, -.04, 180, false);
     box(parent, M.apron, 800, .42, 310, 300450, -.04, 175, false);
     // Bidang yang saling menyambung harus punya overlap lebih lebar daripada
     // diameter player. Kalau hanya bertemu pada satu garis setelah radius
     // diterapkan, `slideWalk` membacanya sebagai dinding tak terlihat.
-    box(parent, M.asphalt, 1760, .44, 90, 300000, -.04, 25, false);
-    box(parent, M.asphalt, 1720, .46, 110, 300010, -.03, -220, false);
+    box(parent, M.asphalt, 1760, .44, 110, 300000, -.04, 25, false);
+    // Runway dilebarkan 110 -> 170 unit (24 m): transport berbentang 25 m tak
+    // boleh terlihat lebih lebar daripada landasannya sendiri.
+    box(parent, M.asphalt, 1720, .46, 170, 300010, -.03, -220, false);
     runwayLayoutRecords.zones.push(
         { kind: 'apron', x: 299580, z: 180, hx: 470, hz: 125 },
         { kind: 'service-yard', x: 300450, z: 175, hx: 400, hz: 155 },
-        { kind: 'taxiway-b', x: 300000, z: 25, hx: 880, hz: 45 },
-        { kind: 'runway-14-32', x: 300010, z: -220, hx: 860, hz: 55 },
+        { kind: 'taxiway-b', x: 300000, z: 25, hx: 880, hz: 55 },
+        { kind: 'runway-14-32', x: 300010, z: -220, hx: 860, hz: 85 },
     );
 
-    // Tiga konektor C3/C2/D1 dari taxiway ke runway.
+    // Tiga konektor C3/C2/D1 dari taxiway ke runway: badan aspal + SATU garis.
     for (const x of [299860, 300250, 300700]) {
         box(parent, M.asphalt, 86, .43, 190, x, -.02, -85, false);
-        box(parent, M.hazard, 2, .08, 170, x, .23, -85, false);
-        for (const side of [-1, 1])
-            box(parent, M.hazard, 1, .08, 170, x + side * 31, .23, -85, false);
+        paint(parent, M.taxiLine, 1.8, .08, 176, x, .23, -85);
         runwayLayoutRecords.taxiwayConnectors++;
     }
 
-    // Garis tengah taxiway dan panduan lima stand apron.
-    box(parent, M.hazard, 1710, .08, 1.5, 300000, .23, 25, false);
-    for (const x of [299250, 299425, 299600, 299775, 299950]) {
-        box(parent, M.hazard, 1.4, .08, 128, x, .23, 124, false);
-        for (const side of [-1, 1]) {
-            const branch = box(parent, M.hazard, 38, .08, 1.2,
-                x + side * 15, .23, 72, false);
-            branch.rotation.y = side * .48;
-        }
-    }
+    // Centreline taxiway + satu lead-in pendek per stand apron.
+    paint(parent, M.taxiLine, 1710, .08, 1.8, 300000, .23, 25);
+    for (const x of S9_STAND_XS)
+        paint(parent, M.taxiLine, 1.8, .08, 96, x, .23, 112);
 
-    // Markah runway: centreline, edge light dan threshold bar pada kedua ujung.
-    for (let x = 299205; x <= 300815; x += 68) {
-        box(parent, M.white, 32, .08, 2, x, .24, -220, false);
-        for (const z of [-270, -170])
-            box(parent, M.runwayLight, 3.2, .35, 1, x, .35, z, false);
-    }
-    for (const edgeX of [299175, 300845]) for (let i = -4; i <= 4; i++)
-        box(parent, M.white, 5, .1, 8, edgeX + i * 8, .24, -220, false);
-    for (let i = 0; i < 6; i++) {
-        box(parent, M.hazard, 18, .08, 2, 299175 + i * 18, .23, -155, false);
-        box(parent, M.hazard, 18, .08, 2, 300845 - i * 18, .23, -285, false);
-    }
+    // Runway: centreline putus-putus dan satu ambang pada tiap ujung.
+    for (let x = 299280; x <= 300740; x += 200)
+        paint(parent, M.white, 120, .08, 2.6, x, .24, -220);
+    for (const [edgeX, dir] of [[299180, 1], [300840, -1]])
+        for (let i = -3; i <= 3; i++)
+            paint(parent, M.white, 28, .1, 5, edgeX + dir * 24, .24, -220 + i * 21);
     count('runway'); count('apron'); count('taxiway', 4);
 }
 
@@ -2041,20 +2625,15 @@ function buildInteriorChapter(parent, M) {
 }
 
 function buildRunwayServiceApproach(parent, M) {
-    // Garis merah batas apron dan hold-short bars mengikuti pembagian bidang
-    // pada denah tanpa menambah dinding collision tak terlihat.
-    box(parent, M.hazard, 930, .08, 1.2, 299580, .24, 304, false);
-    box(parent, M.hazard, 1.2, .08, 248, 299112, .24, 180, false);
-    box(parent, M.hazard, 1.2, .08, 248, 300048, .24, 180, false);
-    for (const x of [299860, 300250, 300700]) for (const z of [-155, -145])
-        for (let i = -2; i <= 2; i++)
-            box(parent, M.white, 13, .08, 1.4, x + i * 15, .24, z, false);
-
-    // Jalur kendaraan servis di belakang stand dan di depan hanggar.
-    box(parent, M.white, 900, .08, 1, 299580, .24, 78, false);
-    box(parent, M.white, 720, .08, 1, 300450, .24, 94, false);
-    for (let x = 300090; x <= 300790; x += 46)
-        box(parent, M.white, 22, .08, .8, x, .24, 94, false);
+    // SATU batas apron, SATU hold-short per konektor, SATU garis jalur servis
+    // per bidang. Versi lama menumpuk lima batang di DUA baris untuk tiap
+    // konektor plus garis putus-putus jalur servis — itulah "terlalu banyak
+    // ornamen garis" yang dilaporkan user (2026-08-27).
+    paint(parent, M.taxiLine, 930, .08, 1.6, 299580, .24, 304);
+    for (const x of [299860, 300250, 300700])
+        paint(parent, M.taxiLine, 86, .08, 2.6, x, .24, -124);
+    paint(parent, M.white, 900, .08, 1.2, 299580, .24, 64);
+    paint(parent, M.white, 720, .08, 1.2, 300450, .24, 142);
     count('runwayServiceZone', 4);
 }
 
@@ -2083,6 +2662,9 @@ function buildWorld() {
         fence: material(PAL.steel, 0.65, 0.45), rubber: material(PAL.rubber, 0.96),
         wood: material(PAL.wood, 0.96), leaf: material(PAL.leaf, 0.98),
         white: material(PAL.white), hazard: material(PAL.hazard),
+        // Marka taxiway/apron memakai AMBER (aturan #3 palette.js: amber untuk
+        // marka bahaya), bukan merah-bata M.hazard yang dipakai bodi prop.
+        taxiLine: material(PAL.amber, 0.92, 0.02),
         glass: material(0x244750, 0.28, 0.22),
         runwayLight: material(PAL.tech, 0.42, 0.05, { emissive: PAL.techDim, emissiveIntensity: EMISSIVE_MAX }),
     };
@@ -2102,9 +2684,12 @@ function buildWorld() {
     for (const z of [-355, 370])
         box(staticRoot, M.water, 1650, 0.18, 8, 300000, -0.04, z, false);
     count('irrigationCanal', 2);
-    for (let x = 299140; x <= 300860; x += 48) {
-        buildTree(staticRoot, M, x, -540 + ((x / 48) % 3) * 8, 0.78 + ((x / 48) % 4) * 0.05);
-        buildTree(staticRoot, M, x, 550 - ((x / 48) % 3) * 7, 0.74 + ((x / 48) % 5) * 0.04);
+    // Sabuk pohon pematang: ~10 m, seukuran pohon sungguhan di sebelah pesawat
+    // 25 m. `buildTree` yang lama sengaja TIDAK diubah — dia dipakai planter
+    // Chapter 1 yang tajuknya wajib muat di dalam kotak planter.
+    for (let x = 299140, k = 0; x <= 300860; x += 48, k++) {
+        buildAirsideTree(staticRoot, M, x, -540 + (k % 3) * 12, k);
+        buildAirsideTree(staticRoot, M, x, 552 - (k % 3) * 10, k + 2);
     }
 
     // PROP TINGGI = OCCLUDER (2026-08-13): menara, hangar, gedung operasi dan
@@ -2116,63 +2701,60 @@ function buildWorld() {
         fn(g, M, x, z, ...rest);
         weldOccluder(S9_OCC, worldRoot, g, { x, z, radius, top });
     };
-    occProp((p) => buildTower(p, M), S9_CONTROL_TOWER.x, S9_CONTROL_TOWER.z, 27, 80);
-    occProp((p) => buildHangar(p, M), S9_CARGO_HANGAR.x, S9_CARGO_HANGAR.z, 135, 47);
-    occProp(buildFireStation, 300155, 210, 50, 20);
+    occProp((p) => buildTower(p, M), S9_CONTROL_TOWER.x, S9_CONTROL_TOWER.z, 124, am(40));
+    occProp((p) => buildHangar(p, M), S9_CARGO_HANGAR.x, S9_CARGO_HANGAR.z, 170, am(17));
+    occProp(buildFireStation, 300175, 210, 104, am(15));
 
-    const parkedX = [299250, 299425, 299600, 299775, 299950];
-    parkedX.forEach((x, i) => {
-        buildParkedAirliner(worldRoot, M, x, 180, i);
+    // Lima stand: pesawat parkir, jet bridge dan muka terminal semuanya
+    // diturunkan dari S9_STAND_XS, jadi jarak antar-stand tak pernah lebih
+    // sempit daripada bentang sayap yang digambar.
+    S9_STAND_XS.forEach((x, i) => {
+        buildParkedAirliner(worldRoot, M, x, S9_STAND_Z, i);
         buildJetBridge(worldRoot, M, x);
     });
+    buildTerminalPier(worldRoot, M);
 
-    // Ground-support equipment follows the apron stands and the hanggar-side
-    // service road instead of being scattered over the runway.
-    occProp(buildTug, 299330, 105, 8, 9);
-    occProp(buildBaggageTrain, 299470, 105, 22, 8);
-    occProp(buildFuelTruck, 299665, 105, 15, 13);
-    occProp(buildMobileStairs, 299830, 110, 13, 12);
-    occProp(buildCargoLoader, 299965, 105, 12, 11);
-    occProp(buildAirportBus, 299470, 265, 18, 11);
-    occProp(buildBaggageTractor, 300310, 112, 8, 11);
-    occProp(buildBaggageTractor, 300620, 108, 8, 11);
-    occProp(buildBeltLoader, 300410, 116, 14, 13);
-    occProp(buildBeltLoader, 300705, 105, 14, 13);
-    occProp(buildGroundPowerUnit, 300520, 108, 8, 9);
-    occProp(buildGroundPowerUnit, 300735, 82, 8, 9);
-    buildSafetyEquipment(staticRoot, M, 300250, 72);
+    // GSE berbaris pada SATU jalur servis di belakang tiap bidang (apron z=88,
+    // service yard z=112). Satu jalur membuat semuanya terpisah bersih dari
+    // badan pesawat (z 103..257), barel, drop dan titik encounter. Koridor
+    // x~300800 antara dinding timur hanggar dan tepi yard SENGAJA dikosongkan:
+    // itu satu-satunya jalan menuju pompa bahan bakar.
+    occProp(buildTug, 299300, 88, 22, am(3.6));
+    occProp(buildBaggageTrain, 299470, 88, 46, am(2.5));
+    occProp(buildFuelTruck, 299680, 88, 42, am(4.7));
+    occProp(buildMobileStairs, 299850, 88, 32, am(6.2));
+    occProp(buildCargoLoader, 299980, 88, 36, am(4.6));
+    occProp(buildAirportBus, 299530, 278, 46, am(4.2));
+    occProp(buildBaggageTractor, 300310, 112, 18, am(3.2));
+    occProp(buildBaggageTractor, 300640, 112, 18, am(3.2));
+    occProp(buildBeltLoader, 300420, 112, 36, am(4.4));
+    occProp(buildBeltLoader, 300730, 112, 36, am(4.4));
+    occProp(buildGroundPowerUnit, 300530, 112, 20, am(3));
+    occProp(buildGroundPowerUnit, 300430, 150, 20, am(3));
+    buildSafetyEquipment(staticRoot, M, 300150, 78);
 
-    // Pallet/cargo staging with readable straps, labels and forklift lanes.
-    for (let i = 0; i < 12; i++) {
-        const x = 300270 + (i % 4) * 17, z = 255 + Math.floor(i / 4) * 16;
-        const g = new THREE.Group();
-        box(g, M.wood, 12, 1, 10, x, 0.7, z);
-        box(g, i % 3 ? M.panel : M.hazard, 10, 4 + (i % 2) * 2, 8, x, 3.2, z);
-        box(g, M.frame, 0.45, 6, 10.5, x, 3.5, z);
-        weldOccluder(S9_OCC, worldRoot, g, { x, z, radius: 7, top: 7 });
-        addBlocker(x, z, 6, 5, 7, 0, 'air-cargo-pallet');
-    }
+    // Staging ULD: 3,2 x 2,4 x 1,6 m dengan jarak yang cukup untuk lorong forklift.
+    for (let i = 0; i < 12; i++)
+        buildCargoPallet(worldRoot, M, 300290 + (i % 4) * 26, 250 + Math.floor(i / 4) * 24, i);
     count('airCargoPallet', 12);
 
-    // Apron mast fixtures; actual dynamic lights are deliberately bounded.
+    // Tiang lampu apron 21 m. Semuanya berdiri di LUAR ruang walkable (tepi
+    // belakang apron/yard), jadi rangka empat kakinya tidak perlu collider dan
+    // tak pernah menghalangi rute misi.
     const lampSpecs = [
-        [299180, 300], [299520, 300], [299860, 300],
-        [300180, 90], [300500, 90], [300820, 90],
+        [299150, 332], [299335, 332], [299525, 332], [299905, 332],
+        [300430, 350], [300840, 350],
     ];
     for (const [x, z] of lampSpecs) {
-        const mast = new THREE.Group();
-        box(mast, M.frame, 1.1, 28, 1.1, x, 14, z);
-        box(mast, M.white, 8, 1, 2.2, x, 28, z);
-        weldOccluder(S9_OCC, worldRoot, mast, { x, z, radius: 5, top: 29 });
-        const light = new THREE.PointLight(PAL.amber, 1.15, 72);
-        light.position.set(x, 26, z);
+        buildLightMast(worldRoot, M, x, z);
+        const light = new THREE.PointLight(PAL.amber, 1.15, 180);
+        light.position.set(x, am(20.5), z);
         scene.add(light);
         registerStageLight(S9_RUNWAY_KEY, light);
         stageLights.push(light);
     }
-    count('apronLightMast', lampSpecs.length);
 
-    transport = buildFourEngineTransport();
+    transport = buildArmedHeavyAircraft();
     worldRoot.add(transport);
     resetTransport(transport, S9_AIRCRAFT.x, S9_AIRCRAFT.z, 0);
     buildFuelPump(worldRoot, M);
@@ -2256,10 +2838,14 @@ export function stage9RunwayWalkable(x, z, radius = 0) {
     // union, bukan tepi internal x=300050, agar tidak tercipta seam collision.
     const apronServiceCore = x >= 299112 + radius && x <= 300850 - radius
         && z >= 55 + radius && z <= 305 - radius;
+    // Taxiway 90 -> 110 unit dan runway 110 -> 170 unit (2026-08-27): pesawat
+    // berskala nyata (bentang 25 m) tak boleh terlihat lebih lebar daripada
+    // perkerasan yang dilewatinya. Overlap ke konektor jadi 45 unit, jauh di
+    // atas diameter player, jadi tak ada seam baru.
     const taxiway = x >= 299120 + radius && x <= 300880 - radius
-        && z >= -20 + radius && z <= 70 - radius;
+        && z >= -30 + radius && z <= 80 - radius;
     const runway = x >= 299150 + radius && x <= 300870 - radius
-        && z >= -275 + radius && z <= -165 - radius;
+        && z >= -305 + radius && z <= -135 - radius;
     const connector = [299860, 300250, 300700].some((cx) =>
         x >= cx - 43 + radius && x <= cx + 43 - radius
         && z >= -180 + radius && z <= 10 - radius);
@@ -2469,7 +3055,9 @@ export function stage9SupplyPlacements() {
         drops: [
             { x: 305970, z: 178, type: 'ammo', weapon: 'pistol' },
             { x: 312250, z: 120, type: 'medkit' },
-            { x: 299970, z: 84, type: 'ammo', weapon: 'rifle' },
+            // Digeser 299970,84 -> 299900,130 (2026-08-27): cargo loader kini
+            // berukuran nyata 9 m, jadi titik lama berdiri di dalam colliernya.
+            { x: 299900, z: 130, type: 'ammo', weapon: 'rifle' },
             { x: 300370, z: 86, type: 'medkit' },
         ],
     };
@@ -2541,6 +3129,7 @@ export function stage9WorldDebug() {
             runway: semantic.runway || 0, apron: semantic.apron || 0,
             controlTowers: semantic.controlTower || 0,
             hangars: semantic.maintenanceHangar || 0,
+            terminalPiers: semantic.terminalPier || 0,
             fireStations: semantic.airportFireStation || 0,
             parkedAircraft: semantic.parkedAirliner || 0,
             jetBridges: semantic.jetBridge || 0,
@@ -2676,6 +3265,42 @@ export function stage9WorldDebug() {
                 travelDistance: Math.hypot(S9_BOARD.x - S9_RUNWAY_START.x,
                     S9_BOARD.z - S9_RUNWAY_START.z),
                 serviceZones: semantic.runwayServiceZone || 0,
+                // Sensus UKURAN NYATA (meter) tiap keluarga prop airside,
+                // DITURUNKAN dari collider-nya sendiri: "yang digambar adalah
+                // yang memblokir", jadi angka ini sekaligus menjaga keduanya
+                // tetap sinkron. `drawnMeters` menambahkan siluet struktur yang
+                // menjulang jauh di atas collider-nya.
+                propMeters: blockers.reduce((a, b) => {
+                    const wx = b.hx * Math.abs(b.axx) + b.hz * Math.abs(b.azx);
+                    const wz = b.hx * Math.abs(b.axz) + b.hz * Math.abs(b.azz);
+                    const cur = a[b.kind] || (a[b.kind] = {
+                        count: 0, lengthM: 0, widthM: 0, heightM: 0,
+                    });
+                    cur.count++;
+                    cur.lengthM = Math.max(cur.lengthM, +(wx * 2 / CAMP_M).toFixed(2));
+                    cur.widthM = Math.max(cur.widthM, +(wz * 2 / CAMP_M).toFixed(2));
+                    cur.heightM = Math.max(cur.heightM, +(b.top / CAMP_M).toFixed(2));
+                    return a;
+                }, Object.create(null)),
+                drawnMeters: { ...runwayLayoutRecords.drawnMeters },
+                markings: runwayLayoutRecords.markings,
+                engines: runwayLayoutRecords.engines
+                    ? { ...runwayLayoutRecords.engines } : null,
+                propOverlaps: stage9RunwayOverlaps(),
+                // Indikator pompa WAJIB punya material sendiri: `stage9SetFuelPumpOn`
+                // menulis warna material itu, dan M.hazard dipakai bersama oleh
+                // marka/hanggar/pesawat.
+                fuelIndicatorMeshes: (() => {
+                    if (!fuelPump) return 0;
+                    let n = 0;
+                    worldRoot.traverse((o) => {
+                        if (o.isMesh && o.material === fuelPump.indicator.material) n++;
+                    });
+                    return n;
+                })(),
+                standXs: [...S9_STAND_XS],
+                standPitch: S9_STAND_XS.length > 1
+                    ? S9_STAND_XS[1] - S9_STAND_XS[0] : 0,
                 blastFenceTeeth: semantic.blastFenceTooth || 0,
                 layout: {
                     zones: runwayLayoutRecords.zones.map((z) => ({ ...z })),
@@ -2686,6 +3311,7 @@ export function stage9WorldDebug() {
                     board: { ...S9_BOARD },
                     tower: { ...S9_CONTROL_TOWER },
                     hangar: { ...S9_CARGO_HANGAR },
+                    pier: { x: (299150 + 300085) * .5, z: S9_PIER_Z },
                     parkedAircraft: runwayLayoutRecords.parkedAircraft,
                     jetBridges: runwayLayoutRecords.jetBridges,
                     taxiwayConnectors: runwayLayoutRecords.taxiwayConnectors,
