@@ -114,13 +114,17 @@ export function buildFurniturePile(out, x, z, seed, onGroup = null) {
 // pintu: 'ew' = lubang di dinding VERTIKAL (kusen di utara & selatan, player
 // lewat sumbu x), 'ns' = lubang di dinding HORIZONTAL (kusen di barat & timur).
 let breachMat = null;
-export function buildWallBreach(out, x, z, dir, cell, wallH) {
+// `thickness` (opsional, 2026-08-26): TEBAL dinding yang jebol. Stage 1/2 memakai
+// dinding setebal satu sel sehingga default `cell * 0.9` benar; Stage 9 Chapter 2
+// menjebol sekat toko setebal 3 unit, jadi tebal dan LEBAR lubang harus terpisah
+// — tanpa ini kusennya menonjol selebar lubang.
+export function buildWallBreach(out, x, z, dir, cell, wallH, thickness = cell * 0.9) {
     breachMat ||= new THREE.MeshLambertMaterial({ color: PAL.concrete });
     const ew = dir === 'ew';
     for (const side of [-1, 1]) {
         for (const [t, hy] of [[0.55, 0.72], [0.30, 0.40], [0.80, 0.22]]) {
             const stub = new THREE.Mesh(new THREE.BoxGeometry(
-                ew ? cell * 0.9 : 2.0 * t, wallH * hy, ew ? 2.0 * t : cell * 0.9), breachMat);
+                ew ? thickness : 2.0 * t, wallH * hy, ew ? 2.0 * t : thickness), breachMat);
             stub.position.set(
                 ew ? x : x + side * (cell / 2 - t),
                 wallH * hy / 2,

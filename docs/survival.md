@@ -1,5 +1,7 @@
 # Survival mode — reference
 
+**Field Shop cinematic manifest redesign (2026-08-27):** the shared Survival/Campaign shop preserves all transaction behavior while presenting a restrained quartermaster manifest: `shopHeader` with identity and funds, split `shopWorkspace` (`shopCatalog` + persistent `shopDesc` rail), and one footer action. Item rows use indices, sharp geometry, keyboard activation and a single amber action color. CSS supplies the cinematic field, asymmetric panel entrance, compact/mobile layouts and reduced-motion fallback. Avoid fake telemetry, scanlines, pill controls, ubiquitous glow, and the former centered rounded-card grid.
+
 > Extracted verbatim from CLAUDE.md on 2026-07-26 when that file was slimmed down.
 > Read before touching waves, the field shop, the Monas objective, or wave events.
 > Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](MODULES.md).

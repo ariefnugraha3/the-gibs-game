@@ -9,6 +9,7 @@ import { resolveBlockers, resolveCylinders } from '../../../../utils/collision.j
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { registerStageLight } from '../../../../world/lighting.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
+import { ensureStage10SpawnDeployment } from './spawnDeployment.js';
 import { mergeObjectInPlace } from '../../../../utils/meshBatch.js';
 import {
     registerOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
@@ -16,7 +17,9 @@ import {
 
 export const STAGE10_FOREST_LIGHTS_KEY = 'campaign-10-forest';
 export const S10_FOREST_ORIGIN = Object.freeze({ x: 360000, z: 0 });
-export const S10_FOREST_START = Object.freeze({ x: 360690, z: -250 });
+// Pendekatan awal baru: 20 m koridor jalan kosong sebelum wreck clearing.
+export const S10_FOREST_START = Object.freeze({ x: 360885, z: -280 });
+export const S10_FOREST_START_FORWARD = Object.freeze({ x: -0.98724, z: 0.15923 });
 export const S10_FOREST_WRECK = Object.freeze({ x: 360620, z: -210 });
 export const S10_FOREST_SENSOR_ENTRY = Object.freeze({ x: 360170, z: -35 });
 export const S10_FOREST_SHELTER = Object.freeze({ x: 359915, z: 95 });
@@ -25,8 +28,9 @@ export const S10_FOREST_GALLERY = Object.freeze({ x: 359430, z: 230 });
 export const S10_FOREST_FINISH = Object.freeze({ x: 359270, z: 265 });
 
 const GROUND_Y = 0;
-const BOUNDS = Object.freeze({ x0: 359100, x1: 360850, z0: -690, z1: 690 });
+const BOUNDS = Object.freeze({ x0: 359100, x1: 361020, z0: -690, z1: 690 });
 const ROUTE = Object.freeze([
+    Object.freeze({ x: 360945, z: -290, w: 88, zone: 'safeApproach' }),
     Object.freeze({ x: 360730, z: -255, w: 88, zone: 'wreckClearing' }),
     Object.freeze({ x: 360500, z: -220, w: 62, zone: 'serviceRoad' }),
     Object.freeze({ x: 360315, z: -105, w: 54, zone: 'canopyTrail' }),
@@ -52,6 +56,7 @@ const denseCanopy = [];
 let occluderCount = 0;   // pohon/bangunan yang didaftarkan ke utility/occlusion.js
 const semantic = new Map();
 const vegetationChunks = [];
+const vegetationPositions = [];
 const lights = [];
 let roadOutline = null;   // tepi kiri/kanan pita jalan (uji kesinambungan)
 
@@ -116,6 +121,18 @@ export function stage10ForestWalk(x, z, radius = 0) {
     if (inRect(x, z, radius, { x: 359610, z: 175, hx: 170, hz: 92 })) return true;
     if (inRect(x, z, radius, { x: 359390, z: 235, hx: 105, hz: 72 })) return true;
     return false;
+}
+
+// Bukan hanya batangnya: sampel sampai tepi crown menjaga seluruh siluet pohon
+// di luar aspal, bahu, fork, dan lantai waterworks yang dapat dilalui.
+function treeClearOfWalk(x, z, radius) {
+    if (stage10ForestWalk(x, z, 0)) return false;
+    for (const scale of [0.5, 1]) for (let i = 0; i < 16; i++) {
+        const a = i / 16 * Math.PI * 2;
+        if (stage10ForestWalk(x + Math.cos(a) * radius * scale,
+            z + Math.sin(a) * radius * scale, 0)) return false;
+    }
+    return true;
 }
 
 function addBoxBlocker(x, z, hx, hz, top, yaw = 0, kind = 'structure', bullet = true) {
@@ -426,20 +443,24 @@ function treeParts(parent, x, z, scale, type, fadeable = false) {
 function buildForest() {
     const TYPES = ['dipterocarp', 'palm', 'bamboo', 'fern', 'banana'];
     const chunkSize = 220;
-    for (let c = 0; c < 8; c++) {
+    const chunkCount = Math.ceil((BOUNDS.x1 - BOUNDS.x0) / chunkSize);
+    for (let c = 0; c < chunkCount; c++) {
         const chunk = new THREE.Group();
         const x0 = BOUNDS.x0 + c * chunkSize;
+        const span = Math.min(chunkSize, BOUNDS.x1 - x0);
         let local = 0;
-        for (let i = 0; i < 44; i++) {
-            const id = c * 61 + i;
-            const x = x0 + hash(id, 10) * chunkSize;
+        for (let i = 0; i < 64; i++) {
+            const id = c * 83 + i;
+            const x = x0 + hash(id, 10) * span;
             const z = BOUNDS.z0 + hash(id, 11) * (BOUNDS.z1 - BOUNDS.z0);
-            if (routeDist2(x, z) < 1.28) continue;
             if (x < 359820 && x > 359350 && z > 35 && z < 340) continue;
             const type = TYPES[(id + c) % TYPES.length];
             const scale = 4.2 + hash(id, 12) * (type === 'fern' ? 2.8 : 6.2);
+            const crownClear = scale * 1.15 + 4;
+            if (!treeClearOfWalk(x, z, crownClear)) continue;
             const p = treeParts(chunk, x, z, scale, type, false);
             if (type !== 'fern' && type !== 'banana') addTrunk(x, z, p.r, p.h, type);
+            vegetationPositions.push({ x, z, r: p.r, type, hero: false });
             local++;
         }
         const before = rawMeshes;
@@ -450,15 +471,17 @@ function buildForest() {
     }
     // Route-side hero trees retain independent transparent materials so their
     // canopy can fade without making an entire distant forest batch disappear.
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < 36; i++) {
         const p = ROUTE[1 + (i % 5)], side = i % 2 ? 1 : -1;
         const x = p.x + (hash(i, 20) - .5) * 100;
-        const z = p.z + side * (p.w + 18 + hash(i, 21) * 24);
+        const z = p.z + side * (p.w + 30 + hash(i, 21) * 38);
         const type = i % 5 === 0 ? 'palm' : i % 4 === 0 ? 'banana' : 'dipterocarp';
         const scale = 5.2 + hash(i, 22) * 3.5;
+        if (!treeClearOfWalk(x, z, scale * 1.15 + 4)) continue;
         const q = treeParts(root, x, z, scale, type, true);
         if (type === 'dipterocarp') addTrunk(x, z, q.r, q.h, type);
         if (i % 6 === 0) denseCanopy.push({ x, z, r: 24 + scale });
+        vegetationPositions.push({ x, z, r: q.r, type, hero: true });
     }
     count('vegetation-chunk', vegetationChunks.length);
 }
@@ -774,6 +797,7 @@ export function ensureStage10ForestWorld(parent = scene) {
     parent.add(root);
     buildGround(); buildDrainage(); buildForest(); buildCarrierWreck();
     buildSensorNodes(); buildWaterworks(); buildTunnel(); buildBoundaryFence();
+    ensureStage10SpawnDeployment(STAGE10_FOREST_LIGHTS_KEY, root);
     nav = makeNavGrid(BOUNDS.x0, BOUNDS.z0, 14,
         Math.ceil((BOUNDS.x1 - BOUNDS.x0) / 14),
         Math.ceil((BOUNDS.z1 - BOUNDS.z0) / 14),
@@ -793,6 +817,12 @@ export const stage10ForestWorldDebug = () => ({
     start: { ...S10_FOREST_START }, finish: { ...S10_FOREST_FINISH }, worldRoot: root?.name || null,
     rawMeshes, weldedMeshes, blockers: blockers.length, trunks: trunks.length,
     vegetationChunks: vegetationChunks.map(c => ({ ...c })),
+    vegetation: {
+        total: vegetationPositions.length,
+        positions: vegetationPositions.map(p => ({ ...p })),
+        roadIntrusions: vegetationPositions.filter(p =>
+            !treeClearOfWalk(p.x, p.z, p.r + 4)).length,
+    },
     vegetationArchetypes: ['dipterocarp', 'palm', 'bamboo', 'fern', 'banana']
         .map(kind => ({ kind, count: semantic.get(kind) || 0 })),
     semantic: Object.fromEntries(semantic), urbanBuildings: 0,

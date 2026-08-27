@@ -17,6 +17,12 @@ import { resolveBlockers } from '../../../../utils/collision.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { buildStandMarker, pulseStandMarker } from '../../utility/common.js';
 import {
+    buildSplitDoor, setSplitDoorOpen, splitDoorLeafOffset, DOOR_OPEN_REVEAL,
+} from '../../utility/doors.js';
+import {
+    BARRICADE_TOP, barricadeBlocker, buildFurniturePile, buildWallBreach,
+} from '../../utility/barricade.js';
+import {
     buildFourEngineTransport, resetTransport,
     updateTransport, transportDebug,
 } from './aircraft.js';
@@ -29,7 +35,10 @@ export const S9_START = Object.freeze({ x: 304930, z: 160 });
 export const S9_FRONT_CHECKPOINT = Object.freeze({ x: 305650, z: 160 });
 export const S9_BUILDING_ENTRY = Object.freeze({ x: 306500, z: 160 });
 export const S9_BUILDING_START = Object.freeze({ x: 312285, z: 245 });
-export const S9_INTERIOR_CHECKPOINT = Object.freeze({ x: 312025, z: 55 });
+// Dipindah user (denah CSV Chapter 2, 2026-08-26) ke sel (21,3): ujung utara
+// aula check-in, tepat di depan sekat toilet yang jebol. Z-nya digeser ke sisi
+// bebas sel karena pulau konter menempati z 444..466.
+export const S9_INTERIOR_CHECKPOINT = Object.freeze({ x: 312100, z: 475 });
 export const S9_BUILDING_EXIT = Object.freeze({ x: 311700, z: -275 });
 export const S9_RUNWAY_START = Object.freeze({ x: 299125, z: 180 });
 export const S9_RUNWAY_CHECKPOINT = Object.freeze({ x: 300055, z: 55 });
@@ -59,6 +68,59 @@ export const S9_FRONT_PARKING_COURTS = Object.freeze([
     Object.freeze({ divider: -210, lot: 'left' }),
     Object.freeze({ divider: 420, lot: 'right' }),
 ]);
+
+// ---- Denah grid Chapter 2 (stages(Stage9-Chapter2).csv) ----------------------
+// Sel 20 unit; kolom 0 = barat (x-330 relatif origin), baris 0 = utara (z+540).
+// Hanya token yang MENGUBAH dunia yang dibawa ke sini: sisanya sudah terbangun
+// dari koordinat aslinya.
+export const S9_INTERIOR_CELL = 20;
+export const S9_INTERIOR_GRID = Object.freeze({ cols: 33, rows: 54, x0: -330, z1: 540 });
+export const s9InteriorCellPos = (c, r) => ({
+    x: S9_INTERIOR_ORIGIN.x + S9_INTERIOR_GRID.x0 + (c + .5) * S9_INTERIOR_CELL,
+    z: S9_INTERIOR_GRID.z1 - (r + .5) * S9_INTERIOR_CELL,
+});
+// '=' TEMBOK BOLONG: sekat toko yang dijebol supaya bisa dilewati. Tiga lubang
+// merangkai restoran -> kafe -> toilet -> aula check-in di belakang deret toko.
+export const S9_INTERIOR_BREACHES = Object.freeze([
+    Object.freeze({ col: 11, r0: 2, r1: 3 }),
+    Object.freeze({ col: 16, r0: 2, r1: 3 }),
+    Object.freeze({ col: 20, r0: 2, r1: 3 }),
+
+]);
+// '@' OBSTACLE: tumpukan perabot/koper yang TIDAK bisa dilewati. Disimpan sebagai
+// RUN, bukan sel lepas, supaya ujungnya bisa dirapatkan ke dinding terdekat.
+export const S9_INTERIOR_OBSTACLE_RUNS = Object.freeze([
+    Object.freeze({ c0: 12, c1: 20, r0: 9, r1: 9 }),    // muka kafe + toilet ditutup
+    Object.freeze({ c0: 20, c1: 20, r0: 10, r1: 14 }),  // turun ke tembok security
+    Object.freeze({ c0: 21, c1: 21, r0: 23, r1: 25 }),  // pintu timur security disumbat
+    Object.freeze({ c0: 21, c1: 21, r0: 35, r1: 45 }),  // pemisah paruh bawah
+]);
+export const S9_INTERIOR_OBSTACLE_CELLS = Object.freeze(
+    S9_INTERIOR_OBSTACLE_RUNS.flatMap((run) => {
+        const out = [];
+        for (let c = run.c0; c <= run.c1; c++)
+            for (let r = run.r0; r <= run.r1; r++) out.push(Object.freeze([c, r]));
+        return out;
+    }));
+// Petak loot Chapter 2. Baggage memakai kotak pembatas sel 'Z' pada denah, bukan
+// hanya lingkar belt, supaya 15 peti tersebar di seluruh hall reclaim.
+// Kotak ini adalah HALL reclaim-nya, bukan lingkar beltnya: lubang di tengah
+// torus dikelilingi empat collider belt sehingga player tak pernah bisa masuk.
+export const S9_INTERIOR_BAGGAGE_LOOT = Object.freeze({ c0: 22, c1: 31, r0: 40, r1: 52 });
+// Kisi bank kursi ruang tunggu (offset dari S9_INTERIOR_ORIGIN.x). Dipakai DUA
+// kali: membangun kursinya, dan menurunkan titik spawn encounter concourse —
+// supaya "60 robot di area kursi tunggu" tak pernah lepas dari kursinya.
+export const S9_SEAT_XS = Object.freeze([-285, -225, -165, -105]);
+export const S9_SEAT_ZS = Object.freeze([300, 235, 170, 105, 40, -25, -90, -155, -220, -285]);
+const seatSkipped = (dx, z) => dx === S9_SEAT_XS[0] && z <= -220;
+// Lorong di antara (dan di kedua sisi) deret kursi: itulah tempat robot berdiri.
+export const S9_SEAT_AISLE_XS = Object.freeze([
+    S9_SEAT_XS[0] - 20,
+    ...S9_SEAT_XS.slice(1).map((dx, i) => (dx + S9_SEAT_XS[i]) * .5),
+    S9_SEAT_XS[S9_SEAT_XS.length - 1] + 30,
+]);
+export const S9_SEAT_AISLE_ZS = Object.freeze(
+    S9_SEAT_ZS.slice(1).map((z, i) => (z + S9_SEAT_ZS[i]) * .5));
 
 export const S9_OCC = 'campaign-9-runway';
 export const S9_FRONT_KEY = 'campaign-9';
@@ -91,11 +153,34 @@ const frontParkingRecords = [];
 const frontCanopyRecords = [];
 const frontPlanterRecords = [];
 const frontBoundaryRuns = [];
+const interiorObstacleRecords = [];
+const interiorBreachRecords = [];
 const interiorLayoutRecords = {
     zones: [], amenityRows: { north: [], south: [] },
     checkinCounters: 0, securityLanes: 0, seatBanks: 0,
     selfCheckKiosks: 0, baggageBelts: 0,
+    toiletCubicles: 0, toiletBasins: 0, toiletUrinals: 0, toiletDoors: [],
+    // Perabot per jenis ruang (permintaan user 2026-08-27): dihitung saat dunia
+    // dibangun supaya smoke bisa membedakan properti nyata dari placeholder.
+    fixtures: Object.create(null),
+    // Lebar lorong yang tersisa di antara gondola toko souvenir: dicatat supaya
+    // smoke menguji CLEARANCE-nya, bukan sekadar jumlah raknya.
+    shopAisles: [],
 };
+
+// Hash deterministik: dunia Chapter 2 dibangun bersama seluruh dunia campaign
+// lain saat loading, jadi memakai Math.random() akan menggeser penempatan acak
+// stage lain.
+function ihash(n) {
+    let h = Math.imul(n | 0, 374761393) + 668265263;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function fixture(kind, amount = 1) {
+    const f = interiorLayoutRecords.fixtures;
+    f[kind] = (f[kind] || 0) + amount;
+}
 const runwayLayoutRecords = {
     zones: [], parkedAircraft: 0, jetBridges: 0,
     taxiwayConnectors: 0, fireStations: 0,
@@ -185,6 +270,41 @@ function blockerOverlapDepth(a, b) {
 
 const VEHICLE_KINDS = ['parked-car', 'abandoned-vehicle', 'airport-front-bus',
     'airport-service-van'];
+
+// Perabot Chapter 2 yang punya collider. Aturan "yang digambar adalah yang
+// memblokir" berlaku dua arah, jadi tak satu pun boleh menembus tembok, sekat,
+// atau perabot lain — persis kontrak kendaraan parkir Chapter 1.
+const S9_INTERIOR_FIXTURE_KINDS = new Set([
+    'souvenir-wall-shelf', 'souvenir-gondola', 'souvenir-checkout',
+    'restaurant-servery', 'restaurant-table', 'restaurant-tray-return',
+    'cafe-back-bar', 'cafe-counter', 'cafe-table', 'central-cafe-counter',
+    'checkin-island', 'checkin-bag-drop', 'self-check-kiosk',
+    'security-scanner-post', 'security-xray', 'security-console',
+    'security-podium', 'baggage-belt', 'baggage-chute', 'baggage-display',
+]);
+// Corong bagasi memang DIBANGUN DI DALAM collider belt sisi baratnya, supaya
+// tudungnya tidak menambah satu unit pun area terlarang.
+const S9_INTERIOR_OVERLAP_OK = new Set(['baggage-belt|baggage-chute']);
+
+export function stage9InteriorOverlaps(tolerance = 0.5) {
+    const bad = [];
+    for (let i = 0; i < interiorBlockers.length; i++) {
+        const a = interiorBlockers[i];
+        if (!S9_INTERIOR_FIXTURE_KINDS.has(a.kind)) continue;
+        for (let j = 0; j < interiorBlockers.length; j++) {
+            if (i === j) continue;
+            const b = interiorBlockers[j];
+            if (S9_INTERIOR_OVERLAP_OK.has([a.kind, b.kind].sort().join('|')))
+                continue;
+            const depth = blockerOverlapDepth(a, b);
+            if (depth > tolerance) bad.push({
+                a: a.kind, b: b.kind, depth: +depth.toFixed(2),
+                x: Math.round(a.x - S9_INTERIOR_ORIGIN.x), z: Math.round(a.z),
+            });
+        }
+    }
+    return bad;
+}
 
 // Laporan bentrok kendaraan Chapter 1. Toleransi 0,5 unit (~7 cm) menyerap
 // pembulatan float; apa pun di atasnya benar-benar terlihat menembus.
@@ -1050,63 +1170,442 @@ function buildInteriorChapter(parent, M) {
     // Dua deret fasilitas pada denah: toko/restoran/kafe/toilet menempel pada
     // sisi utara dan selatan ruang tunggu. Bentuk dibedakan lewat isi, tanpa
     // papan nama atau wayfinding lokasi.
+    // Pita lubang '=' pada denah: satu per kolom breach, dipakai untuk MEMOTONG
+    // sekat toko yang melewatinya sekaligus menandai lorong bebas di belakang.
+    const breachBands = S9_INTERIOR_BREACHES.map((b) => {
+        const c = s9InteriorCellPos(b.col, b.r0);
+        return {
+            col: b.col, x: c.x,
+            z0: S9_INTERIOR_GRID.z1 - (b.r1 + 1) * S9_INTERIOR_CELL,
+            z1: S9_INTERIOR_GRID.z1 - b.r0 * S9_INTERIOR_CELL,
+        };
+    });
+    const breachAt = (px) => breachBands.find((b) =>
+        Math.abs(px - b.x) <= S9_INTERIOR_CELL * .5);
+    // Sekat yang kena lubang dipecah jadi dua ruas; kusen bergerigi dibangun oleh
+    // helper '/' BERSAMA (utility/barricade.js), tanpa blocker — persis Stage 1/2.
+    const partitionWall = (thickness, depth, px, pz, kind) => {
+        const band = breachAt(px);
+        const z0 = pz - depth * .5, z1 = pz + depth * .5;
+        if (!band || band.z0 <= z0 || band.z1 >= z1) {
+            wall(thickness, depth, px, pz, kind);
+            return;
+        }
+        wall(thickness, band.z0 - z0, px, (z0 + band.z0) * .5, kind);
+        wall(thickness, z1 - band.z1, px, (band.z1 + z1) * .5, kind);
+        const breachParts = [];
+        buildWallBreach(breachParts, px, (band.z0 + band.z1) * .5, 'ew',
+            band.z1 - band.z0, 22, thickness);
+        for (const part of breachParts) statics.add(part);
+        interiorBreachRecords.push({
+            col: band.col, x: px, z: (band.z0 + band.z1) * .5,
+            gap: band.z1 - band.z0, kind,
+        });
+    };
+
+    // TOILET (permintaan user 2026-08-27, menggantikan tiga sekat kaca + tabung
+    // putih): bilik berpintu di dinding belakang, meja wastafel bercermin di satu
+    // sisi, deret urinoir bersekat di sisi lain, lalu TEMBOK DEPAN dengan satu
+    // ambang pintu lebar. Semua perabot menempel dinding; lorong tengah dan pita
+    // lubang '=' tetap kosong, jadi tak ada satu pun yang menghalangi rute.
+    const buildRestroom = (cx, cz, width, depth, frontDir, left, right, backZ) => {
+        const frontZ = cz + frontDir * depth * .5;
+        const inX0 = left + 1.5, inX1 = right - 1.5;
+        const zLo = cz - depth * .5, zHi = cz + depth * .5;
+        // Lorong '=' yang menembus ruang ini: perabot tak boleh menyentuhnya.
+        const lane = breachBands.filter((b) =>
+            b.x >= left - 1 && b.x <= right + 1 && b.z1 > zLo && b.z0 < zHi);
+        const stallLimit = lane.reduce((limit, b) => Math.min(limit,
+            Math.abs(backZ - (frontDir > 0 ? b.z0 : b.z1))), Infinity);
+        const stallDepth = Math.min(Math.max(30, depth * .34), stallLimit);
+        const stallFront = backZ + frontDir * stallDepth;
+        const usable = inX1 - inX0;
+
+        // --- baris bilik menempel dinding belakang ---
+        const cabins = Math.max(2, Math.floor(usable / 27));
+        const cabinW = usable / cabins;
+        const midZ = backZ + frontDir * stallDepth * .5;
+        for (let i = 0; i < cabins; i++) {
+            const px = inX0 + cabinW * (i + .5);
+            const g = new THREE.Group();
+            for (const side of [-1, 1])
+                box(g, M.panel, 2, 15, stallDepth - 1,
+                    px + side * cabinW * .5, 7.5, midZ, false);
+            // Kloset: alas, dudukan dan tangki, semuanya menempel dinding belakang.
+            box(g, M.white, 9, 3.4, 11, px, 1.7, backZ + frontDir * 8, false);
+            box(g, M.white, 11, 1, 12, px, 3.7, backZ + frontDir * 8.5, false);
+            box(g, M.white, 12, 7, 3.4, px, 5.5, backZ + frontDir * 2.6, false);
+            box(g, M.steel, 3.4, .8, .8, px, 8.6, backZ + frontDir * 2.6, false);
+            // Daun pintu bilik dibiarkan menganga: bilik terbaca kosong.
+            const hinge = px - cabinW * .5 + 2;
+            const swing = frontDir * (i % 2 ? .6 : 1.0);
+            const leafW = cabinW - 5;
+            const leaf = box(g, M.panel, leafW, 12, 1.6,
+                hinge + leafW * .5 * Math.cos(swing),
+                6.6, stallFront - frontDir * (1.2 + leafW * .5 * Math.sin(Math.abs(swing))),
+                false);
+            leaf.rotation.y = swing;
+            weldOccluder(S9_INTERIOR_KEY, parent, g,
+                { x: px, z: midZ, hx: cabinW * .5, hz: stallDepth * .5, top: 15 });
+            addChapterBlocker(interiorBlockers, px, midZ,
+                cabinW * .5 - 1, stallDepth * .5, 15, 0, 'toilet-cubicle');
+            interiorLayoutRecords.toiletCubicles++;
+        }
+
+        // --- zona perabot: antara ambang pintu dan bilik / lorong breach ---
+        const zoneBack = lane.length
+            ? (frontDir > 0 ? Math.min(...lane.map(b => b.z0))
+                : Math.max(...lane.map(b => b.z1)))
+            : stallFront;
+        const zoneDepth = Math.abs(zoneBack - frontZ);
+        const slots = Math.max(1, Math.min(3, Math.floor((zoneDepth - 24) / 21)));
+        const fixtureZ = (t) => frontZ + frontDir * (20 + t * 21);
+        const bankZ = frontZ + frontDir * (20 + (slots - 1) * 21 * .5);
+        const bankLen = 13 + (slots - 1) * 21;
+
+        // Meja wastafel + cermin pada dinding KIRI.
+        {
+            const basinX = inX0 + 5;
+            const g = new THREE.Group();
+            box(g, M.panel, 10, 4, bankLen, basinX, 7, bankZ, false);
+            box(g, M.frame, 9, 3, bankLen - 2, basinX, 4.5, bankZ, false);
+            box(g, M.glass, .5, 11, bankLen - 3, inX0 + .4, 15, bankZ, false);
+            for (let t = 0; t < slots; t++) {
+                cylinder(g, M.white, 3.1, 1.6, basinX + 1, 9.4, fixtureZ(t), 10);
+                box(g, M.steel, 1, 3, 1, basinX - 3.2, 10.5, fixtureZ(t), false);
+                interiorLayoutRecords.toiletBasins++;
+            }
+            weldOccluder(S9_INTERIOR_KEY, parent, g,
+                { x: basinX, z: bankZ, hx: 5, hz: bankLen * .5, top: 20 });
+            addChapterBlocker(interiorBlockers, basinX, bankZ,
+                5, bankLen * .5, 9, 0, 'toilet-basin-counter');
+        }
+        // Urinoir bersekat pada dinding KANAN.
+        {
+            const urinalX = inX1 - 4;
+            const g = new THREE.Group();
+            for (let t = 0; t < slots; t++) {
+                const pz = fixtureZ(t);
+                box(g, M.white, 7, 9, 8, urinalX, 8, pz, false);
+                box(g, M.white, 7, 2, 9.5, urinalX, 4.6, pz, false);
+                box(g, M.glass, 6, 13, .5, urinalX, 9, pz + frontDir * 5.6, false);
+                interiorLayoutRecords.toiletUrinals++;
+            }
+            weldOccluder(S9_INTERIOR_KEY, parent, g,
+                { x: urinalX, z: bankZ, hx: 4, hz: bankLen * .5, top: 15 });
+            addChapterBlocker(interiorBlockers, urinalX, bankZ,
+                4, bankLen * .5, 13, 0, 'toilet-urinal-row');
+        }
+        // Tempat sampah dan pengering tangan: dekor kecil, tanpa collider.
+        box(statics, M.frame, 5, 7, 5, inX0 + 7, 3.5, frontZ - frontDir * 10, false);
+        box(statics, M.panel, 4, 4, 2.5, inX1 - 3, 12, frontZ - frontDir * 28, false);
+
+        // --- TEMBOK DEPAN + AMBANG PINTU ---
+        // Lebar bukaan dikunci minimal 4x radius player dan sisa dindingnya
+        // dibagi rata, jadi retune lebar ruang tak pernah menyempitkan jalan.
+        // Daun yang terbuka penuh menjorok `leafReach x bentang` dari pusat; batasi
+        // bentangnya supaya kedua daun berhenti DI DALAM tembok depan alih-alih
+        // mencuat melewati sekat samping ruang.
+        const leafReach = .5 + (1 - DOOR_OPEN_REVEAL) / 2;
+        const opening = Math.min(usable / (2 * leafReach),
+            Math.max(CFG.player.radius * 4, 42));
+        const stub = (usable - opening) * .5;
+        if (stub > 1) {
+            wall(stub, 3, inX0 + stub * .5, frontZ, 'toilet-front-wall');
+            wall(stub, 3, inX1 - stub * .5, frontZ, 'toilet-front-wall');
+        }
+        for (const side of [-1, 1])
+            box(statics, M.frame, 2.5, 22, 4,
+                cx + side * opening * .5, 11, frontZ, false);
+        box(statics, M.frame, opening + 5, 3, 4, cx, 20.5, frontZ, false);
+        // Daun pintu memakai rig dua-daun BERSAMA, dipasang MENGANGA PENUH dan
+        // tak pernah digerakkan: pintunya terlihat tetapi tak pernah memblokir.
+        const door = buildSplitDoor(statics, M.glass, cx, 9.5, frontZ,
+            opening, 19, 1.6);
+        setSplitDoorOpen(door, 1);
+        interiorLayoutRecords.toiletDoors.push({
+            x: cx, z: frontZ, opening,
+            // Lebar BERSIH: tepi dalam kedua daun saat menganga penuh.
+            clear: 2 * (splitDoorLeafOffset(door, 1) - door.leafSpan * .5),
+            leafReach: opening * leafReach,
+        });
+    };
+
     const buildAmenity = (kind, cx, cz, width, depth, frontDir, row) => {
         const left = cx - width * .5, right = cx + width * .5;
         const backZ = cz - frontDir * depth * .5;
         box(statics, M.wood, width - 5, .14, depth - 5, cx, -.02, cz, false);
         // Tiga dinding didaftarkan sendiri-sendiri: toko berongga tidak boleh
         // memakai satu footprint occluder sebesar seluruh ruang kosongnya.
-        wall(3, depth, left, cz, `${kind}-partition`);
-        wall(3, depth, right, cz, `${kind}-partition`);
+        partitionWall(3, depth, left, cz, `${kind}-partition`);
+        partitionWall(3, depth, right, cz, `${kind}-partition`);
         wall(width, 3, cx, backZ, `${kind}-back-wall`);
         box(statics, M.frame, width, 2, 3,
             cx, 18, cz + frontDir * depth * .5);
 
+        // Muka DALAM kedua sekat samping: perabot dirapatkan ke sana supaya
+        // lorong tengah toko tidak pernah tersumbat.
+        const inL = left + 3, inR = right - 3;
+        const seed = Math.round(cx * .37 + cz * .11);
+        const goods = [M.hazard, M.tech, M.white, M.leaf, M.wood, M.steel];
+        // Lorong '=' yang menembus baris fasilitas UTARA adalah satu-satunya
+        // hubungan aula check-in ke concourse; perabot tambahan tidak boleh
+        // menyempitkannya, jadi hanya toko yang benar-benar dilalui yang diuji.
+        const laneBands = breachBands.filter((b) =>
+            b.x >= left - 14 && b.x <= right + 14);
+        const clearsLane = (pz, hz) => !laneBands.some((b) =>
+            pz - hz < b.z1 + CFG.player.radius && pz + hz > b.z0 - CFG.player.radius);
+
         if (kind === 'souvenir') {
-            for (let i = -1; i <= 1; i++) {
-                const px = cx + i * width * .24;
-                const shelf = new THREE.Group();
-                box(shelf, M.wood, 13, 8, 7, px, 4, backZ + frontDir * 18);
-                box(shelf, M.hazard, 8, 1, 4,
-                    px, 8.5, backZ + frontDir * 18, false);
-                weldOccluder(S9_INTERIOR_KEY, parent, shelf, {
-                    x: px, z: backZ + frontDir * 18, hx: 6.5, hz: 3.5, top: 9,
-                });
-                addChapterBlocker(interiorBlockers, px, backZ + frontDir * 18,
-                    6.5, 3.5, 9, 0, 'souvenir-shelf');
+            // Rak dinding belakang penuh barang. Menempel pada tembok yang sudah
+            // solid, jadi ia menebalkan siluet toko tanpa menyentuh rute apa pun.
+            {
+                const g = new THREE.Group();
+                const wz = backZ + frontDir * 7;
+                box(g, M.panel, width - 12, 21, 5, cx, 10.5, wz, false);
+                const n = Math.max(3, Math.round((width - 22) / 11));
+                for (let t = 0; t < 3; t++) {
+                    const sy = 5.4 + t * 5.2;
+                    box(g, M.wood, width - 14, .8, 6, cx, sy, wz + frontDir * 1.6, false);
+                    for (let i = 0; i < n; i++) {
+                        const h = ihash(seed + i * 13 + t * 71);
+                        box(g, goods[(i + t * 2) % goods.length],
+                            5.4, 2.4 + h * 2.2, 4.6,
+                            cx - (width - 22) * .5 + (i + .5) * (width - 22) / n,
+                            sy + 1.6 + h * 1.1, wz + frontDir * 1.6, false);
+                    }
+                    fixture('souvenirShelfTier');
+                }
+                weldOccluder(S9_INTERIOR_KEY, parent, g,
+                    { x: cx, z: wz, hx: (width - 12) * .5, hz: 4.5, top: 21 });
+                addChapterBlocker(interiorBlockers, cx, wz,
+                    (width - 12) * .5, 4.5, 21, 0, 'souvenir-wall-shelf');
+            }
+            // Dua gondola dua-muka MEMBUJUR ke arah pintu. Jaraknya DITURUNKAN
+            // dari lebar toko, bukan diketik: ketiga lorong (tengah dan dua tepi)
+            // dibuat sama lebar, sehingga menyempitkan toko tidak pernah bisa
+            // diam-diam mengurung rak paling luar.
+            const gHalf = 5.1;
+            const aisle = (width - 6 - 4 * gHalf) / 3;
+            const gOff = aisle * .5 + gHalf;
+            const gz = backZ + frontDir * 34;
+            const sides = aisle >= CFG.player.radius * 2 + 2 ? [-1, 1] : [0];
+            interiorLayoutRecords.shopAisles.push({
+                kind, row, gondolas: sides.length,
+                aisle: sides.length > 1 ? aisle : (width - 6 - 2 * gHalf) * .5,
+            });
+            for (const side of sides) {
+                const px = cx + side * gOff;
+                const g = new THREE.Group();
+                box(g, M.frame, 9, 1.4, 36, px, .7, gz, false);
+                box(g, M.panel, 4, 12, 34, px, 6.5, gz, false);
+                for (const face of [-1, 1]) for (let t = 0; t < 3; t++) {
+                    const sy = 3.2 + t * 3.8;
+                    box(g, M.wood, 3.6, .6, 33, px + face * 3.2, sy, gz, false);
+                    for (let k = 0; k < 6; k++) {
+                        const h = ihash(seed + side * 211 + face * 53 + t * 17 + k);
+                        box(g, goods[(k + t + (side + 1) + (face + 1)) % goods.length],
+                            2.8, 1.9 + h * 1.5, 3.8,
+                            px + face * 3.2, sy + 1.2 + h * .75,
+                            gz - 15 + k * 6, false);
+                    }
+                }
+                box(g, M.hazard, 5, .9, 30, px, 13.2, gz, false);
+                weldOccluder(S9_INTERIOR_KEY, parent, g,
+                    { x: px, z: gz, hx: gHalf, hz: 18, top: 13.6 });
+                addChapterBlocker(interiorBlockers, px, gz, gHalf, 18, 13.6,
+                    0, 'souvenir-gondola');
+                fixture('souvenirGondola');
+            }
+            // Meja kasir dirapatkan ke sekat kiri: mesin register, layar dan
+            // tiang antre. Tengah toko tetap kosong.
+            {
+                const px = inL + 9, pz = backZ + frontDir * 76;
+                if (clearsLane(pz, 11)) {
+                    box(statics, M.wood, 16, 6.4, 20, px, 3.2, pz);
+                    box(statics, M.panel, 18, 1.1, 22, px, 6.9, pz, false);
+                    box(statics, M.steel, 6, 3, 8, px + 1, 8.6, pz - frontDir * 5, false);
+                    box(statics, M.tech, .4, 4.6, 7, px + 6.5, 9.6, pz + frontDir * 3, false);
+                    box(statics, M.frame, 3, 7, 3, px - 4, 3.5, pz + frontDir * 9, false);
+                    addChapterBlocker(interiorBlockers, px, pz, 9, 11, 8,
+                        0, 'souvenir-checkout');
+                    fixture('souvenirCheckout');
+                }
+            }
+            // Rak putar kartu pos: dekor setinggi bahu tanpa collider, sekelas
+            // bangku — di bawah ambang occlusion setengah badan.
+            for (const side of [-1, 1]) {
+                const px = cx + side * (width * .5 - 13);
+                const pz = backZ + frontDir * 96;
+                cylinder(statics, M.frame, .9, 13, px, 6.5, pz, 8);
+                cylinder(statics, M.steel, 3.4, .7, px, 1, pz, 10);
+                for (let f = 0; f < 4; f++) {
+                    const a = f * Math.PI / 4;
+                    const fin = box(statics, goods[(f + side + 1) % goods.length],
+                        5.4, 8, .5,
+                        px + Math.cos(a) * 2.7, 8, pz - Math.sin(a) * 2.7, false);
+                    fin.rotation.y = a;
+                }
+                fixture('souvenirCarousel');
             }
         } else if (kind === 'restaurant') {
+            // Lini servery menempel dinding belakang: bak penghangat, tudung,
+            // dan tumpukan piring.
+            {
+                const g = new THREE.Group();
+                const wz = backZ + frontDir * 9;
+                box(g, M.panel, width - 14, 6.5, 12, cx, 3.2, wz, false);
+                box(g, M.steel, width - 12, 1.1, 14, cx, 7.2, wz, false);
+                const bays = Math.max(3, Math.round((width - 30) / 20));
+                for (let i = 0; i < bays; i++) {
+                    const px = cx - (width - 30) * .5 + (i + .5) * (width - 30) / bays;
+                    box(g, M.frame, 15, 1.6, 9, px, 8.4, wz, false);
+                    box(g, M.hazard, 13, .5, 7, px, 9.3, wz, false);
+                    box(g, M.steel, 16, 1.2, 10, px, 14.6, wz, false);
+                    for (const sx of [-7, 7])
+                        box(g, M.frame, 1.2, 6, 1.2, px + sx, 11.6, wz - frontDir * 4, false);
+                    fixture('restaurantWarmer');
+                }
+                for (const sx of [-(width - 30) * .5 - 3, (width - 30) * .5 + 3])
+                    cylinder(g, M.white, 3.2, 3, cx + sx, 9.6, wz + frontDir * 3.4, 12);
+                weldOccluder(S9_INTERIOR_KEY, parent, g,
+                    { x: cx, z: wz, hx: (width - 12) * .5, hz: 7, top: 15.5 });
+                addChapterBlocker(interiorBlockers, cx, wz,
+                    (width - 12) * .5, 7, 15.5, 0, 'restaurant-servery');
+                fixture('restaurantServery');
+            }
             for (const ox of [-.26, .26]) for (const oz of [-.20, .20]) {
                 const px = cx + ox * width, pz = cz + oz * depth;
-                box(statics, M.wood, 18, 2, 12, px, 3.6, pz);
-                for (const dz of [-9, 9]) box(statics, M.panel, 12, 3, 5,
-                    px, 1.7, pz + dz);
+                // Meja berkaki tunggal beserta peralatan makannya.
+                cylinder(statics, M.steel, 1.6, 3.4, px, 1.7, pz, 8);
+                cylinder(statics, M.steel, 5.5, .6, px, .3, pz, 10);
+                box(statics, M.wood, 18, 1.8, 12, px, 4.3, pz);
+                for (const sx of [-5, 5]) {
+                    cylinder(statics, M.white, 2.4, .5, px + sx, 5.5, pz, 10);
+                    cylinder(statics, M.glass, .9, 2.4, px + sx - 3.4, 6.4, pz + 3.6, 8);
+                }
+                box(statics, M.frame, 2.2, 3.4, 2.2, px, 6.9, pz - 3.8, false);
+                // Empat kursi. Sengaja TIDAK menambah collider — sama seperti
+                // bangku versi lama, jadi footprint meja tetap persis sama dan
+                // koridor di antara meja tidak menyempit.
+                for (const [dx, dz] of [[-11, 0], [11, 0], [0, -9], [0, 9]]) {
+                    const seat = new THREE.Group();
+                    seat.position.set(px + dx, 0, pz + dz);
+                    seat.rotation.y = dx
+                        ? (dx < 0 ? Math.PI * .5 : -Math.PI * .5)
+                        : (dz < 0 ? 0 : Math.PI);
+                    box(seat, M.panel, 7, 1.2, 7, 0, 3.4, 0);
+                    box(seat, M.panel, 7, 6, 1.3, 0, 6.2, -3);
+                    for (const [lx, lz] of [[-2.6, -2.6], [2.6, -2.6], [-2.6, 2.6], [2.6, 2.6]])
+                        box(seat, M.frame, .9, 3.4, .9, lx, 1.7, lz, false);
+                    statics.add(seat);
+                    fixture('restaurantChair');
+                }
                 addChapterBlocker(interiorBlockers, px, pz, 9, 6, 5,
                     0, 'restaurant-table');
+                fixture('restaurantTable');
+            }
+            // Stasiun pengembalian nampan, rapat ke sekat kanan.
+            {
+                const px = inR - 6.5, pz = cz + frontDir * depth * .30;
+                if (clearsLane(pz, 8)) {
+                    box(statics, M.frame, 12, 9, 14, px, 4.5, pz);
+                    box(statics, M.panel, 13, 1.2, 15, px, 9.6, pz, false);
+                    box(statics, M.rubber, 8, 3, 9, px, 11.7, pz, false);
+                    addChapterBlocker(interiorBlockers, px, pz, 6.5, 7.5, 12,
+                        0, 'restaurant-tray-return');
+                    fixture('restaurantTrayReturn');
+                }
             }
         } else if (kind === 'cafe') {
-            const counterZ = backZ + frontDir * 20;
-            box(statics, M.wood, width - 16, 5, 12, cx, 2.5, counterZ);
-            for (let i = -2; i <= 2; i++) cylinder(statics, M.steel, 2.2, 3,
-                cx + i * (width - 24) / 5, 1.5, counterZ + frontDir * 15, 8);
-            addChapterBlocker(interiorBlockers, cx, counterZ,
-                (width - 16) * .5, 6, 6, 0, 'cafe-counter');
-        } else {
-            const stallDepth = Math.max(28, depth * .42);
-            for (let i = -1; i <= 1; i++) {
-                const px = cx + i * (width - 18) / 3;
-                const partition = new THREE.Group();
-                box(partition, M.glass, 2, 12, stallDepth, px, 6,
-                    backZ + frontDir * stallDepth * .5, false);
-                weldOccluder(S9_INTERIOR_KEY, parent, partition, {
-                    x: px, z: backZ + frontDir * stallDepth * .5,
-                    hx: 1, hz: stallDepth * .5, top: 12,
-                });
-                cylinder(statics, M.white, 4, 3, px + 7, 1.5,
-                    backZ + frontDir * 12, 10);
-                addChapterBlocker(interiorBlockers, px + 7,
-                    backZ + frontDir * 12, 4, 4, 4, 0, 'toilet-fixture');
+            const counterZ = backZ + frontDir * 22;
+            const cw = width - 16;
+            // Bar belakang menempel dinding: rak cangkir/botol dan satu layar
+            // menu. Layar adalah status/kontrol, bukan papan nama lokasi.
+            {
+                const g = new THREE.Group();
+                const wz = backZ + frontDir * 7;
+                box(g, M.wood, width - 16, 9, 6, cx, 4.5, wz, false);
+                box(g, M.steel, width - 14, 1, 8, cx, 9.5, wz, false);
+                const n = Math.max(4, Math.round((width - 24) / 8));
+                for (let t = 0; t < 2; t++) {
+                    const sy = 13 + t * 5;
+                    box(g, M.frame, width - 18, .7, 5.5, cx, sy, wz, false);
+                    for (let i = 0; i < n; i++) {
+                        const h = ihash(seed + i * 29 + t * 131);
+                        cylinder(g, h > .55 ? M.white : M.wood, 1.5, 2.4 + h * 1.8,
+                            cx - (width - 24) * .5 + (i + .5) * (width - 24) / n,
+                            sy + 1.6 + h * .9, wz, 8);
+                    }
+                    fixture('cafeBackShelf');
+                }
+                box(g, M.tech, width * .3, 5, .4, cx, 20.5, wz - frontDir * 3.4, false);
+                weldOccluder(S9_INTERIOR_KEY, parent, g,
+                    { x: cx, z: wz, hx: (width - 14) * .5, hz: 4, top: 21 });
+                addChapterBlocker(interiorBlockers, cx, wz,
+                    (width - 14) * .5, 4, 21, 0, 'cafe-back-bar');
+                fixture('cafeBackBar');
             }
+            // Konter layan: plint, meja atas menggantung, dan rel kaki.
+            box(statics, M.panel, cw, 8, 11, cx, 4, counterZ);
+            box(statics, M.wood, cw + 3, 1.4, 13, cx, 8.7, counterZ);
+            box(statics, M.steel, cw, .8, 1.2, cx, 1.4, counterZ + frontDir * 5.6, false);
+            {   // Etalase kue berkaca dua tingkat.
+                const dx = cx - cw * .28;
+                box(statics, M.frame, cw * .3, 1, 11, dx, 9.7, counterZ, false);
+                box(statics, M.glass, cw * .3, 7, 10, dx, 13.2, counterZ, false);
+                for (let t = 0; t < 2; t++)
+                    box(statics, M.wood, cw * .26, .5, 8, dx, 11 + t * 3, counterZ, false);
+                fixture('cafeDisplayCase');
+            }
+            {   // Mesin espresso, penggiling, dan kasir.
+                const mx = cx + cw * .3;
+                box(statics, M.steel, 13, 8, 8, mx, 13.4, counterZ, false);
+                box(statics, M.frame, 14, 1.2, 9, mx, 17.8, counterZ, false);
+                for (const sx of [-3.5, 3.5])
+                    cylinder(statics, M.frame, .7, 3.4, mx + sx, 11.2,
+                        counterZ - frontDir * 3.6, 8);
+                cylinder(statics, M.steel, 2.6, 7, mx + 9, 12.9, counterZ, 10);
+                box(statics, M.tech, 4.5, 3, .4, mx - 11, 12.4,
+                    counterZ - frontDir * 4.2, false);
+                fixture('cafeMachine');
+            }
+            addChapterBlocker(interiorBlockers, cx, counterZ,
+                (cw + 3) * .5, 6.5, 9.5, 0, 'cafe-counter');
+            fixture('cafeCounter');
+            // Bangku bar: tiang, dudukan, dan pijakan kaki.
+            for (let i = -2; i <= 2; i++) {
+                const px = cx + i * (width - 24) / 5, pz = counterZ + frontDir * 15;
+                cylinder(statics, M.steel, .9, 6, px, 3, pz, 8);
+                cylinder(statics, M.panel, 2.6, 1.1, px, 6.5, pz, 10);
+                cylinder(statics, M.frame, 2, .4, px, 1.8, pz, 10);
+                fixture('cafeStool');
+            }
+            // Dua meja bundar berkursi di sisi toko, lorong tengah tetap kosong.
+            for (const side of [-1, 1]) {
+                const px = cx + side * width * .26;
+                const pz = backZ + frontDir * (depth - 42);
+                if (!clearsLane(pz, 9)) continue;
+                cylinder(statics, M.steel, 1.4, 4, px, 2, pz, 8);
+                cylinder(statics, M.steel, 4.6, .5, px, .25, pz, 10);
+                cylinder(statics, M.wood, 8, 1.4, px, 4.7, pz, 12);
+                cylinder(statics, M.white, 2, .4, px - 2.6, 5.6, pz + 1.4, 10);
+                for (const dz of [-11, 11]) {
+                    const seat = new THREE.Group();
+                    seat.position.set(px, 0, pz + dz);
+                    seat.rotation.y = dz < 0 ? 0 : Math.PI;
+                    box(seat, M.panel, 7, 1.2, 7, 0, 3.4, 0);
+                    box(seat, M.panel, 7, 5.5, 1.3, 0, 6, -3);
+                    for (const [lx, lz] of [[-2.6, -2.6], [2.6, -2.6], [-2.6, 2.6], [2.6, 2.6]])
+                        box(seat, M.frame, .9, 3.4, .9, lx, 1.7, lz, false);
+                    statics.add(seat);
+                }
+                addChapterBlocker(interiorBlockers, px, pz, 8, 8, 6.1,
+                    0, 'cafe-table');
+                fixture('cafeTable');
+            }
+        } else {
+            buildRestroom(cx, cz, width, depth, frontDir, left, right, backZ);
         }
         recordZone(kind, cx, cz, width * .5, depth * .5, { row });
         interiorLayoutRecords.amenityRows[row].push(kind);
@@ -1124,19 +1623,68 @@ function buildInteriorChapter(parent, M) {
     // Dua pulau konter memanjang berada di bagian atas; jalur antre hanya
     // berupa rel rendah agar tiga koridor tempur tetap terbuka.
     recordZone('checkin-hall', x + 205, 70, 115, 445);
+    // Pulau konter berhenti di x+295: lorong sirkulasi selebar 18 unit tetap
+    // terbuka antara ujung pulau dan barisan kolom terminal (x+315). Versi lama
+    // (212 unit, berujung di x+311) menyisakan 2 unit — ujung utara aula, tempat
+    // penanda checkpoint sekarang berdiri, praktis tak bisa dicapai.
+    const islandC = x + 197, islandHalf = 98;
+    // Konter menghadap -z (arah antre), jadi sisi penumpang ada di z-, sisi
+    // petugas di z+. Setiap posisi lengkap: badan konter, meja atas menggantung,
+    // layar penumpang, monitor petugas, rak papan ketik, dan printer label.
     for (const z of [455, 350]) {
-        box(statics, M.frame, 212, 1.1, 22, x + 205, .7, z);
+        box(statics, M.frame, islandHalf * 2, 1.1, 22, islandC, .7, z);
+        box(statics, M.panel, islandHalf * 2, 1.3, 24, islandC, 5.9, z);
+        for (const sx of [-1, 1])
+            box(statics, M.frame, 4, 7, 24, islandC + sx * (islandHalf - 2),
+                3.2, z, false);
         for (let i = -4; i <= 4; i++) {
-            const px = x + 205 + i * 22;
+            const px = islandC + i * 22;
             box(statics, M.panel, 19, 5, 16, px, 2.6, z);
+            box(statics, M.steel, 20, .9, 1.4, px, 1, z - 8.4, false);
             box(statics, M.tech, 9, 2.2, .3, px, 5.1, z - 8.1, false);
+            // Sisi petugas: monitor bertiang, rak papan ketik, printer label.
+            cylinder(statics, M.frame, .8, 4, px - 3, 8.5, z + 5, 8);
+            const mon = box(statics, M.tech, 9, 6, .5, px - 3, 13, z + 5, false);
+            mon.rotation.x = .16;
+            box(statics, M.frame, 10, .5, 5, px - 3, 6.9, z + 3, false);
+            box(statics, M.steel, 5, 4, 6, px + 6, 8.6, z + 4, false);
+            box(statics, M.hazard, 4, .4, 3, px + 6, 10.8, z + 4, false);
+            fixture('checkinAgentStation');
         }
-        addChapterBlocker(interiorBlockers, x + 205, z, 106, 11,
-            6, 0, 'checkin-island');
+        addChapterBlocker(interiorBlockers, islandC, z, islandHalf, 12,
+            7.2, 0, 'checkin-island');
         interiorLayoutRecords.checkinCounters++;
+        // Ban berjalan penurunan bagasi membentang di depan pulau: bak, rol,
+        // pelat timbang, pagar sisi, dan koper yang benar-benar duduk di atasnya.
+        const beltZ = z - 20;
+        box(statics, M.frame, islandHalf * 2, 3.4, 13, islandC, 1.7, beltZ);
+        box(statics, M.rubber, islandHalf * 2 - 4, .7, 10, islandC, 3.7, beltZ, false);
+        for (const dz of [-6.2, 6.2])
+            box(statics, M.steel, islandHalf * 2, 1.2, 1.2, islandC, 4.4,
+                beltZ + dz, false);
+        for (let i = -4; i <= 4; i++) {
+            const px = islandC + i * 22;
+            for (let r = 0; r < 5; r++)
+                cylinder(statics, M.steel, .8, 9.6, px - 8.8 + r * 4.4, 4.2,
+                    beltZ, 8, 'z');
+            box(statics, M.hazard, 13, .3, 9, px, 4.15, beltZ, false);
+            const h = ihash(Math.round(px) + Math.round(z) * 7);
+            if (h > .42) {
+                const bag = box(statics, h > .72 ? M.wood : M.panel,
+                    9 + h * 3, 6 + h * 3, 6.4, px, 7.6 + h * 1.5, beltZ);
+                bag.rotation.y = (h - .5) * .5;
+                box(statics, M.steel, 3, .8, 1.2, px, 11 + h * 3, beltZ, false);
+                fixture('checkinBag');
+            }
+            fixture('checkinBagDrop');
+        }
+        addChapterBlocker(interiorBlockers, islandC, beltZ, islandHalf, 7,
+            5, 0, 'checkin-bag-drop');
+        // Tiang dan tali antre.
         for (let i = -4; i <= 4; i++) for (const dz of [-35, -65]) {
-            const px = x + 205 + i * 22;
+            const px = islandC + i * 22;
             cylinder(statics, M.frame, .7, 3, px, 1.5, z + dz, 8);
+            cylinder(statics, M.steel, 1.9, .5, px, .25, z + dz, 10);
             if (i < 4) box(statics, M.frame, 21, .35, .35,
                 px + 11, 2.7, z + dz, false);
         }
@@ -1145,12 +1693,27 @@ function buildInteriorChapter(parent, M) {
     // Empat kiosk mandiri di tengah aula kanan.
     for (let i = 0; i < 4; i++) {
         const px = x + 135 + i * 48, pz = -35;
-        box(statics, M.frame, 12, 3, 10, px, 1.5, pz);
-        const screen = box(statics, M.tech, 8, 9, 2, px, 6, pz, false);
-        screen.rotation.x = -.12;
-        addChapterBlocker(interiorBlockers, px, pz, 6, 5, 11,
+        // Menghadap -z. Alas, tiang badan, kepala miring berbezel, lalu slot
+        // pemindai paspor, pencetak boarding pass, corong label bagasi dan
+        // pembaca kartu — kiosk yang benar-benar bisa dipakai, bukan kotak.
+        box(statics, M.frame, 13, 1.4, 11, px, .7, pz);
+        box(statics, M.panel, 10, 8, 8, px, 5.2, pz);
+        box(statics, M.frame, 11.5, 1, 9, px, 9.6, pz, false);
+        const head = box(statics, M.panel, 11, 8.4, 3.4, px, 13.6, pz - 1.4, false);
+        head.rotation.x = -.22;
+        const screen = box(statics, M.tech, 8.4, 6.4, .4, px, 13.7, pz - 3, false);
+        screen.rotation.x = -.22;
+        box(statics, M.tech, 5, .5, 2.6, px - 2.4, 10, pz - 3.4, false);
+        box(statics, M.steel, 4.6, .9, 3, px + 2.6, 9.9, pz - 3.2, false);
+        box(statics, M.frame, 3.4, 3.6, 2.6, px + 4.4, 6.6, pz - 4.2, false);
+        box(statics, M.hazard, 2.6, .35, 1.8, px - 4.2, 9.9, pz - 3.6, false);
+        for (const sx of [-1, 1])
+            box(statics, M.frame, .8, 11, 7, px + sx * 5.6, 5.5, pz + .5, false);
+        addChapterBlocker(interiorBlockers, px, pz, 6.5, 5.5, 16,
             0, 'self-check-kiosk');
         interiorLayoutRecords.selfCheckKiosks++;
+        fixture('kioskScanner');
+        fixture('kioskPrinter');
     }
 
     // Ruang pemeriksaan keamanan berada tepat di antara aula kanan dan ruang
@@ -1166,15 +1729,83 @@ function buildInteriorChapter(parent, M) {
     box(statics, M.white, 132, .1, 370, x + 25, .06, 45, false);
     for (const laneZ of [55, -55]) {
         const gateX = x + 25;
+        // GAWANG DETEKTOR: dua pilar penuh tinggi, ambang atas, dan pita lampu
+        // di dalamnya. Celah lolos di antara pilar tetap 20 unit seperti dahulu.
         for (const dz of [-12, 12]) {
-            box(statics, M.frame, 4, 13, 4, gateX, 6.5, laneZ + dz);
+            const g = new THREE.Group();
+            box(g, M.panel, 4.4, 22, 5, gateX, 11, laneZ + dz, false);
+            box(g, M.frame, 6, 1.4, 7, gateX, .7, laneZ + dz, false);
+            box(g, M.frame, 5.4, 1.2, 6, gateX, 21.8, laneZ + dz, false);
+            box(g, M.tech, .4, 16, 2.6, gateX - 2.3,
+                11, laneZ + dz - Math.sign(dz) * .6, false);
+            weldOccluder(S9_INTERIOR_KEY, parent, g,
+                { x: gateX, z: laneZ + dz, hx: 3, hz: 3.5, top: 22 });
             addChapterBlocker(interiorBlockers, gateX, laneZ + dz,
-                2, 2, 13, 0, 'security-scanner-post');
+                2.2, 2.5, 22, 0, 'security-scanner-post');
+            fixture('securityArchPillar');
         }
-        box(statics, M.hazard, 4, 2, 28, gateX, 13, laneZ);
-        box(statics, M.panel, 36, 4, 10, x + 68, 2, laneZ + 21);
-        addChapterBlocker(interiorBlockers, x + 68, laneZ + 21,
-            18, 5, 5, 0, 'security-tray-table');
+        box(statics, M.frame, 5, 2.4, 28, gateX, 22.6, laneZ, false);
+        box(statics, M.hazard, 4, 1.2, 26, gateX, 21, laneZ, false);
+        box(statics, M.hazard, 5.4, .12, 24, gateX, .08, laneZ, false);
+        fixture('securityArch');
+
+        // MESIN X-RAY menggantikan meja nampan polos, TEPAT pada footprint lama
+        // (hx 18, hz 5) supaya lebar lolos di bukaan dinding samping tak berubah:
+        // rol masuk, terowongan berkelir timbal, rol keluar.
+        {
+            const mx = x + 68, mz = laneZ + 21;
+            const g = new THREE.Group();
+            box(g, M.frame, 36, 4.6, 10, mx, 2.3, mz, false);
+            for (let r = 0; r < 12; r++)
+                cylinder(g, M.steel, .9, 9.4, mx - 16.5 + r * 3, 5.1, mz, 8, 'z');
+            box(g, M.panel, 17, 13, 10, mx, 10.5, mz, false);
+            box(g, M.frame, 18, 1.4, 11, mx, 17.4, mz, false);
+            box(g, M.tech, 15, .4, 8, mx, 4.9, mz, false);
+            for (const sx of [-8.6, 8.6])
+                box(g, M.rubber, .8, 8.4, 8.4, mx + sx, 8.4, mz, false);
+            box(g, M.hazard, 17, .9, 10.2, mx, 16.4, mz, false);
+            weldOccluder(S9_INTERIOR_KEY, parent, g,
+                { x: mx, z: mz, hx: 18, hz: 5, top: 18 });
+            addChapterBlocker(interiorBlockers, mx, mz,
+                18, 5, 14, 0, 'security-xray');
+            fixture('securityXray');
+            // Tumpukan nampan di ujung masuk: dekor kecil tanpa collider.
+            for (let t = 0; t < 4; t++)
+                box(statics, M.panel, 11, 1.1, 8, mx + 12, 5.6 + t * 1.2, mz, false);
+            fixture('securityTrayStack');
+        }
+        // MEJA OPERATOR di belakang mesin, merapat dinding lajur.
+        {
+            const ox = x + 68, oz = laneZ + 21 + (laneZ > 0 ? 15 : -15);
+            box(statics, M.panel, 20, 7.5, 9, ox, 3.7, oz);
+            box(statics, M.frame, 21, 1, 10, ox, 7.9, oz, false);
+            const scr = box(statics, M.tech, 15, 6.4, .5, ox, 11.8,
+                oz + (laneZ > 0 ? 1.6 : -1.6), false);
+            scr.rotation.x = laneZ > 0 ? -.2 : .2;
+            box(statics, M.frame, 9, .5, 4, ox, 8.8,
+                oz - (laneZ > 0 ? 2.6 : -2.6), false);
+            addChapterBlocker(interiorBlockers, ox, oz, 10.5, 5, 9,
+                0, 'security-console');
+            fixture('securityConsole');
+        }
+        // Podium petugas di sisi keluar gawang, di luar celah jalan.
+        {
+            const px = gateX - 16, pz = laneZ + 20;
+            box(statics, M.panel, 7, 9, 7, px, 4.5, pz);
+            box(statics, M.frame, 8, 1, 8, px, 9.5, pz, false);
+            box(statics, M.tech, 5, .4, 4, px, 10.1, pz, false);
+            addChapterBlocker(interiorBlockers, px, pz, 4, 4, 10,
+                0, 'security-podium');
+            fixture('securityPodium');
+        }
+        // Tiang antre menuju gawang: dekor, tanpa collider.
+        for (let i = 0; i < 3; i++) for (const dz of [-11, 11]) {
+            const px = gateX + 20 + i * 15;
+            cylinder(statics, M.frame, .7, 3.2, px, 1.6, laneZ + dz, 8);
+            cylinder(statics, M.steel, 1.9, .5, px, .25, laneZ + dz, 10);
+            if (i < 2) box(statics, M.frame, 15, .35, .35,
+                px + 7.5, 2.9, laneZ + dz, false);
+        }
         interiorLayoutRecords.securityLanes++;
     }
 
@@ -1182,10 +1813,9 @@ function buildInteriorChapter(parent, M) {
     // kisi denah, tetapi menyisakan lorong keliling dan jalur lebar ke pintu
     // apron di barat-bawah.
     recordZone('departure-concourse', x - 185, -5, 130, 350);
-    const seatXs = [x - 285, x - 225, x - 165, x - 105];
-    const seatZs = [300, 235, 170, 105, 40, -25, -90, -155, -220, -285];
-    for (const px of seatXs) for (const z of seatZs) {
-        if (px === x - 285 && z <= -220) continue;
+    for (const dx of S9_SEAT_XS) for (const z of S9_SEAT_ZS) {
+        if (seatSkipped(dx, z)) continue;
+        const px = x + dx;
         box(statics, M.frame, 34, 1.2, 13, px, 1.2, z);
         for (let i = -1; i <= 2; i++) {
             box(statics, M.panel, 7, 3, 9, px + (i - .5) * 8, 2.8, z);
@@ -1199,12 +1829,45 @@ function buildInteriorChapter(parent, M) {
     // Kafe kecil memisahkan security dari fasilitas bawah, sama seperti pulau
     // kafe di tengah denah. Sisi-sisinya terbuka untuk sirkulasi.
     recordZone('central-cafe', x + 28, -255, 55, 40);
-    box(statics, M.wood, 100, 5, 20, x + 28, 2.5, -255);
     box(statics, M.frame, 90, 1, 30, x + 28, .5, -255);
-    for (let i = -3; i <= 3; i++) cylinder(statics, M.steel, 2.2, 3,
-        x - 8 + i * 12, 1.5, -235, 8);
-    addChapterBlocker(interiorBlockers, x + 28, -255, 50, 10,
-        6, 0, 'central-cafe-counter');
+    box(statics, M.panel, 100, 8, 18, x + 28, 4, -255);
+    box(statics, M.wood, 104, 1.5, 21, x + 28, 8.8, -255);
+    box(statics, M.steel, 100, .8, 1.2, x + 28, 1.4, -246, false);
+    {   // Etalase kue, mesin espresso, penggiling, dan kasir di atas konter.
+        box(statics, M.frame, 26, 1, 15, x - 4, 9.8, -255, false);
+        box(statics, M.glass, 26, 7, 14, x - 4, 13.2, -255, false);
+        for (let t = 0; t < 2; t++)
+            box(statics, M.wood, 23, .5, 11, x - 4, 11 + t * 3, -255, false);
+        fixture('centralCafeDisplayCase');
+        box(statics, M.steel, 14, 8, 9, x + 46, 13.5, -255, false);
+        box(statics, M.frame, 15, 1.2, 10, x + 46, 17.9, -255, false);
+        for (const sx of [-3.8, 3.8])
+            cylinder(statics, M.frame, .7, 3.4, x + 46 + sx, 11.3, -259, 8);
+        cylinder(statics, M.steel, 2.6, 7, x + 57, 13, -255, 10);
+        box(statics, M.tech, 5, 3.2, .4, x + 30, 12.5, -246.5, false);
+        fixture('centralCafeMachine');
+    }
+    // Gantri rak cangkir di belakang konter: dekor tinggi, tanpa collider baru.
+    for (const sx of [-40, 40])
+        cylinder(statics, M.frame, 1.1, 22, x + 28 + sx, 11, -264, 8);
+    box(statics, M.frame, 84, 1.2, 4, x + 28, 21.4, -264, false);
+    for (let i = 0; i < 9; i++) {
+        const h = ihash(i * 61 + 17);
+        cylinder(statics, h > .5 ? M.white : M.wood, 1.5, 2.4 + h * 1.6,
+            x - 12 + i * 10, 13.4, -264, 8);
+    }
+    box(statics, M.tech, 30, 5, .4, x + 28, 17.6, -264.4, false);
+    // Bangku bar bertiang.
+    for (let i = -3; i <= 3; i++) {
+        const px = x - 8 + i * 12;
+        cylinder(statics, M.steel, .9, 6, px, 3, -235, 8);
+        cylinder(statics, M.panel, 2.6, 1.1, px, 6.5, -235, 10);
+        cylinder(statics, M.frame, 2, .4, px, 1.8, -235, 10);
+        fixture('centralCafeStool');
+    }
+    addChapterBlocker(interiorBlockers, x + 28, -255, 52, 10.5,
+        10.3, 0, 'central-cafe-counter');
+    fixture('centralCafeCounter');
 
     // Baggage reclaim tunggal di kanan-bawah: torus direntangkan menjadi belt
     // persegi-bulat, dengan empat collider terpisah agar lubang tengah tetap
@@ -1218,14 +1881,75 @@ function buildInteriorChapter(parent, M) {
     belt.castShadow = true; belt.receiveShadow = true;
     statics.add(belt);
     box(statics, M.concrete, 90, .08, 54, baggageX, .05, baggageZ, false);
-    addChapterBlocker(interiorBlockers, baggageX, baggageZ - 48,
-        64, 9, 5, 0, 'baggage-belt');
-    addChapterBlocker(interiorBlockers, baggageX, baggageZ + 48,
-        64, 9, 5, 0, 'baggage-belt');
-    addChapterBlocker(interiorBlockers, baggageX - 64, baggageZ,
-        9, 39, 5, 0, 'baggage-belt');
-    addChapterBlocker(interiorBlockers, baggageX + 64, baggageZ,
-        9, 39, 5, 0, 'baggage-belt');
+    // Dek tengah di dalam lingkar belt: bidang miring rendah dengan pita bahaya,
+    // supaya lubangnya terbaca sebagai bagian mesin dan bukan lantai kosong.
+    box(statics, M.panel, 104, 3, 62, baggageX, 1.5, baggageZ, false);
+    box(statics, M.frame, 96, .6, 54, baggageX, 3.2, baggageZ, false);
+    for (const sz of [-1, 1])
+        box(statics, M.hazard, 92, .25, 3, baggageX, 3.6,
+            baggageZ + sz * 22, false);
+    // Rok/badan belt: satu balok per collider, jadi yang DIGAMBAR persis sama
+    // dengan yang memblokir.
+    for (const [bx, bz, hx, hz] of [
+        [baggageX, baggageZ - 48, 64, 9], [baggageX, baggageZ + 48, 64, 9],
+        [baggageX - 64, baggageZ, 9, 39], [baggageX + 64, baggageZ, 9, 39],
+    ]) {
+        box(statics, M.panel, hx * 2, 4.4, hz * 2, bx, 2.2, bz, false);
+        box(statics, M.frame, hx * 2 + 2, .8, hz * 2 + 2, bx, 4.7, bz, false);
+        addChapterBlocker(interiorBlockers, bx, bz, hx, hz, 5, 0, 'baggage-belt');
+        fixture('baggageSkirt');
+    }
+    // Corong pemasukan koper di ujung barat: tudung miring, pipi samping, dan
+    // tirai karet. Footprintnya berada DI DALAM collider belt barat, jadi tidak
+    // menambah satu unit pun area terlarang.
+    {
+        const hx2 = baggageX - 64;
+        box(statics, M.panel, 16, 15, 40, hx2, 11, baggageZ, false);
+        const hood = box(statics, M.frame, 17, 1.6, 22, hx2 + 3, 17.6,
+            baggageZ, false);
+        hood.rotation.z = .28;
+        for (const sz of [-1, 1])
+            box(statics, M.frame, 15, 12, 1.6, hx2, 11,
+                baggageZ + sz * 19.2, false);
+        for (let f = 0; f < 5; f++)
+            box(statics, M.rubber, 1, 8, 6.4, hx2 + 7.6, 8.5,
+                baggageZ - 16 + f * 8, false);
+        box(statics, M.hazard, 16.4, .9, 40, hx2, 18.4, baggageZ, false);
+        addChapterBlocker(interiorBlockers, hx2, baggageZ, 8, 20, 19,
+            0, 'baggage-chute');
+        fixture('baggageChute');
+    }
+    // Koper yang benar-benar duduk di atas pita, ditempatkan deterministik.
+    for (let i = 0; i < 9; i++) {
+        const h = ihash(i * 97 + 13);
+        const a = (i / 9) * Math.PI * 2 + h * .3;
+        const bx = baggageX + Math.cos(a) * 63.8;
+        const bz = baggageZ + Math.sin(a) * 44;
+        const bag = box(statics, h > .66 ? M.wood : (h > .33 ? M.panel : M.steel),
+            10 + h * 5, 6.5 + h * 4, 7, bx, 7.8 + h * 2, bz);
+        bag.rotation.y = a;
+        box(statics, M.steel, 3.4, .8, 1.2, bx, 11.4 + h * 4, bz, false);
+        fixture('baggageBag');
+    }
+    // Tiang layar status di sisi timur belt dan setumpuk koper tak diambil.
+    {
+        const px = baggageX + 88, pz = baggageZ + 30;
+        cylinder(statics, M.frame, 2.4, 20, px, 10, pz, 8);
+        for (const sx of [-1, 1])
+            box(statics, M.tech, .4, 8, 9, px + sx * 2.6, 15, pz, false);
+        box(statics, M.frame, 7, 1.2, 12, px, 19.6, pz, false);
+        addChapterBlocker(interiorBlockers, px, pz, 3, 3, 20,
+            0, 'baggage-display');
+        fixture('baggageDisplay');
+    }
+    for (let i = 0; i < 4; i++) {
+        const h = ihash(i * 211 + 7);
+        const bag = box(statics, h > .5 ? M.wood : M.panel, 11, 7, 8,
+            baggageX - 20 + i * 13, 3.5 + (i % 2) * 7,
+            baggageZ + 74 + (h - .5) * 5);
+        bag.rotation.y = h * .6;
+        fixture('baggageStrayBag');
+    }
     interiorLayoutRecords.baggageBelts++;
 
     // Deret troli di tepi aula check-in dan dekat baggage reclaim.
@@ -1241,6 +1965,58 @@ function buildInteriorChapter(parent, M) {
             cylinder(cart, M.rubber, .7, .5, i * 14 - 3, .7, 3, 8, 'z');
         }
         statics.add(cart);
+    }
+
+    // '@' pada denah: tumpukan perabot/koper setinggi BARRICADE_TOP yang menutup
+    // muka kafe/toilet, memanjang ke tembok security, menyumbat pintu timurnya,
+    // dan memisahkan concourse dari aula check-in di paruh bawah.
+    // Blocker dibuat per SEL (kontrak token '*' bersama), lalu sel di UJUNG run
+    // DIRAPATKAN ke muka dinding terdekat: kuantisasi grid 20 unit bisa menyisakan
+    // celah selebar pemain yang tidak terlihat di denah.
+    const wallFaces = interiorBlockers.filter((b) => b.top >= 20);
+    const sealEnd = (blocker, axis, dir, crossHalf) => {
+        const half = axis === 'z' ? blocker.hz : blocker.hx;
+        const centre = axis === 'z' ? blocker.z : blocker.x;
+        const crossC = axis === 'z' ? blocker.x : blocker.z;
+        const face = centre + dir * half;
+        let best = 0;
+        for (const w of wallFaces) {
+            const wHalf = axis === 'z' ? w.hz : w.hx;
+            const wCentre = axis === 'z' ? w.z : w.x;
+            const wCross = axis === 'z' ? w.x : w.z;
+            const wCrossHalf = axis === 'z' ? w.hx : w.hz;
+            if (Math.abs(wCross - crossC) >= wCrossHalf + crossHalf) continue;
+            const near = wCentre - dir * wHalf;         // muka dinding yang menghadap run
+            const gap = (near - face) * dir;
+            if (gap > 0 && gap <= S9_INTERIOR_CELL && gap > best) best = gap;
+        }
+        if (!best) return 0;
+        if (axis === 'z') { blocker.z += dir * best * .5; blocker.hz += best * .5; }
+        else { blocker.x += dir * best * .5; blocker.hx += best * .5; }
+        blocker.rad = Math.hypot(blocker.hx, blocker.hz);
+        return best;
+    };
+    for (const run of S9_INTERIOR_OBSTACLE_RUNS) {
+        const cells = [];
+        for (let c = run.c0; c <= run.c1; c++)
+            for (let r = run.r0; r <= run.r1; r++) cells.push([c, r]);
+        const made = cells.map(([c, r]) => {
+            const p = s9InteriorCellPos(c, r);
+            const proto = barricadeBlocker(p.x, p.z, S9_INTERIOR_CELL);
+            const blocker = addChapterBlocker(interiorBlockers, proto.x, proto.z,
+                proto.hx, proto.hz, proto.top, 0, 'terminal-obstacle');
+            const pile = buildFurniturePile(null, p.x, p.z, c * 97 + r, (group) =>
+                weldOccluder(S9_INTERIOR_KEY, parent, group, {
+                    x: p.x, z: p.z, hx: S9_INTERIOR_CELL * .5,
+                    hz: S9_INTERIOR_CELL * .5, top: BARRICADE_TOP,
+                }));
+            interiorObstacleRecords.push({ c, r, x: p.x, z: p.z, recipe: pile.recipe });
+            return blocker;
+        });
+        const axis = run.r0 === run.r1 ? 'x' : 'z';
+        const crossHalf = S9_INTERIOR_CELL * .5;
+        sealEnd(made[0], axis, axis === 'z' ? 1 : -1, crossHalf);
+        sealEnd(made[made.length - 1], axis, axis === 'z' ? -1 : 1, crossHalf);
     }
 
     for (const z of [490, 390, 290, 210, 90, -30, -150, -270, -390, -490]) {
@@ -1283,6 +2059,7 @@ function buildRunwayServiceApproach(parent, M) {
 }
 
 function buildWorld() {
+    interiorReachSet = null;
     stageRoot = new THREE.Group();
     stageRoot.name = 'campaign-stage9-three-chapter-container';
     scene.add(stageRoot);
@@ -1564,6 +2341,40 @@ export function resetStage9Occluders() {
     resetStageOccluders(S9_OCC);
 }
 
+// Petak yang BENAR-BENAR bisa didatangi player di Chapter 2. Sebuah titik bebas
+// collider belum tentu bisa dicapai: lubang tengah belt baggage dikepung empat
+// collider, jadi peti di sana hanya terlihat dan tak pernah bisa diambil.
+// Flood fill sekali dari titik masuk chapter, lalu di-memo (dunia statis).
+let interiorReachSet = null;
+const INTERIOR_REACH_STEP = 10;
+function interiorReachable(x, z) {
+    if (!interiorReachSet) {
+        const radius = CFG.player.radius;
+        const free = (cx, cz) => {
+            const px = S9_BUILDING_START.x + cx * INTERIOR_REACH_STEP;
+            const pz = S9_BUILDING_START.z + cz * INTERIOR_REACH_STEP;
+            return stage9InteriorWalkable(px, pz, radius)
+                && !interiorBlockers.some((b) => pointInBlocker(px, pz, radius, b));
+        };
+        interiorReachSet = new Set(['0,0']);
+        const queue = [[0, 0]];
+        while (queue.length) {
+            const [cx, cz] = queue.pop();
+            for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nx = cx + dx, nz = cz + dz, key = `${nx},${nz}`;
+                if (interiorReachSet.has(key)) continue;
+                if (Math.abs(nx) > 120 || Math.abs(nz) > 160) continue;
+                if (!free(nx, nz)) continue;
+                interiorReachSet.add(key);
+                queue.push([nx, nz]);
+            }
+        }
+    }
+    const cx = Math.round((x - S9_BUILDING_START.x) / INTERIOR_REACH_STEP);
+    const cz = Math.round((z - S9_BUILDING_START.z) / INTERIOR_REACH_STEP);
+    return interiorReachSet.has(`${cx},${cz}`);
+}
+
 export function stage9SupplyPlacements() {
     const parkingCrates = [];
     const counts = CFG.campaign.stage9.parkingLootBoxes;
@@ -1585,8 +2396,71 @@ export function stage9SupplyPlacements() {
     };
     placeParking('left', Math.max(0, counts.left | 0), [-285, -225, -210, -135]);
     placeParking('right', Math.max(0, counts.right | 0), [345, 415, 430, 475]);
+
+    // Loot box Chapter 2 (denah CSV 2026-08-26): 15 di hall baggage 'Z' dan 5 di
+    // tiap jenis petak fasilitas 'V'/'R'/'C'/'W'. Sebuah jenis punya DUA ruang
+    // (deret utara + selatan); jatahnya dibagi bergiliran supaya keduanya terisi.
+    const interiorCrates = [];
+    const interiorCounts = CFG.campaign.stage9.interiorLootBoxes || {};
+    const placeInterior = (area, rects, amount, inset = 16) => {
+        const picked = [];
+        const pools = rects.map((rect) => {
+            const spots = [];
+            for (let z = rect.z - rect.hz + inset; z <= rect.z + rect.hz - inset; z += 22)
+                for (let x = rect.x - rect.hx + inset; x <= rect.x + rect.hx - inset; x += 22)
+                    if (stage9InteriorWalkable(x, z, 8) && !stage9BlockedAt(x, z, 8)
+                        && interiorReachable(x, z))
+                        spots.push({ x, z });
+            return spots;
+        });
+        for (let pass = 0; picked.length < amount; pass++) {
+            let progressed = false;
+            for (const pool of pools) {
+                if (picked.length >= amount) break;
+                while (pool.length) {
+                    const spot = pool.shift();
+                    if (picked.some((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < 20))
+                        continue;
+                    picked.push({ ...spot, area });
+                    progressed = true;
+                    break;
+                }
+            }
+            if (!progressed) break;
+        }
+        interiorCrates.push(...picked);
+    };
+    const zonesOf = (kind) => interiorLayoutRecords.zones
+        .filter((z) => z.kind === kind)
+        .map((z) => ({ x: z.x, z: z.z, hx: z.hx, hz: z.hz }));
+    const bag = S9_INTERIOR_BAGGAGE_LOOT;
+    const bagLo = s9InteriorCellPos(bag.c0, bag.r1), bagHi = s9InteriorCellPos(bag.c1, bag.r0);
+    const hall = {
+        x0: bagLo.x - S9_INTERIOR_CELL * .5, x1: bagHi.x + S9_INTERIOR_CELL * .5,
+        z0: bagLo.z - S9_INTERIOR_CELL * .5, z1: bagHi.z + S9_INTERIOR_CELL * .5,
+    };
+    // Empat pita MENGELILINGI belt, bukan satu kotak yang menelannya: giliran
+    // antar-pita menyebarkan peti ke keempat sisi carousel, bukan menumpuk di
+    // satu tepi. Lubang tengah torus tidak pernah jadi kandidat.
+    const belt = interiorLayoutRecords.zones.find((z) => z.kind === 'baggage-reclaim');
+    const rectOf = (x0, x1, z0, z1) => ({
+        x: (x0 + x1) * .5, z: (z0 + z1) * .5,
+        hx: (x1 - x0) * .5, hz: (z1 - z0) * .5,
+    });
+    placeInterior('baggage', belt ? [
+        rectOf(hall.x0, hall.x1, belt.z + belt.hz, hall.z1),      // utara belt
+        rectOf(hall.x0, hall.x1, hall.z0, belt.z - belt.hz),      // selatan belt
+        rectOf(hall.x0, belt.x - belt.hx, belt.z - belt.hz, belt.z + belt.hz),
+        rectOf(belt.x + belt.hx, hall.x1, belt.z - belt.hz, belt.z + belt.hz),
+    ] : [rectOf(hall.x0, hall.x1, hall.z0, hall.z1)],
+    Math.max(0, interiorCounts.baggage | 0), 10);
+    for (const kind of ['souvenir', 'restaurant', 'cafe', 'toilet'])
+        placeInterior(kind, zonesOf(kind), Math.max(0, interiorCounts[kind] | 0));
+
     return {
-        crates: parkingCrates,
+        crates: [...parkingCrates, ...interiorCrates],
+        parkingCrates,
+        interiorCrates,
         barrels: [
             { x: 305835, z: 135 }, { x: 306090, z: 182 },
             { x: 312260, z: -160 }, { x: 311715, z: -185 },
@@ -1609,9 +2483,11 @@ export function stage9EncounterPoints(name) {
             [306080, 70], [306160, 250], [306290, 145], [306400, 235], [306470, 75]],
         interiorCheckin: [[312270, 285], [312150, 280], [312260, 180], [312140, 170],
             [312280, 80], [312170, 75], [312120, -100], [312270, -105], [312115, 30]],
-        interiorConcourse: [[311745, 270], [311805, 205], [311865, 140], [311925, 75],
-            [311745, 75], [311805, 10], [311865, -60], [311925, -125],
-            [311745, -125], [311805, -190], [311865, -255], [311720, -320]],
+        // 60 robot ruang tunggu (permintaan user 2026-08-27): titik lahirnya
+        // adalah LORONG kisi kursi, jadi seluruh gelombang berdiri di antara
+        // bank kursi alih-alih di tepi aula.
+        interiorConcourse: S9_SEAT_AISLE_ZS.flatMap((z) =>
+            S9_SEAT_AISLE_XS.map((dx) => [S9_INTERIOR_ORIGIN.x + dx, z])),
         runwayApron: [[299180, 90], [299180, 270], [299335, 60], [299400, 270],
             [299570, 60], [299650, 270], [299820, 60], [299930, 270]],
         runwayAircraft: [[300115, 70], [300115, 290], [300270, 60], [300390, 190],
@@ -1766,7 +2642,35 @@ export function stage9WorldDebug() {
                     seatBanks: interiorLayoutRecords.seatBanks,
                     selfCheckKiosks: interiorLayoutRecords.selfCheckKiosks,
                     baggageBelts: interiorLayoutRecords.baggageBelts,
+                    toiletCubicles: interiorLayoutRecords.toiletCubicles,
+                    toiletBasins: interiorLayoutRecords.toiletBasins,
+                    toiletUrinals: interiorLayoutRecords.toiletUrinals,
+                    toiletDoors: interiorLayoutRecords.toiletDoors.map(d => ({ ...d })),
+                    fixtures: { ...interiorLayoutRecords.fixtures },
+                    // Sensus collider per jenis: yang DIGAMBAR harus benar-benar
+                    // memblokir, jadi setiap keluarga perabot wajib muncul di sini
+                    // dengan jumlah yang sama dengan meshnya.
+                    blockerKinds: interiorBlockers.reduce((a, b) => {
+                        a[b.kind] = (a[b.kind] || 0) + 1; return a;
+                    }, Object.create(null)),
+                    shopAisles: interiorLayoutRecords.shopAisles.map(a => ({ ...a })),
                 },
+                grid: {
+                    cell: S9_INTERIOR_CELL, ...S9_INTERIOR_GRID,
+                    checkpointCell: (() => {
+                        const c = Math.floor((S9_INTERIOR_CHECKPOINT.x
+                            - S9_INTERIOR_ORIGIN.x - S9_INTERIOR_GRID.x0) / S9_INTERIOR_CELL);
+                        const r = Math.floor((S9_INTERIOR_GRID.z1
+                            - S9_INTERIOR_CHECKPOINT.z) / S9_INTERIOR_CELL);
+                        return [c, r];
+                    })(),
+                },
+                obstacles: {
+                    cells: interiorObstacleRecords.map((o) => [o.c, o.r]),
+                    recipes: [...new Set(interiorObstacleRecords.map((o) => o.recipe))].length,
+                    placements: interiorObstacleRecords.map((o) => ({ x: o.x, z: o.z })),
+                },
+                breaches: interiorBreachRecords.map((b) => ({ ...b })),
             },
             runway: {
                 travelDistance: Math.hypot(S9_BOARD.x - S9_RUNWAY_START.x,
@@ -1795,9 +2699,12 @@ export function stage9WorldDebug() {
         supplies: {
             crateCandidates: supplies.crates.length,
             parkingCrates: {
-                left: supplies.crates.filter((p) => p.parking === 'left').length,
-                right: supplies.crates.filter((p) => p.parking === 'right').length,
+                left: supplies.parkingCrates.filter((p) => p.parking === 'left').length,
+                right: supplies.parkingCrates.filter((p) => p.parking === 'right').length,
             },
+            interiorCrates: Object.fromEntries(
+                ['baggage', 'souvenir', 'restaurant', 'cafe', 'toilet'].map((area) =>
+                    [area, supplies.interiorCrates.filter((p) => p.area === area).length])),
             barrelCandidates: barrelCandidates.length,
         },
     };

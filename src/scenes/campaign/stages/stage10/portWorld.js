@@ -9,6 +9,7 @@ import { addMergedStatic } from '../../../../utils/meshBatch.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
+import { ensureStage10SpawnDeployment } from './spawnDeployment.js';
 import {
     weldOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
 } from '../../utility/occlusion.js';
@@ -479,6 +480,7 @@ function buildWorld() {
     defense = buildDefenseArray(worldRoot, M, S10_DEFENSE.x, S10_DEFENSE.z);
     makeBlocker(S10_DEFENSE.x, S10_DEFENSE.z, 27, 25, 48, 0, 'defense-cannon-housing');
     carrier = buildCarrier(staticRoot, M);
+    ensureStage10SpawnDeployment(S10_OCC, worldRoot);
 
     // Pier deck, bollards, safety rails and fender details.
     box(staticRoot, M.quay, 480, 2, 185, 330650, 0.2, -120, false);

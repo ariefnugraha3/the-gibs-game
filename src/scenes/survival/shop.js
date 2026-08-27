@@ -1,3 +1,5 @@
+// PRESENTASI 2026-08-27 menggantikan deskripsi layout historis di bawah:
+// header identitas+saldo, manifest kiri, rail detail kanan, satu aksi footer.
 // Shop antar-gelombang Survival (overhaul MENU KLIK 2026-07-08): overlay modal
 // berbasis mouse (game DI-PAUSE + pointer dilepas oleh input.js selama
 // shopActive()). Terbuka OTOMATIS saat sebuah wave selesai (scene memanggil
@@ -27,6 +29,7 @@ let notice = '', noticeErr = false, noticeT = 0;
 let pendingWeapon = null;   // senjata yang menunggu konfirmasi GANTI (slot penuh)
 let confirmNext = false;    // prompt "Are you ready?" sebelum mulai wave berikutnya
 let lastPurchase = null;    // snapshot pembelian TERAKHIR (klik kanan = batal beli)
+let revealNext = false;     // entrance sinematik hanya saat overlay pertama dibuka
 const overlay = () => document.getElementById('shopOverlay');
 
 // --- UNDO pembelian terakhir (2026-07-15) -----------------------------------
@@ -141,6 +144,7 @@ export function closeShop() {
     pendingWeapon = null;
     confirmNext = false;
     lastPurchase = null;
+    revealNext = false;
     const o = overlay();
     o.style.display = 'none';
     o.classList.remove('campaignShop');
@@ -154,6 +158,7 @@ export function openShop(ctx) {
     pendingWeapon = null;
     confirmNext = false;
     lastPurchase = null;
+    revealNext = true;
     activeTab = firstTabId();
     const first = tabItems(activeTab)[0];
     selectedId = first ? first.id : (catalog()[0] && catalog()[0].id);
@@ -551,18 +556,23 @@ function doReplace(oldW) {
 // kartu; TIDAK ada tombol Buy di sini (Buy ada di tiap kartu).
 function showDesc(desc, it) {
     desc.innerHTML = '';
+    desc.appendChild(el('div', 'shopDescKicker', 'SELECTED ITEM'));
     desc.appendChild(el('div', 'shopDescName', it.name));
+    desc.appendChild(el('div', 'shopDescRule'));
     desc.appendChild(el('div', 'shopDescText', it.desc));
     const note = ownedNote(it);
-    const price = el('div', 'shopDescPrice', note ? note : `Price: ${it.cost}`);
+    const priceRow = el('div', 'shopDescCost');
+    priceRow.appendChild(el('span', 'shopDescCostLabel', note ? 'STATUS' : 'COST'));
+    const price = el('div', 'shopDescPrice', note ? note : `${it.cost}`);
     if (note) price.classList.add('owned');
     else if (score < it.cost) price.classList.add('poor');
-    desc.appendChild(price);
+    priceRow.appendChild(price);
+    desc.appendChild(priceRow);
 }
 
 // Panel pemilih ganti senjata (menggantikan daftar saat pendingWeapon aktif).
 function renderReplace(panel) {
-    const body = el('div');
+    const body = el('div', 'shopPromptBody');
     const msg = el('div', 'shopReplaceMsg');
     msg.innerHTML = `You can only carry ${CFG.weapons.maxWeapons} weapons. Choose one to replace with <b>${pendingWeapon.name}</b>:`;
     body.appendChild(msg);
@@ -582,7 +592,7 @@ function renderReplace(panel) {
 
 // Prompt konfirmasi "Are you ready?" sebelum mulai wave (Yes = mulai, No = batal).
 function renderConfirm(panel) {
-    const body = el('div');
+    const body = el('div', 'shopPromptBody');
     body.appendChild(el('div', 'shopReplaceMsg', (shopCtx && shopCtx.confirmMsg) || 'Are you ready to start the next wave?'));
     const btns = el('div', 'shopConfirmBtns');
     const yes = el('button', 'shopConfirmYes', 'Yes ▶');
@@ -598,19 +608,40 @@ function renderConfirm(panel) {
 // Bangun satu kartu item (nama + harga/status). Tanpa tombol Buy (2026-07-15):
 // KLIK-KIRI kartu = langsung beli; KLIK-KANAN = batalkan pembelian terakhir;
 // hover = preview di panel deskripsi. `desc` = panel deskripsi yang diperbarui.
-function makeCard(it, desc) {
+function makeCard(it, desc, index) {
     const card = el('div', 'shopCard');
-    card.appendChild(el('div', 'shopCardName', it.name));
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.appendChild(el('div', 'shopCardIndex', String(index + 1).padStart(2, '0')));
+    const body = el('div', 'shopCardBody');
+    body.appendChild(el('div', 'shopCardName', it.name));
     const note = ownedNote(it);
     const foot = el('div', 'shopCardPrice', note ? note : `${it.cost}`);
     if (note) { foot.classList.add('note'); card.classList.add('owned'); }
     else if (score < it.cost) { foot.classList.add('poor'); card.classList.add('poor'); }
-    card.appendChild(foot);
+    body.appendChild(foot); card.appendChild(body);
     if (it.id === selectedId) card.classList.add('sel');
     card.addEventListener('mouseenter', () => { selectedId = it.id; showDesc(desc, it); });
     card.addEventListener('click', () => doPurchase(it.id));          // klik-kiri = beli
+    card.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doPurchase(it.id); }
+    });
     card.addEventListener('contextmenu', (e) => { e.preventDefault(); doUndo(); }); // klik-kanan = batal
     return card;
+}
+
+function renderShopHeader(panel, title) {
+    const header = el('div', 'shopHeader');
+    const identity = el('div', 'shopIdentity');
+    identity.appendChild(el('div', 'shopKicker',
+        shopCtx?.mode === 'campaign' ? 'CAMPAIGN LOGISTICS' : 'SURVIVAL RESUPPLY'));
+    identity.appendChild(el('div', 'shopHead', title));
+    header.appendChild(identity);
+    const balance = el('div', 'shopBalance');
+    balance.appendChild(el('div', 'shopBalanceLabel', 'AVAILABLE FUNDS'));
+    balance.appendChild(el('div', 'shopScore', `${score}`));
+    header.appendChild(balance);
+    panel.appendChild(header);
 }
 
 // Baris tab di atas grid. Klik tab = ganti activeTab + pilih item pertamanya.
@@ -634,22 +665,29 @@ function renderTabs(panel) {
 function render() {
     const root = overlay();
     root.innerHTML = '';
-    const panel = el('div', 'shopPanel');
+    const panel = el('div', 'shopPanel'
+        + (confirmNext || pendingWeapon ? ' shopPanelPrompt' : '')
+        + (revealNext ? ' shopPanelEnter' : ''));
+    revealNext = false;
     // Prompt konfirmasi mulai wave menutupi seluruh menu (Yes/No).
     if (confirmNext) {
-        panel.appendChild(el('div', 'shopHead', (shopCtx && shopCtx.confirmHead) || 'START NEXT WAVE?'));
+        renderShopHeader(panel, (shopCtx && shopCtx.confirmHead) || 'START NEXT WAVE?');
         renderConfirm(panel);
         root.appendChild(panel);
         return;
     }
-    panel.appendChild(el('div', 'shopHead', pendingWeapon ? 'REPLACE A WEAPON' : ((shopCtx && shopCtx.head) || 'FIELD SHOP')));
+    renderShopHeader(panel,
+        pendingWeapon ? 'REPLACE A WEAPON' : ((shopCtx && shopCtx.head) || 'FIELD SHOP'));
     panel.appendChild(el('div', 'shopMsg' + (noticeErr ? ' err' : ''), notice || ' '));
 
     if (pendingWeapon) {
         renderReplace(panel);
     } else {
-        // Tab + isi tab aktif + panel deskripsi lebar penuh di bawahnya.
-        renderTabs(panel);
+        // Manifest katalog di kiri dan detail item besar di kanan. Tingginya
+        // stabil agar perpindahan tab tidak membuat komposisi melompat.
+        const workspace = el('div', 'shopWorkspace');
+        const catalogPanel = el('div', 'shopCatalog');
+        renderTabs(catalogPanel);
         // Pastikan tab aktif masih punya item (bisa kosong di campaign).
         if (!tabItems(activeTab).length) activeTab = firstTabId();
         const desc = el('div', 'shopDesc');
@@ -662,16 +700,21 @@ function render() {
         // Kartu senjata kini GABUNGAN beli+upgrade (2026-07-17) — semua tab
         // memakai loop seragam yang sama (pasangan `rowStart` tak diperlukan).
         const grid = el('div', 'shopGrid');
-        for (const it of items) grid.appendChild(makeCard(it, desc));
-        panel.appendChild(grid);
-        panel.appendChild(desc);
+        for (let i = 0; i < items.length; i++)
+            grid.appendChild(makeCard(items[i], desc, i));
+        catalogPanel.appendChild(grid);
+        workspace.appendChild(catalogPanel);
+        workspace.appendChild(desc);
+        panel.appendChild(workspace);
         // Deskripsi awal = item terpilih dalam tab (fallback item pertama tab).
         showDesc(desc, items.find(x => x.id === selectedId) || items[0]);
     }
 
     const foot = el('div', 'shopFoot');
-    foot.appendChild(el('div', 'shopScore', `Money: ${score}`));
-    foot.appendChild(el('div', 'shopHint', 'Left-click to buy · Right-click to cancel'));
+    const footMeta = el('div', 'shopFootMeta');
+    footMeta.appendChild(el('div', 'shopHint', 'LEFT CLICK  BUY'));
+    footMeta.appendChild(el('div', 'shopHint', 'RIGHT CLICK  UNDO LAST PURCHASE'));
+    foot.appendChild(footMeta);
     const next = el('button', 'shopNext', (shopCtx && shopCtx.nextLabel) || 'Start Next Wave ▶');
     next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"
     foot.appendChild(next);

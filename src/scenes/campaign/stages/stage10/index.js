@@ -39,7 +39,8 @@ import {
     setStage10CompletionHook,
 } from './port.js';
 import {
-    STAGE10_FOREST_LIGHTS_KEY, S10_FOREST_START, S10_FOREST_WRECK,
+    STAGE10_FOREST_LIGHTS_KEY, S10_FOREST_START, S10_FOREST_START_FORWARD,
+    S10_FOREST_WRECK,
     S10_FOREST_SENSOR_ENTRY, S10_FOREST_SHELTER, S10_FOREST_WATERWORKS,
     S10_FOREST_GALLERY, S10_FOREST_FINISH,
     ensureStage10ForestWorld, stage10ForestWorldDebug,
@@ -59,6 +60,10 @@ import {
     clearStage10ForestRobots, spawnStage10ForestWave, stage10ForestWaveTotals,
     activateStage10ForestPrefix, stage10ForestPrefixAlive,
 } from './forestRuntime.js';
+import {
+    resetStage10SpawnDeployment, updateStage10SpawnDeployment,
+    stage10SpawnDeploymentDebug, stage10SpawnDeploymentBulletHit,
+} from './spawnDeployment.js';
 
 export { stage10PortScene, STAGE10_DIALOGUE, stage10RobotInView } from './port.js';
 export { stage10ForestWorldDebug, STAGE10_FOREST_DIALOGUE };
@@ -112,8 +117,8 @@ function safeStartZone() {
     return { x: S10_FOREST_START.x, z: S10_FOREST_START.z, r: safeStartRadius() };
 }
 function playerAdvance() {
-    return Math.hypot(camera.position.x - S10_FOREST_START.x,
-        camera.position.z - S10_FOREST_START.z);
+    return Math.max(0, (camera.position.x - S10_FOREST_START.x) * S10_FOREST_START_FORWARD.x
+        + (camera.position.z - S10_FOREST_START.z) * S10_FOREST_START_FORWARD.z);
 }
 
 function resetStage() {
@@ -128,6 +133,7 @@ function resetStage() {
         sensor: stage10ForestWaveTotals(e.sensorBasin),
         water: stage10ForestWaveTotals(e.waterworks),
     };
+    resetStage10SpawnDeployment('campaign-10-forest');
     resetStage10ForestDialogue(); resetStage10ForestSensorGrid();
     resetStage10ForestWorldVisuals();
     hideDownloadBar(); hideCutsceneSkip(); setCineBars(false); setCineFade(0, 0);
@@ -146,7 +152,7 @@ function spawnNextWave(kind) {
     // sisanya tetap langsung mengejar seperti sebelumnya.
     const opening = kind === 'forest' && next === 0;
     encounterDebug.push(...spawnStage10ForestWave(raw, next, points, kind,
-        { active: !opening, keepOut: safeStartZone() }));
+        { active: !opening || ambushReleased, keepOut: safeStartZone() }));
     return true;
 }
 
@@ -207,12 +213,15 @@ function updateOpening(dt) {
 }
 
 function updateProgression(dt) {
-    // Penyergapan hanya lepas setelah player MAJU keluar zona aman.
-    if (!ambushReleased && playerAdvance() >= safeStartRadius()) {
+    // Mesin dan robot pembuka belum ada sebelum player maju 20 m. Gerak
+    // menyamping atau mundur tidak dihitung oleh proyeksi `playerAdvance`.
+    if (!ambushReleased) {
+        if (playerAdvance() < safeStartRadius()) return;
         ambushReleased = true;
+        spawnNextWave('forest');
         activateStage10ForestPrefix('forest-0');
         queueStage10ForestDialogue('ambushSprung');
-        showStageMsg('CONTACT — HOSTILES CLOSING ON THE WRECK LINE', 4000);
+        showStageMsg('CONTACT — FABRICATORS INBOUND', 4000);
     }
     if (phase === 'ambush' && stage10ForestPrefixAlive('forest-0') === 0) {
         phase = 'forestApproach'; queueStage10ForestDialogue('forestRoute');
@@ -268,7 +277,7 @@ export const stage10ForestScene = {
         setActiveStageLights(STAGE10_FOREST_LIGHTS_KEY); applyLightPreset(scene, 'outdoor');
         enterCityEnv({ background: 0x38443b, fogColor: 0x303b32, fogNear: 150, fogFar: 1200 });
         clearStage10ForestRobots(); resetCrates(); resetBarrels(); resetStage();
-        spawnNextWave('forest'); placeSupplies();
+        placeSupplies();
         camera.position.set(S10_FOREST_START.x, CFG.player.eyeHeight, S10_FOREST_START.z);
         camera.quaternion.set(0, -0.7071, 0, 0.7071);
         player.vy = 0; player.onGround = true;
@@ -283,6 +292,7 @@ export const stage10ForestScene = {
     awardKill: campaignAwardKill,
     updateMode(dt) {
         elapsed += dt; updateStage10ForestDialogue(dt);
+        updateStage10SpawnDeployment('campaign-10-forest', dt);
         updateStage10ForestWorldVisuals(dt);
         if (cine) updateOpening(dt);
         const sensorEnabled = !cine && phases.indexOf(phase) >= phases.indexOf('scanBelt')
@@ -300,6 +310,8 @@ export const stage10ForestScene = {
     groundHeight: stage10ForestGroundHeight,
     get camOffset() { return cine ? cineCam : PLAY_CAM; },
     bulletBlocked(b) {
+        if (stage10SpawnDeploymentBulletHit('campaign-10-forest', b,
+            (x, z) => stage10ForestSegBlocked(b.px, b.pz, x, z, true))) return true;
         return stage10ForestSegBlocked(b.px, b.pz, b.mesh.position.x, b.mesh.position.z, true);
     },
     blastBlocked(x0, z0, x1, z1) { return stage10ForestSegBlocked(x0, z0, x1, z1, false); },
@@ -311,6 +323,10 @@ export const stage10ForestScene = {
         stage10ForestResolve(g.mesh.position, 2, 0);
     },
     robotAI(bot, dt, step) {
+        if (bot.machineBirth) {
+            bot.state = 'idle'; bot.moving = false; bot.aiming = false;
+            return {};
+        }
         return campaignRobotAI(bot, dt, step, {
             walkable: stage10ForestWalk, resolve: stage10ForestResolve, nav: stage10ForestNav(),
             los: (x0, z0, x1, z1) => !stage10ForestSegBlocked(x0, z0, x1, z1, true),
@@ -320,6 +336,7 @@ export const stage10ForestScene = {
         });
     },
     clampRobot(bot, oldX, oldZ) {
+        if (bot.machineBirth) return;
         campaignClampRobot(bot, oldX, oldZ,
             { walkable: stage10ForestWalk, resolve: stage10ForestResolve });
     },
@@ -347,9 +364,14 @@ const forestDebug = () => ({
     activeRobots: robots.reduce((n, r) => n + (r.stage === 10 && r.state !== 'idle' ? 1 : 0), 0),
     finishEligible: phase === 'tunnelEntry' && stage10ForestDialogueIdle(),
     spawned: { ...spawned }, encounters: encounterDebug.map(x => ({ ...x })),
+    spawnDeployment: stage10SpawnDeploymentDebug('campaign-10-forest'),
     safeStart: { x: S10_FOREST_START.x, z: S10_FOREST_START.z,
         radius: safeStartRadius(), released: ambushReleased,
-        advance: playerAdvance() },
+        advance: playerAdvance(), forward: { ...S10_FOREST_START_FORWARD },
+        end: {
+            x: S10_FOREST_START.x + S10_FOREST_START_FORWARD.x * safeStartRadius(),
+            z: S10_FOREST_START.z + S10_FOREST_START_FORWARD.z * safeStartRadius(),
+        } },
     waves: {
         cursor: { ...waveCursor }, configured: {
             forest: [...configuredTotals.forest], sensor: [...configuredTotals.sensor],

@@ -692,12 +692,13 @@
                 "frontToll": { "C": 22, "B": 8, "A": 3 },
                 "frontForecourt": { "C": 25, "B": 10, "A": 4 },
                 "interiorCheckin": { "C": 16, "B": 7, "A": 2 },
-                "interiorConcourse": { "C": 20, "B": 9, "A": 3 },
+                "interiorConcourse": { "C": 38, "B": 17, "A": 5 },
                 "runwayApron": { "C": 10, "B": 5, "A": 1 },
                 "runwayAircraft": { "C": 12, "B": 6, "A": 2 }
             },
-            "lootboxCount": 27,
+            "lootboxCount": 62,
             "parkingLootBoxes": { "left": 15, "right": 12 },
+            "interiorLootBoxes": { "baggage": 15, "souvenir": 5, "restaurant": 5, "cafe": 5, "toilet": 5 },
             "barrelCount": 10,
             "takeoffSec": 8
         },
@@ -705,6 +706,20 @@
             "openingMinSec": 6,
             "fadeSec": 0.6,
             "interactionRange": 18,
+            "spawnDeployment": {
+                "beaconSec": 0.7,
+                "machineDropHeight": 72,
+                "machineDropSec": 1.15,
+                "machineLandSec": 0.35,
+                "machineHitRadius": 15,
+                "machineUnfoldSec": 0.85,
+                "machineChargeSec": 0.6,
+                "robotBirthSec": 1.05,
+                "robotBirthGapSec": 0.13,
+                "robotLaunchArc": 7,
+                "machineHoldSec": 0.45,
+                "machineExitSec": 0.9
+            },
             "crane": {
                 "moveSec": 4,
                 "settleSec": 1

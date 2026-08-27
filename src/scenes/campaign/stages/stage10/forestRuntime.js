@@ -7,7 +7,11 @@ import { scene } from '../../../../core/renderer.js';
 import { hideStageRadioDialogue, showStageRadioDialogue } from '../../../../core/dom.js';
 import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 import { disposeRobot } from '../../../../entities/robots.js';
-import { spawnCampaignRobot } from '../../utility/common.js';
+import {
+    beginStage10SpawnDeployment, activateStage10SpawnDeploymentPrefix,
+    stage10SpawnDeploymentPending,
+} from './spawnDeployment.js';
+import { stage10ForestSegBlocked, stage10ForestWalk } from './forestWorld.js';
 
 export const STAGE10_FOREST_DIALOGUE = dialogueMap('campaign.stage10.chapter2.lines');
 
@@ -93,6 +97,30 @@ function pushOutside(x, z, keep) {
     return [keep.x + dx * k, keep.z + dz * k];
 }
 
+function forestSpawnClear(x, z) {
+    return stage10ForestWalk(x, z, 7)
+        && !stage10ForestSegBlocked(x, z, x, z, false);
+}
+
+// Jitter dan dorongan keep-out dapat menggeser titik melewati pagar atau ke
+// batang pohon. Sapu cincin deterministik sampai kembali ke lantai jalan;
+// tidak ada fallback yang mengizinkan robot lahir di hutan.
+function clearForestSpawnPoint(x, z, keep, seed) {
+    const first = pushOutside(x, z, keep);
+    if (forestSpawnClear(first[0], first[1])) return first;
+    const start = ((seed * 2.399963229728653) % (Math.PI * 2)) - Math.PI;
+    for (let ring = 1; ring <= 28; ring++) {
+        const radius = ring * 7;
+        for (let step = 0; step < 24; step++) {
+            const a = start + step / 24 * Math.PI * 2;
+            const pushed = pushOutside(first[0] + Math.cos(a) * radius,
+                first[1] + Math.sin(a) * radius, keep);
+            if (forestSpawnClear(pushed[0], pushed[1])) return pushed;
+        }
+    }
+    throw new Error(`Stage 10 forest spawn has no road-clear point near ${x},${z}`);
+}
+
 // Spawn exactly ONE configured wave. Stages 9–13 are prebuilt, but combatants
 // are not: keeping future waves as config data avoids feeding 100+ idle meshes
 // through the shared robot update before their geographic gate is reached.
@@ -106,6 +134,7 @@ export function spawnStage10ForestWave(raw, waveIndex, placements, prefix, opts 
     const active = opts.active !== false;
     const keep = opts.keepOut || null;
     const records = [];
+    const plans = [];
     const counts = waves[w] || {};
     let slot = 0;
     for (const cls of ['C', 'B', 'A']) {
@@ -113,17 +142,26 @@ export function spawnStage10ForestWave(raw, waveIndex, placements, prefix, opts 
             const p = placements[(w * 7 + slot) % placements.length];
             const dx = ((slot * 17 + w * 11) % 31) - 15;
             const dz = ((slot * 23 + w * 5) % 29) - 14;
-            const out = pushOutside(p.x + dx, p.z + dz, keep);
-            spawnCampaignRobot(out[0], out[1], 10, cls, active);
-            const bot = robots[robots.length - 1];
-            bot.encounter = `${prefix}-${w}`;
-            records.push({ cls, wave: w, x: bot.mesh.position.x, z: bot.mesh.position.z });
+            const out = clearForestSpawnPoint(p.x + dx, p.z + dz, keep,
+                w * 131 + slot * 17 + 1);
+            plans.push({ cls, x: out[0], z: out[1], encounter: `${prefix}-${w}`, active });
+            records.push({ cls, wave: w, x: out[0], z: out[1], roadClear: true });
         }
     }
+    const machinePoints = [placements[0],
+        placements[Math.floor(placements.length / 2)] || placements[0]].map((p, i) => {
+        const q = clearForestSpawnPoint(p.x, p.z, keep, 9001 + w * 13 + i);
+        return { x: q[0], z: q[1] };
+    });
+    beginStage10SpawnDeployment('campaign-10-forest', {
+        name: `${prefix}-${w}`, plans,
+        machinePoints,
+    });
     return records;
 }
 
 export function activateStage10ForestPrefix(prefix) {
+    activateStage10SpawnDeploymentPrefix('campaign-10-forest', prefix);
     for (const bot of robots) if (bot.stage === 10 && String(bot.encounter).startsWith(prefix)) {
         bot.state = 'chasing'; bot.moving = false; bot.aiming = false;
     }
@@ -133,5 +171,5 @@ export function stage10ForestPrefixAlive(prefix) {
     let n = 0;
     for (const bot of robots)
         if (bot.stage === 10 && String(bot.encounter).startsWith(prefix)) n++;
-    return n;
+    return n + (stage10SpawnDeploymentPending('campaign-10-forest', prefix) ? 1 : 0);
 }

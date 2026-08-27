@@ -27,7 +27,7 @@ import { slideWalk } from '../../../../utils/collision.js';
 import { applyLightPreset, setActiveStageLights } from '../../../../world/lighting.js';
 import { enterCityEnv } from '../../utility/cityscape.js';
 import {
-    spawnCampaignRobot, campaignAwardKill, campaignRobotAI,
+    campaignAwardKill, campaignRobotAI,
     campaignClampRobot, countStageRobots,
 } from '../../utility/common.js';
 import { campaignJumpToStage } from '../../utility/transition.js';
@@ -50,6 +50,11 @@ import {
     stage10UpdateWorld, stage10SupplyPlacements, stage10EncounterPoints,
     stage10ConnectivityDebug, stage10WorldDebug, stage10ResetLayout,
 } from './portWorld.js';
+import {
+    beginStage10SpawnDeployment, resetStage10SpawnDeployment,
+    updateStage10SpawnDeployment, stage10SpawnDeploymentPending,
+    stage10SpawnDeploymentDebug, stage10SpawnDeploymentBulletHit,
+} from './spawnDeployment.js';
 
 export { ensureStage10World, stage10WorldDebug } from './portWorld.js';
 export const STAGE10_DIALOGUE = dialogueMap('campaign.stage10.lines');
@@ -189,16 +194,19 @@ function spawnEncounter(name, counts, active = false) {
     spawnedEncounters[name] = true;
     const baseName = name.startsWith('defense-') ? 'defense' : name;
     const points = stage10EncounterPoints(baseName);
+    const plans = [];
     let cursor = 0;
     for (const cls of ['C', 'B', 'A']) {
         const amount = Math.max(0, counts[cls] | 0);
         for (let i = 0; i < amount; i++, cursor++) {
             const point = clearSpawnPoint(points[cursor % points.length], cursor);
-            spawnCampaignRobot(point.x, point.z, 10, cls, active);
-            robots[robots.length - 1].encounter = name;
+            plans.push({ cls, x: point.x, z: point.z, encounter: name, active });
         }
     }
-    return cursor;
+    return beginStage10SpawnDeployment('campaign-10-port', {
+        name, plans,
+        machinePoints: [points[0], points[Math.floor(points.length / 2)] || points[0]],
+    });
 }
 
 function encounterCount(name) {
@@ -236,6 +244,7 @@ function resetStage() {
     defenseWave = 0;
     transitionSent = false;
     cine = null;
+    resetStage10SpawnDeployment('campaign-10-port');
     for (const key of Object.keys(spawnedEncounters)) delete spawnedEncounters[key];
     resetDialogue();
     stage10ResetLayout();
@@ -450,10 +459,13 @@ function updateObjectives(dt) {
     const range = config().interactionRange;
     if (phase === 'yardEntry' && distanceTo(S10_YARD) <= range * 3) enterYard();
     else if (phase === 'craneMazeA' && encounterCount('yard') === 0
+        && !stage10SpawnDeploymentPending('campaign-10-port', 'yard')
         && distanceTo(S10_SAFE_BAY) <= range) startCraneShift();
     else if (phase === 'warehouse' && encounterCount('warehouse') === 0
+        && !stage10SpawnDeploymentPending('campaign-10-port', 'warehouse')
         && distanceTo(S10_RELAY) <= range) takeRelayToken();
     else if (phase === 'pipeRack' && encounterCount('pipeRack') === 0
+        && !stage10SpawnDeploymentPending('campaign-10-port', 'pipeRack')
         && distanceTo(S10_DEFENSE) <= range * 4) startDefenseArray();
     else if (phase === 'defenseArray') {
         updateDefenseArray(stage10DefenseSystem(), dt, config().cannon,
@@ -478,6 +490,7 @@ export function stage10PortDebug() {
         craneTiming: { move: craneT, settle: craneSettleT },
         defense: defenseArrayDebug(defenseState),
         defenseWave, activeDefenseEnemies: activeDefenseEnemyCount(),
+        spawnDeployment: stage10SpawnDeploymentDebug('campaign-10-port'),
         encounters: Object.fromEntries(Object.keys(spawnedEncounters)
             .map((name) => [name, encounterCount(name)])),
         cinematic: cine?.kind || null,
@@ -532,6 +545,7 @@ export const stage10PortScene = {
         stageElapsed += dt;
         updateDialogue(dt);
         updateCine(dt);
+        updateStage10SpawnDeployment('campaign-10-port', dt);
         stage10UpdateWorld(dt, stageElapsed);
         if (!cine && !complete) updateObjectives(dt);
         // Animasi servo terakhir tetap selesai setelah fase langsung berpindah
@@ -557,6 +571,8 @@ export const stage10PortScene = {
     get camOffset() { return cine ? cineCam : null; },
 
     bulletBlocked(b) {
+        if (stage10SpawnDeploymentBulletHit('campaign-10-port', b,
+            (x, z) => stage10SegHitsWall(b.px, b.pz, x, z, b.mesh.position.y))) return true;
         if (phase === 'defenseArray') {
             const damage = b.damage != null ? b.damage : CFG.weapons.bulletDamage;
             const result = defenseArrayBulletHit(stage10DefenseSystem(), b, damage);
@@ -583,6 +599,10 @@ export const stage10PortScene = {
 
     robotAI(robot, dt, step) {
         if (robot.stage !== 10) return { skip: true };
+        if (robot.machineBirth) {
+            robot.state = 'idle'; robot.moving = false; robot.aiming = false;
+            return {};
+        }
         if (phase === 'opening' || phase === 'craneShift'
             || phase === 'departure' || phase === 'complete') {
             robot.state = 'idle';
@@ -601,6 +621,7 @@ export const stage10PortScene = {
     },
 
     clampRobot(robot, oldX, oldZ) {
+        if (robot.machineBirth) return;
         campaignClampRobot(robot, oldX, oldZ, {
             walkable: stage10Walkable,
             resolve: stage10Resolve,
