@@ -1421,17 +1421,31 @@ const shopMod = await import(R('src/scenes/survival/shop.js'));
 {
     const shopSrc = fs.readFileSync(ROOT + '/src/scenes/survival/shop.js', 'utf8');
     const shopCss = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
-    T('SHOP PRESENTATION: layout manifest split, header saldo, detail rail, dan motion sinematik',
+    // Redesign "ARMORY" 2026-08-27 + PENYEDERHANAAN (permintaan user): kartu
+    // ringkas = art SVG + nama + harga + tombol BUY (tanpa sub-judul/bar
+    // statistik), header judul+CREDITS, CTA satu baris, detail penuh di kaki.
+    T('SHOP PRESENTATION: kartu ringkas (art + nama + harga + BUY), saldo CREDITS, motion sinematik',
         /shopWorkspace/.test(shopSrc) && /shopCatalog/.test(shopSrc)
         && /shopBalance/.test(shopSrc) && /shopIdentity/.test(shopSrc)
+        && /shopCardArt/.test(shopSrc) && /shopBuy/.test(shopSrc) && /fmtCredits/.test(shopSrc)
         && /@keyframes\s+shopReveal/.test(shopCss)
-        && /\.shopWorkspace\s*\{[^}]*grid-template-columns/s.test(shopCss)
+        && /\.shopGrid\s*\{[^}]*grid-template-columns:\s*repeat\(3/s.test(shopCss)
         && /\.shopDesc\s*\{[^}]*border-left/s.test(shopCss)
         && /prefers-reduced-motion/.test(shopCss));
-    T('SHOP PRESENTATION: kartu dan CTA memakai sudut tegas, bukan dashboard kapsul generik',
-        /\.shopCard\s*\{[^}]*border-radius:\s*0/s.test(shopCss)
-        && /\.shopNext\s*\{[^}]*clip-path:/s.test(shopCss)
-        && /\.shopPanel\s*\{[^}]*clip-path:/s.test(shopCss));
+    T('SHOP PRESENTATION: kartu TANPA sub-judul/bar statistik & CTA satu baris',
+        !/shopCardTag|shopCardStats|shopStatFill|shopNextSub|shopCardBadge/.test(shopSrc)
+        && !/shopCardTag|shopCardStats|shopStatFill|shopNextSub/.test(shopCss)
+        && /\.shopNext\s*\{[^}]*clip-path:/s.test(shopCss));
+    // Setiap item katalog WAJIB punya ikon (kartu tanpa art = kotak kosong).
+    {
+        const before = stateMod.score;
+        stateMod.setScore(999999);
+        shopMod.openShop();
+        const cards = shopMod.shopCardDebug();
+        shopMod.closeShop();
+        stateMod.setScore(before);
+        T('SHOP CARDS: tiap item katalog punya ikon SVG', cards.length > 8 && cards.every(c => c.icon));
+    }
 }
 stateMod.setScore(999999);
 shopMod.openShop();
@@ -11483,6 +11497,30 @@ T('cheat skip-to-stage invalid (14) ditolak, scene tak berubah',
     smMod.activeScene.cheatSkipToStage(14) === null && smMod.activeScene === s4before);
 T('survival TAK punya hook cheatSkipToStage (campaign-only)',
     survMod.survivalScene.cheatSkipToStage === undefined);
+
+// skip-to-wave-N tidak boleh lagi melahirkan wave target saat command masuk:
+// bersihkan lapangan -> Field Shop -> konfirmasi -> baru startWave(N). Target
+// dipilih dari CFG dan budget setelah konfirmasi juga dihitung dari CFG.
+const cheatWave = Math.max(1, cfgMod.CFG.survival.monasFogFromWave - 1);
+const cheatWaveBudget = cfgMod.CFG.survival.robotsPerWaveBase
+    + (cheatWave - 1) * cfgMod.CFG.survival.robotsPerWaveStep;
+const queuedWave = survMod.survivalScene.cheatSkipToWave(cheatWave);
+T('cheat skip-to-wave: membersihkan arena lalu membuka Field Shop SEBELUM wave target dibuat',
+    queuedWave === cheatWave && shopMod.isShopOpen() && robots.length === 0
+    && survMod.survivalScene.hudStatus() === `WAVE ${cheatWave} READY — Field Shop open`);
+survMod.survivalScene.updateMode(cfgMod.CFG.survival.spawnIntervalBase * 2);
+T('cheat skip-to-wave: selama shop terbuka tidak ada robot yang spawn',
+    shopMod.isShopOpen() && robots.length === 0
+    && survMod.survivalScene.hudStatus() === `WAVE ${cheatWave} READY — Field Shop open`);
+shopMod.requestNextWave();
+T('cheat skip-to-wave: konfirmasi pertama masih menahan wave target di shop',
+    shopMod.isConfirmOpen() && shopMod.isShopOpen() && robots.length === 0);
+shopMod.requestNextWave();
+T('cheat skip-to-wave: konfirmasi shop baru memulai target dengan budget config-driven',
+    !shopMod.isShopOpen() && robots.length === 0
+    && survMod.survivalScene.hudStatus()
+        .startsWith(`Wave ${cheatWave} — ${cheatWaveBudget} left · Monas `));
+
 // Anti-stutter: lompat-langsung WAJIB mengompilasi shader dunia baru via
 // renderer.compile (kini belt-and-suspenders — mobil stage 4 sudah Lambert
 // [rombak 2026-07-16], tapi jalur compile tetap wajib utk material non-warm lain).

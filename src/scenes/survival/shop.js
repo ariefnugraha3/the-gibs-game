@@ -137,6 +137,15 @@ export function shopTabDebug() {
     };
 }
 
+// Debug/uji PRESENTASI kartu: ikon yang dipakai tiap item katalog (kartu
+// ringkas 2026-08-27 = art + nama + harga + BUY, jadi ikon wajib ada).
+export function shopCardDebug() {
+    return catalog().map(it => ({
+        id: it.id,
+        icon: it.icon && ICONS[it.icon] ? it.icon : null,
+    }));
+}
+
 export function closeShop() {
     if (!open) return;
     open = false;
@@ -172,6 +181,102 @@ export function openShop(ctx) {
     document.exitPointerLock();
 }
 
+// --- IKON KARTU (kartu RINGKAS 2026-08-27) ---------------------------------
+// Kartu shop = ART (SVG line-art) + nama + harga + tombol BUY. Tidak ada
+// sub-judul/bar statistik: detail lengkap muncul di strip kaki panel saat kartu
+// di-hover, jadi grid tetap bersih. Semua SVG memakai `currentColor` sehingga
+// kartu terpilih (latar oranye) otomatis membalik warna ikonnya. viewBox
+// seragam 64x34 agar semua art punya kotak yang sama besar.
+const ICONS = {
+    rifle:
+        '<svg viewBox="0 0 64 34"><g fill="currentColor">' +
+        '<rect x="3" y="15" width="24" height="3" rx="1"/>' +
+        '<rect x="11" y="11" width="2.4" height="4" rx="0.6"/>' +
+        '<rect x="14" y="13.6" width="13" height="6" rx="1.4"/>' +
+        '<rect x="26" y="12.4" width="19" height="8" rx="1.4"/>' +
+        '<rect x="29" y="8.6" width="13" height="3" rx="1.2"/>' +
+        '<path d="M30.5 20.4h6.4l-1.2 8.6h-6.4z"/>' +
+        '<path d="M39.4 20.4h5.4l-2 7.4h-4.6z"/>' +
+        '<rect x="44.4" y="13" width="14" height="6" rx="1.2"/>' +
+        '<rect x="57.4" y="11.6" width="3.2" height="8.8" rx="1"/>' +
+        '</g></svg>',
+    pistol:
+        '<svg viewBox="0 0 64 34"><g fill="currentColor">' +
+        '<rect x="12" y="10" width="34" height="7" rx="1.4"/>' +
+        '<rect x="12" y="17" width="26" height="3.4" rx="1"/>' +
+        '<rect x="15" y="11.4" width="9" height="1.4" rx="0.7" opacity="0.45"/>' +
+        '<path d="M33 20.4h9.6l-3.4 12.2h-9.4z"/>' +
+        '<path d="M24 20.4h7v2.4h-7z"/>' +
+        '<path d="M26.6 22.6h2.2c1.6 2.2 2.4 3.6 3 5.6h-2.4c-0.8-2-1.6-3.4-2.8-5.6z"/>' +
+        '</g></svg>',
+    shotgun:
+        '<svg viewBox="0 0 64 34"><g fill="currentColor">' +
+        '<rect x="3" y="12.6" width="34" height="3.4" rx="1"/>' +
+        '<rect x="3" y="16.4" width="26" height="2.4" rx="0.9" opacity="0.6"/>' +
+        '<rect x="13" y="17.6" width="12.4" height="4.4" rx="1.4"/>' +
+        '<rect x="36" y="12.4" width="12" height="8" rx="1.4"/>' +
+        '<path d="M38.6 20.4h5l-1.8 7.2h-4.4z"/>' +
+        '<path d="M47.6 13.4l12.4-2.6v12.4l-12.4-2.6z"/>' +
+        '</g></svg>',
+    launcher:
+        '<svg viewBox="0 0 64 34"><g fill="currentColor">' +
+        '<path d="M4 17c0-3.6 2.6-6.6 6.4-7.4v14.8C6.6 23.6 4 20.6 4 17z"/>' +   // hulu ledak
+        '<rect x="9.6" y="13.6" width="9" height="6.8" rx="1.2"/>' +             // bahu hulu ledak
+        '<rect x="18" y="14.4" width="27" height="5.2" rx="1.8"/>' +             // tabung
+        '<rect x="22.5" y="8.8" width="7" height="4.4" rx="1.2"/>' +             // pembidik
+        '<path d="M27 19.8h5.6l-2 8.4h-5.4z"/>' +                                 // pegangan
+        '<path d="M45 13.6l7.6 1.6v3.6L45 20.4z"/>' +                             // corong belakang
+        '</g></svg>',
+    ammo:
+        '<svg viewBox="0 0 64 34"><g fill="currentColor">' +
+        '<path d="M18 11.6l3.4-4.6 3.4 4.6v14.8h-6.8z"/>' +
+        '<path d="M28.6 11.6l3.4-4.6 3.4 4.6v14.8h-6.8z"/>' +
+        '<path d="M39.2 11.6l3.4-4.6 3.4 4.6v14.8h-6.8z"/>' +
+        '<rect x="16" y="26.4" width="32" height="3" rx="1"/>' +
+        '</g></svg>',
+    health:
+        '<svg viewBox="0 0 64 34"><g fill="none" stroke="currentColor" stroke-width="2.6">' +
+        '<circle cx="32" cy="17" r="12.4"/></g>' +
+        '<path fill="currentColor" d="M29.4 10.4h5.2v4.2h4.2v5.2h-4.2v4.2h-5.2v-4.2h-4.2v-5.2h4.2z"/></svg>',
+    medkit:
+        '<svg viewBox="0 0 64 34"><g fill="none" stroke="currentColor" stroke-width="2.4">' +
+        '<rect x="17" y="9.6" width="30" height="19" rx="3"/>' +
+        '<path d="M27 9.6V6.6h10v3"/></g>' +
+        '<path fill="currentColor" d="M29.6 13.6h4.8v3.6h3.6v4.8h-3.6v3.6h-4.8v-3.6H26v-4.8h3.6z"/></svg>',
+    armor:
+        '<svg viewBox="0 0 64 34"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">' +
+        '<path d="M32 4l13 4.2v9.4c0 6.6-5.4 11.2-13 13.4-7.6-2.2-13-6.8-13-13.4V8.2z"/>' +
+        '<path d="M25 15l7 5.4 7-5.4"/></g></svg>',
+    vitality:
+        '<svg viewBox="0 0 64 34"><path fill="currentColor" d="M32 30.4C22 24 16 19.4 16 13.6 16 9.4 19.2 6.2 23.4 6.2c2.6 0 5 1.3 6.6 3.4h4c1.6-2.1 4-3.4 6.6-3.4 4.2 0 7.4 3.2 7.4 7.4 0 5.8-6 10.4-16 16.8z"/>' +
+        '<path fill="#000" opacity="0.32" d="M30 12.2h4v3.6h3.6v4h-3.6v3.6h-4v-3.6h-3.6v-4H30z"/></svg>',
+    pouch:
+        '<svg viewBox="0 0 64 34"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">' +
+        '<path d="M18 12h28v13.4a3 3 0 0 1-3 3H21a3 3 0 0 1-3-3z"/>' +
+        '<path d="M22.6 12V8.6a2.6 2.6 0 0 1 2.6-2.6h13.6a2.6 2.6 0 0 1 2.6 2.6V12"/></g>' +
+        '<path fill="currentColor" d="M29.8 16.6h4.4v3.4h3.4v4.4h-3.4v0h-4.4v-4.4h-3.4v-3.4h3.4z" opacity="0.9"/></svg>',
+    monas:
+        '<svg viewBox="0 0 64 34"><g fill="currentColor">' +
+        '<path d="M32 2l2.6 5.4-2.6 2-2.6-2z"/>' +
+        '<path d="M29.6 10h4.8l1.6 15h-8z"/>' +
+        '<path d="M24 25.4h16v3.2H24z"/>' +
+        '<path d="M20 29h24v3H20z"/>' +
+        '</g></svg>',
+    monasPlus:
+        '<svg viewBox="0 0 64 34"><g fill="currentColor">' +
+        '<path d="M28 2l2.4 5-2.4 1.9-2.4-1.9z"/>' +
+        '<path d="M25.8 10.4h4.4l1.5 14.6h-7.4z"/>' +
+        '<path d="M20.4 25.4h15v3.1h-15z"/>' +
+        '<path d="M16.8 29h22v3h-22z"/>' +
+        '</g><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">' +
+        '<path d="M46 8l8 2.6v5.8c0 4-3.3 6.8-8 8.2-4.7-1.4-8-4.2-8-8.2v-5.8z"/></g></svg>',
+    radar:
+        '<svg viewBox="0 0 64 34"><g fill="none" stroke="currentColor" stroke-width="2.2">' +
+        '<circle cx="32" cy="17" r="12.6"/><circle cx="32" cy="17" r="6.6" opacity="0.6"/>' +
+        '<path d="M32 17l9.4-6.4"/></g>' +
+        '<circle cx="41.6" cy="10.6" r="2.4" fill="currentColor"/>' +
+        '<circle cx="24.4" cy="22.6" r="1.8" fill="currentColor" opacity="0.7"/></svg>',
+};
 // --- Item senjata GABUNGAN: beli + upgrade dalam SATU kartu (2026-07-17) ----
 // Mengikuti pola Vitality/Ammo Capacity (permintaan user — tidak lagi kartu
 // beli & kartu upgrade terpisah): belum dimiliki -> kartu menjual SENJATANYA
@@ -209,23 +314,23 @@ function weaponItem(w) {
         const BUY = {
             shotgun: {
                 cost: S.shotgunCost,
-                desc: 'Pump-action shotgun. Fires a wide spread of pellets per shot — devastating up close.'
+                desc: 'Pump-action. A wide spread of pellets — devastating up close.'
             },
             rifle: {
                 cost: S.rifleCost,
-                desc: 'Full-auto assault rifle. High rate of fire and solid damage at range.'
+                desc: 'Full-auto. High rate of fire and solid damage at range.'
             },
             launcher: {
                 cost: S.launcherCost,
-                // Angka damage/kapasitas dibaca dari CFG saat katalog dibangun —
-                // tidak basi bila gameplay.json di-retune.
-                desc: `Fires 40mm grenade rounds that EXPLODE on impact (including on a direct robot hit) — ${CFG.weapons.launcher.damage} area damage. Slow to fire; carries ${CFG.weapons.launcher.maxAmmo} rounds.`
+                // Angka dibaca dari CFG — tidak basi bila gameplay.json di-retune.
+                desc: `40mm rounds that explode on impact — ${CFG.weapons.launcher.damage} area damage, ${CFG.weapons.launcher.maxAmmo} rounds.`
             }
         }[w];
         if (!BUY) return null;   // pistol: tak dijual — kartu hanya utk upgrade
         return {
             id: w, name: label, cost: BUY.cost, weapon: w,
-            desc: BUY.desc + ' Once owned, this card sells its damage upgrades.',
+            icon: w,
+            desc: BUY.desc,
             apply() { return buyWeapon(w, label); }
         };
     }
@@ -236,11 +341,12 @@ function weaponItem(w) {
     const tier = Math.min(lvl, maxL - 1);          // tingkat yang DIJUAL kartu ini (lvl+1)
     return {
         id: w, weapon: w, upgrade: w,
+        icon: w,
         name: `${label} ${ROMAN[Math.min(tier, ROMAN.length - 1)]}`,
         cost: costs[tier - 1] != null ? costs[tier - 1] : 0,
         desc: lvl >= maxL
-            ? `The ${label} is fully upgraded (Level ${maxL}, +${pct * (maxL - 1)}% damage).${cadenceNote(w, maxL)}`
-            : `Upgrade the ${label} to Level ${lvl + 1}. Each level adds +${pct}% of its base damage. Current: Level ${lvl}.${cadenceNote(w, lvl, lvl + 1)}`,
+            ? `Fully upgraded — Level ${maxL}, +${pct * (maxL - 1)}% damage.${cadenceNote(w, maxL)}`
+            : `Level ${lvl} → ${lvl + 1}: +${pct}% of base damage.${cadenceNote(w, lvl, lvl + 1)}`,
         maxedMsg: `The ${label} is already fully upgraded`,
         apply() {
             const cur = (player.weaponLvl && player.weaponLvl[w]) || 1;
@@ -264,13 +370,13 @@ function armorTierItem(tier) {
     const costs = CFG.shop.armorCosts || [];
     const wearingThis = (player.armorLvl || 0) === tier;
     return {
-        id: 'armor' + tier, armorTier: tier,
+        id: 'armor' + tier, armorTier: tier, icon: 'armor',
         name: `Armor ${ROMAN[Math.min(tier - 1, ROMAN.length - 1)]}`,
         cost: costs[tier - 1] != null ? costs[tier - 1] : 0,
-        desc: `Equip Level ${tier} armor: blocks ${Math.round((t.reduce || 0) * 100)}% of incoming damage. Durability ${t.durability} — it absorbs the FULL base damage of every hit and shatters at 0.`
+        desc: `Blocks ${Math.round((t.reduce || 0) * 100)}% of incoming damage. Durability ${t.durability}, shatters at 0.`
             + (wearingThis && player.armor < player.armorMax
-                ? ` Worn and damaged (${Math.max(0, Math.ceil(player.armor))}/${player.armorMax}) — buy again to fully repair it.`
-                : ' Buying replaces whatever armor you wear.'),
+                ? ` Damaged (${Math.max(0, Math.ceil(player.armor))}/${player.armorMax}) — buy to repair.`
+                : ''),
         ownedMsg: 'You already wear stronger armor',
         apply() {
             const cur = player.armorLvl || 0;
@@ -292,12 +398,12 @@ function vitalityItem() {
     const lvl = player.hpLvl || 1;             // 1 = dasar; maks = HP.length + 1
     const idx = Math.min(lvl - 1, HP.length - 1);
     return {
-        id: 'hpup',
+        id: 'hpup', icon: 'vitality',
         name: `Vitality ${ROMAN[Math.min(idx, ROMAN.length - 1)]}`,
         cost: costs[idx] != null ? costs[idx] : 0,
         desc: lvl >= HP.length + 1
-            ? `Your body is at peak condition (maximum health ${player.maxHp}).`
-            : `Toughen up: raises your maximum health to ${HP[idx]} and heals the increase. Current maximum: ${player.maxHp}.`,
+            ? `Maximum health is at its peak (${player.maxHp}).`
+            : `Maximum health ${player.maxHp} → ${HP[idx]}, and heals the increase.`,
         maxedMsg: 'Vitality is already at its peak',
         apply() {
             const cur = player.hpLvl || 1;
@@ -321,12 +427,12 @@ function ammoCapItem() {
     const idx = Math.min(lvl - 1, T.length - 1);
     const t = T[idx] || {};
     return {
-        id: 'ammoup',
+        id: 'ammoup', icon: 'pouch',
         name: `Ammo Capacity ${ROMAN[Math.min(idx, ROMAN.length - 1)]}`,
         cost: costs[idx] != null ? costs[idx] : 0,
         desc: lvl >= T.length + 1
-            ? 'Your ammo pouches are fully expanded.'
-            : `Expand your ammo pouches — new capacity: Pistol ${t.pistol}, Assault Rifle ${t.rifle}, Shotgun ${t.shotgun}, Grenade Launcher ${t.launcher}.`,
+            ? 'Ammo capacity is fully expanded.'
+            : `New ammo caps: Pistol ${t.pistol}, Rifle ${t.rifle}, Shotgun ${t.shotgun}, Launcher ${t.launcher}.`,
         maxedMsg: 'Ammo capacity is already maxed',
         apply() {
             const cur = player.ammoLvl || 1;
@@ -348,6 +454,7 @@ function catalog() {
             // Tanpa magazen (2026-07-11): isi ulang kolam peluru tiap senjata
             // yang dimiliki sampai kap maxAmmo-nya.
             id: 'ammo', name: 'Replenish All Ammo', cost: S.ammoCost,
+            icon: 'ammo',
             desc: 'Refill every weapon you own to its maximum ammo.',
             apply() {
                 const W = ['rifle', 'pistol', 'shotgun', 'launcher'].filter(w => o[w]);
@@ -359,7 +466,8 @@ function catalog() {
         {
             // Sembuh instan (HP -> 100%). Beda dari Medkit (genggam, dipakai nanti).
             id: 'health', name: 'Replenish Health', cost: S.healthCost,
-            desc: 'Instantly restore your health to full (100%).',
+            icon: 'health',
+            desc: 'Instantly restore your health to full.',
             apply() {
                 if (player.hp >= player.maxHp) return 'Health already full';
                 player.hp = player.maxHp;
@@ -369,7 +477,9 @@ function catalog() {
             // Medkit = item genggam (maks 1). Dibeli di sini; PAKAI dgn tombol 4
             // di lapangan untuk memulihkan 70% HP (bukan sembuh saat beli).
             id: 'medkit', name: 'Medkit', cost: S.medkitCost,
-            desc: 'A field medkit. Equip it with 4, then hold left-click for 2 seconds to restore 70% of your health. You can carry up to 2.',
+            icon: 'medkit',
+            // Sejak 2026-07-18 medkit dipakai INSTAN dgn tombol 4 (bukan channel).
+            desc: `Press 4 to heal ${Math.round(CFG.player.medkitHealPct * 100)}% of your health. Carry up to ${CFG.player.maxMedkits}.`,
             apply() {
                 if (player.medkits >= CFG.player.maxMedkits) return 'Medkit stock is full';
                 player.medkits = Math.min(CFG.player.maxMedkits, player.medkits + 1);
@@ -381,21 +491,24 @@ function catalog() {
         ammoCapItem(),
         {
             id: 'healMonas', name: 'Heal Monas', cost: S.healMonasCost,
-            desc: 'Repair the Monument, restoring 25% of its maximum HP.',
+            icon: 'monas',
+            desc: 'Repair the Monument by 25% of its maximum HP.',
             apply() { return healMonas(); }
         },
         {
             // Deskripsi SENGAJA tanpa angka max HP (permintaan user) — cukup info
             // bahwa ini memperkuat Monas; besarannya bertingkat (lihat index.js).
             id: 'strengthenMonas', name: 'Strengthen Monas', cost: S.strengthenMonasCost,
-            desc: 'Reinforce the Monument, boosting its maximum HP and repairing it. Reinforce again to strengthen it further, up to its structural limit.',
+            icon: 'monasPlus',
+            desc: 'Reinforce the Monument: more maximum HP, and repairs it. Can be reinforced again, up to its structural limit.',
             apply() { return strengthenMonas(); }
         },
         {
             // Radar minimap: Survival mulai TANPA (player.hasRadar false); beli utk
             // mengaktifkannya. updateUI (dipanggil shopPurchase) menampilkan kanvasnya.
             id: 'radar', name: 'Radar', cost: S.radarCost,
-            desc: 'Deploy a tactical radar (top-left minimap) that reveals nearby robots, supply drops, and the Monument.',
+            icon: 'radar',
+            desc: 'Minimap (top-left) showing nearby robots, drops and the Monument.',
             apply() {
                 if (player.hasRadar) return 'Radar already owned';
                 player.hasRadar = true;
@@ -515,6 +628,9 @@ export function requestNextWave() {
 }
 
 // --- Render DOM (createElement -> handler klik/hover nyata di browser) ------
+// Format saldo/harga bergaya "credits" (pemisah ribuan) — teks UI English.
+const fmtCredits = n => Number(n || 0).toLocaleString('en-US');
+
 function el(tag, cls, txt) {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -552,22 +668,21 @@ function doReplace(oldW) {
     render();
 }
 
-// Panel deskripsi + harga LEBAR PENUH di bawah grid. Diperbarui saat hover/pilih
-// kartu; TIDAK ada tombol Buy di sini (Buy ada di tiap kartu).
+// Strip DETAIL di kaki panel: nama + harga/status + deskripsi LENGKAP item yang
+// sedang di-hover/dipilih. Kartu hanya memuat sub-judul singkat, jadi teks
+// panjang (mekanik armor, catatan kadens tembak, dst.) tetap terbaca di sini.
 function showDesc(desc, it) {
     desc.innerHTML = '';
-    desc.appendChild(el('div', 'shopDescKicker', 'SELECTED ITEM'));
-    desc.appendChild(el('div', 'shopDescName', it.name));
-    desc.appendChild(el('div', 'shopDescRule'));
-    desc.appendChild(el('div', 'shopDescText', it.desc));
+    if (!it) return;
+    const head = el('div', 'shopDescHead');
+    head.appendChild(el('span', 'shopDescName', it.name));
     const note = ownedNote(it);
-    const priceRow = el('div', 'shopDescCost');
-    priceRow.appendChild(el('span', 'shopDescCostLabel', note ? 'STATUS' : 'COST'));
-    const price = el('div', 'shopDescPrice', note ? note : `${it.cost}`);
+    const price = el('span', 'shopDescPrice', note ? note : `${fmtCredits(it.cost)} CREDITS`);
     if (note) price.classList.add('owned');
     else if (score < it.cost) price.classList.add('poor');
-    priceRow.appendChild(price);
-    desc.appendChild(priceRow);
+    head.appendChild(price);
+    desc.appendChild(head);
+    desc.appendChild(el('div', 'shopDescText', it.desc));
 }
 
 // Panel pemilih ganti senjata (menggantikan daftar saat pendingWeapon aktif).
@@ -605,22 +720,33 @@ function renderConfirm(panel) {
     panel.appendChild(body);
 }
 
-// Bangun satu kartu item (nama + harga/status). Tanpa tombol Buy (2026-07-15):
-// KLIK-KIRI kartu = langsung beli; KLIK-KANAN = batalkan pembelian terakhir;
-// hover = preview di panel deskripsi. `desc` = panel deskripsi yang diperbarui.
-function makeCard(it, desc, index) {
+// Satu kartu item — RINGKAS (2026-08-27): art SVG, nama, harga, tombol BUY.
+// Tak ada sub-judul/statistik di kartu; detail lengkap muncul di strip kaki
+// panel saat kartu di-hover. KLIK-KIRI kartu atau tombol BUY = beli;
+// KLIK-KANAN = batalkan pembelian terakhir.
+function makeCard(it, desc) {
     const card = el('div', 'shopCard');
     card.setAttribute('role', 'button');
     card.setAttribute('tabindex', '0');
-    card.appendChild(el('div', 'shopCardIndex', String(index + 1).padStart(2, '0')));
-    const body = el('div', 'shopCardBody');
-    body.appendChild(el('div', 'shopCardName', it.name));
     const note = ownedNote(it);
-    const foot = el('div', 'shopCardPrice', note ? note : `${it.cost}`);
-    if (note) { foot.classList.add('note'); card.classList.add('owned'); }
-    else if (score < it.cost) { foot.classList.add('poor'); card.classList.add('poor'); }
-    body.appendChild(foot); card.appendChild(body);
+
+    const art = el('div', 'shopCardArt');
+    art.innerHTML = ICONS[it.icon] || '';
+    card.appendChild(art);
+    card.appendChild(el('div', 'shopCardName', it.name));
+
+    const foot = el('div', 'shopCardFoot');
+    const price = el('div', 'shopCardPrice', note ? note.toUpperCase() : fmtCredits(it.cost));
+    foot.appendChild(price);
+    const buy = el('button', 'shopBuy', 'BUY');
+    buy.addEventListener('click', e => { e.stopPropagation(); doPurchase(it.id); });
+    foot.appendChild(buy);
+    card.appendChild(foot);
+
+    if (note) { price.classList.add('note'); card.classList.add('owned'); buy.classList.add('off'); }
+    else if (score < it.cost) { price.classList.add('poor'); card.classList.add('poor'); buy.classList.add('off'); }
     if (it.id === selectedId) card.classList.add('sel');
+
     card.addEventListener('mouseenter', () => { selectedId = it.id; showDesc(desc, it); });
     card.addEventListener('click', () => doPurchase(it.id));          // klik-kiri = beli
     card.addEventListener('keydown', e => {
@@ -630,16 +756,17 @@ function makeCard(it, desc, index) {
     return card;
 }
 
+// Header: judul TENGAH + slab saldo CREDITS di kanan (tanpa kicker/teks lain).
 function renderShopHeader(panel, title) {
     const header = el('div', 'shopHeader');
-    const identity = el('div', 'shopIdentity');
-    identity.appendChild(el('div', 'shopKicker',
-        shopCtx?.mode === 'campaign' ? 'CAMPAIGN LOGISTICS' : 'SURVIVAL RESUPPLY'));
-    identity.appendChild(el('div', 'shopHead', title));
-    header.appendChild(identity);
+    header.appendChild(el('div', 'shopIdentity'));   // penyeimbang grid kiri
+    header.appendChild(el('div', 'shopHead', title));
     const balance = el('div', 'shopBalance');
-    balance.appendChild(el('div', 'shopBalanceLabel', 'AVAILABLE FUNDS'));
-    balance.appendChild(el('div', 'shopScore', `${score}`));
+    const inner = el('div', 'shopBalanceInner');
+    inner.appendChild(el('span', 'shopBalanceLabel', 'CREDITS:'));
+    inner.appendChild(el('span', 'shopScore', fmtCredits(score)));
+    inner.appendChild(el('span', 'shopCoin', '◎'));
+    balance.appendChild(inner);
     header.appendChild(balance);
     panel.appendChild(header);
 }
@@ -662,6 +789,16 @@ function renderTabs(panel) {
     panel.appendChild(row);
 }
 
+// Tombol CTA satu baris (label + panah).
+function renderNext(foot) {
+    const label = ((shopCtx && shopCtx.nextLabel) || 'Start Next Wave ▶').replace(/\s*▶\s*$/, '');
+    const next = el('button', 'shopNext');
+    next.appendChild(el('span', 'shopNextMain', label.toUpperCase()));
+    next.appendChild(el('span', 'shopNextArrow', '»'));
+    next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"
+    foot.appendChild(next);
+}
+
 function render() {
     const root = overlay();
     root.innerHTML = '';
@@ -680,44 +817,35 @@ function render() {
         pendingWeapon ? 'REPLACE A WEAPON' : ((shopCtx && shopCtx.head) || 'FIELD SHOP'));
     panel.appendChild(el('div', 'shopMsg' + (noticeErr ? ' err' : ''), notice || ' '));
 
+    let desc = null;
     if (pendingWeapon) {
         renderReplace(panel);
     } else {
-        // Manifest katalog di kiri dan detail item besar di kanan. Tingginya
-        // stabil agar perpindahan tab tidak membuat komposisi melompat.
+        // Etalase: tab + GRID kartu besar (3 kolom). Tinggi grid tetap & isi
+        // men-scroll di dalamnya, jadi pindah tab tidak mengubah ukuran panel.
         const workspace = el('div', 'shopWorkspace');
         const catalogPanel = el('div', 'shopCatalog');
         renderTabs(catalogPanel);
         // Pastikan tab aktif masih punya item (bisa kosong di campaign).
         if (!tabItems(activeTab).length) activeTab = firstTabId();
-        const desc = el('div', 'shopDesc');
+        desc = el('div', 'shopDesc');
         const items = tabItems(activeTab);
-        // SATU grid seragam untuk SEMUA tab (kartu berukuran & bergaya sama).
-        // Tab weapon: setiap senjata dimulai di kolom 1 (kelas `rowStart`) agar
-        // pasangan [Beli]+[Upgrade]-nya duduk pada satu baris — tanpa mengubah
-        // gaya/ukuran kartu. Tinggi grid TETAP (CSS) agar panel tak berubah
-        // ukuran saat pindah tab.
-        // Kartu senjata kini GABUNGAN beli+upgrade (2026-07-17) — semua tab
-        // memakai loop seragam yang sama (pasangan `rowStart` tak diperlukan).
         const grid = el('div', 'shopGrid');
         for (let i = 0; i < items.length; i++)
-            grid.appendChild(makeCard(items[i], desc, i));
+            grid.appendChild(makeCard(items[i], desc));
         catalogPanel.appendChild(grid);
         workspace.appendChild(catalogPanel);
-        workspace.appendChild(desc);
         panel.appendChild(workspace);
-        // Deskripsi awal = item terpilih dalam tab (fallback item pertama tab).
+        // Detail awal = item terpilih dalam tab (fallback item pertama tab).
         showDesc(desc, items.find(x => x.id === selectedId) || items[0]);
     }
 
     const foot = el('div', 'shopFoot');
     const footMeta = el('div', 'shopFootMeta');
-    footMeta.appendChild(el('div', 'shopHint', 'LEFT CLICK  BUY'));
+    if (desc) footMeta.appendChild(desc);
     footMeta.appendChild(el('div', 'shopHint', 'RIGHT CLICK  UNDO LAST PURCHASE'));
     foot.appendChild(footMeta);
-    const next = el('button', 'shopNext', (shopCtx && shopCtx.nextLabel) || 'Start Next Wave ▶');
-    next.addEventListener('click', () => requestNextWave());   // -> prompt "Are you ready?"
-    foot.appendChild(next);
+    renderNext(foot);
     panel.appendChild(foot);
 
     root.appendChild(panel);

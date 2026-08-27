@@ -30,6 +30,7 @@ import { requestLock } from '../../core/input.js';
 // (shop antar-gelombang) -> tekan Next Wave -> 'fighting' wave berikutnya.
 const wave = {
     num: 1, phase: 'fighting',   // 'fighting' | 'cleared' | 'shopping'
+    queuedNum: null,             // target cheat: shop dulu, baru mulai wave ini
     toSpawn: 0,                  // sisa robot yang belum di-spawn wave ini
     spawnTimer: 0, spawnInterval: 2.5, maxConcurrent: 10,
     clearTimer: 0                // hitung mundur sebelum shop terbuka
@@ -205,6 +206,7 @@ function spawnRobot() {
 function startWave(n) {
     const SV = CFG.survival;
     wave.num = n;
+    wave.queuedNum = null;
     wave.phase = 'fighting';
     wave.toSpawn = SV.robotsPerWaveBase + (n - 1) * SV.robotsPerWaveStep;
     wave.spawnTimer = 0;
@@ -228,8 +230,9 @@ function startWave(n) {
 // (setPaused(false) lewat pointerlockchange di input.js). Dipanggil dari gesture
 // pengguna (klik / keydown) sehingga requestPointerLock valid.
 export function startNextWave() {
+    const next = wave.queuedNum == null ? wave.num + 1 : wave.queuedNum;
     closeShop();
-    startWave(wave.num + 1);
+    startWave(next);
     requestLock();
 }
 
@@ -311,18 +314,25 @@ export const survivalScene = {
     // player mati (celebrateRobot). True selama animasi runtuhnya Monas.
     robotsCelebrate: () => monasFalling,
 
-    // Cheat (cheatConsole "skip-to-wave-N"): LOMPAT LANGSUNG ke wave n. Buang
+    // Cheat (cheatConsole "skip-to-wave-N"): siapkan shop SEBELUM wave n. Buang
     // semua robot di lapangan tanpa skor/gore (dispose senyap seperti resetGame),
-    // akhiri event yang sedang jalan + tutup shop bila terbuka, lalu startWave(n)
-    // — seluruh formula naik-wave (jumlah, cap, interval, peluang kabut) memakai
-    // n, jadi kesulitan sesuai wave itu. Balikan angka wave (untuk feedback konsol).
+    // akhiri event yang sedang jalan, lalu buka ulang shop dengan n sebagai wave
+    // antrean. Konfirmasi "Start Next Wave" baru memanggil startWave(n), jadi
+    // belanja selalu terjadi sebelum jumlah/cap/interval/event wave target dibuat.
+    // Balikan angka wave dipakai untuk feedback konsol.
     cheatSkipToWave(n) {
         n = Math.max(1, Math.floor(n));
         robots.forEach(z => { disposeRobot(z); scene.remove(z.mesh); });
         robots.length = 0;
         endEvent();      // pulihkan kabut/cahaya bila event sedang berjalan
-        closeShop();     // jaga-jaga bila entah bagaimana terpanggil saat shop
-        startWave(n);    // formula naik-wave sepenuhnya dari n
+        closeShop();     // reset prompt/transaksi shop lama bila command dari shop
+        wave.queuedNum = n;
+        wave.phase = 'shopping';
+        wave.toSpawn = 0;
+        wave.spawnTimer = 0;
+        wave.clearTimer = 0;
+        openShop();      // pointer unlock juga menutup overlay konsol cheat
+        updateUI();
         return n;
     },
 
@@ -629,8 +639,11 @@ export const survivalScene = {
         const pct = Math.max(0, Math.ceil(monasHp / monasMaxHp * 100));
         if (wave.phase === 'cleared')
             return `WAVE ${wave.num} CLEARED — Next wave in ${Math.max(1, Math.ceil(wave.clearTimer))}...`;
-        if (wave.phase === 'shopping')
+        if (wave.phase === 'shopping') {
+            if (wave.queuedNum != null)
+                return `WAVE ${wave.queuedNum} READY — Field Shop open`;
             return `WAVE ${wave.num} CLEARED — Field Shop open`;
+        }
         const left = wave.toSpawn + robots.length;   // sisa robot wave ini
         return `Wave ${wave.num} — ${left} left · Monas ${pct}%`;
     },

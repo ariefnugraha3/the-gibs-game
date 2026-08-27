@@ -156,13 +156,13 @@ function runCommand(cmd) {
                 + (r.prev && r.prev !== r.tier ? ` (replaced Level ${r.prev})` : ''));
         }
     } else if (/^skip-to-wave-\d+$/.test(c)) {
-        // Lompat langsung ke wave n (Survival). Scene aktif yang mendukung punya
+        // Siapkan wave n (Survival). Scene aktif yang mendukung punya
         // hook cheatSkipToWave (hanya survivalScene) -> bersihkan lapangan +
-        // startWave(n) dengan formula naik-wave. Tutup konsol utk mulai bertarung.
+        // buka Field Shop; wave target baru dimulai setelah konfirmasi shop.
         const n = parseInt(c.slice('skip-to-wave-'.length), 10);
         if (activeScene && typeof activeScene.cheatSkipToWave === 'function') {
             const applied = activeScene.cheatSkipToWave(n);
-            setFeedback('Jumped to wave ' + applied + ' - close the console to fight!');
+            setFeedback('Field Shop opened - prepare for wave ' + applied + '!');
         } else {
             setFeedback('skip-to-wave only works in Survival mode', false);
         }

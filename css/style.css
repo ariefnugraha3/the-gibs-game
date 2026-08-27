@@ -1887,11 +1887,15 @@ body {
     mask-image: radial-gradient(ellipse at center, transparent 52%, #000 80%);
 }
 
-/* ---------- Shop antar-gelombang Survival (MENU KLIK modal; game di-pause,
-   pointer dilepas). Terbuka otomatis setelah "wave cleared". Tata letak
-   (redesign 2026-07-09): GRID kartu item (tiap kartu = nama + tombol Buy),
-   panel deskripsi + harga LEBAR PENUH di bawah grid, lalu bawah-kiri = skor,
-   bawah-kanan = Start Next Wave. ---------- */
+/* ===== FIELD SHOP — "ARMORY" CARD STOREFRONT (redesign 2026-08-27) ==========
+   Rombak total mengikuti referensi mockup user: bidang gelap slate, judul di
+   TENGAH, saldo CREDITS pada slab miring kanan-atas, baris TAB berbentuk lempeng
+   (aktif = oranye), lalu GRID KARTU BESAR — tiap kartu punya art SVG, sub-judul,
+   bar statistik bersegmen, harga besar + tombol BUY. Kaki panel: strip detail
+   item ter-hover di kiri, CTA oranye dua-baris di kanan.
+   Kontrak JS tak berubah: klik kartu = beli, klik-kanan = undo, tab & prompt
+   (ganti senjata / "Are you ready?") memakai kelas yang sama seperti dulu.
+   Aksen: oranye #ef7d1a; permukaan #262b33 / #2f353d; garis #3b434d. */
 #shopOverlay {
     position: absolute;
     inset: 0;
@@ -1899,679 +1903,444 @@ body {
     display: none;                 /* -> flex saat openShop */
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
+    isolation: isolate;
+    overflow: hidden;
+    padding: clamp(14px, 2.4vw, 40px);
+    background:
+        radial-gradient(ellipse at 50% 0%, rgba(239, 125, 26, 0.07), transparent 58%),
+        linear-gradient(160deg, rgba(31, 35, 42, 0.97), rgba(20, 23, 28, 0.98));
+    backdrop-filter: blur(6px) saturate(0.8);
     font-family: 'Courier Prime', 'Courier New', monospace;
-    color: #e8eef4;
+    color: #e6e9ed;
 }
 /* Campaign = SHOP SCENE terpisah (2026-07-14): latar OPAK, stage tak terlihat. */
 #shopOverlay.campaignShop {
-    background: radial-gradient(circle at 50% 40%, #0c1420, #05080c 70%);
-}
-.shopPanel {
-    width: min(840px, 94vw);
-    max-height: 92vh;              /* katalog makin panjang (armor 3 kartu) — grid di dalamnya scroll */
-    background: rgba(8, 14, 20, 0.94);
-    border: 2px solid rgba(241, 196, 15, 0.55);
-    border-radius: 12px;
-    box-shadow: 0 0 42px rgba(0, 0, 0, 0.8);
-    padding: 18px 22px 16px;
-    display: flex;
-    flex-direction: column;
-}
-.shopHead {
-    font-size: 24px;
-    font-weight: bold;
-    letter-spacing: 4px;
-    color: #f1c40f;
-    text-align: center;
-    text-shadow: 0 0 14px rgba(241, 196, 15, 0.35);
-}
-.shopMsg {
-    text-align: center;
-    font-size: 14px;
-    min-height: 18px;
-    margin: 2px 0 8px;
-    color: #9fd8a2;
-}
-.shopMsg.err { color: #ff6b6b; }
-/* Grid kartu item: 2 kolom SERAGAM untuk semua tab; tiap kartu = nama (tengah)
-   + tombol Buy (kiri-bawah). Tinggi TETAP (42vh) agar ukuran panel tidak
-   berubah saat pindah tab (bukan halaman web yang reflow); isi lebih panjang
-   men-scroll di dalam grid, isi lebih pendek menyisakan ruang di bawah. */
-.shopGrid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    align-content: start;          /* kartu menempel atas; sisa ruang di bawah */
-    gap: 10px;
-    height: 42vh;
-    overflow-y: auto;
-    min-height: 0;
-}
-/* Tab weapon: kartu pertama tiap senjata memulai baris baru (kolom 1) sehingga
-   pasangan [Beli]+[Upgrade] berada di satu baris — gaya kartu tetap sama. */
-.shopCard.rowStart { grid-column-start: 1; }
-.shopCard {
-    display: flex;
-    flex-direction: column;
-    min-height: 96px;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.12s, border-color 0.12s;
-}
-.shopCard:hover { background: rgba(241, 196, 15, 0.14); border-color: rgba(241, 196, 15, 0.55); }
-.shopCard.owned { opacity: 0.55; }
-.shopCard.owned:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.08); }
-.shopCardName {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    font-size: 15px;
-    font-weight: bold;
-    padding: 2px 0 8px;
-}
-/* Harga / status di kaki kartu (menggantikan tombol Buy 2026-07-15 — kartu
-   sendiri = klik-kiri beli / klik-kanan batal). Bukan tombol, sekadar teks. */
-.shopCardPrice {
-    align-self: flex-start;
-    font-size: 14px;
-    font-weight: bold;
-    color: #9fd8a2;                       /* harga terjangkau = hijau */
-    padding: 4px 2px 0;
-}
-.shopCardPrice.poor { color: #ff6b6b; }   /* skor kurang */
-.shopCardPrice.note { color: #8fa3b8; }   /* Owned / Worn / Maxed / Full */
-.shopCard.poor { cursor: default; }
-.shopCard.sel { border-color: rgba(241, 196, 15, 0.7); box-shadow: 0 0 0 1px rgba(241, 196, 15, 0.3) inset; }
-/* Baris tab (2026-07-15): Weapons / Armor / Upgrades / General */
-.shopTabs {
-    display: flex;
-    gap: 6px;
-    justify-content: center;
-    margin: 2px 0 12px;
-    flex-wrap: wrap;
-}
-.shopTab {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 13px;
-    font-weight: bold;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: #9fb2c4;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 7px;
-    padding: 8px 20px;
-    cursor: pointer;
-    transition: color 0.12s, background 0.12s, border-color 0.12s;
-}
-.shopTab:hover { color: #ffd27a; border-color: rgba(241, 196, 15, 0.4); }
-.shopTab.active {
-    color: #0b0f14;
-    background: linear-gradient(180deg, #f7d354, #f1c40f);
-    border-color: rgba(241, 196, 15, 0.6);
-}
-/* Panel deskripsi + harga lebar penuh di bawah grid. TINGGI TETAP + scroll
-   (2026-07-15): deskripsi armor yang panjang tak lagi menambah tinggi panel
-   sehingga ukuran shop konsisten antar-tab. */
-.shopDesc {
-    margin-top: 12px;
-    padding: 13px 16px;
-    height: 104px;
-    overflow-y: auto;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-}
-.shopDescName { font-size: 17px; font-weight: bold; color: #ffd27a; margin-bottom: 6px; }
-.shopDescText { font-size: 14px; line-height: 1.5; color: #cfd8e3; }
-.shopDescPrice { font-size: 15px; font-weight: bold; color: #9fd8a2; margin-top: 8px; }
-.shopDescPrice.poor { color: #ff6b6b; }
-.shopDescPrice.owned { color: #8fa3b8; }
-.shopFoot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-.shopScore { font-size: 18px; font-weight: bold; color: #9fd8a2; }
-.shopHint { font-size: 12px; color: #7f93a6; letter-spacing: 0.5px; }
-.shopNext {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 16px;
-    font-weight: bold;
-    letter-spacing: 1px;
-    color: #0b0f14;
-    background: linear-gradient(180deg, #2ecc71, #27ae60);
-    border: none;
-    border-radius: 8px;
-    padding: 11px 26px;
-    cursor: pointer;
-    box-shadow: 0 0 16px rgba(46, 204, 113, 0.4);
-    transition: filter 0.12s, transform 0.06s;
-}
-.shopNext:hover { filter: brightness(1.08); }
-.shopNext:active { transform: translateY(2px); }
-
-/* Pemilih ganti senjata (beli senjata ke-3 saat sudah bawa 2): tombol per
-   senjata yang dimiliki + Batal. */
-.shopReplaceMsg {
-    font-size: 15px;
-    color: #cfd8e3;
-    line-height: 1.5;
-    margin: 10px 0 16px;
-    text-align: center;
-}
-.shopReplaceMsg b { color: #ffd27a; }
-.shopReplaceBtns { display: flex; flex-direction: column; gap: 10px; }
-.shopReplaceBtn {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 15px;
-    font-weight: bold;
-    color: #0b0f14;
-    background: linear-gradient(180deg, #f7d354, #f1c40f);
-    border: none;
-    border-radius: 8px;
-    padding: 12px 0;
-    cursor: pointer;
-    transition: filter 0.12s, transform 0.06s;
-}
-.shopReplaceBtn:hover { filter: brightness(1.08); }
-.shopReplaceBtn:active { transform: translateY(2px); }
-.shopReplaceCancel {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 14px;
-    font-weight: bold;
-    color: #cfd8e3;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    padding: 10px 0;
-    margin-top: 4px;
-    cursor: pointer;
-    transition: background 0.12s;
-}
-.shopReplaceCancel:hover { background: rgba(255, 255, 255, 0.18); }
-
-/* Prompt konfirmasi "Are you ready?" sebelum mulai wave (Yes hijau / No abu) */
-.shopConfirmBtns { display: flex; gap: 14px; justify-content: center; margin-top: 6px; }
-.shopConfirmYes {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 16px;
-    font-weight: bold;
-    letter-spacing: 1px;
-    color: #0b0f14;
-    background: linear-gradient(180deg, #2ecc71, #27ae60);
-    border: none;
-    border-radius: 8px;
-    padding: 12px 34px;
-    cursor: pointer;
-    box-shadow: 0 0 16px rgba(46, 204, 113, 0.4);
-    transition: filter 0.12s, transform 0.06s;
-}
-.shopConfirmYes:hover { filter: brightness(1.08); }
-.shopConfirmYes:active { transform: translateY(2px); }
-.shopConfirmNo {
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    font-size: 16px;
-    font-weight: bold;
-    color: #e8eef4;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 8px;
-    padding: 12px 34px;
-    cursor: pointer;
-    transition: background 0.12s, transform 0.06s;
-}
-.shopConfirmNo:hover { background: rgba(255, 255, 255, 0.18); }
-.shopConfirmNo:active { transform: translateY(2px); }
-
-/* ===== FIELD SHOP — CINEMATIC QUARTERMASTER TERMINAL (2026-08-27) =====
-   Arah visual sengaja menolak pola dashboard generik: tanpa puluhan kapsul,
-   tanpa fake telemetry, dan tanpa glow di setiap benda. Satu bidang komando,
-   manifest item di kiri, detail keputusan di kanan, satu warna aksi amber. */
-#shopOverlay {
-    isolation: isolate;
-    overflow: hidden;
-    padding: clamp(18px, 3vw, 46px);
-    align-items: center;
     background:
-        linear-gradient(105deg, rgba(2, 5, 7, 0.96) 0 34%, rgba(6, 11, 14, 0.89) 64%, rgba(2, 4, 6, 0.97)),
-        rgba(0, 0, 0, 0.9);
-    backdrop-filter: blur(7px) saturate(0.62);
+        radial-gradient(ellipse at 50% 0%, rgba(239, 125, 26, 0.09), transparent 58%),
+        linear-gradient(160deg, #232830, #14171c);
 }
-#shopOverlay.campaignShop {
-    background:
-        radial-gradient(ellipse at 76% 18%, rgba(167, 101, 31, 0.12), transparent 42%),
-        linear-gradient(112deg, #030506 0 32%, #091013 62%, #020304 100%);
-}
+/* Siluet perlengkapan samar di latar (seperti mockup) — murni dekoratif. */
 #shopOverlay::before {
     content: '';
     position: absolute;
-    z-index: -2;
+    z-index: -1;
     inset: 0;
     pointer-events: none;
+    opacity: 0.5;
     background:
-        linear-gradient(90deg, transparent 0 8%, rgba(219, 151, 73, 0.2) 8% 8.12%, transparent 8.12% 100%),
-        linear-gradient(172deg, transparent 0 62%, rgba(191, 118, 42, 0.07) 62.1% 62.5%, transparent 62.6%);
-    opacity: 0.8;
+        linear-gradient(115deg, transparent 0 38%, rgba(239, 125, 26, 0.05) 38% 38.4%, transparent 38.5%),
+        repeating-linear-gradient(58deg, rgba(255, 255, 255, 0.016) 0 3px, transparent 3px 26px);
 }
 #shopOverlay::after {
     content: '';
     position: absolute;
     z-index: -1;
-    width: min(66vw, 980px);
-    height: min(66vw, 980px);
-    right: -22vw;
-    bottom: -54vw;
-    border: 1px solid rgba(227, 158, 75, 0.13);
+    right: -16vw;
+    bottom: -34vw;
+    width: min(60vw, 900px);
+    height: min(60vw, 900px);
+    border: 1px solid rgba(239, 125, 26, 0.1);
     border-radius: 50%;
-    box-shadow: 0 0 0 9vw rgba(227, 158, 75, 0.018),
-        0 0 0 18vw rgba(227, 158, 75, 0.012);
+    box-shadow: 0 0 0 8vw rgba(239, 125, 26, 0.02);
     pointer-events: none;
 }
 
 .shopPanel {
     position: relative;
-    width: min(1180px, 94vw);
-    height: min(760px, 88vh);
-    max-height: none;
+    display: flex;
+    flex-direction: column;
     box-sizing: border-box;
-    padding: clamp(24px, 3vw, 40px) clamp(24px, 4vw, 54px) 26px;
-    background: linear-gradient(115deg, rgba(8, 13, 16, 0.985), rgba(12, 19, 22, 0.96));
-    border: 0;
-    border-top: 1px solid rgba(232, 167, 88, 0.66);
-    border-bottom: 1px solid rgba(151, 166, 166, 0.2);
-    border-radius: 0;
-    clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 24px 100%, 0 calc(100% - 24px));
-    box-shadow: 0 32px 90px rgba(0, 0, 0, 0.62), inset 0 1px rgba(255, 255, 255, 0.025);
+    width: min(1180px, 94vw);
+    height: auto;
+    max-height: 94vh;
+    padding: clamp(18px, 2.4vw, 30px) clamp(20px, 3vw, 44px) clamp(16px, 2vw, 24px);
+    background: linear-gradient(150deg, rgba(38, 43, 51, 0.99), rgba(29, 33, 40, 0.99));
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
 }
-.shopPanelEnter { animation: shopReveal 520ms cubic-bezier(0.2, 0.78, 0.22, 1) both; }
-.shopPanel::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: clamp(90px, 13vw, 170px);
-    height: 3px;
-    background: #dfa354;
+.shopPanelEnter { animation: shopReveal 460ms cubic-bezier(0.2, 0.78, 0.22, 1) both; }
+@keyframes shopReveal {
+    from { opacity: 0; transform: translateY(18px) scale(0.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.shopPanelPrompt {
+/* Mode prompt (ganti senjata / "Are you ready?"): panel menyusut & judul lebih
+   kecil. Selektor ganda agar menang atas tinggi panel di media query layar pendek. */
+.shopPanel.shopPanelPrompt {
     width: min(760px, 92vw);
     height: auto;
-    min-height: 390px;
+    min-height: 340px;
 }
-@keyframes shopReveal {
-    from { opacity: 0; transform: translateY(22px) scale(0.985); filter: blur(5px); }
-    to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-}
+.shopPanelPrompt .shopHead { font-size: clamp(19px, 2.3vw, 28px); }
+.shopPanelPrompt .shopFoot { margin-top: 10px; }
 
+/* ---------- Header: kicker kiri | judul tengah | saldo kanan ---------- */
 .shopHeader {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 24px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid rgba(175, 190, 190, 0.16);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 18px;
+    flex: 0 0 auto;
 }
 .shopIdentity { min-width: 0; }
-.shopKicker {
-    margin-bottom: 8px;
-    color: #aab6b7;
-    font-size: 10px;
-    line-height: 1;
-    letter-spacing: 0.24em;
-}
 .shopHead {
-    color: #f0eee7;
-    font-size: clamp(29px, 4vw, 46px);
+    color: #f2f4f7;
+    font-size: clamp(24px, 3.2vw, 40px);
     font-weight: 700;
-    line-height: 0.94;
-    letter-spacing: 0.055em;
-    text-align: left;
+    line-height: 1;
+    letter-spacing: 0.14em;
+    text-align: center;
+    text-transform: uppercase;
     text-shadow: none;
 }
 .shopBalance {
-    flex: 0 0 auto;
-    min-width: 170px;
-    padding-left: 20px;
-    border-left: 1px solid rgba(223, 163, 84, 0.4);
-    text-align: right;
+    justify-self: end;
+    padding: 9px 20px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 3px;
+    transform: skewX(-14deg);
+}
+.shopBalanceInner {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    transform: skewX(14deg);
 }
 .shopBalanceLabel {
-    margin-bottom: 5px;
-    color: #899698;
-    font-size: 9px;
-    letter-spacing: 0.18em;
+    color: #aeb5bd;
+    font-size: 12px;
+    letter-spacing: 0.12em;
 }
 .shopScore {
-    color: #e8b56f;
-    font-size: clamp(24px, 3vw, 34px);
+    color: #ef7d1a;
+    font-size: clamp(14px, 1.6vw, 19px);
     font-weight: 700;
     line-height: 1;
     letter-spacing: 0.04em;
 }
-.shopScore::before {
-    content: 'M ';
-    color: #7d898b;
-    font-size: 0.46em;
-    vertical-align: 0.28em;
-}
-.shopMsg {
-    min-height: 22px;
-    margin: 10px 0 3px;
-    color: #9fc0a7;
-    font-size: 11px;
-    line-height: 22px;
-    letter-spacing: 0.08em;
-    text-align: left;
-}
-.shopMsg.err { color: #e17a6c; }
+.shopCoin { color: #ef7d1a; font-size: 13px; }
 
+.shopMsg {
+    flex: 0 0 auto;
+    min-height: 18px;
+    margin: 8px 0 4px;
+    color: #8fd4a0;
+    font-size: 11px;
+    line-height: 18px;
+    letter-spacing: 0.1em;
+    text-align: center;
+}
+.shopMsg.err { color: #ef6d5c; }
+
+/* ---------- Etalase: tab + grid kartu ---------- */
+/* Etalase berukuran TETAP (bukan halaman web yang reflow): tinggi grid dikunci
+   untuk dua baris kartu + scroll bila lebih, jadi pindah tab tak mengubah
+   ukuran panel dan tak menyisakan ruang kosong besar. */
 .shopWorkspace {
     display: grid;
-    grid-template-columns: minmax(0, 1.55fr) minmax(270px, 0.85fr);
-    gap: clamp(26px, 4vw, 54px);
+    grid-template-columns: minmax(0, 1fr);
+    flex: 0 0 auto;
     min-height: 0;
-    height: calc(100% - 178px);
 }
 .shopCatalog {
     display: flex;
+    flex-direction: column;
     min-width: 0;
     min-height: 0;
-    flex-direction: column;
 }
 .shopTabs {
+    display: flex;
     flex: 0 0 auto;
-    justify-content: flex-start;
-    gap: clamp(15px, 2.4vw, 30px);
-    margin: 0 0 18px;
-    padding-bottom: 0;
-    border-bottom: 1px solid rgba(161, 176, 177, 0.12);
-    flex-wrap: nowrap;
+    gap: 6px;
+    align-items: flex-end;
+    margin: 0;
+    padding: 0 0 0 4px;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.09);
 }
 .shopTab {
-    position: relative;
-    margin: 0 0 -1px;
-    padding: 8px 0 11px;
-    color: #778486;
-    background: transparent;
+    padding: 11px 26px 10px;
+    color: #cfd4db;
+    background: #464e59;
     border: 0;
-    border-bottom: 1px solid transparent;
-    border-radius: 0;
-    font-size: 11px;
-    letter-spacing: 0.13em;
-    transition: color 150ms ease, border-color 150ms ease;
+    border-radius: 3px 3px 0 0;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
 }
-.shopTab:hover { color: #d7dcda; border-color: rgba(223, 163, 84, 0.36); }
+.shopTab:hover { background: #525b67; color: #fff; }
 .shopTab.active {
-    color: #e9b66f;
-    background: transparent;
-    border-color: #dfa354;
+    color: #1b1e23;
+    background: #ef7d1a;
+    box-shadow: 0 2px 0 #ef7d1a;
 }
-
 .shopGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-content: start;
-    gap: 8px;
-    height: auto;
-    padding-right: 8px;
-    scrollbar-width: thin;
-    scrollbar-color: #805f39 rgba(255, 255, 255, 0.035);
-}
-.shopCard {
-    position: relative;
     display: grid;
-    grid-template-columns: 34px minmax(0, 1fr);
-    min-height: 78px;
-    padding: 0;
-    overflow: hidden;
-    background: rgba(255, 255, 255, 0.026);
-    border: 1px solid rgba(166, 181, 181, 0.1);
-    border-left: 2px solid transparent;
-    border-radius: 0;
-    transition: transform 150ms ease, background 150ms ease,
-        border-color 150ms ease;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-content: start;
+    gap: 12px;
+    flex: 0 0 auto;
+    height: clamp(228px, 38vh, 330px);
+    margin-top: 12px;
+    padding: 14px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.17);
+    border: 1px solid rgba(255, 255, 255, 0.055);
+    border-radius: 5px;
+    scrollbar-width: thin;
+    scrollbar-color: #6d4a24 rgba(255, 255, 255, 0.05);
 }
-.shopCard::after {
-    content: '';
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    width: 13px;
-    height: 1px;
-    background: rgba(223, 163, 84, 0.35);
+.shopGrid::-webkit-scrollbar { width: 8px; }
+.shopGrid::-webkit-scrollbar-thumb { background: #6d4a24; border-radius: 4px; }
+
+/* ---------- Kartu item (RINGKAS: art + nama + harga + BUY) ---------- */
+.shopCard {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    min-height: 0;
+    padding: 16px 14px 13px;
+    color: #e6e9ed;
+    background: #2f353d;
+    border: 1px solid rgba(239, 125, 26, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease, transform 120ms ease;
 }
 .shopCard:hover,
-.shopCard:focus-visible {
-    transform: translateX(3px);
-    outline: none;
-    background: rgba(223, 163, 84, 0.075);
-    border-color: rgba(223, 163, 84, 0.28);
-    border-left-color: #dfa354;
-}
+.shopCard:focus-visible,
 .shopCard.sel {
-    background: linear-gradient(90deg, rgba(223, 163, 84, 0.12), rgba(223, 163, 84, 0.025));
-    border-color: rgba(223, 163, 84, 0.38);
-    border-left-color: #e5ad62;
-    box-shadow: none;
+    outline: none;
+    transform: translateY(-2px);
+    color: #21252b;
+    background: #ef7d1a;
+    border-color: #ef7d1a;
 }
-.shopCard.owned { opacity: 1; background: rgba(255, 255, 255, 0.014); }
-.shopCard.owned:hover { background: rgba(255, 255, 255, 0.028); border-color: rgba(161, 176, 177, 0.14); }
-.shopCard.poor { cursor: not-allowed; }
-.shopCardIndex {
+.shopCard.owned { border-color: rgba(255, 255, 255, 0.1); }
+.shopCard.poor { border-color: rgba(255, 255, 255, 0.08); }
+.shopCardArt {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #5f6b6d;
-    background: rgba(0, 0, 0, 0.2);
-    border-right: 1px solid rgba(161, 176, 177, 0.08);
-    font-size: 10px;
-    letter-spacing: 0.08em;
+    height: clamp(42px, 7vh, 62px);
+    margin-bottom: 12px;
+    color: #ef7d1a;
 }
-.shopCardBody {
-    display: flex;
-    min-width: 0;
-    padding: 13px 14px 11px;
-    flex-direction: column;
-}
+.shopCard:hover .shopCardArt,
+.shopCard:focus-visible .shopCardArt,
+.shopCard.sel .shopCardArt { color: #21252b; }
+.shopCardArt svg { width: 100%; max-width: 150px; height: 100%; display: block; }
 .shopCardName {
-    display: block;
-    flex: 1;
-    padding: 0 0 8px;
-    color: #dce2df;
+    color: inherit;
     font-size: 13px;
-    line-height: 1.15;
-    text-align: left;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.shopCardFoot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: auto;
+    padding-top: 14px;
 }
 .shopCardPrice {
-    align-self: flex-start;
-    padding: 0;
-    color: #dba45e;
-    font-size: 11px;
-    line-height: 1;
-    letter-spacing: 0.06em;
-}
-.shopCardPrice::before { content: 'M '; color: #687577; font-size: 0.82em; }
-.shopCardPrice.note { color: #718083; }
-.shopCardPrice.note::before { content: ''; }
-.shopCardPrice.poor { color: #d87367; }
-
-.shopDesc {
-    position: relative;
-    display: flex;
-    height: auto;
-    min-height: 0;
-    margin: 0;
-    padding: 20px 0 8px clamp(22px, 3vw, 38px);
-    overflow-y: auto;
-    flex-direction: column;
-    background: transparent;
-    border: 0;
-    border-left: 1px solid rgba(223, 163, 84, 0.28);
-    border-radius: 0;
-}
-.shopDescKicker {
-    color: #768386;
-    font-size: 9px;
-    letter-spacing: 0.2em;
-}
-.shopDescName {
-    margin: 12px 0 16px;
-    color: #f0eee7;
-    font-size: clamp(21px, 2.4vw, 31px);
+    color: #ef7d1a;
+    font-size: 19px;
     font-weight: 700;
-    line-height: 1.05;
+    line-height: 1;
 }
-.shopDescRule {
-    width: 42px;
-    height: 2px;
-    margin-bottom: 22px;
-    background: #dfa354;
+.shopCard:hover .shopCardPrice,
+.shopCard:focus-visible .shopCardPrice,
+.shopCard.sel .shopCardPrice { color: #21252b; }
+.shopCardPrice.note { font-size: 13px; letter-spacing: 0.1em; }
+.shopCardPrice.poor { color: #ef6d5c; }
+.shopBuy {
+    flex: 0 0 auto;
+    padding: 7px 18px;
+    color: #21252b;
+    background: #ef7d1a;
+    border: 0;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
 }
-.shopDescText {
-    max-width: 38ch;
-    color: #aab5b5;
-    font-size: 13px;
-    line-height: 1.7;
-}
-.shopDescCost {
+.shopCard:hover .shopBuy,
+.shopCard:focus-visible .shopBuy,
+.shopCard.sel .shopBuy { color: #f4a35f; background: #24282f; }
+.shopBuy.off { color: #b8bfc7; background: rgba(255, 255, 255, 0.1); }
+.shopCard:hover .shopBuy.off,
+.shopCard.sel .shopBuy.off { color: #f0d7bf; background: rgba(0, 0, 0, 0.28); }
+
+/* ---------- Kaki panel: detail item + CTA ---------- */
+.shopFoot {
     display: flex;
+    flex: 0 0 auto;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 16px;
-    margin-top: auto;
-    padding-top: 22px;
-    border-top: 1px solid rgba(161, 176, 177, 0.12);
+    gap: 26px;
+    margin-top: 14px;
+    padding-top: 13px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
-.shopDescCostLabel {
-    color: #728083;
-    font-size: 9px;
-    letter-spacing: 0.18em;
+.shopFootMeta { min-width: 0; flex: 1 1 auto; }
+.shopDesc {
+    min-height: 44px;
+    max-width: 78ch;
+    border-left: 2px solid rgba(239, 125, 26, 0.55);
+    padding-left: 12px;
 }
-.shopDescPrice {
-    margin: 0;
-    color: #e2ad67;
-    font-size: 24px;
-    line-height: 1;
+.shopDescHead {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 3px;
 }
-.shopDescPrice::before { content: 'M '; color: #6f7d7f; font-size: 0.48em; }
-.shopDescPrice.owned { color: #839193; font-size: 14px; letter-spacing: 0.08em; }
-.shopDescPrice.owned::before { content: ''; }
-.shopDescPrice.poor { color: #dd7669; }
-
-.shopFoot {
-    gap: 22px;
-    margin-top: 17px;
-    padding-top: 15px;
-    border-top: 1px solid rgba(161, 176, 177, 0.12);
-}
-.shopFootMeta { display: flex; align-items: center; gap: 22px; }
-.shopHint {
-    color: #657275;
-    font-size: 9px;
+.shopDescName {
+    color: #f2f4f7;
+    font-size: 13px;
+    font-weight: 700;
     letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.shopDescPrice { color: #ef7d1a; font-size: 11px; letter-spacing: 0.1em; }
+.shopDescPrice.owned { color: #98a0aa; }
+.shopDescPrice.poor { color: #ef6d5c; }
+.shopDescText {
+    color: #a7aeb8;
+    font-size: 11.5px;
+    line-height: 1.5;
+}
+.shopHint {
+    margin-top: 7px;
+    padding-left: 14px;
+    color: #6f7883;
+    font-size: 9px;
+    letter-spacing: 0.1em;
 }
 .shopNext {
-    min-width: 220px;
-    padding: 13px 27px 12px;
-    color: #18130d;
-    background: #dfa354;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 16px;
+    min-width: 240px;
+    padding: 12px 22px;
+    color: #1b1e23;
+    background: #ef7d1a;
     border: 0;
-    border-radius: 0;
-    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-    box-shadow: none;
-    font-size: 13px;
-    letter-spacing: 0.08em;
-    transition: background 150ms ease, transform 100ms ease;
+    border-radius: 3px;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 140ms ease, transform 100ms ease;
 }
-.shopNext:hover { background: #efbd7b; filter: none; }
+.shopNext:hover { background: #ff8f30; }
 .shopNext:active { transform: translateY(1px); }
+.shopNextMain { flex: 1 1 auto; font-size: 15px; font-weight: 700; letter-spacing: 0.1em; }
+.shopNextArrow { font-size: 18px; font-weight: 700; line-height: 1; }
 
+/* ---------- Prompt: ganti senjata & "Are you ready?" ---------- */
 .shopPromptBody {
     display: flex;
-    min-height: 245px;
-    padding: 34px 8% 10px;
     flex-direction: column;
     justify-content: center;
+    min-height: 235px;
+    padding: 30px 8% 8px;
 }
 .shopReplaceMsg {
     max-width: 600px;
-    margin: 0 auto 26px;
-    color: #aeb9b8;
+    margin: 0 auto 24px;
+    color: #b0b7c0;
     font-size: 14px;
     line-height: 1.7;
+    text-align: center;
 }
-.shopReplaceMsg b { color: #e7b36c; }
-.shopReplaceBtns { width: min(520px, 100%); margin: 0 auto; gap: 8px; }
+.shopReplaceMsg b { color: #ef7d1a; }
+.shopReplaceBtns {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(520px, 100%);
+    margin: 0 auto;
+}
+.shopConfirmBtns { display: flex; gap: 10px; justify-content: center; margin-top: 6px; }
 .shopReplaceBtn,
 .shopReplaceCancel,
 .shopConfirmYes,
 .shopConfirmNo {
-    border-radius: 0;
-    box-shadow: none;
-    clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+    padding: 12px 30px;
+    border: 0;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: background 140ms ease, transform 100ms ease;
 }
 .shopReplaceBtn,
-.shopConfirmYes {
-    color: #18130d;
-    background: #dfa354;
-}
+.shopConfirmYes { color: #1b1e23; background: #ef7d1a; }
+.shopReplaceBtn:hover,
+.shopConfirmYes:hover { background: #ff8f30; }
 .shopReplaceCancel,
-.shopConfirmNo {
-    color: #bac4c2;
-    background: rgba(255, 255, 255, 0.045);
-    border-color: rgba(161, 176, 177, 0.18);
-}
-.shopConfirmBtns { gap: 8px; }
+.shopConfirmNo { color: #c3cad2; background: rgba(255, 255, 255, 0.08); }
+.shopReplaceCancel:hover,
+.shopConfirmNo:hover { background: rgba(255, 255, 255, 0.16); }
+.shopReplaceBtn:active,
+.shopReplaceCancel:active,
+.shopConfirmYes:active,
+.shopConfirmNo:active { transform: translateY(1px); }
 
+@media (max-width: 1080px) {
+    .shopGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 820px) {
-    #shopOverlay { padding: 12px; align-items: stretch; }
-    .shopPanel { width: 100%; height: 100%; padding: 24px 20px 18px; }
-    .shopWorkspace {
-        grid-template-columns: 1fr;
-        grid-template-rows: minmax(230px, 1fr) auto;
-        gap: 14px;
-        overflow-y: auto;
-    }
-    .shopDesc {
-        min-height: 175px;
-        padding: 15px 0 5px;
-        border-left: 0;
-        border-top: 1px solid rgba(223, 163, 84, 0.28);
-    }
-    .shopDescText { max-width: none; }
-    .shopDescCost { margin-top: 18px; }
-    .shopFootMeta { display: none; }
-    .shopNext { width: 100%; }
+    #shopOverlay { padding: 10px; align-items: stretch; }
+    .shopPanel { width: 100%; height: 100%; padding: 16px 14px 14px; }
+    .shopHeader { grid-template-columns: 1fr auto; row-gap: 8px; }
+    .shopIdentity { display: none; }
+    .shopGrid { grid-template-columns: 1fr; padding: 10px; }
+    .shopFoot { flex-direction: column; align-items: stretch; gap: 12px; }
+    .shopHint { display: none; }
+    .shopNext { width: 100%; min-width: 0; }
+    .shopTabs { overflow-x: auto; }
+    .shopTab { padding: 9px 14px; font-size: 10px; }
 }
-@media (max-width: 520px) {
-    .shopHeader { align-items: flex-start; }
-    .shopBalance { min-width: 112px; padding-left: 12px; }
-    .shopGrid { grid-template-columns: 1fr; }
-    .shopTabs { gap: 12px; overflow-x: auto; }
-    .shopTab { font-size: 9px; }
+/* Layar pendek (720p & sejenisnya): rapatkan kartu agar dua baris kartu tetap
+   utuh — harga + tombol BUY tak boleh terpotong oleh scroll grid. */
+@media (max-height: 800px) and (min-width: 821px) {
+    .shopPanel { max-height: 97vh; }
+    .shopCard { padding: 12px 12px 10px; }
+    .shopCardArt { height: 36px; margin-bottom: 9px; }
+    .shopCardFoot { padding-top: 10px; }
+    .shopCardPrice { font-size: 17px; }
+    .shopBuy { padding: 6px 16px; }
+    .shopDescText {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
 }
-@media (max-height: 650px) and (min-width: 821px) {
-    .shopPanel { height: 94vh; padding-top: 22px; padding-bottom: 18px; }
-    .shopHeader { padding-bottom: 13px; }
-    .shopMsg { margin-top: 4px; }
-    .shopWorkspace { height: calc(100% - 153px); }
-    .shopCard { min-height: 65px; }
-    .shopCardBody { padding-top: 9px; padding-bottom: 8px; }
-    .shopDesc { padding-top: 12px; }
-    .shopDescRule { margin-bottom: 12px; }
-    .shopFoot { margin-top: 10px; padding-top: 10px; }
+@media (max-height: 620px) and (min-width: 821px) {
+    .shopCardArt { display: none; }
+    .shopDescText { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
     .shopPanelEnter { animation: none; }
-    .shopCard, .shopTab, .shopNext { transition: none; }
+    .shopCard, .shopTab, .shopNext, .shopBuy { transition: none; }
+    .shopCard:hover, .shopCard.sel, .shopNext:active { transform: none; }
 }
 
 /* ===== CUTSCENE LETTERBOX + MODE SINEMATIK (2026-07-17, stage 4) =====
