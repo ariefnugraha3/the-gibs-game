@@ -105,7 +105,8 @@ export function updateGame(dt, step, T, dtReal = dt) {
     // atas (cutscene dikemudikan dari sana) dan dunia tetap disimulasikan.
     const noCtl = dying || cinematicActive;
     if (!noCtl) {
-        updateWeaponTimers(dt);        // animasi ganti senjata + melee (hit di 45%)
+        const customCombat = typeof activeScene.updatePlayerCombat === 'function';
+        if (!customCombat) updateWeaponTimers(dt); // kendaraan boleh mengganti seluruh sistem senjata
         // Scene kendaraan boleh mengambil alih gerak pivot player tanpa mode
         // if-else di sistem bersama. Return true = gerak kaki standar dilewati;
         // aiming/senjata di bawah tetap berjalan seperti biasa.
@@ -113,8 +114,11 @@ export function updateGame(dt, step, T, dtReal = dt) {
             ? activeScene.updatePlayerControl(dt, step) === true : false;
         if (!movementHandled) updatePlayerMovement(dt, step);// stamina, WASD, tabrakan scene, lompat, langkah
         if (isGameOver) return;        // (jaga-jaga: transisi scene tak mengakhiri game)
-        updateWeaponState(dt);         // recoil/heat decay + posisi z senjata
-        updateShooting();              // klik kiri -> spawn peluru
+        if (customCombat) activeScene.updatePlayerCombat(dt, step);
+        else {
+            updateWeaponState(dt);     // recoil/heat decay + posisi z senjata
+            updateShooting();          // klik kiri -> spawn peluru
+        }
     }
     updateGrenades(dt);            // balistik + fuse + ledakan
     updateExplosions(dt);          // animasi visual ledakan/puff

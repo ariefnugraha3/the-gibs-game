@@ -24,7 +24,7 @@ export let activeScene = null;
 // Sub-scene (chapter Stage 6, 9, 10 & 11) memanggil registry-nya sendiri di enter().
 function worldKeyFor(id) {
     if (!id) return null;
-    if (id === 'campaign-10') return 'campaign-10-port';
+    if (id === 'campaign-10') return 'campaign-10-flight';
     if (id === 'campaign-11') return 'campaign-11-surface';
     return /^campaign-(?:[1-9]|1[0-2])$/.test(id) ? id : null;
 }

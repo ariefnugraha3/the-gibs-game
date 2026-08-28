@@ -14498,25 +14498,23 @@ for (const [name, build] of Object.entries(propBuilders)) {
         const active = reg.worlds.filter(w => w.visible > 0).map(w => w.key);
         const lights = lightMod.stageLightsDebug();
         T('S9-12 ROOT: hanya root chapter aktif yang terlihat dan hanya set lampunya menyala',
-            reg.active.length === 1 && reg.active[0] === 'campaign-10-port'
-            && active.length === 1 && active[0] === 'campaign-10-port'
-            && lights.active === 'campaign-10-port'
-            && lights.keys.includes('campaign-9') && lights.keys.includes('campaign-10-forest')
+            reg.active.length === 1 && reg.active[0] === 'campaign-10-flight'
+            && active.length === 1 && active[0] === 'campaign-10-flight'
+            && lights.active === 'campaign-10-flight'
+            && lights.keys.includes('campaign-9') && lights.keys.includes('campaign-10-flight')
             && lights.visible > 0 && lights.visible < lights.total);
     }
 
     // (6) ensureWorld setiap dunia baru idempoten.
     {
         const s9wc = await import(R('src/scenes/campaign/stages/stage9/world.js'));
-        const s10pc = await import(R('src/scenes/campaign/stages/stage10/portWorld.js'));
-        const s10fc = await import(R('src/scenes/campaign/stages/stage10/forestWorld.js'));
+        const s10fc = await import(R('src/scenes/campaign/stages/stage10/flightWorld.js'));
         const s11sc = await import(R('src/scenes/campaign/stages/stage11/surfaceWorld.js'));
         const s11rc = await import(R('src/scenes/campaign/stages/stage11/rootWorld.js'));
         const s12wc = await import(R('src/scenes/campaign/stages/stage12/world.js'));
         const pairs = [
             [s9wc.ensureStage9World(scene), s9wc.ensureStage9World(scene)],
-            [s10pc.ensureStage10World(scene), s10pc.ensureStage10World(scene)],
-            [s10fc.ensureStage10ForestWorld(scene), s10fc.ensureStage10ForestWorld(scene)],
+            [s10fc.ensureStage10FlightWorld(scene), s10fc.ensureStage10FlightWorld(scene)],
             [s11sc.ensureStage11SurfaceWorld(scene), s11sc.ensureStage11SurfaceWorld(scene)],
             [s11rc.ensureStage11RootWorld(scene), s11rc.ensureStage11RootWorld(scene)],
             [s12wc.ensureStage12World(scene), s12wc.ensureStage12World(scene)],
@@ -14526,8 +14524,7 @@ for (const [name, build] of Object.entries(propBuilders)) {
 
         // (7) Sapuan palet "GIBS 2045" pada SELURUH dunia baru + rig Warden.
         const roots = [['stage9', s9wc.ensureStage9World(scene)],
-            ['stage10-port', s10pc.ensureStage10World(scene)],
-            ['stage10-forest', s10fc.ensureStage10ForestWorld(scene)],
+            ['stage10-flight', s10fc.ensureStage10FlightWorld(scene)],
             ['stage11-surface', s11sc.ensureStage11SurfaceWorld(scene)],
             ['stage11-root', s11rc.ensureStage11RootWorld(scene)],
             ['stage12', s12wc.ensureStage12World(scene)],
@@ -14559,18 +14556,18 @@ for (const [name, build] of Object.entries(propBuilders)) {
         ];
         let ok = true;
         for (const [stage, next] of chain) {
-            const src = fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/${stage}/index.js`, 'utf8');
+            const entry = stage === 'stage10' ? 'flight.js' : 'index.js';
+            const src = fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/${stage}/${entry}`, 'utf8');
             if (!src.includes('beginStageTransition') || !src.includes(next)) ok = false;
             if (/openShop\s*\(/.test(src)) ok = false;   // stage TAK boleh membuka shop sendiri
         }
         const finalSrc = fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/stage12/index.js`, 'utf8');
         const facadeSrc = fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/stage10/index.js`, 'utf8');
-        const portSrc = fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/stage10/port.js`, 'utf8');
+        const flightSrc = fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/stage10/flight.js`, 'utf8');
         T('S9-12 RANTAI: 8→9→10→11→12; chapter 1→2 tanpa shop/setScene',
             ok && !finalSrc.includes('beginStageTransition')
             && finalSrc.includes('CAMPAIGN COMPLETE')
-            && portSrc.includes('completionHook?.()')
-            && !portSrc.includes('beginStageTransition(')
+            && flightSrc.includes('beginStageTransition(stage11Scene)')
             && !facadeSrc.includes('setScene(')
             && !fs.existsSync(`${ROOT}/src/scenes/campaign/stages/stage13`));
     }
@@ -15610,7 +15607,7 @@ if (false) {
 // tepat di layout B, meriam pelabuhan MENGUNCI TITIK MATI (tembakan sesudah
 // kunci tak lagi mengejar player), servo mati permanen dan berurutan, bahaya
 // bersih saat array padam, dan ekstraksi terkunci sampai array padam.
-{
+if (false) {
     const C10 = cfgMod.CFG.campaign.stage10;
     const s10 = await import(R('src/scenes/campaign/stages/stage10/index.js'));
     const s10w = await import(R('src/scenes/campaign/stages/stage10/portWorld.js'));
@@ -16087,7 +16084,7 @@ if (false) {
 // dan menghormati blast blocker, kolam tembakan tak pernah tumbuh, terdeteksi
 // TIDAK menggagalkan stage, occluder hutan pulih, dan finish hanya dari mulut
 // terowongan.
-{
+if (false) {
     const C10F = cfgMod.CFG.campaign.stage10.chapter2;
     const s10f = await import(R('src/scenes/campaign/stages/stage10/index.js'));
     const s10fw = await import(R('src/scenes/campaign/stages/stage10/forestWorld.js'));
@@ -16445,6 +16442,463 @@ if (false) {
         && s10f.stage10Debug().scan.pool.active === 0);
 
     stateMod.setGameOver(false); kill10f();
+}
+
+// --- 25c2. CAMPAIGN STAGE 10 — TOP-DOWN AIR STRIKE -------------------------
+// Stage 10 lama (pelabuhan/hutan) sudah digantikan satu pertempuran udara
+// delapan menit yang dibentuk mengikuti referensi user (Air Strike 1944):
+// tembakan OTOMATIS lurus ke depan dengan tangga power bintang, BOM pembersih
+// layar, wingman pendamping, gelombang musuh berFORMASI dari atas, instalasi
+// darat yang menggulung naik, peluru musuh berbentuk bola, dan satu bomber boss
+// yang menutup misi. Kontrak ini mengunci semuanya.
+{
+    const C10 = cfgMod.CFG.campaign.stage10.flight;
+    const s10 = await import(R('src/scenes/campaign/stages/stage10/index.js'));
+    const s10world = await import(R('src/scenes/campaign/stages/stage10/flightWorld.js'));
+    const trans10 = await import(R('src/scenes/campaign/utility/transition.js'));
+
+    stateMod.setGameOver(false);
+    T('S10 FLIGHT ENTRY: jump membuka facade tunggal dengan checkpoint 10 dan root flight',
+        trans10.campaignJumpToStage(10) === 10
+        && smMod.activeScene === s10.stage10Scene
+        && save5Mod.loadCampaignStage() === 10
+        && s10.stage10Debug().world.key === 'campaign-10-flight');
+
+    let d10 = s10.stage10Debug();
+    const W10 = s10world.stage10FlightWorld();
+    const expectedRifle3 = cfgMod.CFG.weapons.rifle.damage
+        * (1 + cfgMod.CFG.weapons.upgradeDamagePct * (cfgMod.CFG.weapons.maxWeaponLevel - 1));
+    const expectedLauncher3 = cfgMod.CFG.weapons.launcher.damage
+        * (1 + cfgMod.CFG.weapons.upgradeDamagePct * (cfgMod.CFG.weapons.maxWeaponLevel - 1));
+    T('S10 CAMERA: tepat dari atas, pesawat di bawah layar, arena bergerak independen',
+        s10.stage10Scene.exactTopDown === true
+        && s10.stage10Scene.cameraUp.z === -1
+        && s10.stage10Scene.camOffset.y > 0
+        && d10.camera.playerScreenRegion === 'lower');
+    T('S10 WORLD: medan tiga biome, awan, pesawat 4 MG + 2 meriam, dan seluruh pool referensi',
+        d10.world.terrainTiles >= 3 && d10.world.biomeLayersPerTile === 3
+        && d10.world.clouds > 0 && d10.world.playerAircraft.machineGuns === 4
+        && d10.world.playerAircraft.cannons === 2
+        && d10.world.pools.enemies >= C10.maxEnemies
+        && d10.world.pools.groundTargets >= C10.ground.maxActive
+        && d10.world.pools.wingmen >= C10.wingman.max
+        && d10.world.pools.explosions > 0 && d10.world.pools.drops > 0);
+    T('S10 REFERENSI: instalasi darat, bomber boss dan wingman sudah dipra-bangun',
+        d10.world.groundTargets.kinds.join(',') === 'turret,tank,bunker,depot'
+        && d10.world.boss.prebuilt && !d10.world.boss.visible
+        && d10.world.boss.engines === 4 && d10.world.boss.turrets === 3
+        && d10.world.wingmen.slots === C10.wingman.max
+        && d10.world.wingmen.smallerThanPlayer
+        && d10.world.enemyRoundShape === 'orb');
+    T('S10 SCALE: pesawat player diperkecil dan semua pesawat musuh hanya sedikit lebih kecil',
+        d10.player.visualScale === C10.playerVisualScale && d10.player.visualScale < 1
+        && d10.world.enemyAircraft.smallerThanPlayer
+        && d10.world.enemyAircraft.scaleRatio === C10.enemyAircraftScaleRatio
+        && d10.world.enemyAircraft.scaleRatio >= 0.7
+        && d10.world.enemyAircraft.visualSpan < d10.world.playerAircraft.visualSpan);
+
+    const xBefore = camera.position.x, zBefore = camera.position.z;
+    stateMod.keys.w = true; stateMod.keys.d = true;
+    s10.stage10Scene.updatePlayerControl(0.25);
+    stateMod.keys.w = stateMod.keys.d = false;
+    T('S10 CONTROL: WASD menggerakkan pesawat pada bidang layar',
+        camera.position.x > xBefore && camera.position.z < zBefore);
+    const horizontal10 = s10.stage10Debug().camera.horizontalBounds;
+    stateMod.keys.a = true; s10.stage10Scene.updatePlayerControl(30); stateMod.keys.a = false;
+    const leftEdge10 = camera.position.x;
+    stateMod.keys.d = true; s10.stage10Scene.updatePlayerControl(30); stateMod.keys.d = false;
+    const rightEdge10 = camera.position.x;
+    T('S10 CONTROL EDGE: player mencapai tepi kiri/kanan kamera dengan seluruh badan tetap terlihat',
+        Math.abs(leftEdge10 - horizontal10.x0) < 1e-6
+        && Math.abs(rightEdge10 - horizontal10.x1) < 1e-6
+        && horizontal10.visibleHalf - horizontal10.inset > horizontal10.visibleHalf * 0.85
+        && W10.playerAircraft.position.x === rightEdge10);
+    camera.position.x = s10world.S10_FLIGHT_X;
+    W10.playerAircraft.position.x = s10world.S10_FLIGHT_X;
+
+    // AUTO-FIRE: tanpa satu pun input, satu tick harus melahirkan volley, dan
+    // seluruh butirnya terbang LURUS KE DEPAN (bukan menuju kursor).
+    s10.stage10Scene.updatePlayerCombat(0.2);
+    d10 = s10.stage10Debug();
+    const autoRounds = W10.playerRounds.filter(b => b.active);
+    const symmetricSpread = autoRounds.every(b => b.vz < 0)
+        && Math.abs(autoRounds.reduce((a, b) => a + b.vx, 0)) < 1e-6;
+    T('S10 AUTO-FIRE: senapan menyala sendiri dan seluruh peluru menuju tepi atas layar',
+        d10.weapon.machineGun.autoFire === true && C10.autoFire === true
+        && d10.counters.playerVolleys === 1
+        && autoRounds.length === d10.power.rounds && symmetricSpread);
+
+    const mgProbe = W10.playerRounds.find(b => b.active);
+    const anchorZ10 = s10.stage10Scene.cameraAnchor().z;
+    const mgTopZ = anchorZ10 + d10.weapon.machineGun.screenTopOffset;
+    T('S10 PLAYER RANGE: umur peluru cukup untuk menyentuh tepi atas layar yang ikut scroll',
+        d10.weapon.machineGun.range === 'screen-edge'
+        && mgProbe.life * Math.max(1, -mgProbe.vz - C10.scrollSpeed)
+            >= mgProbe.mesh.position.z - mgTopZ);
+
+    // TANGGA POWER — level patokan = Assault Rifle L3 per volley; tiap bintang
+    // menambah butir DAN total damage, tidak sekadar membagi ulang angka.
+    const ladder10 = d10.power.ladder;
+    T('S10 POWER: level patokan = Assault Rifle level 3, tiap bintang menaikkan volley',
+        d10.power.maxLevel === C10.weaponLevels.length
+        && d10.power.level === C10.startWeaponLevel
+        && Math.abs(ladder10[d10.power.baseLevel - 1].volleyDamage - expectedRifle3) < 1e-9
+        && ladder10.every((s, i) => i === 0
+            || (s.rounds >= ladder10[i - 1].rounds
+                && s.volleyDamage > ladder10[i - 1].volleyDamage)));
+    const levelBefore10 = s10.stage10Debug().power.level;
+    const roundsBefore10 = s10.stage10Debug().power.rounds;
+    s10.stage10FlightGrantDrop('power');
+    d10 = s10.stage10Debug();
+    T('S10 POWER-UP: memungut bintang menaikkan level dan jumlah laras yang menembak',
+        d10.power.level === levelBefore10 + 1 && d10.power.rounds > roundsBefore10
+        && d10.drops.powerUps === 1);
+
+    // WINGMAN — pesawat pendamping ikut menembak, seperti gambar ketiga.
+    s10.stage10FlightGrantDrop('wingman');
+    for (const b of W10.playerRounds) { b.active = false; b.mesh.visible = false; }
+    const wingShotsBefore = s10.stage10Debug().wingmen.shots;
+    s10.stage10Scene.updateMode(0.05);
+    d10 = s10.stage10Debug();
+    T('S10 WINGMAN: escort aktif terbang di samping player dan menembak sendiri',
+        d10.wingmen.active === 1 && d10.wingmen.positions.length === 1
+        && Math.abs(d10.wingmen.positions[0].x - camera.position.x) > 1
+        && d10.wingmen.shots > wingShotsBefore);
+
+    // GELOMBANG FORMASI — inti rasa referensi. Satu panggilan = satu formasi
+    // utuh, lahir di atas layar, turun ke posisi tahan, lalu keluar. Sepanjang
+    // blok ini pertempuran berjalan nyata, jadi player dikebalkan agar yang
+    // diuji adalah perilaku musuh, bukan sisa HP.
+    stateMod.setGodMode(true);
+    s10.stage10FlightClearEnemies();
+    const wave10 = s10.stage10FlightSpawnWave({ formation: 'vee', type: 'airB', size: 5, entry: 'top' });
+    d10 = s10.stage10Debug();
+    const frame10 = d10.enemies.flightFrame;
+    const members10 = wave10.members.map(e => d10.enemies.positions.find(p => p.index === e.index));
+    const distinctHoldX = new Set(members10.map(p => Math.round(p.holdX))).size;
+    T('S10 FORMASI: satu gelombang lahir sebagai formasi utuh di atas layar',
+        wave10.size === 5 && wave10.formation === 'vee'
+        && d10.waves.available.length >= 4
+        && members10.every(p => p.path === 'entry' && p.entryFrom === 'top'
+            && p.z <= frame10.top
+            && p.holdX - p.radius >= frame10.left && p.holdX + p.radius <= frame10.right)
+        && distinctHoldX >= 3
+        && members10.filter(p => p.carriesPower).length <= 1);
+    for (let i = 0; i < 40; i++) s10.stage10Scene.updateMode(0.1);
+    d10 = s10.stage10Debug();
+    const holding10 = wave10.members
+        .map(e => d10.enemies.positions.find(p => p.index === e.index))
+        .filter(Boolean);
+    T('S10 FORMASI: gelombang bertahan di dalam bingkai kamera sebelum menarik diri',
+        holding10.length > 0
+        && holding10.every(p => p.path === 'hold' || p.path === 'exit')
+        && holding10.every(p => p.x - p.radius >= d10.enemies.flightFrame.left
+            && p.x + p.radius <= d10.enemies.flightFrame.right));
+    // Slot pool dipakai ulang gelombang berikutnya, jadi penarikan diri dilacak
+    // per anggota SELAMA ia masih memegang slotnya sendiri.
+    const retired10 = new Set();
+    for (let i = 0; i < 140 && retired10.size < wave10.members.length; i++) {
+        s10.stage10Scene.updateMode(0.1);
+        for (const e of wave10.members)
+            if (!e.active || e.path === 'exit' || e.wave !== wave10.members[0].wave)
+                retired10.add(e.index);
+    }
+    T('S10 FORMASI: sesudah dwell habis formasi menarik diri dan slot pool dibebaskan',
+        C10.waves.dwellSec > 0 && retired10.size === wave10.members.length);
+    s10.stage10FlightClearEnemies();
+
+    // BATAS PESAWAT — formasi boleh padat, tapi tetap dibatasi config.
+    for (let i = 0; i < 12; i++) s10.stage10FlightSpawnWave({ type: 'airB', size: 7 });
+    d10 = s10.stage10Debug();
+    T('S10 ENEMY CAP: pesawat aktif tidak pernah melewati maxAircraftOnScreen',
+        C10.maxAircraftOnScreen >= C10.waves.sizeMax
+        && d10.enemies.activeAircraft <= C10.maxAircraftOnScreen
+        && d10.enemies.activeAircraft > 5);
+    s10.stage10FlightClearEnemies();
+
+    // INSTALASI DARAT — lahir di atas layar, menggulung turun ke arah player,
+    // menembak saat terlihat, dan bisa dihancurkan peluru player.
+    const gy = s10.stage10FlightSpawnGround('turret',
+        camera.position.x, s10.stage10Scene.cameraAnchor().z - 60);
+    gy.fireCd = 0;
+    const groundZ0 = gy.group.position.z;
+    const groundRelBefore = groundZ0 - s10.stage10Scene.cameraAnchor().z;
+    s10.stage10Scene.updateMode(0.05);
+    d10 = s10.stage10Debug();
+    const groundRelAfter = gy.group.position.z - s10.stage10Scene.cameraAnchor().z;
+    T('S10 DARAT: turret menggulung naik ke arah player dan menembak saat terlihat',
+        d10.ground.active === 1 && d10.ground.kinds.length === 4
+        && groundRelAfter > groundRelBefore
+        && d10.projectiles.enemyRounds > 0
+        && d10.projectiles.enemyRoundShape === 'orb');
+    const groundKillsBefore = d10.enemies.destroyed.ground;
+    const groundBoomsBefore = d10.animations.groundExplosions;
+    s10.stage10FlightDamageGround(gy.index, C10.enemies.turret.hp);
+    d10 = s10.stage10Debug();
+    T('S10 DARAT: instalasi hancur meledak dan menjatuhkan item',
+        !gy.active && d10.animations.groundExplosions === groundBoomsBefore + 1
+        && d10.enemies.destroyed.ground === groundKillsBefore + 1);
+
+    // Peluru player harus benar-benar mengenai instalasi darat lewat sapuan
+    // segmen — satu frame boleh melompati seluruh diameter target kecil.
+    for (const b of W10.playerRounds) { b.active = false; b.mesh.visible = false; }
+    s10.stage10Scene.updatePlayerCombat(0.2);
+    const gunProbe = W10.playerRounds.find(b => b.active);
+    const gTarget = s10.stage10FlightSpawnGround('bunker',
+        gunProbe.mesh.position.x + gunProbe.vx * 0.45,
+        gunProbe.mesh.position.z + gunProbe.vz * 0.45);
+    const hitsBefore10 = s10.stage10Debug().counters.machineGunHits;
+    for (let i = 0; i < 30 && s10.stage10Debug().counters.machineGunHits === hitsBefore10; i++)
+        s10.stage10Scene.updateMode(0.05);
+    T('S10 DARAT HIT: sapuan segmen peluru player merusak instalasi darat',
+        s10.stage10Debug().counters.machineGunHits > hitsBefore10
+        && (gTarget.hp < C10.enemies.bunker.hp || !gTarget.active));
+    s10.stage10FlightClearEnemies();
+
+    // BOM — jumlah dari config, satu tekan membersihkan layar DAN peluru musuh.
+    d10 = s10.stage10Debug();
+    const bombsBefore10 = d10.bomb.held;
+    const bombFodder = [];
+    for (let i = 0; i < 4; i++) bombFodder.push(s10.stage10FlightSpawnEnemy('airB',
+        camera.position.x + (i - 2) * 30, camera.position.z - 60));
+    for (const e of bombFodder) e.fireCd = 0;
+    s10.stage10Scene.updateMode(0.05);
+    const orbsBeforeBomb = s10.stage10Debug().projectiles.enemyRounds;
+    const bombUsed10 = s10.stage10FlightUseBomb();
+    d10 = s10.stage10Debug();
+    T('S10 BOM: satu bom menghabiskan stok, menyapu musuh di layar dan membersihkan peluru',
+        bombsBefore10 === C10.bomb.start && bombUsed10 === true
+        && d10.bomb.held === bombsBefore10 - 1 && d10.counters.bombsUsed === 1
+        && orbsBeforeBomb > 0 && d10.projectiles.enemyRounds === 0
+        && bombFodder.every(e => !e.active) && d10.animations.bombFlash === true);
+    const heldNow10 = d10.bomb.held;
+    s10.stage10FlightGrantDrop('bomb');
+    T('S10 BOM: pickup menambah stok dan tidak pernah melewati batas config',
+        s10.stage10Debug().bomb.held === Math.min(C10.bomb.max, heldNow10 + 1)
+        && s10.stage10Debug().bomb.max === C10.bomb.max);
+
+    // TABRAKAN — pesawat musuh berbahaya kalau ditabrak.
+    stateMod.setGodMode(false);
+    s10.stage10FlightSetPlayerHp(C10.playerHp);
+    const hpBeforeRam = s10.stage10Debug().player.hp;
+    const rammer = s10.stage10FlightSpawnEnemy('airC', camera.position.x, camera.position.z);
+    s10.stage10Scene.updateMode(0.02);
+    d10 = s10.stage10Debug();
+    T('S10 TABRAKAN: menabrak pesawat musuh melukai player dan menghancurkan penabrak',
+        !rammer.active && d10.counters.rams > 0 && d10.player.hp < hpBeforeRam);
+    s10.stage10FlightClearEnemies();
+
+    // Ledakan dan item: kelas C menjamin uang, kapal menutup keluarga kedua.
+    let e10 = s10.stage10FlightSpawnEnemy('airC', camera.position.x + 200, camera.position.z - 200);
+    s10.stage10FlightDamageEnemy(e10.index, C10.enemies.airC.hp);
+    s10.stage10Scene.updateMode(0.02);
+    e10 = s10.stage10FlightSpawnEnemy('shipB', camera.position.x + 210, camera.position.z - 200);
+    s10.stage10FlightDamageEnemy(e10.index, C10.enemies.shipB.hp);
+    d10 = s10.stage10Debug();
+    T('S10 FX/DROP: pesawat dan kapal meledak dan menjatuhkan item',
+        d10.animations.aircraftExplosions > 0 && d10.animations.shipExplosions > 0
+        && d10.drops.money >= 1);
+
+    s10.stage10FlightSetPlayerHp(C10.playerHp * 0.4);
+    const hpBeforeHealth = s10.stage10Debug().player.hp;
+    s10.stage10FlightClearEnemies();
+    const healthBefore = s10.stage10Debug().drops.health;
+    for (let i = 0; i < d10.world.pools.enemies
+        && s10.stage10Debug().drops.health === healthBefore; i++) {
+        const shipA = s10.stage10FlightSpawnEnemy('shipA', camera.position.x, camera.position.z);
+        s10.stage10FlightDamageEnemy(shipA.index, C10.enemies.shipA.hp);
+    }
+    s10.stage10Scene.updateMode(0.02);
+    d10 = s10.stage10Debug();
+    T('S10 HEALTH: drop health langsung memulihkan 50% HP maksimum pesawat',
+        d10.drops.health > healthBefore && d10.drops.instant
+        && d10.drops.healthHeal === C10.playerHp * C10.healthHealFraction
+        && d10.player.hp === Math.min(C10.playerHp,
+            hpBeforeHealth + C10.playerHp * C10.healthHealFraction));
+
+    // Kelas ranged: B memakai bola plasma, A memakai rudal homing burst.
+    stateMod.setGodMode(true);
+    s10.stage10FlightClearEnemies();
+    for (const b of W10.enemyRounds) { b.active = false; b.mesh.visible = false; }
+    for (const type of ['airB', 'airA', 'shipA']) {
+        const enemy = s10.stage10FlightSpawnEnemy(type, camera.position.x + 55,
+            s10.stage10Scene.cameraAnchor().z + C10.arenaTopOffset + 35);
+        enemy.fireCd = 0;
+    }
+    // Jeda tembak GLOBAL berarti kelas B menunggu gilirannya, bukan menembak
+    // pada frame yang sama dengan semua musuh lain; rudal dihitung dari yang
+    // DILEPAS, karena rudal yang hidup bisa saja sudah ditembak jatuh player.
+    const fireBase10 = s10.stage10Debug().counters;
+    const roundsBase10 = fireBase10.enemyRounds, missileBase10 = fireBase10.missiles;
+    for (let i = 0; i < 60 && (s10.stage10Debug().counters.enemyRounds === roundsBase10
+        || s10.stage10Debug().counters.missiles < missileBase10 + 2); i++)
+        s10.stage10Scene.updateMode(0.05);
+    d10 = s10.stage10Debug();
+    T('S10 ENEMY FIRE: kelas B memakai bola plasma dan dua kelas A memakai rudal homing burst',
+        d10.counters.enemyRounds > roundsBase10
+        && d10.counters.missiles >= missileBase10 + 2
+        && d10.projectiles.enemyRoundShape === 'orb');
+
+    // TEKANAN TEMBAKAN (2026-08-28, laporan user "tembakan musuh terlalu banyak
+    // dan sangat sulit dihindari") — tiga pagu keras yang diuji pada simulasi
+    // hidup, bukan pada angka config saja.
+    const armedWave10 = s10.stage10FlightSpawnWave({ formation: 'line', type: 'airB', size: 6 });
+    const armedEvery10 = Math.max(1, Math.round(1 / C10.waves.shooterFraction));
+    const armedCount10 = armedWave10.members.filter(e => e.armed).length;
+    T('S10 TEKANAN: hanya sebagian formasi bersenjata, sisanya murni rintangan',
+        C10.waves.shooterFraction < 1 && armedCount10 > 0
+        && armedCount10 === Math.ceil(armedWave10.size / armedEvery10)
+        && armedCount10 < armedWave10.size);
+    s10.stage10FlightClearEnemies();
+
+    trans10.campaignJumpToStage(10);
+    stateMod.setGodMode(true);
+    const tickFlight10 = (dt) => {
+        s10.stage10Scene.updatePlayerControl(dt);
+        s10.stage10Scene.updatePlayerCombat(dt);
+        s10.stage10Scene.updateMode(dt);
+    };
+    for (let i = 0; i < 1400; i++) tickFlight10(0.05);
+    d10 = s10.stage10Debug();
+    const fire10 = d10.enemyFire;
+    T('S10 TEKANAN: peluru dan rudal musuh yang hidup tak pernah melewati pagu config',
+        fire10.peakRounds > 0 && fire10.peakRounds <= fire10.maxActiveRounds
+        && fire10.peakMissiles <= fire10.maxActiveMissiles
+        && fire10.blocked > 0
+        && fire10.maxActiveRounds < d10.world.pools.enemyRounds);
+    T('S10 TEKANAN: ada jeda GLOBAL antar tembakan, jadi tidak pernah ada dinding peluru',
+        fire10.minGapSec > 0 && fire10.gap <= fire10.minGapSec
+        && fire10.aimJitterDeg > 0 && fire10.bulletSpeed < 100);
+
+    // Rudal homing hanya mengejar selama jendela pendek, lalu terbang lurus —
+    // dan boleh ditembak jatuh, sehingga selalu ada jawaban aktif.
+    s10.stage10FlightClearEnemies();
+    for (const m of W10.missiles) { m.active = false; m.mesh.visible = false; }
+    const homer10 = s10.stage10FlightSpawnEnemy('airA',
+        camera.position.x + 320, camera.position.z - 90);
+    homer10.fireCd = 0;
+    for (let i = 0; i < 60 && s10.stage10Debug().projectiles.missiles === 0; i++) {
+        homer10.fireCd = Math.min(homer10.fireCd, 0);
+        homer10.group.position.set(camera.position.x + 320,
+            cfgMod.CFG.campaign.stage10.flight.altitude, camera.position.z - 90);
+        tickFlight10(0.05);
+    }
+    const live10 = W10.missiles.find(m => m.active);
+    for (let i = 0; i < Math.ceil((C10.enemyFire.missileHomeSec + 0.2) / 0.05); i++)
+        tickFlight10(0.05);
+    const lockedAngle10 = live10.angle;
+    const camX10 = camera.position.x;
+    camera.position.x = camX10 - 500;
+    for (let i = 0; i < 6; i++) s10.stage10Scene.updateMode(0.05);
+    void 0;
+    camera.position.x = camX10;
+    T('S10 RUDAL: pengejaran berhenti sesudah missileHomeSec, sesudah itu terbang lurus',
+        C10.enemyFire.missileHomeSec > 0 && live10.active
+        && s10.stage10Debug().enemyFire.missile.homing === 0
+        && Math.abs(live10.angle - lockedAngle10) < 1e-9);
+    // Ditaruh tepat di lintasan sebuah peluru player yang benar-benar hidup,
+    // seperti uji instalasi darat: satu frame boleh melompati diameter rudal.
+    const shotDownBefore10 = s10.stage10Debug().enemyFire.missile.shotDown;
+    for (const b of W10.playerRounds) { b.active = false; b.mesh.visible = false; }
+    s10.stage10Scene.updatePlayerCombat(1);
+    const probe10 = W10.playerRounds.find(b => b.active);
+    const meet10 = 0.3;
+    // Rudal ditahan di tempat tepat pada lintasan peluru: yang diuji murni
+    // "masuk daftar sasaran dan bisa dijatuhkan", bukan geometri kejar-kejaran.
+    live10.angle = Math.PI; live10.homeLeft = 0; live10.speed = 0;
+    live10.hp = C10.enemyFire.missileHp; live10.life = 9;
+    live10.mesh.position.set(probe10.mesh.position.x + probe10.vx * meet10,
+        cfgMod.CFG.campaign.stage10.flight.altitude,
+        probe10.mesh.position.z + probe10.vz * meet10);
+    for (let i = 0; i < 40 && s10.stage10Debug().enemyFire.missile.shotDown === shotDownBefore10; i++)
+        tickFlight10(0.05);
+    T('S10 RUDAL: rudal masuk daftar sasaran peluru player dan bisa ditembak jatuh',
+        C10.enemyFire.missileHp > 0 && C10.enemyFire.missileHitRadius > 0
+        && s10.stage10Debug().enemyFire.missile.shotDown > shotDownBefore10);
+    stateMod.setGodMode(false);
+    s10.stage10FlightSetPlayerHp(C10.playerHp);
+    stateMod.setGodMode(true);
+    s10.stage10FlightClearEnemies();
+
+    s10.stage10FlightSetElapsed(C10.biomes.javaEndSec - 0.01);
+    T('S10 TIMELINE: menit 0–2 Jawa', s10.stage10Debug().biome === 'java');
+    s10.stage10Scene.updateMode(0.02);
+    let blend10 = s10.stage10Debug().biomeTransition;
+    T('S10 TRANSITION: Jawa menuju laut memakai cross-fade dua layer',
+        s10.stage10Debug().biome === 'ocean' && blend10.active
+        && blend10.from === 'java' && blend10.to === 'ocean'
+        && blend10.weights.java > 0 && blend10.weights.ocean > 0);
+    s10.stage10Scene.updateMode(C10.biomes.transitionSec);
+    blend10 = s10.stage10Debug().biomeTransition;
+    T('S10 TIMELINE: menit 3–6 laut sesudah cross-fade selesai',
+        s10.stage10Debug().biome === 'ocean' && !blend10.active
+        && blend10.weights.ocean === 1);
+    s10.stage10FlightSetElapsed(C10.biomes.oceanEndSec - 0.01);
+    s10.stage10Scene.updateMode(0.02);
+    blend10 = s10.stage10Debug().biomeTransition;
+    T('S10 TRANSITION: laut menuju Kalimantan juga memakai cross-fade dua layer',
+        s10.stage10Debug().biome === 'kalimantan' && blend10.active
+        && blend10.from === 'ocean' && blend10.to === 'kalimantan'
+        && blend10.weights.ocean > 0 && blend10.weights.kalimantan > 0);
+    s10.stage10Scene.updateMode(C10.biomes.transitionSec);
+    T('S10 TIMELINE: menit 7–8 Kalimantan sesudah cross-fade selesai',
+        s10.stage10Debug().biome === 'kalimantan'
+        && !s10.stage10Debug().biomeTransition.active
+        && s10.stage10Debug().biomeTransition.weights.kalimantan === 1);
+
+    // BOSS — misi delapan menit ditutup satu bomber, bukan sekadar timer habis.
+    s10.stage10FlightClearEnemies();
+    s10.stage10FlightSetElapsed(C10.durationSec);
+    s10.stage10Scene.updateMode(0.02);
+    d10 = s10.stage10Debug();
+    T('S10 BOSS: timer habis memanggil bomber, spawn gelombang berhenti',
+        d10.phase === 'bossIntro' && d10.boss.active && d10.boss.visible
+        && d10.boss.hp === C10.boss.hp && !d10.spawning);
+    const bossEntryZ = s10.stage10Debug().boss.zOffset;
+    s10.stage10Scene.updateMode(C10.boss.entrySec);
+    d10 = s10.stage10Debug();
+    T('S10 BOSS: bomber terbang masuk sampai posisi tahan lalu mulai bertempur',
+        d10.phase === 'boss' && d10.boss.zOffset > bossEntryZ
+        && Math.abs(d10.boss.zOffset - C10.boss.holdOffset) < 40);
+    for (const b of W10.enemyRounds) { b.active = false; b.mesh.visible = false; }
+    s10.stage10Scene.updateMode(C10.boss.gunDelaySec + 0.1);
+    T('S10 BOSS: turret bomber menembak pola bola plasma ke arah player',
+        s10.stage10Debug().projectiles.enemyRounds >= C10.boss.gunSpread);
+    const bossHpBefore = s10.stage10Debug().boss.hp;
+    s10.stage10FlightDamageBoss(C10.boss.hp * (1 - C10.boss.enrageHpFrac) + 1);
+    T('S10 BOSS: melewati ambang enrage mengubah perilaku, HP tetap turun',
+        s10.stage10Debug().boss.hp < bossHpBefore && s10.stage10Debug().boss.enraged);
+    s10.stage10FlightDamageBoss(C10.boss.hp);
+    d10 = s10.stage10Debug();
+    T('S10 BOSS: HP habis memulai animasi jatuh sebelum stage boleh selesai',
+        d10.boss.dying && d10.phase === 'boss' && d10.animations.bossExplosions > 0
+        && !d10.transitionCommitted);
+    s10.stage10Scene.updateMode(C10.boss.deathSec + 0.1);
+    T('S10 BOSS: bomber jatuh dulu, baru airspace dinyatakan bersih',
+        s10.stage10Debug().phase === 'victory'
+        && !s10.stage10Debug().boss.active && !s10.stage10Debug().boss.visible);
+    s10.stage10Scene.updateMode(C10.clearDelaySec - 0.05);
+    T('S10 FINISH HOLD: belum selesai sebelum jeda lima detik penuh',
+        !s10.stage10Debug().transitionCommitted);
+    s10.stage10Scene.updateMode(0.1);
+    T('S10 FINISH: sesudah boss jatuh + lima detik, hanya satu gateway ke Stage 11',
+        s10.stage10Debug().transitionCommitted && stateMod.isGameOver
+        && dom4.gameOverTitle.innerText === 'STAGE 10 COMPLETE');
+    stateMod.setGodMode(false);
+
+    stateMod.setGameOver(false);
+    trans10.campaignJumpToStage(10);
+    s10.stage10FlightDamagePlayer(C10.playerHp);
+    s10.stage10Scene.updateMode(0.1);
+    T('S10 PLAYER DEATH: HP pesawat 1000 memulai ledakan bertahap sebelum game over',
+        s10.stage10Debug().player.maxHp === C10.playerHp
+        && s10.stage10Debug().phase === 'playerDestroyed'
+        && s10.stage10Debug().animations.playerExplosion
+        && !stateMod.isGameOver);
+    s10.stage10Scene.updateMode(2.8);
+    T('S10 PLAYER DEATH: animasi selesai dahulu, lalu game over AIRCRAFT DESTROYED',
+        stateMod.isGameOver && dom4.gameOverTitle.innerText === 'AIRCRAFT DESTROYED');
+    stateMod.setGameOver(false);
 }
 
 // --- 25d. CAMPAIGN STAGE 11 — NUSANTARA ROOT -----------------------------
@@ -17014,7 +17468,7 @@ if (false) {
         const keys = regO.campaignWorldRegistryDebug().worlds.map(w => w.key);
         const wanted = ['campaign-1', 'campaign-2', 'campaign-3', 'campaign-4', 'campaign-5',
             'campaign-6', 'campaign-6-hq', 'campaign-7', 'campaign-8', 'campaign-9',
-            'campaign-10-port', 'campaign-10-forest',
+            'campaign-10-flight',
             'campaign-11-surface', 'campaign-11-root', 'campaign-12'];
         T(`S1-12 ROOT DUNIA: setiap stage/chapter punya root terdaftar [${keys.length}]`,
             wanted.every(k => keys.includes(k)));
@@ -17081,7 +17535,7 @@ if (false) {
         // Stage 6/12 yang memilih root-nya sendiri di enter()).
         {
             const expected = {
-                10: 'campaign-10-port', 11: 'campaign-11-surface',
+                10: 'campaign-10-flight', 11: 'campaign-11-surface',
             };
             let wrong = '';
             for (let n = 1; n <= 12; n++) {
@@ -17161,8 +17615,6 @@ if (false) {
         const s6h = await import(R('src/scenes/campaign/stages/stage6/hqWorld.js'));
         const s7o = await import(R('src/scenes/campaign/stages/stage7/index.js'));
         const s9w = await import(R('src/scenes/campaign/stages/stage9/world.js'));
-        const s10p = await import(R('src/scenes/campaign/stages/stage10/portWorld.js'));
-        const s10f = await import(R('src/scenes/campaign/stages/stage10/forestWorld.js'));
         const s11s = await import(R('src/scenes/campaign/stages/stage11/surfaceWorld.js'));
         const s11r = await import(R('src/scenes/campaign/stages/stage11/rootWorld.js'));
         const s12w = await import(R('src/scenes/campaign/stages/stage12/world.js'));
@@ -17176,8 +17628,6 @@ if (false) {
             ['6 HQ', s6h.hqWorldDebug().occluders],
             ['7 lalu lintas', s7o.stage7WorldDebug().occluders],
             ['9 apron', s9w.stage9WorldDebug().occluders],
-            ['10 pelabuhan', s10p.stage10WorldDebug().occluders],
-            ['10 hutan', s10f.stage10ForestWorldDebug().occluders],
             ['11 permukaan', s11s.stage11SurfaceWorldDebug().occluders],
             ['11 akar', s11r.stage11RootWorldDebug().occluders],
             ['12 monas', s12w.stage12WorldDebug().occluders],
@@ -17201,7 +17651,7 @@ if (false) {
     //     Dipakai stage 10 (peti kemas pelabuhan): occluder besar dan terbuka,
     //     jadi hasilnya tak ambigu.
     {
-        const key = 'campaign-10-port';
+        const key = 'campaign-9';
         const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
         const keepRobots = robots.slice();
         robots.length = 0;
@@ -17250,7 +17700,7 @@ if (false) {
     //     TIDAK memudar — ia tak menghalangi apa pun. Inilah pembeda uji garis
     //     pandang dari uji jarak yang dipakai hutan/Monas sebelumnya.
     {
-        const key = 'campaign-10-port';
+        const key = 'campaign-9';
         const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
         const keepRobots = robots.slice();
         robots.length = 0;

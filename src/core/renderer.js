@@ -217,10 +217,20 @@ export function followViewCam(dt = 0) {
         camFocusReady = true;
         _prevPX = p.x; _prevPZ = p.z;
     }
+    // Scene kendaraan dapat memasok anchor kamera yang bergerak sendiri. Stage
+    // 10 flight memakainya agar arena terus scroll sementara pesawat bebas
+    // bergerak di bagian bawah layar.
+    const sceneAnchor = activeScene?.cameraAnchor?.() || null;
+    if (sceneAnchor) {
+        camFocus.set(sceneAnchor.x, sceneAnchor.y || 0, sceneAnchor.z);
+        camFocusReady = true;
+    }
     // Deteksi gerak dari perpindahan pivot sejak frame lalu.
     const movedSq = (p.x - _prevPX) * (p.x - _prevPX) + (p.z - _prevPZ) * (p.z - _prevPZ);
     _prevPX = p.x; _prevPZ = p.z;
-    if (cineFocus) {
+    if (sceneAnchor) {
+        // Sudah dipatok di atas; lewati dead-zone/recenter player darat.
+    } else if (cineFocus) {
         // PAN SINEMATIK: ease halus menuju titik override (abaikan dead-zone;
         // pan panjang tidak memicu snap karena guard di atas).
         const kc = 1 - Math.exp(-CINE_PAN_RATE * dt);
@@ -241,7 +251,7 @@ export function followViewCam(dt = 0) {
         camFocus.x += (p.x - camFocus.x) * k;
         camFocus.z += (p.z - camFocus.z) * k;
     }
-    camFocus.y = p.y;   // vertikal: ikut penuh (tanpa dead-zone)
+    if (!sceneAnchor) camFocus.y = p.y;   // vertikal: ikut penuh (tanpa dead-zone)
 
     // BATAS ARENA (2026-07-17, hook scene opsional): jepit fokus supaya tapak-
     // pandang (proyeksi 4 sudut layar ke tanah) tak melewati rect `camBounds()`
@@ -260,8 +270,14 @@ export function followViewCam(dt = 0) {
     const offX = (CAM_OFF.x * co - CAM_OFF.z * so) * dcZoom;
     const offZ = (CAM_OFF.x * so + CAM_OFF.z * co) * dcZoom;
     viewCam.position.set(camFocus.x + offX, camFocus.y + CAM_OFF.y * dcZoom, camFocus.z + offZ);
+    const customUp = activeScene?.cameraUp;
+    if (viewCam.up && typeof viewCam.up.set === 'function') {
+        if (customUp) viewCam.up.set(customUp.x, customUp.y, customUp.z);
+        else viewCam.up.set(0, 1, 0);
+    }
     // Target sedikit di bawah titik fokus -> lebih banyak dunia terlihat ke atas layar.
-    viewCam.lookAt(camFocus.x, camFocus.y - CAM_LOOK_DROP, camFocus.z);
+    const lookDrop = activeScene?.exactTopDown ? 0 : CAM_LOOK_DROP;
+    viewCam.lookAt(camFocus.x, camFocus.y - lookDrop, camFocus.z);
     // Dutch angle: MIRING di sumbu pandang (setelah lookAt) — hanya saat mati.
     if (dcTilt) viewCam.rotateZ(dcTilt);
     // Guncangan sinematik: jitter posisi acak yang meluruh (Monas runtuh).

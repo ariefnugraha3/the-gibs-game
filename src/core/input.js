@@ -34,6 +34,7 @@ let hasStarted = false;
 export const aimPoint = new THREE.Vector3(0, 0, -1);
 let curX = window.innerWidth / 2, curY = window.innerHeight / 2;
 let aimCursorEl = null;
+let aimCursorOverride = null;
 const _aimV = new THREE.Vector3();
 
 function placeAimCursor() {
@@ -43,7 +44,12 @@ function placeAimCursor() {
 
 function showAimCursor(on) {
     if (!aimCursorEl) aimCursorEl = document.getElementById('aimCursor');
-    if (aimCursorEl) aimCursorEl.style.display = on ? 'block' : 'none';
+    if (aimCursorEl) aimCursorEl.style.display = (aimCursorOverride ?? on) ? 'block' : 'none';
+}
+
+export function setAimCursorOverride(value = null) {
+    aimCursorOverride = value == null ? null : !!value;
+    showAimCursor(document.pointerLockElement === document.body);
 }
 
 // Dipanggil animate() SEBELUM updateGame: segarkan aimPoint + yaw pivot.
@@ -81,6 +87,7 @@ export function releaseInputs() {
     setAiming(false);
     clearMoveTarget();  // gerak klik-kanan berhenti saat pause/blur/reset
     for (const k in keys) keys[k] = false;
+    activeScene?.releaseSceneInputs?.();
     // Catatan: shop survival TIDAK ditutup di sini — ia MODAL (game di-pause,
     // pointer sengaja dilepas untuk kursor). Ditutup hanya oleh Start Next Wave
     // atau saat scene di-enter ulang (reset). Blur/unlock membiarkannya terbuka.
@@ -138,6 +145,7 @@ export function initInput() {
     // dihapus 2026-07-11 — diganti weapon Grenade Launcher.) -----
     document.addEventListener('mousedown', (e) => {
         if (isPaused || isGameOver || cinematicActive) return;   // cutscene: klik ditelan
+        if (activeScene?.pointerInput?.(e.button, true) === true) return;
         if (e.button === 2) {
             if (activeScene && activeScene.allowsPlayerAction
                 && activeScene.allowsPlayerAction('moveTarget') === false) return;
@@ -149,6 +157,7 @@ export function initInput() {
         mouse.isDown = true;   // tembak / tahan utk channel medkit
     });
     document.addEventListener('mouseup', (e) => {
+        if (activeScene?.pointerInput?.(e.button, false) === true) return;
         if (e.button === 0) mouse.isDown = false;
     });
     document.addEventListener('contextmenu', e => e.preventDefault());
@@ -186,6 +195,13 @@ export function initInput() {
             e.preventDefault();
             return;
         }
+        // Hook gameplay scene tidak boleh menelan Space pada layar game-over:
+        // tombol itu tetap milik aksi CONTINUE/RESTART global.
+        if (!isPaused && !isGameOver
+            && activeScene?.keyInput?.(key, true, e.code, e.repeat) === true) {
+            e.preventDefault();
+            return;
+        }
         if (keys.hasOwnProperty(key)) {
             keys[key] = true;
             // WASD MEMBATALKAN gerak klik-kanan (kontrol top-down 2026-07-11)
@@ -216,6 +232,10 @@ export function initInput() {
     });
     window.addEventListener('keyup', (e) => {
         const key = e.key.toLowerCase();
+        if (activeScene?.keyInput?.(key, false, e.code, false) === true) {
+            e.preventDefault();
+            return;
+        }
         if (keys.hasOwnProperty(key)) keys[key] = false;
     });
     window.addEventListener('blur', releaseInputs);   // bug fix: Alt-Tab meninggalkan tombol tertekan
