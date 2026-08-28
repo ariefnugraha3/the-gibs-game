@@ -5,7 +5,7 @@
 // semua scene: cakaran, animasi rig, dan hit test peluru.
 
 import { CFG, CAMP_M } from '../core/config.js';
-import { player, robots, bullets, enemyBullets, addScore, stats, _dir, godMode, dodgeInvuln, GEO, MAT } from '../core/state.js';
+import { player, robots, bullets, enemyBullets, addScore, stats, _dir, godMode, dodgeInvuln, GEO, MAT, makeEnemyBulletMesh } from '../core/state.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
 import { rand, clamp, segPointDist2 } from '../utils/math.js';
@@ -1008,8 +1008,11 @@ export function fireRobotBullet(z, tx, ty, tz, monasDmg = 0) {
     const gz = tz != null ? tz : camera.position.z;
     const dx = gx - _ebPos.x, dz = gz - _ebPos.z;
     const d = Math.hypot(dx, dz) || 1;
-    const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
-    m.scale.setScalar(1.05);   // bola plasma biru kecil (dikecilkan dari 1.7)
+    // BOLT PLASMA (2026-08-28): dulu `scale.setScalar(1.05)` = bola ~1,7 unit
+    // yang tak terlihat dari kamera oblique. Kini coretan panjang + selubung
+    // pijar dari pabrik bersama makeEnemyBulletMesh (core/state.js), diputar
+    // searah terbangnya. Murni visual — hit test tetap titik pusat vs player.radius.
+    const m = makeEnemyBulletMesh(dx / d, dz / d);
     m.position.copy(_ebPos);
     const b = {
         mesh: m, dir: _ebDir.set(dx / d, 0, dz / d).clone(),
@@ -1041,8 +1044,10 @@ export function fireRobotBullet(z, tx, ty, tz, monasDmg = 0) {
     // dari udara. Pool tetap di effects.js (TANPA PointLight: jumlah lampu wajib
     // konstan), ditaruh di titik dunia moncong yang meletus & diputar ke arah
     // tembak. Kelas A (dua laras besar) berkilat lebih besar dari B.
+    // Kilat DIBESARKAN 2026-08-28 (5,2/4,0 -> 7,6/6,0) bersama pembesaran bolt:
+    // "tembakan"-nya sendiri harus terbaca sebagai letusan dari jarak kamera.
     spawnMuzzleFlash(_ebPos.x, _ebPos.y, _ebPos.z, Math.atan2(dx / d, dz / d),
-        (z.kind === 'A' ? 5.2 : 4.0) * (z.scl || 1));
+        (z.kind === 'A' ? 7.6 : 6.0) * (z.scl || 1));
 }
 
 // Gerak & hit peluru MUSUH -> player. Sweep segmen (anti-tunnel peluru cepat);
@@ -1056,8 +1061,7 @@ export function fireRobotBullet(z, tx, ty, tz, monasDmg = 0) {
 // menembak lurus ke titik yang sudah dikunci.
 export function spawnTurretBullet(x, y, z, tx, tz, speed, dmg) {
     const dx = tx - x, dz = tz - z, d = Math.hypot(dx, dz) || 1;
-    const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
-    m.scale.setScalar(1.05);
+    const m = makeEnemyBulletMesh(dx / d, dz / d);
     m.position.set(x, y, z);
     scene.add(m);
     enemyBullets.push({
@@ -1067,7 +1071,7 @@ export function spawnTurretBullet(x, y, z, tx, tz, speed, dmg) {
     });
     const pd = Math.hypot(x - camera.position.x, z - camera.position.z);
     if (pd < 400) playSFX(sfxRobotShot, Math.max(0.12, 0.45 * (1 - pd / 400)));
-    spawnMuzzleFlash(x, y, z, Math.atan2(dx / d, dz / d), 4.6);
+    spawnMuzzleFlash(x, y, z, Math.atan2(dx / d, dz / d), 6.9);
     return m;
 }
 

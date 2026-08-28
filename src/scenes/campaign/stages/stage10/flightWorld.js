@@ -245,7 +245,10 @@ function buildAircraftVariant(parent, M, type) {
     const mat = type === 'airC' ? M.airC : type === 'airB' ? M.airB : M.airA;
     box(g, mat, type === 'airA' ? 6.5 : 5.2, 2.2, type === 'airA' ? 16 : 13, 0, 0, 0);
     const nose = mesh(g, new THREE.ConeGeometry(type === 'airA' ? 3.4 : 2.8, 7, 5), mat, 0, 0, 9.2);
-    nose.rotation.x = -Math.PI * 0.5;
+    // ConeGeometry meruncing ke local +Y. Pesawat musuh terbang dengan local
+    // +Z sebagai arah depan, jadi putar +90° agar ujungnya menghadap ke depan;
+    // -90° membuat alas kerucut berada di moncong dan ujungnya masuk ke badan.
+    nose.rotation.x = Math.PI * 0.5;
     const wing = box(g, mat, type === 'airC' ? 17 : type === 'airB' ? 20 : 23,
         0.75, type === 'airC' ? 5 : 6.5, 0, 0.15, -0.5);
     wing.rotation.y = type === 'airC' ? 0 : 0.06;

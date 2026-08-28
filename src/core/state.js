@@ -184,10 +184,60 @@ export const GEO = {
 };
 export const MAT = {
     bullet: new THREE.MeshBasicMaterial({ color: 0xffe27a, toneMapped: false }),       // tracer terang (ikut bloom)
-    enemyBullet: new THREE.MeshBasicMaterial({ color: 0x55b8ff, toneMapped: false }),   // peluru robot (BIRU plasma, beda dari tracer kuning player)
+    enemyBullet: new THREE.MeshBasicMaterial({ color: 0x55b8ff, toneMapped: false }),   // INTI peluru robot (BIRU plasma, warna sinyal gameplay yang dipatok proyek)
+    // Selubung/HALO peluru musuh (2026-08-28). Warna & opasitasnya menyalin PERSIS
+    // bahasa visual "bola besar + halo" yang sudah dipatok Stage 10
+    // (`M.enemyRound`/`M.enemyHalo` di stage10/flightWorld.js) supaya seluruh
+    // tembakan musuh di game ini terbaca sama. Program shader-nya SAMA dgn
+    // MeshBasicMaterial lain (transparan/depthWrite hanya state GL, bukan define)
+    // -> tak ada rekompilasi di tengah permainan; tetap ikut dipanaskan di
+    // preload lewat makeEnemyBulletMesh().
+    enemyBulletGlow: new THREE.MeshBasicMaterial({
+        color: 0x9fdcff, transparent: true, opacity: 0.5,
+        depthWrite: false, toneMapped: false
+    }),
     grenade: new THREE.MeshLambertMaterial({ color: 0x2ecc71, emissive: 0x0a3d1e }),
     dropNade: new THREE.MeshLambertMaterial({ color: 0x2ecc71, emissive: 0x0e4d24 }),
 };
+
+// ===== PELURU MUSUH = BOLT PLASMA YANG TERBACA (2026-08-28, permintaan user
+// "tembakan dan peluru musuh terlalu kecil dan sulit terlihat") ==============
+// Dulu setiap pemanggil menyalin sendiri `new THREE.Mesh(GEO.bullet,
+// MAT.enemyBullet)` + `scale.setScalar(1.05)`: bola biru berdiameter ~1,7 unit
+// (~24 cm) yang praktis lenyap di kamera oblique sejauh ~154 unit. Sekarang ada
+// SATU pabrik bersama (robots.js, tank.js, combatGunship.js, preload.js) supaya
+// ukurannya seragam dan cukup disetel di satu tempat.
+//
+// Bentuknya: inti bola GEO.bullet yang DIREGANGKAN searah terbang (coretan, bukan
+// titik — mata jauh lebih mudah menangkap garis bergerak daripada titik kecil)
+// + satu selubung pijar sebagai ANAK mesh. Anak ikut skala induk, jadi selubung
+// otomatis memanjang mengikuti bolt-nya.
+//
+// PENTING: hit test peluru musuh TIDAK memakai ukuran mesh ini sama sekali
+// (updateEnemyBullets menyapu segmen titik-pusat terhadap player.radius), jadi
+// mengubah angka di sini murni visual — jangan "menyeimbangkan" gameplay lewatnya.
+// `w`/`len` = skala inti terhadap GEO.bullet (bola r 0,8), jadi lebar dunia =
+// 2 x 0,8 x w = 5,12 unit (~0,73 m) dan panjang = 11,2 unit (~1,6 m). Lebarnya
+// SENGAJA >= radius badan player: sesuatu yang wajib disadari & dihindari tak
+// boleh lebih tipis dari badan yang menghindarinya. `glowW`/`glowLen` = skala
+// halo RELATIF terhadap induk — z-nya dikompensasi supaya halonya jadi selubung
+// yang membungkus bolt, bukan coretan panjang kedua.
+export const EB_BOLT = { w: 3.2, len: 7.0, glowW: 1.6, glowLen: 1.15 };
+
+// dirX/dirZ = arah terbang di bidang tanah (sumbu panjang diputar mengikutinya —
+// tanpa ini bolt tampak MELINTANG arah jalannya). `len` opsional = panjang
+// coretan (senapan mesin gunship memakai coretan lebih panjang).
+export function makeEnemyBulletMesh(dirX = 0, dirZ = 1, len = EB_BOLT.len) {
+    const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
+    m.scale.set(EB_BOLT.w, EB_BOLT.w, len);
+    m.rotation.y = Math.atan2(dirX, dirZ);
+    const glow = new THREE.Mesh(GEO.bullet, MAT.enemyBulletGlow);
+    // Anak mewarisi skala induk, jadi z-nya dibagi ulang agar panjang halo =
+    // panjang inti x glowLen berapa pun `len` yang dipakai pemanggil.
+    glow.scale.set(EB_BOLT.glowW, EB_BOLT.glowW, EB_BOLT.glowLen);
+    m.add(glow);
+    return m;
+}
 
 // Vektor scratch yang dipakai ulang tiap frame (hindari alokasi di loop)
 export const _dir = new THREE.Vector3();
@@ -202,7 +252,7 @@ export const _kickEuler = new THREE.Euler(0, 0, 0, 'YXZ');                // ten
 export function clearArray(arr, scene) {
     arr.forEach(o => {
         if (o.mesh.material && o.mesh.material.dispose && o.mesh.material !== MAT.bullet
-            && o.mesh.material !== MAT.enemyBullet
+            && o.mesh.material !== MAT.enemyBullet && o.mesh.material !== MAT.enemyBulletGlow
             && o.mesh.material !== MAT.grenade && o.mesh.material !== MAT.dropNade) o.mesh.material.dispose();
         if (o.light) o.light.intensity = 0;   // lampu pool: cukup dipadamkan, tetap di scene
         scene.remove(o.mesh);

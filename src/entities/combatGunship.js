@@ -28,7 +28,7 @@
 
 import { CFG } from '../core/config.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
-import { bullets, enemyBullets, GEO, MAT, player, stats } from '../core/state.js';
+import { bullets, enemyBullets, GEO, MAT, player, stats, makeEnemyBulletMesh } from '../core/state.js';
 import { queueBoom } from './robots.js';
 import { explodeAt, spawnGroundPuff } from './effects.js';
 import { spawnGibs } from './gore.js';
@@ -80,7 +80,14 @@ function mk(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
 // jauh sebelum detail permukaan.
 const MISSILE_SCALE = 2.9, SHELL_SCALE = 3.9;
 // Tracer MG: panjang searah jalan, bukan melintang (lihat `fireMG`).
-const MG_TRACER_LEN = 9;
+// Panjang coretan tracer MG gunship. Diekspor (2026-08-28) karena panjang bolt
+// peluru musuh kini milik pabrik bersama `makeEnemyBulletMesh`: gunship sengaja
+// memakai coretan LEBIH PANJANG dari bolt robot biasa, dan smoke menjaga relasi
+// itu tanpa mematok angkanya. DINAIKKAN 9 -> 13 bersama pelebaran bolt bersama
+// (EB_BOLT.w 2,1 -> 3,2): tracer gunship wajib tetap berupa CORETAN (rasio >3:1,
+// kontrak 2026-08-18 "peluru machine gun malah melintang"), dan pada lebar baru
+// panjang 9 sudah tak memenuhinya lagi.
+export const MG_TRACER_LEN = 13;
 // Putaran alur shell meriam (rad/detik): gerak yang MEMBEDAKANNYA dari rudal,
 // yang justru membelok mulus mengikuti player.
 const SHELL_SPIN = 9;
@@ -476,19 +483,18 @@ function fireMG(g, ctx) {
     const tz = laneZ(ctx, g.targetLane);
     const dx = camera.position.x - sx, dy = camera.position.y - sy, dz = tz - sz;
     const dl = Math.hypot(dx, dy, dz) || 1;
-    const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
     // TRACER MEMANJANG SEARAH JALAN (2026-08-18, laporan user "peluru machine gun
     // malah melintang"). `GEO.bullet` adalah BOLA, jadi `scale` sajalah yang
     // memanjangkannya — dan versi lama memanjangkannya pada sumbu Z sementara
     // pelurunya terbang di sumbu -X, sehingga tiap tracer terlihat MELINTANG
     // jalan seperti palang. Sumbu panjangnya diambil dari ARAH TEMBAK itu
     // sendiri, bukan dipatok, supaya tetap benar kalau arahnya berubah:
-    // `atan2(dx, dz)` memutar +z lokal ke arah terbangnya.
+    // `atan2(dx, dz)` memutar +z lokal ke arah terbangnya — kini dikerjakan oleh
+    // pabrik bersama makeEnemyBulletMesh (2026-08-28), yang juga memberi lebar
+    // + selubung pijar yang sama dengan peluru musuh lain. MG_TRACER_LEN tetap
+    // dipakai: coretannya sengaja lebih panjang dari bolt robot biasa.
     const dir = new THREE.Vector3(dx / dl, dy / dl, dz / dl);
-    m.scale.set(1.15, 1.15, MG_TRACER_LEN);
-    // Sumbu panjang tracer mengikuti arah terbangnya DI BIDANG TANAH — itulah
-    // arah coretan yang benar-benar terlihat dari kamera oblique.
-    m.rotation.y = Math.atan2(dir.x, dir.z);
+    const m = makeEnemyBulletMesh(dir.x, dir.z, MG_TRACER_LEN);
     m.position.set(sx, sy, sz); scene.add(m);
     enemyBullets.push({
         mesh: m, dir, speed: C.mgBulletSpeed,

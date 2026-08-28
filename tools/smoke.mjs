@@ -16496,6 +16496,16 @@ if (false) {
         && d10.world.enemyAircraft.scaleRatio === C10.enemyAircraftScaleRatio
         && d10.world.enemyAircraft.scaleRatio >= 0.7
         && d10.world.enemyAircraft.visualSpan < d10.world.playerAircraft.visualSpan);
+    const enemyNoses10 = ['airC', 'airB', 'airA'].flatMap(type => {
+        const cones = [];
+        W10.enemies[0].variants[type].traverse(o => {
+            if (o.geometry?.type === 'cone' || o.geometry?.type === 'ConeGeometry') cones.push(o);
+        });
+        return cones;
+    });
+    T('S10 SILUET: moncong ketiga kelas pesawat musuh meruncing ke depan (+z), bukan masuk ke badan',
+        enemyNoses10.length === 3
+        && enemyNoses10.every(nose => nose.position.z > 0 && Math.sin(nose.rotation.x) > 0.99));
 
     const xBefore = camera.position.x, zBefore = camera.position.z;
     stateMod.keys.w = true; stateMod.keys.d = true;
@@ -17996,6 +18006,188 @@ if (false) {
     T('S1 KILL-SWITCH: enter() juga menempatkan garnisun ber-pengali (' + s1m29.s1Wave1Count() + ')',
         robots.filter(z => z.stage === 1).length === s1m29.s1Wave1Count());
     while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
+}
+
+// --- 30. KETERBACAAN TEMBAKAN MUSUH + ITEM UANG/HEAL (2026-08-28, permintaan
+//     user: "tembakan dan peluru musuh terlalu kecil dan sulit terlihat" +
+//     "item uang dan heal juga terlalu kecil"). Semua assert bersifat RELASI
+//     (dibandingkan dgn skala dunia CAMP_M / player.radius / konstanta yang
+//     diekspor), bukan angka visual yang dipatok — retune bebas, aturannya tetap.
+{
+    const drops30 = await import(R('src/entities/drops.js'));
+    const gunship30 = await import(R('src/entities/combatGunship.js'));
+    const M30 = cfgMod.CAMP_M;
+    const RSPH = 0.8;   // radius GEO.bullet (SphereGeometry(0.8, ...)) di state.js
+    const bolt = stateMod.EB_BOLT;
+
+    // (a) SATU PABRIK: tak boleh ada lagi penyalin `new THREE.Mesh(GEO.bullet,
+    //     MAT.enemyBullet)` di luar core/state.js — itulah cara ukuran peluru
+    //     musuh bisa diam-diam mengecil lagi di satu pemanggil saja.
+    {
+        const roots = ['src/entities', 'src/scenes', 'src/core'];
+        const files = [];
+        const walk = (d) => {
+            for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+                const full = d + '/' + e.name;
+                if (e.isDirectory()) walk(full);
+                else if (e.name.endsWith('.js')) files.push(full);
+            }
+        };
+        roots.forEach(r => walk(ROOT + '/' + r));
+        const strays = files.filter(f => f !== ROOT + '/src/core/state.js'
+            && /new\s+THREE\.Mesh\(\s*GEO\.bullet\s*,\s*MAT\.enemyBullet\s*\)/.test(
+                fs.readFileSync(f, 'utf8')));
+        T('PELURU MUSUH: hanya core/state.js yang merakit mesh-nya (makeEnemyBulletMesh)'
+            + (strays.length ? ' [' + strays[0].replace(ROOT + '/', '') + ']' : ''),
+            strays.length === 0 && typeof stateMod.makeEnemyBulletMesh === 'function');
+    }
+
+    // (b) BENTUK: coretan searah terbang (bukan titik), sumbu panjang benar-benar
+    //     diputar ke arah tembaknya, dan ada HALO memakai material BERSAMA.
+    {
+        const dirX = Math.SQRT1_2, dirZ = -Math.SQRT1_2;
+        const m = stateMod.makeEnemyBulletMesh(dirX, dirZ);
+        const glow = m.children.find(c => c.material === stateMod.MAT.enemyBulletGlow);
+        // Sumbu panjang lokal (+z) diputar rotation.y -> harus sejajar arah tembak.
+        const ax = Math.sin(m.rotation.y), az = Math.cos(m.rotation.y);
+        T('PELURU MUSUH: sumbu panjang tracer MENGIKUTI arah terbang (bukan dipatok)',
+            Math.abs(ax * dirX + az * dirZ - 1) < 1e-9);
+        T('PELURU MUSUH: berbentuk CORETAN — panjang > lebar (mata menangkap garis bergerak)',
+            m.scale.z > m.scale.x && m.scale.x === m.scale.y && bolt.len > bolt.w);
+        T('PELURU MUSUH: punya HALO dgn material BERSAMA (clearArray tak boleh dispose)',
+            !!glow && glow.scale.x > 1 && stateMod.MAT.enemyBulletGlow.transparent === true);
+        // Halo = SELUBUNG yang membungkus bolt: lebih lebar dari inti, dan
+        // panjangnya dikompensasi agar tidak jadi coretan panjang kedua.
+        T('PELURU MUSUH: halo membungkus bolt (lebih lebar, panjang terkendali)',
+            bolt.glowW > 1 && bolt.glowLen >= 1 && bolt.glowLen < bolt.glowW);
+        // Warna: INTI tetap biru plasma musuh (warna sinyal gameplay yang dipatok
+        // proyek) dan halonya menyalin bahasa visual Stage 10 — keduanya bukan
+        // warna terlarang.
+        T('PELURU MUSUH: inti tetap BIRU plasma musuh & halo bukan warna terlarang',
+            stateMod.MAT.enemyBullet.color.getHex() === 0x55b8ff
+            && !palMod.FORBIDDEN_HEX.includes(stateMod.MAT.enemyBulletGlow.color.getHex()));
+
+        // (c) UKURAN: diukur terhadap dunia, bukan selera. Sebuah peluru yang harus
+        //     disadari & dihindari minimal selebar radius badan player, dan
+        //     panjangnya minimal satu METER (CAMP_M) supaya terbaca dari kamera
+        //     oblique yang jauh. Halo wajib lebih besar dari intinya.
+        const wUnits = 2 * RSPH * bolt.w, lUnits = 2 * RSPH * bolt.len;
+        T('PELURU MUSUH: lebar >= radius badan player (' + wUnits.toFixed(2)
+            + ' >= ' + cfgMod.CFG.player.radius + ')', wUnits >= cfgMod.CFG.player.radius);
+        T('PELURU MUSUH: panjang >= 1 meter dunia (' + lUnits.toFixed(2)
+            + ' >= ' + M30 + ')', lUnits >= M30);
+        T('PELURU MUSUH: halo lebih besar dari inti', bolt.glowW > 1);
+        scene.remove(m);
+    }
+
+    // (d) SEMUA JALUR SPAWN memakai bentuk itu: robot A/B, turret, MG tank, MG
+    //     gunship (gunship sengaja memakai coretan LEBIH PANJANG dari bolt biasa).
+    {
+        while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
+        // Scene aktif di titik ini adalah stage campaign (bagian 29) — hook
+        // bulletBlocked-nya akan membuang tiap peluru uji. Dipinjam sebentar.
+        const prevBlocked30 = smMod.activeScene.bulletBlocked;
+        smMod.activeScene.bulletBlocked = () => false;
+        const zr = mkBot('B', 0, 40); zr.rig = null;
+        camera.position.set(0, 11.4, 0);
+        robotsMod.fireRobotBullet(zr, 0, 0, 0);
+        const eb = enemyBullets[enemyBullets.length - 1];
+        const hasGlow = (mesh) => mesh.children.some(c => c.material === stateMod.MAT.enemyBulletGlow);
+        T('PELURU MUSUH: tembakan robot ranged lahir sbg bolt + halo',
+            !!eb && eb.mesh.scale.z === bolt.len && hasGlow(eb.mesh));
+        robotsMod.spawnTurretBullet(0, 8, 60, 0, 0, 4, 5);
+        const tb = enemyBullets[enemyBullets.length - 1];
+        T('PELURU MUSUH: peluru turret (tanpa robot) memakai bolt + halo yang sama',
+            !!tb && tb.mesh.scale.z === bolt.len && hasGlow(tb.mesh));
+        T('PELURU MUSUH: tracer MG gunship lebih panjang dari bolt robot biasa',
+            gunship30.MG_TRACER_LEN > bolt.len);
+        // (e) KILAT MONCONG: "tembakan"-nya sendiri juga harus terbaca — minimal
+        //     selebar radius badan player, dan kelas A (dua laras) lebih besar.
+        const flashB = effectsMod.muzzleFlashSizeDebug();
+        const za = mkBot('A', 0, 40); za.rig = null; za.scl = 1;
+        robotsMod.fireRobotBullet(za, 0, 0, 0);
+        const flashA = effectsMod.muzzleFlashSizeDebug();
+        T('TEMBAKAN MUSUH: kilat moncong >= radius badan player (' + flashB.toFixed(1)
+            + ' >= ' + cfgMod.CFG.player.radius + ')', flashB >= cfgMod.CFG.player.radius);
+        T('TEMBAKAN MUSUH: kilat kelas A (dua laras) lebih besar dari kelas B',
+            flashA > flashB);
+        while (enemyBullets.length) { scene.remove(enemyBullets[0].mesh); enemyBullets.splice(0, 1); }
+        scene.remove(zr.mesh); scene.remove(za.mesh);
+        effectsMod.resetMuzzleFlashes();
+        smMod.activeScene.bulletBlocked = prevBlocked30;
+    }
+
+    // (f) ITEM LOOTING TERBACA: uang & medkit tergeletak di lantai dan harus
+    //     disadari dari kamera oblique -> minimal selebar radius badan player,
+    //     dan medkit (kotak) minimal 1 meter dunia. Diukur dari MESH yang benar-
+    //     benar dibangun (args geometri), bukan dari angka yang diketik ulang.
+    {
+        const spanOf = (mesh, axis) => {
+            let w = 0;
+            mesh.traverse(o => {
+                const g = o.geometry;
+                if (!g || !g.args) return;
+                if (g.type === 'box') w = Math.max(w, Math.abs(g.args[axis === 'x' ? 0 : 2]));
+                else if (g.type === 'cyl') w = Math.max(w, 2 * Math.abs(g.args[0]));
+            });
+            return w;
+        };
+        const coin = drops30.buildLootMesh();
+        const kit = drops30.buildMedkitMesh();
+        const coinW = spanOf(coin, 'x'), kitW = spanOf(kit, 'x');
+        // UKURAN ITEM LANTAI PUNYA BATAS ATAS *DAN* BAWAH (2026-08-28, dua kali
+        // permintaan user "terlalu kecil" lalu "masih kurang besar"). Keduanya
+        // diturunkan dari SATU angka, `CFG.player.radius`:
+        //  - bawah: item yang wajib dilewati harus selebar badan player sendiri
+        //    (kalau tidak, dari kamera oblique sejauh ~154 unit ia hilang);
+        //  - atas : setengah lebarnya TAK BOLEH melewati radius itu, sebab itulah
+        //    radius yang dipakai `clampDropPos`/tembok — melampauinya membuat item
+        //    menembus dinding dan tampak terjepit di koridor 1 sel (2 x CAMP_M).
+        // Jadi setengah-lebar wajib berada di [0,9 .. 1,0] x player.radius.
+        const PR30 = cfgMod.CFG.player.radius, CELL30 = 2 * M30;
+        const sized = (w) => w / 2 >= PR30 * 0.9 && w / 2 <= PR30;
+        T('ITEM UANG: chip selebar badan player, tak melewati radius clamp drop ('
+            + coinW.toFixed(2) + ' u / ' + (coinW / M30).toFixed(2) + ' m)',
+            sized(coinW) && coinW < CELL30);
+        T('ITEM HEAL: medkit selebar badan player, tak melewati radius clamp drop ('
+            + kitW.toFixed(2) + ' u / ' + (kitW / M30).toFixed(2) + ' m)',
+            sized(kitW) && kitW < CELL30);
+
+        // Membesar TIDAK BOLEH menenggelamkan item ke lantai: chip berdiri tegak
+        // (radius = separuh tingginya) jadi tinggi melayangnya wajib >= radiusnya.
+        const coinR = coinW / 2;
+        T('ITEM UANG: tinggi melayang >= radius chip + amplitudo bob (dasar chip tak '
+            + 'pernah amblas, bahkan di titik terendah bob) — '
+            + drops30.LOOT_HOVER.toFixed(2) + ' >= '
+            + (coinR + drops30.LOOT_BOB).toFixed(2),
+            drops30.LOOT_HOVER >= coinR + drops30.LOOT_BOB);
+        // Medkit: alas kotak tetap di ketinggian lokal yang sama spt sebelum
+        // dibesarkan (updateDrops menaruh semua drop non-loot di groundY + 1.2).
+        let baseY = null, baseH = 0;
+        kit.traverse(o => {
+            if (o.geometry && o.geometry.type === 'box' && o.geometry.args[1] > baseH) {
+                baseH = o.geometry.args[1]; baseY = o.position.y;
+            }
+        });
+        T('ITEM HEAL: alas kotak tetap di y lokal -1.3 (tak tenggelam di lantai)',
+            baseY !== null && Math.abs((baseY - baseH / 2) + 1.3) < 1e-9);
+        // Yang paling terbaca dari kotak putih adalah TANDA-nya: palang merah
+        // wajib menutupi sebagian besar muka atas, bukan sekadar coretan kecil.
+        let armW = 0;
+        kit.traverse(o => {
+            if (o.material === drops30.MEDKIT_MAT.cross && o.geometry && o.geometry.args)
+                armW = Math.max(armW, Math.abs(o.geometry.args[0]));
+        });
+        T('ITEM HEAL: palang merah menutupi >=2/3 lebar muka atas medkit ('
+            + armW.toFixed(1) + '/' + kitW.toFixed(1) + ')', armW >= kitW * (2 / 3));
+
+        // Palang merahnya menyala (emissive) supaya terbaca di lantai gelap, dan
+        // tetap di bawah pagu emissive lingkungan proyek.
+        const crossE = drops30.MEDKIT_MAT.cross.emissive.getHex();
+        const boxE = drops30.MEDKIT_MAT.box.emissive.getHex();
+        T('ITEM HEAL: palang merah medkit MENYALA lebih terang dari kotaknya & bukan warna terlarang',
+            crossE > boxE && !palMod.FORBIDDEN_HEX.includes(crossE));
+    }
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

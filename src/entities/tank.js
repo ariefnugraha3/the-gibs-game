@@ -76,7 +76,7 @@
 // menjauhi tank).
 
 import { CFG, CAMP_M } from '../core/config.js';
-import { player, bullets, enemyBullets, GEO, MAT, stats, godMode, dodgeInvuln } from '../core/state.js';
+import { player, bullets, enemyBullets, GEO, MAT, stats, godMode, dodgeInvuln, makeEnemyBulletMesh } from '../core/state.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { segPointDist2, clamp, rand } from '../utils/math.js';
 import { queueBoom, attackerAngle } from './robots.js';
@@ -970,8 +970,7 @@ function fireMG(tank) {
     p.mgMuzzle.getWorldPosition(_wp);
     const dx = camera.position.x - _wp.x, dz = camera.position.z - _wp.z;
     const d = Math.hypot(dx, dz) || 1;
-    const m = new THREE.Mesh(GEO.bullet, MAT.enemyBullet);
-    m.scale.setScalar(1.15);
+    const m = makeEnemyBulletMesh(dx / d, dz / d);   // bolt plasma bersama (2026-08-28)
     m.position.copy(_wp);
     scene.add(m);
     enemyBullets.push({

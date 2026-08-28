@@ -220,6 +220,12 @@ export function spawnMuzzleFlash(x, y, z, yaw = 0, scale = 4) {
 
 // Debug/uji: jumlah kilat moncong yang sedang menyala.
 export const muzzleFlashDebug = () => muzzlePool.reduce((n, f) => n + (f.life > 0 ? 1 : 0), 0);
+// Debug/uji: LEBAR kilat terbesar yang sedang menyala (bidangnya PlaneGeometry(1,1),
+// jadi skala = lebar dunia). Terpisah dari muzzleFlashDebug karena yang itu
+// dibandingkan dengan `===` sebagai cacah di beberapa assert. Dipakai smoke untuk
+// menjaga "tembakan musuh harus terbaca" tanpa mematok angka skala apa pun.
+export const muzzleFlashSizeDebug = () =>
+    muzzlePool.reduce((w, f) => (f.life > 0 ? Math.max(w, f.mesh.scale.x) : w), 0);
 
 // Pemanasan pra-game (core/preload.js): pinjam SATU bidang kilat moncong supaya
 // TEKSTUR-nya ikut terunggah di frame pemanasan. Programnya sama dgn kilat

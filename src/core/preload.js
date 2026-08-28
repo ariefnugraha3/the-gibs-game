@@ -7,7 +7,7 @@
 // panggil renderer.compile(), lalu render beberapa frame nyata; setelah hangat,
 // semuanya dikembalikan persis seperti semula. Teks UI English (aturan permanen).
 
-import { GEO, MAT } from './state.js';
+import { GEO, MAT, makeEnemyBulletMesh } from './state.js';
 import { scene, viewCam, renderer, composer, postFxOn } from './renderer.js';
 import { buildGrenadeMesh, buildRocketMesh } from '../entities/grenades.js';
 import { buildMedkitMesh, buildLootMesh } from '../entities/drops.js';
@@ -71,7 +71,9 @@ export async function warmupAll() {
     const put = (obj, x) => { obj.position.set(x, 0, -60); warm.add(obj); return obj; };
 
     put(new THREE.Mesh(GEO.bullet, MAT.bullet), -12).scale.set(1, 1, 8.5);   // tracer player
-    put(new THREE.Mesh(GEO.bullet, MAT.enemyBullet), -10).scale.setScalar(1.05);   // peluru robot ranged (warm shader biru)
+    // Peluru robot ranged: pakai PABRIK bersama (2026-08-28) supaya inti biru DAN
+    // material selubung pijar aditifnya sama-sama ikut terkompilasi di sini.
+    put(makeEnemyBulletMesh(0, 1), -10);
     put(buildGrenadeMesh(0.7), -8);    // peluru Grenade Launcher Lv1-2 (mesh Mk2 bersama — hangatkan agar tembakan pertama tak nge-hitch)
     put(buildRocketMesh(0.7), -6);     // peluru ROKET launcher Lv3 (geo/mat bersama, Lambert/Basic)
     // Amunisi PER-SENJATA (2026-07-26): keempat jenis punya mesh sendiri — semua
