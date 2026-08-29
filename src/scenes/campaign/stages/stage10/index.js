@@ -13,9 +13,11 @@ import {
 export {
     stage10Scene, stage10Debug,
     stage10FlightSpawnEnemy, stage10FlightSpawnWave, stage10FlightSpawnGround,
+    stage10FlightSpawnScheduledSurface,
     stage10FlightClearEnemies, stage10FlightSetElapsed,
     stage10FlightDamageEnemy, stage10FlightDamageGround, stage10FlightDamageBoss,
-    stage10FlightDamagePlayer, stage10FlightSetPlayerHp,
+    stage10FlightDamagePlayer, stage10FlightPlayerHitTest,
+    stage10FlightSetPlayerHp,
     stage10FlightGrantDrop, stage10FlightUseBomb,
 } from './flight.js';
 export { stage10FlightWorldDebug, STAGE10_FLIGHT_KEY };

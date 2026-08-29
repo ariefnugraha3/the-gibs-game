@@ -10,6 +10,16 @@ export const ammoCount = document.getElementById('ammoCount');
 export const ammoMags = document.getElementById('ammoMags');
 export const ammoHint = document.getElementById('ammoHint');
 export const ammoBox = document.getElementById('ammoBox');
+export const statsHud = document.getElementById('statsHud');
+export const scoreBox = document.getElementById('scoreBox');
+export const aircraftBombBox = document.getElementById('aircraftBombBox');
+export const aircraftBombCount = document.getElementById('aircraftBombCount');
+export const aircraftBombHint = document.getElementById('aircraftBombHint');
+export const inventoryHud = document.getElementById('inventoryHud');
+export const barsHud = document.getElementById('barsHud');
+export const healthRow = document.getElementById('healthRow');
+export const healthLabel = document.getElementById('healthLabel');
+export const staminaRow = document.getElementById('staminaRow');
 export const healthFill = document.getElementById('healthFill');
 export const healthNum = document.getElementById('healthNum');   // angka HP di atas bar
 // Bar ARMOR (2026-07-13): tampil hanya saat player memakai armor (shop Survival)

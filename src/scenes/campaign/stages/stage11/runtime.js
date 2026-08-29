@@ -60,7 +60,12 @@ export function updateStage11Dialogue(dt) {
 }
 export const stage11DialogueIdle = () => !current && !queue.length;
 export function resetStage11Dialogue() {
-    current = null; queue = []; seen = new Set(); dialogueT = 0; chars = 0; hook = null;
+    clearStage11DialogueQueue(); seen = new Set(); hook = null;
+}
+// Cutscene skip clears only what is currently being spoken.  `seen` belongs to
+// the whole Stage-11 facade and must survive forest -> city -> root handoffs.
+export function clearStage11DialogueQueue() {
+    current = null; queue = []; dialogueT = 0; chars = 0;
     hideStageRadioDialogue(); setAvatarRadioPose(false);
 }
 export const stage11DialogueDebug = () => ({
@@ -98,7 +103,7 @@ export function makeStage11WaveQueue(raw, maxLive = 24) {
     return { batches, configuredTotal: units.length, spawnedTotal: 0, cursor: -1 };
 }
 
-export function spawnStage11Batch(queueState, points, prefix) {
+export function spawnStage11Batch(queueState, points, prefix, projectPoint = null) {
     const index = queueState.cursor + 1;
     const batch = queueState.batches[index];
     if (!batch) return [];
@@ -107,10 +112,14 @@ export function spawnStage11Batch(queueState, points, prefix) {
         const u = batch[i], p = points[(index * 5 + i) % points.length];
         const dx = ((i * 19 + index * 13) % 29) - 14;
         const dz = ((i * 23 + index * 7) % 27) - 13;
-        spawnCampaignRobot(p.x + dx, p.z + dz, 11, u.cls, true);
+        const rawX = p.x + dx, rawZ = p.z + dz;
+        const spawn = projectPoint ? projectPoint(rawX, rawZ, 4, i, index)
+            : { x: rawX, z: rawZ };
+        spawnCampaignRobot(spawn.x, spawn.z, 11, u.cls, true);
         const bot = robots[robots.length - 1]; bot.encounter = `${prefix}-${index}`;
         records.push({ cls: u.cls, sourceWave: u.wave, batch: index,
-            x: bot.mesh.position.x, z: bot.mesh.position.z });
+            x: bot.mesh.position.x, z: bot.mesh.position.z,
+            projected: Math.hypot(spawn.x - rawX, spawn.z - rawZ) > 1e-6 });
     }
     queueState.spawnedTotal += batch.length; return records;
 }

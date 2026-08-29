@@ -59,11 +59,11 @@
             <div class="barTop"><span class="blabel">ARMOR</span><span class="barNum" id="armorNum">0</span></div>
             <div class="barShell"><div id="armorFill"></div></div>
         </div>
-        <div class="barRow">
-            <div class="barTop"><span class="blabel">HEALTH</span><span class="barNum" id="healthNum">100</span></div>
+        <div class="barRow" id="healthRow">
+            <div class="barTop"><span class="blabel" id="healthLabel">HEALTH</span><span class="barNum" id="healthNum">100</span></div>
             <div class="barShell"><div id="healthFill"></div></div>
         </div>
-        <div class="barRow">
+        <div class="barRow" id="staminaRow">
             <div class="barTop"><span class="blabel">STAMINA</span></div>
             <div class="barShell"><div id="staminaFill"></div></div>
         </div>
@@ -74,6 +74,16 @@
          item + hitungan + kelas active/dim); 1/2 = senjata, 3 = granat, 4 = medkit. -->
     <div id="statsHud">
         <div id="scoreBox"><span id="scoreLabel">MONEY</span><span id="scoreText">0</span></div>
+        <div id="aircraftBombBox" aria-hidden="true">
+            <span id="aircraftBombIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 2c-2.7 2.2-4.2 5-4.2 8.6v4.2l-3 3v2.3l5-1.5L12 22l2.2-3.4 5 1.5v-2.3l-3-3v-4.2C16.2 7 14.7 4.2 12 2zm0 4.1c1.1 1.5 1.7 3 1.7 4.8v3.3h-3.4v-3.3c0-1.8.6-3.3 1.7-4.8z"/></svg>
+            </span>
+            <span id="aircraftBombCopy">
+                <span id="aircraftBombLabel">BOMB</span>
+                <span id="aircraftBombCount">×0</span>
+                <span id="aircraftBombHint">SPACE / RMB</span>
+            </span>
+        </div>
         <div id="inventoryHud">
             <div class="invSlot" id="invSlot1"><span class="invKey">1</span><span class="invIcon" id="invIcon1"></span><span class="invCount" id="invCount1"></span></div>
             <div class="invSlot" id="invSlot2"><span class="invKey">2</span><span class="invIcon" id="invIcon2"></span><span class="invCount" id="invCount2"></span></div>

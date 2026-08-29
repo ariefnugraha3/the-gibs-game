@@ -1,5 +1,7 @@
 # Combat & player systems — reference
 
+**Ukuran item lantai milik SEMUA stage (2026-08-29).** Mesh chip uang dan medkit di `entities/drops.js` dipakai bersama seluruh campaign dan Survival, jadi membesarkannya demi satu stage membuat item di stage lain ikut membengkak — persis yang terjadi saat item Stage 10 dianggap terlalu kecil. Ukuran aslinya dikembalikan dan dipatok smoke; Stage 10 memakai entitas itemnya sendiri di `stage10/flightWorld.js` dengan `flight.dropVisualScale`. Tinggi melayang chip (`LOOT_HOVER`) diturunkan dari radius chip + amplitudo bob, bukan diketik terpisah. Hal yang sama berlaku untuk PELURU MUSUH: `MAT.enemyBullet`/`EB_BOLT` dipakai robot, turret, tank, Mahapatih dan gunship di semua stage, jadi ukurannya dikembalikan ke bolt aslinya (1,05 seragam, tanpa halo) — Stage 10 memakai pool orb-nya sendiri. Yang dipertahankan: satu pabrik `makeEnemyBulletMesh`, dan tracer MG gunship yang memang memanjang dengan rasio > 3:1.
+
 > Extracted verbatim from CLAUDE.md on 2026-07-26 when that file was slimmed down.
 > Read before touching robots, weapons, gore, drops/economy, armor, or player movement.
 > Cross-cutting rules stay in [CLAUDE.md](../CLAUDE.md); the module/export catalog is [MODULES.md](MODULES.md).

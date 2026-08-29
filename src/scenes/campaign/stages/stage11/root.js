@@ -26,6 +26,7 @@ import {
 } from '../../../../entities/nusantaraWarden.js';
 import {
     STAGE11_ROOT_LIGHTS_KEY, S11_ROOT_START, S11_AUTHORITY_GATE, S11_INSERT,
+    S11_INSERT_STAND,
     S11_ARENA, S11_WARDEN_HOME, stage11RootWalk, stage11RootResolve,
     stage11RootSegBlocked, stage11RootGroundHeight, stage11RootNav,
     setStage11AuthorityDoor, setStage11InsertMarker,
@@ -186,7 +187,7 @@ function updateAuthorityGate(dt) {
         return;
     }
     if (phase === 'insertDrive') {
-        if (near(S11_INSERT, CFG.campaign.stage11.interactionRange)) {
+        if (near(S11_INSERT_STAND, CFG.campaign.stage11.interactionRange)) {
             insertT += dt;
             if (insertT >= .9) beginUpload();
         } else insertT = 0;
@@ -274,7 +275,7 @@ export const rootScene = {
     },
     radarLandmarks(plot) {
         const marks = phase === 'authorityGate' ? [S11_AUTHORITY_GATE]
-            : phase === 'insertDrive' ? [S11_INSERT] : [];
+            : phase === 'insertDrive' ? [S11_INSERT_STAND] : [];
         const wd = nusantaraWardenDebug(W());
         if (wd.active && !wd.deathDone && wd.position) marks.push(wd.position);
         for (const p of marks)

@@ -28,31 +28,25 @@ export const MEDKIT_MAT = {
     // terbaca (dan tertangkap bloom) tanpa lampu tambahan.
     cross: new THREE.MeshLambertMaterial({ color: 0xe24747, emissive: 0x8c1d1d })
 };
-// ITEM HEAL DIBESARKAN (2026-08-28, permintaan user "item uang dan heal juga
-// terlalu kecil", lalu DIBESARKAN LAGI hari yang sama: "masih kurang besar").
-// Kotak 5 x 2,6 x 5 -> 7,4 x 3,9 x 7,4 -> 9,8 x 5,6 x 9,8 dan palangnya ikut
-// proporsional. UKURANNYA PUNYA PAGU, bukan sekadar "sebesar mungkin": lebar
-// setengahnya (4,9) dijaga TEPAT DI BAWAH `CFG.player.radius` (5) — radius
-// yang sama yang dipakai `clampDropPos`/tembok — sehingga item sebesar apa pun
-// tak pernah menembus dinding dan tak pernah tampak terjepit di koridor
-// (satu sel grid campaign = 2 x CAMP_M = 14 unit). Basis DIANGKAT setengah
-// pertambahan tinggi supaya alas kotak tetap di ketinggian lokal yang sama
-// (-1,3): updateDrops menaruh semua drop non-loot di `groundY + 1,2`, jadi
-// tanpa offset ini kotak yang lebih tinggi akan AMBLAS ke dalam lantai.
-// MEDKIT_MAT dipakai bersama prop medkit rig FPS (weapons.js) yang permanen
-// tersembunyi — perubahan warna di sini tak terlihat di sana.
+// UKURAN MEDKIT LANTAI = UKURAN ASLINYA, DAN TIDAK BOLEH DIBESARKAN UNTUK SATU
+// STAGE (2026-08-29, laporan user "item coin dan medkit di stage lain jadi ikut
+// membesar, ini tidak normal"). Mesh ini DIPAKAI BERSAMA oleh seluruh stage dan
+// Survival, jadi membesarkannya demi keterbacaan Stage 10 — yang kameranya 900
+// unit di atas — ikut membesarkan item di dua belas stage lain yang kameranya
+// jauh lebih dekat. Stage 10 memakai ENTITASNYA SENDIRI (`flightWorld.js`,
+// `buildDropSlot` + `flight.dropVisualScale`); jangan pernah menyetel ukuran
+// item satu stage dari sini. MEDKIT_MAT dipakai bersama prop medkit rig FPS
+// (weapons.js) yang permanen tersembunyi.
 export function buildMedkitMesh() {
     const grp = new THREE.Group();
-    const base = new THREE.Mesh(new THREE.BoxGeometry(9.8, 5.6, 9.8), MEDKIT_MAT.box);
-    base.position.y = 1.5;          // alas tetap di y lokal -1,3 (1,5 - 5,6/2)
+    const base = new THREE.Mesh(new THREE.BoxGeometry(5, 2.6, 5), MEDKIT_MAT.box);
+    base.position.y = 0;            // alas di y lokal -1,3 (0 - 2,6/2)
     grp.add(base);
-    // Palang merah MELEBAR hampir seluruh muka atas: dari kamera oblique yang
-    // paling terbaca dari kotak putih adalah TANDA-nya, bukan kotaknya.
-    const c1 = new THREE.Mesh(new THREE.BoxGeometry(7.1, 1.0, 2.4), MEDKIT_MAT.cross);
-    c1.position.y = 4.8;            // duduk di muka atas (1,5 + 2,8) + separuh tebal
+    const c1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.5, 1.2), MEDKIT_MAT.cross);
+    c1.position.y = 1.55;           // duduk di muka atas (1,3) + separuh tebal
     grp.add(c1);
-    const c2 = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.0, 7.1), MEDKIT_MAT.cross);
-    c2.position.y = 4.8;
+    const c2 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 3.6), MEDKIT_MAT.cross);
+    c2.position.y = 1.55;
     grp.add(c2);
     return grp;
 }
@@ -90,31 +84,27 @@ export function spawnMedkitDrop(x, z, lifetime) {
 // saat kill (killRobot: hook activeScene.awardKill -> campaignAwardKill menaruh
 // loot); player harus MELOOT untuk dapat uang belanja (ala Alien Shooter).
 // Geo/material BERSAMA (JANGAN dispose). Amber = aksen manusia GIBS-2045.
-// ITEM UANG DIBESARKAN (2026-08-28, permintaan user "item uang dan heal juga
-// terlalu kecil", lalu DIBESARKAN LAGI hari yang sama: "masih kurang besar"):
-// chip r2,0 x 0,7 -> r3,2 x 1,2 -> r4,8 x 1,8. Radiusnya berhenti TEPAT DI BAWAH
-// `CFG.player.radius` (5) dengan alasan yang sama seperti medkit: itulah radius
-// yang dipakai `clampDropPos`/tembok, jadi chip sebesar ini masih mustahil
-// menembus dinding atau tampak terjepit di koridor selebar 14 unit. Chip BERDIRI
+// UKURAN CHIP UANG = UKURAN ASLINYA, dengan alasan yang sama seperti medkit di
+// atas: mesh ini milik SEMUA stage (2026-08-29, laporan user). Chip BERDIRI
 // tegak (rotation.x = PI/2 menaruh sumbu silinder pada +Z) dan berputar pada
-// sumbu Y, jadi ia terbaca seperti koin yang berputar di atas sisinya; tebalnya
-// ikut ditambah supaya saat pas menyamping ia tidak menghilang total.
+// sumbu Y, jadi siluet vertikalnya = RADIUSNYA — karena itu tinggi melayangnya
+// di bawah DITURUNKAN dari radius itu, bukan diketik terpisah.
+const LOOT_COIN_R = 2.0;   // radius chip — ukuran asli, milik semua stage
 const LOOT_GEO = {
-    coin: new THREE.CylinderGeometry(4.8, 4.8, 1.8, 8),   // chip oktagonal
-    core: new THREE.CylinderGeometry(2.75, 2.75, 2.2, 8), // emboss tengah
+    coin: new THREE.CylinderGeometry(LOOT_COIN_R, LOOT_COIN_R, 0.7, 8), // chip oktagonal
+    core: new THREE.CylinderGeometry(1.15, 1.15, 0.9, 8),               // emboss tengah
 };
 const LOOT_MAT = {
     coin: new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false }),
     core: new THREE.MeshBasicMaterial({ color: PAL.amberDim, toneMapped: false }),
 };
-// Tinggi melayang chip uang di atas tanah + amplitudo bob-nya. DINAIKKAN tiap
-// kali chip dibesarkan (2026-08-28: 2 -> 3,5 -> 5,4) karena chip BERDIRI tegak,
-// jadi radiusnya = separuh tingginya: pada hover yang lama separuh bawahnya
-// tenggelam di lantai. Aturannya `LOOT_HOVER >= radius chip + LOOT_BOB` (dijaga
-// smoke) supaya dasar chip tetap di atas lantai bahkan di titik terendah bob.
-// Keduanya dipakai spawnLoot DAN updateDrops supaya tidak pernah lepas sinkron.
-export const LOOT_HOVER = 5.4;
+// Amplitudo bob chip, dipakai spawnLoot DAN updateDrops supaya tak lepas sinkron.
 export const LOOT_BOB = 0.4;
+// Tinggi melayangnya DITURUNKAN, bukan diketik: chip berdiri tegak sehingga
+// siluet vertikalnya persis `LOOT_COIN_R`, jadi `radius + bob` adalah tinggi
+// terendah yang membuat dasar chip tetap di atas lantai walau di titik terendah
+// ayunannya. Mengubah radius chip otomatis membetulkan tinggi melayangnya.
+export const LOOT_HOVER = LOOT_COIN_R + LOOT_BOB;
 
 export function buildLootMesh() {
     const g = new THREE.Group();

@@ -25,7 +25,7 @@ export let activeScene = null;
 function worldKeyFor(id) {
     if (!id) return null;
     if (id === 'campaign-10') return 'campaign-10-flight';
-    if (id === 'campaign-11') return 'campaign-11-surface';
+    if (id === 'campaign-11') return 'campaign-11-forest';
     return /^campaign-(?:[1-9]|1[0-2])$/.test(id) ? id : null;
 }
 

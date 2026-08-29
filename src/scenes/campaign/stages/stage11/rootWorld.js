@@ -17,6 +17,9 @@ export const S11_ROOT_ORIGIN = Object.freeze({ x: 400000, z: 0 });
 export const S11_ROOT_START = Object.freeze({ x: 400530, z: 0 });
 export const S11_AUTHORITY_GATE = Object.freeze({ x: 400345, z: 0 });
 export const S11_INSERT = Object.freeze({ x: 400235, z: 0 });
+// The console centre is solid collision geometry.  Interactions must target
+// the amber stand marker on its approach side, not this unreachable centre.
+export const S11_INSERT_STAND = Object.freeze({ x: S11_INSERT.x + 20, z: S11_INSERT.z });
 export const S11_ARENA = Object.freeze({ x: 399950, z: 0, radius: 315 });
 export const S11_WARDEN_HOME = Object.freeze({ x: 399910, z: 0 });
 
@@ -205,7 +208,7 @@ function buildTransmitter() {
     S11_INSERT.x - 21, 16, 0, 0, 0, false, false);
     // Shared campaign action language: 12x12 amber stand box. It remains flat
     // and never rotates; the radar waypoint remains a separate destination cue.
-    consoleMarker = buildStandMarker(root, S11_INSERT.x + 20, 0, PAL.amber);
+    consoleMarker = buildStandMarker(root, S11_INSERT_STAND.x, S11_INSERT_STAND.z, PAL.amber);
     blocker(S11_INSERT.x, 0, 19, 21, 22, 0, 'insert-console');
     count('root-transmitter'); count('warden-socket', 6); count('physical-insert-console');
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
@@ -292,7 +295,8 @@ export function ensureStage11RootWorld(parent = scene) {
 export const stage11RootWorldDebug = () => ({
     built, root: root?.name || null, origin: { ...S11_ROOT_ORIGIN }, bounds: { ...BOUNDS },
     start: { ...S11_ROOT_START }, gate: { ...S11_AUTHORITY_GATE },
-    insert: { ...S11_INSERT }, arena: { ...S11_ARENA }, wardenHome: { ...S11_WARDEN_HOME },
+    insert: { ...S11_INSERT }, insertStand: { ...S11_INSERT_STAND },
+    arena: { ...S11_ARENA }, wardenHome: { ...S11_WARDEN_HOME },
     rawMeshes, weldedMeshes, blockers: blockers.length,
     sockets: sockets.map(s => ({ ...s })), socketCount: sockets.length,
     semantic: Object.fromEntries(semantic), lights: { key: STAGE11_ROOT_LIGHTS_KEY,

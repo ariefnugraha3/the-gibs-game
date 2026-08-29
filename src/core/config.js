@@ -1,5 +1,8 @@
 // CFG = seluruh konstanta mekanik yang bisa di-tuning, dimuat dari
 // config/gameplay.json SEBELUM game dimulai (await loadConfig() di main.js).
+// Sebagian stage memiliki BERKAS TUNING SENDIRI (lihat CONFIG_PARTS) supaya
+// bisa di-retune tanpa menyentuh gameplay.json; hasilnya digabung ke posisi
+// yang sama persis di dalam CFG, jadi TIDAK ADA modul yang perlu tahu bedanya.
 // Semua modul membaca CFG.<seksi>.<kunci> DI DALAM fungsi (bukan top-level),
 // jadi urutan muat aman. JANGAN hardcode angka mekanik di modul lain.
 
@@ -13,21 +16,60 @@ const SECTIONS = ['player', 'stamina', 'movement', 'weapons', 'melee',
     'grenade', 'robot', 'survival', 'campaign', 'drops', 'shop', 'difficulty',
     'dialogue'];
 
+// BERKAS TUNING TERPISAH (permintaan user 2026-08-28: "pisahkan data khusus
+// untuk stage ini biar saya bisa edit sesuka hati"). `path` = letaknya di dalam
+// CFG, `file` = berkas sumbernya. Penggabungan terjadi SEBELUM CFG_BASE dibekukan,
+// jadi applyDifficulty dan seluruh pembaca CFG.<seksi>.<kunci> tidak berubah.
+// Naskah dialog TIDAK ikut dipisah — ia tetap terpusat di gameplay.json.
+export const CONFIG_PARTS = Object.freeze([
+    { path: ['campaign', 'stage10'], file: 'config/stage10.json' },
+]);
+
+// Tempelkan tiap berkas terpisah ke posisinya di dalam objek config mentah.
+// `parts` = { '<file>': <data> }; berkas yang tidak dipasok dilewati supaya
+// harness yang sudah menggabung sendiri tetap bekerja.
+export function mergeConfigParts(data, parts) {
+    for (const { path, file } of CONFIG_PARTS) {
+        if (!parts || !(file in parts)) continue;
+        let node = data;
+        for (const key of path.slice(0, -1)) {
+            if (!node[key] || typeof node[key] !== 'object') node[key] = {};
+            node = node[key];
+        }
+        node[path[path.length - 1]] = parts[file];
+    }
+    return data;
+}
+
 // Salinan MURNI hasil muat (tak pernah dimutasi) — applyDifficulty selalu
 // menghitung ulang CFG dari sini agar pengali tidak terkali berulang.
 export let CFG_BASE = null;
 
+async function fetchJson(file) {
+    const res = await fetch(file);
+    if (!res.ok) throw new Error(file + ' HTTP ' + res.status);
+    return res.json();
+}
+
 export async function loadConfig() {
     let data;
+    let parts = null;
     if (globalThis.__GIBS_CONFIG__) {
         data = globalThis.__GIBS_CONFIG__;   // jalur harness/test headless
+        parts = globalThis.__GIBS_CONFIG_PARTS__ || null;
     } else {
-        const res = await fetch('config/gameplay.json');
-        if (!res.ok) throw new Error('config/gameplay.json HTTP ' + res.status);
-        data = await res.json();
+        data = await fetchJson('config/gameplay.json');
+        parts = {};
+        for (const { file } of CONFIG_PARTS) parts[file] = await fetchJson(file);
     }
+    mergeConfigParts(data, parts);
     for (const k of SECTIONS) {
         if (!data[k]) throw new Error('gameplay.json missing section: "' + k + '"');
+    }
+    for (const { path, file } of CONFIG_PARTS) {
+        let node = data;
+        for (const key of path) node = node && node[key];
+        if (!node) throw new Error('config part missing: "' + file + '"');
     }
     CFG_BASE = JSON.parse(JSON.stringify(data));
     Object.assign(CFG, data);

@@ -2,7 +2,7 @@
 
 import { CFG } from '../../../../core/config.js';
 import { player, keys, setCinematicActive } from '../../../../core/state.js';
-import { camera, setCineFocus, CAM_OFF_DEFAULT } from '../../../../core/renderer.js';
+import { scene, camera, setCineFocus, CAM_OFF_DEFAULT } from '../../../../core/renderer.js';
 import { showStageMsg, setCineBars, setCineFade, showCutsceneSkip,
     hideCutsceneSkip } from '../../../../core/dom.js';
 import { releaseInputs } from '../../../../core/input.js';
@@ -13,6 +13,8 @@ import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { campaignRobotAI, campaignClampRobot, countStageRobots } from '../../utility/common.js';
 import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 import { setActiveStageLights } from '../../../../world/lighting.js';
+import { applyLightPreset } from '../../../../world/lighting.js';
+import { enterCityEnv } from '../../utility/cityscape.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import {
     STAGE11_SURFACE_LIGHTS_KEY, S11_SURFACE_START, S11_AXIS_GATE,
@@ -23,7 +25,7 @@ import {
 } from './surfaceWorld.js';
 import {
     phase, complete, setStage11Phase, enterStage11Sub,
-    queueStage11Dialogue, stage11DialogueIdle, resetStage11Dialogue,
+    queueStage11Dialogue, stage11DialogueIdle, clearStage11DialogueQueue,
     makeStage11WaveQueue, spawnStage11Batch, stage11BatchAlive,
     stage11WaveQueueDebug,
 } from './runtime.js';
@@ -88,7 +90,7 @@ function cleanupOpening() {
     setCineFade(0, CFG.campaign.stage11.fadeSec); setCinematicActive(false);
 }
 function finishOpening(skipped = false) {
-    if (skipped) resetStage11Dialogue();
+    if (skipped) clearStage11DialogueQueue();
     cleanupOpening(); setStage11Phase('axisAssault');
     showStageMsg('ADVANCE ALONG THE CIVIC AXIS', 4400);
 }
@@ -132,6 +134,9 @@ export const surfaceScene = {
     enter() {
         setActiveCampaignWorldRoots(STAGE11_SURFACE_LIGHTS_KEY);
         setActiveStageLights(STAGE11_SURFACE_LIGHTS_KEY);
+        applyLightPreset(scene, 'outdoor');
+        enterCityEnv({ background: 0x778178, fogColor: 0x68736a,
+            fogNear: 190, fogFar: 1700 });
         resetSurface(); placeItems(); setStage11Phase('opening');
         camera.position.set(S11_SURFACE_START.x, CFG.player.eyeHeight, S11_SURFACE_START.z);
         camera.quaternion.set(0, -0.7071, 0, 0.7071);

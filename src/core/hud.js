@@ -9,12 +9,38 @@ import { activeScene } from './sceneManager.js';
 import {
     scoreText, ammoWeapon, ammoCount, ammoMags, ammoHint, ammoBox,
     healthFill, healthNum, armorRow, armorFill, armorNum,
-    waveText, radar, radarCtx, invSlots
+    waveText, radar, radarCtx, invSlots, statsHud, scoreBox, inventoryHud,
+    barsHud, healthRow, healthLabel, staminaRow, aircraftBombBox,
+    aircraftBombCount, aircraftBombHint
 } from './dom.js';
 import { currentWeapon, WEAPON_DEF, medkitMode } from '../entities/weapons.js';
 import { AMMO_KINDS } from '../entities/ammoPickups.js';
 
+let appliedHudProfile = '';
+
+function syncHudProfile() {
+    const profile = activeScene?.hudProfile === 'aircraft' ? 'aircraft' : 'operator';
+    if (profile === appliedHudProfile) return profile;
+    appliedHudProfile = profile;
+    const aircraft = profile === 'aircraft';
+    // Saat airframe aktif, HUD manusia tidak relevan. MONEY tetap milik
+    // campaign dan sengaja tidak disembunyikan.
+    inventoryHud.style.display = aircraft ? 'none' : '';
+    ammoBox.style.display = aircraft ? 'none' : '';
+    aircraftBombBox.style.display = aircraft ? 'grid' : 'none';
+    aircraftBombBox.setAttribute('aria-hidden', aircraft ? 'false' : 'true');
+    staminaRow.style.display = aircraft ? 'none' : '';
+    barsHud.className = aircraft ? 'aircraftHud' : '';
+    statsHud.className = aircraft ? 'aircraftHud' : '';
+    healthRow.className = aircraft ? 'barRow aircraftHealth' : 'barRow';
+    healthLabel.innerText = aircraft ? 'AIRFRAME INTEGRITY' : 'HEALTH';
+    healthNum.style.display = aircraft ? 'none' : '';
+    return profile;
+}
+
 export function updateUI() {
+    const hudProfile = syncHudProfile();
+    const aircraftHud = hudProfile === 'aircraft';
     const w = player[currentWeapon];
     const wName = WEAPON_DEF[currentWeapon].name;
     scoreText.innerText = score;   // label "MONEY" statis di HTML (2026-07-22; `score` = uang/mata uang shop)
@@ -36,16 +62,21 @@ export function updateUI() {
     ammoCount.innerText = count;
     ammoMags.innerText = mags;
     ammoHint.innerText = hint;
+    if (aircraftHud) {
+        const ordnance = activeScene?.aircraftOrdnanceStatus?.() || {};
+        aircraftBombCount.innerText = `×${Math.max(0, ordnance.bombs || 0)}`;
+        aircraftBombHint.innerText = ordnance.hint || 'SPACE / RMB';
+    }
     // Health bar (maks = player.maxHp EFEKTIF — bisa naik via item Vitality):
     // warna merah tetap (CSS) — JS menulis LEBAR + angka + kelas 'low' (<= 25%).
     const mhp = player.maxHp || CFG.player.maxHp;
     healthFill.style.width = Math.max(0, player.hp / mhp * 100) + '%';
-    healthNum.innerText = Math.max(0, Math.ceil(player.hp));
+    healthNum.innerText = aircraftHud ? '' : Math.max(0, Math.ceil(player.hp));
     healthFill.classList.toggle('low', player.hp <= mhp * 0.25);
     // Bar ARMOR (2026-07-13): tampil hanya saat memakai armor; lebar =
     // durability sisa / durability penuh tier (baja kebiruan, CSS).
     const wearing = (player.armorLvl || 0) > 0 && player.armorMax > 0;
-    armorRow.style.display = wearing ? '' : 'none';
+    armorRow.style.display = wearing && !aircraftHud ? '' : 'none';
     if (wearing) {
         armorFill.style.width = Math.max(0, player.armor / player.armorMax * 100) + '%';
         armorNum.innerText = Math.max(0, Math.ceil(player.armor));
@@ -55,6 +86,25 @@ export function updateUI() {
     updateInventory();
     // Survival: nomor wave. Campaign: sisa robot di stage aktif.
     if (activeScene && activeScene.hudStatus) waveText.innerText = activeScene.hudStatus();
+}
+
+export function hudProfileDebug() {
+    return {
+        profile: appliedHudProfile,
+        moneyVisible: scoreBox.style.display !== 'none',
+        bombVisible: aircraftBombBox.style.display !== 'none',
+        bombCount: aircraftBombCount.innerText,
+        bombHint: aircraftBombHint.innerText,
+        inventoryVisible: inventoryHud.style.display !== 'none',
+        ammoVisible: ammoBox.style.display !== 'none',
+        staminaVisible: staminaRow.style.display !== 'none',
+        armorVisible: armorRow.style.display !== 'none',
+        healthLabel: healthLabel.innerText,
+        healthNumber: healthNum.innerText,
+        healthClass: healthRow.className,
+        barsClass: barsHud.className,
+        statsClass: statsHud.className,
+    };
 }
 
 // ----- Ikon item inventori (SVG buatan sendiri, BUKAN emoji/teks) -----

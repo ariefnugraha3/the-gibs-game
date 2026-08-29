@@ -702,298 +702,26 @@
             "barrelCount": 10,
             "takeoffSec": 8
         },
-        "stage10": {
-            "flight": {
-                "durationSec": 480,
-                "clearDelaySec": 5,
-                "scrollSpeed": 26,
-                "playerHp": 1000,
-                "playerSpeed": 118,
-                "playerRadius": 22,
-                "playerVisualScale": 0.55,
-                "enemyAircraftScaleRatio": 0.82,
-                "screenEdgePadding": 4,
-                "altitude": 28,
-                "arenaTopOffset": -250,
-                "arenaBottomOffset": 270,
-                "autoFire": true,
-                "startWeaponLevel": 1,
-                "spreadAngleDeg": 8.5,
-                "maxEnemies": 34,
-                "maxAircraftOnScreen": 12,
-                "machineGunSpeed": 320,
-                "machineGunLifeSec": 4,
-                "cannonSpeed": 150,
-                "cannonLifeSec": 7,
-                "enemyBulletSpeed": 86,
-                "enemyBulletLifeSec": 4,
-                "enemyFire": {
-                    "maxActiveRounds": 14,
-                    "maxActiveMissiles": 4,
-                    "minGapSec": 0.34,
-                    "aimJitterDeg": 4,
-                    "missileHomeSec": 1.4,
-                    "missileHp": 40,
-                    "missileHitRadius": 9
-                },
-                "dropPickupRadius": 14,
-                "healthHealFraction": 0.5,
-                "weaponLevels": [
-                    { "forwardPairs": 1, "angledPairs": 0, "cannonEvery": 0, "damageMul": 1.0 },
-                    { "forwardPairs": 2, "angledPairs": 0, "cannonEvery": 0, "damageMul": 1.0 },
-                    { "forwardPairs": 2, "angledPairs": 1, "cannonEvery": 0, "damageMul": 1.05 },
-                    { "forwardPairs": 2, "angledPairs": 1, "cannonEvery": 3, "damageMul": 1.1 },
-                    { "forwardPairs": 2, "angledPairs": 2, "cannonEvery": 2, "damageMul": 1.15 }
-                ],
-                "bomb": {
-                    "start": 3,
-                    "max": 5,
-                    "damage": 4000,
-                    "radius": 900,
-                    "flashSec": 1.15,
-                    "cooldownSec": 0.8,
-                    "clearsEnemyFire": true
-                },
-                "wingman": {
-                    "max": 2,
-                    "scaleRatio": 0.46,
-                    "offsetX": 46,
-                    "offsetZ": 20,
-                    "followLagSec": 0.16,
-                    "damageFraction": 0.55,
-                    "fireDelayMul": 1.5
-                },
-                "waves": {
-                    "intervalStartSec": 6.2,
-                    "intervalMinSec": 3.1,
-                    "sizeMin": 3,
-                    "sizeMax": 7,
-                    "dwellSec": 5.5,
-                    "exitSpeedMul": 1.7,
-                    "shooterFraction": 0.5,
-                    "powerDropChance": 0.34
-                },
-                "ground": {
-                    "intervalStartSec": 5.5,
-                    "intervalMinSec": 2.4,
-                    "maxActive": 8,
-                    "leadMargin": 90
-                },
-                "boss": {
-                    "hp": 12000,
-                    "entrySec": 5,
-                    "holdOffset": -170,
-                    "sweepSpeed": 46,
-                    "sweepHalfWidth": 210,
-                    "gunDelaySec": 1.4,
-                    "gunSpread": 4,
-                    "missileDelaySec": 4.5,
-                    "missileBurst": 2,
-                    "missileSpeed": 88,
-                    "missileTurnRate": 1.1,
-                    "damage": 30,
-                    "missileDamage": 55,
-                    "enrageHpFrac": 0.45,
-                    "enrageSpeedMul": 1.45,
-                    "deathSec": 4.2,
-                    "radius": 62,
-                    "money": 900
-                },
-                "biomes": {
-                    "javaEndSec": 180,
-                    "oceanEndSec": 420,
-                    "transitionSec": 10
-                },
-                "enemies": {
-                    "airC": {
-                        "hp": 140,
-                        "damage": 100,
-                        "speed": 128,
-                        "radius": 8,
-                        "moneyChance": 1,
-                        "money": 30,
-                        "healthChance": 0
-                    },
-                    "airB": {
-                        "hp": 180,
-                        "damage": 20,
-                        "speed": 74,
-                        "radius": 9,
-                        "fireDelaySec": 2.6,
-                        "burstShots": 1,
-                        "burstGapSec": 0.28,
-                        "moneyChance": 0.8,
-                        "money": 50,
-                        "healthChance": 0.2
-                    },
-                    "airA": {
-                        "hp": 320,
-                        "damage": 50,
-                        "speed": 62,
-                        "radius": 10,
-                        "fireDelaySec": 1.9,
-                        "missileSpeed": 72,
-                        "missileTurnRate": 1.2,
-                        "burstShots": 2,
-                        "burstGapSec": 0.45,
-                        "burstRestSec": 5.5,
-                        "moneyChance": 0.6,
-                        "money": 80,
-                        "healthChance": 0.4
-                    },
-                    "shipB": {
-                        "hp": 320,
-                        "damage": 20,
-                        "speed": 7,
-                        "radius": 11,
-                        "fireDelaySec": 2.4,
-                        "moneyChance": 1,
-                        "money": 30,
-                        "healthChance": 0
-                    },
-                    "shipA": {
-                        "hp": 420,
-                        "damage": 50,
-                        "speed": 6,
-                        "radius": 13,
-                        "missileSpeed": 68,
-                        "missileTurnRate": 1.1,
-                        "burstShots": 2,
-                        "burstGapSec": 0.5,
-                        "burstRestSec": 5.5,
-                        "moneyChance": 0,
-                        "money": 0,
-                        "healthChance": 0.2
-                    },
-                    "turret": {
-                        "hp": 260,
-                        "damage": 22,
-                        "radius": 12,
-                        "fireDelaySec": 2.8,
-                        "burstShots": 2,
-                        "burstGapSec": 0.3,
-                        "moneyChance": 1,
-                        "money": 40,
-                        "healthChance": 0
-                    },
-                    "tank": {
-                        "hp": 340,
-                        "damage": 26,
-                        "speed": 12,
-                        "radius": 11,
-                        "fireDelaySec": 3.4,
-                        "burstShots": 1,
-                        "burstGapSec": 0.32,
-                        "moneyChance": 0.7,
-                        "money": 60,
-                        "healthChance": 0.3
-                    },
-                    "bunker": {
-                        "hp": 520,
-                        "damage": 0,
-                        "radius": 14,
-                        "fireDelaySec": 0,
-                        "moneyChance": 0.4,
-                        "money": 90,
-                        "healthChance": 0.6
-                    },
-                    "depot": {
-                        "hp": 620,
-                        "damage": 0,
-                        "radius": 15,
-                        "fireDelaySec": 0,
-                        "moneyChance": 0.35,
-                        "money": 120,
-                        "healthChance": 0.15
-                    }
-                }
-            },
-            "openingMinSec": 6,
-            "fadeSec": 0.6,
-            "interactionRange": 18,
-            "spawnDeployment": {
-                "beaconSec": 0.7,
-                "machineDropHeight": 72,
-                "machineDropSec": 1.15,
-                "machineLandSec": 0.35,
-                "machineHitRadius": 15,
-                "machineUnfoldSec": 0.85,
-                "machineChargeSec": 0.6,
-                "robotBirthSec": 1.05,
-                "robotBirthGapSec": 0.13,
-                "robotLaunchArc": 7,
-                "machineHoldSec": 0.45,
-                "machineExitSec": 0.9
-            },
-            "crane": {
-                "moveSec": 4,
-                "settleSec": 1
-            },
-            "cannon": {
-                "lockSec": 1.2,
-                "fireDelaySec": 0.4,
-                "damage": 55,
-                "blastRadius": 24,
-                "cooldownSec": 2.4,
-                "servoHp": 550
-            },
-            "encounters": {
-                "entry": { "C": 22, "B": 9, "A": 1 },
-                "yard": { "C": 29, "B": 12, "A": 4 },
-                "warehouse": { "C": 14, "B": 7, "A": 3 },
-                "pipeRack": { "C": 16, "B": 8, "A": 3 },
-                "defense": { "C": 18, "B": 8, "A": 3 }
-            },
-            "lootboxCount": 30,
-            "barrelCount": 12,
-            "chapter2": {
-                "openingMinSec": 6,
-                "fadeSec": 0.6,
-                "carrierStrikeSec": 3.5,
-                "interactionRange": 18,
-                "safeStartMeters": 20,
-                "scan": {
-                    "cycleSec": 14,
-                    "sweepSec": 3,
-                    "lockSec": 1.2,
-                    "decaySec": 1.8,
-                    "incomingSec": 1.4,
-                    "safeRadius": 115
-                },
-                "artillery": {
-                    "poolSize": 12,
-                    "playerDamage": 42,
-                    "robotDamage": 180,
-                    "blastRadius": 22
-                },
-                "encounters": {
-                    "forestApproach": [
-                        { "C": 12, "B": 5, "A": 1 },
-                        { "C": 14, "B": 6, "A": 2 }
-                    ],
-                    "sensorBasin": [
-                        { "C": 15, "B": 7, "A": 2 },
-                        { "C": 17, "B": 8, "A": 3 }
-                    ],
-                    "waterworks": [
-                        { "C": 16, "B": 8, "A": 3 },
-                        { "C": 18, "B": 9, "A": 3 }
-                    ]
-                },
-                "lootboxCount": 6,
-                "barrelCount": 8
-            }
-        },
         "stage11": {
             "openingMinSec": 7,
             "fadeSec": 0.6,
             "interactionRange": 18,
+            "parachute": {
+                "descentSec": 7,
+                "startHeight": 190,
+                "driftX": 105,
+                "driftZ": 62
+            },
             "upload": {
                 "preBossFraction": 0.7,
                 "ratePerSec": 0.05,
                 "finalRatePerSec": 0.08
             },
             "encounters": {
+                "forestApproach": [
+                    { "C": 12, "B": 4, "A": 1 },
+                    { "C": 14, "B": 5, "A": 2 }
+                ],
                 "civicAxis": [
                     { "C": 18, "B": 8, "A": 3 },
                     { "C": 20, "B": 9, "A": 3 },
@@ -1534,6 +1262,10 @@
             },
             "stage11": {
                 "lines": {
+                    "dropApproach": { "speaker": "Command", "text": "Drop zone confirmed outside Nusantara. The civic perimeter lies beyond the forest." },
+                    "canopyOpen": { "speaker": "Major Gibran", "text": "Canopy deployed. I am coming down west of the city defenses." },
+                    "forestLanded": { "speaker": "Major Gibran", "text": "On the ground. I will cross the forest and enter IKN on foot." },
+                    "perimeterSighted": { "speaker": "Command", "text": "IKN perimeter ahead. Clear the forest patrol and breach the civic axis." },
                     "surfaceReveal": { "speaker": "Major Gibran", "text": "Nusantara. I crossed half the country to reach this axis." },
                     "rootBelow": { "speaker": "Command", "text": "The root transmitter is beneath the civic district. Remote authority is still denied." },
                     "lastFormation": { "speaker": "Command", "text": "The remaining battalion is forming around root access. This is their last organized line." },
