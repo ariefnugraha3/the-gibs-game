@@ -109,6 +109,20 @@ export function applyDifficulty(name) {
         }
         warden.attackGapSec *= spawn;
     }
+    // Stage 11 Chapter-1 weapon pickups own their durability and damage in
+    // gameplay.json rather than borrowing mutable robot-class values. Apply
+    // the same difficulty multipliers explicitly so moving that ownership
+    // does not make these vehicles ignore Easy/Hard mode.
+    const forestVehicles = CFG.campaign?.stage11?.forestVehicles;
+    if (forestVehicles) {
+        for (const key of ['machineGun', 'homingMissile']) {
+            const v = forestVehicles[key];
+            v.hp = Math.max(1, Math.round(v.hp * hp));
+            v.damage *= dmg;
+        }
+        forestVehicles.homingMissile.projectileHp = Math.max(1,
+            Math.round(forestVehicles.homingMissile.projectileHp * hp));
+    }
     const mahapatih = CFG.campaign.bosses.mahapatih;
     if (mahapatih) {
         for (const key of ['siegeHp', 'combatHp', 'coreHp'])

@@ -40,21 +40,46 @@ import { rootScene, rootDebug, resetRoot } from './root.js';
 export { forestScene, surfaceScene, rootScene, setStage11CompletionHook };
 export { STAGE11_DIALOGUE } from './runtime.js';
 export {
+    STAGE11_CHAPTER_CAMERA, stage11ChapterScreenDirection,
+} from './chapterCamera.js';
+export {
     S11_FOREST_ORIGIN, S11_FOREST_LANDING, S11_FOREST_GATE, S11_FOREST_ROUTE,
+    S11_FOREST_ROUTE_METERS, stage11ForestPointAtMeter, stage11ForestMeterAt,
     stage11ForestWalk, stage11ForestResolve, stage11ForestSegBlocked,
     stage11ForestOnAsphalt, stage11ForestSpawnPoint,
     stage11ForestWorldDebug,
 } from './forestWorld.js';
+export { stage11ForestVehiclesDebug } from './forestVehicles.js';
+export {
+    stage11ForestCheckpointPlan, stage11ForestCheckpointsDebug,
+    stage11ForestCheckpointBulletHit, stage11ForestCheckpointsAllCleared,
+    stage11ForestGateSegBlocked, STAGE11_CHECKPOINT_PREFIX,
+} from './forestCheckpoints.js';
+export {
+    stage11ForestMortarDebug, stage11ForestMortarInZone,
+    stage11ForestMortarBlastRadius, stage11ForestMortarBlastOrigin,
+} from './forestMortar.js';
+export {
+    stage11SurfaceAuthorityDebug, stage11AuthorityTarget,
+    stage11AuthorityAllDown, stage11AuthorityLockdownX,
+    stage11AuthoritySegment,
+} from './surfaceAuthority.js';
+export {
+    stage11SurfaceScanDebug, stage11ScanDwellSec, stage11ScanSheltered,
+    stage11ScanExposed, stage11ScanBandX,
+} from './surfaceScan.js';
 export {
     S11_SURFACE_ORIGIN, S11_SURFACE_START, S11_AXIS_GATE, S11_ROOT_COURT,
     S11_DESCENT, stage11SurfaceWalk, stage11SurfaceResolve,
     stage11SurfaceSegBlocked, stage11SurfaceWorldDebug,
 } from './surfaceWorld.js';
 export {
-    S11_ROOT_ORIGIN, S11_ROOT_START, S11_AUTHORITY_GATE, S11_INSERT,
-    S11_INSERT_STAND,
+    S11_ROOT_ORIGIN, S11_ROOT_CORRIDOR_METERS, S11_ROOT_ENCOUNTER_METER,
+    S11_ROOT_START, S11_AUTHORITY_GATE, S11_ROOT_ENCOUNTER,
+    S11_DOOR_TERMINAL, S11_DOOR_STAND, S11_INSERT, S11_INSERT_STAND,
     S11_ARENA, S11_WARDEN_HOME, stage11RootWalk, stage11RootResolve,
-    stage11RootSegBlocked, stage11RootWorldDebug,
+    stage11RootSegBlocked, stage11RootMeterAt, stage11RootPointAtMeter,
+    stage11RootWorldDebug,
 } from './rootWorld.js';
 
 let worldsReady = false;

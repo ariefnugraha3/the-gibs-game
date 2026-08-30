@@ -50,7 +50,17 @@ function box(parent, material, sx, sy, sz, x, y, z, rz = 0) {
 function wheel(parent, M, x, z, radius = 0.48) {
     const geo = new THREE.CylinderGeometry(radius, radius, 0.32, 10);
     geo.rotateX(Math.PI / 2);
-    return mesh(parent, geo, M.tire, x, radius, z);
+    const w = mesh(parent, geo, M.tire, x, radius, z);
+    // Semantic only: Stage 11's armed pickup reuses this asset and animates
+    // these existing wheels as breakaway wreckage. Other Stage-7 vehicles do
+    // not pay any runtime cost for the tag.
+    w.userData.stage7WreckLoose = 'wheel';
+    return w;
+}
+
+function wreckLoose(object, role) {
+    object.userData.stage7WreckLoose = role;
+    return object;
 }
 
 function truckCab(group, M, x, width = 2.34, height = 2.45) {
@@ -66,13 +76,15 @@ function truckCab(group, M, x, width = 2.34, height = 2.45) {
 
 function buildPickup(group, M) {
     box(group, M.dark, 5.15, 0.36, 2.04, 0, 0.62, 0);
-    box(group, M.body, 2.2, 0.72, 2.08, 1.35, 1.05, 0);
+    wreckLoose(box(group, M.body, 2.2, 0.72, 2.08, 1.35, 1.05, 0), 'hood');
     box(group, M.body, 1.55, 0.88, 1.98, 0.92, 1.78, 0);
     box(group, M.glass, 0.07, 0.55, 1.65, 1.74, 1.88, 0, -0.38);
     box(group, M.steel, 2.42, 0.14, 1.86, -1.35, 1.02, 0);
     for (const z of [-1.01, 1.01])
-        box(group, M.body, 2.48, 0.72, 0.12, -1.35, 1.42, z);
-    box(group, M.body, 0.12, 0.72, 1.98, -2.55, 1.42, 0);
+        wreckLoose(box(group, M.body, 2.48, 0.72, 0.12,
+            -1.35, 1.42, z), 'bed-side');
+    wreckLoose(box(group, M.body, 0.12, 0.72, 1.98,
+        -2.55, 1.42, 0), 'tailgate');
     box(group, M.lamp, 0.06, 0.14, 1.5, 2.62, 1.15, 0);
     box(group, M.tail, 0.06, 0.16, 1.48, -2.62, 1.18, 0);
     for (const x of [-1.72, 1.62]) for (const z of [-1.08, 1.08])
@@ -152,4 +164,3 @@ export function buildStage7RoadVehicle(type, bodyColor = PAL.gunmetal, scale = 1
     group.userData.dimensionsMeters = STAGE7_ROAD_VEHICLE_SPECS[type];
     return group;
 }
-

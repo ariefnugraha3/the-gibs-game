@@ -2395,41 +2395,150 @@ function buildGroundSlot(parent, M, index, visualScale, ceiling, kind) {
 function buildBoss(parent, M) {
     const group = new THREE.Group(); parent.add(group); group.visible = false;
     const rig = new THREE.Group(); group.add(rig);
-    box(rig, M.boss, 20, 7, 78, 0, 0, 0);
-    const nose = mesh(rig, new THREE.ConeGeometry(10, 26, 6), M.boss, 0, 0, 50);
+    const armorPlates = [], wingSections = [], tailFins = [], visibleMissiles = [];
+
+    // Badan utama dibaca seperti ujung tombak, bukan satu balok panjang. Keel
+    // gelap dan spine bertingkat menjaga volumenya terbaca dari kamera atas.
+    armorPlates.push(box(rig, M.airEngine, 27, 5, 72, 0, -3.2, -3));
+    armorPlates.push(box(rig, M.boss, 23, 8, 76, 0, 0.4, 0));
+    armorPlates.push(box(rig, M.airArmor, 17, 7, 55, 0, 6.2, -8));
+    armorPlates.push(box(rig, M.boss, 13, 4, 32, 0, 11, -13));
+    const nose = mesh(rig, new THREE.ConeGeometry(11.5, 29, 6), M.boss,
+        0, 0.4, 52.5);
     nose.rotation.x = Math.PI * 0.5;
     nose.name = 'stage10-boss-bow';
-    box(rig, M.glass, 11, 3.4, 12, 0, 3.2, 30);
-    const wing = box(rig, M.boss, 132, 2.6, 26, 0, 0.4, -4);
-    wing.rotation.y = 0.03;
-    box(rig, M.bossTrim, 132, 0.6, 3.2, 0, 1.9, -14);
-    box(rig, M.boss, 62, 2.2, 15, 0, 1.4, -34);
-    for (const x of [-14, 14]) box(rig, M.boss, 9, 9, 16, x, 3, -28);
+    armorPlates.push(nose);
+    for (const side of [-1, 1]) {
+        const cheek = box(rig, M.airArmor, 6.5, 5.2, 31,
+            side * 10.5, -0.8, 24);
+        cheek.rotation.y = side * 0.07;
+        armorPlates.push(cheek);
+        const fang = mesh(rig, new THREE.ConeGeometry(2.2, 17, 5), M.airStripe,
+            side * 8.5, -2.7, 44);
+        fang.rotation.x = Math.PI * 0.5;
+        fang.name = `stage10-boss-chin-fang-${side < 0 ? 'right' : 'left'}`;
+    }
+    const canopyBase = cylinder(rig, M.dark, 8.5, 12, 0, 7.5, 25, 'y', 6);
+    canopyBase.scale.z = 1.35;
+    const canopy = cylinder(rig, M.shipGlass, 6.8, 8.5, 0, 10.2, 27, 'y', 6);
+    canopy.scale.z = 1.32;
+    armorPlates.push(box(rig, M.airStripe, 2.2, 0.9, 30, 0, 10.5, -12));
+
+    // Dua panel per sisi membentuk sayap menyapu/patah. Outer panel berada di
+    // belakang inner panel, memberi planform predator alih-alih persegi panjang.
+    for (const side of [-1, 1]) {
+        const inner = box(rig, M.boss, 49, 3.8, 27, side * 26, 0.6, -5);
+        inner.rotation.y = side * 0.11;
+        const outer = box(rig, M.airArmor, 32, 3, 19, side * 48, 0.1, -13);
+        outer.rotation.y = side * 0.29;
+        const leading = box(rig, M.bossTrim, 38, 1.05, 4.4,
+            side * 45, 2.2, -1.5);
+        leading.rotation.y = side * 0.25;
+        const trailing = box(rig, M.airEngine, 28, 2, 8,
+            side * 47, -1.1, -23);
+        trailing.rotation.y = side * 0.2;
+        wingSections.push(inner, outer, leading, trailing);
+
+        const tip = mesh(rig, new THREE.ConeGeometry(4.4, 19, 5), M.airArmor,
+            side * 61, 0, -5);
+        tip.rotation.x = Math.PI * 0.5;
+        tip.name = `stage10-boss-wing-blade-${side < 0 ? 'right' : 'left'}`;
+        wingSections.push(tip);
+
+        const tail = box(rig, M.boss, 31, 2.8, 13, side * 25, 2.2, -39);
+        tail.rotation.y = side * 0.31;
+        wingSections.push(tail);
+        const fin = box(rig, M.airArmor, 3.5, 15, 20, side * 11, 10, -39);
+        fin.rotation.z = side * 0.13;
+        fin.rotation.y = side * 0.08;
+        tailFins.push(fin);
+        const finSlash = box(rig, M.airStripe, 3.8, 1.8, 13,
+            side * 12.1, 15, -38);
+        finSlash.rotation.z = side * 0.13;
+        finSlash.rotation.y = side * 0.08;
+        tailFins.push(finSlash);
+    }
+    armorPlates.push(box(rig, M.airEngine, 38, 4, 13, 0, 1.1, -42));
+
+    // Empat turbofan berat mempunyai intake, rotor silang dan exhaust yang
+    // benar-benar terlihat. Semuanya sudah ada sebelum fight dimulai.
     const engines = [];
     for (const x of [-46, -24, 24, 46]) {
-        const nacelle = cylinder(rig, M.dark, 5.2, 22, x, -1.4, -2, 'z', 12);
-        const fan = cylinder(rig, M.bossGlow, 3.9, 1.1, x, -1.4, 8.6, 'z', 10);
-        engines.push({ nacelle, fan });
+        const nacelle = cylinder(rig, M.airEngine, 6.1, 29, x, -1.1, -5, 'z', 12);
+        const cowl = cylinder(rig, M.bossTrim, 6.7, 2.4, x, -1.1, 9.4, 'z', 12);
+        const fan = new THREE.Group();
+        fan.position.set(x, -1.1, 10.7); rig.add(fan);
+        cylinder(fan, M.dark, 4.8, 1.3, 0, 0, 0, 'z', 12);
+        for (let i = 0; i < 4; i++) {
+            const blade = box(fan, M.bossGlow, 8.1, 0.72, 0.75, 0, 0, 0);
+            blade.rotation.z = i * Math.PI * 0.25;
+        }
+        cylinder(rig, M.airArmor, 5.2, 4.2, x, -1.1, -20, 'z', 12);
+        const exhaust = cylinder(rig, M.airExhaust, 3.6, 9,
+            x, -1.1, -26.2, 'z', 10);
+        exhaust.castShadow = false; exhaust.receiveShadow = false;
+        engines.push({ nacelle, cowl, fan, exhaust });
     }
+
+    // Tiga kubah artileri kembar: dua menyapu depan dan satu melindungi ekor.
     const turrets = [];
     for (const [x, z] of [[-22, 16], [22, 16], [0, -30]]) {
         const t = new THREE.Group(); rig.add(t); t.position.set(x, 4.4, z);
-        box(t, M.ship, 7.5, 4, 7.5, 0, 0, 0);
-        cylinder(t, M.dark, 0.9, 13, -1.6, 0.4, 6.5, 'z', 8);
-        cylinder(t, M.dark, 0.9, 13, 1.6, 0.4, 6.5, 'z', 8);
+        cylinder(t, M.airEngine, 5.4, 2, 0, -1.8, 0, 'y', 10);
+        cylinder(t, M.ship, 4.7, 4.4, 0, 0, 0, 'y', 8);
+        box(t, M.airArmor, 9.5, 3.6, 7.8, 0, 1, 1.8);
+        cylinder(t, M.dark, 1.05, 15, -1.8, 0.8, 8.8, 'z', 8);
+        cylinder(t, M.dark, 1.05, 15, 1.8, 0.8, 8.8, 'z', 8);
+        box(t, M.airStripe, 5.8, 0.8, 3.2, 0, 3, 1.8);
         const muzzle = new THREE.Object3D();
-        muzzle.position.set(0, 0.4, 13);
+        muzzle.position.set(0, 0.8, 16.4);
         t.add(muzzle);
         turrets.push({ group: t, muzzle });
     }
+
+    // Pod sisi adalah rak senjata terbuka. Delapan rudal membuat ancaman boss
+    // terbaca dari siluet, walau proyektil live tetap memakai pool terpisah.
     const pods = [];
-    for (const x of [-62, 62]) {
-        const pod = new THREE.Group(); rig.add(pod); pod.position.set(x, 0, -2);
-        box(pod, M.bossTrim, 9, 5, 20, 0, 0, 0);
-        box(pod, M.bossGlow, 6.4, 1.2, 6.4, 0, 2.8, 2);
+    for (const side of [-1, 1]) {
+        const pod = new THREE.Group(); rig.add(pod);
+        pod.position.set(side * 57, -3, -8);
+        box(pod, M.airArmor, 11, 5.8, 22, 0, 0, 0);
+        box(pod, M.bossTrim, 11.8, 1.2, 5, 0, 3.2, 5);
+        for (let i = 0; i < 4; i++) {
+            const mx = (i % 2 ? 1 : -1) * 2.6;
+            const my = Math.floor(i / 2) * 2.1 - 1.2;
+            const missile = new THREE.Group();
+            missile.position.set(mx, my, 2); pod.add(missile);
+            cylinder(missile, M.dark, 1.05, 11, 0, 0, 0, 'z', 8);
+            const missileNose = mesh(missile,
+                new THREE.ConeGeometry(1.1, 4.2, 8), M.airStripe, 0, 0, 7.4);
+            missileNose.rotation.x = Math.PI * 0.5;
+            visibleMissiles.push(missile);
+        }
         pods.push(pod);
     }
-    group.userData.boss = { rig, nose, engines, turrets, pods, span: 132, length: 104 };
+
+    // Dengan hidung lokal +Z, sisi aerodinamis kanan adalah lokal -X. Setelah
+    // carrier yaw PI, anchor -X itu muncul di kanan dunia (+X). Runtime/smoke
+    // memakai anchor ini untuk menjaga tanda bank, bukan menebak dari Euler.
+    const wingAnchors = { left: new THREE.Object3D(), right: new THREE.Object3D() };
+    wingAnchors.left.name = 'stage10-boss-left-wing-anchor';
+    wingAnchors.right.name = 'stage10-boss-right-wing-anchor';
+    wingAnchors.left.position.set(64, 0, -8);
+    wingAnchors.right.position.set(-64, 0, -8);
+    rig.add(wingAnchors.left, wingAnchors.right);
+
+    let meshCount = 0, pointLights = 0;
+    rig.traverse(o => {
+        if (o.isMesh) meshCount++;
+        if (o.isPointLight) pointLights++;
+    });
+    group.userData.boss = {
+        rig, nose, engines, turrets, pods, wingAnchors,
+        armorPlates, wingSections, tailFins, visibleMissiles,
+        silhouette: 'brutal-siege-bomber', meshCount, pointLights,
+        span: 132, length: 116,
+    };
     return group;
 }
 
@@ -2898,9 +3007,22 @@ export function stage10FlightWorldDebug() {
         drops: { visualScale: W.dropVisual.scale },
         boss: {
             prebuilt: !!W.boss, visible: W.boss.visible,
+            silhouette: W.boss.userData.boss.silhouette,
+            meshes: W.boss.userData.boss.meshCount,
+            pointLights: W.boss.userData.boss.pointLights,
+            armorPlates: W.boss.userData.boss.armorPlates.length,
+            wingSections: W.boss.userData.boss.wingSections.length,
+            tailFins: W.boss.userData.boss.tailFins.length,
             engines: W.boss.userData.boss.engines.length,
+            animatedFans: W.boss.userData.boss.engines.filter(e => e.fan).length,
+            animatedExhausts: W.boss.userData.boss.engines.filter(e => e.exhaust).length,
             turrets: W.boss.userData.boss.turrets.length,
             pods: W.boss.userData.boss.pods.length,
+            visibleMissiles: W.boss.userData.boss.visibleMissiles.length,
+            wingAnchors: {
+                leftX: W.boss.userData.boss.wingAnchors.left.position.x,
+                rightX: W.boss.userData.boss.wingAnchors.right.position.x,
+            },
             span: W.boss.userData.boss.span,
         },
         enemyRoundShape: 'orb',

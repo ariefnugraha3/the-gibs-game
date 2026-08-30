@@ -1,5 +1,6 @@
 // Stage 11 root chapter — monumental national transmitter chamber.
 
+import { CFG, CAMP_M } from '../../../../core/config.js';
 import { scene } from '../../../../core/renderer.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStaticShadowAware } from '../../../../utils/meshBatch.js';
@@ -11,25 +12,49 @@ import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { registerStageLight } from '../../../../world/lighting.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
 import { buildStandMarker, pulseStandMarker } from '../../utility/common.js';
+import {
+    buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
+} from '../../../../entities/spawnMachine.js';
 
 export const STAGE11_ROOT_LIGHTS_KEY = 'campaign-11-root';
 export const S11_ROOT_ORIGIN = Object.freeze({ x: 400000, z: 0 });
-export const S11_ROOT_START = Object.freeze({ x: 400530, z: 0 });
-export const S11_AUTHORITY_GATE = Object.freeze({ x: 400345, z: 0 });
-export const S11_INSERT = Object.freeze({ x: 400235, z: 0 });
-// The console centre is solid collision geometry.  Interactions must target
-// the amber stand marker on its approach side, not this unreachable centre.
-export const S11_INSERT_STAND = Object.freeze({ x: S11_INSERT.x + 20, z: S11_INSERT.z });
 export const S11_ARENA = Object.freeze({ x: 399950, z: 0, radius: 315 });
-export const S11_WARDEN_HOME = Object.freeze({ x: 399910, z: 0 });
+export const S11_ROOT_CORRIDOR_METERS = 100;
+export const S11_ROOT_ENCOUNTER_METER = 50;
+// The hall door is exactly 100 metres down the clear approach from spawn.
+// Progress runs toward world -X, matching the chapter's upper-left camera.
+export const S11_AUTHORITY_GATE = Object.freeze({
+    x: S11_ARENA.x + S11_ARENA.radius, z: 0,
+});
+export const S11_ROOT_START = Object.freeze({
+    x: S11_AUTHORITY_GATE.x + S11_ROOT_CORRIDOR_METERS * CAMP_M, z: 0,
+});
+export const S11_ROOT_ENCOUNTER = Object.freeze({
+    x: S11_ROOT_START.x - S11_ROOT_ENCOUNTER_METER * CAMP_M, z: 0,
+});
+export const S11_DOOR_TERMINAL = Object.freeze({
+    x: S11_AUTHORITY_GATE.x + 34, z: -69,
+});
+export const S11_DOOR_STAND = Object.freeze({
+    x: S11_AUTHORITY_GATE.x + 48, z: -69,
+});
+// The physical computer now occupies the exact centre of the circular hall.
+// Its amber stand point is on the approach side, outside the solid pedestal.
+export const S11_INSERT = Object.freeze({ x: S11_ARENA.x, z: S11_ARENA.z });
+export const S11_INSERT_STAND = Object.freeze({ x: S11_INSERT.x + 31, z: S11_INSERT.z });
+export const S11_WARDEN_HOME = Object.freeze({ x: S11_ARENA.x - 165, z: 0 });
 
-const BOUNDS = Object.freeze({ x0: 399540, x1: 400650, z0: -470, z1: 470 });
+const BOUNDS = Object.freeze({ x0: 399540, x1: S11_ROOT_START.x + 120,
+    z0: -470, z1: 470 });
 const ARENA_R = S11_ARENA.radius;
 export const S11_ROOT_OCC = 'campaign-11-root';   // utility/occlusion.js
 let built = false;
 let root = null;
 let nav = null;
 let authorityDoor = null;
+let authorityDoorOpen = false;
+let authorityDoorT = 0;
+let doorHackMarker = null;
 let consoleMarker = null;
 let consoleCore = null;
 let broadcastCore = null;
@@ -37,7 +62,7 @@ let uploadVisual = 0;
 let rawMeshes = 0;
 let weldedMeshes = 0;
 const blockers = [];
-const sockets = [];
+const approachMachines = [];
 const lights = [];
 const semantic = new Map();
 const mats = {};
@@ -64,8 +89,9 @@ function blocker(x, z, hx, hz, top, yaw = 0, kind = 'structure') {
     blockers.push({ x, z, hx, hz, top, axx: c, axz: s, azx: -s, azz: c,
         rad: Math.hypot(hx, hz), standable: false, yaw, kind });
 }
-function pointBlocked(x, z, r = 0) {
+function navBlocked(x, z, r = 0) {
     return blockers.some(b => {
+        if (b.kind === 'authority-door') return false;
         const dx = x - b.x, dz = z - b.z;
         return Math.abs(dx * b.axx + dz * b.axz) <= b.hx + r
             && Math.abs(dx * b.azx + dz * b.azz) <= b.hz + r;
@@ -85,17 +111,27 @@ function segBox(x0, z0, x1, z1, b) {
 
 export function stage11RootWalk(x, z, r = 0) {
     const inArena = Math.hypot(x - S11_ARENA.x, z - S11_ARENA.z) <= ARENA_R - r;
-    const inThreshold = x >= S11_ARENA.x && x <= 400610 - r && Math.abs(z) <= 104 - r;
-    return inArena || inThreshold;
+    const inApproach = x >= S11_AUTHORITY_GATE.x - r
+        && x <= S11_ROOT_START.x + 82 - r && Math.abs(z) <= 104 - r;
+    return inArena || inApproach;
 }
 export function stage11RootResolve(pos, radius, feetY = 0) {
     resolveBlockers(pos, radius, feetY, blockers);
 }
 export function stage11RootSegBlocked(x0, z0, x1, z1) {
-    return blockers.some(b => segBox(x0, z0, x1, z1, b));
+    return blockers.some(b => b.top >= 0 && segBox(x0, z0, x1, z1, b));
 }
 export function stage11RootGroundHeight() { return 0; }
 export function stage11RootNav() { return nav; }
+export function stage11RootMeterAt(x) {
+    return Math.max(0, Math.min(S11_ROOT_CORRIDOR_METERS,
+        (S11_ROOT_START.x - x) / CAMP_M));
+}
+export function stage11RootPointAtMeter(meter, lateral = 0) {
+    return { x: S11_ROOT_START.x - Math.max(0,
+        Math.min(S11_ROOT_CORRIDOR_METERS, meter)) * CAMP_M,
+        z: lateral };
+}
 
 function buildShell() {
     const g = new THREE.Group();
@@ -109,132 +145,127 @@ function buildShell() {
         S11_ARENA.x, 1.5, 0, Math.PI / 2, 0, 0, false, false);
         count('concentric-authority-ring');
     }
-    // Monumental outer buttresses frame the entire gameplay camera footprint.
-    // Setinggi 94 unit dan mengelilingi arena: penghalang pandangan nyata, jadi
-    // tiap pilar berdiri sendiri dan ikut memudar (utility/occlusion.js).
-    for (let i = 0; i < 20; i++) {
-        const a = i * Math.PI * 2 / 20, x = S11_ARENA.x + Math.cos(a) * 378;
-        const z = Math.sin(a) * 378;
-        const b = new THREE.Group();
-        mesh(b, new THREE.BoxGeometry(30, 94, 52), material('outerButtress', PAL.concrete),
-            x, 47, z, 0, -a, 0, true, true);
-        mesh(b, new THREE.BoxGeometry(18, 72, 56), material('buttressInset', PAL.gunmetal),
-            x - Math.cos(a) * 8, 53, z - Math.sin(a) * 8,
-            0, -a, 0, false, false);
-        mesh(b, new THREE.BoxGeometry(8, 58, 58), material('authorityStrip', PAL.amberDim,
-            { emissive: PAL.amberDim, emissiveIntensity: .42 }),
-        x - Math.cos(a) * 18, 55, z - Math.sin(a) * 18,
-        0, -a, 0, false, false);
-        weldOccluder(S11_ROOT_OCC, root, b, { x, z, hx: 26, hz: 26, top: 94 });
-        blocker(x, z, 18, 30, 94, -a, 'root-buttress');
-    }
-    // Overhead radial trusses imply a huge chamber without a view-blocking roof.
-    for (let i = 0; i < 12; i++) {
-        const a = i * Math.PI * 2 / 12;
-        mesh(g, new THREE.BoxGeometry(430, 9, 14), material('ceilingTruss', PAL.steel),
-            S11_ARENA.x + Math.cos(a) * 190, 112, Math.sin(a) * 190,
-            0, -a, Math.sin(a * 3) * .04, false, false);
-    }
-    count('outer-buttress', 20); count('radial-truss', 12);
+    // The circular hall is deliberately unobstructed. The former twenty
+    // buttress pillars, radial trusses and perimeter wall-like capacitor banks
+    // were visual clutter that interrupted the Warden fight and are omitted.
+    count('open-circular-hall');
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
 }
 
 function buildThreshold() {
     const g = new THREE.Group();
-    mesh(g, new THREE.BoxGeometry(650, 5, 220), material('authorityBridge', PAL.panel),
-        400280, 0, 0, 0, 0, 0, true, true);
+    const corridorMid = (S11_ROOT_START.x + S11_AUTHORITY_GATE.x) * .5;
+    const corridorLength = S11_ROOT_START.x - S11_AUTHORITY_GATE.x + 170;
+    // One clean 100-metre floor: no walls, rails, columns or arches. Recessed
+    // strips describe its edges without becoming collision or cover.
+    mesh(g, new THREE.BoxGeometry(corridorLength, 5, 210),
+        material('authorityBridge', PAL.panel), corridorMid + 22, -1, 0,
+        0, 0, 0, false, true);
     for (const side of [-1, 1]) {
-        mesh(g, new THREE.BoxGeometry(650, 11, 16), material('bridgeRail', PAL.concrete),
-            400280, 7, side * 102, 0, 0, 0, true, true);
-        for (let i = 0; i < 10; i++) {
-            const x = 400555 - i * 58;
-            mesh(g, new THREE.BoxGeometry(8, 43, 24), material('thresholdColumn', PAL.panel),
-                x, 23, side * 83, 0, 0, 0, true, true);
-            mesh(g, new THREE.BoxGeometry(4, 28, 26), material('thresholdLamp', PAL.techDim,
-                { emissive: PAL.techDim, emissiveIntensity: .48 }),
-            x, 25, side * 78, 0, 0, 0, false, false);
-            blocker(x, side * 83, 5, 11, 44, 0, 'threshold-column');
+        mesh(g, new THREE.BoxGeometry(corridorLength - 28, 1.2, 5),
+            material('corridorEdge', PAL.techDim,
+                { emissive: PAL.techDim, emissiveIntensity: .32 }),
+        corridorMid + 22, 2, side * 96, 0, 0, 0, false, false);
+        for (let m = 10; m < 100; m += 10) {
+            const p = stage11RootPointAtMeter(m, side * 88);
+            mesh(g, new THREE.BoxGeometry(3, .8, 12),
+                material('corridorMeter', m === 50 ? PAL.amber : PAL.steel,
+                    m === 50 ? { emissive: PAL.amberDim, emissiveIntensity: .4 } : {}),
+            p.x, 2.1, p.z, 0, 0, 0, false, false);
         }
     }
-    // Decontamination arches form multiple readable thresholds.
-    for (let a = 0; a < 4; a++) {
-        const x = 400545 - a * 56;
-        for (const side of [-1, 1])
-            mesh(g, new THREE.BoxGeometry(10, 62, 16), material('deconFrame', PAL.gunmetal),
-                x, 31, side * 66, 0, 0, 0, true, true);
-        mesh(g, new THREE.BoxGeometry(12, 10, 142), material('deconFrame', PAL.gunmetal),
-            x, 62, 0, 0, 0, 0, true, true);
-    }
-    authorityDoor = mesh(g, new THREE.BoxGeometry(8, 52, 124),
-        material('authorityDoor', PAL.gunmetal), S11_AUTHORITY_GATE.x, 26, 0,
-        0, 0, 0, true, true);
-    for (let k = -5; k <= 5; k++)
-        mesh(g, new THREE.BoxGeometry(2, 43, 5), material('doorRib', PAL.steel),
-            S11_AUTHORITY_GATE.x + 4.6, 26, k * 10, 0, 0, 0, false, false);
-    blocker(S11_AUTHORITY_GATE.x, 0, 4, 62, 52, 0, 'authority-door');
-    count('authority-bridge'); count('decontamination-arch', 4);
+
+    // Monumental double sliding door. Both leaves remain in the scene and move
+    // apart along Z after the Stage-1 ICE BREACH succeeds.
+    const doorGroup = new THREE.Group();
+    doorGroup.name = 'stage11-root-large-hall-door';
+    root.add(doorGroup);
+    const doorMat = material('authorityDoor', PAL.gunmetal);
+    const left = mesh(doorGroup, new THREE.BoxGeometry(12, 82, 88), doorMat,
+        S11_AUTHORITY_GATE.x, 41, -44, 0, 0, 0, true, true);
+    const right = mesh(doorGroup, new THREE.BoxGeometry(12, 82, 88), doorMat,
+        S11_AUTHORITY_GATE.x, 41, 44, 0, 0, 0, true, true);
+    left.name = 'stage11-root-hall-door-left';
+    right.name = 'stage11-root-hall-door-right';
+    for (const leaf of [left, right]) for (let k = -3; k <= 3; k++)
+        mesh(leaf, new THREE.BoxGeometry(2, 63, 4), material('doorRib', PAL.steel),
+            6.2, 0, k * 11, 0, 0, 0, false, false);
+    mesh(g, new THREE.BoxGeometry(24, 14, 204), material('doorHeader', PAL.ink),
+        S11_AUTHORITY_GATE.x, 89, 0, 0, 0, 0, true, true);
+    authorityDoor = { left, right, closedLeftZ: -44, closedRightZ: 44,
+        slide: 78 };
+    blocker(S11_AUTHORITY_GATE.x, 0, 7, 89, 82, 0, 'authority-door');
+
+    // Small access pedestal on the corridor side. Its stand marker opens the
+    // shared Stage-1 hack minigame; it never doubles as the central computer.
+    mesh(g, new THREE.BoxGeometry(20, 25, 18), material('doorTerminalBody', PAL.concrete),
+        S11_DOOR_TERMINAL.x, 12.5, S11_DOOR_TERMINAL.z, 0, 0, 0, true, true);
+    mesh(g, new THREE.BoxGeometry(9, 12, 19), material('doorTerminalScreen', PAL.tech,
+        { emissive: PAL.techDim, emissiveIntensity: .52 }),
+    S11_DOOR_TERMINAL.x - 10.5, 19, S11_DOOR_TERMINAL.z,
+    0, 0, 0, false, false);
+    doorHackMarker = buildStandMarker(root, S11_DOOR_STAND.x, S11_DOOR_STAND.z, PAL.amber);
+    blocker(S11_DOOR_TERMINAL.x, S11_DOOR_TERMINAL.z, 10, 9, 25,
+        0, 'door-hack-terminal');
+    count('clear-approach-corridor'); count('large-hall-door'); count('door-hack-terminal');
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
 }
+
+function buildApproachMachines() {
+    const C = CFG.campaign.stage11.rootCorridor;
+    const n = Math.max(1, C.machines | 0);
+    for (let i = 0; i < n; i++) {
+        const side = i % 2 ? 1 : -1;
+        const row = Math.floor(i / 2);
+        const x = S11_ROOT_ENCOUNTER.x + row * 38;
+        const z = side * (C.machineLateral + row * 10);
+        const yaw = side < 0 ? 0 : Math.PI;
+        const rig = buildSpawnMachineMesh(30, 20, 30);
+        rig.group.name = `stage11-root-corridor-fabricator-${i + 1}`;
+        rig.group.position.set(x, 0, z); rig.group.rotation.y = yaw;
+        root.add(rig.group); resetSpawnMachine(rig, false);
+        blocker(x, z, 16, 16, 26, yaw, 'root-spawn-machine');
+        approachMachines.push({ index: i, rig, x, z, yaw,
+            hatch: { x: x + Math.sin(yaw) * 18, z: z + Math.cos(yaw) * 18 } });
+    }
+    count('root-spawn-machine', approachMachines.length);
+}
+
+export function updateStage11RootMachines(dt, active) {
+    for (const m of approachMachines) updateSpawnMachine(m.rig, dt, !!active, 0);
+}
+export const stage11RootMachineAnchors = () => approachMachines.map(m => ({
+    index: m.index, x: m.x, z: m.z, yaw: m.yaw, hatch: { ...m.hatch },
+}));
 
 function buildTransmitter() {
     const g = new THREE.Group();
-    // The Warden surrounds this low root dais; all key shapes stay readable
-    // beneath the boss rather than hiding behind an opaque central tower.
-    mesh(g, new THREE.CylinderGeometry(72, 88, 14, 20), material('rootDais', PAL.gunmetal),
-        S11_ARENA.x, 4, 0, 0, 0, 0, true, true);
-    broadcastCore = mesh(g, new THREE.CylinderGeometry(29, 38, 30, 12),
-        material('broadcastCore', PAL.tech, { emissive: PAL.techDim, emissiveIntensity: .36 }),
-        S11_ARENA.x, 20, 0, 0, 0, 0, false, false);
-    for (let i = 0; i < 6; i++) {
-        const a = i * Math.PI * 2 / 6;
-        const x = S11_ARENA.x + Math.cos(a) * 77, z = Math.sin(a) * 77;
-        mesh(g, new THREE.CylinderGeometry(9, 11, 20, 8), material('socket', PAL.steel),
-            x, 8, z, 0, 0, 0, true, true);
-        mesh(g, new THREE.BoxGeometry(34, 5, 9), material('rootCable', PAL.gunmetal),
-            S11_ARENA.x + Math.cos(a) * 52, 4, Math.sin(a) * 52,
-            0, -a, 0, false, true);
-        sockets.push({ id: i, x, z, angle: a });
-    }
-    // Physical insertion console and drive receptacle.
-    mesh(g, new THREE.BoxGeometry(38, 18, 42), material('consolePedestal', PAL.concrete),
-        S11_INSERT.x, 9, 0, 0, 0, -.12, true, true);
-    mesh(g, new THREE.BoxGeometry(24, 3, 31), material('consolePanel', PAL.gunmetal),
-        S11_INSERT.x - 7, 20, 0, 0, 0, -.35, false, false);
-    consoleCore = mesh(g, new THREE.BoxGeometry(10, 3, 17),
+    // One unmistakable central computer replaces the old offset console,
+    // transmitter tower, socket posts and cable clutter.
+    mesh(g, new THREE.CylinderGeometry(58, 66, 8, 24), material('rootDais', PAL.gunmetal),
+        S11_INSERT.x, 2, S11_INSERT.z, 0, 0, 0, true, true);
+    mesh(g, new THREE.BoxGeometry(42, 18, 48), material('consolePedestal', PAL.concrete),
+        S11_INSERT.x, 11, S11_INSERT.z, 0, 0, 0, true, true);
+    broadcastCore = mesh(g, new THREE.CylinderGeometry(13, 17, 30, 12),
+        material('broadcastCore', PAL.tech,
+            { emissive: PAL.techDim, emissiveIntensity: .36 }),
+        S11_INSERT.x - 8, 31, S11_INSERT.z, 0, 0, 0, false, false);
+    mesh(g, new THREE.BoxGeometry(5, 27, 36), material('consolePanel', PAL.gunmetal),
+        S11_INSERT.x + 23, 27, S11_INSERT.z, 0, 0, 0, false, false);
+    consoleCore = mesh(g, new THREE.BoxGeometry(5.6, 19, 28),
         material('consoleScreen', PAL.tech, { emissive: PAL.techDim, emissiveIntensity: .56 }),
-        S11_INSERT.x - 9, 22, 0, 0, 0, -.35, false, false);
-    mesh(g, new THREE.BoxGeometry(9, 7, 3), material('driveSlot', PAL.amberDim,
+        S11_INSERT.x + 26, 28, S11_INSERT.z, 0, 0, 0, false, false);
+    mesh(g, new THREE.BoxGeometry(22, 3, 34), material('consoleKeyboard', PAL.steel),
+        S11_INSERT.x + 18, 15, S11_INSERT.z, 0, 0, -.28, false, false);
+    mesh(g, new THREE.BoxGeometry(5, 8, 12), material('driveSlot', PAL.amberDim,
         { emissive: PAL.amberDim, emissiveIntensity: .5 }),
-    S11_INSERT.x - 21, 16, 0, 0, 0, false, false);
-    // Shared campaign action language: 12x12 amber stand box. It remains flat
-    // and never rotates; the radar waypoint remains a separate destination cue.
+    S11_INSERT.x + 27, 15, S11_INSERT.z, 0, 0, 0, false, false);
     consoleMarker = buildStandMarker(root, S11_INSERT_STAND.x, S11_INSERT_STAND.z, PAL.amber);
-    blocker(S11_INSERT.x, 0, 19, 21, 22, 0, 'insert-console');
-    count('root-transmitter'); count('warden-socket', 6); count('physical-insert-console');
-    weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
-}
-
-function buildCapacitorBanks() {
-    // Bank kapasitor mengelilingi arena boss setinggi 50-64 unit: penghalang
-    // pandangan paling sering di ruang akar. Tiap bank berdiri sendiri.
-    for (let i = 0; i < 12; i++) {
-        const a = i * Math.PI * 2 / 12, r = 270;
-        const x = S11_ARENA.x + Math.cos(a) * r, z = Math.sin(a) * r;
-        const g = new THREE.Group();
-        mesh(g, new THREE.BoxGeometry(24, 48, 35), material('bankBody', PAL.gunmetal),
-            x, 24, z, 0, -a, 0, true, true);
-        for (let k = -1; k <= 1; k++)
-            mesh(g, new THREE.CylinderGeometry(5, 5, 35, 8), material('bankCoil', PAL.steel),
-                x + Math.sin(a) * k * 9, 47, z - Math.cos(a) * k * 9,
-                0, 0, 0, false, false);
-        mesh(g, new THREE.BoxGeometry(4, 31, 27), material('bankStatus', PAL.amberDim,
-            { emissive: PAL.amberDim, emissiveIntensity: .35 }),
-        x - Math.cos(a) * 13, 25, z - Math.sin(a) * 13,
-        0, -a, 0, false, false);
-        weldOccluder(S11_ROOT_OCC, root, g, { x, z, radius: 20, top: 64 });
-        blocker(x, z, 14, 20, 50, -a, 'capacitor-bank');
-    }
-    count('capacitor-bank', 12);
+    blocker(S11_INSERT.x, S11_INSERT.z, 23, 25, 43, 0, 'insert-console');
+    count('central-root-computer'); count('physical-insert-console');
+    weldOccluder(S11_ROOT_OCC, root, g,
+        { x: S11_INSERT.x, z: S11_INSERT.z, hx: 31, hz: 31, top: 43 });
+    weldedMeshes++;
 }
 
 function buildLighting() {
@@ -247,11 +278,20 @@ function buildLighting() {
 }
 
 export function setStage11AuthorityDoor(open) {
-    if (!authorityDoor) return;
-    authorityDoor.position.y = open ? 83 : 26;
-    const b = blockers.find(q => q.kind === 'authority-door');
-    if (b) b.top = open ? -1 : 52;
+    authorityDoorOpen = !!open;
 }
+export function updateStage11AuthorityDoor(dt) {
+    if (!authorityDoor) return;
+    const sec = Math.max(.05, CFG.campaign.stage11.rootCorridor.doorOpenSec);
+    authorityDoorT = Math.max(0, Math.min(1,
+        authorityDoorT + (authorityDoorOpen ? 1 : -1) * dt / sec));
+    const k = authorityDoorT * authorityDoorT * (3 - 2 * authorityDoorT);
+    authorityDoor.left.position.z = authorityDoor.closedLeftZ - authorityDoor.slide * k;
+    authorityDoor.right.position.z = authorityDoor.closedRightZ + authorityDoor.slide * k;
+    const b = blockers.find(q => q.kind === 'authority-door');
+    if (b) b.top = k >= .92 ? -1 : 82;
+}
+export function setStage11DoorHackMarker(on) { if (doorHackMarker) doorHackMarker.visible = !!on; }
 export function setStage11InsertMarker(on) { if (consoleMarker) consoleMarker.visible = !!on; }
 export function updateStage11RootVisuals(dt, progress, jammed = false) {
     uploadVisual += dt;
@@ -266,12 +306,20 @@ export function updateStage11RootVisuals(dt, progress, jammed = false) {
             jammed ? .22 + .08 * Math.sin(uploadVisual * 7) : .32 + progress * .5);
     }
 }
-// Occluder bank kapasitor diperbarui SETIAP frame (updateMode), terlepas dari
-// fase upload — `updateStage11RootVisuals` hanya dipanggil di jalur upload.
+// The central computer is the open hall's only legitimate occluder. Update it
+// every frame so no deleted pillar/wall has to return as an occlusion crutch.
 export function updateStage11RootOccluders(dt) { updateStageOccluders(S11_ROOT_OCC, dt); }
 
 export function resetStage11RootVisuals() {
-    uploadVisual = 0; setStage11AuthorityDoor(false); setStage11InsertMarker(false);
+    uploadVisual = 0; authorityDoorOpen = false; authorityDoorT = 0;
+    if (authorityDoor) {
+        authorityDoor.left.position.z = authorityDoor.closedLeftZ;
+        authorityDoor.right.position.z = authorityDoor.closedRightZ;
+    }
+    const doorBlock = blockers.find(q => q.kind === 'authority-door');
+    if (doorBlock) doorBlock.top = 82;
+    setStage11DoorHackMarker(true); setStage11InsertMarker(false);
+    for (const m of approachMachines) resetSpawnMachine(m.rig, false);
     resetStageOccluders(S11_ROOT_OCC);
     if (consoleCore) consoleCore.material.emissiveIntensity = .56;
     if (broadcastCore) broadcastCore.material.emissiveIntensity = .36;
@@ -279,12 +327,19 @@ export function resetStage11RootVisuals() {
 
 export function ensureStage11RootWorld(parent = scene) {
     if (built) return root;
+    const RC = CFG.campaign.stage11.rootCorridor;
+    if (RC.meters !== S11_ROOT_CORRIDOR_METERS
+        || RC.encounterMeter !== S11_ROOT_ENCOUNTER_METER)
+        throw new Error('Stage 11 root corridor config must match its authored 100m/50m geometry');
     built = true; root = new THREE.Group(); root.name = 'campaign-stage11-root-chamber';
     parent.add(root);
-    buildShell(); buildThreshold(); buildTransmitter(); buildCapacitorBanks(); buildLighting();
+    buildShell(); buildThreshold(); buildApproachMachines(); buildTransmitter(); buildLighting();
     nav = makeNavGrid(BOUNDS.x0, BOUNDS.z0, 14,
         Math.ceil((BOUNDS.x1 - BOUNDS.x0) / 14), Math.ceil((BOUNDS.z1 - BOUNDS.z0) / 14),
-        (x, z) => stage11RootWalk(x, z, 3.5) && !pointBlocked(x, z, 3.5));
+        // The dynamic door is excluded from the static nav raster. Its real
+        // blocker still stops robots while shut and releases them after hack.
+        (x, z) => stage11RootWalk(x, z, 3.5)
+            && !navBlocked(x, z, 3.5));
     registerCampaignWorldRoot({ key: STAGE11_ROOT_LIGHTS_KEY, root,
         bounds: { ...BOUNDS }, lightsKey: STAGE11_ROOT_LIGHTS_KEY,
         warmupViews: [S11_ROOT_START, S11_AUTHORITY_GATE, S11_INSERT, S11_ARENA],
@@ -298,10 +353,26 @@ export const stage11RootWorldDebug = () => ({
     insert: { ...S11_INSERT }, insertStand: { ...S11_INSERT_STAND },
     arena: { ...S11_ARENA }, wardenHome: { ...S11_WARDEN_HOME },
     rawMeshes, weldedMeshes, blockers: blockers.length,
-    sockets: sockets.map(s => ({ ...s })), socketCount: sockets.length,
     semantic: Object.fromEntries(semantic), lights: { key: STAGE11_ROOT_LIGHTS_KEY,
         total: lights.length },
-    authorityOpen: !!authorityDoor && authorityDoor.position.y > 50,
+    corridor: { meters: S11_ROOT_CORRIDOR_METERS,
+        units: S11_ROOT_START.x - S11_AUTHORITY_GATE.x,
+        encounterMeter: S11_ROOT_ENCOUNTER_METER, encounter: { ...S11_ROOT_ENCOUNTER },
+        columns: semantic.get('threshold-column') || 0,
+        arches: semantic.get('decontamination-arch') || 0,
+        walls: semantic.get('corridor-wall') || 0 },
+    hall: { centre: { x: S11_ARENA.x, z: S11_ARENA.z },
+        computerCentred: S11_INSERT.x === S11_ARENA.x && S11_INSERT.z === S11_ARENA.z,
+        buttresses: semantic.get('outer-buttress') || 0,
+        staticCapacitorBanks: semantic.get('capacitor-bank') || 0 },
+    door: { large: true, hackedOpen: authorityDoorOpen, progress: authorityDoorT,
+        leftZ: authorityDoor?.left.position.z ?? null,
+        rightZ: authorityDoor?.right.position.z ?? null,
+        terminal: { ...S11_DOOR_TERMINAL }, stand: { ...S11_DOOR_STAND },
+        marker: !!doorHackMarker?.visible },
+    machines: approachMachines.map(m => ({ index: m.index, x: m.x, z: m.z,
+        yaw: m.yaw, ...spawnMachineDebug(m.rig) })),
+    authorityOpen: authorityDoorT >= .92,
     occluders: occlusionDebug(S11_ROOT_OCC),
     insertMarker: !!consoleMarker?.visible,
     nav: nav && { cols: nav.cols, rows: nav.rows,

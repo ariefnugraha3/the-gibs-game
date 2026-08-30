@@ -83,7 +83,9 @@ let groundT = 0;
 let nextWaveEntrySide = -1;
 const boss = {
     active: false, hp: 0, maxHp: 0, x: 0, zOffset: 0, t: 0, entryT: 0,
-    gunCd: 0, missileCd: 0, missileLeft: 0, dir: 1, hitFlash: 0,
+    entryStartX: 0, entryStartZ: 0,
+    gunCd: 0, missileCd: 0, missileLeft: 0, dir: 1, motionDir: 1,
+    bank: 0, bankTarget: 0, hitFlash: 0,
     dying: false, deathT: 0, enraged: false,
 };
 const playerImpact = {
@@ -233,7 +235,6 @@ function deathNoise(enemy, salt) {
 }
 function lerp(a, b, k) { return a + (b - a) * k; }
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
-function smooth01(v) { const q = clamp(v, 0, 1); return q * q * (3 - 2 * q); }
 function angleDelta(from, to) {
     return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
@@ -419,7 +420,8 @@ function resetFlight() {
     groundT = C().ground.intervalStartSec * 0.55;
     boss.active = false; boss.dying = false; boss.deathT = 0; boss.enraged = false;
     boss.hp = boss.maxHp = C().boss.hp; boss.t = 0; boss.entryT = 0;
-    boss.gunCd = boss.missileCd = 0; boss.missileLeft = 0; boss.dir = 1; boss.hitFlash = 0;
+    boss.gunCd = boss.missileCd = 0; boss.missileLeft = 0;
+    boss.dir = boss.motionDir = 1; boss.bank = boss.bankTarget = 0; boss.hitFlash = 0;
     flightHp = C().playerHp;
     player.maxHp = C().playerHp;
     player.hp = flightHp;
@@ -601,12 +603,18 @@ function spawnEnemy(type, x = null, z = null) {
     slot.group.rotation.set(0, 0, 0);
     if (aircraft) {
         slot.path = type === 'airC' ? 'kamikaze' : 'hold';
+        if (slot.path === 'kamikaze') lockRamAim(slot, camera.position.x, camera.position.z);
         slot.holdX = sx;
         slot.holdZOffset = sz - scrollZ;
         slot.weaveAmp = randRange(10, 22);
         slot.weaveRate = randRange(0.5, 1.05);
         slot.dwellLeft = C().waves.dwellSec;
-        slot.entryFrom = 'top';
+        // Spawner satuan ini menaruh pesawat LANGSUNG di posisi bertahan (dipakai
+        // probe/test), jadi ia tidak melewati busur masuk sama sekali — labelnya
+        // 'direct', bukan 'top', karena tidak ada lagi gelombang dari atas layar.
+        slot.entryFrom = 'direct';
+        slot.group.rotation.y = YAW_UP;
+        slot.heading = YAW_UP;
     } else {
         slot.path = 'surface';
         slot.entryFrom = 'surface';
@@ -634,8 +642,17 @@ function spawnWave(opts = {}) {
         while (FORMATION_NAMES.length > 1 && name === lastFormation);
     }
     lastFormation = name;
-    const entry = opts.entry || (rand() < 0.72 ? 'top' : (nextWaveEntrySide < 0 ? 'left' : 'right'));
-    if (entry !== 'top') nextWaveEntrySide *= -1;
+    // MASUK HANYA DARI KIRI ATAU KANAN (2026-08-30, permintaan user "jangan ada
+    // lagi yang muncul dari atas layar kemudian tiba-tiba berputar balik dan
+    // terbang mundur"). Dulu 72% gelombang lahir DI ATAS layar, terbang turun
+    // menghadap player, lalu membalik 180 derajat untuk keluar lewat atas —
+    // pembalikan itulah yang terbaca sebagai pesawat terbang mundur. Sekarang
+    // semua gelombang masuk dari samping, membelok seperempat putaran sampai
+    // menghadap ATAS, bertahan sambil menembak, lalu tinggal terbang lurus ke
+    // atas keluar layar. Tidak ada lagi pembalikan arah sama sekali.
+    const entry = opts.entry === 'top' ? (nextWaveEntrySide < 0 ? 'left' : 'right')
+        : (opts.entry || (nextWaveEntrySide < 0 ? 'left' : 'right'));
+    nextWaveEntrySide *= -1;
     const type = opts.type || chooseWaveType();
     const slots = FORMATIONS[name](size);
     const armedEvery = Math.max(1, Math.round(1 / clamp(cfg.shooterFraction, 0.05, 1)));
@@ -661,22 +678,53 @@ function spawnWave(opts = {}) {
         // Sebagian formasi terbang sebagai RINTANGAN saja: satu gelombang
         // tujuh pesawat tidak boleh berarti tujuh sumber tembakan.
         e.armed = born.length % armedEvery === 0;
-        if (entry === 'top') {
-            e.path = 'entry';
-            e.group.position.set(e.holdX,
-                C().altitude,
-                frame.top - e.radius - 30 + slot.dz * pitch * 0.9);
-        } else {
-            const side = entry === 'left' ? -1 : 1;
-            e.path = 'cross';
-            e.crossDir = -side;
-            e.group.position.set(frame.cx + side * (frame.halfWidth + e.radius + 24 - slot.dz * pitch),
-                C().altitude,
-                clamp(scrollZ + e.holdZOffset + slot.dx * pitch * 0.5,
-                    frame.top + e.radius, frame.cz));
+        // BUSUR MASUK berupa Bezier kuadratik yang tangennya MENDATAR di awal
+        // dan LURUS KE ATAS di akhir, jadi hidungnya menyapu sendiri dari
+        // menyamping ke menghadap atas dan mendarat tepat di slot formasinya.
+        // Kendalinya P1 = (holdX, z-masuk): itulah yang memaksa kedua tangen.
+        const side = entry === 'left' ? -1 : 1;
+        e.crossDir = -side;
+        const sideX = frame.cx + side * (frame.halfWidth + e.radius + 26 - slot.dz * pitch);
+        if (type === 'airC') {
+            // KELAS C tidak ikut busur masuk dan tidak pernah bertahan: ia lahir
+            // di tepi samping lalu langsung MELUNCUR LURUS ke titik tempat player
+            // berada saat itu. Sengaja tanpa busur — melengkung dulu lalu menukik
+            // berarti berbalik arah, persis yang baru saja dihapus dari kelas lain.
+            e.path = 'kamikaze';
+            e.armed = false;                  // serangannya tubuhnya sendiri
+            // Sebarannya memakai KEDUA sumbu formasi: `dx` menyebar di sepanjang
+            // tepi layar (sumbu z), `dz` menggeser lebih jauh ke luar (sumbu x)
+            // sehingga anggota belakang tiba menyusul. Memakai `dz` untuk kedua
+            // sumbu — kesalahan versi pertama — membuat formasi `line` (yang
+            // seluruh `dz`-nya nol) menumpuk jadi satu titik.
+            e.group.position.set(sideX, C().altitude,
+                scrollZ + e.holdZOffset + slot.dx * pitch * 0.8);
+            lockRamAim(e, camera.position.x, camera.position.z);
+            e.carriesUpgrade = born.length === 0 && rand() < cfg.upgradeDropChance;
+            born.push(e);
+            continue;
         }
-        const initialYaw = entry === 'top' ? 0
-            : Math.atan2(e.crossDir * 1.35, 0.18);
+        e.apP0x = sideX;
+        e.apP1x = e.holdX;
+        // JARAK MASUK menentukan dua hal sekaligus, dan keduanya wajib dijaga.
+        // (a) Ia harus POSITIF, karena ia yang memberi arah tangen akhir
+        //     (P2 - P1 = (0, -entryDrop)); nol atau minus membuat tangennya
+        //     berbalik dan pesawat justru berhenti menghadap BAWAH — persis
+        //     cacat yang sedang diperbaiki.
+        // (b) Ia menentukan seberapa TAJAM kaitan di ujung busur. Diukur: jarak
+        //     masuk 93 unit pada lintasan mendatar 800 memuncak di 959 derajat/s
+        //     (hidungnya menyentak), sedangkan 240 unit turun ke 177 derajat/s.
+        //     Karena itu ia diikat ke PANJANG LINTASAN MENDATAR, bukan ke angka
+        //     tetap: busur yang lebih panjang otomatis mendapat kaki tegak yang
+        //     lebih panjang pula, jadi belokannya tetap halus di lebar layar apa pun.
+        const horizRun = Math.abs(e.holdX - e.apP0x);
+        const dropCap = Math.max(span * 2, frame.laneHalfDepth * 0.85);
+        e.entryDrop = Math.min(dropCap, Math.max(span * 2, horizRun * 0.32));
+        e.apZ0 = e.holdZOffset + e.entryDrop;      // relatif scrollZ, di BAWAH slot
+        e.apT = 0;
+        e.path = 'approach';
+        e.group.position.set(e.apP0x, C().altitude, scrollZ + e.apZ0);
+        const initialYaw = Math.atan2(e.crossDir, 0);
         e.heading = initialYaw;
         e.group.rotation.set(0, initialYaw, 0);
         // Pemimpin formasi membawa power-up: satu-satunya sumber bintang yang
@@ -1247,36 +1295,72 @@ function animateEnemyAircraft(enemy, dt) {
     }
 }
 
-function beginAircraftTurn(enemy) {
-    enemy.path = 'turn'; enemy.turnT = 0; enemy.turnIntensity = 0;
-    // Semua anggota satu wave membelok ke sisi yang sama sehingga formasi
-    // terbaca sebagai combat break, bukan sekumpulan model yang flip sendiri.
-    enemy.turnDir = ((enemy.wave || 0) & 1) ? 1 : -1;
-    enemy.turnStartYaw = enemy.group.rotation.y;
+// Keluar tidak lagi butuh manuver: begitu dwell habis pesawat SUDAH menghadap
+// atas, jadi ia tinggal terbang lurus ke luar layar. Inilah yang menghapus
+// pembalikan 180 derajat yang dilaporkan terlihat seperti terbang mundur.
+const YAW_UP = Math.PI;                 // hidung ke arah -z = atas layar
+
+// KELAS C MENYERANG DENGAN MENABRAK, DAN ARAHNYA DIKUNCI SEKALI (2026-08-30,
+// permintaan user "buat agar pesawat C itu datangnya mengarah ke arah player
+// ... jangan mengikuti player. tegak lurus ke arah player saja"). Versi lama
+// menghitung ulang arah ke player SETIAP FRAME, jadi ia menempel dan mengejar —
+// itu tidak bisa dihindari, hanya bisa ditunggu. Sekarang arahnya dikunci pada
+// posisi player saat pesawat itu lahir dan TIDAK PERNAH diperbarui lagi, jadi
+// menghindar berarti benar-benar keluar dari garis tembaknya.
+function lockRamAim(enemy, tx, tz) {
+    const dx = tx - enemy.group.position.x, dz = tz - enemy.group.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    enemy.ramX = dx / d; enemy.ramZ = dz / d;
+    enemy.heading = Math.atan2(enemy.ramX, enemy.ramZ);
+    enemy.group.rotation.set(0, enemy.heading, 0);
 }
 
-function updateAircraftTurn(enemy, dt, cfg) {
+function beginAircraftExit(enemy) {
+    enemy.path = 'exit';
+    enemy.turnIntensity = 0;
+    enemy.heading = YAW_UP;
+}
+
+// Busur masuk: Bezier kuadratik P0 (tepi layar) -> P1 (holdX, z masuk) -> P2
+// (slot formasi). Karena P1 sebaris z dengan P0 dan sebaris x dengan P2,
+// tangennya MENDATAR di t=0 dan LURUS KE ATAS di t=1 — tepat gerakan yang
+// diminta: datang dari samping, lalu menghadap atas. `t` dimajukan menurut
+// panjang tangen, jadi kecepatannya tetap dan tidak merayap di ujung busur.
+function updateAircraftApproach(enemy, dt, cfg) {
     const turn = C().waves;
-    enemy.turnT += dt;
-    const q = clamp(enemy.turnT / Math.max(0.01, turn.turnSec), 0, 1);
-    const eased = smooth01(q);
+    const p0x = enemy.apP0x, p1x = enemy.apP1x, p2x = enemy.holdX;
+    const p0z = enemy.apZ0, p1z = enemy.apZ0, p2z = enemy.holdZOffset;
+    const speed = cfg.speed * turn.turnSpeedMul;
+    const t = enemy.apT;
+    const dx = 2 * (1 - t) * (p1x - p0x) + 2 * t * (p2x - p1x);
+    const dz = 2 * (1 - t) * (p1z - p0z) + 2 * t * (p2z - p1z);
+    const len = Math.hypot(dx, dz) || 1;
+    enemy.apT = Math.min(1, t + speed * dt / len);
+    const q = enemy.apT, inv = 1 - q;
+    const x = inv * inv * p0x + 2 * inv * q * p1x + q * q * p2x;
+    const zOff = inv * inv * p0z + 2 * inv * q * p1z + q * q * p2z;
+    const vx = 2 * inv * (p1x - p0x) + 2 * q * (p2x - p1x);
+    const vz = 2 * inv * (p1z - p0z) + 2 * q * (p2z - p1z);
+    const heading = Math.atan2(vx, vz);
     const intensity = Math.sin(q * Math.PI);
-    const heading = enemy.turnStartYaw + enemy.turnDir * Math.PI * eased;
-    const speed = cfg.speed * turn.turnSpeedMul * (0.78 + intensity * 0.34);
-    enemy.group.position.x += Math.sin(heading) * speed * dt;
-    enemy.group.position.z += Math.cos(heading) * speed * dt;
-    enemy.group.position.y = C().altitude + intensity * turn.turnClimb;
+    enemy.group.position.set(x, C().altitude + intensity * turn.turnClimb,
+        scrollZ + zOff);
     enemy.group.rotation.y = heading;
-    enemy.group.rotation.z = -enemy.turnDir * intensity
+    // Miring ke arah belokan, dan mendongak sedikit di tengah busur.
+    // Tanda miring mengikuti konvensi yang sama dengan fase HOLD
+    // (`desiredBank = -vx * k`), jadi pesawat tidak membalik arah miringnya
+    // begitu busur masuk selesai dan fase berganti.
+    enemy.group.rotation.z = -enemy.crossDir * intensity
         * turn.turnBankDeg * Math.PI / 180;
-    // Paruh pertama menarik hidung naik, paruh kedua menukik kembali ke jalur.
-    enemy.group.rotation.x = -Math.sin(q * Math.PI * 2)
-        * turn.turnPitchDeg * Math.PI / 180;
+    enemy.group.rotation.x = -Math.sin(q * Math.PI) * turn.turnPitchDeg
+        * Math.PI / 180;
     enemy.heading = heading; enemy.turnIntensity = intensity;
     if (q >= 1) {
-        enemy.path = 'exit'; enemy.turnIntensity = 0;
+        enemy.path = 'hold'; enemy.turnIntensity = 0;
         enemy.group.position.y = C().altitude;
         enemy.group.rotation.x = 0; enemy.group.rotation.z = 0;
+        enemy.group.rotation.y = YAW_UP;
+        enemy.heading = YAW_UP;
     }
 }
 
@@ -1597,41 +1681,34 @@ function updateEnemies(dt) {
             pos.y = 1.2 + Math.sin(enemy.t * 1.8) * 0.35;
             enemy.group.rotation.y = Math.sin(enemy.t * 0.45) * 0.05;
         } else if (enemy.path === 'kamikaze') {
-            const dx = px - pos.x, dz = pz - pos.z;
-            const d = Math.hypot(dx, dz) || 1;
-            pos.x += dx / d * cfg.speed * dt;
-            pos.z += dz / d * cfg.speed * dt;
-        } else if (enemy.path === 'entry') {
-            const targetZ = scrollZ + enemy.holdZOffset;
-            const k = 1 - Math.exp(-2.6 * dt);
-            pos.x = lerp(pos.x, enemy.holdX, k);
-            pos.z += Math.max(cfg.speed, (targetZ - pos.z) * 2.4) * dt;
-            if (pos.z >= targetZ) { pos.z = targetZ; enemy.path = 'hold'; }
+            // Garis LURUS sepanjang arah yang dikunci saat lahir — sengaja tidak
+            // membaca posisi player lagi di sini.
+            pos.x += enemy.ramX * cfg.speed * dt;
+            pos.z += enemy.ramZ * cfg.speed * dt;
+        } else if (enemy.path === 'approach') {
+            updateAircraftApproach(enemy, dt, cfg);
         } else if (enemy.path === 'hold') {
             pos.x = enemy.holdX + Math.sin(enemy.t * enemy.weaveRate) * enemy.weaveAmp;
             pos.z = scrollZ + enemy.holdZOffset
                 + Math.sin(enemy.t * enemy.weaveRate * 0.63) * enemy.weaveAmp * 0.45;
             enemy.dwellLeft -= dt;
-            if (enemy.dwellLeft <= 0) beginAircraftTurn(enemy);
-        } else if (enemy.path === 'turn') {
-            updateAircraftTurn(enemy, dt, cfg);
-        } else if (enemy.path === 'exit') {
+            if (enemy.dwellLeft <= 0) beginAircraftExit(enemy);
+        } else {   // exit — sudah menghadap atas, tinggal terbang lurus keluar
             const speed = cfg.speed * C().waves.exitSpeedMul;
             pos.x += Math.sin(enemy.heading) * speed * dt;
             pos.z += Math.cos(enemy.heading) * speed * dt;
-        } else {   // cross — masuk dari samping, menyeberang layar
-            pos.x += enemy.crossDir * cfg.speed * 1.35 * dt;
-            pos.z += Math.sin(enemy.t * 0.8) * dt * 16 + cfg.speed * 0.18 * dt;
         }
 
         if (!ship) {
             const mx = pos.x - oldX, mz = pos.z - oldZ;
-            if (enemy.path !== 'turn') {
+            if (enemy.path !== 'approach') {
                 const vx = mx / Math.max(dt, 1e-4);
                 let desiredYaw = enemy.group.rotation.y;
-                // HOLD memakai forward bias: jitter sinus hanya memberi sedikit
-                // yaw/bank, tidak boleh membalik hidung ketika sinus berbalik.
-                if (enemy.path === 'hold') desiredYaw = Math.atan2(vx, cfg.speed * 0.9);
+                // HOLD memakai forward bias ke ATAS layar (-z): pesawat sudah
+                // menghadap atas sejak busur masuk selesai dan harus TETAP
+                // begitu, jadi goyangan sinus cuma menggeser yaw sedikit dan
+                // tidak pernah memutar hidungnya kembali ke bawah.
+                if (enemy.path === 'hold') desiredYaw = Math.atan2(vx, -cfg.speed * 0.9);
                 else if (mx * mx + mz * mz > 1e-6) desiredYaw = Math.atan2(mx, mz);
                 enemy.group.rotation.y = dampAngle(enemy.group.rotation.y,
                     desiredYaw, 6.2, dt);
@@ -1794,15 +1871,21 @@ function startBoss() {
     const cfg = C().boss;
     boss.active = true; boss.dying = false; boss.deathT = 0; boss.enraged = false;
     boss.hp = boss.maxHp = cfg.hp;
-    boss.x = S10_FLIGHT_X; boss.t = 0; boss.entryT = 0; boss.dir = 1;
+    boss.t = 0; boss.entryT = 0; boss.dir = 1; boss.motionDir = -1;
+    boss.bank = boss.bankTarget = 0;
     boss.gunCd = cfg.gunDelaySec; boss.missileCd = cfg.missileDelaySec;
     boss.missileLeft = cfg.missileBurst; boss.hitFlash = 0;
-    boss.zOffset = -playerScreenHalfDepth() - 220;
+    // Approach in the same readable screen-up direction as the player. The
+    // lateral start keeps the bomber's huge wing away from the player's lane.
+    boss.entryStartX = S10_FLIGHT_X + cfg.sweepHalfWidth;
+    boss.entryStartZ = playerScreenHalfDepth() + 220;
+    boss.x = boss.entryStartX; boss.zOffset = boss.entryStartZ;
     W.boss.visible = true;
     W.boss.position.set(boss.x, C().altitude + 16, scrollZ + boss.zOffset);
-    // Seluruh airframe memakai local +Z sebagai depan; boss masuk dari atas
-    // menuju +Z, jadi tidak membutuhkan kompensasi rotasi 180 derajat.
-    W.boss.rotation.set(0, 0, 0);
+    // Airframe local +Z is its actual nose. Stage 10 screen-up is world -Z,
+    // hence the PI carrier yaw; the entry path below also decreases world Z,
+    // so the bomber never travels tail-first.
+    W.boss.rotation.set(0, Math.PI, 0);
     showStageMsg('WARNING — HEAVY BOMBER INBOUND', 4200);
 }
 
@@ -1822,7 +1905,14 @@ function updateBoss(dt) {
     boss.t += dt;
     boss.hitFlash = Math.max(0, boss.hitFlash - dt);
     const rig = W.boss.userData.boss;
-    for (const engine of rig.engines) engine.fan.rotation.z += dt * 26;
+    for (let i = 0; i < rig.engines.length; i++) {
+        const engine = rig.engines[i];
+        engine.fan.rotation.z += dt * (24 + i * 1.4);
+        // Exhaust berdenyut tidak serempak agar empat mesin tidak terlihat
+        // seperti satu sprite yang disalin. Hanya transform objek prebuilt.
+        const pulse = 0.88 + Math.sin(boss.t * 11 + i * 1.7) * 0.12;
+        engine.exhaust.scale.set(pulse, 0.82 + pulse * 0.28, pulse);
+    }
 
     if (boss.dying) {
         boss.deathT += dt;
@@ -1845,22 +1935,35 @@ function updateBoss(dt) {
 
     const speedMul = boss.enraged ? cfg.enrageSpeedMul : 1;
     if (phase === 'bossIntro') {
+        const oldX = boss.x;
         boss.entryT += dt;
         const k = clamp(boss.entryT / Math.max(0.01, cfg.entrySec), 0, 1);
         const eased = k * k * (3 - 2 * k);
-        boss.zOffset = lerp(-playerScreenHalfDepth() - 220, cfg.holdOffset, eased);
+        boss.x = lerp(boss.entryStartX, S10_FLIGHT_X, eased);
+        boss.zOffset = lerp(boss.entryStartZ, cfg.holdOffset, eased);
+        boss.motionDir = Math.sign(boss.x - oldX) || -1;
         if (k >= 1) phase = 'boss';
     } else {
         boss.x += boss.dir * cfg.sweepSpeed * speedMul * dt;
         if (boss.x > S10_FLIGHT_X + cfg.sweepHalfWidth) { boss.x = S10_FLIGHT_X + cfg.sweepHalfWidth; boss.dir = -1; }
         if (boss.x < S10_FLIGHT_X - cfg.sweepHalfWidth) { boss.x = S10_FLIGHT_X - cfg.sweepHalfWidth; boss.dir = 1; }
+        boss.motionDir = boss.dir;
         boss.zOffset = cfg.holdOffset + Math.sin(boss.t * 0.7) * 18;
     }
     const p = bossPosition();
     W.boss.position.set(p.x, C().altitude + 16 + Math.sin(boss.t * 1.5) * 1.6, p.z);
-    W.boss.rotation.z = -boss.dir * 0.08;
+    // Hidung rig adalah lokal +Z, jadi sayap KANAN aerodinamis berada di lokal
+    // -X. Carrier yaw PI memetakan -X itu ke kanan dunia (+X). Roll positif
+    // menurunkan sayap tersebut: gerak kanan harus memakai tanda POSITIF.
+    boss.bankTarget = boss.motionDir * cfg.bankDeg * Math.PI / 180;
+    const bankK = 1 - Math.exp(-dt * cfg.bankResponsePerSec);
+    boss.bank += (boss.bankTarget - boss.bank) * bankK;
+    W.boss.rotation.z = boss.bank;
     for (const t of rig.turrets)
-        t.group.rotation.y = Math.atan2(camera.position.x - p.x, camera.position.z - p.z);
+        // Turret yaw is local to the PI-rotated carrier. Compensate that
+        // carrier heading so each world-space barrel still tracks the player.
+        t.group.rotation.y = Math.atan2(camera.position.x - p.x,
+            camera.position.z - p.z) - W.boss.rotation.y;
 
     if (phase !== 'boss') return;
     boss.gunCd -= dt; boss.missileCd -= dt;
@@ -2557,7 +2660,7 @@ export function stage10Debug() {
             formations: { ...counters.formations },
             available: FORMATION_NAMES.slice(),
             dwellSec: C().waves.dwellSec, sizeRange: [C().waves.sizeMin, C().waves.sizeMax],
-            turn: { durationSec: C().waves.turnSec,
+            turn: {
                 speedMul: C().waves.turnSpeedMul,
                 bankDeg: C().waves.turnBankDeg,
                 pitchDeg: C().waves.turnPitchDeg,
@@ -2611,7 +2714,15 @@ export function stage10Debug() {
         boss: { active: boss.active, hp: boss.hp, maxHp: boss.maxHp,
             dying: boss.dying, enraged: boss.enraged, visible: W.boss.visible,
             x: boss.x, z: scrollZ + boss.zOffset, zOffset: boss.zOffset,
+            yaw: W.boss.rotation.y, facingScreen: 'up', entryFrom: 'bottom-right',
+            entryStartX: boss.entryStartX, entryStartZ: boss.entryStartZ,
             entrySec: C().boss.entrySec, radius: C().boss.radius,
+            direction: boss.dir, motionDirection: boss.motionDir,
+            bank: boss.bank, bankTarget: boss.bankTarget,
+            bankDeg: C().boss.bankDeg,
+            bankResponsePerSec: C().boss.bankResponsePerSec,
+            rightWingLocalX: W.boss.userData.boss.wingAnchors.right.position.x,
+            leftWingLocalX: W.boss.userData.boss.wingAnchors.left.position.x,
             turrets: W.boss.userData.boss.turrets.length },
         projectiles: { playerRounds: activeCount(W.playerRounds),
             enemyRounds: activeCount(W.enemyRounds), missiles: activeCount(W.missiles),

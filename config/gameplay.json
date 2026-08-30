@@ -712,24 +712,177 @@
                 "driftX": 105,
                 "driftZ": 62
             },
+            "forestRouteMeters": 800,
+            "forestVehicles": {
+                "asset": "stage7Pickup",
+                "activationRangeMeters": 55,
+                "engagementDelaySec": 2,
+                "aimResponsePerSec": 6,
+                "muzzleFlashFadePerSec": 18,
+                "bodyColors": ["#394951", "#4e4540", "#34473e"],
+                "camera": {
+                    "normal": { "x": 70.7, "y": 116, "z": -70.7 },
+                    "combat": { "x": 150, "y": 230, "z": -150 },
+                    "easePerSec": 3.2
+                },
+                "wreck": {
+                    "durationSec": 4.4,
+                    "cameraHoldSec": 2.4,
+                    "bodyHopUnits": 5.8,
+                    "bodyHopSec": 0.75,
+                    "sinkUnits": 1.1,
+                    "settlePerSec": 2.4,
+                    "tiltX": -0.16,
+                    "tiltZ": 0.14,
+                    "tiltResponsePerSec": 4,
+                    "secondaryBlastSec": 0.42,
+                    "finalBlastSec": 1.05,
+                    "blastLifeSec": 0.48,
+                    "blastScales": [23, 18, 26],
+                    "partForce": 3.1,
+                    "partLift": 5.4,
+                    "partGravity": 9,
+                    "partBounce": 0.24,
+                    "partDragPerSec": 2.2,
+                    "partFloor": 0.18,
+                    "fireStartSec": 0.18,
+                    "smokeRisePerSec": 10,
+                    "sparkSpeed": 34,
+                    "sparkGravity": 46,
+                    "cameraShake": 5.5,
+                    "secondaryShake": 3.2,
+                    "blastCount": 3,
+                    "fireCount": 3,
+                    "smokeCount": 6,
+                    "sparkCount": 12
+                },
+                "checkpoints": [
+                    {
+                        "meter": 250,
+                        "vehicles": [{ "weapon": "machineGun", "lateral": 0 }]
+                    },
+                    {
+                        "meter": 500,
+                        "vehicles": [
+                            { "weapon": "machineGun", "lateral": -28 },
+                            { "weapon": "homingMissile", "lateral": 28 }
+                        ]
+                    },
+                    {
+                        "meter": 750,
+                        "vehicles": [
+                            { "weapon": "machineGun", "lateral": -38 },
+                            { "weapon": "machineGun", "lateral": 0 },
+                            { "weapon": "homingMissile", "lateral": 38 }
+                        ]
+                    }
+                ],
+                "machineGun": {
+                    "hp": 600,
+                    "robotClass": "B",
+                    "roundsPerBurst": 20,
+                    "damage": 10,
+                    "roundGapSec": 0.08,
+                    "burstGapSec": 2,
+                    "bulletSpeed": 4,
+                    "bulletLifeSec": 2,
+                    "audioGapSec": 0.16,
+                    "poolSize": 96
+                },
+                "homingMissile": {
+                    "hp": 800,
+                    "robotClass": "A",
+                    "damage": 40,
+                    "speed": 72,
+                    "turnRadPerSec": 1.45,
+                    "lifeSec": 8,
+                    "launchDelaySec": 0.6,
+                    "fireGapSec": 4,
+                    "blastRadius": 20,
+                    "projectileHp": 60,
+                    "hitRadius": 5,
+                    "poolSize": 6
+                }
+            },
+            "forestCheckpoints": {
+                "meters": [100, 175, 250, 350, 425, 500, 600, 675, 750],
+                "armAheadMeters": 30,
+                "gateAheadMeters": 15,
+                "machineLateral": 27,
+                "hitRadius": 20,
+                "collapseOnClear": true,
+                "standard": {
+                    "machines": 2,
+                    "robots": { "C": 10, "B": 5, "A": 5 }
+                },
+                "vehicleCheckpoint": {
+                    "machines": 1,
+                    "robots": { "C": 5, "B": 3, "A": 2 }
+                },
+                "production": {
+                    "firstBatchSec": 6,
+                    "batchSec": 8,
+                    "batchCount": 2,
+                    "birthGapSec": 0.35,
+                    "birthSec": 0.9,
+                    "maxAlive": 6,
+                    "classMix": { "C": 0.6, "B": 0.3, "A": 0.1 }
+                },
+                "gate": { "openSec": 1.2, "sinkUnits": 11 }
+            },
+            "forestMortar": {
+                "startMeter": 550,
+                "endMeter": 750,
+                "intervalSec": 6,
+                "lockSec": 0.5,
+                "incomingSec": 1.2,
+                "playerDamage": 30,
+                "robotDamage": 150,
+                "poolSize": 2,
+                "sourceLongitudinalMeters": 12,
+                "sourceLateralMeters": 17
+            },
+            "rootCorridor": {
+                "meters": 100,
+                "encounterMeter": 50,
+                "machines": 2,
+                "machineLateral": 54,
+                "robots": { "C": 12, "B": 8, "A": 4 },
+                "firstBirthSec": 0.45,
+                "birthGapSec": 0.14,
+                "birthSec": 0.8,
+                "hackRange": 18,
+                "doorOpenSec": 1.35
+            },
+            "civicAxis": {
+                "pylons": [
+                    { "x": 390470, "z": 150 },
+                    { "x": 389990, "z": -150 },
+                    { "x": 389640, "z": 155 }
+                ],
+                "pylonHp": 900,
+                "pylonHitRadius": 24,
+                "suppression": {
+                    "halfWidthUnits": 70,
+                    "speedUnitsPerSec": 140,
+                    "lockSec": 0.5,
+                    "damagePerSec": 26,
+                    "coverShadowUnits": 70,
+                    "warmupSec": 5,
+                    "turnHoldSec": 1.2
+                },
+                "lockdown": { "trailUnits": 240, "closeSec": 1.5 }
+            },
             "upload": {
                 "preBossFraction": 0.7,
                 "ratePerSec": 0.05,
                 "finalRatePerSec": 0.08
             },
             "encounters": {
-                "forestApproach": [
-                    { "C": 12, "B": 4, "A": 1 },
-                    { "C": 14, "B": 5, "A": 2 }
-                ],
                 "civicAxis": [
                     { "C": 18, "B": 8, "A": 3 },
                     { "C": 20, "B": 9, "A": 3 },
                     { "C": 22, "B": 10, "A": 4 }
-                ],
-                "rootApproach": [
-                    { "C": 16, "B": 8, "A": 3 },
-                    { "C": 18, "B": 9, "A": 4 }
                 ]
             },
             "lootboxCount": 8,

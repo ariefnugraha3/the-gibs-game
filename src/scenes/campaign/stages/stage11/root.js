@@ -1,7 +1,7 @@
 // Stage 11 Chapter B — root transmitter, monotonic upload and Warden battle.
 
 import { CFG } from '../../../../core/config.js';
-import { player, keys, setCinematicActive } from '../../../../core/state.js';
+import { player, keys, robots, setCinematicActive } from '../../../../core/state.js';
 import { scene, camera } from '../../../../core/renderer.js';
 import {
     showStageMsg, showDownloadBar, setDownloadProgress, hideDownloadBar,
@@ -10,10 +10,14 @@ import {
 import { updateUI } from '../../../../core/hud.js';
 import { releaseInputs } from '../../../../core/input.js';
 import { clearMoveTarget } from '../../../../entities/player.js';
+import { spawnGroundPuff } from '../../../../entities/effects.js';
 import { resetCrates, resolveCrateBlock } from '../../../../entities/crates.js';
 import { resetBarrels, resolveBarrelBlock } from '../../../../entities/barrels.js';
 import { spawnAmmoDrop, spawnMedkitDrop, spawnLoot } from '../../../../entities/drops.js';
-import { campaignRobotAI, campaignClampRobot, countStageRobots } from '../../utility/common.js';
+import {
+    campaignRobotAI, campaignClampRobot, countStageRobots, spawnCampaignRobot,
+} from '../../utility/common.js';
+import { beginHackMinigame, isHackOpen } from '../../utility/hackMinigame.js';
 import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 import { setActiveStageLights, applyLightPreset } from '../../../../world/lighting.js';
 import { enterCityEnv } from '../../utility/cityscape.js';
@@ -22,28 +26,40 @@ import {
     activateNusantaraWarden, resetNusantaraWarden, updateNusantaraWarden,
     cleanupNusantaraWarden, resolveNusantaraWardenBlock,
     nusantaraWardenBulletHit, nusantaraWardenIsJamming,
-    nusantaraWardenDead, nusantaraWardenWrecked, nusantaraWardenDebug,
+    nusantaraWardenWrecked, nusantaraWardenDebug,
 } from '../../../../entities/nusantaraWarden.js';
 import {
-    STAGE11_ROOT_LIGHTS_KEY, S11_ROOT_START, S11_AUTHORITY_GATE, S11_INSERT,
-    S11_INSERT_STAND,
+    STAGE11_ROOT_LIGHTS_KEY, S11_ROOT_START, S11_AUTHORITY_GATE,
+    S11_ROOT_ENCOUNTER, S11_DOOR_STAND, S11_INSERT, S11_INSERT_STAND,
     S11_ARENA, S11_WARDEN_HOME, stage11RootWalk, stage11RootResolve,
     stage11RootSegBlocked, stage11RootGroundHeight, stage11RootNav,
-    setStage11AuthorityDoor, setStage11InsertMarker,
+    stage11RootMeterAt, stage11RootPointAtMeter, stage11RootMachineAnchors,
+    setStage11AuthorityDoor, updateStage11AuthorityDoor,
+    setStage11DoorHackMarker, setStage11InsertMarker,
+    updateStage11RootMachines,
     updateStage11RootVisuals, updateStage11RootOccluders,
     resetStage11RootVisuals, stage11RootWorldDebug,
 } from './rootWorld.js';
 import {
     phase, complete, setStage11Phase, setStage11Complete,
     queueStage11Dialogue, stage11DialogueIdle,
-    clearStage11Robots, makeStage11WaveQueue, spawnStage11Batch,
-    stage11BatchAlive, stage11WaveQueueDebug, invokeStage11Completion,
+    clearStage11Robots, invokeStage11Completion,
 } from './runtime.js';
 import { getStage11Warden } from './index.js';
+import {
+    STAGE11_CHAPTER_CAMERA, stage11ChapterScreenDirection,
+} from './chapterCamera.js';
 
 let elapsed = 0;
-let waveQueue = null;
-let encounterRecords = [];
+let encounterTriggered = false;
+let spawnPlan = [];
+let spawnCursor = 0;
+let spawnClock = 0;
+let births = [];
+let spawnedByClass = { C: 0, B: 0, A: 0 };
+let doorHacked = false;
+let doorHackArmed = true;
+let doorHackAttempts = 0;
 let insertT = 0;
 let uploadProgress = 0;
 let previousUpload = 0;
@@ -59,43 +75,146 @@ let progressFrames = 0;
 
 function W() { return getStage11Warden(); }
 function near(p, r) { return Math.hypot(camera.position.x - p.x, camera.position.z - p.z) <= r; }
+function R() { return CFG.campaign.stage11.rootCorridor; }
 
 export function resetRoot() {
     elapsed = 0; insertT = 0; uploadProgress = 0; previousUpload = 0;
     minObservedDelta = 0; uploadAccepted = false; wardenActivated = false;
     rewardDropped = false; endingQueued = false; completionInvoked = false;
     lastWardenPhase = 'dormant'; jamFrames = 0; progressFrames = 0;
-    waveQueue = makeStage11WaveQueue(CFG.campaign.stage11.encounters.rootApproach);
-    encounterRecords = []; resetStage11RootVisuals(); hideBossHud(); hideDownloadBar();
+    encounterTriggered = false; spawnPlan = []; spawnCursor = 0; spawnClock = 0;
+    births = []; spawnedByClass = { C: 0, B: 0, A: 0 };
+    doorHacked = false; doorHackArmed = true; doorHackAttempts = 0;
+    resetStage11RootVisuals(); hideBossHud(); hideDownloadBar();
     resetNusantaraWarden(W(), { active: false, x: S11_WARDEN_HOME.x,
         z: S11_WARDEN_HOME.z, home: S11_WARDEN_HOME, arena: S11_ARENA });
 }
 
-function batchPoints(index) {
-    const x = 400510 - index * 70;
-    return [
-        { x, z: -65 }, { x: x - 25, z: 62 },
-        { x: x - 48, z: -12 }, { x: x + 15, z: 22 },
-    ];
-}
-function spawnNextBatch() {
-    const index = waveQueue.cursor + 1;
-    const rec = spawnStage11Batch(waveQueue, batchPoints(index), 'root');
-    encounterRecords.push(...rec); return rec.length > 0;
-}
-function currentBatchClear() {
-    return waveQueue.cursor < 0 || stage11BatchAlive('root', waveQueue.cursor) === 0;
-}
-function rootDefenseDone() {
-    return waveQueue.spawnedTotal >= waveQueue.configuredTotal && currentBatchClear();
+function placeRootSupplies() {
+    // Supplies sit in the clear corridor after the metre-50 ambush, keeping
+    // the circular hall and its central computer visually uncluttered.
+    const p = stage11RootPointAtMeter(82);
+    for (const [z, weapon] of [[-66, 'rifle'], [-32, 'pistol'], [32, 'shotgun'], [66, 'launcher']])
+        spawnAmmoDrop(p.x, z, weapon, 1e9);
+    spawnMedkitDrop(p.x + 28, 0, 1e9);
 }
 
-function placeRootSupplies() {
-    // Guaranteed full current-weapon opportunity: permanent pickups can be
-    // revisited before inserting the drive; no extra puzzle or attrition gate.
-    for (const [dx, weapon] of [[65, 'rifle'], [45, 'pistol'], [25, 'shotgun'], [5, 'launcher']])
-        spawnAmmoDrop(S11_INSERT.x + dx, S11_INSERT.z - 52, weapon, 1e9);
-    spawnMedkitDrop(S11_INSERT.x + 85, S11_INSERT.z + 48, 1e9);
+function buildCorridorSpawnPlan() {
+    const wanted = { C: Math.max(0, R().robots.C | 0),
+        B: Math.max(0, R().robots.B | 0), A: Math.max(0, R().robots.A | 0) };
+    const used = { C: 0, B: 0, A: 0 }, out = [];
+    const total = wanted.C + wanted.B + wanted.A;
+    // Weighted round-robin keeps all three classes mixed while preserving the
+    // exact authored 12/8/4 census.
+    for (let i = 0; i < total; i++) {
+        let best = null, ratio = Infinity;
+        for (const cls of ['C', 'B', 'A']) {
+            if (used[cls] >= wanted[cls]) continue;
+            const q = used[cls] / Math.max(1, wanted[cls]);
+            if (q < ratio) { ratio = q; best = cls; }
+        }
+        used[best]++; out.push(best);
+    }
+    return out;
+}
+
+function corridorBirthTarget(machine, slot) {
+    const lane = (slot % 4) - 1.5;
+    return { x: machine.x - 24 - Math.floor(slot / 4) * 9,
+        z: machine.z * .42 + lane * 12 };
+}
+
+function spawnCorridorRobot(cls, index) {
+    const machines = stage11RootMachineAnchors();
+    const machine = machines[index % machines.length];
+    const start = machine.hatch, target = corridorBirthTarget(machine,
+        Math.floor(index / machines.length));
+    spawnCampaignRobot(start.x, start.z, 11, cls, true);
+    const bot = robots[robots.length - 1], base = bot.scl || 1;
+    bot.encounter = 'root-corridor-50'; bot.rootCorridorBorn = true;
+    bot.machineBirth = true; bot.state = 'idle'; bot.moving = false; bot.aiming = false;
+    bot.mesh.scale.set(base * .06, base * .025, base * .06);
+    bot.mesh.rotation.y = machine.yaw;
+    births.push({ bot, t: 0, base, start: { ...start }, target });
+    spawnedByClass[cls]++;
+    spawnGroundPuff(start.x, start.z, 0x48bfc2, 7, .8);
+}
+
+function updateCorridorBirths(dt) {
+    const sec = Math.max(.1, R().birthSec);
+    for (let i = births.length - 1; i >= 0; i--) {
+        const b = births[i];
+        if (robots.indexOf(b.bot) < 0 || b.bot.hp <= 0) {
+            births.splice(i, 1); continue;
+        }
+        b.t += dt;
+        const k = Math.min(1, b.t / sec), growK = Math.min(1, k / .62);
+        const grow = growK * growK * (3 - 2 * growK);
+        const travelK = Math.max(0, Math.min(1, (k - .2) / .8));
+        const travel = 1 - (1 - travelK) ** 2;
+        b.bot.mesh.position.x = b.start.x + (b.target.x - b.start.x) * travel;
+        b.bot.mesh.position.z = b.start.z + (b.target.z - b.start.z) * travel;
+        b.bot.mesh.position.y = Math.sin(travel * Math.PI) * 4.5;
+        b.bot.mesh.scale.set(b.base * (.06 + grow * .94),
+            b.base * (.025 + grow * .975), b.base * (.06 + grow * .94));
+        if (k < 1) continue;
+        b.bot.mesh.position.set(b.target.x, 0, b.target.z);
+        b.bot.mesh.scale.setScalar(b.base); b.bot.machineBirth = false;
+        b.bot.state = 'chasing'; b.bot.moving = false; b.bot.aiming = false;
+        births.splice(i, 1);
+    }
+}
+
+function triggerCorridorEncounter() {
+    if (encounterTriggered) return;
+    encounterTriggered = true; spawnPlan = buildCorridorSpawnPlan();
+    spawnCursor = 0; spawnClock = Math.max(0, R().firstBirthSec);
+    setStage11Phase('corridorBattle');
+    showStageMsg('50 M — TWO FABRICATORS ONLINE | 12C / 8B / 4A INBOUND', 4700);
+}
+
+function beginDoorHack() {
+    if (doorHacked || isHackOpen()) return;
+    doorHackArmed = false; doorHackAttempts++;
+    setStage11Phase('doorHacking'); queueStage11Dialogue('authorityDenied');
+    beginHackMinigame({
+        head: 'ROOT HALL — AUTHORITY DOOR',
+        sub: 'Rotate the security chips to bridge the ingress line and release '
+            + 'the two monumental door leaves.',
+        onSuccess: () => {
+            doorHacked = true; setStage11AuthorityDoor(true);
+            setStage11DoorHackMarker(false); setStage11InsertMarker(true);
+            setStage11Phase('insertDrive');
+            showStageMsg('ACCESS GRANTED — ROOT HALL OPEN | REACH THE CENTRAL COMPUTER', 4800);
+        },
+        onFail: () => {
+            setStage11Phase('doorLocked');
+            showStageMsg('BREACH FAILED — STEP AWAY FROM THE TERMINAL AND RETRY', 3800);
+        },
+    });
+}
+
+function updateRootApproach(dt) {
+    const C = R(), meter = stage11RootMeterAt(camera.position.x, camera.position.z);
+    if (!encounterTriggered && meter >= C.encounterMeter) triggerCorridorEncounter();
+    if (encounterTriggered && spawnCursor < spawnPlan.length) {
+        spawnClock -= dt;
+        const gap = Math.max(.03, C.birthGapSec);
+        while (spawnCursor < spawnPlan.length && spawnClock <= 0) {
+            spawnCorridorRobot(spawnPlan[spawnCursor], spawnCursor);
+            spawnCursor++; spawnClock += gap;
+        }
+    }
+    updateCorridorBirths(dt);
+    const machinesLive = encounterTriggered
+        && (spawnCursor < spawnPlan.length || births.length > 0);
+    updateStage11RootMachines(dt, machinesLive);
+    updateStage11AuthorityDoor(dt);
+
+    if (doorHacked) return;
+    const close = near(S11_DOOR_STAND, C.hackRange);
+    if (!close) doorHackArmed = true;
+    else if (doorHackArmed && !isHackOpen()) beginDoorHack();
 }
 
 function wardenCallbacks() {
@@ -175,17 +294,7 @@ function updateUpload(dt) {
     }
 }
 
-function updateAuthorityGate(dt) {
-    if (phase === 'authorityGate') {
-        if (currentBatchClear() && waveQueue.spawnedTotal < waveQueue.configuredTotal)
-            spawnNextBatch();
-        if (rootDefenseDone()) {
-            setStage11AuthorityDoor(true); setStage11InsertMarker(true);
-            setStage11Phase('insertDrive'); queueStage11Dialogue('authorityDenied');
-            showStageMsg('AUTHORITY GATE CLEAR — INSERT THE PHYSICAL DRIVE', 4500);
-        }
-        return;
-    }
+function updateComputerInteraction(dt) {
     if (phase === 'insertDrive') {
         if (near(S11_INSERT_STAND, CFG.campaign.stage11.interactionRange)) {
             insertT += dt;
@@ -196,6 +305,9 @@ function updateAuthorityGate(dt) {
 
 export const rootScene = {
     id: 'campaign-11-root',
+    // Match Chapter 2: camera sits southeast/lower-right and looks northwest,
+    // placing the console and Warden toward the upper-left of the screen.
+    camOffset: STAGE11_CHAPTER_CAMERA,
     enter() {
         setActiveCampaignWorldRoots(STAGE11_ROOT_LIGHTS_KEY);
         setActiveStageLights(STAGE11_ROOT_LIGHTS_KEY);
@@ -203,21 +315,21 @@ export const rootScene = {
         enterCityEnv({ background: 0x171814, fogColor: 0x24231f,
             fogNear: 80, fogFar: 900 });
         clearStage11Robots(); resetCrates(); resetBarrels(); resetRoot(); placeRootSupplies();
-        setStage11Phase('authorityGate'); spawnNextBatch();
+        setStage11Phase('rootCorridor');
         camera.position.set(S11_ROOT_START.x, CFG.player.eyeHeight, S11_ROOT_START.z);
-        camera.quaternion.set(0, -0.7071, 0, 0.7071);
+        camera.quaternion.set(0, 0.7071, 0, 0.7071);
         player.vy = 0; player.onGround = true;
         releaseInputs(); clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
         setCinematicActive(false); setCineBars(false);
         setCineFade(0, CFG.campaign.stage11.fadeSec);
-        showStageMsg('REACH THE PHYSICAL ROOT CONSOLE', 4300);
+        showStageMsg('ROOT HALL 100 M — ADVANCE TO THE SEALED DOOR', 4300);
     },
     exit() {
         cleanupNusantaraWarden(W(), false); hideBossHud(); hideDownloadBar();
-        setStage11InsertMarker(false);
+        births.length = 0; setStage11DoorHackMarker(false); setStage11InsertMarker(false);
     },
     updateMode(dt) {
-        elapsed += dt; updateAuthorityGate(dt);
+        elapsed += dt; updateRootApproach(dt); updateComputerInteraction(dt);
         updateStage11RootOccluders(dt);
         const w = W();
         updateNusantaraWarden(w, dt, { arena: S11_ARENA,
@@ -248,6 +360,9 @@ export const rootScene = {
         resolveNusantaraWardenBlock(W(), g.mesh.position, 2);
     },
     robotAI(bot, dt, step) {
+        if (bot.machineBirth) {
+            bot.state = 'idle'; bot.moving = false; bot.aiming = false; return {};
+        }
         return campaignRobotAI(bot, dt, step, {
             walkable: stage11RootWalk, resolve: stage11RootResolve,
             nav: stage11RootNav(),
@@ -260,7 +375,10 @@ export const rootScene = {
     },
     clampDropPos(x, z) { return stage11RootWalk(x, z, 2) ? [x, z] : [S11_ROOT_START.x, 0]; },
     hudStatus() {
-        if (phase === 'authorityGate') return `CLEAR THE AUTHORITY THRESHOLD | Robots: ${countStageRobots(11)}`;
+        if (phase === 'rootCorridor') return 'ROOT HALL DOOR — 100 M';
+        if (phase === 'corridorBattle') return `BREAK THROUGH THE 50 M AMBUSH | Robots: ${countStageRobots(11)}`;
+        if (phase === 'doorHacking') return 'BREACHING ROOT HALL AUTHORITY';
+        if (phase === 'doorLocked') return 'HACK THE LARGE ROOT HALL DOOR';
         if (phase === 'insertDrive') return 'INSERT THE KILL-SWITCH DRIVE';
         if (phase === 'wardenBattle' || phase === 'wardenIntro') {
             const wd = nusantaraWardenDebug(W());
@@ -274,7 +392,8 @@ export const rootScene = {
         return `KILL-SWITCH UPLOAD — ${Math.round(uploadProgress * 100)}%`;
     },
     radarLandmarks(plot) {
-        const marks = phase === 'authorityGate' ? [S11_AUTHORITY_GATE]
+        const marks = !doorHacked ? [encounterTriggered && spawnCursor < spawnPlan.length
+            ? S11_ROOT_ENCOUNTER : S11_DOOR_STAND]
             : phase === 'insertDrive' ? [S11_INSERT_STAND] : [];
         const wd = nusantaraWardenDebug(W());
         if (wd.active && !wd.deathDone && wd.position) marks.push(wd.position);
@@ -285,13 +404,20 @@ export const rootScene = {
 
 export const rootDebug = () => ({
     elapsed, uploadProgress, previousUpload, minObservedDelta,
+    camera: { offset: { ...rootScene.camOffset }, corner: 'lower-right',
+        progress: stage11ChapterScreenDirection(S11_ROOT_START, S11_WARDEN_HOME) },
     uploadAccepted, monotonic: minObservedDelta >= -1e-9,
     clampWhileAlive: CFG.campaign.stage11.upload.preBossFraction,
     jammed: nusantaraWardenIsJamming(W()), jamFrames, progressFrames,
     wardenActivated, rewardDropped, endingQueued, completionInvoked,
-    lastWardenPhase, waveQueue: stage11WaveQueueDebug(waveQueue),
-    currentAlive: waveQueue && waveQueue.cursor >= 0
-        ? stage11BatchAlive('root', waveQueue.cursor) : 0,
-    encounters: encounterRecords.map(x => ({ ...x })),
+    corridor: { meter: stage11RootMeterAt(camera.position.x), encounterTriggered,
+        configuredMeter: R().encounterMeter, machines: R().machines,
+        planned: spawnPlan.length, spawned: spawnCursor, activeBirths: births.length,
+        configuredRobots: { ...R().robots }, spawnedByClass: { ...spawnedByClass },
+        alive: robots.filter(z => z.stage === 11
+            && z.encounter === 'root-corridor-50').length },
+    door: { hacked: doorHacked, armed: doorHackArmed, attempts: doorHackAttempts,
+        hacking: isHackOpen(), stand: { ...S11_DOOR_STAND } },
+    lastWardenPhase,
     warden: nusantaraWardenDebug(W()), world: stage11RootWorldDebug(),
 });
