@@ -17,6 +17,7 @@ import { disposeRobot } from '../../../../entities/robots.js';
 import { spawnCampaignRobot } from '../../utility/common.js';
 import {
     stage9Walkable, stage9BlockedAt, stage9EncounterPoints,
+    stage9FrontRoadSurface, stage9FrontRoadScatterPoints,
 } from './world.js';
 
 export const STAGE9_DIALOGUE = dialogueMap('campaign.stage9.lines');
@@ -137,8 +138,8 @@ export function resetStage9Dialogue() {
 
 export const stage9DialogueIdle = () => !dialogueCurrent && !dialogueQueue.length;
 
-// Chapter 2 saja memakai aktivasi frustum. Kedua wave Chapter 1 spawn aktif
-// dan langsung memburu player setelah establishing cutscene selesai.
+// Robot Chapter 1 dan 2 memakai aktivasi frustum: mereka sudah ada di dunia,
+// tetapi baru bangun permanen ketika badannya pertama kali masuk layar player.
 // `margin` melebarkan frustum uji (0,15 = 15% di luar tepi layar): dipakai
 // penempatan spawn agar robot tidak lahir tepat di garis tepi lalu "muncul"
 // begitu kamera bergeser satu langkah.
@@ -212,12 +213,13 @@ function spawnSpotOk(x, z, clearR, checkView) {
 // (2) tak seorang pun lahir DI DALAM frustum kamera — robot harus datang dari
 // luar layar lalu mengejar. Pencarian menyapu keluar dari arah MENJAUHI kamera
 // lebih dulu supaya robot tetap sedekat mungkin dengan titik encounter aslinya.
-function clearSpawnPoint(p, seed) {
+function clearSpawnPoint(p, seed, accept = null) {
     const clearR = stage9SpawnClearRadius();
+    const accepted = (x, z) => !accept || accept(x, z);
     const radius = Math.floor(seed / 7) * 9;
     const angle = seed * 2.399963;
     const base = { x: p.x + Math.cos(angle) * radius, z: p.z + Math.sin(angle) * radius };
-    if (spawnSpotOk(base.x, base.z, clearR, true)) return base;
+    if (accepted(base.x, base.z) && spawnSpotOk(base.x, base.z, clearR, true)) return base;
     const away = Math.atan2(base.z - camera.position.z, base.x - camera.position.x);
     // Beberapa robot dari satu titik encounter sering direlokasi bersamaan.
     // Offset sub-langkah + jitter radius per-seed mencegah mereka menumpuk
@@ -233,24 +235,26 @@ function clearSpawnPoint(p, seed) {
                 const r = ring * SPAWN_RING_STEP + push;
                 const x = base.x + Math.cos(a) * r;
                 const z = base.z + Math.sin(a) * r;
-                if (spawnSpotOk(x, z, clearR, checkView)) return { x, z };
+                if (accepted(x, z) && spawnSpotOk(x, z, clearR, checkView)) return { x, z };
             }
         }
     }
-    if (spawnSpotFree(base.x, base.z)) return base;
+    if (accepted(base.x, base.z) && spawnSpotFree(base.x, base.z)) return base;
     return { x: p.x, z: p.z };
 }
 
-export function spawnStage9Encounter(name, counts, active = false) {
+export function spawnStage9Encounter(name, counts, active = false, options = null) {
     if (!counts || spawnedEncounters[name]) return 0;
     spawnedEncounters[name] = true;
-    const points = stage9EncounterPoints(name);
+    const points = options?.points?.length ? options.points : stage9EncounterPoints(name);
     const record = spawnPlacements[name] = [];
     let cursor = 0;
     for (const cls of ['C', 'B', 'A']) {
         const amount = Math.max(0, counts[cls] | 0);
         for (let i = 0; i < amount; i++, cursor++) {
-            const point = clearSpawnPoint(points[cursor % points.length], cursor);
+            const point = options?.preplaced
+                ? points[cursor % points.length]
+                : clearSpawnPoint(points[cursor % points.length], cursor, options?.accept);
             spawnCampaignRobot(point.x, point.z, 9, cls, active);
             robots[robots.length - 1].encounter = name;
             record.push({
@@ -258,10 +262,40 @@ export function spawnStage9Encounter(name, counts, active = false) {
                 inView: stage9RobotInView(point.x, point.z, SPAWN_PROBE_Y),
                 playerDist: Math.hypot(point.x - camera.position.x,
                     point.z - camera.position.z),
+                preplaced: !!options?.preplaced,
+                onFrontRoad: stage9FrontRoadSurface(point.x, point.z, 5.5)
+                    && !stage9BlockedAt(point.x, point.z, 5.5),
             });
         }
     }
     return cursor;
+}
+
+// Build the complete Chapter 1 population once, before control is returned.
+// The old second-wave call at the yellow checkpoint is intentionally gone:
+// both config-owned encounter mixes are sliced from one continuous road scatter
+// and remain idle until their body enters the gameplay viewport.
+export function spawnStage9FrontPopulation() {
+    const E = CFG.campaign.stage9.encounters;
+    const specs = [
+        ['frontToll', E.frontToll],
+        ['frontForecourt', E.frontForecourt],
+    ];
+    const totalOf = counts => ['C', 'B', 'A']
+        .reduce((n, cls) => n + Math.max(0, counts?.[cls] | 0), 0);
+    const total = specs.reduce((n, [, counts]) => n + totalOf(counts), 0);
+    const points = stage9FrontRoadScatterPoints(total);
+    if (points.length !== total) return 0;
+    let offset = 0, spawned = 0;
+    for (const [name, counts] of specs) {
+        const amount = totalOf(counts);
+        spawned += spawnStage9Encounter(name, counts, false, {
+            preplaced: true,
+            points: points.slice(offset, offset + amount),
+        });
+        offset += amount;
+    }
+    return spawned;
 }
 
 export function stage9EncounterCount(name) {
@@ -322,8 +356,12 @@ export function stage9RuntimeDebug() {
                 .map(([name, list]) => [name, {
                     total: list.length,
                     inView: list.filter(p => p.inView).length,
+                    preplaced: list.filter(p => p.preplaced).length,
+                    onFrontRoad: list.filter(p => p.onFrontRoad).length,
                     minPlayerDist: list.reduce((m, p) =>
                         Math.min(m, p.playerDist), Infinity),
+                    x0: list.reduce((m, p) => Math.min(m, p.x), Infinity),
+                    x1: list.reduce((m, p) => Math.max(m, p.x), -Infinity),
                 }])),
         },
         takeoff: { seconds: takeoffT, duration: C.takeoffSec },

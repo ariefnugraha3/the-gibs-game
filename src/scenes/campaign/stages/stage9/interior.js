@@ -16,6 +16,7 @@ import {
     S9_BUILDING_EXIT, S9_INTERIOR_BOUNDS, S9_INTERIOR_ENV,
     stage9InteriorWalkable, stage9Resolve, stage9SegHitsWall, stage9NavGrid,
     stage9BlockedAt, stage9SetMarkers, stage9UpdateWorld, setStage9WorldChapter,
+    stage9InteriorWave1AreaAt, stage9InteriorWaitingAreaAt,
 } from './world.js';
 import {
     phase, stageElapsed, setStage9Phase, queueStage9Dialogue, spawnStage9Encounter,
@@ -35,7 +36,8 @@ function updateProgress() {
         setStage9Phase('interiorConcourse');
         stage9SetMarkers(['buildingExit']);
         spawnStage9Encounter('interiorConcourse',
-            CFG.campaign.stage9.encounters.interiorConcourse, false);
+            CFG.campaign.stage9.encounters.interiorConcourse, false,
+            { accept: stage9InteriorWaitingAreaAt });
         showStageMsg('SECURITY HALL CLEAR — FIGHT THROUGH THE CONCOURSE', 4600);
     } else if (phase === 'interiorConcourse'
         && stage9EncounterCount('interiorConcourse') === 0
@@ -57,7 +59,8 @@ export const interiorScene = {
         player.vy = 0; player.onGround = true;
         stage9SetMarkers(['interiorCheckpoint']);
         spawnStage9Encounter('interiorCheckin',
-            CFG.campaign.stage9.encounters.interiorCheckin, false);
+            CFG.campaign.stage9.encounters.interiorCheckin, false,
+            { accept: (x, z) => !!stage9InteriorWave1AreaAt(x, z) });
         queueStage9Dialogue('buildingEntry');
         showStageMsg('CHAPTER 2 — CLEAR CHECK-IN AND REACH SECURITY', 4800);
     },

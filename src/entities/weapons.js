@@ -78,6 +78,10 @@ export const fireAnimDebug = () => ({ t: shotT, dur: shotDur, kick: shotKick, si
 // Debug/uji: keadaan kilat moncong (lampu SATU-SATUNYA + kerucut semburan).
 export const muzzleDebug = () => ({
     intensity: muzzleFlash ? muzzleFlash.intensity : 0,
+    // Jangkauan lampunya dipublikasikan karena permukaan lantai yang besar harus
+    // ditesselasi lebih rapat daripada ini: MeshLambertMaterial di three.js
+    // adalah GOURAUD, jadi kilat ini hanya menyala di simpul.
+    range: muzzleFlash ? muzzleFlash.distance : 0,
     cone: !!(flashCone && flashCone.visible),
     coneOpacity: flashCone ? flashCone.material.opacity : 0,
     scale: flashScale,

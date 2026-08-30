@@ -49,7 +49,10 @@ export {
     stage11ForestOnAsphalt, stage11ForestSpawnPoint,
     stage11ForestWorldDebug,
 } from './forestWorld.js';
-export { stage11ForestVehiclesDebug } from './forestVehicles.js';
+export {
+    STAGE11_FOREST_VEHICLE_GROUP, STAGE11_CITY_VEHICLE_GROUP,
+    stage11WeaponVehiclesDebug, stage11WeaponVehicleBulletHit,
+} from './weaponVehicles.js';
 export {
     stage11ForestCheckpointPlan, stage11ForestCheckpointsDebug,
     stage11ForestCheckpointBulletHit, stage11ForestCheckpointsAllCleared,
@@ -60,18 +63,27 @@ export {
     stage11ForestMortarBlastRadius, stage11ForestMortarBlastOrigin,
 } from './forestMortar.js';
 export {
-    stage11SurfaceAuthorityDebug, stage11AuthorityTarget,
-    stage11AuthorityAllDown, stage11AuthorityLockdownX,
-    stage11AuthoritySegment,
-} from './surfaceAuthority.js';
+    S11_CITY_SPAN_METERS, S11_CITY_START, S11_CITY_HQ, S11_CITY_HQ_APRON,
+    S11_CITY_EDGES, S11_CITY_NODES, S11_CITY_ROUNDABOUTS, S11_CITY_BLOCKADES,
+    S11_CITY_BOUNDS, S11_CITY_START_BACK_UNITS, S11_CITY_START_RENDER_UNITS,
+    S11_CITY_START_TANGENT, S11_CITY_SIDEWALK, S11_CITY_SIDEWALK_METERS,
+    stage11CityWalk, stage11CityWalkExcept, stage11CityPastStartCut,
+    stage11CityCrossingAsphalt,
+    stage11CityIslandHit,
+    stage11CityIslandSegBlocked, stage11CityProjectToRoad,
+    stage11CityRoadClearance, stage11CityFenceRuns, stage11CityRoadsDebug,
+} from './cityRoads.js';
 export {
-    stage11SurfaceScanDebug, stage11ScanDwellSec, stage11ScanSheltered,
-    stage11ScanExposed, stage11ScanBandX,
-} from './surfaceScan.js';
+    stage11CityBlockadesDebug, stage11CityBlockadeBulletHit,
+    stage11CityBlockadesAllCleared, stage11CityBlockadeStatus,
+    stage11CityBlockadePlan, stage11CityVehiclePlacements,
+    stage11CityGateBlocksMovement, STAGE11_BLOCKADE_PREFIX,
+} from './cityBlockades.js';
 export {
-    S11_SURFACE_ORIGIN, S11_SURFACE_START, S11_AXIS_GATE, S11_ROOT_COURT,
-    S11_DESCENT, stage11SurfaceWalk, stage11SurfaceResolve,
-    stage11SurfaceSegBlocked, stage11SurfaceWorldDebug,
+    S11_SURFACE_ORIGIN, S11_SURFACE_START, S11_DESCENT,
+    S11_CITY_HEADQUARTERS, stage11SurfaceWalk, stage11SurfaceResolve,
+    stage11SurfaceSegBlocked, stage11SurfaceGroundHeight,
+    stage11SurfaceHitsBlocker, stage11SurfaceFreeLane, stage11SurfaceWorldDebug,
 } from './surfaceWorld.js';
 export {
     S11_ROOT_ORIGIN, S11_ROOT_CORRIDOR_METERS, S11_ROOT_ENCOUNTER_METER,

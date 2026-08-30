@@ -689,8 +689,8 @@
                 "interactionRange": 14
             },
             "encounters": {
-                "frontToll": { "C": 22, "B": 8, "A": 3 },
-                "frontForecourt": { "C": 25, "B": 10, "A": 4 },
+                "frontToll": { "C": 32, "B": 13, "A": 5 },
+                "frontForecourt": { "C": 33, "B": 12, "A": 5 },
                 "interiorCheckin": { "C": 16, "B": 7, "A": 2 },
                 "interiorConcourse": { "C": 38, "B": 17, "A": 5 },
                 "runwayApron": { "C": 10, "B": 5, "A": 1 },
@@ -724,6 +724,21 @@
                     "normal": { "x": 70.7, "y": 116, "z": -70.7 },
                     "combat": { "x": 150, "y": 230, "z": -150 },
                     "easePerSec": 3.2
+                },
+                "hitReaction": {
+                    "durationSec": 0.36,
+                    "bodyLiftUnits": 1.1,
+                    "recoilTiltRad": 0.12,
+                    "ringHeightUnits": 2.8,
+                    "flashScale": 4.6,
+                    "ringScale": 5.5,
+                    "sparkCount": 8,
+                    "sparkSpeed": 24,
+                    "sparkGravity": 52,
+                    "sparkSpreadRad": 2.4,
+                    "hpBarSec": 1.4,
+                    "hpBarWidthUnits": 16,
+                    "hpBarLiftUnits": 4
                 },
                 "wreck": {
                     "durationSec": 4.4,
@@ -854,39 +869,94 @@
                 "hackRange": 18,
                 "doorOpenSec": 1.35
             },
-            "civicAxis": {
-                "pylons": [
-                    { "x": 390470, "z": 150 },
-                    { "x": 389990, "z": -150 },
-                    { "x": 389640, "z": 155 }
-                ],
-                "pylonHp": 900,
-                "pylonHitRadius": 24,
-                "suppression": {
-                    "halfWidthUnits": 70,
-                    "speedUnitsPerSec": 140,
-                    "lockSec": 0.5,
-                    "damagePerSec": 26,
-                    "coverShadowUnits": 70,
-                    "warmupSec": 5,
-                    "turnHoldSec": 1.2
+            "cityAxis": {
+                "spanMeters": 1000,
+                "blockade": {
+                    "armRangeUnits": 420,
+                    "releaseRangeFactor": 1.8,
+                    "maxArmed": 2,
+                    "collapseOnClear": true,
+                    "hitRadius": 20,
+                    "machineLateral": 42,
+                    "machineAheadUnits": 70,
+                    "vehicleAheadUnits": 135,
+                    "standard": {
+                        "machines": 2,
+                        "robots": { "C": 8, "B": 4, "A": 2 }
+                    },
+                    "vehicle": {
+                        "machines": 1,
+                        "robots": { "C": 5, "B": 3, "A": 2 }
+                    },
+                    "vehicles": [
+                        {
+                            "blockade": 12,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": 0 }
+                            ]
+                        },
+                        {
+                            "blockade": 8,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": 0 }
+                            ]
+                        },
+                        {
+                            "blockade": 5,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": -34 },
+                                { "weapon": "homingMissile", "lateral": 34 }
+                            ]
+                        },
+                        {
+                            "blockade": 3,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": -34 },
+                                { "weapon": "homingMissile", "lateral": 34 }
+                            ]
+                        },
+                        {
+                            "blockade": 2,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": -44 },
+                                { "weapon": "machineGun", "lateral": 0 },
+                                { "weapon": "homingMissile", "lateral": 44 }
+                            ]
+                        }
+                    ],
+                    "production": {
+                        "firstBatchSec": 6,
+                        "batchSec": 8,
+                        "batchCount": 2,
+                        "birthGapSec": 0.35,
+                        "birthSec": 0.9,
+                        "maxAlive": 6,
+                        "classMix": { "C": 0.6, "B": 0.3, "A": 0.1 }
+                    },
+                    "gate": { "openSec": 1.2, "sinkUnits": 12 }
                 },
-                "lockdown": { "trailUnits": 240, "closeSec": 1.5 }
+                "patrol": {
+                    "robots": { "C": 66, "B": 30, "A": 18 },
+                    "minSpacingUnits": 110
+                },
+                "traffic": {
+                    "count": 320,
+                    "spacingUnits": 84,
+                    "density": 0.88,
+                    "minGapUnits": 42,
+                    "freeLaneUnits": 34,
+                    "blockadeClearUnits": 130,
+                    "startClearUnits": 190,
+                    "colors": ["#394951", "#4e4540", "#34473e", "#5a5148", "#3d4a52"]
+                }
             },
             "upload": {
                 "preBossFraction": 0.7,
                 "ratePerSec": 0.05,
                 "finalRatePerSec": 0.08
             },
-            "encounters": {
-                "civicAxis": [
-                    { "C": 18, "B": 8, "A": 3 },
-                    { "C": 20, "B": 9, "A": 3 },
-                    { "C": 22, "B": 10, "A": 4 }
-                ]
-            },
-            "lootboxCount": 8,
-            "barrelCount": 12
+            "lootboxCount": 100,
+            "barrelCount": 30
         },
         "stage12": {
             "returnCine": {
@@ -1419,9 +1489,9 @@
                     "canopyOpen": { "speaker": "Major Gibran", "text": "Canopy deployed. I am coming down west of the city defenses." },
                     "forestLanded": { "speaker": "Major Gibran", "text": "On the ground. I will cross the forest and enter IKN on foot." },
                     "perimeterSighted": { "speaker": "Command", "text": "IKN perimeter ahead. Clear the forest patrol and breach the civic axis." },
-                    "surfaceReveal": { "speaker": "Major Gibran", "text": "Nusantara. I crossed half the country to reach this axis." },
-                    "rootBelow": { "speaker": "Command", "text": "The root transmitter is beneath the civic district. Remote authority is still denied." },
-                    "lastFormation": { "speaker": "Command", "text": "The remaining battalion is forming around root access. This is their last organized line." },
+                    "surfaceReveal": { "speaker": "Major Gibran", "text": "Nusantara. I crossed half the country to reach these streets." },
+                    "rootBelow": { "speaker": "Command", "text": "The root transmitter is under their headquarters, at the head of the axis. Every road in is theirs." },
+                    "roadBlockade": { "speaker": "Command", "text": "Iron Battalion has barricaded the carriageway. Break the fabricators holding it, or find a road they have not closed." },
                     "authorityDenied": { "speaker": "Root System", "text": "Remote command rejected. Physical root media required." },
                     "insertDrive": { "speaker": "Major Gibran", "text": "Kill-switch verified. Committing the drive now." },
                     "uploadAccepted": { "speaker": "Root System", "text": "Protocol valid. National decommission broadcast initiated." },

@@ -17,9 +17,9 @@ import {
     buildStage7RoadVehicle, STAGE7_ROAD_VEHICLE_SPECS,
 } from '../stage7/roadVehicles.js';
 import {
-    STAGE11_DOUBLE_CABIN_METERS,
-    ensureStage11ForestVehicles, stage11ForestVehiclesDebug,
-} from './forestVehicles.js';
+    STAGE11_DOUBLE_CABIN_METERS, STAGE11_FOREST_VEHICLE_GROUP,
+    ensureStage11WeaponVehicles, stage11WeaponVehiclesDebug,
+} from './weaponVehicles.js';
 import {
     ensureStage11ForestCheckpoints, stage11ForestGateResolve,
     stage11ForestGateSegBlocked, stage11ForestCheckpointsDebug,
@@ -668,14 +668,15 @@ function buildCombatVehicles() {
         for (const vehicle of checkpoint.vehicles) {
             const p = stage11ForestPointAtMeter(checkpoint.meter, vehicle.lateral);
             placements.push({
-                meter: checkpoint.meter, type: vehicle.weapon,
+                key: checkpoint.meter, meter: checkpoint.meter,
+                type: vehicle.weapon,
                 lateral: vehicle.lateral, x: p.x, z: p.z,
                 // Hostile pickups face back toward the approaching player.
                 yaw: p.yaw + Math.PI,
             });
         }
     }
-    ensureStage11ForestVehicles(root, placements);
+    ensureStage11WeaponVehicles(STAGE11_FOREST_VEHICLE_GROUP, root, placements);
     const spec = STAGE11_DOUBLE_CABIN_METERS;
     for (const p of placements)
         blocker(p.x, p.z, spec.length * CAMP_M * .5,
@@ -815,7 +816,7 @@ export const stage11ForestWorldDebug = () => ({
         expectedSegmentSides: (S11_FOREST_ROUTE.length - 1) * 2,
         outsideWalkableViolations: hedgeOutsideViolations,
     },
-    vehicles: stage11ForestVehiclesDebug(),
+    vehicles: stage11WeaponVehiclesDebug(STAGE11_FOREST_VEHICLE_GROUP),
     // Checkpoint detail belongs to forestDebug(); repeating the whole record
     // here would traverse all 27 fabricator rigs twice on every debug read.
     checkpoints: { count: stage11ForestCheckpointsDebug().count,

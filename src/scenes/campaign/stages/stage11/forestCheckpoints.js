@@ -29,7 +29,9 @@ import {
 } from '../../../../entities/spawnMachine.js';
 import { disposeRobot, killRobot } from '../../../../entities/robots.js';
 import { spawnCampaignRobot } from '../../utility/common.js';
-import { stage11ForestVehiclesAliveAt } from './forestVehicles.js';
+import {
+    STAGE11_FOREST_VEHICLE_GROUP, stage11WeaponVehiclesAliveAt,
+} from './weaponVehicles.js';
 import { explodeAt, spawnGroundPuff, spawnBloodBurst } from '../../../../entities/effects.js';
 import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
@@ -331,7 +333,7 @@ function updateBirths(dt) {
 // metre that does not never can — there is no second list to keep in sync.
 const machinesDown = cp => cp.machines.every(m => !m.alive);
 const vehiclesLeft = cp => cp.kind === 'vehicleCheckpoint'
-    ? stage11ForestVehiclesAliveAt(cp.meter) : 0;
+    ? stage11WeaponVehiclesAliveAt(STAGE11_FOREST_VEHICLE_GROUP, cp.meter) : 0;
 const vehiclesDown = cp => vehiclesLeft(cp) === 0;
 
 function armCheckpoint(cp) {

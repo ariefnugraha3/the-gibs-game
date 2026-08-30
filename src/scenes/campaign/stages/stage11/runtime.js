@@ -7,7 +7,6 @@ import { scene } from '../../../../core/renderer.js';
 import { showStageRadioDialogue, hideStageRadioDialogue } from '../../../../core/dom.js';
 import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 import { disposeRobot } from '../../../../entities/robots.js';
-import { spawnCampaignRobot } from '../../utility/common.js';
 
 export const STAGE11_DIALOGUE = dialogueMap('campaign.stage11.lines');
 export let phase = 'opening';
@@ -82,56 +81,3 @@ export function clearStage11Robots() {
         disposeRobot(robots[i]); scene.remove(robots[i].mesh); robots.splice(i, 1);
     }
 }
-
-function waveUnits(raw) {
-    const units = [];
-    for (let wave = 0; wave < (Array.isArray(raw) ? raw.length : raw ? 1 : 0); wave++) {
-        const item = Array.isArray(raw) ? raw[wave] : raw;
-        // B remains more common than A; exact class totals survive batching.
-        for (const cls of ['C', 'B', 'A'])
-            for (let i = 0; i < Math.max(0, item?.[cls] | 0); i++) units.push({ cls, wave });
-    }
-    return units;
-}
-
-// Split large config rows into bounded batches without changing any configured
-// class total. A single live batch stays <=24, leaving headroom below 30 for a
-// just-dying robot or scripted entity in the shared update.
-export function makeStage11WaveQueue(raw, maxLive = 24) {
-    const units = waveUnits(raw), batches = [];
-    for (let i = 0; i < units.length; i += maxLive) batches.push(units.slice(i, i + maxLive));
-    return { batches, configuredTotal: units.length, spawnedTotal: 0, cursor: -1 };
-}
-
-export function spawnStage11Batch(queueState, points, prefix, projectPoint = null) {
-    const index = queueState.cursor + 1;
-    const batch = queueState.batches[index];
-    if (!batch) return [];
-    queueState.cursor = index; const records = [];
-    for (let i = 0; i < batch.length; i++) {
-        const u = batch[i], p = points[(index * 5 + i) % points.length];
-        const dx = ((i * 19 + index * 13) % 29) - 14;
-        const dz = ((i * 23 + index * 7) % 27) - 13;
-        const rawX = p.x + dx, rawZ = p.z + dz;
-        const spawn = projectPoint ? projectPoint(rawX, rawZ, 4, i, index)
-            : { x: rawX, z: rawZ };
-        spawnCampaignRobot(spawn.x, spawn.z, 11, u.cls, true);
-        const bot = robots[robots.length - 1]; bot.encounter = `${prefix}-${index}`;
-        records.push({ cls: u.cls, sourceWave: u.wave, batch: index,
-            x: bot.mesh.position.x, z: bot.mesh.position.z,
-            projected: Math.hypot(spawn.x - rawX, spawn.z - rawZ) > 1e-6 });
-    }
-    queueState.spawnedTotal += batch.length; return records;
-}
-export function stage11BatchAlive(prefix, index) {
-    let n = 0;
-    for (const bot of robots)
-        if (bot.stage === 11 && bot.encounter === `${prefix}-${index}`) n++;
-    return n;
-}
-export const stage11WaveQueueDebug = q => ({
-    configuredTotal: q?.configuredTotal || 0, spawnedTotal: q?.spawnedTotal || 0,
-    remainingConfigTotal: Math.max(0, (q?.configuredTotal || 0) - (q?.spawnedTotal || 0)),
-    cursor: q?.cursor ?? -1, batchCount: q?.batches?.length || 0,
-    batchSizes: q?.batches?.map(x => x.length) || [],
-});

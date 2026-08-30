@@ -1,80 +1,139 @@
-// Stage 11 surface — a complete low-poly IKN city-in-forest composition.
-// The playable civic axis is surrounded by deterministic semantic districts in
-// three depth bands. Far architecture is visual-only and shadowless; authored
-// cover and colonnades alone participate in collision/navigation.
+// Stage 11 Chapter 2 — the IKN city, built on the road network in cityRoads.js.
+//
+// The chapter's geometry follows one rule: THE PLAYER TRAVELS ON ROADS AND
+// NOWHERE ELSE.  `stage11CityWalk` is the corridor union of every road, both
+// roundabout carriageways and the headquarters apron, and every boundary it
+// draws is a VISIBLE fence standing on exactly that line — never an invisible
+// wall.  Both roundabout islands are solid: their kerb wall is drawn on the same
+// radius the predicate excludes, and it is the one analytic blocker in the map.
+//
+// Everything else — kerbs, street furniture, the whole skyline, the forest the
+// capital was cut into — stands OUTSIDE the corridor and carries no collider at
+// all, so nothing drawn can ever be walked through and nothing invisible can
+// ever stop the player.  The fight's colliders are exactly three things: the
+// roundabout islands, the blockade barriers, and the fabricators and weapon
+// vehicles standing on the asphalt.
 
 import { scene } from '../../../../core/renderer.js';
+import { CFG, CAMP_M } from '../../../../core/config.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStaticShadowAware } from '../../../../utils/meshBatch.js';
 import {
     weldOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
 } from '../../utility/occlusion.js';
+import { resolveBlockers, makeBlockerIndex } from '../../../../utils/collision.js';
+import { FuturisticSedan } from '../../../../entities/futuristicSedan.js';
+import { FuturisticSUV } from '../../../../entities/futuristicSUV.js';
 import {
-    ensureStage11SurfaceAuthority, stage11SurfaceAuthorityDebug,
-} from './surfaceAuthority.js';
-import {
-    ensureStage11SurfaceScan, stage11SurfaceScanDebug,
-} from './surfaceScan.js';
-import { resolveBlockers } from '../../../../utils/collision.js';
+    buildStage7RoadVehicle, STAGE7_ROAD_VEHICLE_SPECS,
+} from '../stage7/roadVehicles.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { registerStageLight } from '../../../../world/lighting.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
+import {
+    S11_SURFACE_ORIGIN, S11_CITY_START, S11_CITY_HQ, S11_CITY_HQ_APRON,
+    S11_CITY_BOUNDS, S11_CITY_EDGES, S11_CITY_NODES, S11_CITY_ROUNDABOUTS,
+    S11_CITY_SPAN_METERS, S11_CITY_UNITS_PER_PX, S11_CITY_SIDEWALK,
+    S11_CITY_SIDEWALK_METERS, S11_CITY_START_BACK_UNITS,
+    S11_CITY_START_RENDER_UNITS, S11_CITY_START_TANGENT, S11_CITY_BLOCKADES,
+    stage11CityWalk, stage11CityIslandSegBlocked, stage11CityNearestRoad,
+    stage11CityRoadClearance, stage11CityProjectToRoad,
+    stage11CityFenceRuns, stage11CityCrossingAsphalt,
+    stage11CityRoadsDebug,
+} from './cityRoads.js';
+import {
+    STAGE11_CITY_VEHICLE_GROUP, STAGE11_DOUBLE_CABIN_METERS,
+    ensureStage11WeaponVehicles, stage11WeaponVehiclesDebug,
+} from './weaponVehicles.js';
+import {
+    ensureStage11CityBlockades, stage11CityGateResolve,
+    stage11CityVehiclePlacements, stage11CityBlockadesDebug,
+} from './cityBlockades.js';
 
 export const STAGE11_SURFACE_LIGHTS_KEY = 'campaign-11-surface';
-export const S11_SURFACE_ORIGIN = Object.freeze({ x: 390000, z: 0 });
-export const S11_SURFACE_START = Object.freeze({ x: 390720, z: -115 });
-export const S11_AXIS_GATE = Object.freeze({ x: 390355, z: -35 });
-export const S11_ROOT_COURT = Object.freeze({ x: 389430, z: 120 });
-export const S11_DESCENT = Object.freeze({ x: 389275, z: 125 });
+export const S11_SURFACE_OCC = 'campaign-11-surface';
+export { S11_SURFACE_ORIGIN } from './cityRoads.js';
 
-const BOUNDS = Object.freeze({ x0: 389050, x1: 390900, z0: -850, z1: 850 });
-// Widened 2026-08-30: the old -220..260 lane was 69 m of bare rectangle with
-// every water garden, terrace and colonnade sitting OUTSIDE it. The corridor now
-// reaches the inner terrace face on both sides, so the plaza's own geography is
-// what the fight is fought through rather than scenery beside a lane.
-const PLAY = Object.freeze({ x0: 389180, x1: 390800, z0: -300, z1: 300 });
+export const S11_SURFACE_START = Object.freeze({ ...S11_CITY_START });
+export const S11_CITY_HEADQUARTERS = Object.freeze({ ...S11_CITY_HQ });
 
-// TERRACED HIGH GROUND (2026-08-30). The chapter was flat in the literal sense:
-// the walk box was 69 m of bare rectangle and `groundHeight` returned a constant
-// 0, so every terrace, water garden and colonnade the world draws was scenery
-// the player could never stand on. The flanking bank is now a real firing step
-// 20 units (2.9 m) above the plaza, reached by a ceremonial stair.
-//
-// The height field is STEPPED to exactly the drawn steps rather than smoothed
-// over them, so what is drawn is what is stood on. Stepping up needs no jump:
-// `updatePlayer` snaps feet to `groundHeight` whenever the fall would take them
-// below it, so a 3.3-unit riser is climbed simply by walking into it.
-const TERRACE_INNER = 210, TERRACE_PLATEAU = 256, TERRACE_TOP = 20;
-const TERRACE_STEPS = 6;
-const STEP_DEPTH = (TERRACE_PLATEAU - TERRACE_INNER) / TERRACE_STEPS;
-const STEP_RISE = TERRACE_TOP / TERRACE_STEPS;
-export function stage11SurfaceTerraceHeight(z) {
-    const a = Math.abs(z);
-    if (a <= TERRACE_INNER) return 0;
-    if (a >= TERRACE_PLATEAU) return TERRACE_TOP;
-    return Math.min(TERRACE_TOP,
-        Math.floor((a - TERRACE_INNER) / STEP_DEPTH + 1) * STEP_RISE);
-}
-export const STAGE11_TERRACE = Object.freeze({
-    inner: TERRACE_INNER, plateau: TERRACE_PLATEAU, top: TERRACE_TOP,
-    steps: TERRACE_STEPS, stepDepth: STEP_DEPTH, stepRise: STEP_RISE,
+// The compound gate is derived from the road that reaches it, so the marker can
+// never drift off the approach when the map moves.
+const HQ_APPROACH = (() => {
+    const a = S11_CITY_NODES.A12, b = S11_CITY_HQ;
+    const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+    return { tx: dx / len, tz: dz / len, yaw: Math.atan2(-dz / len, dx / len) };
+})();
+// Derived from the forecourt, never typed: the gate marker must always stand
+// INSIDE the apron the player is allowed to walk on, whatever span the map is
+// scaled to, and the compound's front wall must stand just behind it.
+const HQ_GATE_OFFSET = S11_CITY_HQ_APRON * 0.72;
+export const S11_DESCENT = Object.freeze({
+    x: S11_CITY_HQ.x + HQ_APPROACH.tx * HQ_GATE_OFFSET,
+    z: S11_CITY_HQ.z + HQ_APPROACH.tz * HQ_GATE_OFFSET,
 });
-const ARCHETYPES = Object.freeze([
-    'civic-palace', 'cultural-hall', 'garden-tower', 'ministry', 'transit-hub',
-    'skybridge', 'water-garden', 'colonnade', 'forest-terrace', 'civic-spire',
-]);
 
-export const S11_SURFACE_OCC = 'campaign-11-surface';   // utility/occlusion.js
+const BOUNDS = S11_CITY_BOUNDS;
+// One asphalt plane. Every road surface shares this exact top height, so two
+// overlapping carriageways are EXACTLY coplanar (a deterministic depth winner)
+// rather than near-coplanar, which is what flickers.
+const ROAD_TOP = 0, ROAD_THICK = 0.6;
+const MARK_Y = 0.3;
+// The pavement sits a KERB below the carriageway rather than exactly level with
+// it. Two coplanar surfaces of DIFFERENT colour tessellated differently are only
+// near-equal in depth, and that shimmers; a clear 0.3 (4 cm) separation makes
+// the asphalt the deterministic winner wherever a road quad crosses a pavement,
+// which happens at every roundabout and at the end of every boundary run.
+const PAVE_TOP = -0.3;
+// Vertex spacing on every road surface. `MeshLambertMaterial` is GOURAUD — three
+// .js shades it per VERTEX — so a light with a 60-unit range over a quad whose
+// only vertices are hundreds of units away lights almost nothing, while a
+// 28-sided junction cap has a dense vertex ring right there and lights up as a
+// bright disc. That mismatch is what made the muzzle flash paint circles on the
+// asphalt at every bend. Keeping the spacing well under the flash range makes
+// the pool land the same way on every part of the road.
+const SURF_STEP = 26;
+const seg = (span) => Math.max(1, Math.round(Math.abs(span) / SURF_STEP));
+// A ground quad, pre-rotated in its GEOMETRY so the mesh only needs a yaw:
+// `rotation.set(-PI/2, yaw, 0)` composes as Rx*Ry with Euler XYZ, which turns
+// the plane edge-on instead of spinning it about the vertical.
+function groundQuad(len, wide) {
+    const g = new THREE.PlaneGeometry(len, wide, seg(len), seg(wide));
+    g.rotateX(-Math.PI / 2);
+    return g;
+}
+function groundDisc(inner, outer, theta = 32) {
+    const g = new THREE.RingGeometry(inner, outer, theta, seg(outer - inner));
+    g.rotateX(-Math.PI / 2);
+    return g;
+}
+const GROUND_Y = -1.6;
+// The contour is SAMPLED fine and then SIMPLIFIED, so accuracy at a bend and
+// mesh count are set independently: a straight collapses to one long segment
+// while a cap keeps the points that make it a curve.
+const FENCE_SAMPLE = 10, FENCE_TOL = 0.6, POST_SPACING = 30, FENCE_H = 11;
+const SIDEWALK = S11_CITY_SIDEWALK;
+const CHUNK = 1400;
+// Traffic welds into coarser cells than the rest of the city: a draw group per
+// material per cell, so a bigger cell is fewer groups while still frustum-culled.
+const TRAFFIC_CHUNK = 2800;
+
 let built = false;
 let root = null;
 let nav = null;
 let descentDoor = null;
-let rawMeshes = 0;
-let weldedMeshes = 0;
+let rawMeshes = 0, weldedMeshes = 0, occluderCount = 0;
+let treeCount = 0, instancedNodes = 0;
+let fenceRunCount = 0, fencePanelCount = 0, fenceInsideViolations = 0;
+let fenceLooseEnds = 0;
+const fenceRuns = [], fencePosts = [];
+let buildingOnRoadViolations = 0;
+let startStubMeters = 0, trafficRejected = 0;
+let trafficPending = [], trafficChunks = null;
+const trafficRecords = [];
 const blockers = [];
 const clusters = [];
 const chunkStats = [];
-const terraceSteps = [];
 const semantic = new Map();
 const lights = [];
 const mats = {};
@@ -83,7 +142,8 @@ function material(name, color, opts = {}) {
     if (!mats[name]) mats[name] = new THREE.MeshLambertMaterial({
         color, emissive: opts.emissive || 0,
         emissiveIntensity: Math.min(EMISSIVE_MAX, opts.emissiveIntensity || 0),
-        transparent: !!opts.transparent, opacity: opts.opacity == null ? 1 : opts.opacity,
+        transparent: !!opts.transparent,
+        opacity: opts.opacity == null ? 1 : opts.opacity,
         depthWrite: opts.depthWrite == null ? true : !!opts.depthWrite,
         flatShading: opts.flatShading == null ? true : !!opts.flatShading,
     });
@@ -101,16 +161,29 @@ function mesh(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0,
     m.rotation.set(rx, ry, rz); m.castShadow = cast; m.receiveShadow = receive;
     parent.add(m); rawMeshes++; return m;
 }
+// `rotation.y = yaw` puts local +X at (cos yaw, -sin yaw): writing +sin into
+// `axz` would mirror the collider relative to the mesh, and sliding along a
+// mis-rotated face carries the player forward past it.
 function blocker(x, z, hx, hz, top, yaw = 0, kind = 'cover') {
     const c = Math.cos(yaw), s = Math.sin(yaw);
-    blockers.push({ x, z, hx, hz, top, axx: c, axz: s, azx: -s, azz: c,
-        rad: Math.hypot(hx, hz), standable: false, yaw, kind });
+    const box = { x, z, hx, hz, top, axx: c, axz: -s, azx: s, azz: c,
+        rad: Math.hypot(hx, hz), standable: false, yaw, kind };
+    blockers.push(box);
+    return box;
 }
+// Parked traffic multiplies the collider count by four, and `segBlocked` runs
+// for every bullet and every robot line-of-sight test — so the shared uniform
+// index does the narrowing, exactly as Stages 1/2/6 do. It is exact, not
+// approximate: results come back in original list order, which is what keeps
+// sequential push-out identical to a full sweep.
+let blockerIndex = null;
+const nearBlockers = (x, z, r, moving) =>
+    blockerIndex ? blockerIndex.gather(x, z, r, moving) : blockers;
 function pointBlocked(x, z, r = 0) {
-    for (const b of blockers) {
+    for (const b of nearBlockers(x, z, r, false)) {
         const dx = x - b.x, dz = z - b.z;
-        const lx = dx * b.axx + dz * b.axz, lz = dx * b.azx + dz * b.azz;
-        if (Math.abs(lx) <= b.hx + r && Math.abs(lz) <= b.hz + r) return true;
+        if (Math.abs(dx * b.axx + dz * b.axz) <= b.hx + r
+            && Math.abs(dx * b.azx + dz * b.azz) <= b.hz + r) return true;
     }
     return false;
 }
@@ -126,265 +199,513 @@ function segBox(x0, z0, x1, z1, b) {
     return false;
 }
 
-// The civic lockdown is a DRAWN curtain standing on exactly this line, so the
-// moving east boundary is a visible wall and never an invisible one.
-let lockdownLimit = PLAY.x1;
-export function setStage11SurfaceLockdown(x) {
-    lockdownLimit = Math.max(PLAY.x0 + 60, Math.min(PLAY.x1, x));
-}
-export const stage11SurfaceLockdownLimit = () => lockdownLimit;
-export function stage11SurfaceWalk(x, z, r = 0) {
-    return x >= PLAY.x0 + r && x <= lockdownLimit - r
-        && z >= PLAY.z0 + r && z <= PLAY.z1 - r;
-}
+// --- scene predicates --------------------------------------------------------
+
+export const stage11SurfaceWalk = stage11CityWalk;
 export function stage11SurfaceResolve(pos, radius, feetY = 0) {
-    resolveBlockers(pos, radius, feetY, blockers);
+    resolveBlockers(pos, radius, feetY,
+        nearBlockers(pos.x, pos.z, radius, true));
+    // A blockade barrier is solid exactly while it is drawn across the road.
+    stage11CityGateResolve(pos, radius, feetY);
 }
 export function stage11SurfaceSegBlocked(x0, z0, x1, z1) {
-    return blockers.some(b => segBox(x0, z0, x1, z1, b));
+    // Weapon pickups are solid for movement but their mounted gunner must stay
+    // shootable in the top-down hit model (which otherwise ignores height), and
+    // a rail barricade is deliberately not here at all: see cityBlockades.js.
+    if (stage11CityIslandSegBlocked(x0, z0, x1, z1)) return true;
+    const half = Math.hypot(x1 - x0, z1 - z0) * 0.5;
+    const list = nearBlockers((x0 + x1) * 0.5, (z0 + z1) * 0.5, half, false);
+    for (const b of list)
+        if (b.kind !== 'combat-vehicle' && segBox(x0, z0, x1, z1, b)) return true;
+    return false;
 }
-export function stage11SurfaceGroundHeight(x, z) { return stage11SurfaceTerraceHeight(z); }
+// The city is flat: elevation would only read as shading from this camera and
+// would cost every robot and every drop an extra height query per frame.
+export function stage11SurfaceGroundHeight() { return 0; }
 export function stage11SurfaceNav() { return nav; }
+export const stage11SurfaceHitsBlocker = pointBlocked;
 
-function buildTerrainAndAxis() {
+// --- ground and roads --------------------------------------------------------
+
+function buildGround() {
     const g = new THREE.Group();
-    mesh(g, new THREE.PlaneGeometry(2250, 1850), material('greenGround', 0x4a603b),
-        S11_SURFACE_ORIGIN.x, -1.4, 0, -Math.PI / 2, 0, 0, false, true);
-    // Ceremonial axis: pale paving, red-white restrained datum strips and
-    // tiered planted shoulders. It spans the entire playable route.
-    mesh(g, new THREE.BoxGeometry(1710, 2, 300), material('axisStone', PAL.panel),
-        389985, 0, 20, 0, -.035, 0, false, true);
-    mesh(g, new THREE.BoxGeometry(1710, 1, 84), material('axisCenter', 0xa49f92),
-        389985, 1.2, 20, 0, -.035, 0, false, true);
-    // A ceremonial plaza is PAVED, not poured: shallow joint lines break a
-    // 1710-unit blank slab into readable bays and give the eye a sense of scale
-    // as the player crosses it. Purely inset marks -- no collision, no height.
-    for (let i = 0; i <= 34; i++)
-        mesh(g, new THREE.BoxGeometry(1.4, .6, 296), material('paveJoint', 0x9a9488),
-            390840 - i * 50, 1.3, 20, 0, -.035, 0, false, false);
-    for (const dz of [-118, -58, 98, 158])
-        mesh(g, new THREE.BoxGeometry(1700, .6, 1.4), material('paveJoint', 0x9a9488),
-            389985, 1.3, 20 + dz, 0, -.035, 0, false, false);
-    for (const s of [-1, 1]) {
-        mesh(g, new THREE.BoxGeometry(1710, 1.2, 5), material('nationalRed', PAL.hazard),
-            389985, 1.8, 20 + s * 48, 0, -.035, 0, false, false);
-        mesh(g, new THREE.BoxGeometry(1710, 1.2, 5), material('nationalWhite', PAL.white),
-            389985, 1.8, 20 + s * 56, 0, -.035, 0, false, false);
+    mesh(g, new THREE.PlaneGeometry(BOUNDS.x1 - BOUNDS.x0, BOUNDS.z1 - BOUNDS.z0),
+        material('cityGround', 0x40563a), (BOUNDS.x0 + BOUNDS.x1) * 0.5, GROUND_Y,
+        (BOUNDS.z0 + BOUNDS.z1) * 0.5, -Math.PI / 2, 0, 0, false, true);
+    // Cleared ground shading between the districts: the capital reads as cut out
+    // of the forest rather than dropped onto a lawn. Flat, no collider.
+    for (let i = 0; i < 46; i++) {
+        const x = BOUNDS.x0 + 300 + hash(i, 3) * (BOUNDS.x1 - BOUNDS.x0 - 600);
+        const z = BOUNDS.z0 + 300 + hash(i, 4) * (BOUNDS.z1 - BOUNDS.z0 - 600);
+        if (stage11CityRoadClearance(x, z) < 120) continue;
+        mesh(g, new THREE.PlaneGeometry(240 + hash(i, 5) * 360,
+            200 + hash(i, 6) * 320), material(`cityGrade-${i % 3}`,
+            i % 3 === 0 ? 0x4b5f3d : i % 3 === 1 ? 0x38502f : 0x55643f),
+        x, GROUND_Y + 0.4, z, -Math.PI / 2, 0, hash(i, 7) * Math.PI, false, false);
+        count('ground-grade');
     }
-    // Playable bank: a ceremonial stair up to a planted firing step. Each riser
-    // is drawn at exactly the height `stage11SurfaceTerraceHeight` reports for
-    // its own tread, so the geometry and the walk surface cannot disagree.
+    weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
+}
+
+// An edge that meets a roundabout is TRIMMED to the ring's outer radius, so its
+// square end sits tangent to a curve and leaves a crescent of bare ground on
+// each side — which is exactly what read as "the road does not reach the
+// roundabout". The DRAWN quad therefore runs on to the island edge and overlaps
+// the carriageway; both surfaces sit at exactly the same height, so the overlap
+// costs nothing and cannot z-fight.
+function drawSpan(e) {
+    const rA = S11_CITY_ROUNDABOUTS.find(r => r.id === e.a);
+    const rB = S11_CITY_ROUNDABOUTS.find(r => r.id === e.b);
+    const ax = rA ? e.ax - e.tx * rA.ring : e.ax;
+    const az = rA ? e.az - e.tz * rA.ring : e.az;
+    const bx = rB ? e.bx + e.tx * rB.ring : e.bx;
+    const bz = rB ? e.bz + e.tz * rB.ring : e.bz;
+    return { ax, az, bx, bz, len: Math.hypot(bx - ax, bz - az) };
+}
+
+function buildRoads() {
+    const g = new THREE.Group();
+    const asphalt = material('cityAsphalt', 0x2f3538);
+    const lane = material('cityLane', 0xb3ac97);
+    const edgeLine = material('cityEdgeLine', 0x9aa093);
+    const pave = material('citySidewalk', 0x8b8a80);
+    for (const e of S11_CITY_EDGES) {
+        // A road corridor is a CAPSULE (distance to segment), so the drawn
+        // surface is a quad plus a disc at each node: the node caps are what
+        // fill every junction instead of leaving a notch between two quads.
+        const d = drawSpan(e);
+        mesh(g, groundQuad(d.len, e.w * 2), asphalt,
+            (d.ax + d.bx) * 0.5, ROAD_TOP, (d.az + d.bz) * 0.5,
+            0, e.yaw, 0, false, true);
+        for (const side of [-1, 1])
+            mesh(g, groundQuad(d.len, SIDEWALK), pave,
+                (d.ax + d.bx) * 0.5 + (-e.tz) * side * (e.w + SIDEWALK * 0.5),
+                PAVE_TOP,
+                (d.az + d.bz) * 0.5 + e.tx * side * (e.w + SIDEWALK * 0.5),
+                0, e.yaw, 0, false, true);
+        // Dashed centre line. No arrows, no destination boards, no wayfinding of
+        // any kind anywhere in this chapter — and NOTHING painted through an
+        // intersection, which is what a dash laid straight across a junction
+        // mouth looks like: a bend that does not join up.
+        const dashes = Math.max(1, Math.floor(d.len / 90));
+        for (let i = 0; i < dashes; i++) {
+            const t = (i + 0.5) / dashes;
+            const px = d.ax + (d.bx - d.ax) * t, pz = d.az + (d.bz - d.az) * t;
+            if (stage11CityCrossingAsphalt(e.index, px, pz)) continue;
+            mesh(g, new THREE.BoxGeometry(38, 0.5, 2.4), lane,
+                px, MARK_Y, pz, 0, e.yaw, 0, false, false);
+        }
+        // Edge lines are laid in pieces for the same reason: one long box would
+        // run straight over every junction the road opens onto.
+        const steps = Math.max(1, Math.round(d.len / 44));
+        for (const side of [-1, 1]) for (let i = 0; i < steps; i++) {
+            const t = (i + 0.5) / steps;
+            const px = d.ax + (d.bx - d.ax) * t + (-e.tz) * side * (e.w - 7);
+            const pz = d.az + (d.bz - d.az) * t + e.tx * side * (e.w - 7);
+            if (stage11CityCrossingAsphalt(e.index, px, pz)) continue;
+            mesh(g, new THREE.BoxGeometry(d.len / steps + 0.4, 0.5, 2.2),
+                edgeLine, px, MARK_Y, pz, 0, e.yaw, 0, false, false);
+        }
+        count('road-segment');
+    }
+    // Junction and dead-end caps. 28 segments, not 14: at a 90-unit radius a
+    // 14-sided disc is 2.3 units off the circle the predicate actually uses,
+    // and that shows as a chipped corner on every bend.
+    for (const [name, n] of Object.entries(S11_CITY_NODES)) {
+        if (n.island) continue;
+        let w = 0;
+        for (const e of S11_CITY_EDGES)
+            if (e.a === name || e.b === name) w = Math.max(w, e.w);
+        if (!w) continue;
+        mesh(g, groundDisc(0.01, w + SIDEWALK, 28), pave,
+            n.x, PAVE_TOP, n.z, 0, 0, 0, false, true);
+        mesh(g, groundDisc(0.01, w, 28), asphalt,
+            n.x, ROAD_TOP, n.z, 0, 0, 0, false, true);
+        count('junction-cap');
+    }
+    for (const R of S11_CITY_ROUNDABOUTS) {
+        // The carriageway's own pavement, on its outer edge, laid first and a
+        // kerb lower so an approach road crossing it always wins.
+        mesh(g, groundDisc(R.outer, R.outer + SIDEWALK, 40), pave,
+            R.x, PAVE_TOP, R.z, 0, 0, 0, false, true);
+        mesh(g, groundDisc(R.inner, R.outer, 40), asphalt,
+            R.x, ROAD_TOP, R.z, 0, 0, 0, false, true);
+        mesh(g, groundDisc(R.inner + 26, R.inner + 28.4, 40), lane,
+            R.x, MARK_Y, R.z, 0, 0, 0, false, false);
+        count('roundabout-carriageway');
+    }
+    // Headquarters forecourt.
+    mesh(g, groundDisc(0.01, S11_CITY_HQ_APRON, 28), material('cityApron', 0x3a4043),
+        S11_CITY_HQ.x, ROAD_TOP, S11_CITY_HQ.z, 0, 0, 0, false, true);
+    count('headquarters-apron');
+    weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
+}
+
+// The boundary the player actually meets: kerb, 1.5 m pavement and railing, all
+// laid on the walk contour itself, so what is drawn is exactly what stops them.
+// Zero blockers, because the predicate already IS the wall.
+//
+// Runs are polylines, so a bend and a dead end get the same treatment as a
+// straight: the corner arcs close the outer side of every turn, which is what
+// used to be left open by offsetting each road independently.
+function buildBoundary() {
+    const runs = stage11CityFenceRuns(FENCE_SAMPLE, FENCE_TOL);
+    const clear = CFG.player.radius;
+    fenceRunCount = runs.length;
+    fenceRuns.length = 0;
+    const chunks = new Map();
+    const rail = material('cityFenceRail', PAL.steel);
+    const post = material('cityFencePost', PAL.gunmetal);
+    const kerb = material('cityKerb', PAL.concrete);
+    const pave = material('citySidewalk', 0x8b8a80);
+    const chunkFor = (x, z) => {
+        const k = `${Math.floor((x - BOUNDS.x0) / CHUNK)}|`
+            + `${Math.floor((z - BOUNDS.z0) / CHUNK)}`;
+        let c = chunks.get(k);
+        if (!c) { c = new THREE.Group(); chunks.set(k, c); }
+        return c;
+    };
+    for (const run of runs) {
+        fencePanelCount += run.panels;
+        fenceRuns.push({ kind: run.kind, panels: run.panels,
+            pts: run.pts.map(p => ({ x: p.x, z: p.z, nx: p.nx, nz: p.nz })) });
+        const barrier = run.kind === 'start-cut';
+        for (let i = 0; i < run.pts.length - 1; i++) {
+            const a = run.pts[i], b = run.pts[i + 1];
+            const dx = b.x - a.x, dz = b.z - a.z;
+            const len = Math.hypot(dx, dz);
+            if (len < 0.5) continue;
+            const yaw = Math.atan2(-dz, dx);
+            const mx = (a.x + b.x) * 0.5, mz = (a.z + b.z) * 0.5;
+            let ix = (a.nx + b.nx) * 0.5, iz = (a.nz + b.nz) * 0.5;
+            const il = Math.hypot(ix, iz) || 1; ix /= il; iz /= il;
+            const chunk = chunkFor(mx, mz);
+            // A uniform hair of overlap. Runs that meet at a crossing are
+            // already pulled to a shared point by `stitchRuns`, so no piece has
+            // to be stretched over a gap it cannot measure.
+            const head = 0.4, tail = 0.4;
+            const span = len + head + tail;
+            const cx = mx + (tail - head) * 0.5 * (dx / len);
+            const cz = mz + (tail - head) * 0.5 * (dz / len);
+            if (!barrier) {
+                // Pavement, flush with the asphalt: the corridor is ONE walk
+                // plane, so the player never meets a step the ground height
+                // does not have.
+                mesh(chunk, groundQuad(span, SIDEWALK), pave,
+                    cx + ix * SIDEWALK * 0.5, PAVE_TOP,
+                    cz + iz * SIDEWALK * 0.5, 0, yaw, 0, false, true);
+                // Kerb: drawn on the line where the asphalt actually ends.
+                // The kerb straddles the 4 cm step, so the drop is read as a
+                // kerb rather than seen as a seam.
+                mesh(chunk, new THREE.BoxGeometry(span, 1.0, 1.9), kerb,
+                    cx + ix * SIDEWALK, ROAD_TOP + 0.2, cz + iz * SIDEWALK,
+                    0, yaw, 0, false, false);
+            }
+            for (const y of [4.6, 8.6])
+                mesh(chunk, new THREE.BoxGeometry(span, 1.5, 1.6), rail,
+                    cx, y, cz, 0, yaw, 0, false, false);
+        }
+        // Posts follow ARC LENGTH, not the simplified vertex list: a long
+        // straight is one segment and would otherwise carry two posts.
+        let carry = 0;
+        for (let i = 0; i < run.pts.length - 1; i++) {
+            const a = run.pts[i], b = run.pts[i + 1];
+            const len = Math.hypot(b.x - a.x, b.z - a.z);
+            for (let d = carry; d < len; d += POST_SPACING) {
+                const t = d / len;
+                const px = a.x + (b.x - a.x) * t, pz = a.z + (b.z - a.z) * t;
+                // A run ends where a junction opens, so a post can still land
+                // inside the road it opens onto — a drawn prop the player would
+                // walk through. Dropped, and then measured, rather than assumed.
+                if (stage11CityWalk(px, pz, clear)) continue;
+                mesh(chunkFor(px, pz), new THREE.BoxGeometry(2.4, FENCE_H, 2.4),
+                    post, px, FENCE_H * 0.5, pz, 0, 0, 0, false, false);
+                fencePosts.push({ x: px, z: pz });
+                if (stage11CityWalk(px, pz, clear)) fenceInsideViolations++;
+            }
+            carry = (carry - len) % POST_SPACING;
+            if (carry < 0) carry += POST_SPACING;
+        }
+        count('boundary-fence-run');
+    }
+    for (const [id, chunk] of chunks) {
+        const outNodes = addMergedStaticShadowAware(root, [chunk]);
+        weldedMeshes += outNodes.length;
+        chunkStats.push({ id: `boundary-${id}`, batches: outNodes.length });
+    }
+    fenceLooseEnds = countLooseEnds(runs);
+}
+
+// A run end that touches no other run AND is not standing at an open junction
+// mouth is a break the player can see: the railing simply stops. The mouth test
+// is geometric — step inward from the end and ask whether that is open road.
+function countLooseEnds(runs) {
+    const segDist = (x, z, a, b) => {
+        const dx = b.x - a.x, dz = b.z - a.z, den = dx * dx + dz * dz;
+        const t = den > 1e-9
+            ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / den)) : 0;
+        return Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+    };
+    let loose = 0;
+    for (const r of runs) {
+        if (r.closed) continue;
+        for (const end of [r.pts[0], r.pts[r.pts.length - 1]]) {
+            let best = Infinity;
+            for (const o of runs) {
+                if (o === r) continue;
+                for (let i = 0; i < o.pts.length - 1; i++)
+                    best = Math.min(best, segDist(end.x, end.z, o.pts[i], o.pts[i + 1]));
+            }
+            if (best <= 2) continue;
+            if (stage11CityWalk(end.x + end.nx * 3, end.z + end.nz * 3,
+                CFG.player.radius)) continue;              // an open mouth
+            loose++;
+        }
+    }
+    return loose;
+}
+
+// The boulevard the player arrived on CONTINUES behind them and is simply closed
+// off. A road that ends in a round cul-de-sac reads as the edge of the world;
+// a carriageway running on past a barrier reads as a city they came from. All of
+// this is decor — the walk predicate stops `S11_CITY_START_BACK_UNITS` behind the
+// start, and the barrier drawn on that exact line is the `start-cut` boundary
+// run, so there is no invisible wall here either.
+function buildStartStub() {
+    const g = new THREE.Group();
+    const e0 = S11_CITY_EDGES[0];
+    const T = S11_CITY_START_TANGENT;
+    const off = e0.w + SIDEWALK;
+    const R = S11_CITY_START_RENDER_UNITS;
+    const yaw = Math.atan2(-T.tz, T.tx);
+    const nx = -T.tz, nz = T.tx;
+    const back = (u, lat = 0) => ({
+        x: S11_CITY_START.x - T.tx * u + nx * lat,
+        z: S11_CITY_START.z - T.tz * u + nz * lat,
+    });
+    const mid = back(R * 0.5);
+    mesh(g, groundQuad(R, e0.w * 2), material('cityAsphalt', 0x2f3538),
+        mid.x, ROAD_TOP, mid.z, 0, yaw, 0, false, true);
     for (const side of [-1, 1]) {
-        for (let s = 0; s < TERRACE_STEPS; s++) {
-            const zc = side * (TERRACE_INNER + (s + .5) * STEP_DEPTH);
-            const top = (s + 1) * STEP_RISE;
-            mesh(g, new THREE.BoxGeometry(1840, top, STEP_DEPTH + .4),
-                material(`terraceStep-${s % 2}`, s % 2 ? 0x66705c : 0x77806a),
-                389980, top / 2, zc, 0, 0, 0, false, true);
-            // Recorded from the transform that was actually built, so the
-            // drawn tread and the walk surface are one measurement.
-            terraceSteps.push({ z: zc, drawnTop: top / 2 + top / 2,
-                fieldTop: stage11SurfaceTerraceHeight(zc) });
-            count('terrace-step');
+        const q = back(R * 0.5, side * (e0.w + SIDEWALK * 0.5));
+        mesh(g, groundQuad(R, SIDEWALK), material('citySidewalk', 0x8b8a80),
+            q.x, PAVE_TOP, q.z, 0, yaw, 0, false, true);
+        const k = back(R * 0.5, side * e0.w);
+        mesh(g, new THREE.BoxGeometry(R, 1.0, 1.9), material('cityKerb', PAL.concrete),
+            k.x, ROAD_TOP + 0.2, k.z, 0, yaw, 0, false, false);
+        // The same railing carries on down both sides, so the closed street is
+        // clearly a street and not a painted backdrop.
+        const f = back(R * 0.5, side * off);
+        for (const y of [4.6, 8.6])
+            mesh(g, new THREE.BoxGeometry(R, 1.5, 1.6), material('cityFenceRail', PAL.steel),
+                f.x, y, f.z, 0, yaw, 0, false, false);
+        for (let u = S11_CITY_START_BACK_UNITS; u <= R; u += POST_SPACING) {
+            const q2 = back(u, side * off);
+            mesh(g, new THREE.BoxGeometry(2.4, FENCE_H, 2.4),
+                material('cityFencePost', PAL.gunmetal), q2.x, FENCE_H * 0.5, q2.z,
+                0, 0, 0, false, false);
         }
-        const zp = side * (TERRACE_PLATEAU + 52);
-        mesh(g, new THREE.BoxGeometry(1840, TERRACE_TOP, 104),
-            material('terracePlateau', 0x77806a), 389980, TERRACE_TOP / 2, zp,
-            0, 0, 0, false, true);
-        terraceSteps.push({ z: zp, drawnTop: TERRACE_TOP,
-            fieldTop: stage11SurfaceTerraceHeight(zp) });
-        mesh(g, new THREE.BoxGeometry(1790, 1.2, 88),
-            material('terraceGreen', 0x557347), 389980, TERRACE_TOP + .6, zp,
-            0, 0, 0, false, true);
-        count('landscape-terrace');
     }
-    // Outer decor bands keep rising away from the axis, so the landscape reads
-    // as built up into the forest rather than stepping back down again.
-    for (let band = 1; band < 5; band++) for (const side of [-1, 1]) {
-        const z = side * (400 + band * 95), h = TERRACE_TOP + band * 6;
-        mesh(g, new THREE.BoxGeometry(1840 - band * 85, h, 82),
-            material(`terrace-${band}`, band % 2 ? 0x66705c : 0x77806a),
-            389980, h / 2, z, 0, 0, side * .015, false, true);
-        mesh(g, new THREE.BoxGeometry(1800 - band * 90, 2, 62),
-            material(`terrace-green-${band}`, band % 2 ? 0x486438 : 0x557347),
-            389980, h + 1, z, 0, 0, 0, false, true);
-        count('landscape-terrace');
+    const dashes = Math.max(1, Math.floor(R / 90));
+    for (let i = 0; i < dashes; i++) {
+        const q = back(R * (i + 0.5) / dashes);
+        mesh(g, new THREE.BoxGeometry(38, 0.5, 2.4), material('cityLane', 0xb3ac97),
+            q.x, MARK_Y, q.z, 0, yaw, 0, false, false);
     }
-    // Water gardens alongside the civic plaza, simple stable water surfaces.
-    for (const x of [390280, 389890, 389540]) for (const s of [-1, 1]) {
-        mesh(g, new THREE.BoxGeometry(150, 3, 64), material('waterBasin', PAL.concrete),
-            x, 1, s * 142, 0, 0, 0, false, true);
-        mesh(g, new THREE.PlaneGeometry(138, 52), material('water', 0x476b63),
-            x, 2.6, s * 142, -Math.PI / 2, 0, 0, false, false);
-        for (let k = -2; k <= 2; k++)
-            mesh(g, new THREE.BoxGeometry(14, 3, 14), material('steppingStone', PAL.panel),
-                x + k * 25, 3.1, s * 142, 0, 0, 0, false, true);
-        count('water-garden');
-    }
-    buildPlazaInlay(g);
+    startStubMeters = R / CAMP_M;
+    count('start-approach');
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
-    buildPromenade();
 }
 
-// Plaza dressing, split by ONE rule: anything with VOLUME stands outside the
-// walk bounds, anything inside them is FLAT. A drawn prop the player can walk
-// straight through is exactly the "what is drawn is what blocks" violation the
-// campaign forbids, and the fight's cover is authored separately in
-// addCivicCover() and must not move. So the promenade furniture lives on the
-// terrace bank just past `PLAY.z`, where a player standing on the high ground
-// still sees it at arm's length, and the plaza floor gets inlay only.
-// Zero blockers, zero nav cells, zero PointLights.
-const PROMENADE_Z = 316, PROMENADE_Y = TERRACE_TOP;
-// Measured from the transforms that were actually built, so the flat-inside /
-// volume-outside rule is a measurement rather than a comment.
-let promenadeMinAbsZ = Infinity, inlayMaxY = 0;
-
-function buildPlazaInlay(g) {
-    // Measure only what THIS function appends: it shares the terrain group, so
-    // walking every child would report the terrace tops instead of the inlay.
-    const first = g.children.length;
-    // Flat civic inlay: light strips down both edges of the ceremonial paving
-    // and a kerb around each water garden. Sits a hair above the slab, so it
-    // can never be stood on, walked into, or z-fight the pavement.
-    const strip = material('civicStrip', PAL.techDim,
-        { emissive: PAL.tech, emissiveIntensity: EMISSIVE_MAX * .38 });
-    for (const s of [-1, 1]) {
-        mesh(g, new THREE.BoxGeometry(1690, .5, 3.2), strip,
-            389985, 1.5, 20 + s * 132, 0, -.035, 0, false, false);
-        count('civic-light-strip');
+// Abandoned traffic, using Stage 7's own vehicle rigs so the campaign has ONE
+// car. Parked at the kerb on alternating sides: the carriageway itself stays
+// open, every vehicle is a real collider on the footprint it is drawn with, and
+// they are welded per CHUNK rather than one node each — 130 individually welded
+// occluders would cost more draw groups than the entire skyline.
+const TRAFFIC_TYPES = Object.freeze([
+    'sedan', 'sedan', 'suv', 'pickup', 'bus', 'suv', 'sedan',
+    'container-truck', 'sedan', 'dump-truck', 'suv', 'tanker-truck',
+]);
+// Stage 7's rigs mint NINE fresh materials per vehicle, so 274 wrecks would be
+// 2,466 distinct material instances and the batcher — which buckets by material
+// INSTANCE — would hand back a draw group for nearly every one of them. Sharing
+// them by VALUE collapses that to a dozen, which is what makes a city full of
+// abandoned traffic cost about as much as one welded district.
+const trafficMats = new Map();
+function shareTrafficMaterials(rig) {
+    rig.traverse(o => {
+        if (!o.material) return;
+        o.castShadow = false; o.receiveShadow = false;
+        const list = Array.isArray(o.material) ? o.material : [o.material];
+        const out = list.map(m => {
+            if (!m || !m.color) return m;
+            const key = `${m.type}|${m.color.getHex()}|`
+                + `${m.emissive ? m.emissive.getHex() : 0}|`
+                + `${m.emissiveIntensity || 0}|${!!m.transparent}|`
+                + `${m.opacity == null ? 1 : m.opacity}|${!!m.flatShading}`;
+            if (!trafficMats.has(key)) trafficMats.set(key, m);
+            return trafficMats.get(key);
+        });
+        o.material = Array.isArray(o.material) ? out : out[0];
+    });
+    return rig;
+}
+function buildTrafficVehicle(type, color) {
+    if (type === 'suv') return new FuturisticSUV({ bodyColor: color,
+        scale: CAMP_M, enableLights: false }).group;
+    if (type === 'sedan') {
+        const g2 = new FuturisticSedan(color).group;
+        g2.scale.setScalar(CAMP_M);
+        return g2;
     }
-    for (const x of [390280, 389890, 389540]) for (const s of [-1, 1]) {
-        for (const e of [-1, 1])
-            mesh(g, new THREE.BoxGeometry(158, .8, 3), material('civicKerb', PAL.panel),
-                x, 1.6, s * 142 + e * 34, 0, 0, 0, false, false);
-        count('water-garden-kerb');
+    return buildStage7RoadVehicle(type, color, CAMP_M);
+}
+// Widest contiguous stretch of road still walkable across a point, swept
+// perpendicular to whichever road is nearest. It is measured with every collider
+// already in place — including the vehicle itself — so "does this wreck seal its
+// own street" has exactly ONE definition, used by the build and by the tests.
+export function stage11SurfaceFreeLane(x, z) {
+    const q = stage11CityNearestRoad(x, z);
+    if (!q) return 0;
+    const e = q.edge, nx = -e.tz, nz = e.tx, lim = e.w + SIDEWALK;
+    const clear = CFG.player.radius;
+    let run = 0, best = 0;
+    for (let o = -lim; o <= lim; o += 2) {
+        const px = x + nx * o, pz = z + nz * o;
+        const free = stage11CityWalk(px, pz, clear) && !pointBlocked(px, pz, clear);
+        run = free ? run + 2 : 0;
+        if (run > best) best = run;
     }
-    // Transit apron marking: the plaza reads as a working civic surface with
-    // a shuttle lane, not a blank parade ground.
-    for (let i = 0; i < 26; i++)
-        mesh(g, new THREE.BoxGeometry(28, .6, 2.2), material('laneMark', 0xb0a893),
-            390720 - i * 62, 1.5, 20 - 108, 0, -.035, 0, false, false);
-    count('shuttle-lane');
-    for (let i = first; i < g.children.length; i++)
-        inlayMaxY = Math.max(inlayMaxY, g.children[i].position.y);
+    return best;
 }
 
-function buildPromenade() {
+function buildTraffic() {
+    const T = CFG.campaign.stage11.cityAxis.traffic;
+    const want = Math.max(0, T.count | 0);
+    const colors = T.colors;
+    const chunks = new Map();
+    const placed = [];
+    let id = 0;
+    for (const e of S11_CITY_EDGES) {
+        const steps = Math.max(1, Math.round(e.len / T.spacingUnits));
+        for (let i = 0; i < steps && placed.length < want; i++) {
+            const seed = e.index * 211 + i;
+            if (hash(seed, 40) > T.density) continue;
+            const type = TRAFFIC_TYPES[(seed * 7) % TRAFFIC_TYPES.length];
+            const spec = STAGE7_ROAD_VEHICLE_SPECS[type];
+            const halfLen = spec.length * CAMP_M * 0.5;
+            const halfWide = spec.width * CAMP_M * 0.5;
+            const side = ((e.index + i) % 2) ? 1 : -1;
+            // Against the kerb. The free run on the other side of the centre
+            // line is what keeps every road driveable past the wreck.
+            const lat = side * Math.max(0, e.w - halfWide - 6);
+            const t = (i + 0.5) / steps;
+            const x = e.ax + (e.bx - e.ax) * t + (-e.tz) * lat;
+            const z = e.az + (e.bz - e.az) * t + e.tx * lat;
+            if (pointBlocked(x, z, Math.max(halfLen, halfWide) + 4)) continue;
+            if (S11_CITY_BLOCKADES.some(b =>
+                (b.x - x) ** 2 + (b.z - z) ** 2 < T.blockadeClearUnits ** 2)) continue;
+            if ((x - S11_CITY_START.x) ** 2 + (z - S11_CITY_START.z) ** 2
+                < T.startClearUnits ** 2) continue;
+            if (placed.some(q => (q.x - x) ** 2 + (q.z - z) ** 2
+                < T.minGapUnits ** 2)) continue;
+            const yaw = e.yaw + (hash(seed, 41) < 0.5 ? 0 : Math.PI)
+                + (hash(seed, 42) - 0.5) * 0.16;
+            const rig = buildTrafficVehicle(type, colors[id % colors.length]);
+            if (!rig) continue;
+            shareTrafficMaterials(rig);
+            rig.position.set(x, 0, z); rig.rotation.y = yaw;
+            rig.name = `stage11-city-traffic-${id + 1}`;
+            const box = blocker(x, z, halfLen, halfWide,
+                spec.height * CAMP_M, yaw, 'traffic');
+            placed.push({ x, z, type, yaw, id: id + 1, rig, box, freeLane: 0,
+                lengthMeters: spec.length, widthMeters: spec.width,
+                heightMeters: spec.height });
+            id++;
+        }
+    }
+    trafficPending = placed;
+    trafficChunks = chunks;
+}
+
+// Verified and welded only once EVERY collider in the chapter is standing —
+// fabricators and weapon vehicles are placed after the traffic, and a wreck plus
+// a fabricator can seal a street that neither of them seals alone. A vehicle
+// that fails is simply not built; removing one only ever frees space, so a
+// single pass settles it.
+function finishTraffic() {
+    const T = CFG.campaign.stage11.cityAxis.traffic;
+    const placed = trafficPending, chunks = trafficChunks;
+    for (let i = placed.length - 1; i >= 0; i--) {
+        const v = placed[i];
+        v.freeLane = stage11SurfaceFreeLane(v.x, v.z);
+        if (v.freeLane >= T.freeLaneUnits) continue;
+        blockers.splice(blockers.indexOf(v.box), 1);
+        placed.splice(i, 1);
+        trafficRejected++;
+    }
+    for (const v of placed) {
+        const k = `${Math.floor((v.x - BOUNDS.x0) / TRAFFIC_CHUNK)}|`
+            + `${Math.floor((v.z - BOUNDS.z0) / TRAFFIC_CHUNK)}`;
+        let chunk = chunks.get(k);
+        if (!chunk) { chunk = new THREE.Group(); chunks.set(k, chunk); }
+        chunk.add(v.rig);
+        v.freeLane = stage11SurfaceFreeLane(v.x, v.z);
+        trafficRecords.push({ x: v.x, z: v.z, type: v.type, yaw: v.yaw,
+            id: v.id, freeLane: v.freeLane, lengthMeters: v.lengthMeters,
+            widthMeters: v.widthMeters, heightMeters: v.heightMeters });
+    }
+    for (const [k, chunk] of chunks) {
+        const outNodes = addMergedStaticShadowAware(root, [chunk]);
+        weldedMeshes += outNodes.length;
+        chunkStats.push({ id: `traffic-${k}`, batches: outNodes.length });
+    }
+    count('abandoned-vehicle', placed.length);
+    for (const t of TRAFFIC_TYPES)
+        if (!semantic.has(`traffic-${t}`))
+            count(`traffic-${t}`, placed.filter(q => q.type === t).length);
+    trafficPending = []; trafficChunks = null;
+}
+
+function buildRoundabouts() {
     const g = new THREE.Group();
-    const M = cityMats();
-    const mast = material('civicMast', PAL.steel);
-    const strip = material('civicStrip', PAL.techDim,
-        { emissive: PAL.tech, emissiveIntensity: EMISSIVE_MAX * .38 });
-    const amber = material('civicAmber', PAL.amberDim,
-        { emissive: PAL.amber, emissiveIntensity: EMISSIVE_MAX * .34 });
-    const Y = PROMENADE_Y;
-    // Lighting masts along the top of both terrace banks. Emissive heads only:
-    // the stage's PointLight count is a fixed contract.
-    for (let i = 0; i < 20; i++) {
-        const x = 390780 - i * 88;
-        for (const s of [-1, 1]) {
-            const z = s * PROMENADE_Z;
-            mesh(g, new THREE.CylinderGeometry(1.1, 1.8, 34, 6), mast, x, Y + 17, z);
-            mesh(g, new THREE.BoxGeometry(3, 2.2, 15), mast, x, Y + 34, z - s * 5,
-                0, 0, 0, false, false);
-            mesh(g, new THREE.BoxGeometry(2.2, .8, 12), amber, x, Y + 32.8, z - s * 5,
-                0, 0, 0, false, false);
-            mesh(g, new THREE.BoxGeometry(.9, 16, .9), strip, x + 1.3, Y + 16, z,
-                0, 0, 0, false, false);
+    for (const [i, R] of S11_CITY_ROUNDABOUTS.entries()) {
+        // The island WALL is drawn on exactly the radius the walk predicate
+        // excludes, so being held out of the middle is something the player can
+        // see rather than an invisible circle.
+        mesh(g, new THREE.CylinderGeometry(R.inner, R.inner + 8, 13, 30),
+            material('islandWall', PAL.concrete), R.x, 6.5, R.z, 0, 0, 0, true, true);
+        mesh(g, new THREE.CylinderGeometry(R.inner - 6, R.inner - 6, 2.4, 30),
+            material('islandLawn', 0x4e6b41), R.x, 13.6, R.z, 0, 0, 0, false, true);
+        mesh(g, new THREE.TorusGeometry(R.inner + 2, 2.4, 6, 30),
+            material('islandKerbLight', PAL.techDim,
+                { emissive: PAL.tech, emissiveIntensity: EMISSIVE_MAX * 0.32 }),
+            R.x, 13.4, R.z, Math.PI / 2, 0, 0, false, false);
+        // A civic monument on each island: the thing the roundabout exists for,
+        // and unreachable by design.
+        const h = 96 - i * 18;
+        mesh(g, new THREE.CylinderGeometry(R.inner * 0.42, R.inner * 0.52, 12, 12),
+            material('monumentBase', PAL.panel), R.x, 20.6, R.z, 0, 0, 0, true, true);
+        for (let k = 0; k < 4; k++)
+            mesh(g, new THREE.BoxGeometry(20 - k * 3, h * 0.26, 20 - k * 3),
+                k % 2 ? material('monumentDark', PAL.gunmetal)
+                    : material('monumentPale', 0xc2bcae),
+                R.x, 27 + h * 0.26 * (k + 0.5), R.z, 0, k * 0.22, 0, true, true);
+        mesh(g, new THREE.ConeGeometry(9, 26, 8), material('monumentCrown', PAL.steel),
+            R.x, 27 + h * 1.04 + 13, R.z, 0, 0, 0, true, true);
+        for (let t = 0; t < 10; t++) {
+            const a = t / 10 * Math.PI * 2, r = R.inner * 0.74;
+            mesh(g, new THREE.CylinderGeometry(1.6, 2.4, 22, 6),
+                material('islandTrunk', PAL.wood),
+                R.x + Math.cos(a) * r, 25, R.z + Math.sin(a) * r);
+            mesh(g, new THREE.DodecahedronGeometry(1, 0),
+                material('islandLeaf', PAL.leaf),
+                R.x + Math.cos(a) * r, 42, R.z + Math.sin(a) * r,
+                0, a, 0, false, false).scale.set(13, 9, 13);
         }
-        count('civic-light-mast', 2);
+        count('roundabout-island');
     }
-    // Planted avenue behind the masts: low-poly rain trees, the tropical
-    // capital's own street section rather than generic shrub blobs.
-    for (let i = 0; i < 26; i++) {
-        const x = 390760 - i * 68;
-        for (const s of [-1, 1]) {
-            const z = s * (PROMENADE_Z + 26 + hash(i * 2 + (s > 0 ? 1 : 0), 31) * 12);
-            const h = 26 + hash(i, 32) * 14;
-            mesh(g, new THREE.CylinderGeometry(1.5, 2.4, h, 6),
-                material('avenueTrunk', PAL.wood), x, Y + h / 2, z);
-            for (let c = 0; c < 3; c++)
-                mesh(g, new THREE.CylinderGeometry(11 - c * 3, 13 - c * 3, 4, 7),
-                    material('avenueLeaf', PAL.leaf), x, Y + h + c * 3.4, z,
-                    0, c * .5, 0, false, false);
-        }
-        count('avenue-tree', 2);
-    }
-    // Information totems: civic STATUS surfaces, never place-name signage.
-    for (let i = 0; i < 8; i++) {
-        const x = 390700 - i * 190, z = (i % 2 ? 1 : -1) * (PROMENADE_Z - 8);
-        mesh(g, new THREE.BoxGeometry(3, 16, 9), mast, x, Y + 8, z);
-        mesh(g, new THREE.BoxGeometry(1.2, 11, 7), strip, x + 1.9, Y + 9.5, z,
-            0, 0, 0, false, false);
-        count('civic-totem');
-    }
-    // Parked autonomous shuttles: the plaza reads as a place people were using
-    // minutes ago, not an empty monument.
-    for (let i = 0; i < 6; i++) {
-        const x = 390660 - i * 210;
-        const z = (i % 2 ? -1 : 1) * (PROMENADE_Z + 14);
-        const yaw = (i % 2 ? .06 : -.06);
-        mesh(g, new THREE.BoxGeometry(30, 7, 12), M.pale, x, Y + 5.6, z, 0, yaw, 0);
-        mesh(g, new THREE.BoxGeometry(24, 4.6, 12.4), M.litGlass, x, Y + 9.4, z,
-            0, yaw, 0, false, false);
-        mesh(g, new THREE.BoxGeometry(31, 1.6, 12.6), M.solar, x, Y + 12.2, z,
-            0, yaw, 0, false, false);
-        for (const s of [-1, 1])
-            mesh(g, new THREE.CylinderGeometry(2.4, 2.4, 2, 8),
-                material('shuttleTyre', PAL.rubber), x + s * 10, Y + 2.2, z,
-                Math.PI / 2, 0, 0, false, false);
-        count('civic-shuttle');
-    }
-    for (const c of g.children)
-        promenadeMinAbsZ = Math.min(promenadeMinAbsZ, Math.abs(c.position.z));
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
-}
-
-function addCivicCover() {
-    // Cover & kolonade adalah penghalang pandangan utama di permukaan IKN, jadi
-    // tiap potong berdiri sendiri (dilas ke dalam dirinya) supaya bisa memudar.
-    for (let i = 0; i < 14; i++) {
-        const x = 390560 - i * 84, z = i % 2 ? 118 : -84;
-        const g = new THREE.Group();
-        mesh(g, new THREE.BoxGeometry(34, 11, 14), material('integratedCover', PAL.concrete),
-            x, 5.5, z, 0, -.035, 0, true, true);
-        mesh(g, new THREE.BoxGeometry(28, 2, 18), material('coverPlanter', 0x526746),
-            x, 11, z, 0, -.035, 0, false, true);
-        // Two low-poly trees plus a hedge run, so the piece of cover the player
-        // actually crouches behind reads as a civic planter and not a lump.
-        for (const k of [-1, 1]) {
-            mesh(g, new THREE.CylinderGeometry(1.1, 1.7, 9, 6),
-                material('coverTrunk', PAL.wood), x + k * 9, 16.5, z);
-            for (let c = 0; c < 2; c++)
-                mesh(g, new THREE.CylinderGeometry(6 - c * 2, 7.5 - c * 2, 3, 7),
-                    material('coverShrub', PAL.leaf), x + k * 9, 21.5 + c * 2.6, z,
-                    0, c * .6, 0, false, false);
-        }
-        mesh(g, new THREE.BoxGeometry(22, 3.4, 12), material('coverHedge', 0x486438),
-            x, 13.7, z, 0, -.035, 0, false, false);
-        weldOccluder(S11_SURFACE_OCC, root, g, { x, z, radius: 18, top: 18 });
-        blocker(x, z, 17, 7, 13, -.035, 'landscape-cover');
-    }
-    // Administrative colonnade is both place-defining architecture and cover.
-    for (const side of [-1, 1]) for (let i = 0; i < 12; i++) {
-        const x = 390410 - i * 47, z = side * 195;
-        const g = new THREE.Group();
-        mesh(g, new THREE.CylinderGeometry(5, 7, 36, 8), material('column', PAL.panel),
-            x, 18, z, 0, 0, 0, true, true);
-        mesh(g, new THREE.BoxGeometry(42, 4, 20), material('colonnadeBeam', PAL.concrete),
-            x, 37, z, 0, 0, 0, true, true);
-        // Solar canopy over the arcade plus a status strip on its underside:
-        // decoration welded INTO the same occluder group, so it fades with the
-        // column instead of hanging in the air when the player walks behind it.
-        mesh(g, new THREE.BoxGeometry(46, 1.6, 26), material('civicSolar', PAL.ink),
-            x, 40.4, z, 0, 0, side * .05, false, false);
-        mesh(g, new THREE.BoxGeometry(30, .9, 3), material('civicStrip', PAL.techDim,
-            { emissive: PAL.tech, emissiveIntensity: EMISSIVE_MAX * .38 }),
-        x, 34.6, z - side * 9, 0, 0, 0, false, false);
-        weldOccluder(S11_SURFACE_OCC, root, g, { x, z, radius: 21, top: 39 });
-        blocker(x, z, 7, 7, 36, 0, 'colonnade');
-    }
-    count('integrated-cover', 14); count('colonnade', 24);
 }
 
 // --- 2045 civic language ------------------------------------------------------
@@ -392,17 +713,19 @@ function addCivicCover() {
 // One vocabulary shared by every archetype, so the skyline reads as ONE city
 // instead of ten unrelated props: a warm pale/concrete structural mass, a
 // REPEATED horizontal glazing band in the single civic teal, planted setbacks,
-// and dark solar louvres. Pitched tile roofs, pagoda ring stacks and cone caps
-// are deliberately gone -- they read as a heritage complex, not a capital built
-// in 2045.
+// and dark solar louvres. Pitched tile roofs and cone caps stay deleted — they
+// read as a heritage complex, not a capital built in 2045.
+const ARCHETYPES = Object.freeze([
+    'civic-palace', 'cultural-hall', 'garden-tower', 'ministry', 'transit-hub',
+    'skybridge', 'water-garden', 'colonnade', 'forest-terrace', 'civic-spire',
+]);
+
 function cityMats() {
     return {
         pale: material('civicPale', 0xc2bcae),
         concrete: material('civicConcrete', PAL.concrete),
         dark: material('civicDark', PAL.gunmetal),
         steel: material('civicSteel', PAL.steel),
-        // The ONE environment accent. Emissive stays well under EMISSIVE_MAX so
-        // a glazed city reads as lit rather than as neon.
         glass: material('civicGlass', PAL.screenBg,
             { emissive: PAL.techDim, emissiveIntensity: .34 }),
         litGlass: material('civicGlassLit', PAL.screenBg,
@@ -411,10 +734,6 @@ function cityMats() {
         leaf: material('towerLeaf', PAL.leaf),
     };
 }
-// Horizontal curtain-wall bands, drawn a touch PROUD of the mass so they read
-// as glazing on the facade rather than a stripe painted onto it. Lit and unlit
-// bands alternate on a deterministic hash, which is what stops a repeated
-// archetype from looking like the same building copied down the street.
 function glazingBands(g, x, z, w, d, y0, y1, bands, M, id = 0) {
     const span = Math.max(1, y1 - y0), h = span / bands;
     for (let i = 0; i < bands; i++)
@@ -422,8 +741,6 @@ function glazingBands(g, x, z, w, d, y0, y1, bands, M, id = 0) {
             hash(id, 60 + i) > .45 ? M.litGlass : M.glass,
             x, y0 + h * (i + .5), z, 0, 0, 0, false, false);
 }
-// Vertical sun louvres: the tropical-capital detail that reads instantly as
-// built FOR this climate, and breaks a flat box silhouette from above.
 function briseSoleil(g, x, z, w, d, y, h, n, M) {
     for (let i = 0; i < n; i++)
         mesh(g, new THREE.BoxGeometry(w * .035, h, d * .10), M.solar,
@@ -443,7 +760,6 @@ function clusterShell(type, x, z, scale, band, id) {
         : band === 1 ? 85 + hash(id, 2) * 85 : 150 + hash(id, 3) * 155;
     const w = scale * (1.1 + hash(id, 4) * .8), d = scale * (.8 + hash(id, 5) * .65);
     if (type === 'civic-palace') {
-        // Assembly hall: broad podium, stepped octagonal drum, glazed clerestory.
         mesh(g, new THREE.BoxGeometry(w * 1.9, top * .22, d * 1.35), M.pale,
             x, top * .11, z);
         glazingBands(g, x, z, w * 1.9, d * 1.35, top * .04, top * .19, 2, M, id);
@@ -457,7 +773,6 @@ function clusterShell(type, x, z, scale, band, id) {
             x, top * .92, z, 0, 0, 0, false, false);
         briseSoleil(g, x, z, w * 1.9, d * 1.35, top * .12, top * .16, 9, M);
     } else if (type === 'cultural-hall') {
-        // Faceted shell over a fully glazed foyer -- angular, never pitched.
         mesh(g, new THREE.BoxGeometry(w * 1.5, top * .30, d * 1.25), M.glass,
             x, top * .15, z);
         for (let k = 0; k < 4; k++)
@@ -467,7 +782,6 @@ function clusterShell(type, x, z, scale, band, id) {
         mesh(g, new THREE.BoxGeometry(w * 1.85, top * .05, d * 1.55), M.solar,
             x, top * .70, z, 0, 0, -.06, false, false);
     } else if (type === 'garden-tower') {
-        // Vertical forest: every setback planted, every storey glazed.
         const tiers = band + 4;
         for (let t = 0; t < tiers; t++) {
             const tw = w * (1 - t * .09), td = d * (1 - t * .06), th = top / tiers;
@@ -480,7 +794,6 @@ function clusterShell(type, x, z, scale, band, id) {
             plantedLip(g, x, z, tw, td, th * (t + .82), M);
         }
     } else if (type === 'ministry') {
-        // Curtain-wall slab with deep louvred bands and a planted roof.
         mesh(g, new THREE.BoxGeometry(w, top, d), M.concrete, x, top / 2, z);
         glazingBands(g, x, z, w, d, top * .08, top * .92, 5 + band, M, id);
         for (let t = 0; t < 5; t++)
@@ -489,7 +802,6 @@ function clusterShell(type, x, z, scale, band, id) {
         briseSoleil(g, x, z, w, d, top * .55, top * .74, 8, M);
         plantedLip(g, x, z, w * .92, d * .92, top + 1, M);
     } else if (type === 'transit-hub') {
-        // Maglev station: a glazed hall under a segmented shell roof.
         mesh(g, new THREE.BoxGeometry(w * 1.8, top * .30, d * 1.5), M.glass,
             x, top * .15, z);
         for (const s of [-1, 1])
@@ -502,7 +814,6 @@ function clusterShell(type, x, z, scale, band, id) {
         mesh(g, new THREE.BoxGeometry(w * 2.0, top * .04, d * 1.7), M.solar,
             x, top * .50, z, 0, 0, 0, false, false);
     } else if (type === 'skybridge') {
-        // Twin glazed towers linked by two occupied bridges.
         for (const s of [-1, 1]) {
             const tx = x + s * w * .46;
             mesh(g, new THREE.BoxGeometry(w * .46, top, d), M.pale, tx, top / 2, z);
@@ -516,7 +827,6 @@ function clusterShell(type, x, z, scale, band, id) {
                 x, top * f + top * .055, z, 0, 0, 0, false, false);
         }
     } else if (type === 'water-garden') {
-        // Retention basin with a hard civic rim and a light footbridge.
         mesh(g, new THREE.BoxGeometry(w * 1.6, 5, d * 1.5), M.pale, x, 2.5, z);
         mesh(g, new THREE.PlaneGeometry(w * 1.35, d * 1.22),
             material('clusterWater', 0x476b63), x, 5.2, z, -Math.PI / 2, 0, 0,
@@ -527,7 +837,6 @@ function clusterShell(type, x, z, scale, band, id) {
             mesh(g, new THREE.CylinderGeometry(2.4, 3.3, 10 + k, 7), M.leaf,
                 x - w * .55 + k * w * .18, 9, z + (k % 2 ? d * .34 : -d * .32));
     } else if (type === 'colonnade') {
-        // Civic arcade roofed with a solar canopy, not a stone entablature.
         mesh(g, new THREE.BoxGeometry(w * 1.8, 4, d * 1.15), M.concrete, x, 2, z);
         for (let k = -4; k <= 4; k++)
             mesh(g, new THREE.BoxGeometry(w * .05, top, d * .10), M.pale,
@@ -537,7 +846,6 @@ function clusterShell(type, x, z, scale, band, id) {
         mesh(g, new THREE.BoxGeometry(w * 1.62, 1.6, d * .86), M.solar,
             x, top + 2.6, z, 0, 0, .05, false, false);
     } else if (type === 'forest-terrace') {
-        // Stepped green terraces: glazed risers, planted treads.
         for (let t = 0; t < 5; t++) {
             const tw = w * (1 - t * .10), td = d * (1 - t * .08);
             mesh(g, new THREE.BoxGeometry(tw, 8, td), M.concrete,
@@ -548,7 +856,6 @@ function clusterShell(type, x, z, scale, band, id) {
                 x, 9.2 + t * 8, z - td * .26, 0, 0, 0, false, false);
         }
     } else {
-        // Civic spire: a tapered glazed shaft with a crown ring and a mast.
         for (let k = 0; k < 3; k++)
             mesh(g, new THREE.CylinderGeometry(w * (.30 - k * .06), w * (.38 - k * .06),
                 top * .30, 8), k % 2 ? M.pale : M.concrete,
@@ -567,148 +874,263 @@ function clusterShell(type, x, z, scale, band, id) {
         if (c.material === M.glass || c.material === M.litGlass) glazed++;
         if (c.geometry && c.geometry.type === 'cone') coneRoofs++;
     }
-    clusters.push({ id, type, band, x, z, top,
+    clusters.push({ id, type, band, x, z, top, radius: Math.max(w, d),
         rawParts: g.children.length, glazed, coneRoofs });
     return g;
 }
 
-function buildMegacity() {
-    // 72 authored deterministic clusters, 24 per depth band. Near band stays
-    // lower than far civic skyline so the top-down camera cannot be blinded.
+// Buildings line the STREETS, because that is what makes a road network read as
+// a city rather than a lane through a field. Every plot is measured against the
+// asphalt it stands beside and rejected if it touches it.
+function buildDistricts() {
     const chunks = new Map();
-    for (let band = 0; band < 3; band++) {
-        for (let i = 0; i < 24; i++) {
-            const id = band * 24 + i;
-            const side = i % 2 ? 1 : -1;
-            const x = 390800 - (i % 12) * 145 - band * 24 + (hash(id, 20) - .5) * 48;
-            // Near band pushed out from 315 so the widened play area cannot
-            // reach the (blocker-free, welded) city clusters.
-            const baseZ = band === 0 ? 395 : band === 1 ? 545 : 730;
-            const z = side * (baseZ + hash(id, 21) * (band === 2 ? 100 : 75));
-            const type = ARCHETYPES[(id * 7 + band * 3) % ARCHETYPES.length];
-            const scale = 34 + band * 15 + hash(id, 22) * 26;
-            const chunkId = `${band}-${Math.floor((x - BOUNDS.x0) / 320)}`;
-            let chunk = chunks.get(chunkId);
-            if (!chunk) { chunk = { group: new THREE.Group(), ids: [], raw0: rawMeshes }; chunks.set(chunkId, chunk); }
-            chunk.group.add(clusterShell(type, x, z, scale, band, id)); chunk.ids.push(id);
+    let id = 0;
+    const place = (x, z, band, scale) => {
+        const plot = scale * 1.9;
+        if (stage11CityRoadClearance(x, z) < plot * 0.55 + 22) return false;
+        if (x < BOUNDS.x0 + 120 || x > BOUNDS.x1 - 120
+            || z < BOUNDS.z0 + 120 || z > BOUNDS.z1 - 120) return false;
+        if (stage11CityWalk(x, z, 0)) { buildingOnRoadViolations++; return false; }
+        const type = ARCHETYPES[(id * 7 + band * 3) % ARCHETYPES.length];
+        const g = clusterShell(type, x, z, scale, band, id);
+        const c = clusters[clusters.length - 1];
+        if (band === 0) {
+            // The front row is what actually stands between the player and the
+            // camera, so it fades; the rest is backdrop and batches by chunk.
+            weldOccluder(S11_SURFACE_OCC, root, g,
+                { x, z, radius: c.radius * 1.1, top: c.top });
+            occluderCount++;
+        } else {
+            const k = `${band}-${Math.floor((x - BOUNDS.x0) / CHUNK)}`
+                + `-${Math.floor((z - BOUNDS.z0) / CHUNK)}`;
+            let chunk = chunks.get(k);
+            if (!chunk) { chunk = { group: new THREE.Group(), n: 0 }; chunks.set(k, chunk); }
+            chunk.group.add(g); chunk.n++;
+        }
+        id++;
+        return true;
+    };
+    for (const e of S11_CITY_EDGES) {
+        const steps = Math.max(1, Math.round(e.len / 300));
+        for (let i = 0; i < steps; i++) {
+            const t = (i + 0.5) / steps;
+            const bx = e.ax + (e.bx - e.ax) * t, bz = e.az + (e.bz - e.az) * t;
+            for (const side of [-1, 1]) {
+                const seed = e.index * 97 + i * 7 + (side > 0 ? 3 : 0);
+                const nx = -e.tz * side, nz = e.tx * side;
+                const front = e.w + 52 + hash(seed, 10) * 34;
+                place(bx + nx * front, bz + nz * front, 0, 26 + hash(seed, 11) * 16);
+                if (hash(seed, 12) < 0.45) {
+                    const mid = e.w + 250 + hash(seed, 13) * 120;
+                    place(bx + nx * mid, bz + nz * mid, 1, 34 + hash(seed, 14) * 22);
+                }
+                if (hash(seed, 15) < 0.16) {
+                    const far = e.w + 540 + hash(seed, 16) * 260;
+                    place(bx + nx * far, bz + nz * far, 2, 46 + hash(seed, 17) * 26);
+                }
+            }
         }
     }
-    for (const [id, chunk] of chunks) {
-        const out = addMergedStaticShadowAware(root, [chunk.group]); weldedMeshes += out.length;
-        chunkStats.push({ id, clusters: chunk.ids.length, raw: rawMeshes - chunk.raw0,
-            batches: out.length });
+    for (const [k, chunk] of chunks) {
+        const out = addMergedStaticShadowAware(root, [chunk.group]);
+        weldedMeshes += out.length;
+        chunkStats.push({ id: `district-${k}`, clusters: chunk.n, batches: out.length });
     }
+}
 
-    // Elevated MAGLEV binds the districts into one city rather than isolated
-    // decorative towers: a slim guideway on tapered Y-piers carrying a
-    // streamlined set with a continuous window band. Static backdrop only.
+// The forest the capital was cut into. Instanced, so every tree costs no draw
+// call at all, and none of them carries a collider.
+function buildForest() {
+    const capacity = 2600;
+    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1.35, 1, 6),
+        material('cityTrunk', PAL.wood), capacity);
+    const lower = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0),
+        material('cityLeafDark', 0x33532f), capacity);
+    const upper = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0),
+        material('cityLeaf', 0x4a6c3f), capacity);
+    const matrix = new THREE.Matrix4(), q = new THREE.Quaternion();
+    const pos = new THREE.Vector3(), scale = new THREE.Vector3();
+    let n = 0;
+    for (let i = 0; i < capacity * 4 && n < capacity; i++) {
+        let x, z;
+        if (i % 3 !== 0) {
+            // Two thirds line the avenues: the tropical capital's street section.
+            const e = S11_CITY_EDGES[Math.floor(hash(i, 1) * S11_CITY_EDGES.length)];
+            const t = hash(i, 2), side = hash(i, 3) < 0.5 ? -1 : 1;
+            const off = e.w + 16 + hash(i, 4) * 26;
+            x = e.ax + (e.bx - e.ax) * t + (-e.tz) * side * off;
+            z = e.az + (e.bz - e.az) * t + e.tx * side * off;
+        } else {
+            x = BOUNDS.x0 + 60 + hash(i, 1) * (BOUNDS.x1 - BOUNDS.x0 - 120);
+            z = BOUNDS.z0 + 60 + hash(i, 2) * (BOUNDS.z1 - BOUNDS.z0 - 120);
+        }
+        if (stage11CityRoadClearance(x, z) < 14) continue;
+        const h = 22 + hash(i, 5) * 26, r = 9 + hash(i, 6) * 10;
+        matrix.compose(pos.set(x, h / 2, z), q,
+            scale.set(2.2 + hash(i, 7) * 2, h, 2.2 + hash(i, 8) * 2));
+        trunk.setMatrixAt(n, matrix);
+        matrix.compose(pos.set(x - r * .22, h * .78, z + r * .16), q,
+            scale.set(r * 1.12, r * .58, r)); lower.setMatrixAt(n, matrix);
+        matrix.compose(pos.set(x + r * .18, h + r * .12, z - r * .12), q,
+            scale.set(r, r * .68, r * 1.08)); upper.setMatrixAt(n, matrix);
+        n++;
+    }
+    for (const batch of [trunk, lower, upper]) {
+        batch.count = n; batch.instanceMatrix.needsUpdate = true;
+        batch.castShadow = false; batch.receiveShadow = false;
+        root.add(batch); instancedNodes++;
+    }
+    treeCount = n; rawMeshes += 3;
+    count('city-tree', n);
+}
+
+// Street furniture: lighting masts and planted verges, all standing OUTSIDE the
+// walk corridor beside the fence, so none of it needs — or has — a collider.
+function buildStreetFurniture() {
     const g = new THREE.Group();
-    const M = cityMats();
-    for (const side of [-1, 1]) {
-        const z = side * 430;
-        mesh(g, new THREE.BoxGeometry(1780, 4, 26), material('guideway', PAL.panel),
-            389990, 68, z, 0, 0, 0, false, false);
-        mesh(g, new THREE.BoxGeometry(1780, 3, 6), material('guideRail', PAL.steel),
-            389990, 71.5, z, 0, 0, 0, false, false);
-        mesh(g, new THREE.BoxGeometry(1780, 1.2, 28), material('guideStrip', PAL.techDim,
-            { emissive: PAL.tech, emissiveIntensity: EMISSIVE_MAX * .3 }),
-        389990, 65.6, z, 0, 0, 0, false, false);
-        for (let i = 0; i < 15; i++) {
-            const px = 390730 - i * 110;
-            mesh(g, new THREE.CylinderGeometry(4.5, 8, 60, 7),
-                material('guidePier', PAL.concrete), px, 33, z, 0, 0, 0, false, false);
-            for (const s of [-1, 1])
-                mesh(g, new THREE.BoxGeometry(4, 16, 5), material('guidePier', PAL.concrete),
-                    px, 62, z + s * 7, 0, 0, s * .28, false, false);
-        }
-        // Nose, four body sections and tail: one continuous silhouette rather
-        // than five detached boxes floating over a beam.
-        const base = 390150;
-        mesh(g, new THREE.CylinderGeometry(2.4, 7.4, 16, 7), M.pale,
-            base - 30, 79, z, 0, 0, Math.PI / 2, false, false);
-        for (let car = 0; car < 4; car++) {
-            const cx = base + car * 52;
-            mesh(g, new THREE.BoxGeometry(50, 13, 15), M.pale, cx, 79, z,
+    const mast = material('cityMast', PAL.steel);
+    const amber = material('cityLampHead', PAL.amberDim,
+        { emissive: PAL.amber, emissiveIntensity: EMISSIVE_MAX * 0.34 });
+    const strip = material('cityStrip', PAL.techDim,
+        { emissive: PAL.tech, emissiveIntensity: EMISSIVE_MAX * 0.3 });
+    let masts = 0;
+    for (const e of S11_CITY_EDGES) {
+        const steps = Math.max(1, Math.round(e.len / 150));
+        for (let i = 0; i < steps; i++) {
+            const t = (i + 0.5) / steps, side = i % 2 ? 1 : -1;
+            const off = e.w + 13;
+            const x = e.ax + (e.bx - e.ax) * t + (-e.tz) * side * off;
+            const z = e.az + (e.bz - e.az) * t + e.tx * side * off;
+            if (stage11CityWalk(x, z, 2)) continue;
+            mesh(g, new THREE.CylinderGeometry(1.1, 1.8, 34, 6), mast, x, 17, z);
+            mesh(g, new THREE.BoxGeometry(3, 2.2, 14), mast, x, 34,
+                z - e.tx * side * 5, 0, e.yaw, 0, false, false);
+            mesh(g, new THREE.BoxGeometry(2.2, 0.8, 11), amber, x, 32.8,
+                z - e.tx * side * 5, 0, e.yaw, 0, false, false);
+            mesh(g, new THREE.BoxGeometry(0.9, 15, 0.9), strip, x + 1.3, 16, z,
                 0, 0, 0, false, false);
-            mesh(g, new THREE.BoxGeometry(44, 5.2, 15.6), M.litGlass, cx, 81, z,
-                0, 0, 0, false, false);
-            mesh(g, new THREE.BoxGeometry(50, 2.4, 12), material('guideSkirt', PAL.gunmetal),
-                cx, 72.6, z, 0, 0, 0, false, false);
+            masts++;
         }
-        mesh(g, new THREE.CylinderGeometry(2.4, 7.4, 16, 7), M.pale,
-            base + 3 * 52 + 30, 79, z, 0, 0, -Math.PI / 2, false, false);
-        count('transit-viaduct'); count('transit-car', 4);
     }
-    // Air-taxi pads on the mid band: the clearest single read that this is 2045
-    // and not a present-day capital. Backdrop only, well outside the play area.
-    for (const [px, pz] of [[390420, 470], [389880, -470], [389380, 500]]) {
-        mesh(g, new THREE.CylinderGeometry(30, 34, 5, 12), material('padDeck', PAL.concrete),
-            px, 96, pz, 0, 0, 0, false, false);
-        mesh(g, new THREE.CylinderGeometry(9, 13, 96, 8), material('padMast', PAL.panel),
-            px, 48, pz, 0, 0, 0, false, false);
-        mesh(g, new THREE.TorusGeometry(26, 1.6, 6, 18), material('padRing', PAL.techDim,
-            { emissive: PAL.tech, emissiveIntensity: EMISSIVE_MAX * .32 }),
-        px, 99, pz, Math.PI / 2, 0, 0, false, false);
-        mesh(g, new THREE.BoxGeometry(22, 5, 9), M.pale, px, 102, pz, 0, .4, 0, false, false);
-        mesh(g, new THREE.BoxGeometry(15, 3.4, 9.4), M.litGlass, px, 103.6, pz,
-            0, .4, 0, false, false);
-        for (const s of [-1, 1])
-            mesh(g, new THREE.TorusGeometry(7, 1.2, 5, 12), material('padRotor', PAL.steel),
-                px + s * 11, 105, pz + s * 5, Math.PI / 2, 0, .4, false, false);
-        count('air-taxi-pad');
-    }
+    count('street-light-mast', masts);
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
 }
 
-function buildRootCourt() {
+// --- headquarters ------------------------------------------------------------
+
+function buildHeadquarters() {
     const g = new THREE.Group();
-    mesh(g, new THREE.CylinderGeometry(170, 190, 11, 20), material('courtPlinth', PAL.concrete),
-        S11_ROOT_COURT.x, 4, S11_ROOT_COURT.z, 0, 0, 0, true, true);
-    mesh(g, new THREE.TorusGeometry(118, 8, 8, 28), material('courtRing', PAL.panel),
-        S11_ROOT_COURT.x, 11, S11_ROOT_COURT.z, Math.PI / 2, 0, 0, true, true);
-    for (let i = 0; i < 12; i++) {
-        const a = i * Math.PI * 2 / 12, x = S11_ROOT_COURT.x + Math.cos(a) * 145;
-        const z = S11_ROOT_COURT.z + Math.sin(a) * 145;
-        mesh(g, new THREE.BoxGeometry(14, 46, 14), material('courtPylon', PAL.panel),
-            x, 28, z, 0, -a, 0, true, true);
-        mesh(g, new THREE.BoxGeometry(8, 25, 18), material('courtInset', PAL.techDim,
-            { emissive: PAL.techDim, emissiveIntensity: .45 }), x, 31, z,
-        0, -a, 0, false, false);
-        if (i !== 6) blocker(x, z, 8, 8, 51, 0, 'root-court-pylon');
+    const M = cityMats();
+    const tx = HQ_APPROACH.tx, tz = HQ_APPROACH.tz;
+    const nx = -tz, nz = tx;
+    const at = (along, lateral) => ({
+        x: S11_CITY_HQ.x + tx * along + nx * lateral,
+        z: S11_CITY_HQ.z + tz * along + nz * lateral,
+    });
+    const wall = material('hqWall', PAL.gunmetal);
+    const hazard = material('hqHazard', PAL.hazard,
+        { emissive: PAL.hazard, emissiveIntensity: EMISSIVE_MAX * 0.4 });
+    const NEAR = S11_CITY_HQ_APRON * 0.86;
+    const DEPTH = 520, HALF = 300, GATE_HALF = 78;
+    // Perimeter wall. It is drawn on its own line and blocks there, which is the
+    // only reason the compound cannot be walked into around the side.
+    for (const side of [-1, 1]) {
+        const p = at(NEAR + DEPTH * 0.5, side * HALF);
+        mesh(g, new THREE.BoxGeometry(DEPTH, 26, 12), wall, p.x, 13, p.z,
+            0, HQ_APPROACH.yaw, 0, true, true);
+        blocker(p.x, p.z, DEPTH * 0.5, 6, 26, HQ_APPROACH.yaw, 'hq-wall');
+        // Front wall in two returns, leaving the gate mouth open.
+        const q = at(NEAR, side * (GATE_HALF + (HALF - GATE_HALF) * 0.5));
+        mesh(g, new THREE.BoxGeometry(12, 26, HALF - GATE_HALF), wall, q.x, 13, q.z,
+            0, HQ_APPROACH.yaw, 0, true, true);
+        blocker(q.x, q.z, 6, (HALF - GATE_HALF) * 0.5, 26, HQ_APPROACH.yaw, 'hq-wall');
+        const t = at(NEAR, side * GATE_HALF);
+        mesh(g, new THREE.BoxGeometry(18, 42, 18), wall, t.x, 21, t.z,
+            0, HQ_APPROACH.yaw, 0, true, true);
+        mesh(g, new THREE.BoxGeometry(20, 3, 20), hazard, t.x, 43.5, t.z,
+            0, HQ_APPROACH.yaw, 0, false, false);
+        blocker(t.x, t.z, 9, 9, 42, HQ_APPROACH.yaw, 'hq-gate-tower');
     }
-    // Monumental iris descent gate with layered ribs and an authority bridge.
+    const back = at(NEAR + DEPTH, 0);
+    mesh(g, new THREE.BoxGeometry(12, 26, HALF * 2), wall, back.x, 13, back.z,
+        0, HQ_APPROACH.yaw, 0, true, true);
+    blocker(back.x, back.z, 6, HALF, 26, HQ_APPROACH.yaw, 'hq-wall');
+
+    // The command block itself, in the shared 2045 facade language.
+    const core = at(NEAR + DEPTH * 0.58, 0);
+    mesh(g, new THREE.BoxGeometry(250, 130, 300), M.concrete, core.x, 65, core.z,
+        0, HQ_APPROACH.yaw, 0, true, true);
+    glazingBands(g, core.x, core.z, 250, 300, 16, 118, 6, M, 991);
+    briseSoleil(g, core.x, core.z, 250, 300, 60, 40, 10, M);
+    plantedLip(g, core.x, core.z, 230, 280, 132, M);
+    for (const side of [-1, 1]) {
+        const p = at(NEAR + DEPTH * 0.28, side * 190);
+        mesh(g, new THREE.BoxGeometry(120, 74, 150), M.pale, p.x, 37, p.z,
+            0, HQ_APPROACH.yaw, 0, true, true);
+        glazingBands(g, p.x, p.z, 120, 150, 10, 66, 4, M, 992 + side);
+    }
+    const mast = at(NEAR + DEPTH * 0.58, 0);
+    mesh(g, new THREE.CylinderGeometry(6, 11, 190, 8), M.steel, mast.x, 190, mast.z);
+    mesh(g, new THREE.TorusGeometry(24, 3, 6, 18), material('hqDish', PAL.panel),
+        mast.x, 280, mast.z, Math.PI / 2, 0, 0, false, false);
+
+    // Descent hatch: the way into Chapter 3. Sunk below the opaque apron when it
+    // opens rather than hidden, so its material has been drawn from frame one.
     for (let i = 0; i < 7; i++) {
-        const a = -1.1 + i * .36;
-        mesh(g, new THREE.BoxGeometry(16, 58, 8), material('descentRib', PAL.gunmetal),
-            S11_DESCENT.x, 29, S11_DESCENT.z, 0, 0, a, true, true);
+        const a = -1.1 + i * 0.36;
+        mesh(g, new THREE.BoxGeometry(16, 54, 8), material('descentRib', PAL.gunmetal),
+            S11_DESCENT.x, 27, S11_DESCENT.z, 0, HQ_APPROACH.yaw, a, true, true);
     }
-    descentDoor = mesh(g, new THREE.CylinderGeometry(44, 44, 8, 16),
+    descentDoor = mesh(g, new THREE.CylinderGeometry(42, 42, 8, 16),
         material('descentDoor', PAL.gunmetal), S11_DESCENT.x, 4, S11_DESCENT.z,
         Math.PI / 2, 0, 0, true, true);
-    mesh(g, new THREE.BoxGeometry(210, 5, 38), material('authorityBridge', PAL.panel),
-        389360, 7, 125, 0, 0, 0, true, true);
-    count('root-access-court'); count('authority-bridge'); count('descent-iris');
+    count('enemy-headquarters'); count('descent-hatch');
     weldedMeshes += addMergedStaticShadowAware(root, [g]).length;
-    for (const p of [{ x: 389430, z: 40 }, { x: 389430, z: 200 }]) {
-        const l = new THREE.PointLight(PAL.amber, .7, 90, 2);
-        l.position.set(p.x, 26, p.z); root.add(l); lights.push(l);
+
+    for (const side of [-1, 1]) {
+        const p = at(NEAR - 40, side * 90);
+        const l = new THREE.PointLight(PAL.amber, .7, 120, 2);
+        l.position.set(p.x, 30, p.z); root.add(l); lights.push(l);
         registerStageLight(STAGE11_SURFACE_LIGHTS_KEY, l);
     }
 }
 
-function buildAuthorityAndSuppression() {
-    const api = {
-        playX0: PLAY.x0, playX1: PLAY.x1,
-        playHalfZ: (PLAY.z1 - PLAY.z0) * .5,
-        playMidZ: (PLAY.z0 + PLAY.z1) * .5,
-        descentX: S11_DESCENT.x,
-        terrace: { ...STAGE11_TERRACE },
-        blocker, count,
-        segBlocked: stage11SurfaceSegBlocked,
-    };
-    ensureStage11SurfaceAuthority(root, api);
-    ensureStage11SurfaceScan(root, api);
+// --- blockades and their vehicles --------------------------------------------
+
+function buildCityVehicles() {
+    const placements = stage11CityVehiclePlacements();
+    ensureStage11WeaponVehicles(STAGE11_CITY_VEHICLE_GROUP, root, placements);
+    const spec = STAGE11_DOUBLE_CABIN_METERS;
+    for (const p of placements)
+        blocker(p.x, p.z, spec.length * CAMP_M * 0.5, spec.width * CAMP_M * 0.5,
+            spec.height * CAMP_M, p.yaw, 'combat-vehicle');
+    count('double-cabin-combat', placements.length);
+    count('vehicle-machine-gun',
+        placements.filter(p => p.type === 'machineGun').length);
+    count('vehicle-homing-missile',
+        placements.filter(p => p.type === 'homingMissile').length);
 }
+
+function buildBlockades() {
+    // Barrier materials live with the world so the blockade module allocates no
+    // material of its own; only the status lamp is cloned, per gate.
+    mats.gatePylon = material('gatePylon', PAL.gunmetal);
+    mats.gateHazard = material('gateHazard', PAL.hazard,
+        { emissive: PAL.hazard, emissiveIntensity: EMISSIVE_MAX * 0.4 });
+    mats.gateFrame = material('gateFrame', PAL.steel);
+    mats.gateWhite = material('gateWhite', PAL.white);
+    mats.gateBlock = material('gateBlock', PAL.concrete);
+    mats.gateLamp = material('gateLamp', PAL.hazard,
+        { emissive: PAL.hazard, emissiveIntensity: EMISSIVE_MAX * 0.5 });
+    ensureStage11CityBlockades(root, {
+        mesh, blocker, count, mats,
+        walk: stage11CityWalk,
+        hitsBlocker: pointBlocked,
+        projectToRoad: stage11CityProjectToRoad,
+    });
+}
+
+// --- lifecycle ---------------------------------------------------------------
 
 export function setStage11DescentOpen(open) {
     if (descentDoor) descentDoor.position.y = open ? -12 : 4;
@@ -717,66 +1139,115 @@ export function resetStage11SurfaceVisuals() {
     setStage11DescentOpen(false);
     resetStageOccluders(S11_SURFACE_OCC);
 }
-
-// Dipanggil tiap frame dari sub-scene permukaan.
 export function updateStage11SurfaceVisuals(dt) {
     updateStageOccluders(S11_SURFACE_OCC, dt);
 }
-
 export const stage11SurfaceOcclusionDebug = () => occlusionDebug(S11_SURFACE_OCC);
 
 export function ensureStage11SurfaceWorld(parent = scene) {
     if (built) return root;
-    built = true; root = new THREE.Group(); root.name = 'campaign-stage11-ikn-surface';
+    built = true; root = new THREE.Group(); root.name = 'campaign-stage11-ikn-city';
     parent.add(root);
-    buildTerrainAndAxis(); addCivicCover(); buildMegacity(); buildRootCourt();
-    // Built after the civic props so pylon placement can be checked against
-    // every footprint that already stands on the axis.
-    buildAuthorityAndSuppression();
-    nav = makeNavGrid(PLAY.x0, PLAY.z0, 14,
-        Math.ceil((PLAY.x1 - PLAY.x0) / 14), Math.ceil((PLAY.z1 - PLAY.z0) / 14),
-        (x, z) => stage11SurfaceWalk(x, z, 3.5) && !pointBlocked(x, z, 3.5));
+    buildGround(); buildRoads(); buildStartStub(); buildRoundabouts();
+    buildBoundary(); buildStreetFurniture(); buildDistricts(); buildForest();
+    buildHeadquarters();
+    // Traffic before the blockades: a fabricator looks for a clear place to
+    // stand and must see the parked cars that are already there.
+    buildTraffic();
+    // Vehicles first: the blockade fabricators check every footprint that
+    // already stands on the asphalt before choosing their own place.
+    buildCityVehicles(); buildBlockades();
+    finishTraffic();
+    // Every collider is in place: index them before the nav bake, which is the
+    // heaviest consumer of `pointBlocked` in the whole build.
+    blockerIndex = makeBlockerIndex(blockers,
+        { cell: 200, x0: BOUNDS.x0, z0: BOUNDS.z0 });
+    blockerIndex.rebuild();
+    // 40-unit cells: the network spans 11.5 x 9.7 thousand units, so the
+    // 14-unit cell the old ceremonial rectangle used would bake 680,000 nodes.
+    // A road is at least four cells wide at every width in the map.
+    const NAV_CELL = 40;
+    nav = makeNavGrid(BOUNDS.x0, BOUNDS.z0, NAV_CELL,
+        Math.ceil((BOUNDS.x1 - BOUNDS.x0) / NAV_CELL),
+        Math.ceil((BOUNDS.z1 - BOUNDS.z0) / NAV_CELL),
+        (x, z) => stage11CityWalk(x, z, 3.5) && !pointBlocked(x, z, 3.5));
     registerCampaignWorldRoot({ key: STAGE11_SURFACE_LIGHTS_KEY, root,
         bounds: { ...BOUNDS }, lightsKey: STAGE11_SURFACE_LIGHTS_KEY,
-        warmupViews: [S11_SURFACE_START, S11_AXIS_GATE, S11_ROOT_COURT],
+        warmupViews: [S11_SURFACE_START, S11_CITY_ROUNDABOUTS[0], S11_DESCENT],
     });
     return root;
 }
 
 export const stage11SurfaceWorldDebug = () => ({
-    occluders: occlusionDebug(S11_SURFACE_OCC),
-    built, root: root?.name || null, origin: { ...S11_SURFACE_ORIGIN }, bounds: { ...BOUNDS },
-    playBounds: { ...PLAY }, start: { ...S11_SURFACE_START }, descent: { ...S11_DESCENT },
-    lockdownLimit,
-    terrace: { ...STAGE11_TERRACE,
-        drawnSteps: terraceSteps.map(s => ({ ...s })),
-        nearCityMinZ: clusters.filter(c => c.band === 0)
-            .reduce((n, c) => Math.min(n, Math.abs(c.z)), Infinity),
-        atAxis: stage11SurfaceTerraceHeight(0),
-        atPlayEdge: stage11SurfaceTerraceHeight(PLAY.z1),
-        profile: [0, 120, 205, 215, 230, 250, 260, 300]
-            .map(z => ({ z, h: stage11SurfaceTerraceHeight(z) })) },
-    authority: { count: stage11SurfaceAuthorityDebug().count },
-    suppression: { built: stage11SurfaceScanDebug().built },
-    rawMeshes, weldedMeshes, blockerCount: blockers.length,
-    clusters: clusters.map(c => ({ ...c })), clusterCount: clusters.length,
-    plazaDressing: { promenadeMinAbsZ, inlayMaxY, promenadeZ: PROMENADE_Z },
+    built, root: root?.name || null, origin: { ...S11_SURFACE_ORIGIN },
+    bounds: { ...BOUNDS }, start: { ...S11_SURFACE_START },
+    descent: { ...S11_DESCENT }, headquarters: { ...S11_CITY_HEADQUARTERS },
+    hqApron: S11_CITY_HQ_APRON, hqGateOffset: HQ_GATE_OFFSET,
+    spanMeters: S11_CITY_SPAN_METERS, unitsPerPx: S11_CITY_UNITS_PER_PX,
+    roads: stage11CityRoadsDebug(),
+    blockades: stage11CityBlockadesDebug(),
+    vehicles: stage11WeaponVehiclesDebug(STAGE11_CITY_VEHICLE_GROUP),
+    sidewalk: { meters: S11_CITY_SIDEWALK_METERS, units: SIDEWALK,
+        walkable: true, kerbDropUnits: ROAD_TOP - PAVE_TOP,
+        surfaceStepUnits: SURF_STEP },
+    startStub: { backUnits: S11_CITY_START_BACK_UNITS,
+        renderUnits: S11_CITY_START_RENDER_UNITS, meters: startStubMeters,
+        blockers: 0, closedByRun: 'start-cut' },
+    traffic: { count: trafficRecords.length, rejected: trafficRejected,
+        materials: trafficMats.size, chunkUnits: TRAFFIC_CHUNK,
+        chunks: chunkStats.filter(c => c.id.startsWith('traffic-')).length,
+        freeLaneUnits: CFG.campaign.stage11.cityAxis.traffic.freeLaneUnits,
+        minFreeLane: trafficRecords.reduce((n, t) =>
+            Math.min(n, t.freeLane), Infinity),
+        assetSource: 'stage7-roadVehicles+futuristicSedan/SUV',
+        types: [...new Set(trafficRecords.map(t => t.type))].sort(),
+        weldedInChunks: true,
+        records: trafficRecords.map(t => ({ ...t })) },
+    blockerIndex: blockerIndex ? blockerIndex.debug() : null,
+    fence: { runs: fenceRunCount, panels: fencePanelCount,
+        posts: fencePosts.length,
+        kinds: fenceRuns.reduce((m, r) => {
+            m[r.kind] = (m[r.kind] || 0) + 1; return m;
+        }, {}),
+        insideViolations: fenceInsideViolations, sampleUnits: FENCE_SAMPLE,
+        simplifyTol: FENCE_TOL, postSpacing: POST_SPACING,
+        height: FENCE_H, blockers: 0,
+        // The run list is what proves there is no UNFENCED stretch of boundary:
+        // every point just outside the corridor is either near a run or inside
+        // another road, which is a junction mouth.
+        runsList: fenceRuns.map(r => ({ kind: r.kind, panels: r.panels,
+            pts: r.pts.map(p => ({ ...p })) })),
+        // Loose ends: a run end that touches no other run AND does not sit at an
+        // open junction mouth is a visible break in the railing. Measured here so
+        // the suite can pin it at zero.
+        looseEnds: fenceLooseEnds },
+    districts: { clusters: clusters.length,
+        onRoadViolations: buildingOnRoadViolations,
+        bands: [...new Set(clusters.map(c => c.band))],
+        occluders: occluderCount },
     skyline: {
         glazedClusters: clusters.filter(c => c.glazed > 0).length,
         coneRoofs: clusters.reduce((n, c) => n + c.coneRoofs, 0),
         minGlazedTall: clusters.filter(c => c.band > 0)
             .reduce((n, c) => Math.min(n, c.glazed), Infinity),
-        heritageRoofMaterial: !!mats.culturalRoof,
+        cameraSideMaxTop: clusters.filter(c => c.band === 0)
+            .reduce((n, c) => Math.max(n, c.top), 0),
+        farMaxTop: clusters.filter(c => c.band === 2)
+            .reduce((n, c) => Math.max(n, c.top), 0),
     },
-    depthBands: [...new Set(clusters.map(c => c.band))], archetypes: [...ARCHETYPES],
+    trees: { count: treeCount, instancedNodes, blockers: 0 },
+    archetypes: [...ARCHETYPES],
     archetypeCounts: ARCHETYPES.map(type => ({ type, count: semantic.get(type) || 0 })),
-    chunks: chunkStats.map(c => ({ ...c })), semantic: Object.fromEntries(semantic),
+    clusters: clusters.map(c => ({ ...c })),
+    chunks: chunkStats.map(c => ({ ...c })),
+    semantic: Object.fromEntries(semantic),
+    occluders: occlusionDebug(S11_SURFACE_OCC),
+    rawMeshes, weldedMeshes, blockerCount: blockers.length,
+    blockerKinds: blockers.reduce((m, b) => {
+        m[b.kind] = (m[b.kind] || 0) + 1; return m;
+    }, {}),
     lights: { key: STAGE11_SURFACE_LIGHTS_KEY, count: lights.length },
-    cameraSideMaxTop: clusters.filter(c => c.band === 0)
-        .reduce((n, c) => Math.max(n, c.top), 0),
-    farMaxTop: clusters.filter(c => c.band === 2).reduce((n, c) => Math.max(n, c.top), 0),
     descentOpen: !!descentDoor && descentDoor.position.y < 0,
-    nav: nav && { cols: nav.cols, rows: nav.rows,
+    nav: nav && { cols: nav.cols, rows: nav.rows, cell: nav.cell,
         walkable: nav.walk.reduce((n, v) => n + v, 0) },
 });
-

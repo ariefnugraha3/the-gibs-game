@@ -1,4 +1,13 @@
-// Stage 11 Chapter 1 — six stationary double-cabin weapon pickups.
+// Stage 11 — the shared DOUBLE-CABIN WEAPON PICKUP.
+//
+// Both chapters field the same enemy: Chapter 1's forest checkpoints and
+// Chapter 2's city blockades. They are therefore ONE module holding two named
+// GROUPS, never two copies of 700 lines — the same rule the shared spawn machine
+// and vehicle-wreck systems follow. A group owns its own rigs and its own root;
+// the projectile pools are shared because only one chapter is ever live, and
+// both groups read ONE weapon spec (`campaign.stage11.forestVehicles`), so a
+// retune can never make the two chapters' pickups behave differently.
+//
 // Vehicle bodies, weapon rigs, MG bolts and homing missiles are all prebuilt.
 // The mounted gunner remains a real campaign robot, so normal player weapons,
 // kill accounting and drops keep using the shared robot pipeline.
@@ -9,26 +18,45 @@ import {
     robots, bullets, enemyBullets, player, stats,
     makeEnemyBulletMesh,
 } from '../../../../core/state.js';
+import { crosshair } from '../../../../core/dom.js';
+import { updateUI } from '../../../../core/hud.js';
 import { spawnCampaignRobot } from '../../utility/common.js';
 import { buildCombatGunshipMissileMesh } from '../../../../entities/combatGunship.js';
 import {
     buildStage7RoadVehicle, STAGE7_ROAD_VEHICLE_SPECS,
 } from '../stage7/roadVehicles.js';
-import { queueBoom } from '../../../../entities/robots.js';
+import { queueBoom, killRobot } from '../../../../entities/robots.js';
 import { explodeAt } from '../../../../entities/effects.js';
+import { spawnDrop } from '../../../../entities/drops.js';
 import { segPointDist2, clamp } from '../../../../utils/math.js';
 import {
-    playSFX, sfxTankMG, sfxRocketShot, sfxRocketExplode, sfxTankExplode,
+    playSFX, startBattleMusic,
+    sfxTankMG, sfxRocketShot, sfxRocketExplode, sfxTankExplode,
 } from '../../../../utils/sfx.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 
 export const STAGE11_DOUBLE_CABIN_METERS = STAGE7_ROAD_VEHICLE_SPECS.pickup;
+// The two named groups. A group is only a namespace over the shared rig list,
+// so both chapters keep one weapon spec, one wreck rig and one projectile pool.
+export const STAGE11_FOREST_VEHICLE_GROUP = 'forest';
+export const STAGE11_CITY_VEHICLE_GROUP = 'city';
 const RIDER_ANCHOR = Object.freeze({ x: -1.72, y: 1.48, z: 0 });
 
-let built = false, root = null;
+let poolsBuilt = false;
+const groups = new Map();          // group -> { root, counters }
 const rigs = [], mgPool = [], missiles = [];
 const mountPos = new THREE.Vector3(), muzzlePos = new THREE.Vector3();
-let shotsFired = 0, missilesFired = 0, completedBursts = 0, vehiclesCleared = 0;
+
+function groupState(group) {
+    let g = groups.get(group);
+    if (!g) {
+        g = { root: null, shotsFired: 0, missilesFired: 0,
+            completedBursts: 0, vehiclesCleared: 0, vehicleHits: 0 };
+        groups.set(group, g);
+    }
+    return g;
+}
+const groupRigs = group => rigs.filter(r => r.group === group);
 
 function cfg() { return CFG.campaign.stage11.forestVehicles; }
 function mk(parent, geo, material, x, y, z, rx = 0, ry = 0, rz = 0) {
@@ -103,6 +131,133 @@ function buildVehicleWreckFx(parent, index) {
     return { group, blasts, fires, smoke, sparks };
 }
 
+// Feedback tembakan biasa terpisah dari FX kehancuran. Setiap mobil mendapat
+// satu flash/ring, spark pool dan HP bar saat loading; hit frame hanya mereset
+// transform/opacity sehingga rentetan senapan tidak membuat object baru.
+function buildVehicleHitFx(parent, index) {
+    const H = cfg().hitReaction;
+    const group = new THREE.Group();
+    group.name = `stage11-vehicle-hit-fx-${index + 1}`;
+    group.visible = false; parent.add(group);
+    const flashMat = new THREE.MeshBasicMaterial({
+        color: PAL.white, transparent: true, opacity: 0,
+        depthWrite: false, toneMapped: false,
+    });
+    const ringMat = new THREE.MeshBasicMaterial({
+        color: PAL.amber, transparent: true, opacity: 0,
+        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+        depthWrite: false, toneMapped: false,
+    });
+    const flash = mk(group, new THREE.SphereGeometry(1, 8, 6), flashMat,
+        0, 0, 0);
+    const ring = mk(group, new THREE.RingGeometry(.45, 1, 18), ringMat,
+        0, 0, 0, -Math.PI / 2);
+    const sparks = [];
+    for (let i = 0; i < H.sparkCount; i++) {
+        const material = new THREE.MeshBasicMaterial({
+            color: i % 3 ? PAL.amber : PAL.white, toneMapped: false,
+        });
+        const mesh = mk(group, new THREE.BoxGeometry(.34, .28, 1.5 + i % 2),
+            material, 0, 0, 0);
+        mesh.visible = false;
+        sparks.push({ mesh, vx: 0, vy: 0, vz: 0, spin: 0 });
+    }
+    const hpBar = new THREE.Group(); group.add(hpBar); hpBar.visible = false;
+    const hpBack = mk(hpBar, new THREE.BoxGeometry(1, .22, 1.05),
+        new THREE.MeshBasicMaterial({ color: PAL.ink }), 0, 0, 0);
+    const hpFill = mk(hpBar, new THREE.BoxGeometry(1, .28, .72),
+        new THREE.MeshBasicMaterial({ color: PAL.hazard }), 0, .08, 0);
+    return { group, flash, ring, flashMat, ringMat, sparks,
+        hpBar, hpBack, hpFill };
+}
+
+function resetVehicleHitReaction(rig) {
+    rig.hitT = rig.hitHudT = rig.hitAge = 0;
+    rig.hitDirLocalX = rig.hitDirLocalZ = 0;
+    rig.lastHitDamage = 0;
+    const fx = rig.hitFx; fx.group.visible = false;
+    fx.flashMat.opacity = fx.ringMat.opacity = 0;
+    fx.flash.visible = fx.ring.visible = false; fx.hpBar.visible = false;
+    for (const s of fx.sparks) {
+        s.mesh.visible = false; s.vx = s.vy = s.vz = s.spin = 0;
+    }
+}
+
+function startVehicleHitReaction(rig, hitX, hitY, hitZ, dirX, dirZ, damage) {
+    const H = cfg().hitReaction, p = rig.pickup, fx = rig.hitFx;
+    rig.hitT = H.durationSec; rig.hitHudT = H.hpBarSec; rig.hitAge = 0;
+    rig.lastHitDamage = damage;
+    const yaw = p.group.rotation.y, cy = Math.cos(yaw), sy = Math.sin(yaw);
+    rig.hitDirLocalX = dirX * cy - dirZ * sy;
+    rig.hitDirLocalZ = dirX * sy + dirZ * cy;
+    fx.group.visible = true;
+    fx.flash.position.set(hitX, hitY, hitZ); fx.flash.visible = true;
+    fx.ring.position.set(hitX, H.ringHeightUnits, hitZ); fx.ring.visible = true;
+    fx.flash.scale.setScalar(H.flashScale * .45);
+    fx.ring.scale.setScalar(H.ringScale * .45);
+    fx.flashMat.opacity = 1; fx.ringMat.opacity = .9;
+    const hpFrac = riderAlive(rig)
+        ? clamp(rig.rider.hp / Math.max(1, rig.rider.maxHp), 0, 1) : 0;
+    fx.hpBar.visible = riderAlive(rig);
+    fx.hpBar.position.set(p.group.position.x,
+        STAGE11_DOUBLE_CABIN_METERS.height * CAMP_M + H.hpBarLiftUnits,
+        p.group.position.z);
+    fx.hpBack.scale.set(H.hpBarWidthUnits, 1, 1);
+    fx.hpFill.scale.set(H.hpBarWidthUnits * hpFrac, 1, 1);
+    fx.hpFill.position.x = -H.hpBarWidthUnits * (1 - hpFrac) * .5;
+    const baseAngle = Math.atan2(dirZ, dirX) + Math.PI;
+    for (let i = 0; i < fx.sparks.length; i++) {
+        const s = fx.sparks[i];
+        const a = baseAngle + (i - (fx.sparks.length - 1) * .5)
+            * H.sparkSpreadRad / Math.max(1, fx.sparks.length - 1);
+        const speed = H.sparkSpeed * (.76 + (i % 3) * .12);
+        s.mesh.position.set(hitX, hitY, hitZ); s.mesh.rotation.set(0, -a, a * .3);
+        s.mesh.visible = true; s.vx = Math.cos(a) * speed;
+        s.vz = Math.sin(a) * speed; s.vy = speed * (.42 + (i % 2) * .16);
+        s.spin = (i % 2 ? -1 : 1) * (8 + i * .5);
+    }
+}
+
+function updateVehicleHitReaction(rig, dt) {
+    const H = cfg().hitReaction, p = rig.pickup, fx = rig.hitFx;
+    rig.hitT = Math.max(0, rig.hitT - dt);
+    rig.hitHudT = Math.max(0, rig.hitHudT - dt);
+    rig.hitAge = Math.min(H.durationSec, rig.hitAge + dt);
+    if (rig.hitT > 0) {
+        const q = clamp(rig.hitAge / Math.max(.01, H.durationSec), 0, 1);
+        const fade = 1 - q, kick = Math.sin(q * Math.PI) * fade;
+        p.group.position.y = kick * H.bodyLiftUnits;
+        p.group.rotation.x = -rig.hitDirLocalZ * H.recoilTiltRad * kick;
+        p.group.rotation.z = rig.hitDirLocalX * H.recoilTiltRad * kick;
+        fx.flash.scale.setScalar(H.flashScale * (.45 + q * 1.15));
+        fx.ring.scale.setScalar(H.ringScale * (.45 + q * 1.7));
+        fx.flashMat.opacity = fade; fx.ringMat.opacity = fade * .86;
+        for (const s of fx.sparks) if (s.mesh.visible) {
+            s.mesh.position.x += s.vx * dt; s.mesh.position.y += s.vy * dt;
+            s.mesh.position.z += s.vz * dt; s.vy -= H.sparkGravity * dt;
+            s.mesh.rotation.x += s.spin * dt; s.mesh.rotation.z += s.spin * .7 * dt;
+            if (q >= .86 || s.mesh.position.y < .2) s.mesh.visible = false;
+        }
+    } else {
+        fx.flash.visible = fx.ring.visible = false;
+        fx.flashMat.opacity = fx.ringMat.opacity = 0;
+        for (const s of fx.sparks) s.mesh.visible = false;
+        p.group.position.y = 0; p.group.rotation.x = 0; p.group.rotation.z = 0;
+    }
+    const showHp = rig.hitHudT > 0 && rig.active && riderAlive(rig);
+    fx.hpBar.visible = showHp;
+    if (showHp) {
+        const hpFrac = clamp(rig.rider.hp / Math.max(1, rig.rider.maxHp), 0, 1);
+        fx.hpBar.position.set(p.group.position.x,
+            STAGE11_DOUBLE_CABIN_METERS.height * CAMP_M + H.hpBarLiftUnits,
+            p.group.position.z);
+        fx.hpBack.scale.set(H.hpBarWidthUnits, 1, 1);
+        fx.hpFill.scale.set(H.hpBarWidthUnits * hpFrac, 1, 1);
+        fx.hpFill.position.x = -H.hpBarWidthUnits * (1 - hpFrac) * .5;
+    }
+    fx.group.visible = rig.hitT > 0 || showHp;
+}
+
 function charHex(hex) {
     const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
     return ((Math.max(13, r * .24) | 0) << 16)
@@ -161,10 +316,11 @@ function resetVehicleWreck(rig) {
 
 function startVehicleWreck(rig) {
     const W = cfg().wreck, p = rig.pickup;
+    resetVehicleHitReaction(rig);
     rig.cleared = true; rig.active = false; rig.engaged = false; rig.inView = false;
     rig.destroying = true; rig.destructionT = 0; rig.blastStage = 1;
     rig.charred = true; rig.weapon.flashMat.opacity = 0;
-    vehiclesCleared++; p.passengers = [];
+    groupState(rig.group).vehiclesCleared++; p.passengers = [];
     for (const x of rig.wreckMaterials) {
         x.m.color.setHex(charHex(x.color));
         if (x.m.emissive) x.m.emissive.setHex(0x100906);
@@ -364,9 +520,8 @@ function updatePickupVisual(rig, dt) {
     p.group.visible = true;
     if (rig.destroying) { updateVehicleWreck(rig, dt); return; }
     if (!rig.cleared) {
-        p.wreckT = 0; p.group.position.y = 0;
-        p.group.rotation.x *= Math.max(0, 1 - dt * 7);
-        p.group.rotation.z *= Math.max(0, 1 - dt * 7);
+        p.wreckT = 0;
+        updateVehicleHitReaction(rig, dt);
     }
 }
 function desiredYaw(rig) {
@@ -380,6 +535,102 @@ function wrapAngle(a) {
     return a;
 }
 function riderAlive(rig) { return !!rig.rider && robots.includes(rig.rider); }
+
+// Waktu masuk segmen ke AABB lokal. Kendaraan Stage-7 memanjang pada sumbu
+// lokal X; kedua ujung peluru ditransformasi balik dari yaw mobil sebelum tes,
+// sehingga kap/kabin/bak yang TERGAMBAR semuanya benar-benar bisa ditembak.
+function segmentAabbT(x0, z0, x1, z1, halfX, halfZ) {
+    let enter = 0, exit = 1;
+    const dx = x1 - x0, dz = z1 - z0;
+    if (Math.abs(dx) < 1e-9) {
+        if (x0 < -halfX || x0 > halfX) return null;
+    } else {
+        let a = (-halfX - x0) / dx, b = (halfX - x0) / dx;
+        if (a > b) { const swap = a; a = b; b = swap; }
+        enter = Math.max(enter, a); exit = Math.min(exit, b);
+        if (enter > exit) return null;
+    }
+    if (Math.abs(dz) < 1e-9) {
+        if (z0 < -halfZ || z0 > halfZ) return null;
+    } else {
+        let a = (-halfZ - z0) / dz, b = (halfZ - z0) / dz;
+        if (a > b) { const swap = a; a = b; b = swap; }
+        enter = Math.max(enter, a); exit = Math.min(exit, b);
+        if (enter > exit) return null;
+    }
+    return enter;
+}
+
+function vehicleSegmentHitT(rig, x0, z0, x1, z1) {
+    const p = rig.pickup.group.position, yaw = rig.pickup.group.rotation.y;
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const adx = x0 - p.x, adz = z0 - p.z;
+    const bdx = x1 - p.x, bdz = z1 - p.z;
+    const ax = adx * cy - adz * sy, az = adx * sy + adz * cy;
+    const bx = bdx * cy - bdz * sy, bz = bdx * sy + bdz * cy;
+    const dims = rig.pickup.dimensionsMeters;
+    return segmentAabbT(ax, az, bx, bz,
+        dims.length * CAMP_M * .5, dims.width * CAMP_M * .5);
+}
+
+// Called before the scenery sweep from both Chapter 1 and Chapter 2. It is a
+// bullet blocker AND the damage owner: returning true lets updateBullets remove
+// the round, so the shared robot sweep cannot apply the same damage twice.
+export function stage11WeaponVehicleBulletHit(group, b) {
+    // Player rounds carry `damage`; hostile bolts carry `dmg`. This also keeps
+    // synthetic LOS probes from waking/damaging a vehicle.
+    if (!b || b.damage == null || !b.mesh?.position) return false;
+    const x0 = Number.isFinite(b.px) ? b.px : b.mesh.position.x;
+    const z0 = Number.isFinite(b.pz) ? b.pz : b.mesh.position.z;
+    const x1 = b.mesh.position.x, z1 = b.mesh.position.z;
+    let best = null, bestT = Infinity;
+    for (const rig of groupRigs(group)) {
+        if (!rig.active || rig.cleared || !riderAlive(rig)) continue;
+        const t = vehicleSegmentHitT(rig, x0, z0, x1, z1);
+        if (t != null && t < bestT) { best = rig; bestT = t; }
+    }
+    if (!best) return false;
+
+    const endY = Number.isFinite(b.mesh.position.y) ? b.mesh.position.y : 0;
+    const startY = Number.isFinite(b.py) ? b.py : endY;
+    const hitX = x0 + (x1 - x0) * bestT;
+    const hitZ = z0 + (z1 - z0) * bestT;
+    const hitY = startY + (endY - startY) * bestT;
+    // Clamp the round to the visible impact. Launcher explosion code in
+    // updateBullets consequently detonates ON the vehicle, not beyond it.
+    if (typeof b.mesh.position.set === 'function')
+        b.mesh.position.set(hitX, hitY, hitZ);
+    else {
+        b.mesh.position.x = hitX; b.mesh.position.y = hitY;
+        b.mesh.position.z = hitZ;
+    }
+    const sx = x1 - x0, sz = z1 - z0, sl = Math.hypot(sx, sz) || 1;
+    const dirX = b.dir?.x ?? sx / sl, dirZ = b.dir?.z ?? sz / sl;
+
+    let dealt = 0;
+    if (!b.explosive) {
+        const base = b.damage * (player.dmgMul || 1);
+        dealt = Math.max(1, base - (best.rider.armor || 0));
+        best.rider.hp -= dealt; stats.hits++; startBattleMusic();
+        crosshair.classList.add('hit');
+        setTimeout(() => crosshair.classList.remove('hit'), 80);
+    }
+    best.hitCount++; groupState(group).vehicleHits++;
+    startVehicleHitReaction(best, hitX, Math.max(2, hitY), hitZ,
+        dirX, dirZ, dealt);
+
+    if (!b.explosive && best.rider.hp <= 0) {
+        const i = robots.indexOf(best.rider);
+        if (i >= 0) {
+            spawnDrop(best.rider.mesh.position);
+            killRobot(i, { dirx: dirX, dirz: dirZ });
+            updateUI();
+        }
+        startVehicleWreck(best);
+    }
+    return true;
+}
+
 function acquireMGBullet() {
     for (const p of mgPool) if (!enemyBullets.includes(p.bullet)) return p;
     return null;
@@ -404,7 +655,7 @@ function fireMG(rig) {
     b.source = 'stage11-double-cabin-mg'; b.vehicleId = rig.id;
     enemyBullets.push(b);
     rig.weapon.flashMat.opacity = 1;
-    rig.shotsFired++; rig.shotsInBurst++; shotsFired++;
+    rig.shotsFired++; rig.shotsInBurst++; groupState(rig.group).shotsFired++;
     if (rig.audioT <= 0) {
         playSFX(sfxTankMG, .34); rig.audioT = C.audioGapSec;
     }
@@ -422,7 +673,7 @@ function fireMissile(rig) {
     m.speed = C.speed; m.dirx = dx / d; m.dirz = dz / d;
     m.mesh.position.copy(muzzlePos); m.mesh.visible = true;
     m.mesh.rotation.y = -Math.atan2(m.dirz, m.dirx);
-    rig.missilesFired++; missilesFired++;
+    rig.missilesFired++; groupState(rig.group).missilesFired++;
     rig.weapon.flashMat.opacity = 1;
     playSFX(sfxRocketShot, .62); return true;
 }
@@ -469,40 +720,49 @@ function updateMissiles(dt) {
         } else if (m.life <= 0) hideMissile(m);
     }
 }
-function clearProjectiles() {
+function clearProjectiles(home) {
     for (const p of mgPool) {
         const i = enemyBullets.indexOf(p.bullet);
         if (i >= 0) enemyBullets.splice(i, 1);
         scene.remove(p.bullet.mesh); p.bullet.mesh.visible = false;
-        if (root) root.add(p.bullet.mesh);
+        if (home) home.add(p.bullet.mesh);
     }
     for (const m of missiles) hideMissile(m);
 }
 
-export function ensureStage11ForestVehicles(parent, placements) {
-    if (built) return rigs;
+export function ensureStage11WeaponVehicles(group, parent, placements) {
+    const S = groupState(group);
+    if (S.root) return groupRigs(group);
     if (cfg().asset !== 'stage7Pickup')
-        throw new Error(`Unsupported Stage 11 forest vehicle asset: ${cfg().asset}`);
-    built = true; root = parent;
+        throw new Error(`Unsupported Stage 11 weapon vehicle asset: ${cfg().asset}`);
+    S.root = parent;
     for (let i = 0; i < placements.length; i++) {
         const placement = placements[i];
         const colors = cfg().bodyColors;
-        const bodyColor = colors[i % colors.length];
-        const group = buildStage7RoadVehicle('pickup', bodyColor, CAMP_M);
+        const id = rigs.length + 1;
+        const bodyColor = colors[(id - 1) % colors.length];
+        // NOT `group`: that is this function's group-name parameter, and
+        // shadowing it tags every rig with a mesh instead of its group.
+        const body = buildStage7RoadVehicle('pickup', bodyColor, CAMP_M);
         const pickup = {
-            group, scaleX: CAMP_M, scaleY: CAMP_M, scaleZ: CAMP_M,
+            group: body, scaleX: CAMP_M, scaleY: CAMP_M, scaleZ: CAMP_M,
             dimensionsMeters: STAGE7_ROAD_VEHICLE_SPECS.pickup,
             passengers: [], wreckT: 0,
         };
-        pickup.group.name = `stage11-double-cabin-${i + 1}`;
+        pickup.group.name = `stage11-double-cabin-${id}`;
         pickup.group.userData.stage11AssetSource = 'stage7-roadVehicles';
         const weapon = addDoubleCabAndWeapon(pickup.group,
-            placement.type, i, bodyColor);
+            placement.type, id - 1, bodyColor);
         parent.add(pickup.group);
-        const wreckFx = buildVehicleWreckFx(parent, i);
+        const wreckFx = buildVehicleWreckFx(parent, id - 1);
+        const hitFx = buildVehicleHitFx(parent, id - 1);
         const wreckState = captureWreckState(pickup, weapon);
         rigs.push({
-            id: i + 1, meter: placement.meter, type: placement.type,
+            id, group, key: placement.key,
+            // Chapter 1 keys its groups by route metre; keeping the alias means
+            // its checkpoint code and its tests read the same field they always did.
+            meter: placement.meter != null ? placement.meter : placement.key,
+            type: placement.type,
             placement: { ...placement }, pickup, weapon, rider: null,
             active: false, cleared: false, engaged: false, inView: false,
             viewT: 0, fireReady: false,
@@ -511,9 +771,13 @@ export function ensureStage11ForestVehicles(parent, placements) {
             missileT: 0, missilesFired: 0,
             destroying: false, destructionT: 0, blastStage: 0, charred: false,
             wreckFx, breakaways: wreckState.breakaways,
-            wreckMaterials: wreckState.materials,
+            wreckMaterials: wreckState.materials, hitFx,
+            hitT: 0, hitHudT: 0, hitAge: 0, hitCount: 0,
+            hitDirLocalX: 0, hitDirLocalZ: 0, lastHitDamage: 0,
         });
     }
+    if (poolsBuilt) return groupRigs(group);
+    poolsBuilt = true;
     const M = cfg().machineGun;
     for (let i = 0; i < M.poolSize; i++) {
         const bullet = {
@@ -534,15 +798,18 @@ export function ensureStage11ForestVehicles(parent, placements) {
             speed: 0, dirx: 0, dirz: 0, px: 0, pz: 0,
         });
     }
-    return rigs;
+    return groupRigs(group);
 }
 
-export function resetStage11ForestVehicles() {
-    clearProjectiles();
-    shotsFired = missilesFired = completedBursts = vehiclesCleared = 0;
+export function resetStage11WeaponVehicles(group) {
+    const S = groupState(group);
+    clearProjectiles(S.root);
+    S.shotsFired = S.missilesFired = S.completedBursts = S.vehiclesCleared
+        = S.vehicleHits = 0;
     const M = cfg().machineGun;
-    for (const rig of rigs) {
+    for (const rig of groupRigs(group)) {
         resetVehicleWreck(rig);
+        resetVehicleHitReaction(rig); rig.hitCount = 0;
         rig.pickup.group.rotation.set(0, rig.placement.yaw, 0);
         rig.pickup.group.position.set(rig.placement.x, 0, rig.placement.z);
         rig.pickup.group.visible = true; rig.pickup.wreckT = 0;
@@ -561,14 +828,14 @@ export function resetStage11ForestVehicles() {
         bot.hp = V.hp; bot.maxHp = V.hp;
         bot.mounted = true; bot.state = 'mounted'; bot.moving = false;
         bot.aiming = true; bot.ranged = false;
-        bot.stage11ForestVehicle = rig;
-        bot.encounter = `forest-vehicle-${rig.meter}-${rig.id}`;
+        bot.stage11Vehicle = rig;
+        bot.encounter = `${rig.group}-vehicle-${rig.key}-${rig.id}`;
         rig.rider = bot; rig.pickup.passengers = [bot];
     }
 }
 
-export function stage11ForestVehicleRobotAI(bot) {
-    const rig = bot?.stage11ForestVehicle;
+export function stage11WeaponVehicleRobotAI(bot) {
+    const rig = bot?.stage11Vehicle;
     if (!rig) return null;
     riderWorld(rig, mountPos);
     bot.mesh.position.copy(mountPos); bot.groundY = mountPos.y;
@@ -579,9 +846,9 @@ export function stage11ForestVehicleRobotAI(bot) {
     return {};
 }
 
-export function updateStage11ForestVehicles(dt, context = {}) {
-    const C = cfg(), M = C.machineGun;
-    for (const rig of rigs) {
+export function updateStage11WeaponVehicles(group, dt, context = {}) {
+    const C = cfg(), M = C.machineGun, S = groupState(group);
+    for (const rig of groupRigs(group)) {
         rig.audioT = Math.max(0, rig.audioT - dt);
         rig.weapon.flashMat.opacity *= Math.max(0,
             1 - dt * C.muzzleFlashFadePerSec);
@@ -621,7 +888,7 @@ export function updateStage11ForestVehicles(dt, context = {}) {
                 rig.burstLeft--; rig.shotT = M.roundGapSec;
                 if (rig.burstLeft === 0) {
                     rig.cooldownT = M.burstGapSec;
-                    rig.burstsCompleted++; completedBursts++;
+                    rig.burstsCompleted++; S.completedBursts++;
                 }
             }
         } else {
@@ -634,59 +901,65 @@ export function updateStage11ForestVehicles(dt, context = {}) {
     updateMissiles(dt);
 }
 
-export function cleanupStage11ForestVehicles() {
-    clearProjectiles();
-    for (const rig of rigs) {
+export function cleanupStage11WeaponVehicles(group) {
+    clearProjectiles(groupState(group).root);
+    for (const rig of groupRigs(group)) {
+        resetVehicleHitReaction(rig);
         rig.engaged = false; rig.inView = false; rig.weapon.flashMat.opacity = 0;
         rig.viewT = 0; rig.fireReady = false;
         rig.wreckFx.group.visible = false;
     }
 }
-export function stage11ForestVehiclesAllCleared() {
-    return rigs.length > 0 && rigs.every(r => r.cleared || !riderAlive(r));
+export function stage11WeaponVehiclesAllCleared(group) {
+    const list = groupRigs(group);
+    return list.length > 0 && list.every(r => r.cleared || !riderAlive(r));
 }
-export function stage11ForestNearestVehicle() {
+export function stage11NearestWeaponVehicle(group) {
     let best = null, d2 = Infinity;
-    for (const rig of rigs) if (!rig.cleared && riderAlive(rig)) {
+    for (const rig of groupRigs(group)) if (!rig.cleared && riderAlive(rig)) {
         const dx = rig.placement.x - camera.position.x;
         const dz = rig.placement.z - camera.position.z;
         const q = dx * dx + dz * dz;
         if (q < d2) { d2 = q; best = rig; }
     }
     return best ? { x: best.placement.x, z: best.placement.z,
-        meter: best.meter, type: best.type } : null;
+        key: best.key, meter: best.meter, type: best.type } : null;
 }
-export function stage11ForestVisibleVehicle() {
+export function stage11VisibleWeaponVehicle(group) {
     let best = null, d2 = Infinity;
-    for (const rig of rigs) if (rig.active && rig.inView && riderAlive(rig)) {
+    for (const rig of groupRigs(group)) if (rig.active && rig.inView && riderAlive(rig)) {
         const dx = rig.placement.x - camera.position.x;
         const dz = rig.placement.z - camera.position.z;
         const q = dx * dx + dz * dz;
         if (q < d2) { d2 = q; best = rig; }
     }
-    return best ? { id: best.id, meter: best.meter, type: best.type } : null;
+    return best ? { id: best.id, key: best.key, meter: best.meter,
+        type: best.type } : null;
 }
 // Live weapon vehicles standing at one route metre. The fabricator checkpoint
 // at that metre reads this as part of its own gate condition, so a metre that
 // carries vehicles cannot be opened by destroying the machines alone.
-export function stage11ForestVehiclesAliveAt(meter) {
+export function stage11WeaponVehiclesAliveAt(group, key) {
     let n = 0;
-    for (const rig of rigs)
-        if (rig.meter === meter && !rig.cleared && riderAlive(rig)) n++;
+    for (const rig of groupRigs(group))
+        if (rig.key === key && !rig.cleared && riderAlive(rig)) n++;
     return n;
 }
-export function stage11ForestCheckpointCleared(meter) {
-    const group = rigs.filter(r => r.meter === meter);
+export function stage11WeaponVehicleGroupCleared(group, key) {
+    const list = groupRigs(group).filter(r => r.key === key);
     // Keep the combat camera wide through the authored blast sequence, then
     // release it while the last smoke puffs finish fading.
-    return group.length > 0 && group.every(r => r.cleared
+    return list.length > 0 && list.every(r => r.cleared
         && (!r.destroying || r.destructionT >= cfg().wreck.cameraHoldSec));
 }
-export const stage11ForestVehiclesDebug = () => {
+export const stage11WeaponVehiclesDebug = group => {
     const M = cfg().machineGun, H = cfg().homingMissile;
+    const S = groupState(group), rigs = groupRigs(group);
     return {
-        built, count: rigs.length, active: rigs.filter(r => r.active).length,
-        cleared: vehiclesCleared,
+        group, groups: [...groups.keys()], sharedModule: true,
+        built: !!S.root, count: rigs.length,
+        active: rigs.filter(r => r.active).length,
+        cleared: S.vehiclesCleared,
         assetSource: 'stage7-roadVehicles', assetType: 'pickup',
         typeCounts: {
             machineGun: rigs.filter(r => r.type === 'machineGun').length,
@@ -696,6 +969,17 @@ export const stage11ForestVehiclesDebug = () => {
         activationRangeMeters: cfg().activationRangeMeters,
         engagementDelaySec: cfg().engagementDelaySec,
         asset: cfg().asset,
+        hitReaction: {
+            ...cfg().hitReaction,
+            prebuiltPerVehicle: true, pointLights: 0,
+            hits: S.vehicleHits,
+            sparksPerVehicle: rigs[0]?.hitFx.sparks.length || 0,
+            footprint: {
+                source: 'stage7-pickup-dimensions', oriented: true,
+                lengthUnits: STAGE11_DOUBLE_CABIN_METERS.length * CAMP_M,
+                widthUnits: STAGE11_DOUBLE_CABIN_METERS.width * CAMP_M,
+            },
+        },
         wreck: {
             ...cfg().wreck,
             prebuiltPerVehicle: true, pointLights: 0,
@@ -720,7 +1004,7 @@ export const stage11ForestVehiclesDebug = () => {
             visualSource: 'shared-tank-train-bolt', aimMode: 'live-per-round',
             poolSize: mgPool.length,
             activeProjectiles: mgPool.filter(p => enemyBullets.includes(p.bullet)).length,
-            shotsFired, completedBursts,
+            shotsFired: S.shotsFired, completedBursts: S.completedBursts,
         },
         homingMissile: {
             hp: H.hp, robotClass: H.robotClass,
@@ -730,14 +1014,14 @@ export const stage11ForestVehiclesDebug = () => {
             launchDelaySec: H.launchDelaySec, fireGapSec: H.fireGapSec,
             blastRadius: H.blastRadius, hitRadius: H.hitRadius,
             visualSource: 'combatGunship', steering: 'homing', prebuilt: true,
-            active: missiles.filter(m => m.active).length, fired: missilesFired,
+            active: missiles.filter(m => m.active).length, fired: S.missilesFired,
             missiles: missiles.map(m => ({
                 active: m.active, x: m.mesh.position.x, z: m.mesh.position.z,
                 dirx: m.dirx, dirz: m.dirz, hp: m.hp, life: m.life,
             })),
         },
         rigs: rigs.map(r => ({
-            id: r.id, meter: r.meter, type: r.type,
+            id: r.id, key: r.key, meter: r.meter, type: r.type,
             x: r.placement.x, z: r.placement.z, yaw: r.placement.yaw,
             lateral: r.placement.lateral, active: r.active,
             cleared: r.cleared, engaged: r.engaged, inView: r.inView,
@@ -760,6 +1044,17 @@ export const stage11ForestVehiclesDebug = () => {
                 + Math.abs(x.o.rotation.y - x.ry)
                 + Math.abs(x.o.rotation.z - x.rz), 0),
             bodyY: r.pickup.group.position.y,
+            bodyPitch: r.pickup.group.rotation.x,
+            bodyRoll: r.pickup.group.rotation.z,
+            hitT: r.hitT, hitHudT: r.hitHudT, hitCount: r.hitCount,
+            lastHitDamage: r.lastHitDamage,
+            hitFxVisible: r.hitFx.group.visible,
+            hitFlashVisible: r.hitFx.flash.visible,
+            hitRingVisible: r.hitFx.ring.visible,
+            hitSparksVisible: r.hitFx.sparks.filter(s => s.mesh.visible).length,
+            hitHpBarVisible: r.hitFx.hpBar.visible,
+            hitHpFraction: riderAlive(r)
+                ? clamp(r.rider.hp / Math.max(1, r.rider.maxHp), 0, 1) : 0,
             viewT: r.viewT, fireReady: r.fireReady,
             riderAlive: riderAlive(r), doubleCabin: true,
             assetSource: r.pickup.group.userData.stage11AssetSource,

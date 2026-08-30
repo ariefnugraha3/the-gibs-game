@@ -32,14 +32,23 @@ import { STAGE7_ROAD_VEHICLE_SPECS } from '../stage7/roadVehicles.js';
 export const S9_ORIGIN = Object.freeze({ x: 300000, z: 0 });
 export const S9_FRONT_ORIGIN = Object.freeze({ x: 306000, z: 0 });
 export const S9_INTERIOR_ORIGIN = Object.freeze({ x: 312000, z: 0 });
-export const S9_START = Object.freeze({ x: 304930, z: 160 });
+// Ruas pembuka Chapter 1 dipanjangkan tepat 20 meter ke barat. Player ikut
+// mundur sejauh panjang yang sama, sehingga geometri tol lama dan seluruh
+// objective setelahnya tidak bergeser; rentang baru ini menjadi approach kosong.
+export const S9_FRONT_SAFE_METERS = 20;
+export const S9_FRONT_SAFE_UNITS = S9_FRONT_SAFE_METERS * CAMP_M;
+export const S9_FRONT_ROAD_START_X = 304840 - S9_FRONT_SAFE_UNITS;
+export const S9_START = Object.freeze({ x: 304930 - S9_FRONT_SAFE_UNITS, z: 160 });
+export const S9_FRONT_SAFE_END = Object.freeze({
+    x: S9_START.x + S9_FRONT_SAFE_UNITS, z: S9_START.z,
+});
+// Sesudah 20 m ruas BARU masih ada buffer pendek di aspal lama. Tanpa buffer
+// ini tiga badan pertama sudah menyentuh tepi frustum kamera pada frame awal.
+export const S9_FRONT_REVEAL_BUFFER_METERS = 15;
+export const S9_FRONT_REVEAL_BUFFER_UNITS = S9_FRONT_REVEAL_BUFFER_METERS * CAMP_M;
 export const S9_FRONT_CHECKPOINT = Object.freeze({ x: 305650, z: 160 });
 export const S9_BUILDING_ENTRY = Object.freeze({ x: 306500, z: 160 });
 export const S9_BUILDING_START = Object.freeze({ x: 312285, z: 245 });
-// Dipindah user (denah CSV Chapter 2, 2026-08-26) ke sel (21,3): ujung utara
-// aula check-in, tepat di depan sekat toilet yang jebol. Z-nya digeser ke sisi
-// bebas sel karena pulau konter menempati z 444..466.
-export const S9_INTERIOR_CHECKPOINT = Object.freeze({ x: 312100, z: 475 });
 export const S9_BUILDING_EXIT = Object.freeze({ x: 311700, z: -275 });
 export const S9_RUNWAY_START = Object.freeze({ x: 299125, z: 180 });
 export const S9_RUNWAY_CHECKPOINT = Object.freeze({ x: 300055, z: 55 });
@@ -55,7 +64,9 @@ export const S9_BOARD = Object.freeze({ x: 300648, z: -220 });
 const S9_CONTROL_TOWER = Object.freeze({ x: 300260, z: 452 });
 const S9_CARGO_HANGAR = Object.freeze({ x: 300620, z: 250 });
 export const S9_BOUNDS = Object.freeze({ x0: 299100, x1: 300930, z0: -610, z1: 610 });
-export const S9_FRONT_BOUNDS = Object.freeze({ x0: 304800, x1: 306650, z0: -360, z1: 520 });
+export const S9_FRONT_BOUNDS = Object.freeze({
+    x0: 304800 - S9_FRONT_SAFE_UNITS, x1: 306650, z0: -360, z1: 520,
+});
 export const S9_INTERIOR_BOUNDS = Object.freeze({ x0: 311650, x1: 312350, z0: -560, z1: 560 });
 export const S9_FRONT_PARKING_LOTS = Object.freeze({
     left: Object.freeze({ x0: 305675, x1: 306325, z0: -295, z1: -115 }),
@@ -86,6 +97,13 @@ export const s9InteriorCellPos = (c, r) => ({
     x: S9_INTERIOR_ORIGIN.x + S9_INTERIOR_GRID.x0 + (c + .5) * S9_INTERIOR_CELL,
     z: S9_INTERIOR_GRID.z1 - (r + .5) * S9_INTERIOR_CELL,
 });
+// Wave ruang tunggu tidak lagi lahir ketika player baru tiba di sisi timur
+// toilet. P berada satu sel di dalam kafe/toko yang berdampingan dengan toilet,
+// tepat pada jalur breach menuju concourse, sehingga player harus benar-benar
+// memasuki deret toko sebelum gerombolan di ruang tunggu muncul.
+export const S9_INTERIOR_WAVE2_TRIGGER_CELL = Object.freeze([15, 3]);
+export const S9_INTERIOR_CHECKPOINT = Object.freeze(
+    s9InteriorCellPos(...S9_INTERIOR_WAVE2_TRIGGER_CELL));
 // '=' TEMBOK BOLONG: sekat toko yang dijebol supaya bisa dilewati. Tiga lubang
 // merangkai restoran -> kafe -> toilet -> aula check-in di belakang deret toko.
 export const S9_INTERIOR_BREACHES = Object.freeze([
@@ -1486,12 +1504,13 @@ function buildFrontChapter(parent, M) {
         buildTree(statics, M, x, z, .58 + ((z / 62) % 5) * .07);
         count('frontBackdropTree');
     }
-    box(statics, M.asphalt, 900, 0.45, 126, 305280, -0.06, 160, false);
+    box(statics, M.asphalt, 900 + S9_FRONT_SAFE_UNITS, 0.45, 126,
+        305280 - S9_FRONT_SAFE_UNITS * .5, -0.06, 160, false);
     box(statics, M.asphalt, 930, 0.45, 168, 306020, -0.05, 160, false);
     box(statics, M.apron, 310, 0.42, 650, 306390, -0.04, 110, false);
     box(statics, M.asphalt, 650, 0.35, 180, 306000, -0.03, -205, false);
     box(statics, M.asphalt, 650, 0.35, 180, 306000, -0.03, 425, false);
-    for (let x = 304850; x <= 306500; x += 52) {
+    for (let x = 304850 - S9_FRONT_SAFE_UNITS; x <= 306500; x += 52) {
         box(statics, M.white, 28, 0.08, 1, x, 0.22, 160, false);
         if (x >= 305560) {
             box(statics, M.hazard, 18, 0.08, 1, x, 0.23, 92, false);
@@ -1499,7 +1518,8 @@ function buildFrontChapter(parent, M) {
         }
     }
     for (const z of [88, 232])
-        box(statics, M.concrete, 1680, 0.8, 8, 305650, 0.15, z, false);
+        box(statics, M.concrete, 1680 + S9_FRONT_SAFE_UNITS, 0.8, 8,
+            305650 - S9_FRONT_SAFE_UNITS * .5, 0.15, z, false);
     for (let x = 305720; x <= 306310; x += 46) for (const z of [-205, 425])
         box(statics, M.white, 1, 0.08, 155, x, 0.2, z, false);
 
@@ -1616,9 +1636,9 @@ function buildFrontChapter(parent, M) {
     // unit DI LUAR batas collision, sehingga player lebih dulu menabrak dinding
     // tak terlihat. Tiap run menyimpan sisi dalam/luarnya untuk smoke parity.
     for (const run of [
-        [304840, 90, 305480, 90, 0, 1],       // sisi bawah jalan tol
-        [304840, 230, 305480, 230, 0, -1],    // sisi atas jalan tol
-        [304840, 90, 304840, 230, 1, 0],      // ujung belakang area awal
+        [S9_FRONT_ROAD_START_X, 90, 305480, 90, 0, 1],       // sisi bawah jalan tol
+        [S9_FRONT_ROAD_START_X, 230, 305480, 230, 0, -1],    // sisi atas jalan tol
+        [S9_FRONT_ROAD_START_X, 90, S9_FRONT_ROAD_START_X, 230, 1, 0],
         [305480, 65, 305520, 65, 0, 1],       // bahu boulevard bawah
         [305480, 255, 305520, 255, 0, -1],    // bahu boulevard atas
         [305480, 65, 305480, 90, 1, 0],       // step pelebaran bawah
@@ -2814,13 +2834,80 @@ export function ensureStage9World() {
 }
 
 export function stage9FrontWalkable(x, z, radius = 0) {
-    const tollRoad = x >= 304840 + radius && x <= 305600 - radius
+    const tollRoad = x >= S9_FRONT_ROAD_START_X + radius && x <= 305600 - radius
         && z >= 90 + radius && z <= 230 - radius;
     const boulevard = x >= 305480 + radius && x <= 306545 - radius
         && z >= 65 + radius && z <= 255 - radius;
     const forecourt = x >= 305520 + radius && x <= 306570 - radius
         && z >= -330 + radius && z <= 490 - radius;
     return tollRoad || boulevard || forecourt;
+}
+
+// Chapter 1 robot territory is deliberately narrower than the complete front
+// walk union. The latter also contains both parking courts and the broad
+// terminal forecourt; scattering enemies there can strand an idle robot behind
+// parked cars where the player never has a reason to look. This predicate
+// follows only the two visible asphalt ribbons (including their concrete edge
+// strips), so every pre-placed robot is on the access road or its sidewalk.
+export function stage9FrontRoadSurface(x, z, radius = 0) {
+    const toll = x >= S9_FRONT_ROAD_START_X + radius && x <= 305730 - radius
+        && z >= 92 + radius && z <= 228 - radius;
+    const boulevard = x >= 305555 + radius && x <= 306500 - radius
+        && z >= 71 + radius && z <= 249 - radius;
+    return (toll || boulevard) && stage9FrontWalkable(x, z, radius);
+}
+
+// Deterministic, full-length scatter for the Chapter 1 population. Candidate
+// points are sampled from the road predicate above, rejected against the real
+// blocker set, then selected near evenly spaced longitudinal targets. The
+// low-discrepancy lane order prevents a single row of robots while preserving
+// coverage from the toll approach to the terminal entrance.
+export function stage9FrontRoadScatterPoints(amount) {
+    ensureStage9World();
+    const count = Math.max(0, amount | 0);
+    if (!count) return [];
+    const clearance = 5.5;
+    const x0 = S9_FRONT_SAFE_END.x + S9_FRONT_REVEAL_BUFFER_UNITS;
+    const x1 = S9_BUILDING_ENTRY.x - 42;
+    const lanes = [0.50, 0.16, 0.84, 0.33, 0.67, 0.06, 0.94, 0.42, 0.75, 0.25, 0.58];
+    const candidates = [];
+    for (let x = x0; x <= x1 + 1e-6; x += 7) {
+        const boulevard = x >= 305555;
+        const z0 = boulevard ? 71 + clearance : 92 + clearance;
+        const z1 = boulevard ? 249 - clearance : 228 - clearance;
+        for (let li = 0; li < lanes.length; li++) {
+            const z = z0 + (z1 - z0) * lanes[li];
+            if (!stage9FrontRoadSurface(x, z, clearance)
+                || frontBlockers.some((b) => pointInBlocker(x, z, clearance, b))) continue;
+            candidates.push({ x, z, lane: li });
+        }
+    }
+
+    const picked = [];
+    const used = new Set();
+    for (let i = 0; i < count; i++) {
+        const tx = x0 + (i + 0.5) / count * (x1 - x0);
+        const wantedLane = i % lanes.length;
+        let best = -1, bestScore = Infinity;
+        for (let pass = 0; pass < 3 && best < 0; pass++) {
+            const minGap = pass === 0 ? 14 : pass === 1 ? 9 : 0;
+            for (let j = 0; j < candidates.length; j++) {
+                if (used.has(j)) continue;
+                const p = candidates[j];
+                if (minGap && picked.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < minGap))
+                    continue;
+                const laneDelta = Math.min(
+                    Math.abs(p.lane - wantedLane),
+                    lanes.length - Math.abs(p.lane - wantedLane));
+                const score = Math.abs(p.x - tx) * 4 + laneDelta * 5;
+                if (score < bestScore) { best = j; bestScore = score; }
+            }
+        }
+        if (best < 0) break;
+        used.add(best);
+        picked.push({ x: candidates[best].x, z: candidates[best].z });
+    }
+    return picked;
 }
 
 export function stage9InteriorWalkable(x, z, radius = 0) {
@@ -2933,7 +3020,7 @@ export function resetStage9Occluders() {
 // Flood fill sekali dari titik masuk chapter, lalu di-memo (dunia statis).
 let interiorReachSet = null;
 const INTERIOR_REACH_STEP = 10;
-function interiorReachable(x, z) {
+export function stage9InteriorReachable(x, z) {
     if (!interiorReachSet) {
         const radius = CFG.player.radius;
         const free = (cx, cz) => {
@@ -2995,7 +3082,7 @@ export function stage9SupplyPlacements() {
             for (let z = rect.z - rect.hz + inset; z <= rect.z + rect.hz - inset; z += 22)
                 for (let x = rect.x - rect.hx + inset; x <= rect.x + rect.hx - inset; x += 22)
                     if (stage9InteriorWalkable(x, z, 8) && !stage9BlockedAt(x, z, 8)
-                        && interiorReachable(x, z))
+                        && stage9InteriorReachable(x, z))
                         spots.push({ x, z });
             return spots;
         });
@@ -3063,14 +3150,61 @@ export function stage9SupplyPlacements() {
     };
 }
 
+// Wilayah lahir wave pertama Chapter 2 diturunkan dari collider perabot yang
+// benar-benar dibangun. Kedekatan terhadap check-in island/bag-drop berarti
+// "area counter"; kedekatan terhadap empat skirt reclaim berarti "area belt
+// bagasi". Syarat reachable menolak lubang belt dan setiap kantong di balik
+// batas ruangan yang tidak dapat dimasuki player.
+export function stage9InteriorWave1AreaAt(x, z, radius = 5.5) {
+    if (!stage9InteriorWalkable(x, z, radius)
+        || interiorBlockers.some((b) => pointInBlocker(x, z, radius, b))
+        || !stage9InteriorReachable(x, z)) return null;
+    const near = (kinds, pad) => interiorBlockers.some((b) =>
+        kinds.includes(b.kind) && pointInBlocker(x, z, pad, b));
+    if (near(['checkin-island', 'checkin-bag-drop'], 30)) return 'counter';
+    if (near(['baggage-belt'], 28)) return 'baggage';
+    return null;
+}
+
+export function stage9InteriorWaitingAreaAt(x, z, radius = 5.5) {
+    const x0 = S9_INTERIOR_ORIGIN.x + Math.min(...S9_SEAT_AISLE_XS) - 18;
+    const x1 = S9_INTERIOR_ORIGIN.x + Math.max(...S9_SEAT_AISLE_XS) + 18;
+    const z0 = Math.min(...S9_SEAT_AISLE_ZS) - 24;
+    const z1 = Math.max(...S9_SEAT_AISLE_ZS) + 24;
+    return x >= x0 && x <= x1 && z >= z0 && z <= z1
+        && stage9InteriorWalkable(x, z, radius)
+        && !interiorBlockers.some((b) => pointInBlocker(x, z, radius, b))
+        && stage9InteriorReachable(x, z);
+}
+
+function stage9InteriorWave1Points() {
+    const pools = { counter: [], baggage: [] };
+    // Kisi rapat lalu diurutkan hash menjaga hasil deterministik tanpa mengikat
+    // titik pada angka tangan yang dapat masuk collider saat furnitur berubah.
+    for (let z = S9_INTERIOR_BOUNDS.z0 + 12; z <= S9_INTERIOR_BOUNDS.z1 - 12; z += 16) {
+        for (let x = S9_INTERIOR_BOUNDS.x0 + 12; x <= S9_INTERIOR_BOUNDS.x1 - 12; x += 16) {
+            const area = stage9InteriorWave1AreaAt(x, z);
+            if (area) pools[area].push({ x, z });
+        }
+    }
+    for (const pool of Object.values(pools)) pool.sort((a, b) =>
+        ihash(Math.round(a.x * 13 + a.z * 7)) - ihash(Math.round(b.x * 13 + b.z * 7)));
+    const out = [];
+    const total = Math.max(pools.counter.length, pools.baggage.length);
+    for (let i = 0; i < total; i++) {
+        if (pools.counter[i]) out.push(pools.counter[i]);
+        if (pools.baggage[i]) out.push(pools.baggage[i]);
+    }
+    return out;
+}
+
 export function stage9EncounterPoints(name) {
     const sets = {
         frontToll: [[304990, 125], [305000, 205], [305115, 160], [305270, 110],
             [305310, 215], [305440, 145], [305520, 75], [305545, 245]],
         frontForecourt: [[305760, 85], [305780, 245], [305900, -90], [305960, 315],
             [306080, 70], [306160, 250], [306290, 145], [306400, 235], [306470, 75]],
-        interiorCheckin: [[312270, 285], [312150, 280], [312260, 180], [312140, 170],
-            [312280, 80], [312170, 75], [312120, -100], [312270, -105], [312115, 30]],
+        interiorCheckin: stage9InteriorWave1Points().map((p) => [p.x, p.z]),
         // 60 robot ruang tunggu (permintaan user 2026-08-27): titik lahirnya
         // adalah LORONG kisi kursi, jadi seluruh gelombang berdiri di antara
         // bank kursi alih-alih di tepi aula.

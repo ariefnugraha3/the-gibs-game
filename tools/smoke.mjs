@@ -14901,6 +14901,7 @@ if (false) {
         const security = zone('security-screening');
         const checkin = zone('checkin-hall');
         const baggage = zone('baggage-reclaim');
+        const northCafe = layout.zones.find(z => z.kind === 'cafe' && z.row === 'north');
         const contains = (z, p) => !!z && Math.abs(p.x - z.x) <= z.hx
             && Math.abs(p.z - z.z) <= z.hz;
         const amenityKinds = ['souvenir', 'restaurant', 'cafe', 'toilet'];
@@ -14908,14 +14909,14 @@ if (false) {
             departure.x < security.x && security.x < checkin.x
             && baggage.x > security.x && baggage.z < security.z
             && contains(checkin, s9w.S9_BUILDING_START)
-            && contains(checkin, s9w.S9_INTERIOR_CHECKPOINT)
+            && contains(northCafe, s9w.S9_INTERIOR_CHECKPOINT)
             && contains(departure, s9w.S9_BUILDING_EXIT)
             && amenityKinds.every(kind => layout.amenityRows.north.includes(kind)
                 && layout.amenityRows.south.includes(kind)));
         {
         // ---- SUNTINGAN DENAH CSV CHAPTER 2 (2026-08-26, permintaan user) ----
         // '@' obstacle yang benar-benar tak bisa dilewati, '=' tembok bolong yang
-        // benar-benar bisa dilewati, dan 'P' pindah ke sel (21,3).
+        // benar-benar bisa dilewati, dan 'P' berada di toko/kafe samping toilet.
         const P = cfgMod.CFG.player.radius;
         const inter = w9.complexity.interior;
         const cellKey = ([c, r]) => `${c},${r}`;
@@ -14924,7 +14925,8 @@ if (false) {
         T('S9 CH2 GRID: sel denah, penanda P dan tabel obstacle sinkron dengan dunia',
             inter.grid.cell === s9w.S9_INTERIOR_CELL
             && inter.grid.cols === 33 && inter.grid.rows === 54
-            && inter.grid.checkpointCell.join() === '21,3'
+            && inter.grid.checkpointCell.join() === s9w.S9_INTERIOR_WAVE2_TRIGGER_CELL.join()
+            && inter.grid.checkpointCell.join() === '15,3'
             && tableCells.length === 28
             && builtCells.join() === tableCells.join());
         // Tiap sel '@' padat, dan DUA dinding perabot benar-benar menyegel: muka
@@ -15508,25 +15510,82 @@ if (false) {
         && lights9.stageLightsDebug().active === s9w.S9_FRONT_KEY
         && stateMod.cinematicActive && robots9().length > 0);
     drain9();
-    T('S9 ROBOT DENSITY: populasi awal Chapter 1 persis mengikuti tabel encounter config',
-        robots9().length === encounterTotal9('frontToll'));
-    T('S9 CH1 AGGRO: seluruh robot wave awal langsung mengejar tanpa menunggu masuk layar',
-        robots9().length > 0 && robots9().every(bot => bot.state === 'chasing'));
+    T('S9 CH1 PREPLACE: kedua populasi sudah lengkap sebelum player mendapat kontrol',
+        robots9().length === encounterTotal9('frontToll')
+            + encounterTotal9('frontForecourt')
+        && encounterTotal9('frontToll') + encounterTotal9('frontForecourt') === 100);
+    T('S9 CH1 DORMAN: seluruh robot diam sampai pertama kali masuk layar player',
+        robots9().length > 0 && robots9().every(bot => bot.state === 'idle'));
     {
-        // SPAWN DI LUAR LAYAR + GELEMBUNG 15 M (2026-08-25, permintaan user):
-        // saat play dimulai tidak boleh ada robot berdiri di depan mata player,
-        // dan tidak boleh ada yang lahir di dalam frustum kamera.
+        // Seluruh populasi sudah ada sebelum gameplay dan menempati hanya
+        // koridor aspal/trotoar, bukan parkiran atau forecourt samping.
         const place = s9.stage9Debug().spawnPlacement;
         const toll = place.encounters.frontToll;
+        const forecourt = place.encounters.frontForecourt;
         const spread = new Set(robots9().map(bot =>
             `${Math.round(bot.mesh.position.x / 20)},${Math.round(bot.mesh.position.z / 20)}`));
-        T('S9 CH1 SPAWN: wave awal lahir di luar frustum kamera dan di luar gelembung '
-            + C9.spawnClearMeters + ' m, tanpa menumpuk',
-        place.clearRadius === C9.spawnClearMeters * cfgMod.CAMP_M
-            && toll.total === encounterTotal9('frontToll')
-            && toll.inView === 0
-            && toll.minPlayerDist >= place.clearRadius
-            && spread.size >= 12);
+        const safeSamples = Array.from({ length: 21 }, (_, i) => ({
+            x: s9w.S9_START.x + s9w.S9_FRONT_SAFE_UNITS * i / 20,
+            z: s9w.S9_START.z,
+        }));
+        T('S9 CH1 APPROACH: jalan awal bertambah tepat 20 meter dan seluruhnya beraspal',
+            s9w.S9_FRONT_SAFE_METERS === 20
+            && s9w.S9_FRONT_SAFE_UNITS === 20 * cfgMod.CAMP_M
+            && s9w.S9_FRONT_SAFE_END.x - s9w.S9_START.x === s9w.S9_FRONT_SAFE_UNITS
+            && safeSamples.every(p => s9w.stage9FrontRoadSurface(p.x, p.z, 0)
+                && s9w.stage9FrontWalkable(p.x, p.z, cfgMod.CFG.player.radius)));
+        T('S9 CH1 SEBARAN: semua robot memenuhi aspal/trotoar dari tol sampai terminal',
+        toll.total === encounterTotal9('frontToll')
+            && forecourt.total === encounterTotal9('frontForecourt')
+            && toll.preplaced === toll.total && forecourt.preplaced === forecourt.total
+            && toll.onFrontRoad === toll.total && forecourt.onFrontRoad === forecourt.total
+            && toll.x0 < s9w.S9_FRONT_CHECKPOINT.x
+            && forecourt.x1 > s9w.S9_FRONT_CHECKPOINT.x
+            && forecourt.x1 - toll.x0 > 1300
+            && spread.size >= 55
+            && robots9().every(bot => s9w.stage9FrontRoadSurface(
+                bot.mesh.position.x, bot.mesh.position.z, 5.5)
+                && !s9w.stage9BlockedAt(bot.mesh.position.x, bot.mesh.position.z, 5.5)));
+        T(`S9 CH1 SAFE START: 20 meter pertama kosong dan gerombolan belum terlihat saat mulai `
+            + `[view ${toll.inView + forecourt.inView}, min `
+            + `${Math.min(toll.minPlayerDist, forecourt.minPlayerDist).toFixed(1)}, `
+            + `safe ${s9w.S9_FRONT_SAFE_UNITS}]`,
+            toll.inView === 0 && forecourt.inView === 0
+            && Math.min(toll.minPlayerDist, forecourt.minPlayerDist)
+                >= s9w.S9_FRONT_SAFE_UNITS
+            && robots9().every(bot => bot.mesh.position.x >= s9w.S9_FRONT_SAFE_END.x));
+    }
+    {
+        const dialogueWasVisible = s9.stage9Debug().dialogue.key === 'outsideCommand'
+            && !s9rt.stage9DialogueIdle();
+        for (const bot of robots9()) {
+            bot.state = 'chasing';
+            bot.moving = true;
+            bot.aiming = true;
+            s9.frontScene.robotAI(bot, 0.1, 6);
+        }
+        const dialogueLockedAll = robots9().every(bot => bot.state === 'idle'
+            && !bot.moving && !bot.aiming && bot.stage9DialogueLocked === true);
+        const offscreen = robots9().find(bot => !s9rt.stage9RobotInView(bot));
+        const visible = robots9().find(bot => bot !== offscreen);
+        T('S9 CH1 KUNCI DIALOG: selama outsideCommand tampil semua 100 robot dipaksa idle',
+            dialogueWasVisible && dialogueLockedAll);
+        for (let i = 0; i < 200 && !s9rt.stage9DialogueIdle(); i++) tick9(0.25);
+        const dialogueGone = s9rt.stage9DialogueIdle();
+        const offscreenIdle = !!offscreen
+            && (s9.frontScene.robotAI(offscreen, 0.1, 6), offscreen.state === 'idle');
+        stand9(visible.mesh.position);
+        s9.frontScene.robotAI(visible, 0.1, 6);
+        const wokeOnScreen = visible.state === 'chasing';
+        const populationBeforeMarker = robots9().length;
+        stand9(s9w.S9_FRONT_CHECKPOINT); tick9(0.2);
+        T('S9 CH1 AKTIVASI LAYAR: sesudah dialog hilang robot luar layar diam, lalu bangun saat terlihat',
+            dialogueGone && offscreenIdle && wokeOnScreen);
+        T('S9 CH1 TANPA TRIGGER KUNING: melewati checkpoint tidak membuat wave baru',
+            s9.stage9Debug().phase === 'frontRoad'
+            && robots9().length === populationBeforeMarker
+            && s9.stage9Debug().spawnPlacement.encounters.frontForecourt.preplaced
+                === encounterTotal9('frontForecourt'));
     }
     T('S9 CH1 LOOT RUNTIME: semua loot box parkiran benar-benar di-spawn',
         crate5Mod.crates.length === C9.lootboxCount);
@@ -15548,22 +15607,20 @@ if (false) {
             !!spot && Math.abs(faded - cfgMod.CFG.campaign.occlusion.opacity) < 1e-6);
     }
     kill9();
-    stand9(s9w.S9_BUILDING_ENTRY); tick9(0.3);
-    const frontGateHeld = s9.stage9Debug().phase === 'frontToll';
+    stand9(s9w.S9_BUILDING_ENTRY); tick9(0.01);
+    const frontGateHeld = s9.stage9Debug().phase === 'frontExit';
     stand9(s9w.S9_FRONT_CHECKPOINT); tick9(0.3);
     let d9 = s9.stage9Debug();
     T('S9 CHAPTER 1A: pintu terminal ditahan sampai toll access dilalui',
-        frontGateHeld && d9.phase === 'frontForecourt'
-        && d9.encounters.frontForecourt === encounterTotal9('frontForecourt')
-        && robots9().every(bot => bot.encounter !== 'frontForecourt'
-            || bot.state === 'chasing'));
+        frontGateHeld && d9.phase === 'frontExit'
+        && d9.encounters.frontForecourt === 0 && robots9().length === 0);
     {
-        // Gelombang kedua lahir SAAT player menonton: aturan luar-layar justru
-        // paling penting di sini, karena robot pop-in terbaca sebagai bug.
+        // Wave forecourt sudah ikut pre-place saat enter; checkpoint hanya
+        // sebuah koordinat dunia dan tidak lagi memiliki efek spawn.
         const wave = s9.stage9Debug().spawnPlacement.encounters.frontForecourt;
-        T('S9 CH1 SPAWN 2: gelombang forecourt juga lahir di luar penglihatan kamera',
-            wave.total === encounterTotal9('frontForecourt') && wave.inView === 0
-            && wave.minPlayerDist >= s9.stage9Debug().spawnPlacement.clearRadius);
+        T('S9 CH1 WAVE 2: populasi forecourt berasal dari pre-place awal, bukan marker',
+            wave.total === encounterTotal9('frontForecourt')
+            && wave.preplaced === wave.total && wave.onFrontRoad === wave.total);
     }
     kill9();
     stand9(s9w.S9_BUILDING_ENTRY);
@@ -15579,10 +15636,27 @@ if (false) {
         && scene.background.getHex() === s9w.S9_INTERIOR_ENV.background
         && scene.fog.color.getHex() === s9w.S9_INTERIOR_ENV.fogColor);
 
+    {
+        const firstWave = robots9().filter(b => b.encounter === 'interiorCheckin');
+        const areas = firstWave.map(b => s9w.stage9InteriorWave1AreaAt(
+            b.mesh.position.x, b.mesh.position.z));
+        T('S9 CH2 WAVE 1: robot awal hanya di counter dan belt bagasi yang bisa dicapai player',
+            firstWave.length === encounterTotal9('interiorCheckin')
+            && areas.every(Boolean)
+            && new Set(areas).has('counter') && new Set(areas).has('baggage')
+            && firstWave.every(b => s9w.stage9InteriorReachable(
+                b.mesh.position.x, b.mesh.position.z))
+            && s9.stage9Debug().spawnPlacement.encounters.interiorCheckin.inView === 0);
+    }
     kill9();
+    const formerTrigger = s9w.s9InteriorCellPos(21, 3);
+    stand9(formerTrigger); tick9(0.3);
+    T('S9 CH2 WAVE 2: titik lama di sisi timur toilet tidak lagi memicu ruang tunggu',
+        s9.stage9Debug().phase === 'interiorCheckin'
+        && (s9.stage9Debug().encounters.interiorConcourse || 0) === 0);
     stand9(s9w.S9_INTERIOR_CHECKPOINT); tick9(0.3);
     d9 = s9.stage9Debug();
-    T('S9 CHAPTER 2A: check-in/security membuka encounter concourse kedua',
+    T('S9 CHAPTER 2A: toko di samping toilet membuka encounter ruang tunggu',
         d9.phase === 'interiorConcourse'
         && d9.encounters.interiorConcourse === encounterTotal9('interiorConcourse'));
     {
@@ -15591,12 +15665,8 @@ if (false) {
         // bukan tersebar ke aula check-in atau ruang security.
         const ox = s9w.S9_INTERIOR_ORIGIN.x;
         const seatBots = robots9().filter(b => b.encounter === 'interiorConcourse');
-        const x0 = Math.min(...s9w.S9_SEAT_XS) - 60, x1 = Math.max(...s9w.S9_SEAT_XS) + 80;
-        const z0 = Math.min(...s9w.S9_SEAT_ZS) - 70, z1 = Math.max(...s9w.S9_SEAT_ZS) + 70;
-        const strayed = seatBots.filter(b => {
-            const dx = b.mesh.position.x - ox, dz = b.mesh.position.z;
-            return dx < x0 || dx > x1 || dz < z0 || dz > z1;
-        });
+        const strayed = seatBots.filter(b => !s9w.stage9InteriorWaitingAreaAt(
+            b.mesh.position.x, b.mesh.position.z));
         const spread = new Set(seatBots.map(b =>
             `${Math.round((b.mesh.position.x - ox) / 40)},${Math.round(b.mesh.position.z / 40)}`));
         T(`S9 CH2 KURSI TUNGGU: ${encounterTotal9('interiorConcourse')} robot lahir di antara `
@@ -18125,7 +18195,7 @@ if (false) {
     };
     const killMeter12 = meter => {
         for (let i = robots.length - 1; i >= 0; i--) {
-            const rig = robots[i].stage11ForestVehicle;
+            const rig = robots[i].stage11Vehicle;
             if (robots[i].stage !== 11 || rig?.meter !== meter) continue;
             scene.remove(robots[i].mesh); robots.splice(i, 1);
         }
@@ -18143,7 +18213,8 @@ if (false) {
         s11.stage11WorldBuilt() && d12.worlds.forest.built
         && d12.worlds.surface.built && d12.worlds.root.built
         && d12.worlds.forest.origin.x === s11.S11_FOREST_ORIGIN.x
-        && d12.worlds.surface.origin.x === 390000 && d12.worlds.root.origin.x === 400000
+        && d12.worlds.surface.origin.x === s11.S11_SURFACE_ORIGIN.x
+        && d12.worlds.root.origin.x === 400000
         && d12.warden.built);
     T('S11 BAB 1: masuk stage = penerjunan hutan, hanya root forest yang terlihat',
         d12.chapter === 'forest' && d12.sub === 'campaign-11-forest'
@@ -18496,6 +18567,57 @@ if (false) {
 
     const mg250 = d12.forest.vehicles.rigs.find(r => r.meter === 250
         && r.type === 'machineGun');
+    const hitCfg11 = C11.forestVehicles.hitReaction;
+    T('S11 MOBIL HIT FX: flash, ring, spark dan HP bar diprebuild tanpa PointLight',
+        d12.forest.vehicles.hitReaction.prebuiltPerVehicle
+        && d12.forest.vehicles.hitReaction.pointLights === 0
+        && d12.forest.vehicles.hitReaction.sparksPerVehicle === hitCfg11.sparkCount
+        && d12.forest.vehicles.hitReaction.footprint.oriented
+        && d12.forest.vehicles.hitReaction.footprint.source
+            === 'stage7-pickup-dimensions');
+    // Bidik KAP DEPAN yang jauh dari lingkaran kecil robot di bak. Versi lama
+    // membiarkan segmen ini lewat; footprint OBB Stage-7 harus menahannya.
+    const hitLen11 = d12.forest.vehicles.hitReaction.footprint.lengthUnits;
+    const hitWid11 = d12.forest.vehicles.hitReaction.footprint.widthUnits;
+    const hoodLocalX11 = hitLen11 * .38;
+    const cyHit11 = Math.cos(mg250.yaw), syHit11 = Math.sin(mg250.yaw);
+    const carWorld11 = (lx, lz) => ({
+        x: mg250.x + lx * cyHit11 + lz * syHit11,
+        z: mg250.z - lx * syHit11 + lz * cyHit11,
+    });
+    const hoodA11 = carWorld11(hoodLocalX11, -hitWid11),
+        hoodB11 = carWorld11(hoodLocalX11, hitWid11);
+    const hoodDir11 = new THREE.Vector3(hoodB11.x - hoodA11.x, 0,
+        hoodB11.z - hoodA11.z).normalize();
+    const hoodDamage11 = 37, hpBeforeHood11 = mg250.hp;
+    const hoodBullet11 = {
+        px: hoodA11.x, py: 6, pz: hoodA11.z,
+        damage: hoodDamage11, explosive: false, dir: hoodDir11,
+        mesh: { position: new THREE.Vector3(hoodB11.x, 6, hoodB11.z) },
+    };
+    const hoodHit11 = s11.stage11Scene.bulletBlocked(hoodBullet11);
+    let hoodReact11 = s11.stage11WorldDebug().forest.vehicles.rigs
+        .find(r => r.id === mg250.id);
+    T('S11 MOBIL HITBOX: peluru pada kap/badan mobil mengurangi HP dan berhenti di footprint',
+        hoodHit11 && hoodReact11.hp === hpBeforeHood11 - hoodDamage11
+        && hoodReact11.hitCount === 1
+        && hoodReact11.lastHitDamage === hoodDamage11
+        && hoodReact11.hitFxVisible && hoodReact11.hitFlashVisible
+        && hoodReact11.hitRingVisible && hoodReact11.hitSparksVisible > 0
+        && hoodReact11.hitHpBarVisible
+        && hitLen11 > hitWid11
+        && Math.hypot(hoodBullet11.mesh.position.x - hoodA11.x,
+            hoodBullet11.mesh.position.z - hoodA11.z)
+            < Math.hypot(hoodB11.x - hoodA11.x, hoodB11.z - hoodA11.z));
+    tick12(.08, .04);
+    hoodReact11 = s11.stage11WorldDebug().forest.vehicles.rigs
+        .find(r => r.id === mg250.id);
+    T('S11 MOBIL REAKSI HIT: suspensi menghentak, bodi miring dan HP bar menunjukkan damage',
+        hoodReact11.bodyY > 0
+        && (Math.abs(hoodReact11.bodyPitch) > 0
+            || Math.abs(hoodReact11.bodyRoll) > 0)
+        && hoodReact11.hitSparksVisible > 0
+        && hoodReact11.hitHpFraction === hoodReact11.hp / hoodReact11.maxHp);
     // Dekat secara jarak tetapi sudah berada di belakang kamera: mobil tidak
     // boleh menembak sampai siluetnya benar-benar masuk frustum player.
     stand12(s11.stage11ForestPointAtMeter(290)); tick12(.5, .05);
@@ -18762,257 +18884,544 @@ if (false) {
     d12 = s11.stage11WorldDebug();
     const cityCam11 = d12.surface.camera;
     T('S11 BAB 2 KAMERA: melihat dari kanan bawah dan jalur IKN menuju kiri atas',
-        s11.stage11Scene.camOffset === s11.STAGE11_CHAPTER_CAMERA
+        JSON.stringify(cityCam11.offset)
+            === JSON.stringify({ ...s11.STAGE11_CHAPTER_CAMERA })
         && cityCam11.corner === 'lower-right'
         && cityCam11.offset.x > 0 && cityCam11.offset.z > 0
-        && cityCam11.progress.up > 0 && cityCam11.progress.left > 0);
+        && cityCam11.progress.up > 0 && cityCam11.progress.left > 0
+        // Zoom tempur memakai RASIO config, bukan offset absolutnya, supaya
+        // azimuth bab 2/3 tidak berpindah sudut saat mobil senjata muncul.
+        && cityCam11.pasupatiScale
+        && cityCam11.zoomFromConfigRatio.plan
+            === Math.hypot(C11.forestVehicles.camera.combat.x,
+                C11.forestVehicles.camera.combat.z)
+                / Math.hypot(C11.forestVehicles.camera.normal.x,
+                    C11.forestVehicles.camera.normal.z)
+        && cityCam11.combat.x > cityCam11.base.x
+        && cityCam11.combat.y > cityCam11.base.y);
 
-    // Pylon dihancurkan lewat hook peluru NYATA, sama seperti fabricator.
-    const smashPylons12 = () => {
-        let hit = 0;
-        for (const p of s11.stage11SurfaceAuthorityDebug().pylons) {
-            if (!p.alive) continue;
-            if (s11.stage11Scene.bulletBlocked({
-                px: p.x, pz: p.z, damage: 1e6, explosive: true,
-                mesh: { position: { x: p.x, y: 0, z: p.z } },
-            })) hit++;
+    // ---- (3a) JARINGAN JALAN: denah dari screenshot user -------------------
+    const CITY11 = d12.worlds.surface;
+    const ROADS11 = CITY11.roads;
+    const CA11 = C11.cityAxis;
+    T(`S11 KOTA: start ke markas musuh TEPAT ${C11.cityAxis.spanMeters} m, dan seluruh skala diturunkan dari itu`,
+        ROADS11.spanMeters === CA11.spanMeters
+        && Math.abs(ROADS11.startToHqMeters - CA11.spanMeters) < 0.01
+        && Math.abs(ROADS11.unitsPerPx
+            - CA11.spanMeters * cfgMod.CAMP_M
+                / Math.hypot(450 - 255, 163 - 826)) < 1e-9
+        // Lebar jalan diukur dalam UNIT, jadi memendekkan peta tidak boleh ikut
+        // menyempitkan jalan raya (~26 m).
+        && ROADS11.widths.main * 2 / cfgMod.CAMP_M > 20
+        && ROADS11.roadMeters > CA11.spanMeters * 3
+        // Bundaran dan pelataran markas adalah fitur PETA, jadi ikut menyusut
+        // bersama peta: kalau tidak, satu bundaran bisa menelan jalan masuknya.
+        && ROADS11.roundabouts.every(r => ROADS11.edges
+            .filter(e => e.a === r.id || e.b === r.id)
+            .every(e => e.len > e.w * 2))
+        && ROADS11.apron > 0);
+    // "Tidak perlu menghancurkan SEMUA blokade": jumlah blokade yang benar-benar
+    // dipaksakan layout diukur (Dijkstra atas grafik jalan), bukan diklaim.
+    T('S11 BLOKADE: sebagian besar blokade OPSIONAL — markas tidak menuntut semuanya',
+        ROADS11.minBlockadesToHq >= 1
+        && ROADS11.minBlockadesToHq * 3 <= ROADS11.blockades.length);
+    T('S11 KOTA: ada persimpangan, dua bundaran DAN jalan buntu sungguhan',
+        ROADS11.edgeCount >= 40
+        && ROADS11.roundabouts.length === 2
+        && ROADS11.junctions.length >= 8
+        // S dan HQ memang terminal; sisanya jalan buntu yang disengaja.
+        && ROADS11.deadEnds.filter(n => n !== 'S' && n !== 'HQ').length >= 3);
+    // Player hanya boleh berada di aspal: uji di tengah tiap ruas dan di tanah
+    // 60 unit di luar bahunya.
+    let onRoad11 = 0, offRoad11 = 0;
+    for (const e of ROADS11.edges) {
+        const mx = (e.ax + e.bx) * .5, mz = (e.az + e.bz) * .5;
+        const nx = -(e.bz - e.az) / e.len, nz = (e.bx - e.ax) / e.len;
+        if (s11.stage11CityWalk(mx, mz, player.radius)) onRoad11++;
+        if (!s11.stage11CityWalk(mx + nx * (e.w + 60), mz + nz * (e.w + 60),
+            player.radius)) offRoad11++;
+    }
+    // Marka jalan tidak boleh dicat menembus persimpangan: satu garis putus
+    // yang melintang di mulut simpang persis terbaca sebagai belokan yang tidak
+    // menyambung.
+    let markOnCrossing11 = 0;
+    for (const e of ROADS11.edges) {
+        const n = Math.max(1, Math.floor(e.len / 90));
+        for (let i = 0; i < n; i++) {
+            const t = (i + .5) / n;
+            const x = e.ax + (e.bx - e.ax) * t, z = e.az + (e.bz - e.az) * t;
+            if (s11.stage11CityCrossingAsphalt(e.index, x, z)) markOnCrossing11++;
         }
-        return hit;
-    };
-
-    // (3a) Tiga AUTHORITY PYLON menggantikan lorong lurus lima gelombang.
-    const CA11 = C11.civicAxis;
-    const auth0 = s11.stage11SurfaceAuthorityDebug();
-    const play11 = d12.worlds.surface.playBounds;
-    const axisMidZ11 = (play11.z0 + play11.z1) * .5;
-    T('S11 PYLON: tiga pylon config, prebuilt, berselang-seling di luar garis tengah',
-        auth0.built && auth0.prebuilt && auth0.configOwned
-        && auth0.count === CA11.pylons.length && auth0.count === 3
-        && auth0.pylonHp === CA11.pylonHp
-        && auth0.pylons.every((p, i) => p.x === CA11.pylons[i].x
-            && p.z === CA11.pylons[i].z && p.alive && p.hp === CA11.pylonHp)
-        // Berselang-seling sisi: rute jadi zig-zag, bukan garis lurus.
-        && auth0.pylons.every((p, i) => i === 0
-            || Math.sign(p.z - axisMidZ11) !== Math.sign(auth0.pylons[i - 1].z - axisMidZ11))
-        && auth0.pylons.every((p, i) => i === 0 || p.x < auth0.pylons[i - 1].x)
-        && d12.worlds.surface.semantic['authority-pylon'] === 3
-        && d12.worlds.surface.semantic['civic-lockdown-curtain'] === 3
-        && d12.worlds.surface.semantic['suppression-sweep'] === 1);
-    // Tiap pylon dijaga SATU formasi config utuh; tak ada lagi batch terakhir
-    // berisi satu robot yang jadi pertarungan terakhir sebelum bos.
-    const pq11 = d12.surface.pylonQueues;
-    T('S11 PYLON: satu formasi config per pylon, dan tak ada batch akhir sisa satu',
-        pq11.length === C11.encounters.civicAxis.length
-        && pq11.every((q, i) => {
-            const w = C11.encounters.civicAxis[i];
-            return q.configuredTotal === w.C + w.B + w.A;
-        })
-        && pq11.every(q => q.batchSizes[q.batchSizes.length - 1] >= 4));
-    // Pylon tak boleh berdiri di dalam cover/kolonade yang sudah ada.
-    let pylonClear11 = true;
-    for (const p of auth0.pylons) {
-        const probe = { x: p.x, y: cfgMod.CFG.player.eyeHeight, z: p.z };
-        if (!s11.stage11SurfaceWalk(p.x, p.z, player.radius)) pylonClear11 = false;
-        for (const other of auth0.pylons)
-            if (other !== p && Math.hypot(other.x - p.x, other.z - p.z) < 120)
-                pylonClear11 = false;
-        void probe;
     }
-    T('S11 PYLON: setiap pylon berdiri di area main dan terpisah dari yang lain',
-        pylonClear11);
-
-    // (3b) Sapuan suppression Warden.
-    const SUP11 = CA11.suppression;
-    const sup0 = s11.stage11SurfaceScanDebug();
-    T('S11 SUPPRESSION: dwell DITURUNKAN dari lebar/kecepatan dan melebihi lockSec',
-        sup0.built && sup0.prebuilt && sup0.configOwned
-        && sup0.dwellSec === 2 * SUP11.halfWidthUnits / SUP11.speedUnitsPerSec
-        && sup0.dwellExceedsLock && sup0.dwellSec > sup0.lockSec
-        // Yang digambar = yang menyakiti.
-        && sup0.drawnHalfWidth === SUP11.halfWidthUnits);
-    // Belum menyala selama warmup; sesudahnya menyapu segmen yang dikunci.
-    stand12({ x: 390600, z: axisMidZ11 }); tick12(SUP11.warmupSec - .4, .1);
-    const supWarm = s11.stage11SurfaceScanDebug();
-    tick12(1.2, .1);
-    const supLive = s11.stage11SurfaceScanDebug();
-    T('S11 SUPPRESSION: menyala hanya sesudah warmup, lalu menyapu segmen aktif',
-        !supWarm.armed && supLive.armed && supLive.visible
-        && supLive.x >= s11.stage11AuthoritySegment().x0 - 1
-        && supLive.x <= s11.stage11AuthoritySegment().x1 + 1);
-    // Terkena di ruang terbuka: kena damage HANYA sesudah lockSec.
-    const openZ11 = axisMidZ11;
-    const bandX11 = () => s11.stage11ScanBandX();
-    stand12({ x: bandX11(), z: openZ11 });
-    const hpBefore11 = player.hp; const dmg0 = s11.stage11SurfaceScanDebug().damageDealt;
-    tick12(SUP11.lockSec * .6, .05);
-    stand12({ x: bandX11(), z: openZ11 });
-    const midLock11 = s11.stage11SurfaceScanDebug();
-    for (let i = 0; i < 20; i++) { stand12({ x: bandX11(), z: openZ11 }); tick12(.05, .05); }
-    const afterLock11 = s11.stage11SurfaceScanDebug();
-    T('S11 SUPPRESSION: berdiri terbuka di dalam band baru menyakiti setelah lockSec',
-        midLock11.playerInside && !midLock11.playerSheltered
-        && midLock11.damageDealt === dmg0
-        && afterLock11.damageDealt > dmg0 && player.hp < hpBefore11);
-    // Cover adalah jawabannya: kolonade/planter memberi bayangan sepanjang sumbu.
-    const colZ11 = 195;
-    let shelter11 = null;
-    for (let i = 0; i < 12 && !shelter11; i++) {
-        const cx = 390410 - i * 47;
-        for (const s of [-1, 1])
-            if (s11.stage11ScanSheltered(cx + s * 26, colZ11, s)) {
-                shelter11 = { x: cx + s * 26, z: colZ11, dir: s }; break;
+    T('S11 MARKA: tidak ada marka yang dicat menembus persimpangan',
+        markOnCrossing11 > 0
+        && CITY11.semantic['road-segment'] === ROADS11.edgeCount);
+    T('S11 KOTA: jalan raya adalah SATU-SATUNYA permukaan yang bisa dilalui',
+        onRoad11 === ROADS11.edges.length && offRoad11 === ROADS11.edges.length
+        && !s11.stage11CityWalk(CITY11.bounds.x0 + 40, 0, player.radius));
+    // Bundaran: tembok tengahnya digambar tepat pada radius yang ditolak.
+    const RB11 = ROADS11.roundabouts[0];
+    const ringPt11 = { x: RB11.x + (RB11.inner + RB11.outer) * .5, z: RB11.z };
+    T('S11 BUNDARAN: pusatnya tertutup TEMBOK yang digambar, cincinnya bisa dilalui',
+        !s11.stage11CityWalk(RB11.x, RB11.z, player.radius)
+        && !s11.stage11CityWalk(RB11.x + RB11.inner * .5, RB11.z, player.radius)
+        && s11.stage11CityWalk(ringPt11.x, ringPt11.z, player.radius)
+        // Tembok itu juga menghentikan peluru dan garis pandang.
+        && s11.stage11CityIslandSegBlocked(RB11.x - RB11.outer, RB11.z,
+            RB11.x + RB11.outer, RB11.z)
+        && !s11.stage11CityIslandSegBlocked(RB11.x - RB11.outer,
+            RB11.z + RB11.outer + 40, RB11.x + RB11.outer, RB11.z + RB11.outer + 40)
+        && CITY11.semantic['roundabout-island'] === 2);
+    // Pagar trotoar: DIGAMBAR pada kontur predikat, nol blocker.
+    // Tidak boleh ada bentangan batas yang TANPA pagar: tiap titik tepat di luar
+    // koridor harus dekat sebuah run pagar, atau memang mulut simpang.
+    let unfenced11 = 0, boundarySamples11 = 0;
+    const nearRun11 = (x, z) => {
+        for (const r of CITY11.fence.runsList)
+            for (let i = 0; i < r.pts.length - 1; i++) {
+                const a = r.pts[i], b = r.pts[i + 1];
+                const dx = b.x - a.x, dz = b.z - a.z, den = dx * dx + dz * dz;
+                const t = den > 1e-9
+                    ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / den)) : 0;
+                const px = a.x + dx * t, pz = a.z + dz * t;
+                if ((x - px) ** 2 + (z - pz) ** 2 <= 26 * 26) return true;
             }
-    }
-    T('S11 SUPPRESSION: cover nyata memberi perlindungan, ruang terbuka tidak',
-        !!shelter11
-        && !s11.stage11ScanSheltered(shelter11.x, axisMidZ11, shelter11.dir)
-        && sup0.coverShadowUnits === SUP11.coverShadowUnits);
-
-    // (3c) Menghabisi robot TIDAK membuka descent; pylon-lah yang membukanya.
-    kill12(); tick12(.6, .1);
-    const beforePylons11 = s11.stage11WorldDebug();
-    T('S11 DESCENT: membunuh seluruh robot saja tidak membuka root access',
-        beforePylons11.surface.authority.destroyed === 0
-        && s11rt.phase === 'axisAssault'
-        && !beforePylons11.worlds.surface.descentOpen);
-    // Lockdown: SATU pylon jatuh -> tirainya naik dan batas jalan ikut pindah.
-    const smashOnePylon12 = () => {
-        const p = s11.stage11SurfaceAuthorityDebug().pylons.find(q => q.alive);
-        if (!p) return false;
-        return s11.stage11Scene.bulletBlocked({
-            px: p.x, pz: p.z, damage: 1e6, explosive: true,
-            mesh: { position: { x: p.x, y: 0, z: p.z } },
-        });
+        return false;
     };
-    const lockBefore11 = s11.stage11AuthorityLockdownX();
-    smashOnePylon12(); tick12(CA11.lockdown.closeSec + .3, .1);
-    const auth1 = s11.stage11SurfaceAuthorityDebug();
-    const curtainUp11 = auth1.curtains.filter(c => c.raised);
-    const wallX11 = s11.stage11AuthorityLockdownX();
-    const behind11 = { x: wallX11 + 60, y: cfgMod.CFG.player.eyeHeight, z: axisMidZ11 };
-    s11.stage11Scene.playerCollide(behind11, wallX11 - 30, axisMidZ11, 0);
-    T('S11 LOCKDOWN: pylon jatuh menaikkan tirai TERLIHAT dan menutup sumbu di belakang',
-        auth1.destroyed === 1 && wallX11 < lockBefore11
-        && wallX11 === auth1.pylons[0].x + CA11.lockdown.trailUnits
-        && curtainUp11.length === 1
-        && curtainUp11[0].y > curtainUp11[0].stowY
-        && Math.abs(curtainUp11[0].x - wallX11) < 1e-9
-        && s11.stage11WorldDebug().worlds.surface.lockdownLimit === wallX11
-        && behind11.x <= wallX11 + 1e-6
-        // Descent masih tertutup: dua pylon lagi masih berdiri.
-        && !s11.stage11WorldDebug().worlds.surface.descentOpen);
-
-    // (3d) Bab 2 tidak lagi datar: bank sisi adalah tanah tinggi yang bisa dipijak.
-    const TER11 = d12.worlds.surface.terrace;
-    let terraceMatch11 = true, terraceMono11 = true;
-    for (const s of TER11.drawnSteps)
-        if (Math.abs(s.drawnTop - s.fieldTop) > 1e-9) terraceMatch11 = false;
-    let prevH11 = -1;
-    for (let z = 0; z <= 300; z += 2) {
-        const h = s11.stage11Scene.groundHeight(390400, z, 0);
-        if (h < prevH11 - 1e-9) terraceMono11 = false;
-        prevH11 = h;
+    for (const e of ROADS11.edges) {
+        const tx = (e.bx - e.ax) / e.len, tz = (e.bz - e.az) / e.len;
+        const nx = -tz, nz = tx;
+        // Tepat DI LUAR koridor, yang kini mencakup trotoar: mengukur di
+        // `e.w + 3` membuat tiap sampel jatuh di dalam trotoar dan uji ini
+        // berhenti menguji apa pun.
+        const off = e.w + CITY11.sidewalk.units + 3;
+        for (let t = 0.08; t <= 0.92; t += 0.08) for (const side of [-1, 1]) {
+            const x = e.ax + (e.bx - e.ax) * t + nx * side * off;
+            const z = e.az + (e.bz - e.az) * t + nz * side * off;
+            boundarySamples11++;
+            // Mulut simpang memang harus terbuka; sisanya wajib berpagar.
+            if (s11.stage11CityWalkExcept(null, x, z, 0)) continue;
+            if (!nearRun11(x, z)) unfenced11++;
+        }
     }
-    T('S11 TERAS: permukaan yang DIGAMBAR persis sama dengan tinggi yang dipijak',
-        TER11.drawnSteps.length === TER11.steps * 2 + 2
-        && terraceMatch11 && terraceMono11
-        && TER11.atAxis === 0 && TER11.atPlayEdge === TER11.top
-        && TER11.top === 20
-        // Simetris: kedua bank sama tinggi.
-        && s11.stage11Scene.groundHeight(390400, 280, 0)
-            === s11.stage11Scene.groundHeight(390400, -280, 0)
-        // Poros upacara tetap rata; hanya sayapnya yang naik.
-        && s11.stage11Scene.groundHeight(390400, 0, 0) === 0
-        && s11.stage11Scene.groundHeight(390400, TER11.inner, 0) === 0
-        && s11.stage11Scene.groundHeight(390400, TER11.plateau, 0) === TER11.top);
-    // Kota latar harus tetap di luar area main yang sudah dilebarkan.
-    T('S11 TERAS: area main melebar sampai bank, tetapi tidak menyentuh kota latar',
-        play11.z1 >= TER11.plateau + 20 && play11.z0 <= -(TER11.plateau + 20)
-        && TER11.nearCityMinZ > play11.z1 + 40
-        && s11.stage11SurfaceWalk(390400, TER11.plateau + 20, player.radius)
-        && !s11.stage11SurfaceWalk(390400, TER11.nearCityMinZ, player.radius));
-    // Robot ikut naik: campaignRobotAI mem-pin groundY = 0, jadi scene harus
-    // menyinkronkannya SEBELUM delegasi atau musuh akan terbenam di teras.
-    kill12();
-    const upZ11 = TER11.plateau + 15;
-    common11.spawnCampaignRobot(390400, upZ11, 11, 'C', true);
-    const bot11 = robots[robots.length - 1];
-    s11.stage11Scene.robotAI(bot11, 1 / 60, 1);
-    T('S11 TERAS: robot yang naik ke bank berdiri di atasnya, bukan tenggelam',
-        bot11.groundY === TER11.top && bot11.baseY === TER11.top
-        && bot11.mesh.position.y === TER11.top);
-    kill12();
-    // Loot yang jatuh di bank tetap di bank.
-    const dropOnBank11 = s11.stage11Scene.clampDropPos(390400, upZ11);
-    T('S11 TERAS: loot yang jatuh di tanah tinggi tidak tenggelam ke plaza',
-        dropOnBank11.length === 3 && dropOnBank11[2] === TER11.top
-        && s11.stage11Scene.clampDropPos(390400, 0)[2] === 0);
-
-    // (3e) Tampilan kota 2045: bahasa fasad tunggal, bukan kompleks warisan.
-    const SKY11 = d12.worlds.surface.skyline;
-    const SEM11 = d12.worlds.surface.semantic;
-
-    // Arkade dan kolam memang tak berkaca; setiap BANGUNAN harus berkaca.
-    const cityBuildings11 = d12.worlds.surface.clusters
-        .filter(c => c.type !== 'colonnade' && c.type !== 'water-garden');
-    T('S11 KOTA 2045: seluruh skyline memakai bahasa kaca yang sama, tanpa atap kerucut',
-        SKY11.coneRoofs === 0
-        && !SKY11.heritageRoofMaterial
-        && cityBuildings11.length >= 45
-        && cityBuildings11.every(c => c.glazed > 0)
-        // Arketipe VERTIKAL wajib berpita banyak: itu yang membuat siluet
-        // kejauhan terbaca sebagai kota, bukan deretan kotak polos. Aula dan
-        // stasiun memang horizontal dan cukup satu bidang kaca besar.
-        && cityBuildings11.filter(c => ['ministry', 'skybridge', 'garden-tower',
-            'civic-spire', 'forest-terrace'].includes(c.type))
-            .every(c => c.glazed >= 3));
-    T('S11 KOTA 2045: plaza dihuni — tiang lampu, pepohonan, totem, shuttle, air taxi',
-        SEM11['civic-light-mast'] === 40
-        && SEM11['avenue-tree'] === 52
-        && SEM11['civic-totem'] === 8
-        && SEM11['civic-shuttle'] === 6
-        && SEM11['air-taxi-pad'] === 3
-        && SEM11['transit-viaduct'] === 2
-        && SEM11['civic-light-strip'] === 2 && SEM11['shuttle-lane'] === 1);
-    // ATURAN: yang BERVOLUME berdiri di luar batas jalan, yang di dalam RATA.
-    // Prop bervolume yang bisa ditembus adalah pelanggaran "yang digambar =
-    // yang menghalangi", dan cover pertarungan sudah diauthor terpisah.
-    const DRESS11 = d12.worlds.surface.plazaDressing;
-    T('S11 KOTA 2045: perabot bervolume di luar area jalan, hiasan di dalam tetap rata',
-        DRESS11.promenadeMinAbsZ > play11.z1
-        && DRESS11.promenadeMinAbsZ > Math.abs(play11.z0)
-        && DRESS11.inlayMaxY <= 2
-        // Berdiri di tepi bank: perabot promenade tetap dekat, bukan terbuang
-        // jauh ke latar belakang.
-        && DRESS11.promenadeMinAbsZ - play11.z1 < 30);
-    // Semua tambahan itu HIAS: geometri gameplay tidak boleh bergeser sedikit pun.
-    T('S11 KOTA 2045: dekorasi baru tidak menambah blocker, lampu, atau mengubah nav',
-        // cover 14 + kolonade 24 + pylon court 11 (satu celah masuk) + otoritas 3
-        d12.worlds.surface.blockerCount === 14 + 24 + 11 + 3
-        && d12.worlds.surface.lights.count === 2
-        && SEM11['integrated-cover'] === 14);
-    // Detail naik tajam, biaya draw call tidak: semuanya tetap lewat batcher.
-    T(`S11 KOTA 2045: detail dilas, bukan ditambahkan sebagai draw call [${d12.worlds.surface.weldedMeshes} dilas dari ${d12.worlds.surface.rawMeshes} mentah]`,
-        d12.worlds.surface.rawMeshes > 1500
-        && d12.worlds.surface.weldedMeshes <= 40
-        && d12.worlds.surface.chunks.length >= 12
-        // Baris terdekat kamera tetap rendah supaya tak menutupi player.
-        && d12.worlds.surface.cameraSideMaxTop < d12.worlds.surface.farMaxTop * .35);
-
-    // (3) Bab kota: tiga pylon otoritas, lalu turun ke root chamber.
-    for (let i = 0; i < 40 && s11rt.phase !== 'rootApproach'; i++) {
-        kill12();
-        stand12({ x: s11.S11_ROOT_COURT.x, z: s11.S11_ROOT_COURT.z });
-        tick12(0.5); smashPylons12(); tick12(0.3);
+    T('S11 TROTOAR: trotoar 1.5 m di kedua sisi, bisa dijalani, pagar di luarnya',
+        CITY11.sidewalk.meters === 1.5
+        && Math.abs(CITY11.sidewalk.units - 1.5 * cfgMod.CAMP_M) < 1e-9
+        && CITY11.sidewalk.walkable
+        // Trotoar sengaja SEDIKIT di bawah aspal, bukan sebidang: dua permukaan
+        // sebidang dengan warna berbeda dan tesselasi berbeda cuma "hampir sama"
+        // kedalamannya, dan itu berkedip di tiap bundaran.
+        && CITY11.sidewalk.kerbDropUnits > 0.2
+        && CITY11.sidewalk.kerbDropUnits < 1
+        // Jarak simpul permukaan jalan harus jauh di bawah jangkauan muzzle
+        // flash, atau cahayanya hanya menyala di tutup simpang yang padat simpul
+        // dan tampak sebagai lingkaran di aspal. Ambangnya DITURUNKAN dari
+        // lampunya sendiri, bukan diketik.
+        && wMod.muzzleDebug().range > 0
+        && CITY11.sidewalk.surfaceStepUnits <= wMod.muzzleDebug().range * 0.5
+        // Koridor = aspal + trotoar: tepat di dalam trotoar masih bisa dilalui,
+        // tepat di luarnya tidak, dan di situlah pagar berdiri.
+        && ROADS11.edges.every(e => {
+            const nx = -(e.bz - e.az) / e.len, nz = (e.bx - e.ax) / e.len;
+            const mx = (e.ax + e.bx) * .5, mz = (e.az + e.bz) * .5;
+            const inside = s11.stage11CityWalk(mx + nx * (e.w + 4),
+                mz + nz * (e.w + 4), player.radius);
+            const outside = s11.stage11CityWalk(
+                mx + nx * (e.w + CITY11.sidewalk.units + 8),
+                mz + nz * (e.w + CITY11.sidewalk.units + 8), player.radius);
+            return inside && !outside;
+        }));
+    // Tikungan dan jalan buntu: batas diambil dari SATU kontur per kapsul jalan,
+    // jadi garis lurus dan tutup ujungnya menyambung secara tangensial. Diukur
+    // dengan menyapu tutup ujung tiap simpul, bukan dengan menghitung run.
+    let unfencedCorner11 = 0, cornerSamples11 = 0;
+    for (const [name, node] of Object.entries(s11.S11_CITY_NODES)) {
+        if (node.island) continue;
+        let w = 0;
+        for (const e of ROADS11.edges)
+            if (e.a === name || e.b === name) w = Math.max(w, e.w);
+        if (!w) continue;
+        const r = w + CITY11.sidewalk.units;
+        for (let k = 0; k < 48; k++) {
+            const ang = k / 48 * Math.PI * 2;
+            const x = node.x + Math.cos(ang) * (r + 3);
+            const z = node.z + Math.sin(ang) * (r + 3);
+            // Mulut jalan memang terbuka; sisanya wajib berpagar.
+            if (s11.stage11CityWalkExcept(null, x, z, 0)) continue;
+            if (s11.stage11CityPastStartCut(x, z, 0)) continue;
+            cornerSamples11++;
+            if (!nearRun11(x, z)) unfencedCorner11++;
+        }
     }
-    const surfaceCleared = s11rt.phase === 'rootApproach'
-        && s11.stage11SurfaceAuthorityDebug().allDown;
+    // Ujung run yang tidak menyentuh run lain DAN tidak berdiri di mulut simpang
+    // adalah pagar yang putus di tengah belokan — persis yang terlihat di layar.
+    // Kontur dua kapsul yang BERSILANGAN masing-masing terpotong di sampel
+    // terakhirnya sendiri, jadi keduanya ditarik ke titik temu bersama.
+    T('S11 TIKUNGAN: tidak ada ujung pagar yang menggantung di persilangan jalan',
+        CITY11.fence.looseEnds === 0
+        && CITY11.fence.runsList.every(r => r.pts.length >= 2));
+    T('S11 TIKUNGAN: sisi luar tiap belokan dan tiap ujung buntu benar-benar tertutup',
+        cornerSamples11 > 400 && unfencedCorner11 === 0
+        && CITY11.fence.kinds.road > 0
+        && CITY11.fence.kinds.ring >= 2
+        && CITY11.fence.kinds.apron >= 1
+        // Kontur diambil per kapsul jalan, jadi tutup ujung memakai radius
+        // jalannya sendiri dan menyambung tangensial dengan garis lurusnya.
+        && CITY11.fence.sampleUnits <= 12
+        && CITY11.fence.postSpacing >= 20);
+
+    // Titik start: jalan TERUS ke belakang player dan ditutup palang lurus —
+    // bukan cul-de-sac bundar yang membuatnya terasa seperti ujung dunia.
+    const SB11 = CITY11.startStub, TAN11 = ROADS11.startTangent;
+    const behind11 = u => ({ x: ROADS11.start.x - TAN11.tx * u,
+        z: ROADS11.start.z - TAN11.tz * u });
+    const inFront11 = behind11(SB11.backUnits - 18);
+    const justPast11 = behind11(SB11.backUnits + 12);
+    const farBack11 = behind11(SB11.renderUnits * .6);
+    const cutRun11 = CITY11.fence.runsList.find(r => r.kind === 'start-cut');
+    T('S11 START: jalan terus ke belakang tetapi ditutup palang lurus, bukan bundaran buntu',
+        SB11.renderUnits > 400 && SB11.blockers === 0
+        && CITY11.semantic['start-approach'] === 1
+        && s11.stage11CityWalk(inFront11.x, inFront11.z, player.radius)
+        && !s11.stage11CityWalk(justPast11.x, justPast11.z, player.radius)
+        && !s11.stage11CityWalk(farBack11.x, farBack11.z, player.radius)
+        // Palangnya LURUS melintang jalan dan menutupi SELURUH koridor: disapu
+        // melintang tepat di depan garis potong, tiap titik yang masih bisa
+        // dilalui harus berada di dalam bentang palang.
+        && !!cutRun11
+        && (() => {
+            const a3 = cutRun11.pts[0], b3 = cutRun11.pts[cutRun11.pts.length - 1];
+            const len = Math.hypot(b3.x - a3.x, b3.z - a3.z);
+            const ux = (b3.x - a3.x) / len, uz = (b3.z - a3.z) / len;
+            const probe = behind11(SB11.backUnits - 3);
+            const nx = -TAN11.tz, nz = TAN11.tx;
+            for (let o = -260; o <= 260; o += 2) {
+                const x = probe.x + nx * o, z = probe.z + nz * o;
+                if (!s11.stage11CityWalk(x, z, player.radius)) continue;
+                const t = (x - a3.x) * ux + (z - a3.z) * uz;
+                if (t < -2 || t > len + 2) return false;
+            }
+            return len > (ROADS11.widths.main + CITY11.sidewalk.units) * 1.6;
+        })()
+        // Tidak ada busur tutup ujung di start: itulah bedanya dari jalan buntu.
+        && !CITY11.fence.runsList.some(r => r.kind === 'road'
+            && r.pts.some(q => Math.hypot(q.x - ROADS11.start.x,
+                q.z - ROADS11.start.z) < SB11.backUnits)));
+    T('S11 PAGAR: batas jalan adalah pagar yang DIGAMBAR, bukan dinding tak terlihat',
+        CITY11.fence.panels > 400 && CITY11.fence.runs > 40
+        && CITY11.fence.posts > 400
+        && CITY11.fence.insideViolations === 0
+        && CITY11.fence.blockers === 0
+        && CITY11.semantic['boundary-fence-run'] === CITY11.fence.runs
+        && boundarySamples11 > 800 && unfenced11 === 0);
+    // Semua dekorasi berdiri DI LUAR koridor dan tidak menambah satu collider.
+    T('S11 KOTA: gedung dan pohon berdiri di luar jalan dan tak satupun punya collider',
+        CITY11.districts.onRoadViolations === 0
+        && CITY11.districts.clusters >= 120
+        && CITY11.trees.count > 800 && CITY11.trees.blockers === 0
+        && CITY11.trees.instancedNodes === 3
+        && CITY11.skyline.coneRoofs === 0
+        && CITY11.clusters.every(c => c.glazed > 0 || c.type === 'colonnade'
+            || c.type === 'water-garden')
+        // Collider HANYA milik markas, fabricator, palang dan mobil senjata.
+        && Object.keys(CITY11.blockerKinds).sort().join(',')
+            === 'combat-vehicle,hq-gate-tower,hq-wall,spawn-machine,traffic'
+        && CITY11.lights.count === 2);
+
+    // Lalu lintas terbengkalai memakai rig kendaraan Stage 7 yang sama.
+    const TR11 = CITY11.traffic;
+    let trafficOverlap11 = 0, trafficSealed11 = 0, trafficOffRoad11 = 0;
+    for (let i = 0; i < TR11.records.length; i++) {
+        const a2 = TR11.records[i];
+        if (!s11.stage11CityWalk(a2.x, a2.z, 2)) trafficOffRoad11++;
+        for (let j = i + 1; j < TR11.records.length; j++) {
+            const b2 = TR11.records[j];
+            if ((a2.x - b2.x) ** 2 + (a2.z - b2.z) ** 2
+                < CA11.traffic.minGapUnits ** 2) trafficOverlap11++;
+        }
+        // Jalur bebas diukur ulang lewat predikat hidup, bukan dibaca dari
+        // catatan: kalau dunia dan uji ini tidak sepakat, itu yang harus gagal.
+        if (s11.stage11SurfaceFreeLane(a2.x, a2.z) < CA11.traffic.freeLaneUnits
+            || a2.freeLane < CA11.traffic.freeLaneUnits) trafficSealed11++;
+    }
+    T(`S11 LALU LINTAS: ${TR11.count} mobil dan bis terbengkalai, tak ada yang menutup jalannya`,
+        TR11.count >= CA11.traffic.count * .6
+        && TR11.assetSource.startsWith('stage7-roadVehicles')
+        && TR11.types.includes('bus') && TR11.types.includes('sedan')
+        && TR11.types.length >= 5
+        && CITY11.blockerKinds.traffic === TR11.count
+        && trafficOverlap11 === 0 && trafficOffRoad11 === 0
+        && trafficSealed11 === 0
+        // Dilas per chunk, bukan satu draw group per mobil — dan materialnya
+        // DIBAGI berdasarkan nilai: rig Stage 7 mencetak sembilan material baru
+        // tiap kendaraan, dan batcher mengelompokkan per INSTANCE material, jadi
+        // tanpa ini tiap mobil membawa draw group-nya sendiri.
+        && TR11.weldedInChunks && TR11.materials <= 24
+        && TR11.chunks * TR11.materials < TR11.count * 2
+        && TR11.chunks < TR11.count * .2);
+
+    // ---- (3a2) LOOT DAN PATROLI --------------------------------------------
+    // Bug lama: dua stride berbeda mengindeks satu daftar pendek titik, jadi
+    // titik yang sama dibagikan berkali-kali dan peti menumpuk di atas peti,
+    // juga di atas barel. Sekarang tiap konsumen mengambil irisan TERPISAH dari
+    // satu pool, dengan jarak minimum yang dipaksakan saat pool dibangun.
+    const ITEMS11 = d12.surface.items;
+    const itemPts11 = [
+        ...crate5Mod.crates.map(c => ({ x: c.x, z: c.z, kind: 'crate' })),
+        ...barrel5Mod.barrels.map(b => ({ x: b.x, z: b.z, kind: 'barrel' })),
+    ];
+    let minItemGap11 = Infinity, itemsOffRoad11 = 0;
+    for (let i = 0; i < itemPts11.length; i++) {
+        if (!s11.stage11CityWalk(itemPts11[i].x, itemPts11[i].z, 2)) itemsOffRoad11++;
+        for (let j = i + 1; j < itemPts11.length; j++)
+            minItemGap11 = Math.min(minItemGap11,
+                Math.hypot(itemPts11[i].x - itemPts11[j].x,
+                    itemPts11[i].z - itemPts11[j].z));
+    }
+    T(`S11 LOOT: ${C11.lootboxCount} peti tersebar dan tak ada dua item berbagi satu titik`,
+        crate5Mod.crates.length === C11.lootboxCount
+        && C11.lootboxCount === 100
+        && barrel5Mod.barrels.length === C11.barrelCount
+        && ITEMS11.spots >= C11.lootboxCount + C11.barrelCount
+        && minItemGap11 >= ITEMS11.minGapUnits - 1e-6
+        && itemsOffRoad11 === 0);
+
+    // Patroli tersebar: lahir DIAM, bangun saat masuk layar, dan tetap bangun.
+    const PAT11 = () => s11.stage11WorldDebug().surface.patrol;
+    const pat0 = PAT11();
+    const patrolBots11 = () => robots.filter(r => r.stage === 11
+        && r.encounter === 'city-patrol');
+    let minPatrolGap11 = Infinity;
+    const pb11 = patrolBots11();
+    for (let i = 0; i < pb11.length; i++)
+        for (let j = i + 1; j < pb11.length; j++)
+            minPatrolGap11 = Math.min(minPatrolGap11,
+                Math.hypot(pb11[i].mesh.position.x - pb11[j].mesh.position.x,
+                    pb11[i].mesh.position.z - pb11[j].mesh.position.z));
+    T('S11 PATROLI: robot tersebar di jalan, lahir DIAM dan berjarak',
+        pat0.placed === pat0.configured
+        && pat0.configured === ['C', 'B', 'A'].reduce((n, c) =>
+            n + CA11.patrol.robots[c], 0)
+        && pb11.length === pat0.configured
+        && pat0.dormant > pat0.configured * 0.6
+        && minPatrolGap11 >= CA11.patrol.minSpacingUnits * 0.5
+        && pb11.every(r => s11.stage11CityWalk(r.mesh.position.x,
+            r.mesh.position.z, player.radius)));
+    // Masuk layar = bangun. Yang di seberang kota tetap tidur.
+    const sleeper11 = patrolBots11().find(r => r.state === 'idle');
+    const farSleeper11 = patrolBots11().find(r => r.state === 'idle'
+        && r !== sleeper11
+        && Math.hypot(r.mesh.position.x - sleeper11.mesh.position.x,
+            r.mesh.position.z - sleeper11.mesh.position.z) > 1500);
+    // AI robot berjalan dari updateGame, bukan dari updateMode, jadi hook-nya
+    // dipanggil langsung: itu justru menguji predikat activate apa adanya.
+    stand12({ x: sleeper11.mesh.position.x, z: sleeper11.mesh.position.z });
+    s11.stage11Scene.robotAI(sleeper11, 1 / 60, 1);
+    s11.stage11Scene.robotAI(farSleeper11, 1 / 60, 1);
+    T('S11 PATROLI: baru mengejar setelah masuk area layar, yang jauh tetap diam',
+        pat0.activatesOnView && !!farSleeper11
+        && sleeper11.state !== 'idle' && farSleeper11.state === 'idle');
+
+    // ---- (3b) BLOKADE MUSUH ------------------------------------------------
+    const BL11 = () => s11.stage11CityBlockadesDebug();
+    const bl0 = BL11();
+    const vehicleSet11 = CA11.blockade.vehicles.map(v => v.blockade).sort((a, b) => a - b);
+    T('S11 BLOKADE: tiga belas blokade, dan mana yang bermobil DITURUNKAN dari satu tabel',
+        bl0.built && bl0.prebuilt && bl0.configOwned
+        && bl0.count === s11.S11_CITY_BLOCKADES.length && bl0.count === 13
+        && JSON.stringify(bl0.vehicleBlockades.slice().sort((a, b) => a - b))
+            === JSON.stringify(vehicleSet11)
+        && bl0.points.every(p => p.kind === (vehicleSet11.includes(p.index)
+            ? 'vehicle' : 'standard'))
+        && bl0.points.every(p => p.machines === (p.kind === 'vehicle'
+            ? CA11.blockade.vehicle.machines : CA11.blockade.standard.machines))
+        && bl0.points.every(p => JSON.stringify(p.robots)
+            === JSON.stringify(p.kind === 'vehicle'
+                ? CA11.blockade.vehicle.robots : CA11.blockade.standard.robots))
+        && bl0.machineHp === cfgMod.CFG.campaign.spawnMachine.hp
+        && CITY11.semantic['city-blockade'] === 13
+        && CITY11.vehicles.count === CA11.blockade.vehicles
+            .reduce((n, v) => n + v.vehicles.length, 0));
+    // Palang menutup SELEBAR jalan pada garis yang digambar, dan sumbunya
+    // diambil langsung dari tangen jalan (bukan bolak-balik lewat yaw).
+    let blSpan11 = true, blAxis11 = true, blGap11 = 0;
+    for (const p of bl0.points) {
+        const spec = s11.S11_CITY_BLOCKADES[p.index];
+        if (p.gateHalfWidth < p.w + CITY11.sidewalk.units) blSpan11 = false;
+        if (Math.abs(p.gateAxis.axx - spec.tx) > 1e-9
+            || Math.abs(p.gateAxis.axz - spec.tz) > 1e-9) blAxis11 = false;
+        // Sepanjang lebar jalan, tidak boleh ada satu titik pun yang lolos.
+        for (let o = -(p.w + CITY11.sidewalk.units); o <= p.w + CITY11.sidewalk.units; o += 2)
+            if (s11.stage11CityWalk(spec.x + spec.nx * o, spec.z + spec.nz * o,
+                player.radius)
+                && !s11.stage11CityGateBlocksMovement(spec.x + spec.nx * o,
+                    spec.z + spec.nz * o, player.radius)) blGap11++;
+    }
+    T('S11 BLOKADE: palang menutup seluruh lebar jalan pada garis yang digambar',
+        blSpan11 && blAxis11 && blGap11 === 0
+        && bl0.closedGates === 13);
+    // Bab 2 punya loop, jadi player bisa tiba dari SISI MANA SAJA: palang rel
+    // menghentikan gerak tetapi harus meneruskan peluru, atau fabricator di
+    // seberangnya tidak akan pernah bisa ditembak.
+    const gateProbe11 = s11.S11_CITY_BLOCKADES[7];
+    T('S11 BLOKADE: palang menghentikan GERAK tetapi bukan peluru',
+        bl0.barrierBlocksBullets === false
+        && s11.stage11CityGateBlocksMovement(gateProbe11.x, gateProbe11.z, 4)
+        && !s11.stage11Scene.blastBlocked(
+            gateProbe11.x - gateProbe11.tx * 60, gateProbe11.z - gateProbe11.tz * 60,
+            gateProbe11.x + gateProbe11.tx * 60, gateProbe11.z + gateProbe11.tz * 60));
+
+    // Arming: hanya yang dekat, dan tidak pernah lebih dari maxArmed sekaligus.
+    const nearBl11 = s11.S11_CITY_BLOCKADES[8];
+    stand12(nearBl11); tick12(.6, .1);
+    const blArmed = BL11();
+    let armedPeak11 = blArmed.armed;
+    for (const p of s11.S11_CITY_BLOCKADES) {
+        stand12(p); tick12(.4, .1);
+        armedPeak11 = Math.max(armedPeak11, BL11().armed);
+    }
+    T('S11 BLOKADE: hanya blokade di dekat player yang aktif, dibatasi maxArmed',
+        blArmed.armRangeUnits === CA11.blockade.armRangeUnits
+        && blArmed.maxArmed === CA11.blockade.maxArmed
+        && blArmed.points[nearBl11.index].armed
+        && armedPeak11 <= CA11.blockade.maxArmed
+        && blArmed.points.filter(p => !p.armed).length > 0);
+
+    // Menghancurkan fabricator SAJA tidak membuka blokade bermobil.
+    const smashMachines11 = idx => {
+        for (let n = 0; n < 30; n++) {
+            const p = BL11().points[idx];
+            if (p.machinesDown) return true;
+            let hit = 0;
+            for (const rig of p.rigs) if (rig.alive) {
+                if (s11.stage11Scene.bulletBlocked({
+                    px: rig.x, pz: rig.z, damage: 1e6, explosive: true,
+                    mesh: { position: { x: rig.x, y: 0, z: rig.z } },
+                })) hit++;
+            }
+            tick12(.2, .1);
+            if (!hit && !BL11().points[idx].machinesDown) return false;
+        }
+        return BL11().points[idx].machinesDown;
+    };
+    const killVehicles11 = idx => {
+        for (let i = robots.length - 1; i >= 0; i--) {
+            const rig = robots[i].stage11Vehicle;
+            if (robots[i].stage !== 11 || rig?.key !== idx) continue;
+            scene.remove(robots[i].mesh); robots.splice(i, 1);
+        }
+        tick12(.4, .1);
+    };
+    const carBl11 = vehicleSet11[vehicleSet11.length - 1];
+    stand12(s11.S11_CITY_BLOCKADES[carBl11]); tick12(.6, .1);
+    const machinesOnly11 = smashMachines11(carBl11);
+    const afterMachines11 = BL11().points[carBl11];
+    T('S11 BLOKADE: fabricator hancur SAJA tidak membuka jalan selama mobil hidup',
+        machinesOnly11 && afterMachines11.machinesDown
+        && afterMachines11.vehiclesLeft > 0
+        && !afterMachines11.cleared && afterMachines11.gateBlocked
+        && afterMachines11.gateRailY === 0
+        && afterMachines11.gateLampHex !== 0x2eff6a);
+    killVehicles11(carBl11);
+    tick12(CA11.blockade.gate.openSec + .4, .1);
+    const openedCar11 = BL11().points[carBl11];
+    T('S11 BLOKADE: mobil terakhir hancur baru membuka jalan, dan garnisunnya ikut runtuh',
+        openedCar11.cleared && !openedCar11.gateBlocked
+        && openedCar11.vehiclesLeft === 0
+        && openedCar11.gateRailY <= -CA11.blockade.gate.sinkUnits + 1e-6
+        && openedCar11.gateLampHex === 0x2eff6a
+        && CA11.blockade.collapseOnClear === true && openedCar11.alive === 0
+        && BL11().closedGates === 12);
+
+    // Blokade yang ditinggal jauh STAND DOWN lagi: tanpa itu `maxArmed` jadi
+    // ratchet satu arah dan garnisun yang dilewati ikut mengejar seluruh kota.
+    const standDownIdx11 = bl0.points.find(p => !p.cleared && p.index !== carBl11).index;
+    stand12(s11.S11_CITY_BLOCKADES[standDownIdx11]); tick12(.6, .1);
+    const armedNear11 = BL11().points[standDownIdx11].armed;
+    const liveNear11 = BL11().points[standDownIdx11].alive;
+    stand12(s11.S11_SURFACE_START); tick12(.6, .1);
+    const afterAway11 = BL11();
+    T('S11 BLOKADE: blokade yang ditinggal jauh berhenti aktif dan melepas jatahnya',
+        armedNear11 && liveNear11 > 0
+        && afterAway11.releaseRangeUnits > CA11.blockade.armRangeUnits
+        && !afterAway11.points[standDownIdx11].armed
+        && afterAway11.points[standDownIdx11].alive === 0
+        && afterAway11.standDowns >= liveNear11
+        && afterAway11.armed === 0);
+    T('S11 BLOKADE: kedatangan blokade pertama diumumkan sekali lewat radio',
+        s11.stage11WorldDebug().dialogue.seen.includes('roadBlockade'));
+
+    // ---- (3c) RUTE: palang benar-benar menutup jalan ke markas -------------
+    const cityReach11 = (withGates) => {
+        const B = s11.S11_CITY_BOUNDS, cell = 26;
+        const cols = Math.ceil((B.x1 - B.x0) / cell);
+        const rows = Math.ceil((B.z1 - B.z0) / cell);
+        const seen = new Uint8Array(cols * rows);
+        const okAt = (c, r) => {
+            if (c < 0 || r < 0 || c >= cols || r >= rows) return false;
+            const x = B.x0 + (c + .5) * cell, z = B.z0 + (r + .5) * cell;
+            if (!s11.stage11CityWalk(x, z, player.radius)) return false;
+            if (withGates && s11.stage11CityGateBlocksMovement(x, z, player.radius))
+                return false;
+            return true;
+        };
+        const idx = p => [Math.floor((p.x - B.x0) / cell),
+            Math.floor((p.z - B.z0) / cell)];
+        const start = idx(s11.S11_SURFACE_START);
+        if (!okAt(start[0], start[1])) return false;
+        const queue = [start[1] * cols + start[0]];
+        seen[queue[0]] = 1;
+        const goal = idx(s11.S11_DESCENT);
+        for (let head = 0; head < queue.length; head++) {
+            const cur = queue[head], c = cur % cols, r = (cur / cols) | 0;
+            if (c === goal[0] && r === goal[1]) return true;
+            for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nc = c + dc, nr = r + dr;
+                if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+                const ni = nr * cols + nc;
+                if (seen[ni] || !okAt(nc, nr)) continue;
+                seen[ni] = 1; queue.push(ni);
+            }
+        }
+        return false;
+    };
+    const reachableIgnoringGates11 = cityReach11(false);
+    const blockedByGates11 = !cityReach11(true);
+    T('S11 RUTE: markas TIDAK bisa dicapai selama palang masih tertutup',
+        reachableIgnoringGates11 && blockedByGates11);
+    // Buka kedua blokade yang menjaga pendekatan markas.
+    const hqGates11 = bl0.points
+        .filter(p => !p.cleared)
+        .map(p => ({ p, d: Math.hypot(p.x - s11.S11_DESCENT.x,
+            p.z - s11.S11_DESCENT.z) }))
+        .sort((a, b) => a.d - b.d).slice(0, 2).map(e => e.p.index);
+    for (const idx of hqGates11) {
+        stand12(s11.S11_CITY_BLOCKADES[idx]); tick12(.6, .1);
+        smashMachines11(idx); killVehicles11(idx);
+        tick12(CA11.blockade.gate.openSec + .4, .1);
+    }
+    const cityRouteCleared = hqGates11.every(i => BL11().points[i].cleared)
+        && cityReach11(true);
+    T('S11 RUTE: menghancurkan blokade penjaga markas membuka jalan ke sana',
+        cityRouteCleared
+        && BL11().cleared === hqGates11.length + 1
+        // Blokade di cabang dan jalan buntu memang boleh dilewati begitu saja.
+        && BL11().points.filter(p => !p.cleared).length
+            === 13 - hqGates11.length - 1);
+
+    kill12(); tick12(.4, .1);
+    const surfaceCleared = cityRouteCleared;
     const seenBeforeDescent = [...s11.stage11WorldDebug().dialogue.seen];
     const statsBeforeDescent = stateMod.stageStatsDebug();
     stateMod.updateStageStats(0.5);   // waktu berjalan
     stateMod.recordLootBoxDestroyed();   // satu peti sebelum turun: harus tetap terhitung
+    const standingBeforeDescent11 = s11.stage11CityBlockadesDebug()
+        .points.filter(p => !p.cleared).length;
     stand12(s11.S11_DESCENT); tick12(0.4);
     d12 = s11.stage11WorldDebug();
+    T('S11 SELESAI: sampai di markas mengakhiri bab meski blokade lain masih berdiri',
+        standingBeforeDescent11 >= 10
+        && d12.chapter === 'root' && d12.surface.descentCommitted);
     T('S11 BAB: statistik stage (waktu + lootbox) ikut menyeberang antar bab',
         stateMod.stageStatsDebug().stageId === statsBeforeDescent.stageId
         && stateMod.stageStatsDebug().active

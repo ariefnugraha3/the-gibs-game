@@ -37,12 +37,14 @@ import {
     clearStage11Robots,
 } from './runtime.js';
 import {
-    resetStage11ForestVehicles, updateStage11ForestVehicles,
-    cleanupStage11ForestVehicles, stage11ForestVehicleRobotAI,
-    stage11ForestVehiclesAllCleared, stage11ForestNearestVehicle,
-    stage11ForestVisibleVehicle, stage11ForestCheckpointCleared,
-    stage11ForestVehiclesDebug,
-} from './forestVehicles.js';
+    STAGE11_FOREST_VEHICLE_GROUP as VG,
+    resetStage11WeaponVehicles, updateStage11WeaponVehicles,
+    cleanupStage11WeaponVehicles, stage11WeaponVehicleRobotAI,
+    stage11WeaponVehicleBulletHit,
+    stage11WeaponVehiclesAllCleared, stage11NearestWeaponVehicle,
+    stage11VisibleWeaponVehicle, stage11WeaponVehicleGroupCleared,
+    stage11WeaponVehiclesDebug,
+} from './weaponVehicles.js';
 import {
     resetStage11ForestCheckpoints, updateStage11ForestCheckpoints,
     cleanupStage11ForestCheckpoints, stage11ForestCheckpointBulletHit,
@@ -92,10 +94,10 @@ function pointInForestView(x, z, y = 8) {
 }
 
 function updateCombatCamera(dt) {
-    if (combatMeter != null && stage11ForestCheckpointCleared(combatMeter))
+    if (combatMeter != null && stage11WeaponVehicleGroupCleared(VG, combatMeter))
         combatMeter = null;
     if (combatMeter == null) {
-        const visible = stage11ForestVisibleVehicle();
+        const visible = stage11VisibleWeaponVehicle(VG);
         if (visible) combatMeter = visible.meter;
     }
     const target = combatMeter == null ? 0 : 1;
@@ -186,14 +188,14 @@ function enterCity() {
     if (cityCommitted) return;
     cityCommitted = true; setStage11Phase('cityTransition');
     queueStage11Dialogue('perimeterSighted');
-    cleanupStage11ForestVehicles(); cleanupStage11ForestCheckpoints();
+    cleanupStage11WeaponVehicles(VG); cleanupStage11ForestCheckpoints();
     cleanupStage11ForestMortar();
     clearStage11Robots(); resetCrates(); resetBarrels();
     setCineFade(1, CFG.campaign.stage11.fadeSec);
     enterStage11Sub(surfaceScene, { fade: true });
 }
 function updateProgress() {
-    if (phase === 'forestAdvance' && stage11ForestVehiclesAllCleared()
+    if (phase === 'forestAdvance' && stage11WeaponVehiclesAllCleared(VG)
         && stage11ForestCheckpointsAllCleared()) {
         setStage11Phase('forestExit'); setStage11ForestExitMarker(true);
         showStageMsg('VEHICLE PATROLS DESTROYED — ENTER IKN', 4300);
@@ -211,18 +213,18 @@ export const forestScene = {
         enterCityEnv({ background: 0x58644e, fogColor: 0x4e5d4b,
             fogNear: 125, fogFar: 1180 });
         clearStage11Robots(); resetCrates(); resetBarrels(); resetForest();
-        resetStage11ForestVehicles(); placeForestItems();
+        resetStage11WeaponVehicles(VG); placeForestItems();
         if (avatarGroup) avatarGroup.visible = true;
         startParachute();
     },
     exit() {
-        cleanupParachute(); cleanupStage11ForestVehicles();
+        cleanupParachute(); cleanupStage11WeaponVehicles(VG);
         cleanupStage11ForestCheckpoints(); cleanupStage11ForestMortar();
         setStage11ForestExitMarker(false);
     },
     updateMode(dt) {
         elapsed += dt; updateStage11ForestVisuals(dt);
-        updateStage11ForestVehicles(dt, {
+        updateStage11WeaponVehicles(VG, dt, {
             los: (x0, z0, x1, z1) => !stage11ForestSegBlocked(x0, z0, x1, z1),
             inView: pointInForestView,
         });
@@ -244,10 +246,11 @@ export const forestScene = {
     groundHeight: stage11ForestGroundHeight,
     get camOffset() { return cine ? PARACHUTE_CAM : forestCam; },
     bulletBlocked(b) {
-        // Fabricator hit test runs FIRST: its chassis is also a bullet-stopping
-        // blocker, so testing the wall sweep first would delete the round as a
-        // wall hit without ever damaging the machine (the Stage 6 HQ ordering).
-        return stage11ForestCheckpointBulletHit(b)
+        // Kendaraan dan fabricator adalah target sekaligus blocker. Keduanya
+        // diuji sebelum scenery agar tembakan yang mengenai mesh tak terlihat
+        // seperti ditelan aspal/cover tanpa damage atau feedback.
+        return stage11WeaponVehicleBulletHit(VG, b)
+            || stage11ForestCheckpointBulletHit(b)
             || stage11ForestSegBlocked(b.px, b.pz,
                 b.mesh.position.x, b.mesh.position.z);
     },
@@ -269,7 +272,7 @@ export const forestScene = {
         if (bot.machineBirth) {
             bot.state = 'idle'; bot.moving = false; bot.aiming = false; return {};
         }
-        const mounted = stage11ForestVehicleRobotAI(bot);
+        const mounted = stage11WeaponVehicleRobotAI(bot);
         if (mounted) return mounted;
         return campaignRobotAI(bot, dt, step, {
             walkable: stage11ForestWalk, resolve: stage11ForestResolve,
@@ -302,7 +305,7 @@ export const forestScene = {
     radarLandmarks(plot) {
         const p = phase === 'forestExit' ? S11_FOREST_GATE
             : stage11ForestNearestFabricator()
-            || stage11ForestNearestVehicle() || S11_FOREST_GATE;
+            || stage11NearestWeaponVehicle(VG) || S11_FOREST_GATE;
         plot(p.x - camera.position.x, p.z - camera.position.z, '#ffb03b', 5, true);
     },
 };
@@ -313,7 +316,7 @@ export const forestDebug = () => ({
         height: camera.position.y - CFG.player.eyeHeight } : null,
     routeMeter: stage11ForestMeterAt(camera.position.x, camera.position.z),
     routeMeters: S11_FOREST_ROUTE_METERS,
-    vehicles: stage11ForestVehiclesDebug(),
+    vehicles: stage11WeaponVehiclesDebug(VG),
     checkpoints: stage11ForestCheckpointsDebug(),
     mortar: stage11ForestMortarDebug(),
     world: stage11ForestWorldDebug(),

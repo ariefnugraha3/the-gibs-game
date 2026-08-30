@@ -20,7 +20,8 @@ import {
 } from './world.js';
 import {
     phase, cine, stageElapsed, setStage9Phase, setStage9Cine, cleanupStage9Cine,
-    queueStage9Dialogue, resetStage9Dialogue, stage9DialogueIdle, spawnStage9Encounter,
+    queueStage9Dialogue, resetStage9Dialogue, stage9DialogueIdle,
+    spawnStage9FrontPopulation, stage9RobotInView,
     stage9EncounterCount, enterStage9Sub,
 } from './runtime.js';
 import { interiorScene } from './interior.js';
@@ -41,8 +42,8 @@ function finishOpening(skipped = false) {
     if (!cine || cine.kind !== 'opening') return;
     if (skipped) resetStage9Dialogue();
     cleanupStage9Cine(CFG.campaign.stage9.fadeSec);
-    setStage9Phase('frontToll');
-    stage9SetMarkers(['frontCheckpoint']);
+    setStage9Phase('frontRoad');
+    stage9SetMarkers([]);
     queueStage9Dialogue('outsideCommand');
     showStageMsg('CHAPTER 1 — BREAK THROUGH THE TOLL ACCESS', 4800);
 }
@@ -79,19 +80,34 @@ function updateOpening(dt) {
 
 function updateProgress() {
     const range = CFG.campaign.stage9.interactionRange * 2;
-    if (phase === 'frontToll' && stage9EncounterCount('frontToll') === 0
-        && near(S9_FRONT_CHECKPOINT, range)) {
-        setStage9Phase('frontForecourt');
+    const hostiles = stage9EncounterCount('frontToll')
+        + stage9EncounterCount('frontForecourt');
+    if (phase === 'frontRoad' && hostiles === 0) {
+        setStage9Phase('frontExit');
         stage9SetMarkers(['building']);
-        spawnStage9Encounter('frontForecourt',
-            CFG.campaign.stage9.encounters.frontForecourt, true);
         showStageMsg('TOLL ACCESS CLEAR — CROSS THE TERMINAL FORECOURT', 4600);
-    } else if (phase === 'frontForecourt'
-        && stage9EncounterCount('frontForecourt') === 0
-        && near(S9_BUILDING_ENTRY, range)) {
+    } else if (phase === 'frontExit' && near(S9_BUILDING_ENTRY, range)) {
         setStage9Phase('interiorCheckin');
         enterStage9Sub(interiorScene);
     }
+}
+
+export function stage9FrontEngagementLocked() {
+    return phase === 'opening' || !stage9DialogueIdle();
+}
+
+function holdRobotForDialogue(robot) {
+    // Damage can wake an idle robot inside entities/robots.js after this hook
+    // has run. Reasserting idle every locked frame—and once again on release—
+    // prevents that hidden aggro from escaping the radio-dialogue lock.
+    robot.state = 'idle';
+    robot.groundY = 0;
+    robot.moving = false;
+    robot.aiming = false;
+    robot.navIdle = false;
+    robot.losOK = false;
+    robot.windT = 0;
+    robot.clawT = 0;
 }
 
 export const frontScene = {
@@ -104,7 +120,7 @@ export const frontScene = {
         movePlayerTo(S9_START);
         camera.quaternion.set(0, -0.7071, 0, 0.7071);
         stage9SetMarkers([]);
-        spawnStage9Encounter('frontToll', CFG.campaign.stage9.encounters.frontToll, true);
+        spawnStage9FrontPopulation();
         startOpening();
     },
     exit() {
@@ -140,14 +156,22 @@ export const frontScene = {
     },
     robotAI(robot, dt, step) {
         if (robot.stage !== 9) return { skip: true };
-        if (phase === 'opening') {
-            // Garnisun sudah berstatus chasing sejak spawn, tetapi dibekukan
-            // selama establishing shot agar tidak menyerang di dalam cutscene.
-            robot.moving = false; robot.aiming = false; return {};
+        if (stage9FrontEngagementLocked()) {
+            robot.stage9DialogueLocked = true;
+            holdRobotForDialogue(robot);
+            return {};
+        }
+        if (robot.stage9DialogueLocked) {
+            // Frame pertama setelah panel hilang selalu dimulai dari idle.
+            // campaignRobotAI di bawah kemudian hanya membangunkannya bila
+            // badan robot memang sudah berada di viewport player.
+            holdRobotForDialogue(robot);
+            robot.stage9DialogueLocked = false;
         }
         return campaignRobotAI(robot, dt, step, {
             walkable: stage9FrontWalkable, resolve: stage9Resolve,
             nav: stage9NavGrid('front'),
+            activate: z => stage9RobotInView(z),
             los: (x0, z0, x1, z1) => !stage9SegHitsWall(x0, z0, x1, z1, 8),
         });
     },
@@ -161,12 +185,17 @@ export const frontScene = {
     },
     hudStatus() {
         if (phase === 'opening') return 'STAGE 9 — KERTAJATI AIRPORT';
-        if (phase === 'frontToll')
-            return `CHAPTER 1 — CLEAR TOLL ACCESS — HOSTILES ${stage9EncounterCount('frontToll')}`;
-        return `CHAPTER 1 — CROSS TERMINAL FORECOURT — HOSTILES ${stage9EncounterCount('frontForecourt')}`;
+        const hostiles = stage9EncounterCount('frontToll')
+            + stage9EncounterCount('frontForecourt');
+        if (phase === 'frontRoad')
+            return `CHAPTER 1 — CLEAR AIRPORT ACCESS — HOSTILES ${hostiles}`;
+        return 'CHAPTER 1 — ENTER THE TERMINAL';
     },
     radarLandmarks(plot) {
-        const p = phase === 'frontToll' ? S9_FRONT_CHECKPOINT : S9_BUILDING_ENTRY;
-        plot(p.x - camera.position.x, p.z - camera.position.z, '#ffb03b', 5, true);
+        if (phase === 'frontExit') {
+            plot(S9_BUILDING_ENTRY.x - camera.position.x,
+                S9_BUILDING_ENTRY.z - camera.position.z, '#ffb03b', 5, true);
+            return;
+        }
     },
 };
