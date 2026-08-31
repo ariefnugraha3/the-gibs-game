@@ -1566,6 +1566,43 @@ shopMod.shopPurchase('pistol');
 T('skor tidak terpotong saat ditolak', stateMod.score === s0);
 shopMod.closeShop();
 
+// --- 8c2. Arsenal shop: senjata yang pernah dibeli tetap ada setelah diganti
+// dan dapat dipasang kembali tanpa membayar untuk kedua kalinya. ---
+{
+    stateMod.configurePlayer();
+    stateMod.setScore(999999);
+    shopMod.openShop();
+    T('arsenal shop: keempat weapon selalu tampil sejak shop dibuka',
+        ['pistol', 'shotgun', 'rifle', 'launcher'].every(w =>
+            shopMod.shopTabDebug().items.weapon.includes(w)));
+    shopMod.shopPurchase('shotgun');
+    shopMod.shopPurchase('rifle');
+    const buyLauncher = shopMod.shopPurchase('launcher');
+    const launcherCost = cfgMod.CFG.shop.launcherCost;
+    const beforeLauncher = stateMod.score;
+    const replacePistol = shopMod.shopReplaceWeapon('pistol');
+    T('arsenal shop: membeli weapon keempat mengganti pistol tetapi tidak menghapus pistol dari katalog',
+        buyLauncher === 'choose-replace' && replacePistol === null
+        && !player.weapons.includes('pistol') && player.unlockedWeapons.pistol
+        && shopMod.shopTabDebug().items.weapon.includes('pistol')
+        && stateMod.score === beforeLauncher - launcherCost);
+    const pistolAmmo = player.pistol.ammo = 17;
+    const beforeEquip = stateMod.score;
+    const equipPistol = shopMod.shopPurchase('pistol');
+    const replaceLauncher = shopMod.shopReplaceWeapon('launcher');
+    T('arsenal shop: pistol yang sudah dimiliki bisa dipasang lagi GRATIS, ammo lama tetap, launcher tetap di katalog',
+        equipPistol === 'choose-replace' && replaceLauncher === null
+        && player.weapons.includes('pistol') && !player.weapons.includes('launcher')
+        && player.unlockedWeapons.launcher && player.pistol.ammo === pistolAmmo
+        && stateMod.score === beforeEquip
+        && shopMod.shopTabDebug().items.weapon.includes('launcher'));
+    T('arsenal shop: weapon tersimpan juga dapat dipilih lagi lewat chooser tanpa pembelian',
+        shopMod.shopPurchase('launcher') === 'choose-replace' && stateMod.score === beforeEquip);
+    shopMod.shopCancelReplace();
+    shopMod.closeShop();
+    stateMod.configurePlayer();
+}
+
 // --- 10. Darah player saat kena peluru: god-mode tetap tampil (HP utuh) ---
 const inputMod = await import(R('src/core/input.js'));
 const ad = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return Math.abs(d); };
@@ -18193,6 +18230,18 @@ if (false) {
         }
         return hit;
     };
+    const smashRootFabricators12 = () => {
+        const machines = s11.stage11WorldDebug().root.world.machines;
+        let hit = 0;
+        for (const m of machines) {
+            if (!m.alive) continue;
+            if (s11.stage11Scene.bulletBlocked({
+                px: m.x, pz: m.z, damage: 1e6, explosive: true,
+                mesh: { position: { x: m.x, y: 0, z: m.z } },
+            })) hit++;
+        }
+        return hit;
+    };
     const killMeter12 = meter => {
         for (let i = robots.length - 1; i >= 0; i--) {
             const rig = robots[i].stage11Vehicle;
@@ -18953,9 +19002,64 @@ if (false) {
             if (s11.stage11CityCrossingAsphalt(e.index, x, z)) markOnCrossing11++;
         }
     }
+    // Bundaran dan halaman markas adalah PERMUKAAN JALAN tersendiri. Quad aspal
+    // ruas jalan sengaja diperpanjang sampai tepi pulau bundaran (supaya tidak
+    // ada tanah kosong berbentuk sabit di mulutnya), dan dulu marka ikut dicat
+    // sepanjang bentang itu — melintang di atas cincin dan berhenti di tengah
+    // bundaran. Marka ruas kini BERHENTI di cincin, diuji sepanjang kotaknya
+    // sendiri (bukan hanya titik tengah), dan palang beri-jalan berdiri persis
+    // di tempat marka itu berhenti.
+    const rbMouths11 = s11.stage11CityRoundaboutMouths();
+    // Debug edges carry endpoints, not the unit tangent: derive it here rather
+    // than trusting a second copy of it.
+    const markCross11 = (e, x, z, half) => [0, half, -half].some(o =>
+        s11.stage11CityCrossingAsphalt(e.index,
+            x + (e.bx - e.ax) / e.len * o, z + (e.bz - e.az) / e.len * o));
+    let markInRound11 = 0, markKept11 = 0;
+    for (const e0 of ROADS11.edges) {
+        const e = { ...e0, tx: (e0.bx - e0.ax) / e0.len,
+            tz: (e0.bz - e0.az) / e0.len };
+        const rA = ROADS11.roundabouts.find(r => r.id === e.a);
+        const rB = ROADS11.roundabouts.find(r => r.id === e.b);
+        const ax = rA ? e.ax - e.tx * rA.ring : e.ax;
+        const az = rA ? e.az - e.tz * rA.ring : e.az;
+        const bx = rB ? e.bx + e.tx * rB.ring : e.bx;
+        const bz = rB ? e.bz + e.tz * rB.ring : e.bz;
+        const len = Math.hypot(bx - ax, bz - az);
+        const n = Math.max(1, Math.floor(len / 90));
+        const steps = Math.max(1, Math.round(len / 44)), half = len / steps * .5;
+        const pts = [];
+        for (let i = 0; i < n; i++) {
+            const t = (i + .5) / n;
+            pts.push({ x: ax + (bx - ax) * t, z: az + (bz - az) * t, h: 19 });
+        }
+        for (const side of [-1, 1]) for (let i = 0; i < steps; i++) {
+            const t = (i + .5) / steps;
+            pts.push({ x: ax + (bx - ax) * t + (-e.tz) * side * (e.w - 7),
+                z: az + (bz - az) * t + e.tx * side * (e.w - 7), h: half });
+        }
+        for (const q of pts) {
+            if (markCross11(e, q.x, q.z, q.h)) continue;
+            markKept11++;
+            for (const R of ROADS11.roundabouts)
+                if (Math.hypot(q.x - R.x, q.z - R.z)
+                    <= R.outer + CITY11.sidewalk.units) markInRound11++;
+            if (Math.hypot(q.x - ROADS11.hq.x, q.z - ROADS11.hq.z)
+                <= ROADS11.apron) markInRound11++;
+        }
+    }
     T('S11 MARKA: tidak ada marka yang dicat menembus persimpangan',
-        markOnCrossing11 > 0
+        markOnCrossing11 > 0 && markKept11 > 200
         && CITY11.semantic['road-segment'] === ROADS11.edgeCount);
+    T('S11 BUNDARAN: marka ruas berhenti di cincin, dan tiap mulut punya palang',
+        markInRound11 === 0
+        && rbMouths11.length >= ROADS11.roundabouts.length * 3
+        && CITY11.semantic['roundabout-give-way'] === rbMouths11.length
+        && rbMouths11.every(m => {
+            const R = ROADS11.roundabouts.find(r => r.id === m.id);
+            return Math.abs(m.radius - (R.outer + CITY11.sidewalk.units)) < 1e-6
+                && Math.abs(Math.hypot(m.ux, m.uz) - 1) < 1e-6;
+        }));
     T('S11 KOTA: jalan raya adalah SATU-SATUNYA permukaan yang bisa dilalui',
         onRoad11 === ROADS11.edges.length && offRoad11 === ROADS11.edges.length
         && !s11.stage11CityWalk(CITY11.bounds.x0 + 40, 0, player.radius));
@@ -19185,6 +19289,24 @@ if (false) {
         && ITEMS11.spots >= C11.lootboxCount + C11.barrelCount
         && minItemGap11 >= ITEMS11.minGapUnits - 1e-6
         && itemsOffRoad11 === 0);
+    // Kursor bergulir tidak cukup: `cursor % spots.length` MELINGKAR, dan
+    // penempatan patroli dulu membakar satu titik untuk tiap kandidat yang
+    // DITOLAK — jadi kursornya melewati ujung pool dan membagikan lagi titik
+    // yang sudah dipakai peti. Titik kini DIKLAIM saat dibagikan, penolakan
+    // gratis, dan pool memang cukup besar untuk semua konsumen.
+    let robotOnItem11 = Infinity;
+    for (const r of robots.filter(r => r.stage === 11
+        && r.encounter === 'city-patrol'))
+        for (const q of itemPts11)
+            robotOnItem11 = Math.min(robotOnItem11,
+                Math.hypot(r.mesh.position.x - q.x, r.mesh.position.z - q.z));
+    T('S11 LOOT: tidak ada robot patroli yang berdiri menumpuk di atas item',
+        robotOnItem11 >= ITEMS11.minGapUnits - 1e-6
+        && ITEMS11.spots >= Math.ceil(ITEMS11.demand * ITEMS11.headroom)
+        && ITEMS11.claimed === ITEMS11.demand
+        // Jarak minimum antar titik TIDAK PERNAH dilonggarkan untuk mengejar
+        // jumlah; yang mengecil hanyalah langkah penyusuran jalannya.
+        && ITEMS11.minGapUnits === 34 && ITEMS11.spacingUnits <= 90);
 
     // Patroli tersebar: lahir DIAM, bangun saat masuk layar, dan tetap bangun.
     const PAT11 = () => s11.stage11WorldDebug().surface.patrol;
@@ -19450,8 +19572,9 @@ if (false) {
         && rootCam11.progress.up > 0 && rootCam11.progress.left > 0
         && JSON.stringify(rootCam11.offset) === JSON.stringify(cityCam11.offset));
 
-    // (4) Overhaul Chapter 3: koridor kosong 100 m, encounter baru di 50 m,
-    // pintu besar wajib ICE BREACH, komputer persis di pusat aula.
+    // (4) Overhaul Chapter 3: koridor kosong 100 m, dua mesin berdiri di 50 m
+    // tetapi baru aktif saat tubuh pertama masuk viewport; pintu besar wajib
+    // ICE BREACH, komputer persis di pusat aula.
     const RC11 = C11.rootCorridor, RW11 = d12.worlds.root;
     T('S11 ROOT LAYOUT: start ke pintu tepat 100 m dan komputer berada di pusat aula',
         s11.S11_ROOT_CORRIDOR_METERS === 100
@@ -19470,18 +19593,34 @@ if (false) {
         && RW11.machines.length === RC11.machines
         && RW11.machines.every(m => m.pointLights === 0));
 
-    stand12(s11.stage11RootPointAtMeter(49)); tick12(.5, .1);
+    rendererMod.followViewCam(.016);
     let rootFlow11 = s11.stage11WorldDebug().root;
-    T('S11 ROOT 0-49 M: belum ada satu pun robot Chapter 3',
-        !rootFlow11.corridor.encounterTriggered
+    const rootStartDormant11 = !rootFlow11.corridor.machineInView
+        && !rootFlow11.corridor.encounterTriggered
         && rootFlow11.corridor.spawned === 0
-        && robots.filter(z => z.stage === 11).length === 0);
-    stand12(s11.stage11RootPointAtMeter(50)); tick12(.65, .05);
-    rootFlow11 = s11.stage11WorldDebug().root;
+        && robots.filter(z => z.stage === 11).length === 0;
+    let rootRevealMeter11 = null, rootCleanBeforeReveal11 = true;
+    for (let meter = 1; meter <= RC11.encounterMeter; meter++) {
+        stand12(s11.stage11RootPointAtMeter(meter));
+        rendererMod.followViewCam(.016);
+        tick12(.016, .016);
+        rootFlow11 = s11.stage11WorldDebug().root;
+        if (rootFlow11.corridor.encounterTriggered) {
+            rootRevealMeter11 = meter; break;
+        }
+        rootCleanBeforeReveal11 = rootCleanBeforeReveal11
+            && rootFlow11.corridor.spawned === 0
+            && robots.filter(z => z.stage === 11).length === 0;
+    }
     const activeMachine11 = rootFlow11.world.machines.some(m => m.power > .05);
-    T('S11 ROOT 50 M: dua mesin menyala dan mulai mencetak robot, bukan saat spawn stage',
-        rootFlow11.corridor.encounterTriggered && activeMachine11
-        && rootFlow11.corridor.spawned > 0
+    T('S11 ROOT VIEWPORT: selama kedua mesin di luar layar tidak ada mesin atau robot yang aktif',
+        rootStartDormant11 && rootCleanBeforeReveal11);
+    T('S11 ROOT VIEWPORT: frame pertama mesin terlihat langsung mengaktifkan keduanya dan spawn',
+        rootRevealMeter11 > 0 && rootRevealMeter11 < RC11.encounterMeter
+        && rootFlow11.corridor.activation === 'viewport'
+        && rootFlow11.corridor.machineInView
+        && rootFlow11.corridor.encounterTriggered && activeMachine11
+        && RC11.firstBirthSec === 0 && rootFlow11.corridor.spawned > 0
         && rootFlow11.corridor.spawned < 24);
     tick12(RC11.firstBirthSec + RC11.birthGapSec * 24 + RC11.birthSec + .6, .05);
     rootFlow11 = s11.stage11WorldDebug().root;
@@ -19489,17 +19628,50 @@ if (false) {
         && z.encounter === 'root-corridor-50');
     const rootMix11 = Object.fromEntries(['C', 'B', 'A'].map(cls =>
         [cls, rootBots11.filter(z => z.kind === cls).length]));
-    T('S11 ROOT ENCOUNTER: tepat 12C / 8B / 4A keluar dari dua mesin',
+    T('S11 ROOT ENCOUNTER: gelombang pembuka tepat 12C / 8B / 4A keluar dari dua mesin',
         rootFlow11.corridor.planned === 24 && rootFlow11.corridor.spawned === 24
         && rootFlow11.corridor.activeBirths === 0 && rootBots11.length === 24
         && JSON.stringify(rootMix11) === JSON.stringify(RC11.robots)
         && JSON.stringify(rootFlow11.corridor.spawnedByClass)
             === JSON.stringify(RC11.robots));
 
+    // Berbeda dari kontrak lama yang berhenti setelah 24 robot: selama mesin
+    // hidup ia terus mencetak batch config-owned seperti checkpoint Chapter 1.
+    kill12();
+    tick12(RC11.production.firstBatchSec + RC11.production.birthSec + .5, .05);
+    rootFlow11 = s11.stage11WorldDebug().root;
+    T('S11 ROOT FABRICATOR: kedua mesin punya HP bersama dan terus mencetak batch setelah wave pembuka',
+        rootFlow11.corridor.machinesAlive === RC11.machines
+        && rootFlow11.corridor.machineHp === cfgMod.CFG.campaign.spawnMachine.hp
+        && rootFlow11.world.machines.every(m => m.alive
+            && m.hp === cfgMod.CFG.campaign.spawnMachine.hp)
+        && rootFlow11.corridor.producedTotal > 0
+        && rootFlow11.corridor.producedAlive <= RC11.production.maxAlive);
+
+    // Terminal pintu memakai aturan checkpoint: tidak dapat di-hack sebelum
+    // semua fabricator hancur, dan kegagalan kedekatan perlu re-arm dari jauh.
+    stand12(s11.S11_DOOR_STAND); tick12(.15, .05);
+    T('S11 ROOT GATE: terminal pintu menolak hack selama fabricator masih hidup',
+        !hackMod.hackDebug().open && s11.stage11WorldDebug().root.door.attempts === 0);
+    const rootProducedBeforeDown = rootFlow11.corridor.producedTotal;
+    const rootMachinesHit = smashRootFabricators12();
+    tick12(RC11.production.birthSec + .2, .05); kill12();
+    const rootProducedAfterDown = s11.stage11WorldDebug().root.corridor.producedTotal;
+    tick12(RC11.production.batchSec * 2 + .5, .1);
+    rootFlow11 = s11.stage11WorldDebug().root;
+    T('S11 ROOT FABRICATOR: peluru menghancurkan kedua mesin menjadi wreck dan produksi berhenti permanen',
+        rootMachinesHit === RC11.machines && rootFlow11.corridor.machinesAlive === 0
+        && rootFlow11.world.machines.every(m => !m.alive && m.hp === 0
+            && m.dead && m.charred && m.detached >= 9)
+        && rootProducedAfterDown >= rootProducedBeforeDown
+        && rootFlow11.corridor.producedTotal === rootProducedAfterDown
+        && robots.filter(z => z.stage === 11 && z.encounter === 'root-corridor-50').length === 0);
+
     // Teleport ke komputer sebelum hack tidak boleh mengaktifkan upload.
     stand12(s11.S11_INSERT); tick12(1);
     const insertTooEarly = !s11.stage11WorldDebug().root.uploadAccepted;
     kill12();
+    stand12(s11.stage11RootPointAtMeter(90)); tick12(.2);
     stand12(s11.S11_DOOR_STAND); tick12(.1);
     const rootHackOpen11 = hackMod.hackDebug();
     T('S11 PINTU HACK: mendekati terminal membuka minigame Stage 1 dan pintu tetap tertutup',
@@ -19514,7 +19686,12 @@ if (false) {
         d12.root.door.hacked && s11rt.phase === 'insertDrive'
         && d12.worlds.root.authorityOpen && !d12.worlds.root.door.marker
         && d12.worlds.root.door.leftZ < -80 && d12.worlds.root.door.rightZ > 80
-        && d12.worlds.root.insertMarker);
+        && d12.worlds.root.insertMarker
+        && d12.worlds.root.insertFloorMarker.visible
+        && d12.worlds.root.insertFloorMarker.shape === 'square'
+        && d12.worlds.root.insertFloorMarker.color === 0xffb03b
+        && d12.worlds.root.insertFloorMarker.x === s11.S11_INSERT_STAND.x
+        && d12.worlds.root.insertFloorMarker.z === s11.S11_INSERT_STAND.z);
 
     // Reproduce the real approach through player collision. The computer
     // centre is solid, so interaction follows its visible stand marker.
@@ -19725,6 +19902,84 @@ if (false) {
         && C11.upload.preBossFraction < 1);
 
     stateMod.setGameOver(false); kill12();
+
+    // (11) CHEAT skip-to-stage-11-ch-N (2026-08-31, permintaan user). Stage 11
+    // adalah SATU stage berisi tiga bab yang berpindah tanpa setScene, jadi
+    // skip-to-stage-11 selamanya mendarat di bab 1. Lompatan bab harus lewat
+    // PINTU YANG SAMA dengan handoff sungguhan (`enterStage11Sub`): bab yang
+    // ditinggalkan menjalankan exit()-nya sendiri dan bab tujuan menjalankan
+    // enter()-nya sendiri, sehingga bab hasil cheat identik dengan bab hasil
+    // bermain.
+    {
+        const cheat11 = await import(R('src/core/cheatConsole.js'));
+        const chap11 = () => s11.stage11WorldDebug();
+        s11.stage11Scene.enter();
+        const born11 = chap11();
+        const jump11 = n => { const r = s11.stage11Scene.cheatSkipToChapter(n);
+            return { applied: r, d: chap11() }; };
+
+        const c2 = jump11(2);
+        // Bab 1 harus benar-benar ditinggalkan lewat exit()-nya sendiri:
+        // checkpoint dan mortirnya hidup di dunia tersembunyi dan tak punya
+        // pemilik lain, jadi kalau exit() dilewati keduanya tetap menyala.
+        const cityV11 = s11.stage11WeaponVehiclesDebug(s11.STAGE11_CITY_VEHICLE_GROUP);
+        T('S11 CHEAT: skip-to-stage-11-ch-2 masuk bab kota lewat handoff yang sama',
+            born11.chapter === 'forest' && c2.applied === 2
+            && c2.d.chapter === 'city' && c2.d.sub === 'campaign-11-surface'
+            && c2.d.activeSceneStable === 'campaign-11'
+            && rootVisible('campaign-11-surface')
+            && !rootVisible('campaign-11-forest') && !rootVisible('campaign-11-root')
+            // Bab tujuan membangun populasinya sendiri, bukan sisa bab 1: yang
+            // berdiri hanyalah patroli kota plus satu pengemudi per kendaraan
+            // senjata kota — tak ada satupun sisa hutan.
+            && c2.d.surface.patrol.placed === c2.d.surface.patrol.configured
+            && c2.d.surface.items.claimed === c2.d.surface.items.demand
+            && robots.filter(z => z.stage === 11).length
+                === c2.d.surface.patrol.configured + cityV11.count
+            // Bab 1 dibersihkan lewat exit()-nya sendiri.
+            && s11.stage11ForestCheckpointsDebug().active === null
+            && s11.stage11ForestMortarDebug().active === 0
+            && s11.stage11ForestMortarDebug().armed === false);
+
+        const c3 = jump11(3);
+        T('S11 CHEAT: skip-to-stage-11-ch-3 masuk root hall dengan pembukaannya sendiri',
+            c3.applied === 3 && c3.d.chapter === 'root'
+            && c3.d.sub === 'campaign-11-root' && c3.d.phase === 'rootCorridor'
+            && rootVisible('campaign-11-root')
+            && !rootVisible('campaign-11-surface')
+            && Math.hypot(camera.position.x - s11.S11_ROOT_START.x,
+                camera.position.z - s11.S11_ROOT_START.z) < 1e-6
+            // Bab 2 ditinggalkan lewat exit()-nya sendiri: blokade kota adalah
+            // satu-satunya hal di bab itu yang tetap bersenjata tanpa pemilik.
+            && s11.stage11CityBlockadesDebug().armed === 0
+            && s11.stage11CityBlockadesDebug().activeBirths === 0
+            && !c3.d.complete);
+
+        const c1 = jump11(1);
+        T('S11 CHEAT: bab bisa dilompati mundur, dan bab tak sah ditolak',
+            c1.applied === 1 && c1.d.chapter === 'forest'
+            && c1.d.phase === 'parachute'
+            && s11.stage11Scene.cheatSkipToChapter(4) === null
+            && s11.stage11Scene.cheatSkipToChapter(0) === null
+            && s11.stage11WorldDebug().chapter === 'forest'
+            && s11.stage11WorldDebug().chapterCount === 3);
+
+        // Perintah konsol utuh: lompat stage DULU, lalu bab, dari stage lain.
+        trans11.campaignJumpToStage(9);
+        cheat11.runCheatCommand('skip-to-stage-11-ch-2');
+        T('S11 CHEAT: perintah konsol melompati stage lalu bab dalam satu langkah',
+            smMod.activeScene === s11.stage11Scene
+            && save5Mod.loadCampaignStage() === 11
+            && s11.stage11WorldDebug().chapter === 'city');
+        // Stage tanpa bab tidak boleh diam-diam menerima bentuk perintah ini.
+        const stage1NoChapter = await import(R('src/scenes/campaign/stages/stage1/index.js'));
+        T('S11 CHEAT: hanya stage berbab yang punya hook cheatSkipToChapter',
+            typeof s11.stage11Scene.cheatSkipToChapter === 'function'
+            && stage1NoChapter.stage1Scene.cheatSkipToChapter === undefined
+            && survMod.survivalScene.cheatSkipToChapter === undefined);
+        kill12();
+    }
+    stateMod.setGameOver(false);
 }
 
 // --- 25e. CAMPAIGN STAGE 12 / M-0 MAHAPATIH -------------------------------

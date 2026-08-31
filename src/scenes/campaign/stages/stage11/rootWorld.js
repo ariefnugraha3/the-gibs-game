@@ -56,6 +56,7 @@ let authorityDoorOpen = false;
 let authorityDoorT = 0;
 let doorHackMarker = null;
 let consoleMarker = null;
+let consoleFloorMarker = null;
 let consoleCore = null;
 let broadcastCore = null;
 let uploadVisual = 0;
@@ -226,14 +227,21 @@ function buildApproachMachines() {
         root.add(rig.group); resetSpawnMachine(rig, false);
         blocker(x, z, 16, 16, 26, yaw, 'root-spawn-machine');
         approachMachines.push({ index: i, rig, x, z, yaw,
-            hatch: { x: x + Math.sin(yaw) * 18, z: z + Math.cos(yaw) * 18 } });
+            hatch: { x: x + Math.sin(yaw) * 18, z: z + Math.cos(yaw) * 18 },
+            alive: false, active: false, hp: 0, hitT: 0,
+            clock: 0, nextBatch: 0, pending: 0, birthCooldown: 0,
+            batches: 0, spawned: 0 });
     }
     count('root-spawn-machine', approachMachines.length);
 }
 
-export function updateStage11RootMachines(dt, active) {
-    for (const m of approachMachines) updateSpawnMachine(m.rig, dt, !!active, 0);
+export function updateStage11RootMachines(dt) {
+    for (const m of approachMachines) {
+        if (m.hitT > 0) m.hitT = Math.max(0, m.hitT - dt * 4.5);
+        updateSpawnMachine(m.rig, dt, m.active && m.alive, m.hitT);
+    }
 }
+export const stage11RootMachines = () => approachMachines;
 export const stage11RootMachineAnchors = () => approachMachines.map(m => ({
     index: m.index, x: m.x, z: m.z, yaw: m.yaw, hatch: { ...m.hatch },
 }));
@@ -261,6 +269,13 @@ function buildTransmitter() {
         { emissive: PAL.amberDim, emissiveIntensity: .5 }),
     S11_INSERT.x + 27, 15, S11_INSERT.z, 0, 0, 0, false, false);
     consoleMarker = buildStandMarker(root, S11_INSERT_STAND.x, S11_INSERT_STAND.z, PAL.amber);
+    // A literal yellow floor square marks the exact collision-reachable place
+    // where the player inserts the drive and starts the central upload.
+    consoleFloorMarker = mesh(root, new THREE.BoxGeometry(26, .6, 26),
+        material('insertFloorMarker', PAL.amber,
+            { emissive: PAL.amberDim, emissiveIntensity: .62 }),
+        S11_INSERT_STAND.x, .3, S11_INSERT_STAND.z, 0, 0, 0, false, false);
+    consoleFloorMarker.name = 'stage11-root-upload-floor-marker';
     blocker(S11_INSERT.x, S11_INSERT.z, 23, 25, 43, 0, 'insert-console');
     count('central-root-computer'); count('physical-insert-console');
     weldOccluder(S11_ROOT_OCC, root, g,
@@ -292,7 +307,10 @@ export function updateStage11AuthorityDoor(dt) {
     if (b) b.top = k >= .92 ? -1 : 82;
 }
 export function setStage11DoorHackMarker(on) { if (doorHackMarker) doorHackMarker.visible = !!on; }
-export function setStage11InsertMarker(on) { if (consoleMarker) consoleMarker.visible = !!on; }
+export function setStage11InsertMarker(on) {
+    if (consoleMarker) consoleMarker.visible = !!on;
+    if (consoleFloorMarker) consoleFloorMarker.visible = !!on;
+}
 export function updateStage11RootVisuals(dt, progress, jammed = false) {
     uploadVisual += dt;
     if (consoleMarker?.visible) {
@@ -319,7 +337,12 @@ export function resetStage11RootVisuals() {
     const doorBlock = blockers.find(q => q.kind === 'authority-door');
     if (doorBlock) doorBlock.top = 82;
     setStage11DoorHackMarker(true); setStage11InsertMarker(false);
-    for (const m of approachMachines) resetSpawnMachine(m.rig, false);
+    for (const m of approachMachines) {
+        m.alive = false; m.active = false; m.hp = 0; m.hitT = 0;
+        m.clock = 0; m.nextBatch = 0; m.pending = 0; m.birthCooldown = 0;
+        m.batches = 0; m.spawned = 0;
+        resetSpawnMachine(m.rig, false);
+    }
     resetStageOccluders(S11_ROOT_OCC);
     if (consoleCore) consoleCore.material.emissiveIntensity = .56;
     if (broadcastCore) broadcastCore.material.emissiveIntensity = .36;
@@ -371,10 +394,17 @@ export const stage11RootWorldDebug = () => ({
         terminal: { ...S11_DOOR_TERMINAL }, stand: { ...S11_DOOR_STAND },
         marker: !!doorHackMarker?.visible },
     machines: approachMachines.map(m => ({ index: m.index, x: m.x, z: m.z,
-        yaw: m.yaw, ...spawnMachineDebug(m.rig) })),
+        yaw: m.yaw, alive: m.alive, active: m.active, hp: m.hp,
+        hitT: m.hitT, batches: m.batches, spawned: m.spawned,
+        ...spawnMachineDebug(m.rig) })),
     authorityOpen: authorityDoorT >= .92,
     occluders: occlusionDebug(S11_ROOT_OCC),
     insertMarker: !!consoleMarker?.visible,
+    insertFloorMarker: consoleFloorMarker && {
+        visible: !!consoleFloorMarker.visible, shape: 'square',
+        x: consoleFloorMarker.position.x, z: consoleFloorMarker.position.z,
+        width: 26, color: consoleFloorMarker.material.color.getHex(),
+    },
     nav: nav && { cols: nav.cols, rows: nav.rows,
         walkable: nav.walk.reduce((n, v) => n + v, 0) },
 });

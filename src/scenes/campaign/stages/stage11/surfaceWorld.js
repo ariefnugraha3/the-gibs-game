@@ -39,6 +39,7 @@ import {
     stage11CityWalk, stage11CityIslandSegBlocked, stage11CityNearestRoad,
     stage11CityRoadClearance, stage11CityProjectToRoad,
     stage11CityFenceRuns, stage11CityCrossingAsphalt,
+    stage11CityRoundaboutMouths,
     stage11CityRoadsDebug,
 } from './cityRoads.js';
 import {
@@ -263,6 +264,21 @@ function drawSpan(e) {
     return { ax, az, bx, bz, len: Math.hypot(bx - ax, bz - az) };
 }
 
+// A marking is a BOX, so it is tested along its own length: a piece whose CENTRE
+// clears a roundabout can still poke half its length across the circulating
+// carriageway, and half an edge-line piece is 22 units of paint over a surface
+// it does not belong to.
+function markCrosses(e, px, pz, half) {
+    for (const s of [0, half, -half])
+        if (stage11CityCrossingAsphalt(e.index, px + e.tx * s, pz + e.tz * s))
+            return true;
+    return false;
+}
+
+// The give-way bar sits just clear of the ring's pavement, so it reads as the
+// approach's own marking meeting the roundabout rather than as part of the ring.
+const GIVE_WAY_THICK = 5, GIVE_WAY_SETBACK = 5;
+
 function buildRoads() {
     const g = new THREE.Group();
     const asphalt = material('cityAsphalt', 0x2f3538);
@@ -291,18 +307,19 @@ function buildRoads() {
         for (let i = 0; i < dashes; i++) {
             const t = (i + 0.5) / dashes;
             const px = d.ax + (d.bx - d.ax) * t, pz = d.az + (d.bz - d.az) * t;
-            if (stage11CityCrossingAsphalt(e.index, px, pz)) continue;
+            if (markCrosses(e, px, pz, 19)) continue;
             mesh(g, new THREE.BoxGeometry(38, 0.5, 2.4), lane,
                 px, MARK_Y, pz, 0, e.yaw, 0, false, false);
         }
         // Edge lines are laid in pieces for the same reason: one long box would
         // run straight over every junction the road opens onto.
         const steps = Math.max(1, Math.round(d.len / 44));
+        const half = d.len / steps * 0.5;
         for (const side of [-1, 1]) for (let i = 0; i < steps; i++) {
             const t = (i + 0.5) / steps;
             const px = d.ax + (d.bx - d.ax) * t + (-e.tz) * side * (e.w - 7);
             const pz = d.az + (d.bz - d.az) * t + e.tx * side * (e.w - 7);
-            if (stage11CityCrossingAsphalt(e.index, px, pz)) continue;
+            if (markCrosses(e, px, pz, half)) continue;
             mesh(g, new THREE.BoxGeometry(d.len / steps + 0.4, 0.5, 2.2),
                 edgeLine, px, MARK_Y, pz, 0, e.yaw, 0, false, false);
         }
@@ -330,9 +347,25 @@ function buildRoads() {
             R.x, PAVE_TOP, R.z, 0, 0, 0, false, true);
         mesh(g, groundDisc(R.inner, R.outer, 40), asphalt,
             R.x, ROAD_TOP, R.z, 0, 0, 0, false, true);
+        // The circulating lane line is ONE unbroken ring, and that is what makes
+        // the junction read as joined up: every approach's own lines now stop at
+        // the ring, so the only marking that continues through a mouth is the
+        // one that is meant to go round.
         mesh(g, groundDisc(R.inner + 26, R.inner + 28.4, 40), lane,
             R.x, MARK_Y, R.z, 0, 0, 0, false, false);
         count('roundabout-carriageway');
+    }
+    // A give-way bar across every approach mouth, standing exactly where that
+    // approach's markings now end. Without it an approach's lines simply stop in
+    // open asphalt with nothing to meet, which is the other half of what read as
+    // markings that do not connect. It is a pavement marking, not signage: no
+    // arrow, no text, no destination of any kind.
+    for (const m of stage11CityRoundaboutMouths()) {
+        const r = m.radius + GIVE_WAY_SETBACK;
+        mesh(g, new THREE.BoxGeometry(GIVE_WAY_THICK, 0.5, m.w * 2 - 10), lane,
+            m.x + m.ux * r, MARK_Y, m.z + m.uz * r,
+            0, Math.atan2(-m.uz, m.ux), 0, false, false);
+        count('roundabout-give-way');
     }
     // Headquarters forecourt.
     mesh(g, groundDisc(0.01, S11_CITY_HQ_APRON, 28), material('cityApron', 0x3a4043),

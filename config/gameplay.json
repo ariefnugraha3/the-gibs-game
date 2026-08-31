@@ -862,10 +862,20 @@
                 "encounterMeter": 50,
                 "machines": 2,
                 "machineLateral": 54,
+                "hitRadius": 20,
                 "robots": { "C": 12, "B": 8, "A": 4 },
-                "firstBirthSec": 0.45,
+                "firstBirthSec": 0,
                 "birthGapSec": 0.14,
                 "birthSec": 0.8,
+                "production": {
+                    "firstBatchSec": 6,
+                    "batchSec": 8,
+                    "batchCount": 2,
+                    "birthGapSec": 0.35,
+                    "birthSec": 0.9,
+                    "maxAlive": 6,
+                    "classMix": { "C": 0.6, "B": 0.3, "A": 0.1 }
+                },
                 "hackRange": 18,
                 "doorOpenSec": 1.35
             },

@@ -562,7 +562,10 @@ export function resetStage11CityBlockades() {
     }
     refreshGateBoxes();
 }
-export function cleanupStage11CityBlockades() { births.length = 0; viewTest = null; }
+export function cleanupStage11CityBlockades() {
+    for (const cp of points) if (cp.armed && !cp.cleared) standDownBlockade(cp);
+    births.length = 0; viewTest = null;
+}
 
 export const stage11CityBlockadesAllCleared = () =>
     points.length > 0 && points.every(c => c.cleared);

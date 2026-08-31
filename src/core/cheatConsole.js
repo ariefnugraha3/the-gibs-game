@@ -6,9 +6,13 @@
 // "god-mode" + Enter = TOGGLE kebal player & Monas; "more-money" + Enter =
 // +100000 skor (mata uang shop Survival); "give-weapon-N" = senjata level maks
 // (2026-07-29); "give-armor-N" = pakai armor tier N durability penuh
-// (2026-07-30). Teks UI English (aturan permanen).
+// (2026-07-30); "skip-to-stage-N-ch-M" = lompat ke bab M dari stage yang
+// berbab (2026-08-31). Teks UI English (aturan permanen).
 
-import { setPaused, godMode, setGodMode, addScore, player, syncOwnedFromWeapons, maxAmmoFor } from './state.js';
+import {
+    setPaused, godMode, setGodMode, addScore, player, syncOwnedFromWeapons,
+    maxAmmoFor, unlockWeapon,
+} from './state.js';
 import { CFG } from './config.js';
 import { updateUI } from './hud.js';
 import { activeScene } from './sceneManager.js';
@@ -90,6 +94,7 @@ export function giveCheatWeapon(w) {
             W.splice(di, 1);
         }
         W.push(w);
+        unlockWeapon(w);
         syncOwnedFromWeapons();
     }
     player.weaponLvl[w] = maxLvl;
@@ -165,6 +170,27 @@ function runCommand(cmd) {
             setFeedback('Field Shop opened - prepare for wave ' + applied + '!');
         } else {
             setFeedback('skip-to-wave only works in Survival mode', false);
+        }
+    } else if (/^skip-to-stage-(\d+)-ch-(\d+)$/.test(c)) {
+        // "skip-to-stage-N-ch-M" (2026-08-31, permintaan user). Beberapa stage
+        // adalah SATU stage berisi beberapa bab yang berpindah TANPA setScene
+        // (Stage 11: hutan -> kota -> root), jadi skip-to-stage-N selamanya
+        // mendarat di bab 1. Perintah ini lompat ke stage-nya dulu lewat jalur
+        // yang sudah ada, baru meminta bab M pada scene yang BARU aktif —
+        // `activeScene` binding hidup, jadi harus dibaca ulang setelah lompat.
+        const m = c.match(/^skip-to-stage-(\d+)-ch-(\d+)$/);
+        const n = parseInt(m[1], 10), ch = parseInt(m[2], 10);
+        if (!activeScene || typeof activeScene.cheatSkipToStage !== 'function') {
+            setFeedback('skip-to-stage only works in Campaign mode', false);
+        } else if (activeScene.cheatSkipToStage(n) == null) {
+            setFeedback('Invalid stage - use skip-to-stage-1..12', false);
+        } else if (typeof activeScene.cheatSkipToChapter !== 'function') {
+            setFeedback('Stage ' + n + ' has no chapters - use skip-to-stage-' + n, false);
+        } else {
+            const applied = activeScene.cheatSkipToChapter(ch);
+            if (applied) setFeedback('Jumped to Stage ' + n + ' Chapter ' + applied
+                + ' - close the console to play!');
+            else setFeedback('Stage ' + n + ' has no chapter ' + ch, false);
         }
     } else if (/^skip-to-stage-\d+$/.test(c)) {
         // Lompat langsung ke stage campaign n (1..12). Scene stage campaign punya

@@ -146,16 +146,37 @@ export function resetSurface() {
 // barrels. Every consumer now takes a DISJOINT slice of one shuffled pool, and
 // a minimum separation is enforced while the pool is built, so two things can
 // never share a spot even if the counts are retuned.
-const SPOT_SPACING = 90, SPOT_MIN_GAP = 34;
+//
+// A ROLLING CURSOR was not enough, and that is what still stacked patrols on
+// crates: `spots[cursor++ % spots.length]` wraps, and the patrol pass burned a
+// spot on every REJECTED candidate as well — with a 110-unit patrol spacing
+// against a 34-unit pool gap it rejects far more often than it accepts, so the
+// cursor ran past the end of the pool and started handing out the very spots
+// the crates were already standing on. A spot is therefore CLAIMED when it is
+// handed out and can never be handed out twice, a rejected candidate costs
+// nothing, and the pool is built with enough places for every consumer.
+// Spacing is derived from DEMAND, not typed: the pool must hold a distinct
+// place for every crate, barrel and patrol with headroom, because the moment it
+// runs short something has to share a spot again.
+const SPOT_MIN_GAP = 34, SPOT_HEADROOM = 1.25;
+const SPOT_SPACING = 90, SPOT_SPACING_MIN = 40;
+// Everything that stands on a place of its own. Read from CFG, so retuning any
+// of those counts moves the pool with them instead of silently overdrawing it.
+function spotDemand() {
+    const C = CFG.campaign.stage11;
+    const P = C.cityAxis.patrol.robots;
+    return Math.max(0, C.lootboxCount | 0) + Math.max(0, C.barrelCount | 0)
+        + ['C', 'B', 'A'].reduce((n, c) => n + Math.max(0, P[c] | 0), 0);
+}
 function hash11(i, salt = 0) {
     let n = Math.imul((i + 13) ^ Math.imul(salt + 5, 0x9e3779b1), 0x85ebca6b);
     n ^= n >>> 16; n = Math.imul(n, 0xc2b2ae35); n ^= n >>> 13;
     return (n >>> 0) / 4294967296;
 }
-function roadSpots() {
+function sampleSpots(spacing) {
     const raw = [];
     for (const e of S11_CITY_EDGES) {
-        const steps = Math.max(1, Math.round(e.len / SPOT_SPACING));
+        const steps = Math.max(1, Math.round(e.len / spacing));
         for (let i = 0; i < steps; i++) {
             const t = (i + .5) / steps;
             const side = ((e.index + i) % 2) ? 1 : -1;
@@ -183,51 +204,70 @@ function roadSpots() {
     }
     return spots;
 }
+// Walk the roads finer until the pool genuinely holds a place for everything
+// with headroom. `SPOT_MIN_GAP` is never relaxed — two things standing 30 units
+// apart is the bug, not the fix — so a city that simply has no room stops at
+// the finest sampling and the callers place what fits rather than overlapping.
+let spotSpacing = SPOT_SPACING;
+function roadSpots() {
+    const want = Math.ceil(spotDemand() * SPOT_HEADROOM);
+    let best = [];
+    for (let spacing = SPOT_SPACING; spacing >= SPOT_SPACING_MIN; spacing -= 10) {
+        spotSpacing = spacing; best = sampleSpots(spacing);
+        if (best.length >= want) break;
+    }
+    return best;
+}
 
-function placeItems(spots, cursor) {
+// Claim one place. A candidate that fails `want` costs nothing — only a place
+// that is actually handed out is marked used — and a claimed place is never
+// offered again, so no two things can ever stand on the same point.
+function takeSpot(spots, want) {
+    if (want) for (const p of spots) if (!p.used && want(p)) {
+        p.used = true; return p;
+    }
+    for (const p of spots) if (!p.used) { p.used = true; return p; }
+    return null;
+}
+
+function placeItems(spots) {
     const C = CFG.campaign.stage11;
-    const take = () => spots[cursor++ % spots.length];
     for (let i = 0; i < Math.max(0, C.lootboxCount | 0); i++) {
-        const p = take(); spawnCrate(p.x, p.z, 0);
+        const p = takeSpot(spots); if (!p) break; spawnCrate(p.x, p.z, 0);
     }
     for (let i = 0; i < Math.max(0, C.barrelCount | 0); i++) {
-        const p = take(); spawnBarrel(p.x, p.z, 0);
+        const p = takeSpot(spots); if (!p) break; spawnBarrel(p.x, p.z, 0);
     }
     const supply = stage11CityProjectToRoad(S11_SURFACE_START.x - 60,
         S11_SURFACE_START.z + 40, 6);
     spawnAmmoDrop(supply.x, supply.z, 'rifle', 1e9);
     spawnAmmoDrop(supply.x + 22, supply.z, 'pistol', 1e9);
     spawnMedkitDrop(supply.x - 22, supply.z, 1e9);
-    return cursor;
 }
 
 // Scattered patrols standing on the roads. They spawn IDLE and are woken by
 // `campaignRobotAI`'s activate hook the first frame their body enters the
 // gameplay viewport (the Stage 10 port rule), so the city is populated without
 // robots converging on the player out of streets they have never seen.
-function placePatrols(spots, cursor) {
+function placePatrols(spots) {
     const P = CFG.campaign.stage11.cityAxis.patrol;
     const order = [];
     for (const cls of ['C', 'B', 'A'])
         for (let i = 0; i < Math.max(0, P.robots[cls] | 0); i++) order.push(cls);
     const placed = [];
     for (const cls of order) {
-        let p = null;
-        // Patrols want to be SPREAD: a spot too near one already used is
-        // skipped rather than accepted, so they never read as a clump.
-        for (let tries = 0; tries < spots.length && !p; tries++) {
-            const q = spots[cursor++ % spots.length];
-            if (placed.some(r => (r.x - q.x) ** 2 + (r.z - q.z) ** 2
-                < P.minSpacingUnits ** 2)) continue;
-            p = q;
-        }
-        if (!p) p = spots[cursor++ % spots.length];
+        // Patrols want to be SPREAD: a place too near one already taken is
+        // passed over rather than accepted, so they never read as a clump. It
+        // stays in the pool for a later patrol, because rejecting a candidate
+        // must not consume it.
+        const p = takeSpot(spots, q => !placed.some(r =>
+            (r.x - q.x) ** 2 + (r.z - q.z) ** 2 < P.minSpacingUnits ** 2));
+        if (!p) break;
         placed.push(p);
         spawnCampaignRobot(p.x, p.z, 11, cls, false);
         robots[robots.length - 1].encounter = 'city-patrol';
     }
     patrolPlaced = placed.length;
-    return cursor;
 }
 
 function cleanupOpening() {
@@ -288,7 +328,7 @@ export const surfaceScene = {
             fogNear: 240, fogFar: 2600 });
         resetSurface(); resetStage11WeaponVehicles(VG);
         spotPool = roadSpots();
-        placePatrols(spotPool, placeItems(spotPool, 0));
+        placeItems(spotPool); placePatrols(spotPool);
         setStage11Phase('opening');
         camera.position.set(S11_SURFACE_START.x, CFG.player.eyeHeight,
             S11_SURFACE_START.z);
@@ -404,6 +444,9 @@ export const surfaceDebug = () => ({
     blockades: stage11CityBlockadesDebug(),
     vehicles: stage11WeaponVehiclesDebug(VG),
     items: { spots: spotPool.length, minGapUnits: SPOT_MIN_GAP,
+        claimed: spotPool.filter(p => p.used).length,
+        demand: spotDemand(), headroom: SPOT_HEADROOM,
+        spacingUnits: spotSpacing,
         lootboxCount: CFG.campaign.stage11.lootboxCount,
         barrelCount: CFG.campaign.stage11.barrelCount },
     patrol: { placed: patrolPlaced, activatesOnView: true,

@@ -905,7 +905,8 @@ export function cleanupStage11WeaponVehicles(group) {
     clearProjectiles(groupState(group).root);
     for (const rig of groupRigs(group)) {
         resetVehicleHitReaction(rig);
-        rig.engaged = false; rig.inView = false; rig.weapon.flashMat.opacity = 0;
+        rig.active = false; rig.engaged = false; rig.inView = false;
+        rig.weapon.flashMat.opacity = 0;
         rig.viewT = 0; rig.fireReady = false;
         rig.wreckFx.group.visible = false;
     }

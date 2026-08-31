@@ -16,7 +16,10 @@
 // (index.js) — circular, hanya dipakai DI DALAM fungsi (pola arsitektur).
 
 import { CFG } from '../../core/config.js';
-import { player, score, addScore, setScore, syncOwnedFromWeapons, maxAmmoFor } from '../../core/state.js';
+import {
+    player, score, addScore, setScore, syncOwnedFromWeapons, maxAmmoFor,
+    hasUnlockedWeapon, unlockWeapon,
+} from '../../core/state.js';
 import { updateUI } from '../../core/hud.js';
 import { playSFX, sfxPurchase } from '../../utils/sfx.js';
 import { WEAPON_DEF, refreshOwnedWeapon, weaponFireDelay } from '../../entities/weapons.js';
@@ -46,6 +49,7 @@ function snapshotState() {
         ammoLvl: player.ammoLvl, hasRadar: player.hasRadar,
         weaponLvl: { ...player.weaponLvl },
         weapons: player.weapons.slice(),
+        unlockedWeapons: { ...player.unlockedWeapons },
         ammo: { rifle: player.rifle.ammo, pistol: player.pistol.ammo, shotgun: player.shotgun.ammo, launcher: player.launcher.ammo },
         monas: (shopCtx && shopCtx.mode === 'campaign') ? null : getMonasState(),
     };
@@ -61,6 +65,7 @@ function restoreState(s) {
     player.ammoLvl = s.ammoLvl; player.hasRadar = s.hasRadar;
     player.weaponLvl = { ...s.weaponLvl };
     player.weapons = s.weapons.slice();
+    player.unlockedWeapons = { ...s.unlockedWeapons };
     player.rifle.ammo = s.ammo.rifle; player.pistol.ammo = s.ammo.pistol;
     player.shotgun.ammo = s.ammo.shotgun; player.launcher.ammo = s.ammo.launcher;
     syncOwnedFromWeapons();
@@ -286,9 +291,8 @@ const ICONS = {
 // menambah +upgradeDamagePct (30% sejak 2026-08-13) dari damage BASE — diterapkan weaponDamage()
 // di weapons.js saat peluru lahir (peluru launcher meneruskannya ke boom AoE).
 // Level tersimpan per-tipe (player.weaponLvl, per-run) sehingga bertahan bila
-// senjatanya diganti lalu dibeli lagi. PISTOL tidak pernah dijual (loadout
-// awal): kartunya hanya muncul saat dimiliki (varian upgrade saja) — sama
-// seperti perilaku kartu upgrade lama.
+// senjatanya diganti. Semua tipe selalu muncul: senjata unlocked di luar slot
+// berubah menjadi aksi EQUIP gratis; senjata di slot tetap menjual upgrade.
 const ROMAN = ['I', 'II', 'III'];
 // Kadens per level (CFG.weapons.<w>.fireDelayByLevel, 2026-08-09): sebuah level
 // boleh mengubah — bahkan MEMPERLAMBAT — laju tembak senjata. Kartu WAJIB
@@ -309,8 +313,21 @@ function cadenceNote(w, lvl, next) {
 function weaponItem(w) {
     const S = CFG.shop;
     const label = WEAPON_DEF[w].name;
-    const owned = !!(player.owned && player.owned[w]);
-    if (!owned) {
+    const equipped = player.weapons.includes(w);
+    const unlocked = hasUnlockedWeapon(w);
+    if (unlocked && !equipped) {
+        return {
+            id: w, name: label, cost: 0, weapon: w, equip: true,
+            icon: w,
+            desc: 'Already owned. Equip it in a weapon slot at no cost.',
+            apply() {
+                player.weapons.push(w);
+                syncOwnedFromWeapons();
+                refreshOwnedWeapon();
+            }
+        };
+    }
+    if (!unlocked) {
         const BUY = {
             shotgun: {
                 cost: S.shotgunCost,
@@ -326,7 +343,19 @@ function weaponItem(w) {
                 desc: `40mm rounds that explode on impact — ${CFG.weapons.launcher.damage} area damage, ${CFG.weapons.launcher.maxAmmo} rounds.`
             }
         }[w];
-        if (!BUY) return null;   // pistol: tak dijual — kartu hanya utk upgrade
+        // Pistol selalu dibuka saat run dimulai. Fallback ini menjaga katalog
+        // tetap lengkap bila state lama/rusak tidak membawa flag arsenal.
+        if (!BUY) return {
+            id: w, name: label, cost: 0, weapon: w, equip: true,
+            icon: w,
+            desc: 'Standard sidearm. Equip it in a weapon slot at no cost.',
+            apply() {
+                unlockWeapon(w);
+                player.weapons.push(w);
+                syncOwnedFromWeapons();
+                refreshOwnedWeapon();
+            }
+        };
         return {
             id: w, name: label, cost: BUY.cost, weapon: w,
             icon: w,
@@ -514,8 +543,8 @@ function catalog() {
                 player.hasRadar = true;
             }
         },
-        // Senjata: SATU kartu gabungan beli+upgrade per senjata (2026-07-17,
-        // lihat weaponItem; pistol null bila tak dimiliki = tak pernah dijual).
+        // Senjata: SATU kartu gabungan beli/upgrade/equip per senjata. Keempat
+        // tipe selalu ada; arsenal yang sedang di luar slot menawarkan EQUIP.
         ...WEAPON_ORDER.map(weaponItem).filter(Boolean),
     ];
     // Campaign: cuma sembunyikan item khusus Survival (Monas). HARGA SAMA dengan
@@ -529,7 +558,8 @@ function catalog() {
 // kasus slot penuh ditangani shopPurchase -> pemilih ganti). Tandai dimiliki +
 // kolam peluru penuh (tanpa magazen).
 function buyWeapon(w, label) {
-    if (player.owned[w]) return `${label} already owned`;
+    if (hasUnlockedWeapon(w)) return `${label} already owned`;
+    unlockWeapon(w);
     player.weapons.push(w);
     syncOwnedFromWeapons();
     player[w].ammo = maxAmmoFor(w);
@@ -541,7 +571,7 @@ function buyWeapon(w, label) {
 function ownedNote(it) {
     // Kartu senjata gabungan (2026-07-17): varian dimiliki = penjual upgrade
     // (punya it.upgrade) — jangan dicap 'Owned' agar upgrade tetap terbeli.
-    if (it.weapon && !it.upgrade && player.owned[it.weapon]) return 'Owned';
+    if (it.weapon && !it.upgrade && !it.equip && player.owned[it.weapon]) return 'Owned';
     if (it.id === 'radar' && player.hasRadar) return 'Owned';
     if (it.id === 'medkit' && player.medkits >= CFG.player.maxMedkits) return 'Full';
     if (it.id === 'strengthenMonas' && isMonasFullyStrengthened()) return 'Maxed';
@@ -573,7 +603,7 @@ export function shopPurchase(id) {
     if (score < it.cost) return 'Not enough money';
     // Beli senjata tipe baru sementara slot sudah penuh (maks) -> minta pilih
     // yang diganti; skor dipotong saat konfirmasi (shopReplaceWeapon).
-    if (it.weapon && !player.owned[it.weapon]
+    if (it.weapon && !player.weapons.includes(it.weapon)
         && player.weapons.length >= CFG.weapons.maxWeapons) {
         pendingWeapon = it;
         return 'choose-replace';
@@ -604,8 +634,12 @@ export function shopReplaceWeapon(oldW) {
     const snap = snapshotState();        // utk undo klik-kanan
     const w = it.weapon;
     player.weapons[idx] = w;             // ganti di posisi slot yang sama
+    const newlyUnlocked = !hasUnlockedWeapon(w);
+    if (newlyUnlocked) unlockWeapon(w);
     syncOwnedFromWeapons();
-    player[w].ammo = maxAmmoFor(w);   // kolam peluru penuh (kap efektif, tanpa magazen)
+    // Pembelian pertama memberi ammo penuh; memasang lagi senjata dari arsenal
+    // mempertahankan ammo lamanya dan tidak memberikan refill gratis.
+    if (newlyUnlocked) player[w].ammo = maxAmmoFor(w);
     addScore(-it.cost);
     lastPurchase = { snapshot: snap, id: it.id };
     playSFX(sfxPurchase);
@@ -648,9 +682,10 @@ function setNotice(text, isErr) {
 // pemilih ganti (tanpa notifikasi "Purchased!").
 function doPurchase(id) {
     selectedId = id;
+    const before = catalog().find(it => it.id === id);
     const msg = shopPurchase(id);
     if (msg === 'choose-replace') { notice = ''; render(); return; }
-    setNotice(msg == null ? 'Purchased!' : msg, msg != null);
+    setNotice(msg == null ? (before && before.equip ? 'Equipped!' : 'Purchased!') : msg, msg != null);
     render();
 }
 
@@ -677,7 +712,8 @@ function showDesc(desc, it) {
     const head = el('div', 'shopDescHead');
     head.appendChild(el('span', 'shopDescName', it.name));
     const note = ownedNote(it);
-    const price = el('span', 'shopDescPrice', note ? note : `${fmtCredits(it.cost)} CREDITS`);
+    const priceText = it.equip ? 'OWNED — EQUIP FREE' : (note ? note : `${fmtCredits(it.cost)} CREDITS`);
+    const price = el('span', 'shopDescPrice', priceText);
     if (note) price.classList.add('owned');
     else if (score < it.cost) price.classList.add('poor');
     head.appendChild(price);
@@ -736,9 +772,9 @@ function makeCard(it, desc) {
     card.appendChild(el('div', 'shopCardName', it.name));
 
     const foot = el('div', 'shopCardFoot');
-    const price = el('div', 'shopCardPrice', note ? note.toUpperCase() : fmtCredits(it.cost));
+    const price = el('div', 'shopCardPrice', it.equip ? 'OWNED' : (note ? note.toUpperCase() : fmtCredits(it.cost)));
     foot.appendChild(price);
-    const buy = el('button', 'shopBuy', 'BUY');
+    const buy = el('button', 'shopBuy', it.equip ? 'EQUIP' : 'BUY');
     buy.addEventListener('click', e => { e.stopPropagation(); doPurchase(it.id); });
     foot.appendChild(buy);
     card.appendChild(foot);

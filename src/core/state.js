@@ -102,10 +102,14 @@ export const player = {
     // SLOT senjata BERURUTAN (maks CFG.weapons.maxWeapons = 3): weapons[0] =
     // tombol 1, weapons[1] = tombol 2, weapons[2] = tombol 3. Survival mulai HANYA
     // pistol (senjata lain dibeli di shop; slot ke-4 minta ganti salah satu);
-    // Campaign mulai rifle+pistol. owned = turunan dari weapons (dipakai
-    // drops/shop) — sinkron via syncOwnedFromWeapons. Di-set configurePlayer per mode.
+    // Campaign mulai rifle+pistol. owned = mirror slot aktif (dipakai combat,
+    // drops, dan HUD); unlockedWeapons = kepemilikan arsenal permanen untuk shop.
     weapons: ['pistol'],
     owned: { pistol: true, rifle: true, shotgun: true, launcher: true },
+    // Arsenal permanen sepanjang run. Berbeda dari `owned` (senjata yang
+    // sedang terpasang di slot), flag ini tidak hilang ketika sebuah senjata
+    // diganti di shop sehingga senjata itu dapat dipasang lagi tanpa dibeli.
+    unlockedWeapons: { rifle: false, pistol: true, shotgun: false, launcher: false },
     // Level upgrade per senjata (shop Survival, 2026-07-12): 1..maxWeaponLevel.
     // Damage efektif = base × (1 + upgradeDamagePct·(lvl−1)) — lihat weaponDamage()
     // di weapons.js. Level bertahan walau senjatanya diganti lalu dibeli lagi
@@ -123,7 +127,22 @@ export const player = {
 // slot berubah (configurePlayer, beli/ganti senjata di shop).
 export function syncOwnedFromWeapons() {
     player.owned = { rifle: false, pistol: false, shotgun: false, launcher: false };
-    for (const w of player.weapons) player.owned[w] = true;
+    if (!player.unlockedWeapons)
+        player.unlockedWeapons = { rifle: false, pistol: false, shotgun: false, launcher: false };
+    for (const w of player.weapons) {
+        player.owned[w] = true;
+        player.unlockedWeapons[w] = true;
+    }
+}
+
+export function hasUnlockedWeapon(w) {
+    return !!(player.unlockedWeapons && player.unlockedWeapons[w]);
+}
+
+export function unlockWeapon(w) {
+    if (!player.unlockedWeapons)
+        player.unlockedWeapons = { rifle: false, pistol: false, shotgun: false, launcher: false };
+    player.unlockedWeapons[w] = true;
 }
 
 // Kap peluru EFEKTIF sebuah senjata: base CFG.weapons.<w>.maxAmmo, atau nilai
@@ -152,8 +171,9 @@ export function configurePlayer() {
         player[w].ammo = maxAmmoFor(w);
     // Slot senjata awal (maks 3): SEMUA mode mulai pistol saja (beli senjata
     // lain di shop; shotgun & Grenade Launcher hanya dari shop Survival).
-    // owned diturunkan dari slot ini.
+    // owned diturunkan dari slot ini; arsenal run baru hanya membuka pistol.
     player.weapons = ['pistol'];
+    player.unlockedWeapons = { rifle: false, pistol: true, shotgun: false, launcher: false };
     syncOwnedFromWeapons();
     // Radar: SEMUA mode mulai TANPA radar — dibeli di shop (item "Radar"), Survival
     // maupun Campaign (2026-07-14: campaign shop kini menjual Radar).

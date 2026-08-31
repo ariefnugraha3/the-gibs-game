@@ -469,16 +469,48 @@ function simplify(pts, tol) {
     return out;
 }
 
-// Is a point on the CARRIAGEWAY of some road other than `edgeIndex`? Road
-// markings ask this: real streets are not painted through an intersection, and
-// a centre dash laid straight across a junction mouth is exactly what reads as
-// a bend that does not join up.
+// Is a point on the CARRIAGEWAY of some road surface other than `edgeIndex`?
+// Road markings ask this: real streets are not painted through an intersection,
+// and a centre dash laid straight across a junction mouth is exactly what reads
+// as a bend that does not join up.
+//
+// A ROUNDABOUT CARRIAGEWAY AND THE HEADQUARTERS FORECOURT ARE ROAD SURFACES OF
+// THEIR OWN, and leaving them out of this test is what still left both bundaran
+// looking wrong: an approach road's drawn quad runs on to the island edge (so
+// no crescent of bare ground is left at the ring), and its centre dashes and
+// edge lines were laid over that whole extended span — straight across the
+// circulating carriageway, ending in mid-ring on top of the ring's own lane
+// line. An approach's lines must STOP at the ring, which is where the give-way
+// bar picks them up.
 export function stage11CityCrossingAsphalt(edgeIndex, x, z, pad = 1) {
     for (const e of EDGES) {
         if (e.index === edgeIndex) continue;
         if (segProject(x, z, e).d2 <= (e.w - pad) ** 2) return true;
     }
+    for (const R of S11_CITY_ROUNDABOUTS) {
+        const r = R.outer + SIDEWALK - pad;
+        if ((x - R.x) ** 2 + (z - R.z) ** 2 <= r * r) return true;
+    }
+    const a = HQ_APRON_RADIUS - pad;
+    if ((x - nodes.HQ.x) ** 2 + (z - nodes.HQ.z) ** 2 <= a * a) return true;
     return false;
+}
+
+// Every approach mouth of a roundabout: the outward direction, the road's half
+// width and the radius at which its markings must stop. Derived from the edges
+// that actually meet the node, so a re-anchored map moves the mouths with it.
+export function stage11CityRoundaboutMouths() {
+    const out = [];
+    for (const R of S11_CITY_ROUNDABOUTS) {
+        for (const e of EDGES) {
+            const at = e.a === R.id ? 1 : e.b === R.id ? -1 : 0;
+            if (!at) continue;
+            out.push({ id: R.id, x: R.x, z: R.z, w: e.w, edge: e.index,
+                ux: e.tx * at, uz: e.tz * at,
+                radius: R.outer + SIDEWALK });
+        }
+    }
+    return out;
 }
 
 // Two contours that CROSS -- one road's cap against a neighbour's offset line --

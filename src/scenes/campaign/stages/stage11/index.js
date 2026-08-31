@@ -68,7 +68,7 @@ export {
     S11_CITY_BOUNDS, S11_CITY_START_BACK_UNITS, S11_CITY_START_RENDER_UNITS,
     S11_CITY_START_TANGENT, S11_CITY_SIDEWALK, S11_CITY_SIDEWALK_METERS,
     stage11CityWalk, stage11CityWalkExcept, stage11CityPastStartCut,
-    stage11CityCrossingAsphalt,
+    stage11CityCrossingAsphalt, stage11CityRoundaboutMouths,
     stage11CityIslandHit,
     stage11CityIslandSegBlocked, stage11CityProjectToRoad,
     stage11CityRoadClearance, stage11CityFenceRuns, stage11CityRoadsDebug,
@@ -120,6 +120,35 @@ function resetStage() {
     hideDownloadBar(); hideBossHud();
 }
 
+// `skip-to-stage-11-ch-N` (2026-08-31, user request). Stage 11 is ONE stage made
+// of three chapters that never call `setScene`, so `skip-to-stage-11` can only
+// ever land on Chapter 1 — there was no way to reach the city or the root hall
+// without playing everything before them.
+//
+// It goes through THE SAME DOOR a real handoff uses (`enterStage11Sub`), never a
+// private setup path, which is what makes it a jump rather than a second
+// definition of what a chapter is: the chapter being left runs its own `exit()`
+// (weapon vehicles, checkpoints, mortar, the Warden), the facade is reset the way
+// stage entry resets it, and the destination's own `enter()` builds its
+// population, supplies, camera, lights and opening beat. So a chapter reached by
+// cheat is byte-identical to one reached by playing, and adding a fourth chapter
+// needs nothing here but a fourth entry in the table.
+const STAGE11_CHAPTERS = [null, 'forest', 'city', 'root'];
+export const stage11ChapterCount = () => STAGE11_CHAPTERS.length - 1;
+function cheatSkipToChapter(n) {
+    const target = [null, forestScene, surfaceScene, rootScene][n];
+    if (!target) return null;
+    // Leave the current chapter through its own exit hook BEFORE the facade is
+    // reset: `resetStage()` clears `sub`, and a cleared `sub` is one that
+    // `enterStage11Sub` will never call `exit()` on — the boss, the parachute
+    // rig and every pooled vehicle would be left standing in a hidden world.
+    (sub || forestScene)?.exit?.();
+    cleanupNusantaraWarden(warden, false);
+    resetStage(); clearStage11Robots(); resetCrates(); resetBarrels();
+    enterStage11Sub(target, { fade: false }); updateUI();
+    return n;
+}
+
 export const stage11Scene = {
     id: 'campaign-11', lightsKey: STAGE11_FOREST_LIGHTS_KEY,
     enter() {
@@ -137,6 +166,7 @@ export const stage11Scene = {
     },
     restartScene: () => stage1Scene,
     cheatSkipToStage: n => campaignJumpToStage(n),
+    cheatSkipToChapter,
     awardKill: campaignAwardKill,
     updateMode(dt) {
         updateStage11Dialogue(dt); activeSub().updateMode(dt); updateUI();
@@ -161,6 +191,7 @@ export const stage11WorldDebug = () => ({
     sub: sub?.id || null, chapter: sub === rootScene ? 'root'
         : sub === surfaceScene ? 'city' : 'forest',
     activeSceneStable: stage11Scene.id,
+    chapterCount: stage11ChapterCount(), chapterNames: STAGE11_CHAPTERS.slice(1),
     robots: countStageRobots(11), objective: stage11Scene.hudStatus(),
     dialogue: stage11DialogueDebug(), forest: forestDebug(),
     surface: surfaceDebug(), root: rootDebug(),
