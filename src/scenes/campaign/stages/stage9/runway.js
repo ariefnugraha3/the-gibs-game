@@ -18,17 +18,23 @@ import { enterCityEnv } from '../../utility/cityscape.js';
 import { campaignRobotAI, campaignClampRobot } from '../../utility/common.js';
 import {
     S9_RUNWAY_KEY, S9_RUNWAY_START, S9_RUNWAY_CHECKPOINT,
-    S9_PUMP, S9_BOARD, S9_BOUNDS, S9_EXTERIOR_ENV,
+    S9_PUMP, S9_PUMP_STAND, S9_AIRCRAFT, S9_BOUNDS, S9_EXTERIOR_ENV, S9_TAKEOFF,
     stage9RunwayWalkable, stage9Resolve, stage9SegHitsWall, stage9NavGrid,
     stage9BlockedAt, stage9Transport, stage9SetFuelPumpOn, stage9SetMarkers,
-    stage9UpdateWorld, setStage9WorldChapter,
+    stage9UpdateWorld, setStage9WorldChapter, stage9AtBoardArea,
 } from './world.js';
 import {
     phase, complete, cine, stageElapsed, fuelT, fuelPumpOn, takeoffT,
     setStage9Phase, setStage9Cine, setStage9FuelPumpOn, setStage9TakeoffTime,
-    addStage9Fuel, cleanupStage9Cine, queueStage9Dialogue,
+    addStage9Fuel, setStage9Fuel, cleanupStage9Cine, queueStage9Dialogue,
     spawnStage9Encounter, stage9EncounterCount, finishStage9,
 } from './runtime.js';
+import {
+    beginStage9FuelDefense, endStage9FuelDefense, updateStage9FuelDefense,
+    stage9SaboteurAI, stage9StructureClaw, stage9StructureShot,
+    stage9FuelDefenseShotBlocked, stage9SaboteurCount,
+    stage9StructureFraction, stage9StructureDown,
+} from './fuelDefense.js';
 
 // Diskalakan bersama transport (2026-08-27): pesawat 25 m dengan offset lama
 // akan memenuhi layar dan memanjat melewati kamera.
@@ -39,22 +45,28 @@ function near(p, r) {
 }
 
 function startFuelPump() {
+    // Kedekatan diuji terhadap TITIK BERDIRI di depan pompa, bukan bodi
+    // pompanya: bodi itu solid, jadi jarak ke pusatnya tak pernah menjadi nol
+    // dan "berdiri di kotak kuning" harus benar-benar berarti sesuatu.
     if (phase !== 'fuelPump' || fuelPumpOn
-        || !near(S9_PUMP, CFG.campaign.stage9.fuel.interactionRange)) return;
+        || !near(S9_PUMP_STAND, CFG.campaign.stage9.fuel.interactionRange)) return;
     setStage9FuelPumpOn(true);
     setStage9Phase('fueling');
     stage9SetFuelPumpOn(true);
     stage9SetMarkers([]);
+    beginStage9FuelDefense();
     queueStage9Dialogue('pumpStarted');
-    showStageMsg('FUEL PUMP ACTIVE — FILL THE AIRCRAFT', 4200);
+    queueStage9Dialogue('pumpDefense');
+    showStageMsg('FUEL PUMP ACTIVE — DEFEND THE PUMP AND THE AIRCRAFT', 4600);
 }
 
 function finishFueling() {
     if (phase !== 'fueling' || fuelT < CFG.campaign.stage9.fuel.durationSec) return;
     setStage9Phase('board');
+    endStage9FuelDefense();
     stage9SetMarkers(['board']);
     queueStage9Dialogue('fuelFull');
-    showStageMsg('AIRCRAFT FUEL FULL — APPROACH THE TRANSPORT', 4600);
+    showStageMsg('AIRCRAFT FUEL FULL — REACH THE TRANSPORT', 4600);
 }
 
 function finishTakeoff(skipped = false) {
@@ -68,7 +80,13 @@ function finishTakeoff(skipped = false) {
 }
 
 function startTakeoff() {
-    if (phase !== 'board' || cine || !near(S9_BOARD, CFG.campaign.stage9.interactionRange)) return;
+    // Sampai di pesawat = berdiri di mana pun pada JEJAK BADANNYA, bukan pada
+    // satu kotak kecil di belakang ramp: badan pesawat 143 unit panjang, jadi
+    // sebuah lingkaran 18 unit di ekor membuat separuh pesawat terasa tak dapat
+    // dinaiki. Sayap sengaja TIDAK ikut — bentangnya 138 unit dan memakainya
+    // berarti player naik dari 60 unit di samping pesawat.
+    if (phase !== 'board' || cine
+        || !stage9AtBoardArea(camera.position.x, camera.position.z, player.radius)) return;
     setStage9Phase('takeoff');
     setStage9TakeoffTime(0);
     stage9SetMarkers([]);
@@ -88,8 +106,24 @@ function updateTakeoff(dt) {
     const progress = next / CFG.campaign.stage9.takeoffSec;
     stage9UpdateWorld(dt, stageElapsed, 1, fuelPumpOn, progress);
     const aircraft = stage9Transport();
-    setCineFocus(aircraft.position.x, aircraft.position.z);
+    // Kamera MENGIKUTI larinya, lalu DITAHAN di titik angkat: sesudah roda
+    // lepas, pesawat memanjat menjauh keluar bingkai — jauh lebih terbaca
+    // daripada mengejar benda yang toh mengecil, dan itu menjaga lantai tetap
+    // ada di bawah bingkai sampai shot terakhir.
+    const heldX = S9_TAKEOFF.yaw > Math.PI * 0.5
+        ? Math.max(aircraft.position.x, S9_TAKEOFF.rotateX)
+        : Math.min(aircraft.position.x, S9_TAKEOFF.rotateX);
+    setCineFocus(heldX, aircraft.position.z);
     if (next >= CFG.campaign.stage9.takeoffSec) finishTakeoff(false);
+}
+
+function updateFueling(dt) {
+    // Laju isian ditentukan gelombang sabotase: 1 = mengalir, negatif = satu
+    // struktur tumbang sehingga tangki justru menyusut.
+    const rate = updateStage9FuelDefense(dt);
+    if (rate >= 0) addStage9Fuel(dt * rate);
+    else setStage9Fuel(fuelT + dt * rate);
+    finishFueling();
 }
 
 function updateObjective(dt) {
@@ -105,16 +139,22 @@ function updateObjective(dt) {
         setStage9Phase('fuelPump');
         showStageMsg('AIRCRAFT STAND CLEAR — ACTIVATE THE FUEL PUMP', 4400);
     } else if (phase === 'fuelPump') startFuelPump();
-    else if (phase === 'fueling') {
-        addStage9Fuel(dt);
-        finishFueling();
-    } else if (phase === 'board') startTakeoff();
+    else if (phase === 'fueling') updateFueling(dt);
+    else if (phase === 'board') startTakeoff();
 }
 
 function spawnGateReady(name, point) {
     return stage9EncounterCount(name) === 0
         && near(point, CFG.campaign.stage9.interactionRange * 2);
 }
+
+const robotCtx = () => ({
+    walkable: stage9RunwayWalkable, resolve: stage9Resolve,
+    nav: stage9NavGrid('runway'),
+    los: (x0, z0, x1, z1) => !stage9SegHitsWall(x0, z0, x1, z1, 8),
+});
+
+const pct = (v) => Math.round(v * 100);
 
 export const runwayScene = {
     id: 'campaign-9-runway',
@@ -135,6 +175,7 @@ export const runwayScene = {
     exit() {
         if (cine?.kind === 'takeoff') cleanupStage9Cine(0);
         if (avatarGroup) avatarGroup.visible = true;
+        endStage9FuelDefense();
         stage9SetMarkers([]);
     },
     updateMode(dt) {
@@ -158,10 +199,16 @@ export const runwayScene = {
     groundHeight: () => 0,
     get camOffset() { return cine ? cineCam : null; },
     bulletBlocked(b) {
+        // Peluru penyabot yang DITUJUKAN ke pompa/pesawat berhenti di badan
+        // sasarannya; peluru lain (termasuk seluruh tembakan player) tetap
+        // hanya diuji terhadap dinding seperti sebelumnya.
+        if (stage9FuelDefenseShotBlocked(b)) return true;
         return stage9SegHitsWall(b.px, b.pz, b.mesh.position.x,
             b.mesh.position.z, b.mesh.position.y);
     },
     blastBlocked: stage9SegHitsWall,
+    robotStructureClaw: stage9StructureClaw,
+    enemyBulletHitStructure: stage9StructureShot,
     grenadeCollide(g, oldX, oldZ) {
         if (!stage9RunwayWalkable(g.mesh.position.x, g.mesh.position.z, 2)) {
             g.mesh.position.x = oldX; g.mesh.position.z = oldZ;
@@ -174,11 +221,9 @@ export const runwayScene = {
         if (phase === 'takeoff' || phase === 'complete') {
             robot.state = 'idle'; robot.moving = false; robot.aiming = false; return {};
         }
-        return campaignRobotAI(robot, dt, step, {
-            walkable: stage9RunwayWalkable, resolve: stage9Resolve,
-            nav: stage9NavGrid('runway'),
-            los: (x0, z0, x1, z1) => !stage9SegHitsWall(x0, z0, x1, z1, 8),
-        });
+        const ctx = robotCtx();
+        const sabotage = stage9SaboteurAI(robot, dt, step, ctx);
+        return sabotage || campaignRobotAI(robot, dt, step, ctx);
     },
     clampRobot(robot, oldX, oldZ) {
         campaignClampRobot(robot, oldX, oldZ,
@@ -195,16 +240,23 @@ export const runwayScene = {
             return `CHAPTER 3 — CROSS SERVICE YARD — HOSTILES ${stage9EncounterCount('runwayApron')}`;
         if (phase === 'runwayAircraft')
             return `CHAPTER 3 — SECURE AIRCRAFT STAND — HOSTILES ${stage9EncounterCount('runwayAircraft')}`;
-        if (phase === 'fuelPump') return 'CHAPTER 3 — TURN ON THE FUEL PUMP';
-        if (phase === 'fueling') return `CHAPTER 3 — FUELING AIRCRAFT ${Math.floor(
-            fuelT / CFG.campaign.stage9.fuel.durationSec * 100)}%`;
-        if (phase === 'board') return 'AIRCRAFT FUEL FULL — APPROACH THE TRANSPORT';
+        if (phase === 'fuelPump') return 'CHAPTER 3 — STAND ON THE MARKER AND TURN ON THE FUEL PUMP';
+        if (phase === 'fueling') {
+            const fuel = pct(fuelT / CFG.campaign.stage9.fuel.durationSec);
+            const warn = stage9StructureDown('pump') || stage9StructureDown('aircraft')
+                ? ' — FUEL LINE DOWN' : '';
+            return `CHAPTER 3 — FUELING ${fuel}%${warn} — PUMP ${pct(stage9StructureFraction('pump'))}%`
+                + ` AIRCRAFT ${pct(stage9StructureFraction('aircraft'))}%`
+                + ` — SABOTEURS ${stage9SaboteurCount()}`;
+        }
+        if (phase === 'board') return 'AIRCRAFT FUEL FULL — REACH THE TRANSPORT';
         if (phase === 'takeoff') return 'STAGE 9 — DEPARTURE';
         return 'STAGE 9 COMPLETE';
     },
     radarLandmarks(plot) {
         const p = phase === 'runwayApron' ? S9_RUNWAY_CHECKPOINT
-            : phase === 'board' ? S9_BOARD : S9_PUMP;
+            : phase === 'board' ? S9_AIRCRAFT
+                : phase === 'fueling' ? S9_PUMP : S9_PUMP_STAND;
         if (!complete) plot(p.x - camera.position.x, p.z - camera.position.z,
             '#ffb03b', 5, true);
     },

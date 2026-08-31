@@ -403,7 +403,6 @@ function updateUpload(dt) {
     const delta = uploadProgress - previousUpload;
     minObservedDelta = Math.min(minObservedDelta, delta);
     setDownloadProgress(uploadProgress);
-    updateStage11RootVisuals(dt, uploadProgress, jammed);
     if (wardenActivated && !nusantaraWardenWrecked(w)) {
         const wd = nusantaraWardenDebug(w);
         const targetState = wd.phase === 'jam1' ? 'JAMMED — CAPACITORS'
@@ -473,6 +472,10 @@ export const rootScene = {
         updateNusantaraWarden(w, dt, { arena: S11_ARENA,
             allowAttack: phase === 'wardenBattle' });
         updateUpload(dt);
+        // Runs before AND after upload: the floor destination must pulse while
+        // the player is still looking for the central-computer interaction.
+        updateStage11RootVisuals(dt, uploadProgress,
+            uploadAccepted && nusantaraWardenIsJamming(w));
         updateUI();
     },
     playerCollide(pos, oldX, oldZ, feetY) {

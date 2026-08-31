@@ -686,11 +686,29 @@
             "spawnClearMeters": 15,
             "fuel": {
                 "durationSec": 24,
-                "interactionRange": 14
+                "interactionRange": 14,
+                "defense": {
+                    "firstWaveDelaySec": 2.5,
+                    "waveIntervalSec": 8,
+                    "maxAlive": 14,
+                    "wave": { "C": 3, "B": 1, "A": 1 },
+                    "aircraftHp": 1500,
+                    "pumpHp": 1200,
+                    "clawDamage": 10,
+                    "shotDamage": 5,
+                    "attackRangeMeters": 4,
+                    "shotRangeMeters": 22,
+                    "fuelLossPerHit": 0.6,
+                    "repairPerSec": 30,
+                    "repairDelaySec": 4,
+                    "drainPerSec": 1.5,
+                    "restoreFraction": 0.3,
+                    "playerAggroMeters": 8
+                }
             },
             "encounters": {
-                "frontToll": { "C": 32, "B": 13, "A": 5 },
-                "frontForecourt": { "C": 33, "B": 12, "A": 5 },
+                "frontToll": { "C": 48, "B": 19, "A": 8 },
+                "frontForecourt": { "C": 49, "B": 18, "A": 8 },
                 "interiorCheckin": { "C": 16, "B": 7, "A": 2 },
                 "interiorConcourse": { "C": 38, "B": 17, "A": 5 },
                 "runwayApron": { "C": 10, "B": 5, "A": 1 },
@@ -699,8 +717,8 @@
             "lootboxCount": 62,
             "parkingLootBoxes": { "left": 15, "right": 12 },
             "interiorLootBoxes": { "baggage": 15, "souvenir": 5, "restaurant": 5, "cafe": 5, "toilet": 5 },
-            "barrelCount": 10,
-            "takeoffSec": 8
+            "barrels": { "front": 40, "interior": 2, "runway": 6 },
+            "takeoffSec": 11
         },
         "stage11": {
             "openingMinSec": 7,
@@ -1100,8 +1118,8 @@
                 "attackGapSec": 1.8,
                 "enrageGapMul": 0.8,
                 "shield": { "arcDeg": 110, "damageMul": 0.12 },
-                "capacitors": { "count": 3, "hp": 900 },
-                "couplings": { "count": 2, "hp": 1300 },
+                "capacitors": { "count": 3, "hp": 600 },
+                "couplings": { "count": 2, "hp": 800 },
                 "rail": {
                     "telegraphSec": 0.9,
                     "damage": 55,
@@ -1459,8 +1477,11 @@
                     "openingGibran": { "speaker": "Major Gibran", "text": "Understood. I will get that transport airborne." },
                     "outsideCommand": { "speaker": "Command", "text": "The outer grounds are crawling with hostiles. Clear a path to the building." },
                     "buildingEntry": { "speaker": "Major Gibran", "text": "Inside the airport. Push through and find the runway exit." },
+                    "concourseAlarm": { "speaker": "Major Gibran", "text": "The waiting hall just lit up, and everything I walked past in baggage is coming after me." },
                     "runwayEntry": { "speaker": "Command", "text": "The transport is on the runway. Start the fuel pump before you approach it." },
                     "pumpStarted": { "speaker": "Airport System", "text": "Fuel pump active. Aircraft refuelling in progress." },
+                    "pumpDefense": { "speaker": "Command", "text": "Hostiles inbound, Major. They are going for the pump and the aircraft. Keep them off both." },
+                    "pumpCritical": { "speaker": "Airport System", "text": "Fuel line severed. Flow stopped and the tank is draining. Clear the hostiles." },
                     "fuelFull": { "speaker": "Airport System", "text": "Fuel tanks full. Transport ready for departure." },
                     "departure": { "speaker": "Command", "text": "Board now, Major. We are leaving this airfield." }
                 }

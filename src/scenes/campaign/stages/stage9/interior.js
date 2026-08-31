@@ -20,7 +20,7 @@ import {
 } from './world.js';
 import {
     phase, stageElapsed, setStage9Phase, queueStage9Dialogue, spawnStage9Encounter,
-    stage9EncounterCount, stage9RobotInView, enterStage9Sub,
+    stage9EncounterCount, stage9RobotInView, enterStage9Sub, alertStage9Encounter,
 } from './runtime.js';
 import { runwayScene } from './runway.js';
 
@@ -28,19 +28,36 @@ function near(p, r) {
     return Math.hypot(camera.position.x - p.x, camera.position.z - p.z) <= r;
 }
 
+// Sisa Chapter 2 = kedua gelombang. Sejak pemicu ruang tunggu tak lagi menunggu
+// gelombang pertama mati (2026-08-31), pintu keluar harus menghitung KEDUANYA —
+// kalau tidak, penyintas check-in ikut terbawa ke Chapter 3 dan berdiri di
+// koordinat terminal yang tak pernah dapat dicapai player lagi.
+const interiorHostiles = () =>
+    stage9EncounterCount('interiorCheckin') + stage9EncounterCount('interiorConcourse');
+
 function updateProgress() {
     const range = CFG.campaign.stage9.interactionRange;
+    // PEMICU RUANG TUNGGU TIDAK LAGI MENSYARATKAN GELOMBANG 1 MATI (2026-08-31,
+    // permintaan user). Melewatkan robot belt bagasi bukan lagi jalan pintas
+    // gratis: memicu ruang tunggu MEMBANGUNKAN seluruh penyintas gelombang 1
+    // sekaligus, dan mereka menyeberangi terminal lewat breach `=` untuk
+    // mengejar player. Terburu-buru ke sini berarti melawan dua gelombang
+    // sekaligus — itu pilihan player, bukan kecelakaan.
     if (phase === 'interiorCheckin'
-        && stage9EncounterCount('interiorCheckin') === 0
         && near(S9_INTERIOR_CHECKPOINT, range * 2)) {
         setStage9Phase('interiorConcourse');
         stage9SetMarkers(['buildingExit']);
         spawnStage9Encounter('interiorConcourse',
             CFG.campaign.stage9.encounters.interiorConcourse, false,
             { accept: stage9InteriorWaitingAreaAt });
-        showStageMsg('SECURITY HALL CLEAR — FIGHT THROUGH THE CONCOURSE', 4600);
-    } else if (phase === 'interiorConcourse'
-        && stage9EncounterCount('interiorConcourse') === 0
+        const woken = alertStage9Encounter('interiorCheckin');
+        if (woken) {
+            queueStage9Dialogue('concourseAlarm');
+            showStageMsg(`ALARM — ${woken} HOSTILES CONVERGING FROM CHECK-IN`, 4600);
+        } else {
+            showStageMsg('CHECK-IN CLEAR — FIGHT THROUGH THE CONCOURSE', 4600);
+        }
+    } else if (phase === 'interiorConcourse' && interiorHostiles() === 0
         && near(S9_BUILDING_EXIT, range)) {
         setStage9Phase('runwayApron');
         enterStage9Sub(runwayScene);
@@ -60,7 +77,9 @@ export const interiorScene = {
         stage9SetMarkers(['interiorCheckpoint']);
         spawnStage9Encounter('interiorCheckin',
             CFG.campaign.stage9.encounters.interiorCheckin, false,
-            { accept: (x, z) => !!stage9InteriorWave1AreaAt(x, z) });
+            // Relokasi aman pun tak boleh memindahkan siapa pun ke hall bagasi:
+            // di sana hanya ada tumpukan loot box (permintaan user 2026-08-31).
+            { accept: (x, z) => stage9InteriorWave1AreaAt(x, z) === 'counter' });
         queueStage9Dialogue('buildingEntry');
         showStageMsg('CHAPTER 2 — CLEAR CHECK-IN AND REACH SECURITY', 4800);
     },
@@ -115,7 +134,7 @@ export const interiorScene = {
     hudStatus() {
         if (phase === 'interiorCheckin')
             return `CHAPTER 2 — REACH SECURITY — HOSTILES ${stage9EncounterCount('interiorCheckin')}`;
-        return `CHAPTER 2 — CROSS CONCOURSE — HOSTILES ${stage9EncounterCount('interiorConcourse')}`;
+        return `CHAPTER 2 — CROSS CONCOURSE — HOSTILES ${interiorHostiles()}`;
     },
     radarLandmarks(plot) {
         const p = phase === 'interiorCheckin' ? S9_INTERIOR_CHECKPOINT : S9_BUILDING_EXIT;

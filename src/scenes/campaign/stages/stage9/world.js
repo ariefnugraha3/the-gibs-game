@@ -15,7 +15,9 @@ import {
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
-import { buildStandMarker, pulseStandMarker } from '../../utility/common.js';
+import {
+    buildStandMarker, pulseStandMarker, STAND_MARKER_SIZE,
+} from '../../utility/common.js';
 import {
     buildSplitDoor, setSplitDoorOpen, splitDoorLeafOffset, DOOR_OPEN_REVEAL,
 } from '../../utility/doors.js';
@@ -25,9 +27,10 @@ import {
 import { buildTurbofan } from '../../utility/turbofan.js';
 import {
     buildArmedHeavyAircraft, resetTransport,
-    updateTransport, transportDebug,
+    updateTransport, transportDebug, TRANSPORT_HULL,
 } from './aircraft.js';
 import { STAGE7_ROAD_VEHICLE_SPECS } from '../stage7/roadVehicles.js';
+import { BARREL_RADIUS } from '../../../../entities/barrels.js';
 
 export const S9_ORIGIN = Object.freeze({ x: 300000, z: 0 });
 export const S9_FRONT_ORIGIN = Object.freeze({ x: 306000, z: 0 });
@@ -52,12 +55,55 @@ export const S9_BUILDING_START = Object.freeze({ x: 312285, z: 245 });
 export const S9_BUILDING_EXIT = Object.freeze({ x: 311700, z: -275 });
 export const S9_RUNWAY_START = Object.freeze({ x: 299125, z: 180 });
 export const S9_RUNWAY_CHECKPOINT = Object.freeze({ x: 300055, z: 55 });
-export const S9_PUMP = Object.freeze({ x: 300800, z: 180 });
 export const S9_AIRCRAFT = Object.freeze({ x: 300700, z: -220 });
+// POMPA BAHAN BAKAR BERDIRI DI SAMPING PESAWAT (2026-08-31, permintaan user).
+// Dulu ia berdiri di mulut tenggara hanggar (300800, 180) — 400 unit dari
+// pesawat, di sisi lain taxiway — sehingga objektif "isi bahan bakar" dan benda
+// yang diisi tidak pernah terlihat dalam satu layar, dan gelombang sabotase di
+// bawah mustahil dipertahankan sekaligus. Titik baru berdiri di landasan, di
+// TIMUR ekor pesawat: lari lepas landas menuju BARAT (S9_TAKEOFF), jadi pompa
+// tidak pernah berada di jalur yang dilewati pesawat.
+export const S9_PUMP = Object.freeze({ x: 300820, z: -160 });
+// Setengah kedalaman collider pompa — satu angka, dipakai collider-nya SENDIRI
+// dan offset marker berdirinya, jadi marker tak mungkin tenggelam di dalam bodi
+// pompa kalau ukurannya diubah.
+const S9_PUMP_HALF_DEPTH_M = 2.4;
+// TANDA LANTAI BERBINGKAI KUNING DI DEPAN POMPA (2026-08-31, permintaan user).
+// Interaksi pompa memakai titik INI, bukan bodi pompanya: berdiri di dalam
+// collider pompa mustahil, jadi menguji jarak ke pusat pompa berarti player
+// harus menempel pada sisi yang kebetulan cukup dekat. Sama seperti perbaikan
+// konsol root Stage 11: kedekatan mengikuti titik berdiri yang benar-benar
+// dapat dicapai. Sisi -z sengaja dipilih karena itu sisi panel kendali pompa
+// DAN sisi yang menghadap kamera oblique, jadi kotaknya selalu terlihat.
+export const S9_PUMP_STAND = Object.freeze({
+    x: S9_PUMP.x,
+    z: S9_PUMP.z - (S9_PUMP_HALF_DEPTH_M * CAMP_M + STAND_MARKER_SIZE * 0.5 + 3),
+});
 // Marker tetap di titik ramp setelah rig pesawat diperkecil 25%: ujung ramp
 // sekarang sekitar 62 unit di belakang pusat dan marker berjarak 52 unit, jadi
 // player masih menaiki pesawat dari belakang tanpa mengubah alur Chapter 3.
-export const S9_BOARD = Object.freeze({ x: 300648, z: -220 });
+// PESAWAT DIPUTAR BALIK (2026-08-31, permintaan user): hidungnya kini ke BARAT
+// (yaw PI), sehingga ekor — dan titik naik — pindah ke sisi +x.
+export const S9_BOARD_OFFSET = 52;
+export const S9_BOARD = Object.freeze({
+    x: S9_AIRCRAFT.x + S9_BOARD_OFFSET, z: S9_AIRCRAFT.z,
+});
+// LEPAS LANDAS KE ARAH BERLAWANAN (2026-08-31, permintaan user). Semua angka di
+// bawah DITURUNKAN dari landasan yang benar-benar digambar: pesawat parkir di
+// ambang timur, berlari ke barat sampai `rotateMargin` sebelum ujung landasan,
+// baru mengangkat hidung. Menaikkan/menurunkan panjang landasan otomatis
+// memindahkan titik angkatnya, bukan meninggalkan angka ketikan yang basi.
+export const S9_RUNWAY_STRIP = Object.freeze({
+    x0: 299150, x1: 300870, z: -220, halfWidth: 85,
+});
+const S9_TAKEOFF_ROTATE_MARGIN = 140;
+export const S9_TAKEOFF = Object.freeze({
+    yaw: Math.PI,
+    rotateX: S9_RUNWAY_STRIP.x0 + S9_TAKEOFF_ROTATE_MARGIN,
+    groundRun: S9_AIRCRAFT.x - (S9_RUNWAY_STRIP.x0 + S9_TAKEOFF_ROTATE_MARGIN),
+    climbRun: 1000,
+    climbHeight: 220,
+});
 // Menara digeser ke timur pier terminal supaya keduanya tak saling menembus;
 // hanggar digeser ke barat supaya pompa bahan bakar tetap berdiri BEBAS di
 // mulut tenggaranya setelah bentang hanggar dilebarkan.
@@ -209,6 +255,10 @@ function fixture(kind, amount = 1) {
 const runwayLayoutRecords = {
     zones: [], parkedAircraft: 0, jetBridges: 0,
     taxiwayConnectors: 0, fireStations: 0,
+    // Bentang tanah yang benar-benar digambar. Lari lepas landas berakhir DI
+    // ATAS bidang ini, bukan di atas haze latar — aturan yang sama seperti
+    // lanskap Stage 5/8: apa yang dicapai kamera harus punya lantai.
+    groundSpan: null,
     // Tinggi/panjang yang DIGAMBAR untuk struktur yang siluetnya jauh melewati
     // collider-nya (menara, hanggar, jet bridge, tiang lampu, pesawat). Dicatat
     // dari konstanta yang sama yang membangunnya, dalam METER, supaya smoke
@@ -1240,7 +1290,7 @@ function buildFuelPump(parent, M) {
     indicator.userData.fuelIndicator = true;
     parent.add(g);
     fuelPump = { group: g, indicator };
-    addBlocker(x, z, am(1.3), am(.8), am(2.4), 0, 'fuel-pump');
+    addBlocker(x, z, am(1.3), am(S9_PUMP_HALF_DEPTH_M), am(2.4), 0, 'fuel-pump');
     count('fuelPump');
 }
 
@@ -1258,7 +1308,13 @@ function buildRunwayAndApron(parent, M) {
     // lagi deretan edge light, hold-short berlapis, atau cabang pemandu ganda.
     // Bidang rumput dilebarkan ke timur supaya lari lepas landas transport
     // berakhir di ATAS tanah, bukan di atas haze latar.
-    box(parent, M.grass, 2700, 1, 1120, S9_ORIGIN.x + 200, -0.75, 30, false);
+    // Bidang rumput melebar ke BARAT (2026-08-31): lari lepas landas kini menuju
+    // ujung barat landasan, jadi kamera sinematik berakhir di sisi itu.
+    const grassW = 4000, grassCx = S9_ORIGIN.x - 100;
+    box(parent, M.grass, grassW, 1, 1120, grassCx, -0.75, 30, false);
+    runwayLayoutRecords.groundSpan = {
+        x0: grassCx - grassW * .5, x1: grassCx + grassW * .5, z0: -530, z1: 590,
+    };
     box(parent, M.apron, 940, .42, 250, 299580, -.04, 180, false);
     box(parent, M.apron, 800, .42, 310, 300450, -.04, 175, false);
     // Bidang yang saling menyambung harus punya overlap lebih lebar daripada
@@ -1267,12 +1323,19 @@ function buildRunwayAndApron(parent, M) {
     box(parent, M.asphalt, 1760, .44, 110, 300000, -.04, 25, false);
     // Runway dilebarkan 110 -> 170 unit (24 m): transport berbentang 25 m tak
     // boleh terlihat lebih lebar daripada landasannya sendiri.
-    box(parent, M.asphalt, 1720, .46, 170, 300010, -.03, -220, false);
+    box(parent, M.asphalt, S9_RUNWAY_STRIP.x1 - S9_RUNWAY_STRIP.x0, .46,
+        S9_RUNWAY_STRIP.halfWidth * 2, (S9_RUNWAY_STRIP.x0 + S9_RUNWAY_STRIP.x1) * .5,
+        -.03, S9_RUNWAY_STRIP.z, false);
     runwayLayoutRecords.zones.push(
         { kind: 'apron', x: 299580, z: 180, hx: 470, hz: 125 },
         { kind: 'service-yard', x: 300450, z: 175, hx: 400, hz: 155 },
         { kind: 'taxiway-b', x: 300000, z: 25, hx: 880, hz: 55 },
-        { kind: 'runway-14-32', x: 300010, z: -220, hx: 860, hz: 85 },
+        {
+            kind: 'runway-14-32',
+            x: (S9_RUNWAY_STRIP.x0 + S9_RUNWAY_STRIP.x1) * .5, z: S9_RUNWAY_STRIP.z,
+            hx: (S9_RUNWAY_STRIP.x1 - S9_RUNWAY_STRIP.x0) * .5,
+            hz: S9_RUNWAY_STRIP.halfWidth,
+        },
     );
 
     // Tiga konektor C3/C2/D1 dari taxiway ke runway: badan aspal + SATU garis.
@@ -1296,8 +1359,8 @@ function buildRunwayAndApron(parent, M) {
     count('runway'); count('apron'); count('taxiway', 4);
 }
 
-function createMarker(parent, M, name, x, z, color = PAL.amber) {
-    const marker = buildStandMarker(parent, x, z, color);
+function createMarker(parent, M, name, x, z, color = PAL.amber, sizeX, sizeZ) {
+    const marker = buildStandMarker(parent, x, z, color, sizeX, sizeZ);
     markers[name] = marker;
     void M;
     return marker;
@@ -2776,13 +2839,22 @@ function buildWorld() {
 
     transport = buildArmedHeavyAircraft();
     worldRoot.add(transport);
-    resetTransport(transport, S9_AIRCRAFT.x, S9_AIRCRAFT.z, 0);
+    // Hidung ke barat: seluruh profil lepas landas (titik angkat, panjang lari,
+    // tinggi jelajah) diserahkan ke rig pesawat sekali di sini.
+    resetTransport(transport, S9_AIRCRAFT.x, S9_AIRCRAFT.z, S9_TAKEOFF.yaw, S9_TAKEOFF);
     buildFuelPump(worldRoot, M);
 
     createMarker(worldRoot, M, 'runwayCheckpoint', S9_RUNWAY_CHECKPOINT.x,
         S9_RUNWAY_CHECKPOINT.z);
-    createMarker(worldRoot, M, 'pump', S9_PUMP.x, S9_PUMP.z);
-    createMarker(worldRoot, M, 'board', S9_BOARD.x, S9_BOARD.z);
+    createMarker(worldRoot, M, 'pump', S9_PUMP_STAND.x, S9_PUMP_STAND.z);
+    // AREA NAIK = JEJAK BADAN PESAWAT (2026-08-31, permintaan user "seluas badan
+    // pesawat ... bukan sayapnya"). Kotaknya diambil dari `stage9StructureBox`
+    // yang sama yang dipakai sabotase, jadi yang DIGAMBAR, yang DIPUKUL robot
+    // dan yang MEMICU keberangkatan adalah satu badan yang sama — dan lebarnya
+    // lebar FUSELAGE, bukan bentang sayap.
+    const boardBox = stage9StructureBox('aircraft');
+    createMarker(worldRoot, M, 'board', boardBox.x, boardBox.z, PAL.amber,
+        boardBox.hx * 2, boardBox.hz * 2);
 
     // Static merge is safe because only hero aircraft and markers animate.
     staticBatch.push(...addMergedStatic(worldRoot, [staticRoot]));
@@ -2862,10 +2934,16 @@ export function stage9FrontRoadSurface(x, z, radius = 0) {
 // blocker set, then selected near evenly spaced longitudinal targets. The
 // low-discrepancy lane order prevents a single row of robots while preserving
 // coverage from the toll approach to the terminal entrance.
+// Hasilnya deterministik dan dipakai DUA konsumen (populasi robot dan penolakan
+// titik barel), jadi ia dihafal: pencariannya O(jumlah x kandidat) dan
+// `stage9SupplyPlacements` dipanggil ulang tiap masuk stage serta tiap debug.
+let frontScatterMemo = null;
 export function stage9FrontRoadScatterPoints(amount) {
     ensureStage9World();
     const count = Math.max(0, amount | 0);
     if (!count) return [];
+    if (frontScatterMemo && frontScatterMemo.count === count)
+        return frontScatterMemo.points;
     const clearance = 5.5;
     const x0 = S9_FRONT_SAFE_END.x + S9_FRONT_REVEAL_BUFFER_UNITS;
     const x1 = S9_BUILDING_ENTRY.x - 42;
@@ -2907,6 +2985,7 @@ export function stage9FrontRoadScatterPoints(amount) {
         used.add(best);
         picked.push({ x: candidates[best].x, z: candidates[best].z });
     }
+    frontScatterMemo = { count, points: picked };
     return picked;
 }
 
@@ -2931,12 +3010,67 @@ export function stage9RunwayWalkable(x, z, radius = 0) {
     // atas diameter player, jadi tak ada seam baru.
     const taxiway = x >= 299120 + radius && x <= 300880 - radius
         && z >= -30 + radius && z <= 80 - radius;
-    const runway = x >= 299150 + radius && x <= 300870 - radius
-        && z >= -305 + radius && z <= -135 - radius;
+    const runway = x >= S9_RUNWAY_STRIP.x0 + radius && x <= S9_RUNWAY_STRIP.x1 - radius
+        && z >= S9_RUNWAY_STRIP.z - S9_RUNWAY_STRIP.halfWidth + radius
+        && z <= S9_RUNWAY_STRIP.z + S9_RUNWAY_STRIP.halfWidth - radius;
     const connector = [299860, 300250, 300700].some((cx) =>
         x >= cx - 43 + radius && x <= cx + 43 - radius
         && z >= -180 + radius && z <= 10 - radius);
     return apron || serviceYard || apronServiceCore || taxiway || runway || connector;
+}
+
+// ===== SASARAN SABOTASE CHAPTER 3 (2026-08-31, permintaan user) =====
+// Robot penyabot menyerang PESAWAT dan POMPA, bukan hanya player. Kedua kotak
+// di bawah adalah geometri sasaran itu, dan keduanya sengaja BUKAN blocker:
+// pesawat harus tetap dapat dilewati (titik naik berada di dalam bentang
+// badannya) dan pompa sudah punya collider sendiri. Setengah-panjang badan
+// pesawat DITURUNKAN dari rig yang digambar (TRANSPORT_HULL), jadi kotak
+// sasaran tak pernah lebih besar daripada pesawatnya sendiri.
+export function stage9StructureBox(kind) {
+    if (kind === 'pump') {
+        return {
+            x: S9_PUMP.x, z: S9_PUMP.z,
+            hx: am(1.3), hz: am(S9_PUMP_HALF_DEPTH_M), top: am(3.2),
+        };
+    }
+    return {
+        x: S9_AIRCRAFT.x, z: S9_AIRCRAFT.z,
+        hx: TRANSPORT_HULL.halfLength, hz: TRANSPORT_HULL.halfWidth,
+        top: TRANSPORT_HULL.top,
+    };
+}
+
+// Titik terdekat pada permukaan kotak sasaran: dipakai sebagai tujuan A* dan
+// sebagai jarak serang, jadi robot berhenti di badan pesawat alih-alih memburu
+// satu titik pusat yang berada 70 unit di dalamnya.
+export function stage9StructureAim(kind, x, z) {
+    const b = stage9StructureBox(kind);
+    const cx = Math.max(b.x - b.hx, Math.min(b.x + b.hx, x));
+    const cz = Math.max(b.z - b.hz, Math.min(b.z + b.hz, z));
+    return { x: cx, z: cz, dist: Math.hypot(x - cx, z - cz) };
+}
+
+// Player berdiri di dalam JEJAK BADAN pesawat? Ini gerbang keberangkatan sejak
+// 2026-08-31: dulu sebuah lingkaran ber-radius `interactionRange` di sekitar
+// satu titik ramp, jadi berdiri di samping badan pesawat tidak dianggap sampai.
+// `pad` melebarkan kotak (radius player), sehingga MENYENTUH badan sudah cukup.
+export function stage9AtBoardArea(x, z, pad = 0) {
+    const b = stage9StructureBox('aircraft');
+    return Math.abs(x - b.x) <= b.hx + pad && Math.abs(z - b.z) <= b.hz + pad;
+}
+
+// Ruas peluru memotong salah satu sasaran? Hanya peluru musuh yang MEMANG
+// ditujukan ke struktur yang diuji lewat ini (lihat runway.js), sehingga
+// tembakan player tetap menembus pesawat persis seperti sebelumnya dan rute
+// naik tidak berubah sama sekali.
+export function stage9StructureSegHit(x0, z0, x1, z1, y = 0) {
+    for (const kind of ['aircraft', 'pump']) {
+        const b = stage9StructureBox(kind);
+        if (y >= b.top) continue;
+        if (segmentHitsBlocker(x0, z0, x1, z1,
+            { ...b, axx: 1, axz: 0, azx: 0, azz: 1 })) return kind;
+    }
+    return null;
 }
 
 export function stage9Walkable(x, z, radius = 0) {
@@ -3048,7 +3182,70 @@ export function stage9InteriorReachable(x, z) {
     return interiorReachSet.has(`${cx},${cz}`);
 }
 
+// ===== BAREL CHAPTER 1: RUMPUN, BUKAN SUMBU (2026-08-31, permintaan user
+// "perbanyak juga barrel yang bisa meledak agar penuh aksi") =====
+// Jaraknya DITURUNKAN dari radius ledak barel itu sendiri, bukan diketik, dan
+// pemisahannya punya dua tingkat yang disengaja. Anggota satu rumpun berdiri
+// jauh DI DALAM radius rambat, jadi menembak satu meledakkan seluruh rumpun —
+// itulah "aksi"-nya. Antar-rumpun dijaga LEBIH JAUH daripada radius rambat,
+// karena barel yang dijejer serapat radiusnya sendiri sepanjang jalan bukan
+// menghasilkan ledakan beruntun yang seru melainkan SATU sumbu sepanjang 1,4 km
+// yang menyapu seluruh Chapter 1 dari satu tembakan.
+function frontBarrelPlacements(amount) {
+    if (amount <= 0) return [];
+    const B = CFG.barrels || {};
+    const chainR = (B.blastRadiusMeters || 6) * CAMP_M + BARREL_RADIUS;
+    const clusterSpread = BARREL_RADIUS * 3.2;
+    // Jarak antar-PUSAT rumpun = jarak minimum yang MASIH menjamin dua rumpun
+    // tak saling menyulut: radius rambat + lebar penuh dua rumpun + sedikit
+    // margin. Diturunkan, bukan diketik — dan sengaja TIDAK dilonggarkan untuk
+    // mengejar jumlah, karena melonggarkannya persis mengembalikan sumbu
+    // sepanjang jalan yang hendak dihindari (pelajaran jarak item Stage 11).
+    const clusterGap = chainR + clusterSpread * 1.8 + 6;
+    const clearance = BARREL_RADIUS + 2;
+    // Barel tak boleh berdiri di petak yang sudah dipesan robot pra-sebar: 150
+    // robot dan 40 barel berbagi aspal yang sama, dan keduanya deterministik,
+    // jadi tumpang-tindihnya dapat dihindari alih-alih diharapkan tak terjadi.
+    const E = CFG.campaign.stage9.encounters;
+    const robotTotal = ['frontToll', 'frontForecourt'].reduce((n, key) =>
+        n + ['C', 'B', 'A'].reduce((m, cls) => m + Math.max(0, E[key]?.[cls] | 0), 0), 0);
+    const taken = stage9FrontRoadScatterPoints(robotTotal);
+    const free = (x, z, pad) => stage9FrontRoadSurface(x, z, clearance)
+        && !frontBlockers.some((b) => pointInBlocker(x, z, clearance, b))
+        && !taken.some((q) => Math.hypot(q.x - x, q.z - z) < pad);
+    const x0 = S9_START.x + 90, x1 = S9_BUILDING_ENTRY.x - 60;
+    const lanes = [0.30, 0.70, 0.12, 0.88, 0.50, 0.21, 0.79];
+    const out = [], centres = [];
+    for (let pass = 0; pass < lanes.length && out.length < amount; pass++) {
+        for (let x = x0; x <= x1 && out.length < amount; x += 20) {
+            const boulevard = x >= 305555;
+            const z0 = (boulevard ? 71 : 92) + clearance;
+            const z1 = (boulevard ? 249 : 228) - clearance;
+            const z = z0 + (z1 - z0) * lanes[(pass + Math.round(x / 20)) % lanes.length];
+            if (!free(x, z, 22)) continue;
+            if (centres.some((c) => Math.hypot(c.x - x, c.z - z) < clusterGap)) continue;
+            centres.push({ x, z });
+            // Selalu 2-3 anggota: satu barel sendirian bukan rumpun, dan tiap
+            // rumpun harus benar-benar meledak berantai saat ditembak.
+            const size = Math.min(amount - out.length, 2 + (ihash(Math.round(x + z)) % 2));
+            for (let k = 0; k < size; k++) {
+                const a = (ihash(Math.round(x * 3 + z * 7 + k)) % 360) * Math.PI / 180;
+                const r = k === 0 ? 0 : clusterSpread * (0.55 + (k % 2) * 0.35);
+                // Anggota tak boleh keluar dari lebar rumpun yang dipakai
+                // menghitung `clusterGap`, atau jaminan pemisahannya batal.
+                const bx = x + Math.cos(a) * r, bz = z + Math.sin(a) * r;
+                if (!free(bx, bz, 14)) continue;
+                if (out.some((q) => Math.hypot(q.x - bx, q.z - bz) < BARREL_RADIUS * 2.4))
+                    continue;
+                out.push({ x: bx, z: bz });
+            }
+        }
+    }
+    return out;
+}
+
 export function stage9SupplyPlacements() {
+    const barrelCounts = CFG.campaign.stage9.barrels || {};
     const parkingCrates = [];
     const counts = CFG.campaign.stage9.parkingLootBoxes;
     const placeParking = (parking, amount, rows) => {
@@ -3135,9 +3332,13 @@ export function stage9SupplyPlacements() {
         parkingCrates,
         interiorCrates,
         barrels: [
-            { x: 305835, z: 135 }, { x: 306090, z: 182 },
-            { x: 312260, z: -160 }, { x: 311715, z: -185 },
-            ...barrelCandidates.map(([x, z]) => ({ x: S9_ORIGIN.x + x, z })),
+            ...frontBarrelPlacements(Math.max(0, barrelCounts.front | 0))
+                .map((p) => ({ ...p, area: 'front' })),
+            ...[{ x: 312260, z: -160 }, { x: 311715, z: -185 }]
+                .slice(0, Math.max(0, barrelCounts.interior | 0))
+                .map((p) => ({ ...p, area: 'interior' })),
+            ...barrelCandidates.slice(0, Math.max(0, barrelCounts.runway | 0))
+                .map(([x, z]) => ({ x: S9_ORIGIN.x + x, z, area: 'runway' })),
         ],
         drops: [
             { x: 305970, z: 178, type: 'ammo', weapon: 'pistol' },
@@ -3155,12 +3356,26 @@ export function stage9SupplyPlacements() {
 // "area counter"; kedekatan terhadap empat skirt reclaim berarti "area belt
 // bagasi". Syarat reachable menolak lubang belt dan setiap kantong di balik
 // batas ruangan yang tidak dapat dimasuki player.
+// Sabuk BAGASI adalah wilayah LOOT, bukan wilayah lahir (2026-08-31, permintaan
+// user "tidak ada robot yang spawn di area conveyor belt bagasi ... biarkan di
+// sana adalah tempat tumpukan lootbox"). Halo penolakannya sengaja LEBIH LEBAR
+// daripada halo pengenal 'baggage' di bawah: sebuah titik dapat berada dekat
+// konter DAN dekat belt sekaligus, dan yang seperti itu tetap harus ditolak —
+// kalau tidak, robot berdiri di antara peti yang justru jadi alasan area ini
+// dikosongkan.
+const S9_BAGGAGE_KEEPOUT = 46;
+export function stage9InteriorBaggageZone(x, z, pad = S9_BAGGAGE_KEEPOUT) {
+    return interiorBlockers.some((b) =>
+        b.kind === 'baggage-belt' && pointInBlocker(x, z, pad, b));
+}
+
 export function stage9InteriorWave1AreaAt(x, z, radius = 5.5) {
     if (!stage9InteriorWalkable(x, z, radius)
         || interiorBlockers.some((b) => pointInBlocker(x, z, radius, b))
         || !stage9InteriorReachable(x, z)) return null;
     const near = (kinds, pad) => interiorBlockers.some((b) =>
         kinds.includes(b.kind) && pointInBlocker(x, z, pad, b));
+    if (stage9InteriorBaggageZone(x, z)) return 'baggage';
     if (near(['checkin-island', 'checkin-bag-drop'], 30)) return 'counter';
     if (near(['baggage-belt'], 28)) return 'baggage';
     return null;
@@ -3177,25 +3392,21 @@ export function stage9InteriorWaitingAreaAt(x, z, radius = 5.5) {
         && stage9InteriorReachable(x, z);
 }
 
+// SELURUH gelombang pertama berkumpul di aula CHECK-IN (2026-08-31, permintaan
+// user). Hall bagasi tidak lagi ikut mengisi kolam ini sama sekali — ia menjadi
+// wilayah tumpukan loot box, dan itulah satu-satunya alasan player ke sana.
 function stage9InteriorWave1Points() {
-    const pools = { counter: [], baggage: [] };
+    const counter = [];
     // Kisi rapat lalu diurutkan hash menjaga hasil deterministik tanpa mengikat
     // titik pada angka tangan yang dapat masuk collider saat furnitur berubah.
     for (let z = S9_INTERIOR_BOUNDS.z0 + 12; z <= S9_INTERIOR_BOUNDS.z1 - 12; z += 16) {
         for (let x = S9_INTERIOR_BOUNDS.x0 + 12; x <= S9_INTERIOR_BOUNDS.x1 - 12; x += 16) {
-            const area = stage9InteriorWave1AreaAt(x, z);
-            if (area) pools[area].push({ x, z });
+            if (stage9InteriorWave1AreaAt(x, z) === 'counter') counter.push({ x, z });
         }
     }
-    for (const pool of Object.values(pools)) pool.sort((a, b) =>
+    counter.sort((a, b) =>
         ihash(Math.round(a.x * 13 + a.z * 7)) - ihash(Math.round(b.x * 13 + b.z * 7)));
-    const out = [];
-    const total = Math.max(pools.counter.length, pools.baggage.length);
-    for (let i = 0; i < total; i++) {
-        if (pools.counter[i]) out.push(pools.counter[i]);
-        if (pools.baggage[i]) out.push(pools.baggage[i]);
-    }
-    return out;
+    return counter;
 }
 
 export function stage9EncounterPoints(name) {
@@ -3432,6 +3643,16 @@ export function stage9WorldDebug() {
                     });
                     return n;
                 })(),
+                groundSpan: { ...(runwayLayoutRecords.groundSpan || {}) },
+                takeoff: {
+                    ...S9_TAKEOFF,
+                    strip: { ...S9_RUNWAY_STRIP },
+                    // Sisa landasan di depan titik angkat, dan berapa bagian
+                    // landasan yang benar-benar dipakai berlari.
+                    remainingRun: S9_TAKEOFF.rotateX - S9_RUNWAY_STRIP.x0,
+                    runFraction: S9_TAKEOFF.groundRun
+                        / (S9_RUNWAY_STRIP.x1 - S9_RUNWAY_STRIP.x0),
+                },
                 standXs: [...S9_STAND_XS],
                 standPitch: S9_STAND_XS.length > 1
                     ? S9_STAND_XS[1] - S9_STAND_XS[0] : 0,
@@ -3441,6 +3662,16 @@ export function stage9WorldDebug() {
                     start: { ...S9_RUNWAY_START },
                     checkpoint: { ...S9_RUNWAY_CHECKPOINT },
                     pump: { ...S9_PUMP },
+                    pumpStand: { ...S9_PUMP_STAND },
+                    boardArea: (() => {
+                        const b = stage9StructureBox('aircraft');
+                        return { x: b.x, z: b.z, hx: b.hx, hz: b.hz };
+                    })(),
+                    boardMarker: markers.board ? {
+                        x: markers.board.position.x, z: markers.board.position.z,
+                        sizeX: markers.board.userData.sizeX,
+                        sizeZ: markers.board.userData.sizeZ,
+                    } : null,
                     aircraft: { ...S9_AIRCRAFT },
                     board: { ...S9_BOARD },
                     tower: { ...S9_CONTROL_TOWER },
@@ -3466,6 +3697,8 @@ export function stage9WorldDebug() {
                 ['baggage', 'souvenir', 'restaurant', 'cafe', 'toilet'].map((area) =>
                     [area, supplies.interiorCrates.filter((p) => p.area === area).length])),
             barrelCandidates: barrelCandidates.length,
+            barrels: Object.fromEntries(['front', 'interior', 'runway'].map((area) =>
+                [area, supplies.barrels.filter((p) => p.area === area).length])),
         },
     };
 }

@@ -33,6 +33,9 @@ export let takeoffT = 0;
 export let transitionSent = false;
 export let cine = null;
 const spawnedEncounters = Object.create(null);
+// Encounter yang pernah dibangunkan paksa, DIREKAM saat kejadian: sesudahnya
+// robotnya tak dapat dibedakan lagi dari robot yang bangun sendiri.
+let alerted = null;
 // Bukti penempatan spawn, DIREKAM saat lahir: sesudahnya kamera sudah bergerak
 // sehingga "apakah robot ini muncul di layar" tidak bisa dihitung ulang.
 const spawnPlacements = Object.create(null);
@@ -49,6 +52,14 @@ export const setStage9TakeoffTime = value => { takeoffT = Math.max(0, value); };
 export const addStage9Time = dt => { stageElapsed += dt; };
 export const addStage9Fuel = dt => {
     fuelT = Math.min(CFG.campaign.stage9.fuel.durationSec, fuelT + Math.max(0, dt));
+    return fuelT;
+};
+// Bahan bakar dapat BERKURANG sejak gelombang sabotase ada (2026-08-31): tiap
+// pukulan pada pompa/pesawat menumpahkan sebagian isinya, dan pompa yang mati
+// membuatnya menyusut terus. `addStage9Fuel` sengaja tetap menolak nilai
+// negatif — pengisian tak boleh mundur karena satu frame dt yang aneh.
+export const setStage9Fuel = value => {
+    fuelT = Math.max(0, Math.min(CFG.campaign.stage9.fuel.durationSec, value));
     return fuelT;
 };
 
@@ -298,6 +309,25 @@ export function spawnStage9FrontPopulation() {
     return spawned;
 }
 
+// ===== SATU ENCOUNTER DIBANGUNKAN SEKALIGUS (2026-08-31, permintaan user) =====
+// "jika player tidak menghabisi robot yang ada di conveyor belt bagasi, maka
+// ketika player mentrigger event robot ruang tunggu, semua robot yang ada di
+// conveyor itu akan berlari mengejar dan mendatangi player."
+// Ini SATU ARAH dan permanen: `campaignRobotAI` hanya menguji hook `activate`
+// selama state masih 'idle', jadi menulis 'chasing' di sini tak pernah bisa
+// dibatalkan oleh gerbang viewport Chapter 2 — persis yang dimaksud "semua".
+export function alertStage9Encounter(name) {
+    let woken = 0;
+    for (const z of robots) {
+        if (z.stage !== 9 || z.encounter !== name) continue;
+        if (z.state !== 'chasing') { z.state = 'chasing'; z.groundY = 0; }
+        z.navIdle = false;
+        woken++;
+    }
+    alerted = { name, count: woken };
+    return woken;
+}
+
 export function stage9EncounterCount(name) {
     let count = 0;
     for (const robot of robots)
@@ -330,6 +360,7 @@ export function resetStage9Runtime() {
     transitionSent = false;
     cine = null;
     subFadePending = false;
+    alerted = null;
     for (const name of Object.keys(spawnedEncounters)) delete spawnedEncounters[name];
     for (const name of Object.keys(spawnPlacements)) delete spawnPlacements[name];
     resetStage9Dialogue();
@@ -364,6 +395,7 @@ export function stage9RuntimeDebug() {
                     x1: list.reduce((m, p) => Math.max(m, p.x), -Infinity),
                 }])),
         },
+        alerted: alerted ? { ...alerted } : null,
         takeoff: { seconds: takeoffT, duration: C.takeoffSec },
         cinematic: cine?.kind || null,
         transitionSent,

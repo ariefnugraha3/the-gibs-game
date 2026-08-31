@@ -1110,8 +1110,14 @@ export function updateEnemyBullets(dt, step) {
             // Peluru bertarget MONAS yang menabrak siluet Monas/dinding -> serahkan
             // damage ke scene (survival: damageMonas + percikan). Habis-umur di
             // udara kosong tidak merusak apa pun.
-            if (b.monasDmg && b.life > 0 && activeScene.enemyBulletHitMonas)
-                activeScene.enemyBulletHitMonas(b.monasDmg, b.mesh.position);
+            // `monasDmg` = muatan damage untuk SEBUAH STRUKTUR (Monas survival,
+            // pompa/pesawat Stage 9): dibayarkan hanya bila peluru benar-benar
+            // TERBLOKIR — habis umur di udara kosong tidak merusak apa pun.
+            if (b.monasDmg && b.life > 0) {
+                const hitStructure = activeScene.enemyBulletHitMonas
+                    || activeScene.enemyBulletHitStructure;
+                if (hitStructure) hitStructure.call(activeScene, b.monasDmg, b.mesh.position);
+            }
             scene.remove(b.mesh); enemyBullets.splice(i, 1);
         }
     }
@@ -1154,6 +1160,12 @@ export function updateRobots(dt, step) {
                     playSFX(sfxRobotBite);
                     if (z.windTarget === 'monas') {
                         if (activeScene.monasGnawHit) activeScene.monasGnawHit(z);
+                    } else if (z.windTarget === 'structure') {
+                        // Sabetan yang DITUJUKAN ke sebuah bangunan/kendaraan
+                        // milik scene (Monas punya hook lamanya sendiri; ini
+                        // bentuk umumnya — dipakai penyabot pompa/pesawat
+                        // Stage 9). Damage-nya urusan scene, bukan player.
+                        if (activeScene.robotStructureClaw) activeScene.robotStructureClaw(z);
                     } else if (!dodgeInvuln && player.hp > 0) {
                         // (god-mode: kebal tapi tetap flash spt semula — damagePlayerHp
                         // menangani godMode di dalam.)

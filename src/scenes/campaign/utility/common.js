@@ -42,24 +42,32 @@ export function propClearance() {
 // mendirikannya. Animasinya cukup opasitas; `pulseStandMarker` di bawah adalah
 // denyut bakunya. `g.material` dialias ke material isian supaya animator/debug
 // lama tetap jalan tanpa membuat material baru.
+// `sizeX`/`sizeZ` OPSIONAL (2026-08-31): sebagian petak pijak bukan kotak kecil
+// melainkan JEJAK sebuah benda — mis. area naik Stage 9 yang seluas badan
+// pesawat. Ukuran default tetap kotak 12x12, jadi tak satu pun pemanggil lama
+// berubah, dan ukuran yang dipakai direkam di userData supaya "yang digambar
+// adalah yang memicu" dapat diuji dari mesh-nya sendiri.
 export const STAND_MARKER_SIZE = 12;
-export function buildStandMarker(parent, x, z, color) {
+export function buildStandMarker(parent, x, z, color,
+    sizeX = STAND_MARKER_SIZE, sizeZ = sizeX) {
     const g = new THREE.Group();
-    const S = STAND_MARKER_SIZE;
+    const SX = Math.max(1, sizeX), SZ = Math.max(1, sizeZ);
     const fillMat = new THREE.MeshBasicMaterial({
         color, transparent: true, opacity: 0.28, toneMapped: false, depthWrite: false,
     });
-    const fill = new THREE.Mesh(new THREE.PlaneGeometry(S, S), fillMat);
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(SX, SZ), fillMat);
     fill.rotation.x = -Math.PI / 2; fill.position.y = 0.14; g.add(fill);
     const barMat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
     for (const [sx, sz, px, pz] of [
-        [S, 1, 0, -S / 2], [S, 1, 0, S / 2], [1, S, -S / 2, 0], [1, S, S / 2, 0],
+        [SX, 1, 0, -SZ / 2], [SX, 1, 0, SZ / 2],
+        [1, SZ, -SX / 2, 0], [1, SZ, SX / 2, 0],
     ]) {
         const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.5, sz), barMat);
         bar.position.set(px, 0.22, pz); g.add(bar);
     }
     g.material = fillMat; g.userData.fill = fill; g.userData.bars = 4;
     g.userData.standMarker = true;
+    g.userData.sizeX = SX; g.userData.sizeZ = SZ;
     g.position.set(x, 0, z); g.visible = false;
     if (parent) parent.add(g);
     return g;

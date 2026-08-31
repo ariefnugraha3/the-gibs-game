@@ -1,4 +1,4 @@
-// NUSANTARA WARDEN — independent Stage 12 root guardian.
+// NUSANTARA WARDEN — independent Stage 11 root guardian.
 // It is not a normal robot and never enters `robots`. All combat tuning comes
 // from CFG.campaign.bosses.warden at call time. Rig, targets, projectiles,
 // warnings and wreck are one persistent preallocated object graph.
@@ -15,7 +15,16 @@ import { mergeObjectInPlace } from '../utils/meshBatch.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const TMP = new THREE.Vector3();
-const VISUAL = Object.freeze({ revealSec: 1.45, armSec: .85, targetRadius: 11 });
+const VISUAL = Object.freeze({ revealSec: 1.45, armSec: .85 });
+// Authored so the lowest foot/toe corner stays >=0.12 above the arena floor
+// through both walk extremes, both jam poses and the settled wreck.
+const LEG_POSE = Object.freeze({
+    hipY: 19, upper: -.25, lower: 0,
+    walkUpper: .08, walkLower: .12,
+    jamUpper: -.32, jamLower: .10,
+    lowerBodyY: 1, footBodyY: 6, toeY: 5,
+    minFloorClearance: .12,
+});
 
 function C() { return CFG.campaign.bosses.warden; }
 function mesh(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0,
@@ -53,15 +62,18 @@ function materials() {
         warningPale: new THREE.MeshBasicMaterial({ color: PAL.white, transparent: true,
             opacity: .65, depthWrite: false, toneMapped: false }),
         projectile: new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false }),
+        attackCharge: new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
+            opacity: .72, depthWrite: false, toneMapped: false }),
     };
 }
 
 function buildLeg(parent, index, M) {
     const a = index * Math.PI * 2 / 6;
-    const hip = new THREE.Group(); hip.position.set(Math.cos(a) * 18, 7, Math.sin(a) * 18);
+    const hip = new THREE.Group();
+    hip.position.set(Math.cos(a) * 18, LEG_POSE.hipY, Math.sin(a) * 18);
     hip.rotation.y = -a; parent.add(hip);
     mesh(hip, new THREE.SphereGeometry(5.2, 9, 7), M.joint, 0, 0, 0);
-    const upper = new THREE.Group(); upper.rotation.z = -.34; hip.add(upper);
+    const upper = new THREE.Group(); upper.rotation.z = LEG_POSE.upper; hip.add(upper);
     mesh(upper, new THREE.BoxGeometry(28, 7, 9), M.armor, 14, -1, 0);
     mesh(upper, new THREE.BoxGeometry(18, 2, 10), M.plate, 11, 3.6, 0, 0, 0, -.08);
     for (let k = 0; k < 3; k++)
@@ -70,16 +82,52 @@ function buildLeg(parent, index, M) {
     const knee = new THREE.Group(); knee.position.set(28, -3, 0); upper.add(knee);
     mesh(knee, new THREE.CylinderGeometry(5, 5, 11, 10), M.joint, 0, 0, 0,
         Math.PI / 2);
-    const lower = new THREE.Group(); lower.rotation.z = .68; knee.add(lower);
-    mesh(lower, new THREE.BoxGeometry(24, 6, 8), M.armorDark, 12, -1, 0);
+    const lower = new THREE.Group(); lower.rotation.z = LEG_POSE.lower; knee.add(lower);
+    mesh(lower, new THREE.BoxGeometry(24, 6, 8), M.armorDark,
+        12, LEG_POSE.lowerBodyY, 0);
     mesh(lower, new THREE.BoxGeometry(16, 2, 9), M.steel, 10, 2.7, 0,
         0, 0, -.05, false, false);
     const foot = new THREE.Group(); foot.position.set(24, -2, 0); lower.add(foot);
-    mesh(foot, new THREE.BoxGeometry(17, 5, 13), M.armor, 4, -2, 0);
+    mesh(foot, new THREE.BoxGeometry(17, 5, 13), M.armor,
+        4, LEG_POSE.footBodyY, 0);
     for (const z of [-4, 0, 4])
-        mesh(foot, new THREE.BoxGeometry(11, 2, 2.4), M.steel, 10, -4.2, z,
+        mesh(foot, new THREE.BoxGeometry(11, 2, 2.4), M.steel, 10, LEG_POSE.toeY, z,
             0, 0, 0, false, false);
-    return { index, a, hip, upper, knee, lower, foot, baseUpper: -.34, baseLower: .68 };
+    return { index, a, hip, upper, knee, lower, foot,
+        baseUpper: LEG_POSE.upper, baseLower: LEG_POSE.lower };
+}
+
+function buildWeakTargetFx(rig, kind) {
+    const flashMat = new THREE.MeshBasicMaterial({ color: PAL.white, transparent: true,
+        opacity: 0, depthWrite: false, toneMapped: false });
+    const sparkMat = new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
+        opacity: 0, depthWrite: false, toneMapped: false });
+    const flash = kind === 'capacitor'
+        ? mesh(rig, new THREE.CylinderGeometry(7.3, 8, 18.2, 10), flashMat,
+            0, 0, 0, 0, 0, 0, false, false)
+        : mesh(rig, new THREE.BoxGeometry(29, 13.5, 15.5), flashMat,
+            4.5, 0, 0, 0, 0, 0, false, false);
+    flash.visible = false;
+    const sparks = [];
+    for (let i = 0; i < 6; i++) {
+        const a = i * Math.PI * 2 / 6;
+        const q = mesh(rig, new THREE.BoxGeometry(.65, .65, 2.6), sparkMat,
+            0, 0, 0, 0, -a, 0, false, false);
+        q.visible = false;
+        q.userData.hitDx = Math.cos(a); q.userData.hitDz = Math.sin(a);
+        q.userData.hitLift = .45 + (i % 3) * .25; sparks.push(q);
+    }
+    const barY = kind === 'capacitor' ? 12 : 9;
+    const barBack = mesh(rig, new THREE.BoxGeometry(17, .7, 2.5),
+        new THREE.MeshBasicMaterial({ color: PAL.ink, transparent: true,
+            opacity: .82, depthWrite: false, toneMapped: false }),
+        0, barY, 0, 0, 0, 0, false, false);
+    const barFill = mesh(rig, new THREE.BoxGeometry(15, .9, 1.5),
+        new THREE.MeshBasicMaterial({ color: kind === 'capacitor' ? PAL.amber : PAL.tech,
+            transparent: true, opacity: .95, depthWrite: false, toneMapped: false }),
+        0, barY + .45, 0, 0, 0, 0, false, false);
+    barBack.visible = barFill.visible = false;
+    return { flash, sparks, barBack, barFill, hitT: 0, hits: 0 };
 }
 
 export function buildNusantaraWardenMesh() {
@@ -111,6 +159,9 @@ export function buildNusantaraWardenMesh() {
     mesh(coreRig, new THREE.CylinderGeometry(13, 16, 12, 12), M.armorDark, 0, 0, 0);
     const core = mesh(coreRig, new THREE.IcosahedronGeometry(9, 1), M.core, 0, 4, 0,
         0, 0, 0, false, false);
+    const attackCharge = mesh(coreRig, new THREE.IcosahedronGeometry(12.5, 1),
+        M.attackCharge, 0, 4, 0, 0, 0, 0, false, false);
+    attackCharge.visible = false;
     const shutters = [];
     for (let i = 0; i < 8; i++) {
         const a = i * Math.PI / 4;
@@ -133,7 +184,10 @@ export function buildNusantaraWardenMesh() {
             mesh(rig, new THREE.TorusGeometry(6.5, .7, 6, 12), M.steel, 0, k * 5.5, 0,
                 Math.PI / 2, 0, 0, false, false);
         mesh(rig, new THREE.BoxGeometry(4, 13, 4), M.armorDark, -6, 0, 0);
-        capacitors.push({ index: i, rig, hp: 0, maxHp: 0, alive: true, exposed: false });
+        capacitors.push({ index: i, rig, hp: 0, maxHp: 0, alive: true, exposed: false,
+            baseX: rig.position.x, baseY: rig.position.y, baseZ: rig.position.z,
+            hitShape: { minX: -8, maxX: 8, step: 8, radius: 10 },
+            fx: buildWeakTargetFx(rig, 'capacitor') });
     }
     const couplings = [];
     for (let i = 0; i < C().couplings.count; i++) {
@@ -146,9 +200,12 @@ export function buildNusantaraWardenMesh() {
         for (let k = 0; k < 3; k++)
             mesh(rig, new THREE.TorusGeometry(5.6, .7, 6, 12), M.steel,
                 1 + k * 7, 0, 0, 0, Math.PI / 2, 0, false, false);
-        couplings.push({ index: i, rig, hp: 0, maxHp: 0, alive: true, exposed: false });
+        couplings.push({ index: i, rig, hp: 0, maxHp: 0, alive: true, exposed: false,
+            baseX: rig.position.x, baseY: rig.position.y, baseZ: rig.position.z,
+            hitShape: { minX: -10, maxX: 20, step: 7.5, radius: 11 },
+            fx: buildWeakTargetFx(rig, 'coupling') });
     }
-    return { group, legs, coreRig, core, shutters, shield, shieldArc,
+    return { group, legs, coreRig, core, attackCharge, shutters, shield, shieldArc,
         capacitors, couplings, materials: M };
 }
 
@@ -157,12 +214,16 @@ function makeRailPool(parent) {
     for (let i = 0; i < C().rail.poolSize; i++) {
         const warning = new THREE.Mesh(new THREE.BoxGeometry(520, .18, C().rail.width),
             new THREE.MeshBasicMaterial({ color: PAL.hazard, transparent: true,
-                opacity: .28, depthWrite: false, toneMapped: false }));
+                opacity: .42, depthWrite: false, toneMapped: false }));
         warning.visible = false; parent.add(warning);
-        const shot = new THREE.Mesh(new THREE.BoxGeometry(24, 4, C().rail.width * .55),
+        const shot = new THREE.Mesh(new THREE.BoxGeometry(34, 5, C().rail.width * .72),
             new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false }));
         shot.visible = false; parent.add(shot);
-        out.push({ warning, shot, active: false, warned: false, t: 0,
+        const trail = new THREE.Mesh(new THREE.BoxGeometry(58, 1.5, C().rail.width * .88),
+            new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
+                opacity: .5, depthWrite: false, toneMapped: false }));
+        trail.visible = false; parent.add(trail);
+        out.push({ warning, shot, trail, active: false, warned: false, t: 0,
             sx: 0, sz: 0, dx: 1, dz: 0, traveled: 0, hit: false });
     }
     return out;
@@ -170,7 +231,7 @@ function makeRailPool(parent) {
 function makeBurstPool(parent) {
     const out = [];
     for (let i = 0; i < C().burst.poolSize; i++) {
-        const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(2.6, 0),
+        const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(4.2, 0),
             new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false }));
         mesh.visible = false; parent.add(mesh);
         out.push({ mesh, active: false, dx: 0, dz: 0, life: 0, px: 0, pz: 0 });
@@ -181,11 +242,13 @@ function makeSectorPool(parent) {
     const out = [];
     const angle = (Math.PI * 2 - C().sector.gapDeg * Math.PI / 180) / 3;
     for (let i = 0; i < C().sector.poolSize; i++) {
-        const mesh = new THREE.Mesh(new THREE.RingGeometry(12, C().sector.radius, 28, 1,
-            -angle / 2, angle), new THREE.MeshBasicMaterial({ color: PAL.hazard,
-            transparent: true, opacity: .22, depthWrite: false, toneMapped: false,
+        const geo = new THREE.RingGeometry(12, C().sector.radius, 28, 1,
+            -angle / 2, angle);
+        geo.rotateX(-Math.PI / 2);
+        const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: PAL.hazard,
+            transparent: true, opacity: .34, depthWrite: false, toneMapped: false,
             side: THREE.DoubleSide }));
-        mesh.rotation.x = -Math.PI / 2; mesh.visible = false; parent.add(mesh);
+        mesh.visible = false; parent.add(mesh);
         out.push({ mesh, active: false, angle: 0 });
     }
     return out;
@@ -193,10 +256,12 @@ function makeSectorPool(parent) {
 function makeStompWarnings(parent) {
     const out = [];
     for (let i = 0; i < 6; i++) {
-        const mesh = new THREE.Mesh(new THREE.RingGeometry(C().stomp.radius * .72,
-            C().stomp.radius, 26), new THREE.MeshBasicMaterial({ color: PAL.hazard,
-            transparent: true, opacity: .35, depthWrite: false, toneMapped: false }));
-        mesh.rotation.x = -Math.PI / 2; mesh.visible = false; parent.add(mesh);
+        const geo = new THREE.RingGeometry(C().stomp.radius * .68,
+            C().stomp.radius, 26);
+        geo.rotateX(-Math.PI / 2);
+        const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: PAL.hazard,
+            transparent: true, opacity: .48, depthWrite: false, toneMapped: false }));
+        mesh.visible = false; parent.add(mesh);
         out.push({ mesh, active: false });
     }
     return out;
@@ -221,7 +286,8 @@ export function createNusantaraWarden(parent = scene) {
 
 function clearHazards(w) {
     for (const r of w.rails) {
-        r.active = r.warned = false; r.warning.visible = r.shot.visible = false;
+        r.active = r.warned = false;
+        r.warning.visible = r.shot.visible = r.trail.visible = false;
     }
     for (const b of w.bursts) { b.active = false; b.mesh.visible = false; }
     for (const s of w.sectors) { s.active = false; s.mesh.visible = false; }
@@ -243,7 +309,9 @@ export function resetNusantaraWarden(w, opts = {}) {
     p.group.visible = w.active;
     p.group.position.set(opts.x ?? w.home.x, opts.y || 0, opts.z ?? w.home.z);
     p.group.rotation.set(0, opts.yaw || 0, 0); p.group.scale.setScalar(1);
-    p.coreRig.rotation.set(0, 0, 0); p.core.scale.setScalar(1);
+    p.coreRig.position.set(0, 29, 0); p.coreRig.rotation.set(0, 0, 0);
+    p.core.scale.setScalar(1); p.attackCharge.visible = false;
+    p.attackCharge.scale.setScalar(1); p.attackCharge.material.opacity = .72;
     p.core.material.emissiveIntensity = EMISSIVE_MAX * .7;
     p.shield.visible = false; p.shield.rotation.set(0, 0, 0);
     p.shieldArc.material.opacity = .26;
@@ -255,12 +323,16 @@ export function resetNusantaraWarden(w, opts = {}) {
     }
     for (const cap of p.capacitors) {
         cap.hp = cap.maxHp = cfg.capacitors.hp; cap.alive = true; cap.exposed = false;
+        cap.rig.position.set(cap.baseX, cap.baseY, cap.baseZ);
         cap.rig.visible = true; cap.rig.rotation.set(0, 0, 0); cap.rig.scale.setScalar(1);
+        resetWeakTargetFx(cap);
     }
     for (const coupling of p.couplings) {
         coupling.hp = coupling.maxHp = cfg.couplings.hp;
         coupling.alive = true; coupling.exposed = false; coupling.rig.visible = true;
+        coupling.rig.position.set(coupling.baseX, coupling.baseY, coupling.baseZ);
         coupling.rig.rotation.set(0, 0, 0); coupling.rig.scale.setScalar(1);
+        resetWeakTargetFx(coupling);
     }
     clearHazards(w);
 }
@@ -295,15 +367,33 @@ function endJam(w, next) {
 function targetWorld(w, target, out = TMP) {
     out.copy(target.rig.position); return w.parts.group.localToWorld(out);
 }
+function resetWeakTargetFx(target) {
+    const fx = target.fx; if (!fx) return;
+    fx.hitT = 0; fx.hits = 0; fx.flash.visible = false;
+    fx.flash.material.opacity = 0; fx.flash.scale.setScalar(1);
+    fx.barBack.visible = fx.barFill.visible = false;
+    fx.barFill.scale.set(1, 1, 1); fx.barFill.position.x = 0;
+    for (const spark of fx.sparks) {
+        spark.visible = false; spark.material.opacity = 0;
+        spark.position.set(0, 0, 0); spark.scale.setScalar(1);
+    }
+}
 function removeBullet(index, b) {
     if (b.explosive) explodeAt(new THREE.Vector3(b.mesh.position.x,
         b.mesh.position.y, b.mesh.position.z), b.explodeR, 0, b.boomSfx);
     scene.remove(b.mesh); bullets.splice(index, 1);
 }
 function targetHit(w, b, target) {
-    const p = targetWorld(w, target);
-    return segPointDist2(b.px, 0, b.pz, b.mesh.position.x, 0, b.mesh.position.z,
-        p.x, 0, p.z) <= VISUAL.targetRadius ** 2;
+    // Weak points are multipart horizontal machines. Test a row of overlapping
+    // circles along the actual local-X silhouette instead of one tiny centre
+    // circle, so rounds through an end cap/ring still register at low FPS.
+    const h = target.hitShape;
+    for (let x = h.minX; x <= h.maxX + 1e-6; x += h.step) {
+        TMP.set(x, 0, 0); target.rig.localToWorld(TMP);
+        if (segPointDist2(b.px, 0, b.pz, b.mesh.position.x, 0,
+            b.mesh.position.z, TMP.x, 0, TMP.z) <= h.radius ** 2) return true;
+    }
+    return false;
 }
 function frontShielded(w, impactX, impactZ) {
     const cfg = C();
@@ -330,8 +420,13 @@ export function damageNusantaraWarden(w, damage, impact = {}) {
 function damageTarget(w, target, damage, kind) {
     if (!target.alive || !target.exposed) return false;
     target.hp -= Math.max(1, damage); w.hitT = 1;
+    const fx = target.fx; fx.hitT = 1; fx.hits++;
+    fx.flash.visible = fx.barBack.visible = fx.barFill.visible = true;
+    for (const spark of fx.sparks) spark.visible = true;
     if (target.hp > 0) return true;
     target.hp = 0; target.alive = false; target.exposed = false;
+    fx.hitT = 0; fx.flash.visible = fx.barBack.visible = fx.barFill.visible = false;
+    for (const spark of fx.sparks) spark.visible = false;
     target.rig.rotation.z = kind === 'capacitor' ? .82 : -.72;
     target.rig.position.y -= 5; target.rig.scale.y = .72;
     const p = targetWorld(w, target);
@@ -354,8 +449,9 @@ function projectileHits(w) {
                 hit = damageTarget(w, q, damage, 'capacitor'); break;
             }
         } else if (w.phase === 'jam2') {
-            const first = w.parts.couplings.find(q => q.alive);
-            if (first && targetHit(w, b, first)) hit = damageTarget(w, first, damage, 'coupling');
+            for (const q of w.parts.couplings) if (targetHit(w, b, q)) {
+                hit = damageTarget(w, q, damage, 'coupling'); break;
+            }
         }
         if (!hit && segPointDist2(b.px, 0, b.pz, b.mesh.position.x, 0,
             b.mesh.position.z, p.x, 0, p.z) <= C().hitRadius ** 2)
@@ -378,26 +474,34 @@ function beginRail(w) {
     r.warning.rotation.y = -a; return true;
 }
 function fireRail(r) {
-    r.warned = false; r.warning.visible = false; r.shot.visible = true;
+    r.warned = false; r.warning.visible = false;
+    r.shot.visible = r.trail.visible = true;
     r.shot.position.set(r.sx, 12, r.sz); r.shot.rotation.y = -Math.atan2(r.dz, r.dx);
+    r.trail.position.set(r.sx - r.dx * 30, 8, r.sz - r.dz * 30);
+    r.trail.rotation.y = r.shot.rotation.y;
 }
 function updateRails(w, dt) {
     for (const r of w.rails) if (r.active) {
         if (r.warned) {
-            r.t -= dt; r.warning.material.opacity = .18 + .16 * (1 + Math.sin(w.animT * 17)) / 2;
+            r.t -= dt;
+            r.warning.material.opacity = .34 + .26 * (1 + Math.sin(w.animT * 17)) / 2;
             if (r.t <= 0) fireRail(r);
             continue;
         }
         const oldX = r.shot.position.x, oldZ = r.shot.position.z;
         const step = C().rail.speed * dt; r.traveled += step;
         r.shot.position.x += r.dx * step; r.shot.position.z += r.dz * step;
+        r.trail.position.x = r.shot.position.x - r.dx * 30;
+        r.trail.position.z = r.shot.position.z - r.dz * 30;
         if (!r.hit && segPointDist2(oldX, 0, oldZ, r.shot.position.x, 0,
             r.shot.position.z, camera.position.x, 0, camera.position.z)
             <= (C().rail.width * .55 + player.radius) ** 2) {
             r.hit = true; queueBoom(camera.position.x, 5, camera.position.z,
                 player.radius + 2, true, C().rail.damage, 0);
         }
-        if (r.traveled >= 620) { r.active = false; r.shot.visible = false; }
+        if (r.traveled >= 620) {
+            r.active = false; r.shot.visible = r.trail.visible = false;
+        }
     }
 }
 
@@ -461,7 +565,8 @@ function beginSector(w) {
         const s = w.sectors[i]; s.active = i < activeCount; s.mesh.visible = s.active;
         s.angle = w.sectorBase + i * Math.PI * 2 / activeCount;
         s.mesh.position.set(w.parts.group.position.x, .7, w.parts.group.position.z);
-        s.mesh.rotation.z = s.angle;
+        // Geometry already lies on XZ; yaw is around world-up.
+        s.mesh.rotation.y = -s.angle;
     }
 }
 function resolveSector(w) {
@@ -503,8 +608,22 @@ function endAttack(w) {
     const enrage = w.phase === 'phase3';
     w.attackT = C().attackGapSec * (enrage ? C().enrageGapMul : 1);
 }
+function animateTelegraphs(w) {
+    const pulse = (1 + Math.sin(w.animT * 13)) / 2;
+    if (w.attackState === 'stompTelegraph') {
+        for (const s of w.stomps) if (s.active) {
+            s.mesh.scale.setScalar(.92 + pulse * .12);
+            s.mesh.material.opacity = .4 + pulse * .28;
+        }
+    } else if (w.attackState === 'sectorTelegraph') {
+        for (const s of w.sectors) if (s.active) {
+            s.mesh.scale.setScalar(.96 + pulse * .06);
+            s.mesh.material.opacity = .28 + pulse * .24;
+        }
+    }
+}
 function updateAttackState(w, dt, allow) {
-    updateRails(w, dt); updateBursts(w, dt);
+    updateRails(w, dt); updateBursts(w, dt); animateTelegraphs(w);
     if (!allow || !['phase1', 'phase2', 'phase3'].includes(w.phase)) return;
     if (w.attackState === 'cooldown') {
         w.attackT -= dt;
@@ -557,11 +676,13 @@ function animateRig(w, dt) {
         const step = moving ? Math.sin(w.animT * 4.2 + leg.index * Math.PI / 3) : 0;
         const jamAnchor = w.phase === 'jam1' && leg.index % 2 === 0
             || w.phase === 'jam2' && leg.index % 2 === 1;
-        leg.upper.rotation.z += ((jamAnchor ? -.62 : leg.baseUpper + step * .16)
+        leg.upper.rotation.z += ((jamAnchor ? LEG_POSE.jamUpper
+            : leg.baseUpper + step * LEG_POSE.walkUpper)
             - leg.upper.rotation.z) * Math.min(1, dt * 7);
-        leg.lower.rotation.z += ((jamAnchor ? .98 : leg.baseLower - step * .22)
+        leg.lower.rotation.z += ((jamAnchor ? LEG_POSE.jamLower
+            : leg.baseLower - step * LEG_POSE.walkLower)
             - leg.lower.rotation.z) * Math.min(1, dt * 7);
-        leg.foot.rotation.z = jamAnchor ? -.2 : step * .08;
+        leg.foot.rotation.z = jamAnchor ? 0 : step * .04;
     }
     p.coreRig.rotation.y += dt * (w.phase === 'phase3' ? 2.2 : .75);
     p.shield.rotation.y += dt * (w.phase === 'phase2' ? .48 : .92);
@@ -573,16 +694,61 @@ function animateRig(w, dt) {
     }
     p.core.material.emissiveIntensity = Math.min(EMISSIVE_MAX,
         .45 + (w.phase === 'phase3' ? .35 : .16) + Math.sin(w.animT * 6) * .08);
+    const charging = w.attackState.endsWith('Telegraph')
+        || w.attackState === 'burstFire';
+    p.attackCharge.visible = charging;
+    if (charging) {
+        const pulse = (1 + Math.sin(w.animT * 15)) / 2;
+        p.attackCharge.scale.setScalar(.9 + pulse * .32);
+        p.attackCharge.material.opacity = .38 + pulse * .48;
+    }
+    updateWeakTargetFx(w, dt);
     if (w.hitT > 0) {
         w.hitT = Math.max(0, w.hitT - dt * 5);
         p.core.scale.setScalar(1 + w.hitT * .18);
     } else p.core.scale.setScalar(1);
 }
 
+function animateWeakTarget(target, dt) {
+    const fx = target.fx;
+    if (!target.alive) return;
+    target.rig.position.set(target.baseX, target.baseY, target.baseZ);
+    target.rig.scale.setScalar(1);
+    if (fx.hitT <= 0) {
+        fx.flash.visible = fx.barBack.visible = fx.barFill.visible = false;
+        for (const spark of fx.sparks) spark.visible = false;
+        return;
+    }
+    fx.hitT = Math.max(0, fx.hitT - dt * 2.35);
+    const age = 1 - fx.hitT;
+    const kick = Math.sin(age * Math.PI);
+    target.rig.position.y = target.baseY + kick * 1.5;
+    target.rig.scale.setScalar(1 + kick * .045);
+    fx.flash.visible = fx.barBack.visible = fx.barFill.visible = true;
+    fx.flash.material.opacity = fx.hitT * .78;
+    fx.flash.scale.setScalar(1 + age * .22);
+    const hpFrac = clamp(target.hp / Math.max(1, target.maxHp), 0, 1);
+    fx.barFill.scale.x = hpFrac;
+    fx.barFill.position.x = -7.5 * (1 - hpFrac);
+    for (let i = 0; i < fx.sparks.length; i++) {
+        const spark = fx.sparks[i], centerX = target.hitShape.maxX > 10 ? 4.5 : 0;
+        spark.visible = true; spark.material.opacity = fx.hitT;
+        spark.position.set(centerX + spark.userData.hitDx * age * 14,
+            spark.userData.hitLift * age * 10, spark.userData.hitDz * age * 14);
+        spark.scale.setScalar(.7 + fx.hitT * .8);
+        spark.rotation.z += dt * (9 + i);
+    }
+}
+function updateWeakTargetFx(w, dt) {
+    for (const target of w.parts.capacitors) animateWeakTarget(target, dt);
+    for (const target of w.parts.couplings) animateWeakTarget(target, dt);
+}
+
 function killNusantaraWarden(w) {
     if (w.dead) return;
     w.hp = 0; w.dead = true; w.phase = 'death'; w.phaseT = 0;
     w.attackState = 'dead'; clearHazards(w); stats.kills++; addCamShake(8);
+    w.parts.attackCharge.visible = false;
     explodeAt(new THREE.Vector3(w.parts.group.position.x, 22,
         w.parts.group.position.z), 26, 0);
     w.callbacks.onDeath?.(w);
@@ -590,16 +756,24 @@ function killNusantaraWarden(w) {
 function updateDeath(w, dt) {
     w.phaseT += dt; const k = Math.min(1, w.phaseT / Math.max(.1, C().deathSec));
     const p = w.parts;
-    p.group.rotation.z = -.48 * k; p.group.position.y = -3.5 * k;
+    // Collapse individual assemblies, never the carrier. Tilting/sinking the
+    // whole six-legged rig pushed the far legs through the arena floor.
+    p.group.rotation.z = 0; p.group.position.y = 0;
+    p.coreRig.position.y = 29 - 7 * k; p.coreRig.rotation.z = -.38 * k;
     p.coreRig.rotation.y += dt * (2.5 * (1 - k));
     p.core.material.emissiveIntensity = EMISSIVE_MAX * .7 * (1 - k);
     p.shield.visible = false;
     for (let i = 0; i < p.legs.length; i++) {
         const leg = p.legs[i];
-        leg.hip.rotation.z += (((i % 2 ? 1 : -1) * (.25 + i * .035) * k)
-            - leg.hip.rotation.z) * Math.min(1, dt * 4);
-        leg.lower.rotation.z += (.95 + (i % 2) * .25 - leg.lower.rotation.z)
+        leg.hip.rotation.z = 0;
+        const upperTarget = leg.baseUpper + (i % 2 ? .06 : -.05) * k;
+        const lowerTarget = leg.baseLower + (i % 2 ? -.04 : .08) * k;
+        leg.upper.rotation.z += (upperTarget - leg.upper.rotation.z)
             * Math.min(1, dt * 4);
+        leg.lower.rotation.z += (lowerTarget - leg.lower.rotation.z)
+            * Math.min(1, dt * 4);
+        leg.foot.rotation.z += (((i % 2 ? 1 : -1) * .03 * k)
+            - leg.foot.rotation.z) * Math.min(1, dt * 4);
     }
     if (Math.floor(w.phaseT * 5) !== Math.floor((w.phaseT - dt) * 5) && k < .85) {
         const a = w.phaseT * 4.7;
@@ -611,7 +785,7 @@ function updateDeath(w, dt) {
     if (k >= 1) {
         w.phase = 'wreck'; w.deathDone = true;
         // Existing parts are the wreck; nothing new is allocated or swapped.
-        p.group.position.y = -3.5; p.core.material.emissiveIntensity = 0;
+        p.group.position.y = 0; p.core.material.emissiveIntensity = 0;
         w.callbacks.onWreck?.(w);
     }
 }
@@ -656,8 +830,7 @@ export function nusantaraWardenBulletHit(w, b) {
             damageTarget(w, q, damage, 'capacitor'); stats.hits++; return true;
         }
     } else if (w.phase === 'jam2') {
-        const q = w.parts.couplings.find(x => x.alive);
-        if (q && targetHit(w, b, q)) {
+        for (const q of w.parts.couplings) if (targetHit(w, b, q)) {
             damageTarget(w, q, damage, 'coupling'); stats.hits++; return true;
         }
     }
@@ -686,12 +859,43 @@ export const nusantaraWardenWrecked = w => !!w?.deathDone;
 export const nusantaraWardenVulnerable = w => !!w?.active && !w?.dead
     && !['dormant', 'reveal'].includes(w.phase);
 
+function legFloorClearance(w, leg) {
+    const rootY = w.parts.group.position.y;
+    const hipY = LEG_POSE.hipY;
+    const hipA = leg.hip.rotation.z;
+    const upperA = hipA + leg.upper.rotation.z;
+    const atY = (baseY, angle, x, y) => baseY + Math.sin(angle) * x + Math.cos(angle) * y;
+    const boxMin = (baseY, angle, x, y, hx, hy, localRz = 0) => {
+        const a = angle + localRz;
+        return atY(baseY, angle, x, y) - Math.abs(Math.sin(a) * hx)
+            - Math.abs(Math.cos(a) * hy);
+    };
+    let low = hipY - 5.2;
+    low = Math.min(low, boxMin(hipY, upperA, 14, -1, 14, 3.5));
+    low = Math.min(low, boxMin(hipY, upperA, 11, 3.6, 9, 1, -.08));
+    for (let k = 0; k < 3; k++)
+        low = Math.min(low, boxMin(hipY, upperA, 7 + k * 7, -1, 1, 4));
+    const kneeY = atY(hipY, upperA, 28, -3);
+    low = Math.min(low, kneeY - 5);
+    const lowerA = upperA + leg.lower.rotation.z;
+    low = Math.min(low, boxMin(kneeY, lowerA, 12, LEG_POSE.lowerBodyY, 12, 3));
+    low = Math.min(low, boxMin(kneeY, lowerA, 10, 2.7, 8, 1, -.05));
+    const footY = atY(kneeY, lowerA, 24, -2);
+    const footA = lowerA + leg.foot.rotation.z;
+    low = Math.min(low, boxMin(footY, footA, 4, LEG_POSE.footBodyY, 8.5, 2.5));
+    low = Math.min(low, boxMin(footY, footA, 10, LEG_POSE.toeY, 5.5, 1));
+    return rootY + low;
+}
+
 export function nusantaraWardenDebug(w) {
     if (!w) return { built: false };
     const target = q => {
         const p = targetWorld(w, q, new THREE.Vector3());
         return { index: q.index, hp: q.hp, maxHp: q.maxHp, alive: q.alive,
-            exposed: q.exposed, x: p.x, y: p.y, z: p.z };
+            exposed: q.exposed, x: p.x, y: p.y, z: p.z,
+            hitFx: q.fx.hitT, hitFxVisible: q.fx.flash.visible,
+            hitCount: q.fx.hits, hitRadius: q.hitShape.radius,
+            hitLength: q.hitShape.maxX - q.hitShape.minX };
     };
     return {
         built: true, active: w.active, phase: w.phase, phaseT: w.phaseT,
@@ -702,7 +906,9 @@ export function nusantaraWardenDebug(w) {
             z: w.parts.group.position.z },
         rig: { legs: w.parts.legs.length, shutters: w.parts.shutters.length,
             capacitors: w.parts.capacitors.length, couplings: w.parts.couplings.length,
-            wreckUsesExistingParts: true },
+            wreckUsesExistingParts: true, minFloorClearance: LEG_POSE.minFloorClearance,
+            currentFloorClearance: Math.min(...w.parts.legs.map(q => legFloorClearance(w, q))),
+            carrierNeverSinks: true, attackChargeVisible: w.parts.attackCharge.visible },
         capacitors: w.parts.capacitors.map(target), couplings: w.parts.couplings.map(target),
         pools: {
             rail: { size: w.rails.length, active: w.rails.filter(q => q.active).length },

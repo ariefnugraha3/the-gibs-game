@@ -29,6 +29,7 @@ import {
     cleanupStage9Cine, clearStage9Robots, addStage9Time,
     setStage9CompletionHook, stage9RuntimeDebug,
 } from './runtime.js';
+import { resetStage9FuelDefense, stage9FuelDefenseDebug } from './fuelDefense.js';
 import { frontScene } from './front.js';
 import { interiorScene } from './interior.js';
 import { runwayScene } from './runway.js';
@@ -42,7 +43,11 @@ function placeSupplies() {
     const placements = stage9SupplyPlacements();
     const C = CFG.campaign.stage9;
     for (const p of placements.crates.slice(0, C.lootboxCount)) spawnCrate(p.x, p.z, 0);
-    for (const p of placements.barrels.slice(0, C.barrelCount)) spawnBarrel(p.x, p.z, 0);
+    // Jumlah barel kini dibatasi PER CHAPTER di dalam `stage9SupplyPlacements`
+    // (`campaign.stage9.barrels`). Satu angka total yang memotong daftar
+    // gabungan akan diam-diam menghapus barel Chapter 2/3 begitu Chapter 1
+    // ditambah — persis yang terjadi kalau `barrelCount` dinaikkan sendirian.
+    for (const p of placements.barrels) spawnBarrel(p.x, p.z, 0);
     for (const p of placements.drops) {
         if (p.type === 'ammo') spawnAmmoDrop(p.x, p.z, p.weapon, 1e9);
         else spawnMedkitDrop(p.x, p.z, 1e9);
@@ -51,6 +56,7 @@ function placeSupplies() {
 
 function resetStage() {
     resetStage9Runtime();
+    resetStage9FuelDefense();
     stage9SetFuelPumpOn(false);
     stage9SetMarkers([]);
     resetStage9Occluders();
@@ -58,7 +64,11 @@ function resetStage() {
 }
 
 export function stage9Debug() {
-    return { ...stage9RuntimeDebug(), world: stage9WorldDebug() };
+    return {
+        ...stage9RuntimeDebug(),
+        fuelDefense: stage9FuelDefenseDebug(),
+        world: stage9WorldDebug(),
+    };
 }
 
 export const stage9Scene = {
@@ -108,6 +118,13 @@ export const stage9Scene = {
     bulletBlocked(b) { return activeSub().bulletBlocked(b); },
     blastBlocked(x0, z0, x1, z1, y = 0) {
         return activeSub().blastBlocked(x0, z0, x1, z1, y);
+    },
+    // Sabetan/tembakan robot yang ditujukan ke STRUKTUR (pompa + pesawat
+    // Chapter 3). Hanya chapter yang punya struktur yang memasangnya, jadi
+    // Chapter 1/2 tetap tak mengenal konsep ini sama sekali.
+    robotStructureClaw(robot) { activeSub().robotStructureClaw?.(robot); },
+    enemyBulletHitStructure(dmg, pos) {
+        activeSub().enemyBulletHitStructure?.(dmg, pos);
     },
     grenadeCollide(g, oldX, oldZ) { activeSub().grenadeCollide(g, oldX, oldZ); },
     robotAI(robot, dt, step) { return activeSub().robotAI(robot, dt, step); },

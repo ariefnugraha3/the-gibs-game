@@ -8,10 +8,33 @@ import { buildTurbofan } from '../../utility/turbofan.js';
 const ORIGINAL_TRANSPORT_SCALE = 3.4;
 const SCALE_REDUCTION = 0.25;
 const TRANSPORT_SCALE = ORIGINAL_TRANSPORT_SCALE * (1 - SCALE_REDUCTION);
-const TAKEOFF_RUN = 560;
-const TAKEOFF_CLIMB = 145;
 const AIRCRAFT_LENGTH = 56;
 const AIRCRAFT_SPAN = 54;
+// ===== PROFIL LEPAS LANDAS (2026-08-31, permintaan user "biarkan pesawat
+// berjalan dulu sampai hampir ujung landasan kemudian barulah take off") =====
+// Versi lama memindahkan pesawat dengan satu kurva smoothstep sepanjang 560
+// unit dan MENUNDUKKAN hidungnya (rotation.z negatif) sambil memanjat — dua
+// kesalahan sekaligus. Sekarang jaraknya adalah satu profil KECEPATAN yang
+// terus menanjak (s = D·p^SPEED_POWER), sehingga titik angkat jatuh pada jarak
+// yang benar-benar ditempuh, bukan pada pecahan waktu yang ditebak.
+const TAKEOFF_RUN = 560;      // cadangan bila pemanggil tak memberi profil
+const TAKEOFF_CLIMB = 145;
+const SPEED_POWER = 1.7;      // >1 = terus menambah kecepatan sampai lepas
+const ROTATE_SEC_FRACTION = 0.09;   // lamanya hidung terangkat, dlm pecahan p
+const ROTATE_PITCH = 0.21;    // sudut angkat puncak (rad)
+const CLIMB_PITCH = 0.13;     // sudut jelajah setelah roda naik
+const GEAR_UP_AT = 0.34;      // pecahan fase udara saat roda ditarik
+// Lengan roda utama terhadap titik putar rig. Menaikkan hidung diputar pada
+// SUMBU Z LOKAL yang lewat pusat rig, jadi tanpa kompensasi ini roda utama
+// akan menembus aspal persis saat hidung terangkat.
+const MAIN_GEAR_ARM = 7.5 * TRANSPORT_SCALE;
+// Badan yang DIGAMBAR — dipakai Stage 9 sebagai kotak sasaran sabotase, jadi
+// "yang digambar adalah yang bisa dihantam" dan bukan angka ketikan terpisah.
+export const TRANSPORT_HULL = Object.freeze({
+    halfLength: AIRCRAFT_LENGTH * TRANSPORT_SCALE * 0.5,
+    halfWidth: 4.35 * TRANSPORT_SCALE,
+    top: 16 * TRANSPORT_SCALE,
+});
 const COWL_RADIUS = 2.15;
 const ENGINE_LENGTH = 6.2;
 const FAN_BLADES = 12;
@@ -271,6 +294,9 @@ export function buildArmedHeavyAircraft() {
             controlSurfaces: 6,
         },
         basePosition: new THREE.Vector3(),
+        yaw: 0, headingX: 1, headingZ: 0,
+        groundRun: TAKEOFF_RUN, climbRun: TAKEOFF_RUN * 0.6, climbHeight: TAKEOFF_CLIMB,
+        wheelSpin: 0,
         fanAngle: 0,
         fuel: 0,
         takeoff: 0,
@@ -278,12 +304,22 @@ export function buildArmedHeavyAircraft() {
     return group;
 }
 
-export function resetTransport(transport, x, z, yaw = 0) {
+export function resetTransport(transport, x, z, yaw = 0, profile = null) {
     const data = transport.userData.transport;
     transport.visible = true;
     transport.position.set(x, 0, z);
     transport.rotation.set(0, yaw, 0);
     data.basePosition.set(x, 0, z);
+    data.yaw = yaw;
+    // Hidung = +X LOKAL, dan rotation.y memetakannya ke (cos yaw, -sin yaw).
+    // Menulis +sin di sini akan MENCERMINKAN arah jalannya terhadap badan yang
+    // digambar — jebakan yang sama seperti collider OBB Stage 11.
+    data.headingX = Math.cos(yaw);
+    data.headingZ = -Math.sin(yaw);
+    data.groundRun = profile?.groundRun > 0 ? profile.groundRun : TAKEOFF_RUN;
+    data.climbRun = profile?.climbRun > 0 ? profile.climbRun : TAKEOFF_RUN * 0.6;
+    data.climbHeight = profile?.climbHeight > 0 ? profile.climbHeight : TAKEOFF_CLIMB;
+    data.wheelSpin = 0;
     data.fanAngle = 0;
     data.fuel = 0;
     data.takeoff = 0;
@@ -293,6 +329,17 @@ export function resetTransport(transport, x, z, yaw = 0) {
         engine.exhaust.material.opacity = 0.05;
         engine.exhaust.material.emissiveIntensity = 0.1;
     }
+    for (const item of data.gear) {
+        item.strut.visible = true;
+        for (const wheel of item.wheels) { wheel.visible = true; wheel.rotation.y = 0; }
+    }
+}
+
+// Pecahan waktu saat roda meninggalkan aspal. Diturunkan dari perbandingan
+// jarak, bukan diketik: memperpanjang landasan otomatis memperpanjang larinya.
+function rotateFraction(data) {
+    const total = data.groundRun + data.climbRun;
+    return total > 0 ? Math.pow(data.groundRun / total, 1 / SPEED_POWER) : 0.7;
 }
 
 export function updateTransport(transport, dt, fuelProgress, takeoffProgress = 0) {
@@ -316,13 +363,42 @@ export function updateTransport(transport, dt, fuelProgress, takeoffProgress = 0
     data.controlSurfaces[4].rotation.y = Math.sin(takeoff * Math.PI) * 0.05;
     data.controlSurfaces[5].rotation.y = -Math.sin(takeoff * Math.PI) * 0.05;
 
-    const eased = takeoff * takeoff * (3 - 2 * takeoff);
-    transport.position.x = data.basePosition.x + eased * TAKEOFF_RUN;
-    transport.position.y = Math.max(0, (takeoff - 0.28) * TAKEOFF_CLIMB);
-    transport.rotation.z = -Math.max(0, takeoff - 0.24) * 0.15;
+    // ----- Jarak: satu profil kecepatan yang terus menanjak -----
+    const total = data.groundRun + data.climbRun;
+    const travelled = total * Math.pow(takeoff, SPEED_POWER);
+    transport.position.x = data.basePosition.x + data.headingX * travelled;
+    transport.position.z = data.basePosition.z + data.headingZ * travelled;
+
+    // ----- Angkat hidung: NAIK, bukan turun (rotation.z positif memutar +X
+    // lokal ke arah +Y). Rig ini diputar Rz LEBIH DULU daripada yaw (Euler XYZ
+    // = Rx·Ry·Rz), jadi sumbu anggukan tetap sumbu badan ke mana pun ia hadap.
+    const pRot = rotateFraction(data);
+    const rotateT = Math.max(0, Math.min(1,
+        (takeoff - pRot) / Math.max(1e-6, ROTATE_SEC_FRACTION)));
+    const airT = Math.max(0, Math.min(1, (takeoff - pRot) / Math.max(1e-6, 1 - pRot)));
+    const pitch = rotateT <= 0 ? 0
+        : ROTATE_PITCH * Math.sin(rotateT * Math.PI * 0.5)
+            - (ROTATE_PITCH - CLIMB_PITCH) * Math.max(0, airT - 0.35) / 0.65;
+    transport.rotation.z = Math.max(0, pitch);
+    // Roda utama tetap menapak selama hidung terangkat: memutar rig pada
+    // pusatnya akan menenggelamkan mereka sedalam sin(pitch)·lengan.
+    const climb = data.climbHeight * Math.pow(airT, 1.4);
+    transport.position.y = climb + Math.sin(transport.rotation.z) * MAIN_GEAR_ARM;
+
+    // ----- Roda berputar selama masih menyentuh aspal -----
+    const groundSpeed = total * SPEED_POWER * Math.pow(Math.max(takeoff, 1e-4),
+        SPEED_POWER - 1);
+    if (takeoff > 0 && airT <= 0) data.wheelSpin += dt * groundSpeed * 0.06;
+    const gearOut = airT < GEAR_UP_AT;
     for (const item of data.gear) {
-        item.strut.visible = takeoff < 0.7;
-        for (const wheel of item.wheels) wheel.visible = takeoff < 0.7;
+        item.strut.visible = gearOut;
+        for (const wheel of item.wheels) {
+            wheel.visible = gearOut;
+            // Sumbu roda = +Y lokal silinder (dibaringkan lewat rotation.x),
+            // jadi PUTARANNYA ada pada rotation.y — bukan rotation.x, yang
+            // hanya akan memiringkan poros.
+            wheel.rotation.y = data.wheelSpin;
+        }
     }
 }
 
@@ -348,6 +424,15 @@ export function transportDebug(transport) {
         },
         fanAngle: data.fanAngle,
         fanSpin: data.engines[0].fan.rotation.z,
+        heading: { x: data.headingX, z: data.headingZ },
+        yaw: data.yaw,
+        groundRun: data.groundRun,
+        climbRun: data.climbRun,
+        climbHeight: data.climbHeight,
+        rotateFraction: rotateFraction(data),
+        pitch: transport.rotation.z,
+        wheelSpin: data.wheelSpin,
+        gearDown: data.gear[0].strut.visible,
         scale: TRANSPORT_SCALE,
         scaleReduction: SCALE_REDUCTION,
         lengthUnits: AIRCRAFT_LENGTH * TRANSPORT_SCALE,

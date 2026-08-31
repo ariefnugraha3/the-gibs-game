@@ -14891,6 +14891,8 @@ if (false) {
     const s9 = await import(R('src/scenes/campaign/stages/stage9/index.js'));
     const s9w = await import(R('src/scenes/campaign/stages/stage9/world.js'));
     const s9rt = await import(R('src/scenes/campaign/stages/stage9/runtime.js'));
+    const s9fd = await import(R('src/scenes/campaign/stages/stage9/fuelDefense.js'));
+    const common9m = await import(R('src/scenes/campaign/utility/common.js'));
     const trans9 = await import(R('src/scenes/campaign/utility/transition.js'));
     const registry9 = await import(R('src/scenes/campaign/utility/campaignWorldRegistry.js'));
     const lights9 = await import(R('src/world/lighting.js'));
@@ -14909,6 +14911,36 @@ if (false) {
         }
     };
     const drain9 = () => { for (let i = 0; i < 200 && s9.stage9Debug().cinematic; i++) tick9(0.5); };
+
+    {
+        // CFG DIBACA DI DALAM FUNGSI SAJA (laporan user 2026-08-31: game gagal
+        // di frame pertama). `fuelDefense.js` sempat memanggil resetnya pada
+        // tingkat MODUL, yang berjalan saat import — sebelum `loadConfig()`
+        // mengisi CFG — sehingga seluruh boot mati. Dua penjaga: tak ada
+        // pernyataan pemanggilan di kolom 0 pada modul mana pun di stage ini,
+        // dan setiap pembaca tetap aman ketika blok confignya belum ada.
+        const stage9Sources = fs.readdirSync(
+            ROOT + '/src/scenes/campaign/stages/stage9')
+            .filter(f => f.endsWith('.js'));
+        const topLevelCalls = stage9Sources.filter(f =>
+            /^[A-Za-z_$][A-Za-z0-9_$.]*\(.*\);\s*$/m.test(
+                fs.readFileSync(`${ROOT}/src/scenes/campaign/stages/stage9/${f}`, 'utf8')));
+        const savedDefense = C9.fuel.defense;
+        delete C9.fuel.defense;
+        let survivedMissingConfig = true;
+        try {
+            s9fd.resetStage9FuelDefense();
+            s9fd.updateStage9FuelDefense(0.1);
+            s9fd.stage9FuelDefenseDebug();
+            s9fd.stage9StructureFraction('pump');
+        } catch { survivedMissingConfig = false; }
+        C9.fuel.defense = savedDefense;
+        s9fd.resetStage9FuelDefense();
+        T('S9 BOOT: modul stage 9 tak membaca CFG saat import'
+            + (topLevelCalls.length ? ` [${topLevelCalls.join(' ')}]` : ''),
+        stage9Sources.length >= 7 && topLevelCalls.length === 0
+            && survivedMissingConfig);
+    }
 
     const w9 = s9w.stage9WorldDebug();
     const layoutZones9 = w9.complexity.interior.layout.zones;
@@ -15158,12 +15190,25 @@ if (false) {
             && Math.abs(p.z - z.z) <= z.hz;
         const apron = zone('apron'), service = zone('service-yard');
         const runway = zone('runway-14-32'), fire = zone('fire-station');
-        T('S9 CH3 DENAH: start apron kiri, pump hanggar kanan, pesawat runway kanan',
-            contains(apron, layout.start) && contains(service, layout.pump)
+        // POMPA PINDAH KE SAMPING PESAWAT (2026-08-31, permintaan user). Yang
+        // diuji BUKAN koordinatnya melainkan hubungannya: pompa berdiri di
+        // bidang landasan yang sama dengan pesawat, jauh lebih dekat kepadanya
+        // daripada ke hanggar tempat ia dulu berdiri, dan tetap bebas dari
+        // jalur lari lepas landas yang kini menuju BARAT.
+        const pumpToAircraft = Math.hypot(layout.pump.x - layout.aircraft.x,
+            layout.pump.z - layout.aircraft.z);
+        const pumpToHangar = Math.hypot(layout.pump.x - layout.hangar.x,
+            layout.pump.z - layout.hangar.z);
+        T('S9 CH3 DENAH: start apron kiri, pompa di samping pesawat, keduanya di landasan',
+            contains(apron, layout.start) && contains(runway, layout.pump)
             && contains(runway, layout.aircraft) && contains(runway, layout.board)
             && layout.start.x < layout.checkpoint.x
             && layout.checkpoint.x < layout.aircraft.x
             && layout.aircraft.x < layout.pump.x
+            && pumpToAircraft < pumpToHangar
+            && pumpToAircraft <= 200
+            // Pompa berdiri di TIMUR pesawat, sedangkan larinya ke barat.
+            && layout.pump.x > layout.aircraft.x + w9.aircraft.lengthUnits * 0.5
             && layout.start.z > layout.aircraft.z && layout.pump.z > layout.aircraft.z
             && layout.tower.z > apron.z + apron.hz
             && layout.hangar.x > fire.x
@@ -15174,6 +15219,77 @@ if (false) {
                 && !s9w.stage9BlockedAt(p.x, p.z, cfgMod.CFG.player.radius))
             && s9w.stage9RunwayWalkable(layout.pump.x, layout.pump.z, 0)
             && s9w.stage9BlockedAt(layout.pump.x, layout.pump.z, 0));
+
+        // AREA NAIK SELUAS BADAN PESAWAT (2026-08-31, permintaan user "seluas
+        // badan pesawat ... bukan sayapnya"). Yang diuji adalah HUBUNGANNYA
+        // dengan rig yang digambar: panjangnya badan, lebarnya FUSELAGE dan
+        // bukan bentang sayap, dan seluruh petaknya benar-benar dapat dipijak.
+        const area = layout.boardArea, boardMark = layout.boardMarker;
+        const areaSamples = [];
+        for (let i = 0; i <= 12; i++)
+            for (let j = 0; j <= 4; j++)
+                areaSamples.push({
+                    x: area.x - area.hx + (area.hx * 2) * i / 12,
+                    z: area.z - area.hz + (area.hz * 2) * j / 4,
+                });
+        T('S9 CH3 AREA NAIK: sepanjang badan pesawat, selebar fuselage, bukan sayap',
+            !!area && !!boardMark
+            // Yang digambar = yang memicu.
+            && Math.abs(boardMark.sizeX - area.hx * 2) < 1e-6
+            && Math.abs(boardMark.sizeZ - area.hz * 2) < 1e-6
+            && Math.abs(boardMark.x - area.x) < 1e-6
+            && Math.abs(boardMark.z - area.z) < 1e-6
+            // Panjangnya badan pesawat, jauh lebih besar daripada kotak 12x12.
+            && Math.abs(area.hx * 2 - w9.aircraft.lengthUnits) < 1e-6
+            && area.hx * 2 > common9m.STAND_MARKER_SIZE * 8
+            // Lebarnya fuselage: jelas di bawah sepertiga bentang sayap.
+            && area.hz * 2 < w9.aircraft.spanUnits / 3
+            && area.hz * 2 > cfgMod.CFG.player.radius * 2
+            // Titik ramp lama tetap berada DI DALAM area barunya.
+            && Math.abs(layout.board.x - area.x) <= area.hx
+            && Math.abs(layout.board.z - area.z) <= area.hz
+            // Setiap petaknya dapat dipijak collider player.
+            && areaSamples.every(p => s9w.stage9RunwayWalkable(
+                p.x, p.z, cfgMod.CFG.player.radius)
+                && !s9w.stage9BlockedAt(p.x, p.z, cfgMod.CFG.player.radius))
+            // Predikatnya sendiri: badan = ya, ujung sayap = tidak.
+            && s9w.stage9AtBoardArea(area.x, area.z, 0)
+            && s9w.stage9AtBoardArea(area.x + area.hx - 1, area.z, 0)
+            && !s9w.stage9AtBoardArea(area.x, area.z + w9.aircraft.spanUnits * 0.4, 0));
+
+        // TANDA LANTAI DI DEPAN POMPA (permintaan user). Kotak berbingkai amber
+        // yang sama dengan stage-stage sebelumnya, berdiri BEBAS dari collider
+        // pompa — kalau ia tenggelam di dalam bodi pompa, player tak akan
+        // pernah bisa berdiri di atasnya.
+        const stand = layout.pumpStand;
+        const standClear = Math.abs(stand.z - layout.pump.z)
+            > s9w.stage9StructureBox('pump').hz + common9m.STAND_MARKER_SIZE * 0.5;
+        T('S9 CH3 MARKER POMPA: kotak berdiri amber di depan pompa, bebas dari collidernya',
+            !!stand && standClear
+            && s9w.stage9RunwayWalkable(stand.x, stand.z, cfgMod.CFG.player.radius)
+            && !s9w.stage9BlockedAt(stand.x, stand.z, cfgMod.CFG.player.radius)
+            && Math.hypot(stand.x - layout.pump.x, stand.z - layout.pump.z)
+                <= C9.fuel.interactionRange * 2
+            && w9.markers.includes('pump'));
+
+        // PESAWAT DIPUTAR BALIK + LARI PENUH LANDASAN (permintaan user).
+        // Angkanya diturunkan dari landasan yang digambar, jadi memperpanjang
+        // landasan otomatis memindahkan titik angkatnya.
+        const TO = w9.complexity.runway.takeoff;
+        T('S9 CH3 LEPAS LANDAS: hidung ke barat, lari hampir sepanjang landasan lalu angkat',
+            Math.abs(TO.yaw - Math.PI) < 1e-9
+            && Math.abs(w9.aircraft.heading.x + 1) < 1e-9
+            && Math.abs(w9.aircraft.heading.z) < 1e-9
+            && TO.rotateX < layout.aircraft.x
+            && TO.groundRun > 0 && TO.runFraction >= 0.75
+            && TO.remainingRun > 0
+            && TO.remainingRun < TO.groundRun * 0.2
+            && TO.rotateX > TO.strip.x0
+            // Titik naik berpindah ke BURITAN, yang kini menghadap timur.
+            && layout.board.x > layout.aircraft.x
+            // Seluruh lintasan berakhir DI ATAS tanah yang digambar.
+            && w9.complexity.runway.groundSpan.x0
+                < TO.rotateX - TO.climbRun - 200);
         T('S9 CH3 ISI DENAH: lima stand+jet bridge, tower, damkar, hanggar dan tiga konektor',
             layout.parkedAircraft === 5 && layout.jetBridges === 5
             && layout.taxiwayConnectors === 3 && layout.fireStations === 1
@@ -15528,7 +15644,7 @@ if (false) {
             ['runway-a', reach(s9w.stage9RunwayWalkable, s9w.S9_BOUNDS,
                 s9w.S9_RUNWAY_START, s9w.S9_RUNWAY_CHECKPOINT, C9.interactionRange * 2)],
             ['runway-b', reach(s9w.stage9RunwayWalkable, s9w.S9_BOUNDS,
-                s9w.S9_RUNWAY_CHECKPOINT, s9w.S9_PUMP, C9.fuel.interactionRange)],
+                s9w.S9_RUNWAY_CHECKPOINT, s9w.S9_PUMP_STAND, C9.fuel.interactionRange)],
             ['runway-c', reach(s9w.stage9RunwayWalkable, s9w.S9_BOUNDS,
                 s9w.S9_RUNWAY_CHECKPOINT, s9w.S9_BOARD, C9.interactionRange)],
         ];
@@ -15550,7 +15666,7 @@ if (false) {
     T('S9 CH1 PREPLACE: kedua populasi sudah lengkap sebelum player mendapat kontrol',
         robots9().length === encounterTotal9('frontToll')
             + encounterTotal9('frontForecourt')
-        && encounterTotal9('frontToll') + encounterTotal9('frontForecourt') === 100);
+        && encounterTotal9('frontToll') + encounterTotal9('frontForecourt') === 150);
     T('S9 CH1 DORMAN: seluruh robot diam sampai pertama kali masuk layar player',
         robots9().length > 0 && robots9().every(bot => bot.state === 'idle'));
     {
@@ -15627,6 +15743,49 @@ if (false) {
     T('S9 CH1 LOOT RUNTIME: semua loot box parkiran benar-benar di-spawn',
         crate5Mod.crates.length === C9.lootboxCount);
     {
+        // ===== BAREL CHAPTER 1 (permintaan user 2026-08-31) =====
+        // Yang diuji bukan jumlahnya saja melainkan BENTUK sebarannya: rumpun
+        // kecil yang saling menyulut (itu aksinya) tanpa satu pun komponen
+        // terhubung yang cukup besar untuk menjadi sumbu sepanjang jalan.
+        const BB = cfgMod.CFG.barrels;
+        const chainR = BB.blastRadiusMeters * cfgMod.CAMP_M + barrel5Mod.BARREL_RADIUS;
+        const allBarrels = s9w.stage9SupplyPlacements().barrels;
+        const front = allBarrels.filter(p => p.area === 'front');
+        const robotSpots = s9w.stage9FrontRoadScatterPoints(
+            encounterTotal9('frontToll') + encounterTotal9('frontForecourt'));
+        const seen = new Set();
+        let biggestChain = 0, clusters = 0;
+        for (let i = 0; i < front.length; i++) {
+            if (seen.has(i)) continue;
+            const stack = [i]; seen.add(i); let n = 0;
+            while (stack.length) {
+                const k = stack.pop(); n++;
+                for (let j = 0; j < front.length; j++) {
+                    if (seen.has(j)) continue;
+                    if (Math.hypot(front[k].x - front[j].x,
+                        front[k].z - front[j].z) < chainR) { seen.add(j); stack.push(j); }
+                }
+            }
+            biggestChain = Math.max(biggestChain, n);
+            if (n > 1) clusters++;
+        }
+        const onRobot = front.filter(p => robotSpots.some(q =>
+            Math.hypot(q.x - p.x, q.z - p.z) < 10));
+        const offRoad = front.filter(p => !s9w.stage9FrontRoadSurface(
+            p.x, p.z, barrel5Mod.BARREL_RADIUS)
+            || s9w.stage9BlockedAt(p.x, p.z, barrel5Mod.BARREL_RADIUS));
+        T(`S9 CH1 BAREL: ${front.length} barel berumpun di aspal, `
+            + `rantai terpanjang ${biggestChain}`
+            + (offRoad.length ? ` [${offRoad.length} keluar jalan]` : '')
+            + (onRobot.length ? ` [${onRobot.length} menimpa robot]` : ''),
+        front.length === C9.barrels.front && front.length >= 30
+            && offRoad.length === 0 && onRobot.length === 0
+            && clusters >= 4 && biggestChain >= 2 && biggestChain <= 3
+            && barrel5Mod.barrels.length === allBarrels.length
+            && allBarrels.filter(p => p.area === 'interior').length === C9.barrels.interior
+            && allBarrels.filter(p => p.area === 'runway').length === C9.barrels.runway);
+    }
+    {
         const before = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
         const keepRobots = robots.slice(); robots.length = 0;
         occlusionMod.resetStageOccluders(s9w.S9_FRONT_KEY);
@@ -15674,28 +15833,52 @@ if (false) {
         && scene.fog.color.getHex() === s9w.S9_INTERIOR_ENV.fogColor);
 
     {
+        // SELURUH gelombang 1 di aula CHECK-IN; hall bagasi khusus loot box
+        // (permintaan user 2026-08-31). Uji ganda: klasifikasinya harus
+        // 'counter', DAN tak satu pun berdiri di dalam zona keep-out belt.
         const firstWave = robots9().filter(b => b.encounter === 'interiorCheckin');
         const areas = firstWave.map(b => s9w.stage9InteriorWave1AreaAt(
             b.mesh.position.x, b.mesh.position.z));
-        T('S9 CH2 WAVE 1: robot awal hanya di counter dan belt bagasi yang bisa dicapai player',
-            firstWave.length === encounterTotal9('interiorCheckin')
-            && areas.every(Boolean)
-            && new Set(areas).has('counter') && new Set(areas).has('baggage')
+        const inBaggage = firstWave.filter(b => s9w.stage9InteriorBaggageZone(
+            b.mesh.position.x, b.mesh.position.z));
+        const baggageCrates = s9w.stage9SupplyPlacements().interiorCrates
+            .filter(p => p.area === 'baggage');
+        T('S9 CH2 WAVE 1: seluruh gelombang di aula check-in, hall bagasi hanya loot box'
+            + (inBaggage.length ? ` [${inBaggage.length} di belt]` : ''),
+        firstWave.length === encounterTotal9('interiorCheckin')
+            && areas.every(a => a === 'counter')
+            && inBaggage.length === 0
+            && baggageCrates.length === C9.interiorLootBoxes.baggage
             && firstWave.every(b => s9w.stage9InteriorReachable(
                 b.mesh.position.x, b.mesh.position.z))
             && s9.stage9Debug().spawnPlacement.encounters.interiorCheckin.inView === 0);
     }
-    kill9();
+    // GELOMBANG 1 SENGAJA DIBIARKAN HIDUP (permintaan user 2026-08-31): memicu
+    // ruang tunggu kini boleh dilakukan kapan saja, dan yang dilewatkan di belt
+    // bagasi akan menyusul mengejar player.
     const formerTrigger = s9w.s9InteriorCellPos(21, 3);
     stand9(formerTrigger); tick9(0.3);
     T('S9 CH2 WAVE 2: titik lama di sisi timur toilet tidak lagi memicu ruang tunggu',
         s9.stage9Debug().phase === 'interiorCheckin'
         && (s9.stage9Debug().encounters.interiorConcourse || 0) === 0);
+    const survivors2 = robots9().filter(b => b.encounter === 'interiorCheckin');
+    const idleBefore2 = survivors2.filter(b => b.state === 'idle').length;
     stand9(s9w.S9_INTERIOR_CHECKPOINT); tick9(0.3);
     d9 = s9.stage9Debug();
     T('S9 CHAPTER 2A: toko di samping toilet membuka encounter ruang tunggu',
         d9.phase === 'interiorConcourse'
         && d9.encounters.interiorConcourse === encounterTotal9('interiorConcourse'));
+    T('S9 CH2 ALARM: memicu ruang tunggu tanpa membersihkan belt bagasi membuat '
+        + 'SELURUH penyintas gelombang 1 mengejar player',
+    survivors2.length === encounterTotal9('interiorCheckin')
+        && idleBefore2 > 0
+        && survivors2.every(b => b.state === 'chasing')
+        && d9.alerted && d9.alerted.name === 'interiorCheckin'
+        && d9.alerted.count === survivors2.length
+        && d9.dialogue.seen.includes('concourseAlarm')
+        // Rutenya nyata: nav-grid interior menghubungkan tiap penyintas ke player.
+        && survivors2.every(b => s9w.stage9InteriorReachable(
+            b.mesh.position.x, b.mesh.position.z)));
     {
         // 60 ROBOT DI AREA KURSI TUNGGU (permintaan user 2026-08-27): jumlahnya
         // dari config, dan setiap satu berdiri di dalam aula ruang tunggu —
@@ -15717,6 +15900,21 @@ if (false) {
             && s9w.stage9EncounterPoints('interiorConcourse').length
                 === s9w.S9_SEAT_AISLE_XS.length * s9w.S9_SEAT_AISLE_ZS.length);
     }
+    {
+        // Pintu keluar menghitung KEDUA gelombang: penyintas check-in tak boleh
+        // ikut terbawa ke Chapter 3 dan berdiri di koordinat terminal yang tak
+        // akan pernah dicapai player lagi.
+        for (let i = robots.length - 1; i >= 0; i--)
+            if (robots[i].stage === 9 && robots[i].encounter === 'interiorConcourse') {
+                scene.remove(robots[i].mesh); robots.splice(i, 1);
+            }
+        const leftover = robots9().length;
+        stand9(s9w.S9_BUILDING_EXIT); tick9(0.3);
+        T('S9 CH2 KELUAR: penyintas check-in menahan pintu keluar Chapter 2',
+            leftover > 0 && s9.stage9Debug().chapter === 2
+            && s9.stage9Debug().phase === 'interiorConcourse'
+            && s9.stage9Scene.hudStatus().includes(`HOSTILES ${leftover}`));
+    }
     kill9();
     stand9(s9w.S9_BUILDING_EXIT);
     tick9(0.3);
@@ -15736,26 +15934,148 @@ if (false) {
     T('S9 CHAPTER 3A: service yard membuka pertahanan aircraft stand kedua',
         d9.phase === 'runwayAircraft' && d9.encounters.runwayAircraft > 0);
     kill9(); tick9(0.3);
+    // Berdiri di BODI pompa tidak lagi menyalakannya: interaksi mengikuti kotak
+    // berdiri di depannya, satu-satunya titik yang benar-benar dapat dicapai.
     stand9(s9w.S9_PUMP);
     tick9(0.3);
-    d9 = s9.stage9Debug();
-    T('S9 POMPA: player menyalakan pompa sebelum bahan bakar mengalir',
-        d9.chapter === 3 && d9.fuel.pumpOn && d9.fuel.progress < 1);
-    tick9(C9.fuel.durationSec * 0.5);
-    const halfFuel = s9.stage9Debug().fuel;
-    tick9(C9.fuel.durationSec * 0.6);
-    d9 = s9.stage9Debug();
-    T('S9 BAHAN BAKAR: progress naik monoton sampai penuh',
-        halfFuel.progress > 0 && halfFuel.progress < 1
-        && d9.fuel.progress === 1 && d9.phase === 'board');
-
-    stand9(s9w.S9_BOARD);
+    const pumpFromBody = s9.stage9Debug().fuel.pumpOn;
+    stand9(s9w.S9_PUMP_STAND);
     tick9(0.3);
-    T('S9 BOARDING: mendekati pesawat setelah tangki penuh memulai cutscene',
-        s9.stage9Debug().phase === 'takeoff' && stateMod.cinematicActive);
+    d9 = s9.stage9Debug();
+    T('S9 POMPA: pompa menyala dari kotak berdiri di depannya, bukan dari bodinya',
+        !pumpFromBody && d9.chapter === 3 && d9.fuel.pumpOn && d9.fuel.progress < 1);
+
+    {
+        // ===== GELOMBANG SABOTASE (2026-08-31, permintaan user) =====
+        const D9 = C9.fuel.defense;
+        tick9(D9.firstWaveDelaySec + D9.waveIntervalSec + 0.5);
+        const saboteurs = robots9().filter(b => b.saboteur);
+        const fd = s9.stage9Debug().fuelDefense;
+        const aircraftBox = s9w.stage9StructureBox('aircraft');
+        T('S9 SABOTASE: gelombang penyabot lahir di luar layar dan mengincar kedua sasaran',
+            fd.armed && fd.waves >= 1 && saboteurs.length >= 1
+            && saboteurs.every(b => b.encounter === 'fuelDefense')
+            && saboteurs.every(b => ['aircraft', 'pump'].includes(b.saboteur))
+            && saboteurs.every(b => !s9rt.stage9RobotInView(b))
+            && saboteurs.every(b => s9w.stage9RunwayWalkable(
+                b.mesh.position.x, b.mesh.position.z, 4)));
+
+        // Penyabot yang sudah menempel BADAN pesawat merusaknya dan menumpahkan
+        // bahan bakar; player berdiri jauh supaya ia tidak berpaling ke player.
+        // Damage-nya lewat jalur ancang-ancang cakar BERSAMA di robots.js, jadi
+        // AI robot harus benar-benar dijalankan, bukan hanya updateMode scene.
+        const fight9 = (sec, dt = 0.1) => {
+            for (let t = 0; t < sec - 1e-9; t += dt) {
+                s9.stage9Scene.updateMode(dt);
+                robotsMod.updateRobots(dt, dt * 60);
+            }
+        };
+        kill9();
+        stand9(s9w.S9_RUNWAY_CHECKPOINT);
+        common9m.spawnCampaignRobot(aircraftBox.x, aircraftBox.z + aircraftBox.hz + 6,
+            9, 'C', true);
+        const saboteur = robots[robots.length - 1];
+        saboteur.encounter = 'fuelDefense';
+        saboteur.saboteur = 'aircraft';
+        const beforeHp = s9.stage9Debug().fuelDefense.aircraft.hp;
+        const beforeFuel = s9rt.fuelT;
+        fight9(4);
+        const afterFd = s9.stage9Debug().fuelDefense;
+        T('S9 SABOTASE: pukulan penyabot melukai pesawat DAN menumpahkan bahan bakar',
+            afterFd.aircraft.hp < beforeHp && afterFd.hits >= 1
+            && afterFd.fuelLost > 0 && s9rt.fuelT < beforeFuel + 4
+            && saboteur.windTarget === 'structure');
+
+        // Peluru penyabot BERHENTI di badan sasaran dan membayar damage di
+        // sana. Peluru player (tanpa muatan struktur) tetap menembus pesawat,
+        // jadi rute naik dan garis tembak player tidak berubah.
+        kill9();
+        const pumpBefore = s9.stage9Debug().fuelDefense.pump.hp;
+        const shotZ = s9w.S9_PUMP.z - 120;
+        enemyBullets.push({
+            mesh: new THREE.Mesh(), dir: new THREE.Vector3(0, 0, 1),
+            speed: 60, life: 4, dmg: 5, monasDmg: D9.shotDamage,
+            px: s9w.S9_PUMP.x, py: 6, pz: shotZ,
+        });
+        enemyBullets[enemyBullets.length - 1].mesh.position.set(s9w.S9_PUMP.x, 6, shotZ);
+        for (let i = 0; i < 400 && enemyBullets.length; i++)
+            robotsMod.updateEnemyBullets(0.05, 3);
+        const playerShotThrough = !s9.stage9Scene.bulletBlocked({
+            px: aircraftBox.x - 200, pz: aircraftBox.z,
+            mesh: { position: { x: aircraftBox.x + 200, y: 6, z: aircraftBox.z } },
+        });
+        T('S9 SABOTASE: peluru penyabot berhenti di sasaran, peluru player tetap menembus',
+            s9.stage9Debug().fuelDefense.pump.hp < pumpBefore
+            && s9.stage9Debug().fuelDefense.shots >= 1 && playerShotThrough);
+
+        // Sasaran yang jatuh = jalur bahan bakar putus: isian MENYUSUT, bukan
+        // misi gagal — dan pulih sendiri begitu penyabotnya bersih.
+        kill9();
+        s9fd.stage9StructureShot(D9.pumpHp * 2, { x: s9w.S9_PUMP.x, z: s9w.S9_PUMP.z });
+        const downFuel = s9rt.fuelT;
+        tick9(1.5);
+        const drained = s9.stage9Debug();
+        kill9();
+        for (let i = 0; i < 60 && s9.stage9Debug().fuelDefense.pump.down; i++) {
+            kill9(); tick9(0.5);
+        }
+        T('S9 SABOTASE: pompa tumbang menghentikan aliran dan menyusutkan tangki, lalu pulih',
+            drained.fuelDefense.pump.down && s9rt.fuelT < downFuel
+            && drained.fuelDefense.downEvents >= 1
+            && !s9.stage9Debug().fuelDefense.pump.down);
+    }
+
+    // Player yang membersihkan tiap gelombang mengisi tangki sampai penuh.
+    const halfFuelSeen = { min: 2, max: -1 };
+    for (let t = 0; t < C9.fuel.durationSec * 6
+        && s9.stage9Debug().fuel.progress < 1; t += 0.5) {
+        kill9(); tick9(0.5);
+        const p = s9.stage9Debug().fuel.progress;
+        halfFuelSeen.min = Math.min(halfFuelSeen.min, p);
+        halfFuelSeen.max = Math.max(halfFuelSeen.max, p);
+    }
+    d9 = s9.stage9Debug();
+    T('S9 BAHAN BAKAR: membersihkan penyabot membuat progress penuh dan pertahanan berhenti',
+        halfFuelSeen.max > 0 && d9.fuel.progress === 1 && d9.phase === 'board'
+        && !d9.fuelDefense.armed);
+
+    kill9();
+    {
+        const area = s9w.stage9WorldDebug().complexity.runway.layout.boardArea;
+        // Berdiri di bawah UJUNG SAYAP bukan "sampai di pesawat".
+        stand9({ x: area.x, z: area.z - s9w.stage9WorldDebug().aircraft.spanUnits * 0.4 });
+        tick9(0.3);
+        const wingIgnored = s9.stage9Debug().phase === 'board';
+        // Menyentuh SISI BADAN di tengah pesawat sudah cukup — dulu hanya
+        // lingkaran 18 unit di ekor yang dianggap sampai.
+        stand9({ x: area.x, z: area.z + area.hz + cfgMod.CFG.player.radius * 0.8 });
+        tick9(0.3);
+        T('S9 BOARDING: menyentuh sisi badan pesawat memulai cutscene, ujung sayap tidak',
+            wingIgnored && s9.stage9Debug().phase === 'takeoff'
+            && stateMod.cinematicActive);
+    }
+    {
+        // Lari lepas landas: roda masih menapak jauh setelah setengah waktu,
+        // baru sesudah titik angkat pesawat naik — dan seluruhnya ke BARAT.
+        const air0 = { ...s9w.stage9Transport().position };
+        tick9(C9.takeoffSec * 0.45, 0.05);
+        const mid = { ...s9w.stage9Transport().position };
+        const midAir = s9w.stage9WorldDebug().aircraft;
+        tick9(C9.takeoffSec * 0.4, 0.05);   // total 85% — sudah di udara, belum selesai
+        const late = { ...s9w.stage9Transport().position };
+        const lateAir = s9w.stage9WorldDebug().aircraft;
+        T('S9 TAKEOFF: berlari di aspal ke barat dulu, baru mengangkat hidung dan roda',
+            mid.x < air0.x - 1 && mid.y <= 0.001 && midAir.gearDown
+            && midAir.pitch === 0
+            && late.x < mid.x && late.y > 0 && lateAir.pitch > 0
+            && !lateAir.gearDown && lateAir.wheelSpin > 0);
+    }
     tick9(C9.takeoffSec + 1, 0.1);
+    const naturalPos9 = { ...s9w.stage9Transport().position };
     T('S9 SELESAI: takeoff mengakhiri stage lewat gateway normal',
         s9.stage9Debug().complete && s9.stage9Debug().transitionSent
+        && naturalPos9.x < s9w.S9_TAKEOFF.rotateX
+        && naturalPos9.y >= s9w.S9_TAKEOFF.climbHeight - 1e-6
         && stateMod.isGameOver && dom4.gameOverTitle.innerText === 'STAGE 9 COMPLETE'
         && dom4.stageRadioDialogueDebug() === null);
 
@@ -15767,9 +16087,10 @@ if (false) {
     kill9(); stand9(s9w.S9_INTERIOR_CHECKPOINT); tick9(0.3);
     kill9(); stand9(s9w.S9_BUILDING_EXIT); tick9(0.3);
     kill9(); stand9(s9w.S9_RUNWAY_CHECKPOINT); tick9(0.3);
-    kill9(); tick9(0.3); stand9(s9w.S9_PUMP); tick9(0.3);
-    tick9(C9.fuel.durationSec + 0.1);
-    stand9(s9w.S9_BOARD); tick9(0.3);
+    kill9(); tick9(0.3); stand9(s9w.S9_PUMP_STAND); tick9(0.3);
+    for (let t = 0; t < C9.fuel.durationSec * 6
+        && s9.stage9Debug().fuel.progress < 1; t += 0.5) { kill9(); tick9(0.5); }
+    kill9(); stand9(s9w.S9_BOARD); tick9(0.3);
     const skipped9 = dom4.triggerCutsceneSkip();
     T('S9 SKIP: skip cutscene keberangkatan tetap finish dan cleanup',
         skipped9 === true && s9.stage9Debug().complete
@@ -19583,6 +19904,12 @@ if (false) {
         && RW11.hall.computerCentred
         && s11.S11_INSERT.x === s11.S11_ARENA.x
         && s11.S11_INSERT.z === s11.S11_ARENA.z);
+    T('S11 ALAS KOMPUTER: ground mengikuti dua tier dan player berdiri di permukaan atas',
+        RW11.hall.dais.standGround === RW11.hall.dais.top
+        && RW11.hall.dais.top > RW11.hall.dais.lowerTop
+        && RW11.hall.dais.upperRadius < RW11.hall.dais.lowerTopRadius
+        && RW11.hall.dais.lowerTopRadius < RW11.hall.dais.floorRadius
+        && RW11.hall.dais.outerGround === 0);
     T('S11 ROOT BERSIH: lorong/aula tanpa tiang, tembok, arch, buttress, atau bank statis',
         RW11.corridor.columns === 0 && RW11.corridor.arches === 0
         && RW11.corridor.walls === 0 && RW11.hall.buttresses === 0
@@ -19592,6 +19919,24 @@ if (false) {
         && RW11.door.marker && RW11.door.leftZ < 0 && RW11.door.rightZ > 0
         && RW11.machines.length === RC11.machines
         && RW11.machines.every(m => m.pointLights === 0));
+    T('S11 KOMPUTER PINTU: terminal ICE BREACH menghadap player dan punya rig berlapis self-lit',
+        RW11.computers.doorTerminal.screens === 1
+        && RW11.computers.doorTerminal.glyphs >= 10
+        && RW11.computers.doorTerminal.chassisDetails >= 30
+        && RW11.computers.doorTerminal.facesPlayer
+        && RW11.computers.doorTerminal.pointLights === 0);
+    const computerMotion11 = { ring: RW11.computers.killSwitch.ringMotion,
+        orbiter: RW11.computers.killSwitch.orbiterMotion };
+    tick12(.2, .05);
+    const computerAfter11 = s11.stage11WorldDebug().worlds.root.computers.killSwitch;
+    T('S11 KOMPUTER UTAMA: triptych, drive bay dan transmitter sinematik sudah prebuilt dan bergerak',
+        computerAfter11.screens === 3 && computerAfter11.dataBars >= 14
+        && computerAfter11.rings === 4 && computerAfter11.orbiters === 8
+        && computerAfter11.chassisDetails >= 70
+        && computerAfter11.driveBay && computerAfter11.beacon
+        && computerAfter11.towerTop >= 80 && computerAfter11.pointLights === 0
+        && Math.abs(computerAfter11.ringMotion - computerMotion11.ring) > 1e-4
+        && Math.abs(computerAfter11.orbiterMotion - computerMotion11.orbiter) > 1e-4);
 
     rendererMod.followViewCam(.016);
     let rootFlow11 = s11.stage11WorldDebug().root;
@@ -19682,6 +20027,10 @@ if (false) {
     solveHack(); await waitHackClosed();
     tick12(RC11.doorOpenSec + .2, .05);
     d12 = s11.stage11WorldDebug();
+    const insertPadOpacity = d12.worlds.root.insertFloorMarker.opacity;
+    tick12(.2, .05);
+    const insertPadPulses = Math.abs(s11.stage11WorldDebug().worlds.root
+        .insertFloorMarker.opacity - insertPadOpacity) > 1e-4;
     T('S11 PINTU HACK: ACCESS GRANTED menggeser dua daun dan baru membuka aula',
         d12.root.door.hacked && s11rt.phase === 'insertDrive'
         && d12.worlds.root.authorityOpen && !d12.worlds.root.door.marker
@@ -19690,6 +20039,9 @@ if (false) {
         && d12.worlds.root.insertFloorMarker.visible
         && d12.worlds.root.insertFloorMarker.shape === 'square'
         && d12.worlds.root.insertFloorMarker.color === 0xffb03b
+        && d12.worlds.root.insertFloorMarker.selfLit
+        && d12.worlds.root.insertFloorMarker.bottomY > d12.worlds.root.insertFloorMarker.daisTop
+        && insertPadPulses
         && d12.worlds.root.insertFloorMarker.x === s11.S11_INSERT_STAND.x
         && d12.worlds.root.insertFloorMarker.z === s11.S11_INSERT_STAND.z);
 
@@ -19702,10 +20054,13 @@ if (false) {
         insertContact.z - s11.S11_INSERT.z) > C11.interactionRange;
     const standReachable = Math.hypot(insertContact.x - s11.S11_INSERT_STAND.x,
         insertContact.z - s11.S11_INSERT_STAND.z) <= C11.interactionRange;
+    const playerDaisGround = s11.stage11Scene.groundHeight(
+        insertContact.x, insertContact.z, 0) === d12.worlds.root.hall.dais.top;
     stand12(insertContact); tick12(1.5);
     d12 = s11.stage11WorldDebug();
     T('S11 DRIVE: mustahil sebelum pintu di-hack, lalu komputer pusat menerima drive',
         insertTooEarly && consoleCentreUnreachable && standReachable
+        && playerDaisGround
         && d12.worlds.root.insertStand.x === s11.S11_INSERT_STAND.x
         && d12.root.uploadAccepted && d12.root.wardenActivated
         && d12.warden.active && d12.root.uploadProgress >= 0
@@ -19720,10 +20075,12 @@ if (false) {
     T('S11 WARDEN: rig lengkap, kapasitor/kopling sesuai config, kolam pra-alokasi',
         wd.rig.capacitors === W11.capacitors.count
         && wd.rig.couplings === W11.couplings.count
+        && W11.capacitors.hp === 600 && W11.couplings.hp === 800
         && wd.pools.rail.size === W11.rail.poolSize
         && wd.pools.burst.size === W11.burst.poolSize
         && wd.pools.sector.size === W11.sector.poolSize
         && wd.pools.stomp.size === wd.rig.legs
+        && wd.rig.carrierNeverSinks && wd.rig.currentFloorClearance >= 0
         && wd.hp === W11.hp && wd.maxHp === W11.hp && wd.score === W11.score);
 
     // (5) Upload tak pernah mundur dan TERTAHAN di preBossFraction selama bos hidup.
@@ -19767,6 +20124,15 @@ if (false) {
         wardenMod.damageNusantaraWarden(w, W11.hp * (1 - W11.phase2HpFrac) + 1, back);
         const jam1 = wardenMod.nusantaraWardenDebug(w);
         const capsExposed = jam1.capacitors.every(c => c.exposed);
+        // Tembak ujung luar model, bukan titik tengah: seluruh siluet harus kena
+        // dan harus langsung menyalakan animasi hit + HP bar.
+        const edgeCap = w.parts.capacitors[0];
+        const edgeCapHp = edgeCap.hp;
+        const capEdge = new THREE.Vector3(edgeCap.hitShape.maxX, 0, 0);
+        edgeCap.rig.localToWorld(capEdge);
+        s11.stage11Scene.bulletBlocked({ px: capEdge.x, pz: capEdge.z,
+            damage: 1, mesh: { position: { x: capEdge.x, y: capEdge.y, z: capEdge.z } } });
+        const capHitFeedback = wardenMod.nusantaraWardenDebug(w).capacitors[0];
         for (const cap of w.parts.capacitors)
             for (let i = 0; i < 12 && cap.alive; i++)
                 wardenMod.damageNusantaraWardenTargetForDebug?.(w, cap, W11.capacitors.hp);
@@ -19785,6 +20151,8 @@ if (false) {
         const jam2 = wardenMod.nusantaraWardenDebug(w);
         T('S11 FASE: setiap ambang jam terjadi TEPAT sekali dan membuka target yang benar',
             capBefore === W11.capacitors.hp && capsExposed
+            && capHitFeedback.hp === edgeCapHp - 1 && capHitFeedback.hitFxVisible
+            && capHitFeedback.hitCount === 1 && jam1.rig.currentFloorClearance >= 0
             && phases11.filter(p => p === 'jam1').length === 1
             && phases11.filter(p => p === 'jam2').length === 1
             && phases11.filter(p => p === 'phase2').length === 1
@@ -19792,6 +20160,16 @@ if (false) {
             && afterCaps.capacitors.every(c => !c.alive)
             && jam2.phase === 'jam2' && jam2.couplings.every(c => c.exposed));
         // Kopling hanya bisa dilukai SAAT jam2; sesudah jam berakhir tidak lagi.
+        // Coupling kedua ditembak lebih dulu pada ujung terluarnya. Ini mengunci
+        // bug lama yang hanya menguji coupling pertama yang masih hidup.
+        const secondCup = w.parts.couplings[1], firstCup = w.parts.couplings[0];
+        const firstCupHp = firstCup.hp, secondCupHp = secondCup.hp;
+        const cupEdge = new THREE.Vector3(secondCup.hitShape.maxX, 0, 0);
+        secondCup.rig.localToWorld(cupEdge);
+        s11.stage11Scene.bulletBlocked({ px: cupEdge.x, pz: cupEdge.z,
+            damage: 1, mesh: { position: { x: cupEdge.x, y: cupEdge.y, z: cupEdge.z } } });
+        const cupsAfterEdge = wardenMod.nusantaraWardenDebug(w).couplings;
+        const cupHitFeedback = cupsAfterEdge[1];
         for (const cup of w.parts.couplings) {
             for (let i = 0; i < 12 && cup.alive; i++) {
                 const wp = new THREE.Vector3().copy(cup.rig.position);
@@ -19804,6 +20182,10 @@ if (false) {
         const phase3 = wardenMod.nusantaraWardenDebug(w);
         T('S11 TITIK LEMAH: kapasitor & kopling hanya rusak saat jam yang diumumkan',
             phase3.phase === 'phase3' && phase3.couplings.every(c => !c.alive)
+            && firstCupHp === W11.couplings.hp && cupsAfterEdge[0].hp === firstCupHp
+            && cupHitFeedback.hp === secondCupHp - 1
+            && cupHitFeedback.hitFxVisible && cupHitFeedback.hitCount === 1
+            && jam2.rig.currentFloorClearance >= 0
             && phase3.couplings.every(c => !c.exposed)
             && phases11.filter(p => p === 'phase3').length === 1);
     }
@@ -19819,13 +20201,48 @@ if (false) {
         const rail = w.rails.find(r => r.active);
         const dirX = rail && rail.dx, dirZ = rail && rail.dz;
         const warnedFirst = !!rail && rail.warned && rail.warning.visible && !rail.shot.visible;
+        const chargeSeen = wardenMod.nusantaraWardenDebug(w).rig.attackChargeVisible;
         // Player LARI selama telegraf: arah rail tak boleh ikut berubah.
         stand12({ x: w.parts.group.position.x, z: w.parts.group.position.z + 260 });
         for (let t = 0; t < W11.rail.telegraphSec + 0.2; t += 0.05)
             wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
         T('S11 RAIL: garis tembak dikunci di telegraf dan tak mengejar player',
-            warnedFirst && Math.abs(rail.dx - dirX) < 1e-9 && Math.abs(rail.dz - dirZ) < 1e-9
-            && rail.shot.visible === true);
+            warnedFirst && chargeSeen
+            && Math.abs(rail.dx - dirX) < 1e-9 && Math.abs(rail.dz - dirZ) < 1e-9
+            && rail.shot.visible === true && rail.trail.visible === true);
+
+        // Ulangi dengan player tetap di garis. Bolt harus benar-benar melewati
+        // posisi player dan mengantrekan angka damage rail dari config.
+        for (const r of w.rails) {
+            r.active = false; r.warning.visible = r.shot.visible = r.trail.visible = false;
+        }
+        robotsMod.resetRobotsFx();
+        stand12({ x: w.parts.group.position.x + 100, z: w.parts.group.position.z });
+        w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 0; w.phase = 'phase1';
+        for (let t = 0; t < W11.rail.telegraphSec + 1.1; t += 0.05)
+            wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
+        const railBooms = robotsMod.pendingBoomsDebug();
+        T('S11 RAIL DAMAGE: bolt yang melintas player menghasilkan damage nyata',
+            railBooms.some(b => b.hurtPlayer && b.playerDmg === W11.rail.damage));
+        robotsMod.resetRobotsFx();
+
+        // Stomp bukan sekadar decal: tiga kaki benar-benar mengantrekan damage
+        // pada posisi cincin merahnya setelah telegraph selesai.
+        for (const r of w.rails) {
+            r.active = false; r.warning.visible = r.shot.visible = r.trail.visible = false;
+        }
+        robotsMod.resetRobotsFx();
+        w.phase = 'phase1'; w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 1;
+        wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
+        const stompSeen = w.attackState === 'stompTelegraph'
+            && w.stomps.filter(q => q.active && q.mesh.visible).length === 3;
+        for (let t = 0; t < W11.stomp.telegraphSec + 0.2; t += 0.05)
+            wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
+        const stompBooms = robotsMod.pendingBoomsDebug();
+        T('S11 STOMP: cincin ancaman terlihat dan setiap hentakan menghasilkan damage',
+            stompSeen && stompBooms.length === 3
+            && stompBooms.every(b => b.hurtPlayer && b.playerDmg === W11.stomp.damage));
+        robotsMod.resetRobotsFx();
 
         // Sektor: tiga baji + tiga celah. Pola DIBEKUKAN saat telegraf, jadi
         // baji yang terlihat = area yang benar-benar meledak, dan lorong aman
@@ -19871,6 +20288,8 @@ if (false) {
         const wrecked = wardenMod.nusantaraWardenDebug(w);
         T('S11 KEMATIAN: bos mati membersihkan SEMUA bahaya aktif sebelum epilog',
             dead.dead && wrecked.deathDone
+            && dead.rig.currentFloorClearance >= 0
+            && wrecked.rig.currentFloorClearance >= 0 && wrecked.position.y === 0
             && wrecked.pools.rail.active === 0 && wrecked.pools.burst.active === 0
             && wrecked.pools.sector.active === 0 && wrecked.pools.stomp.active === 0);
         for (let i = 0; i < 600 && s11.stage11WorldDebug().root.uploadProgress < 1; i++) tick12(0.5);
