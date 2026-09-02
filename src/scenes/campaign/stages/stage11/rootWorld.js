@@ -5,7 +5,8 @@ import { scene } from '../../../../core/renderer.js';
 import { PAL, EMISSIVE_MAX } from '../../../../world/palette.js';
 import { addMergedStaticShadowAware } from '../../../../utils/meshBatch.js';
 import {
-    weldOccluder, updateStageOccluders, resetStageOccluders, occlusionDebug,
+    weldOccluder, updateStageOccluders, resetStageOccluders,
+    setStageOccludersHold, occlusionDebug,
 } from '../../utility/occlusion.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
@@ -15,6 +16,9 @@ import { buildStandMarker, pulseStandMarker } from '../../utility/common.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
 } from '../../../../entities/spawnMachine.js';
+import {
+    buildRootDisplayTexture, paintRootDisplay, resetRootDisplay, rootDisplayDebug,
+} from './rootDisplay.js';
 
 export const STAGE11_ROOT_LIGHTS_KEY = 'campaign-11-root';
 export const S11_ROOT_ORIGIN = Object.freeze({ x: 400000, z: 0 });
@@ -58,6 +62,22 @@ const INSERT_FLOOR_SIZE = 26;
 const INSERT_FLOOR_HEIGHT = .8;
 const INSERT_FLOOR_Y = INSERT_DAIS_TOP + INSERT_FLOOR_HEIGHT * .5 + .04;
 const INSERT_STAND_MARKER_Y = INSERT_DAIS_TOP + INSERT_FLOOR_HEIGHT + .06;
+// Screen glass stands just clear of the steel frame's front face (frame box is
+// 3.2 deep, centred 2.1 ahead of the bezel), never inside it.
+const SCREEN_FRAME_DEPTH = 3.2;
+const SCREEN_FRAME_OFFSET = 2.1;
+const SCREEN_FACE = SCREEN_FRAME_OFFSET + SCREEN_FRAME_DEPTH * .5 + .08;
+// Bezel is drawn `+3.5` larger than the glass on both axes (see screenSpecs).
+const SCREEN_BEZEL_MARGIN = 3.5;
+// The main console display, as DRAWN. Exported so a camera shot can be sized
+// from the real panel instead of a typed distance: framing that has to include
+// the bezel is a property of the bezel, not of whoever writes the shot.
+export const S11_CONSOLE_SCREEN = Object.freeze({
+    dx: 21, y: 36, h: 22, w: 24,
+    bezelH: 22 + SCREEN_BEZEL_MARGIN, bezelW: 24 + SCREEN_BEZEL_MARGIN,
+    face: SCREEN_FACE,
+});
+
 
 const BOUNDS = Object.freeze({ x0: 399540, x1: S11_ROOT_START.x + 120,
     z0: -470, z1: 470 });
@@ -77,6 +97,8 @@ let doorTerminalScreen = null;
 let doorTerminalCore = null;
 let driveSlotGlow = null;
 let broadcastBeacon = null;
+let uploadDisplay = null;
+let uploadDisplayStalled = false;
 const doorTerminalGlyphs = [];
 const consoleScreens = [];
 const consoleDataBars = [];
@@ -446,29 +468,68 @@ function buildTransmitter() {
         mesh(g, new THREE.BoxGeometry(2.4, 1.3, 2.4), material('consoleToggle', PAL.steel),
             cx + 26, 21, cz + z, 0, 0, 0, false, false);
 
+    const M = S11_CONSOLE_SCREEN;
     const screenSpecs = [
-        { x: cx + 21, y: 36, z: cz, yaw: 0, h: 22, w: 24 },
+        { x: cx + M.dx, y: M.y, z: cz, yaw: 0, h: M.h, w: M.w },
         { x: cx + 17, y: 33, z: cz - 21, yaw: .24, h: 18, w: 16 },
         { x: cx + 17, y: 33, z: cz + 21, yaw: -.24, h: 18, w: 16 },
     ];
     for (let si = 0; si < screenSpecs.length; si++) {
         const s = screenSpecs[si];
-        mesh(g, new THREE.BoxGeometry(5, s.h + 3.5, s.w + 3.5),
-            material('consoleScreenBezel', PAL.ink), s.x, s.y, s.z,
-            0, s.yaw, 0, true, true);
-        mesh(g, new THREE.BoxGeometry(3.2, s.h + 1.3, s.w + 1.3),
+        mesh(g, new THREE.BoxGeometry(5, s.h + SCREEN_BEZEL_MARGIN,
+            s.w + SCREEN_BEZEL_MARGIN),
+        material('consoleScreenBezel', PAL.ink), s.x, s.y, s.z,
+        0, s.yaw, 0, true, true);
+        mesh(g, new THREE.BoxGeometry(SCREEN_FRAME_DEPTH, s.h + 1.3, s.w + 1.3),
             material('consoleScreenFrame', PAL.steel),
-            s.x + Math.cos(s.yaw) * 2.1, s.y, s.z - Math.sin(s.yaw) * 2.1,
+            s.x + Math.cos(s.yaw) * SCREEN_FRAME_OFFSET, s.y,
+            s.z - Math.sin(s.yaw) * SCREEN_FRAME_OFFSET,
             0, s.yaw, 0, false, false);
-        const face = 2.55;
+        // GLASS SITS ON THE FRONT OF THE FRAME, NOT INSIDE IT. The steel frame
+        // is a 3.2-deep BOX whose front face is at +3.7 and whose cross-section
+        // is bigger than the screen's, so a panel at the old 2.55 was sealed
+        // INSIDE it — none of the three screens could ever be seen, which is
+        // exactly why the console read as blank. `SCREEN_FACE` is derived from
+        // the frame's own depth so it can never sink back in.
+        const face = SCREEN_FACE;
         const sx = s.x + Math.cos(s.yaw) * face;
         const sz = s.z - Math.sin(s.yaw) * face;
-        const panel = mesh(root, new THREE.BoxGeometry(.55, s.h, s.w),
-            basicMaterial(`consoleScreenLive${si}`, PAL.screenBg,
-                { transparent: true, opacity: .96, depthWrite: true }),
-            sx, s.y, sz, 0, s.yaw, 0, false, false);
-        panel.userData.baseOpacity = .96; consoleScreens.push(panel);
-        const rows = si === 0 ? 6 : 4;
+        // LAYAR UTAMA = UI KOMPUTER SUNGGUHAN. Panel si=0 memakai tekstur
+        // kanvas (judul, angka persen, bar progres, status, log) alih-alih
+        // pelat berwarna; materialnya PUTIH supaya peta warnanya tampil apa
+        // adanya, dan warnanya tidak lagi dianimasikan — keadaannya digambar,
+        // bukan diwarnai. Panel samping tetap pelat sederhana.
+        const isMain = si === 0;
+        const panelMat = isMain
+            ? new THREE.MeshBasicMaterial({ color: 0xffffff,
+                map: buildRootDisplayTexture(), transparent: false,
+                opacity: 1, depthWrite: true, toneMapped: false })
+            : basicMaterial(`consoleScreenLive${si}`, PAL.screenBg,
+                { transparent: true, opacity: .96, depthWrite: true });
+        if (isMain) mats.consoleScreenLive0 = panelMat;
+        // The UI panel is a PLANE, and its yaw is `PI/2 + s.yaw` on purpose:
+        // a plane's normal is local +Z, and `rotation.y = t` maps local +Z to
+        // (sin t, 0, cos t), so that term is what points the glass along the
+        // screen's own facing (cos yaw, 0, -sin yaw). It also maps local +X
+        // (texture u) to world -Z, which is exactly screen-right for a camera
+        // looking down -X — so the UI reads the right way round with no
+        // mirrored UVs. A box face's UV winding is not guessable like this.
+        const panel = isMain
+            ? mesh(root, new THREE.PlaneGeometry(s.w, s.h), panelMat,
+                sx, s.y, sz, 0, Math.PI / 2 + s.yaw, 0, false, false)
+            : mesh(root, new THREE.BoxGeometry(.55, s.h, s.w), panelMat,
+                sx, s.y, sz, 0, s.yaw, 0, false, false);
+        panel.userData.baseOpacity = isMain ? 1 : .96;
+        panel.userData.uiPanel = isMain;
+        panel.userData.panelH = s.h; panel.userData.panelW = s.w;
+        panel.userData.plane = isMain;
+        consoleScreens.push(panel);
+        if (isMain) {
+            uploadDisplay = panel;
+            count('console-upload-display');
+            continue;   // UI-nya sudah memuat bar/status; tanpa balok data tempel
+        }
+        const rows = 4;
         for (let k = 0; k < rows; k++) {
             const localZ = ((k % 2) * 2 - 1) * (s.w * .23);
             const front = face + .38;
@@ -595,8 +656,18 @@ export function setStage11InsertMarker(on) {
     if (consoleMarker) consoleMarker.visible = !!on;
     if (consoleFloorMarker) consoleFloorMarker.visible = !!on;
 }
-export function updateStage11RootVisuals(dt, progress, jammed = false) {
+// `stalled` (2026-09-02) is the reveal cutscene's own state: the broadcast has
+// genuinely stopped at `upload.preBossFraction` and the drawn gauge must SAY so
+// — a bar that keeps its calm tech colour while frozen reads as a hung game.
+// It is deliberately separate from `jammed` (the Warden's mid-fight jam), which
+// happens later and drives the whole screen bank, not just this readout.
+export function updateStage11RootVisuals(dt, progress, jammed = false, stalled = false) {
     uploadVisual += dt;
+    uploadDisplayStalled = !!stalled;
+    // The main panel IS a computer UI now: its title bar, percentage, progress
+    // bar, status line and log are drawn from the SAME `progress` the rest of
+    // the game reads, so the screen and the objective can never disagree.
+    paintRootDisplay(dt, progress, stalled, jammed);
     const activePulse = .5 + .5 * Math.sin(uploadVisual * 3.2);
     if (doorTerminalScreen) doorTerminalScreen.material.color.setHex(
         authorityDoorOpen ? PAL.techDim : PAL.screenBg);
@@ -621,14 +692,21 @@ export function updateStage11RootVisuals(dt, progress, jammed = false) {
     }
     for (let i = 0; i < consoleScreens.length; i++) {
         const q = consoleScreens[i];
-        q.material.color.setHex(jammed ? PAL.amberDim : PAL.screenBg);
+        // The UI panel is never tinted or pulsed — what it shows is DRAWN, and
+        // multiplying a colour over its map would only wash the readout out.
+        if (q.userData.uiPanel) continue;
+        q.material.color.setHex(stalled ? PAL.hazard : jammed ? PAL.amberDim
+            : progress > 0 ? PAL.techDim : PAL.screenBg);
         q.material.opacity = .88 + .1 * (.5 + .5 * Math.sin(
-            uploadVisual * (jammed ? 8.5 : 2.1) + i * 1.7));
+            uploadVisual * (stalled ? 6.2 : jammed ? 8.5 : 2.1) + i * 1.7));
     }
     for (let i = 0; i < consoleDataBars.length; i++) {
         const q = consoleDataBars[i];
-        q.scale.z = .55 + .45 * (.5 + .5 * Math.sin(
-            uploadVisual * (2.7 + progress * 2.2) + q.userData.pulsePhase));
+        // A stalled broadcast freezes its data rows too — they stop scrolling
+        // rather than keeping the calm idle rhythm of a working machine.
+        q.scale.z = stalled ? .32 + .1 * (.5 + .5 * Math.sin(uploadVisual * 6.2))
+            : .55 + .45 * (.5 + .5 * Math.sin(
+                uploadVisual * (2.7 + progress * 2.2) + q.userData.pulsePhase));
     }
     if (driveSlotGlow) {
         driveSlotGlow.material.color.setHex(progress > 0 ? PAL.tech : PAL.amber);
@@ -667,6 +745,10 @@ export function updateStage11RootVisuals(dt, progress, jammed = false) {
 // The central computer is the open hall's only legitimate occluder. Update it
 // every frame so no deleted pillar/wall has to return as an occlusion crutch.
 export function updateStage11RootOccluders(dt) { updateStageOccluders(S11_ROOT_OCC, dt); }
+// The central computer is the hall's only occluder, and it is also the SUBJECT
+// of the Warden-reveal cutscene — so the reveal holds it opaque for its whole
+// run instead of letting the gameplay fade dissolve the thing being framed.
+export const holdStage11RootOccluders = on => setStageOccludersHold(S11_ROOT_OCC, on);
 
 export function resetStage11RootVisuals() {
     uploadVisual = 0; authorityDoorOpen = false; authorityDoorT = 0;
@@ -692,6 +774,7 @@ export function resetStage11RootVisuals() {
     }
     for (const q of doorTerminalGlyphs) q.scale.set(1, 1, 1);
     for (const q of consoleScreens) {
+        if (q.userData.uiPanel) { q.material.opacity = q.userData.baseOpacity; continue; }
         q.material.color.setHex(PAL.screenBg); q.material.opacity = q.userData.baseOpacity;
     }
     for (const q of consoleDataBars) q.scale.set(1, 1, 1);
@@ -717,6 +800,7 @@ export function resetStage11RootVisuals() {
         broadcastBeacon.material.color.setHex(PAL.amber); broadcastBeacon.material.opacity = .88;
     }
     if (consoleFloorMarker) consoleFloorMarker.material.opacity = .82;
+    uploadDisplayStalled = false; resetRootDisplay();
 }
 
 export function ensureStage11RootWorld(parent = scene) {
@@ -788,6 +872,24 @@ export const stage11RootWorldDebug = () => ({
             rings: broadcastRings.length, orbiters: broadcastOrbiters.length,
             chassisDetails: semantic.get('central-computer-chassis-detail') || 0,
             driveBay: !!driveSlotGlow, beacon: !!broadcastBeacon,
+            // Panel UI: apa yang DIGAMBAR di layar, plus geometri panelnya
+            // sendiri, sehingga tes bisa mengukur bingkai shot terhadapnya.
+            display: uploadDisplay && {
+                ...rootDisplayDebug(), stalled: uploadDisplayStalled,
+                textured: !!uploadDisplay.material.map,
+                tinted: uploadDisplay.material.color.getHex() !== 0xffffff,
+                screenY: uploadDisplay.position.y,
+                screenHeight: uploadDisplay.userData.panelH,
+                screenWidth: uploadDisplay.userData.panelW,
+                // Kaca HARUS berada di depan muka depan bingkai bajanya. Kalau
+                // tidak, ia terkubur di dalam slab dan konsolnya terbaca kosong.
+                face: SCREEN_FACE, frameFront: SCREEN_FRAME_OFFSET
+                    + SCREEN_FRAME_DEPTH * .5,
+                bezelHeight: S11_CONSOLE_SCREEN.bezelH,
+                bezelWidth: S11_CONSOLE_SCREEN.bezelW,
+                isPlane: !!uploadDisplay.userData.plane,
+                yaw: uploadDisplay.rotation.y,
+            },
             towerTop: broadcastBeacon?.position.y ?? null,
             ringMotion: broadcastRings[1]?.rotation.y ?? 0,
             orbiterMotion: broadcastOrbiters[0]?.position.z ?? 0,

@@ -276,8 +276,19 @@ export function followViewCam(dt = 0) {
         else viewCam.up.set(0, 1, 0);
     }
     // Target sedikit di bawah titik fokus -> lebih banyak dunia terlihat ke atas layar.
+    //
+    // KETINGGIAN BIDIK ABSOLUT (`camLookY`, 2026-09-02) — hook scene OPSIONAL.
+    // `setCineFocus` hanya menerima x/z, jadi titik bidik selalu terkunci dekat
+    // TANAH (camFocus.y = pivot player). Itu benar untuk gameplay, tetapi sebuah
+    // shot yang subjeknya BERADA DI KETINGGIAN — layar komputer Stage 11 yang
+    // dipasang 36 unit di atas alas, misalnya — tak akan pernah bisa dibingkai:
+    // subjeknya selalu di atas sumbu pandang berapa pun ofset kameranya.
+    // Sebuah scene (atau cutscene lewat getter) boleh mengembalikan ketinggian
+    // dunia yang ingin dibidik; `null`/undefined = perilaku lama PERSIS.
     const lookDrop = activeScene?.exactTopDown ? 0 : CAM_LOOK_DROP;
-    viewCam.lookAt(camFocus.x, camFocus.y - lookDrop, camFocus.z);
+    const lookY = activeScene?.camLookY;
+    viewCam.lookAt(camFocus.x,
+        (lookY == null ? camFocus.y - lookDrop : lookY), camFocus.z);
     // Dutch angle: MIRING di sumbu pandang (setelah lookAt) — hanya saat mati.
     if (dcTilt) viewCam.rotateZ(dcTilt);
     // Guncangan sinematik: jitter posisi acak yang meluruh (Monas runtuh).

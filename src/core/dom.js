@@ -227,6 +227,9 @@ export function hideCutsceneSkip() {
     skipCb = null;
     if (skipBtn) skipBtn.style.display = 'none';
 }
+// Apakah tombol SKIP sedang terpasang (ada callback aktif). Dipakai tes untuk
+// memastikan sebuah cutscene benar-benar bisa dilewati tanpa harus melewatinya.
+export const cutsceneSkipArmed = () => !!skipCb;
 export function triggerCutsceneSkip() {
     if (!skipCb) return false;
     const cb = skipCb;

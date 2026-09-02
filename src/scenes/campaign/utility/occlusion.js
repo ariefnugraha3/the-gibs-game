@@ -56,7 +56,8 @@ export const occlusionOpacity = () => {
 function setFor(key) {
     let s = sets.get(key);
     if (!s) {
-        s = { list: [], dyn: [], grid: new Map(), cell: 0, maxTop: 0, maxRadius: 0, stamp: 0 };
+        s = { list: [], dyn: [], grid: new Map(), cell: 0, maxTop: 0, maxRadius: 0,
+            stamp: 0, hold: false };
         sets.set(key, s);
     }
     return s;
@@ -258,9 +259,25 @@ function testDynamic(s, ex, ey, ez, G, need) {
 
 // Perbarui seluruh occluder stage `key`. Panggil SEKALI per frame dari
 // `updateMode` stage (setelah posisi player/robot final).
+// TAHAN PEKAT (2026-09-02, laporan user "komputer transparan selama cutscene"):
+// selama sebuah cutscene, prop yang dibingkai kamera HARUS solid — sistem fade
+// ini ada untuk menjaga PEMAIN tetap terlihat saat bermain, bukan untuk shot
+// sinematik yang subjeknya justru prop itu sendiri. Ditahan = seluruh occluder
+// stage dikembalikan ke opak SEKETIKA (potongan keras, bukan fade masuk) dan
+// `updateStageOccluders` tidak menyapu apa pun sampai tahanan dilepas.
+export function setStageOccludersHold(key, on) {
+    const s = sets.get(key);
+    if (!s) return false;
+    s.hold = !!on;
+    if (s.hold) for (const o of s.list) {
+        o.occ = false; if (o.f !== 1) { o.f = 1; apply(o); }
+    }
+    return s.hold;
+}
+
 export function updateStageOccluders(key, dt) {
     const s = sets.get(key);
-    if (!s || !s.list.length) return;
+    if (!s || !s.list.length || s.hold) return;
     if (!s.cell) buildIndex(s);
     const C = cfg();
     const target = occlusionOpacity();
@@ -327,6 +344,7 @@ export function updateStageOccluders(key, dt) {
 export function resetStageOccluders(key) {
     const s = sets.get(key);
     if (!s) return;
+    s.hold = false;
     for (const o of s.list) { o.f = 1; o.occ = false; apply(o); }
 }
 
@@ -345,7 +363,7 @@ export function occlusionDebug(key) {
     for (const o of s.list) { if (o.f < min) min = o.f; if (o.f < 0.995) faded++; }
     return {
         count: s.list.length, faded, minFactor: min, opacity: occlusionOpacity(),
-        maxTop: s.maxTop, cell: s.cell,
+        hold: !!s.hold, maxTop: s.maxTop, cell: s.cell,
         points: s.list.map(o => ({ x: o.x, z: o.z, radius: o.radius,
             hx: o.hx, hz: o.hz, top: o.top, factor: o.f, wall: !!o.onFade })),
     };

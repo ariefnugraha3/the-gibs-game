@@ -174,6 +174,9 @@ export const stage11Scene = {
     playerCollide(pos, oldX, oldZ, feetY) { activeSub().playerCollide(pos, oldX, oldZ, feetY); },
     groundHeight(x, z, feetY) { return activeSub().groundHeight(x, z, feetY); },
     get camOffset() { return activeSub().camOffset || null; },
+    // Absolute camera look height (core/renderer.js). Only the Chapter-3 Warden
+    // reveal returns one; every other frame it is null = unchanged behaviour.
+    get camLookY() { const v = activeSub().camLookY; return v == null ? null : v; },
     bulletBlocked(b) { return activeSub().bulletBlocked(b); },
     blastBlocked(x0, z0, x1, z1, y = 0) {
         return activeSub().blastBlocked(x0, z0, x1, z1, y);

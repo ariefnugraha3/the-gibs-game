@@ -19930,13 +19930,34 @@ if (false) {
     tick12(.2, .05);
     const computerAfter11 = s11.stage11WorldDebug().worlds.root.computers.killSwitch;
     T('S11 KOMPUTER UTAMA: triptych, drive bay dan transmitter sinematik sudah prebuilt dan bergerak',
-        computerAfter11.screens === 3 && computerAfter11.dataBars >= 14
+        computerAfter11.screens === 3 && computerAfter11.dataBars >= 8
         && computerAfter11.rings === 4 && computerAfter11.orbiters === 8
         && computerAfter11.chassisDetails >= 70
         && computerAfter11.driveBay && computerAfter11.beacon
         && computerAfter11.towerTop >= 80 && computerAfter11.pointLights === 0
         && Math.abs(computerAfter11.ringMotion - computerMotion11.ring) > 1e-4
         && Math.abs(computerAfter11.orbiterMotion - computerMotion11.orbiter) > 1e-4);
+    // LAYAR UTAMA adalah UI komputer sungguhan (kanvas bertekstur), bukan pelat
+    // berwarna: judul, angka persen, bar progres, status, log dan scanline.
+    // Materialnya PUTIH — warna yang dikalikan hanya akan memudarkan bacaannya.
+    T('S11 LAYAR KOMPUTER: panel utama menampilkan UI bertekstur, bukan pelat warna',
+        computerAfter11.display.built && computerAfter11.display.textured
+        && !computerAfter11.display.tinted
+        && computerAfter11.display.width > 0 && computerAfter11.display.height > 0
+        && computerAfter11.display.refreshHz > 0
+        && ['titlebar', 'percent', 'progressBar', 'status', 'log']
+            .every(k => computerAfter11.display.parts.includes(k))
+        && computerAfter11.display.state === 'idle'
+        && computerAfter11.display.percent === 0
+        // BUG YANG DIPERBAIKI 2026-09-02: kaca layar dulu duduk di kedalaman
+        // 2.55 sementara muka depan bingkai bajanya di 3.7 dan penampangnya
+        // LEBIH BESAR — ketiga layar terkubur di dalam slab, itulah sebabnya
+        // konsolnya terbaca kosong. Kacanya kini selalu di depan muka itu.
+        && computerAfter11.display.face > computerAfter11.display.frameFront
+        // Panelnya PLANE ber-yaw PI/2 + yaw layar: itu yang membuat +X lokal
+        // (arah u) jatuh ke -Z dunia = kanan layar, jadi teksnya tak tercermin.
+        && computerAfter11.display.isPlane
+        && Math.abs(computerAfter11.display.yaw - Math.PI / 2) < 1e-9);
 
     rendererMod.followViewCam(.016);
     let rootFlow11 = s11.stage11WorldDebug().root;
@@ -20062,9 +20083,263 @@ if (false) {
         insertTooEarly && consoleCentreUnreachable && standReachable
         && playerDaisGround
         && d12.worlds.root.insertStand.x === s11.S11_INSERT_STAND.x
-        && d12.root.uploadAccepted && d12.root.wardenActivated
-        && d12.warden.active && d12.root.uploadProgress >= 0
+        && d12.root.uploadAccepted && !d12.root.wardenActivated
+        && s11rt.phase === 'wardenReveal'
         && d12.dialogue.seen.includes('insertDrive'));
+
+    // --- CUTSCENE KEMUNCULAN WARDEN (2026-09-02, permintaan user: 4 shot) ---
+    // Menancapkan drive TIDAK lagi langsung membangunkan bos. Empat shot
+    // dijalankan lewat updateMode NYATA (bukan memanggil modulnya langsung),
+    // jadi urutan shot, patokan 70%, jatuhnya bos dan kembalinya kendali diuji
+    // pada jalur yang benar-benar dipakai permainan.
+    {
+        const REV11 = C11.wardenReveal, DES11 = W11.descent;
+        const dom11 = await import(R('src/core/dom.js'));
+        // Maju sampai sebuah shot BENAR-BENAR dimulai, lalu ambil sampelnya
+        // seketika — menghitung durasi lalu men-tick sebanyak itu selalu meleset
+        // sepersekian detik dan membuat tes rapuh terhadap retune config.
+        const runToShot11 = (key) => {
+            for (let i = 0; i < 4000
+                && s11.stage11WorldDebug().root.reveal.shotKey !== key; i++)
+                s11.stage11Scene.updateMode(.05);
+        };
+        const warden0 = s11.getStage11Warden();
+        const rv0 = s11.stage11WorldDebug().root.reveal;
+        const cineOn = stateMod.cinematicActive;
+        const camShot1 = s11.stage11Scene.camOffset;
+        const lookShot1 = s11.stage11Scene.camLookY;
+        const eyeY11 = camera.position.y;
+
+        T('S11 CUTSCENE WARDEN: shot 1 = close-up EYE LEVEL Gibran bekerja di komputer',
+            rv0.active && rv0.shot === 0 && rv0.shotKey === 'insert'
+            && rv0.shots === 4 && cineOn
+            && camShot1 !== s11.STAGE11_CHAPTER_CAMERA
+            // EYE LEVEL: dibidik tepat setinggi mata dan kameranya duduk di
+            // ketinggian yang sama, jadi sumbu pandangnya nol derajat.
+            && Math.abs(lookShot1 - eyeY11) < 1e-9 && Math.abs(camShot1.y) < 1e-9
+            && rv0.frame.level
+            && avMod.avatarRadioDebug().active
+            && avMod.avatarRadioDebug().gesture === 'consoleWork'
+            && !wardenMod.nusantaraWardenDebug(warden0).active);
+
+        // POPUP LOADING BIRU DI TENGAH LAYAR TIDAK BOLEH MUNCUL (2026-09-02,
+        // permintaan user). Persentasenya sekarang hidup di layar komputer di
+        // dalam dunia dan di bar UPLOAD pada HUD boss, bukan di overlay HUD.
+        T('S11 CUTSCENE WARDEN: tanpa popup download di tengah layar',
+            document.getElementById('downloadBar').style.display === 'none'
+            && !/showDownloadBar|setDownloadProgress/.test(rootSource12)
+            && !/showDownloadBar|setDownloadProgress/.test(fs.readFileSync(ROOT
+                + '/src/scenes/campaign/cutscenes/stage11/wardenReveal.js', 'utf8')));
+
+        // KOMPUTER TIDAK BOLEH TRANSPARAN selama cutscene: satu-satunya
+        // occluder aula itu adalah komputer yang justru jadi subjek shot 1-2.
+        const occ11 = s11.stage11WorldDebug().worlds.root.occluders;
+        T('S11 CUTSCENE WARDEN: occluder bab ditahan PEKAT selama cutscene',
+            occ11.count > 0 && occ11.hold === true
+            && occ11.minFactor === 1 && occ11.faded === 0);
+
+        // Bar benar-benar MERANGKAK selama shot 1, tidak melompat ke 70%.
+        tick12(REV11.insertSec * .5, .05);
+        const midProgress = s11.stage11WorldDebug().root.uploadProgress;
+        // Persen yang benar-benar tergambar di layar saat siaran masih berjalan.
+        const screenLive11 = s11.stage11WorldDebug().worlds.root
+            .computers.killSwitch.display.percent;
+        const redrawsAtStart11 = s11.stage11WorldDebug().worlds.root
+            .computers.killSwitch.display.redraws;
+        runToShot11('screen');
+        let rv = s11.stage11WorldDebug().root.reveal;
+        const gauge11 = s11.stage11WorldDebug().worlds.root
+            .computers.killSwitch.display;
+        T('S11 CUTSCENE WARDEN: shot 2 = layar dengan upload BERHENTI di preBossFraction',
+            midProgress > 0 && midProgress < C11.upload.preBossFraction - 1e-6
+            && rv.shotKey === 'screen' && rv.stalled
+            && Math.abs(rv.progress - C11.upload.preBossFraction) < 1e-9
+            // Angka 70% tidak pernah diketik: PERSEN YANG DIGAMBAR di layar
+            // komputer sama persis dengan pecahan config, dan layarnya masuk
+            // keadaan HALTED — bukan sekadar bar HUD yang membeku.
+            && gauge11.percent === Math.round(C11.upload.preBossFraction * 100)
+            && gauge11.state === 'stalled' && gauge11.stalled
+            // Layarnya benar-benar bekerja: sempat menampilkan angka berjalan
+            // sebelum macet, dan menggambar ulang saat angkanya berubah.
+            && screenLive11 > 0 && screenLive11 < gauge11.percent
+            && gauge11.redraws > redrawsAtStart11
+            // Shot 2 membidik layar itu sendiri, bukan tanah; dan tinggi bidik
+            // itu adalah tinggi layar yang BENAR-BENAR dibangun.
+            && Math.abs(s11.stage11Scene.camLookY - rv.screenFocus.y) < 1e-9
+            && Math.abs(rv.screenFocus.y - gauge11.screenY) < 1e-9
+            // LAYARNYA DIPERLIHATKAN UTUH: bukan cuma kacanya — seluruh BEZEL
+            // masuk bingkai DENGAN sisa ruang di atas dan di bawahnya
+            // (permintaan user 2026-09-02), dan jaraknya DITURUNKAN dari bezel
+            // yang digambar, bukan diketik.
+            && rv.frame.level
+            && rv.frame.bottom <= gauge11.screenY - gauge11.bezelHeight * .5
+            && rv.frame.top >= gauge11.screenY + gauge11.bezelHeight * .5
+            && rv.frame.halfHeight >= gauge11.bezelHeight * .5 * 1.2
+            && Math.abs(rv.frame.distance - rv.screenFocus.fitDistance) < 1e-6
+            && Math.abs(rv.frame.halfHeight * 2
+                / (gauge11.bezelHeight * rv.screenFocus.margin) - 1) < 1e-6
+            // Tetap sebuah CLOSE-UP: kacanya masih mengisi lebih dari separuh
+            // tinggi bingkai, jadi mundurnya tidak berubah jadi shot lebar.
+            && gauge11.screenHeight / (rv.frame.halfHeight * 2) > .5);
+
+        // LOCKED-OFF: di dalam shot 2 kamera tidak boleh bergerak sama sekali
+        // (tidak ada pan/dolly/fade), dan antar shot ia BERPINDAH — itulah
+        // "potongan". Diukur dari ofset yang benar-benar dipakai scene. Shot 3
+        // adalah pengecualian yang disengaja: ia MENGIKUTI bos (lihat asertnya
+        // sendiri di bawah).
+        // Tombol SKIP terpasang selama cutscene (dan hanya selama cutscene).
+        const skipArmed11 = dom11.cutsceneSkipArmed();
+        const camA = { ...s11.stage11Scene.camOffset }, lookA = s11.stage11Scene.camLookY;
+        tick12(.4, .05);
+        const camB = s11.stage11Scene.camOffset;
+        const lockedOff = camB.x === camA.x && camB.y === camA.y && camB.z === camA.z
+            && s11.stage11Scene.camLookY === lookA;
+        const cutFromShot1 = camA.x !== camShot1.x || camA.y !== camShot1.y
+            || camA.z !== camShot1.z || lookA !== lookShot1;
+        T('S11 CUTSCENE WARDEN: shot layar locked-off dan perpindahannya POTONGAN',
+            lockedOff && cutFromShot1 && skipArmed11);
+
+        // Shot 3: bos LAHIR DI ATAS bingkai lalu turun sampai lantai.
+        runToShot11('descent');
+        rv = s11.stage11WorldDebug().root.reveal;
+        const descentFrame = { ...rv.frame };
+        let wdrop = wardenMod.nusantaraWardenDebug(warden0);
+        // MENGGANTUNG dulu di ketinggian atap sebelum jatuh.
+        const hoveredAtRoof = wdrop.descent.hovering
+            && wdrop.descent.y >= DES11.heightUnits - 2;
+        const bornHigh = wdrop.descent.descending
+            && wdrop.descent.y > DES11.heightUnits * .5
+            && wdrop.descent.height === DES11.heightUnits;
+        // Selagi di udara bos TIDAK BISA disakiti dan bukan penghalang.
+        const hpBefore = wdrop.hp;
+        wardenMod.damageNusantaraWarden(warden0, 5000,
+            { x: wdrop.position.x + 200, z: wdrop.position.z });
+        const airInvuln = wardenMod.nusantaraWardenDebug(warden0).hp === hpBefore
+            && !wardenMod.nusantaraWardenVulnerable(warden0);
+        const airProbe = { x: wdrop.position.x, z: wdrop.position.z };
+        const airBlocks = wardenMod.resolveNusantaraWardenBlock(
+            warden0, airProbe, cfgMod.CFG.player.radius);
+        // Turun sampai benar-benar mendarat: hover + jatuh, dibaca dari rig.
+        // Di SETIAP langkah, ukur apakah selubung gambar bos masih berada di
+        // dalam bingkai yang diterbitkan shot — itulah arti "kamera mengikuti
+        // pergerakan warden, jadi warden terus ada di fokus kamera".
+        const env11 = wardenMod.nusantaraWardenDebug(warden0).envelope;
+        const lookAtRoof11 = s11.stage11WorldDebug().root.reveal.follow.lookY;
+        let insideFrames11 = 0, escapedFrame11 = 0, camMovedDown11 = 0;
+        let prevLook11 = lookAtRoof11;
+        for (let i = 0; i < 400
+            && !wardenMod.nusantaraWardenDebug(warden0).descent.landed; i++) {
+            s11.stage11Scene.updateMode(.05);
+            const rvF = s11.stage11WorldDebug().root.reveal;
+            const y = wardenMod.nusantaraWardenDebug(warden0).descent.y;
+            if (y + env11.top <= rvF.frame.top && y >= rvF.frame.bottom) insideFrames11++;
+            else escapedFrame11++;
+            if (rvF.follow.lookY < prevLook11 - 1e-9) camMovedDown11++;
+            prevLook11 = rvF.follow.lookY;
+        }
+        // Beberapa frame sesudah mendarat: kameranya harus BERHENTI tepat pada
+        // bos yang kini berdiri di lantai, bukan terus meluncur turun.
+        for (let i = 0; i < 16; i++) s11.stage11Scene.updateMode(.05);
+        const lookAtFloor11 = s11.stage11WorldDebug().root.reveal.follow.lookY;
+        wdrop = wardenMod.nusantaraWardenDebug(warden0);
+        T('S11 CUTSCENE WARDEN: shot 3 = bos TURUN DARI ATAS lalu mendarat di lantai',
+            rv.shotKey === 'descent' && bornHigh && airInvuln && !airBlocks
+            && wdrop.descent.landed && Math.abs(wdrop.descent.y) < 1e-9
+            && wdrop.phase !== 'descent' && wdrop.active
+            && s11.stage11WorldDebug().root.reveal.landed
+            && s11.stage11WorldDebug().dialogue.seen.includes('wardenWake'));
+        // KAMERA MENGIKUTI BOS (2026-09-02, permintaan user). Shot 3 adalah
+        // satu-satunya shot yang kameranya bergerak: titik bidiknya turun
+        // bersama bos dari atap sampai lantai, tetap SEJAJAR sepanjang jalan,
+        // dan bos tidak pernah sekalipun keluar bingkai.
+        const followEnd11 = s11.stage11WorldDebug().root.reveal.follow;
+        T('S11 CUTSCENE WARDEN: kamera MENGIKUTI Warden turun dan ia tak pernah lepas bingkai',
+            descentFrame.level && DES11.hoverSec > 0 && hoveredAtRoof
+            // Membidik PUSAT badan, bukan pangkal grup.
+            && Math.abs(lookAtRoof11 - (DES11.heightUnits + env11.centreY)) < 1.5
+            // Benar-benar turun mengejar bos, bukan diam.
+            && camMovedDown11 > 10
+            && lookAtFloor11 < lookAtRoof11 - DES11.heightUnits * .8
+            && Math.abs(lookAtFloor11 - env11.centreY) < 1.5
+            // Tidak pernah keluar bingkai, di semua sampel.
+            && escapedFrame11 === 0 && insideFrames11 > 20
+            // Jaraknya diturunkan dari selubung gambar bos, bukan diketik.
+            && Math.abs(followEnd11.fitDistance
+                - s11.stage11WorldDebug().root.reveal.frame.distance) < 1e-6
+            && followEnd11.margin > 1
+            && env11.top > 0 && env11.spanRadius > env11.top);
+
+        // Shot 4: close-up Gibran + kalimatnya; kendali kembali sesudahnya.
+        runToShot11('line');
+        rv = s11.stage11WorldDebug().root.reveal;
+        const sightedLine = s11.STAGE11_DIALOGUE.wardenSighted;
+        const poseShot4 = avMod.avatarRadioDebug();
+        T('S11 CUTSCENE WARDEN: shot 4 = close-up SELURUH BADAN Gibran DARI DEPAN, eye level',
+            rv.shotKey === 'line' && poseShot4.active
+            && poseShot4.gesture === 'wardenSighted'
+            // DARI DEPAN: ia berbalik menghadap lensa.
+            && Math.abs(poseShot4.yaw - Math.atan2(rv.cam.x, rv.cam.z)) < 1e-9
+            // EYE LEVEL + SELURUH BADAN: sejajar mata, dan bingkainya turun
+            // sampai di bawah telapak kakinya dengan sisa ruang di atas kepala.
+            && rv.frame.level && Math.abs(rv.cam.lookY - eyeY11) < 1e-9
+            && rv.frame.bottom <= eyeY11 - cfgMod.CFG.player.eyeHeight
+            && rv.frame.top >= eyeY11 + cfgMod.CFG.player.eyeHeight * .2
+            && sightedLine.speaker === 'Major Gibran'
+            && sightedLine.text === 'This never gets any easier.'
+            && s11.stage11WorldDebug().dialogue.seen.includes('wardenSighted'));
+
+        // Dialog + tahanan habis -> kendali kembali dan duel dimulai.
+        const lineSec = sightedLine.text.length / cfgMod.CFG.campaign.dialogue.cps
+            + cfgMod.CFG.campaign.dialogue.holdSec;
+        tick12(lineSec + REV11.lineHoldSec + 8, .05);
+        d12 = s11.stage11WorldDebug();
+        T('S11 CUTSCENE WARDEN: selesai -> kendali kembali, sudut kamera bab pulih, duel jalan',
+            !d12.root.reveal.active && d12.root.reveal.done
+            && !stateMod.cinematicActive && !avMod.avatarRadioDebug().active
+            && s11rt.phase === 'wardenBattle'
+            && d12.root.wardenActivated && d12.warden.active
+            && Math.abs(d12.root.uploadProgress - C11.upload.preBossFraction) < 1e-6
+            && s11.stage11Scene.camLookY == null
+            && d12.worlds.root.occluders.hold === false
+            && s11.stage11Scene.camOffset === s11.STAGE11_CHAPTER_CAMERA);
+    }
+
+    // "70%" tidak boleh pernah diketik: baik di naskah dialog cutscene ini
+    // maupun di modulnya. Satu-satunya sumbernya `upload.preBossFraction`.
+    {
+        const revSrc11 = fs.readFileSync(ROOT
+            + '/src/scenes/campaign/cutscenes/stage11/wardenReveal.js', 'utf8');
+        const lines11 = ['insertDrive', 'uploadAccepted', 'uploadStalled',
+            'wardenWake', 'wardenSighted']
+            .map(k => s11.STAGE11_DIALOGUE[k].text).join(' ');
+        T('S11 CUTSCENE WARDEN: 70% diturunkan dari config, tak pernah diketik',
+            !/70|seventy/i.test(lines11)
+            && !/0?\.7|70/.test(revSrc11)
+            && /preBossFraction/.test(revSrc11)
+            // Durasi shot 3 milik BOS, bukan kamera.
+            && /bosses\.warden\.descent/.test(revSrc11)
+            // Tidak ada pan/fade di dalam cutscene.
+            && !/setCineFade/.test(revSrc11));
+
+        // `camLookY` adalah hook OPSIONAL: hanya bab root Stage 11 yang
+        // memilikinya, jadi setiap scene lain memakai titik bidik lama PERSIS.
+        const rendSrc11 = fs.readFileSync(ROOT + '/src/core/renderer.js', 'utf8');
+        const lookOwners = [];
+        (function sweep11(dir) {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                const full = dir + '/' + e.name;
+                if (e.isDirectory()) sweep11(full);
+                else if (e.name.endsWith('.js')
+                    && /camLookY/.test(fs.readFileSync(full, 'utf8')))
+                    lookOwners.push(full.split(/[\/]scenes[\/]/)[1] || full);
+            }
+        })(ROOT + '/src/scenes');
+        T('S11 KAMERA: camLookY opsional — default lama utuh, hanya bab root yang memakainya',
+            /lookY == null \? camFocus\.y - lookDrop : lookY/.test(rendSrc11)
+            && lookOwners.length === 3
+            && lookOwners.every(f => /stage11/.test(f)));
+    }
+
     T('S11 WARDEN KAMERA: pertarungan tidak mengembalikan sudut kamera global',
         s11.stage11Scene.camOffset === s11.STAGE11_CHAPTER_CAMERA
         && s11.stage11Scene.camOffset.x > 0 && s11.stage11Scene.camOffset.z > 0);
@@ -20906,6 +21181,28 @@ if (false) {
         T('OCCLUSION: penghalang juga memudar untuk ROBOT (tanpa player dekat)',
             Math.abs(fadedByRobot - occlusionOpacity()) < 1e-6);
         T('OCCLUSION: reset stage mengembalikan seluruh occluder ke opak', reset === 1);
+
+        // TAHAN PEKAT (2026-09-02): sebuah cutscene boleh membekukan fade,
+        // karena prop yang sedang dibingkai kamera adalah SUBJEK shot itu.
+        // Ditahan = pekat SEKETIKA (potongan keras) dan sapuan berhenti total.
+        camera.position.set(stand.x, cfgMod.CFG.player.eyeHeight, stand.z);
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        const fadedAgain = occlusionMod.occlusionDebug(key).minFactor;
+        occlusionMod.setStageOccludersHold(key, true);
+        const heldNow = occlusionMod.occlusionDebug(key);
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        const heldAfterSweeps = occlusionMod.occlusionDebug(key).minFactor;
+        occlusionMod.setStageOccludersHold(key, false);
+        for (let i = 0; i < 60; i++) occlusionMod.updateStageOccluders(key, 0.1);
+        const fadesAgain = occlusionMod.occlusionDebug(key).minFactor;
+        occlusionMod.resetStageOccluders(key);
+        camera.position.set(before.x, before.y, before.z);
+        T('OCCLUSION: setStageOccludersHold membekukan seluruh occluder tetap PEKAT',
+            Math.abs(fadedAgain - occlusionOpacity()) < 1e-6
+            && heldNow.hold === true && heldNow.minFactor === 1
+            && heldNow.faded === 0 && heldAfterSweeps === 1
+            && Math.abs(fadesAgain - occlusionOpacity()) < 1e-6
+            && occlusionMod.occlusionDebug(key).hold === false);
     }
 
     // (6) Objek di sisi KAMERA dari entitas (yakni di BELAKANG entitas dilihat

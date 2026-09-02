@@ -1351,6 +1351,11 @@ function poseRadio(dt) {
     let torsoPitch = 0.04, torsoYaw = 0, torsoRoll = 0;
     let headYaw = -0.08, headPitch = 0.08, bodyY = 0;
     let gunLower = 0, gunLift = 0, stance = 0.04;
+    // Anchor telapak KIRI. Default = earpiece (semua gestur radio). Sebuah
+    // gestur boleh menimpanya, karena tidak setiap pose ber-skrip adalah
+    // panggilan radio: `consoleWork` menaruh telapak di deck komputer dan
+    // `wardenSighted` menggantungnya di sisi badan.
+    let handL = null;
 
     // Lima bahasa tubuh yang berbeda, mengikuti siapa yang sedang berbicara.
     // Gerak kecil berbasis waktu menjaga napas/berat tubuh tetap hidup; progres
@@ -1407,6 +1412,32 @@ function poseRadio(dt) {
         bodyY = -0.2 + breathe * 0.012;
         gunLower = 0.25 + p * 0.1;
         stance = 0.03;
+    } else if (radioPoseGesture === 'consoleWork') {
+        // BEKERJA DI KONSOL (Stage 11 bab 3): condong ke deck, kepala menunduk
+        // membaca layar, telapak kiri MAJU ke meja — bukan ke earpiece.
+        const tap = Math.sin(t * 4.6);
+        torsoPitch = 0.19 + breathe * 0.014;
+        torsoYaw = 0.05 + slow * 0.02;
+        torsoRoll = -0.03 + slow * 0.01;
+        headYaw = 0.04 + Math.sin(t * 0.9) * 0.03;
+        headPitch = 0.3 + breathe * 0.014;
+        bodyY = -0.16 + breathe * 0.01;
+        gunLower = 0.3;
+        stance = 0.02;
+        handL = { x: -0.35 + tap * 0.06, y: 7.35 + tap * 0.12, z: 2.95 };
+    } else if (radioPoseGesture === 'wardenSighted') {
+        // Melihat bos turun: dagu TERANGKAT (headPitch negatif) mengikuti benda
+        // yang jatuh, bahu turun, tangan kiri menggenggam di sisi badan.
+        const brace = smoothstep((p - 0.1) / 0.45);
+        torsoPitch = -0.05 + brace * 0.09 + breathe * 0.014;
+        torsoYaw = -0.03 + slow * 0.02;
+        torsoRoll = slow * 0.014;
+        headYaw = -0.03 + slow * 0.022;
+        headPitch = -0.16 + brace * 0.12 + breathe * 0.014;
+        bodyY = -0.05 - brace * 0.05 + breathe * 0.012;
+        gunLower = 0.12 + brace * 0.08;
+        stance = 0.07;
+        handL = { x: -2.35, y: 6.6 + breathe * 0.05, z: 0.35 };
     }
 
     const gunPitch = 0.9 + gunLower * 0.18;   // selalu positif: laras tetap ke tanah
@@ -1444,7 +1475,9 @@ function poseRadio(dt) {
     // Telapak kiri tepat di telinga kiri; telapak kanan tetap pada grip senjata
     // yang kini menggantung rendah. Anchor kanan mengikuti pitch prop sehingga
     // tangan tidak tampak terlepas dari senjata di close-up.
-    const lx = -0.92 + torsoYaw * 0.2, ly = 10.72 + bodyY * 0.12, lz = 0.02 + headYaw * 0.08;
+    const lx = handL ? handL.x : -0.92 + torsoYaw * 0.2;
+    const ly = handL ? handL.y : 10.72 + bodyY * 0.12;
+    const lz = handL ? handL.z : 0.02 + headYaw * 0.08;
     const c = Math.cos(gunPitch), s = Math.sin(gunPitch);
     const rx = gx + G.R.x;
     const ry = gy + G.R.y * c - G.R.z * s;
@@ -1454,7 +1487,8 @@ function poseRadio(dt) {
     radioPoseDbg = {
         active: true, yaw: radioPoseYaw, gesture: radioPoseGesture,
         progress: radioPoseProgress, t: radioPoseT,
-        leftY: ly, rightY: ry, gunPitch, torsoPitch, headYaw, bodyY,
+        leftY: ly, rightY: ry, gunPitch, torsoPitch, headPitch, headYaw, bodyY,
+        leftHand: handL ? 'anchored' : 'earpiece',
     };
 }
 

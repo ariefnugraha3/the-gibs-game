@@ -978,6 +978,12 @@
                     "colors": ["#394951", "#4e4540", "#34473e", "#5a5148", "#3d4a52"]
                 }
             },
+            "wardenReveal": {
+                "insertSec": 4.2,
+                "screenSec": 3.4,
+                "descentHoldSec": 1.6,
+                "lineHoldSec": 1.5
+            },
             "upload": {
                 "preBossFraction": 0.7,
                 "ratePerSec": 0.05,
@@ -1142,6 +1148,12 @@
                     "radius": 70,
                     "gapDeg": 55,
                     "poolSize": 6
+                },
+                "descent": {
+                    "heightUnits": 130,
+                    "hoverSec": 1.1,
+                    "sec": 3.2,
+                    "impactShake": 16
                 },
                 "deathSec": 5
             },
@@ -1526,7 +1538,9 @@
                     "authorityDenied": { "speaker": "Root System", "text": "Remote command rejected. Physical root media required." },
                     "insertDrive": { "speaker": "Major Gibran", "text": "Kill-switch verified. Committing the drive now." },
                     "uploadAccepted": { "speaker": "Root System", "text": "Protocol valid. National decommission broadcast initiated." },
+                    "uploadStalled": { "speaker": "Root System", "text": "Broadcast interrupted. Sovereign defense authority has seized the channel." },
                     "wardenWake": { "speaker": "Root System", "text": "Sovereign defense guardian active. Root chamber sealed." },
+                    "wardenSighted": { "speaker": "Major Gibran", "text": "This never gets any easier." },
                     "jamOne": { "speaker": "Command", "text": "The capacitors are holding the jam. Break all three anchors." },
                     "jamTwo": { "speaker": "Command", "text": "It has seized the root couplings. Destroy them before the broadcast can resume." },
                     "wardenDown": { "speaker": "Major Gibran", "text": "The Warden is down. Finish the broadcast." },

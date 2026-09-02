@@ -6,7 +6,7 @@ import {
     scene, camera, viewCam, CAM_LOOK_DROP, camFocusPos, addCamShake,
 } from '../../../../core/renderer.js';
 import {
-    showStageMsg, showDownloadBar, setDownloadProgress, hideDownloadBar,
+    showStageMsg, hideDownloadBar,
     setBossHud, hideBossHud, setCineFade, setCineBars,
 } from '../../../../core/dom.js';
 import { updateUI } from '../../../../core/hud.js';
@@ -32,7 +32,7 @@ import {
     wreckSpawnMachine, spawnMachineHp,
 } from '../../../../entities/spawnMachine.js';
 import {
-    activateNusantaraWarden, resetNusantaraWarden, updateNusantaraWarden,
+    resetNusantaraWarden, updateNusantaraWarden,
     cleanupNusantaraWarden, resolveNusantaraWardenBlock,
     nusantaraWardenBulletHit, nusantaraWardenIsJamming,
     nusantaraWardenWrecked, nusantaraWardenDebug,
@@ -58,6 +58,9 @@ import { getStage11Warden } from './index.js';
 import {
     STAGE11_CHAPTER_CAMERA, stage11ChapterScreenDirection,
 } from './chapterCamera.js';
+import {
+    createStage11WardenReveal, S11_REVEAL_SHOTS,
+} from '../../cutscenes/stage11/wardenReveal.js';
 
 let elapsed = 0;
 let encounterTriggered = false;
@@ -84,7 +87,21 @@ let lastWardenPhase = 'dormant';
 let jamFrames = 0;
 let progressFrames = 0;
 
+let revealPlaying = false;
+
 function W() { return getStage11Warden(); }
+
+// KEMUNCULAN WARDEN (2026-09-02, permintaan user). Menancapkan drive tidak lagi
+// langsung membangunkan bos: cutscene empat shot inilah yang memperlihatkan
+// upload berjalan, BERHENTI di `upload.preBossFraction`, lalu bos turun dari
+// atas. Ia tetap bukan "bar pasif" yang ditunggu pemain — layar tidak pernah
+// dikembalikan ke pemain selama siarannya merangkak; begitu kendali kembali,
+// pertarungan sudah dimulai.
+const wardenReveal = createStage11WardenReveal({
+    getWarden: () => W(),
+    setUpload: v => { uploadProgress = v; },
+    onComplete: () => finishWardenReveal(),
+});
 function near(p, r) { return Math.hypot(camera.position.x - p.x, camera.position.z - p.z) <= r; }
 function R() { return CFG.campaign.stage11.rootCorridor; }
 
@@ -127,6 +144,7 @@ export function resetRoot() {
     births = []; spawnedByClass = { C: 0, B: 0, A: 0 };
     productionByClass = { C: 0, B: 0, A: 0 }; producedTotal = 0;
     doorHacked = false; doorHackArmed = true; doorHackAttempts = 0;
+    revealPlaying = false; wardenReveal.reset();
     resetStage11RootVisuals(); hideBossHud(); hideDownloadBar();
     resetNusantaraWarden(W(), { active: false, x: S11_WARDEN_HOME.x,
         z: S11_WARDEN_HOME.z, home: S11_WARDEN_HOME, arena: S11_ARENA });
@@ -378,17 +396,41 @@ function wardenCallbacks() {
 function beginUpload() {
     if (uploadAccepted) return;
     uploadAccepted = true; setStage11Phase('upload'); setStage11InsertMarker(false);
-    queueStage11Dialogue('insertDrive'); queueStage11Dialogue('uploadAccepted');
-    showDownloadBar('NATIONAL KILL-SWITCH BROADCAST'); setDownloadProgress(0);
-    // Activation is immediate: the player never waits through a passive bar.
-    activateNusantaraWarden(W(), wardenCallbacks()); wardenActivated = true;
-    setStage11Phase('wardenIntro'); queueStage11Dialogue('wardenWake');
-    setBossHud({ name: 'NUSANTARA WARDEN', hp: W().hp, maxHp: W().maxHp,
-        secondaryLabel: 'UPLOAD', secondaryFraction: 0, state: 'ACTIVATING' });
+    // NO centre-screen download popup (2026-09-02, user request "hilangkan popup
+    // loading warna biru yang di tengah layar itu"). The broadcast percentage is
+    // DRAWN on the root computer's own display (rootDisplay.js) and carried by
+    // the boss HUD's UPLOAD bar during the duel — a floating HUD popup in front
+    // of the machine that is doing the work was saying it twice.
+    hideDownloadBar();
+    // The reveal cutscene owns the progress and the boss entrance; it queues the
+    // insert/accepted/stalled/wake lines itself, in shot order.
+    // Phase callbacks are installed BEFORE the cutscene so the boss's own
+    // reveal/arm/phase1 transitions are tracked while it is being watched.
+    W().callbacks = wardenCallbacks();
+    revealPlaying = true; setStage11Phase('wardenReveal');
+    wardenReveal.start();
+}
+
+// Called by the cutscene on its last frame (or on SKIP). The Warden is already
+// standing on the arena floor by then, so all that is left is to hand it the
+// scene's own phase/jam callbacks and open the fight.
+function finishWardenReveal() {
+    revealPlaying = false;
+    const w = W();
+    w.callbacks = wardenCallbacks(); wardenActivated = true;
+    setStage11Phase('wardenBattle');
+    setBossHud({ name: 'NUSANTARA WARDEN', hp: w.hp, maxHp: w.maxHp,
+        secondaryLabel: 'UPLOAD', secondaryFraction: uploadProgress,
+        state: 'ENGAGED' });
+    showStageMsg('BROADCAST HELD AT '
+        + Math.round(CFG.campaign.stage11.upload.preBossFraction * 100)
+        + '% — DESTROY THE NUSANTARA WARDEN', 4800);
 }
 
 function updateUpload(dt) {
     if (!uploadAccepted || completionInvoked) return;
+    // While the reveal is playing the cutscene is the only writer of progress.
+    if (revealPlaying) return;
     const w = W(), U = CFG.campaign.stage11.upload;
     const jammed = nusantaraWardenIsJamming(w);
     previousUpload = uploadProgress;
@@ -402,7 +444,6 @@ function updateUpload(dt) {
     } else jamFrames++;
     const delta = uploadProgress - previousUpload;
     minObservedDelta = Math.min(minObservedDelta, delta);
-    setDownloadProgress(uploadProgress);
     if (wardenActivated && !nusantaraWardenWrecked(w)) {
         const wd = nusantaraWardenDebug(w);
         const targetState = wd.phase === 'jam1' ? 'JAMMED — CAPACITORS'
@@ -418,7 +459,7 @@ function updateUpload(dt) {
         hideBossHud(); setStage11Phase('broadcast');
     }
     if (uploadProgress >= 1 && !endingQueued) {
-        endingQueued = true; hideDownloadBar(); setStage11Phase('anomaly');
+        endingQueued = true; setStage11Phase('anomaly');
         queueStage11Dialogue('networkSilent'); queueStage11Dialogue('anomaly');
         queueStage11Dialogue('mahapatihReveal'); queueStage11Dialogue('jakartaCoordinate');
         queueStage11Dialogue('returnVow');
@@ -443,8 +484,12 @@ function updateComputerInteraction(dt) {
 export const rootScene = {
     id: 'campaign-11-root',
     // Match Chapter 2: camera sits southeast/lower-right and looks northwest,
-    // placing the console and Warden toward the upper-left of the screen.
-    camOffset: STAGE11_CHAPTER_CAMERA,
+    // placing the console and Warden toward the upper-left of the screen. The
+    // reveal cutscene borrows the angle shot by shot and gives it back EXACTLY
+    // — the same frozen object, so a stage-wide camera test still identifies it.
+    get camOffset() { return wardenReveal.camOffset() || STAGE11_CHAPTER_CAMERA; },
+    // Absolute look height, used only by the cutscene (see core/renderer.js).
+    get camLookY() { return wardenReveal.camLookY(); },
     enter() {
         setActiveCampaignWorldRoots(STAGE11_ROOT_LIGHTS_KEY);
         setActiveStageLights(STAGE11_ROOT_LIGHTS_KEY);
@@ -462,6 +507,7 @@ export const rootScene = {
         showStageMsg('ROOT HALL 100 M — ADVANCE TO THE SEALED DOOR', 4300);
     },
     exit() {
+        wardenReveal.reset(); revealPlaying = false;
         cleanupNusantaraWarden(W(), false); hideBossHud(); hideDownloadBar();
         births.length = 0; setStage11DoorHackMarker(false); setStage11InsertMarker(false);
     },
@@ -471,11 +517,16 @@ export const rootScene = {
         const w = W();
         updateNusantaraWarden(w, dt, { arena: S11_ARENA,
             allowAttack: phase === 'wardenBattle' });
+        // AFTER the boss update: the reveal reacts to the landing on the SAME
+        // frame the feet touch the floor, not one frame later.
+        wardenReveal.update(dt);
         updateUpload(dt);
         // Runs before AND after upload: the floor destination must pulse while
         // the player is still looking for the central-computer interaction.
+        // The reveal's frozen bar drives the drawn gauge's own stall state.
         updateStage11RootVisuals(dt, uploadProgress,
-            uploadAccepted && nusantaraWardenIsJamming(w));
+            uploadAccepted && nusantaraWardenIsJamming(w),
+            wardenReveal.isStalled());
         updateUI();
     },
     playerCollide(pos, oldX, oldZ, feetY) {
@@ -502,7 +553,10 @@ export const rootScene = {
         resolveNusantaraWardenBlock(W(), g.mesh.position, 2);
     },
     robotAI(bot, dt, step) {
-        if (bot.machineBirth) {
+        // Surviving corridor robots are FROZEN for the whole reveal: the player
+        // is locked in place for four shots and cannot answer them (the Stage 9
+        // dialogue-lock rule). They resume the instant control returns.
+        if (bot.machineBirth || revealPlaying) {
             bot.state = 'idle'; bot.moving = false; bot.aiming = false; return {};
         }
         return campaignRobotAI(bot, dt, step, {
@@ -525,6 +579,7 @@ export const rootScene = {
         if (phase === 'doorHacking') return 'BREACHING ROOT HALL AUTHORITY';
         if (phase === 'doorLocked') return 'HACK THE LARGE ROOT HALL DOOR';
         if (phase === 'insertDrive') return 'INSERT THE KILL-SWITCH DRIVE';
+        if (phase === 'wardenReveal') return 'BROADCASTING — ROOT CHAMBER RESPONDING';
         if (phase === 'wardenBattle' || phase === 'wardenIntro') {
             const wd = nusantaraWardenDebug(W());
             if (wd.phase === 'jam1') return 'UPLOAD JAMMED — DESTROY THREE CAPACITORS';
@@ -569,5 +624,7 @@ export const rootDebug = () => ({
     door: { hacked: doorHacked, armed: doorHackArmed, attempts: doorHackAttempts,
         hacking: isHackOpen(), stand: { ...S11_DOOR_STAND } },
     lastWardenPhase,
+    reveal: { ...wardenReveal.debug(), playing: revealPlaying,
+        shotNames: [...S11_REVEAL_SHOTS] },
     warden: nusantaraWardenDebug(W()), world: stage11RootWorldDebug(),
 });

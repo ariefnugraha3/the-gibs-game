@@ -18,6 +18,15 @@ const TMP = new THREE.Vector3();
 const VISUAL = Object.freeze({ revealSec: 1.45, armSec: .85 });
 // Authored so the lowest foot/toe corner stays >=0.12 above the arena floor
 // through both walk extremes, both jam poses and the settled wreck.
+// Angka rig yang dipakai DUA kali: sekali untuk membangun badannya, sekali
+// untuk menerbitkan selubung gambarnya (`nusantaraWardenEnvelope`). Sebuah shot
+// kamera boleh mengukur dirinya terhadap selubung itu — dan karena builder-nya
+// membaca tabel yang sama, bos yang diubah ukurannya memindahkan shot itu
+// bersamanya alih-alih meninggalkan angka jarak yang basi.
+const RIG = Object.freeze({
+    coreRigY: 29, coreLocalY: 4, coreRadius: 9,
+    hipRadius: 18, upperLen: 28, lowerLen: 24, footReach: 12,
+});
 const LEG_POSE = Object.freeze({
     hipY: 19, upper: -.25, lower: 0,
     walkUpper: .08, walkLower: .12,
@@ -25,6 +34,14 @@ const LEG_POSE = Object.freeze({
     lowerBodyY: 1, footBodyY: 6, toeY: 5,
     minFloorClearance: .12,
 });
+// Puncak yang benar-benar digambar = inti di atas core rig; bentang mendatar =
+// jangkauan kaki yang terentang. Keduanya diturunkan, bukan diketik ulang.
+const RIG_TOP = RIG.coreRigY + RIG.coreLocalY + RIG.coreRadius;
+const RIG_SPAN = RIG.hipRadius
+    + (RIG.upperLen + RIG.lowerLen) * Math.cos(LEG_POSE.upper) + RIG.footReach;
+// Selubung gambar rig: dipakai kamera cutscene untuk membingkainya utuh.
+export const nusantaraWardenEnvelope = () =>
+    ({ top: RIG_TOP, spanRadius: RIG_SPAN, centreY: RIG_TOP * .5 });
 
 function C() { return CFG.campaign.bosses.warden; }
 function mesh(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0,
@@ -70,24 +87,26 @@ function materials() {
 function buildLeg(parent, index, M) {
     const a = index * Math.PI * 2 / 6;
     const hip = new THREE.Group();
-    hip.position.set(Math.cos(a) * 18, LEG_POSE.hipY, Math.sin(a) * 18);
+    hip.position.set(Math.cos(a) * RIG.hipRadius, LEG_POSE.hipY,
+        Math.sin(a) * RIG.hipRadius);
     hip.rotation.y = -a; parent.add(hip);
     mesh(hip, new THREE.SphereGeometry(5.2, 9, 7), M.joint, 0, 0, 0);
     const upper = new THREE.Group(); upper.rotation.z = LEG_POSE.upper; hip.add(upper);
-    mesh(upper, new THREE.BoxGeometry(28, 7, 9), M.armor, 14, -1, 0);
+    mesh(upper, new THREE.BoxGeometry(RIG.upperLen, 7, 9), M.armor,
+        RIG.upperLen * .5, -1, 0);
     mesh(upper, new THREE.BoxGeometry(18, 2, 10), M.plate, 11, 3.6, 0, 0, 0, -.08);
     for (let k = 0; k < 3; k++)
         mesh(upper, new THREE.BoxGeometry(2, 8, 10), M.steel, 7 + k * 7, -1, 0,
             0, 0, 0, false, false);
-    const knee = new THREE.Group(); knee.position.set(28, -3, 0); upper.add(knee);
+    const knee = new THREE.Group(); knee.position.set(RIG.upperLen, -3, 0); upper.add(knee);
     mesh(knee, new THREE.CylinderGeometry(5, 5, 11, 10), M.joint, 0, 0, 0,
         Math.PI / 2);
     const lower = new THREE.Group(); lower.rotation.z = LEG_POSE.lower; knee.add(lower);
-    mesh(lower, new THREE.BoxGeometry(24, 6, 8), M.armorDark,
-        12, LEG_POSE.lowerBodyY, 0);
+    mesh(lower, new THREE.BoxGeometry(RIG.lowerLen, 6, 8), M.armorDark,
+        RIG.lowerLen * .5, LEG_POSE.lowerBodyY, 0);
     mesh(lower, new THREE.BoxGeometry(16, 2, 9), M.steel, 10, 2.7, 0,
         0, 0, -.05, false, false);
-    const foot = new THREE.Group(); foot.position.set(24, -2, 0); lower.add(foot);
+    const foot = new THREE.Group(); foot.position.set(RIG.lowerLen, -2, 0); lower.add(foot);
     mesh(foot, new THREE.BoxGeometry(17, 5, 13), M.armor,
         4, LEG_POSE.footBodyY, 0);
     for (const z of [-4, 0, 4])
@@ -155,10 +174,10 @@ export function buildNusantaraWardenMesh() {
     const legs = [];
     for (let i = 0; i < 6; i++) legs.push(buildLeg(group, i, M));
 
-    const coreRig = new THREE.Group(); coreRig.position.y = 29; group.add(coreRig);
+    const coreRig = new THREE.Group(); coreRig.position.y = RIG.coreRigY; group.add(coreRig);
     mesh(coreRig, new THREE.CylinderGeometry(13, 16, 12, 12), M.armorDark, 0, 0, 0);
-    const core = mesh(coreRig, new THREE.IcosahedronGeometry(9, 1), M.core, 0, 4, 0,
-        0, 0, 0, false, false);
+    const core = mesh(coreRig, new THREE.IcosahedronGeometry(RIG.coreRadius, 1), M.core,
+        0, RIG.coreLocalY, 0, 0, 0, 0, false, false);
     const attackCharge = mesh(coreRig, new THREE.IcosahedronGeometry(12.5, 1),
         M.attackCharge, 0, 4, 0, 0, 0, 0, false, false);
     attackCharge.visible = false;
@@ -302,6 +321,7 @@ export function resetNusantaraWarden(w, opts = {}) {
     w.active = !!opts.active; w.phase = opts.phase || 'dormant'; w.phaseT = 0;
     w.attackState = 'cooldown'; w.attackT = cfg.attackGapSec; w.attackIndex = 0;
     w.hitT = 0; w.animT = 0; w.sectorBase = 0; w.dead = false; w.deathDone = false;
+    w.dropHeight = 0; w.dropSec = 0; w.dropHover = 0; w.landed = false;
     w.awarded = false; w.jamSerial = 0; w.callbacks = opts.callbacks || {};
     w.arena = opts.arena || w.arena || { x: opts.x || 0, z: opts.z || 0, radius: 280 };
     w.home = opts.home || w.home || { x: opts.x || 0, z: opts.z || 0 };
@@ -337,12 +357,72 @@ export function resetNusantaraWarden(w, opts = {}) {
     clearHazards(w);
 }
 
-export function activateNusantaraWarden(w, callbacks = null) {
+// ENTRANCE (2026-09-02, user request "boss warden yang datang dengan cara turun
+// dari atas"): the arrival is a property of the BOSS, not of whichever camera is
+// watching it, so the drop lives here and a cutscene only has to frame it. Pass
+// `drop:true` and the rig is placed `descent.heightUnits` above its landing spot
+// and flown down over `descent.sec`; it is untouchable and unable to attack all
+// the way to the floor (`descent` joins `dormant`/`reveal` in every guard), and
+// `onLand` fires on the frame the feet actually reach y=0 so the impact FX can
+// never drift away from the landing.
+export function activateNusantaraWarden(w, callbacks = null, opts = {}) {
     if (!w || w.dead) return false;
     if (callbacks) w.callbacks = callbacks;
-    w.active = true; w.parts.group.visible = true; w.phase = 'reveal'; w.phaseT = 0;
-    w.attackState = 'cooldown'; clearHazards(w);
+    w.active = true; w.parts.group.visible = true; w.attackState = 'cooldown';
+    clearHazards(w);
+    const D = C().descent || {};
+    const height = Math.max(0, opts.dropHeight != null ? opts.dropHeight : D.heightUnits || 0);
+    if (opts.drop && height > 0) {
+        w.dropHeight = height;
+        w.dropSec = Math.max(.1, opts.dropSec != null ? opts.dropSec : D.sec || 3);
+        // HOVER dulu, baru jatuh (2026-09-02, permintaan user "perlihatkan
+        // warden dari atap, KEMUDIAN warden turun ke bawah"): tanpa jeda ini ia
+        // sudah setengah jalan turun sebelum pemain sempat melihatnya di atas.
+        w.dropHover = Math.max(0, opts.hoverSec != null ? opts.hoverSec : D.hoverSec || 0);
+        w.landed = false;
+        w.parts.group.position.y = height;
+        w.phase = 'descent'; w.phaseT = 0;
+        w.callbacks.onPhase?.('descent', w); return true;
+    }
+    w.dropHeight = 0; w.dropSec = 0; w.dropHover = 0; w.landed = true;
+    w.parts.group.position.y = 0;
+    w.phase = 'reveal'; w.phaseT = 0;
     w.callbacks.onPhase?.('reveal', w); return true;
+}
+
+// Feet-first arrival: accelerating fall (`k^1.9`) so the rig reads as dropping
+// under its own mass instead of easing in, exactly reaching y=0 at `dropSec`.
+function updateDescent(w, dt) {
+    const hover = w.dropHover || 0;
+    // Selama hover ia MENGGANTUNG di ketinggian atap, hanya bergetar pelan —
+    // jatuhnya baru mulai sesudahnya.
+    const k = Math.min(1, Math.max(0, w.phaseT - hover) / Math.max(.1, w.dropSec));
+    w.parts.group.position.y = w.dropHeight * (1 - k ** 1.9)
+        + (w.phaseT < hover ? Math.sin(w.phaseT * 7.5) * 1.2 : 0);
+    // Thrusters/vents flare harder the closer the floor gets.
+    w.parts.core.material.emissiveIntensity = Math.min(EMISSIVE_MAX,
+        .35 + k * .5 + Math.sin(w.animT * 9) * .06);
+    w.animT += dt;
+    // Kaki merentang sesaat sebelum menyentuh lantai (pose mendarat).
+    const brace = k > .55 ? (k - .55) / .45 : 0;
+    for (const leg of w.parts.legs)
+        leg.upper.rotation.z += ((leg.baseUpper - brace * .22)
+            - leg.upper.rotation.z) * Math.min(1, dt * 7);
+    if (k < 1) return;
+    w.parts.group.position.y = 0;
+    if (!w.landed) {
+        w.landed = true;
+        const p = w.parts.group.position, D = C().descent || {};
+        addCamShake(Math.max(0, D.impactShake || 0));
+        explodeAt(new THREE.Vector3(p.x, 4, p.z), 22, 0);
+        for (let i = 0; i < 6; i++) {
+            const a = i * Math.PI / 3;
+            spawnGroundPuff(p.x + Math.cos(a) * C().bodyRadius,
+                p.z + Math.sin(a) * C().bodyRadius, PAL.concrete, 9, 1.1);
+        }
+        w.callbacks.onLand?.(w);
+    }
+    setPhase(w, 'reveal');
 }
 
 function setPhase(w, phase) {
@@ -405,7 +485,7 @@ function frontShielded(w, impactX, impactZ) {
 }
 
 export function damageNusantaraWarden(w, damage, impact = {}) {
-    if (!w?.active || w.dead || w.phase === 'dormant' || w.phase === 'reveal') return false;
+    if (!w?.active || w.dead || ['dormant', 'descent', 'reveal'].includes(w.phase)) return false;
     let d = Math.max(0, damage || 0);
     if (w.phase === 'jam1' || w.phase === 'jam2') d *= C().shield.damageMul;
     else if (frontShielded(w, impact.x ?? w.parts.group.position.x - 1,
@@ -795,6 +875,7 @@ export function updateNusantaraWarden(w, dt, ctx = {}) {
     if (w.phase === 'death') { updateDeath(w, dt); return; }
     if (w.phase === 'wreck') return;
     w.phaseT += dt;
+    if (w.phase === 'descent') { updateDescent(w, dt); return; }
     if (w.phase === 'reveal' && w.phaseT >= VISUAL.revealSec) setPhase(w, 'arm');
     else if (w.phase === 'arm' && w.phaseT >= VISUAL.armSec) setPhase(w, 'phase1');
     projectileHits(w); if (w.dead) return;
@@ -803,7 +884,7 @@ export function updateNusantaraWarden(w, dt, ctx = {}) {
 }
 
 export function resolveNusantaraWardenBlock(w, pos, radius) {
-    if (!w?.active || w.phase === 'dormant') return false;
+    if (!w?.active || w.phase === 'dormant' || w.phase === 'descent') return false;
     const p = w.parts.group.position, min = C().bodyRadius + radius;
     const dx = pos.x - p.x, dz = pos.z - p.z, d2 = dx * dx + dz * dz;
     if (d2 >= min * min) return false;
@@ -812,7 +893,7 @@ export function resolveNusantaraWardenBlock(w, pos, radius) {
 }
 
 export function nusantaraWardenBulletBlocked(w, bullet) {
-    if (!w?.active || w.phase === 'dormant') return false;
+    if (!w?.active || w.phase === 'dormant' || w.phase === 'descent') return false;
     const p = w.parts.group.position;
     return segPointDist2(bullet.px, 0, bullet.pz, bullet.mesh.position.x, 0,
         bullet.mesh.position.z, p.x, 0, p.z) <= C().bodyRadius ** 2;
@@ -823,7 +904,7 @@ export function nusantaraWardenBulletBlocked(w, bullet) {
 // applies that just-entered segment and lets updateBullets perform removal (and
 // launcher impact explosion) exactly once.
 export function nusantaraWardenBulletHit(w, b) {
-    if (!w?.active || w.dead || !b) return false;
+    if (!w?.active || w.dead || !b || w.phase === 'descent') return false;
     const damage = b.damage != null ? b.damage : CFG.weapons.bulletDamage;
     if (w.phase === 'jam1') {
         for (const q of w.parts.capacitors) if (targetHit(w, b, q)) {
@@ -857,7 +938,8 @@ export const nusantaraWardenIsJamming = w => w?.phase === 'jam1' || w?.phase ===
 export const nusantaraWardenDead = w => !!w?.dead;
 export const nusantaraWardenWrecked = w => !!w?.deathDone;
 export const nusantaraWardenVulnerable = w => !!w?.active && !w?.dead
-    && !['dormant', 'reveal'].includes(w.phase);
+    && !['dormant', 'descent', 'reveal'].includes(w.phase);
+export const nusantaraWardenDescending = w => w?.phase === 'descent';
 
 function legFloorClearance(w, leg) {
     const rootY = w.parts.group.position.y;
@@ -899,11 +981,16 @@ export function nusantaraWardenDebug(w) {
     };
     return {
         built: true, active: w.active, phase: w.phase, phaseT: w.phaseT,
+        descent: { height: w.dropHeight || 0, sec: w.dropSec || 0,
+            hoverSec: w.dropHover || 0, descending: w.phase === 'descent',
+            hovering: w.phase === 'descent' && w.phaseT < (w.dropHover || 0),
+            landed: !!w.landed, y: w.parts.group.position.y },
         hp: w.hp, maxHp: w.maxHp, score: w.score, dead: w.dead,
         deathDone: w.deathDone, attackState: w.attackState,
         attackIndex: w.attackIndex, jammed: nusantaraWardenIsJamming(w),
         position: { x: w.parts.group.position.x, y: w.parts.group.position.y,
             z: w.parts.group.position.z },
+        envelope: nusantaraWardenEnvelope(),
         rig: { legs: w.parts.legs.length, shutters: w.parts.shutters.length,
             capacitors: w.parts.capacitors.length, couplings: w.parts.couplings.length,
             wreckUsesExistingParts: true, minFloorClearance: LEG_POSE.minFloorClearance,
