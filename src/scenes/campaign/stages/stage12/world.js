@@ -90,8 +90,20 @@ export const S12_BOUNDS = Object.freeze({
 export const S12_ARENA_BOUNDS = Object.freeze({
     x0: -PARK.hx, x1: PARK.hx, z0: -PARK.hz, z1: PARK.hz, groundY: 0,
 });
+// BATAS GERAK BOSS = SELURUH TAMAN, bukan kotak kecil di sisi monumen
+// (2026-09-04, laporan user "tempatnya seperti terbatas di area sebelah Monas").
+// Angkanya DITURUNKAN dari taman yang benar-benar dibangun, jadi kalau taman
+// berubah ukuran, arena boss ikut — hanya menyisakan ruang badan dari pagar.
+const BOSS_MARGIN = 52;
 export const S12_BOSS_BOUNDS = Object.freeze({
-    x0: -470, x1: 470, z0: -260, z1: 260,
+    x0: -(PARK.hx - BOSS_MARGIN), x1: PARK.hx - BOSS_MARGIN,
+    z0: -(PARK.hz - BOSS_MARGIN), z1: PARK.hz - BOSS_MARGIN,
+});
+// Monas TIDAK boleh digilas: satu-satunya rintangan yang benar-benar menahan
+// badan boss. Radiusnya menutupi SUDUT kotak Monas (bukan sisinya) plus badan.
+const BOSS_MONAS_CLEAR = 34;
+export const S12_BOSS_AVOID = Object.freeze({
+    x: 0, z: 0, radius: MONAS_HALF * Math.SQRT2 + BOSS_MONAS_CLEAR,
 });
 
 // Lane serang tangensial/vertikal mengelilingi Monas. Kedua lingkaran ujung
@@ -529,6 +541,15 @@ export function clampStage12Point(pos, radius = 0, oldX = pos.x, oldZ = pos.z) {
 export function clampStage12Boss(pos) {
     pos.x = clamp(pos.x, S12_BOSS_BOUNDS.x0, S12_BOSS_BOUNDS.x1);
     pos.z = clamp(pos.z, S12_BOSS_BOUNDS.z0, S12_BOSS_BOUNDS.z1);
+    // Didorong keluar dari monumen lewat sisi terdekat. Boss boleh ke mana pun
+    // di dalam taman KECUALI menembus Monas — dan Stage 12 tak pernah merusaknya.
+    const r = S12_BOSS_AVOID.radius;
+    const dx = pos.x - S12_BOSS_AVOID.x, dz = pos.z - S12_BOSS_AVOID.z;
+    const d = Math.hypot(dx, dz);
+    if (d < r) {
+        if (d < 1e-4) pos.x = S12_BOSS_AVOID.x + r;
+        else { pos.x = S12_BOSS_AVOID.x + dx / d * r; pos.z = S12_BOSS_AVOID.z + dz / d * r; }
+    }
     return pos;
 }
 

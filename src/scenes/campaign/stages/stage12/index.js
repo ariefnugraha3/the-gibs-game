@@ -38,7 +38,7 @@ import {
 } from '../../../../entities/mahapatih.js';
 import {
     STAGE12_LIGHTS_KEY, S12_ORIGIN, S12_START, S12_ARENA_ENTRY,
-    S12_BOSS_CENTER, S12_MONAS, S12_ARENA_BOUNDS, S12_CHARGE_LANES,
+    S12_BOSS_CENTER, S12_MONAS, S12_ARENA_BOUNDS, S12_CHARGE_LANES, S12_BOSS_AVOID,
     S12_HARDLINE_STATIONS, S12_GATE, STAGE12_ROOT_KEYS,
     ensureStage12World as ensureWorldRoot, stage12WorldDebug,
     stage12Walk, resolveStage12World, stage12GroundHeight, clampStage12Boss,
@@ -60,6 +60,9 @@ const cineCam = { ...CAM_OFF_DEFAULT };
 const bossContext = {
     center: S12_BOSS_CENTER,
     chargeLanes: S12_CHARGE_LANES,
+    // Geometri peta tetap MILIK stage, bukan entitas: boss hanya diberi tahu
+    // satu lingkaran yang tak boleh ditembus, dan ia mengitarinya sendiri.
+    avoid: S12_BOSS_AVOID,
     clampBoss: clampStage12Boss,
     projectileAllowed: (x, z) => x >= S12_ARENA_BOUNDS.x0 && x <= S12_ARENA_BOUNDS.x1
         && z >= S12_ARENA_BOUNDS.z0 && z <= S12_ARENA_BOUNDS.z1,

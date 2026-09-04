@@ -1808,6 +1808,177 @@ with `dt = 0` when the cutscene is skipped and a ramp frozen half-open there rea
 `stage12WorldDebug().pointLights` is now **counted from the scene graph** instead of being a
 typed `0` — a hand-written zero stops being evidence the moment a new asset enters the root.
 
+## Stage 12 — four bugs in M-0's attacks (2026-09-04, user report "cek serangan boss ini")
+
+Found by driving each attack through the real `updateMahapatih` and reading the blast queue
+that was actually produced, rather than by reading the code. All four are measured, fixed and
+mutation-tested.
+
+**1. A shot that HIT the player dealt nothing — the worst of the four.** Every projectile
+detonates when its swept segment comes within `radius + player.radius`, which is right: the
+player is a circle, not a point. But `processPendingBooms` damages only when the blast centre
+is within `radius` of the player's *centre* — it treats the player as a point. The two
+disagree by exactly `player.radius`, leaving a 5-unit band in which a round registered as a
+hit, drew its explosion, and did **zero** damage. Measured: **14 of 14 rounds of a turret
+burst hurt nobody**, so the boss's most frequently fired siege attack was harmless, and the
+cannon landed 1 boom in 4. The fix keeps a single damage path — a direct impact now queues its
+boom **at the player**, the idiom `updateCharge`/`updateLunge` already use in this same file —
+so armour, god-mode and dodge i-frames still all apply through `queueBoom` and no second
+damage rule exists anywhere.
+
+**2. Projectiles were born at the boss's ORIGIN, not at a muzzle.** This was pre-existing (the
+gunship and tank both had it fixed long ago: *"peluru harus benar-benar keluar dari moncong
+senjatanya, bukan tiba-tiba spawn di tengah jalan"*), but the 6x6 chassis made it far worse —
+with an 84-unit hull the round appeared about 42 units behind its own nose, inside the
+vehicle. Shots now spawn from the real anchor via `getWorldPosition` (`muzzleFlash` for the
+turret, a new `cannonMuzzle` group for the shoulder cannon). **The trap is that moving the
+spawn alone makes every shot MISS**: the angle was still measured from the body centre, while
+the turret sits ~32 units forward and 5 to starboard, so the whole burst sailed past — the
+probe went from 14 hits to 0. `spawnShot` therefore takes a TARGET POINT and derives the angle
+from the muzzle it actually left. Rounds then ease down to their old `cruiseY`, because the
+hit test is 2D (x/z) and a round left at muzzle height would visibly fly over the player's
+head while still registering a hit — the same reason the gunship's missile dives.
+
+**3. The seismic telegraph marked the wrong ground.** Both rings were drawn on the boss while
+the shockwaves land 0.36R and 0.72R in FRONT of it — measured **18 units** off — and the ring
+radii (0.58R and 1.0R) matched neither blast (0.62R and 0.68R). Standing on the back of the
+marked circle was safe; standing outside its front edge was not. A telegraph is a promise, so
+one `seismicSpot(b, beat)` now feeds both the drawn ring and the queued blast and they cannot
+disagree, the rings are built at the blast radii, and they are placed the instant the attack
+starts instead of flashing one frame at a stale position.
+
+**4. `waveTelegraph` and `cannonTelegraph` drew nothing and committed nothing.** The states are
+named "telegraph" and their seconds ran, but no marker existed and the direction was computed
+at the instant of firing — so there was nothing to read and nothing to dodge, against the
+stage's own acceptance rule that telegraphed attacks freeze their pattern at telegraph time.
+Both now freeze the angle when the telegraph starts, draw it with the lane markers that were
+already allocated and idle in that phase (no new mesh, no new material), and turn the body
+toward the marked lane so the boss visibly aims where it is about to fire.
+
+Smoke pins every one of these against the real blast queue: each turret round must both hit
+and hurt, the spawn must sit exactly on the muzzle and far from the body centre while its ray
+still passes within the player's radius, the seismic rings must coincide with their booms to
+`1e-9` and genuinely advance, and a player who moves 300 units during the cannon telegraph
+must still be shot at along the marked lane.
+
+## Stage 12 — M-0's phase-1 chassis is a 6x6 PANSER, not a walker (2026-09-04, user request)
+
+The request was to replace the four-legged siege chassis with a **6x6 wheeled hull like the
+Pindad Anoa**, from a supplied reference photo. Mechanics, HP, phases, attacks and the
+split-and-abandon wreck contract are all unchanged — only the silhouette and its drivetrain.
+
+**The hull.** `splitBox` gained an `rx` parameter, because an APC is mostly SLOPED plates
+(glacis, lower nose, roof lip) and the old helper only took axis-aligned boxes. That is safe
+precisely because the cut plane is `x = 0` and a rotation about X never moves a point's x:
+slicing first and then rotating each piece by the same angle gives exactly the same solid as
+rotating the whole box. Anything that lives entirely on one side — fenders, periscope blocks,
+stowage, the perforated exhaust cover, headlights, mirrors, whip antenna — goes through the
+new `sideBox` instead, which is also the only way to mount a plate raked about **Z** (a side
+chamfer), since that rotation *does* move x and could never be split. Everything static is
+still welded into the same two half-hulls, so the far richer body costs the same two draw
+groups per material it always did.
+
+**The wheels.** Each is two nested pivots, and the nesting is the whole point: `steer`
+(`rotation.y`, front axle only) wraps `hub` (`rotation.x` = rolling), so the roll always
+happens about the axle **as steered**. Two Euler angles on one object would compose in the
+wrong order. The boss's forward is local `+z` (the rig-wide invariant), so the axle lies on
+**X** and rolling forward means `rotation.x` INCREASES — `Rx` turns `+y` toward `+z`. Each
+wheel's tyre, tread blocks, rim, hub cap and six lug bolts are **welded into the hub**: left
+loose, six wheels would have added roughly eighty draw calls to a hero asset.
+
+Three axles at `AXLE_Z` `[27, -2, -25]` — deliberately NOT evenly spaced, because the Anoa
+carries a tandem rear pair, and that uneven rhythm is most of what makes a 6x6 read as a 6x6.
+Wheels sit at `y = WHEEL_R`, so this chassis genuinely **stands on the ground**; the legs it
+replaced hung about 22 units below the group origin.
+
+**Rolling is driven by DISTANCE, never by a timer.** `updateMahapatih` measures the frame's
+real displacement and projects it on the body's forward axis, so the wheels turn exactly
+`travel / WHEEL_R`, reverse when the boss backs up, and are perfectly still when it is. A
+timer-driven spin would be the wheeled version of the "walking in place" the user reported
+about the legs. Steering follows the body's own **yaw rate** through a light lag, is capped
+at `STEER_MAX`, and points INTO the turn; a thin suspension bob rides on top, scaled by speed.
+
+**The hit volume had to follow the shape.** A `hitRadius` circle cannot represent a 46 x 84
+hull: fit it to the width and the nose and tail become un-shootable, fit it to the length and
+rounds "hit" empty air alongside — the same defect this project has fixed repeatedly under
+"what is drawn is what hits". The `siege` phase therefore uses an **ellipse that rotates with
+the body**, with both semi-axes taken from `form.siegeBody`, i.e. the hull that was actually
+built; its half-width is DERIVED from the outer face of the wheels, which are the widest part
+of the vehicle, and every side detail is kept inside that line so the ellipse covers
+everything drawn without exceeding it. Scaling the space anisotropically turns "does the
+segment cross the ellipse" into "does it cross the unit circle", so the test stays EXACT
+rather than an approximation. `resolveMahapatihBlock` pushes the player out of that same
+ellipse, so what blocks, what can be shot and what is drawn are one shape. Every other phase
+is untouched — the personal frame really is round, and keeps its circle.
+
+Smoke pins six wheels in three axles, three per side, mirrored, standing at wheel-radius
+height and inside the hull; exactly one steered axle; rolling without slipping measured on an
+isolated straight run (2% tolerance) and zero roll while parked; steering inside its
+mechanical limit and signed into the turn; and the ellipse from both directions of error —
+the nose and tail (beyond the old circle) must be hittable, a point beside the hull (inside
+the old circle) must not, and rotating the body 90 degrees must swap the two. All four
+regressions are mutation-tested.
+
+## Stage 12 — M-0 Mahapatih HUNTS the player (2026-09-04, user request)
+
+The report was *"kok sepertinya last boss di stage 12 ini pergerakannya terbatas? dia hanya
+berjalan di tempat dan ketika harus menabrak player malah tidak ke arah player. tempatnya
+seperti terbatas di area sebelah Monas."* All three complaints were real and each had a
+**separate** cause, so each has its own fix and its own assert.
+
+**(1) Phase 1 had no chase step at all.** `updateMahapatih`'s cooldown branch moved the boss
+only `if (b.phase === 'personal')`, so the entire `siege` phase — the first 9,000 HP of the
+fight — was fought against a chassis rooted in front of its vault, turning on the spot. Its
+legs animated at a constant amplitude the whole time, which is *literally* walking in place.
+Every fighting phase now runs `pursue()`, and the leg rig reads `b.speedNow` (measured
+per-frame displacement) so stride amplitude and tempo follow real movement: a standing
+chassis is nearly still, a running one takes long strides. `pursue` also **orbits** once
+inside `chaseStandoff` instead of freezing — standing still at range was the other half of
+what read as "walking in place" — and it keeps moving during `waitProjectiles`, which is the
+longest idle window the boss has (a wave lives `wave.lifeSec` = 6 s).
+
+**(2) The charge ran on FIXED LANES, not at the player.** `nearestChargePath` picked the
+nearest of the four authored `S12_CHARGE_LANES`, which are tangential rails hugging Monas at
+x = ±150 / z = ±155…195 — so the boss walked to a lane end and charged along a line that had
+nothing to do with where the player was standing, in the one part of the arena the lanes
+cover. `playerChargePath` now builds the path FROM the boss's own position THROUGH the
+player and past them, skipping the `align` walk entirely, and the telegraph keeps facing the
+player until it commits. **The lanes are not deleted — they became the detour**: when the
+avoid circle sits on the firing line (the player is hiding behind the monument), the charge
+falls back to the nearest lane and rounds the base instead of grinding through a monument
+this stage may never damage. That keeps the authored, BFS-verified "every lane clears Monas"
+data live rather than dead.
+
+**(3) The arena was a box beside the monument.** `S12_BOSS_BOUNDS` was a hand-written
+`±470 × ±260` while the park is `PARK.hx/hz` = `±620 × ±340`, so a player who ran to a corner
+simply could not be followed. It is now DERIVED from `PARK` minus a body margin, so a resized
+park moves the arena with it, and `clampStage12Boss` gained a push-out from **`S12_BOSS_AVOID`**
+— the single circle the boss may never enter (Monas' *corner* radius `MONAS_HALF × √2` plus
+clearance, because Monas is a square AABB). The stage passes that circle to the entity as
+`bossContext.avoid`; map geometry stays with the stage and the boss only knows how to steer
+around a circle.
+
+**Speed was the fourth, silent cause.** The player moves at 90 u/s while the boss walked at
+18 and its combat form at 22 — a fifth of the player's pace, so even a correct chase would
+never have closed. `moveSpeed` 18 → 46, `combat.speed` 22 → 62, `turnRadPerSec` 1.5 → 2.6,
+and `combat.dashSpeed` (96) — a key that had been in config since the boss was written and
+was never read — is now the long-range dash above `DASH_FROM`. `chaseStandoff` is new.
+
+**Two safety rules came with the committed dashes.** `updateCharge`/`updateLunge` now take
+the ctx, clamp every step, and END the attack on arrival, on a timeout, or when a frame makes
+no progress: without that, a charge aimed past the arena bound would push the wall forever,
+because `moveToward` never "arrives" at a target it is clamped away from. And the charge no
+longer hardcodes its start — `d.path.x0/z0` are rewritten from the boss's real position if
+the align walk times out, so a blocked detour still produces a straight, drawn lane.
+
+Smoke drives the real `updateMahapatih` and measures the RESULT, never the intent: distance
+actually closed per second in both phases, the settle at `chaseStandoff`, stride amplitude
+standing vs running, the charge direction as a dot product against the true bearing to the
+player (> 0.9999) with the path running PAST them, the lane fallback when the monument is on
+the line, a charge into the arena bound ending within 5 s, and the arena bounds measured
+against Survival's own `PARK` constants. Both regressions are mutation-tested — restoring the
+`personal`-only chase and restoring the fixed-lane charge each fail two asserts.
+
 ## Stage 12 — the fight moved INTO the Survival park, and the camera was unlocked (2026-09-04)
 
 Two corrections, both user-directed.

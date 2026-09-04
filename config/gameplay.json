@@ -1165,8 +1165,9 @@
                 "score": 5000,
                 "hitRadius": 32,
                 "bodyRadius": 28,
-                "moveSpeed": 18,
-                "turnRadPerSec": 1.5,
+                "moveSpeed": 46,
+                "turnRadPerSec": 2.6,
+                "chaseStandoff": 44,
                 "attackGapSec": 1.7,
                 "enrageGapMul": 0.78,
                 "artillery": {
@@ -1186,7 +1187,7 @@
                     "damage": 14
                 },
                 "transitionSec": 4,
-                "combat": { "speed": 22, "dashSpeed": 75 },
+                "combat": { "speed": 62, "dashSpeed": 96 },
                 "blade": { "telegraphSec": 0.7, "secondGapSec": 0.35, "damage": 55, "radius": 35 },
                 "lunge": { "telegraphSec": 0.75, "speed": 88, "damage": 65, "width": 18 },
                 "wave": {

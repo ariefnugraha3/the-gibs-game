@@ -21033,7 +21033,7 @@ if (false) {
         if (o.isPointLight) heroPointLights++;
     });
     T('MAHAPATIH ART: layered siege/personal rig has articulated addressable parts',
-        heroMeshes >= 60 && heroNonBox >= 20 && hero.legs.length === 4
+        heroMeshes >= 60 && heroNonBox >= 20 && hero.wheels.length === 6
         && hero.arms.length === 2 && hero.blades.length === 2
         && hero.turret?.isObject3D && hero.core?.isMesh
         && hero.siege !== hero.combat
@@ -21042,9 +21042,9 @@ if (false) {
         && hero.hullR?.name === 'Welded-Siege-Armour-Starboard'
         && hero.shellL !== hero.shellR
         && hero.hullL.parent === hero.shellL && hero.hullR.parent === hero.shellR
-        // Tiap kaki ikut paruh di sisinya; menara duduk di paruh kanan.
-        && hero.legs.filter(l => l.hip.parent === hero.shellL).length === 2
-        && hero.legs.filter(l => l.hip.parent === hero.shellR).length === 2
+        // Tiap RODA ikut paruh di sisinya; menara duduk di paruh kanan.
+        && hero.wheels.filter(w => w.steer.parent === hero.shellL).length === 3
+        && hero.wheels.filter(w => w.steer.parent === hero.shellR).length === 3
         && hero.turret.parent === hero.shellR);
     T('MAHAPATIH ART: zero PointLights, forbidden neon, or over-cap emissive',
         heroPointLights === 0 && !heroNeon && !heroEmissiveOver);
@@ -21160,9 +21160,31 @@ if (false) {
             // HARUS berada di sumbu x, dan dulu tidak.
             && Math.abs(F.shoulders[0].x) * 2 > F.torso.depthZ
             // Empat pinggul siege tetap mengangkangi kedua sumbu.
-            && F.siegeHips.length === 4
-            && F.siegeHips.some(h => h.x > 0 && h.z > 0)
-            && F.siegeHips.some(h => h.x < 0 && h.z < 0));
+            // CHASSIS FASE 1 = PANSER 6x6 (2026-09-04, permintaan user): enam
+            // roda, tiga gandar, tiga per sisi, DUDUK DI TANAH (y = jari-jari
+            // ban) dan simetris terhadap garis tengah.
+            && F.siegeWheels.length === 6
+            && F.siegeBody.axles === 3
+            && F.siegeWheels.filter(w => w.x > 0).length === 3
+            && F.siegeWheels.filter(w => w.x < 0).length === 3
+            && F.siegeWheels.every(w => Math.abs(w.y - F.siegeBody.wheelRadius) < 1e-9)
+            && new Set(F.siegeWheels.map(w => w.z.toFixed(6))).size === 3
+            && F.siegeWheels.every(w => F.siegeWheels.some(o =>
+                near(o.x, -w.x) && near(o.z, w.z)))
+            // Hanya SATU gandar yang dibelokkan, dan itu gandar DEPAN (+z).
+            && F.siegeBody.steered === 2
+            // Badan panser lebih panjang daripada lebar — itulah bentuk panser.
+            && F.siegeBody.halfLength > F.siegeBody.halfWidth * 1.5
+            // Setiap roda berada di dalam lambung yang digambar.
+            && F.siegeWheels.every(w =>
+                Math.abs(w.z) + F.siegeBody.wheelRadius < F.siegeBody.halfLength
+                && Math.abs(w.x) < F.siegeBody.halfWidth)
+            // Setengah-lebar elips badan DITURUNKAN dari muka ban terluar — ban
+            // adalah titik terlebar panser ini, jadi volume tembaknya menutupi
+            // seluruh yang digambar tanpa pernah melebihinya.
+            && near(F.siegeBody.halfWidth,
+                Math.max(...F.siegeWheels.map(w => Math.abs(w.x)))
+                + F.siegeBody.wheelWidth / 2));
     }
     T('MAHAPATIH CONFIG: entity source reads only campaign.bosses.mahapatih at call time',
         entitySource12.includes('CFG.campaign.bosses.mahapatih')
@@ -21257,6 +21279,304 @@ if (false) {
     T('MAHAPATIH DEATH: wreck settles visibly away from Monas and remains collision-solid',
         bd.phase === 'wreck' && bd.wreckVisible && wreckBlocks12
         && boss12.parts.group.position.x < world12.S12_BOSS_CENTER.x);
+
+
+    // ---- PERBURUAN: boss ini MENGEJAR, dan tabrakannya MEMBIDIK PLAYER -----
+    // Laporan user (2026-09-04): "bossnya hanya berjalan di tempat, ketika harus
+    // menabrak player malah tidak ke arah player, tempatnya seperti terbatas di
+    // area sebelah Monas." Tiga sebab yang berbeda, jadi tiga kelompok patokan:
+    // fase `siege` dulu TIDAK punya langkah kejar sama sekali, serangan tabrak
+    // berlari di lane tetap keliling monumen, dan kotak gerak boss jauh lebih
+    // kecil daripada tamannya. Semuanya DIGERAKKAN lewat `updateMahapatih` yang
+    // sebenarnya dan diukur dari posisi hasil, bukan dari niat kodenya.
+    {
+        const hunt = new THREE.Group(); scene.add(hunt);
+        const hb = mahMod.createMahapatih({ parent: hunt, active: true, x: 0, z: 0 });
+        const hx0 = rendererMod.camera.position.x, hz0 = rendererMod.camera.position.z;
+        const hctx = { allowAttack: true, center: { x: 0, z: 0 },
+            chargeLanes: world12.S12_CHARGE_LANES, avoid: world12.S12_BOSS_AVOID,
+            clampBoss: world12.clampStage12Boss, onPhase() { }, onAnchor() { } };
+        const put = (x, z) => { rendererMod.camera.position.x = x; rendererMod.camera.position.z = z; };
+        const dist = () => Math.hypot(rendererMod.camera.position.x - hb.parts.group.position.x,
+            rendererMod.camera.position.z - hb.parts.group.position.z);
+        // Mengejar SAJA: `attackT` ditahan supaya tidak ada serangan yang
+        // memotong langkah — yang diukur di sini murni perpindahan badan.
+        const chase = (sec, phase, bx, bz, px, pz, yaw = 0) => {
+            mahMod.resetMahapatih(hb, { active: true, phase, x: bx, z: bz, yaw });
+            put(px, pz);
+            const before = dist();
+            const roll0 = hb.parts.wheels[0].hub.rotation.x;
+            let path = 0, peakSteer = 0, steerSignOk = true;
+            let lx = hb.parts.group.position.x, lz = hb.parts.group.position.z;
+            for (let i = 0; i < Math.round(sec * 60); i++) {
+                hb.attackT = 99;
+                mahMod.updateMahapatih(hb, 1 / 60, hctx);
+                const gp = hb.parts.group.position;
+                path += Math.hypot(gp.x - lx, gp.z - lz); lx = gp.x; lz = gp.z;
+                const cd = mahMod.mahapatihDebug(hb).chase;
+                peakSteer = Math.max(peakSteer, Math.abs(cd.steer));
+                // Roda depan wajib membelok KE DALAM tikungan, bukan keluar.
+                if (Math.abs(cd.yawRate) > 0.05 && Math.abs(cd.steer) > 1e-4
+                    && Math.sign(cd.steer) !== Math.sign(cd.yawRate)) steerSignOk = false;
+            }
+            return { before, after: dist(), closed: before - dist(), path,
+                peakSteer, steerSignOk,
+                roll: hb.parts.wheels[0].hub.rotation.x - roll0,
+                speed: mahMod.mahapatihDebug(hb).chase.speed };
+        };
+
+        // (1) FASE SIEGE MENGEJAR. Sebelum ini nilainya PERSIS nol.
+        const siegeRun = chase(2, 'siege', 300, -200, -400, 200);
+        T(`MAHAPATIH KEJAR: fase siege benar-benar mengejar player [${siegeRun.closed.toFixed(0)} unit/2 s]`,
+            siegeRun.closed > M12.moveSpeed * 2 * 0.9 && siegeRun.speed > M12.moveSpeed * 0.5);
+        // (2) FASE PERSONAL lebih cepat, dan keduanya BERHENTI di `chaseStandoff`
+        //     alih-alih menempel/menembus badan player.
+        const personalRun = chase(2, 'personal', 300, -200, -400, 200);
+        const settle = chase(30, 'personal', 400, 200, -300, -150);
+        T(`MAHAPATIH KEJAR: fase personal lebih gesit lalu berhenti di jarak serang`
+            + ` [${personalRun.closed.toFixed(0)} unit/2 s, diam di ${settle.after.toFixed(0)}]`,
+            personalRun.closed > M12.combat.speed * 2 * 0.9
+            && personalRun.closed > siegeRun.closed
+            && settle.after <= M12.chaseStandoff + 10 && settle.after > 1);
+        // (3) RODA BERGULING SEJAUH JARAK YANG DITEMPUH, dan chassis yang
+        //     berdiri diam tidak memutar rodanya sama sekali — inilah pengganti
+        //     "berjalan di tempat" yang dilaporkan user.
+        const stand = chase(1, 'siege', 400, 200, 400, 200);
+        // Diukur pada lintasan LURUS dengan badan sudah menghadap tujuan (yaw
+        // -PI/2 memetakan +z lokal ke -x dunia) dan jauh dari monumen, supaya
+        // yang diuji murni penggeraknya — bukan setir atau penghindaran Monas.
+        const straight = chase(2, 'siege', 300, 250, -300, 250, -Math.PI / 2);
+        const RW = hb.parts.form.siegeBody.wheelRadius;
+        const slip = Math.abs(straight.roll * RW - straight.path) / straight.path;
+        T(`MAHAPATIH RODA: berguling tanpa slip sejauh jarak tempuh`
+            + ` [${(straight.roll * RW).toFixed(0)} vs ${straight.path.toFixed(0)} unit,`
+            + ` selip ${(slip * 100).toFixed(1)}%]`,
+            stand.speed < 1e-6 && Math.abs(stand.roll) < 1e-9
+            && straight.path > 40 && straight.roll > 0 && slip < 0.02);
+        // (3b) SETIR: hanya gandar depan, dibatasi mekanis, dan mengarah ke dalam
+        //      tikungan. Boss diputar 180 derajat supaya benar-benar menikung.
+        const turnRun = chase(1.2, 'siege', 300, 0, 300, -400);
+        T(`MAHAPATIH RODA: gandar depan menyetir ke dalam tikungan, dalam batas mekanis`
+            + ` [puncak ${turnRun.peakSteer.toFixed(3)} rad / batas`
+            + ` ${hb.parts.form.siegeBody.steerMax}]`,
+            turnRun.peakSteer > 0.05 && turnRun.steerSignOk
+            && turnRun.peakSteer <= hb.parts.form.siegeBody.steerMax + 1e-9
+            && stand.peakSteer < 1e-3);
+
+        // (4) TABRAKAN MEMBIDIK PLAYER dan menembus lewat DI BELAKANGNYA.
+        const startCharge = (bx, bz, px, pz) => {
+            mahMod.resetMahapatih(hb, { active: true, phase: 'siege', x: bx, z: bz });
+            put(px, pz);
+            hb.attackIndex = 1; hb.attackState = 'cooldown'; hb.attackT = 0;
+            mahMod.updateMahapatih(hb, 1 / 60, hctx);
+            return mahMod.mahapatihDebug(hb).chargePath;
+        };
+        const aimPath = startCharge(200, 0, -300, 250);
+        const apLen = Math.hypot(aimPath.x1 - aimPath.x0, aimPath.z1 - aimPath.z0);
+        const toPlayer = Math.hypot(-300 - aimPath.x0, 250 - aimPath.z0);
+        const aimDot = ((aimPath.x1 - aimPath.x0) * (-300 - aimPath.x0)
+            + (aimPath.z1 - aimPath.z0) * (250 - aimPath.z0)) / (apLen * toPlayer);
+        T(`MAHAPATIH TABRAK: lintasan berangkat dari badan boss LURUS ke player`
+            + ` [dot ${aimDot.toFixed(4)}]`,
+            hb.attackState === 'charge' && aimDot > 0.9999 && apLen > toPlayer
+            && Math.hypot(aimPath.x0 - hb.parts.group.position.x,
+                aimPath.z0 - hb.parts.group.position.z) < 1e-6);
+        // (5) Monas di antara keduanya: lane karangan dipakai sebagai jalan
+        //     memutar — boss tidak menggilas monumen yang tak boleh dirusaknya.
+        const lanePath = startCharge(200, 0, -300, 0);
+        const isLane = world12.S12_CHARGE_LANES.some(l =>
+            (Math.abs(l.x0 - lanePath.x0) < 1e-6 && Math.abs(l.z0 - lanePath.z0) < 1e-6)
+            || (Math.abs(l.x1 - lanePath.x0) < 1e-6 && Math.abs(l.z1 - lanePath.z0) < 1e-6));
+        T('MAHAPATIH TABRAK: monumen di garis tembak -> memutar lewat lane, bukan menembusnya',
+            lanePath.align === true && hb.attackData.state === 'align' && isLane);
+        // (6) Menghantam batas arena MENGAKHIRI tabrakan, bukan mendorong tembok.
+        const bb12 = world12.S12_BOSS_BOUNDS;
+        startCharge(bb12.x1 - 10, 0, bb12.x1 + 400, 260);
+        let stuckSec = 0;
+        while (hb.attackState === 'charge' && stuckSec < 8) {
+            mahMod.updateMahapatih(hb, 1 / 60, hctx); stuckSec += 1 / 60;
+        }
+        T(`MAHAPATIH TABRAK: tertahan batas arena -> serangan selesai [${stuckSec.toFixed(1)} s]`,
+            hb.attackState !== 'charge' && stuckSec < 5);
+
+        // (7) ARENA = SELURUH TAMAN, dan Monas satu-satunya yang menahannya.
+        const probe = new THREE.Vector3(4, 0, -3);
+        world12.clampStage12Boss(probe);
+        const outFar = new THREE.Vector3(9000, 0, -9000);
+        world12.clampStage12Boss(outFar);
+        T(`MAHAPATIH ARENA: batas gerak diturunkan dari taman, Monas tetap tak tertembus`
+            + ` [${bb12.x1.toFixed(0)}x${bb12.z1.toFixed(0)} vs taman ${survW.PARK.hx}x${survW.PARK.hz}]`,
+            bb12.x1 > survW.PARK.hx - 80 && bb12.x1 < survW.PARK.hx
+            && bb12.z1 > survW.PARK.hz - 80 && bb12.z1 < survW.PARK.hz
+            && bb12.x0 === -bb12.x1 && bb12.z0 === -bb12.z1
+            // Kotak lama (470x260) jauh lebih sempit daripada tamannya.
+            && bb12.z1 > 260 && bb12.x1 > 470
+            && Math.hypot(probe.x, probe.z) >= world12.S12_BOSS_AVOID.radius - 1e-6
+            && outFar.x === bb12.x1 && outFar.z === bb12.z0);
+
+
+        // (8) VOLUME BADAN MENGIKUTI LAMBUNG YANG DIGAMBAR. Chassis fase 1 kini
+        // panser 6x6 yang jauh lebih panjang daripada lebar, jadi lingkaran
+        // `hitRadius` tidak bisa lagi mewakilinya: dipas ke lebarnya hidung dan
+        // buritan jadi kebal, dipas ke panjangnya peluru "kena" udara kosong di
+        // sampingnya. Yang dipatok adalah KEDUA arah kesalahan itu sekaligus,
+        // dan koordinat ujinya diturunkan dari lambung yang dibangun.
+        const SB = hb.parts.form.siegeBody;
+        const noseZ = SB.halfLength * 0.9, sideX = SB.halfWidth + 3.5;
+        const shotAt = (yaw, x0, z0, x1, z1) => {
+            mahMod.resetMahapatih(hb, { active: true, phase: 'siege', x: 0, z: 0, yaw });
+            const sh = { px: x0, pz: z0, damage: 1,
+                mesh: new THREE.Mesh(new THREE.SphereGeometry(1),
+                    new THREE.MeshBasicMaterial({ color: palMod.PAL.amber })) };
+            sh.mesh.position.set(x1, 9, z1);
+            return mahMod.mahapatihBulletHit(hb, sh, {});
+        };
+        const R90 = Math.PI / 2;
+        T(`MAHAPATIH BADAN: elips lambung panser — hidung/buritan bisa ditembak,`
+            + ` sisi luar tidak [panjang ${SB.halfLength} vs lingkaran lama ${M12.hitRadius}]`,
+            // Uji ini hanya berarti kalau hidungnya memang DI LUAR lingkaran lama
+            // dan titik sampingnya memang DI DALAM-nya.
+            noseZ > M12.hitRadius && sideX < M12.hitRadius
+            && shotAt(0, -60, noseZ, 60, noseZ)          // hidung: kena
+            && shotAt(0, -60, -noseZ, 60, -noseZ)        // buritan: kena
+            && !shotAt(0, sideX, -60, sideX, 60)         // di luar badan: meleset
+            // ELIPSNYA IKUT BERPUTAR: badan diputar 90 derajat, hasilnya bertukar.
+            && shotAt(R90, noseZ, -60, noseZ, 60)
+            && !shotAt(R90, -60, sideX, 60, sideX));
+        // (9) Yang MENAHAN player adalah badan yang sama persis.
+        mahMod.resetMahapatih(hb, { active: true, phase: 'siege', x: 0, z: 0 });
+        const atNose = new THREE.Vector3(0, 0, noseZ);
+        const pushedNose = mahMod.resolveMahapatihBlock(hb, atNose, player.radius);
+        const clear = new THREE.Vector3(0, 0, SB.halfLength + player.radius + 6);
+        const pushedClear = mahMod.resolveMahapatihBlock(hb, clear, player.radius);
+        T('MAHAPATIH BADAN: tabrakan player memakai elips yang sama dengan uji tembak',
+            pushedNose && atNose.z > noseZ && !pushedClear);
+
+
+        // ---- SERANGAN: yang mengenai HARUS melukai, lahir DARI MONCONG, dan
+        // yang DITANDAI harus sama dengan yang meledak (2026-09-04, laporan user
+        // "cek serangan boss ini, ada beberapa bug"). Ketiganya digerakkan lewat
+        // `updateMahapatih` yang sebenarnya dan diukur dari antrean ledakan yang
+        // benar-benar diantre, bukan dari niat kodenya.
+        const atkCtx = { allowAttack: true, center: { x: 0, z: 0 }, chargeLanes: [],
+            avoid: world12.S12_BOSS_AVOID, clampBoss: world12.clampStage12Boss,
+            projectileAllowed: () => true, onPhase() { }, onAnchor() { } };
+        // Menjalankan SATU serangan tertentu dan memanen setiap ledakan yang
+        // diantre beserta jaraknya ke player — `processPendingBooms` melukai
+        // hanya bila jarak itu lebih kecil daripada radius ledakan.
+        const runAttack = (phase, index, playerZ, opts = {}) => {
+            mahMod.resetMahapatih(hb, { active: true, phase, x: 0, z: 0 });
+            if (phase !== 'siege') { hb.hp = hb.maxHp = M12.combatHp; }
+            put(0, playerZ);
+            robotsMod.resetRobotsFx();
+            hb.attackIndex = index; hb.attackState = 'cooldown'; hb.attackT = 0;
+            const booms = [], spawns = [];
+            let telegraph = null, frozen = null;
+            for (let i = 0; i < 900; i++) {
+                const was = hb.shots.filter(q => q.active).length;
+                mahMod.updateMahapatih(hb, 1 / 60, atkCtx);
+                if (opts.moveTo && hb.attackState === opts.moveTo.state) {
+                    put(opts.moveTo.x, opts.moveTo.z);
+                    if (frozen === null && hb.attackData) frozen = hb.attackData.angle;
+                }
+                if (opts.telegraphState && hb.attackState === opts.telegraphState
+                    && telegraph === null) {
+                    const t = mahMod.mahapatihDebug(hb).telegraphs;
+                    telegraph = { seismicA: { ...t.seismicA }, seismicB: { ...t.seismicB },
+                        charge: { ...t.charge }, lunge: { ...t.lunge } };
+                }
+                const now = hb.shots.filter(q => q.active);
+                if (now.length > was) {
+                    const q = now[now.length - 1];
+                    mahMod.mahapatihDebug(hb);
+                    const mw = new THREE.Vector3();
+                    (opts.muzzle ? opts.muzzle(hb) : hb.parts.muzzleFlash).getWorldPosition(mw);
+                    spawns.push({ x: q.body.position.x, y: q.body.position.y,
+                        z: q.body.position.z, dx: q.dx, dz: q.dz,
+                        mx: mw.x, my: mw.y, mz: mw.z, cruiseY: q.cruiseY });
+                }
+                for (const q of robotsMod.pendingBoomsDebug())
+                    booms.push({ ...q, hurts: Math.hypot(q.x - rendererMod.camera.position.x,
+                        q.z - rendererMod.camera.position.z) < q.r });
+                robotsMod.resetRobotsFx();
+                if (opts.stopAfter && booms.length >= opts.stopAfter) break;
+            }
+            return { booms, spawns, telegraph, frozen };
+        };
+
+        // (10) SEBUAH TEMBAKAN YANG MENGENAI WAJIB MELUKAI. Uji kena menggembungkan
+        // jarak dengan `player.radius` sedangkan uji kerusakan memperlakukan player
+        // sebagai TITIK, jadi dulu ada pita selebar `player.radius` tempat peluru
+        // tercatat kena, ledakannya digambar, dan kerusakannya NOL — terukur 14
+        // dari 14 peluru menara berakhir tanpa melukai sama sekali.
+        const turret = runAttack('siege', 3, 160, { stopAfter: M12.turret.burst });
+        T(`MAHAPATIH SERANG: setiap tembakan yang mengenai player benar-benar melukai`
+            + ` [${turret.booms.filter(q => q.hurts).length}/${turret.booms.length} rentetan menara]`,
+            turret.booms.length >= M12.turret.burst
+            && turret.booms.every(q => q.hurts && q.hurtPlayer
+                && q.playerDmg === M12.turret.damage));
+        // (11) LAHIR DI MONCONG, DIBIDIK DARI MONCONG, lalu MENUKIK ke tinggi badan.
+        const sp = turret.spawns[0];
+        const rayMiss = sp ? Math.abs(-sp.dz * (0 - sp.x) + sp.dx * (160 - sp.z)) : 99;
+        T(`MAHAPATIH SERANG: peluru lahir di moncong menara dan tetap membidik player`
+            + ` [meleset ${rayMiss.toFixed(2)} unit]`,
+            !!sp && Math.hypot(sp.x - sp.mx, sp.z - sp.mz) < 1e-6
+            && Math.abs(sp.y - sp.my) < 1e-6
+            // Titik lahirnya JAUH dari titik pusat badan — itulah cacat lamanya,
+            // dan sejak chassis jadi panser jaraknya sepanjang setengah lambung.
+            && Math.hypot(sp.x, sp.z) > hb.parts.form.siegeBody.halfLength * 0.5
+            // Membidik dari moncong: sinarnya lewat dalam radius badan player.
+            && rayMiss < cfgMod.CFG.player.radius
+            // Menukik: lahir di ketinggian moncong, turun ke tinggi jelajah.
+            && sp.y > sp.cruiseY + 5 && turret.spawns.every(q => q.cruiseY === 29));
+
+        // (12) YANG DITANDAI = YANG MELEDAK. Lingkaran seismik dulu digambar tepat
+        // di boss sementara gelombangnya jatuh 0.36R/0.72R di depannya.
+        const seis = runAttack('siege', 2, 60,
+            { telegraphState: 'seismicTelegraph', stopAfter: 2 });
+        const tgA = seis.telegraph?.seismicA, tgB = seis.telegraph?.seismicB;
+        T(`MAHAPATIH SERANG: lingkaran seismik menandai persis titik ledaknya`
+            + ` [selisih ${tgA ? Math.hypot(tgA.x - seis.booms[0].x, tgA.z - seis.booms[0].z).toFixed(1) : '-'}`
+            + ` dan ${tgB && seis.booms[1] ? Math.hypot(tgB.x - seis.booms[1].x, tgB.z - seis.booms[1].z).toFixed(1) : '-'}]`,
+            seis.booms.length >= 2 && !!tgA && !!tgB && tgA.visible && tgB.visible
+            && Math.hypot(tgA.x - seis.booms[0].x, tgA.z - seis.booms[0].z) < 1e-9
+            && Math.hypot(tgB.x - seis.booms[1].x, tgB.z - seis.booms[1].z) < 1e-9
+            // Dan gelombangnya memang MAJU, bukan meledak di bawah kaki boss.
+            && Math.hypot(seis.booms[0].x, seis.booms[0].z) > 1
+            && Math.hypot(seis.booms[1].x, seis.booms[1].z)
+                > Math.hypot(seis.booms[0].x, seis.booms[0].z));
+
+        // (13) MERIAM: keadaan bernama "cannonTelegraph" dulu tidak menggambar apa
+        // pun dan tidak mengunci apa pun — arahnya baru dihitung pada detik peluru
+        // dilepas, jadi tidak ada yang bisa dibaca maupun dihindari. Sekarang
+        // lajurnya digambar dan sudutnya DIBEKUKAN: player pindah 300 unit selama
+        // telegraph, pelurunya tetap berangkat ke titik yang ditandai.
+        const cannon = runAttack('personal', 3, 200, {
+            telegraphState: 'cannonTelegraph', stopAfter: 1,
+            muzzle: q => q.parts.cannonMuzzle,
+            moveTo: { state: 'cannonTelegraph', x: 300, z: 200 } });
+        const cs = cannon.spawns[0];
+        const aimAngle = cs ? Math.atan2(cs.dz, cs.dx) : 0;
+        // Sekali lagi TANPA memindahkan player, untuk memastikan peluru meriam
+        // memang melukai. Ledakan disaring dari damage-nya sendiri, karena boss
+        // sudah berpindah ke serangan berikutnya sebelum putaran uji berhenti.
+        const cannonHit = runAttack('personal', 3, 200,
+            { stopAfter: 3, muzzle: q => q.parts.cannonMuzzle });
+        const cannonBooms = cannonHit.booms.filter(q => q.playerDmg === M12.cannon.damage);
+        T(`MAHAPATIH SERANG: meriam menggambar lajurnya dan MEMBEKUKAN arah saat telegraph`
+            + ` [sisa ${(Math.abs(aimAngle - (cannon.frozen ?? 0)) * 57.3).toFixed(1)} deg]`,
+            !!cs && cannon.telegraph.lunge.visible
+            // Lahir di moncong meriam bahu, bukan di pinggang robotnya.
+            && Math.hypot(cs.x - cs.mx, cs.z - cs.mz) < 1e-6
+            // Tetap ke arah beku, bukan ke posisi player yang baru (~56 derajat).
+            && cannon.frozen !== null
+            && Math.abs(aimAngle - cannon.frozen) < 0.25
+            // Dan bila player TIDAK pindah, peluru meriamnya memang melukai.
+            && cannonBooms.length >= 1 && cannonBooms.every(q => q.hurts && q.hurtPlayer));
+
+        mahMod.disposeMahapatih(hb); scene.remove(hunt);
+        rendererMod.camera.position.x = hx0; rendererMod.camera.position.z = hz0;
+    }
 
     const facadeHooks12 = ['enter', 'exit', 'updateMode', 'playerCollide',
         'groundHeight', 'bulletBlocked', 'blastBlocked', 'grenadeCollide',

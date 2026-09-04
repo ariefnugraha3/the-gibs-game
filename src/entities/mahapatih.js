@@ -18,14 +18,34 @@ import {
 
 const UP = new THREE.Vector3(0, 1, 0);
 const tmp = new THREE.Vector3();
+const muz = new THREE.Vector3();   // titik moncong; terpisah dari `tmp`
 
 const bossCfg = () => CFG.campaign.bosses.mahapatih;
 
 // Bukaan cangkang siege. Nilai visual murni, jadi tetap di kode seperti amplitudo
 // animasi lain — tidak ada gameplay yang membacanya.
-const SHELL_OPEN_X = 27;    // seberapa jauh tiap paruh menggeser ke luar
+const SHELL_OPEN_X = 30;    // seberapa jauh tiap paruh menggeser ke luar
 const SHELL_ROLL = 0.66;    // rebah ke luar
 const SHELL_DROP = 5;       // ambruk ke tanah
+
+// ===== CHASSIS FASE 1 = PANSER 6x6 (2026-09-04, permintaan user) ===========
+// Dulu fase siege berjalan dengan EMPAT KAKI; user meminta bentuknya diganti
+// menjadi kendaraan beroda 6x6 seperti Pindad Anoa. Angka-angka di bawah adalah
+// ukuran lambung yang DIGAMBAR — volume tembak/tabrak diturunkan darinya
+// (`form.siegeBody`), jadi badan panjang ini tidak bisa lagi diwakili lingkaran.
+const HULL_HW = 23;          // setengah lebar lambung (46)
+const HULL_HL = 42;          // setengah panjang lambung (84)
+const WHEEL_R = 10;          // jari-jari ban; sumbu roda duduk di y = WHEEL_R
+const WHEEL_W = 7.5;
+const WHEEL_X = 20.5;        // jarak sumbu roda dari garis tengah
+// Gandar: DEPAN = +z (arah hadap boss). Dua gandar belakang berdekatan (tandem)
+// persis seperti Anoa, jadi jaraknya sengaja tidak sama rata.
+const AXLE_Z = Object.freeze([27, -2, -25]);
+const WHEEL_OUT = WHEEL_X + WHEEL_W / 2;   // muka ban terluar
+const STEER_MAX = 0.42;      // batas mekanis belok roda depan
+const STEER_GAIN = 0.9;      // laju yaw -> sudut belok
+const STEER_EASE = 6;        // kelambanan setir
+const SUSPENSION = 0.85;     // ayun suspensi saat berjalan
 
 function mesh(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
     const m = new THREE.Mesh(geo, mat);
@@ -73,21 +93,43 @@ function mats() {
     };
 }
 
-function buildSiegeLeg(M, sideX, sideZ) {
-    const hip = new THREE.Group(); hip.position.set(sideX * 18, 10, sideZ * 16);
-    const upper = new THREE.Group(); hip.add(upper);
-    box(upper, M.armor, 8, 18, 9, sideX * 4, -5, sideZ * 3,
-        sideZ * 0.08, 0, -sideX * 0.18);
-    box(upper, M.plate, 9, 4, 10, sideX * 5, 1, sideZ * 3);
-    const knee = new THREE.Group(); knee.position.set(sideX * 7, -13, sideZ * 5);
-    upper.add(knee);
-    mesh(knee, new THREE.CylinderGeometry(3.2, 3.2, 8, 10), M.steel,
-        0, 0, 0, Math.PI / 2, 0, 0);
-    box(knee, M.armorDark, 7, 15, 7, sideX * 2, -8, sideZ * 2,
-        sideZ * -0.08, 0, sideX * 0.1);
-    const foot = box(knee, M.armor, 13, 4, 16, sideX * 3, -17, sideZ * 5);
-    foot.userData.mahapatihFoot = true;
-    return { hip, upper, knee, foot };
+/**
+ * Satu roda 6x6. DUA pivot bersarang, dan urutannya yang membuatnya benar:
+ * `steer` (rotation.y, hanya gandar depan) membungkus `hub` (rotation.x =
+ * berguling), jadi gulingan selalu terjadi pada sumbu roda YANG SUDAH dibelokkan
+ * — bukan dua sudut Euler pada satu objek, yang urutannya justru terbalik.
+ * Depan boss = +z lokal, jadi sumbu ban terletak di sumbu X dan berguling maju
+ * berarti rotation.x MEMBESAR (Rx memutar +y menuju +z).
+ */
+function buildSiegeWheel(M, sideX, index) {
+    const steer = new THREE.Group();
+    steer.position.set(sideX * WHEEL_X, WHEEL_R, AXLE_Z[index]);
+    const hub = new THREE.Group(); steer.add(hub);
+    // Seluruh isi roda ikut berputar bersama, jadi ia DILAS jadi satu: enam roda
+    // beserta tapak dan bautnya kalau berdiri sendiri menambah ~80 draw call.
+    const raw = new THREE.Group();
+    mesh(raw, new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, WHEEL_W, 14), M.dark,
+        0, 0, 0, 0, 0, Math.PI / 2);
+    // Tapak ban pacul (off-road), dibuat dari balok-balok keliling.
+    for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        box(raw, M.dark, WHEEL_W + 1.4, 2.2, 4.6,
+            0, Math.cos(a) * (WHEEL_R - 0.6), Math.sin(a) * (WHEEL_R - 0.6),
+            -a, 0, 0);
+    }
+    // Velg + tutup naf + baut roda.
+    mesh(raw, new THREE.CylinderGeometry(WHEEL_R * 0.6, WHEEL_R * 0.6,
+        WHEEL_W + 0.6, 12), M.steel, 0, 0, 0, 0, 0, Math.PI / 2);
+    mesh(raw, new THREE.CylinderGeometry(3, 3, WHEEL_W + 1.6, 10), M.armorDark,
+        0, 0, 0, 0, 0, Math.PI / 2);
+    for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        mesh(raw, new THREE.CylinderGeometry(0.7, 0.7, WHEEL_W + 2.2, 6), M.steel,
+            0, Math.cos(a) * 5.2, Math.sin(a) * 5.2, 0, 0, Math.PI / 2);
+    }
+    hub.add(mergeObjectInPlace(raw));
+    return { steer, hub, side: sideX, index, axleZ: AXLE_Z[index],
+        steers: index === 0, baseY: WHEEL_R, bobPhase: index * 2.1 + (sideX > 0 ? 1.05 : 0) };
 }
 
 function buildBlade(M, side) {
@@ -124,33 +166,88 @@ export function buildMahapatihMesh(scale = 1) {
     const shellR = new THREE.Group(); shellR.name = 'Siege-Shell-Starboard';
     siege.add(shellL); siege.add(shellR);
     const rawL = new THREE.Group(), rawR = new THREE.Group();
-    const splitBox = (mat, w, h, d, cx, cy, cz) => {
+    // `splitBox` menerima rx karena lambung panser penuh bidang MIRING (glacis,
+    // hidung bawah, atap depan). Memutar terhadap X tidak pernah memindahkan
+    // koordinat x, jadi mengiris di x = 0 lalu memutar tiap potongan pada sudut
+    // yang sama menghasilkan bentuk yang PERSIS sama dengan memutar balok utuh.
+    const splitBox = (mat, w, h, d, cx, cy, cz, rx = 0) => {
         const lo = cx - w / 2, hi = cx + w / 2;
         for (const [raw, a, b2] of [[rawL, lo, Math.min(hi, 0)],
             [rawR, Math.max(lo, 0), hi]]) {
             if (b2 - a <= 1e-6) continue;
-            box(raw, mat, b2 - a, h, d, (a + b2) / 2, cy, cz);
+            box(raw, mat, b2 - a, h, d, (a + b2) / 2, cy, cz, rx);
         }
     };
-    splitBox(M.armor, 43, 10, 34, 0, 16, 0);
-    splitBox(M.armorDark, 34, 7, 40, -2, 21, 0);
-    splitBox(M.plate, 25, 4, 31, -4, 27, 0);
-    for (const z of [-15, 15]) {
-        splitBox(M.armor, 31, 5, 7, 2, 19, z);
-        for (const x of [-10, 0, 10]) splitBox(M.steel, 1.4, 5, 8, x, 22, z * 1.08);
+    // Detail yang memang hanya ada di SATU sisi tidak perlu diiris — ia sudah
+    // seluruhnya milik satu paruh. Ini juga satu-satunya cara memasang bidang
+    // miring terhadap Z (chamfer samping), yang tidak boleh lewat `splitBox`.
+    const sideBox = (side, mat, w, h, d, cx, cy, cz, rx = 0, ry = 0, rz = 0) =>
+        box(side < 0 ? rawL : rawR, mat, w, h, d, cx, cy, cz, rx, ry, rz);
+
+    // ---- LAMBUNG MONOCOQUE ala Anoa. Roda menapak di y = 0, jadi kendaraan
+    //      ini benar-benar berdiri di tanah alih-alih melayang di atas kaki.
+    splitBox(M.armor, HULL_HW * 2, 15, 74, 0, 15.5, -2);            // badan bawah
+    splitBox(M.armorDark, 44, 12, 66, 0, 28, -4);                   // bak atas
+    splitBox(M.plate, 38, 3.4, 52, 0, 34.4, -8);                    // atap
+    // Hidung: glacis miring + pelat bawah yang menunduk. rx>0 menundukkan ujung
+    // +z, jadi hidungnya rendah dan naik ke belakang — persis bidang glacis.
+    splitBox(M.plate, 44, 4.4, 30, 0, 30, 21, 0.66);
+    splitBox(M.armor, HULL_HW * 2, 4.6, 26, 0, 16.5, 31, -0.5);
+    splitBox(M.armorDark, 42, 12, 4.5, 0, 22, 39.5, 0.16);          // pelat hidung
+    // Buritan: pelat rampa tegak + bibir atap.
+    splitBox(M.armorDark, 40, 24, 4.5, 0, 24, -39.5);
+    splitBox(M.plate, 34, 3, 5, 0, 35.5, -35);
+    // Garis bahu (spall liner) sepanjang kedua sisi.
+    for (const x of [-22.4, 22.4]) splitBox(M.steel, 1.6, 3, 62, x, 23, -4);
+
+    for (const side of [-1, 1]) {
+        const sx = side * 1;
+        // BAN adalah titik TERLEBAR kendaraan — seperti panser sungguhan — jadi
+        // setiap detail samping ditahan di dalam `WHEEL_OUT`. Itu pula yang
+        // membuat elips badan menutupi seluruh yang digambar tanpa melebihinya.
+        const outer = WHEEL_OUT;
+        // Spatbor tiap roda: lengkung sederhana dari tiga pelat.
+        for (const az of AXLE_Z) {
+            sideBox(sx, M.armorDark, 7, 2.4, 27, side * (outer - 3.5), 21.5, az);
+            sideBox(sx, M.armor, 7, 5, 4, side * (outer - 3.5), 18.5, az + 12.5, 0.5);
+            sideBox(sx, M.armor, 7, 5, 4, side * (outer - 3.5), 18.5, az - 12.5, -0.5);
+        }
+        // Blok periskop / lubang tembak: tiga per sisi, seperti pada foto.
+        for (const pz of [16, 2, -12]) {
+            sideBox(sx, M.plate, 3.4, 6, 8, side * 21.3, 29, pz);
+            sideBox(sx, M.armorDark, 2, 3.2, 5.4, side * (outer - 1), 30, pz);
+        }
+        // Kotak perbekalan samping + pijakan naik.
+        sideBox(sx, M.armorDark, 4.5, 8, 17, side * (outer - 2.25), 27, -24);
+        sideBox(sx, M.steel, 5, 1.6, 12, side * (outer - 2.5), 12, -18);
+        // Tutup knalpot berlubang di sponson depan.
+        sideBox(sx, M.steel, 3, 7, 15, side * (outer - 1.5), 24, 22);
+        for (const hz of [-4.5, 0, 4.5])
+            sideBox(sx, M.armorDark, 1.4, 5, 2.2, side * (outer - 0.7), 24, 22 + hz);
+        // Lampu depan berpasang + rumahnya, dan kaca spion di sudut hidung.
+        sideBox(sx, M.armorDark, 8, 5, 3, side * 16, 25, 39);
+        sideBox(sx, M.ember, 3, 3, 1.6, side * 14, 25, 40.6);
+        sideBox(sx, M.ember, 3, 3, 1.6, side * 18, 25, 40.6);
+        sideBox(sx, M.steel, 1.2, 9, 1.2, side * 21.5, 32, 36);
+        sideBox(sx, M.armorDark, 1.6, 5, 4.5, side * 21.5, 37, 36);
+        // Segitiga penarik dan sengkang derek di pelat hidung.
+        sideBox(sx, M.steel, 2.4, 4, 3, side * 8, 14, 40);
+        // Antena cambuk: satu per paruh, jadi keduanya ikut terbelah.
+        sideBox(sx, M.steel, 0.9, 26, 0.9, side * 17, 48, -26);
     }
-    for (const x of [-18, 18]) splitBox(M.armorDark, 8, 8, 27, x, 15, 0);
+
     const hullL = mergeObjectInPlace(rawL); hullL.name = 'Welded-Siege-Armour-Port';
     const hullR = mergeObjectInPlace(rawR); hullR.name = 'Welded-Siege-Armour-Starboard';
     shellL.add(hullL); shellR.add(hullR);
     const hull = hullL;   // kompatibilitas: rujukan lambung utama
 
-    // Tiap kaki ikut paruh di sisinya, jadi cangkang yang terbelah membawa
-    // kakinya sendiri alih-alih meninggalkan kaki melayang di tengah.
-    const legs = [];
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-        const leg = buildSiegeLeg(M, sx, sz);
-        (sx < 0 ? shellL : shellR).add(leg.hip); legs.push(leg);
+    // Tiap roda ikut paruh di sisinya, jadi cangkang yang terbelah membawa
+    // rodanya sendiri alih-alih meninggalkan roda melayang di tengah — aturan
+    // yang sama persis dengan kaki yang digantikannya.
+    const wheels = [];
+    for (const sx of [-1, 1]) for (let i = 0; i < AXLE_Z.length; i++) {
+        const w = buildSiegeWheel(M, sx, i);
+        (sx < 0 ? shellL : shellR).add(w.steer); wheels.push(w);
     }
     // DEPAN BOSS = +z LOKAL. `faceToward` menulis rotation.y = atan2(dx, dz),
     // dan sebuah grup ber-rotation.y memetakan +z lokal ke arah itu — jadi
@@ -160,7 +257,7 @@ export function buildMahapatihMesh(scale = 1) {
     // Menara duduk di paruh KANAN: kalau tetap di jangkar, ia akan melayang di
     // udara begitu kedua cangkang membuka. Selama fase siege paruhnya belum
     // bergerak, jadi rantai rotasi menara tetap group.y + turret.y (aimTurret).
-    const turret = new THREE.Group(); turret.position.set(0, 29, -2); shellR.add(turret);
+    const turret = new THREE.Group(); turret.position.set(5, 37, 4); shellR.add(turret);
     mesh(turret, new THREE.CylinderGeometry(10, 12, 6, 8), M.armor,
         0, 0, 0);
     box(turret, M.armorDark, 13, 4, 20, 0, 4, 4);
@@ -204,6 +301,9 @@ export function buildMahapatihMesh(scale = 1) {
     const cannonBarrel = mesh(shoulderCannon,
         new THREE.CylinderGeometry(1.2, 1.5, 15, 8), M.steel,
         0, 0, 9, Math.PI / 2, 0, 0);
+    // Titik lahir peluru meriam bahu: UJUNG laras, bukan titik asal grup boss.
+    const cannonMuzzle = new THREE.Group();
+    cannonMuzzle.position.set(0, 0, 17); shoulderCannon.add(cannonMuzzle);
 
     const arms = [], blades = [];
     for (const side of [-1, 1]) {
@@ -243,14 +343,22 @@ export function buildMahapatihMesh(scale = 1) {
         shoulders: arms.map(a => xyz(a.shoulder.position)),
         upperArms: arms.map(a => xyz(a.arm.position)),
         legs: legsCombat.map(l => xyz(l.position)),
-        siegeHips: legs.map(l => xyz(l.hip.position)),
+        // CHASSIS 6x6: yang dipublikasikan adalah roda yang BENAR-BENAR dibangun,
+        // dan `siegeBody` adalah setengah-rentang lambung yang digambar — volume
+        // tembak/tabrak fase siege diturunkan dari sini, bukan dari angka tulis.
+        siegeWheels: wheels.map(w => xyz(w.steer.position)),
+        siegeBody: {
+            halfWidth: WHEEL_OUT, halfLength: HULL_HL, wheelRadius: WHEEL_R,
+            axles: AXLE_Z.length, steered: wheels.filter(w => w.steers).length,
+            steerMax: STEER_MAX, wheelWidth: WHEEL_W,
+        },
         torso: { spanX: 19, depthZ: 12 },
     };
     return {
         group, siege, shellL, shellR, hull, hullL, hullR,
-        legs, turret, turretMuzzle, muzzleFlash,
+        wheels, turret, turretMuzzle, muzzleFlash,
         combat, pelvis, torso, core, shutterL, shutterR, neck, head, eye,
-        shoulderCannon, arms, blades, legsCombat, materials: M, form,
+        shoulderCannon, cannonMuzzle, arms, blades, legsCombat, materials: M, form,
     };
 }
 
@@ -388,8 +496,11 @@ export function createMahapatih(opts = {}) {
     const telegraphs = {
         charge: addTo(parent, laneMarker(B.charge.knockback * 0.5)),
         lunge: addTo(parent, laneMarker(B.lunge.width * 2)),
-        seismicA: addTo(parent, marker(B.seismic.radius * 0.58, PAL.amber)),
-        seismicB: addTo(parent, marker(B.seismic.radius, PAL.amber)),
+        // Lingkaran seismik digambar SEBESAR ledakan yang dijanjikannya
+        // (0.62/0.68 R) — dulu 0.58R dan 1.0R, tak satu pun sama dengan
+        // radius ledakan yang benar-benar dipakai.
+        seismicA: addTo(parent, marker(B.seismic.radius * 0.62, PAL.amber)),
+        seismicB: addTo(parent, marker(B.seismic.radius * 0.68, PAL.amber)),
         blade: addTo(parent, marker(B.blade.radius, PAL.amber)),
         sweep: addTo(parent, laneMarker(B.hardline.sweepWidth * 2)),
     };
@@ -409,6 +520,9 @@ export function createMahapatih(opts = {}) {
         sweepHitCd: 0, shutterOpen: false, shutterT: B.core.shutterClosedSec,
         chargePath: null, lastChargePath: null, hazardsCleared: true,
         rewardGranted: false, callbackPhase: null, deathBase: null,
+        // Perburuan: laju nyata, fase langkah, jarak kejar dan arah mengitari.
+        speedNow: 0, rollNow: 0, yawRate: 0, steerNow: 0,
+        lastX: 0, lastZ: 0, lastYaw: 0, gaitT: 0, chaseDist: null, orbitSign: 1,
     };
     resetMahapatih(boss, opts);
     return boss;
@@ -437,9 +551,13 @@ export function resetMahapatih(b, opts = {}) {
     b.sweepHitCd = 0; b.shutterOpen = false; b.shutterT = B.core.shutterClosedSec;
     b.chargePath = null; b.lastChargePath = null; b.rewardGranted = false;
     b.callbackPhase = null; b.deathBase = null;
+    b.speedNow = 0; b.rollNow = 0; b.yawRate = 0; b.steerNow = 0;
+    b.gaitT = 0; b.chaseDist = null; b.orbitSign = 1;
     const p = b.parts;
     p.group.position.set(opts.x || 0, opts.y || 0, opts.z || 0);
+    b.lastX = p.group.position.x; b.lastZ = p.group.position.z;
     p.group.rotation.set(0, opts.yaw || 0, 0); p.group.scale.setScalar(opts.scale || 1);
+    b.lastYaw = p.group.rotation.y;
     reattachSiege(b);
     p.siege.visible = b.active; p.combat.visible = false;
     p.combat.position.set(0, 9, 0); p.combat.rotation.set(0, 0, 0);
@@ -447,8 +565,9 @@ export function resetMahapatih(b, opts = {}) {
     p.core.visible = true; p.materials.core.color.setHex(0xff2020);
     p.shutterL.position.x = -3.2; p.shutterR.position.x = 3.2;
     p.materials.threat.emissiveIntensity = EMISSIVE_MAX * 0.78;
-    for (const leg of p.legs) {
-        leg.hip.rotation.set(0, 0, 0); leg.knee.rotation.set(0, 0, 0);
+    for (const w of p.wheels) {
+        w.steer.rotation.set(0, 0, 0); w.hub.rotation.set(0, 0, 0);
+        w.steer.position.y = w.baseY;
     }
     for (const arm of p.arms) {
         arm.shoulder.rotation.set(0, 0, 0); arm.arm.rotation.set(0, 0, 0);
@@ -568,6 +687,91 @@ function nearestChargePath(b, ctx) {
     return best;
 }
 
+// ===== PERBURUAN: boss ini MENGEJAR, di SEMUA fase bertarung ==============
+// Laporan user (2026-09-04): "bossnya hanya berjalan di tempat, dan ketika harus
+// menabrak player malah tidak ke arah player, seperti terbatas di area sebelah
+// Monas." Tiga sebabnya semua ada di file ini: (1) fase `siege` TIDAK punya
+// langkah kejar sama sekali — badannya terpaku di depan vault sementara kakinya
+// tetap melangkah, (2) serangan tabrak berlari di LANE TETAP keliling monumen,
+// jadi arahnya tidak pernah berhubungan dengan posisi player, dan (3) kecepatan
+// jalannya jauh di bawah kecepatan player sehingga jarak tak pernah tertutup.
+// Sekarang setiap fase bertarung mengejar ke seluruh arena, dan tabrakannya
+// membidik player.
+
+const DASH_FROM = 240;        // sejauh ini boss beralih ke lari cepat
+const SIEGE_DASH_MUL = 1.8;   // chassis siege tidak punya key dash sendiri
+const ORBIT_MUL = 0.45;       // mengitari saat sudah dalam jarak serang
+const WAIT_CHASE_MUL = 0.6;   // tetap merangsek selagi proyektilnya melayang
+const CHARGE_MAX_SEC = 2.6;   // tabrakan tidak boleh mendorong tembok selamanya
+const ALIGN_MAX_SEC = 3;
+
+/** Ruas a→b menembus lingkaran larangan? Dipakai agar boss tak menggilas Monas. */
+function segmentBlocked(ax, az, bx, bz, avoid) {
+    if (!avoid) return false;
+    return segPointDist2(ax, 0, az, bx, 0, bz, avoid.x, 0, avoid.z) < avoid.radius ** 2;
+}
+
+/** Arah maju yang sudah dibelokkan menyusuri tepi rintangan bundar (monumen). */
+function steerDir(px, pz, tx, tz, avoid) {
+    let dx = tx - px, dz = tz - pz;
+    const d = Math.hypot(dx, dz) || 1;
+    dx /= d; dz /= d;
+    if (!avoid) return { x: dx, z: dz };
+    const ax = avoid.x - px, az = avoid.z - pz;
+    const along = ax * dx + az * dz;              // rintangan ada di depan?
+    if (along <= 0 || along - avoid.radius > d) return { x: dx, z: dz };
+    const side = -ax * dz + az * dx;              // simpangan tegak lurus, bertanda
+    const k = 1 - Math.min(1, Math.abs(side) / avoid.radius);
+    if (k <= 0) return { x: dx, z: dz };
+    const sign = side >= 0 ? -1 : 1;              // membelok MENJAUHI pusat rintangan
+    const mx = dx + -dz * sign * k * 1.6, mz = dz + dx * sign * k * 1.6;
+    const m = Math.hypot(mx, mz) || 1;
+    return { x: mx / m, z: mz / m };
+}
+
+/** Satu langkah kejar. Mengembalikan jarak ke player SEBELUM langkah ini. */
+function pursue(b, dt, ctx, speed, standoff) {
+    const p = b.parts.group.position;
+    const tx = camera.position.x, tz = camera.position.z;
+    const dist = Math.hypot(tx - p.x, tz - p.z);
+    const dir = steerDir(p.x, p.z, tx, tz, ctx.avoid);
+    if (dist > standoff) {
+        p.x += dir.x * speed * dt; p.z += dir.z * speed * dt;
+    } else if (dist > 1) {
+        // Sudah dalam jarak serang: MENGITARI, bukan mematung. Justru berdiri
+        // diam inilah yang dulu terbaca sebagai "berjalan di tempat".
+        const s = b.orbitSign < 0 ? -1 : 1;
+        p.x += -dir.z * s * speed * ORBIT_MUL * dt;
+        p.z += dir.x * s * speed * ORBIT_MUL * dt;
+    }
+    if (ctx.clampBoss) ctx.clampBoss(p);
+    return dist;
+}
+
+/** Kecepatan jalan/lari untuk fase yang sedang berjalan. */
+function chaseSpeed(b, dist) {
+    const B = bossCfg();
+    if (b.phase === 'siege')
+        return dist > DASH_FROM ? B.moveSpeed * SIEGE_DASH_MUL : B.moveSpeed;
+    return dist > DASH_FROM ? B.combat.dashSpeed : B.combat.speed;
+}
+
+/**
+ * Lintasan tabrak yang MEMBIDIK PLAYER dan menembus lewat di belakangnya.
+ * Lane karangan hanya dipakai sebagai jalan memutar ketika monumen benar-benar
+ * berdiri di antara boss dan player — di situlah lane itu memang berguna.
+ */
+function playerChargePath(b, ctx) {
+    const p = b.parts.group.position;
+    const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 1 || segmentBlocked(p.x, p.z, camera.position.x, camera.position.z, ctx.avoid))
+        return { ...nearestChargePath(b, ctx), align: true };
+    const run = d + Math.max(90, bossCfg().charge.speed * 0.55);
+    return { x0: p.x, z0: p.z,
+        x1: p.x + dx / d * run, z1: p.z + dz / d * run, align: false };
+}
+
 function startArtillery(b) {
     const B = bossCfg();
     const angle = Math.atan2(camera.position.z - b.parts.group.position.z,
@@ -595,14 +799,17 @@ function startSiegeAttack(b, ctx) {
     case 0:
         startArtillery(b); break;
     case 1: {
-        const path = nearestChargePath(b, ctx);
-        b.attackData = { path, state: 'align', hit: false };
+        const path = playerChargePath(b, ctx);
+        b.attackData = { path, state: path.align ? 'align' : 'telegraph',
+            hit: false, t: 0 };
         b.attackState = 'charge'; b.attackT = B.charge.telegraphSec;
         b.chargePath = path; b.lastChargePath = { ...path };
+        if (!path.align) setLaneMesh(b.telegraphs.charge, path);
         break;
     }
     case 2:
         b.attackState = 'seismicTelegraph'; b.attackT = B.seismic.telegraphSec;
+        placeSeismicTelegraphs(b);
         b.telegraphs.seismicA.visible = true; b.telegraphs.seismicB.visible = true;
         b.hazardsCleared = false; break;
     default:
@@ -636,26 +843,66 @@ function startPersonalAttack(b) {
         b.attackState = 'lungeTelegraph'; b.attackT = B.lunge.telegraphSec; break;
     }
     case 2:
-        b.attackState = 'waveTelegraph'; b.attackT = B.wave.telegraphSec; break;
-    default:
-        b.attackState = 'cannonTelegraph'; b.attackT = B.cannon.telegraphSec; break;
+    default: {
+        // GELOMBANG dan MERIAM dulu tidak menggambar apa pun dan tidak mengunci
+        // apa pun: keadaannya BERNAMA "telegraph", detiknya berjalan, tetapi
+        // arahnya baru dihitung pada detik peluru dilepas — jadi tidak ada yang
+        // bisa dibaca dan tidak ada yang bisa dihindari. Sekarang sudutnya
+        // DIBEKUKAN saat telegraph dimulai (kontrak stage: pola serangan
+        // dikunci pada saat telegraph) dan digambar memakai penanda lajur yang
+        // memang sudah dialokasikan dan menganggur di fase ini.
+        const p = b.parts.group.position;
+        const angle = Math.atan2(camera.position.z - p.z, camera.position.x - p.x);
+        const reach = choice === 2 ? B.wave.speed * B.wave.lifeSec * 0.5 : 220;
+        const lane = { x0: p.x, z0: p.z,
+            x1: p.x + Math.cos(angle) * reach, z1: p.z + Math.sin(angle) * reach };
+        b.attackData = { angle, lane };
+        if (choice === 2) {
+            b.attackState = 'waveTelegraph'; b.attackT = B.wave.telegraphSec;
+            setLaneMesh(b.telegraphs.charge, lane);
+        } else {
+            b.attackState = 'cannonTelegraph'; b.attackT = B.cannon.telegraphSec;
+            setLaneMesh(b.telegraphs.lunge, lane);
+        }
+        break;
+    }
     }
     b.hazardsCleared = false;
 }
 
-function spawnShot(b, kind, speed, damage, radius, angle) {
+/**
+ * Satu proyektil, LAHIR DI MONCONG. Versi lama selalu memakai titik asal grup
+ * boss, jadi peluru muncul begitu saja di tengah badan — cacat yang sama yang
+ * sudah diperbaiki pada gunship dan tank ("peluru harus benar-benar keluar dari
+ * moncong senjatanya"), dan yang menjadi jauh lebih kentara sejak chassis fase 1
+ * berubah menjadi panser sepanjang 84 unit.
+ *
+ * `cruiseY` tetap tinggi jelajah yang lama: uji kena bersifat 2D (x/z), jadi
+ * peluru yang dibiarkan di ketinggian moncong akan melintas DI ATAS kepala
+ * player padahal tercatat mengenainya — persis alasan rudal gunship menukik.
+ */
+function spawnShot(b, kind, speed, damage, radius, tx, tz, muzzle) {
     const p = b.shots.find(x => !x.active); if (!p) return false;
     const at = b.parts.group.position;
+    const cruiseY = kind === 'cannon' ? 24 : 29;
+    if (muzzle) muzzle.getWorldPosition(muz); else muz.set(at.x, cruiseY, at.z);
+    // Sudut dihitung DARI MONCONG ke sasaran, bukan dari titik pusat badan.
+    // Memindahkan titik lahir ke moncong tanpa ini justru membuat tembakannya
+    // MELESET sejauh simpangan moncong itu sendiri — menara duduk ~32 unit di
+    // depan dan 5 unit ke kanan poros, jadi seluruh rentetannya lewat begitu saja.
+    const angle = Math.atan2(tz - muz.z, tx - muz.x);
     p.active = true; p.kind = kind; p.speed = speed; p.damage = damage; p.radius = radius;
-    p.dx = Math.cos(angle); p.dz = Math.sin(angle); p.life = 5;
-    p.body.visible = true; p.body.position.set(at.x, kind === 'cannon' ? 24 : 29, at.z);
+    p.dx = Math.cos(angle); p.dz = Math.sin(angle); p.life = 5; p.cruiseY = cruiseY;
+    p.body.visible = true; p.body.position.set(muz.x, muz.y, muz.z);
     p.body.scale.setScalar(kind === 'cannon' ? 2.2 : 1);
     return true;
 }
 
-function spawnWaves(b) {
+function spawnWaves(b, frozen) {
     const B = bossCfg(), p = b.parts.group.position;
-    const base = Math.atan2(camera.position.z - p.z, camera.position.x - p.x);
+    // Sudut DIBEKUKAN saat telegraph, bukan dihitung ulang saat melepas.
+    const base = frozen != null ? frozen
+        : Math.atan2(camera.position.z - p.z, camera.position.x - p.x);
     for (const off of [-0.32, 0, 0.32]) {
         const w = b.waves.find(x => !x.active); if (!w) break;
         w.active = true; w.kind = 'wave'; w.x = p.x; w.z = p.z;
@@ -703,52 +950,84 @@ function moveToward(group, x, z, speed, dt) {
     return false;
 }
 
-function updateCharge(b, dt) {
+function updateCharge(b, dt, ctx = {}) {
     const B = bossCfg(), d = b.attackData, g = b.parts.group;
     if (!d) { endAttack(b); return; }
+    d.t = (d.t || 0) + dt;
     if (d.state === 'align') {
+        // Hanya jalur memutar (monumen menghalangi) yang masih perlu berjalan ke
+        // pangkal lane. Kalau tersangkut, lane dipangkas ke posisi sekarang —
+        // dulu tanpa ini boss bisa mendorong tembok tanpa pernah menyerang.
         const arrived = moveToward(g, d.path.x0, d.path.z0, B.moveSpeed * 1.4, dt);
+        if (ctx.clampBoss) ctx.clampBoss(g.position);
         faceToward(b, d.path.x1, d.path.z1, B.turnRadPerSec, dt);
-        if (arrived) {
-            d.state = 'telegraph'; b.attackT = B.charge.telegraphSec;
+        if (arrived || d.t > ALIGN_MAX_SEC) {
+            d.path.x0 = g.position.x; d.path.z0 = g.position.z;
+            d.state = 'telegraph'; d.t = 0; b.attackT = B.charge.telegraphSec;
             setLaneMesh(b.telegraphs.charge, d.path);
         }
         return;
     }
     if (d.state === 'telegraph') {
         b.attackT -= dt;
+        // Tetap membidik player selama telegraph: lintasannya diperbarui sampai
+        // detik terakhir, jadi tabrakan berangkat ke arah yang benar-benar dituju.
+        faceToward(b, camera.position.x, camera.position.z, B.turnRadPerSec, dt);
         b.telegraphs.charge.material.opacity = 0.24 + Math.sin(b.hoverT * 16) * 0.1;
-        if (b.attackT <= 0) { d.state = 'commit'; b.telegraphs.charge.visible = false; }
+        if (b.attackT <= 0) {
+            d.state = 'commit'; d.t = 0; b.telegraphs.charge.visible = false;
+        }
         return;
     }
     const oldX = g.position.x, oldZ = g.position.z;
-    if (moveToward(g, d.path.x1, d.path.z1, B.charge.speed, dt)) {
-        endAttack(b); return;
-    }
+    const arrived = moveToward(g, d.path.x1, d.path.z1, B.charge.speed, dt);
+    if (ctx.clampBoss) ctx.clampBoss(g.position);
     if (!d.hit && segPointDist2(oldX, 0, oldZ, g.position.x, 0, g.position.z,
         camera.position.x, 0, camera.position.z) < (B.bodyRadius + player.radius) ** 2) {
         d.hit = true; queueBoom(camera.position.x, 4, camera.position.z, 2,
             true, B.charge.damage, 1, sfxTankBlast); addCamShake(3);
     }
+    const moved = Math.hypot(g.position.x - oldX, g.position.z - oldZ);
+    if (arrived || d.t > CHARGE_MAX_SEC || moved < B.charge.speed * dt * 0.2) endAttack(b);
+}
+
+/**
+ * SATU sumber untuk gelombang seismik: lingkaran yang digambar dan ledakan yang
+ * dilepas membaca fungsi yang sama, jadi keduanya tidak bisa berselisih.
+ *
+ * Bug yang diperbaiki: penandanya digambar TEPAT DI BOSS sementara ledakannya
+ * jatuh 0.36R/0.72R DI DEPANNYA — terukur 18 unit meleset dari lingkaran yang
+ * dijanjikan. Player yang berdiri di tepi belakang lingkaran aman, dan yang
+ * berdiri di luar lingkaran bagian depan tetap kena. Sebuah telegraph adalah
+ * janji; kalau tidak menandai daerah yang benar, ia menyesatkan.
+ */
+function seismicSpot(b, beat) {
+    const B = bossCfg(), p = b.parts.group.position;
+    const yaw = b.parts.group.rotation.y;
+    const off = B.seismic.radius * (beat === 0 ? 0.36 : 0.72);
+    return { x: p.x + Math.sin(yaw) * off, z: p.z + Math.cos(yaw) * off,
+        r: B.seismic.radius * (beat === 0 ? 0.62 : 0.68) };
+}
+
+/** Tempatkan kedua lingkaran pada titik ledaknya. Dipanggil saat serangan
+ *  DIMULAI juga, supaya penandanya tidak berkedip satu frame di posisi lama. */
+function placeSeismicTelegraphs(b) {
+    const a0 = seismicSpot(b, 0), a1 = seismicSpot(b, 1);
+    b.telegraphs.seismicA.position.set(a0.x, 0.36, a0.z);
+    b.telegraphs.seismicB.position.set(a1.x, 0.35, a1.z);
+    return [a0, a1];
 }
 
 function updateSeismic(b, dt) {
-    const B = bossCfg(), p = b.parts.group.position;
+    const B = bossCfg();
     b.attackT -= dt;
-    b.telegraphs.seismicA.position.set(p.x, 0.36, p.z);
-    b.telegraphs.seismicB.position.set(p.x, 0.35, p.z);
+    const [a0, a1] = placeSeismicTelegraphs(b);
     if (b.attackState === 'seismicTelegraph' && b.attackT <= 0) {
-        const yaw = b.parts.group.rotation.y, fx = Math.sin(yaw), fz = Math.cos(yaw);
-        queueBoom(p.x + fx * B.seismic.radius * 0.36, 2,
-            p.z + fz * B.seismic.radius * 0.36, B.seismic.radius * 0.62,
-            true, B.seismic.damage, 1, sfxTankBlast);
+        queueBoom(a0.x, 2, a0.z, a0.r, true, B.seismic.damage, 1, sfxTankBlast);
         b.telegraphs.seismicA.visible = false;
         b.attackState = 'seismicSecond'; b.attackT = B.seismic.gapSec;
     } else if (b.attackState === 'seismicSecond' && b.attackT <= 0) {
-        const yaw = b.parts.group.rotation.y, fx = Math.sin(yaw), fz = Math.cos(yaw);
-        queueBoom(p.x + fx * B.seismic.radius * 0.72, 2,
-            p.z + fz * B.seismic.radius * 0.72, B.seismic.radius * 0.68,
-            true, B.seismic.damage, 1, sfxTankBlast);
+        queueBoom(a1.x, 2, a1.z, a1.r, true, B.seismic.damage, 1, sfxTankBlast);
         b.telegraphs.seismicB.visible = false; endAttack(b);
     }
 }
@@ -782,8 +1061,8 @@ function updateTurretAttack(b, dt) {
         b.turretT -= dt;
         aimTurret(b, dt);
         if (b.turretLeft > 0 && b.turretT <= 0) {
-            const a = Math.atan2(camera.position.z - p.z, camera.position.x - p.x);
-            spawnShot(b, 'turret', B.turret.bulletSpeed, B.turret.damage, 2.4, a);
+            spawnShot(b, 'turret', B.turret.bulletSpeed, B.turret.damage, 2.4,
+                camera.position.x, camera.position.z, b.parts.muzzleFlash);
             b.parts.muzzleFlash.material.opacity = 1; playSFX(sfxTankMG, 0.45);
             b.turretLeft--; b.turretT = B.turret.intervalSec;
         }
@@ -819,13 +1098,17 @@ function updateLunge(b, dt, ctx) {
         return;
     }
     const oldX = g.position.x, oldZ = g.position.z;
-    if (moveToward(g, d.path.x1, d.path.z1, B.lunge.speed, dt)) { endAttack(b); return; }
+    const arrived = moveToward(g, d.path.x1, d.path.z1, B.lunge.speed, dt);
     if (ctx.clampBoss) ctx.clampBoss(g.position);
+    d.t = (d.t || 0) + dt;
     if (!d.hit && segPointDist2(oldX, 0, oldZ, g.position.x, 0, g.position.z,
         camera.position.x, 0, camera.position.z) < (B.lunge.width + player.radius) ** 2) {
         d.hit = true; queueBoom(camera.position.x, 4, camera.position.z, 2,
             true, B.lunge.damage, 1, sfxTankBlast);
     }
+    // Sama seperti tabrakan: menghantam batas arena MENGAKHIRI terjangan.
+    const moved = Math.hypot(g.position.x - oldX, g.position.z - oldZ);
+    if (arrived || d.t > CHARGE_MAX_SEC || moved < B.lunge.speed * dt * 0.2) endAttack(b);
 }
 
 function updatePersonalAttack(b, dt, ctx) {
@@ -838,18 +1121,53 @@ function updatePersonalAttack(b, dt, ctx) {
     }
     if (b.attackState === 'waveTelegraph') {
         b.attackT -= dt;
-        if (b.attackT <= 0) { spawnWaves(b); b.attackState = 'waitProjectiles'; }
+        // Badan berputar ke lajur yang DITANDAI, bukan ke player: penandanya
+        // yang jadi janji, dan boss terlihat memang membidik ke sana.
+        if (b.attackData) faceToward(b, b.attackData.lane.x1,
+            b.attackData.lane.z1, B.turnRadPerSec, dt);
+        if (b.attackT <= 0) {
+            spawnWaves(b, b.attackData?.angle);
+            b.telegraphs.charge.visible = false;
+            b.attackState = 'waitProjectiles';
+        }
         return;
     }
     if (b.attackState === 'cannonTelegraph') {
         b.attackT -= dt;
+        if (b.attackData) faceToward(b, b.attackData.lane.x1,
+            b.attackData.lane.z1, B.turnRadPerSec, dt);
         if (b.attackT <= 0) {
-            const p = b.parts.group.position;
-            const a = Math.atan2(camera.position.z - p.z, camera.position.x - p.x);
-            spawnShot(b, 'cannon', B.cannon.speed, B.cannon.damage, B.cannon.radius, a);
+            // Sasarannya adalah UJUNG LAJUR YANG DITANDAI, jadi peluru terbang
+            // ke titik yang sama dengan yang dijanjikan telegraph-nya.
+            const lane = b.attackData?.lane;
+            spawnShot(b, 'cannon', B.cannon.speed, B.cannon.damage, B.cannon.radius,
+                lane ? lane.x1 : camera.position.x, lane ? lane.z1 : camera.position.z,
+                b.parts.cannonMuzzle);
+            b.telegraphs.lunge.visible = false;
             playSFX(sfxTankMortar, 0.7); b.attackState = 'waitProjectiles';
         }
     }
+}
+
+/**
+ * Ledakan sebuah proyektil yang MENGENAI player, dipusatkan DI PLAYER.
+ *
+ * Bug yang diperbaiki: uji kena menggembungkan jarak dengan `player.radius`
+ * (benar — player itu lingkaran, bukan titik), tetapi `processPendingBooms`
+ * melukai hanya bila jarak pusat-ledakan ke player < radius ledakan, yaitu
+ * memperlakukan player sebagai TITIK. Selisihnya persis `player.radius`: ada pita
+ * selebar 5 unit tempat proyektil tercatat mengenai player, ledakannya digambar,
+ * dan kerusakannya NOL. Terukur: 14 dari 14 peluru menara berakhir tanpa melukai
+ * sama sekali — serangan yang paling sering dipakai boss praktis tidak berbahaya.
+ *
+ * Memusatkan ledakan di player adalah idiom yang SUDAH dipakai file ini untuk
+ * benturan langsung (`updateCharge`/`updateLunge`), dan ia tetap melewati satu
+ * jalur `queueBoom` yang sama — jadi armor, god-mode dan i-frame dodge tetap
+ * berlaku, tidak ada logika kerusakan kedua.
+ */
+function hitPlayerWith(p) {
+    queueBoom(camera.position.x, 3, camera.position.z, p.radius,
+        true, p.damage, 1, sfxTankBlast);
 }
 
 function updateProjectiles(b, dt, ctx) {
@@ -859,17 +1177,20 @@ function updateProjectiles(b, dt, ctx) {
         p.body.position.set(p.x, 0.7, p.z);
         if (segPointDist2(oldX, 0, oldZ, p.x, 0, p.z,
             camera.position.x, 0, camera.position.z) < (p.radius + player.radius) ** 2) {
-            queueBoom(p.x, 2, p.z, p.radius, true, p.damage, 1, sfxTankBlast); hideProjectile(p);
+            hitPlayerWith(p); hideProjectile(p);
         } else if (p.life <= 0 || (ctx.projectileAllowed && !ctx.projectileAllowed(p.x, p.z))) hideProjectile(p);
     }
     for (const p of b.shots) if (p.active) {
         const oldX = p.body.position.x, oldZ = p.body.position.z;
         p.body.position.x += p.dx * p.speed * dt; p.body.position.z += p.dz * p.speed * dt;
         p.life -= dt;
+        // Menukik ke tinggi jelajah: lahir di moncong, lalu turun ke ketinggian
+        // badan supaya tidak terlihat melayang di atas kepala player.
+        if (p.cruiseY != null)
+            p.body.position.y += (p.cruiseY - p.body.position.y) * Math.min(1, dt * 5);
         if (segPointDist2(oldX, 0, oldZ, p.body.position.x, 0, p.body.position.z,
             camera.position.x, 0, camera.position.z) < (p.radius + player.radius) ** 2) {
-            queueBoom(p.body.position.x, 3, p.body.position.z, p.radius,
-                true, p.damage, 1, sfxTankBlast); hideProjectile(p);
+            hitPlayerWith(p); hideProjectile(p);
         } else if (p.life <= 0 || (ctx.projectileAllowed
             && !ctx.projectileAllowed(p.body.position.x, p.body.position.z))) hideProjectile(p);
     }
@@ -969,9 +1290,38 @@ function updateCoreShutters(b, dt) {
     b.parts.shutterR.position.x += (target - b.parts.shutterR.position.x) * Math.min(1, dt * 7);
 }
 
+// ===== VOLUME BADAN: lingkaran untuk robotnya, ELIPS untuk pansernya ========
+// Chassis fase 1 kini panser 46x84 (2026-09-04). Sebuah lingkaran ber-jari-jari
+// `hitRadius` tidak bisa mewakilinya: dipas ke lebarnya, hidung dan buritan jadi
+// tak bisa ditembak; dipas ke panjangnya, peluru "kena" udara kosong di sampingnya
+// — kedua-duanya persis cacat yang berulang kali diperbaiki di proyek ini
+// ("yang digambar itulah yang kena"). Jadi fase `siege` memakai ELIPS yang
+// BERPUTAR BERSAMA BADAN, dengan setengah-sumbu diambil dari `form.siegeBody`,
+// yaitu ukuran lambung yang benar-benar dibangun. Fase lain tidak berubah sama
+// sekali: robot personalnya memang bulat.
+function siegeEllipse(b, pad = 0) {
+    const f = b.parts.form.siegeBody;
+    return { hw: f.halfWidth + pad, hl: f.halfLength + pad,
+        yaw: b.parts.group.rotation.y };
+}
+
+/** Dunia -> ruang elips yang dinormalkan (lingkaran satuan). */
+function toEllipse(e, cx, cz, wx, wz) {
+    const c = Math.cos(e.yaw), s = Math.sin(e.yaw);
+    const dx = wx - cx, dz = wz - cz;
+    return { x: (dx * c - dz * s) / e.hw, z: (dx * s + dz * c) / e.hl };
+}
+
 function bodyHit(b, bx, bz, px, pz) {
     const B = bossCfg(), p = b.parts.group.position;
-    return segPointDist2(px, 0, pz, bx, 0, bz, p.x, 0, p.z) < B.hitRadius ** 2;
+    if (b.phase !== 'siege')
+        return segPointDist2(px, 0, pz, bx, 0, bz, p.x, 0, p.z) < B.hitRadius ** 2;
+    // Menskala ruang secara anisotropik mengubah uji "ruas memotong elips"
+    // menjadi "ruas memotong lingkaran satuan" — tetap EKSAK, bukan hampiran.
+    const e = siegeEllipse(b);
+    const a = toEllipse(e, p.x, p.z, px, pz);
+    const c = toEllipse(e, p.x, p.z, bx, bz);
+    return segPointDist2(a.x, 0, a.z, c.x, 0, c.z, 0, 0, 0) < 1;
 }
 
 /**
@@ -1032,20 +1382,31 @@ function updateRig(b, dt) {
     const p = b.parts; b.hoverT += dt;
     p.muzzleFlash.material.opacity = Math.max(0, p.muzzleFlash.material.opacity - dt * 12);
     if (b.hitT > 0) b.hitT = Math.max(0, b.hitT - dt * 6);
-    const stride = Math.sin(b.hoverT * (b.phase === 'siege' ? 5 : 7));
+    // Roda berputar sejauh JARAK YANG BENAR-BENAR DITEMPUH (berguling tanpa
+    // slip), bukan mengikuti pencacah waktu — chassis yang berdiri diam karena
+    // itu tidak bisa lagi "berjalan di tempat".
+    const B = bossCfg();
+    const moveK = clamp((b.speedNow || 0) / Math.max(1, B.moveSpeed), 0, 1.8);
+    b.gaitT += dt * (2.4 + moveK * 6.5);
     if (b.phase === 'siege') {
         // Menara MELACAK player terus-menerus, bukan hanya saat menembak: sebuah
         // meriam yang diam menghadap lurus ke depan lalu tiba-tiba melepas
         // peluru ke samping adalah persis yang membuat serangannya terlihat
         // tidak keluar dari moncongnya.
         if (!b.dead) aimTurret(b, dt);
-        for (let i = 0; i < p.legs.length; i++) {
-            // Langkah mengayun MAJU-MUNDUR: kaki menggantung ke -y, jadi ayunan
-            // sepanjang arah jalan (+z) adalah rotasi terhadap x. Versi lama
-            // memakai rotation.z, yang menggeser telapak ke samping — chassis-nya
-            // terlihat mengesot, bukan melangkah.
-            p.legs[i].hip.rotation.x = stride * (i % 2 ? -0.12 : 0.12);
-            p.legs[i].knee.rotation.x = stride * (i % 2 ? 0.08 : -0.08);
+        // SETIR: sudut roda depan diturunkan dari laju yaw badan, dengan sedikit
+        // kelambanan. Ia ditulis pada pivot `steer` yang MEMBUNGKUS pivot guling,
+        // jadi ban berputar pada sumbunya sendiri yang sudah dibelokkan.
+        const want = clamp((b.yawRate || 0) * STEER_GAIN, -STEER_MAX, STEER_MAX);
+        b.steerNow += (want - b.steerNow) * Math.min(1, dt * STEER_EASE);
+        // Depan = +z, sumbu ban di X: berguling maju berarti rotation.x MEMBESAR.
+        const spin = (b.rollNow || 0) * dt / WHEEL_R;
+        for (const w of p.wheels) {
+            w.hub.rotation.x += spin;
+            if (w.steers) w.steer.rotation.y = b.steerNow;
+            // Ayun suspensi tipis, hanya selagi berjalan.
+            w.steer.position.y = w.baseY
+                + Math.sin(b.gaitT * 1.7 + w.bobPhase) * SUSPENSION * Math.min(1, moveK);
         }
     } else if (b.phase === 'personal' || b.phase === 'hardline' || b.phase === 'core') {
         p.combat.position.y = 9 + Math.sin(b.hoverT * 2.4) * 0.35;
@@ -1091,6 +1452,22 @@ function updateDeath(b, dt, ctx) {
 /** Advance one boss frame. Context keeps map geometry out of the entity. */
 export function updateMahapatih(b, dt, ctx = {}) {
     if (!b || !b.active) return;
+    // Laju NYATA badan frame lalu — rig kaki membacanya supaya langkahnya
+    // mengikuti perpindahan sungguhan, bukan berdetak terus di tempat.
+    const gp = b.parts.group.position, gy = b.parts.group.rotation.y;
+    const mvX = gp.x - b.lastX, mvZ = gp.z - b.lastZ;
+    const travel = Math.hypot(mvX, mvZ);
+    b.speedNow = dt > 1e-5 ? travel / dt : 0;
+    // Arah guling roda ditentukan oleh komponen MAJU dari perpindahan: mundur
+    // memutar ban ke belakang, dan mengitari tetap memutarnya sebanyak jarak
+    // yang benar-benar ditempuh (panser tidak bisa menggeser menyamping).
+    const fwd = mvX * Math.sin(gy) + mvZ * Math.cos(gy);
+    b.rollNow = dt > 1e-5 ? (fwd >= 0 ? travel : -travel) / dt : 0;
+    let dyaw = gy - b.lastYaw;
+    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    b.yawRate = dt > 1e-5 ? dyaw / dt : 0;
+    b.lastX = gp.x; b.lastZ = gp.z; b.lastYaw = gy;
     updateRig(b, dt); updateProjectiles(b, dt, ctx);
     if (b.phase === 'dying') { updateDeath(b, dt, ctx); return; }
     if (b.phase === 'wreck' || b.phase === 'dormant') return;
@@ -1112,29 +1489,36 @@ export function updateMahapatih(b, dt, ctx = {}) {
     // by the stage-supplied clamp and never teleports.
     if (b.attackState === 'cooldown') {
         const B = bossCfg();
-        if (b.phase === 'personal') {
-            const dx = camera.position.x - b.parts.group.position.x;
-            const dz = camera.position.z - b.parts.group.position.z;
-            const d = Math.hypot(dx, dz);
-            if (d > 72) {
-                b.parts.group.position.x += dx / d * B.combat.speed * dt;
-                b.parts.group.position.z += dz / d * B.combat.speed * dt;
-                if (ctx.clampBoss) ctx.clampBoss(b.parts.group.position);
-            }
-        }
+        // SETIAP fase bertarung mengejar sekarang — termasuk `siege`, yang dulu
+        // tidak punya baris ini sama sekali dan karena itu tak pernah beranjak
+        // dari sisi monumen.
+        const p = b.parts.group.position;
+        const dist = Math.hypot(camera.position.x - p.x, camera.position.z - p.z);
+        b.chaseDist = pursue(b, dt, ctx, chaseSpeed(b, dist), B.chaseStandoff);
         faceToward(b, camera.position.x, camera.position.z, B.turnRadPerSec, dt);
         b.attackT -= dt;
         if (b.attackT <= 0 && !anyHazard(b)) {
+            // Arah mengitari berganti tiap serangan supaya tidak melingkar terus
+            // ke sisi yang sama — deterministik, tanpa Math.random.
+            b.orbitSign = b.attackIndex % 2 ? 1 : -1;
             if (b.phase === 'siege') startSiegeAttack(b, ctx);
             else startPersonalAttack(b);
         }
         return;
     }
     if (b.attackState === 'artillery') updateArtillery(b, dt);
-    else if (b.attackState === 'charge') updateCharge(b, dt);
+    else if (b.attackState === 'charge') updateCharge(b, dt, ctx);
     else if (b.attackState === 'seismicTelegraph' || b.attackState === 'seismicSecond') updateSeismic(b, dt);
     else if (b.attackState === 'turretTelegraph' || b.attackState === 'turretBurst') updateTurretAttack(b, dt);
     else if (b.attackState === 'waitProjectiles') {
+        // Gelombang hidup sampai `wave.lifeSec` detik: menunggunya sambil
+        // mematung adalah jeda diam terpanjang yang dimiliki boss ini, jadi ia
+        // tetap merangsek (pelan) selagi proyektilnya melayang.
+        const B2 = bossCfg();
+        b.chaseDist = pursue(b, dt, ctx,
+            chaseSpeed(b, b.chaseDist == null ? 0 : b.chaseDist) * WAIT_CHASE_MUL,
+            B2.chaseStandoff);
+        faceToward(b, camera.position.x, camera.position.z, B2.turnRadPerSec, dt);
         if (!b.waves.some(p => p.active) && !b.shots.some(p => p.active)) endAttack(b);
     } else updatePersonalAttack(b, dt, ctx);
 }
@@ -1147,12 +1531,30 @@ function pushCircle(pos, x, z, radius) {
     return true;
 }
 
+/** Dorong keluar dari elips badan panser; `radius` menebalkan KEDUA sumbu. */
+function pushEllipse(pos, cx, cz, e) {
+    const l = toEllipse(e, cx, cz, pos.x, pos.z);
+    const d2 = l.x * l.x + l.z * l.z;
+    if (d2 >= 1) return false;
+    let lx = l.x, lz = l.z;
+    if (d2 < 1e-9) { lx = 1; lz = 0; }
+    else { const d = Math.sqrt(d2); lx /= d; lz /= d; }
+    const ox = lx * e.hw, oz = lz * e.hl;
+    const c = Math.cos(e.yaw), s = Math.sin(e.yaw);
+    pos.x = cx + ox * c + oz * s; pos.z = cz - ox * s + oz * c;
+    return true;
+}
+
 /** Player/body collision that follows the visible phase and persistent wreck. */
 export function resolveMahapatihBlock(b, pos, radius = player.radius) {
     if (!b || !b.active || !b.parts.group.visible) return false;
     const B = bossCfg(), p = b.parts.group.position;
-    let hit = pushCircle(pos, p.x, p.z,
-        radius + B.bodyRadius * (b.phase === 'personal' || b.phase === 'core' ? 0.72 : 1));
+    // Fase siege memakai elips yang sama dengan uji tembak, jadi badan yang
+    // menahan player PERSIS badan yang bisa ditembak dan yang digambar.
+    let hit = b.phase === 'siege'
+        ? pushEllipse(pos, p.x, p.z, siegeEllipse(b, radius))
+        : pushCircle(pos, p.x, p.z,
+            radius + B.bodyRadius * (b.phase === 'personal' || b.phase === 'core' ? 0.72 : 1));
     if (b.phase === 'hardline') for (const h of b.hardlines) if (h.alive) {
         h.group.getWorldPosition(tmp);
         hit = pushCircle(pos, tmp.x, tmp.z, radius + B.hardline.hitRadius * 0.72) || hit;
@@ -1217,6 +1619,8 @@ export function mahapatihDebug(b) {
             body: { x: b.parts.group.position.x, z: b.parts.group.position.z,
                 radius: B.hitRadius },
             collisionRadius: B.bodyRadius,
+            // Fase siege: elips badan panser, diturunkan dari lambung terbangun.
+            siege: { ...b.parts.form.siegeBody, yaw: b.parts.group.rotation.y },
             coreOpen: b.phase === 'core' && b.shutterOpen,
         },
         transitionComplete: b.phase !== 'transition',
@@ -1238,6 +1642,15 @@ export function mahapatihDebug(b) {
                 opacity: value.material.opacity } ])),
         chargePath: b.chargePath ? { ...b.chargePath } : null,
         lastChargePath: b.lastChargePath ? { ...b.lastChargePath } : null,
+        // Perburuan: apa yang benar-benar bergerak, bukan yang diniatkan.
+        chase: {
+            speed: b.speedNow || 0, dist: b.chaseDist,
+            roll: b.rollNow || 0, yawRate: b.yawRate || 0, steer: b.steerNow || 0,
+            wheelRoll: b.parts.wheels.map(w => w.hub.rotation.x),
+            standoff: B.chaseStandoff, walkSpeed: B.moveSpeed,
+            combatSpeed: B.combat.speed, dashSpeed: B.combat.dashSpeed,
+            x: b.parts.group.position.x, z: b.parts.group.position.z,
+        },
         pools: { artillery: b.artillery.length, waves: b.waves.length,
             shots: b.shots.length },
         activeProjectiles: b.artillery.filter(a => a.active).length
