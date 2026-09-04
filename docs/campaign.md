@@ -1652,3 +1652,372 @@ Three details make it work:
 Robots and pathfinding need no special handling: `doorsWalkable` reads the live `open` value, so a freed door becomes a route for A* the moment it slides, and nav is never rebaked.
 **Stage 9 Chapter 1 pre-scattered road population (2026-08-30; supersedes the two 2026-08-25 Chapter-1 spawn/activation rules):** the yellow toll checkpoint no longer creates the second wave. Both config-owned outside encounters are instantiated during Chapter-1 entry, giving the complete population before gameplay starts. `stage9FrontRoadSurface` restricts their territory to the two visible toll/boulevard pavement ribbons and concrete edges; it excludes the parking courts and broad side forecourt even though those remain player-walkable. `stage9FrontRoadScatterPoints` deterministically distributes the exact total across the full approach and rejects actual blockers. All robots start idle and use `stage9RobotInView` as the activation predicate, becoming permanently active only when their body enters the gameplay viewport. Passing the former checkpoint coordinate changes neither phase nor population. Once both groups are destroyed, the terminal marker appears and the normal Chapter-2 handoff remains available.
 **Stage 9 Chapter 1 density and safe opening (2026-08-30, user follow-up):** the two outside groups now total exactly 100 robots: 32C/13B/5A on `frontToll` and 33C/12B/5A on `frontForecourt`. Rather than moving the toll or terminal, the start of the access road is extended 20 m west: asphalt, concrete edges, markings, visible fence, collision bounds and both walk/robot-surface predicates all grow together, while the player start moves to the new western end. `S9_FRONT_SAFE_END` marks the former start, so the complete new 20 m is continuous walkable pavement and guaranteed robot-free. A measured 15 m reveal buffer follows on the older asphalt; smaller spacing still left enemy bodies inside the initial camera frustum. Consequently all 100 robots can be prebuilt and idle without any appearing on the starting screen, and they still wake permanently only when the advancing player's viewport reaches them.
+
+## Stage 12 — the last fight moved into the Survival Monas park (2026-09-03, user request)
+
+Three things were asked for and all three are now structural rather than authored by hand.
+
+### 1. Nothing stands on the road any more
+
+The report was *"masih ada gedung yang berada di tengah jalan"*, and the cause was that
+`buildSkyline` placed its offices at `S12_ORIGIN.x ± (730 + …)` on a `z` ladder that
+included `z = 0` — that is the centre line of the deployment avenue, so two towers sat
+squarely in the boulevard, with several more overlapping its edge. Nothing measured the
+result, so nothing caught it.
+
+The walk predicate is now built from a **list of rectangles** (`PLAY_RECTS` = the avenue
+plus the park), and the placement filter reads *that same list*: `boxOnPlayfield` and
+`boxOnPavement` test a prop's real footprint — the building's plinth, an antenna bay, a
+parked vehicle's yawed length — against the walkable rectangles and against the decor
+asphalt (the boulevard shoulder and Jalan Medan Merdeka). A candidate that touches either
+is simply not built. Because both sides read one list, a gedung cannot be in the road
+without also being outside the road, which is a contradiction rather than a bug.
+
+Two deliberate asymmetries: **rubble and craters may lie on the decor shoulder** (a ruined
+city looks wrong without them) but never on the player's floor, and **park benches and
+trees are exempt** — they stand on the park lawn, which *is* walkable, so the pavement
+filter would have deleted every one of them.
+
+`stage12WorldDebug().playfield` re-derives the audit from the colliders that were actually
+built, and smoke pins `blockersOnAvenue === 0` *and* `rejectedOnRoad > 0` — the second half
+matters, because a filter that never rejects anything would report zero just as happily.
+
+### 2. The boss arena IS the Survival Monas park
+
+`S12_PARK` reproduces the Survival arena — half-extents **620 × 340**, a concrete perimeter
+fence at the park edge, Jalan Medan Merdeka outside it, the central plaza, the two Jalan
+Silang diagonals crossing at the monument, the Air Mancur Menari basin (solid, and its top
+is standable), the Kolam Pantul, benches and tree lawns.
+
+It is a **rebuild, not an import**. `scenes/survival/world.js` builds into the scene root at
+the world origin with `Math.random()`, Phong materials and procedural textures, and its
+Monas is *destructible* — it topples on a hinge when `monasHp` runs out. Stage 12's is
+deterministic, PAL-token, Lambert, campaign-owned, stable and 430,000 units away, and the
+smoke sweep that forbids `scenes/survival` inside `world.js` is unchanged. What the test
+does instead is **measure the campaign park against Survival's own exported constants**
+(`PARK`, `FENCE_H`, `ROAD_W`, `FOUNTAIN`), so retuning the Survival arena breaks this test
+first rather than letting the two silently drift apart.
+
+Consequences that follow from the move: the plaza is the boss floor, so the four authored
+charge lanes ring the monument at ±150 and the four hardline pads sit on a 230-unit ring;
+park trees are solid, as in Survival, but `parkClearOfArena` keeps them out of a 260-unit
+disc around Monas, off both diagonals and out of the gate corridor, so no tree can stand in
+a charge lane; and `groundHeight` is no longer `() => 0` but `blockersGroundHeight`, because
+the fountain basin and the pool lip are surfaces you can stand on.
+
+### 3. One gate, and it seals behind you
+
+The park has exactly one opening, in the **west fence**, in line with the boulevard.
+
+- It **only responds to a cleared road**: `gateArmed` is set when `allGuardsDown()` is true,
+  and only then does proximity (`gateOpenRange`) open it. Its status lamps carry their own
+  material instances — one shared `M.hazard` would have recoloured every hazard marking in
+  the world the moment the gate went green.
+- It is the shared two-leaf rig (`buildSplitDoor`/`updateDoorMotion`), so it inherits the
+  campaign door easing, the exact-settle integrator and the one open/close SFX pair.
+- Its colliders **follow the drawn leaves** through `splitDoorLeafOffset` — the single source
+  of leaf position — so what blocks is what you see. `thickness` is **8**, not an interior
+  door's 3.2: the player covers ~4.5 units in one frame and a thin plate is tunnelled
+  through (the Stage 11 barrier rule).
+- Walking in **seals it permanently** (`sealStage12Gate`), the camera locks to the park
+  (`S12_ARENA_BOUNDS`), and the gate closes again with the player inside.
+- The fence and the closed leaves stop **bullets** too, by a swept segment-vs-box test
+  rather than a point test, for the same frame-step reason.
+
+That the gate is the only way in is not a claim in a comment: smoke runs a **BFS over the
+real walk predicate and the real colliders** from the player start, and requires that with
+the gate shut the monument is unreachable and with it open the monument is reachable.
+
+### 4. The boss rises at the monument, not at the gate
+
+`bossTriggerMeters` (15) is the whole trigger, converted once through `CAMP_M`. Sealing the
+park does **not** start the fight; standing within 15 m of Monas does. Smoke drives the real
+scene hooks through the whole chain — clear the three boulevard encounters, gate arms, gate
+opens, player crosses, gate seals, player stands just outside the ring (nothing happens),
+player steps inside (M-0 rises) — and checks the gate is shut again by the time the duel
+starts.
+
+The three guard encounters were moved west onto the boulevard so all of them are fought
+*before* the gate: the park is empty when you enter it, which is what makes the seal read as
+a trap closing rather than as a wave gate. `arenaEnterRange` is deleted; `gateOpenRange` and
+`bossTriggerMeters` replace it in `campaign.stage12`.
+
+## Stage 12 — the arrival aircraft, rebuilt as a hero asset (2026-09-04, user request)
+
+The report was *"bentuk pesawat yg dinaiki player di awal di stage 12 itu masih
+jelek dan terlalu basic seperti placeholder"*, and it was accurate: the old rig was one
+box fuselage, one cone nose, two flat wing boxes and two five-bladed rotors — **25 meshes**,
+a blocking model that had never been finished. It also lands *at the player's feet* and is
+framed tightly by the opening cutscene camera, so it was the worst possible thing to leave
+as a placeholder.
+
+`stages/stage12/transport.js` now owns the **N.U.S.A. "GARUDA" stealth tiltrotor VTOL**:
+a chined, faceted hull in three stacked masses, a six-sided faceted nose with chines that
+converge at the tip, an angular three-facet cockpit with its own frame and brow visor,
+recessed side doors, an upswept tail boom with canted V-fins and ventral strakes, a swept
+shoulder wing with anhedral tips, wing fences and leading-edge root extensions, a dorsal
+spine with comms blades and a satcom dome, and gear sponsons. **123 meshes, 23 of them
+non-box.**
+
+Five things about it are rules, not styling.
+
+**It is a JET, through the shared module.** `buildTurbofan()` from
+`campaign/utility/turbofan.js` supplies both nacelles, so this aircraft cannot quietly grow
+its blades back out into a propeller: `fanRadius` is derived from `cowlRadius` inside that
+shared module and cannot be passed in. Smoke checks the derivation itself, and sweeps the
+source for the import.
+
+**Its nacelles TILT, and the axis is not guessable.** The shared nacelle faces its own local
+`+z`, while this aircraft's nose is at local `−x`, so it is wrapped in a group with
+`rotation.y = −PI/2` — writing `+PI/2` mounts the engines backwards and points the thrust at
+the tail. The tilt itself is `pivot.rotation.z`, which swings the nacelle in the fore/aft
+plane exactly as a tiltrotor does, and runs from cruise (−0.16) to hover (−PI/2) across the
+descent. A parked tiltrotor stands in hover, so that is also its resting pose.
+
+**Zero PointLights.** Every "light" — landing lights, the anti-collision beacon, wingtip
+navigation lights, the formation strips and the exhaust rings — is a Lambert material with
+its own instance, animated through `emissiveIntensity`, which is not part of the r128 shader
+program key, so lighting the aircraft up can never trigger a recompile. Own instances matter
+for a second reason: one shared `PAL.amber` would have recoloured everything in the world
+that uses amber the moment the engines spooled. The navigation lights use hazard red and
+warm white — never green, which is a reserved gameplay signal (EXIT, coolant).
+
+**Its parking height is DERIVED from its own gear.** `buildGear` records the lowest point of
+every wheel and `restY` falls out of that, so lengthening a leg or fattening a tyre moves
+the aircraft up with it rather than sinking the fuselage into the asphalt. The old rig
+happened to sit right only because its numbers were typed to match.
+
+**And its landing point is derived from how wide it actually is.** The new aircraft has a
+104-unit span against the old 15-unit fuselage; left where it was, the player would have
+spawned *inside a landing-gear sponson*. `measureLowBody` walks the hull boxes that were
+actually built, takes the AABB-of-OBB z-extent of each one below wing height (so a chine
+rotated 45° is not counted as wide as its diagonal), and folds in the nacelles — whose tilt
+rotates them in the x/y plane and therefore never changes their z reach at all. It publishes
+**`lowHalfZ` 52.26**, and the landing point stands **76** units from the player start against
+a requirement of `lowHalfZ + player.radius` = 57.26. Smoke pins that relation rather than the
+number.
+
+The flight path, the cutscene's camera and its framing are deliberately untouched apart from
+that lateral shift — what was reported was the aircraft, not the shot. The descent gained a
+real landing flare (nose up and a slight bank while it still hangs on its fans, both easing
+to exactly zero as the wheels touch), the gear extends and the bay doors swing during the
+middle of the approach, and the rear ramp lowers **only after touchdown**. `dt <= 0` snaps
+the whole rig to its target state, because `finishReturnCine` calls the updater exactly once
+with `dt = 0` when the cutscene is skipped and a ramp frozen half-open there reads as a bug.
+
+`stage12WorldDebug().pointLights` is now **counted from the scene graph** instead of being a
+typed `0` — a hand-written zero stops being evidence the moment a new asset enters the root.
+
+## Stage 12 — the fight moved INTO the Survival park, and the camera was unlocked (2026-09-04)
+
+Two corrections, both user-directed.
+
+### 1. There is now exactly ONE Taman Monas in the game
+
+The previous pass built a campaign-owned *rebuild* of the Survival arena. The instruction —
+*"gunakan benar-benar area monas di survival mode, jangan buat baru lagi"* — was to use the
+real one, so the rebuild is deleted. Stage 12 now calls `ensureParkWorld()` and **plays inside
+the park `scenes/survival/world.js` builds**: its ground, Jalan Medan Merdeka, the concrete
+perimeter fence, the radial plaza, the Jalan Silang diagonals, the dancing fountain, the
+reflecting pool, the tree lawns, the Monas, and the ruined Jakarta skyline ring.
+
+**Stage 12 therefore moved to the world origin.** `S12_ORIGIN` is `(0, 0)` — the campaign
+world coordinate spread exists so worlds don't overlap, and here overlapping is the *point*.
+The registry's "every world has its own box" test now exempts records that share a
+`lightsKey`, because two records lit the same way are the same place.
+
+**The park is its own world root, `monas-park`.** Stage 12 activates
+`['campaign-12', 'monas-park']`; Survival activates `['monas-park']` (which also fixes a
+latent leak — Survival used to leave the last campaign stage's root visible). While Stages
+1–11 play, the park is hidden and un-traversed like any other world.
+
+**Collision is borrowed, not re-derived.** `resolveMonas`, `resolveObstacles`,
+`groundHeightAt` and `segmentHitsFountain` come from the Survival module, so the monument,
+the trees and the fountain basin behave identically in both modes and cannot drift apart.
+One safety net was needed: `resolveMonas` slides along the monument using the *previous*
+frame's position, and the generic robot clamp calls `resolve(p, r, f)` without one — which
+freezes an entity inside the box instead of ejecting it. Stage 12's `clampRobot` now
+forwards the real previous position, and `resolveStage12World` pushes out through the
+nearest face if anything is still inside.
+
+**Stage 12 never damages the shared monument.** It has no path to `startMonasCollapse`, and
+`resetStage12World` calls `resetMonasCollapse()` so a Survival run that toppled the Monas
+cannot carry that into the campaign ending. The old smoke rule forbidding this module from
+touching Survival is **inverted**: it must now import it, and must still never damage it.
+
+**Three things the shared park gained**, each because the campaign needs them and each
+harmless — arguably an improvement — in Survival:
+
+- **A west gate** (`PARK_GATE`): one 84-unit opening in the west fence with taller gate
+  posts. Survival reads it as a park entrance; its hard boundary was always the `PARK.hx/hz`
+  clamp in `playerCollide`, never the fence, so the opening cannot leak a player out.
+- **A building-free west corridor** (`PARK_WEST_CORRIDOR`): the skyline ring skips a wedge
+  to the west, because the campaign approach boulevard runs through it and a building in the
+  middle of the road is exactly the defect already reported once.
+- **Reserved plots** (`PARK_RESERVED`): the vault M-0 rises from and the four hardline pads.
+  The tree sampler rejects them, so no random trunk grows through campaign steel — and
+  Stage 12 *reads its own installation coordinates from that list*, so what is reserved and
+  what is built cannot disagree.
+
+Stage 12's own root now holds only what is campaign: the deployment boulevard, the gate
+leaves, the hardline pads, the vault, the wrecks, the inert shells and the arrival transport.
+Its census dropped accordingly, and smoke asserts the park semantics are **absent** from it —
+no `monas`, no `park-fence`, no `park-tree`, no `monas-plaza` — because building any of those
+again would mean a second park.
+
+The identity is what the test pins: the root Stage 12 reports must be the very object
+`monasParkRoot()` returns. A convincing copy passes "same dimensions"; it fails this.
+
+### 2. The camera is never locked during the boss fight
+
+*"jangan kunci kamera ketika melawan boss ... aturan kamera terkunci itu hanya ada di stage 4
+boss tank."* `stage12Scene.camBounds` is now `() => null` unconditionally, and `arenaLocked`
+is gone. `S12_ARENA_BOUNDS` survives only as the boss's **projectile** bound.
+
+**Stage 4 keeps its lock, and keeps it alone** — there the clamp is load-bearing: the tank
+deliberately withdraws out of view and the pinned frame is what makes losing sight of it read
+as a threat rather than a bug. Nothing else in the game clamps the view. Smoke checks Stage
+12's camera is unbounded during the live duel, sweeps its source for the unconditional
+`camBounds`, and confirms Stage 4 still defines one.
+
+## Stage 12 transport — seven orientation defects, and the test that finds them (2026-09-04)
+
+The report was *"ada bagian pesawat yang memiliki arah pemasangan yang kurang tepat, ada
+yang seperti terbalik, seperti kurang pas sudutnya"*, and it was right seven times over.
+Every one is the same class of bug: an Euler angle written on the wrong axis, without a side
+sign, or dropped entirely. Under `Rx·Ry·Rz` (three.js `XYZ`), which term does what depends on
+what the terms *inside* it already did, and eyeballing the number tells you nothing.
+
+| Part | Was | Actually did | Now |
+| --- | --- | --- | --- |
+| Nose cone | `(0, PI/6, PI/2)` | `ry` **tilted the cone's axis 30° sideways** — the nose pointed off at an angle, not forward | `(PI/6, 0, PI/2)` — `rz` aims it at −x, `rx` then rolls the hex facets about that new axis |
+| Windshield, quarter lights, frame, brow | `rz` negative | normal raked toward the **tail** — the canopy read as mounted backwards | `rz` positive: normal points forward-and-up |
+| Wing panels + fences | `ry = -s * 0.30` | **both wings swept FORWARD**, contradicting the panel centres, which already stepped aft | `ry = s * 0.30` — tips move toward the tail |
+| LERX | `ry = s * 0.17` | flared **wider toward the nose** | `ry = -s * 0.17` — narrows forward |
+| Tail fins | `ry = -0.2` (no side sign) | one fin toed in, the other toed out — literally "one part mounted the wrong way" | cant on `rx` (signed), rake on `rz`; no `ry` |
+| Gear bay doors | `DOOR_OPEN = -1.15` | both doors swung **up, through the sponson** | `+1.15` — they swing down |
+| Tail fins (2nd pass) | `bx(…, 40, 32, s * 0.46, 0, -0.16)` | the **`z` position argument was dropped** while rewriting the line, shifting every later argument: both fins collapsed onto the centreline with no cant | `bx(…, 40, 32, s * 9.5, s * 0.46, 0, -0.16)` |
+
+That last one was introduced *by the fix for the fifth*, which is the useful lesson: a
+positional-argument builder with eleven parameters will silently accept a line missing one.
+A source audit now checks the arity of every `bx`/`shape` call, and two runtime guards close
+the rest.
+
+**The rig publishes the directions its parts actually face**, computed at build time from the
+same rotations the meshes carry: `axes.nose` (the cone's axis), `axes.canopy` (the
+windshield's normal), `axes.wingSpan` (the panel's span axis), `axes.fin` + `axes.finZ`, and
+`gearDoorSwingY`. Smoke asserts the *resulting direction*, never the written angle — the nose
+must be pure −x with a zero z component, the canopy normal must have negative x, the wingtip
+must move toward +x, the fin must stand outboard (`finZ > 5`), cant outward and rake aft, and
+the bay door must travel downward.
+
+**And a left/right mirror audit** pairs every off-centre hull part with its twin and compares
+their **projected AABB extents on all three axes**, which catches a missing side sign
+generically. It compares extents rather than Euler angles on purpose: a square-section chine
+rotated ±45° is the same diamond either way, so an angle comparison would raise false alarms,
+while an extent comparison sees only real asymmetry. Its threshold is `|z| > 1e-6`, not a
+tolerant `> 0.5` — the loose version was what let the collapsed fins slip through, since a
+part that falls onto the centreline is exactly the failure the audit exists to catch.
+
+Both are mutation-tested: reintroducing any of the defects above makes them fail.
+
+## M-0 Mahapatih — the rig faced the wrong way (2026-09-04, user request)
+
+*"bentuk dan form last boss itu masih belum sesuai"* — checked, and the cause is one thing
+with eight symptoms: **the boss's forward is local `+z`, and most of the rig was authored
+facing `−x`.**
+
+The convention is set by the movement code, not by the mesh. `faceToward` writes
+`rotation.y = atan2(dx, dz)`, and a group yawed that way maps its local **+z** onto the
+target — so every direction-bearing part must point along +z. The siege hull obeyed it
+(43 wide in x, 34 deep in z, with front/rear glacis plates at z ±15 and side skirts running
+fore-aft at x ±18), and so did the combat torso (19 across the shoulders, 12 front-to-back).
+Everything else did not:
+
+| Part | Was | Actually did |
+| --- | --- | --- |
+| Siege turret barrels | `rz = PI/2` | axis on **−x** — the boss faced you and fired 90° out of its left side |
+| Head visor + brow | at `x = -4.1` | the face looked **left**, not at the player |
+| Core + shutters | at `x = -6.2`, sliding on `z` | the weak point you must shoot was on the **flank**, and the shutters slid the wrong way |
+| Shoulder cannon | at `z = +8`, barrel on −x | mounted on the **chest**, firing sideways |
+| Arms / shoulders | `z = ±10` | one arm in **front** of the chest, one **behind** it — contradicting the torso's own 19×12 proportions |
+| Combat legs | `z = ±5` | one leg forward, one back — a permanent split stance |
+| Siege stride | `hip.rotation.z` | feet swung **sideways**: the chassis shuffled rather than walked |
+| Blade combo | `rotation.x = ∓1.2` | opposite signs, so **one blade always slashed behind the boss**, where the attack never targets |
+
+All of it now faces +z: barrels and cannon on `rx = PI/2`, the visor a slit across the face,
+the core in the middle of the chest with shutters that part left-and-right, arms and legs
+straddling ±x with the pauldron axis on `rz = PI/2` and feet toed forward, the stride swinging
+on `rotation.x`, and both blades chopping forward — beat one a straight chop, beat two an
+outward cross-slash that still lands in front.
+
+**One thing was missing rather than misaimed: the turret never aimed.** `updateTurretAttack`
+turned the *body* and spawned the round at a computed angle, but nothing ever touched
+`turret.rotation.y`. `aimTurret` now slews it to the residual angle (world bearing minus body
+yaw) and runs **every siege frame, not only while firing** — a gun that sits centred and then
+suddenly emits a round sideways is exactly what makes a shot look like it didn't come out of
+the muzzle.
+
+### Making it checkable
+
+The rig publishes a **`form`** block measured from what was actually built — barrel and cannon
+axes, visor and core positions, shutter offsets, shoulder/arm/leg placements and the four
+siege hips — and smoke asserts the *resulting direction and layout*, never the written angle:
+barrels and cannon must point +z with zero x, visor and core must sit on the front face at
+x = 0, shutters must part in x at the core's own z, and arms and legs must straddle ±x with
+`|z| = 0` and mirror exactly. One assert is deliberately relational rather than absolute —
+the shoulder separation must exceed the torso's own depth, which is *why* the arms belong on
+x and is what the original layout violated.
+
+A live test then drives the real boss with the player off to one side and requires
+`bodyYaw + turretYaw` to converge on the true bearing, the same shape as Stage 4's
+"MG aims at the player even behind the hull". Every one of these is mutation-tested:
+restoring any of the defects above makes them fail.
+
+## M-0 Mahapatih — chassis terbelah dua dan TERTINGGAL (2026-09-04, permintaan user)
+
+*"ketika fase 1 hancur, chasis itu terbelah 2 kemudian robot itu berdiri dan keluar. chasis
+yang terbelah itu tadi tidak boleh menempel dan mengikuti pergerakan robot, harus tertinggal
+di tempat."*
+
+Sebelumnya transisi hanya memiringkan chassis (`siege.rotation.z = -0.18`) lalu
+menggesernya (`position.set(11, -4, 8)`) — **dan `siege` tetap anak dari `group` boss**, jadi
+begitu robotnya berjalan, charge atau berputar, seluruh chassis itu ikut terseret bersamanya.
+Bangkainya bukan bangkai; ia masih bagian dari boss.
+
+**Lambungnya sekarang benar-benar dua paruh.** `splitBox` mengiris tiap kotak lambung pada
+bidang `x = 0` dan menaruh potongannya ke `shellL`/`shellR`, yang masing-masing dilas sendiri
+(`Welded-Siege-Armour-Port` / `-Starboard`). Selama paruhnya masih rapat, geometri yang
+digambar identik dengan versi satu badan — belahannya baru terlihat ketika dibuka. Setiap kaki
+ikut paruh di sisinya, dan **menara duduk di paruh kanan**: kalau ia dibiarkan di jangkar, ia
+akan melayang di udara tanpa penopang begitu kedua cangkang membuka.
+
+**`siege` menjadi JANGKAR BANGKAI yang dilepas dari boss.** Pada frame chassis pecah,
+`detachSiege` memindahkannya dari `group` ke parent dunia dan menyalin pose `group` saat itu
+(posisi + yaw). Karena cangkang duduk di origin `group`, penyalinan itu menghasilkan pose yang
+persis sama pada frame pelepasan — tidak ada lompatan. Sejak detik itu robotnya bebas ke mana
+pun dan bangkainya tidak ikut. Polanya sama dengan turret tank Stage 4 yang terlepas menjadi
+benda dunia.
+
+Parent tujuannya sengaja **parent yang sama dengan boss**, bukan `scene`: di Stage 12 itu root
+dunia campaign, jadi bangkainya ikut disembunyikan bersama dunianya. Dan karena cangkang bukan
+anak `group` lagi, `setVisible` harus menyembunyikannya sendiri — kalau tidak, bangkainya
+tetap terlihat setelah bossnya disembunyikan.
+
+Animasinya: kedua paruh menggeser ke luar `SHELL_OPEN_X` (27), rebah keluar `SHELL_ROLL`
+(0.66) dan ambruk `SHELL_DROP` (5), sementara robotnya berdiri naik dari dalam. Semuanya
+nilai visual murni, jadi tetap di kode. `finishTransition` mengunci bukaan di 1 dan setelah
+itu cangkang **diam selamanya**.
+
+`resetMahapatih` memanggil `reattachSiege`, jadi stage boleh diulang: cangkang kembali menjadi
+anak `group`, rapat, dan pose jangkarnya nol.
+
+### Yang dipatok
+
+Smoke menjalankan jalur transisi yang sebenarnya, lalu **memindahkan boss 300 unit dan
+memutarnya 1,9 rad**, dan menuntut posisi jangkar, yaw, serta pose kedua paruh tidak berubah
+satu pun (toleransi `1e-9`). Selain itu: cangkang masih menempel sebelum pecah, dilepas tepat
+pada frame pecah dengan mewarisi pose boss saat itu, kedua paruh benar-benar terbuka ke sisi
+berlawanan dengan roll berlawanan tanda, dan reset memasangnya kembali dalam keadaan rapat.
+Ketiganya mutation-tested — menghapus `detachSiege`, membuat paruhnya tidak menggeser, atau
+menghapus `reattachSiege` membuat test gagal.

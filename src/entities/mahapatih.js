@@ -21,6 +21,12 @@ const tmp = new THREE.Vector3();
 
 const bossCfg = () => CFG.campaign.bosses.mahapatih;
 
+// Bukaan cangkang siege. Nilai visual murni, jadi tetap di kode seperti amplitudo
+// animasi lain — tidak ada gameplay yang membacanya.
+const SHELL_OPEN_X = 27;    // seberapa jauh tiap paruh menggeser ke luar
+const SHELL_ROLL = 0.66;    // rebah ke luar
+const SHELL_DROP = 5;       // ambruk ke tanah
+
 function mesh(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
@@ -31,6 +37,23 @@ function box(parent, mat, sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0) {
     return mesh(parent, new THREE.BoxGeometry(sx, sy, sz), mat,
         x, y, z, rx, ry, rz);
 }
+
+// Arah sebuah sumbu lokal setelah rotasi Euler XYZ (R = Rx*Ry*Rz). Dipakai untuk
+// MEMBUKTIKAN ke mana sebuah bagian benar-benar menghadap: pada rig sebesar ini
+// sebuah sudut bisa terlihat masuk akal dan tetap menunjuk 90 derajat meleset.
+function axisDir(rot, v) {
+    const s1 = Math.sin(rot.x), c1 = Math.cos(rot.x);
+    const s2 = Math.sin(rot.y), c2 = Math.cos(rot.y);
+    const s3 = Math.sin(rot.z), c3 = Math.cos(rot.z);
+    return {
+        x: (c2 * c3) * v[0] + (-c2 * s3) * v[1] + s2 * v[2],
+        y: (c1 * s3 + s1 * s2 * c3) * v[0] + (c1 * c3 - s1 * s2 * s3) * v[1]
+            + (-s1 * c2) * v[2],
+        z: (s1 * s3 - c1 * s2 * c3) * v[0] + (s1 * c3 + c1 * s2 * s3) * v[1]
+            + (c1 * c2) * v[2],
+    };
+}
+const xyz = v => ({ x: v.x, y: v.y, z: v.z });
 
 function mats() {
     return {
@@ -85,38 +108,73 @@ export function buildMahapatihMesh(scale = 1) {
     const group = new THREE.Group(); group.name = 'M0-Mahapatih-Sovereign-War-Body';
     const M = mats();
 
+    // CHASSIS TERBELAH DUA (2026-09-04, permintaan user "ketika fase 1 hancur,
+    // chasis itu terbelah 2 kemudian robot itu berdiri dan keluar"). Lambungnya
+    // karena itu tidak lagi satu badan yang dilas, melainkan DUA paruh cangkang
+    // kiri/kanan yang masing-masing dilas sendiri. `splitBox` mengiris tiap
+    // kotak lambung pada bidang x = 0, jadi geometri yang digambar tetap sama
+    // persis selama paruhnya masih rapat — belahannya baru terlihat saat dibuka.
+    //
+    // `siege` adalah JANGKAR bangkai: saat transisi ia DILEPAS dari `group` dan
+    // dipindah ke parent dunia, sehingga cangkangnya tertinggal di tempat dan
+    // tidak ikut ke mana pun robotnya pergi.
     const siege = new THREE.Group(); siege.name = 'Mahapatih-Siege-Chassis';
     group.add(siege);
-    const hullRaw = new THREE.Group();
-    // Faceted broad chassis. Static armour is welded while turrets, legs and
-    // the contained command frame stay addressable.
-    box(hullRaw, M.armor, 43, 10, 34, 0, 16, 0);
-    box(hullRaw, M.armorDark, 34, 7, 40, -2, 21, 0, 0, 0, 0.04);
-    box(hullRaw, M.plate, 25, 4, 31, -4, 27, 0);
+    const shellL = new THREE.Group(); shellL.name = 'Siege-Shell-Port';
+    const shellR = new THREE.Group(); shellR.name = 'Siege-Shell-Starboard';
+    siege.add(shellL); siege.add(shellR);
+    const rawL = new THREE.Group(), rawR = new THREE.Group();
+    const splitBox = (mat, w, h, d, cx, cy, cz) => {
+        const lo = cx - w / 2, hi = cx + w / 2;
+        for (const [raw, a, b2] of [[rawL, lo, Math.min(hi, 0)],
+            [rawR, Math.max(lo, 0), hi]]) {
+            if (b2 - a <= 1e-6) continue;
+            box(raw, mat, b2 - a, h, d, (a + b2) / 2, cy, cz);
+        }
+    };
+    splitBox(M.armor, 43, 10, 34, 0, 16, 0);
+    splitBox(M.armorDark, 34, 7, 40, -2, 21, 0);
+    splitBox(M.plate, 25, 4, 31, -4, 27, 0);
     for (const z of [-15, 15]) {
-        box(hullRaw, M.armor, 31, 5, 7, 2, 19, z, 0, 0, z * 0.002);
-        for (const x of [-10, 0, 10]) box(hullRaw, M.steel, 1.4, 5, 8,
-            x, 22, z * 1.08);
+        splitBox(M.armor, 31, 5, 7, 2, 19, z);
+        for (const x of [-10, 0, 10]) splitBox(M.steel, 1.4, 5, 8, x, 22, z * 1.08);
     }
-    for (const x of [-18, 18]) box(hullRaw, M.armorDark, 8, 8, 27,
-        x, 15, 0, 0, 0, x * 0.004);
-    const hull = mergeObjectInPlace(hullRaw); hull.name = 'Welded-Siege-Armour'; siege.add(hull);
+    for (const x of [-18, 18]) splitBox(M.armorDark, 8, 8, 27, x, 15, 0);
+    const hullL = mergeObjectInPlace(rawL); hullL.name = 'Welded-Siege-Armour-Port';
+    const hullR = mergeObjectInPlace(rawR); hullR.name = 'Welded-Siege-Armour-Starboard';
+    shellL.add(hullL); shellR.add(hullR);
+    const hull = hullL;   // kompatibilitas: rujukan lambung utama
 
+    // Tiap kaki ikut paruh di sisinya, jadi cangkang yang terbelah membawa
+    // kakinya sendiri alih-alih meninggalkan kaki melayang di tengah.
     const legs = [];
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-        const leg = buildSiegeLeg(M, sx, sz); siege.add(leg.hip); legs.push(leg);
+        const leg = buildSiegeLeg(M, sx, sz);
+        (sx < 0 ? shellL : shellR).add(leg.hip); legs.push(leg);
     }
-    const turret = new THREE.Group(); turret.position.set(4, 29, 0); siege.add(turret);
+    // DEPAN BOSS = +z LOKAL. `faceToward` menulis rotation.y = atan2(dx, dz),
+    // dan sebuah grup ber-rotation.y memetakan +z lokal ke arah itu — jadi
+    // SELURUH rig harus menghadap +z. Laras menara dulu diarahkan dengan
+    // rz = PI/2, yang menunjuk ke -x: bossnya menghadap player tapi meriamnya
+    // menembak 90 derajat ke samping.
+    // Menara duduk di paruh KANAN: kalau tetap di jangkar, ia akan melayang di
+    // udara begitu kedua cangkang membuka. Selama fase siege paruhnya belum
+    // bergerak, jadi rantai rotasi menara tetap group.y + turret.y (aimTurret).
+    const turret = new THREE.Group(); turret.position.set(0, 29, -2); shellR.add(turret);
     mesh(turret, new THREE.CylinderGeometry(10, 12, 6, 8), M.armor,
         0, 0, 0);
-    box(turret, M.armorDark, 20, 4, 13, 0, 4, 0);
-    const turretMuzzle = new THREE.Group(); turretMuzzle.position.set(-9, 4, 0); turret.add(turretMuzzle);
-    for (const z of [-2.2, 0, 2.2]) mesh(turretMuzzle,
-        new THREE.CylinderGeometry(0.65, 0.82, 21, 8), M.steel,
-        -8, 0, z, 0, 0, Math.PI / 2);
+    box(turret, M.armorDark, 13, 4, 20, 0, 4, 4);
+    const turretMuzzle = new THREE.Group(); turretMuzzle.position.set(0, 4, 9); turret.add(turretMuzzle);
+    let turretAxis = null;
+    for (const x of [-2.2, 0, 2.2]) {
+        const barrel = mesh(turretMuzzle,
+            new THREE.CylinderGeometry(0.65, 0.82, 21, 8), M.steel,
+            x, 0, 8, Math.PI / 2, 0, 0);
+        turretAxis = axisDir(barrel.rotation, [0, 1, 0]);
+    }
     const muzzleFlash = mesh(turretMuzzle, new THREE.SphereGeometry(2.7, 8, 6),
         new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
-            opacity: 0, depthWrite: false, toneMapped: false }), -19, 0, 0);
+            opacity: 0, depthWrite: false, toneMapped: false }), 0, 0, 19);
     muzzleFlash.castShadow = false;
 
     const combat = new THREE.Group(); combat.name = 'Mahapatih-Personal-Frame';
@@ -127,27 +185,36 @@ export function buildMahapatihMesh(scale = 1) {
     box(torso, M.armor, 19, 20, 12, 0, 6, 0);
     box(torso, M.plate, 22, 6, 14, 0, 9, 0);
     box(torso, M.armorDark, 13, 5, 14, 0, 17, 0);
+    // Inti terbuka ada di DADA (muka +z), dan rananya menggeser ke kiri-kanan
+    // (x) untuk menyingkap — dulu keduanya di sisi -x dan bergeser di z, jadi
+    // inti yang harus ditembak menghadap ke samping.
     const core = mesh(torso, new THREE.SphereGeometry(4.2, 12, 8), M.core,
-        -6.2, 6, 0); core.castShadow = false;
-    const shutterL = box(torso, M.armor, 5.8, 11, 2, -6.2, 6, -3.2, 0.08, 0, 0);
-    const shutterR = box(torso, M.armor, 5.8, 11, 2, -6.2, 6, 3.2, -0.08, 0, 0);
+        0, 6, 6.2); core.castShadow = false;
+    const shutterL = box(torso, M.armor, 5.8, 11, 2, -3.2, 6, 6.2, 0, 0, 0.08);
+    const shutterR = box(torso, M.armor, 5.8, 11, 2, 3.2, 6, 6.2, 0, 0, -0.08);
     const neck = mesh(torso, new THREE.CylinderGeometry(2.4, 3, 4, 8), M.steel,
         0, 20, 0);
     const head = new THREE.Group(); head.position.set(0, 24, 0); torso.add(head);
     box(head, M.armorDark, 8, 7, 7, 0, 0, 0);
-    box(head, M.plate, 6, 3, 8, -1, 2, 0);
-    const eye = box(head, M.core, 1, 1.4, 7.4, -4.1, 0.5, 0); eye.castShadow = false;
-    const shoulderCannon = new THREE.Group(); shoulderCannon.position.set(2, 18, 8); torso.add(shoulderCannon);
-    box(shoulderCannon, M.armorDark, 13, 6, 6, 0, 0, 0);
-    mesh(shoulderCannon, new THREE.CylinderGeometry(1.2, 1.5, 15, 8), M.steel,
-        -9, 0, 0, 0, 0, Math.PI / 2);
+    box(head, M.plate, 8, 3, 6, 0, 2, 1);
+    // Visor membentang melintang di WAJAH (+z), bukan di pipi kiri.
+    const eye = box(head, M.core, 7.4, 1.4, 1, 0, 0.5, 4.1); eye.castShadow = false;
+    const shoulderCannon = new THREE.Group(); shoulderCannon.position.set(-9, 20, 0); torso.add(shoulderCannon);
+    box(shoulderCannon, M.armorDark, 6, 6, 13, 0, 0, 0);
+    const cannonBarrel = mesh(shoulderCannon,
+        new THREE.CylinderGeometry(1.2, 1.5, 15, 8), M.steel,
+        0, 0, 9, Math.PI / 2, 0, 0);
 
     const arms = [], blades = [];
     for (const side of [-1, 1]) {
-        const shoulder = new THREE.Group(); shoulder.position.set(0, 16, side * 10); torso.add(shoulder);
+        // Lengan berada di KIRI dan KANAN badan (sumbu x). Versi lama menaruhnya
+        // di z = +-10, yaitu satu di DEPAN dada dan satu di punggung — bertentangan
+        // dengan torsonya sendiri, yang memang lebih lebar di x (19) daripada
+        // dalam di z (12) seperti bahu manusia.
+        const shoulder = new THREE.Group(); shoulder.position.set(side * 10, 16, 0); torso.add(shoulder);
         mesh(shoulder, new THREE.CylinderGeometry(4.6, 4.6, 7, 8), M.armor,
-            0, 0, 0, Math.PI / 2, 0, 0);
-        const arm = new THREE.Group(); arm.position.set(0, -4, side * 3); shoulder.add(arm);
+            0, 0, 0, 0, 0, Math.PI / 2);
+        const arm = new THREE.Group(); arm.position.set(side * 3, -4, 0); shoulder.add(arm);
         box(arm, M.armor, 7, 17, 7, 0, -8, 0, 0, 0, side * 0.08);
         mesh(arm, new THREE.CylinderGeometry(2.5, 3, 5, 8), M.steel,
             0, -17, 0);
@@ -156,18 +223,34 @@ export function buildMahapatihMesh(scale = 1) {
     }
     const legsCombat = [];
     for (const side of [-1, 1]) {
-        const leg = new THREE.Group(); leg.position.set(0, -2, side * 5); pelvis.add(leg);
+        const leg = new THREE.Group(); leg.position.set(side * 5, -2, 0); pelvis.add(leg);
         box(leg, M.armor, 8, 18, 8, 0, -9, 0, 0, 0, side * 0.05);
-        box(leg, M.armorDark, 11, 5, 13, -2, -19, side * 1.5);
+        box(leg, M.armorDark, 11, 5, 13, side * 1.5, -19, 2);   // telapak ke +z
         legsCombat.push(leg);
     }
     combat.visible = false;
     group.scale.setScalar(scale);
     group.userData.mahapatihRig = true;
+    // BENTUK YANG DIUKUR, bukan yang diniatkan. `faceToward` memutar grup dengan
+    // rotation.y = atan2(dx, dz), jadi DEPAN boss adalah +z lokal dan setiap
+    // bagian penunjuk arah wajib mengikutinya. Angka-angka ini dipublikasikan
+    // supaya tes bisa mematok ARAH HASIL, bukan sudut yang tertulis.
+    const form = {
+        forward: 'z',
+        turretAxis, cannonAxis: axisDir(cannonBarrel.rotation, [0, 1, 0]),
+        eye: xyz(eye.position), core: xyz(core.position),
+        shutters: [xyz(shutterL.position), xyz(shutterR.position)],
+        shoulders: arms.map(a => xyz(a.shoulder.position)),
+        upperArms: arms.map(a => xyz(a.arm.position)),
+        legs: legsCombat.map(l => xyz(l.position)),
+        siegeHips: legs.map(l => xyz(l.hip.position)),
+        torso: { spanX: 19, depthZ: 12 },
+    };
     return {
-        group, siege, hull, legs, turret, turretMuzzle, muzzleFlash,
+        group, siege, shellL, shellR, hull, hullL, hullR,
+        legs, turret, turretMuzzle, muzzleFlash,
         combat, pelvis, torso, core, shutterL, shutterR, neck, head, eye,
-        shoulderCannon, arms, blades, legsCombat, materials: M,
+        shoulderCannon, arms, blades, legsCombat, materials: M, form,
     };
 }
 
@@ -228,12 +311,58 @@ function buildHardline(index, count) {
 
 function addTo(parent, object) { (parent || scene).add(object); return object; }
 
+// LEPAS cangkang dari boss. Setelah ini `siege` bukan lagi anak `group`, jadi
+// setiap pergerakan/putaran robot TIDAK menyeret bangkainya — inilah inti
+// permintaan "chasis yang terbelah itu tidak boleh menempel dan mengikuti
+// pergerakan robot, harus tertinggal di tempat". Polanya sama dengan turret tank
+// Stage 4 yang terlepas menjadi benda dunia.
+//
+// Pose dunia dipertahankan dengan menyalin transform `group` ke jangkar: cangkang
+// duduk di origin `group` (position 0, rotation 0), jadi menyalin posisi dan yaw
+// menghasilkan pose yang identik pada frame pelepasan.
+function detachSiege(b) {
+    const p = b.parts;
+    if (p.siege.parent === p.worldParent) return;
+    p.worldParent.add(p.siege);
+    p.siege.position.copy(p.group.position);
+    p.siege.rotation.set(0, p.group.rotation.y, 0);
+    p.siege.scale.copy(p.group.scale);
+    b.siegeDetached = true;
+}
+
+function reattachSiege(b) {
+    const p = b.parts;
+    if (p.siege.parent !== p.group) p.group.add(p.siege);
+    p.siege.position.set(0, 0, 0); p.siege.rotation.set(0, 0, 0);
+    p.siege.scale.setScalar(1);
+    for (const [shell, side] of [[p.shellL, -1], [p.shellR, 1]]) {
+        shell.position.set(0, 0, 0); shell.rotation.set(0, 0, 0); void side;
+    }
+    b.siegeDetached = false;
+}
+
+// Membuka kedua paruh: menggeser ke luar, merebah keluar, dan ambruk sedikit.
+// `k` 0..1 sepanjang transisi.
+function openSiegeShells(b, k) {
+    const p = b.parts, e = k * k * (3 - 2 * k);
+    for (const [shell, side] of [[p.shellL, -1], [p.shellR, 1]]) {
+        shell.position.x = side * SHELL_OPEN_X * e;
+        shell.position.y = -SHELL_DROP * e;
+        // Rz positif menjatuhkan puncak ke -x, jadi paruh kiri memakai +roll.
+        shell.rotation.z = -side * SHELL_ROLL * e;
+    }
+}
+
 /** Allocate the full final-boss rig and every phase asset up front. */
 export function createMahapatih(opts = {}) {
     const B = bossCfg();
     const parent = opts.parent || scene;
     const parts = buildMahapatihMesh(opts.scale == null ? 1 : opts.scale);
     addTo(parent, parts.group);
+    // Ke mana cangkang dipindahkan saat terlepas. Sengaja parent yang SAMA dengan
+    // boss, bukan `scene`: di Stage 12 itu root dunia campaign, jadi bangkainya
+    // ikut disembunyikan bersama dunianya.
+    parts.worldParent = parent || scene;
     const artillery = [];
     for (let i = 0; i < Math.max(1, B.artillery.poolSize | 0); i++) {
         const shell = addTo(parent, buildMahapatihShellMesh());
@@ -273,7 +402,8 @@ export function createMahapatih(opts = {}) {
         parent, parts, artillery, waves, shots, telegraphs, hardlines,
         active: false, phase: 'dormant', phaseSerial: 0, hp: 0, maxHp: 0,
         score: B.score, dead: false, deathDone: false, deathT: 0,
-        transitionT: 0, attackIndex: 0, attackState: 'cooldown', attackT: 0,
+        transitionT: 0, siegeDetached: false,
+        attackIndex: 0, attackState: 'cooldown', attackT: 0,
         attackData: null, turretLeft: 0, turretT: 0, hoverT: 0, hitT: 0,
         sweepAngle: 0, sweepState: 'telegraph', sweepT: B.hardline.sweepTelegraphSec,
         sweepHitCd: 0, shutterOpen: false, shutterT: B.core.shutterClosedSec,
@@ -286,6 +416,10 @@ export function createMahapatih(opts = {}) {
 
 function setVisible(b, visible) {
     b.parts.group.visible = visible;
+    // Cangkang yang sudah terlepas bukan anak `group` lagi, jadi ia harus
+    // disembunyikan/ditampilkan sendiri — kalau tidak, bangkainya tetap terlihat
+    // setelah bossnya disembunyikan.
+    if (b.parts.siege.parent !== b.parts.group) b.parts.siege.visible = visible;
     if (!visible) clearMahapatihHazards(b);
 }
 
@@ -306,12 +440,12 @@ export function resetMahapatih(b, opts = {}) {
     const p = b.parts;
     p.group.position.set(opts.x || 0, opts.y || 0, opts.z || 0);
     p.group.rotation.set(0, opts.yaw || 0, 0); p.group.scale.setScalar(opts.scale || 1);
+    reattachSiege(b);
     p.siege.visible = b.active; p.combat.visible = false;
-    p.siege.position.set(0, 0, 0); p.siege.rotation.set(0, 0, 0);
     p.combat.position.set(0, 9, 0); p.combat.rotation.set(0, 0, 0);
     p.turret.rotation.set(0, 0, 0); p.muzzleFlash.material.opacity = 0;
     p.core.visible = true; p.materials.core.color.setHex(0xff2020);
-    p.shutterL.position.z = -3.2; p.shutterR.position.z = 3.2;
+    p.shutterL.position.x = -3.2; p.shutterR.position.x = 3.2;
     p.materials.threat.emissiveIntensity = EMISSIVE_MAX * 0.78;
     for (const leg of p.legs) {
         leg.hip.rotation.set(0, 0, 0); leg.knee.rotation.set(0, 0, 0);
@@ -619,11 +753,26 @@ function updateSeismic(b, dt) {
     }
 }
 
+// Menara membidik SENDIRI. Badan sudah diputar `faceToward`, jadi yang tersisa
+// hanyalah sudut sisa terhadap player — tanpa ini laras diam menghadap lurus ke
+// depan sementara peluru berangkat ke arah lain, dan itulah yang membuat
+// tembakannya terlihat tidak keluar dari moncongnya.
+function aimTurret(b, dt) {
+    const g = b.parts.group, t = b.parts.turret;
+    const want = Math.atan2(camera.position.x - g.position.x,
+        camera.position.z - g.position.z) - g.rotation.y;
+    let d = want - t.rotation.y;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    t.rotation.y += clamp(d, -2.6 * dt, 2.6 * dt);
+}
+
 function updateTurretAttack(b, dt) {
     const B = bossCfg(), p = b.parts.group.position;
     if (b.attackState === 'turretTelegraph') {
         b.attackT -= dt;
         faceToward(b, camera.position.x, camera.position.z, B.turnRadPerSec, dt);
+        aimTurret(b, dt);
         if (b.attackT <= 0) {
             b.attackState = 'turretBurst'; b.turretLeft = B.turret.burst | 0; b.turretT = 0;
         }
@@ -631,6 +780,7 @@ function updateTurretAttack(b, dt) {
     }
     if (b.attackState === 'turretBurst') {
         b.turretT -= dt;
+        aimTurret(b, dt);
         if (b.turretLeft > 0 && b.turretT <= 0) {
             const a = Math.atan2(camera.position.z - p.z, camera.position.x - p.x);
             spawnShot(b, 'turret', B.turret.bulletSpeed, B.turret.damage, 2.4, a);
@@ -645,11 +795,17 @@ function updateBlade(b, dt) {
     const B = bossCfg(), p = b.parts.group.position;
     b.attackT -= dt; b.telegraphs.blade.position.set(p.x, 0.35, p.z);
     if (b.attackState === 'bladeTelegraph' && b.attackT <= 0) {
-        b.parts.blades[0].rotation.x = -1.2; b.parts.blades[1].rotation.x = 1.2;
+        // KEDUA pedang menebas KE DEPAN. Versi lama memberi tanda berlawanan,
+        // jadi satu pedang selalu menebas ke belakang boss — ke tempat yang
+        // tidak pernah menjadi sasaran serangan ini.
+        b.parts.blades[0].rotation.set(-1.25, 0, 0);
+        b.parts.blades[1].rotation.set(-1.25, 0, 0);
         queueBoom(p.x, 4, p.z, B.blade.radius, true, B.blade.damage, 1, sfxTankBlast);
         b.attackState = 'bladeSecond'; b.attackT = B.blade.secondGapSec;
     } else if (b.attackState === 'bladeSecond' && b.attackT <= 0) {
-        b.parts.blades[0].rotation.x = 1.0; b.parts.blades[1].rotation.x = -1.0;
+        // Beat kedua: tebasan SILANG ke luar, tetap di depan badan.
+        b.parts.blades[0].rotation.set(-0.55, 0, -1.15);
+        b.parts.blades[1].rotation.set(-0.55, 0, 1.15);
         queueBoom(p.x, 4, p.z, B.blade.radius, true, B.blade.damage, 1, sfxTankBlast);
         b.telegraphs.blade.visible = false; endAttack(b);
     }
@@ -722,6 +878,9 @@ function updateProjectiles(b, dt, ctx) {
 function beginTransition(b, ctx) {
     const B = bossCfg(); clearMahapatihHazards(b);
     b.hp = 0; b.transitionT = B.transitionSec; b.attackState = 'transition';
+    // Cangkang dilepas PADA FRAME PECAHNYA, bukan di akhir animasi: sejak detik
+    // ini boss boleh bergerak dan bangkainya tetap di tempat.
+    detachSiege(b);
     phaseChanged(b, 'transition', ctx); addCamShake(5);
     explodeAt(new THREE.Vector3(b.parts.group.position.x, 18,
         b.parts.group.position.z), 18, 1, sfxTankExplode);
@@ -729,7 +888,7 @@ function beginTransition(b, ctx) {
 
 function finishTransition(b, ctx) {
     const B = bossCfg(), p = b.parts;
-    p.siege.rotation.z = -0.18; p.siege.position.set(11, -4, 8);
+    openSiegeShells(b, 1);        // cangkang berhenti terbuka, dan DIAM di sana
     p.combat.visible = true; p.combat.position.y = 9;
     b.hp = b.maxHp = B.combatHp; b.attackIndex = 0; b.attackState = 'cooldown'; b.attackT = B.attackGapSec;
     phaseChanged(b, 'personal', ctx);
@@ -806,8 +965,8 @@ function updateCoreShutters(b, dt) {
         b.shutterT = b.shutterOpen ? B.core.shutterOpenSec : B.core.shutterClosedSec;
     }
     const target = b.shutterOpen ? 8.5 : 3.2;
-    b.parts.shutterL.position.z += (-target - b.parts.shutterL.position.z) * Math.min(1, dt * 7);
-    b.parts.shutterR.position.z += (target - b.parts.shutterR.position.z) * Math.min(1, dt * 7);
+    b.parts.shutterL.position.x += (-target - b.parts.shutterL.position.x) * Math.min(1, dt * 7);
+    b.parts.shutterR.position.x += (target - b.parts.shutterR.position.x) * Math.min(1, dt * 7);
 }
 
 function bodyHit(b, bx, bz, px, pz) {
@@ -875,9 +1034,18 @@ function updateRig(b, dt) {
     if (b.hitT > 0) b.hitT = Math.max(0, b.hitT - dt * 6);
     const stride = Math.sin(b.hoverT * (b.phase === 'siege' ? 5 : 7));
     if (b.phase === 'siege') {
+        // Menara MELACAK player terus-menerus, bukan hanya saat menembak: sebuah
+        // meriam yang diam menghadap lurus ke depan lalu tiba-tiba melepas
+        // peluru ke samping adalah persis yang membuat serangannya terlihat
+        // tidak keluar dari moncongnya.
+        if (!b.dead) aimTurret(b, dt);
         for (let i = 0; i < p.legs.length; i++) {
-            p.legs[i].hip.rotation.z = stride * (i % 2 ? -0.12 : 0.12);
-            p.legs[i].knee.rotation.z = stride * (i % 2 ? 0.08 : -0.08);
+            // Langkah mengayun MAJU-MUNDUR: kaki menggantung ke -y, jadi ayunan
+            // sepanjang arah jalan (+z) adalah rotasi terhadap x. Versi lama
+            // memakai rotation.z, yang menggeser telapak ke samping — chassis-nya
+            // terlihat mengesot, bukan melangkah.
+            p.legs[i].hip.rotation.x = stride * (i % 2 ? -0.12 : 0.12);
+            p.legs[i].knee.rotation.x = stride * (i % 2 ? 0.08 : -0.08);
         }
     } else if (b.phase === 'personal' || b.phase === 'hardline' || b.phase === 'core') {
         p.combat.position.y = 9 + Math.sin(b.hoverT * 2.4) * 0.35;
@@ -929,8 +1097,9 @@ export function updateMahapatih(b, dt, ctx = {}) {
     if (b.phase === 'transition') {
         b.transitionT -= dt;
         const k = 1 - Math.max(0, b.transitionT) / Math.max(0.1, bossCfg().transitionSec);
-        b.parts.siege.rotation.z = -0.18 * k; b.parts.siege.position.y = -4 * k;
-        b.parts.combat.visible = k > 0.38; b.parts.combat.position.y = -7 + k * 16;
+        openSiegeShells(b, k);
+        // Robot BERDIRI keluar dari dalam cangkang yang membuka.
+        b.parts.combat.visible = k > 0.28; b.parts.combat.position.y = -7 + k * 16;
         if (b.transitionT <= 0) finishTransition(b, ctx);
         return;
     }
@@ -1030,6 +1199,17 @@ export function mahapatihDebug(b) {
     const B = bossCfg();
     return {
         active: b.active, phase: b.phase, phaseSerial: b.phaseSerial,
+        form: b.parts.form,
+        // Bangkai cangkang: terlepas dari boss dan tertinggal di tempatnya.
+        wreck: {
+            detached: b.siegeDetached === true,
+            attachedToBoss: b.parts.siege.parent === b.parts.group,
+            anchor: { x: b.parts.siege.position.x, y: b.parts.siege.position.y,
+                z: b.parts.siege.position.z, yaw: b.parts.siege.rotation.y },
+            shells: [b.parts.shellL, b.parts.shellR].map(sh => ({
+                x: sh.position.x, y: sh.position.y, rz: sh.rotation.z })),
+            splitGap: b.parts.shellR.position.x - b.parts.shellL.position.x,
+        },
         hp: b.hp, maxHp: b.maxHp, dead: b.dead, deathDone: b.deathDone,
         rewardGranted: b.rewardGranted, attack: b.attackState,
         attackIndex: b.attackIndex, attackT: b.attackT,

@@ -14,6 +14,9 @@ import { NADE_R } from '../../entities/grenades.js';
 import { gameOver } from '../../core/game.js';
 import { showPickup, showStageMsg } from '../../core/dom.js';
 import { applyLightPreset } from '../../world/lighting.js';
+import { setActiveCampaignWorldRoots }
+    from '../campaign/utility/campaignWorldRegistry.js';
+import { MONAS_PARK_KEY } from '../campaign/stages/stage12/world.js';
 import {
     PARK, FENCE_H, FOUNTAIN, ensureParkWorld, getSurvivalNav,
     resolveObstacles, resolveMonas, segmentHitsFountain, groundHeightAt,
@@ -286,6 +289,11 @@ export const survivalScene = {
 
     enter() {
         ensureParkWorld();
+        // Taman Monas kini SATU objek yang dipakai Survival dan Campaign
+        // Stage 12, jadi ia punya root sendiri di registry dunia. Tampilkan
+        // root itu (dan sembunyikan dunia campaign yang mungkin masih aktif
+        // dari sesi sebelumnya) begitu mode Survival dimulai.
+        setActiveCampaignWorldRoots([MONAS_PARK_KEY]);
         navGrid = getSurvivalNav();
         // Reset objektif Monas (max & hp dari CFG — batalkan Strengthen run lalu)
         // + event + shop + posisi awal, lalu mulai wave 1

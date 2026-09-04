@@ -12825,6 +12825,7 @@ for (const [name, build] of Object.entries(propBuilders)) {
     styleGroups.push(['BarrelDropper', (await import(R('src/scenes/campaign/stages/stage8/barrelDropper.js'))).buildBarrelDropperMesh(7).group]);
     styleGroups.push(['CombatGunship', (await import(R('src/entities/combatGunship.js'))).buildCombatGunshipMesh(4.8).group]);
     styleGroups.push(['Helicopter', (await import(R('src/entities/helicopter.js'))).buildHelicopterMesh().group]);
+    styleGroups.push(['Stage12Transport', (await import(R('src/scenes/campaign/stages/stage12/transport.js'))).buildStage12TransportMesh().group]);
     styleGroups.push(['Barrel', (await import(R('src/entities/barrels.js'))).buildBarrelMesh()]);
     styleGroups.push(['SupplyCrate', (await import(R('src/entities/crates.js'))).buildCrateMesh()]);
     styleGroups.push(['SmashRuko', (await import(R('src/entities/smashBuilding.js'))).buildSmashRukoMesh().group]);
@@ -12999,6 +13000,13 @@ for (const [name, build] of Object.entries(propBuilders)) {
         // drum yang tampak WAJIB sama dengan sisa muatan sungguhan.
         BarrelDropper: 78,
         CombatGunship: 95, SmashRuko: 30, SpawnMachine: 80, MachineBay: 95,
+        // Stage12Transport (2026-09-04): rig lama 25 mesh dilaporkan user
+        // "jelek dan terlalu basic seperti placeholder". Alasannya sama
+        // dengan Helicopter/CombatGunship — HERO tunggal yang mendarat tepat
+        // di kaki player dan dibingkai rapat kamera cutscene, dan lambung
+        // statisnya dilas `mergeObjectInPlace` di browser, jadi angka ini
+        // mengukur kerumitan yang DITULIS, bukan yang digambar.
+        Stage12Transport: 150,
         // TrainSceneryPool: cap MENTAH-nya sengaja longgar (2026-08-09,
         // permintaan user "background perjalanan terlalu kosong, PENUHI").
         // Pool ini bukan satu prop melainkan SELURUH lanskap perjalanan, ia
@@ -14586,6 +14594,10 @@ for (const [name, build] of Object.entries(propBuilders)) {
             .filter(w => w.bounds && Number.isFinite(w.bounds.x0));
         let overlap = false;
         for (let i = 0; i < worlds.length; i++) for (let j = i + 1; j < worlds.length; j++) {
+            // Dua record dengan lightsKey SAMA adalah satu tempat yang sengaja
+            // ditempati bersama: Stage 12 bermain DI DALAM Taman Monas bersama,
+            // bukan di sebelahnya, jadi kotaknya memang bertindih.
+            if (worlds[i].lightsKey === worlds[j].lightsKey) continue;
             const a = worlds[i].bounds, b = worlds[j].bounds;
             if (a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1) overlap = true;
         }
@@ -20710,34 +20722,296 @@ if (false) {
         && M12.artillery.poolSize > 0 && M12.wave.poolSize > 0
         && dialogueKeys12.every(k => cfgMod.CFG.dialogue.campaign.stage12.lines[k]?.text));
 
+    const survW = await import(R('src/scenes/survival/world.js'));
     const wr1 = world12.ensureStage12World(scene);
     const wr2 = world12.ensureStage12World(scene);
     const wd = world12.stage12WorldDebug();
-    T('S12 WORLD: build is idempotent at isolated x=430000 campaign root',
-        wr1 === wr2 && wd.built && wd.origin.x === 430000
-        && wd.monas.campaignOnly && wd.monas.stable && !wd.monas.destructible
-        && wd.survivalStateImported === false);
-    T('S12 WORLD: full Jakarta/Medan Merdeka production census, not placeholders',
-        wd.census.inertRobots >= 200 && wd.census.liveInertRobots === 0
-        && wd.census.inertVehicles >= 20 && wd.census.parkTrees >= 150
-        && wd.census.cityBuildings >= 50 && wd.census.government > 0
-        && wd.census.offices > 0 && wd.census.ruko > 0
-        && wd.census.damagedBuildings > 0 && wd.census.detailedProps >= 200
+    T('S12 WORLD: build is idempotent, plays at the world origin inside the shared park',
+        wr1 === wr2 && wd.built && wd.origin.x === 0 && wd.origin.z === 0
+        && wd.park.shared && wd.monas.shared && !wd.monas.destructible
+        && wd.monas.campaignDamages === false && wd.survivalStateMutated === false
+        && wd.rootKeys.length === 2 && wd.rootKeys.includes('monas-park'));
+    T('S12 WORLD: campaign approach census (park content belongs to the shared world)',
+        wd.census.inertRobots >= 150 && wd.census.liveInertRobots === 0
+        && wd.census.inertVehicles >= 15 && wd.census.roadTrees > 0
+        && wd.census.rubble > 0 && wd.census.detailedProps >= 200
         && wd.semantic['deployment-avenue'] === 1
-        && wd.semantic['ring-road'] === 1 && wd.semantic['monas-plaza'] === 1
+        && wd.semantic['monas-gate'] === 1
         && wd.semantic['hardline-station'] === M12.hardline.anchorCount
-        && wd.semantic['legacy-vault'] === 1);
-    T('S12 WORLD: inert army/trees are instanced, static props batched, no PointLights',
-        wd.batching.instancedArmy && wd.batching.instancedTrees
-        && wd.batching.sourceMeshes > wd.batching.batches
+        && wd.semantic['legacy-vault'] === 1
+        // Taman TIDAK dibangun lagi di sini: tak ada plaza/pagar/pohon taman.
+        && !wd.semantic['monas-plaza'] && !wd.semantic['park-fence']
+        && !wd.semantic['park-tree'] && !wd.semantic['monas']);
+    T('S12 WORLD: approach props batched, zero PointLights in the campaign root',
+        wd.batching.sourceMeshes > wd.batching.batches
         && wd.pointLights === 0 && wd.occluders.count > 0);
-    T('S12 WORLD: every authored boss charge lane clears solid, standing Monas',
+    T('S12 WORLD: every authored boss charge lane clears the solid, standing Monas',
         wd.chargeLanes.length >= 4 && wd.chargeLanes.every(l => l.clearOfMonas)
-        && wd.blockers.monasSolid && wd.hardlineStations.length === M12.hardline.anchorCount);
-    T('S12 WORLD: deterministic builder never imports or mutates Survival Monas',
-        !/Math\.random\s*\(/.test(worldSource12)
-        && !/scenes\/survival|survival\/world/.test(worldSource12)
-        && !/damageMonas|monasHp|collapseMonas/.test(worldSource12));
+        && wd.monas.solid && wd.monas.radius === survW.MONAS_HALF
+        && wd.hardlineStations.length === M12.hardline.anchorCount);
+    // ATURAN DIBALIK (2026-09-04, permintaan user "gunakan benar-benar area monas
+    // di survival mode, jangan buat baru lagi"): dulu modul ini DILARANG menyentuh
+    // taman Survival; sekarang ia WAJIB memakainya, dan tetap dilarang merusaknya.
+    T('S12 WORLD: uses the real Survival park and never damages the monument',
+        /scenes\/survival|survival\/world/.test(worldSource12)
+        && /ensureParkWorld/.test(worldSource12)
+        && !/Math\.random\s*\(/.test(worldSource12)
+        && !/damageMonas|monasHp|startMonasCollapse/.test(worldSource12));
+
+    // ---- Transport hero Stage 12 (2026-09-04, user: rig lama "seperti
+    // placeholder"). Yang dipatok adalah hal-hal yang membuatnya BUKAN
+    // placeholder dan tidak bisa dikembalikan diam-diam: mesin jet bersama,
+    // rig yang benar-benar bersendi, nol PointLight, dan reset yang persis.
+    {
+        const tp12 = await import(R('src/scenes/campaign/stages/stage12/transport.js'));
+        const tfan12 = await import(R('src/scenes/campaign/utility/turbofan.js'));
+        const tSrc12 = fs.readFileSync(ROOT
+            + '/src/scenes/campaign/stages/stage12/transport.js', 'utf8');
+        // Sapuan sumber membaca KODE saja: header modul ini menjelaskan aturan
+        // "nol PointLight" dan "tanpa Math.random", dan sebuah sapuan naif akan
+        // gagal pada kalimat yang justru menyatakan aturannya.
+        const tCode12 = tSrc12.replace(/^\s*\/\/.*$/gm, '');
+        const rig12 = tp12.buildStage12TransportMesh();
+        const t0 = tp12.stage12TransportDebug(rig12);
+
+        // Aturan "semua pesawat itu JET" berlaku juga di sini: kipasnya
+        // TERKURUNG di cowl, dan rasionya milik modul bersama.
+        T('S12 PESAWAT: memakai turbofan BERCOWL bersama, bukan baling-baling',
+            t0.engine?.type === 'ducted-turbofan' && t0.engine.ducted === true
+            && t0.engine.fanRadius < t0.engine.cowlRadius
+            && Math.abs(t0.engine.fanRadius
+                - tfan12.turbofanFanRadius(t0.engine.cowlRadius)) < 1e-9
+            && tCode12.includes('utility/turbofan.js')
+            && !/Math\.random\s*\(/.test(tCode12));
+
+        // ORIENTASI (2026-09-04, laporan user "ada bagian pesawat yang memiliki
+        // arah pemasangan yang kurang tepat, ada yang seperti terbalik, ada yang
+        // kurang pas sudutnya"). Enam cacat nyata ditemukan, semuanya kelas yang
+        // sama: sudut Euler XYZ yang ditulis di sumbu yang salah atau tanpa
+        // tanda sisi. Yang dipatok di sini adalah ARAH YANG DIHASILKAN, bukan
+        // sudut yang ditulis — sebuah angka bisa terlihat masuk akal dan tetap
+        // menghadap ke tempat yang salah.
+        T('S12 PESAWAT: hidung, kanopi dan sapuan sayap benar-benar menghadap ke arahnya',
+            // Sumbu kerucut hidung LURUS ke depan (-x), tanpa serong ke samping.
+            t0.axes.nose.x < -0.999 && Math.abs(t0.axes.nose.z) < 1e-9
+            && Math.abs(t0.axes.nose.y) < 1e-9
+            // Normal kaca depan condong MAJU-dan-ke-atas, bukan ke arah ekor.
+            && t0.axes.canopy.x < 0 && t0.axes.canopy.y > 0.8
+            // Ujung sayap bergerak ke +x = tersapu ke BELAKANG, bukan ke depan.
+            && t0.axes.wingSpan.x > 0.2 && t0.axes.wingSpan.z > 0.9
+            // Daun bay roda mengayun TURUN, tidak menembus sponson ke atas.
+            && t0.gearDoorSwingY < 0
+            // Sirip ekor berdiri DI LUAR badan, mencondong keluar dan tersapu
+            // ke belakang. Menjatuhkan argumen posisi z-nya (sekali terjadi saat
+            // baris itu ditulis ulang) menempelkan kedua sirip ke garis tengah.
+            && t0.axes.finZ > 5 && t0.axes.fin.z > 0.3
+            && t0.axes.fin.x > 0.1 && t0.axes.fin.y > 0.8);
+
+        // Cermin kiri-kanan: satu bagian yang lupa diberi tanda sisi (sirip ekor
+        // `ry`) membuat yang kiri toe-in dan yang kanan toe-out. Diukur pada
+        // rentang AABB, bukan sudut, supaya chine bujur sangkar yang diputar
+        // +-45 derajat tidak dianggap berbeda.
+        T('S12 PESAWAT: setiap bagian kiri-kanan benar-benar sepasang cermin',
+            t0.mirror.pairs >= 8 && t0.mirror.unmatched === 0
+            && t0.mirror.worst < 1e-9);
+
+        // Bukan blocking model: siluet bersudut dengan bentuk non-kotak yang
+        // nyata (kerucut hidung, cowl, roda, kubah satkom), dua nacelle, tiga
+        // kaki roda dan ramb berengsel.
+        T('S12 PESAWAT: rig hero bersendi, bukan kotak-dan-kerucut placeholder',
+            t0.meshes >= 90 && t0.nonBox >= 15 && t0.nacelles === 2
+            && t0.gearLegs === 3 && t0.welded
+            && t0.dimensions.length > 80 && t0.dimensions.span > t0.dimensions.length);
+
+        // NOL PointLight — di rig maupun di seluruh root Stage 12, dan angka
+        // itu kini DIHITUNG dari scene graph, bukan ditulis tangan.
+        T('S12 PESAWAT: lampu adalah material emissive, bukan PointLight',
+            t0.pointLights === 0 && wd.pointLights === 0
+            && !/new\s+THREE\.PointLight/.test(tCode12)
+            && Object.values(t0.emissive).every(v => v > 0 && v <= palMod.EMISSIVE_MAX));
+
+        // Pendaratan yang benar-benar dimainkan: nacelle mendongak dari jelajah
+        // ke hover, roda keluar, kipas berputar, ramp turun HANYA setelah
+        // menyentuh tanah.
+        const seen12 = [];
+        for (const p of [0, 0.35, 0.7, 1]) {
+            tp12.updateStage12TransportRig(rig12, 1 / 60, p, false);
+            seen12.push(tp12.stage12TransportDebug(rig12));
+        }
+        const airborne12 = seen12[seen12.length - 1];
+        tp12.updateStage12TransportRig(rig12, 1 / 60, 1, true);
+        for (let i = 0; i < 90; i++) tp12.updateStage12TransportRig(rig12, 1 / 60, 1, true);
+        const landed12 = tp12.stage12TransportDebug(rig12);
+        T('S12 PESAWAT: tiltrotor mendongak ke hover, roda keluar, ramp hanya turun setelah mendarat',
+            Math.abs(seen12[0].tiltRad - t0.tiltCruise) < 1e-6
+            && Math.abs(airborne12.tiltRad - t0.tiltHover) < 1e-6
+            && seen12[0].gearExtended === 0 && airborne12.gearExtended === 1
+            && airborne12.fanAngle > 0 && airborne12.rampOpen === 0
+            && landed12.rampOpen > 0.95
+            && landed12.emissive.exhaust < airborne12.emissive.exhaust);
+
+        // Pesawat baru jauh lebih lebar dari rig lama (15 -> 104 unit bentang),
+        // jadi titik mendaratnya HARUS ikut bergeser: kalau tidak, player muncul
+        // di dalam sponson rodanya. Diukur dari lebar bawah-sayap yang benar-
+        // benar terbangun, bukan dari aritmetika di komentar.
+        T('S12 PESAWAT: mendarat cukup jauh sehingga player tidak berdiri di dalam badannya',
+            wd.transport.lowHalfZ > 0
+            && wd.transport.landing.startClearance
+                > wd.transport.lowHalfZ + cfgMod.CFG.player.radius
+            && wd.transport.restY > 0
+            && Math.abs(wd.transport.restY - t0.restY) < 1e-9);
+
+        // Rig ini diputar ulang tiap kali stage diulang: reset harus PERSIS.
+        tp12.resetStage12TransportRig(rig12);
+        const back12 = tp12.stage12TransportDebug(rig12);
+        T('S12 PESAWAT: reset mengembalikan pose dan nyala persis seperti dibangun',
+            back12.tiltRad === t0.tiltRad && back12.gearExtended === t0.gearExtended
+            && back12.rampOpen === t0.rampOpen && back12.fanAngle === t0.fanAngle
+            && back12.emissive.exhaust === t0.emissive.exhaust
+            && back12.emissive.landing === t0.emissive.landing);
+    }
+
+    // ---- Arena boss = salinan Taman Monas Survival (2026-09-03, user request)
+    // Diukur terhadap konstanta ASLI arena Survival, bukan angka yang diketik
+    // ulang: kalau taman Survival diubah, tes ini yang jatuh lebih dulu.
+    const prad12 = cfgMod.CFG.player.radius;
+    // IDENTITAS, bukan kemiripan: root taman yang dilaporkan Stage 12 HARUS objek
+    // yang sama dengan yang dibangun modul Survival. Sebuah salinan yang mirip
+    // akan lolos uji "ukurannya sama" tapi jatuh di sini.
+    const parkRootObj = survW.ensureParkWorld();
+    let parkObjs = 0; parkRootObj.traverse(() => parkObjs++);
+    T('S12 ARENA: the last fight happens IN the Survival Monas park, not a copy of it',
+        parkRootObj === survW.monasParkRoot()
+        && wd.park.shared && wd.park.root === parkRootObj.name
+        && wd.park.objects === parkObjs && parkObjs > 30
+        && wd.park.hx === survW.PARK.hx && wd.park.hz === survW.PARK.hz
+        && wd.park.fenceH === survW.FENCE_H && wd.park.roadW === survW.ROAD_W
+        && wd.park.monasHalf === survW.MONAS_HALF
+        && wd.park.fountain.x === survW.FOUNTAIN.x
+        && wd.park.fountain.r === survW.FOUNTAIN.r
+        && wd.park.trees === survW.treeColliders.length && wd.park.trees > 0
+        && wd.park.gate.halfSpan === survW.PARK_GATE.halfSpan
+        && wd.monas.x === 0 && wd.monas.z === 0);
+
+    // Taman bersama MERESERVASI petak untuk vault M-0 dan empat pad hardline,
+    // dan Stage 12 membaca koordinatnya dari sana — jadi penanam pohon acak
+    // Survival tidak bisa menumbuhkan batang menembus pelat baja campaign, dan
+    // yang direservasi tidak bisa berbeda dari yang dibangun.
+    T('S12 ARENA: the shared park reserves the vault and hardline plots, and no tree stands in them',
+        wd.park.reserved.length === 1 + M12.hardline.anchorCount
+        && wd.park.reservedClearOfTrees
+        && wd.bossCenter.x === survW.PARK_VAULT.x
+        && wd.bossCenter.z === survW.PARK_VAULT.z
+        && wd.hardlineStations.every((h, i) =>
+            h.x === survW.PARK_HARDLINE_PADS[i].x
+            && h.z === survW.PARK_HARDLINE_PADS[i].z));
+
+    // Lampu api Monas milik SURVIVAL: ia ada di taman bersama, tapi terdaftar di
+    // set lampu 'survival', jadi ia padam saat Campaign menyalakan set-nya
+    // sendiri — hitungan PointLight Stage 12 tetap nol tanpa harus menghapusnya.
+    {
+        const lightMod12 = await import(R('src/world/lighting.js'));
+        lightMod12.setActiveStageLights('survival');
+        let litInSurvival = 0;
+        parkRootObj.traverse(o => { if (o.isPointLight && o.visible) litInSurvival++; });
+        lightMod12.setActiveStageLights(world12.STAGE12_LIGHTS_KEY);
+        let litInCampaign = 0;
+        parkRootObj.traverse(o => { if (o.isPointLight && o.visible) litInCampaign++; });
+        T('S12 ARENA: the shared park keeps its Monas flame light on the Survival key only',
+            wd.park.pointLights === 1 && litInSurvival === 1 && litInCampaign === 0
+            && wd.pointLights === 0);
+    }
+
+    // Tabrakan taman juga dipinjam, tidak ditulis ulang: Monas, pohon dan bak air
+    // mancur menolak player lewat predikat Survival yang sama.
+    {
+        const inMonas = { x: 0, y: 0, z: 0 };
+        world12.resolveStage12World(inMonas, prad12, 0, survW.MONAS_HALF + 40, 0);
+        const onBasin = world12.stage12GroundHeight(
+            survW.FOUNTAIN.x, survW.FOUNTAIN.z, 40);
+        T('S12 ARENA: park collision and ground height come from the Survival predicates',
+            Math.hypot(inMonas.x, inMonas.z) > 0
+            && onBasin === survW.FOUNTAIN.topY
+            && world12.stage12GroundHeight(-400, 300, 40) === 0);
+    }
+
+    // "Masih ada gedung yang berada di tengah jalan": diaudit dari collider yang
+    // benar-benar dibangun, dan penolakan harus BENAR-BENAR terjadi (kalau nol,
+    // filternya mati dan angka nol di atas tidak membuktikan apa pun).
+    T('S12 ARENA: no prop stands on the boulevard, and the placement filter ran',
+        wd.playfield.blockersOnAvenue === 0 && wd.playfield.rejectedOnRoad > 0
+        && wd.walkRects.length === 2 && wd.blockers.shotWalls > 0);
+
+    // Air mancur/kolam Survival BISA dinaiki; permukaannya datang dari collider.
+    T('S12 ARENA: the fountain basin and pool lip are standable, the lawn is not',
+        world12.stage12GroundHeight(wd.park.fountain.x, wd.park.fountain.z, 40)
+            >= wd.park.fountain.topY
+        && world12.stage12GroundHeight(wd.park.cx - 520, wd.park.cz + 320, 40) === 0);
+
+    // ---- Gerbang: satu-satunya jalan masuk, lalu tersegel ------------------
+    const gateX12 = wd.gate.x, gateZ12 = wd.gate.z;
+    const walkGate12 = () => {
+        const p = { x: gateX12 - 60, y: 0, z: gateZ12 };
+        for (let i = 0; i < 40; i++) {
+            const ox = p.x, oz = p.z; p.x += 4;
+            world12.clampStage12Point(p, prad12, ox, oz);
+        }
+        return p.x;
+    };
+    const holdGate12 = target => {
+        for (let i = 0; i < 45; i++) world12.updateStage12Gate(1 / 60, target);
+    };
+    const shotThroughGate = () => world12.stage12BulletBlocked({
+        px: gateX12 - 40, pz: gateZ12,
+        mesh: { position: { x: gateX12 + 26, y: 9, z: gateZ12 } } });
+
+    world12.resetStage12World();
+    const shutStop12 = walkGate12(), shutShot12 = shotThroughGate();
+    holdGate12(1);
+    const openThrough12 = walkGate12(), openShot12 = shotThroughGate();
+    world12.sealStage12Gate(); holdGate12(1);
+    const sealedStop12 = walkGate12();
+    T('S12 GATE: shut blocks entry and fire, open admits both, sealing locks it again',
+        shutStop12 < gateX12 && shutShot12
+        && openThrough12 > gateX12 + 60 && !openShot12
+        && sealedStop12 < gateX12 && world12.stage12GateState().sealed
+        && wd.gate.span > prad12 * 4);
+
+    // Bahwa gerbang itu SATU-SATUNYA pintu masuk bukan klaim, tapi hasil BFS
+    // melalui predikat jalan + collider yang sebenarnya: tutup gerbang dan Monas
+    // menjadi tak terjangkau dari titik start, buka dan ia terjangkau.
+    const STEP12 = 12;
+    const free12 = (x, z) => {
+        if (!world12.stage12Walk(x, z, prad12)) return false;
+        const p = { x, y: 0, z };
+        world12.resolveStage12World(p, prad12, 0);
+        return Math.hypot(p.x - x, p.z - z) < 1e-6;
+    };
+    const reachesMonas12 = () => {
+        const ox = world12.S12_START.x, oz = world12.S12_START.z;
+        const seen = new Set(['0,0']), q = [[0, 0]];
+        while (q.length) {
+            const [i, j] = q.shift();
+            const x = ox + i * STEP12, z = oz + j * STEP12;
+            if (Math.hypot(x - world12.S12_MONAS.x,
+                z - world12.S12_MONAS.z) <= 100) return true;
+            for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const k = `${i + di},${j + dj}`;
+                if (seen.has(k)) continue;
+                seen.add(k);
+                if (free12(ox + (i + di) * STEP12, oz + (j + dj) * STEP12))
+                    q.push([i + di, j + dj]);
+            }
+        }
+        return false;
+    };
+    world12.resetStage12World();
+    const shutUnreachable12 = !reachesMonas12();
+    holdGate12(1);
+    const openReachable12 = reachesMonas12();
+    T('S12 ROUTE: the gate is the only way in — shut, the monument is unreachable',
+        shutUnreachable12 && openReachable12);
+    world12.resetStage12World();
 
     const hero = mahMod.buildMahapatihMesh(1);
     let heroMeshes = 0, heroNonBox = 0, heroPointLights = 0;
@@ -20762,9 +21036,134 @@ if (false) {
         heroMeshes >= 60 && heroNonBox >= 20 && hero.legs.length === 4
         && hero.arms.length === 2 && hero.blades.length === 2
         && hero.turret?.isObject3D && hero.core?.isMesh
-        && hero.siege !== hero.combat && hero.hull?.name === 'Welded-Siege-Armour');
+        && hero.siege !== hero.combat
+        // Lambung siege kini DUA paruh cangkang yang masing-masing dilas.
+        && hero.hullL?.name === 'Welded-Siege-Armour-Port'
+        && hero.hullR?.name === 'Welded-Siege-Armour-Starboard'
+        && hero.shellL !== hero.shellR
+        && hero.hullL.parent === hero.shellL && hero.hullR.parent === hero.shellR
+        // Tiap kaki ikut paruh di sisinya; menara duduk di paruh kanan.
+        && hero.legs.filter(l => l.hip.parent === hero.shellL).length === 2
+        && hero.legs.filter(l => l.hip.parent === hero.shellR).length === 2
+        && hero.turret.parent === hero.shellR);
     T('MAHAPATIH ART: zero PointLights, forbidden neon, or over-cap emissive',
         heroPointLights === 0 && !heroNeon && !heroEmissiveOver);
+
+    // BENTUK/ARAH (2026-09-04, laporan user "bentuk dan form last boss masih
+    // belum sesuai"). `faceToward` menulis rotation.y = atan2(dx, dz), jadi DEPAN
+    // boss adalah +z lokal — tetapi menara, kepala, inti, meriam bahu, lengan dan
+    // kakinya dulu dikarang menghadap -x. Yang dipatok adalah ARAH HASIL dan
+    // TATA LETAK, bukan sudut yang tertulis.
+    {
+        const F = hero.form;
+        const near = (a, b2) => Math.abs(a - b2) < 1e-9;
+        T('MAHAPATIH FORM: laras, wajah dan inti menghadap DEPAN (+z), bukan ke samping',
+            F.forward === 'z'
+            // Laras menara dan meriam bahu menembak lurus ke depan.
+            && F.turretAxis.z > 0.999 && Math.abs(F.turretAxis.x) < 1e-9
+            && F.cannonAxis.z > 0.999 && Math.abs(F.cannonAxis.x) < 1e-9
+            // Visor dan inti ada di MUKA badan, di garis tengah.
+            && F.eye.z > 0 && Math.abs(F.eye.x) < 1e-9
+            && F.core.z > 0 && Math.abs(F.core.x) < 1e-9
+            // Rana menyingkap inti dengan menggeser KIRI-KANAN.
+            && F.shutters[0].x < 0 && F.shutters[1].x > 0
+            && near(F.shutters[0].z, F.core.z) && near(F.shutters[1].z, F.core.z));
+
+        // Menara harus benar-benar MEMBIDIK: badan diputar `faceToward`, sisanya
+        // tugas menara. Tanpa ini larasnya diam menghadap lurus ke depan
+        // sementara pelurunya berangkat ke arah lain — pola yang sama dengan
+        // uji "MG membidik player walau di belakang hull" pada tank Stage 4.
+        {
+            const aimParent = new THREE.Group(); scene.add(aimParent);
+            const aim = mahMod.createMahapatih({ parent: aimParent, active: true, x: 0, z: 0 });
+            mahMod.resetMahapatih(aim, { active: true, phase: 'siege', x: 0, z: 0, yaw: 0 });
+            const px0 = rendererMod.camera.position.x, pz0 = rendererMod.camera.position.z;
+            rendererMod.camera.position.x = 140; rendererMod.camera.position.z = -60;
+            aim.attackState = 'turretTelegraph'; aim.attackT = 0.5;
+            const aimCtx = { center: { x: 0, z: 0 }, chargeLanes: [], clampBoss: q => q };
+            for (let i2 = 0; i2 < 240; i2++) mahMod.updateMahapatih(aim, 1 / 60, aimCtx);
+            const ag = aim.parts.group, at = aim.parts.turret;
+            const world = ag.rotation.y + at.rotation.y;
+            const want = Math.atan2(rendererMod.camera.position.x - ag.position.x,
+                rendererMod.camera.position.z - ag.position.z);
+            let err = world - want;
+            while (err > Math.PI) err -= Math.PI * 2;
+            while (err < -Math.PI) err += Math.PI * 2;
+            rendererMod.camera.position.x = px0; rendererMod.camera.position.z = pz0;
+            scene.remove(aimParent);
+            T(`MAHAPATIH FORM: menara membidik player, tidak diam menghadap depan [${(err * 57.3).toFixed(1)} deg]`,
+                Math.abs(err) < 0.05);
+        }
+
+        // CHASSIS TERBELAH DAN TERTINGGAL (2026-09-04, permintaan user). Dikendarai
+        // lewat jalur transisi yang sebenarnya, lalu bossnya digeser JAUH dan
+        // diputar: bangkainya wajib tidak bergerak satu unit pun.
+        {
+            const wp = new THREE.Group(); scene.add(wp);
+            const tb = mahMod.createMahapatih({ parent: wp, active: true, x: 0, z: 0 });
+            mahMod.resetMahapatih(tb, { active: true, phase: 'siege', x: 40, z: -25, yaw: 0.7 });
+            const tctx = { center: { x: 0, z: 0 }, chargeLanes: [], clampBoss: q => q };
+            const attached = mahMod.mahapatihDebug(tb).wreck.attachedToBoss;
+            // Habisi HP fase siege -> transisi.
+            mahMod.damageMahapatih(tb, M12.siegeHp * 2, { force: true, ctx: tctx });
+            const atBreak = mahMod.mahapatihDebug(tb).wreck;
+            for (let i2 = 0; i2 < Math.ceil(M12.transitionSec * 60) + 30; i2++)
+                mahMod.updateMahapatih(tb, 1 / 60, tctx);
+            const opened = mahMod.mahapatihDebug(tb).wreck;
+            // Bossnya lari jauh dan berputar.
+            tb.parts.group.position.x += 300; tb.parts.group.position.z -= 180;
+            tb.parts.group.rotation.y += 1.9;
+            for (let i2 = 0; i2 < 120; i2++) mahMod.updateMahapatih(tb, 1 / 60, tctx);
+            const after = mahMod.mahapatihDebug(tb).wreck;
+            const still = Math.abs(after.anchor.x - opened.anchor.x) < 1e-9
+                && Math.abs(after.anchor.z - opened.anchor.z) < 1e-9
+                && Math.abs(after.anchor.yaw - opened.anchor.yaw) < 1e-9
+                && after.shells.every((sh, i3) =>
+                    Math.abs(sh.x - opened.shells[i3].x) < 1e-9
+                    && Math.abs(sh.rz - opened.shells[i3].rz) < 1e-9);
+            T('MAHAPATIH WRECK: chassis terbelah DUA, terlepas dari boss, dan tertinggal di tempat',
+                // Sebelum pecah ia masih bagian dari boss dan masih rapat.
+                attached && atBreak.detached
+                // Dilepas TEPAT saat pecah, dan mewarisi pose boss saat itu.
+                && Math.abs(atBreak.anchor.x - 40) < 1e-9
+                && Math.abs(atBreak.anchor.z + 25) < 1e-9
+                && Math.abs(atBreak.anchor.yaw - 0.7) < 1e-9
+                && !atBreak.attachedToBoss
+                // Kedua paruh benar-benar terbuka ke sisi berlawanan.
+                && opened.shells[0].x < -20 && opened.shells[1].x > 20
+                && opened.splitGap > 40
+                && opened.shells[0].rz > 0 && opened.shells[1].rz < 0
+                // Dan setelah boss lari 300 unit + berputar, bangkainya DIAM.
+                && still);
+
+            // Reset stage memasang cangkang kembali: stage boleh diulang.
+            mahMod.resetMahapatih(tb, { active: false });
+            const back = mahMod.mahapatihDebug(tb).wreck;
+            T('MAHAPATIH WRECK: reset memasang cangkang kembali ke boss dan menutupnya',
+                back.attachedToBoss && !back.detached
+                && back.anchor.x === 0 && back.anchor.z === 0 && back.anchor.yaw === 0
+                && back.shells.every(sh => sh.x === 0 && sh.y === 0 && sh.rz === 0));
+            scene.remove(wp);
+        }
+
+        T('MAHAPATIH FORM: lengan dan kaki di KIRI-KANAN badan, sepasang cermin',
+            F.shoulders.length === 2 && F.legs.length === 2
+            // Bahu terpisah di x dan TIDAK di depan/belakang dada.
+            && F.shoulders.every(p => Math.abs(p.x) > 5 && Math.abs(p.z) < 1e-9)
+            && F.upperArms.every(p => Math.abs(p.x) > 0 && Math.abs(p.z) < 1e-9)
+            && F.legs.every(p => Math.abs(p.x) > 0 && Math.abs(p.z) < 1e-9)
+            // Cermin sempurna terhadap bidang y-z.
+            && near(F.shoulders[0].x, -F.shoulders[1].x)
+            && near(F.upperArms[0].x, -F.upperArms[1].x)
+            && near(F.legs[0].x, -F.legs[1].x)
+            // Bahu lebih lebar dari kedalaman torso: itulah yang membuat lengan
+            // HARUS berada di sumbu x, dan dulu tidak.
+            && Math.abs(F.shoulders[0].x) * 2 > F.torso.depthZ
+            // Empat pinggul siege tetap mengangkangi kedua sumbu.
+            && F.siegeHips.length === 4
+            && F.siegeHips.some(h => h.x > 0 && h.z > 0)
+            && F.siegeHips.some(h => h.x < 0 && h.z < 0));
+    }
     T('MAHAPATIH CONFIG: entity source reads only campaign.bosses.mahapatih at call time',
         entitySource12.includes('CFG.campaign.bosses.mahapatih')
         && !entitySource12.includes('campaign.stage12.mahapatih')
@@ -20884,6 +21283,70 @@ if (false) {
     T('S12 SAVE: checkpoint 12 is written at entry and preserved through unfinished run',
         checkpointAtEntry12 === 12 && save12.loadCampaignStage() === 12
         && sd12.checkpointClearTiming === 'preserved' && !sd12.finalScreenShown);
+
+    // ---- Alur akhir: boulevard bersih -> gerbang -> tersegel -> boss di 15 m
+    // Dikendarai lewat hook scene yang sebenarnya, bukan lewat setter privat.
+    const cam12 = rendererMod.camera;
+    const clearGuards12 = () => {
+        for (let i = stateMod.robots.length - 1; i >= 0; i--)
+            if (stateMod.robots[i].stage === 12) {
+                robotsMod.disposeRobot(stateMod.robots[i]);
+                stateMod.robots.splice(i, 1);
+            }
+    };
+    for (const e of C12.encounters) {
+        cam12.position.x = world12.S12_ORIGIN.x + e.triggerX + 1;
+        stage12.stage12Scene.updateMode(1 / 60);
+        clearGuards12();
+    }
+    stage12.stage12Scene.updateMode(1 / 60);
+    let flow12 = stage12.stage12Debug();
+    const armedAtGate12 = flow12.phase === 'gateApproach' && !flow12.gate.sealed;
+    cam12.position.x = world12.S12_GATE.x - 40; cam12.position.z = world12.S12_GATE.z;
+    for (let i = 0; i < 60; i++) stage12.stage12Scene.updateMode(1 / 60);
+    flow12 = stage12.stage12Debug();
+    const gateOpened12 = flow12.gate.open > 0.9 && !flow12.gate.sealed;
+    cam12.position.x = world12.S12_GATE.x + 30;
+    stage12.stage12Scene.updateMode(1 / 60);
+    flow12 = stage12.stage12Debug();
+    const sealedNow12 = flow12.phase === 'parkSealed' && flow12.gate.sealed;
+    const trigUnits12 = flow12.bossTrigger.units;
+    cam12.position.x = world12.S12_MONAS.x - trigUnits12 - 40;
+    stage12.stage12Scene.updateMode(1 / 60);
+    const quietOutside12 = stage12.stage12Debug().phase === 'parkSealed';
+    cam12.position.x = world12.S12_MONAS.x - trigUnits12 + 12;
+    stage12.stage12Scene.updateMode(1 / 60);
+    flow12 = stage12.stage12Debug();
+    const bossRose12 = flow12.phase === 'vaultReveal' && !!flow12.boss?.active;
+    // Gerbang menutup sendiri setelah tersegel dan TETAP tertutup selama duel.
+    for (let i = 0; i < 45; i++) stage12.stage12Scene.updateMode(1 / 60);
+    flow12 = stage12.stage12Debug();
+    T('S12 FLOW: cleared road opens the gate, entering seals it, M-0 rises only near Monas',
+        armedAtGate12 && gateOpened12 && sealedNow12 && quietOutside12 && bossRose12
+        && flow12.gate.sealed && flow12.gate.shut && flow12.gate.target === 0
+        && flow12.bossTrigger.meters === C12.bossTriggerMeters
+        && Math.abs(trigUnits12 - C12.bossTriggerMeters * cfgMod.CAMP_M) < 1e-6);
+
+    // KAMERA TIDAK PERNAH DIKUNCI di Stage 12 (2026-09-04, permintaan user
+    // "jangan kunci kamera ketika melawan boss ... aturan kamera terkunci itu
+    // hanya ada di stage 4 boss tank"). Diuji pada fase duel yang sebenarnya,
+    // lalu disapu di sumber: hanya Stage 4 yang boleh mengembalikan kotak.
+    {
+        const camNull12 = stage12.stage12Scene.camBounds() === null;
+        stage12.stage12DamageBossForDebug(1);
+        const camNullInFight = stage12.stage12Scene.camBounds() === null;
+        const s12src = fs.readFileSync(ROOT
+            + '/src/scenes/campaign/stages/stage12/index.js', 'utf8')
+            .replace(/^\s*\/\/.*$/gm, '');
+        const s4src = fs.readFileSync(ROOT
+            + '/src/scenes/campaign/stages/stage4/index.js', 'utf8');
+        T('S12 KAMERA: duel boss memakai kamera pengikut biasa, tidak pernah dijepit',
+            camNull12 && camNullInFight && !sd12.cameraLocked
+            && /camBounds:\s*\(\)\s*=>\s*null/.test(s12src)
+            && !/S12_ARENA_BOUNDS\s*:\s*null/.test(s12src)
+            // Stage 4 tetap SATU-SATUNYA yang mengunci pandangan.
+            && /camBounds\(\)\s*\{/.test(s4src));
+    }
 
     stage12.stage12BeginEndingForDebug();
     sd12 = stage12.stage12Debug();
@@ -21023,15 +21486,19 @@ if (false) {
         // Stage 6/12 yang memilih root-nya sendiri di enter()).
         {
             const expected = {
-                10: 'campaign-10-flight', 11: 'campaign-11-forest',
+                10: ['campaign-10-flight'], 11: ['campaign-11-forest'],
+                // Stage 12 bermain DI DALAM Taman Monas bersama: jalannya sendiri
+                // plus root taman yang juga dipakai mode Survival.
+                12: ['campaign-12', 'monas-park'],
             };
             let wrong = '';
             for (let n = 1; n <= 12; n++) {
                 transMod26.campaignJumpToStage(n);
                 const live = regO.campaignWorldRegistryDebug().worlds
-                    .filter(w => w.visible > 0).map(w => w.key);
-                const want = expected[n] || `campaign-${n}`;
-                if (live.length !== 1 || live[0] !== want) wrong = wrong || `${n}:${live.join('|') || 'none'}`;
+                    .filter(w => w.visible > 0).map(w => w.key).sort();
+                const want = (expected[n] || [`campaign-${n}`]).slice().sort();
+                if (live.length !== want.length || live.some((k, i) => k !== want[i]))
+                    wrong = wrong || `${n}:${live.join('|') || 'none'}`;
             }
             T(`S1-12 ROOT DUNIA: tiap stage menyalakan TEPAT root miliknya${wrong ? ` [${wrong}]` : ''}`,
                 wrong === '');

@@ -22,18 +22,53 @@ import {
 export const PARK = { hx: 620, hz: 340 };   // setengah ukuran taman (di dalam pagar)
 export const FENCE_H = 16;                  // tinggi pagar keliling
 export const ROAD_W = 90;                   // lebar Jalan Medan Merdeka (di luar pagar)
+
+// GERBANG BARAT (2026-09-04): satu bukaan di pagar barat, dipakai Campaign
+// Stage 12 sebagai satu-satunya jalan masuk ke arena boss. Ia ada di taman yang
+// SAMA — Survival memandangnya sebagai pintu masuk taman biasa, dan clamp
+// player Survival (PARK.hx/hz) tetap yang menahan pemain, bukan pagarnya.
+export const PARK_GATE = Object.freeze({ x: -620, z: 0, halfSpan: 42 });
+// Koridor bebas gedung ke arah BARAT: boulevard pendekatan Stage 12 lewat sini,
+// jadi cincin kota latar tidak boleh menanam gedung di atasnya (aturan koridor
+// rel Stage 5). Di Survival ini terbaca sebagai jalan yang menjauh dari taman.
+export const PARK_WEST_CORRIDOR = Object.freeze({ maxX: -700, halfZ: 150 });
+// PETAK YANG DISEDIAKAN untuk instalasi Campaign Stage 12 di taman ini: vault
+// tempat M-0 bangkit, dan empat pad hardline yang mengelilingi Monas. Penanam
+// pohon menolak petak-petak ini, jadi tidak ada batang acak yang tumbuh
+// menembus pelat baja; di Survival mereka hanya lima petak rumput yang tetap
+// kosong. Stage 12 MEMBACA koordinatnya dari sini, tidak mengetik ulang, supaya
+// yang direservasi dan yang dibangun tak bisa berbeda.
+export const PARK_VAULT = Object.freeze({ x: 200, z: 0, r: 74 });
+export const PARK_HARDLINE_RING = 230;
+export const PARK_HARDLINE_PADS = Object.freeze([0, 1, 2, 3].map(i => {
+    const a = i / 4 * Math.PI * 2 + Math.PI / 4;
+    return Object.freeze({ x: Math.cos(a) * PARK_HARDLINE_RING,
+        z: Math.sin(a) * PARK_HARDLINE_RING, r: 34, index: i });
+}));
+export const PARK_RESERVED = Object.freeze([PARK_VAULT, ...PARK_HARDLINE_PADS]);
+
+// SATU taman, DUA mode (2026-09-04, permintaan user "gunakan benar-benar area
+// monas di survival mode, jangan buat baru lagi"). Semua geometri taman masuk ke
+// grup ini alih-alih langsung ke `scene`, supaya Campaign bisa menyembunyikan/
+// menampilkannya lewat registry root dunia seperti dunia stage lain.
+let parkRoot = null;
+export const monasParkRoot = () => parkRoot;
 // Penghalang pejal di taman: bak air mancur (bisa dinaiki dari atas) & pohon
 export const FOUNTAIN = { x: -620 * 0.55, z: 0, r: 47, topY: 3.2 };   // x = -PARK.hx*0.55
 export const treeColliders = [];            // silinder tabrakan batang pohon {x,z,r}
 
 export function buildSurvivalWorld() {
+    parkRoot = new THREE.Group();
+    parkRoot.name = 'monas-park-medan-merdeka';
+    scene.add(parkRoot);
     createGround();      // tanah, rumput taman, Jalan Medan Merdeka
     createParkRoads();   // pelataran tengah + Jalan Silang Monas (diagonal)
-    createFence();       // pagar keliling (tembok batas player)
+    createFence();       // pagar keliling (tembok batas player) + gerbang barat
     createParkProps();   // air mancur, kolam, pohon
     createMonas();
     createCity();
     createFogCanopy();   // kanopi kabut event (tersembunyi sampai dipicu wave 3)
+    return parkRoot;
 }
 
 // --- Kabut event (survival, dipicu wave 3): kanopi abu-abu tebal MELAYANG di
@@ -106,7 +141,7 @@ function createFogCanopy() {
     fogCanopy.add(disk);
     fogCanopy.visible = false;
     fogCanopy.renderOrder = 3;             // gambar setelah geometri dunia (objek transparan)
-    scene.add(fogCanopy);
+    parkRoot.add(fogCanopy);
 }
 
 // Kendali kabut event (dipanggil survival/index.js). k = 0..1 kepekatan (envelope
@@ -213,7 +248,7 @@ function createMonas() {
     top.add(flameGlow);
     monasFlameGlow = flameGlow;
     setFlameGlow(flameGlow);
-    scene.add(monas);
+    parkRoot.add(monas);
 }
 
 // ===== Runtuhnya Monas — animasi sinematik (dipanggil survival/index.js) =====
@@ -252,7 +287,7 @@ function spawnDebris(x, z, n, power) {
             vx: Math.cos(ang) * sp, vz: Math.sin(ang) * sp, vy: 10 + Math.random() * 26 * power,
             rx: rand(-6, 6), ry: rand(-6, 6), rz: rand(-6, 6), rest: 0.7 + Math.random() * s * 0.7
         });
-        scene.add(m);
+        parkRoot.add(m);
     }
 }
 
@@ -350,7 +385,7 @@ export function updateMonasCollapse(dt) {
 // Kembalikan Monas ke posisi tegak (world persist antar-run; dipanggil di enter()).
 export function resetMonasCollapse() {
     if (collapse) {
-        collapse.debris.forEach(d => scene.remove(d.mesh));
+        collapse.debris.forEach(d => parkRoot.remove(d.mesh));
         collapse = null;
     }
     if (debrisGeo) { debrisGeo.dispose(); debrisGeo = null; }
@@ -373,7 +408,7 @@ function createGround() {
     base.rotation.x = -Math.PI / 2;
     base.position.y = -0.5;
     base.receiveShadow = true;
-    scene.add(base);
+    parkRoot.add(base);
 
     // Rumput taman: gumpalan besar lembut (anti-tiling) + goresan helai rumput
     const grassTex = makeTexture(256, 256, (g, w, h) => {
@@ -406,7 +441,7 @@ function createGround() {
     );
     grass.rotation.x = -Math.PI / 2;
     grass.receiveShadow = true;
-    scene.add(grass);
+    parkRoot.add(grass);
 
     // Jalan Medan Merdeka: aspal retak + noda oli + marka putus-putus + relief normal map
     const asphaltNrm = makeNormalMap(128, 128, (g, w, h) => {
@@ -453,7 +488,7 @@ function createGround() {
         r.rotation.x = -Math.PI / 2;
         r.position.set(x, 0.02, z);
         r.receiveShadow = true;
-        scene.add(r);
+        parkRoot.add(r);
     };
     mkRoad(lenX, ROAD_W, 0, -oz);   // utara
     mkRoad(lenX, ROAD_W, 0, oz);    // selatan
@@ -466,7 +501,7 @@ function createGround() {
         const cB = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, d), curbMat);
         cB.position.set(x, 0.7, z);
         cB.receiveShadow = true;
-        scene.add(cB);
+        parkRoot.add(cB);
     };
     const co = ROAD_W + 1.5;
     mkCurb(lenX + 6, 3, 0, -(PARK.hz + co)); mkCurb(lenX + 6, 3, 0, PARK.hz + co);
@@ -500,7 +535,7 @@ function createParkRoads() {
     plaza.rotation.x = -Math.PI / 2;
     plaza.position.y = 0.05;
     plaza.receiveShadow = true;
-    scene.add(plaza);
+    parkRoot.add(plaza);
 
     // Jalan Silang Monas: dua pita diagonal menyilang membentuk X + marka tengah
     const diagLen = 2 * Math.hypot(PARK.hx, PARK.hz);
@@ -528,7 +563,7 @@ function createParkRoads() {
         road.position.y = 0.03;
         road.receiveShadow = true;
         grp.add(road);
-        scene.add(grp);
+        parkRoot.add(grp);
     }
 }
 
@@ -576,14 +611,34 @@ function createFence() {
     };
     mkWall(hx * 2, 2.4, 0, -hz, wallMatX);
     mkWall(hx * 2, 2.4, 0, hz, wallMatX);
-    mkWall(2.4, hz * 2, -hx, 0, wallMatZ);
     mkWall(2.4, hz * 2, hx, 0, wallMatZ);
+    // Pagar BARAT terbelah oleh gerbang taman: dua ruas, satu bukaan. Ini satu-
+    // satunya jalan masuk arena boss Campaign Stage 12, dan di Survival ia
+    // terbaca sebagai pintu masuk taman — batas keras Survival tetap clamp
+    // PARK.hx/hz di `playerCollide`, bukan pagarnya, jadi bukaan ini tidak bisa
+    // membocorkan pemain ke luar taman.
+    const gh = PARK_GATE.halfSpan;
+    for (const sign of [-1, 1]) {
+        const outer = sign * hz, inner = sign * gh;
+        mkWall(2.4, Math.abs(outer - inner), -hx, (outer + inner) / 2, wallMatZ);
+    }
+    // Pilar gerbang: lebih tinggi dari pagar, menandai bukaannya dari jauh.
+    for (const sign of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(7, H + 7, 7), capMat);
+        post.position.set(-hx, (H + 7) / 2, sign * (gh + 4));
+        post.castShadow = true; post.receiveShadow = true; grp.add(post);
+    }
 
     // Pilar beton tiap ~38 unit + topi pilar — dua InstancedMesh (2 draw call)
     const step = 38;
     const posts = [];
     for (let x = -hx; x <= hx; x += step) { posts.push([x, -hz]); posts.push([x, hz]); }
-    for (let z = -hz; z <= hz; z += step) { posts.push([-hx, z]); posts.push([hx, z]); }
+    for (let z = -hz; z <= hz; z += step) {
+        // Mulut gerbang tetap kosong: sebuah pilar di tengah bukaan akan
+        // menutup separuh jalan masuknya.
+        if (Math.abs(z) > gh + 8) posts.push([-hx, z]);
+        posts.push([hx, z]);
+    }
     const pillarMat = new THREE.MeshPhongMaterial({
         map: makeTexture(64, 128, concreteDraw),
         normalMap: concreteNrm, shininess: 6, specular: 0x151412
@@ -600,7 +655,7 @@ function createFence() {
     pillarMesh.castShadow = capMesh.castShadow = true;
     pillarMesh.frustumCulled = capMesh.frustumCulled = false;   // bounds instance tak dihitung r128
     grp.add(pillarMesh); grp.add(capMesh);
-    scene.add(grp);
+    parkRoot.add(grp);
 }
 
 function createParkProps() {
@@ -629,10 +684,10 @@ function createParkProps() {
     const basin = new THREE.Mesh(new THREE.CylinderGeometry(46, 48, 3, 28), stoneRim);
     basin.position.set(fountainX, 1.5, 0);
     basin.castShadow = true; basin.receiveShadow = true;
-    scene.add(basin);
+    parkRoot.add(basin);
     const fountain = new THREE.Mesh(new THREE.CylinderGeometry(42, 44, 2.6, 28), water);
     fountain.position.set(fountainX, 1.9, 0);
-    scene.add(fountain);
+    parkRoot.add(fountain);
     for (let i = 0; i < 3; i++) {
         const jet = new THREE.Mesh(
             new THREE.ConeGeometry(3 - i * 0.7, 20 - i * 4, 10),
@@ -642,7 +697,7 @@ function createParkProps() {
             })
         );
         jet.position.set(fountainX + (i - 1) * 14, 11 - i * 2, (i - 1) * 8);
-        scene.add(jet);
+        parkRoot.add(jet);
         waterJets.push(jet);
     }
 
@@ -650,10 +705,10 @@ function createParkProps() {
     const rim = new THREE.Mesh(new THREE.BoxGeometry(156, 2.4, 66), stoneRim);
     rim.position.set(0, 1.0, -PARK.hz * 0.55);
     rim.receiveShadow = true;
-    scene.add(rim);
+    parkRoot.add(rim);
     const pool = new THREE.Mesh(new THREE.BoxGeometry(150, 1.5, 60), water);
     pool.position.set(0, 1.4, -PARK.hz * 0.55);
-    scene.add(pool);
+    parkRoot.add(pool);
 
     // Pohon-pohon: InstancedMesh batang lancip + 3 gerombol tajuk icosahedron faceted
     // (organik-stilistik) dgn variasi warna, ukuran, dan kemiringan -> tetap 2 draw call.
@@ -694,6 +749,8 @@ function createParkProps() {
         if (Math.hypot(x - FOUNTAIN.x, z - FOUNTAIN.z) < FOUNTAIN.r + 12) return false; // air mancur
         if (Math.abs(x) < 88 && Math.abs(z + PARK.hz * 0.55) < 43) return false;        // kolam pantul
         if (introPathDist(x, z) < CFG.player.radius + 6) return false;                  // koridor intro utuh
+        for (const k of PARK_RESERVED)                                                  // petak instalasi Stage 12
+            if (Math.hypot(x - k.x, z - k.z) < k.r) return false;
         return true;
     };
     let ti = 0, li = 0;
@@ -735,7 +792,7 @@ function createParkProps() {
     if (leafMesh.instanceColor) leafMesh.instanceColor.needsUpdate = true;
     trunkMesh.castShadow = leafMesh.castShadow = true;
     trunkMesh.frustumCulled = leafMesh.frustumCulled = false;   // bounds instance tak dihitung r128
-    scene.add(trunkMesh); scene.add(leafMesh);
+    parkRoot.add(trunkMesh); parkRoot.add(leafMesh);
 }
 
 function createCity() {
@@ -761,6 +818,12 @@ function createCity() {
             const z = Math.sin(angle) * rad;
             const w = 18 + Math.random() * 36;
             const d = 18 + Math.random() * 36;
+            // Koridor barat tetap KOSONG: boulevard pendekatan Campaign Stage 12
+            // berjalan di sana, dan sebuah gedung di tengah jalan adalah persis
+            // cacat yang sudah pernah dilaporkan. Di Survival ini hanya membuka
+            // pandangan ke arah jalan yang menjauh dari taman.
+            if (x < PARK_WEST_CORRIDOR.maxX
+                && Math.abs(z) < PARK_WEST_CORRIDOR.halfZ + Math.max(w, d)) continue;
             const h = ring.hMin + Math.random() * (ring.hMax - ring.hMin);
             const b = {
                 x, z, w, d, h,
@@ -855,6 +918,7 @@ let navVault = null;    // bak walkable (survival — vault hidup)
 let navSolid = null;    // bak pejal (stage 3 — tanpa vault)
 export function ensureParkWorld() {
     if (!parkBuilt) { buildSurvivalWorld(); parkBuilt = true; }
+    return parkRoot;
 }
 export function getSurvivalNav() {
     if (!navVault) navVault = buildSurvivalNav(true);

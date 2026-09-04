@@ -135,9 +135,9 @@
                 450
             ],
             "cameraKick": 0.03,
-            "pellets": 15,
+            "pellets": 12,
             "pelletSpread": 0.1,
-            "damage": 15
+            "damage": 10
         },
         "launcher": {
             "maxAmmo": 25,
@@ -999,33 +999,34 @@
                 "deploySec": 3
             },
             "fadeSec": 0.7,
-            "arenaEnterRange": 26,
+            "gateOpenRange": 88,
+            "bossTriggerMeters": 15,
             "encounters": [
                 {
                     "id": "deployment",
-                    "triggerX": -410,
+                    "triggerX": -1300,
                     "points": [
-                        { "x": -370, "z": -58, "cls": "C", "count": 6 },
-                        { "x": -350, "z": 54, "cls": "B", "count": 5 },
-                        { "x": -325, "z": 0, "cls": "A", "count": 2 }
+                        { "x": -1262, "z": -56, "cls": "C", "count": 6 },
+                        { "x": -1240, "z": 52, "cls": "B", "count": 5 },
+                        { "x": -1216, "z": 0, "cls": "A", "count": 2 }
                     ]
                 },
                 {
                     "id": "park",
-                    "triggerX": -250,
+                    "triggerX": -1150,
                     "points": [
-                        { "x": -205, "z": -72, "cls": "C", "count": 7 },
-                        { "x": -185, "z": 65, "cls": "B", "count": 5 },
-                        { "x": -160, "z": -12, "cls": "A", "count": 3 }
+                        { "x": -1112, "z": -62, "cls": "C", "count": 7 },
+                        { "x": -1090, "z": 58, "cls": "B", "count": 5 },
+                        { "x": -1066, "z": -10, "cls": "A", "count": 3 }
                     ]
                 },
                 {
                     "id": "plaza",
-                    "triggerX": -95,
+                    "triggerX": -1000,
                     "points": [
-                        { "x": -62, "z": -75, "cls": "C", "count": 6 },
-                        { "x": -38, "z": 72, "cls": "B", "count": 5 },
-                        { "x": -15, "z": 0, "cls": "A", "count": 3 }
+                        { "x": -964, "z": -64, "cls": "C", "count": 6 },
+                        { "x": -942, "z": 60, "cls": "B", "count": 5 },
+                        { "x": -918, "z": 0, "cls": "A", "count": 3 }
                     ]
                 }
             ],
@@ -1556,6 +1557,8 @@
                     "returnJakarta": { "speaker": "Command", "text": "Jakarta is silent. One signal remains beneath Medan Merdeka." },
                     "monasAhead": { "speaker": "Major Gibran", "text": "Monas ahead. This ends where the country first fell." },
                     "offlineWake": { "speaker": "Command", "text": "Those guards are still moving. They are hardwired to M-0, not the national network." },
+                    "gateAhead": { "speaker": "Command", "text": "Taman Monas is walled. One gate is still powered — go through it." },
+                    "gateSealed": { "speaker": "Major Gibran", "text": "The gate just shut behind me. Whatever is in here, it wants me to stay." },
                     "vaultOpening": { "speaker": "M-0 MAHAPATIH", "text": "The Mahapatih mandate grants me sovereign command. Humanity forfeited control." },
                     "gibranAnswer": { "speaker": "Major Gibran", "text": "A nation is its people. You protected nothing." },
                     "phaseTwo": { "speaker": "M-0 MAHAPATIH", "text": "Siege frame compromised. Personal termination protocol engaged." },

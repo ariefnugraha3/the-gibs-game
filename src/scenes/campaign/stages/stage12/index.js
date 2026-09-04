@@ -3,7 +3,7 @@
 // sunrise epilogue. The final `gameOver` is deliberately delayed until every
 // epilogue beat has resolved, so checkpoint 12 survives an interrupted ending.
 
-import { CFG } from '../../../../core/config.js';
+import { CFG, CAMP_M } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
 import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
 import { scene, camera, CAM_OFF_DEFAULT, setCineFocus } from '../../../../core/renderer.js';
@@ -39,12 +39,14 @@ import {
 import {
     STAGE12_LIGHTS_KEY, S12_ORIGIN, S12_START, S12_ARENA_ENTRY,
     S12_BOSS_CENTER, S12_MONAS, S12_ARENA_BOUNDS, S12_CHARGE_LANES,
-    S12_HARDLINE_STATIONS,
+    S12_HARDLINE_STATIONS, S12_GATE, STAGE12_ROOT_KEYS,
     ensureStage12World as ensureWorldRoot, stage12WorldDebug,
-    stage12Walk, resolveStage12World, clampStage12Boss,
+    stage12Walk, resolveStage12World, stage12GroundHeight, clampStage12Boss,
     stage12BulletBlocked, stage12BlastBlocked,
     resetStage12World, updateStage12World, updateStage12Transport,
     hideStage12Transport, setStage12Sunrise,
+    updateStage12Gate, sealStage12Gate, stage12GateState,
+    stage12InsidePark, stage12MonasDistance,
 } from './world.js';
 
 export { stage12WorldDebug };
@@ -66,7 +68,8 @@ const bossContext = {
 
 let worldRoot = null, boss = null;
 let phase = 'returnCine', complete = false, elapsed = 0;
-let cine = null, arenaLocked = false, bossRevealT = 0, endingT = 0;
+let cine = null, bossRevealT = 0, endingT = 0;
+let gateArmed = false, parkSealed = false;
 let completionCommitted = false, finalScreenShown = false;
 let guardSpawned = new Set(), guardCensus = [], guardSuppliesPlaced = false;
 let dialogueCurrent = null, dialogueQueue = [], dialogueSeen = new Set();
@@ -199,6 +202,10 @@ function allGuardsDown() {
         && countStageRobots(12) === 0;
 }
 
+function bossTriggerRange() {
+    return Math.max(1, stageCfg().bossTriggerMeters) * CAMP_M;
+}
+
 function placeBossResupply() {
     if (guardSuppliesPlaced) return;
     guardSuppliesPlaced = true;
@@ -217,7 +224,8 @@ function cleanupCine(revealSec = 0) {
 function finishReturnCine(skipped = false) {
     if (skipped) resetDialogue();
     updateStage12Transport(0, 1, true); cleanupCine(stageCfg().fadeSec);
-    phase = 'silentApproach'; activateEncounter('deployment');
+    phase = 'silentApproach'; gateArmed = false; parkSealed = false;
+    activateEncounter('deployment');
     queueDialogue('monasAhead');
     showStageMsg('ADVANCE THROUGH SILENT JAKARTA — REACH MEDAN MERDEKA', 4800);
 }
@@ -243,7 +251,7 @@ function updateReturnCine(dt) {
 
 function beginVaultReveal() {
     if (phase === 'vaultReveal' || boss?.active) return;
-    phase = 'vaultReveal'; bossRevealT = 0; arenaLocked = true;
+    phase = 'vaultReveal'; bossRevealT = 0;
     releaseInputs(); clearMoveTarget(); setCinematicActive(true);
     setCineBars(true); cineCam.x = -105; cineCam.y = 145; cineCam.z = 105;
     setCineFocus(S12_BOSS_CENTER.x, S12_BOSS_CENTER.z, true);
@@ -304,7 +312,7 @@ function updateBossHud() {
 function startEnding() {
     if (phase === 'ending' || phase === 'complete') return;
     clearMahapatihHazards(boss); hideBossHud(); phase = 'ending'; endingT = 0;
-    arenaLocked = false; releaseInputs(); clearMoveTarget(); setCinematicActive(true);
+    releaseInputs(); clearMoveTarget(); setCinematicActive(true);
     setCineBars(true); setCineFade(0, 0); hideStage12Transport();
     cineCam.x = END_CAM.x; cineCam.y = END_CAM.y; cineCam.z = END_CAM.z;
     setCineFocus(S12_MONAS.x - 72, S12_MONAS.z, true);
@@ -336,6 +344,23 @@ function updateEnding(dt) {
         finishCampaign();
 }
 
+// Gerbang taman: TIDAK dibuka lewat timer. Ia merespons kedatangan player hanya
+// setelah boulevard bersih, lalu MENUTUP PERMANEN begitu player melewati garis
+// gerbang — sejak itu Taman Monas adalah arena tertutup (permintaan user
+// 2026-09-03: "pintu gerbang itu tertutup agar player tidak bisa keluar").
+function gateTarget() {
+    if (parkSealed || !gateArmed) return 0;
+    return Math.hypot(camera.position.x - S12_GATE.x,
+        camera.position.z - S12_GATE.z) <= stageCfg().gateOpenRange ? 1 : 0;
+}
+
+function sealPark() {
+    if (parkSealed) return;
+    parkSealed = true; phase = 'parkSealed';
+    sealStage12Gate(); queueDialogue('gateSealed');
+    showStageMsg('GATE SEALED — APPROACH THE MONUMENT', 4600);
+}
+
 function updateApproach() {
     const encounters = stageCfg().encounters || [];
     for (let i = 0; i < encounters.length; i++) {
@@ -351,15 +376,26 @@ function updateApproach() {
             }
         }
     }
-    if (allGuardsDown()) placeBossResupply();
-    const range = stageCfg().arenaEnterRange;
-    if (allGuardsDown() && Math.hypot(camera.position.x - S12_ARENA_ENTRY.x,
-        camera.position.z - S12_ARENA_ENTRY.z) <= range) beginVaultReveal();
+    if (!allGuardsDown()) return;
+    placeBossResupply();
+    if (!gateArmed) {
+        gateArmed = true; phase = 'gateApproach'; queueDialogue('gateAhead');
+        showStageMsg('MEDAN MERDEKA GATE — THE ONLY WAY INTO THE PARK', 4600);
+    }
+    if (!parkSealed && stage12InsidePark(camera.position.x, camera.position.z)) sealPark();
+}
+
+// Boss hanya bangkit ketika player benar-benar MENDEKATI monumen — bukan saat
+// gerbang tertutup. Jaraknya dalam METER (config), dikali CAMP_M sekali di sini.
+function updateSealedPark() {
+    if (stage12MonasDistance(camera.position.x, camera.position.z) <= bossTriggerRange())
+        beginVaultReveal();
 }
 
 function resetStage() {
     phase = 'returnCine'; complete = false; elapsed = 0; cine = null;
-    arenaLocked = false; bossRevealT = 0; endingT = 0;
+    bossRevealT = 0; endingT = 0;
+    gateArmed = false; parkSealed = false;
     completionCommitted = false; finalScreenShown = false;
     guardSpawned = new Set(); guardCensus = []; guardSuppliesPlaced = false;
     resetDialogue(); hideBossHud(); resetStage12World();
@@ -376,7 +412,8 @@ export const stage12Scene = {
     id: 'campaign-12', lightsKey: STAGE12_LIGHTS_KEY,
     enter() {
         saveCampaignStage(12); worldRoot = ensureStage12World(scene);
-        setActiveCampaignWorldRoots(STAGE12_LIGHTS_KEY);
+        // DUA root: jalan pendekatan campaign DAN Taman Monas bersama.
+        setActiveCampaignWorldRoots(STAGE12_ROOT_KEYS);
         setActiveStageLights(STAGE12_LIGHTS_KEY); applyLightPreset(scene, 'midnight');
         enterCityEnv({ background: 0x090d16, fogColor: 0x0d1118,
             fogNear: 210, fogFar: 1550 });
@@ -398,9 +435,11 @@ export const stage12Scene = {
     awardKill: campaignAwardKill,
     updateMode(dt) {
         elapsed += dt; updateDialogue(dt);
-        updateStage12World(dt);
+        updateStage12World(dt); updateStage12Gate(dt, gateTarget());
         if (cine?.kind === 'return') updateReturnCine(dt);
-        else if (phase === 'silentApproach' || phase === 'blackGuard') updateApproach();
+        else if (phase === 'silentApproach' || phase === 'blackGuard'
+            || phase === 'gateApproach') updateApproach();
+        else if (phase === 'parkSealed') updateSealedPark();
         else if (phase === 'vaultReveal') {
             bossRevealT += dt;
             updateMahapatih(boss, dt, { ...bossContext, allowAttack: false,
@@ -416,11 +455,13 @@ export const stage12Scene = {
     },
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage12Walk, pos, oldX, oldZ, player.radius);
-        resolveStage12World(pos, player.radius, feetY);
+        resolveStage12World(pos, player.radius, feetY, oldX, oldZ);
         if (boss?.active) resolveMahapatihBlock(boss, pos, player.radius);
         slideWalk(stage12Walk, pos, oldX, oldZ, player.radius);
     },
-    groundHeight: () => 0,
+    // Bak air mancur dan bibir kolam pantul BISA dinaiki, persis seperti di
+    // Taman Monas Survival — tingginya datang dari collider yang digambar.
+    groundHeight: (x, z, feetY) => stage12GroundHeight(x, z, feetY),
     bulletBlocked(bullet) {
         return mahapatihBulletHit(boss, bullet, {
             ...bossContext, onPhase: bossPhaseCallback, onAnchor: anchorCallback,
@@ -442,8 +483,13 @@ export const stage12Scene = {
         });
     },
     clampRobot(bot, oldX, oldZ) {
-        campaignClampRobot(bot, oldX, oldZ,
-            { walkable: stage12Walk, resolve: resolveStage12World });
+        // Posisi frame sebelumnya DITERUSKAN: `resolveMonas` memakainya untuk
+        // memutuskan sumbu mana yang boleh menyusur sisi monumen. Clamp generik
+        // memanggil `resolve(p, r, f)` tanpa itu, jadi ditutup di sini.
+        campaignClampRobot(bot, oldX, oldZ, {
+            walkable: stage12Walk,
+            resolve: (p, r, f) => resolveStage12World(p, r, f, oldX, oldZ),
+        });
     },
     clampDropPos(x, z) {
         return stage12Walk(x, z, 2) ? [x, z] : [S12_ARENA_ENTRY.x - 42, 0];
@@ -452,6 +498,8 @@ export const stage12Scene = {
         if (phase === 'returnCine') return 'STAGE 12 — ZERO HOUR: MONAS';
         if (phase === 'silentApproach' || phase === 'blackGuard')
             return `SILENT JAKARTA — HARDWIRED GUARDS ${countStageRobots(12)}`;
+        if (phase === 'gateApproach') return 'ENTER TAMAN MONAS THROUGH THE GATE';
+        if (phase === 'parkSealed') return 'GATE SEALED — APPROACH THE MONUMENT';
         const d = mahapatihDebug(boss);
         if (phase === 'zeroHour') return `COUNTERMAND CHARGING — HARDLINES ${d?.anchorsRemaining ?? 0}`;
         if (phase === 'finalCore') return `M-0 CORE — ${d?.hitVolumes?.coreOpen ? 'EXPOSED' : 'SHUTTERS CLOSED'}`;
@@ -469,14 +517,23 @@ export const stage12Scene = {
         } else if (boss?.active && !boss.dead) {
             const p = boss.parts.group.position;
             plot(p.x - camera.position.x, p.z - camera.position.z, '#ff4a3c', 6, true);
-        } else {
+        } else if (phase === 'gateApproach') {
+            plot(S12_GATE.x - camera.position.x,
+                S12_GATE.z - camera.position.z, '#ffb03b', 5, true);
+        } else if (phase !== 'parkSealed') {
             plot(S12_ARENA_ENTRY.x - camera.position.x,
                 S12_ARENA_ENTRY.z - camera.position.z, '#ffb03b', 5, true);
         }
         plot(S12_MONAS.x - camera.position.x, S12_MONAS.z - camera.position.z,
             '#d8d2c4', 4, true);
     },
-    camBounds() { return arenaLocked ? S12_ARENA_BOUNDS : null; },
+    // KAMERA TIDAK PERNAH DIKUNCI DI SINI (2026-09-04, permintaan user "jangan
+    // kunci kamera ketika melawan boss ... aturan kamera terkunci itu hanya ada
+    // di stage 4 boss tank"). Duel Mahapatih memakai kamera pengikut biasa;
+    // `S12_ARENA_BOUNDS` tinggal menjadi batas PROYEKTIL boss, bukan batas
+    // pandangan. Stage 4 adalah satu-satunya stage yang menjepit kamera, karena
+    // di sana tank sengaja bisa menghilang dari jangkauan pandang.
+    camBounds: () => null,
     get camOffset() {
         if (cine || phase === 'vaultReveal') return cineCam;
         if (bossAllowed()) return BOSS_CAM;
@@ -501,8 +558,11 @@ export const stage12Debug = () => {
     const world = stage12WorldDebug(), bossState = mahapatihDebug(boss);
     return {
         phase, complete, elapsed, cinematic: !!cine || phase === 'vaultReveal'
-            || phase === 'ending', arenaLocked, completionCommitted,
+            || phase === 'ending', cameraLocked: false, completionCommitted,
         finalScreenShown, checkpointClearTiming: finalScreenShown ? 'complete' : 'preserved',
+        gate: { ...stage12GateState(), armed: gateArmed, parkSealed },
+        bossTrigger: { meters: stageCfg().bossTriggerMeters, units: bossTriggerRange(),
+            monasDistance: stage12MonasDistance(camera.position.x, camera.position.z) },
         guards: {
             configured: guardCensus.reduce((n, e) => n + e.total, 0),
             alive: countStageRobots(12), activeNearby: robots.reduce((n, r) => n
