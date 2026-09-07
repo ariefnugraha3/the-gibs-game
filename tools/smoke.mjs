@@ -125,6 +125,56 @@ class Color {
     // setRGB dipakai kilat bilah pedang (playerAvatar.flashSwordBlade)
     setRGB(r, g, b) { this._h = ((r * 255 & 255) << 16) | ((g * 255 & 255) << 8) | (b * 255 & 255); return this; }
 }
+// Accurate TRS only for attachment/bounds audits; older gameplay probes retain
+// their established lightweight localToWorld/getWorldPosition stubs.
+function auditTransform(node, value, inverse = false) {
+    const chain = []; for (let n = node; n; n = n.parent) chain.push(n);
+    if (inverse) chain.reverse();
+    const rotate = (v, axis, a) => {
+        const c = Math.cos(a), s = Math.sin(a);
+        const j = (axis + 1) % 3, k = (axis + 2) % 3, q = v[j];
+        v[j] = q * c - v[k] * s; v[k] = q * s + v[k] * c;
+    };
+    const v = [...value];
+    for (const n of chain) {
+        const p = [n.position.x, n.position.y, n.position.z];
+        const sc = [n.scale.x, n.scale.y, n.scale.z], r = [n.rotation.x, n.rotation.y, n.rotation.z];
+        if (inverse) {
+            for (let i = 0; i < 3; i++) v[i] -= p[i];
+            for (let i = 0; i < 3; i++) rotate(v, i, -r[i]);
+            for (let i = 0; i < 3; i++) v[i] /= sc[i];
+        } else {
+            for (let i = 0; i < 3; i++) v[i] *= sc[i];
+            for (let i = 2; i >= 0; i--) rotate(v, i, r[i]);
+            for (let i = 0; i < 3; i++) v[i] += p[i];
+        }
+    }
+    return v;
+}
+class Box3 {
+    constructor() { this.min = new V3(); this.max = new V3(); }
+    setFromObject(root) {
+        this.min.set(Infinity, Infinity, Infinity); this.max.set(-Infinity, -Infinity, -Infinity);
+        root.traverse(n => {
+            if (!n.geometry) return;
+            const g = n.geometry, a = g.args || [];
+            let x = 1, y = 1, z = 1;
+            if (g.type === 'box' || g.type === 'plane') [x, y, z] = [a[0] / 2, a[1] / 2, (a[2] || 0) / 2];
+            else if (g.type === 'cyl') { x = z = Math.max(a[0], a[1]); y = a[2] / 2; }
+            else if (g.type === 'cone') { x = z = a[0]; y = a[1] / 2; }
+            else if (g.type === 'torus') { x = y = a[0] + a[1]; z = a[1]; }
+            else if (g.type === 'ring') { x = y = a[1]; z = 0; }
+            else x = y = z = a[0] || 1;
+            for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+                const q = auditTransform(n, [sx * x, sy * y, sz * z]);
+                this.min.x = Math.min(this.min.x, q[0]); this.max.x = Math.max(this.max.x, q[0]);
+                this.min.y = Math.min(this.min.y, q[1]); this.max.y = Math.max(this.max.y, q[1]);
+                this.min.z = Math.min(this.min.z, q[2]); this.max.z = Math.max(this.max.z, q[2]);
+            }
+        });
+        return this;
+    }
+}
 class Obj3D {
     constructor() {
         this.position = new V3(); this.scale = new V3(1, 1, 1);
@@ -133,6 +183,20 @@ class Obj3D {
         this.matrixWorld = {}; this.isObject3D = true; this.userData = {};
     }
     add(...os) { for (const o of os) { if (o.parent) o.parent.remove(o); o.parent = this; this.children.push(o); } return this; }
+    attach(o) {
+        const origin = auditTransform(this, auditTransform(o, [0, 0, 0]), true);
+        const basis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map(v => {
+            const q = auditTransform(this, auditTransform(o, v), true);
+            return q.map((x, i) => x - origin[i]);
+        });
+        const sc = basis.map(v => Math.hypot(...v));
+        const [x, y, z] = basis.map((v, i) => v.map(q => q / sc[i]));
+        this.add(o); o.position.set(...origin); o.scale.set(...sc);
+        o.rotation.y = Math.asin(Math.max(-1, Math.min(1, z[0])));
+        o.rotation.x = Math.abs(z[0]) < 0.9999999 ? Math.atan2(-z[1], z[2]) : Math.atan2(y[2], y[1]);
+        o.rotation.z = Math.abs(z[0]) < 0.9999999 ? Math.atan2(-y[0], x[0]) : 0;
+        return this;
+    }
     remove(o) { const i = this.children.indexOf(o); if (i >= 0) { this.children.splice(i, 1); o.parent = null; } return this; }
     traverse(fn) { fn(this); this.children.forEach(c => c.traverse(fn)); }
     lookAt() { } updateMatrixWorld() { } rotateX(a) { this.rotation.x += a; }
@@ -194,7 +258,7 @@ class Mat {
 }
 global.THREE = {
     Vector2: class { constructor(x, y) { this.x = x; this.y = y; } set() { } },
-    Vector3: V3, Quaternion: Quat, Euler, Color, Matrix4,
+    Vector3: V3, Quaternion: Quat, Euler, Color, Matrix4, Box3,
     Object3D: Obj3D, Group, Mesh, Sprite, Scene, PerspectiveCamera: PCam, PointLight: PLight,
     InstancedMesh: class extends Obj3D { constructor(g, m, n) { super(); this.geometry = g; this.material = m; this.count = n; this.instanceColor = { needsUpdate: false }; this.instanceMatrix = { needsUpdate: false }; this.mats = []; } setMatrixAt(i, m) { this.mats[i] = { s: m ? m.s : 1, p: m && m.p ? { ...m.p } : null, sv: m && m.sv ? { ...m.sv } : null, ry: m ? (m.ry || 0) : 0 }; } setColorAt() { } },
     SphereGeometry: geo('sph'), CylinderGeometry: geo('cyl'), BoxGeometry: geo('box'),
@@ -20346,10 +20410,11 @@ if (false) {
                     lookOwners.push(full.split(/[\/]scenes[\/]/)[1] || full);
             }
         })(ROOT + '/src/scenes');
-        T('S11 KAMERA: camLookY opsional — default lama utuh, hanya bab root yang memakainya',
+        T('S11/S12 KAMERA: camLookY opsional — root reveal dan kematian final boss saja',
             /lookY == null \? camFocus\.y - lookDrop : lookY/.test(rendSrc11)
-            && lookOwners.length === 3
-            && lookOwners.every(f => /stage11/.test(f)));
+            && lookOwners.length === 4
+            && lookOwners.filter(f => /stage11/.test(f)).length === 3
+            && lookOwners.filter(f => /stage12[\\/]index\.js$/.test(f)).length === 1);
     }
 
     T('S11 WARDEN KAMERA: pertarungan tidak mengembalikan sudut kamera global',
@@ -21280,6 +21345,84 @@ if (false) {
         bd.phase === 'wreck' && bd.wreckVisible && wreckBlocks12
         && boss12.parts.group.position.x < world12.S12_BOSS_CENTER.x);
 
+    // Destruction owns actual rig pieces, with deterministic releases and a
+    // floor-safe settlement. Exercise both a full watch and one large skip dt.
+    {
+        const parent = new THREE.Group(); scene.add(parent);
+        const db = mahMod.createMahapatih({ parent, active: true });
+        const D = M12.deathFx, fx = db.deathFx;
+        const count = () => { let n = 0; parent.traverse(() => n++); return n; };
+        const nodesBefore = count(), originalPieces = fx.debris.map(r => r.node);
+        const bounds = new THREE.Box3();
+        let phaseCalls = 0;
+        const deathCtx = { wreckDir: { x: -1, z: 0.2 }, onPhase(p) { if (p === 'wreck') phaseCalls++; } };
+        const start = () => {
+            mahMod.resetMahapatih(db, { active: true, phase: 'core', x: 270, z: 160, yaw: 0.7 });
+            db.parts.combat.visible = true; db.parts.siege.visible = false;
+            db.parts.torso.rotation.x = 0.18;
+            db.parts.arms[0].shoulder.rotation.x = -0.2;
+            db.hp = db.maxHp = M12.coreHp;
+            robotsMod.resetRobotsFx();
+            mahMod.damageMahapatih(db, M12.coreHp, { force: true, ctx: deathCtx });
+        };
+        start();
+        const safeAtKill = db.dead && db.hp === 0 && mahMod.mahapatihDebug(db).hazardsCleared;
+        const states = new Set(), blastCounts = new Set();
+        let airborne = false, debrisClear = true, torsoClear = true, fireSeen = false, smokeSeen = false;
+        let articulated = false;
+        for (let i = 0; i < Math.ceil(M12.deathSec * 60) + 1; i++) {
+            mahMod.updateMahapatih(db, 1 / 60, deathCtx);
+            const d = mahMod.mahapatihDebug(db).destruction;
+            states.add(d.stage); blastCounts.add(d.blasts);
+            fireSeen ||= d.fires > 0; smokeSeen ||= d.smoke > 0;
+            airborne ||= d.released > d.landed;
+            articulated ||= !fx.debris[2].released && Math.abs(db.parts.arms[0].shoulder.rotation.x) > 0.7
+                && Math.abs(db.parts.torso.rotation.x) > 0.05;
+            for (const r of fx.debris) if (r.released)
+                debrisClear &&= bounds.setFromObject(r.node).min.y >= 0.119;
+            if (fx.impact) torsoClear &&= bounds.setFromObject(db.parts.combat).min.y >= 0.119;
+        }
+        T('MAHAPATIH DEATH CINEMATIC: overload, rupture, collapse, impact dan aftermath benar-benar bertahap',
+            ['overload', 'rupture', 'collapse', 'aftermath', 'settled'].every(s => states.has(s))
+            && articulated && blastCounts.size === D.blastFractions.length
+            && fx.blasts.every(b => b.fired) && fireSeen && smokeSeen);
+        T(`MAHAPATIH DEATH BRUTAL: delapan bagian ASLI terlepas, terlempar dan mendarat di atas tanah`
+            + ` [air ${airborne}, debris ${debrisClear}, torso ${torsoClear}, landed ${fx.debris.filter(r => r.landed).length}]`,
+            fx.debris.length === 8 && fx.debris.every((r, i) => r.node === originalPieces[i]
+                && r.released && r.landed && r.node.parent === fx.root)
+            && airborne && debrisClear && torsoClear);
+        const settled = fx.debris.map(r => [r.node.position.x, r.node.position.y, r.node.position.z,
+            r.node.rotation.x, r.node.rotation.y, r.node.rotation.z]);
+        const torsoEnd = [db.parts.combat.position.y, db.parts.torso.rotation.z];
+        const scoreEnd = stateMod.score;
+        mahMod.updateMahapatih(db, 3, deathCtx);
+        mahMod.damageMahapatih(db, M12.coreHp, { force: true, ctx: deathCtx });
+        T('MAHAPATIH DEATH: hazard langsung kosong, reward/callback sekali, tanpa mesh atau lampu baru',
+            safeAtKill && robotsMod.pendingBoomsDebug().length === 0 && stateMod.score === scoreEnd
+            && phaseCalls === 1 && nodesBefore === count()
+            && !(() => { let n = 0; parent.traverse(o => { if (o.isPointLight) n++; }); return n; })());
+        start();
+        mahMod.updateMahapatih(db, M12.deathSec + 1, deathCtx);
+        T('MAHAPATIH DEATH: SKIP dan 60 fps menghasilkan pose bangkai/serpihan yang sama'
+            + ` [torso ${db.parts.combat.position.y - torsoEnd[0]}, pieces ${fx.debris.map((r, i) =>
+                Math.hypot(r.node.position.x - settled[i][0], r.node.position.y - settled[i][1], r.node.position.z - settled[i][2])).join(',')}]`,
+            fx.debris.every((r, i) => [r.node.position.x, r.node.position.y, r.node.position.z,
+                r.node.rotation.x, r.node.rotation.y, r.node.rotation.z]
+                .every((v, j) => Math.abs(v - settled[i][j]) < 1e-6))
+            && Math.abs(db.parts.combat.position.y - torsoEnd[0]) < 1e-6
+            && Math.abs(db.parts.torso.rotation.z - torsoEnd[1]) < 1e-6);
+        mahMod.resetMahapatih(db, { active: false });
+        T('MAHAPATIH DEATH: replay memasang kembali semua bagian, warna dan efek bersih',
+            fx.debris.every(r => !r.released && r.node.parent === r.parent
+                && r.node.position.distanceTo(r.position) < 1e-9)
+            && !fx.root.visible && !fx.coreGlow.visible && fx.blasts.every(b => !b.fired)
+            && fx.materials.every(m => m.mat.color.getHex() === m.color)
+            && db.parts.core.scale.x === 1);
+        mahMod.disposeMahapatih(db);
+        T('MAHAPATIH DEATH: dispose menghapus rig dan FX dari root stage', parent.children.length === 0);
+        scene.remove(parent);
+    }
+
 
     // ---- PERBURUAN: boss ini MENGEJAR, dan tabrakannya MEMBIDIK PLAYER -----
     // Laporan user (2026-09-04): "bossnya hanya berjalan di tempat, ketika harus
@@ -21324,6 +21467,88 @@ if (false) {
                 roll: hb.parts.wheels[0].hub.rotation.x - roll0,
                 speed: mahMod.mahapatihDebug(hb).chase.speed };
         };
+
+        // Cinematic locomotion: measure actual displacement, acceleration and
+        // changing lateral travel; no attack timers interrupt this probe.
+        const motion = M12.motion;
+        const motionProbe = (hz) => {
+            mahMod.resetMahapatih(hb, { active: true, phase: 'personal', x: 300, z: 200 });
+            put(300, 200 + M12.chaseStandoff);
+            let vx = 0, vz = 0, peakAcceleration = 0, left = false, right = false;
+            let lean = 0, stride = 0, travel = 0;
+            for (let i = 0; i < Math.ceil(motion.orbitPeriodSec * 2 * hz); i++) {
+                const p = hb.parts.group.position, x = p.x, z = p.z;
+                hb.attackT = 99;
+                mahMod.updateMahapatih(hb, 1 / hz, { allowAttack: true });
+                const nx = (p.x - x) * hz, nz = (p.z - z) * hz;
+                peakAcceleration = Math.max(peakAcceleration, Math.hypot(nx - vx, nz - vz) * hz);
+                const dx = rendererMod.camera.position.x - p.x;
+                const dz = rendererMod.camera.position.z - p.z;
+                const lateral = -dz * nx + dx * nz;
+                left ||= lateral < -M12.combat.speed;
+                right ||= lateral > M12.combat.speed;
+                lean = Math.max(lean, Math.abs(hb.parts.torso.rotation.z));
+                stride = Math.max(stride, Math.abs(hb.parts.legsCombat[0].rotation.x));
+                travel += Math.hypot(p.x - x, p.z - z); vx = nx; vz = nz;
+            }
+            return { x: hb.parts.group.position.x, z: hb.parts.group.position.z,
+                peakAcceleration, left, right, lean, stride, travel, distance: dist() };
+        };
+        const motion60 = motionProbe(60), motion30 = motionProbe(30);
+        T('MAHAPATIH LINCAH: strafe berganti sisi dengan akselerasi terbatas, tubuh miring dan kaki melangkah',
+            motion60.left && motion60.right && motion60.lean > 0.015 && motion60.stride > 0.1
+            && motion60.peakAcceleration <= Math.max(motion.acceleration, motion.braking) + 1e-4
+            && motion60.travel > M12.combat.speed * motion.orbitPeriodSec * 0.3
+            && motion60.distance > M12.chaseStandoff * 0.75);
+        T('MAHAPATIH LINCAH: lintasan 30/60 fps konsisten',
+            Math.hypot(motion30.x - motion60.x, motion30.z - motion60.z)
+                < M12.combat.speed * 0.15);
+        // All mobile phases still respect the real park/Monas clamp, including
+        // changing player destinations and long projectile waiting windows.
+        let arenaSafe = true, capped = true;
+        for (const phase of ['siege', 'personal', 'hardline', 'core']) {
+            mahMod.resetMahapatih(hb, { active: true, phase, x: 300, z: 200 });
+            for (let i = 0; i < 720; i++) {
+                put(i < 360 ? -400 : 400, i < 360 ? -200 : 200);
+                hb.attackT = 99;
+                mahMod.updateMahapatih(hb, 1 / 60, hctx);
+                const p = hb.parts.group.position, bounds = world12.S12_BOSS_BOUNDS;
+                arenaSafe &&= p.x >= bounds.x0 && p.x <= bounds.x1
+                    && p.z >= bounds.z0 && p.z <= bounds.z1
+                    && Math.hypot(p.x - hctx.avoid.x, p.z - hctx.avoid.z) >= hctx.avoid.radius - 1e-6;
+                capped &&= hb.speedNow <= Math.max(M12.combat.dashSpeed,
+                    M12.moveSpeed * motion.siegeDashMul) + 1e-3;
+            }
+        }
+        T('MAHAPATIH LINCAH: setiap fase tetap di taman, menghindari Monas, tanpa loncatan laju', arenaSafe && capped);
+        mahMod.resetMahapatih(hb, { active: true, phase: 'personal', x: 300, z: 200 });
+        put(300, 200 + M12.chaseStandoff * 2);
+        hb.attackIndex = 1; hb.attackT = 0;
+        mahMod.updateMahapatih(hb, 1 / 60, hctx);
+        const locked = { ...hb.chargePath }, parked = { x: hb.parts.group.position.x, z: hb.parts.group.position.z };
+        put(500, 100);
+        let warningStill = true, anticipation = false, commitSpeeds = [];
+        while (hb.attackState === 'lungeTelegraph') {
+            mahMod.updateMahapatih(hb, 1 / 60, hctx);
+            warningStill &&= hb.parts.group.position.x === parked.x && hb.parts.group.position.z === parked.z
+                && hb.chargePath.x1 === locked.x1 && hb.chargePath.z1 === locked.z1;
+            anticipation ||= hb.parts.torso.rotation.x < -0.05;
+        }
+        for (let i = 0; i < Math.ceil(motion.attackRampSec * 60) + 2; i++) {
+            const p = hb.parts.group.position, x = p.x, z = p.z;
+            mahMod.updateMahapatih(hb, 1 / 60, { allowAttack: true });
+            commitSpeeds.push(Math.hypot(p.x - x, p.z - z) * 60);
+        }
+        T('MAHAPATIH CINEMATIC: ancang-ancang diam, lajur terkunci saat player menghindar, lunge berakselerasi',
+            warningStill && anticipation && commitSpeeds[0] < M12.lunge.speed * 0.5
+            && commitSpeeds.at(-1) > M12.lunge.speed * 0.95
+            && commitSpeeds.every(s => s <= M12.lunge.speed + 1e-6));
+        mahMod.resetMahapatih(hb, { active: true });
+        T('MAHAPATIH CINEMATIC: reset membersihkan momentum, pose, recoil dan kaki',
+            hb.moveVX === 0 && hb.moveVZ === 0 && hb.maneuverT === 0 && hb.actionKick === 0
+            && hb.parts.torso.rotation.x === 0 && hb.parts.torso.rotation.z === 0
+            && hb.parts.torso.position.y === 12 && hb.parts.shoulderCannon.position.z === 0
+            && hb.parts.legsCombat.every(l => l.rotation.x === 0 && l.rotation.z === 0));
 
         // (1) FASE SIEGE MENGEJAR. Sebelum ini nilainya PERSIS nol.
         const siegeRun = chase(2, 'siege', 300, -200, -400, 200);
@@ -21668,7 +21893,29 @@ if (false) {
             && /camBounds\(\)\s*\{/.test(s4src));
     }
 
-    stage12.stage12BeginEndingForDebug();
+    stage12.stage12DamageBossForDebug(M12.siegeHp * 2);
+    stage12.stage12Scene.updateMode(M12.transitionSec + 0.01);
+    stage12.stage12DamageBossForDebug(M12.combatHp * 2);
+    for (let i = 0; i < M12.hardline.anchorCount; i++)
+        stage12.stage12DamageHardlineForDebug(i, M12.hardline.anchorHp);
+    stage12.stage12DamageBossForDebug(M12.coreHp * 2);
+    const deathShot = { ...stage12.stage12Scene.camOffset };
+    const deathFocus = stage12.stage12Scene.camLookY;
+    stage12.stage12Scene.updateMode(M12.deathSec * M12.deathFx.ruptureFraction * 0.8);
+    const heldDeath = stage12.stage12Debug();
+    T('S12 DEATH CAMERA: kematian dibingkai, kamera melebar sebelum rupture, epilog menunggu',
+        heldDeath.phase === 'bossDeath' && heldDeath.cinematic && stateMod.cinematicActive
+        && !heldDeath.boss.deathDone && dom12.cutsceneSkipArmed() && save12.loadCampaignStage() === 12
+        && deathFocus != null && stage12.stage12Scene.camBounds() === null
+        && deathShot.x * (heldDeath.boss.hitVolumes.body.x - world12.S12_MONAS.x)
+            + deathShot.z * (heldDeath.boss.hitVolumes.body.z - world12.S12_MONAS.z) > 0
+        && Math.hypot(stage12.stage12Scene.camOffset.x, stage12.stage12Scene.camOffset.z)
+            > Math.hypot(deathShot.x, deathShot.z));
+    dom12.triggerCutsceneSkip();
+    T('S12 DEATH SKIP: menyelesaikan kehancuran lalu masuk epilog dengan kamera dan tombol bersih',
+        stage12.stage12Debug().phase === 'ending' && stage12.stage12Debug().boss.deathDone
+        && stage12.stage12Debug().boss.destruction.stage === 'settled'
+        && stage12.stage12Scene.camLookY === null && !dom12.cutsceneSkipArmed());
     sd12 = stage12.stage12Debug();
     T('S12 ENDING: interrupted sunrise has no hazards/guards and still preserves checkpoint 12',
         sd12.phase === 'ending' && sd12.endingCleanup

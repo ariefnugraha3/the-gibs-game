@@ -6,7 +6,7 @@
 import { CFG, CAMP_M } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
 import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
-import { scene, camera, CAM_OFF_DEFAULT, setCineFocus } from '../../../../core/renderer.js';
+import { scene, camera, viewCam, CAM_OFF_DEFAULT, setCineFocus } from '../../../../core/renderer.js';
 import {
     showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
@@ -285,7 +285,34 @@ function bossPhaseCallback(nextPhase) {
         showStageMsg('SHIELD DOWN — DESTROY THE EXPOSED CORE', 4700);
     } else if (nextPhase === 'dying') {
         phase = 'bossDeath'; hideBossHud(); stopMusic(); queueDialogue('mahapatihDeath');
+        releaseInputs(); clearMoveTarget(); setCinematicActive(true); setCineBars(true);
+        updateDeathCamera(true);
+        showCutsceneSkip(() => {
+            if (phase === 'bossDeath') updateMahapatih(boss, bossCfg().deathSec,
+                { ...bossContext, allowAttack: false, onPhase: bossPhaseCallback });
+        });
     } else if (nextPhase === 'wreck') startEnding();
+}
+
+function updateDeathCamera(snap = false) {
+    const B = bossCfg(), D = B.deathFx, p = boss.parts.group.position;
+    const k = Math.min(1, boss.deathT / (B.deathSec * D.ruptureFraction));
+    const pullback = k * k * (3 - 2 * k);
+    // Widen before the parts fly. Solve both axes so portrait windows also
+    // contain the debris spread; gameplay's freely following camera is untouched.
+    const radius = B.bodyRadius * 1.6 + D.debrisSpeed / D.drag
+        + D.debrisLift * D.debrisLift / (2 * D.gravity);
+    const vf = (viewCam?.fov || 50) * Math.PI / 360;
+    const hf = Math.atan(Math.tan(vf) * (viewCam?.aspect || 16 / 9));
+    const distance = radius * (0.78 + 0.42 * pullback) / Math.sin(Math.min(vf, hf));
+    // View from the outside of the monument: a fixed compass angle could put
+    // Monas between the lens and a boss killed on the far side of the park.
+    const base = boss.deathFx.base;
+    const a = Math.atan2(base.x - S12_MONAS.x, base.z - S12_MONAS.z) + pullback * 0.12;
+    cineCam.x = Math.sin(a) * distance * 0.88;
+    cineCam.z = Math.cos(a) * distance * 0.88;
+    cineCam.y = 28 - camera.position.y + distance * Math.sqrt(1 - 0.88 ** 2);
+    setCineFocus(p.x, p.z, snap);
 }
 
 function anchorCallback(index, remaining) {
@@ -315,6 +342,7 @@ function updateBossHud() {
 function startEnding() {
     if (phase === 'ending' || phase === 'complete') return;
     clearMahapatihHazards(boss); hideBossHud(); phase = 'ending'; endingT = 0;
+    hideCutsceneSkip();
     releaseInputs(); clearMoveTarget(); setCinematicActive(true);
     setCineBars(true); setCineFade(0, 0); hideStage12Transport();
     cineCam.x = END_CAM.x; cineCam.y = END_CAM.y; cineCam.z = END_CAM.z;
@@ -452,6 +480,7 @@ export const stage12Scene = {
             updateMahapatih(boss, dt, { ...bossContext,
                 allowAttack: phase !== 'bossTransition' && phase !== 'bossDeath',
                 onPhase: bossPhaseCallback, onAnchor: anchorCallback });
+            if (phase === 'bossDeath') updateDeathCamera();
             updateBossHud();
         } else if (phase === 'ending') updateEnding(dt);
         updateUI();
@@ -537,8 +566,9 @@ export const stage12Scene = {
     // pandangan. Stage 4 adalah satu-satunya stage yang menjepit kamera, karena
     // di sana tank sengaja bisa menghilang dari jangkauan pandang.
     camBounds: () => null,
+    get camLookY() { return phase === 'bossDeath' ? 28 : null; },
     get camOffset() {
-        if (cine || phase === 'vaultReveal') return cineCam;
+        if (cine || phase === 'vaultReveal' || phase === 'bossDeath') return cineCam;
         if (bossAllowed()) return BOSS_CAM;
         if (phase === 'ending') return END_CAM;
         return PLAY_CAM;
@@ -561,7 +591,7 @@ export const stage12Debug = () => {
     const world = stage12WorldDebug(), bossState = mahapatihDebug(boss);
     return {
         phase, complete, elapsed, cinematic: !!cine || phase === 'vaultReveal'
-            || phase === 'ending', cameraLocked: false, completionCommitted,
+            || phase === 'bossDeath' || phase === 'ending', cameraLocked: false, completionCommitted,
         finalScreenShown, checkpointClearTiming: finalScreenShown ? 'complete' : 'preserved',
         gate: { ...stage12GateState(), armed: gateArmed, parkSealed },
         bossTrigger: { meters: stageCfg().bossTriggerMeters, units: bossTriggerRange(),

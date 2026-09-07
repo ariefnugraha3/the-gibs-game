@@ -7,8 +7,11 @@ import { CFG } from '../core/config.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { stats, player, addScore } from '../core/state.js';
 import { queueBoom } from './robots.js';
-import { explodeAt, spawnGroundPuff } from './effects.js';
-import { spawnGibs } from './gore.js';
+import { explodeAt } from './effects.js';
+import {
+    buildMahapatihDeath, resetMahapatihDeath, warmMahapatihDeath,
+    beginMahapatihDeath, updateMahapatihDeath, mahapatihDeathDebug,
+} from './mahapatihDeath.js';
 import { segPointDist2, clamp } from '../utils/math.js';
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 import { mergeObjectInPlace } from '../utils/meshBatch.js';
@@ -511,6 +514,7 @@ export function createMahapatih(opts = {}) {
     }
     const boss = {
         parent, parts, artillery, waves, shots, telegraphs, hardlines,
+        deathFx: buildMahapatihDeath(parts, parent),
         active: false, phase: 'dormant', phaseSerial: 0, hp: 0, maxHp: 0,
         score: B.score, dead: false, deathDone: false, deathT: 0,
         transitionT: 0, siegeDetached: false,
@@ -519,10 +523,11 @@ export function createMahapatih(opts = {}) {
         sweepAngle: 0, sweepState: 'telegraph', sweepT: B.hardline.sweepTelegraphSec,
         sweepHitCd: 0, shutterOpen: false, shutterT: B.core.shutterClosedSec,
         chargePath: null, lastChargePath: null, hazardsCleared: true,
-        rewardGranted: false, callbackPhase: null, deathBase: null,
+        rewardGranted: false, callbackPhase: null,
         // Perburuan: laju nyata, fase langkah, jarak kejar dan arah mengitari.
         speedNow: 0, rollNow: 0, yawRate: 0, steerNow: 0,
         lastX: 0, lastZ: 0, lastYaw: 0, gaitT: 0, chaseDist: null, orbitSign: 1,
+        moveVX: 0, moveVZ: 0, maneuverT: 0, accelNow: 0, actionKick: 0,
     };
     resetMahapatih(boss, opts);
     return boss;
@@ -541,6 +546,7 @@ export function resetMahapatih(b, opts = {}) {
     if (!b) return;
     const B = bossCfg();
     clearMahapatihHazards(b);
+    resetMahapatihDeath(b.deathFx);
     b.active = !!opts.active; b.dead = false; b.deathDone = false; b.deathT = 0;
     b.phase = b.active ? (opts.phase || 'siege') : 'dormant'; b.phaseSerial = 0;
     b.hp = B.siegeHp; b.maxHp = B.siegeHp; b.score = B.score;
@@ -550,9 +556,10 @@ export function resetMahapatih(b, opts = {}) {
     b.sweepAngle = 0; b.sweepState = 'telegraph'; b.sweepT = B.hardline.sweepTelegraphSec;
     b.sweepHitCd = 0; b.shutterOpen = false; b.shutterT = B.core.shutterClosedSec;
     b.chargePath = null; b.lastChargePath = null; b.rewardGranted = false;
-    b.callbackPhase = null; b.deathBase = null;
+    b.callbackPhase = null;
     b.speedNow = 0; b.rollNow = 0; b.yawRate = 0; b.steerNow = 0;
     b.gaitT = 0; b.chaseDist = null; b.orbitSign = 1;
+    b.moveVX = 0; b.moveVZ = 0; b.maneuverT = 0; b.accelNow = 0; b.actionKick = 0;
     const p = b.parts;
     p.group.position.set(opts.x || 0, opts.y || 0, opts.z || 0);
     b.lastX = p.group.position.x; b.lastZ = p.group.position.z;
@@ -561,8 +568,13 @@ export function resetMahapatih(b, opts = {}) {
     reattachSiege(b);
     p.siege.visible = b.active; p.combat.visible = false;
     p.combat.position.set(0, 9, 0); p.combat.rotation.set(0, 0, 0);
+    p.torso.rotation.set(0, 0, 0);
+    p.torso.position.y = 12;
+    p.shoulderCannon.position.z = 0;
+    p.head.rotation.set(0, 0, 0);
+    for (const leg of p.legsCombat) leg.rotation.set(0, 0, 0);
     p.turret.rotation.set(0, 0, 0); p.muzzleFlash.material.opacity = 0;
-    p.core.visible = true; p.materials.core.color.setHex(0xff2020);
+    p.core.visible = true; p.core.scale.setScalar(1); p.materials.core.color.setHex(0xff2020);
     p.shutterL.position.x = -3.2; p.shutterR.position.x = 3.2;
     p.materials.threat.emissiveIntensity = EMISSIVE_MAX * 0.78;
     for (const w of p.wheels) {
@@ -586,6 +598,8 @@ export function resetMahapatih(b, opts = {}) {
 // resetMahapatih() restores authoritative gameplay visibility before enter.
 export function setMahapatihWarmupVisible(b, visible = true) {
     if (!b) return;
+    b.deathFx.root.position.copy(b.parts.group.position);
+    warmMahapatihDeath(b.deathFx, visible);
     const at = b.parts.group.position;
     b.parts.group.visible = visible; b.parts.siege.visible = visible;
     b.parts.combat.visible = visible;
@@ -627,6 +641,7 @@ export function clearMahapatihHazards(b) {
 }
 
 function phaseChanged(b, phase, ctx) {
+    b.moveVX = b.moveVZ = 0;
     b.phase = phase; b.phaseSerial++; b.callbackPhase = phase;
     if (ctx.onPhase) ctx.onPhase(phase, b);
 }
@@ -698,10 +713,6 @@ function nearestChargePath(b, ctx) {
 // Sekarang setiap fase bertarung mengejar ke seluruh arena, dan tabrakannya
 // membidik player.
 
-const DASH_FROM = 240;        // sejauh ini boss beralih ke lari cepat
-const SIEGE_DASH_MUL = 1.8;   // chassis siege tidak punya key dash sendiri
-const ORBIT_MUL = 0.45;       // mengitari saat sudah dalam jarak serang
-const WAIT_CHASE_MUL = 0.6;   // tetap merangsek selagi proyektilnya melayang
 const CHARGE_MAX_SEC = 2.6;   // tabrakan tidak boleh mendorong tembok selamanya
 const ALIGN_MAX_SEC = 3;
 
@@ -731,29 +742,60 @@ function steerDir(px, pz, tx, tz, avoid) {
 
 /** Satu langkah kejar. Mengembalikan jarak ke player SEBELUM langkah ini. */
 function pursue(b, dt, ctx, speed, standoff) {
-    const p = b.parts.group.position;
+    const B = bossCfg(), M = B.motion, g = b.parts.group, p = g.position;
     const tx = camera.position.x, tz = camera.position.z;
     const dist = Math.hypot(tx - p.x, tz - p.z);
-    const dir = steerDir(p.x, p.z, tx, tz, ctx.avoid);
-    if (dist > standoff) {
-        p.x += dir.x * speed * dt; p.z += dir.z * speed * dt;
-    } else if (dist > 1) {
-        // Sudah dalam jarak serang: MENGITARI, bukan mematung. Justru berdiri
-        // diam inilah yang dulu terbaca sebagai "berjalan di tempat".
-        const s = b.orbitSign < 0 ? -1 : 1;
-        p.x += -dir.z * s * speed * ORBIT_MUL * dt;
-        p.z += dir.x * s * speed * ORBIT_MUL * dt;
+    b.maneuverT += dt;
+    // A sweeping flank changes sides smoothly, rather than flipping velocity
+    // on an attack index. Far away, approach directly to keep closing the gap.
+    const side = Math.sin(b.maneuverT * Math.PI * 2 / M.orbitPeriodSec);
+    b.orbitSign = side < 0 ? -1 : 1;
+    const nx = (tx - p.x) / Math.max(1, dist), nz = (tz - p.z) / Math.max(1, dist);
+    const radial = clamp((dist - standoff) / Math.max(1, standoff), -1, 1);
+    const near = 1 - clamp((dist - standoff) / M.flankRange, 0, 1);
+    const lateral = side * near * (dist <= standoff ? M.orbitSpeedMul : M.flankStrength);
+    let dx = nx * radial - nz * lateral, dz = nz * radial + nx * lateral;
+    const weight = Math.min(1, Math.hypot(dx, dz));
+    // Steer the actual flanking destination around Monas too, not just the
+    // direct bearing to the player. The stage still owns the final clamp.
+    const dir = steerDir(p.x, p.z, p.x + dx * M.flankRange,
+        p.z + dz * M.flankRange, ctx.avoid);
+    dx = dir.x * speed * weight; dz = dir.z * speed * weight;
+    const dvx = dx - b.moveVX, dvz = dz - b.moveVZ;
+    const dv = Math.hypot(dvx, dvz);
+    const rate = Math.hypot(dx, dz) < Math.hypot(b.moveVX, b.moveVZ)
+        ? M.braking : M.acceleration;
+    const ease = dv > 0 ? Math.min(1, rate * dt / dv) : 0;
+    b.moveVX += dvx * ease; b.moveVZ += dvz * ease;
+    if (b.phase === 'siege') {
+        // A wheeled chassis turns into its travel; the personal frame can strafe
+        // while keeping its chest toward the player.
+        if (Math.hypot(b.moveVX, b.moveVZ) > 0.01)
+            faceToward(b, p.x + b.moveVX, p.z + b.moveVZ, B.turnRadPerSec, dt);
+        const forward = Math.max(0, b.moveVX * Math.sin(g.rotation.y)
+            + b.moveVZ * Math.cos(g.rotation.y));
+        b.moveVX = Math.sin(g.rotation.y) * forward;
+        b.moveVZ = Math.cos(g.rotation.y) * forward;
+    } else {
+        faceToward(b, tx, tz, B.turnRadPerSec, dt);
     }
+    const oldX = p.x, oldZ = p.z;
+    p.x += b.moveVX * dt; p.z += b.moveVZ * dt;
     if (ctx.clampBoss) ctx.clampBoss(p);
+    // Do not store speed pushing into a wall for the next frame's animation.
+    if (dt > 0) { b.moveVX = (p.x - oldX) / dt; b.moveVZ = (p.z - oldZ) / dt; }
     return dist;
 }
 
 /** Kecepatan jalan/lari untuk fase yang sedang berjalan. */
 function chaseSpeed(b, dist) {
     const B = bossCfg();
-    if (b.phase === 'siege')
-        return dist > DASH_FROM ? B.moveSpeed * SIEGE_DASH_MUL : B.moveSpeed;
-    return dist > DASH_FROM ? B.combat.dashSpeed : B.combat.speed;
+    const M = B.motion;
+    const k = clamp((dist - M.dashFrom) / M.dashBlend, 0, 1);
+    const blend = k * k * (3 - 2 * k);
+    const walk = b.phase === 'siege' ? B.moveSpeed : B.combat.speed;
+    const dash = b.phase === 'siege' ? B.moveSpeed * M.siegeDashMul : B.combat.dashSpeed;
+    return walk + (dash - walk) * blend;
 }
 
 /**
@@ -795,6 +837,7 @@ function startArtillery(b) {
 
 function startSiegeAttack(b, ctx) {
     const B = bossCfg();
+    b.moveVX = b.moveVZ = 0;
     switch (b.attackIndex % 4) {
     case 0:
         startArtillery(b); break;
@@ -820,6 +863,7 @@ function startSiegeAttack(b, ctx) {
 
 function startPersonalAttack(b) {
     const B = bossCfg();
+    b.moveVX = b.moveVZ = 0;
     // Anchored/final phases deliberately retain only a small readable subset;
     // they never stack the entire Phase-2 moveset over the broadcast sweep.
     const choice = b.phase === 'hardline'
@@ -970,17 +1014,18 @@ function updateCharge(b, dt, ctx = {}) {
     }
     if (d.state === 'telegraph') {
         b.attackT -= dt;
-        // Tetap membidik player selama telegraph: lintasannya diperbarui sampai
-        // detik terakhir, jadi tabrakan berangkat ke arah yang benar-benar dituju.
-        faceToward(b, camera.position.x, camera.position.z, B.turnRadPerSec, dt);
+        // Face the locked warning lane, even if the player dodges sideways.
+        faceToward(b, d.path.x1, d.path.z1, B.turnRadPerSec, dt);
         b.telegraphs.charge.material.opacity = 0.24 + Math.sin(b.hoverT * 16) * 0.1;
         if (b.attackT <= 0) {
             d.state = 'commit'; d.t = 0; b.telegraphs.charge.visible = false;
+            b.actionKick = 1;
         }
         return;
     }
     const oldX = g.position.x, oldZ = g.position.z;
-    const arrived = moveToward(g, d.path.x1, d.path.z1, B.charge.speed, dt);
+    const stepSpeed = attackSpeed(B.charge.speed, d.t, B.motion.attackRampSec);
+    const arrived = moveToward(g, d.path.x1, d.path.z1, stepSpeed, dt);
     if (ctx.clampBoss) ctx.clampBoss(g.position);
     if (!d.hit && segPointDist2(oldX, 0, oldZ, g.position.x, 0, g.position.z,
         camera.position.x, 0, camera.position.z) < (B.bodyRadius + player.radius) ** 2) {
@@ -988,7 +1033,12 @@ function updateCharge(b, dt, ctx = {}) {
             true, B.charge.damage, 1, sfxTankBlast); addCamShake(3);
     }
     const moved = Math.hypot(g.position.x - oldX, g.position.z - oldZ);
-    if (arrived || d.t > CHARGE_MAX_SEC || moved < B.charge.speed * dt * 0.2) endAttack(b);
+    if (arrived || d.t > CHARGE_MAX_SEC || moved < stepSpeed * dt * 0.2) endAttack(b);
+}
+
+function attackSpeed(top, elapsed, ramp) {
+    const k = clamp(elapsed / Math.max(0.01, ramp), 0, 1);
+    return top * (0.25 + 0.75 * k * k * (3 - 2 * k));
 }
 
 /**
@@ -1079,12 +1129,14 @@ function updateBlade(b, dt) {
         // tidak pernah menjadi sasaran serangan ini.
         b.parts.blades[0].rotation.set(-1.25, 0, 0);
         b.parts.blades[1].rotation.set(-1.25, 0, 0);
+        b.actionKick = 1;
         queueBoom(p.x, 4, p.z, B.blade.radius, true, B.blade.damage, 1, sfxTankBlast);
         b.attackState = 'bladeSecond'; b.attackT = B.blade.secondGapSec;
     } else if (b.attackState === 'bladeSecond' && b.attackT <= 0) {
         // Beat kedua: tebasan SILANG ke luar, tetap di depan badan.
         b.parts.blades[0].rotation.set(-0.55, 0, -1.15);
         b.parts.blades[1].rotation.set(-0.55, 0, 1.15);
+        b.actionKick = 0.8;
         queueBoom(p.x, 4, p.z, B.blade.radius, true, B.blade.damage, 1, sfxTankBlast);
         b.telegraphs.blade.visible = false; endAttack(b);
     }
@@ -1094,13 +1146,18 @@ function updateLunge(b, dt, ctx) {
     const B = bossCfg(), d = b.attackData, g = b.parts.group;
     if (b.attackState === 'lungeTelegraph') {
         b.attackT -= dt;
-        if (b.attackT <= 0) { b.attackState = 'lungeCommit'; b.telegraphs.lunge.visible = false; }
+        faceToward(b, d.path.x1, d.path.z1, B.turnRadPerSec, dt);
+        if (b.attackT <= 0) {
+            b.attackState = 'lungeCommit'; b.telegraphs.lunge.visible = false;
+            d.t = 0; b.actionKick = 1;
+        }
         return;
     }
     const oldX = g.position.x, oldZ = g.position.z;
-    const arrived = moveToward(g, d.path.x1, d.path.z1, B.lunge.speed, dt);
-    if (ctx.clampBoss) ctx.clampBoss(g.position);
     d.t = (d.t || 0) + dt;
+    const stepSpeed = attackSpeed(B.lunge.speed, d.t, B.motion.attackRampSec);
+    const arrived = moveToward(g, d.path.x1, d.path.z1, stepSpeed, dt);
+    if (ctx.clampBoss) ctx.clampBoss(g.position);
     if (!d.hit && segPointDist2(oldX, 0, oldZ, g.position.x, 0, g.position.z,
         camera.position.x, 0, camera.position.z) < (B.lunge.width + player.radius) ** 2) {
         d.hit = true; queueBoom(camera.position.x, 4, camera.position.z, 2,
@@ -1108,7 +1165,7 @@ function updateLunge(b, dt, ctx) {
     }
     // Sama seperti tabrakan: menghantam batas arena MENGAKHIRI terjangan.
     const moved = Math.hypot(g.position.x - oldX, g.position.z - oldZ);
-    if (arrived || d.t > CHARGE_MAX_SEC || moved < B.lunge.speed * dt * 0.2) endAttack(b);
+    if (arrived || d.t > CHARGE_MAX_SEC || moved < stepSpeed * dt * 0.2) endAttack(b);
 }
 
 function updatePersonalAttack(b, dt, ctx) {
@@ -1127,6 +1184,7 @@ function updatePersonalAttack(b, dt, ctx) {
             b.attackData.lane.z1, B.turnRadPerSec, dt);
         if (b.attackT <= 0) {
             spawnWaves(b, b.attackData?.angle);
+            b.actionKick = 0.7;
             b.telegraphs.charge.visible = false;
             b.attackState = 'waitProjectiles';
         }
@@ -1140,6 +1198,7 @@ function updatePersonalAttack(b, dt, ctx) {
             // Sasarannya adalah UJUNG LAJUR YANG DITANDAI, jadi peluru terbang
             // ke titik yang sama dengan yang dijanjikan telegraph-nya.
             const lane = b.attackData?.lane;
+            b.actionKick = 1;
             spawnShot(b, 'cannon', B.cannon.speed, B.cannon.damage, B.cannon.radius,
                 lane ? lane.x1 : camera.position.x, lane ? lane.z1 : camera.position.z,
                 b.parts.cannonMuzzle);
@@ -1239,16 +1298,10 @@ function beginCore(b, ctx) {
 function killMahapatih(b, ctx) {
     const B = bossCfg(); clearMahapatihHazards(b);
     b.hp = 0; b.dead = true; b.deathDone = false; b.deathT = 0;
-    // Titik jangkar animasi mati: pergeseran wreck dihitung sbg INTEGRAL dari
-    // titik ini (bukan akumulasi per-frame), supaya satu dt besar menghasilkan
-    // posisi akhir yang sama dengan banyak dt kecil.
-    b.deathBase = { x: b.parts.group.position.x, z: b.parts.group.position.z,
-        combatX: b.parts.combat.position.x };
     b.attackState = 'dead';
     if (!b.rewardGranted) { b.rewardGranted = true; addScore(B.score); stats.kills++; }
-    phaseChanged(b, 'dying', ctx); addCamShake(7);
-    explodeAt(new THREE.Vector3(b.parts.group.position.x, 18,
-        b.parts.group.position.z), 24, 1, sfxTankExplode);
+    beginMahapatihDeath(b, ctx);
+    phaseChanged(b, 'dying', ctx);
 }
 
 function updateHardlineSweep(b, dt) {
@@ -1380,6 +1433,7 @@ export function damageMahapatih(b, damage, opts = {}) {
 
 function updateRig(b, dt) {
     const p = b.parts; b.hoverT += dt;
+    b.actionKick = Math.max(0, b.actionKick - dt * 4.5);
     p.muzzleFlash.material.opacity = Math.max(0, p.muzzleFlash.material.opacity - dt * 12);
     if (b.hitT > 0) b.hitT = Math.max(0, b.hitT - dt * 6);
     // Roda berputar sejauh JARAK YANG BENAR-BENAR DITEMPUH (berguling tanpa
@@ -1387,6 +1441,7 @@ function updateRig(b, dt) {
     // itu tidak bisa lagi "berjalan di tempat".
     const B = bossCfg();
     const moveK = clamp((b.speedNow || 0) / Math.max(1, B.moveSpeed), 0, 1.8);
+    const poseEase = 1 - Math.exp(-dt * 10);
     b.gaitT += dt * (2.4 + moveK * 6.5);
     if (b.phase === 'siege') {
         // Menara MELACAK player terus-menerus, bukan hanya saat menembak: sebuah
@@ -1394,6 +1449,11 @@ function updateRig(b, dt) {
         // peluru ke samping adalah persis yang membuat serangannya terlihat
         // tidak keluar dari moncongnya.
         if (!b.dead) aimTurret(b, dt);
+        // Upper weapon mass settles under acceleration and the charge release;
+        // leave the grounded wheels and gameplay carrier level.
+        const pitch = clamp(b.accelNow / B.motion.acceleration, -1, 1) * -0.055
+            - b.actionKick * 0.08;
+        p.turret.rotation.x += (pitch - p.turret.rotation.x) * poseEase;
         // SETIR: sudut roda depan diturunkan dari laju yaw badan, dengan sedikit
         // kelambanan. Ia ditulis pada pivot `steer` yang MEMBUNGKUS pivot guling,
         // jadi ban berputar pada sumbunya sendiri yang sudah dibelokkan.
@@ -1409,10 +1469,40 @@ function updateRig(b, dt) {
                 + Math.sin(b.gaitT * 1.7 + w.bobPhase) * SUSPENSION * Math.min(1, moveK);
         }
     } else if (b.phase === 'personal' || b.phase === 'hardline' || b.phase === 'core') {
-        p.combat.position.y = 9 + Math.sin(b.hoverT * 2.4) * 0.35;
-        p.head.rotation.y = Math.sin(b.hoverT * 0.7) * 0.08;
-        if (!b.attackState.startsWith('blade')) for (const blade of p.blades)
-            blade.rotation.x *= Math.max(0, 1 - dt * 5);
+        const yaw = p.group.rotation.y;
+        const forward = (b.moveVX * Math.sin(yaw) + b.moveVZ * Math.cos(yaw))
+            / Math.max(1, B.combat.dashSpeed);
+        const sideways = (b.moveVX * Math.cos(yaw) - b.moveVZ * Math.sin(yaw))
+            / Math.max(1, B.combat.dashSpeed);
+        const windup = b.attackState.endsWith('Telegraph');
+        const committed = b.attackState === 'lungeCommit';
+        const blade = b.attackState.startsWith('blade');
+        const stride = Math.sin(b.gaitT) * Math.min(1, moveK);
+        p.combat.position.y = 9 + Math.sin(b.hoverT * 2.4) * 0.35
+            + Math.abs(stride) * 1.4;
+        // Anticipation -> release -> follow-through, on the upper-body rig.
+        // The root remains upright, so collision and locked lanes cannot drift.
+        const pitch = windup ? -0.13 : committed ? 0.28
+            : forward * 0.16 + b.actionKick * 0.14;
+        const roll = -sideways * 0.18;
+        p.torso.rotation.x += (pitch - p.torso.rotation.x) * poseEase;
+        p.torso.rotation.z += (roll - p.torso.rotation.z) * poseEase;
+        const twist = blade ? (b.attackState === 'bladeSecond' ? -0.3 : 0.3) : stride * 0.045;
+        p.torso.rotation.y += (twist - p.torso.rotation.y) * poseEase;
+        p.torso.position.y += ((windup ? 10 : 12) - p.torso.position.y) * poseEase;
+        p.head.rotation.y = -p.torso.rotation.y * 0.65;
+        p.shoulderCannon.position.z = -b.actionKick * 1.8;
+        for (let i = 0; i < p.legsCombat.length; i++) {
+            const sign = i ? -1 : 1;
+            p.legsCombat[i].rotation.x = stride * sign * 0.45;
+            p.legsCombat[i].rotation.z = -sideways * 0.12;
+            const armPitch = blade ? -0.3 : windup ? -0.22 : -stride * sign * 0.22;
+            p.arms[i].shoulder.rotation.x += (armPitch - p.arms[i].shoulder.rotation.x) * poseEase;
+        }
+        if (!b.attackState.startsWith('blade')) for (const blade of p.blades) {
+            blade.rotation.x *= Math.exp(-dt * 5);
+            blade.rotation.z *= Math.exp(-dt * 5);
+        }
     }
     p.materials.core.color.setHex(b.hitT > 0 ? PAL.white : 0xff2020);
     for (const h of b.hardlines) {
@@ -1422,42 +1512,25 @@ function updateRig(b, dt) {
 }
 
 function updateDeath(b, dt, ctx) {
-    const B = bossCfg(), p = b.parts; b.deathT += dt;
-    const k = Math.min(1, b.deathT / Math.max(0.1, B.deathSec));
-    p.materials.threat.emissiveIntensity = EMISSIVE_MAX * 0.78 * (1 - k);
-    p.materials.ember.emissiveIntensity = EMISSIVE_MAX * 0.52 * (1 - k);
-    p.core.scale.setScalar(Math.max(0.1, 1 - k * 0.9));
-    p.combat.rotation.z = -k * 1.08;
-    const base = b.deathBase || (b.deathBase = { x: p.group.position.x,
-        z: p.group.position.z, combatX: p.combat.position.x });
-    p.combat.position.x = base.combatX - k * B.deathSec * 4.5;
-    const dx = ctx.wreckDir?.x == null ? -1 : ctx.wreckDir.x;
-    const dz = ctx.wreckDir?.z == null ? 0.25 : ctx.wreckDir.z;
-    // Integral dari laju lama (dt*(1-k)*5) sepanjang deathSec = 2.5*deathSec*k*(2-k).
-    const slide = 2.5 * B.deathSec * k * (2 - k);
-    p.group.position.x = base.x + dx * slide;
-    p.group.position.z = base.z + dz * slide;
-    if (Math.floor(b.deathT * 4) !== Math.floor((b.deathT - dt) * 4) && b.deathT < B.deathSec * 0.75) {
-        spawnGroundPuff(p.group.position.x, p.group.position.z, PAL.concrete,
-            5 + k * 5, 4 + 12 * (1 - k));
-        spawnGibs(p.group.position.x, 12, p.group.position.z, 2,
-            dx, dz, 1.2, PAL.gunmetal, 0.2);
-    }
-    if (b.deathT >= B.deathSec) {
+    if (updateMahapatihDeath(b, dt)) {
         b.deathDone = true; b.dead = true; phaseChanged(b, 'wreck', ctx);
-        p.core.visible = false; p.combat.rotation.z = -1.08;
     }
 }
 
 /** Advance one boss frame. Context keeps map geometry out of the entity. */
 export function updateMahapatih(b, dt, ctx = {}) {
     if (!b || !b.active) return;
+    // The destruction director exclusively owns all joints once combat ends.
+    if (b.phase === 'dying') { updateDeath(b, dt, ctx); return; }
+    if (b.phase === 'wreck') return;
     // Laju NYATA badan frame lalu — rig kaki membacanya supaya langkahnya
     // mengikuti perpindahan sungguhan, bukan berdetak terus di tempat.
     const gp = b.parts.group.position, gy = b.parts.group.rotation.y;
     const mvX = gp.x - b.lastX, mvZ = gp.z - b.lastZ;
     const travel = Math.hypot(mvX, mvZ);
-    b.speedNow = dt > 1e-5 ? travel / dt : 0;
+    const speed = dt > 1e-5 ? travel / dt : 0;
+    b.accelNow = dt > 1e-5 ? (speed - b.speedNow) / dt : 0;
+    b.speedNow = speed;
     // Arah guling roda ditentukan oleh komponen MAJU dari perpindahan: mundur
     // memutar ban ke belakang, dan mengitari tetap memutarnya sebanyak jarak
     // yang benar-benar ditempuh (panser tidak bisa menggeser menyamping).
@@ -1469,8 +1542,7 @@ export function updateMahapatih(b, dt, ctx = {}) {
     b.yawRate = dt > 1e-5 ? dyaw / dt : 0;
     b.lastX = gp.x; b.lastZ = gp.z; b.lastYaw = gy;
     updateRig(b, dt); updateProjectiles(b, dt, ctx);
-    if (b.phase === 'dying') { updateDeath(b, dt, ctx); return; }
-    if (b.phase === 'wreck' || b.phase === 'dormant') return;
+    if (b.phase === 'dormant') return;
     if (b.phase === 'transition') {
         b.transitionT -= dt;
         const k = 1 - Math.max(0, b.transitionT) / Math.max(0.1, bossCfg().transitionSec);
@@ -1483,7 +1555,7 @@ export function updateMahapatih(b, dt, ctx = {}) {
     if (ctx.clampBoss) ctx.clampBoss(b.parts.group.position);
     if (b.phase === 'hardline') updateHardlineSweep(b, dt);
     if (b.phase === 'core') updateCoreShutters(b, dt);
-    if (!ctx.allowAttack) return;
+    if (!ctx.allowAttack) { b.moveVX = b.moveVZ = 0; return; }
 
     // Track player only outside committed paths. Phase 2 is faster but bounded
     // by the stage-supplied clamp and never teleports.
@@ -1495,12 +1567,8 @@ export function updateMahapatih(b, dt, ctx = {}) {
         const p = b.parts.group.position;
         const dist = Math.hypot(camera.position.x - p.x, camera.position.z - p.z);
         b.chaseDist = pursue(b, dt, ctx, chaseSpeed(b, dist), B.chaseStandoff);
-        faceToward(b, camera.position.x, camera.position.z, B.turnRadPerSec, dt);
         b.attackT -= dt;
         if (b.attackT <= 0 && !anyHazard(b)) {
-            // Arah mengitari berganti tiap serangan supaya tidak melingkar terus
-            // ke sisi yang sama — deterministik, tanpa Math.random.
-            b.orbitSign = b.attackIndex % 2 ? 1 : -1;
             if (b.phase === 'siege') startSiegeAttack(b, ctx);
             else startPersonalAttack(b);
         }
@@ -1516,9 +1584,9 @@ export function updateMahapatih(b, dt, ctx = {}) {
         // tetap merangsek (pelan) selagi proyektilnya melayang.
         const B2 = bossCfg();
         b.chaseDist = pursue(b, dt, ctx,
-            chaseSpeed(b, b.chaseDist == null ? 0 : b.chaseDist) * WAIT_CHASE_MUL,
+            chaseSpeed(b, Math.hypot(camera.position.x - gp.x,
+                camera.position.z - gp.z)) * B2.motion.waitSpeedMul,
             B2.chaseStandoff);
-        faceToward(b, camera.position.x, camera.position.z, B2.turnRadPerSec, dt);
         if (!b.waves.some(p => p.active) && !b.shots.some(p => p.active)) endAttack(b);
     } else updatePersonalAttack(b, dt, ctx);
 }
@@ -1582,7 +1650,8 @@ export function damageMahapatihHardline(b, index, damage, ctx = {}) {
 export function disposeMahapatih(b) {
     if (!b) return;
     clearMahapatihHazards(b); b.active = false;
-    const roots = [b.parts.group,
+    const roots = [b.parts.group, b.deathFx.root,
+        ...(b.siegeDetached ? [b.parts.siege] : []),
         ...b.artillery.flatMap(a => [a.shell, a.marker]),
         ...b.waves.map(p => p.body), ...b.shots.map(p => p.body),
         ...Object.values(b.telegraphs)];
@@ -1613,6 +1682,7 @@ export function mahapatihDebug(b) {
             splitGap: b.parts.shellR.position.x - b.parts.shellL.position.x,
         },
         hp: b.hp, maxHp: b.maxHp, dead: b.dead, deathDone: b.deathDone,
+        destruction: mahapatihDeathDebug(b.deathFx),
         rewardGranted: b.rewardGranted, attack: b.attackState,
         attackIndex: b.attackIndex, attackT: b.attackT,
         hitVolumes: {
@@ -1645,6 +1715,10 @@ export function mahapatihDebug(b) {
         // Perburuan: apa yang benar-benar bergerak, bukan yang diniatkan.
         chase: {
             speed: b.speedNow || 0, dist: b.chaseDist,
+            velocity: { x: b.moveVX, z: b.moveVZ }, maneuverT: b.maneuverT,
+            acceleration: b.accelNow, orbitSign: b.orbitSign,
+            pose: { pitch: b.parts.torso.rotation.x, roll: b.parts.torso.rotation.z,
+                twist: b.parts.torso.rotation.y, recoil: b.actionKick },
             roll: b.rollNow || 0, yawRate: b.yawRate || 0, steer: b.steerNow || 0,
             wheelRoll: b.parts.wheels.map(w => w.hub.rotation.x),
             standoff: B.chaseStandoff, walkSpeed: B.moveSpeed,
