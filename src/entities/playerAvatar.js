@@ -26,6 +26,10 @@ import { currentWeapon, medkitMode, meleeT, MELEE_TIME, gunRecoil, switchAnim, m
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 
 export let avatarGroup = null;
+let electricT = 0, electricDuration = 0;
+let electricPitch = 0, electricRoll = 0;
+export function setAvatarElectricHit(sec = 0) { electricT = electricDuration = Math.max(0, sec); }
+export const avatarElectricDebug = () => electricT;
 export let avatarGunTip = null;   // Object3D ujung laras (dibaca weapons.js)
 let upperG = null, headG = null;  // badan ATAS (torso+kepala+lengan+senjata) & KEPALA — pemisahan atas/bawah 2026-07-12
 let hipL = null, hipR = null, kneeL = null, kneeR = null;
@@ -1224,6 +1228,8 @@ function poseDeath(dt, feetY) {
 
 // Dipanggil resetGame: batalkan pose mati + paksa evaluasi ulang prop senjata.
 export function resetAvatarDeath() {
+    setAvatarElectricHit(0);
+    electricPitch = electricRoll = 0;
     rappelActive = false;   // batalkan pose rappel intro juga
     radioPoseActive = false;
     vehiclePoseActive = false; vehiclePoseHeight = 0; carriedPose = false;
@@ -1495,7 +1501,10 @@ function poseRadio(dt) {
 // Per frame dari animate() — SETELAH updateGame (pakai posisi pivot & aim
 // terbaru); jalan juga saat pause (pose beku, konsisten dgn kontrak decor).
 export function updatePlayerAvatar(dt) {
+    electricT = Math.max(0, electricT - dt);
     if (!avatarGroup) return;
+    upperG.rotation.x -= electricPitch; upperG.rotation.z -= electricRoll;
+    electricPitch = electricRoll = 0;
     const feetY = camera.position.y - eyeHCur;
     const px = camera.position.x, pz = camera.position.z;
     avatarGroup.position.set(px, feetY, pz);
@@ -2135,6 +2144,15 @@ export function updatePlayerAvatar(dt) {
         const nod = fireDbg.k * (shotKick || 0) * (RC.headNod || 1.8);
         fireHeadCur = nod;
         lerpHeadPitch(nod, 1);
+    }
+
+    if (electricT > 0 && player.hp > 0 && !dodgeActive) {
+        const fade = electricT / Math.max(0.001, electricDuration);
+        const twitch = Math.sin(electricT * 95) * fade;
+        electricRoll = twitch * 0.13; electricPitch = Math.abs(twitch) * 0.09;
+        upperG.rotation.z += electricRoll; upperG.rotation.x += electricPitch;
+        avatarGroup.position.x += twitch * 0.45;
+        // Visual only: camera/player position, aiming and movement remain live.
     }
 
     if (marker && marker.visible) {

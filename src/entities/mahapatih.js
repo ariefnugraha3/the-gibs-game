@@ -6,8 +6,11 @@
 import { CFG } from '../core/config.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { stats, player, addScore } from '../core/state.js';
-import { queueBoom } from './robots.js';
-import { explodeAt } from './effects.js';
+import { queueBoom, damagePlayerElectric } from './robots.js';
+import { setAvatarElectricHit } from './playerAvatar.js';
+import { buildMahapatihCombatFx, updateMahapatihElectric, poseMahapatihBlade } from './mahapatihCombatFx.js';
+import { explodeAt, spawnGroundPuff } from './effects.js';
+import { mortarShell } from './tank.js';
 import {
     buildMahapatihDeath, resetMahapatihDeath, warmMahapatihDeath,
     beginMahapatihDeath, updateMahapatihDeath, mahapatihDeathDebug,
@@ -16,7 +19,7 @@ import { segPointDist2, clamp } from '../utils/math.js';
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 import { mergeObjectInPlace } from '../utils/meshBatch.js';
 import {
-    playSFX, sfxTankMG, sfxTankMortar, sfxTankBlast, sfxTankExplode,
+    playSFX, stopLoopSFX, sfxMeleeSwing, sfxMeleeHit, sfxTankIncoming, sfxTankMG, sfxTankMortar, sfxTankBlast, sfxTankExplode,
 } from '../utils/sfx.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -277,6 +280,19 @@ export function buildMahapatihMesh(scale = 1) {
             opacity: 0, depthWrite: false, toneMapped: false }), 0, 0, 19);
     muzzleFlash.castShadow = false;
 
+    // Roof mortar and shoulder mortar use the same elevated tube and muzzle.
+    const buildMortar = (parent, x, y, z) => {
+        const cradle = new THREE.Group(); cradle.position.set(x, y, z); parent.add(cradle);
+        box(cradle, M.armorDark, 11, 6, 13, 0, 0, 0);
+        const tube = new THREE.Group(); tube.rotation.x = Math.PI / 5; cradle.add(tube);
+        mesh(tube, new THREE.CylinderGeometry(2.8, 3.6, 22, 12), M.steel, 0, 11, 0);
+        mesh(tube, new THREE.CylinderGeometry(3.6, 3.6, 3, 12), M.armor, 0, 21, 0);
+        mesh(tube, new THREE.CylinderGeometry(2.3, 2.3, 0.3, 12), M.dark, 0, 22.6, 0);
+        const muzzle = new THREE.Object3D(); muzzle.position.y = 23; tube.add(muzzle);
+        return { cradle, tube, muzzle };
+    };
+    const siegeMortar = buildMortar(shellL, -9, 37, -18);
+
     const combat = new THREE.Group(); combat.name = 'Mahapatih-Personal-Frame';
     combat.position.y = 9; group.add(combat);
     const pelvis = new THREE.Group(); pelvis.position.y = 7; combat.add(pelvis);
@@ -307,6 +323,21 @@ export function buildMahapatihMesh(scale = 1) {
     // Titik lahir peluru meriam bahu: UJUNG laras, bukan titik asal grup boss.
     const cannonMuzzle = new THREE.Group();
     cannonMuzzle.position.set(0, 0, 17); shoulderCannon.add(cannonMuzzle);
+    const combatMortar = buildMortar(torso, 10, 20, -5);
+    combatMortar.cradle.scale.setScalar(0.6);
+    const aura = mesh(group, new THREE.SphereGeometry(1, 24, 16),
+        new THREE.MeshBasicMaterial({ color: 0x258cff, transparent: true,
+            opacity: 0.18, depthWrite: false, toneMapped: false }), 0, 29, 0);
+    aura.scale.set(31, 43, 29); aura.visible = false; aura.castShadow = false;
+    const phaseRing = marker(1, 0x65baff); group.add(phaseRing);
+    const slashTrails = [];
+    for (let i = 0; i < 2; i++) {
+        const trail = mesh(combat, new THREE.RingGeometry(25, 35, 32, 1, 0, Math.PI * 1.35),
+            new THREE.MeshBasicMaterial({ color: 0xffcc67, transparent: true,
+                opacity: 0, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }),
+            0, 12 + i * 5, 0, -Math.PI / 2, 0, 0);
+        trail.visible = false; trail.castShadow = false; slashTrails.push(trail);
+    }
 
     const arms = [], blades = [];
     for (const side of [-1, 1]) {
@@ -359,7 +390,7 @@ export function buildMahapatihMesh(scale = 1) {
     };
     return {
         group, siege, shellL, shellR, hull, hullL, hullR,
-        wheels, turret, turretMuzzle, muzzleFlash,
+        wheels, turret, turretMuzzle, muzzleFlash, siegeMortar, combatMortar, aura, phaseRing, slashTrails,
         combat, pelvis, torso, core, shutterL, shutterR, neck, head, eye,
         shoulderCannon, cannonMuzzle, arms, blades, legsCombat, materials: M, form,
     };
@@ -389,7 +420,7 @@ export function buildMahapatihShellMesh() {
 function marker(radius, color = PAL.hazard) {
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true,
         opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, toneMapped: false });
-    const m = new THREE.Mesh(new THREE.RingGeometry(Math.max(1, radius * 0.74), radius, 32), mat);
+    const m = new THREE.Mesh(new THREE.RingGeometry(radius * 0.74, radius, 32), mat);
     m.rotation.x = -Math.PI / 2; m.position.y = 0.35; m.visible = false; return m;
 }
 
@@ -417,7 +448,7 @@ function buildHardline(index, count) {
     box(cable, M.threat, len, 0.55, 1.1, -len / 2 - 12, 2.0, 0);
     cable.rotation.y = -a; group.add(cable);
     group.visible = false;
-    return { group, core, cable, hp: 0, maxHp: 0, alive: true, hitT: 0, index };
+    return { group, core, cable, home: group.position.clone(), hp: 0, maxHp: 0, alive: true, hitT: 0, index };
 }
 
 function addTo(parent, object) { (parent || scene).add(object); return object; }
@@ -476,7 +507,7 @@ export function createMahapatih(opts = {}) {
     parts.worldParent = parent || scene;
     const artillery = [];
     for (let i = 0; i < Math.max(1, B.artillery.poolSize | 0); i++) {
-        const shell = addTo(parent, buildMahapatihShellMesh());
+        const shell = addTo(parent, mortarShell()); shell.visible = false;
         const mark = addTo(parent, marker(B.artillery.radius));
         artillery.push({ shell, marker: mark, active: false, t: 0, locked: false,
             x: 0, z: 0, offset: 0, serial: 0 });
@@ -514,10 +545,11 @@ export function createMahapatih(opts = {}) {
     }
     const boss = {
         parent, parts, artillery, waves, shots, telegraphs, hardlines,
+        combatFx: buildMahapatihCombatFx(parent),
         deathFx: buildMahapatihDeath(parts, parent),
         active: false, phase: 'dormant', phaseSerial: 0, hp: 0, maxHp: 0,
         score: B.score, dead: false, deathDone: false, deathT: 0,
-        transitionT: 0, siegeDetached: false,
+        transitionT: 0, phaseBeat: 0, mortarLeft: 0, mortarT: 0, siegeDetached: false,
         attackIndex: 0, attackState: 'cooldown', attackT: 0,
         attackData: null, turretLeft: 0, turretT: 0, hoverT: 0, hitT: 0,
         sweepAngle: 0, sweepState: 'telegraph', sweepT: B.hardline.sweepTelegraphSec,
@@ -539,6 +571,7 @@ function setVisible(b, visible) {
     // disembunyikan/ditampilkan sendiri — kalau tidak, bangkainya tetap terlihat
     // setelah bossnya disembunyikan.
     if (b.parts.siege.parent !== b.parts.group) b.parts.siege.visible = visible;
+    for (const h of b.hardlines) if (h.group.parent !== b.parts.group) h.group.visible = visible;
     if (!visible) clearMahapatihHazards(b);
 }
 
@@ -551,12 +584,14 @@ export function resetMahapatih(b, opts = {}) {
     b.phase = b.active ? (opts.phase || 'siege') : 'dormant'; b.phaseSerial = 0;
     b.hp = B.siegeHp; b.maxHp = B.siegeHp; b.score = B.score;
     b.transitionT = 0; b.attackIndex = 0; b.attackState = 'cooldown';
+    b.phaseBeat = 0; b.mortarLeft = 0; b.mortarT = 0;
     b.attackT = opts.holdSec == null ? B.attackGapSec : opts.holdSec;
     b.attackData = null; b.turretLeft = 0; b.turretT = 0; b.hoverT = 0; b.hitT = 0;
     b.sweepAngle = 0; b.sweepState = 'telegraph'; b.sweepT = B.hardline.sweepTelegraphSec;
     b.sweepHitCd = 0; b.shutterOpen = false; b.shutterT = B.core.shutterClosedSec;
     b.chargePath = null; b.lastChargePath = null; b.rewardGranted = false;
     b.callbackPhase = null;
+    b.combatFx.hits = 0;
     b.speedNow = 0; b.rollNow = 0; b.yawRate = 0; b.steerNow = 0;
     b.gaitT = 0; b.chaseDist = null; b.orbitSign = 1;
     b.moveVX = 0; b.moveVZ = 0; b.maneuverT = 0; b.accelNow = 0; b.actionKick = 0;
@@ -566,11 +601,17 @@ export function resetMahapatih(b, opts = {}) {
     p.group.rotation.set(0, opts.yaw || 0, 0); p.group.scale.setScalar(opts.scale || 1);
     b.lastYaw = p.group.rotation.y;
     reattachSiege(b);
-    p.siege.visible = b.active; p.combat.visible = false;
+    p.siege.visible = b.active && (b.phase === 'siege' || b.phase === 'dormant');
+    p.combat.visible = b.active && !p.siege.visible;
     p.combat.position.set(0, 9, 0); p.combat.rotation.set(0, 0, 0);
+    p.pelvis.rotation.set(0, 0, 0);
     p.torso.rotation.set(0, 0, 0);
     p.torso.position.y = 12;
     p.shoulderCannon.position.z = 0;
+    p.aura.visible = b.phase === 'hardline'; p.phaseRing.visible = false;
+    p.siegeMortar.tube.position.y = p.combatMortar.tube.position.y = 0;
+    p.siegeMortar.cradle.rotation.y = p.combatMortar.cradle.rotation.y = 0;
+    for (const trail of p.slashTrails) trail.visible = false;
     p.head.rotation.set(0, 0, 0);
     for (const leg of p.legsCombat) leg.rotation.set(0, 0, 0);
     p.turret.rotation.set(0, 0, 0); p.muzzleFlash.material.opacity = 0;
@@ -586,8 +627,10 @@ export function resetMahapatih(b, opts = {}) {
     }
     for (const blade of p.blades) blade.rotation.set(0, 0, 0);
     for (const h of b.hardlines) {
+        if (h.group.parent !== p.group) p.group.add(h.group);
+        h.group.position.copy(h.home); h.group.rotation.set(0, 0, 0); h.group.scale.setScalar(1);
         h.hp = h.maxHp = B.hardline.anchorHp; h.alive = true; h.hitT = 0;
-        h.group.visible = false; h.core.visible = true; h.cable.visible = true;
+        h.group.visible = b.phase === 'hardline'; h.core.visible = true; h.cable.visible = true;
         h.core.scale.setScalar(1);
     }
     setVisible(b, b.active);
@@ -598,11 +641,15 @@ export function resetMahapatih(b, opts = {}) {
 // resetMahapatih() restores authoritative gameplay visibility before enter.
 export function setMahapatihWarmupVisible(b, visible = true) {
     if (!b) return;
+    b.combatFx.root.position.copy(b.parts.group.position);
+    b.combatFx.sweep.visible = b.combatFx.hit.visible = visible;
     b.deathFx.root.position.copy(b.parts.group.position);
     warmMahapatihDeath(b.deathFx, visible);
     const at = b.parts.group.position;
     b.parts.group.visible = visible; b.parts.siege.visible = visible;
     b.parts.combat.visible = visible;
+    b.parts.aura.visible = visible; b.parts.phaseRing.visible = visible;
+    for (const trail of b.parts.slashTrails) { trail.visible = visible; trail.material.opacity = 0.5; }
     for (const h of b.hardlines) h.group.visible = visible;
     let slot = 0;
     for (const a of b.artillery) {
@@ -630,7 +677,13 @@ function hideProjectile(p) {
 /** Clear every damaging/telegraph surface without deleting the persistent rig. */
 export function clearMahapatihHazards(b) {
     if (!b) return;
+    if (b.combatFx) {
+        b.combatFx.root.position.set(0, 0, 0);
+        b.combatFx.hitT = 0; b.combatFx.sweep.visible = b.combatFx.hit.visible = false;
+        setAvatarElectricHit(0);
+    }
     for (const a of b.artillery || []) {
+        stopLoopSFX(a.snd); a.snd = null;
         a.active = false; a.shell.visible = false; a.marker.visible = false;
     }
     for (const p of b.waves || []) hideProjectile(p);
@@ -638,6 +691,11 @@ export function clearMahapatihHazards(b) {
     if (b.telegraphs) for (const t of Object.values(b.telegraphs)) t.visible = false;
     if (b.parts) b.parts.muzzleFlash.material.opacity = 0;
     b.hazardsCleared = true;
+    b.mortarLeft = 0;
+    if (b.parts) {
+        b.parts.aura.visible = false; b.parts.phaseRing.visible = false;
+        for (const trail of b.parts.slashTrails) trail.visible = false;
+    }
 }
 
 function phaseChanged(b, phase, ctx) {
@@ -702,7 +760,7 @@ function nearestChargePath(b, ctx) {
     return best;
 }
 
-// ===== PERBURUAN: boss ini MENGEJAR, di SEMUA fase bertarung ==============
+// ===== PERBURUAN: siege, personal, core; Hardline stays anchored ===========
 // Laporan user (2026-09-04): "bossnya hanya berjalan di tempat, dan ketika harus
 // menabrak player malah tidak ke arah player, seperti terbatas di area sebelah
 // Monas." Tiga sebabnya semua ada di file ini: (1) fase `siege` TIDAK punya
@@ -815,24 +873,34 @@ function playerChargePath(b, ctx) {
 }
 
 function startArtillery(b) {
-    const B = bossCfg();
-    const angle = Math.atan2(camera.position.z - b.parts.group.position.z,
-        camera.position.x - b.parts.group.position.x);
-    const offsets = [-0.55, 0, 0.55];
-    for (let i = 0; i < offsets.length; i++) {
-        const a = b.artillery.find(x => !x.active); if (!a) break;
-        const side = offsets[i];
-        a.offset = side * 36;
-        a.x = camera.position.x + Math.cos(angle + Math.PI / 2) * a.offset;
-        a.z = camera.position.z + Math.sin(angle + Math.PI / 2) * a.offset;
-        a.t = B.artillery.lockSec + B.artillery.incomingSec + i * 0.16;
-        a.locked = false; a.active = true; a.marker.visible = true;
-        a.marker.position.set(a.x, 0.38, a.z); a.marker.material.opacity = 0.32;
-        a.shell.visible = true; a.shell.position.set(a.x, 90 + i * 10, a.z);
-        a.shell.rotation.set(0, 0, -Math.PI / 2);
-    }
+    b.mortarLeft = bossCfg().artillery.burst; b.mortarT = 0;
     b.attackState = 'artillery'; b.hazardsCleared = false;
-    playSFX(sfxTankMortar, 0.7);
+}
+
+function fireArtillery(b) {
+    const A = bossCfg().artillery, a = b.artillery.find(q => !q.active);
+    if (!a) return false;
+    const rig = b.phase === 'siege' ? b.parts.siegeMortar : b.parts.combatMortar;
+    rig.cradle.rotation.y = Math.atan2(camera.position.x - b.parts.group.position.x,
+        camera.position.z - b.parts.group.position.z) - b.parts.group.rotation.y;
+    rig.muzzle.getWorldPosition(muz);
+    const dist = Math.hypot(camera.position.x - muz.x, camera.position.z - muz.z);
+    const rise = Math.min(0.5 * A.gravity * (A.maxFlightSec * 0.45) ** 2,
+        Math.max(A.apexHeight, dist * A.apexRatio));
+    const apex = Math.max(muz.y, 5) + rise;
+    const up = Math.sqrt(2 * (apex - muz.y) / A.gravity);
+    a.t = up + Math.sqrt(2 * (apex - 5) / A.gravity);
+    a.vy = A.gravity * up; a.trailT = 0; a.snd = null;
+    a.x = camera.position.x; a.z = camera.position.z;
+    a.vx = (a.x - muz.x) / a.t; a.vz = (a.z - muz.z) / a.t;
+    a.locked = false; a.active = true; a.shell.visible = a.marker.visible = true;
+    a.serial++;
+    a.shell.position.copy(muz); a.marker.position.set(a.x, 0.38, a.z);
+    a.marker.scale.setScalar(1); a.marker.material.opacity = 0.32;
+    tmp.set(a.vx, a.vy, a.vz).normalize(); a.shell.quaternion.setFromUnitVectors(UP, tmp);
+    rig.tube.position.y = -2; b.actionKick = 0.55;
+    spawnGroundPuff(muz.x, muz.z, 0xcbd2da, 3, muz.y);
+    playSFX(sfxTankMortar, 0.7); return true;
 }
 
 function startSiegeAttack(b, ctx) {
@@ -852,6 +920,7 @@ function startSiegeAttack(b, ctx) {
     }
     case 2:
         b.attackState = 'seismicTelegraph'; b.attackT = B.seismic.telegraphSec;
+        b.attackData = { x: camera.position.x, z: camera.position.z };
         placeSeismicTelegraphs(b);
         b.telegraphs.seismicA.visible = true; b.telegraphs.seismicB.visible = true;
         b.hazardsCleared = false; break;
@@ -864,17 +933,12 @@ function startSiegeAttack(b, ctx) {
 function startPersonalAttack(b) {
     const B = bossCfg();
     b.moveVX = b.moveVZ = 0;
-    // Anchored/final phases deliberately retain only a small readable subset;
-    // they never stack the entire Phase-2 moveset over the broadcast sweep.
-    const choice = b.phase === 'hardline'
-        ? (b.attackIndex % 2 ? 3 : 2)
-        : b.phase === 'core' ? (b.attackIndex % 2 ? 3 : 0)
+    // Core retains blade/cannon. Hardline has its own stationary mortar loop.
+    const choice = b.phase === 'core' ? (b.attackIndex % 2 ? 3 : 0)
             : b.attackIndex % 4;
     switch (choice) {
     case 0:
-        b.attackState = 'bladeTelegraph'; b.attackT = B.blade.telegraphSec;
-        b.telegraphs.blade.visible = true; b.telegraphs.blade.position.set(
-            b.parts.group.position.x, 0.36, b.parts.group.position.z);
+        b.attackState = 'bladeApproach'; b.attackT = B.blade.approachSec;
         break;
     case 1: {
         const p = b.parts.group.position;
@@ -959,31 +1023,42 @@ function spawnWaves(b, frozen) {
 
 function updateArtillery(b, dt) {
     const B = bossCfg();
-    let alive = false;
+    b.mortarT -= dt;
+    if (b.mortarLeft > 0 && b.mortarT <= 0 && fireArtillery(b)) {
+        b.mortarLeft--; b.mortarT += B.artillery.burstGapSec;
+    }
     for (const a of b.artillery) if (a.active) {
-        alive = true; a.t -= dt;
-        const incoming = a.t <= B.artillery.incomingSec;
-        // Before lock the marker tracks the current player position. Once the
-        // incoming window starts, x/z freeze and remain inspectable in debug.
-        if (!a.locked && !incoming) {
-            const p = b.parts.group.position;
-            const angle = Math.atan2(camera.position.z - p.z, camera.position.x - p.x);
-            a.x = camera.position.x + Math.cos(angle + Math.PI / 2) * a.offset;
-            a.z = camera.position.z + Math.sin(angle + Math.PI / 2) * a.offset;
+        // Stage-4 mortar: gravity determines the arc; horizontal correction
+        // follows the player until the final lock window, then stays fixed.
+        if (!a.locked) {
+            a.x = camera.position.x; a.z = camera.position.z;
+            a.vx = (a.x - a.shell.position.x) / Math.max(0.001, a.t);
+            a.vz = (a.z - a.shell.position.z) / Math.max(0.001, a.t);
             a.marker.position.set(a.x, 0.38, a.z);
-            a.shell.position.x = a.x; a.shell.position.z = a.z;
+            if (a.t <= B.artillery.lockSec) {
+                a.locked = true; a.marker.material.opacity = 0.82;
+                a.snd = playSFX(sfxTankIncoming, 0.6);
+            }
         }
-        if (incoming && !a.locked) { a.locked = true; a.marker.material.opacity = 0.82; }
-        a.marker.scale.setScalar(0.94 + Math.sin(a.t * 15) * 0.04);
-        if (incoming) a.shell.position.y = Math.max(3, 3 + 87 * a.t / B.artillery.incomingSec);
+        const step = Math.min(dt, a.t);
+        a.shell.position.x += a.vx * step; a.shell.position.z += a.vz * step;
+        a.shell.position.y += a.vy * step - 0.5 * B.artillery.gravity * step * step;
+        a.vy -= B.artillery.gravity * step; a.t -= step;
+        tmp.set(a.vx, a.vy, a.vz).normalize(); a.shell.quaternion.setFromUnitVectors(UP, tmp);
+        a.trailT -= dt;
+        if (a.trailT <= 0) {
+            a.trailT = 0.12;
+            spawnGroundPuff(a.shell.position.x, a.shell.position.z, 0x8a8f96, 1.6, a.shell.position.y);
+        }
         if (a.t <= 0) {
             queueBoom(a.x, 2, a.z, B.artillery.radius, true,
                 B.artillery.damage, 1, sfxTankBlast);
             a.active = false; a.shell.visible = false; a.marker.visible = false;
+            stopLoopSFX(a.snd); a.snd = null;
             addCamShake(2.4);
         }
     }
-    if (!alive || !b.artillery.some(a => a.active)) endAttack(b);
+    if (b.phase !== 'hardline' && b.mortarLeft <= 0 && !b.artillery.some(a => a.active)) endAttack(b);
 }
 
 function moveToward(group, x, z, speed, dt) {
@@ -1052,10 +1127,8 @@ function attackSpeed(top, elapsed, ramp) {
  * janji; kalau tidak menandai daerah yang benar, ia menyesatkan.
  */
 function seismicSpot(b, beat) {
-    const B = bossCfg(), p = b.parts.group.position;
-    const yaw = b.parts.group.rotation.y;
-    const off = B.seismic.radius * (beat === 0 ? 0.36 : 0.72);
-    return { x: p.x + Math.sin(yaw) * off, z: p.z + Math.cos(yaw) * off,
+    const B = bossCfg(), p = b.attackData;
+    return { x: p.x, z: p.z,
         r: B.seismic.radius * (beat === 0 ? 0.62 : 0.68) };
 }
 
@@ -1120,25 +1193,45 @@ function updateTurretAttack(b, dt) {
     }
 }
 
-function updateBlade(b, dt) {
+function updateBlade(b, dt, ctx) {
     const B = bossCfg(), p = b.parts.group.position;
+    if (b.attackState === 'bladeApproach') {
+        const d = pursue(b, dt, ctx, B.combat.dashSpeed, B.blade.radius * 0.7);
+        b.attackT -= dt;
+        if (d <= B.blade.radius || b.attackT <= 0) {
+            b.moveVX = b.moveVZ = 0;
+            b.attackState = 'bladeTelegraph'; b.attackT = B.blade.telegraphSec;
+            b.attackData = { hit: false };
+            b.telegraphs.blade.visible = true;
+        }
+        return;
+    }
     b.attackT -= dt; b.telegraphs.blade.position.set(p.x, 0.35, p.z);
-    if (b.attackState === 'bladeTelegraph' && b.attackT <= 0) {
-        // KEDUA pedang menebas KE DEPAN. Versi lama memberi tanda berlawanan,
-        // jadi satu pedang selalu menebas ke belakang boss — ke tempat yang
-        // tidak pernah menjadi sasaran serangan ini.
-        b.parts.blades[0].rotation.set(-1.25, 0, 0);
-        b.parts.blades[1].rotation.set(-1.25, 0, 0);
-        b.actionKick = 1;
-        queueBoom(p.x, 4, p.z, B.blade.radius, true, B.blade.damage, 1, sfxTankBlast);
+    const state = b.attackState;
+    const duration = state === 'bladeTelegraph' ? B.blade.telegraphSec
+        : state === 'bladeFirst' ? B.blade.firstSwingSec
+            : state === 'bladeSecond' ? B.blade.secondGapSec : B.blade.recoverSec;
+    const k = clamp(1 - b.attackT / duration, 0, 1);
+    poseMahapatihBlade(b.parts, state, k, B.blade.radius);
+    if ((state === 'bladeFirst' || state === 'bladeSecond') && k >= 0.48 && !b.attackData.hit) {
+        b.attackData.hit = true; b.actionKick = 1;
+        queueBoom(p.x, 4, p.z, B.blade.radius, true, B.blade.damage, 1, sfxMeleeHit);
+        if (Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < B.blade.radius)
+            addCamShake(B.blade.hitShake);
+    }
+    if (b.attackT > 0) return;
+    if (state === 'bladeTelegraph') {
+        b.attackState = 'bladeFirst'; b.attackT = B.blade.firstSwingSec;
+        b.attackData.hit = false; playSFX(sfxMeleeSwing, 0.8);
+    } else if (state === 'bladeFirst') {
         b.attackState = 'bladeSecond'; b.attackT = B.blade.secondGapSec;
-    } else if (b.attackState === 'bladeSecond' && b.attackT <= 0) {
-        // Beat kedua: tebasan SILANG ke luar, tetap di depan badan.
-        b.parts.blades[0].rotation.set(-0.55, 0, -1.15);
-        b.parts.blades[1].rotation.set(-0.55, 0, 1.15);
-        b.actionKick = 0.8;
-        queueBoom(p.x, 4, p.z, B.blade.radius, true, B.blade.damage, 1, sfxTankBlast);
-        b.telegraphs.blade.visible = false; endAttack(b);
+        b.attackData.hit = false; playSFX(sfxMeleeSwing, 1);
+    } else if (state === 'bladeSecond') {
+        b.telegraphs.blade.visible = false;
+        b.attackState = 'bladeRecover'; b.attackT = B.blade.recoverSec;
+    } else {
+        for (const trail of b.parts.slashTrails) trail.visible = false;
+        endAttack(b);
     }
 }
 
@@ -1170,8 +1263,8 @@ function updateLunge(b, dt, ctx) {
 
 function updatePersonalAttack(b, dt, ctx) {
     const B = bossCfg();
-    if (b.attackState === 'bladeTelegraph' || b.attackState === 'bladeSecond') {
-        updateBlade(b, dt); return;
+    if (b.attackState.startsWith('blade')) {
+        updateBlade(b, dt, ctx); return;
     }
     if (b.attackState === 'lungeTelegraph' || b.attackState === 'lungeCommit') {
         updateLunge(b, dt, ctx); return;
@@ -1258,6 +1351,7 @@ function updateProjectiles(b, dt, ctx) {
 function beginTransition(b, ctx) {
     const B = bossCfg(); clearMahapatihHazards(b);
     b.hp = 0; b.transitionT = B.transitionSec; b.attackState = 'transition';
+    b.phaseBeat = 0;
     // Cangkang dilepas PADA FRAME PECAHNYA, bukan di akhir animasi: sejak detik
     // ini boss boleh bergerak dan bangkainya tetap di tempat.
     detachSiege(b);
@@ -1270,16 +1364,21 @@ function finishTransition(b, ctx) {
     const B = bossCfg(), p = b.parts;
     openSiegeShells(b, 1);        // cangkang berhenti terbuka, dan DIAM di sana
     p.combat.visible = true; p.combat.position.y = 9;
+    p.combat.rotation.set(0, 0, 0); p.phaseRing.visible = false;
     b.hp = b.maxHp = B.combatHp; b.attackIndex = 0; b.attackState = 'cooldown'; b.attackT = B.attackGapSec;
     phaseChanged(b, 'personal', ctx);
 }
 
 function beginHardline(b, ctx) {
     const B = bossCfg(); clearMahapatihHazards(b);
+    b.parts.pelvis.rotation.set(0, 0, 0); b.parts.combat.position.y = 9;
+    for (const arm of b.parts.arms) arm.arm.rotation.set(0, 0, 0);
     b.hp = 0; b.maxHp = B.combatHp; b.attackIndex = 2;
     b.attackState = 'cooldown'; b.attackT = B.attackGapSec;
     b.sweepState = 'telegraph'; b.sweepT = B.hardline.sweepTelegraphSec;
     b.sweepAngle = 0; b.sweepHitCd = 0;
+    b.transitionT = B.phaseFx.hardlineSec; b.phaseBeat = 0;
+    b.attackState = 'phaseTransition';
     for (const h of b.hardlines) {
         h.hp = h.maxHp = B.hardline.anchorHp; h.alive = true;
         h.group.visible = true; h.core.visible = true; h.cable.visible = true;
@@ -1289,10 +1388,77 @@ function beginHardline(b, ctx) {
 
 function beginCore(b, ctx) {
     const B = bossCfg(); clearMahapatihHazards(b);
+    // These are world wrecks now. attach keeps their exact world transform,
+    // including a rotated/scaled carrier, while Core is free to pursue again.
+    b.parts.group.updateMatrixWorld(true);
+    for (const h of b.hardlines) b.parent.attach(h.group);
     b.hp = b.maxHp = B.coreHp; b.attackIndex = 2;
     b.attackState = 'cooldown'; b.attackT = B.attackGapSec;
     b.shutterOpen = false; b.shutterT = B.core.shutterClosedSec;
+    b.transitionT = B.phaseFx.coreSec; b.phaseBeat = 0;
+    b.attackState = 'phaseTransition';
     phaseChanged(b, 'core', ctx);
+}
+
+function updatePhaseTransition(b, dt, ctx) {
+    const B = bossCfg(), p = b.parts;
+    const siege = b.phase === 'transition', hard = b.phase === 'hardline';
+    const duration = siege ? B.transitionSec : hard ? B.phaseFx.hardlineSec : B.phaseFx.coreSec;
+    b.transitionT = Math.max(0, b.transitionT - dt);
+    const k = 1 - b.transitionT / duration;
+    const smooth = v => { v = clamp(v, 0, 1); return v * v * (3 - 2 * v); };
+    // Time thresholds also run on skip: all beats resolve, then settle exactly.
+    const beats = [0.18, 0.43, 0.72];
+    while (b.phaseBeat < beats.length && k >= beats[b.phaseBeat]) {
+        p.group.getWorldPosition(tmp); tmp.y += 22 + b.phaseBeat * 9;
+        explodeAt(tmp, 12 + b.phaseBeat * 6, 1, sfxTankExplode);
+        addCamShake(B.phaseFx.pulseShake); b.phaseBeat++;
+    }
+    p.phaseRing.visible = true;
+    p.phaseRing.material.color.setHex(hard ? 0x55aaff : PAL.amber);
+    p.phaseRing.scale.setScalar(12 + smooth((k - 0.18) / 0.7) * 135);
+    p.phaseRing.material.opacity = Math.sin(k * Math.PI) * 0.8;
+    if (siege) {
+        openSiegeShells(b, smooth((k - 0.18) / 0.48));
+        const rise = smooth((k - 0.3) / 0.46);
+        p.combat.visible = k >= 0.22;
+        p.combat.position.y = -7 + rise * 16 + Math.sin(Math.PI * rise) * 8;
+        p.combat.rotation.x = (1 - rise) * 0.35;
+        p.torso.rotation.x = -Math.sin(rise * Math.PI) * 0.45;
+        for (let i = 0; i < p.arms.length; i++) {
+            p.arms[i].shoulder.rotation.z = (i ? -1 : 1) * Math.sin(k * Math.PI) * 0.9;
+        }
+    } else {
+        p.aura.visible = true;
+        const power = hard ? smooth(k / 0.75) : 1 - smooth((k - 0.35) / 0.4);
+        p.aura.scale.set(31 * (0.8 + power * 0.2), 43, 29 * (0.8 + power * 0.2));
+        p.aura.material.opacity = power * (0.18 + Math.sin(k * 80) * 0.05);
+        p.torso.rotation.x = Math.sin(k * Math.PI * 2) * 0.22;
+        p.torso.rotation.z = Math.sin(k * 95) * Math.sin(k * Math.PI) * 0.035;
+        p.torso.position.y = 12 - Math.sin(k * Math.PI) * 3;
+        p.head.rotation.x = -Math.sin(k * Math.PI) * 0.25;
+        for (let i = 0; i < p.arms.length; i++) {
+            p.arms[i].shoulder.rotation.z = (i ? -1 : 1) * Math.sin(k * Math.PI) * 0.65;
+        }
+        for (let i = 0; i < b.hardlines.length; i++) {
+            const h = b.hardlines[i];
+            if (hard) { h.group.visible = k > i * 0.12; h.cable.visible = k > 0.2 + i * 0.12; }
+        }
+        const opening = hard ? 0 : smooth((k - 0.55) / 0.4);
+        p.shutterL.position.x = -3.2 - opening * 5.3;
+        p.shutterR.position.x = 3.2 + opening * 5.3;
+    }
+    if (b.transitionT > 0) return;
+    p.phaseRing.visible = false; p.torso.rotation.set(0, 0, 0);
+    p.torso.position.y = 12; p.head.rotation.set(0, 0, 0);
+    for (const arm of p.arms) arm.shoulder.rotation.set(0, 0, 0);
+    if (siege) { finishTransition(b, ctx); return; }
+    p.aura.visible = hard;
+    b.attackState = 'cooldown'; b.attackT = B.attackGapSec;
+    b.mortarT = 0; b.shutterOpen = !hard;
+    b.shutterT = B.core.shutterOpenSec;
+    // The scene releases its cinematic only after every joint has settled.
+    if (ctx.onPhase) ctx.onPhase(b.phase, b);
 }
 
 function killMahapatih(b, ctx) {
@@ -1309,16 +1475,17 @@ function updateHardlineSweep(b, dt) {
     b.sweepHitCd = Math.max(0, b.sweepHitCd - dt);
     if (b.sweepState === 'telegraph') {
         b.sweepT -= dt; t.visible = true; t.position.set(p.x, 0.32, p.z);
-        t.scale.x = 300; t.rotation.y = b.sweepAngle;
+        t.scale.x = 300; t.rotation.y = -b.sweepAngle;
+        t.material.color.setHex(0x59bfff);
         t.material.opacity = 0.18 + Math.sin(b.hoverT * 15) * 0.07;
-        if (b.sweepT <= 0) { b.sweepState = 'active'; t.material.opacity = 0.52; }
+        if (b.sweepT <= 0) { b.sweepState = 'active'; t.material.opacity = 0.12; }
         return;
     }
-    b.sweepAngle += B.hardline.sweepRadPerSec * dt; t.rotation.y = b.sweepAngle;
+    b.sweepAngle += B.hardline.sweepRadPerSec * dt; t.rotation.y = -b.sweepAngle;
     const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
     const side = Math.abs(-Math.sin(b.sweepAngle) * dx + Math.cos(b.sweepAngle) * dz);
     const along = Math.abs(Math.cos(b.sweepAngle) * dx + Math.sin(b.sweepAngle) * dz);
-    const playerAngle = Math.atan2(dz, dx);
+    const playerAngle = Math.atan2(dz, dx) + b.parts.group.rotation.y;
     let quadrant = Math.round((playerAngle - Math.PI / 4) / (Math.PI * 2)
         * b.hardlines.length);
     quadrant = ((quadrant % b.hardlines.length) + b.hardlines.length) % b.hardlines.length;
@@ -1326,9 +1493,11 @@ function updateHardlineSweep(b, dt) {
     const sectorPowered = !!b.hardlines[quadrant]?.alive;
     if (sectorPowered && side < B.hardline.sweepWidth + player.radius
         && along < 150 && b.sweepHitCd <= 0) {
-        queueBoom(camera.position.x, 3, camera.position.z, 2, true,
-            B.hardline.sweepDamage, 1, sfxTankBlast);
-        b.sweepHitCd = 0.8;
+        if (damagePlayerElectric(B.hardline.sweepDamage, p.x, p.z)) {
+            b.combatFx.hitT = B.hardline.electricHitSec; b.combatFx.hits++;
+            setAvatarElectricHit(B.hardline.electricHitSec);
+        }
+        b.sweepHitCd = B.hardline.sweepHitCooldownSec;
     }
 }
 
@@ -1383,7 +1552,7 @@ function bodyHit(b, bx, bz, px, pz) {
  * shot. Returning true tells the shared bullet loop to remove/impact it.
  */
 export function mahapatihBulletHit(b, shot, ctx = {}) {
-    if (!b || !shot || !b.active || b.dead || b.phase === 'transition'
+    if (!b || !shot || !b.active || b.dead || b.transitionT > 0 || b.phase === 'transition'
         || b.phase === 'dormant' || b.phase === 'dying' || b.phase === 'wreck') return false;
     const B = bossCfg();
     const bx = shot.mesh.position.x, bz = shot.mesh.position.z;
@@ -1418,7 +1587,7 @@ export function mahapatihBulletHit(b, shot, ctx = {}) {
 
 /** Direct debug/external damage; normal gunplay is handled by swept hit tests. */
 export function damageMahapatih(b, damage, opts = {}) {
-    if (!b || !b.active || b.dead || b.phase === 'dormant'
+    if (!b || !b.active || b.dead || b.transitionT > 0 || b.phase === 'dormant'
         || b.phase === 'transition' || b.phase === 'hardline') return false;
     if (b.phase === 'core' && !b.shutterOpen && !opts.force) return false;
     const ctx = opts.ctx || {};
@@ -1433,6 +1602,8 @@ export function damageMahapatih(b, damage, opts = {}) {
 
 function updateRig(b, dt) {
     const p = b.parts; b.hoverT += dt;
+    p.siegeMortar.tube.position.y *= Math.exp(-dt * 9);
+    p.combatMortar.tube.position.y *= Math.exp(-dt * 9);
     b.actionKick = Math.max(0, b.actionKick - dt * 4.5);
     p.muzzleFlash.material.opacity = Math.max(0, p.muzzleFlash.material.opacity - dt * 12);
     if (b.hitT > 0) b.hitT = Math.max(0, b.hitT - dt * 6);
@@ -1505,6 +1676,24 @@ function updateRig(b, dt) {
         }
     }
     p.materials.core.color.setHex(b.hitT > 0 ? PAL.white : 0xff2020);
+    if (b.phase === 'hardline' && b.transitionT <= 0) {
+        // Stationary carrier, fixed facing; only small breathing and joint
+        // corrections animate. Anchors and their safe sectors cannot rotate.
+        p.aura.visible = true;
+        p.aura.material.opacity = 0.16 + Math.sin(b.hoverT * 3.1) * 0.045;
+        const pulse = 1 + Math.sin(b.hoverT * 2.3) * 0.025;
+        p.aura.scale.set(31 * pulse, 43 * pulse, 29 * pulse);
+        p.torso.position.y = 12 + Math.sin(b.hoverT * 2.2) * 0.45;
+        p.torso.rotation.x = Math.sin(b.hoverT * 1.6) * 0.025;
+        p.head.rotation.x = Math.sin(b.hoverT * 1.3) * 0.035;
+        for (let i = 0; i < p.arms.length; i++)
+            p.arms[i].shoulder.rotation.z = (i ? -1 : 1) * (0.08 + Math.sin(b.hoverT * 1.8) * 0.025);
+    }
+    if (b.phase === 'core' && b.transitionT <= 0) {
+        // Bright open core and a rising warning pulse before shutters close.
+        p.core.scale.setScalar(b.shutterOpen ? 1.12 + Math.sin(b.hoverT * 10) * 0.09 : 0.9);
+        p.materials.core.color.setHex(b.hitT > 0 ? PAL.white : b.shutterOpen ? 0xffad48 : 0xff2020);
+    }
     for (const h of b.hardlines) {
         h.hitT = Math.max(0, h.hitT - dt * 5);
         if (h.core.visible) h.core.scale.setScalar(1 + h.hitT * 0.24);
@@ -1543,17 +1732,18 @@ export function updateMahapatih(b, dt, ctx = {}) {
     b.lastX = gp.x; b.lastZ = gp.z; b.lastYaw = gy;
     updateRig(b, dt); updateProjectiles(b, dt, ctx);
     if (b.phase === 'dormant') return;
-    if (b.phase === 'transition') {
-        b.transitionT -= dt;
-        const k = 1 - Math.max(0, b.transitionT) / Math.max(0.1, bossCfg().transitionSec);
-        openSiegeShells(b, k);
-        // Robot BERDIRI keluar dari dalam cangkang yang membuka.
-        b.parts.combat.visible = k > 0.28; b.parts.combat.position.y = -7 + k * 16;
-        if (b.transitionT <= 0) finishTransition(b, ctx);
+    if (b.transitionT > 0 || b.phase === 'transition') { updatePhaseTransition(b, dt, ctx); return; }
+    if (ctx.clampBoss) ctx.clampBoss(b.parts.group.position);
+    if (b.phase === 'hardline') {
+        b.moveVX = b.moveVZ = 0;
+        if (!ctx.allowAttack) return;
+        updateHardlineSweep(b, dt); updateMahapatihElectric(b, dt);
+        // Continuous mortar stream; airborne shells do not delay the next launch.
+        b.attackState = 'artillery'; b.hazardsCleared = false;
+        if (b.mortarT <= 1e-8 && fireArtillery(b)) b.mortarT += bossCfg().hardline.barrageGapSec;
+        updateArtillery(b, dt);
         return;
     }
-    if (ctx.clampBoss) ctx.clampBoss(b.parts.group.position);
-    if (b.phase === 'hardline') updateHardlineSweep(b, dt);
     if (b.phase === 'core') updateCoreShutters(b, dt);
     if (!ctx.allowAttack) { b.moveVX = b.moveVZ = 0; return; }
 
@@ -1561,9 +1751,7 @@ export function updateMahapatih(b, dt, ctx = {}) {
     // by the stage-supplied clamp and never teleports.
     if (b.attackState === 'cooldown') {
         const B = bossCfg();
-        // SETIAP fase bertarung mengejar sekarang — termasuk `siege`, yang dulu
-        // tidak punya baris ini sama sekali dan karena itu tak pernah beranjak
-        // dari sisi monumen.
+        // Mobile phases pursue here; Hardline returns through its own loop.
         const p = b.parts.group.position;
         const dist = Math.hypot(camera.position.x - p.x, camera.position.z - p.z);
         b.chaseDist = pursue(b, dt, ctx, chaseSpeed(b, dist), B.chaseStandoff);
@@ -1632,7 +1820,7 @@ export function resolveMahapatihBlock(b, pos, radius = player.radius) {
 
 /** Direct anchor damage surface for deterministic smoke/debug phase simulation. */
 export function damageMahapatihHardline(b, index, damage, ctx = {}) {
-    if (!b || b.phase !== 'hardline') return false;
+    if (!b || b.phase !== 'hardline' || b.transitionT > 0) return false;
     const h = b.hardlines[index];
     if (!h || !h.alive) return false;
     h.hp -= Math.max(1, damage); h.hitT = 1;
@@ -1651,6 +1839,7 @@ export function disposeMahapatih(b) {
     if (!b) return;
     clearMahapatihHazards(b); b.active = false;
     const roots = [b.parts.group, b.deathFx.root,
+        b.combatFx.root, ...b.hardlines.filter(h => h.group.parent !== b.parts.group).map(h => h.group),
         ...(b.siegeDetached ? [b.parts.siege] : []),
         ...b.artillery.flatMap(a => [a.shell, a.marker]),
         ...b.waves.map(p => p.body), ...b.shots.map(p => p.body),
@@ -1693,12 +1882,16 @@ export function mahapatihDebug(b) {
             siege: { ...b.parts.form.siegeBody, yaw: b.parts.group.rotation.y },
             coreOpen: b.phase === 'core' && b.shutterOpen,
         },
-        transitionComplete: b.phase !== 'transition',
+        transitionComplete: b.phase !== 'transition' && b.transitionT <= 0,
+        transitionT: b.transitionT, phaseBeat: b.phaseBeat,
+        electric: { hits: b.combatFx.hits, hitVisible: b.combatFx.hit.visible,
+            sweepVisible: b.combatFx.sweep.visible },
+        auraVisible: b.parts.aura.visible,
         hardlines: b.hardlines.map(h => {
             const p = new THREE.Vector3(); h.group.getWorldPosition(p);
             return { index: h.index, hp: h.hp, maxHp: h.maxHp,
                 alive: h.alive, visible: h.group.visible, x: p.x, z: p.z,
-                hazardSectorEnabled: h.alive };
+                detached: h.group.parent !== b.parts.group, hazardSectorEnabled: h.alive };
         }),
         anchorsRemaining: b.hardlines.filter(h => h.alive).length,
         countermand: b.phase === 'hardline' ? {

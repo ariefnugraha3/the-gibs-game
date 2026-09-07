@@ -1,4 +1,5 @@
 // SFX: definisi klip + pool pemutaran. SELALU putar lewat playSFX().
+import { activeScene } from '../core/sceneManager.js';
 
 export const sfxShoot = new Audio('assets/sounds/gun-shoot.mp3');
 export const sfxShotgun = new Audio('assets/sounds/shotgun-shot.mp3');   // tembakan shotgun
@@ -134,6 +135,7 @@ export function startMenuMusic() {
 // robot (robots.js), jadi guard harus murah. Track dipilih ACAK di antara dua
 // lagu in-game tiap kali mulai dari mati. TIDAK menimpa musik boss.
 export function startBattleMusic() {
+    if (activeScene?.allowBattleMusic === false) return;
     if (curName === 'battle' || curName === 'boss') return;
     playTrack('battle', Math.random() < 0.5 ? bgMusic : bgMusicAlt);
 }

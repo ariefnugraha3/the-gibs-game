@@ -21312,6 +21312,11 @@ if (false) {
     mahMod.updateMahapatih(boss12, M12.transitionSec + .01, phaseCtx12);
     const personalFull = boss12.phase === 'personal' && boss12.hp === M12.combatHp;
     mahMod.damageMahapatih(boss12, M12.combatHp, { ctx: phaseCtx12 });
+    T('MAHAPATIH HARDLINE TRANSITION: invulnerable and no attacks until deployment ends',
+        boss12.transitionT === M12.phaseFx.hardlineSec
+        && !mahMod.damageMahapatihHardline(boss12, 0, M12.hardline.anchorHp, phaseCtx12)
+        && !boss12.artillery.some(a => a.active));
+    mahMod.updateMahapatih(boss12, M12.phaseFx.hardlineSec + .01, phaseCtx12);
     const anchorOrder = [2, 0, 3, 1].filter(i => i < M12.hardline.anchorCount);
     const anchorStates = [];
     for (const i of anchorOrder) {
@@ -21328,6 +21333,10 @@ if (false) {
             === M12.hardline.anchorCount - step - 1)
         && mahMod.mahapatihDebug(boss12).hardlines.every(h => !h.hazardSectorEnabled));
 
+    T('MAHAPATIH CORE TRANSITION: no damage during shield collapse',
+        boss12.transitionT === M12.phaseFx.coreSec
+        && !mahMod.damageMahapatih(boss12, M12.coreHp, { force: true, ctx: phaseCtx12 }));
+    mahMod.updateMahapatih(boss12, M12.phaseFx.coreSec + .01, phaseCtx12);
     boss12.shutterOpen = true;
     const scoreBefore12 = stateMod.score;
     mahMod.damageMahapatih(boss12, M12.coreHp, { force: true, ctx: phaseCtx12 });
@@ -21766,10 +21775,9 @@ if (false) {
             seis.booms.length >= 2 && !!tgA && !!tgB && tgA.visible && tgB.visible
             && Math.hypot(tgA.x - seis.booms[0].x, tgA.z - seis.booms[0].z) < 1e-9
             && Math.hypot(tgB.x - seis.booms[1].x, tgB.z - seis.booms[1].z) < 1e-9
-            // Dan gelombangnya memang MAJU, bukan meledak di bawah kaki boss.
-            && Math.hypot(seis.booms[0].x, seis.booms[0].z) > 1
-            && Math.hypot(seis.booms[1].x, seis.booms[1].z)
-                > Math.hypot(seis.booms[0].x, seis.booms[0].z));
+            // Both beats strike the player's locked position.
+            && Math.abs(seis.booms[0].z - 60) < 1e-9
+            && Math.abs(seis.booms[1].z - 60) < 1e-9);
 
         // (13) MERIAM: keadaan bernama "cannonTelegraph" dulu tidak menggambar apa
         // pun dan tidak mengunci apa pun — arahnya baru dihitung pada detik peluru
@@ -21799,6 +21807,151 @@ if (false) {
             // Dan bila player TIDAK pindah, peluru meriamnya memang melukai.
             && cannonBooms.length >= 1 && cannonBooms.every(q => q.hurts && q.hurtPlayer));
 
+        // Real mortar trajectory: tube launch, ascent/descent, moving target,
+        // frozen final warning and exact impact. Pool entries must be reused.
+        mahMod.resetMahapatih(hb, { active: true, phase: 'siege' });
+        put(0, 180); hb.attackT = 0; hb.attackIndex = 0;
+        robotsMod.resetRobotsFx();
+        const poolRefs = hb.artillery.map(a => a.shell);
+        let rose = false, fell = false, tracked = false, lockedAt = null, lockStable = true;
+        let previousY = null, mortarBoom = null;
+        for (let i = 0; i < Math.ceil(M12.artillery.maxFlightSec * 60) + 60; i++) {
+            mahMod.updateMahapatih(hb, 1 / 60, { allowAttack: true });
+            const a = hb.artillery[0];
+            if (a.active) {
+                if (previousY != null) { rose ||= a.shell.position.y > previousY; fell ||= a.shell.position.y < previousY; }
+                previousY = a.shell.position.y;
+                if (!a.locked) { put(i * 0.3, 180); tracked ||= a.x > 3; }
+                else {
+                    if (!lockedAt) lockedAt = { x: a.x, z: a.z };
+                    lockStable &&= a.x === lockedAt.x && a.z === lockedAt.z;
+                    put(300, 400);
+                }
+            }
+            mortarBoom = robotsMod.pendingBoomsDebug().find(q => q.playerDmg === M12.artillery.damage);
+            if (mortarBoom) break;
+        }
+        T('MAHAPATIH MORTAR: real lob tracks, locks, then impacts its warning while player escapes',
+            rose && fell && tracked && lockStable && !!lockedAt && !!mortarBoom
+            && Math.hypot(mortarBoom.x - lockedAt.x, mortarBoom.z - lockedAt.z) < 1e-6
+            && Math.hypot(mortarBoom.x - 300, mortarBoom.z - 400) > M12.artillery.radius
+            && hb.artillery.every((a, i) => a.shell === poolRefs[i]));
+
+        mahMod.resetMahapatih(hb, { active: true, phase: 'hardline', yaw: 0.6 });
+        const fixed = { ...hb.parts.group.position }, yaw = hb.parts.group.rotation.y;
+        const anchorPos = hb.hardlines.map(h => { const v = new THREE.Vector3(); h.group.getWorldPosition(v); return v; });
+        const births = hb.artillery.reduce((n, a) => n + a.serial, 0);
+        let bodyLive = false, onlyMortars = true, electricHit = false, sweepExplosion = false;
+        const electricSave = { hp: player.hp, armor: player.armor, armorLvl: player.armorLvl,
+            god: stateMod.godMode, dodge: stateMod.dodgeInvuln };
+        stateMod.setGodMode(false); stateMod.setDodgeInvuln(false);
+        player.hp = 10000; player.armorLvl = 0;
+        const initialChest = hb.parts.torso.position.y;
+        robotsMod.resetRobotsFx();
+        for (let i = 0; i < 600; i++) {
+            // Keep a stationary target on the sweep so its hit FX is observable.
+            put(60, 0);
+            mahMod.updateMahapatih(hb, 1 / 60, { allowAttack: true });
+            bodyLive ||= Math.abs(hb.parts.torso.position.y - initialChest) > 0.2;
+            onlyMortars &&= !hb.waves.some(q => q.active) && !hb.shots.some(q => q.active);
+            electricHit ||= hb.combatFx.hit.visible && hb.combatFx.hitT > 0 && player.hp < 10000;
+            sweepExplosion ||= robotsMod.pendingBoomsDebug().some(q => q.playerDmg === M12.hardline.sweepDamage);
+            robotsMod.resetRobotsFx();
+        }
+        const launches = hb.artillery.reduce((n, a) => n + a.serial, 0) - births;
+        T('MAHAPATIH HARDLINE: fixed position/facing/anchors, breathing blue aura and sustained mortar barrage',
+            hb.parts.group.position.x === fixed.x && hb.parts.group.position.z === fixed.z
+            && hb.parts.group.rotation.y === yaw && bodyLive && hb.parts.aura.visible && onlyMortars
+            && launches >= Math.floor(9 / M12.hardline.barrageGapSec)
+            && hb.hardlines.every((h, i) => { const v = new THREE.Vector3(); h.group.getWorldPosition(v);
+                return v.x === anchorPos[i].x && v.z === anchorPos[i].z; }));
+        T('MAHAPATIH SWEEP: electrical strands and body arcs replace explosions at unchanged damage'
+            + ' [damage=' + (10000 - player.hp) + ', hits=' + hb.combatFx.hits + ', fx=' + electricHit + ']',
+            electricHit && !sweepExplosion && hb.combatFx.sweep.visible
+            && 10000 - player.hp === hb.combatFx.hits * M12.hardline.sweepDamage);
+        T('MAHAPATIH BARRAGE: exact configured launch cadence',
+            launches === Math.ceil(10 / M12.hardline.barrageGapSec));
+        const beforeDodge = player.hp;
+        stateMod.setDodgeInvuln(true);
+        T('MAHAPATIH ELECTRIC: dodge still prevents contact damage',
+            !robotsMod.damagePlayerElectric(M12.hardline.sweepDamage, 0, 0) && player.hp === beforeDodge);
+        stateMod.setDodgeInvuln(false); player.armorLvl = 1; player.armor = 1000;
+        robotsMod.damagePlayerElectric(M12.hardline.sweepDamage, 0, 0);
+        T('MAHAPATIH ELECTRIC: shared armor reduction and durability remain authoritative',
+            Math.abs(beforeDodge - player.hp - M12.hardline.sweepDamage * (1 - cfgMod.CFG.armor.tiers[0].reduce)) < 1e-8
+            && player.armor === 1000 - M12.hardline.sweepDamage);
+        player.hp = electricSave.hp; player.armor = electricSave.armor; player.armorLvl = electricSave.armorLvl;
+        stateMod.setGodMode(electricSave.god); stateMod.setDodgeInvuln(electricSave.dodge);
+
+        mahMod.resetMahapatih(hb, { active: true, phase: 'personal' });
+        put(0, M12.chaseStandoff + 30); hb.attackT = 0; hb.attackIndex = 0;
+        robotsMod.resetRobotsFx();
+        let bladeDamage = 0, trailVisible = false, approached = false;
+        let bladeTurnMin = 0, bladeTurnMax = 0, bladeHop = 0, previewDamage = false;
+        for (let i = 0; i < Math.ceil((M12.blade.approachSec + M12.blade.telegraphSec
+            + M12.blade.firstSwingSec + M12.blade.secondGapSec + M12.blade.recoverSec + 1) * 60); i++) {
+            mahMod.updateMahapatih(hb, 1 / 60, { allowAttack: true });
+            approached ||= hb.parts.group.position.z > 10;
+            trailVisible ||= hb.parts.slashTrails.some(t => t.visible && t.material.opacity > 0.3);
+            bladeTurnMin = Math.min(bladeTurnMin, hb.parts.torso.rotation.y);
+            bladeTurnMax = Math.max(bladeTurnMax, hb.parts.torso.rotation.y);
+            bladeHop = Math.max(bladeHop, hb.parts.combat.position.y - 9);
+            previewDamage ||= hb.attackState === 'bladeTelegraph' && robotsMod.pendingBoomsDebug().length > 0;
+            bladeDamage += robotsMod.pendingBoomsDebug().filter(q => q.playerDmg === M12.blade.damage
+                && Math.hypot(q.x - rendererMod.camera.position.x, q.z - rendererMod.camera.position.z) < q.r).length;
+            robotsMod.resetRobotsFx();
+            if (hb.attackIndex > 0) break;
+        }
+        T('MAHAPATIH BLADE: closes range, visibly swings and both combo beats can hit',
+            approached && trailVisible && bladeDamage === 2 && hb.parts.combat.visible);
+        T('MAHAPATIH BLADE: full torso reversal and rising cross-cut, damage only on release',
+            bladeTurnMax - bladeTurnMin > 2 && bladeHop > 2 && !previewDamage
+            && hb.parts.pelvis.rotation.y === 0 && hb.parts.combat.position.y === 9);
+        const transitionPose = (skip) => {
+            mahMod.resetMahapatih(hb, { active: true, phase: 'personal' });
+            hb.hp = M12.combatHp;
+            mahMod.damageMahapatih(hb, M12.combatHp, { ctx: {} });
+            const advance = duration => {
+                if (skip) mahMod.updateMahapatih(hb, duration, { allowAttack: false });
+                else {
+                    let left = duration;
+                    while (left > 1e-8) {
+                        const dt = Math.min(1 / 60, left);
+                        mahMod.updateMahapatih(hb, dt, { allowAttack: false }); left -= dt;
+                    }
+                    if (hb.transitionT > 0) mahMod.updateMahapatih(hb, 1e-8, { allowAttack: false });
+                }
+            };
+            advance(M12.phaseFx.hardlineSec);
+            for (let i = 0; i < M12.hardline.anchorCount; i++)
+                mahMod.damageMahapatihHardline(hb, i, M12.hardline.anchorHp, {});
+            advance(M12.phaseFx.coreSec);
+            return { phase: hb.phase, t: hb.transitionT, open: hb.shutterOpen,
+                x: hb.parts.shutterL.position.x, y: hb.parts.torso.position.y,
+                pitch: hb.parts.torso.rotation.x, aura: hb.parts.aura.visible,
+                ring: hb.parts.phaseRing.visible, hazards: hb.artillery.some(a => a.active) };
+        };
+        const watched = transitionPose(false), skipped = transitionPose(true);
+        T('MAHAPATIH PHASE REVEALS: watching and skipping settle into the same exposed core',
+            JSON.stringify(watched) === JSON.stringify(skipped) && watched.phase === 'core'
+            && watched.open && !watched.aura && !watched.ring && !watched.hazards);
+        const anchorWrecks = hb.hardlines.map(h => {
+            const p = new THREE.Vector3(); h.group.getWorldPosition(p); return p;
+        });
+        hb.parts.group.position.x += 240; hb.parts.group.position.z -= 130;
+        hb.parts.group.rotation.y += 1.4;
+        mahMod.updateMahapatih(hb, 1 / 60, { allowAttack: false });
+        T('MAHAPATIH ANCHOR WRECKS: remain visible and fixed in world while Core moves and turns',
+            hb.hardlines.every((h, i) => {
+                const p = new THREE.Vector3(); h.group.getWorldPosition(p);
+                return h.group.parent === hunt && h.group.visible && !h.core.visible
+                    && Math.hypot(p.x - anchorWrecks[i].x, p.z - anchorWrecks[i].z) < 1e-8;
+            }));
+        mahMod.resetMahapatih(hb, { active: false });
+        T('MAHAPATIH RESET: anchors reattach and electrical FX are cleared',
+            hb.hardlines.every(h => h.group.parent === hb.parts.group && !h.group.visible
+                && h.group.position.x === h.home.x && h.group.position.z === h.home.z)
+            && !hb.combatFx.hit.visible && !hb.combatFx.sweep.visible);
         mahMod.disposeMahapatih(hb); scene.remove(hunt);
         rendererMod.camera.position.x = hx0; rendererMod.camera.position.z = hz0;
     }
@@ -21817,17 +21970,51 @@ if (false) {
     smMod.setScene(stage12.stage12Scene, { fresh: true });
     let sd12 = stage12.stage12Debug();
     const checkpointAtEntry12 = save12.loadCampaignStage();
+    const earlyBots12 = stateMod.robots.filter(r => r.stage === 12);
+    T('S12 PREPLACED: every robot exists during the opening cinematic',
+        earlyBots12.length === encounterTotal && earlyBots12.every(r => r.state === 'idle'));
+    const lighting12 = await import(R('src/world/lighting.js'));
+    const music12 = await import(R('src/utils/sfx.js'));
+    T('S12 LIGHT: base lighting matches the Stage-4 night preset',
+        lighting12.ambLight.intensity === lighting12.LIGHT_PRESETS.night.amb
+        && lighting12.hemiLight.intensity === lighting12.LIGHT_PRESETS.night.hemi
+        && lighting12.dirLight.intensity === lighting12.LIGHT_PRESETS.night.dir);
+    music12.startBattleMusic();
+    T('S12 MUSIC: ordinary battle requests stay silent', music12.musicDebug() === null);
     for (let i = 0; i < Math.ceil(C12.returnCine.durationSec + 20); i++)
         stage12.stage12Scene.updateMode(1);
     sd12 = stage12.stage12Debug();
-    T('S12 GUARDS: entry census is total-configured while only one formation is live',
+    T('S12 GUARDS: all configured formations exist from entry and remain idle until visible',
         sd12.guards.configured === encounterTotal
-        && sd12.guards.alive <= encounterMax && sd12.guards.alive <= 30
+        && sd12.guards.alive === encounterTotal
         && sd12.guards.hardwired === sd12.guards.alive
-        && sd12.guards.encounters.filter(e => e.spawned).length === 1);
+        && sd12.guards.encounters.every(e => e.spawned)
+        && stateMod.robots.filter(r => r.stage === 12).every(r => r.state === 'idle'));
     T('S12 SAVE: checkpoint 12 is written at entry and preserved through unfinished run',
         checkpointAtEntry12 === 12 && save12.loadCampaignStage() === 12
         && sd12.checkpointClearTiming === 'preserved' && !sd12.finalScreenShown);
+    rendererMod.followViewCam(1);
+    let asleepOffscreen12 = false, visibleWoke12 = false;
+    for (const r of earlyBots12) {
+        const seen = stage12.stage12RobotInView(r);
+        stage12.stage12Scene.robotAI(r, 1 / 60, 1);
+        if (!seen) asleepOffscreen12 ||= r.state === 'idle' && !r.viewportAwake;
+        if (seen) visibleWoke12 ||= r.state === 'chasing' && r.viewportAwake;
+    }
+    const distant12 = earlyBots12.find(r => !r.viewportAwake);
+    if (distant12) {
+        rendererMod.camera.position.x = distant12.mesh.position.x;
+        rendererMod.camera.position.z = distant12.mesh.position.z;
+        rendererMod.followViewCam(1);
+        stage12.stage12Scene.robotAI(distant12, 1 / 60, 1);
+        visibleWoke12 ||= distant12.viewportAwake;
+        rendererMod.camera.position.x -= 1000; rendererMod.followViewCam(1);
+        stage12.stage12Scene.robotAI(distant12, 1 / 60, 1);
+    }
+    T('S12 VIEWPORT: offscreen guards idle, visible guards wake permanently, with no new births',
+        asleepOffscreen12 && visibleWoke12 && (!distant12 || distant12.viewportAwake)
+        && stateMod.robots.filter(r => r.stage === 12).length === encounterTotal
+        && earlyBots12.every(r => stateMod.robots.includes(r)));
 
     // ---- Alur akhir: boulevard bersih -> gerbang -> tersegel -> boss di 15 m
     // Dikendarai lewat hook scene yang sebenarnya, bukan lewat setter privat.
@@ -21863,6 +22050,7 @@ if (false) {
     stage12.stage12Scene.updateMode(1 / 60);
     flow12 = stage12.stage12Debug();
     const bossRose12 = flow12.phase === 'vaultReveal' && !!flow12.boss?.active;
+    T('S12 MUSIC: boss encounter starts the boss track', music12.musicDebug() === 'boss');
     // Gerbang menutup sendiri setelah tersegel dan TETAP tertutup selama duel.
     for (let i = 0; i < 45; i++) stage12.stage12Scene.updateMode(1 / 60);
     flow12 = stage12.stage12Debug();
@@ -21896,8 +22084,16 @@ if (false) {
     stage12.stage12DamageBossForDebug(M12.siegeHp * 2);
     stage12.stage12Scene.updateMode(M12.transitionSec + 0.01);
     stage12.stage12DamageBossForDebug(M12.combatHp * 2);
+    T('S12 HARDLINE REVEAL: cinematic owns camera, skip and player input',
+        stage12.stage12Debug().phase === 'bossTransition' && stateMod.cinematicActive
+        && dom12.cutsceneSkipArmed() && stage12.stage12Scene.camLookY != null);
+    dom12.triggerCutsceneSkip();
+    T('S12 HARDLINE SKIP: settled shield releases camera and input',
+        stage12.stage12Debug().phase === 'zeroHour' && !stateMod.cinematicActive
+        && stage12.stage12Debug().boss.auraVisible && !dom12.cutsceneSkipArmed());
     for (let i = 0; i < M12.hardline.anchorCount; i++)
         stage12.stage12DamageHardlineForDebug(i, M12.hardline.anchorHp);
+    stage12.stage12Scene.updateMode(M12.phaseFx.coreSec + .01);
     stage12.stage12DamageBossForDebug(M12.coreHp * 2);
     const deathShot = { ...stage12.stage12Scene.camOffset };
     const deathFocus = stage12.stage12Scene.camLookY;

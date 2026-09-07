@@ -6,7 +6,7 @@
 import { CFG, CAMP_M } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
 import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
-import { scene, camera, viewCam, CAM_OFF_DEFAULT, setCineFocus } from '../../../../core/renderer.js';
+import { scene, camera, viewCam, CAM_OFF_DEFAULT, CAM_LOOK_DROP, camOffsetActive, camFocusPos, setCineFocus } from '../../../../core/renderer.js';
 import {
     showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
@@ -170,6 +170,7 @@ function spawnEncounter(encounter) {
             spawnCampaignRobot(x, z, 12, spec.cls, false);
             const bot = robots[robots.length - 1];
             bot.offlineGuard = true; bot.hardwired = true; bot.encounter = encounter.id;
+            bot.viewportAwake = false;
             total++;
         }
     }
@@ -185,15 +186,26 @@ function prepareConfiguredGuards() {
         triggerX: encounterTrigger(encounter.triggerX),
         spawned: false, spawnedTotal: 0, activated: false,
     }));
+    for (const encounter of stageCfg().encounters || []) spawnEncounter(encounter);
 }
 
-function activateEncounter(id) {
-    const encounter = (stageCfg().encounters || []).find(x => x.id === id);
-    if (encounter && !guardSpawned.has(id)) spawnEncounter(encounter);
-    const census = guardCensus.find(x => x.id === id);
-    if (census) census.activated = true;
-    for (const bot of robots) if (bot.stage === 12 && bot.encounter === id
-        && bot.state === 'idle') bot.state = 'chasing';
+export function stage12RobotInView(bot) {
+    const off = camOffsetActive();
+    let focus = camFocusPos();
+    if (Math.hypot(focus.x - camera.position.x, focus.z - camera.position.z) > 400)
+        focus = camera.position;
+    let fx = -off.x, fy = -off.y - CAM_LOOK_DROP, fz = -off.z;
+    const len = Math.hypot(fx, fy, fz); fx /= len; fy /= len; fz /= len;
+    const flat = Math.hypot(fx, fz), rx = -fz / flat, rz = fx / flat;
+    const ux = -fy * rz, uy = fx * rz - fz * rx, uz = fy * rx;
+    const p = bot.mesh.position, radius = (bot.scl || 1) * 7;
+    const dx = p.x - focus.x - off.x, dy = p.y + radius - focus.y - off.y;
+    const dz = p.z - focus.z - off.z, depth = dx * fx + dy * fy + dz * fz;
+    const tanY = Math.tan((viewCam?.fov || 50) * Math.PI / 360);
+    const tanX = tanY * (viewCam?.aspect || 1);
+    return depth + radius > 1
+        && Math.abs(dx * rx + dz * rz) <= depth * tanX + radius * Math.sqrt(1 + tanX * tanX)
+        && Math.abs(dx * ux + dy * uy + dz * uz) <= depth * tanY + radius * Math.sqrt(1 + tanY * tanY);
 }
 
 function encounterAlive(id) {
@@ -228,7 +240,6 @@ function finishReturnCine(skipped = false) {
     if (skipped) resetDialogue();
     updateStage12Transport(0, 1, true); cleanupCine(stageCfg().fadeSec);
     phase = 'silentApproach'; gateArmed = false; parkSealed = false;
-    activateEncounter('deployment');
     queueDialogue('monasAhead');
     showStageMsg('ADVANCE THROUGH SILENT JAKARTA — REACH MEDAN MERDEKA', 4800);
 }
@@ -271,6 +282,17 @@ function finishVaultReveal() {
 }
 
 function bossPhaseCallback(nextPhase) {
+    if (boss.transitionT > 0) {
+        phase = 'bossTransition';
+        releaseInputs(); clearMoveTarget(); setCinematicActive(true); setCineBars(true);
+        hideBossHud(); updatePhaseCamera(true);
+        showCutsceneSkip(() => {
+            if (phase === 'bossTransition') updateMahapatih(boss, boss.transitionT + 0.01,
+                { ...bossContext, allowAttack: false, onPhase: bossPhaseCallback });
+        });
+        return;
+    }
+    if (phase === 'bossTransition') cleanupCine(stageCfg().fadeSec);
     if (nextPhase === 'transition') {
         phase = 'bossTransition';
         showStageMsg('SIEGE CHASSIS RUPTURED', 3500);
@@ -292,6 +314,23 @@ function bossPhaseCallback(nextPhase) {
                 { ...bossContext, allowAttack: false, onPhase: bossPhaseCallback });
         });
     } else if (nextPhase === 'wreck') startEnding();
+}
+
+function updatePhaseCamera(snap = false) {
+    const B = bossCfg(), p = boss.parts.group.position;
+    const duration = boss.phase === 'transition' ? B.transitionSec
+        : boss.phase === 'hardline' ? B.phaseFx.hardlineSec : B.phaseFx.coreSec;
+    const k = 1 - boss.transitionT / duration, e = k * k * (3 - 2 * k);
+    const angle = Math.atan2(p.x - S12_MONAS.x, p.z - S12_MONAS.z) + (e - 0.5) * 0.28;
+    const vf = (viewCam?.fov || 50) * Math.PI / 360;
+    const hf = Math.atan(Math.tan(vf) * (viewCam?.aspect || 16 / 9));
+    // Pull out to reveal deployed anchors; keep the split hull in the first reveal.
+    const radius = boss.phase === 'hardline' ? 72 + e * 85 : 78 + e * 16;
+    const distance = radius / Math.sin(Math.min(vf, hf));
+    cineCam.x = Math.sin(angle) * distance * 0.94;
+    cineCam.z = Math.cos(angle) * distance * 0.94;
+    cineCam.y = 28 - camera.position.y + distance * Math.sqrt(1 - 0.94 ** 2);
+    setCineFocus(p.x, p.z, snap);
 }
 
 function updateDeathCamera(snap = false) {
@@ -321,7 +360,8 @@ function anchorCallback(index, remaining) {
 }
 
 function updateBossHud() {
-    const d = mahapatihDebug(boss); if (!d || !boss.active || boss.dead) return hideBossHud();
+    const d = mahapatihDebug(boss);
+    if (!d || !boss.active || boss.dead || phase === 'bossTransition') return hideBossHud();
     let hp = d.hp, maxHp = d.maxHp;
     let state = 'SOVEREIGN SIEGE FRAME', secondaryLabel = '', secondaryFraction = 0;
     if (d.phase === 'transition') state = 'CHASSIS RUPTURE';
@@ -333,7 +373,9 @@ function updateBossHud() {
         maxHp = d.hardlines.reduce((sum, h) => sum + h.maxHp, 0);
     } else if (d.phase === 'core') {
         state = d.hitVolumes.coreOpen ? 'CORE EXPOSED' : 'CORE SHUTTERS CLOSED';
-        secondaryLabel = 'CORE WINDOW'; secondaryFraction = d.hitVolumes.coreOpen ? 1 : 0;
+        secondaryLabel = d.hitVolumes.coreOpen ? 'CORE WINDOW' : 'SHUTTER RECHARGE';
+        secondaryFraction = Math.max(0, boss.shutterT / (d.hitVolumes.coreOpen
+            ? bossCfg().core.shutterOpenSec : bossCfg().core.shutterClosedSec));
     }
     setBossHud({ name: 'M-0 MAHAPATIH — SOVEREIGN WAR BODY', hp,
         maxHp, state, secondaryLabel, secondaryFraction });
@@ -393,19 +435,9 @@ function sealPark() {
 }
 
 function updateApproach() {
-    const encounters = stageCfg().encounters || [];
-    for (let i = 0; i < encounters.length; i++) {
-        const encounter = encounters[i];
-        const trigger = encounterTrigger(encounter.triggerX);
-        const census = guardCensus.find(x => x.id === encounter.id);
-        const priorCleared = i === 0 || encounterAlive(encounters[i - 1].id) === 0;
-        if (camera.position.x >= trigger && priorCleared && census && !census.activated) {
-            activateEncounter(encounter.id);
-            if (encounter.id === 'park') {
-                phase = 'blackGuard'; queueDialogue('offlineWake');
-                showStageMsg('BLACK GUARD HARDLINE DETECTED', 4200);
-            }
-        }
+    if (phase === 'silentApproach' && guardCensus.some(e => e.id === 'park' && e.activated)) {
+        phase = 'blackGuard'; queueDialogue('offlineWake');
+        showStageMsg('BLACK GUARD HARDLINE DETECTED', 4200);
     }
     if (!allGuardsDown()) return;
     placeBossResupply();
@@ -441,11 +473,13 @@ function bossAllowed() {
 
 export const stage12Scene = {
     id: 'campaign-12', lightsKey: STAGE12_LIGHTS_KEY,
+    allowBattleMusic: false,
     enter() {
         saveCampaignStage(12); worldRoot = ensureStage12World(scene);
         // DUA root: jalan pendekatan campaign DAN Taman Monas bersama.
         setActiveCampaignWorldRoots(STAGE12_ROOT_KEYS);
-        setActiveStageLights(STAGE12_LIGHTS_KEY); applyLightPreset(scene, 'midnight');
+        stopMusic();
+        setActiveStageLights(STAGE12_LIGHTS_KEY); applyLightPreset(scene, 'night');
         enterCityEnv({ background: 0x090d16, fogColor: 0x0d1118,
             fogNear: 210, fogFar: 1550 });
         clearStage12Robots(); resetStage();
@@ -481,6 +515,7 @@ export const stage12Scene = {
                 allowAttack: phase !== 'bossTransition' && phase !== 'bossDeath',
                 onPhase: bossPhaseCallback, onAnchor: anchorCallback });
             if (phase === 'bossDeath') updateDeathCamera();
+            if (phase === 'bossTransition') updatePhaseCamera();
             updateBossHud();
         } else if (phase === 'ending') updateEnding(dt);
         updateUI();
@@ -509,9 +544,21 @@ export const stage12Scene = {
     },
     robotAI(bot, dt, step) {
         if (bossAllowed() || phase === 'ending' || phase === 'complete') return { skip: true };
+        if (cine || !dialogueIdle()) {
+            bot.state = 'idle'; bot.moving = false; bot.aiming = false;
+            return { skip: true };
+        }
+        if (!bot.viewportAwake) {
+            bot.state = 'idle';
+            if (stage12RobotInView(bot)) {
+                bot.viewportAwake = true; bot.state = 'chasing';
+                const census = guardCensus.find(e => e.id === bot.encounter);
+                if (census) census.activated = true;
+            }
+        } else if (bot.state === 'idle') bot.state = 'chasing';
         return campaignRobotAI(bot, dt, step, {
             walkable: stage12Walk, resolve: resolveStage12World,
-            activate: z => z.state !== 'idle',
+            activate: z => z.viewportAwake,
         });
     },
     clampRobot(bot, oldX, oldZ) {
@@ -566,9 +613,9 @@ export const stage12Scene = {
     // pandangan. Stage 4 adalah satu-satunya stage yang menjepit kamera, karena
     // di sana tank sengaja bisa menghilang dari jangkauan pandang.
     camBounds: () => null,
-    get camLookY() { return phase === 'bossDeath' ? 28 : null; },
+    get camLookY() { return phase === 'bossDeath' || phase === 'bossTransition' ? 28 : null; },
     get camOffset() {
-        if (cine || phase === 'vaultReveal' || phase === 'bossDeath') return cineCam;
+        if (cine || phase === 'vaultReveal' || phase === 'bossDeath' || phase === 'bossTransition') return cineCam;
         if (bossAllowed()) return BOSS_CAM;
         if (phase === 'ending') return END_CAM;
         return PLAY_CAM;
@@ -591,7 +638,7 @@ export const stage12Debug = () => {
     const world = stage12WorldDebug(), bossState = mahapatihDebug(boss);
     return {
         phase, complete, elapsed, cinematic: !!cine || phase === 'vaultReveal'
-            || phase === 'bossDeath' || phase === 'ending', cameraLocked: false, completionCommitted,
+            || phase === 'bossDeath' || phase === 'bossTransition' || phase === 'ending', cameraLocked: false, completionCommitted,
         finalScreenShown, checkpointClearTiming: finalScreenShown ? 'complete' : 'preserved',
         gate: { ...stage12GateState(), armed: gateArmed, parkSealed },
         bossTrigger: { meters: stageCfg().bossTriggerMeters, units: bossTriggerRange(),

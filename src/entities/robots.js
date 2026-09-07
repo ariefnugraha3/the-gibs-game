@@ -709,6 +709,16 @@ export function damagePlayerHp(raw) {
     } else player.hp -= raw;
 }
 
+// Electric contact keeps armor/dodge/death rules, without explosive blood or
+// splash damage. The attack owner supplies its prebuilt electrical presentation.
+export function damagePlayerElectric(raw, x, z) {
+    if (godMode || dodgeInvuln || player.hp <= 0) return false;
+    damagePlayerHp(raw); playSFX(sfxHit); updateUI();
+    showHitDir(attackerAngle(x, z));
+    if (player.hp <= 0) startPlayerDeath(camera.position.x - x, camera.position.z - z);
+    return true;
+}
+
 // Armor pecah: pelat logam berhamburan dari badan (pool gib tetap) + kepulan
 // debu + bunyi "krak" + feed merah. Overlay armor avatar lenyap sendiri frame
 // berikutnya (playerAvatar membaca player.armorLvl per frame, cache armorKey).
