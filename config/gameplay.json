@@ -1120,8 +1120,8 @@
                 "hitRadius": 32,
                 "moveSpeed": 19,
                 "turnRadPerSec": 1.5,
-                "phase2HpFrac": 0.67,
-                "phase3HpFrac": 0.34,
+                "phase2HpFrac": 0.75,
+                "phase3HpFrac": 0.5,
                 "attackGapSec": 1.8,
                 "enrageGapMul": 0.8,
                 "shield": { "arcDeg": 110, "damageMul": 0.12 },
@@ -1131,24 +1131,39 @@
                     "telegraphSec": 0.9,
                     "damage": 55,
                     "width": 16,
-                    "speed": 160,
-                    "poolSize": 4
+                    "speed": 300,
+                    "phase2Count": 3,
+                    "phase3Count": 5,
+                    "shotGapSec": 0.5,
+                    "poolSize": 5
                 },
-                "stomp": { "telegraphSec": 0.8, "damage": 45, "radius": 42 },
+                "stomp": { "telegraphSec": 0.8, "damage": 45, "radius": 42,
+                    "phase3RadiusMul": 2, "impactSec": 0.65 },
                 "burst": {
                     "telegraphSec": 0.7,
                     "damage": 18,
                     "count": 9,
                     "gapSec": 0.12,
-                    "speed": 95,
-                    "poolSize": 18
+                    "speed": 150,
+                    "phase3Volleys": 3,
+                    "volleyGapSec": 1,
+                    "poolSize": 36
                 },
                 "sector": {
                     "telegraphSec": 1.1,
                     "damage": 50,
                     "radius": 70,
                     "gapDeg": 55,
-                    "poolSize": 6
+                    "poolSize": 6,
+                    "impactSec": 0.7
+                },
+                "whirlwind": {
+                    "telegraphSec": 1,
+                    "durationSec": 10,
+                    "damagePerSec": 20,
+                    "tickSec": 0.25,
+                    "radius": 80,
+                    "spinRadPerSec": 18
                 },
                 "descent": {
                     "heightUnits": 130,
@@ -1156,7 +1171,23 @@
                     "sec": 3.2,
                     "impactShake": 16
                 },
-                "deathSec": 5
+                "deathSec": 8,
+                "deathFx": {
+                    "ruptureFraction": 0.3,
+                    "partStaggerFraction": 0.012,
+                    "collapseFraction": 0.5,
+                    "impactFraction": 0.72,
+                    "blastSec": 0.65,
+                    "debrisSpeed": 38,
+                    "debrisLift": 35,
+                    "gravity": 65,
+                    "drag": 1.6,
+                    "sparkCount": 36,
+                    "smokeCount": 14,
+                    "fireCount": 6,
+                    "blastShake": 5,
+                    "impactShake": 12
+                }
             },
             "mahapatih": {
                 "siegeHp": 9000,

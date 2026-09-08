@@ -121,6 +121,12 @@ class Matrix4 {
 class Euler { constructor() { this.x = 0; this.y = 0; this.z = 0; } set(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; return this; } copy(e) { this.x = e.x; this.y = e.y; this.z = e.z; return this; } }
 class Color {
     constructor(h = 0) { this._h = typeof h === 'object' ? h._h : h; }
+    clone() { return new Color(this._h); }
+    copy(c) { this._h = c.getHex(); return this; }
+    multiplyScalar(s) {
+        return this.setRGB(((this._h >> 16) & 255) * s / 255,
+            ((this._h >> 8) & 255) * s / 255, (this._h & 255) * s / 255);
+    }
     offsetHSL() { return this; } setHex(h) { this._h = h; return this; } getHex() { return this._h; } set() { return this; }
     // setRGB dipakai kilat bilah pedang (playerAvatar.flashSwordBlade)
     setRGB(r, g, b) { this._h = ((r * 255 & 255) << 16) | ((g * 255 & 255) << 8) | (b * 255 & 255); return this; }
@@ -410,6 +416,11 @@ T('DIALOGUE CONFIG: seluruh naskah spoken/cutscene terpusat di gameplay.json',
     const loaded = JSON.stringify(cfgMod.CFG.campaign.stage10);
     cfgMod.applyDifficulty('hard');
     const afterHard = JSON.stringify(cfgMod.CFG.campaign.stage10);
+    T('WARDEN DIFFICULTY: whirlwind DPS scales with the same damage multiplier as rail',
+        Math.abs(cfgMod.CFG.campaign.bosses.warden.whirlwind.damagePerSec
+            / cfgMod.CFG_BASE.campaign.bosses.warden.whirlwind.damagePerSec
+            - cfgMod.CFG.campaign.bosses.warden.rail.damage
+            / cfgMod.CFG_BASE.campaign.bosses.warden.rail.damage) < 1e-9);
     T('CONFIG STAGE 10: CFG_BASE ikut membawanya, applyDifficulty tidak menghapus stage 10',
         loaded === JSON.stringify(stage10File)
         && cfgMod.CFG_BASE.campaign.stage10.flight.durationSec === stage10File.flight.durationSec
@@ -20423,11 +20434,20 @@ if (false) {
 
     // (4) Warden: rig terbangun dengan volume hit terbatas + kolam pra-alokasi.
     const warden = s11.getStage11Warden();
+    const campaignWardenCallbacks = warden.callbacks;
+    const wardenWorld = await import(R('src/scenes/campaign/stages/stage11/rootWorld.js'));
+    const chapterCamMod = await import(R('src/scenes/campaign/stages/stage11/chapterCamera.js'));
+    T('S11 WARDEN SURFACE: ground FX clear the actual floor and decorative ring tops',
+        warden.groundY === wardenWorld.S11_WARDEN_SURFACE.groundY
+        && warden.hazardY === wardenWorld.S11_WARDEN_SURFACE.hazardY
+        && warden.hazardY > wardenWorld.S11_ARENA_FLOOR.centerY + wardenWorld.S11_ARENA_FLOOR.height / 2
+        && warden.hazardY > wardenWorld.S11_ARENA_FLOOR.ringY + wardenWorld.S11_ARENA_FLOOR.ringTube);
     let wd = wardenMod.nusantaraWardenDebug(warden);
     T('S11 WARDEN: rig lengkap, kapasitor/kopling sesuai config, kolam pra-alokasi',
         wd.rig.capacitors === W11.capacitors.count
         && wd.rig.couplings === W11.couplings.count
-        && W11.capacitors.hp === 600 && W11.couplings.hp === 800
+        && wd.capacitors.every(c => c.hp === W11.capacitors.hp)
+        && wd.couplings.every(c => c.hp === W11.couplings.hp)
         && wd.pools.rail.size === W11.rail.poolSize
         && wd.pools.burst.size === W11.burst.poolSize
         && wd.pools.sector.size === W11.sector.poolSize
@@ -20473,9 +20493,25 @@ if (false) {
         w.phase = 'phase1'; w.hp = w.maxHp = W11.hp; w.dead = false;
         const back = { x: w.parts.group.position.x + 200, z: w.parts.group.position.z };
         const capBefore = w.parts.capacitors[0].hp;
-        wardenMod.damageNusantaraWarden(w, W11.hp * (1 - W11.phase2HpFrac) + 1, back);
+        wardenMod.damageNusantaraWarden(w, W11.hp * 10, back);
         const jam1 = wardenMod.nusantaraWardenDebug(w);
         const capsExposed = jam1.capacitors.every(c => c.exposed);
+        const checkJamGate = (phase, fraction) => {
+            const hp = w.hp, p = w.parts.group.position;
+            for (const damage of [0, 1, W11.hp * 10])
+                wardenMod.damageNusantaraWarden(w, damage, back);
+            const body = { px: p.x, pz: p.z, damage: W11.hp * 10,
+                mesh: new THREE.Mesh() };
+            body.mesh.position.copy(p);
+            const consumedByHook = s11.stage11Scene.bulletBlocked(body);
+            scene.add(body.mesh); stateMod.bullets.push(body);
+            wardenMod.updateNusantaraWarden(w, 0, { allowAttack: false });
+            T(`S11 WARDEN ${phase}: overkill clamps HP at gate; immune body consumes both bullet paths`,
+                hp === W11.hp * fraction && w.hp === hp && w.phase === phase && !w.dead
+                && !wardenMod.nusantaraWardenVulnerable(w)
+                && consumedByHook && !stateMod.bullets.includes(body) && body.mesh.parent === null);
+        };
+        checkJamGate('jam1', W11.phase2HpFrac);
         // Tembak ujung luar model, bukan titik tengah: seluruh siluet harus kena
         // dan harus langsung menyalakan animasi hit + HP bar.
         const edgeCap = w.parts.capacitors[0];
@@ -20485,9 +20521,6 @@ if (false) {
         s11.stage11Scene.bulletBlocked({ px: capEdge.x, pz: capEdge.z,
             damage: 1, mesh: { position: { x: capEdge.x, y: capEdge.y, z: capEdge.z } } });
         const capHitFeedback = wardenMod.nusantaraWardenDebug(w).capacitors[0];
-        for (const cap of w.parts.capacitors)
-            for (let i = 0; i < 12 && cap.alive; i++)
-                wardenMod.damageNusantaraWardenTargetForDebug?.(w, cap, W11.capacitors.hp);
         // Jalur normal: peluru. Pakai bullet sintetis lewat hook bulletBlocked scene.
         for (const cap of w.parts.capacitors) {
             for (let i = 0; i < 12 && cap.alive; i++) {
@@ -20499,8 +20532,9 @@ if (false) {
             }
         }
         const afterCaps = wardenMod.nusantaraWardenDebug(w);
-        wardenMod.damageNusantaraWarden(w, W11.hp * (W11.phase2HpFrac - W11.phase3HpFrac) + 1, back);
+        wardenMod.damageNusantaraWarden(w, W11.hp * 10, back);
         const jam2 = wardenMod.nusantaraWardenDebug(w);
+        checkJamGate('jam2', W11.phase3HpFrac);
         T('S11 FASE: setiap ambang jam terjadi TEPAT sekali dan membuka target yang benar',
             capBefore === W11.capacitors.hp && capsExposed
             && capHitFeedback.hp === edgeCapHp - 1 && capHitFeedback.hitFxVisible
@@ -20546,19 +20580,19 @@ if (false) {
     //     satu lorong aman.
     {
         const w = warden;
-        for (const r of w.rails) { r.active = false; r.warning.visible = false; r.shot.visible = false; }
+        for (const r of w.rails) { r.active = false; r.shot.visible = false; }
         stand12({ x: w.parts.group.position.x + 260, z: w.parts.group.position.z });
         w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 0; w.phase = 'phase1';
         wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
         const rail = w.rails.find(r => r.active);
         const dirX = rail && rail.dx, dirZ = rail && rail.dz;
-        const warnedFirst = !!rail && rail.warned && rail.warning.visible && !rail.shot.visible;
+        const warnedFirst = !!rail && rail.warned && !rail.warning && !rail.shot.visible;
         const chargeSeen = wardenMod.nusantaraWardenDebug(w).rig.attackChargeVisible;
         // Player LARI selama telegraf: arah rail tak boleh ikut berubah.
         stand12({ x: w.parts.group.position.x, z: w.parts.group.position.z + 260 });
         for (let t = 0; t < W11.rail.telegraphSec + 0.2; t += 0.05)
             wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
-        T('S11 RAIL: garis tembak dikunci di telegraf dan tak mengejar player',
+        T('S11 RAIL: phase 1 locks aim during body charge without a floor strip',
             warnedFirst && chargeSeen
             && Math.abs(rail.dx - dirX) < 1e-9 && Math.abs(rail.dz - dirZ) < 1e-9
             && rail.shot.visible === true && rail.trail.visible === true);
@@ -20566,7 +20600,7 @@ if (false) {
         // Ulangi dengan player tetap di garis. Bolt harus benar-benar melewati
         // posisi player dan mengantrekan angka damage rail dari config.
         for (const r of w.rails) {
-            r.active = false; r.warning.visible = r.shot.visible = r.trail.visible = false;
+            r.active = false; r.shot.visible = r.trail.visible = false;
         }
         robotsMod.resetRobotsFx();
         stand12({ x: w.parts.group.position.x + 100, z: w.parts.group.position.z });
@@ -20581,7 +20615,7 @@ if (false) {
         // Stomp bukan sekadar decal: tiga kaki benar-benar mengantrekan damage
         // pada posisi cincin merahnya setelah telegraph selesai.
         for (const r of w.rails) {
-            r.active = false; r.warning.visible = r.shot.visible = r.trail.visible = false;
+            r.active = false; r.shot.visible = r.trail.visible = false;
         }
         robotsMod.resetRobotsFx();
         w.phase = 'phase1'; w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 1;
@@ -20593,16 +20627,17 @@ if (false) {
         const stompBooms = robotsMod.pendingBoomsDebug();
         T('S11 STOMP: cincin ancaman terlihat dan setiap hentakan menghasilkan damage',
             stompSeen && stompBooms.length === 3
+            && w.stomps.filter(s => s.impactT > 0).every(s => s.mesh.position.y === w.hazardY)
             && stompBooms.every(b => b.hurtPlayer && b.playerDmg === W11.stomp.damage));
         robotsMod.resetRobotsFx();
 
         // Sektor: tiga baji + tiga celah. Pola DIBEKUKAN saat telegraf, jadi
         // baji yang terlihat = area yang benar-benar meledak, dan lorong aman
         // di antara mereka benar-benar aman.
-        for (const r of w.rails) { r.active = false; r.warning.visible = false; r.shot.visible = false; }
+        for (const r of w.rails) { r.active = false; r.shot.visible = false; }
         for (const b of w.bursts) { b.active = false; b.mesh.visible = false; }
         for (const q of w.stomps) { q.active = false; q.mesh.visible = false; }
-        w.phase = 'phase2'; w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 0;
+        w.phase = 'phase2'; w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 3;
         wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
         const sectorSeen = w.attackState === 'sectorTelegraph';
         const base = w.sectorBase;
@@ -20618,24 +20653,186 @@ if (false) {
             return robotsMod.pendingBoomsDebug().length;
         };
         const inGap = boomAt(gapCenters[0], W11.sector.radius * 0.6);
-        w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 0;
+        w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 3;
         wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
         const inWedge = boomAt(w.sectorBase, W11.sector.radius * 0.6);
         robotsMod.resetRobotsFx();
         T('S11 SEKTOR: pola dibekukan di telegraf — lorong aman benar-benar aman',
             sectorSeen && wedges.length === 3 && inGap === 0 && inWedge === 1
+            && w.sectors.filter(s => s.impactT > 0).every(s => s.mesh.position.y === w.hazardY)
             && w.sectors.length === W11.sector.poolSize);
+    }
+
+    // Pola eskalasi diuji terpisah agar tidak mengubah checkpoint duel campaign.
+    {
+        const probe = wardenMod.createNusantaraWarden(scene);
+        const arena = { x: 0, z: 0, radius: 100000 };
+        const reset = (phase, index) => {
+            wardenMod.resetNusantaraWarden(probe, { active: true, phase, x: 0, z: 0, arena });
+            probe.attackIndex = index; probe.attackT = 0;
+            camera.position.set(300, cfgMod.CFG.player.eyeHeight, 0);
+            robotsMod.resetRobotsFx();
+            wardenMod.updateNusantaraWarden(probe, 0, { arena });
+        };
+        const tick = dt => wardenMod.updateNusantaraWarden(probe, dt, { arena });
+        const tickFor = (time, dt = .01) => {
+            for (let t = 0; t < time - 1e-9; t += dt) tick(Math.min(dt, time - t));
+        };
+        for (const phase of ['phase1', 'phase2', 'phase3']) {
+            const expected = ['rail', 'stomp', 'burst', 'sector'];
+            if (phase === 'phase3') expected.push('whirlwind');
+            const actual = expected.map((_, index) => {
+                reset(phase, index); return probe.attackState;
+            });
+            T(`S11 WARDEN ${phase}: every attack participates in the cycle`,
+                actual.every((state, i) => state === `${expected[i]}Telegraph`));
+        }
+        for (const phase of ['phase2', 'phase3']) {
+            reset(phase, 0);
+            const count = phase === 'phase2' ? W11.rail.phase2Count : W11.rail.phase3Count;
+            const fired = [];
+            let aimMatches = true, speedMatches = true;
+            for (let t = 0; t < W11.rail.telegraphSec + count * W11.rail.shotGapSec; t += .01) {
+                camera.position.set(Math.cos(t * .7) * 320, cfgMod.CFG.player.eyeHeight,
+                    Math.sin(t * .7) * 320);
+                tick(.01);
+                for (const r of probe.rails) if (r.active && !r.warned && r.traveled === 0) {
+                    fired.push({ time: t, dx: r.dx, dz: r.dz });
+                    const a = Math.atan2(camera.position.z - r.sz, camera.position.x - r.sx);
+                    aimMatches &&= Math.abs(Math.cos(a) - r.dx) < 1e-9
+                        && Math.abs(Math.sin(a) - r.dz) < 1e-9;
+                } else if (r.active && !r.warned) {
+                    const d = Math.hypot(r.shot.position.x - r.sx, r.shot.position.z - r.sz);
+                    speedMatches &&= Math.abs(d - r.traveled) < 1e-6
+                        && Math.abs(r.traveled / (W11.rail.speed * .01)
+                            - Math.round(r.traveled / (W11.rail.speed * .01))) < 1e-6;
+                }
+            }
+            T(`S11 ${phase} RAIL: configured count/cadence, fresh aim each release, ballistic speed`,
+                fired.length === count && aimMatches && speedMatches
+                && fired.slice(1).every((r, i) => Math.abs(r.time - fired[i].time - W11.rail.shotGapSec) < .011)
+                && fired.some(r => Math.abs(r.dz - fired[0].dz) > .05)
+                && probe.rails.every(r => !r.warning));
+        }
+        for (const phase of ['phase1', 'phase2', 'phase3']) {
+            reset(phase, 1);
+            const marked = probe.stomps.filter(s => s.active);
+            const radius = W11.stomp.radius * (phase === 'phase3' ? W11.stomp.phase3RadiusMul : 1);
+            const expectedCount = phase === 'phase1' ? probe.parts.legs.length / 2 : probe.parts.legs.length;
+            const origins = marked.map(s => s.mesh.position.clone());
+            tickFor(W11.stomp.telegraphSec * .5);
+            const lifted = probe.parts.legs.filter((l, i) => probe.stomps[i].active)
+                .every(l => l.upper.rotation.z > l.baseUpper + .1);
+            tickFor(W11.stomp.telegraphSec * .5 + .01);
+            const impacts = robotsMod.pendingBoomsDebug();
+            T(`S11 ${phase} STOMP: raised feet land on marked radii with lingering impact`,
+                marked.length === expectedCount && lifted && impacts.length === expectedCount
+                && impacts.every((b, i) => b.r === radius && b.playerDmg === W11.stomp.damage
+                    && Math.hypot(b.x - origins[i].x, b.z - origins[i].z) < 1e-6)
+                && marked.every(s => s.mesh.visible && s.edge.visible && s.impactT > 0
+                    && s.radius === radius && s.mesh.scale.x === radius / W11.stomp.radius));
+        }
+        for (const phase of ['phase1', 'phase2', 'phase3']) {
+            reset(phase, 2);
+            const volleys = phase === 'phase3' ? W11.burst.phase3Volleys : 1;
+            tickFor(W11.burst.telegraphSec + .01);
+            const births = []; let before = 0;
+            for (let t = 0; t < volleys * W11.burst.volleyGapSec + W11.burst.count * W11.burst.gapSec; t += .01) {
+                tick(.01);
+                if (probe.burstShots > before) {
+                    births.push({ time: t, shot: before }); before = probe.burstShots;
+                }
+            }
+            const firstShots = births.filter(b => b.shot % W11.burst.count === 0);
+            const b = probe.bursts.find(q => q.active);
+            let speed = false;
+            if (b) {
+                const x = b.mesh.position.x, z = b.mesh.position.z; tick(.01);
+                speed = Math.abs(Math.hypot(b.mesh.position.x - x, b.mesh.position.z - z)
+                    - W11.burst.speed * .01) < 1e-6;
+            }
+            T(`S11 ${phase} BURST: complete volleys, start-to-start cadence and projectile speed`,
+                probe.burstShots === W11.burst.count * volleys && speed
+                && firstShots.length === volleys
+                && firstShots.slice(1).every((b, i) => Math.abs(b.time - firstShots[i].time
+                    - W11.burst.volleyGapSec) < .031));
+        }
+        reset('phase1', 3);
+        const sectorStart = probe.sectorBase;
+        const wedge = probe.sectors[0];
+        const expectedSpan = Math.PI * 2 / 3 - W11.sector.gapDeg * Math.PI / 180;
+        camera.position.set(Math.cos(sectorStart) * W11.sector.radius * .9,
+            cfgMod.CFG.player.eyeHeight, Math.sin(sectorStart) * W11.sector.radius * .9);
+        tickFor(W11.sector.telegraphSec + .01);
+        T('S11 SECTOR: impact remains visible even away from player, fixed full-radius warning',
+            probe.sectorBase === sectorStart && wedge.mesh.visible && wedge.crest.visible
+            && wedge.impactT > 0 && wedge.mesh.scale.x === 1
+            && Math.abs(wedge.mesh.geometry.args[5] - expectedSpan) < 1e-9
+            && robotsMod.pendingBoomsDebug().some(b => b.playerDmg === W11.sector.damage));
+        reset('phase1', 0); tick(0);
+        const shield = probe.parts;
+        T('S11 SHIELD: visible upright shell is attached to actual front, no independent spin',
+            shield.shield.visible && shield.shieldArc.visible && shield.shieldEdges.visible
+            && shield.shieldArc.geometry.args[2] > 0 && shield.shield.rotation.y === 0);
+        probe.parts.group.rotation.y = Math.PI / 2;
+        const p = probe.parts.group.position;
+        const hp = probe.hp;
+        wardenMod.damageNusantaraWarden(probe, 10, { x: p.x, z: p.z + 100 });
+        T('S11 SHIELD: rotated front agrees with rendered local -X',
+            Math.abs(hp - probe.hp - 10 * W11.shield.damageMul) < 1e-6);
+        for (const dt of [.01, .13]) {
+            reset('phase3', 4); tickFor(W11.whirlwind.telegraphSec, .01);
+            const origin = probe.parts.group.position.clone();
+            camera.position.set(origin.x + player.speed * W11.whirlwind.durationSec * 2,
+                cfgMod.CFG.player.eyeHeight, origin.z);
+            tick(dt);
+            const speed = Math.hypot(probe.parts.group.position.x - origin.x,
+                probe.parts.group.position.z - origin.z) / dt;
+            T(`S11 WHIRLWIND dt=${dt}: pursuit equals live player speed`, Math.abs(speed - player.speed) < 1e-6);
+            reset('phase3', 4); tickFor(W11.whirlwind.telegraphSec, .01);
+            camera.position.set(0, cfgMod.CFG.player.eyeHeight, 0);
+            tickFor(W11.whirlwind.durationSec, dt);
+            const damage = robotsMod.pendingBoomsDebug().reduce((n, b) => n + b.playerDmg, 0);
+            T(`S11 WHIRLWIND dt=${dt}: contact DPS/duration exact; trails stop at completion`,
+                Math.abs(damage - W11.whirlwind.damagePerSec * W11.whirlwind.durationSec) < 1e-5
+                && probe.attackState === 'cooldown' && !probe.whirlwindFx.visible);
+        }
+        const settleDeath = skip => {
+            reset('phase3', 4);
+            wardenMod.damageNusantaraWarden(probe, W11.hp * 2);
+            if (skip) tick(W11.deathSec + .01); else tickFor(W11.deathSec + .01, .05);
+            return wardenMod.nusantaraWardenDebug(probe);
+        };
+        const watched = settleDeath(false), skipped = settleDeath(true);
+        T('S11 DESTRUCTION: watched and skipped release the same assemblies onto the floor',
+            watched.deathDone && skipped.deathDone
+            && watched.destruction.released === probe.deathFx.debris.length
+            && skipped.destruction.landed === probe.deathFx.debris.length
+            && watched.destruction.fragments.every((r, i) => {
+                const s = skipped.destruction.fragments[i];
+                return Math.hypot(r.x - s.x, r.y - s.y, r.z - s.z) < 1e-6;
+            }));
+        reset('phase1', 0);
+        T('S11 DESTRUCTION RESET: detached parts and material colors restored, FX cleared',
+            probe.parts.shutters.every(q => q.parent === probe.parts.coreRig)
+            && !probe.deathFx.root.visible && probe.parts.core.visible
+            && probe.deathFx.debris.every(r => !r.released));
+        wardenMod.disposeNusantaraWarden(probe); robotsMod.resetRobotsFx();
     }
 
     // (9) Kematian bos: seluruh bahaya bersih, siaran melewati preBossFraction
     //     menuju 100%, dan uploadnya BERHASIL (bukan gagal seperti Stage 6).
     {
         const w = warden;
+        w.callbacks = campaignWardenCallbacks;
+        const fogBeforeDeath = { near: scene.fog.near, far: scene.fog.far };
         w.phase = 'phase3'; w.dead = false; w.deathDone = false; w.hp = 1;
         stand12(s11.S11_INSERT);
         wardenMod.damageNusantaraWarden(w, 9999,
             { x: w.parts.group.position.x + 200, z: w.parts.group.position.z });
         const dead = wardenMod.nusantaraWardenDebug(w);
+        const deathLocked = s11root.rootDebug().deathPlaying && stateMod.cinematicActive
+            && s11root.rootScene.camLookY != null;
         tick12(W11.deathSec + 1);
         const wrecked = wardenMod.nusantaraWardenDebug(w);
         T('S11 KEMATIAN: bos mati membersihkan SEMUA bahaya aktif sebelum epilog',
@@ -20644,6 +20841,11 @@ if (false) {
             && wrecked.rig.currentFloorClearance >= 0 && wrecked.position.y === 0
             && wrecked.pools.rail.active === 0 && wrecked.pools.burst.active === 0
             && wrecked.pools.sector.active === 0 && wrecked.pools.stomp.active === 0);
+        T('S11 DEATH CAMERA: cinematic owns input/framing only until wreck settlement',
+            deathLocked && !s11root.rootDebug().deathPlaying && !stateMod.cinematicActive
+            && s11root.rootScene.camLookY == null
+            && scene.fog.near === fogBeforeDeath.near && scene.fog.far === fogBeforeDeath.far
+            && s11root.rootScene.camOffset === chapterCamMod.STAGE11_CHAPTER_CAMERA);
         for (let i = 0; i < 600 && s11.stage11WorldDebug().root.uploadProgress < 1; i++) tick12(0.5);
         d12 = s11.stage11WorldDebug();
         T('S11 SIARAN: mencapai 100% HANYA sesudah bos mati, dan tetap monoton',

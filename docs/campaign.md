@@ -1,5 +1,25 @@
 # Campaign mode — reference
 
+## Stage 11 Warden: Phase And Attack Overhaul (2026-09-08)
+
+Ground effect height is derived from the actual root-hall floor and decorative ring geometry through `S11_WARDEN_SURFACE`. This fixes the old warnings being buried beneath the floor. Destruction uses the same visible floor height for fragment settlement, and whirlwind pursuit resolves against the central console's solid footprint.
+
+This supersedes older Warden combat timings and phase rules below. Body HP cannot cross the 75% or 50% gates, even with a lethal-sized hit. At 75%, all three capacitors must be destroyed; at 50%, both couplings must be destroyed. During either jam the body absorbs shots for zero damage, and destroyed/unexposed components cannot intercept shots intended for another component. Phase 3 unlocks at the 50% gate once the couplings are gone.
+
+| Attack | Phase 1: 100-75% | Phase 2: 75-50% | Phase 3: Final 50% |
+| --- | --- | --- | --- |
+| Rail | One shot; direction fixed when charging | Three shots, 0.5 s apart; fresh aim each release | Five shots, 0.5 s apart; fresh aim each release |
+| Stomp | Three alternating legs | All six legs | All six legs; damage radius doubled |
+| Burst | One nine-projectile radial sequence | Same | Three sequences with starts 1 s apart |
+| Sector | Three fixed wedges and three safe gaps | Same | Same |
+| Whirlwind | Unavailable | Unavailable | 10 s spinning pursuit at live player speed; 20 contact DPS |
+
+Rail speed is 300, Burst speed 150. Released rails fly straight, never home. The long rail floor strip is removed; core charging remains visible. Burst retains 0.12 s spacing between projectiles within each radial sequence, with alternating angles between phase-3 sequences. The fixed pool accommodates overlapping volleys.
+
+The shield is a visible upright shell with bright ribs around the forward body, aligned with the actual protected direction. During jams a complete shell signals body immunity; phase 3 disables it. Stomp raises the selected legs and slams them onto their fixed, full-radius ground markers, followed by dust and expanding impact rings. Sector warning geometry matches the damage wedges exactly: each gap is 55 degrees, within the existing radius of 70. An amber ground flash and raised expanding crests show the release even when no player is hit. Whirlwind has its own wind-up and spinning rim trails; damage is accumulated from contact time and dispatched through the existing armor/dodge-aware explosion path. Difficulty scales its damage consistently with other boss attacks.
+
+Death now lasts 8 seconds: core overload, staged ruptures, ejected original armor/components, articulated leg collapse, final impact, fire and smoke. The cinematic pulls back before the rupture and supports SKIP; both paths settle the same grounded wreck and restore camera/input. Death effects cannot damage the player. Upload waits until the wreck callback, then follows the existing loot/broadcast/epilogue sequence. Tuning lives in `campaign.bosses.warden`, including the new `deathFx` block. Smoke covers gates, immunity, per-phase cadence/count/speed, footprint/damage alignment, contact DPS across time steps, reset and watched/skip wreck parity.
+
 **Stage 12 follow-up (2026-09-08; supersedes the explosion-sweep and proximity-spawn rules):** `mahapatihCombatFx.js` prebuilds electrical strands/body arcs and owns full-body blade choreography. Blade coils, snaps through a diagonal cut, reverses into a rising cross-cut and recovers; torso/pelvis/shoulders/arms/legs and tilted trails share the attack clock, with both damage beats at 48% of their actual swings (never during warning). The fixed Hardline sweep is now blue electricity, including safe-sector strand suppression. `robots.damagePlayerElectric` preserves armor, dodge, god-mode and death handling without an explosion/blood/splash; `playerAvatar.setAvatarElectricHit` adds a temporary twitch and removes its previous-frame offsets before posing. Hardline mortar cadence is `barrageGapSec: 1`. On Core entry all hardline groups attach to the stage-owned world parent with preserved transforms, leaving stationary visible wrecks; reset reattaches their recorded home transforms and dispose removes detached roots.
 
 Stage 12 uses Stage 4's `night` lighting preset. All config-owned guard formations are instantiated idle during enter, before the opening cinematic. Individual bodies entering the actual gameplay viewport permanently wake pursuit; no distance trigger spawns or activates a formation. Opening/dialogue locks freeze engagement. `stage12RobotInView` uses the live follow-camera focus, offset, FOV/aspect and body extent. The optional scene property `allowBattleMusic: false` suppresses ordinary `startBattleMusic` requests only here; enter stops the previous track and the Mahapatih reveal starts boss music normally. Smoke covers full initial census, viewport activation/no extra births, night lighting, music suppression/boss handoff, exact mortar cadence, electric damage/armor/dodge, blade release poses, stationary anchor wrecks and reset cleanup.

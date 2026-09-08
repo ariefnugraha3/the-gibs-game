@@ -12,6 +12,10 @@ import { spawnGibs } from './gore.js';
 import { segPointDist2, clamp } from '../utils/math.js';
 import { PAL, EMISSIVE_MAX } from '../world/palette.js';
 import { mergeObjectInPlace } from '../utils/meshBatch.js';
+import {
+    buildNusantaraWardenDeath, resetNusantaraWardenDeath, beginNusantaraWardenDeath,
+    updateNusantaraWardenDeath, nusantaraWardenDeathDebug,
+} from './nusantaraWardenDeath.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const TMP = new THREE.Vector3();
@@ -72,8 +76,8 @@ function materials() {
             emissiveIntensity: EMISSIVE_MAX * .54 }),
         coupling: new THREE.MeshLambertMaterial({ color: PAL.techDim, emissive: PAL.techDim,
             emissiveIntensity: EMISSIVE_MAX * .62 }),
-        shield: new THREE.MeshBasicMaterial({ color: PAL.hazard, transparent: true,
-            opacity: .26, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),
+        shield: new THREE.MeshBasicMaterial({ color: PAL.tech, transparent: true,
+            opacity: .32, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),
         warning: new THREE.MeshBasicMaterial({ color: PAL.hazard, transparent: true,
             opacity: .35, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),
         warningPale: new THREE.MeshBasicMaterial({ color: PAL.white, transparent: true,
@@ -189,9 +193,31 @@ export function buildNusantaraWardenMesh() {
         shutters.push(q);
     }
     const shield = new THREE.Group(); shield.position.y = 22; group.add(shield);
-    const shieldArc = mesh(shield, new THREE.RingGeometry(34, 43, 28, 1,
-        -C().shield.arcDeg * Math.PI / 360, C().shield.arcDeg * Math.PI / 180),
-    M.shield, 0, 0, 0, -Math.PI / 2, 0, Math.PI / 2, false, false);
+    const arc = C().shield.arcDeg * Math.PI / 180;
+    const shieldArc = mesh(shield, new THREE.CylinderGeometry(43, 43, 32, 32, 1,
+        true, -Math.PI / 2 - arc / 2, arc), M.shield,
+    0, 0, 0, 0, 0, 0, false, false);
+    const shieldLock = mesh(shield, new THREE.CylinderGeometry(35, 35, 36, 48, 1, true),
+        M.shield.clone(), 0, 0, 0, 0, 0, 0, false, false);
+    shieldLock.visible = false;
+    const shieldEdges = new THREE.Group(); shield.add(shieldEdges);
+    const edgeMat = new THREE.MeshBasicMaterial({ color: PAL.tech, transparent: true,
+        opacity: .9, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+    for (const y of [-16, 0, 16]) {
+        const geo = new THREE.RingGeometry(42.4, 43.6, 40, 1, Math.PI - arc / 2, arc);
+        geo.rotateX(Math.PI / 2);
+        mesh(shieldEdges, geo, edgeMat, 0, y, 0, 0, 0, 0, false, false);
+    }
+    for (let i = 0; i <= 6; i++) {
+        const a = Math.PI - arc / 2 + arc * i / 6;
+        mesh(shieldEdges, new THREE.BoxGeometry(.7, 32, .7), edgeMat,
+            Math.cos(a) * 43, 0, Math.sin(a) * 43, 0, 0, 0, false, false);
+    }
+    const shieldLockEdges = new THREE.Group(); shield.add(shieldLockEdges);
+    for (const y of [-18, 0, 18]) {
+        const geo = new THREE.RingGeometry(34.5, 35.5, 48); geo.rotateX(-Math.PI / 2);
+        mesh(shieldLockEdges, geo, edgeMat, 0, y, 0, 0, 0, 0, false, false);
+    }
 
     const capacitors = [];
     for (let i = 0; i < C().capacitors.count; i++) {
@@ -225,16 +251,13 @@ export function buildNusantaraWardenMesh() {
             fx: buildWeakTargetFx(rig, 'coupling') });
     }
     return { group, legs, coreRig, core, attackCharge, shutters, shield, shieldArc,
+        shieldLock, shieldEdges, shieldLockEdges,
         capacitors, couplings, materials: M };
 }
 
 function makeRailPool(parent) {
     const out = [];
     for (let i = 0; i < C().rail.poolSize; i++) {
-        const warning = new THREE.Mesh(new THREE.BoxGeometry(520, .18, C().rail.width),
-            new THREE.MeshBasicMaterial({ color: PAL.hazard, transparent: true,
-                opacity: .42, depthWrite: false, toneMapped: false }));
-        warning.visible = false; parent.add(warning);
         const shot = new THREE.Mesh(new THREE.BoxGeometry(34, 5, C().rail.width * .72),
             new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false }));
         shot.visible = false; parent.add(shot);
@@ -242,7 +265,7 @@ function makeRailPool(parent) {
             new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
                 opacity: .5, depthWrite: false, toneMapped: false }));
         trail.visible = false; parent.add(trail);
-        out.push({ warning, shot, trail, active: false, warned: false, t: 0,
+        out.push({ shot, trail, active: false, warned: false, t: 0,
             sx: 0, sz: 0, dx: 1, dz: 0, traveled: 0, hit: false });
     }
     return out;
@@ -259,31 +282,61 @@ function makeBurstPool(parent) {
 }
 function makeSectorPool(parent) {
     const out = [];
-    const angle = (Math.PI * 2 - C().sector.gapDeg * Math.PI / 180) / 3;
+    const angle = Math.PI * 2 / 3 - C().sector.gapDeg * Math.PI / 180;
     for (let i = 0; i < C().sector.poolSize; i++) {
-        const geo = new THREE.RingGeometry(12, C().sector.radius, 28, 1,
+        const geo = new THREE.RingGeometry(0, C().sector.radius, 28, 1,
             -angle / 2, angle);
-        geo.rotateX(-Math.PI / 2);
+        geo.rotateX(Math.PI / 2);
         const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: PAL.hazard,
             transparent: true, opacity: .34, depthWrite: false, toneMapped: false,
             side: THREE.DoubleSide }));
         mesh.visible = false; parent.add(mesh);
-        out.push({ mesh, active: false, angle: 0 });
+        const crestGeo = new THREE.CylinderGeometry(C().sector.radius,
+            C().sector.radius, 12, 28, 1, true, Math.PI / 2 - angle / 2, angle);
+        const crest = new THREE.Mesh(crestGeo, new THREE.MeshBasicMaterial({
+            color: PAL.amber, transparent: true, opacity: .85, depthWrite: false,
+            toneMapped: false, side: THREE.DoubleSide }));
+        crest.visible = false; parent.add(crest);
+        out.push({ mesh, crest, active: false, angle: 0, impactT: 0 });
     }
     return out;
 }
 function makeStompWarnings(parent) {
     const out = [];
     for (let i = 0; i < 6; i++) {
-        const geo = new THREE.RingGeometry(C().stomp.radius * .68,
+        const geo = new THREE.RingGeometry(0,
             C().stomp.radius, 26);
         geo.rotateX(-Math.PI / 2);
         const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: PAL.hazard,
-            transparent: true, opacity: .48, depthWrite: false, toneMapped: false }));
+            transparent: true, opacity: .48, depthWrite: false, toneMapped: false,
+            side: THREE.DoubleSide }));
         mesh.visible = false; parent.add(mesh);
-        out.push({ mesh, active: false });
+        const edgeGeo = new THREE.RingGeometry(C().stomp.radius * .96, C().stomp.radius, 48);
+        edgeGeo.rotateX(-Math.PI / 2);
+        const edge = new THREE.Mesh(edgeGeo, new THREE.MeshBasicMaterial({
+            color: PAL.amber, transparent: true, opacity: .9, depthWrite: false,
+            toneMapped: false, side: THREE.DoubleSide }));
+        edge.visible = false; parent.add(edge);
+        out.push({ mesh, edge, active: false, impactT: 0, radius: C().stomp.radius });
     }
     return out;
+}
+
+function makeWhirlwindFx(parent) {
+    const group = new THREE.Group(); parent.add(group); group.visible = false;
+    for (let i = 0; i < 4; i++) {
+        const geo = new THREE.CylinderGeometry(C().whirlwind.radius,
+            C().whirlwind.radius * .94, 4, 32, 1, true, i * Math.PI / 2, Math.PI / 3);
+        mesh(group, geo, new THREE.MeshBasicMaterial({ color: i % 2 ? PAL.white : PAL.amber,
+            transparent: true, opacity: .72, depthWrite: false, toneMapped: false,
+            side: THREE.DoubleSide }), 0, 7 + i * 5, 0, 0, 0, 0, false, false);
+    }
+    const geo = new THREE.RingGeometry(C().whirlwind.radius * .96, C().whirlwind.radius, 64);
+    geo.rotateX(-Math.PI / 2);
+    mesh(group, geo, new THREE.MeshBasicMaterial({ color: PAL.hazard,
+        transparent: true, opacity: .8, depthWrite: false, toneMapped: false,
+        side: THREE.DoubleSide }), 0, .9, 0, 0, 0, 0, false, false);
+    return group;
 }
 
 export function createNusantaraWarden(parent = scene) {
@@ -293,12 +346,14 @@ export function createNusantaraWarden(parent = scene) {
     const w = {
         parts, fxRoot, rails: makeRailPool(fxRoot), bursts: makeBurstPool(fxRoot),
         sectors: makeSectorPool(fxRoot), stomps: makeStompWarnings(fxRoot),
+        whirlwindFx: makeWhirlwindFx(fxRoot),
         active: false, phase: 'dormant', hp: 0, maxHp: 0, score: 0,
         phaseT: 0, attackState: 'cooldown', attackT: 0, attackIndex: 0,
         burstLeft: 0, burstT: 0, hitT: 0, animT: 0, sectorBase: 0, dead: false,
         deathDone: false, callbacks: {}, arena: null, home: null,
         awarded: false, jamSerial: 0,
     };
+    buildNusantaraWardenDeath(w);
     resetNusantaraWarden(w);
     return w;
 }
@@ -306,16 +361,23 @@ export function createNusantaraWarden(parent = scene) {
 function clearHazards(w) {
     for (const r of w.rails) {
         r.active = r.warned = false;
-        r.warning.visible = r.shot.visible = r.trail.visible = false;
+        r.shot.visible = r.trail.visible = false;
     }
     for (const b of w.bursts) { b.active = false; b.mesh.visible = false; }
-    for (const s of w.sectors) { s.active = false; s.mesh.visible = false; }
-    for (const s of w.stomps) { s.active = false; s.mesh.visible = false; }
+    for (const s of w.sectors) {
+        s.active = false; s.impactT = 0; s.mesh.visible = s.crest.visible = false;
+    }
+    for (const s of w.stomps) {
+        s.active = false; s.impactT = 0; s.mesh.visible = s.edge.visible = false;
+    }
+    w.whirlwindFx.visible = false; w.whirlContact = 0;
+    w.railLeft = 0; w.railT = 0; w.burstVolley = 0;
     w.burstLeft = 0; w.burstT = 0;
 }
 
 export function resetNusantaraWarden(w, opts = {}) {
     if (!w) return;
+    resetNusantaraWardenDeath(w);
     const cfg = C();
     w.hp = cfg.hp; w.maxHp = cfg.hp; w.score = cfg.score;
     w.active = !!opts.active; w.phase = opts.phase || 'dormant'; w.phaseT = 0;
@@ -324,6 +386,8 @@ export function resetNusantaraWarden(w, opts = {}) {
     w.dropHeight = 0; w.dropSec = 0; w.dropHover = 0; w.landed = false;
     w.awarded = false; w.jamSerial = 0; w.callbacks = opts.callbacks || {};
     w.arena = opts.arena || w.arena || { x: opts.x || 0, z: opts.z || 0, radius: 280 };
+    w.groundY = opts.groundY ?? 0;
+    w.hazardY = opts.hazardY ?? w.groundY + .75;
     w.home = opts.home || w.home || { x: opts.x || 0, z: opts.z || 0 };
     const p = w.parts;
     p.group.visible = w.active;
@@ -334,6 +398,8 @@ export function resetNusantaraWarden(w, opts = {}) {
     p.attackCharge.scale.setScalar(1); p.attackCharge.material.opacity = .72;
     p.core.material.emissiveIntensity = EMISSIVE_MAX * .7;
     p.shield.visible = false; p.shield.rotation.set(0, 0, 0);
+    p.shieldLock.visible = p.shieldLockEdges.visible = false;
+    p.shieldArc.visible = p.shieldEdges.visible = true;
     p.shieldArc.material.opacity = .26;
     for (const q of p.shutters) { q.rotation.set(0, 0, 0); q.position.y = 4; }
     for (const leg of p.legs) {
@@ -464,6 +530,7 @@ function removeBullet(index, b) {
     scene.remove(b.mesh); bullets.splice(index, 1);
 }
 function targetHit(w, b, target) {
+    if (!target.alive || !target.exposed) return false;
     // Weak points are multipart horizontal machines. Test a row of overlapping
     // circles along the actual local-X silhouette instead of one tiny centre
     // circle, so rounds through an end cap/ring still register at low FPS.
@@ -480,17 +547,20 @@ function frontShielded(w, impactX, impactZ) {
     if (w.phase === 'phase3' || w.phase === 'death' || w.phase === 'wreck') return false;
     const p = w.parts.group.position;
     const hitAngle = Math.atan2(impactZ - p.z, impactX - p.x);
-    const front = w.parts.group.rotation.y + Math.PI;
+    const front = Math.PI - w.parts.group.rotation.y;
     return Math.abs(wrap(hitAngle - front)) <= cfg.shield.arcDeg * Math.PI / 360;
 }
 
 export function damageNusantaraWarden(w, damage, impact = {}) {
     if (!w?.active || w.dead || ['dormant', 'descent', 'reveal'].includes(w.phase)) return false;
     let d = Math.max(0, damage || 0);
-    if (w.phase === 'jam1' || w.phase === 'jam2') d *= C().shield.damageMul;
-    else if (frontShielded(w, impact.x ?? w.parts.group.position.x - 1,
+    if (w.phase === 'jam1' || w.phase === 'jam2') { w.hitT = 1; return false; }
+    if (d <= 0) return false;
+    if (frontShielded(w, impact.x ?? w.parts.group.position.x - 1,
         impact.z ?? w.parts.group.position.z)) d *= C().shield.damageMul;
-    w.hp = Math.max(0, w.hp - Math.max(1, d)); w.hitT = 1;
+    const floor = w.phase === 'phase1' ? w.maxHp * C().phase2HpFrac
+        : w.phase === 'phase2' ? w.maxHp * C().phase3HpFrac : 0;
+    w.hp = Math.max(floor, w.hp - d); w.hitT = 1;
     if (w.hp <= 0) killNusantaraWarden(w);
     else if (w.phase === 'phase1' && w.hp <= w.maxHp * C().phase2HpFrac) startJam(w, 'jam1');
     else if (w.phase === 'phase2' && w.hp <= w.maxHp * C().phase3HpFrac) startJam(w, 'jam2');
@@ -535,26 +605,28 @@ function projectileHits(w) {
         }
         if (!hit && segPointDist2(b.px, 0, b.pz, b.mesh.position.x, 0,
             b.mesh.position.z, p.x, 0, p.z) <= C().hitRadius ** 2)
-            hit = damageNusantaraWarden(w, damage,
-                { x: b.mesh.position.x, z: b.mesh.position.z });
+        {
+            damageNusantaraWarden(w, damage, { x: b.mesh.position.x, z: b.mesh.position.z });
+            hit = true;
+        }
         if (!hit) continue;
         stats.hits++; removeBullet(i, b);
     }
 }
 
 function freeRail(w) { return w.rails.find(r => !r.active) || null; }
-function beginRail(w) {
+function beginRail(w, charge = true) {
     const r = freeRail(w); if (!r) return false;
     const p = w.parts.group.position;
     const a = Math.atan2(camera.position.z - p.z, camera.position.x - p.x);
-    r.active = true; r.warned = true; r.t = C().rail.telegraphSec;
+    r.active = true; r.warned = charge; r.t = C().rail.telegraphSec;
     r.sx = p.x; r.sz = p.z; r.dx = Math.cos(a); r.dz = Math.sin(a);
-    r.traveled = 0; r.hit = false; r.warning.visible = true; r.shot.visible = false;
-    r.warning.position.set(p.x + r.dx * 250, .65, p.z + r.dz * 250);
-    r.warning.rotation.y = -a; return true;
+    r.traveled = 0; r.hit = false; r.shot.visible = false;
+    if (!charge) fireRail(r);
+    return true;
 }
 function fireRail(r) {
-    r.warned = false; r.warning.visible = false;
+    r.warned = false;
     r.shot.visible = r.trail.visible = true;
     r.shot.position.set(r.sx, 12, r.sz); r.shot.rotation.y = -Math.atan2(r.dz, r.dx);
     r.trail.position.set(r.sx - r.dx * 30, 8, r.sz - r.dz * 30);
@@ -564,8 +636,15 @@ function updateRails(w, dt) {
     for (const r of w.rails) if (r.active) {
         if (r.warned) {
             r.t -= dt;
-            r.warning.material.opacity = .34 + .26 * (1 + Math.sin(w.animT * 17)) / 2;
-            if (r.t <= 0) fireRail(r);
+            if (r.t <= 1e-9) {
+                if (w.phase !== 'phase1') {
+                    const a = Math.atan2(camera.position.z - r.sz, camera.position.x - r.sx);
+                    r.dx = Math.cos(a); r.dz = Math.sin(a);
+                }
+                fireRail(r); w.railT = C().rail.shotGapSec;
+                w.railJustFired = true; w.attackState = 'railFire';
+                if (!w.railLeft) endAttack(w);
+            }
             continue;
         }
         const oldX = r.shot.position.x, oldZ = r.shot.position.z;
@@ -589,35 +668,55 @@ function beginStomp(w) {
     w.attackT = C().stomp.telegraphSec;
     for (let i = 0; i < w.stomps.length; i++) {
         const s = w.stomps[i], leg = w.parts.legs[i];
-        const a = w.parts.group.rotation.y + leg.a;
-        s.active = i % 2 === w.attackIndex % 2; s.mesh.visible = s.active;
-        s.mesh.position.set(w.parts.group.position.x + Math.cos(a) * 52, .65,
-            w.parts.group.position.z + Math.sin(a) * 52);
+        leg.upper.rotation.z = leg.baseUpper; leg.lower.rotation.z = leg.baseLower;
+        leg.foot.rotation.z = 0;
+        TMP.set(4, LEG_POSE.footBodyY, 0); leg.foot.localToWorld(TMP);
+        s.active = w.phase !== 'phase1' || i % 2 === w.attackIndex % 2;
+        s.mesh.visible = s.edge.visible = s.active; s.impactT = 0;
+        s.radius = C().stomp.radius * (w.phase === 'phase3' ? C().stomp.phase3RadiusMul : 1);
+        s.mesh.scale.setScalar(s.radius / C().stomp.radius);
+        s.edge.scale.copy(s.mesh.scale);
+        s.mesh.material.color.setHex(PAL.hazard);
+        s.edge.material.opacity = .95;
+        s.mesh.position.set(TMP.x, w.hazardY, TMP.z);
+        s.edge.position.copy(s.mesh.position); s.edge.position.y += .15;
     }
 }
 function resolveStomp(w) {
     for (const s of w.stomps) if (s.active) {
-        queueBoom(s.mesh.position.x, 4, s.mesh.position.z, C().stomp.radius,
+        queueBoom(s.mesh.position.x, 4, s.mesh.position.z, s.radius,
             true, C().stomp.damage, 0);
-        s.active = false; s.mesh.visible = false;
+        s.active = false; s.impactT = C().stomp.impactSec;
+        s.mesh.material.color.setHex(PAL.amber);
+        spawnGroundPuff(s.mesh.position.x, s.mesh.position.z, PAL.concrete, 10, 1);
     }
     addCamShake(4);
 }
 
-function beginBurst(w) { w.attackT = C().burst.telegraphSec; w.burstLeft = C().burst.count; w.burstT = 0; }
-function emitBurst(w) {
+function beginBurst(w) {
+    w.attackT = C().burst.telegraphSec;
+    w.burstVolleys = w.phase === 'phase3' ? C().burst.phase3Volleys : 1;
+    w.burstLeft = C().burst.count * w.burstVolleys;
+    w.burstShots = 0; w.burstElapsed = 0; w.burstT = 0;
+}
+function emitBurst(w, shot, volley) {
     const free = w.bursts.find(b => !b.active); if (!free) return;
-    const shot = C().burst.count - w.burstLeft;
-    const a = shot * Math.PI * 2 / Math.max(1, C().burst.count) + w.animT * .2;
+    const a = shot * Math.PI * 2 / Math.max(1, C().burst.count)
+        + w.burstBase + volley * Math.PI / C().burst.count;
     free.active = true; free.dx = Math.cos(a); free.dz = Math.sin(a); free.life = 5;
     free.mesh.position.set(w.parts.group.position.x, 18, w.parts.group.position.z);
     free.px = free.mesh.position.x; free.pz = free.mesh.position.z; free.mesh.visible = true;
 }
 function updateBursts(w, dt) {
     if (w.attackState === 'burstFire') {
-        w.burstT -= dt;
-        while (w.burstLeft > 0 && w.burstT <= 0) {
-            emitBurst(w); w.burstLeft--; w.burstT += C().burst.gapSec;
+        w.burstElapsed += dt;
+        while (w.burstLeft > 0) {
+            const shot = w.burstShots % C().burst.count;
+            const volley = Math.floor(w.burstShots / C().burst.count);
+            const due = volley * C().burst.volleyGapSec + shot * C().burst.gapSec;
+            if (w.burstElapsed + 1e-9 < due) break;
+            emitBurst(w, shot, volley); w.burstLeft--; w.burstShots++;
+            w.burstVolley = volley;
         }
         if (w.burstLeft <= 0) endAttack(w);
     }
@@ -644,9 +743,13 @@ function beginSector(w) {
     for (let i = 0; i < w.sectors.length; i++) {
         const s = w.sectors[i]; s.active = i < activeCount; s.mesh.visible = s.active;
         s.angle = w.sectorBase + i * Math.PI * 2 / activeCount;
-        s.mesh.position.set(w.parts.group.position.x, .7, w.parts.group.position.z);
+        s.impactT = 0; s.crest.visible = false; s.mesh.scale.setScalar(1);
+        s.mesh.material.color.setHex(PAL.hazard);
+        s.mesh.position.set(w.parts.group.position.x, w.hazardY, w.parts.group.position.z);
         // Geometry already lies on XZ; yaw is around world-up.
         s.mesh.rotation.y = -s.angle;
+        s.crest.position.copy(s.mesh.position); s.crest.position.y += 6;
+        s.crest.rotation.y = -s.angle;
     }
 }
 function resolveSector(w) {
@@ -665,7 +768,11 @@ function resolveSector(w) {
     }
     if (!safe && d <= C().sector.radius) queueBoom(camera.position.x, 5,
         camera.position.z, player.radius + 2, true, C().sector.damage, 0);
-    for (const s of w.sectors) { s.active = false; s.mesh.visible = false; }
+    for (const s of w.sectors) if (s.active) {
+        s.active = false; s.impactT = C().sector.impactSec;
+        s.mesh.material.color.setHex(PAL.amber); s.crest.visible = true;
+    }
+    addCamShake(6);
 }
 
 function attacksBusy(w) {
@@ -673,15 +780,22 @@ function attacksBusy(w) {
         || w.stomps.some(s => s.active) || w.sectors.some(s => s.active);
 }
 function beginAttack(w) {
-    const choices = w.phase === 'phase1' ? ['rail', 'stomp', 'burst']
-        : w.phase === 'phase2' ? ['sector', 'rail', 'stomp', 'burst']
-            : ['rail', 'sector', 'burst'];
+    const choices = w.phase === 'phase3' ? ['rail', 'stomp', 'burst', 'sector', 'whirlwind']
+        : ['rail', 'stomp', 'burst', 'sector'];
     const kind = choices[w.attackIndex % choices.length];
     w.attackIndex++; w.attackState = `${kind}Telegraph`;
-    if (kind === 'rail') { if (!beginRail(w)) endAttack(w); else w.attackT = C().rail.telegraphSec; }
+    if (kind === 'rail') {
+        w.railLeft = (w.phase === 'phase3' ? C().rail.phase3Count
+            : w.phase === 'phase2' ? C().rail.phase2Count : 1) - 1;
+        if (!beginRail(w)) endAttack(w); else w.attackT = C().rail.telegraphSec;
+    }
     else if (kind === 'stomp') beginStomp(w);
     else if (kind === 'burst') beginBurst(w);
-    else beginSector(w);
+    else if (kind === 'sector') beginSector(w);
+    else {
+        w.attackT = C().whirlwind.telegraphSec;
+        w.whirlContact = 0; w.whirlwindFx.visible = true;
+    }
 }
 function endAttack(w) {
     w.attackState = 'cooldown';
@@ -692,19 +806,84 @@ function animateTelegraphs(w) {
     const pulse = (1 + Math.sin(w.animT * 13)) / 2;
     if (w.attackState === 'stompTelegraph') {
         for (const s of w.stomps) if (s.active) {
-            s.mesh.scale.setScalar(.92 + pulse * .12);
             s.mesh.material.opacity = .4 + pulse * .28;
         }
     } else if (w.attackState === 'sectorTelegraph') {
         for (const s of w.sectors) if (s.active) {
-            s.mesh.scale.setScalar(.96 + pulse * .06);
-            s.mesh.material.opacity = .28 + pulse * .24;
+            s.mesh.material.opacity = .45 + pulse * .3;
         }
     }
 }
-function updateAttackState(w, dt, allow) {
-    updateRails(w, dt); updateBursts(w, dt); animateTelegraphs(w);
+
+function updateImpactFx(w, dt) {
+    for (const s of w.stomps) if (s.impactT > 0) {
+        s.impactT = Math.max(0, s.impactT - dt);
+        const k = 1 - s.impactT / C().stomp.impactSec;
+        s.mesh.material.opacity = (1 - k) * .65;
+        s.edge.scale.setScalar(s.radius / C().stomp.radius * (.12 + k * .88));
+        s.edge.material.opacity = (1 - k) * .95;
+        s.mesh.visible = s.edge.visible = s.impactT > 0;
+    }
+    for (const s of w.sectors) if (s.impactT > 0) {
+        s.impactT = Math.max(0, s.impactT - dt);
+        const k = 1 - s.impactT / C().sector.impactSec;
+        s.mesh.material.opacity = (1 - k) * .85;
+        s.crest.scale.set(.1 + k * .9, 1 + Math.sin(k * Math.PI), .1 + k * .9);
+        s.crest.material.opacity = (1 - k) * .95;
+        s.mesh.visible = s.crest.visible = s.impactT > 0;
+    }
+    if (w.whirlwindFx.visible) {
+        w.whirlwindFx.position.copy(w.parts.group.position);
+        w.whirlwindFx.rotation.y = w.parts.group.rotation.y;
+    }
+}
+
+function updateWhirlwind(w, dt, ctx) {
+    const cfg = C().whirlwind, p = w.parts.group.position;
+    const step = Math.min(dt, Math.max(0, w.attackT));
+    const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
+    const d = Math.hypot(dx, dz), travel = Math.min(d, player.speed * step);
+    const oldX = p.x, oldZ = p.z;
+    if (d > 1e-6) { p.x += dx / d * travel; p.z += dz / d * travel; }
+    ctx.resolveBoss?.(p);
+    clampToArena(w);
+    w.parts.group.rotation.y += cfg.spinRadPerSec * step;
+    // Pecah kontak menjadi tick kecil agar DPS tetap sama pada frame rate berbeda.
+    const endD = Math.hypot(camera.position.x - p.x, camera.position.z - p.z);
+    const startD = Math.hypot(camera.position.x - oldX, camera.position.z - oldZ);
+    const radius = cfg.radius + player.radius;
+    const contact = endD <= radius ? step * (startD <= radius ? 1
+        : clamp((radius - endD) / Math.max(1e-6, startD - endD), 0, 1)) : 0;
+    w.whirlContact += contact;
+    while (w.whirlContact + 1e-9 >= cfg.tickSec) {
+        queueBoom(camera.position.x, 5, camera.position.z, player.radius + 2,
+            true, cfg.damagePerSec * cfg.tickSec, 0);
+        w.whirlContact = Math.max(0, w.whirlContact - cfg.tickSec);
+    }
+    w.attackT = Math.max(0, w.attackT - step);
+    if (w.attackT <= 1e-9 || (contact === 0 && w.whirlContact > 0)) {
+        if (w.whirlContact > 0) queueBoom(camera.position.x, 5, camera.position.z,
+            player.radius + 2, true, cfg.damagePerSec * w.whirlContact, 0);
+        w.whirlContact = 0;
+    }
+    if (w.attackT <= 1e-9) { w.whirlwindFx.visible = false; endAttack(w); }
+}
+
+function updateAttackState(w, dt, allow, ctx) {
+    updateImpactFx(w, dt);
     if (!allow || !['phase1', 'phase2', 'phase3'].includes(w.phase)) return;
+    w.railJustFired = false;
+    updateRails(w, dt); updateBursts(w, dt); animateTelegraphs(w);
+    if (w.attackState === 'whirlwind') { updateWhirlwind(w, dt, ctx); return; }
+    if (w.attackState === 'railFire') {
+        if (!w.railJustFired) w.railT -= dt;
+        while (w.railLeft > 0 && w.railT <= 1e-9) {
+            if (!beginRail(w, false)) break;
+            w.railLeft--; w.railT += C().rail.shotGapSec;
+        }
+        if (!w.railLeft) endAttack(w);
+        return;
+    }
     if (w.attackState === 'cooldown') {
         w.attackT -= dt;
         if (w.attackT <= 0 && !attacksBusy(w)) beginAttack(w);
@@ -713,10 +892,14 @@ function updateAttackState(w, dt, allow) {
     if (w.attackState === 'burstFire') return;
     w.attackT -= dt;
     if (w.attackState.endsWith('Telegraph') && w.attackT <= 0) {
-        if (w.attackState === 'railTelegraph') endAttack(w); // rail pool continues independently
+        if (w.attackState === 'railTelegraph') return;
         else if (w.attackState === 'stompTelegraph') { resolveStomp(w); endAttack(w); }
-        else if (w.attackState === 'burstTelegraph') w.attackState = 'burstFire';
-        else { resolveSector(w); endAttack(w); }
+        else if (w.attackState === 'burstTelegraph') {
+            w.attackState = 'burstFire'; w.burstBase = w.animT * .2;
+        } else if (w.attackState === 'sectorTelegraph') { resolveSector(w); endAttack(w); }
+        else if (w.attackState === 'whirlwindTelegraph') {
+            w.attackState = 'whirlwind'; w.attackT = C().whirlwind.durationSec;
+        }
     }
 }
 
@@ -725,7 +908,7 @@ function updateMovement(w, dt, ctx) {
     // hidup di group, bukan di Vector3 posisi.
     const g = w.parts.group, p = g.position, arena = ctx.arena || w.arena;
     const active = ['phase1', 'phase2', 'phase3'].includes(w.phase);
-    if (!active || !arena) return;
+    if (!active || !arena || w.attackState !== 'cooldown') return;
     const dx = p.x - arena.x, dz = p.z - arena.z;
     const angle = Math.atan2(dz, dx);
     const targetR = w.phase === 'phase1' ? arena.radius * .56
@@ -734,13 +917,19 @@ function updateMovement(w, dt, ctx) {
     const tx = arena.x + Math.cos(angle + orbitDir * .42) * targetR;
     const tz = arena.z + Math.sin(angle + orbitDir * .42) * targetR;
     // Rig prow/front is local -X.
-    const want = Math.atan2(tz - p.z, tx - p.x) + Math.PI;
+    const want = Math.PI - Math.atan2(tz - p.z, tx - p.x);
     g.rotation.y = turn(g.rotation.y, want, C().turnRadPerSec, dt);
     const dist = Math.hypot(tx - p.x, tz - p.z);
     if (dist > 4 && w.attackState === 'cooldown') {
         p.x -= Math.cos(g.rotation.y) * C().moveSpeed * dt;
-        p.z -= Math.sin(g.rotation.y) * C().moveSpeed * dt;
+        p.z += Math.sin(g.rotation.y) * C().moveSpeed * dt;
     }
+    clampToArena(w, arena);
+}
+
+function clampToArena(w, arena = w.arena) {
+    if (!arena) return;
+    const p = w.parts.group.position;
     const dArena = Math.hypot(p.x - arena.x, p.z - arena.z);
     if (dArena > arena.radius - C().bodyRadius) {
         const k = (arena.radius - C().bodyRadius) / dArena;
@@ -750,9 +939,29 @@ function updateMovement(w, dt, ctx) {
 
 function animateRig(w, dt) {
     const p = w.parts; w.animT += dt;
+    if (w.whirlwindFx.visible) {
+        w.whirlwindFx.position.copy(p.group.position);
+        w.whirlwindFx.position.y += w.hazardY;
+        w.whirlwindFx.rotation.y = p.group.rotation.y;
+    }
     const moving = ['phase1', 'phase2', 'phase3'].includes(w.phase)
         && w.attackState === 'cooldown';
     for (const leg of p.legs) {
+        const stomp = w.stomps[leg.index];
+        if (w.attackState === 'stompTelegraph' && stomp.active) {
+            const t = clamp(1 - w.attackT / C().stomp.telegraphSec, 0, 1);
+            const lift = t < .7 ? Math.sin(t / .7 * Math.PI / 2)
+                : (1 - (t - .7) / .3) ** 2;
+            leg.upper.rotation.z = leg.baseUpper + lift * .48;
+            leg.lower.rotation.z = leg.baseLower - lift * .18;
+            leg.foot.rotation.z = -lift * .12;
+            continue;
+        }
+        if (stomp.impactT > 0) {
+            leg.upper.rotation.z = leg.baseUpper;
+            leg.lower.rotation.z = leg.baseLower; leg.foot.rotation.z = 0;
+            continue;
+        }
         const step = moving ? Math.sin(w.animT * 4.2 + leg.index * Math.PI / 3) : 0;
         const jamAnchor = w.phase === 'jam1' && leg.index % 2 === 0
             || w.phase === 'jam2' && leg.index % 2 === 1;
@@ -765,7 +974,14 @@ function animateRig(w, dt) {
         leg.foot.rotation.z = jamAnchor ? 0 : step * .04;
     }
     p.coreRig.rotation.y += dt * (w.phase === 'phase3' ? 2.2 : .75);
-    p.shield.rotation.y += dt * (w.phase === 'phase2' ? .48 : .92);
+    const locked = nusantaraWardenIsJamming(w);
+    p.shield.visible = locked || w.phase === 'phase1' || w.phase === 'phase2';
+    p.shield.rotation.y = 0;
+    p.shieldArc.visible = p.shieldEdges.visible = !locked;
+    p.shieldLock.visible = p.shieldLockEdges.visible = locked;
+    const shieldPulse = .28 + (1 + Math.sin(w.animT * 5)) * .045 + w.hitT * .3;
+    p.shieldArc.material.opacity = shieldPulse;
+    p.shieldLock.material.opacity = shieldPulse;
     const open = w.phase === 'phase3' ? 1 : w.phase === 'phase2' ? .45 : 0;
     for (let i = 0; i < p.shutters.length; i++) {
         const q = p.shutters[i], a = i * Math.PI / 4;
@@ -775,7 +991,8 @@ function animateRig(w, dt) {
     p.core.material.emissiveIntensity = Math.min(EMISSIVE_MAX,
         .45 + (w.phase === 'phase3' ? .35 : .16) + Math.sin(w.animT * 6) * .08);
     const charging = w.attackState.endsWith('Telegraph')
-        || w.attackState === 'burstFire';
+        || w.attackState === 'burstFire' || w.attackState === 'railFire'
+        || w.attackState === 'whirlwind';
     p.attackCharge.visible = charging;
     if (charging) {
         const pulse = (1 + Math.sin(w.animT * 15)) / 2;
@@ -829,43 +1046,12 @@ function killNusantaraWarden(w) {
     w.hp = 0; w.dead = true; w.phase = 'death'; w.phaseT = 0;
     w.attackState = 'dead'; clearHazards(w); stats.kills++; addCamShake(8);
     w.parts.attackCharge.visible = false;
-    explodeAt(new THREE.Vector3(w.parts.group.position.x, 22,
-        w.parts.group.position.z), 26, 0);
+    beginNusantaraWardenDeath(w);
     w.callbacks.onDeath?.(w);
 }
 function updateDeath(w, dt) {
-    w.phaseT += dt; const k = Math.min(1, w.phaseT / Math.max(.1, C().deathSec));
-    const p = w.parts;
-    // Collapse individual assemblies, never the carrier. Tilting/sinking the
-    // whole six-legged rig pushed the far legs through the arena floor.
-    p.group.rotation.z = 0; p.group.position.y = 0;
-    p.coreRig.position.y = 29 - 7 * k; p.coreRig.rotation.z = -.38 * k;
-    p.coreRig.rotation.y += dt * (2.5 * (1 - k));
-    p.core.material.emissiveIntensity = EMISSIVE_MAX * .7 * (1 - k);
-    p.shield.visible = false;
-    for (let i = 0; i < p.legs.length; i++) {
-        const leg = p.legs[i];
-        leg.hip.rotation.z = 0;
-        const upperTarget = leg.baseUpper + (i % 2 ? .06 : -.05) * k;
-        const lowerTarget = leg.baseLower + (i % 2 ? -.04 : .08) * k;
-        leg.upper.rotation.z += (upperTarget - leg.upper.rotation.z)
-            * Math.min(1, dt * 4);
-        leg.lower.rotation.z += (lowerTarget - leg.lower.rotation.z)
-            * Math.min(1, dt * 4);
-        leg.foot.rotation.z += (((i % 2 ? 1 : -1) * .03 * k)
-            - leg.foot.rotation.z) * Math.min(1, dt * 4);
-    }
-    if (Math.floor(w.phaseT * 5) !== Math.floor((w.phaseT - dt) * 5) && k < .85) {
-        const a = w.phaseT * 4.7;
-        spawnGroundPuff(p.group.position.x + Math.cos(a) * 24,
-            p.group.position.z + Math.sin(a) * 24, PAL.ink, 6, 7);
-        spawnGibs(p.group.position.x, 15, p.group.position.z, 2,
-            Math.cos(a), Math.sin(a), 1, PAL.gunmetal, .4, PAL.ink);
-    }
-    if (k >= 1) {
+    if (updateNusantaraWardenDeath(w, dt)) {
         w.phase = 'wreck'; w.deathDone = true;
-        // Existing parts are the wreck; nothing new is allocated or swapped.
-        p.group.position.y = 0; p.core.material.emissiveIntensity = 0;
         w.callbacks.onWreck?.(w);
     }
 }
@@ -879,7 +1065,7 @@ export function updateNusantaraWarden(w, dt, ctx = {}) {
     if (w.phase === 'reveal' && w.phaseT >= VISUAL.revealSec) setPhase(w, 'arm');
     else if (w.phase === 'arm' && w.phaseT >= VISUAL.armSec) setPhase(w, 'phase1');
     projectileHits(w); if (w.dead) return;
-    updateMovement(w, dt, ctx); updateAttackState(w, dt, ctx.allowAttack !== false);
+    updateMovement(w, dt, ctx); updateAttackState(w, dt, ctx.allowAttack !== false, ctx);
     animateRig(w, dt);
 }
 
@@ -925,7 +1111,9 @@ export function nusantaraWardenBulletHit(w, b) {
 export function cleanupNusantaraWarden(w, hide = false) {
     if (!w) return;
     clearHazards(w); w.attackState = 'cooldown';
-    if (hide) { w.active = false; w.parts.group.visible = false; }
+    if (hide) {
+        w.active = false; w.parts.group.visible = false; w.deathFx.root.visible = false;
+    }
 }
 
 export function disposeNusantaraWarden(w) {
@@ -938,12 +1126,12 @@ export const nusantaraWardenIsJamming = w => w?.phase === 'jam1' || w?.phase ===
 export const nusantaraWardenDead = w => !!w?.dead;
 export const nusantaraWardenWrecked = w => !!w?.deathDone;
 export const nusantaraWardenVulnerable = w => !!w?.active && !w?.dead
-    && !['dormant', 'descent', 'reveal'].includes(w.phase);
+    && !['dormant', 'descent', 'reveal', 'jam1', 'jam2'].includes(w.phase);
 export const nusantaraWardenDescending = w => w?.phase === 'descent';
 
 function legFloorClearance(w, leg) {
     const rootY = w.parts.group.position.y;
-    const hipY = LEG_POSE.hipY;
+    const hipY = leg.hip.position.y;
     const hipA = leg.hip.rotation.z;
     const upperA = hipA + leg.upper.rotation.z;
     const atY = (baseY, angle, x, y) => baseY + Math.sin(angle) * x + Math.cos(angle) * y;
@@ -987,6 +1175,7 @@ export function nusantaraWardenDebug(w) {
             landed: !!w.landed, y: w.parts.group.position.y },
         hp: w.hp, maxHp: w.maxHp, score: w.score, dead: w.dead,
         deathDone: w.deathDone, attackState: w.attackState,
+        destruction: nusantaraWardenDeathDebug(w),
         attackIndex: w.attackIndex, jammed: nusantaraWardenIsJamming(w),
         position: { x: w.parts.group.position.x, y: w.parts.group.position.y,
             z: w.parts.group.position.z },

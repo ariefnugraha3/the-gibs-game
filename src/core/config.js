@@ -107,6 +107,7 @@ export function applyDifficulty(name) {
             if (warden[attack] && Number.isFinite(warden[attack].damage))
                 warden[attack].damage *= dmg;
         }
+        if (warden.whirlwind) warden.whirlwind.damagePerSec *= dmg;
         warden.attackGapSec *= spawn;
     }
     // Stage 11 Chapter-1 weapon pickups own their durability and damage in

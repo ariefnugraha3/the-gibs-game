@@ -3,11 +3,12 @@
 import { CFG } from '../../../../core/config.js';
 import { player, keys, robots, stats, setCinematicActive } from '../../../../core/state.js';
 import {
-    scene, camera, viewCam, CAM_LOOK_DROP, camFocusPos, addCamShake,
+    scene, camera, viewCam, CAM_LOOK_DROP, camFocusPos, addCamShake, setCineFocus,
 } from '../../../../core/renderer.js';
 import {
     showStageMsg, hideDownloadBar,
     setBossHud, hideBossHud, setCineFade, setCineBars,
+    showCutsceneSkip, hideCutsceneSkip,
 } from '../../../../core/dom.js';
 import { updateUI } from '../../../../core/hud.js';
 import { releaseInputs } from '../../../../core/input.js';
@@ -35,12 +36,12 @@ import {
     resetNusantaraWarden, updateNusantaraWarden,
     cleanupNusantaraWarden, resolveNusantaraWardenBlock,
     nusantaraWardenBulletHit, nusantaraWardenIsJamming,
-    nusantaraWardenWrecked, nusantaraWardenDebug,
+    nusantaraWardenWrecked, nusantaraWardenDebug, nusantaraWardenEnvelope,
 } from '../../../../entities/nusantaraWarden.js';
 import {
     STAGE11_ROOT_LIGHTS_KEY, S11_ROOT_START, S11_AUTHORITY_GATE,
     S11_ROOT_ENCOUNTER, S11_DOOR_STAND, S11_INSERT, S11_INSERT_STAND,
-    S11_ARENA, S11_WARDEN_HOME, stage11RootWalk, stage11RootResolve,
+    S11_ARENA, S11_WARDEN_HOME, S11_WARDEN_SURFACE, stage11RootWalk, stage11RootResolve,
     stage11RootSegBlocked, stage11RootGroundHeight, stage11RootNav,
     stage11RootMeterAt, stage11RootPointAtMeter, stage11RootMachines,
     setStage11AuthorityDoor, updateStage11AuthorityDoor,
@@ -88,6 +89,39 @@ let jamFrames = 0;
 let progressFrames = 0;
 
 let revealPlaying = false;
+let deathPlaying = false;
+let deathFog = null;
+const deathCamera = { x: 0, y: 0, z: 0 };
+
+function resetDeathCamera() {
+    if (!deathPlaying) return;
+    deathPlaying = false; hideCutsceneSkip(); setCineFocus(null);
+    if (deathFog) {
+        deathFog.fog.near = deathFog.near; deathFog.fog.far = deathFog.far;
+        deathFog = null;
+    }
+    setCineBars(false); setCinematicActive(false); releaseInputs(); clearMoveTarget();
+}
+
+function updateDeathCamera(snap = false) {
+    if (!deathPlaying) return;
+    const w = W(), B = CFG.campaign.bosses.warden, D = B.deathFx;
+    const k = Math.min(1, w.phaseT / (B.deathSec * D.ruptureFraction));
+    const pullback = k * k * (3 - 2 * k), p = w.parts.group.position;
+    const vf = (viewCam?.fov || 50) * Math.PI / 360;
+    const hf = Math.atan(Math.tan(vf) * (viewCam?.aspect || 16 / 9));
+    const radius = nusantaraWardenEnvelope().spanRadius + D.debrisSpeed / D.drag;
+    const distance = radius * (1.05 + pullback * .18) / Math.sin(Math.min(vf, hf));
+    const angle = Math.atan2(p.z - S11_INSERT.z, p.x - S11_INSERT.x) + pullback * .16;
+    deathCamera.x = Math.cos(angle) * distance * .86;
+    deathCamera.z = Math.sin(angle) * distance * .86;
+    deathCamera.y = 28 - camera.position.y + distance * Math.sqrt(1 - .86 ** 2);
+    if (deathFog) {
+        deathFog.fog.near = Math.max(deathFog.near, distance * .65);
+        deathFog.fog.far = Math.max(deathFog.far, distance * 2.4);
+    }
+    setCineFocus(p.x, p.z, snap);
+}
 
 function W() { return getStage11Warden(); }
 
@@ -136,6 +170,7 @@ const anyRootFabricatorInView = () =>
     stage11RootMachines().some(rootFabricatorInView);
 
 export function resetRoot() {
+    resetDeathCamera();
     elapsed = 0; insertT = 0; uploadProgress = 0; previousUpload = 0;
     minObservedDelta = 0; uploadAccepted = false; wardenActivated = false;
     rewardDropped = false; endingQueued = false; completionInvoked = false;
@@ -147,7 +182,8 @@ export function resetRoot() {
     revealPlaying = false; wardenReveal.reset();
     resetStage11RootVisuals(); hideBossHud(); hideDownloadBar();
     resetNusantaraWarden(W(), { active: false, x: S11_WARDEN_HOME.x,
-        z: S11_WARDEN_HOME.z, home: S11_WARDEN_HOME, arena: S11_ARENA });
+        z: S11_WARDEN_HOME.z, home: S11_WARDEN_HOME, arena: S11_ARENA,
+        ...S11_WARDEN_SURFACE });
 }
 
 function placeRootSupplies() {
@@ -387,7 +423,17 @@ function wardenCallbacks() {
             }
         },
         onDeath() {
-            setStage11Phase('wardenBattle');
+            setStage11Phase('wardenDeath'); deathPlaying = true;
+            if (scene.fog) deathFog = { fog: scene.fog, near: scene.fog.near, far: scene.fog.far };
+            releaseInputs(); clearMoveTarget(); setCinematicActive(true); setCineBars(true);
+            hideBossHud(); updateDeathCamera(true);
+            showCutsceneSkip(() => {
+                if (deathPlaying) updateNusantaraWarden(W(), CFG.campaign.bosses.warden.deathSec,
+                    { allowAttack: false });
+            });
+        },
+        onWreck() {
+            resetDeathCamera(); setStage11Phase('wardenBattle');
             queueStage11Dialogue('wardenDown');
         },
     };
@@ -430,7 +476,7 @@ function finishWardenReveal() {
 function updateUpload(dt) {
     if (!uploadAccepted || completionInvoked) return;
     // While the reveal is playing the cutscene is the only writer of progress.
-    if (revealPlaying) return;
+    if (revealPlaying || deathPlaying) return;
     const w = W(), U = CFG.campaign.stage11.upload;
     const jammed = nusantaraWardenIsJamming(w);
     previousUpload = uploadProgress;
@@ -487,9 +533,10 @@ export const rootScene = {
     // placing the console and Warden toward the upper-left of the screen. The
     // reveal cutscene borrows the angle shot by shot and gives it back EXACTLY
     // — the same frozen object, so a stage-wide camera test still identifies it.
-    get camOffset() { return wardenReveal.camOffset() || STAGE11_CHAPTER_CAMERA; },
+    get camOffset() { return deathPlaying ? deathCamera
+        : wardenReveal.camOffset() || STAGE11_CHAPTER_CAMERA; },
     // Absolute look height, used only by the cutscene (see core/renderer.js).
-    get camLookY() { return wardenReveal.camLookY(); },
+    get camLookY() { return deathPlaying ? 28 : wardenReveal.camLookY(); },
     enter() {
         setActiveCampaignWorldRoots(STAGE11_ROOT_LIGHTS_KEY);
         setActiveStageLights(STAGE11_ROOT_LIGHTS_KEY);
@@ -507,6 +554,7 @@ export const rootScene = {
         showStageMsg('ROOT HALL 100 M — ADVANCE TO THE SEALED DOOR', 4300);
     },
     exit() {
+        resetDeathCamera();
         wardenReveal.reset(); revealPlaying = false;
         cleanupNusantaraWarden(W(), false); hideBossHud(); hideDownloadBar();
         births.length = 0; setStage11DoorHackMarker(false); setStage11InsertMarker(false);
@@ -516,10 +564,12 @@ export const rootScene = {
         updateStage11RootOccluders(dt);
         const w = W();
         updateNusantaraWarden(w, dt, { arena: S11_ARENA,
+            resolveBoss: pos => stage11RootResolve(pos, CFG.campaign.bosses.warden.bodyRadius),
             allowAttack: phase === 'wardenBattle' });
         // AFTER the boss update: the reveal reacts to the landing on the SAME
         // frame the feet touch the floor, not one frame later.
         wardenReveal.update(dt);
+        updateDeathCamera();
         updateUpload(dt);
         // Runs before AND after upload: the floor destination must pulse while
         // the player is still looking for the central-computer interaction.
@@ -556,7 +606,7 @@ export const rootScene = {
         // Surviving corridor robots are FROZEN for the whole reveal: the player
         // is locked in place for four shots and cannot answer them (the Stage 9
         // dialogue-lock rule). They resume the instant control returns.
-        if (bot.machineBirth || revealPlaying) {
+        if (bot.machineBirth || revealPlaying || deathPlaying) {
             bot.state = 'idle'; bot.moving = false; bot.aiming = false; return {};
         }
         return campaignRobotAI(bot, dt, step, {
@@ -580,6 +630,7 @@ export const rootScene = {
         if (phase === 'doorLocked') return 'HACK THE LARGE ROOT HALL DOOR';
         if (phase === 'insertDrive') return 'INSERT THE KILL-SWITCH DRIVE';
         if (phase === 'wardenReveal') return 'BROADCASTING — ROOT CHAMBER RESPONDING';
+        if (phase === 'wardenDeath') return 'WARDEN CORE FAILURE';
         if (phase === 'wardenBattle' || phase === 'wardenIntro') {
             const wd = nusantaraWardenDebug(W());
             if (wd.phase === 'jam1') return 'UPLOAD JAMMED — DESTROY THREE CAPACITORS';
@@ -604,6 +655,7 @@ export const rootScene = {
 };
 
 export const rootDebug = () => ({
+    deathPlaying,
     elapsed, uploadProgress, previousUpload, minObservedDelta,
     camera: { offset: { ...rootScene.camOffset }, corner: 'lower-right',
         progress: stage11ChapterScreenDirection(S11_ROOT_START, S11_WARDEN_HOME) },

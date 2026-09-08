@@ -23,6 +23,11 @@ import {
 export const STAGE11_ROOT_LIGHTS_KEY = 'campaign-11-root';
 export const S11_ROOT_ORIGIN = Object.freeze({ x: 400000, z: 0 });
 export const S11_ARENA = Object.freeze({ x: 399950, z: 0, radius: 315 });
+export const S11_ARENA_FLOOR = Object.freeze({ centerY: -1, height: 5, ringY: 1.5, ringTube: 3.2 });
+export const S11_WARDEN_SURFACE = Object.freeze({
+    groundY: S11_ARENA_FLOOR.centerY + S11_ARENA_FLOOR.height / 2,
+    hazardY: S11_ARENA_FLOOR.ringY + S11_ARENA_FLOOR.ringTube + .2,
+});
 export const S11_ROOT_CORRIDOR_METERS = 100;
 export const S11_ROOT_ENCOUNTER_METER = 50;
 // The hall door is exactly 100 metres down the clear approach from spawn.
@@ -209,12 +214,12 @@ function buildShell() {
     const g = new THREE.Group();
     mesh(g, new THREE.CylinderGeometry(470, 490, 10, 36), material('foundation', PAL.ink),
         S11_ARENA.x, -5, 0, 0, 0, 0, false, true);
-    mesh(g, new THREE.CylinderGeometry(330, 340, 5, 36), material('arenaFloor', 0x6f6c65),
-        S11_ARENA.x, -1, 0, 0, 0, 0, false, true);
+    mesh(g, new THREE.CylinderGeometry(330, 340, S11_ARENA_FLOOR.height, 36), material('arenaFloor', 0x6f6c65),
+        S11_ARENA.x, S11_ARENA_FLOOR.centerY, 0, 0, 0, 0, false, true);
     for (const r of [92, 158, 232, 306]) {
-        mesh(g, new THREE.TorusGeometry(r, 3.2, 7, 42), material('floorRing', PAL.amberDim,
+        mesh(g, new THREE.TorusGeometry(r, S11_ARENA_FLOOR.ringTube, 7, 42), material('floorRing', PAL.amberDim,
             { emissive: PAL.amberDim, emissiveIntensity: .34 }),
-        S11_ARENA.x, 1.5, 0, Math.PI / 2, 0, 0, false, false);
+        S11_ARENA.x, S11_ARENA_FLOOR.ringY, 0, Math.PI / 2, 0, 0, false, false);
         count('concentric-authority-ring');
     }
     // The circular hall is deliberately unobstructed. The former twenty
