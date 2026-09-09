@@ -18,7 +18,7 @@
 import { CFG } from '../../../../core/config.js';
 import { player } from '../../../../core/state.js';
 import { camera } from '../../../../core/renderer.js';
-import { showStageMsg } from '../../../../core/dom.js';
+import { showStageMsg, setBossHud, hideBossHud } from '../../../../core/dom.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { currentWeapon } from '../../../../entities/weapons.js';
 import { countStageRobots } from '../../utility/common.js';
@@ -43,6 +43,21 @@ let gapT = 0, rewarded = 0, clearT = 0, clearShown = false;
 
 export function resetJourney() {
     gapT = 0; rewarded = 0; clearT = 0; clearShown = false;
+    hideBossHud();
+}
+
+function syncLocoBossHud() {
+    const b = locoBossDebug();
+    if (etrain.mode !== 'boss' || !b || b.phase === 'dead') {
+        hideBossHud();
+        return;
+    }
+    setBossHud({
+        name: 'HOSTILE LOCOMOTIVE',
+        hp: b.hp,
+        maxHp: b.maxHp,
+        state: b.vulnerable ? 'ENGAGED' : 'ARMOR SEALED',
+    });
 }
 
 function placeCarSupplies() {
@@ -129,7 +144,7 @@ export const journeyScene = {
     },
 
     updateMode(dt) {
-        updateRide(dt); updateEnemyTrain(dt);
+        updateRide(dt); updateEnemyTrain(dt); syncLocoBossHud();
         updateHighway(dt, etConsistDone()); updateConsist(dt);
     },
 
@@ -149,9 +164,9 @@ export const journeyScene = {
         // secara eksplisit, kalau tidak "peluru tidak mempan" terbaca sebagai bug.
         if (etrain.mode === 'boss') {
             const b = locoBossDebug();
-            if (!b) return 'HOSTILE LOCOMOTIVE';
-            if (!b.vulnerable) return 'HOSTILE LOCOMOTIVE POWERING UP — ARMOR STILL SEALED';
-            return `HOSTILE LOCOMOTIVE — ${Math.max(0, Math.ceil(b.hp / b.maxHp * 100))}%${road}`;
+            if (!b) return `HOSTILE LOCOMOTIVE${road}`;
+            if (!b.vulnerable) return `HOSTILE LOCOMOTIVE POWERING UP — ARMOR STILL SEALED${road}`;
+            return `HOSTILE LOCOMOTIVE ENGAGED${road}`;
         }
         if (etConsistDone()) return `ENEMY CARS DESTROYED ${etCarsKilled}/${total}${road}`;
         if (etrain.mode === 'open') return `ENEMY CAR ${etrain.car + 1}/${total} OPENING${road}`;

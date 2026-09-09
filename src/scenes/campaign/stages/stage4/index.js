@@ -31,7 +31,7 @@ import { addMergedStatic, mergeObjectInPlace } from '../../../../utils/meshBatch
 import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
 import { PAL } from '../../../../world/palette.js';
 import { makeFacadeTex, makeLitTex, makeCityMat, fillBuildingInstances, CITY_PALETTE } from '../../../../world/facades.js';
-import { showStageMsg, showPickup } from '../../../../core/dom.js';
+import { showStageMsg, showPickup, setBossHud, hideBossHud } from '../../../../core/dom.js';
 import { saveCampaignStage } from '../../../../core/saveGame.js';
 import { updateUI } from '../../../../core/hud.js';
 import { NADE_R } from '../../../../entities/grenades.js';
@@ -1118,11 +1118,31 @@ const outro = createTankBossOutro({
 function onBossDown() {
     bossDefeated = true;
     arenaLocked = false;   // arena terbuka lagi — player bebas berkeliling
+    hideBossHud();
     stopMusic();           // boss tumbang -> musik boss-fight berhenti (2026-07-19)
     // Cutscene tidak dimulai di frame ledakan. Countdown baru dipersenjatai
     // setelah animasi tank mencapai bangkai akhir (`deathPhase === 'wreck'`).
     outroDelayT = -1;
     updateUI();
+}
+
+function syncTankBossHud() {
+    if (!tank || bossDefeated || tank.dead || intro.isActive() || !intro.isDone() || outro.isActive()) {
+        hideBossHud();
+        return;
+    }
+    let state = 'ENGAGED';
+    if (tank.holdT > 0) state = 'ENGAGING';
+    else if (tank.phase === 'turn') state = 'CHARGE WARNING';
+    else if (tank.phase === 'chargeOut' || tank.phase === 'chargeBack') state = 'CHARGING';
+    else if (tank.phase === 'away') state = 'MORTAR BARRAGE';
+    else if (tank.phase === 'straighten') state = 'REPOSITIONING';
+    setBossHud({
+        name: 'N.U.S.A. WAR TANK',
+        hp: tank.hp,
+        maxHp: tank.maxHp,
+        state,
+    });
 }
 
 export const stage4Scene = {
@@ -1144,6 +1164,7 @@ export const stage4Scene = {
         if (tank) { disposeTank(tank); tank = null; }
         bossSpawned = false; bossDefeated = false; exitHintT = 0; winFired = false; outroDelayT = -1;
         arenaLocked = false;
+        hideBossHud();
         // Reset CUTSCENE + heli: buang heli/bangkai lama + blocker-nya, batalkan
         // sinematik yang mungkin berjalan (restart/cheat) — cutscenes/stage4/tankBossIntro.js.
         intro.reset();
@@ -1186,6 +1207,7 @@ export const stage4Scene = {
         // tank-turret-rotate (tick dari aimTurretAtHeli) berbunyi saat tank
         // digerakkan sinematik; logika duel tetap menunggu cutscene selesai.
         if (tank) updateTank(tank, dt);
+        syncTankBossHud();
         // Cutscene SELESAI (tank sudah diserahkan lewat setTank) -> jalankan DUEL.
         if (tank && intro.isDone() && !intro.isActive()) {
             if (tank.dead && !bossDefeated) onBossDown();
@@ -1199,7 +1221,7 @@ export const stage4Scene = {
                 }
             }
             if (outro.isActive()) outro.update(dt);
-            updateUI();   // refresh HP bar tank
+            updateUI();
         }
     },
 
@@ -1292,11 +1314,8 @@ export const stage4Scene = {
     hudStatus() {
         let s = `FINAL — Robots: ${countStageRobots(4)}`;
         if (intro.isActive()) return s;   // HUD tersembunyi selama cutscene (body.cine)
-        if (tank && !bossDefeated) {
-            const frac = Math.max(0, tank.hp / tank.maxHp);
-            const blocks = Math.ceil(frac * 10);
-            s += ` — TANK ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
-        } else if (bossDefeated) s += ' | EXTRACTION LOST — ROUTE TO BANDUNG REQUIRED';
+        if (tank && !bossDefeated) s += ' | DESTROY THE WAR TANK';
+        else if (bossDefeated) s += ' | EXTRACTION LOST — ROUTE TO BANDUNG REQUIRED';
         else if (intro.isHeliSpawned()) s += ' | Reach the extraction helicopter (east)!';
         else s += ' | Reach the town square (east)';
         return s;

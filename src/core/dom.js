@@ -62,9 +62,6 @@ const bossHud = document.getElementById('bossHud');
 const bossHudName = document.getElementById('bossHudName');
 const bossHudState = document.getElementById('bossHudState');
 const bossHudFill = document.getElementById('bossHudFill');
-const bossHudSecondary = document.getElementById('bossHudSecondary');
-const bossHudSecondaryLabel = document.getElementById('bossHudSecondaryLabel');
-const bossHudSecondaryFill = document.getElementById('bossHudSecondaryFill');
 
 // Tampilkan / perbarui (k = 0..1) / sembunyikan bar progress (label opsional).
 export function showDownloadBar(label) {
@@ -82,11 +79,9 @@ export function hideDownloadBar() {
 }
 
 // HUD boss bersama untuk campaign akhir. API menerima nilai mentah HP agar
-// scene tidak perlu menulis DOM, sedangkan progres sekunder selalu 0..1.
-export function setBossHud({ name = '', hp = 0, maxHp = 1,
-    secondaryLabel = '', secondaryFraction = 0, state = '' } = {}) {
+// scene tidak perlu menulis DOM.
+export function setBossHud({ name = '', hp = 0, maxHp = 1, state = '' } = {}) {
     const hpFrac = Math.max(0, Math.min(1, hp / Math.max(1, maxHp)));
-    const subFrac = Math.max(0, Math.min(1, secondaryFraction));
     if (bossHud) {
         bossHud.style.display = 'block';
         bossHud.setAttribute('aria-hidden', 'false');
@@ -94,9 +89,6 @@ export function setBossHud({ name = '', hp = 0, maxHp = 1,
     if (bossHudName) bossHudName.innerText = name;
     if (bossHudState) bossHudState.innerText = state;
     if (bossHudFill) bossHudFill.style.width = (hpFrac * 100) + '%';
-    if (bossHudSecondary) bossHudSecondary.style.display = secondaryLabel ? 'grid' : 'none';
-    if (bossHudSecondaryLabel) bossHudSecondaryLabel.innerText = secondaryLabel;
-    if (bossHudSecondaryFill) bossHudSecondaryFill.style.width = (subFrac * 100) + '%';
 }
 
 export function hideBossHud() {
@@ -105,15 +97,12 @@ export function hideBossHud() {
         bossHud.setAttribute('aria-hidden', 'true');
     }
     if (bossHudFill) bossHudFill.style.width = '0%';
-    if (bossHudSecondaryFill) bossHudSecondaryFill.style.width = '0%';
 }
 
 export const bossHudDebug = () => ({
     visible: bossHud?.style?.display === 'block',
     name: bossHudName?.innerText || '', state: bossHudState?.innerText || '',
     hpPct: parseFloat(bossHudFill?.style?.width || '0'),
-    secondaryLabel: bossHudSecondaryLabel?.innerText || '',
-    secondaryPct: parseFloat(bossHudSecondaryFill?.style?.width || '0'),
 });
 
 // Radar tajam di layar HiDPI: backing store diskalakan devicePixelRatio (ukuran CSS tetap 150px)

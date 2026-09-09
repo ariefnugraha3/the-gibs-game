@@ -444,9 +444,8 @@ function beginUpload() {
     uploadAccepted = true; setStage11Phase('upload'); setStage11InsertMarker(false);
     // NO centre-screen download popup (2026-09-02, user request "hilangkan popup
     // loading warna biru yang di tengah layar itu"). The broadcast percentage is
-    // DRAWN on the root computer's own display (rootDisplay.js) and carried by
-    // the boss HUD's UPLOAD bar during the duel — a floating HUD popup in front
-    // of the machine that is doing the work was saying it twice.
+    // DRAWN on the root computer's own display (rootDisplay.js). A floating
+    // HUD popup in front of the machine that is doing the work was saying it twice.
     hideDownloadBar();
     // The reveal cutscene owns the progress and the boss entrance; it queues the
     // insert/accepted/stalled/wake lines itself, in shot order.
@@ -466,7 +465,6 @@ function finishWardenReveal() {
     w.callbacks = wardenCallbacks(); wardenActivated = true;
     setStage11Phase('wardenBattle');
     setBossHud({ name: 'NUSANTARA WARDEN', hp: w.hp, maxHp: w.maxHp,
-        secondaryLabel: 'UPLOAD', secondaryFraction: uploadProgress,
         state: 'ENGAGED' });
     showStageMsg('BROADCAST HELD AT '
         + Math.round(CFG.campaign.stage11.upload.preBossFraction * 100)
@@ -496,8 +494,7 @@ function updateUpload(dt) {
             : wd.phase === 'jam2' ? 'JAMMED — COUPLINGS'
                 : wd.phase === 'death' ? 'COLLAPSING' : wd.phase.toUpperCase();
         setBossHud({ name: 'NUSANTARA WARDEN', hp: w.hp, maxHp: w.maxHp,
-            secondaryLabel: jammed ? 'UPLOAD — JAMMED' : 'UPLOAD',
-            secondaryFraction: uploadProgress, state: targetState });
+            state: targetState });
     }
     if (nusantaraWardenWrecked(w) && !rewardDropped) {
         rewardDropped = true; spawnLoot(w.parts.group.position.x,

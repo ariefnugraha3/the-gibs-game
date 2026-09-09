@@ -3,7 +3,7 @@
 // from CFG.campaign.bosses.warden at call time. Rig, targets, projectiles,
 // warnings and wreck are one persistent preallocated object graph.
 
-import { CFG } from '../core/config.js';
+import { CFG, CAMP_M } from '../core/config.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { bullets, player, stats } from '../core/state.js';
 import { queueBoom } from './robots.js';
@@ -20,8 +20,8 @@ import {
 const UP = new THREE.Vector3(0, 1, 0);
 const TMP = new THREE.Vector3();
 const VISUAL = Object.freeze({ revealSec: 1.45, armSec: .85 });
-// Authored so the lowest foot/toe corner stays >=0.12 above the arena floor
-// through both walk extremes, both jam poses and the settled wreck.
+// Authored in local rig units so the lowest foot/toe corner stays above the
+// arena floor through both walk extremes, both jam poses and the settled wreck.
 // Angka rig yang dipakai DUA kali: sekali untuk membangun badannya, sekali
 // untuk menerbitkan selubung gambarnya (`nusantaraWardenEnvelope`). Sebuah shot
 // kamera boleh mengukur dirinya terhadap selubung itu — dan karena builder-nya
@@ -29,7 +29,8 @@ const VISUAL = Object.freeze({ revealSec: 1.45, armSec: .85 });
 // bersamanya alih-alih meninggalkan angka jarak yang basi.
 const RIG = Object.freeze({
     coreRigY: 29, coreLocalY: 4, coreRadius: 9,
-    hipRadius: 18, upperLen: 28, lowerLen: 24, footReach: 12,
+    hipRadius: 18, upperLen: 28, lowerLen: 24,
+    footReach: 15.5, // Toe center x=10 plus half toe length=5.5.
 });
 const LEG_POSE = Object.freeze({
     hipY: 19, upper: -.25, lower: 0,
@@ -38,11 +39,20 @@ const LEG_POSE = Object.freeze({
     lowerBodyY: 1, footBodyY: 6, toeY: 5,
     minFloorClearance: .12,
 });
+const WARDEN_UNITS_PER_METER = CAMP_M;
+const WARDEN_TARGET_SPAN_METERS = 19;
+const planarX = (angle, x, y) => Math.cos(angle) * x - Math.sin(angle) * y;
+const WARDEN_BASE_SPAN = RIG.hipRadius
+    + planarX(LEG_POSE.upper, RIG.upperLen, -3)
+    + planarX(LEG_POSE.upper + LEG_POSE.lower, RIG.lowerLen, -2)
+    + planarX(LEG_POSE.upper + LEG_POSE.lower, RIG.footReach, LEG_POSE.toeY + 1);
+const WARDEN_VISUAL_SCALE = WARDEN_TARGET_SPAN_METERS * WARDEN_UNITS_PER_METER
+    / (WARDEN_BASE_SPAN * 2);
+const ws = n => n * WARDEN_VISUAL_SCALE;
 // Puncak yang benar-benar digambar = inti di atas core rig; bentang mendatar =
 // jangkauan kaki yang terentang. Keduanya diturunkan, bukan diketik ulang.
-const RIG_TOP = RIG.coreRigY + RIG.coreLocalY + RIG.coreRadius;
-const RIG_SPAN = RIG.hipRadius
-    + (RIG.upperLen + RIG.lowerLen) * Math.cos(LEG_POSE.upper) + RIG.footReach;
+const RIG_TOP = ws(RIG.coreRigY + RIG.coreLocalY + RIG.coreRadius);
+const RIG_SPAN = WARDEN_TARGET_SPAN_METERS * WARDEN_UNITS_PER_METER / 2;
 // Selubung gambar rig: dipakai kamera cutscene untuk membingkainya utuh.
 export const nusantaraWardenEnvelope = () =>
     ({ top: RIG_TOP, spanRadius: RIG_SPAN, centreY: RIG_TOP * .5 });
@@ -61,6 +71,12 @@ function wrap(a) {
 }
 function turn(current, target, speed, dt) {
     return current + clamp(wrap(target - current), -speed * dt, speed * dt);
+}
+
+function projectileMeshTypes(root) {
+    const types = [];
+    root?.traverse?.(o => { if (o.geometry?.type) types.push(o.geometry.type); });
+    return types;
 }
 
 function materials() {
@@ -156,6 +172,7 @@ function buildWeakTargetFx(rig, kind) {
 export function buildNusantaraWardenMesh() {
     const M = materials();
     const group = new THREE.Group(); group.name = 'Nusantara-Warden';
+    group.scale.setScalar(WARDEN_VISUAL_SCALE);
     const hull = new THREE.Group();
     // Broad low body: stacked hexagonal armor, radial shoulder plates, visible
     // front prow and rear machinery make facing readable from the game camera.
@@ -231,7 +248,7 @@ export function buildNusantaraWardenMesh() {
         mesh(rig, new THREE.BoxGeometry(4, 13, 4), M.armorDark, -6, 0, 0);
         capacitors.push({ index: i, rig, hp: 0, maxHp: 0, alive: true, exposed: false,
             baseX: rig.position.x, baseY: rig.position.y, baseZ: rig.position.z,
-            hitShape: { minX: -8, maxX: 8, step: 8, radius: 10 },
+            hitShape: { minX: -8, maxX: 8, step: 8, radius: ws(10) },
             fx: buildWeakTargetFx(rig, 'capacitor') });
     }
     const couplings = [];
@@ -247,7 +264,7 @@ export function buildNusantaraWardenMesh() {
                 1 + k * 7, 0, 0, 0, Math.PI / 2, 0, false, false);
         couplings.push({ index: i, rig, hp: 0, maxHp: 0, alive: true, exposed: false,
             baseX: rig.position.x, baseY: rig.position.y, baseZ: rig.position.z,
-            hitShape: { minX: -10, maxX: 20, step: 7.5, radius: 11 },
+            hitShape: { minX: -10, maxX: 20, step: 7.5, radius: ws(11) },
             fx: buildWeakTargetFx(rig, 'coupling') });
     }
     return { group, legs, coreRig, core, attackCharge, shutters, shield, shieldArc,
@@ -258,27 +275,81 @@ export function buildNusantaraWardenMesh() {
 function makeRailPool(parent) {
     const out = [];
     for (let i = 0; i < C().rail.poolSize; i++) {
-        const shot = new THREE.Mesh(new THREE.BoxGeometry(34, 5, C().rail.width * .72),
-            new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false }));
-        shot.visible = false; parent.add(shot);
-        const trail = new THREE.Mesh(new THREE.BoxGeometry(58, 1.5, C().rail.width * .88),
-            new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
-                opacity: .5, depthWrite: false, toneMapped: false }));
-        trail.visible = false; parent.add(trail);
+        const shot = makeRailShot(); shot.visible = false; parent.add(shot);
+        const trail = makeRailTrail(); trail.visible = false; parent.add(trail);
         out.push({ shot, trail, active: false, warned: false, t: 0,
             sx: 0, sz: 0, dx: 1, dz: 0, traveled: 0, hit: false });
     }
     return out;
 }
+function makeRailShot() {
+    const g = new THREE.Group(); g.name = 'Warden-Rail-Lance';
+    const coreMat = new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false });
+    const shellMat = new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
+        opacity: .86, depthWrite: false, toneMapped: false });
+    const ringMat = new THREE.MeshBasicMaterial({ color: PAL.tech, transparent: true,
+        opacity: .78, depthWrite: false, toneMapped: false });
+    const shell = mesh(g, new THREE.OctahedronGeometry(1, 0), shellMat,
+        0, 0, 0, 0, 0, 0, false, false);
+    shell.scale.set(ws(28), ws(4.4), C().rail.width * .34);
+    const core = mesh(g, new THREE.OctahedronGeometry(1, 0), coreMat,
+        ws(4), 0, 0, 0, 0, 0, false, false);
+    core.scale.set(ws(20), ws(2.2), C().rail.width * .18);
+    mesh(g, new THREE.ConeGeometry(ws(4.8), ws(12), 6), shellMat,
+        ws(25), 0, 0, 0, 0, -Math.PI / 2, false, false);
+    mesh(g, new THREE.ConeGeometry(ws(5.5), ws(10), 6), shellMat,
+        ws(-25), 0, 0, 0, 0, Math.PI / 2, false, false);
+    for (const x of [-13, 3, 18])
+        mesh(g, new THREE.TorusGeometry(C().rail.width * .26, ws(.45), 6, 12), ringMat,
+            ws(x), 0, 0, 0, Math.PI / 2, 0, false, false);
+    return g;
+}
+function makeRailTrail() {
+    const g = new THREE.Group(); g.name = 'Warden-Rail-Wake';
+    const wakeMat = new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
+        opacity: .42, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+    const coreMat = new THREE.MeshBasicMaterial({ color: PAL.white, transparent: true,
+        opacity: .36, depthWrite: false, toneMapped: false });
+    const ringMat = new THREE.MeshBasicMaterial({ color: PAL.hazard, transparent: true,
+        opacity: .32, depthWrite: false, toneMapped: false });
+    mesh(g, new THREE.CylinderGeometry(ws(1.2), C().rail.width * .42, ws(66), 8, 1, true),
+        wakeMat, 0, 0, 0, 0, 0, -Math.PI / 2, false, false);
+    mesh(g, new THREE.CylinderGeometry(ws(.7), ws(1.9), ws(56), 6, 1, true), coreMat,
+        ws(4), 0, 0, 0, 0, -Math.PI / 2, false, false);
+    for (const x of [-28, -12, 8])
+        mesh(g, new THREE.TorusGeometry(C().rail.width * (.22 + (x + 28) * .004),
+            ws(.35), 6, 12), ringMat, ws(x), 0, 0, 0, Math.PI / 2, 0, false, false);
+    return g;
+}
 function makeBurstPool(parent) {
     const out = [];
     for (let i = 0; i < C().burst.poolSize; i++) {
-        const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(4.2, 0),
-            new THREE.MeshBasicMaterial({ color: PAL.amber, toneMapped: false }));
-        mesh.visible = false; parent.add(mesh);
-        out.push({ mesh, active: false, dx: 0, dz: 0, life: 0, px: 0, pz: 0 });
+        const burst = makeBurstShot(); burst.visible = false; parent.add(burst);
+        out.push({ mesh: burst, active: false, dx: 0, dz: 0, life: 0, px: 0, pz: 0 });
     }
     return out;
+}
+function makeBurstShot() {
+    const g = new THREE.Group(); g.name = 'Warden-Burst-Shard';
+    const shellMat = new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true,
+        opacity: .72, depthWrite: false, toneMapped: false });
+    const coreMat = new THREE.MeshBasicMaterial({ color: PAL.white, toneMapped: false });
+    const techMat = new THREE.MeshBasicMaterial({ color: PAL.tech, transparent: true,
+        opacity: .62, depthWrite: false, toneMapped: false });
+    const shell = mesh(g, new THREE.IcosahedronGeometry(ws(5.2), 0), shellMat,
+        0, 0, 0, 0, 0, 0, false, false);
+    shell.scale.set(1.05, 1.2, .86);
+    mesh(g, new THREE.OctahedronGeometry(ws(3.1), 0), coreMat,
+        0, 0, 0, 0, Math.PI / 4, 0, false, false);
+    mesh(g, new THREE.TorusGeometry(ws(5.8), ws(.45), 6, 12), techMat,
+        0, 0, 0, Math.PI / 2, 0, 0, false, false);
+    for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 2;
+        mesh(g, new THREE.ConeGeometry(ws(1.8), ws(6.5), 5), shellMat,
+            Math.cos(a) * ws(5.5), 0, Math.sin(a) * ws(5.5),
+            0, -a - Math.PI / 2, Math.PI / 2, false, false);
+    }
+    return g;
 }
 function makeSectorPool(parent) {
     const out = [];
@@ -354,6 +425,7 @@ export function createNusantaraWarden(parent = scene) {
         active: false, phase: 'dormant', hp: 0, maxHp: 0, score: 0,
         phaseT: 0, attackState: 'cooldown', attackT: 0, attackIndex: 0,
         burstLeft: 0, burstT: 0, hitT: 0, animT: 0, sectorBase: 0, moveCycleT: 0,
+        whirlRecoverSec: 0,
         dead: false,
         deathDone: false, callbacks: {}, arena: null, home: null,
         awarded: false, jamSerial: 0,
@@ -376,6 +448,13 @@ function clearHazards(w) {
         s.active = false; s.impactT = 0; s.mesh.visible = s.edge.visible = false;
     }
     w.whirlwindFx.visible = false;
+    resetWhirlwindFxPose(w);
+    w.whirlContact = 0; w.whirlRecoverSec = 0;
+    w.railLeft = 0; w.railT = 0; w.burstVolley = 0;
+    w.burstLeft = 0; w.burstT = 0;
+}
+
+function resetWhirlwindFxPose(w) {
     w.whirlwindFx.scale.set(1, 1, 1);
     for (const part of w.whirlwindFx.children) {
         part.rotation.y = 0;
@@ -384,9 +463,6 @@ function clearHazards(w) {
             part.material.opacity = part.userData.whirlBaseOpacity;
         }
     }
-    w.whirlContact = 0;
-    w.railLeft = 0; w.railT = 0; w.burstVolley = 0;
-    w.burstLeft = 0; w.burstT = 0;
 }
 
 export function resetNusantaraWarden(w, opts = {}) {
@@ -397,6 +473,7 @@ export function resetNusantaraWarden(w, opts = {}) {
     w.active = !!opts.active; w.phase = opts.phase || 'dormant'; w.phaseT = 0;
     w.attackState = 'cooldown'; w.attackT = cfg.attackGapSec; w.attackIndex = 0;
     w.hitT = 0; w.animT = 0; w.sectorBase = 0; w.moveCycleT = 0; w.chaseSide = 1;
+    w.whirlRecoverSec = 0;
     w.dead = false; w.deathDone = false;
     w.dropHeight = 0; w.dropSec = 0; w.dropHover = 0; w.landed = false;
     w.awarded = false; w.jamSerial = 0; w.callbacks = opts.callbacks || {};
@@ -407,8 +484,8 @@ export function resetNusantaraWarden(w, opts = {}) {
     const p = w.parts;
     p.group.visible = w.active;
     p.group.position.set(opts.x ?? w.home.x, opts.y || 0, opts.z ?? w.home.z);
-    p.group.rotation.set(0, opts.yaw || 0, 0); p.group.scale.setScalar(1);
-    p.coreRig.position.set(0, 29, 0); p.coreRig.rotation.set(0, 0, 0);
+    p.group.rotation.set(0, opts.yaw || 0, 0); p.group.scale.setScalar(WARDEN_VISUAL_SCALE);
+    p.coreRig.position.set(0, RIG.coreRigY, 0); p.coreRig.rotation.set(0, 0, 0);
     p.core.scale.setScalar(1); p.attackCharge.visible = false;
     p.attackCharge.scale.setScalar(1); p.attackCharge.material.opacity = .72;
     p.core.material.emissiveIntensity = EMISSIVE_MAX * .7;
@@ -805,11 +882,11 @@ function translateGroundWarnings(w, dx, dz) {
         s.crest.position.x += dx; s.crest.position.z += dz;
     }
 }
-function stompTargetInRange(w) {
+function stompTargetInRange(w, attackIndex = w.attackIndex, exactLegSet = true) {
     const radius = C().stomp.radius
         * (w.phase === 'phase3' ? C().stomp.phase3RadiusMul : 1) + player.radius;
     for (let i = 0; i < w.parts.legs.length; i++) {
-        if (w.phase === 'phase1' && i % 2 !== w.attackIndex % 2) continue;
+        if (exactLegSet && w.phase === 'phase1' && i % 2 !== attackIndex % 2) continue;
         const leg = w.parts.legs[i];
         TMP.set(4, LEG_POSE.footBodyY, 0); leg.foot.localToWorld(TMP);
         if (Math.hypot(camera.position.x - TMP.x, camera.position.z - TMP.z) <= radius)
@@ -817,14 +894,23 @@ function stompTargetInRange(w) {
     }
     return false;
 }
+function attackChoices(w) {
+    const closeStomp = stompTargetInRange(w, w.attackIndex, false);
+    const choices = ['rail'];
+    if (closeStomp) choices.push('stomp');
+    choices.push('burst', 'sector');
+    if (w.phase === 'phase3') choices.push('whirlwind');
+    const weight = Math.max(1, Math.floor(C().stomp.closeWeight || 1));
+    if (closeStomp) for (let i = 1; i < weight; i++) choices.push('stomp');
+    return choices;
+}
 
 function attacksBusy(w) {
     return w.rails.some(r => r.active) || w.bursts.some(b => b.active)
         || w.stomps.some(s => s.active) || w.sectors.some(s => s.active);
 }
 function beginAttack(w) {
-    const choices = w.phase === 'phase3' ? ['rail', 'stomp', 'burst', 'sector', 'whirlwind']
-        : ['rail', 'stomp', 'burst', 'sector'];
+    const choices = attackChoices(w);
     for (let attempt = 0; attempt < choices.length; attempt++) {
         const kind = choices[w.attackIndex % choices.length];
         w.attackIndex++;
@@ -843,7 +929,9 @@ function beginAttack(w) {
         else if (kind === 'sector') beginSector(w);
         else {
             w.attackT = C().whirlwind.telegraphSec;
-            w.whirlContact = 0; w.whirlwindFx.visible = true;
+            w.whirlContact = 0; w.whirlRecoverSec = 0;
+            resetWhirlwindFxPose(w);
+            w.whirlwindFx.visible = true;
         }
         return;
     }
@@ -918,7 +1006,9 @@ function updateWhirlwind(w, dt, ctx) {
     const cfg = C().whirlwind, p = w.parts.group.position;
     const step = Math.min(dt, Math.max(0, w.attackT));
     const oldX = p.x, oldZ = p.z;
-    updatePursuitWindow(w, step, ctx, cfg.chaseSpeed || C().moveSpeed);
+    // Whirlwind is the committed chase: it keeps closing even when the ordinary
+    // 5s move/5s rest cadence is currently in its rest half.
+    moveTowardPlayer(w, step, ctx, cfg.chaseSpeed || C().moveSpeed);
     w.parts.group.rotation.y += cfg.spinRadPerSec * step;
     // Pecah kontak menjadi tick kecil agar DPS tetap sama pada frame rate berbeda.
     const endD = Math.hypot(camera.position.x - p.x, camera.position.z - p.z);
@@ -938,7 +1028,53 @@ function updateWhirlwind(w, dt, ctx) {
             player.radius + 2, true, cfg.damagePerSec * w.whirlContact, 0);
         w.whirlContact = 0;
     }
-    if (w.attackT <= 1e-9) { w.whirlwindFx.visible = false; endAttack(w); }
+    if (w.attackT <= 1e-9) beginWhirlwindRecovery(w);
+}
+
+function beginWhirlwindRecovery(w) {
+    const recoverySec = Math.max(0, C().whirlwind.recoverySec || 0);
+    if (recoverySec <= 1e-9) {
+        w.whirlwindFx.visible = false;
+        resetWhirlwindFxPose(w);
+        endAttack(w);
+        return;
+    }
+    w.attackState = 'whirlwindRecover';
+    w.attackT = recoverySec;
+    w.whirlRecoverSec = recoverySec;
+    w.whirlwindFx.visible = true;
+}
+
+function poseWhirlwindRecovery(w, dt) {
+    const total = Math.max(1e-6, w.whirlRecoverSec || C().whirlwind.recoverySec || 1);
+    const left = clamp(w.attackT / total, 0, 1);
+    w.whirlwindFx.scale.set(.82 + left * .18, 1, .82 + left * .18);
+    for (let i = 0; i < w.whirlwindFx.children.length; i++) {
+        const part = w.whirlwindFx.children[i];
+        const baseY = part.userData.whirlBaseY ?? part.position.y;
+        const baseOpacity = part.userData.whirlBaseOpacity ?? part.material?.opacity ?? 1;
+        part.position.y = baseY + Math.sin(w.animT * 8 + i * 1.7) * .2 * left;
+        part.rotation.y += (6 + i * .8) * left * dt;
+        if (part.material) part.material.opacity = baseOpacity * (.14 + left * .86);
+    }
+}
+
+function updateWhirlwindRecovery(w, dt, ctx) {
+    const cfg = C().whirlwind;
+    const step = Math.min(dt, Math.max(0, w.attackT));
+    const total = Math.max(1e-6, w.whirlRecoverSec || cfg.recoverySec || 1);
+    const left = clamp(w.attackT / total, 0, 1);
+    const ease = left * left;
+    moveTowardPlayer(w, step, ctx, (cfg.chaseSpeed || C().moveSpeed) * ease);
+    w.parts.group.rotation.y += cfg.spinRadPerSec * ease * step;
+    w.attackT = Math.max(0, w.attackT - step);
+    poseWhirlwindRecovery(w, step);
+    if (w.attackT <= 1e-9) {
+        w.whirlwindFx.visible = false;
+        resetWhirlwindFxPose(w);
+        w.whirlRecoverSec = 0;
+        endAttack(w);
+    }
 }
 
 function updateAttackState(w, dt, allow, ctx) {
@@ -947,6 +1083,7 @@ function updateAttackState(w, dt, allow, ctx) {
     w.railJustFired = false;
     updateRails(w, dt); updateBursts(w, dt); animateTelegraphs(w);
     if (w.attackState === 'whirlwind') { updateWhirlwind(w, dt, ctx); return; }
+    if (w.attackState === 'whirlwindRecover') { updateWhirlwindRecovery(w, dt, ctx); return; }
     if (w.attackState === 'railFire') {
         if (!w.railJustFired) w.railT -= dt;
         while (w.railLeft > 0 && w.railT <= 1e-9) {
@@ -980,7 +1117,7 @@ function updateMovement(w, dt, ctx) {
     // hidup di group, bukan di Vector3 posisi.
     const g = w.parts.group, p = g.position;
     const active = ['phase1', 'phase2', 'phase3'].includes(w.phase);
-    if (!active || w.attackState === 'whirlwind') return;
+    if (!active || w.attackState === 'whirlwind' || w.attackState === 'whirlwindRecover') return;
     const oldX = p.x, oldZ = p.z;
     const speed = w.attackState === 'whirlwindTelegraph'
         ? C().whirlwind.chaseSpeed || C().moveSpeed : C().moveSpeed;
@@ -1121,7 +1258,7 @@ function animateRig(w, dt) {
         .45 + (w.phase === 'phase3' ? .35 : .16) + Math.sin(w.animT * 6) * .08);
     const charging = w.attackState.endsWith('Telegraph')
         || w.attackState === 'burstFire' || w.attackState === 'railFire'
-        || w.attackState === 'whirlwind';
+        || w.attackState === 'whirlwind' || w.attackState === 'whirlwindRecover';
     p.attackCharge.visible = charging;
     if (charging) {
         const pulse = (1 + Math.sin(w.animT * 15)) / 2;
@@ -1274,16 +1411,16 @@ function legFloorClearance(w, leg) {
     low = Math.min(low, boxMin(hipY, upperA, 11, 3.6, 9, 1, -.08));
     for (let k = 0; k < 3; k++)
         low = Math.min(low, boxMin(hipY, upperA, 7 + k * 7, -1, 1, 4));
-    const kneeY = atY(hipY, upperA, 28, -3);
+    const kneeY = atY(hipY, upperA, RIG.upperLen, -3);
     low = Math.min(low, kneeY - 5);
     const lowerA = upperA + leg.lower.rotation.z;
     low = Math.min(low, boxMin(kneeY, lowerA, 12, LEG_POSE.lowerBodyY, 12, 3));
     low = Math.min(low, boxMin(kneeY, lowerA, 10, 2.7, 8, 1, -.05));
-    const footY = atY(kneeY, lowerA, 24, -2);
+    const footY = atY(kneeY, lowerA, RIG.lowerLen, -2);
     const footA = lowerA + leg.foot.rotation.z;
     low = Math.min(low, boxMin(footY, footA, 4, LEG_POSE.footBodyY, 8.5, 2.5));
     low = Math.min(low, boxMin(footY, footA, 10, LEG_POSE.toeY, 5.5, 1));
-    return rootY + low;
+    return rootY + low * (w.parts.group.scale?.y || WARDEN_VISUAL_SCALE);
 }
 
 export function nusantaraWardenDebug(w) {
@@ -1294,7 +1431,8 @@ export function nusantaraWardenDebug(w) {
             exposed: q.exposed, x: p.x, y: p.y, z: p.z,
             hitFx: q.fx.hitT, hitFxVisible: q.fx.flash.visible,
             hitCount: q.fx.hits, hitRadius: q.hitShape.radius,
-            hitLength: q.hitShape.maxX - q.hitShape.minX };
+            hitLength: (q.hitShape.maxX - q.hitShape.minX)
+                * (w.parts.group.scale?.x || WARDEN_VISUAL_SCALE) };
     };
     return {
         built: true, active: w.active, phase: w.phase, phaseT: w.phaseT,
@@ -1308,10 +1446,15 @@ export function nusantaraWardenDebug(w) {
         attackIndex: w.attackIndex, jammed: nusantaraWardenIsJamming(w),
         position: { x: w.parts.group.position.x, y: w.parts.group.position.y,
             z: w.parts.group.position.z },
+        size: {
+            scale: w.parts.group.scale.x, unitsPerMeter: WARDEN_UNITS_PER_METER,
+            spanMeters: nusantaraWardenEnvelope().spanRadius * 2 / WARDEN_UNITS_PER_METER,
+            heightMeters: nusantaraWardenEnvelope().top / WARDEN_UNITS_PER_METER,
+        },
         envelope: nusantaraWardenEnvelope(),
         rig: { legs: w.parts.legs.length, shutters: w.parts.shutters.length,
             capacitors: w.parts.capacitors.length, couplings: w.parts.couplings.length,
-            wreckUsesExistingParts: true, minFloorClearance: LEG_POSE.minFloorClearance,
+            wreckUsesExistingParts: true, minFloorClearance: ws(LEG_POSE.minFloorClearance),
             currentFloorClearance: Math.min(...w.parts.legs.map(q => legFloorClearance(w, q))),
             carrierNeverSinks: true, attackChargeVisible: w.parts.attackCharge.visible },
         capacitors: w.parts.capacitors.map(target), couplings: w.parts.couplings.map(target),
@@ -1320,6 +1463,11 @@ export function nusantaraWardenDebug(w) {
             burst: { size: w.bursts.length, active: w.bursts.filter(q => q.active).length },
             sector: { size: w.sectors.length, active: w.sectors.filter(q => q.active).length },
             stomp: { size: w.stomps.length, active: w.stomps.filter(q => q.active).length },
+        },
+        projectileVisuals: {
+            railShot: projectileMeshTypes(w.rails[0]?.shot),
+            railTrail: projectileMeshTypes(w.rails[0]?.trail),
+            burst: projectileMeshTypes(w.bursts[0]?.mesh),
         },
     };
 }

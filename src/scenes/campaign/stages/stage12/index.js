@@ -363,22 +363,17 @@ function updateBossHud() {
     const d = mahapatihDebug(boss);
     if (!d || !boss.active || boss.dead || phase === 'bossTransition') return hideBossHud();
     let hp = d.hp, maxHp = d.maxHp;
-    let state = 'SOVEREIGN SIEGE FRAME', secondaryLabel = '', secondaryFraction = 0;
+    let state = 'SOVEREIGN SIEGE FRAME';
     if (d.phase === 'transition') state = 'CHASSIS RUPTURE';
     else if (d.phase === 'personal') state = 'MAHAPATIH COMBAT FRAME';
     else if (d.phase === 'hardline') {
-        state = 'COUNTERMAND CHARGING'; secondaryLabel = 'HARDLINES';
-        secondaryFraction = 1 - d.anchorsRemaining / Math.max(1, bossCfg().hardline.anchorCount);
+        state = 'COUNTERMAND CHARGING';
         hp = d.hardlines.reduce((sum, h) => sum + h.hp, 0);
         maxHp = d.hardlines.reduce((sum, h) => sum + h.maxHp, 0);
     } else if (d.phase === 'core') {
         state = d.hitVolumes.coreOpen ? 'CORE EXPOSED' : 'CORE SHUTTERS CLOSED';
-        secondaryLabel = d.hitVolumes.coreOpen ? 'CORE WINDOW' : 'SHUTTER RECHARGE';
-        secondaryFraction = Math.max(0, boss.shutterT / (d.hitVolumes.coreOpen
-            ? bossCfg().core.shutterOpenSec : bossCfg().core.shutterClosedSec));
     }
-    setBossHud({ name: 'M-0 MAHAPATIH — SOVEREIGN WAR BODY', hp,
-        maxHp, state, secondaryLabel, secondaryFraction });
+    setBossHud({ name: 'M-0 MAHAPATIH — SOVEREIGN WAR BODY', hp, maxHp, state });
 }
 
 function startEnding() {

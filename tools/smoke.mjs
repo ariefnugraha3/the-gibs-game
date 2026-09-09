@@ -20426,6 +20426,32 @@ if (false) {
             && lookOwners.length === 4
             && lookOwners.filter(f => /stage11/.test(f)).length === 3
             && lookOwners.filter(f => /stage12[\\/]index\.js$/.test(f)).length === 1);
+
+        const hudHtml11 = fs.readFileSync(ROOT + '/index.html', 'utf8');
+        const hudCss11 = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
+        const domSrc11 = fs.readFileSync(ROOT + '/src/core/dom.js', 'utf8');
+        const tankHudSrc4 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage4/index.js', 'utf8');
+        const locoHudSrc5 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage5/journey.js', 'utf8');
+        const gunshipHudSrc8 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage8/index.js', 'utf8');
+        const bomberHudSrc10 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage10/flight.js', 'utf8');
+        const rootSrc11 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage11/root.js', 'utf8');
+        const mahHudSrc12 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage12/index.js', 'utf8');
+        const bossHudSceneSources = [tankHudSrc4, locoHudSrc5, gunshipHudSrc8,
+            bomberHudSrc10, rootSrc11, mahHudSrc12];
+        const allBossHudSceneSrc = bossHudSceneSources.join('\n');
+        T('BOSS HUD: semua boss campaign aktif memakai health bar tunggal ala Warden',
+            !/bossHudSecondary/.test(hudHtml11 + hudCss11 + domSrc11)
+            && !/secondaryLabel|secondaryFraction|secondaryPct/.test(domSrc11 + allBossHudSceneSrc)
+            && /setBossHud\(\{ name = '', hp = 0, maxHp = 1, state = '' \}/.test(domSrc11)
+            && /setBossHud\(\{\s*name: 'N\.U\.S\.A\. WAR TANK'/.test(tankHudSrc4)
+            && /setBossHud\(\{\s*name: 'HOSTILE LOCOMOTIVE'/.test(locoHudSrc5)
+            && /setBossHud\(\{\s*name: 'N\.U\.S\.A\. COMBAT GUNSHIP'/.test(gunshipHudSrc8)
+            && /setBossHud\(\{\s*name: 'HEAVY SIEGE BOMBER'/.test(bomberHudSrc10)
+            && /setBossHud\(\{ name: 'NUSANTARA WARDEN'/.test(rootSrc11)
+            && /setBossHud\(\{ name: 'M-0 MAHAPATIH/.test(mahHudSrc12)
+            && bossHudSceneSources.every(src => /hideBossHud\(\)/.test(src))
+            && !/[█░]/.test(allBossHudSceneSrc)
+            && !/return `BOSS \$\{|HOSTILE LOCOMOTIVE — \$\{|GUNSHIP \$\{/.test(allBossHudSceneSrc));
     }
 
     T('S11 WARDEN KAMERA: pertarungan tidak mengembalikan sudut kamera global',
@@ -20454,6 +20480,27 @@ if (false) {
         && wd.pools.stomp.size === wd.rig.legs
         && wd.rig.carrierNeverSinks && wd.rig.currentFloorClearance >= 0
         && wd.hp === W11.hp && wd.maxHp === W11.hp && wd.score === W11.score);
+    T('S11 WARDEN SIZE: bentang kaki 19 meter dan radius serangan konsisten',
+        Math.abs(wd.size.spanMeters - 19) < 1e-9
+        && wd.size.unitsPerMeter === cfgMod.CAMP_M
+        && wd.size.scale > 0 && wd.size.scale < 1
+        && wd.size.heightMeters > 4 && wd.size.heightMeters < wd.size.spanMeters * .35
+        && Math.abs(wd.envelope.spanRadius * 2 - 19 * cfgMod.CAMP_M) < 1e-6
+        && Math.abs(W11.whirlwind.radius - wd.envelope.spanRadius) < 1e-6
+        && W11.bodyRadius < W11.hitRadius && W11.hitRadius < wd.envelope.spanRadius
+        && W11.stomp.radius < wd.envelope.spanRadius && W11.rail.width < W11.bodyRadius
+        && wd.capacitors.every(c => c.hitRadius > 0 && c.hitRadius < W11.bodyRadius)
+        && wd.couplings.every(c => c.hitRadius > 0 && c.hitRadius < W11.bodyRadius));
+    T('S11 WARDEN PROJECTILE: rail dan burst memakai visual multi-part, bukan blok tunggal',
+        wd.projectileVisuals.railShot.length >= 7
+        && wd.projectileVisuals.railTrail.length >= 5
+        && wd.projectileVisuals.burst.length >= 7
+        && ['octa', 'cone', 'torus'].every(t => wd.projectileVisuals.railShot.includes(t))
+        && ['cyl', 'torus'].every(t => wd.projectileVisuals.railTrail.includes(t))
+        && ['ico', 'octa', 'torus', 'cone'].every(t => wd.projectileVisuals.burst.includes(t))
+        && !wd.projectileVisuals.railShot.includes('box')
+        && !wd.projectileVisuals.railTrail.includes('box')
+        && !wd.projectileVisuals.burst.includes('box'));
 
     // (5) Upload tak pernah mundur dan TERTAHAN di preBossFraction selama bos hidup.
     for (let i = 0; i < 400 && s11.stage11WorldDebug().root.uploadProgress
@@ -20672,7 +20719,7 @@ if (false) {
             probe.attackIndex = index; probe.attackT = 0;
             camera.position.set(targetX, cfgMod.CFG.player.eyeHeight, targetZ);
             robotsMod.resetRobotsFx();
-        wardenMod.updateNusantaraWarden(probe, 0, { arena });
+            wardenMod.updateNusantaraWarden(probe, 0, { arena });
         };
         const tick = dt => wardenMod.updateNusantaraWarden(probe, dt, { arena });
         const tickFor = (time, dt = .01) => {
@@ -20687,6 +20734,25 @@ if (false) {
             T(`S11 WARDEN ${phase}: every attack participates in the cycle`,
                 actual.every((state, i) => state === `${expected[i]}Telegraph`));
         }
+        const closeWeight = Math.max(1, Math.floor(W11.stomp.closeWeight || 1));
+        for (const phase of ['phase2', 'phase3']) {
+            const slots = 3 + closeWeight + (phase === 'phase3' ? 1 : 0);
+            const states = Array.from({ length: slots }, (_, index) => {
+                reset(phase, index); return probe.attackState.replace('Telegraph', '');
+            });
+            const stompCount = states.filter(s => s === 'stomp').length;
+            T(`S11 WARDEN ${phase}: saat player dalam radius, stomp muncul lebih sering`,
+                stompCount === closeWeight && stompCount > 1
+                && ['rail', 'burst', 'sector'].every(s => states.includes(s))
+                && (phase !== 'phase3' || states.includes('whirlwind')));
+        }
+        for (const phase of ['phase1', 'phase2', 'phase3']) {
+            const states = Array.from({ length: 8 }, (_, index) => {
+                reset(phase, index, 300); return probe.attackState;
+            });
+            T(`S11 WARDEN ${phase}: di luar radius, stomp tidak dipilih`,
+                states.every(s => !s.startsWith('stomp')));
+        }
         reset('phase1', 0, 300);
         const rangedOrigin = probe.parts.group.position.clone();
         tick(.25);
@@ -20696,7 +20762,7 @@ if (false) {
         const stompOrigin = probe.parts.group.position.clone(); tick(.25);
         const stompChases = Math.hypot(probe.parts.group.position.x - stompOrigin.x,
             probe.parts.group.position.z - stompOrigin.z) > 0;
-        reset('phase3', 4, 300);
+        reset('phase3', 3, 300);
         tick(.25);
         const whirlwindWarning = probe.whirlwindFx;
         T('S11 WHIRLWIND: telegraph animates the warning before contact',
@@ -20722,7 +20788,7 @@ if (false) {
         T('S11 SECTOR: radius damage mengikuti config 1000', W11.sector.radius === 1000);
         reset('phase1', 1, 300);
         T('S11 STOMP: di luar radius serang, stomp dilewati ke attack berikutnya',
-            probe.attackState === 'burstTelegraph' && probe.attackIndex === 3);
+            probe.attackState !== 'stompTelegraph');
         for (const phase of ['phase2', 'phase3']) {
             reset(phase, 0);
             const count = phase === 'phase2' ? W11.rail.phase2Count : W11.rail.phase3Count;
@@ -20834,13 +20900,34 @@ if (false) {
             T(`S11 WHIRLWIND dt=${dt}: pursuit uses the configured Warden speed`,
                 Math.abs(speed - W11.whirlwind.chaseSpeed) < 1e-6);
             reset('phase3', 4);
+            tickFor(W11.whirlwind.telegraphSec, .01);
+            probe.moveCycleT = W11.movement.moveSec + Math.min(1, W11.movement.restSec * .5);
+            const restOrigin = probe.parts.group.position.clone();
+            camera.position.set(restOrigin.x + W11.whirlwind.chaseSpeed,
+                cfgMod.CFG.player.eyeHeight, restOrigin.z);
+            tick(dt);
+            const restSpeed = Math.hypot(probe.parts.group.position.x - restOrigin.x,
+                probe.parts.group.position.z - restOrigin.z) / dt;
+            T(`S11 WHIRLWIND dt=${dt}: active spin ignores the 5s rest cadence`,
+                Math.abs(restSpeed - W11.whirlwind.chaseSpeed) < 1e-6);
+            reset('phase3', 4);
             camera.position.set(0, cfgMod.CFG.player.eyeHeight, 0);
             tickFor(W11.whirlwind.telegraphSec, .01);
             tickFor(W11.whirlwind.durationSec, dt);
+            const damageAtEnd = robotsMod.pendingBoomsDebug().reduce((n, b) => n + b.playerDmg, 0);
+            const recoveryState = probe.attackState === 'whirlwindRecover'
+                && probe.whirlwindFx.visible && probe.parts.attackCharge.visible;
+            const recoverStep = Math.min(.1, W11.whirlwind.recoverySec / 3);
+            const yaw0 = probe.parts.group.rotation.y; tick(recoverStep);
+            const yawEarly = Math.abs(probe.parts.group.rotation.y - yaw0);
+            tickFor(W11.whirlwind.recoverySec - recoverStep * 2, dt);
+            const yaw1 = probe.parts.group.rotation.y; tick(recoverStep);
+            const yawLate = Math.abs(probe.parts.group.rotation.y - yaw1);
             const damage = robotsMod.pendingBoomsDebug().reduce((n, b) => n + b.playerDmg, 0);
-            T(`S11 WHIRLWIND dt=${dt}: contact DPS/duration exact; trails stop at completion`,
-                Math.abs(damage - W11.whirlwind.damagePerSec * W11.whirlwind.durationSec) < 1e-5
-                && probe.attackState === 'cooldown' && !probe.whirlwindFx.visible);
+            T(`S11 WHIRLWIND dt=${dt}: contact DPS exact, then recovery decelerates before cooldown`,
+                Math.abs(damageAtEnd - W11.whirlwind.damagePerSec * W11.whirlwind.durationSec) < 1e-5
+                && damage === damageAtEnd && recoveryState && yawEarly > yawLate
+                && yawLate > 0 && probe.attackState === 'cooldown' && !probe.whirlwindFx.visible);
         }
         const settleDeath = skip => {
             reset('phase3', 4);

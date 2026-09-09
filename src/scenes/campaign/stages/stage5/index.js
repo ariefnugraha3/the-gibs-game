@@ -10,7 +10,7 @@
 import { CFG } from '../../../../core/config.js';
 import { player, robots } from '../../../../core/state.js';
 import { scene, camera } from '../../../../core/renderer.js';
-import { hideStageRadioDialogue } from '../../../../core/dom.js';
+import { hideStageRadioDialogue, hideBossHud } from '../../../../core/dom.js';
 import { updateUI } from '../../../../core/hud.js';
 import { saveCampaignStage } from '../../../../core/saveGame.js';
 import { disposeRobot } from '../../../../entities/robots.js';
@@ -126,6 +126,7 @@ export const stage5Scene = {
 
     exit() {
         hideStageRadioDialogue();
+        hideBossHud();
         if (cine) cleanupCine();
         if (RIDE_PHASES.includes(phase)) stopTrainLoop();
     },

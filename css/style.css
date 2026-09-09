@@ -74,8 +74,7 @@ body {
     box-shadow: inset 0 -2px 0 rgba(255, 184, 77, 0.45);
 }
 
-/* Dua lapis status boss dipakai Warden/Mahapatih. Bentuknya tetap ringkas agar
-   objective banner di atas dan arena top-down di bawah tidak tertutup. */
+/* HUD boss hanya menampilkan health bar, dengan state fase sebagai teks ringkas. */
 #bossHud {
     display: none;
     position: absolute;
@@ -104,7 +103,7 @@ body {
 
 #bossHudState { color: #e8a45b; }
 
-#bossHudShell, #bossHudSecondaryShell {
+#bossHudShell {
     height: 9px;
     overflow: hidden;
     background: rgba(0, 0, 0, 0.72);
@@ -115,24 +114,6 @@ body {
     width: 100%;
     height: 100%;
     background: #b83d32;
-    transition: width 0.12s linear;
-}
-
-#bossHudSecondary {
-    display: none;
-    grid-template-columns: 148px 1fr;
-    align-items: center;
-    gap: 9px;
-    margin-top: 7px;
-    color: #d5c6aa;
-    font-size: 10px;
-    letter-spacing: 0.12em;
-}
-
-#bossHudSecondaryFill {
-    width: 0;
-    height: 100%;
-    background: #d58b38;
     transition: width 0.12s linear;
 }
 

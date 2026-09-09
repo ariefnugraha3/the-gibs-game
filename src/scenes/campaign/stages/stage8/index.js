@@ -12,6 +12,7 @@ import {
 import {
     showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip,
+    setBossHud, hideBossHud,
 } from '../../../../core/dom.js';
 import { updateUI } from '../../../../core/hud.js';
 import { releaseInputs } from '../../../../core/input.js';
@@ -707,6 +708,7 @@ function startGunshipIntro() {
     // yang masih menggelinding dibersihkan supaya tak ada rintangan darat yang
     // menggantung selama cutscene bos.
     clearBarrelDroppers(barrelRig);
+    hideBossHud();
     phase = 'gunshipIntro'; releaseInputs(); clearMoveTarget();
     setCinematicActive(true); setCineBars(true); setCineFade(1, 0);
     resetCombatGunship(gunship, { active: true, x: currentX + 150, y: 55, z: 0, holdSec: 1 });
@@ -720,6 +722,7 @@ function finishGunshipIntro(skipped = false) {
     if (skipped) resetDialogue();
     cleanupCine(CFG.campaign.stage8.fadeSec); phase = 'gunshipBattle';
     startBossMusic(); showStageMsg('DESTROY THE N.U.S.A. COMBAT GUNSHIP', 4500);
+    syncGunshipBossHud();
 }
 
 function startArrival() {
@@ -760,6 +763,7 @@ function cleanupCine(revealSec = 0) {
 function finishStage() {
     if (complete) return;
     complete = true; phase = 'complete'; resetDialogue();
+    hideBossHud();
     roadRoot.visible = false; airportRoot.visible = true;
     stopVehicleLoop(); stopRotorLoop(); stopMusic();
     resetCombatGunship(gunship, { active: false });
@@ -914,6 +918,7 @@ function updateBoss(dt) {
     });
     if (phase === 'gunshipBattle' && gunship.dead) {
         phase = 'gunshipDeath'; stopMusic(); stopRotorLoop(); deathDelayT = -1;
+        hideBossHud();
         // Kendaraan pengawal yang masih hidup ikut meledak SEKETIKA di frame
         // yang sama — bukan dibersihkan diam-diam nanti saat cutscene.
         detonateBossEscort();
@@ -927,6 +932,28 @@ function updateBoss(dt) {
         if (deathDelayT >= CFG.campaign.stage8.gunshipDeathDelaySec
             && !dialogueCurrent && !dialogueQueue.length) startArrival();
     }
+    syncGunshipBossHud();
+}
+
+function syncGunshipBossHud() {
+    if (phase !== 'gunshipBattle' || !gunship || !gunship.active || gunship.dead) {
+        hideBossHud();
+        return;
+    }
+    const B = CFG.campaign.bosses.gunship;
+    const attackState = gunship.attackState || 'cooldown';
+    const state = gunship.hp <= gunship.maxHp * (B.enrageHpFrac ?? 0.5) ? 'ENRAGED'
+        : attackState === 'telegraph' ? 'TARGETING'
+            : attackState === 'mg' ? 'MACHINE GUN'
+                : attackState === 'cannon' ? 'CANNON'
+                    : attackState === 'missile' ? 'MISSILE LOCK'
+                        : 'ENGAGED';
+    setBossHud({
+        name: 'N.U.S.A. COMBAT GUNSHIP',
+        hp: gunship.hp,
+        maxHp: gunship.maxHp,
+        state,
+    });
 }
 
 // KENDARAAN IKUT MATI BERSAMA PENGEMUDINYA (2026-08-18, permintaan user "buat
@@ -965,6 +992,7 @@ function resetStage() {
     currentX = PLAYER_X; advanceVel = 0;
     currentZ = laneWorldZ(1); roadWraps = 0; dustCursor = 0;
     resetDialogue(); stopVehicleLoop(); stopRotorLoop(); stopMusic();
+    hideBossHud();
     if (cine) cleanupCine(0);
     roadRoot.visible = true; airportRoot.visible = false;
     for (let i = 0; i < roadModules.length; i++)
@@ -1124,6 +1152,7 @@ export const stage8Scene = {
     },
     exit() {
         resetDialogue(); if (cine) cleanupCine(0);
+        hideBossHud();
         stopVehicleLoop(); stopRotorLoop(); stopMusic();
         setAvatarVehiclePose(false); setAvatarRadioPose(false);
         setAvatarCarried(false); setAvatarVehicleLean(0); setAvatarVehicleLeanCage(0);
@@ -1189,11 +1218,8 @@ export const stage8Scene = {
         if (phase === 'bossApproach')
             return 'PURSUIT DESTROYED — AIR CONTACT INBOUND';
         if (phase === 'gunshipIntro') return 'AIRBORNE CONTACT';
-        if (phase === 'gunshipBattle' || phase === 'gunshipDeath') {
-            const frac = gunship ? Math.max(0, gunship.hp / Math.max(1, gunship.maxHp)) : 0;
-            const blocks = Math.ceil(frac * 10);
-            return `AIR INTERCEPT — GUNSHIP ${'█'.repeat(blocks)}${'░'.repeat(10 - blocks)}`;
-        }
+        if (phase === 'gunshipBattle') return 'AIR INTERCEPT — DESTROY THE COMBAT GUNSHIP';
+        if (phase === 'gunshipDeath') return 'AIR INTERCEPT — GUNSHIP DOWN';
         if (phase === 'arrival') return 'KERTAJATI INTERNATIONAL AIRPORT — FINAL APPROACH';
         return 'KERTAJATI INTERNATIONAL AIRPORT — ROUTE COMPLETE';
     },

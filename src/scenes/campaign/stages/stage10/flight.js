@@ -15,7 +15,7 @@ import { saveCampaignStage } from '../../../../core/saveGame.js';
 import { updateUI } from '../../../../core/hud.js';
 import { gameOver } from '../../../../core/game.js';
 import { setAimCursorOverride } from '../../../../core/input.js';
-import { showStageMsg, hideStageRadioDialogue } from '../../../../core/dom.js';
+import { showStageMsg, hideStageRadioDialogue, setBossHud, hideBossHud } from '../../../../core/dom.js';
 import { applyLightPreset, setActiveStageLights } from '../../../../world/lighting.js';
 import { enterCityEnv } from '../../utility/cityscape.js';
 import { setActiveCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
@@ -427,6 +427,7 @@ function resetFlight() {
     player.hp = flightHp;
     clearPools(); resetCounters(); resetWorldPositions();
     W.playerImpactFx.group.visible = false;
+    hideBossHud();
     setBiome(biomeAtZ(scrollZ), false);
     W.playerAircraft.visible = true;
     W.playerAircraft.position.set(S10_FLIGHT_X, C().altitude,
@@ -1866,6 +1867,19 @@ function bossPosition() {
     return { x: boss.x, z: scrollZ + boss.zOffset };
 }
 
+function syncBomberBossHud() {
+    if (!(phase === 'bossIntro' || phase === 'boss') || !boss.active || boss.dying) {
+        hideBossHud();
+        return;
+    }
+    setBossHud({
+        name: 'HEAVY SIEGE BOMBER',
+        hp: boss.hp,
+        maxHp: boss.maxHp,
+        state: boss.enraged ? 'ENRAGED' : (phase === 'bossIntro' ? 'INBOUND' : 'ENGAGED'),
+    });
+}
+
 function startBoss() {
     const W = stage10FlightWorld();
     const cfg = C().boss;
@@ -1887,10 +1901,12 @@ function startBoss() {
     // so the bomber never travels tail-first.
     W.boss.rotation.set(0, Math.PI, 0);
     showStageMsg('WARNING — HEAVY BOMBER INBOUND', 4200);
+    syncBomberBossHud();
 }
 
 function startBossDeath() {
     boss.dying = true; boss.deathT = 0;
+    hideBossHud();
     const p = bossPosition();
     spawnExplosion(p.x, C().altitude + 16, p.z, 3.2, 'boss');
     addScore(C().boss.money);
@@ -2373,6 +2389,7 @@ function updateFlight(dt) {
     if (phase === 'playerDestroyed') updatePlayerDestruction(dt);
     else updateAircraftAnimation(dt);
     updateMissionPhase(dt);
+    syncBomberBossHud();
 }
 
 export const stage10Scene = {
@@ -2403,6 +2420,7 @@ export const stage10Scene = {
         setAimCursorOverride(null);
         avatarGroup.visible = true;
         hideStageRadioDialogue();
+        hideBossHud();
         if (savedPlayer) {
             player.maxHp = savedPlayer.maxHp;
             player.hp = Math.max(1, Math.min(savedPlayer.maxHp, savedPlayer.hp));
@@ -2474,7 +2492,7 @@ export const stage10Scene = {
     hudStatus() {
         if (phase === 'playerDestroyed') return 'AIRCRAFT DESTROYED';
         if (phase === 'bossIntro' || phase === 'boss')
-            return `BOSS ${Math.ceil(boss.hp / Math.max(1, boss.maxHp) * 100)}%`;
+            return 'HEAVY BOMBER INTERCEPT';
         if (phase === 'victory' || phase === 'complete')
             return `AIRSPACE CLEAR | FINISH ${Math.max(0, C().clearDelaySec - clearT).toFixed(1)}s`;
         return formatTime(C().durationSec - elapsed);

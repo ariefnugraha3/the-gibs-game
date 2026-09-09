@@ -1116,8 +1116,8 @@
             "warden": {
                 "hp": 12000,
                 "score": 2400,
-                "bodyRadius": 28,
-                "hitRadius": 32,
+                "bodyRadius": 22.26,
+                "hitRadius": 25.44,
                 "moveSpeed": 30,
                 "turnRadPerSec": 1,
                 "phase2HpFrac": 0.75,
@@ -1131,15 +1131,21 @@
                 "rail": {
                     "telegraphSec": 0.9,
                     "damage": 55,
-                    "width": 16,
+                    "width": 12.72,
                     "speed": 300,
                     "phase2Count": 3,
                     "phase3Count": 5,
                     "shotGapSec": 0.5,
                     "poolSize": 5
                 },
-                "stomp": { "telegraphSec": 0.8, "damage": 45, "radius": 42,
-                    "phase3RadiusMul": 2, "impactSec": 0.65 },
+                "stomp": {
+                    "telegraphSec": 0.8,
+                    "damage": 45,
+                    "radius": 33.39,
+                    "phase3RadiusMul": 2,
+                    "impactSec": 0.65,
+                    "closeWeight": 2
+                },
                 "burst": {
                     "telegraphSec": 0.7,
                     "damage": 18,
@@ -1161,9 +1167,10 @@
                 "whirlwind": {
                     "telegraphSec": 1,
                     "durationSec": 10,
+                    "recoverySec": 0.75,
                     "damagePerSec": 20,
                     "tickSec": 0.25,
-                    "radius": 80,
+                    "radius": 66.5,
                     "spinRadPerSec": 18,
                     "chaseSpeed": 60
                 },
