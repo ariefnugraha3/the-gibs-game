@@ -1118,12 +1118,13 @@
                 "score": 2400,
                 "bodyRadius": 28,
                 "hitRadius": 32,
-                "moveSpeed": 19,
-                "turnRadPerSec": 1.5,
+                "moveSpeed": 30,
+                "turnRadPerSec": 1,
                 "phase2HpFrac": 0.75,
                 "phase3HpFrac": 0.5,
                 "attackGapSec": 1.8,
                 "enrageGapMul": 0.8,
+                "movement": { "moveSec": 5, "restSec": 5 },
                 "shield": { "arcDeg": 110, "damageMul": 0.12 },
                 "capacitors": { "count": 3, "hp": 600 },
                 "couplings": { "count": 2, "hp": 800 },
@@ -1152,7 +1153,7 @@
                 "sector": {
                     "telegraphSec": 1.1,
                     "damage": 50,
-                    "radius": 70,
+                    "radius": 1000,
                     "gapDeg": 55,
                     "poolSize": 6,
                     "impactSec": 0.7
@@ -1163,7 +1164,8 @@
                     "damagePerSec": 20,
                     "tickSec": 0.25,
                     "radius": 80,
-                    "spinRadPerSec": 18
+                    "spinRadPerSec": 18,
+                    "chaseSpeed": 60
                 },
                 "descent": {
                     "heightUnits": 130,

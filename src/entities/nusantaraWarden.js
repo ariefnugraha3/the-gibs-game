@@ -327,15 +327,19 @@ function makeWhirlwindFx(parent) {
     for (let i = 0; i < 4; i++) {
         const geo = new THREE.CylinderGeometry(C().whirlwind.radius,
             C().whirlwind.radius * .94, 4, 32, 1, true, i * Math.PI / 2, Math.PI / 3);
-        mesh(group, geo, new THREE.MeshBasicMaterial({ color: i % 2 ? PAL.white : PAL.amber,
+        const blade = mesh(group, geo, new THREE.MeshBasicMaterial({ color: i % 2 ? PAL.white : PAL.amber,
             transparent: true, opacity: .72, depthWrite: false, toneMapped: false,
             side: THREE.DoubleSide }), 0, 7 + i * 5, 0, 0, 0, 0, false, false);
+        blade.userData.whirlBaseY = blade.position.y;
+        blade.userData.whirlBaseOpacity = blade.material.opacity;
     }
     const geo = new THREE.RingGeometry(C().whirlwind.radius * .96, C().whirlwind.radius, 64);
     geo.rotateX(-Math.PI / 2);
-    mesh(group, geo, new THREE.MeshBasicMaterial({ color: PAL.hazard,
+    const ring = mesh(group, geo, new THREE.MeshBasicMaterial({ color: PAL.hazard,
         transparent: true, opacity: .8, depthWrite: false, toneMapped: false,
         side: THREE.DoubleSide }), 0, .9, 0, 0, 0, 0, false, false);
+    ring.userData.whirlBaseY = ring.position.y;
+    ring.userData.whirlBaseOpacity = ring.material.opacity;
     return group;
 }
 
@@ -349,7 +353,8 @@ export function createNusantaraWarden(parent = scene) {
         whirlwindFx: makeWhirlwindFx(fxRoot),
         active: false, phase: 'dormant', hp: 0, maxHp: 0, score: 0,
         phaseT: 0, attackState: 'cooldown', attackT: 0, attackIndex: 0,
-        burstLeft: 0, burstT: 0, hitT: 0, animT: 0, sectorBase: 0, dead: false,
+        burstLeft: 0, burstT: 0, hitT: 0, animT: 0, sectorBase: 0, moveCycleT: 0,
+        dead: false,
         deathDone: false, callbacks: {}, arena: null, home: null,
         awarded: false, jamSerial: 0,
     };
@@ -370,7 +375,16 @@ function clearHazards(w) {
     for (const s of w.stomps) {
         s.active = false; s.impactT = 0; s.mesh.visible = s.edge.visible = false;
     }
-    w.whirlwindFx.visible = false; w.whirlContact = 0;
+    w.whirlwindFx.visible = false;
+    w.whirlwindFx.scale.set(1, 1, 1);
+    for (const part of w.whirlwindFx.children) {
+        part.rotation.y = 0;
+        part.position.y = part.userData.whirlBaseY ?? part.position.y;
+        if (part.material && part.userData.whirlBaseOpacity !== undefined) {
+            part.material.opacity = part.userData.whirlBaseOpacity;
+        }
+    }
+    w.whirlContact = 0;
     w.railLeft = 0; w.railT = 0; w.burstVolley = 0;
     w.burstLeft = 0; w.burstT = 0;
 }
@@ -382,7 +396,8 @@ export function resetNusantaraWarden(w, opts = {}) {
     w.hp = cfg.hp; w.maxHp = cfg.hp; w.score = cfg.score;
     w.active = !!opts.active; w.phase = opts.phase || 'dormant'; w.phaseT = 0;
     w.attackState = 'cooldown'; w.attackT = cfg.attackGapSec; w.attackIndex = 0;
-    w.hitT = 0; w.animT = 0; w.sectorBase = 0; w.dead = false; w.deathDone = false;
+    w.hitT = 0; w.animT = 0; w.sectorBase = 0; w.moveCycleT = 0; w.chaseSide = 1;
+    w.dead = false; w.deathDone = false;
     w.dropHeight = 0; w.dropSec = 0; w.dropHover = 0; w.landed = false;
     w.awarded = false; w.jamSerial = 0; w.callbacks = opts.callbacks || {};
     w.arena = opts.arena || w.arena || { x: opts.x || 0, z: opts.z || 0, radius: 280 };
@@ -493,6 +508,7 @@ function updateDescent(w, dt) {
 
 function setPhase(w, phase) {
     w.phase = phase; w.phaseT = 0; clearHazards(w);
+    w.moveCycleT = 0;
     w.attackState = 'cooldown'; w.attackT = C().attackGapSec;
     w.callbacks.onPhase?.(phase, w);
 }
@@ -775,6 +791,33 @@ function resolveSector(w) {
     addCamShake(6);
 }
 
+// Ground attacks are world-space meshes. When the Warden keeps closing on the
+// player during a telegraph, carry those warnings with its carrier so the
+// visible danger and the resolved hit stay together.
+function translateGroundWarnings(w, dx, dz) {
+    if (Math.abs(dx) < 1e-9 && Math.abs(dz) < 1e-9) return;
+    for (const s of w.stomps) if (s.active) {
+        s.mesh.position.x += dx; s.mesh.position.z += dz;
+        s.edge.position.x += dx; s.edge.position.z += dz;
+    }
+    for (const s of w.sectors) if (s.active) {
+        s.mesh.position.x += dx; s.mesh.position.z += dz;
+        s.crest.position.x += dx; s.crest.position.z += dz;
+    }
+}
+function stompTargetInRange(w) {
+    const radius = C().stomp.radius
+        * (w.phase === 'phase3' ? C().stomp.phase3RadiusMul : 1) + player.radius;
+    for (let i = 0; i < w.parts.legs.length; i++) {
+        if (w.phase === 'phase1' && i % 2 !== w.attackIndex % 2) continue;
+        const leg = w.parts.legs[i];
+        TMP.set(4, LEG_POSE.footBodyY, 0); leg.foot.localToWorld(TMP);
+        if (Math.hypot(camera.position.x - TMP.x, camera.position.z - TMP.z) <= radius)
+            return true;
+    }
+    return false;
+}
+
 function attacksBusy(w) {
     return w.rails.some(r => r.active) || w.bursts.some(b => b.active)
         || w.stomps.some(s => s.active) || w.sectors.some(s => s.active);
@@ -782,20 +825,29 @@ function attacksBusy(w) {
 function beginAttack(w) {
     const choices = w.phase === 'phase3' ? ['rail', 'stomp', 'burst', 'sector', 'whirlwind']
         : ['rail', 'stomp', 'burst', 'sector'];
-    const kind = choices[w.attackIndex % choices.length];
-    w.attackIndex++; w.attackState = `${kind}Telegraph`;
-    if (kind === 'rail') {
-        w.railLeft = (w.phase === 'phase3' ? C().rail.phase3Count
-            : w.phase === 'phase2' ? C().rail.phase2Count : 1) - 1;
-        if (!beginRail(w)) endAttack(w); else w.attackT = C().rail.telegraphSec;
+    for (let attempt = 0; attempt < choices.length; attempt++) {
+        const kind = choices[w.attackIndex % choices.length];
+        w.attackIndex++;
+        // Stomp is only selected when at least one of the active foot circles
+        // can reach the player. Otherwise skip it without showing a false
+        // telegraph and continue the normal attack cycle.
+        if (kind === 'stomp' && !stompTargetInRange(w)) continue;
+        w.attackState = `${kind}Telegraph`;
+        if (kind === 'rail') {
+            w.railLeft = (w.phase === 'phase3' ? C().rail.phase3Count
+                : w.phase === 'phase2' ? C().rail.phase2Count : 1) - 1;
+            if (!beginRail(w)) endAttack(w); else w.attackT = C().rail.telegraphSec;
+        }
+        else if (kind === 'stomp') beginStomp(w);
+        else if (kind === 'burst') beginBurst(w);
+        else if (kind === 'sector') beginSector(w);
+        else {
+            w.attackT = C().whirlwind.telegraphSec;
+            w.whirlContact = 0; w.whirlwindFx.visible = true;
+        }
+        return;
     }
-    else if (kind === 'stomp') beginStomp(w);
-    else if (kind === 'burst') beginBurst(w);
-    else if (kind === 'sector') beginSector(w);
-    else {
-        w.attackT = C().whirlwind.telegraphSec;
-        w.whirlContact = 0; w.whirlwindFx.visible = true;
-    }
+    endAttack(w);
 }
 function endAttack(w) {
     w.attackState = 'cooldown';
@@ -811,6 +863,30 @@ function animateTelegraphs(w) {
     } else if (w.attackState === 'sectorTelegraph') {
         for (const s of w.sectors) if (s.active) {
             s.mesh.material.opacity = .45 + pulse * .3;
+        }
+    } else if (w.attackState === 'whirlwindTelegraph') {
+        const cfg = C().whirlwind;
+        const progress = cfg.telegraphSec > 0
+            ? Math.min(1, Math.max(0, 1 - w.attackT / cfg.telegraphSec))
+            : 1;
+        const signal = (1 + Math.sin(w.animT * 18)) / 2;
+        const scale = .78 + progress * .22 + signal * .08;
+        w.whirlwindFx.scale.set(scale, 1, scale);
+        for (let i = 0; i < w.whirlwindFx.children.length; i++) {
+            const part = w.whirlwindFx.children[i];
+            const baseY = part.userData.whirlBaseY ?? part.position.y;
+            const baseOpacity = part.userData.whirlBaseOpacity ?? part.material?.opacity ?? 1;
+            part.rotation.y = w.animT * (3.5 + i * .55) + i * Math.PI / 2;
+            part.position.y = baseY + Math.sin(w.animT * 10 + i * 1.4) * (0.35 + progress * .35);
+            if (part.material) part.material.opacity = baseOpacity * (.58 + signal * .42);
+        }
+    } else if (w.attackState === 'whirlwind') {
+        w.whirlwindFx.scale.set(1, 1, 1);
+        for (const part of w.whirlwindFx.children) {
+            part.position.y = part.userData.whirlBaseY ?? part.position.y;
+            if (part.material && part.userData.whirlBaseOpacity !== undefined) {
+                part.material.opacity = part.userData.whirlBaseOpacity;
+            }
         }
     }
 }
@@ -841,12 +917,8 @@ function updateImpactFx(w, dt) {
 function updateWhirlwind(w, dt, ctx) {
     const cfg = C().whirlwind, p = w.parts.group.position;
     const step = Math.min(dt, Math.max(0, w.attackT));
-    const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
-    const d = Math.hypot(dx, dz), travel = Math.min(d, player.speed * step);
     const oldX = p.x, oldZ = p.z;
-    if (d > 1e-6) { p.x += dx / d * travel; p.z += dz / d * travel; }
-    ctx.resolveBoss?.(p);
-    clampToArena(w);
+    updatePursuitWindow(w, step, ctx, cfg.chaseSpeed || C().moveSpeed);
     w.parts.group.rotation.y += cfg.spinRadPerSec * step;
     // Pecah kontak menjadi tick kecil agar DPS tetap sama pada frame rate berbeda.
     const endD = Math.hypot(camera.position.x - p.x, camera.position.z - p.z);
@@ -906,25 +978,82 @@ function updateAttackState(w, dt, allow, ctx) {
 function updateMovement(w, dt, ctx) {
     // `g` = group (rotasi), `p` = posisinya. Keduanya HARUS dipisah: rotasi
     // hidup di group, bukan di Vector3 posisi.
-    const g = w.parts.group, p = g.position, arena = ctx.arena || w.arena;
+    const g = w.parts.group, p = g.position;
     const active = ['phase1', 'phase2', 'phase3'].includes(w.phase);
-    if (!active || !arena || w.attackState !== 'cooldown') return;
-    const dx = p.x - arena.x, dz = p.z - arena.z;
-    const angle = Math.atan2(dz, dx);
-    const targetR = w.phase === 'phase1' ? arena.radius * .56
-        : w.phase === 'phase2' ? arena.radius * .46 : arena.radius * .31;
-    const orbitDir = w.attackIndex % 2 ? 1 : -1;
-    const tx = arena.x + Math.cos(angle + orbitDir * .42) * targetR;
-    const tz = arena.z + Math.sin(angle + orbitDir * .42) * targetR;
-    // Rig prow/front is local -X.
+    if (!active || w.attackState === 'whirlwind') return;
+    const oldX = p.x, oldZ = p.z;
+    const speed = w.attackState === 'whirlwindTelegraph'
+        ? C().whirlwind.chaseSpeed || C().moveSpeed : C().moveSpeed;
+    updatePursuitWindow(w, dt, ctx, speed);
+    translateGroundWarnings(w, p.x - oldX, p.z - oldZ);
+}
+
+function updatePursuitWindow(w, dt, ctx, speed) {
+    if (!(dt > 0)) return;
+    const movement = C().movement || {};
+    const moveSec = Math.max(0, movement.moveSec ?? 5);
+    const restSec = Math.max(0, movement.restSec ?? 5);
+    const cycleSec = moveSec + restSec;
+    if (cycleSec <= 1e-9) return;
+    let remaining = dt;
+    while (remaining > 1e-9) {
+        let t = ((w.moveCycleT % cycleSec) + cycleSec) % cycleSec;
+        const moving = t < moveSec;
+        const phaseEnd = moving ? moveSec : cycleSec;
+        const slice = Math.min(remaining, Math.max(1e-9, phaseEnd - t));
+        if (moving) moveTowardPlayer(w, slice, ctx, speed);
+        t += slice;
+        w.moveCycleT = t >= cycleSec - 1e-9 ? 0 : t;
+        remaining -= slice;
+    }
+}
+
+// The player movement loop uses a 60 fps-normalized step, while boss updates
+// receive seconds. Warden pursuit is therefore tuned directly in units/sec and
+// uses the same live player target as its attacks.
+function moveTowardPlayer(w, dt, ctx = {}, speed = C().moveSpeed) {
+    if (!(dt > 0)) return;
+    const g = w.parts.group, p = g.position, arena = ctx.arena || w.arena;
+    const tx = camera.position.x, tz = camera.position.z;
+    const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
+    const stop = C().bodyRadius + player.radius + 4;
+    const travel = Math.min(speed * dt, Math.max(0, d - stop));
+    if (travel <= 1e-9 || d <= 1e-9) {
+        const want = Math.PI - Math.atan2(dz, dx);
+        g.rotation.y = turn(g.rotation.y, want, C().turnRadPerSec, dt);
+        return;
+    }
+    const ux = dx / d, uz = dz / d;
+    const oldX = p.x, oldZ = p.z;
+    p.x = oldX + ux * travel; p.z = oldZ + uz * travel;
+    ctx.resolveBoss?.(p);
+    clampToArena(w, arena);
+    let bestX = p.x, bestZ = p.z;
+    let bestD = Math.hypot(tx - p.x, tz - p.z);
+
+    // A direct line can meet the central transmitter. If the resolver leaves
+    // that step without closing the gap, take a short tangent step so the
+    // Warden can go around the obstruction instead of appearing stuck.
+    if (ctx.resolveBoss && bestD >= d - 1e-6) {
+        const side = w.chaseSide || 1;
+        const px = -uz, pz = ux;
+        for (const sign of [side, -side]) {
+            p.x = oldX + px * sign * travel;
+            p.z = oldZ + pz * sign * travel;
+            ctx.resolveBoss(p); clampToArena(w, arena);
+            const candidateD = Math.hypot(tx - p.x, tz - p.z);
+            if (candidateD < bestD - 1e-6
+                || (Math.abs(candidateD - bestD) < 1e-6
+                    && sign === side)) {
+                bestD = candidateD; bestX = p.x; bestZ = p.z;
+            }
+        }
+        p.x = bestX; p.z = bestZ;
+        if (Math.hypot(p.x - oldX, p.z - oldZ) < 1e-6)
+            w.chaseSide = -side;
+    } else { w.chaseSide = w.chaseSide || 1; }
     const want = Math.PI - Math.atan2(tz - p.z, tx - p.x);
     g.rotation.y = turn(g.rotation.y, want, C().turnRadPerSec, dt);
-    const dist = Math.hypot(tx - p.x, tz - p.z);
-    if (dist > 4 && w.attackState === 'cooldown') {
-        p.x -= Math.cos(g.rotation.y) * C().moveSpeed * dt;
-        p.z += Math.sin(g.rotation.y) * C().moveSpeed * dt;
-    }
-    clampToArena(w, arena);
 }
 
 function clampToArena(w, arena = w.arena) {

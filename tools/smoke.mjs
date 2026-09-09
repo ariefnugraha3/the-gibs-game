@@ -20667,12 +20667,12 @@ if (false) {
     {
         const probe = wardenMod.createNusantaraWarden(scene);
         const arena = { x: 0, z: 0, radius: 100000 };
-        const reset = (phase, index) => {
+        const reset = (phase, index, targetX = 40, targetZ = 0) => {
             wardenMod.resetNusantaraWarden(probe, { active: true, phase, x: 0, z: 0, arena });
             probe.attackIndex = index; probe.attackT = 0;
-            camera.position.set(300, cfgMod.CFG.player.eyeHeight, 0);
+            camera.position.set(targetX, cfgMod.CFG.player.eyeHeight, targetZ);
             robotsMod.resetRobotsFx();
-            wardenMod.updateNusantaraWarden(probe, 0, { arena });
+        wardenMod.updateNusantaraWarden(probe, 0, { arena });
         };
         const tick = dt => wardenMod.updateNusantaraWarden(probe, dt, { arena });
         const tickFor = (time, dt = .01) => {
@@ -20687,6 +20687,42 @@ if (false) {
             T(`S11 WARDEN ${phase}: every attack participates in the cycle`,
                 actual.every((state, i) => state === `${expected[i]}Telegraph`));
         }
+        reset('phase1', 0, 300);
+        const rangedOrigin = probe.parts.group.position.clone();
+        tick(.25);
+        const rangedSpeed = Math.hypot(probe.parts.group.position.x - rangedOrigin.x,
+            probe.parts.group.position.z - rangedOrigin.z) / .25;
+        reset('phase1', 1);
+        const stompOrigin = probe.parts.group.position.clone(); tick(.25);
+        const stompChases = Math.hypot(probe.parts.group.position.x - stompOrigin.x,
+            probe.parts.group.position.z - stompOrigin.z) > 0;
+        reset('phase3', 4, 300);
+        tick(.25);
+        const whirlwindWarning = probe.whirlwindFx;
+        T('S11 WHIRLWIND: telegraph animates the warning before contact',
+            whirlwindWarning.visible
+            && whirlwindWarning.scale.x !== 1
+            && whirlwindWarning.children.some(part => Math.abs(part.rotation.y) > 1e-6));
+        const whirlwindOrigin = probe.parts.group.position.clone(); tick(.25);
+        const whirlwindChases = Math.hypot(probe.parts.group.position.x - whirlwindOrigin.x,
+            probe.parts.group.position.z - whirlwindOrigin.z) > 0;
+        T('S11 WARDEN: pursuit normal 30 dan pursuit close-range tetap berjalan',
+            Math.abs(rangedSpeed - W11.moveSpeed) < 1e-6
+            && stompChases && whirlwindChases);
+        reset('phase1', 0, 300);
+        const moveWindowOrigin = probe.parts.group.position.clone(); tick(5);
+        const moveWindowDistance = Math.hypot(probe.parts.group.position.x - moveWindowOrigin.x,
+            probe.parts.group.position.z - moveWindowOrigin.z);
+        const moveWindowEnd = probe.parts.group.position.clone(); tick(5);
+        const restWindowDistance = Math.hypot(probe.parts.group.position.x - moveWindowEnd.x,
+            probe.parts.group.position.z - moveWindowEnd.z);
+        T('S11 WARDEN: movement cadence 5 detik bergerak lalu 5 detik berhenti',
+            Math.abs(moveWindowDistance - W11.moveSpeed * 5) < 1e-6
+            && restWindowDistance < 1e-9);
+        T('S11 SECTOR: radius damage mengikuti config 1000', W11.sector.radius === 1000);
+        reset('phase1', 1, 300);
+        T('S11 STOMP: di luar radius serang, stomp dilewati ke attack berikutnya',
+            probe.attackState === 'burstTelegraph' && probe.attackIndex === 3);
         for (const phase of ['phase2', 'phase3']) {
             reset(phase, 0);
             const count = phase === 'phase2' ? W11.rail.phase2Count : W11.rail.phase3Count;
@@ -20720,15 +20756,21 @@ if (false) {
             const radius = W11.stomp.radius * (phase === 'phase3' ? W11.stomp.phase3RadiusMul : 1);
             const expectedCount = phase === 'phase1' ? probe.parts.legs.length / 2 : probe.parts.legs.length;
             const origins = marked.map(s => s.mesh.position.clone());
+            const startX = probe.parts.group.position.x, startZ = probe.parts.group.position.z;
             tickFor(W11.stomp.telegraphSec * .5);
             const lifted = probe.parts.legs.filter((l, i) => probe.stomps[i].active)
                 .every(l => l.upper.rotation.z > l.baseUpper + .1);
+            const chasedDuringTelegraph = Math.hypot(probe.parts.group.position.x - startX,
+                probe.parts.group.position.z - startZ) > 0;
             tickFor(W11.stomp.telegraphSec * .5 + .01);
             const impacts = robotsMod.pendingBoomsDebug();
             T(`S11 ${phase} STOMP: raised feet land on marked radii with lingering impact`,
-                marked.length === expectedCount && lifted && impacts.length === expectedCount
+                marked.length === expectedCount && lifted && chasedDuringTelegraph
+                && impacts.length === expectedCount
                 && impacts.every((b, i) => b.r === radius && b.playerDmg === W11.stomp.damage
-                    && Math.hypot(b.x - origins[i].x, b.z - origins[i].z) < 1e-6)
+                    && Math.hypot(b.x - marked[i].mesh.position.x,
+                        b.z - marked[i].mesh.position.z) < 1e-6
+                    && Math.hypot(b.x - origins[i].x, b.z - origins[i].z) > 0.1)
                 && marked.every(s => s.mesh.visible && s.edge.visible && s.impactT > 0
                     && s.radius === radius && s.mesh.scale.x === radius / W11.stomp.radius));
         }
@@ -20783,14 +20825,17 @@ if (false) {
         for (const dt of [.01, .13]) {
             reset('phase3', 4); tickFor(W11.whirlwind.telegraphSec, .01);
             const origin = probe.parts.group.position.clone();
-            camera.position.set(origin.x + player.speed * W11.whirlwind.durationSec * 2,
+            camera.position.set(origin.x + W11.whirlwind.chaseSpeed
+                * W11.whirlwind.durationSec * 2,
                 cfgMod.CFG.player.eyeHeight, origin.z);
             tick(dt);
             const speed = Math.hypot(probe.parts.group.position.x - origin.x,
                 probe.parts.group.position.z - origin.z) / dt;
-            T(`S11 WHIRLWIND dt=${dt}: pursuit equals live player speed`, Math.abs(speed - player.speed) < 1e-6);
-            reset('phase3', 4); tickFor(W11.whirlwind.telegraphSec, .01);
+            T(`S11 WHIRLWIND dt=${dt}: pursuit uses the configured Warden speed`,
+                Math.abs(speed - W11.whirlwind.chaseSpeed) < 1e-6);
+            reset('phase3', 4);
             camera.position.set(0, cfgMod.CFG.player.eyeHeight, 0);
+            tickFor(W11.whirlwind.telegraphSec, .01);
             tickFor(W11.whirlwind.durationSec, dt);
             const damage = robotsMod.pendingBoomsDebug().reduce((n, b) => n + b.playerDmg, 0);
             T(`S11 WHIRLWIND dt=${dt}: contact DPS/duration exact; trails stop at completion`,
