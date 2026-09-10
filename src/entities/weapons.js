@@ -14,7 +14,7 @@ import { avatarGunTip, flashMeleeBlades } from './playerAvatar.js';
 import { makeTexture, speckle } from '../utils/textures.js';
 import { rand, clamp, smooth01 } from '../utils/math.js';
 import {
-    playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxReload, sfxSwitch, sfxEmpty,
+    playSFX, sfxShoot, sfxShotgun, sfxPistol, sfxSwitch, sfxEmpty,
     sfxLauncherShot, sfxRocketShot, sfxRocketExplode, sfxHeal, sfxMeleeSwing, sfxMeleeHit
 } from '../utils/sfx.js';
 import { crosshair, showPickup, medkitBar, medkitBarFill } from '../core/dom.js';

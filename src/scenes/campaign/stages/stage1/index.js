@@ -36,8 +36,15 @@ import { rand } from '../../../../utils/math.js';
 import { slideWalk, resolveBlockers, blockersGroundHeight, makeBlockerIndex } from '../../../../utils/collision.js';
 import { makeNavGrid } from '../../../../utils/pathfind.js';
 import { addMergedStatic } from '../../../../utils/meshBatch.js';
-import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
-import { applyLightPreset, registerStageLight, precompileStageLightSets } from '../../../../world/lighting.js';
+import {
+    registerCampaignWorldRoot,
+    prewarmCampaignWorldRoots,
+    prewarmCampaignWorldRootsProgressive,
+} from '../../utility/campaignWorldRegistry.js';
+import {
+    applyLightPreset, registerStageLight,
+    precompileStageLightSets, precompileStageLightSetsProgressive,
+} from '../../../../world/lighting.js';
 import {
     hideStageMsg, showStageMsg, setCineBars,
     showStageRadioDialogue, hideStageRadioDialogue,
@@ -91,7 +98,6 @@ import { ensureStage9World } from '../stage9/index.js';
 import { ensureStage10World } from '../stage10/index.js';
 import { ensureStage11World } from '../stage11/index.js';
 import { ensureStage12World } from '../stage12/index.js';
-import { prewarmCampaignWorldRoots } from '../../utility/campaignWorldRegistry.js';
 
 // Grid 50 kolom x 50 baris (sel 2 m; PERSEGI 50x50 sesuai plan resmi user).
 // Gedung ~26 km dari jalan raya (stage 2) — kedua dunia hidup berdampingan di
@@ -491,21 +497,29 @@ export const s1MarkersDbg = () => ({
 
 // Bangun SEMUA dunia campaign (stage 1..12) SEKALI (guard
 // `built`). Dipakai stage1.enter() DAN cutscene intro (intro.js).
+const noopWorldYield = async () => { };
+
+function campaignWorldBuildSteps() {
+    return [
+        ['Stage 2', () => buildStage2World()],
+        ['Stage 1', () => buildWorld()],
+        ['Stage 3', () => ensureStage3World()],
+        ['Stage 4', () => ensureStage4World()],
+        ['Stage 5', () => ensureStage5World()],
+        ['Stage 6', () => ensureStage6World()],
+        ['Stage 7', () => ensureStage7World()],
+        ['Stage 8', () => ensureStage8World()],
+        ['Stage 9', () => ensureStage9World()],
+        ['Stage 10', () => ensureStage10World()],
+        ['Stage 11', () => ensureStage11World()],
+        ['Stage 12', () => ensureStage12World()],
+    ];
+}
+
 export function ensureWorld() {
     if (built) return;
     built = true;
-    buildStage2World();   // STAGE 2 (denah, jauh)
-    buildWorld();         // STAGE 1
-    ensureStage3World();  // pre-build stage 3, 4, dan 5 (warmup compile up-front)
-    ensureStage4World();
-    ensureStage5World();
-    ensureStage6World();
-    ensureStage7World();
-    ensureStage8World();
-    ensureStage9World();
-    ensureStage10World();
-    ensureStage11World();
-    ensureStage12World();
+    for (const [, build] of campaignWorldBuildSteps()) build();
     // Root Stage 9–12 biasanya tersembunyi. Reveal sementara dari sudut wakil
     // agar material chapter/boss/hazard benar-benar masuk jalur render sekarang.
     prewarmCampaignWorldRoots();
@@ -514,6 +528,28 @@ export function ensureWorld() {
     // maka program tiap konfigurasi DIKOMPILASI SEKARANG (masih di layar loading)
     // agar transisi stage tetap tanpa hitch.
     precompileStageLightSets(scene);
+}
+
+export async function ensureWorldProgressive(afterStep = noopWorldYield) {
+    if (built) return;
+    built = true;
+    for (const [label, build] of campaignWorldBuildSteps()) {
+        await afterStep(`Preparing ${label}`);
+        build();
+        await afterStep(label);
+    }
+    // Root Stage 9–12 biasanya tersembunyi. Reveal sementara dari sudut wakil
+    // agar material chapter/boss/hazard benar-benar masuk jalur render sekarang.
+    await prewarmCampaignWorldRootsProgressive(async key => {
+        await afterStep(`Prewarming ${key}`);
+    });
+    // Lampu stage non-aktif dimatikan (world/lighting.js) supaya shader tak
+    // melooping 57 point light per fragmen; jumlah light jadi berbeda per stage,
+    // maka program tiap konfigurasi DIKOMPILASI SEKARANG (masih di layar loading)
+    // agar transisi stage tetap tanpa hitch.
+    await precompileStageLightSetsProgressive(scene, async key => {
+        await afterStep(`Compiling ${key}`);
+    });
 }
 
 export function buildWorld() {

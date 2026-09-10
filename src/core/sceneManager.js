@@ -6,7 +6,7 @@
 // menyentuh sistem lain.
 
 import { setActiveStageLights } from '../world/lighting.js';
-import { beginStageStats } from './state.js';
+import { beginStageStats, player } from './state.js';
 import { hideBossHud } from './dom.js';
 import { setActiveCampaignWorldRoots, activeCampaignWorldRoots } from '../scenes/campaign/utility/campaignWorldRegistry.js';
 
@@ -32,18 +32,21 @@ function worldKeyFor(id) {
 export function setScene(s, opts = {}) {
     if (activeScene && activeScene.exit) activeScene.exit();
     hideBossHud();
+    const isCampaignStage = /^campaign-[1-9][0-9]*$/.test(s?.id || '');
     const worldKey = worldKeyFor(s?.id);
     if (worldKey) setActiveCampaignWorldRoots(worldKey);
     activeScene = s;
     // Statistik finish screen bersifat PER-STAGE. Modal hack/repair kembali
     // lewat resumeScene(), dan shop/cutscene tak cocok pola ini, jadi keduanya
     // tidak pernah mereset timer atau hitungan loot box stage yang aktif.
-    if (/^campaign-[1-9][0-9]*$/.test(s?.id || '')) beginStageStats(s.id);
+    if (isCampaignStage) beginStageStats(s.id);
     // Hanya lampu milik stage ini yang menyala (world/lighting.js) -> shader tak
     // melooping lampu 3 dunia lain tiap fragmen. Scene tanpa `lightsKey` (mis.
     // shop antar-stage) MEMPERTAHANKAN set lampu sebelumnya.
     if (s.lightsKey) setActiveStageLights(s.lightsKey);
+    if (isCampaignStage && player.maxHp > 0) player.hp = player.maxHp;
     s.enter(opts);
+    if (isCampaignStage && player.maxHp > 0) player.hp = player.maxHp;
     // enter() dapat baru membangun/mendaftarkan root pada akses langsung, dan
     // chapter Stage 6/9/12 memilih root-nya sendiri di sana — jadi jangan menimpa
     // pilihan chapter: hanya set ulang bila belum ada root aktif yang cocok.

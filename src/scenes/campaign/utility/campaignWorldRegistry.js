@@ -115,6 +115,56 @@ export function prewarmCampaignWorldRoots() {
     return compiled;
 }
 
+const noopPrewarmYield = async () => { };
+
+export async function prewarmCampaignWorldRootsProgressive(afterStep = noopPrewarmYield) {
+    if (!renderer || !viewCam || !scene || !records.size) return 0;
+    const restoreLights = stageLightsDebug().active;
+    const restorePos = viewCam.position.clone();
+    const restoreQuat = new THREE.Quaternion().copy(viewCam.quaternion);
+    const restoreVisible = new Map();
+    for (const record of records.values())
+        for (const root of rootsOf(record)) restoreVisible.set(root, root.visible);
+
+    let compiled = 0;
+    try {
+        for (const record of records.values()) {
+            for (const other of records.values())
+                for (const root of rootsOf(other)) setRootActive(root, other === record);
+            const childVisible = new Map();
+            try {
+                for (const root of rootsOf(record)) root.traverse(obj => {
+                    childVisible.set(obj, obj.visible); obj.visible = true;
+                });
+                if (record.lightsKey) setActiveStageLights(record.lightsKey);
+                const fallback = centerFor(record);
+                const views = record.warmupViews?.length ? record.warmupViews : [fallback];
+                for (const view of views) {
+                    const x = Number.isFinite(view.x) ? view.x : fallback.x;
+                    const y = Number.isFinite(view.y) ? view.y : fallback.y;
+                    const z = Number.isFinite(view.z) ? view.z : fallback.z;
+                    const offset = view.offset || { x: -145, y: 165, z: 185 };
+                    viewCam.position.set(x + offset.x, y + offset.y, z + offset.z);
+                    viewCam.lookAt(x, y, z);
+                    viewCam.updateMatrixWorld(true);
+                    renderer.compile(scene, viewCam);
+                    renderer.render(scene, viewCam);
+                    compiled++;
+                    await afterStep(record.key, compiled);
+                }
+            } finally {
+                for (const [obj, visible] of childVisible) obj.visible = visible;
+            }
+        }
+    } finally {
+        for (const [root, visible] of restoreVisible) setRootActive(root, visible);
+        viewCam.position.copy(restorePos); viewCam.quaternion.copy(restoreQuat);
+        viewCam.updateMatrixWorld(true);
+        if (restoreLights) setActiveStageLights(restoreLights);
+    }
+    return compiled;
+}
+
 export function campaignWorldRegistryDebug() {
     return {
         active: [...activeKeys],

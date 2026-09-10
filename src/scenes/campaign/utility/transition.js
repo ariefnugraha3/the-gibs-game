@@ -14,8 +14,7 @@ import { gameOver } from '../../../core/game.js';
 import { openShop, closeShop, isShopOpen, requestNextWave } from '../../survival/shop.js';
 import { setPaused, robots, bullets, enemyBullets, grenades, explosions, drops, clearArray } from '../../../core/state.js';
 import { disposeRobot, resetRobotsFx } from '../../../entities/robots.js';
-import { blocker } from '../../../core/dom.js';
-import { hidePauseMenu } from '../../../core/pauseMenu.js';
+import { showStartPrompt } from '../../../core/pauseMenu.js';
 import { stopMusic } from '../../../utils/sfx.js';
 import { stage1Scene } from '../stages/stage1/index.js';   // restartScene (circular aman: dibaca DI DALAM fungsi)
 import { stage2Scene } from '../stages/stage2/index.js';   // (circular aman: DI DALAM fungsi)
@@ -164,6 +163,5 @@ async function runLeaveShop() {
     await loadingStep(100, 'Ready!');
     await minHold(t0);
     hideLoading();
-    hidePauseMenu();                               // #instructions tampil (bukan menu jeda)
-    if (blocker) blocker.style.display = 'flex';   // klik = requestLock → resume di stage baru
+    showStartPrompt();                             // klik = requestLock -> resume di stage baru
 }

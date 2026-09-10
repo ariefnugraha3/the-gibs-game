@@ -127,6 +127,27 @@ export function precompileStageLightSets(scene) {
     return keys.length;
 }
 
+const noopLightYield = async () => { };
+
+export async function precompileStageLightSetsProgressive(scene, afterStep = noopLightYield) {
+    if (!renderer || !viewCam || !stageLights.length) return 0;
+    const restore = activeLightKey;
+    const keys = [...new Set(stageLights.map(e => e.key))];
+    let compiled = 0;
+    try {
+        for (const k of keys) {
+            setActiveStageLights(k);
+            renderer.compile(scene, viewCam);
+            compiled++;
+            await afterStep(k, compiled);
+        }
+    } finally {
+        activeLightKey = null;                 // paksa setActiveStageLights menerapkan lagi
+        setActiveStageLights(restore || keys[0]);
+    }
+    return compiled;
+}
+
 export const stageLightsDebug = () => ({
     active: activeLightKey,
     total: stageLights.length,

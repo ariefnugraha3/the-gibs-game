@@ -27,7 +27,7 @@
 // KONTROL (revisi 2026-08-01): KLIK KIRI = tahun→judul→isi. Saat BODY masih
 // diketik, klik pertama menampilkan seluruh sisanya tanpa pindah era; klik
 // berikutnya baru maju ke era berikutnya. SKIP / SPACE / Enter = lompati
-// SELURUH prolog langsung ke cutscene heli (`triggerCutsceneSkip` di input.js).
+// SELURUH prolog hanya setelah loading awal siap.
 //
 // ===== PENYAJIAN =====
 // Teks ditulis ke overlay DOM `#prologue` (index.html) yang kini OPAK HITAM
@@ -45,9 +45,9 @@
 // SVG-nya ditukar hanya saat
 // GANTI era; opacity-nya = selubung fade SATU ERA PENUH (`artAlphaAt`) — masuk
 // bersama fase tahun, bertahan selama judul+isi, padam bersama fade-out isi.
-// Overlay baru DITAMPILKAN pada frame live pertama (SETELAH hideLoading):
-// z-index #prologue (44) di ATAS layar loading (40), jadi menampilkannya lebih
-// awal akan menimpa layar loading.
+// Start campaign baru menampilkan overlay ini lebih awal sebagai penutup loading.
+// z-index #prologue (44) di ATAS layar loading (40), jadi loading bar tetap ada
+// di bawahnya dan baru terlihat bila prolog selesai sebelum loader siap.
 //
 // ===== NASKAH — MILIK USER, KATA PER KATA =====
 // `PROLOGUE_CHAPTERS` = naskah resmi user (2026-08-02), disalin PERSIS: tak ada
@@ -305,6 +305,7 @@ function syncText(t, i) {
 // ===================== MESIN =====================
 let cine = null;               // mesin (null = tidak berjalan)
 let doneCb = null, started = false, clickHandler = null;
+let loadingReady = true;       // false saat loading awal campaign ditutup oleh prolog
 
 export const prologueDebug = () => ({
     active: !!cine, started,
@@ -316,28 +317,59 @@ export const prologueDebug = () => ({
     // Ilustrasi kolom kanan (era SVG yang sedang terpasang — dibaca assert).
     art: prologueArtDebug(),
     outro: !!(cine && cine.outro),
+    loadingReady,
+    waitingForLoad: !!(cine && cine.waitingForLoad),
 });
 
-// Dipanggil main.js MASIH di balik layar loading. Overlay-nya BELUM ditampilkan
-// (z-index-nya di atas layar loading) — frame live pertama yang menampilkannya.
-export function beginPrologue(onDone) {
+// Jalur lama tetap dapat menunggu frame live pertama. Start campaign baru kini
+// memakai showImmediately agar loading awal berjalan di balik prolog.
+function syncSkipButton() {
+    if (!cine || !cine.live || cine.waitingForLoad) { hideCutsceneSkip(); return; }
+    if (loadingReady) showCutsceneSkip(skipPrologue);
+    else hideCutsceneSkip();
+}
+
+function activateLive() {
+    if (!cine || cine.live) return;
+    cine.live = true;
+    showOverlay(true);
+    textKey = '';
+    syncText(cine.t, cine.era);
+    syncSkipButton();
+    installClick();
+}
+
+export function beginPrologue(onDone, opts = {}) {
+    if (onDone && typeof onDone === 'object') { opts = onDone; onDone = null; }
     doneCb = typeof onDone === 'function' ? onDone : null;
+    loadingReady = opts.loadingReady !== false;
     started = true;
     releaseInputs();
     setCinematicActive(true);
     setCineBars(true);
-    cine = { era: 0, t: 0, total: 0, live: false, outro: false, outroT: 0 };
+    cine = { era: 0, t: 0, total: 0, live: false, outro: false, outroT: 0, waitingForLoad: false };
     textKey = '';
     resetPrologueArt();
     syncText(0, 0);            // era selalu dibuka oleh FASE TAHUN
     syncArt(0, 0);             // ilustrasi era pertama terpasang (alpha 0, ikut fade-in)
+    if (opts.showImmediately) activateLive();
     console.info('[prologue] teks + ilustrasi di atas hitam — ' + PROLOGUE_CHAPTERS.length + ' era (2028–2045)');
 }
 
-export function skipPrologue() { if (cine) finishPrologue(); }
+export function setPrologueLoadingReady(on = true) {
+    loadingReady = !!on;
+    if (!cine) return;
+    if (loadingReady && cine.waitingForLoad) { finishPrologue(); return; }
+    syncSkipButton();
+}
 
-// KLIK KIRI di mana pun = skip fase. Dipasang di frame LIVE pertama (bukan di
-// beginPrologue: saat itu layar loading masih menutup) dan dilepas di finish.
+export function skipPrologue() {
+    if (!cine || !loadingReady || cine.waitingForLoad) return;
+    finishPrologue();
+}
+
+// KLIK KIRI di mana pun = skip fase. Dipasang saat overlay prolog benar-benar
+// tampil, baik lewat frame live pertama maupun jalur showImmediately.
 function installClick() {
     if (clickHandler || typeof document === 'undefined' || !document.addEventListener) return;
     clickHandler = (e) => {
@@ -399,17 +431,8 @@ export const prologueScene = {
 
     updateMode(dt) {
         if (!cine) return;
-        if (!cine.live) {
-            // Frame pertama benar-benar tampil (layar loading sudah ditutup):
-            // baru tampilkan overlay hitam + tombol SKIP + handler klik.
-            cine.live = true;
-            showOverlay(true);
-            textKey = '';
-            syncText(cine.t, cine.era);
-            showCutsceneSkip(skipPrologue);
-            installClick();   // klik = maju-cepat (dipasang baru SEKARANG: klik di
-                              // layar loading tak boleh menggeser cerita)
-        }
+        if (!cine.live) activateLive();
+        if (cine.waitingForLoad) return;
         const c = cfg();
 
         // ---- OUTRO: teks sudah padam, tahan hitam sebentar, serahkan ke heli ----
@@ -417,7 +440,7 @@ export const prologueScene = {
             cine.outroT += dt;
             syncText(chapterTotal(8) + cine.outroT, 8);
             syncArt(chapterTotal(8) + cine.outroT, 8);   // ilustrasi ikut padam
-            if (cine.outroT >= num(c.fadeOutSec, 0.5)) finishPrologue();
+            if (cine.outroT >= num(c.fadeOutSec, 0.5)) requestFinishPrologue();
             return;
         }
 
@@ -443,10 +466,23 @@ export const prologueScene = {
     radarLandmarks() { },
 };
 
-// Akhiri prolog → sembunyikan overlay → SERAHKAN ke cutscene heli.
-// `resumeScene` (BUKAN setScene) supaya `introScene.enter()` tidak jalan dua
-// kali. Tirai TETAP hitam di sini — frame pertama cutscene heli sendiri yang
-// membukanya (mulus, tanpa kedip).
+// Akhiri prolog → sembunyikan overlay → SERAHKAN ke cutscene heli. Bila loading
+// belum siap, overlay prolog diturunkan dulu supaya loading bar di bawahnya
+// terlihat, lalu penyerahan dilakukan saat setPrologueLoadingReady(true).
+function requestFinishPrologue() {
+    if (!cine) return;
+    if (!loadingReady) {
+        cine.waitingForLoad = true;
+        removeClick();
+        hideCutsceneSkip();
+        showOverlay(false);    // loadingScreen di bawahnya kini terlihat
+        resetPrologueArt();
+        setCineFade(1);
+        return;
+    }
+    finishPrologue();
+}
+
 function finishPrologue() {
     cine = null;
     // JARING PENGAMAN: prolog teks tak pernah menyentuh kamera/fokus, tapi

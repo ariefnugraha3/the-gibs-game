@@ -18,6 +18,7 @@ import { updateGame } from './core/game.js';
 import { globalTimeScale } from './core/timeScale.js';
 import { updateUI, drawRadar } from './core/hud.js';
 import { initInput, updateTopdownAim } from './core/input.js';
+import { showStartPrompt } from './core/pauseMenu.js';
 import { initPlayerAvatar, updatePlayerAvatar } from './entities/playerAvatar.js';
 import { createBaseLights, updateShadowFollow } from './world/lighting.js';
 import { updateWorldDecor } from './world/decor.js';
@@ -32,8 +33,13 @@ import {
     survivalIntroScene, beginSurvivalIntro, warmupSurvivalIntro
 } from './scenes/survival/cutscenes/monasIntro.js';
 import { stage1Scene } from './scenes/campaign/stages/stage1/index.js';
-import { introScene, beginIntro, warmupIntro } from './scenes/campaign/cutscenes/intro.js';
-import { prologueScene, beginPrologue } from './scenes/campaign/cutscenes/prologue.js';
+import {
+    introScene, beginIntro, warmupIntro,
+    ensureIntroCampaignWorldsProgressive,
+} from './scenes/campaign/cutscenes/intro.js';
+import {
+    prologueScene, beginPrologue, setPrologueLoadingReady, prologueDebug,
+} from './scenes/campaign/cutscenes/prologue.js';
 import { campaignJumpToStage } from './scenes/campaign/utility/transition.js';
 import { showLoading, loadingStep, hideLoading, warmupAll } from './core/preload.js';
 import { preloadAllSFX } from './utils/sfx.js';
@@ -70,12 +76,64 @@ export async function boot() {
 
 // opts.stage (campaign): titik-mulai stage (1..12) — dipakai untuk MELANJUTKAN
 // game tersimpan (checkpoint). Default 1 = mulai dari awal.
+let animationStarted = false;
+function startAnimationLoop() {
+    if (animationStarted) return;
+    animationStarted = true;
+    animate();
+}
+
+function updatePrologueForElapsed(dt) {
+    let left = Math.min(Math.max(0, dt), 2);
+    let guard = 0;
+    while (left > 0 && guard++ < 120) {
+        const state = prologueDebug();
+        if (!state.active || state.waitingForLoad) return;
+        const step = Math.min(left, 1 / 30);
+        prologueScene.updateMode(step);
+        left -= step;
+    }
+}
+
+function startPrologueLoadingTicker() {
+    let on = true;
+    let last = globalThis.performance && typeof globalThis.performance.now === 'function'
+        ? globalThis.performance.now() : Date.now();
+    const tick = (now) => {
+        if (!on) return;
+        const t = Number.isFinite(now) ? now
+            : (globalThis.performance && typeof globalThis.performance.now === 'function'
+                ? globalThis.performance.now() : Date.now());
+        const dt = Math.max(0, (t - last) / 1000);
+        last = t;
+        updatePrologueForElapsed(dt);
+        requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return () => { on = false; };
+}
+
 export async function startGame(mode, opts = {}) {
+    let stopPrologueTicker = null;
     try {
         setMode(mode);
         configurePlayer();
 
+        const playIntro = mode === 'campaign' && !(opts.stage > 1);
+        const playSurvIntro = mode !== 'campaign';
+        const showPrologue = playIntro && !!(
+            CFG.campaign && CFG.campaign.prologue && CFG.campaign.prologue.enabled
+        );
+        if (playIntro && !showPrologue) {
+            console.warn('[prologue] dilewati — CFG.campaign.prologue =', CFG.campaign && CFG.campaign.prologue);
+        }
+
         showLoading();
+        if (showPrologue === true) {
+            setScene(prologueScene);
+            beginPrologue(null, { showImmediately: true, loadingReady: false });
+            stopPrologueTicker = startPrologueLoadingTicker();
+        }
         await loadingStep(5, 'Starting the engine…');
 
         initRenderer();            // scene + fog + kamera + renderer + composer
@@ -85,6 +143,42 @@ export async function startGame(mode, opts = {}) {
         initGore(scene);           // pool gib + genangan darah (mayat pakai mesh robot)
         createSky(scene);          // kubah langit + bulan (ikut player)
         await loadingStep(30, 'Building the world…');
+
+        if (showPrologue) {
+            initPlayerAvatar(scene);   // avatar top-down player (SEBELUM initWeapons)
+            createEmbers(scene);       // partikel bara/abu ambien
+            initWeapons();             // logika senjata + rig FPS tersembunyi + muzzle avatar
+            initInput();               // pointer lock, kursor bidik, keyboard, jaring pengaman
+            resetPlayerState();        // stamina/eyeH awal dari CFG
+            initGrain();               // film grain overlay
+            followViewCam();           // matrix kamera top-down valid utk raycast bidik frame pertama
+            await loadingStep(45, 'Building the intro…');
+            introScene.enter({ deferCampaignWorlds: true }); // rooftop intro dulu; campaign world dibangun bertahap di bawah
+            let campaignLoadPct = 45;
+            const campaignLoadStep = async (label = 'Building campaign areas') => {
+                campaignLoadPct = Math.min(82, campaignLoadPct + 2);
+                await loadingStep(campaignLoadPct, `${label}…`);
+            };
+            await ensureIntroCampaignWorldsProgressive(campaignLoadStep);
+            await loadingStep(83, 'Loading sounds…');
+
+            preloadAllSFX();           // fetch + decode semua klip SFX sekarang
+            beginIntro();              // siapkan cutscene heli di balik prolog/loading
+            await loadingStep(85, 'Preparing the briefing…');
+
+            await loadingStep(88, 'Warming up the renderer…');
+            await warmupAll();
+            warmupIntro();
+            await loadingStep(100, 'Ready!');
+
+            setPrologueLoadingReady(true);
+            hideLoading();
+            bestScoreEl.innerText = `Best: ${highScore}`;
+            updateUI();
+            if (stopPrologueTicker) { stopPrologueTicker(); stopPrologueTicker = null; }
+            startAnimationLoop();
+            return;
+        }
 
         // Scene mode terpilih membangun dunianya + menempatkan entitas + posisi awal.
         // stage1.enter membangun SEMUA dunia campaign (1-13, guard `built`;
@@ -111,8 +205,6 @@ export async function startGame(mode, opts = {}) {
         // ke `survivalScene` (Wave 1) di akhir. Survival tak punya "Continue",
         // jadi selalu diputar; restart setelah mati TIDAK memutarnya lagi
         // (resetGame memakai activeScene = survivalScene).
-        const playIntro = mode === 'campaign' && !(opts.stage > 1);
-        const playSurvIntro = mode !== 'campaign';
         if (mode !== 'campaign') setScene(survivalIntroScene);
         else if (playIntro) setScene(introScene);
         else { setScene(stage1Scene); if (opts.stage > 1) campaignJumpToStage(opts.stage); }
@@ -141,34 +233,16 @@ export async function startGame(mode, opts = {}) {
         if (playIntro) { warmupIntro(); await loadingStep(98, 'Preparing the city…'); }
         if (playSurvIntro) { warmupSurvivalIntro(); await loadingStep(98, 'Preparing the park…'); }
 
-        // PROLOG (2026-07-30; ROMBAK TOTAL jadi TEKS DI ATAS HITAM 2026-07-31,
-        // permintaan user — panggung 3D "ruang meeting" dihapus seluruhnya):
-        // campaign start BARU membuka dgn 9 era (2028→2045) SEBELUM cutscene heli.
-        // Kini scene DOM murni (overlay `#prologue` opak hitam: teks diketik di
-        // kolom kiri + ILUSTRASI SVG per era di kolom kanan [prologueArt.js];
-        // tanpa dunia THREE, tanpa warmup). Urutannya penting: introScene sudah dipasang di atas
-        // (dunia campaign terbangun, fog asli tersimpan) dan beginIntro() sudah
-        // mempersenjatai + memanaskan heli — prolog tinggal "menyela" sebagai scene
-        // aktif, lalu MENGEMBALIKANNYA lewat resumeScene(introScene) saat selesai
-        // (resume, BUKAN setScene, supaya introScene.enter() tak jalan dua kali).
-        const showPrologue = playIntro && !!(CFG.campaign && CFG.campaign.prologue && CFG.campaign.prologue.enabled);
-        // Diagnostik: kalau start campaign TAPI prolog dilewati, cetak sebabnya —
-        // biasanya CFG.campaign.prologue undefined = gameplay.json lama di cache.
-        if (playIntro && !showPrologue) console.warn('[prologue] dilewati — CFG.campaign.prologue =', CFG.campaign && CFG.campaign.prologue);
-        if (showPrologue) {
-            setScene(prologueScene);   // scene teks — tak ada dunia yang dibangun
-            beginPrologue();           // teks era pertama disiapkan; tampil setelah hideLoading
-            await loadingStep(99, 'Preparing the briefing…');
-        }
-
         hideLoading();
         bestScoreEl.innerText = `Best: ${highScore}`;
         updateUI();
+        if (!playIntro && !playSurvIntro) showStartPrompt();
 
-        animate();
+        startAnimationLoop();
     } catch (e) {
         // startGame kini async: tanpa catch, error init cuma jadi unhandled
         // rejection sunyi — tampilkan layar fatal seperti kegagalan config.
+        if (stopPrologueTicker) { stopPrologueTicker(); stopPrologueTicker = null; }
         hideLoading();
         showFatal('<b>Failed to start the game.</b><br><small>' +
             (e && e.message ? e.message : e) + '</small>');

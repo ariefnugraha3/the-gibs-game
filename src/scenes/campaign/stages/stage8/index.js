@@ -1140,6 +1140,7 @@ export const stage8RestoreVehicleDbg = () => resetTacticalVehicleVisual(tactical
 
 export const stage8Scene = {
     id: 'campaign-8', lightsKey: 'campaign-8',
+    tutorialProfile: 'stage8',
     enter() {
         saveCampaignStage(8); ensureWorld();
         for (let i = robots.length - 1; i >= 0; i--) {

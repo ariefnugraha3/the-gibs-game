@@ -708,8 +708,8 @@ export function buildWorld() {
 
     // --- TANGGA RUSAK (sumber spawn robot, kiri-atas) + puing ---
     const upF = stairwellUpFootprint(S3.x0 + S3.CELL, S3.z0 + S3.CELL);
-    buildStairwellUp(S3.x0 + S3.CELL, S3.z0 + S3.CELL, S3.H);
-    blockers.push({ x: upF.x, z: upF.z, hx: upF.hx, hz: upF.hz, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(upF.hx, upF.hz), top: 10, standable: true });
+    buildStairwellUp(S3.x0 + S3.CELL, S3.z0 + S3.CELL, S3.H, { destroyed: true });
+    blockers.push({ x: upF.x, z: upF.z, hx: upF.hx, hz: upF.hz, axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(upF.hx, upF.hz), top: S3.H, standable: false });
     propModel(buildFuturisticCrateMesh, 5, 4, 10, 9, 10);   // puing kaki tangga
 
     // --- LIFT (titik masuk) di nook c9-10 r15-19 — SEPASANG lift (kiri-kanan)

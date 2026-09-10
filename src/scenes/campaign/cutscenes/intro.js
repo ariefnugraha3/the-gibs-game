@@ -15,7 +15,7 @@ import { scene, camera, viewCam, renderer, composer, postFxOn, addCamShake, setC
 import { setScene } from '../../../core/sceneManager.js';
 import { setCinematicActive, setPaused } from '../../../core/state.js';
 import { setCineBars, setCineFade, blocker, showCutsceneSkip, hideCutsceneSkip } from '../../../core/dom.js';
-import { hidePauseMenu } from '../../../core/pauseMenu.js';
+import { showStartPrompt } from '../../../core/pauseMenu.js';
 import { releaseInputs } from '../../../core/input.js';
 import { aimPoint } from '../../../core/input.js';
 import { applyLightPreset, registerStageLight } from '../../../world/lighting.js';
@@ -28,7 +28,11 @@ import { playLoopSFX, stopLoopSFX, playSFX, sfxHeli, sfxFootstep, stopMusic } fr
 import { spawnHelicopter, setHelicopterDoor, updateHelicopter, disposeHelicopter } from '../../../entities/helicopter.js';
 import { spawnGroundPuff } from '../../../entities/effects.js';   // debu downwash rotor + hentakan mendarat
 import { avatarGroup, setAvatarRappel } from '../../../entities/playerAvatar.js';
-import { stage1Scene, ensureWorld as ensureCampaignWorlds } from '../stages/stage1/index.js';
+import {
+    stage1Scene,
+    ensureWorld as ensureCampaignWorlds,
+    ensureWorldProgressive as ensureCampaignWorldsProgressive,
+} from '../stages/stage1/index.js';
 
 // Dunia atap ditaruh ~150 km dari origin (jauh dari stage 1-8 di 30k/60k/90k/
 // 120k). Deck atap di y=0 (tinggi gedung sekadar visual — kamera di atasnya).
@@ -1180,6 +1184,10 @@ export function warmupIntro() {
     warmupThreeSceneIntro();
 }
 
+export async function ensureIntroCampaignWorldsProgressive(afterStep) {
+    await ensureCampaignWorldsProgressive(afterStep);
+}
+
 function setIntroPhase(phase, sceneNo) {
     if (!cine) return;
     cine.phase = phase;
@@ -1341,9 +1349,9 @@ export const introScene = {
     // campaign (agar warmup meng-compile shadernya & transisi ke Stage 1 di akhir
     // instan) + lampu malam. Cutscene sendiri dimulai beginIntro() (setelah
     // avatar/senjata ter-init). Posisikan pivot di atap utk frame awal.
-    enter() {
+    enter(opts = {}) {
         if (!built) { built = true; roof = buildRoof(); buildCity(roof); buildIntroSky(roof); }
-        ensureCampaignWorlds();
+        if (!opts.deferCampaignWorlds) ensureCampaignWorlds();
         applyLightPreset(scene, 'night');
         // LATAR KOTA (2026-07-18): sembunyikan kubah KOBARAN API global + set fog
         // ke haze malam DINGIN (bukan oranye api) supaya gedung jauh memudar wajar
@@ -1414,8 +1422,7 @@ function finishIntro() {
     // pause + tampilkan blocker/instructions. Pointer belum pernah terkunci selama
     // auto-play → klik = start awal (bukan resume) → gameplay Stage 1 dimulai.
     setPaused(true);
-    hidePauseMenu();                          // pastikan #instructions (tutorial), bukan menu jeda
-    if (blocker) blocker.style.display = 'flex';
+    showStartPrompt();                        // pastikan #instructions (tutorial), bukan menu jeda
     // Dunia Stage 1 + tutorial sudah terpasang di balik tirai → BUKA lagi. Kalau
     // cutscene di-SKIP layar memang belum hitam, dan fade dari 0 ke 0 = no-op.
     setCineFade(0, FADE_BACK_SEC);

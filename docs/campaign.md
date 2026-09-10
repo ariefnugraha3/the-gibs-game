@@ -1,5 +1,9 @@
 # Campaign mode — reference
 
+## Stage 2/3 Collapsed Stairs (2026-09-10)
+
+The stairwells in Stages 2 and 3 are visibly destroyed: the middle flight is missing, the landing and stair slabs have fallen into a fractured concrete heap, and railings are snapped with exposed reinforcement. The wreck remains inside the existing solid footprint and cannot be stood on. Stage 2 still requires the powered lift to leave the floor; its start-room exit and lift approach remain clear. Stage 3 retains its lift arrival and lobby exit. Stage 1's usable staircase remains intact.
+
 ## Stage 11 Warden: Phase And Attack Overhaul (2026-09-08)
 
 Ground effect height is derived from the actual root-hall floor and decorative ring geometry through `S11_WARDEN_SURFACE`. This fixes the old warnings being buried beneath the floor. Destruction uses the same visible floor height for fragment settlement, and whirlwind pursuit resolves against the central console's solid footprint.

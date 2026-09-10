@@ -63,7 +63,6 @@ import { spawnHelicopter, updateHelicopter, blastHelicopter, disposeHelicopter }
 import { spawnTank, tankMovingTick } from '../../../../entities/tank.js';
 import { rand } from '../../../../utils/math.js';
 import { updateUI } from '../../../../core/hud.js';
-import { countStageRobots } from '../../utility/common.js';
 
 const lerp = (a, b, k) => a + (b - a) * k;
 const easeOut = (k) => 1 - (1 - k) * (1 - k);
@@ -323,6 +322,7 @@ export function createTankBossIntro(deps) {
         };
         blockers.push(heliBlocker);
         showStageMsg('THE HIGHWAY IS CLEAR — REACH THE EXTRACTION HELICOPTER!');
+        showStageMsg('EXTRACTION HELICOPTER IS WAITING - REACH THE TOWN SQUARE!');
         updateUI();
     }
 
@@ -767,9 +767,8 @@ export function createTankBossIntro(deps) {
     function update(dt) {
         updateDialogue(dt);
         if (heli) updateHelicopter(heli, dt);
-        if (!heliSpawned) {
-            if (countStageRobots(4) === 0) heliArrives();
-        } else if (cine) {
+        if (!heliSpawned) heliArrives();
+        else if (cine) {
             runCutscene(dt);
         }
     }

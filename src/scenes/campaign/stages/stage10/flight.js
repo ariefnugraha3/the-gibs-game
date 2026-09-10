@@ -2395,6 +2395,7 @@ function updateFlight(dt) {
 export const stage10Scene = {
     id: 'campaign-10', lightsKey: STAGE10_FLIGHT_KEY,
     hudProfile: 'aircraft',
+    tutorialProfile: 'stage10',
     camOffset: CAM_OFFSET,
     cameraUp: CAMERA_UP,
     exactTopDown: true,

@@ -55,6 +55,7 @@ const DBG = { ups: new Map(), downs: new Map(), floors: new Map() };
 export function stairwellDebug() {
     return {
         ups: DBG.ups.size, downs: DBG.downs.size,
+        destroyed: [...DBG.ups.values()].filter(s => s.destroyed).length,
         holes: [...DBG.downs.values()],
         floorStrips: [...DBG.floors.values()],
     };
@@ -98,7 +99,8 @@ export function stairwellUpFootprint(wallX, wallZ) {
 // menyusuri tembok barat dan LENYAP DI BALIK DINDING STUB POROS setinggi
 // plafon (kotak gelap melayang lama DIHAPUS — dari kamera SW stub menutupi
 // anak tangga teratas = kesan menerus ke Lt.3 secara wajar). =====
-export function buildStairwellUp(wallX, wallZ, H = 22) {
+export function buildStairwellUp(wallX, wallZ, H = 22, { destroyed = false } = {}) {
+    if (destroyed) return buildCollapsedStairwell(wallX, wallZ, H);
     const m = mats(), g = new THREE.Group();
     const M0 = 0.3, LW = 12;                       // celah anti z-fighting + sisi bordes
     const lx = wallX + M0, lz = wallZ + M0;        // pojok dalam (rapat tembok)
@@ -135,6 +137,78 @@ export function buildStairwellUp(wallX, wallZ, H = 22) {
     ]) box(g, m.rail, 0.5, 3, 0.5, px, py, pz, 0, true);
     scene.add(g);
     DBG.ups.set(`${Math.round(wallX)}|${Math.round(wallZ)}`, { x: wallX, z: wallZ });
+    return g;
+}
+
+// The missing middle flight is real empty space, with its slabs on the floor.
+// Keep the wreck inside stairwellUpFootprint so the surrounding route stays open.
+function buildCollapsedStairwell(wallX, wallZ, H) {
+    const m = mats(), g = new THREE.Group();
+    g.name = 'collapsed-stairwell';
+    g.position.set(wallX, 0, wallZ);
+    const brokenOutline = new THREE.Shape();
+    const edge = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.12], [0.29, 0.2],
+        [0.38, 0.36], [0.08, 0.27], [-0.12, 0.5], [-0.29, 0.34], [-0.5, 0.42]];
+    brokenOutline.moveTo(...edge[0]);
+    for (let i = 1; i < edge.length; i++) brokenOutline.lineTo(...edge[i]);
+    brokenOutline.lineTo(...edge[0]);
+    const slabGeo = new THREE.ExtrudeGeometry(brokenOutline, { depth: 1, bevelEnabled: false });
+    slabGeo.rotateX(-Math.PI / 2);
+    slabGeo.translate(0, -0.5, 0);
+    const treadGeo = new THREE.ShapeGeometry(brokenOutline);
+    treadGeo.rotateX(-Math.PI / 2);
+    treadGeo.translate(0, 0.51, 0);
+    const slab = (sx, sy, sz, x, y, z, rx, ry, rz, painted = true) => {
+        const part = new THREE.Group();
+        const body = new THREE.Mesh(slabGeo, m.body);
+        body.castShadow = body.receiveShadow = true;
+        part.add(body);
+        if (painted) part.add(new THREE.Mesh(treadGeo, m.tread));
+        part.scale.set(sx, sy, sz);
+        part.rotation.set(rx, ry, rz);
+        part.position.set(x, y, z);
+        // Rotated fragments must rest above the floor, including their lowest corner.
+        const bounds = new THREE.Box3().setFromObject(part);
+        part.position.y += Math.max(0, 0.05 - bounds.min.y);
+        g.add(part);
+        return part;
+    };
+
+    // Only two entrance treads survive; the flight no longer reaches the landing.
+    for (let k = 1; k <= 2; k++) {
+        const top = RISE * k, x = 30.5 - (k - 0.5) * RUN;
+        slab(RUN, top, W, x, top / 2, 6, 0, 0, 0);
+    }
+    slab(10, 3.2, 10, 6.5, 2.8, 6.5, 0.18, 0.1, -0.24);
+    // The upper remnant remains attached to the wall above a sheared support.
+    slab(8, H * 0.65, 4, 4.8, H * 0.325, 29, 0, 0, 0, false);
+    slab(9, 2.4, 5, 5.4, H * 0.65, 28.5, 0.08, 0, 0.1);
+    slab(8.5, 1.8, 4.2, 5.6, H * 0.65 - 1.3, 25.4, 0.24, 0, 0.08);
+
+    // Fallen flight, split landing and smaller concrete fragments form a low heap.
+    slab(8, 2.4, 14, 13.4, 3.9, 20, 0.32, -0.35, -0.18);
+    slab(8.5, 2.8, 7, 20.3, 3.1, 18.3, -0.26, 0.48, 0.25);
+    slab(6, 2, 7, 8, 2.1, 15, 0.18, -0.38, -0.12);
+    for (const [x, z, sx, sz, yaw] of [
+        [17, 7, 4, 3, 0.4], [20, 10, 3, 4, -0.5], [25, 15, 4, 3, 0.7],
+        [22, 25, 4, 3, -0.3], [12, 29, 3, 3, 0.6], [5, 20, 3, 4, -0.2],
+    ]) slab(sx, 1.5, sz, x, 1.2, z, 0.12, yaw, 0.15, false);
+
+    // Torn reinforcement at the fracture and buckled handrails, never a full rail.
+    for (const z of [3, 5.5, 8]) {
+        railRun(g, m.rail, 23.7, 2.7, z, 21.5, 3.5, z);
+        railRun(g, m.rail, 21.5, 3.5, z, 20.7, 2.8, z);
+    }
+    railRun(g, m.rail, 28.8, 4.4, 11.8, 25.3, 5.7, 11.8);
+    railRun(g, m.rail, 25.3, 5.7, 11.8, 23.5, 2.2, 11.8);
+    box(g, m.rail, 0.5, 3, 0.5, 28.8, 2.9, 11.8, 0, true);
+    railRun(g, m.rail, 17, 4.8, 16, 17, 2, 24);
+    railRun(g, m.rail, 17, 2, 24, 17, 0.5, 28);
+    railRun(g, m.rail, 9.5, H * 0.65 + 2, 29, 9.5, H * 0.65, 25);
+    railRun(g, m.rail, 9.5, H * 0.65, 25, 9.5, H * 0.65 - 3, 23.5);
+
+    scene.add(g);
+    DBG.ups.set(`${Math.round(wallX)}|${Math.round(wallZ)}`, { x: wallX, z: wallZ, destroyed: true });
     return g;
 }
 

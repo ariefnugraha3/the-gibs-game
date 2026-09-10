@@ -52,7 +52,7 @@ import {
 import { setScene } from '../../../core/sceneManager.js';
 import { setCinematicActive, setPaused } from '../../../core/state.js';
 import { setCineBars, blocker, showCutsceneSkip, hideCutsceneSkip, showCineCaption, hideCineCaption } from '../../../core/dom.js';
-import { hidePauseMenu } from '../../../core/pauseMenu.js';
+import { showStartPrompt } from '../../../core/pauseMenu.js';
 import { releaseInputs, aimPoint } from '../../../core/input.js';
 import { applyLightPreset, LIGHT_PRESETS } from '../../../world/lighting.js';
 import { clamp, rand } from '../../../utils/math.js';
@@ -670,6 +670,5 @@ function finishSurvivalIntro() {
     // dimulai): pause + blocker. Pointer belum pernah terkunci selama auto-play
     // -> klik = start awal (bukan resume).
     setPaused(true);
-    hidePauseMenu();
-    if (blocker) blocker.style.display = 'flex';
+    showStartPrompt();
 }

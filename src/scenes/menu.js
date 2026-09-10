@@ -107,8 +107,8 @@ export function initMenu(onPick) {
         setDifficulty(diff);
         document.getElementById('modeSelect').style.display = 'none';
         document.getElementById('continuePrompt').style.display = 'none';
-        // Cutscene pembuka kedua mode diputar OTOMATIS oleh startGame setelah
-        // layar loading (adegan 3D, bukan slideshow) — tak ada overlay DOM lagi.
+        // Cutscene pembuka diputar OTOMATIS oleh startGame; Campaign baru
+        // menutup loading awal dengan prolog DOM, Survival tetap lewat loading.
         onPick(mode, { stage });
     }
 

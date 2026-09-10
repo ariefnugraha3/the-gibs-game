@@ -12,9 +12,74 @@
 
 import { resetGame } from './game.js';
 import { requestLock } from './input.js';
+import { activeScene } from './sceneManager.js';
 
 let instr = null, menu = null, mainP = null, confP = null, confText = null, tutP = null;
+let startTitle = null, startSub = null, startGrid = null, startCta = null;
+let tutTitle = null, tutGrid = null;
 let onYes = null, wired = false, visible = false;
+
+const TUTORIALS = {
+    default: [
+        ['WASD', 'Move'],
+        ['Mouse', 'Aim'],
+        ['L-Click', 'Shoot / Use'],
+        ['R-Click', 'Move to cursor'],
+        ['1&nbsp;2&nbsp;3', 'Weapons'],
+        ['Q', 'Swap Weapon'],
+        ['4', 'Medkit'],
+        ['F', 'Melee'],
+        ['Shift', 'Dodge'],
+    ],
+    stage8: [
+        ['WASD', 'Steer the vehicle'],
+        ['Mouse', 'Aim'],
+        ['L-Click', 'Shoot raiders'],
+        ['1&nbsp;2&nbsp;3', 'Weapons'],
+        ['Q', 'Swap Weapon'],
+        ['4', 'Medkit'],
+        ['A / D', 'Change lanes'],
+        ['W / S', 'Push forward / fall back'],
+    ],
+    stage10: [
+        ['WASD', 'Fly'],
+        ['Guns', 'Auto-fire forward'],
+        ['L-Click', 'Manual guns'],
+        ['Space', 'Drop bomb'],
+        ['R-Click', 'Drop bomb'],
+        ['Enter', 'Manual guns'],
+        ['Drops', 'Collect repairs / bombs'],
+    ],
+};
+
+function tutorialProfile() {
+    const p = activeScene?.tutorialProfile;
+    if (p && TUTORIALS[p]) return p;
+    if (activeScene?.id === 'campaign-8') return 'stage8';
+    if (activeScene?.id === 'campaign-10') return 'stage10';
+    return 'default';
+}
+
+function startTutorialProfile() {
+    const p = activeScene?.startTutorialProfile;
+    if (p && TUTORIALS[p]) return p;
+    if (activeScene?.id === 'campaign-1') return 'default';
+    return null;
+}
+
+function renderRows(grid, rows) {
+    if (!grid) return;
+    grid.innerHTML = rows.map(([key, desc]) =>
+        `<div class="keyRow"><span class="keyCap">${key}</span><span class="keyDesc">${desc}</span></div>`
+    ).join('');
+}
+
+function renderPauseTutorial() {
+    const profile = tutorialProfile();
+    if (tutTitle) tutTitle.textContent = profile === 'stage8' ? 'STAGE 8 CONTROLS'
+        : profile === 'stage10' ? 'STAGE 10 CONTROLS' : 'HOW TO PLAY';
+    if (tutGrid) renderRows(tutGrid, TUTORIALS[profile]);
+}
 
 // Apakah menu jeda sedang tampil — input.js memakainya untuk MENGABAIKAN
 // klik latar blocker (resume hanya via tombol RESUME).
@@ -30,6 +95,12 @@ function wire() {
     confP = document.getElementById('pauseConfirm');
     confText = document.getElementById('pauseConfirmText');
     tutP = document.getElementById('pauseTutorial-panel');
+    startTitle = instr?.querySelector('.startTitle');
+    startSub = instr?.querySelector('.startSub');
+    startGrid = instr?.querySelector('.keyGrid');
+    startCta = instr?.querySelector('.startCta');
+    tutTitle = tutP?.querySelector('.pauseTitle');
+    tutGrid = tutP?.querySelector('.keyGrid');
     // Klik di dalam kotak menu jangan merambat ke #blocker
     menu.addEventListener('click', e => e.stopPropagation());
     menu.addEventListener('mousedown', e => e.stopPropagation());
@@ -65,9 +136,31 @@ function askConfirm(text, action) {
 
 // Tampilkan panel Tutorial (How to Play); sembunyikan menu utama.
 function showTutorial() {
+    renderPauseTutorial();
     if (mainP) mainP.style.display = 'none';
     if (confP) confP.style.display = 'none';
     if (tutP) tutP.style.display = 'flex';
+}
+
+export function showStartPrompt() {
+    wire();
+    visible = false;
+    if (menu) menu.style.display = 'none';
+    if (instr) instr.style.display = '';
+    const profile = startTutorialProfile();
+    if (profile) {
+        if (startTitle) startTitle.textContent = 'Click to Start the Action';
+        if (startSub) startSub.textContent = "Enters fullscreen - so Ctrl+W etc. won't close the tab";
+        if (startGrid) { startGrid.style.display = ''; renderRows(startGrid, TUTORIALS[profile]); }
+        if (startCta) startCta.textContent = 'Click anywhere to begin';
+    } else {
+        if (startTitle) startTitle.textContent = 'Click to Continue';
+        if (startSub) startSub.textContent = '';
+        if (startGrid) startGrid.style.display = 'none';
+        if (startCta) startCta.textContent = 'Click anywhere to continue';
+    }
+    const blocker = document.getElementById('blocker');
+    if (blocker) blocker.style.display = 'flex';
 }
 
 // Tampilkan menu jeda (input.js memanggilnya saat pointer-unlock di tengah main).

@@ -774,10 +774,10 @@ export function buildWorld() {
     // --- Tangga RUSAK (entry): flight naik dari Lt.3 + PUING (jebol, tak bisa
     // dipakai keluar → player harus ke lift). Blocker solid spt biasa. ---
     const upF = stairwellUpFootprint(S2.x0 + S2.CELL, S2.z0 + S2.CELL);
-    buildStairwellUp(S2.x0 + S2.CELL, S2.z0 + S2.CELL, S2.H);
+    buildStairwellUp(S2.x0 + S2.CELL, S2.z0 + S2.CELL, S2.H, { destroyed: true });
     blockers.push({
         x: upF.x, z: upF.z, hx: upF.hx, hz: upF.hz,
-        axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(upF.hx, upF.hz), top: 10, standable: true
+        axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(upF.hx, upF.hz), top: S2.H, standable: false
     });
     propModel(buildFuturisticRubbleMesh, 4, 4, 12, 9, 12);   // puing di kaki tangga (rusak)
 

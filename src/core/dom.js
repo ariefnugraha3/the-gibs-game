@@ -60,7 +60,6 @@ const downloadBarPct = document.getElementById('downloadBarPct');
 const downloadBarLabel = document.getElementById('downloadBarLabel');
 const bossHud = document.getElementById('bossHud');
 const bossHudName = document.getElementById('bossHudName');
-const bossHudState = document.getElementById('bossHudState');
 const bossHudFill = document.getElementById('bossHudFill');
 
 // Tampilkan / perbarui (k = 0..1) / sembunyikan bar progress (label opsional).
@@ -80,14 +79,13 @@ export function hideDownloadBar() {
 
 // HUD boss bersama untuk campaign akhir. API menerima nilai mentah HP agar
 // scene tidak perlu menulis DOM.
-export function setBossHud({ name = '', hp = 0, maxHp = 1, state = '' } = {}) {
+export function setBossHud({ name = '', hp = 0, maxHp = 1 } = {}) {
     const hpFrac = Math.max(0, Math.min(1, hp / Math.max(1, maxHp)));
     if (bossHud) {
         bossHud.style.display = 'block';
         bossHud.setAttribute('aria-hidden', 'false');
     }
     if (bossHudName) bossHudName.innerText = name;
-    if (bossHudState) bossHudState.innerText = state;
     if (bossHudFill) bossHudFill.style.width = (hpFrac * 100) + '%';
 }
 
@@ -101,7 +99,7 @@ export function hideBossHud() {
 
 export const bossHudDebug = () => ({
     visible: bossHud?.style?.display === 'block',
-    name: bossHudName?.innerText || '', state: bossHudState?.innerText || '',
+    name: bossHudName?.innerText || '', state: '',
     hpPct: parseFloat(bossHudFill?.style?.width || '0'),
 });
 

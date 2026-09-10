@@ -35,7 +35,7 @@ import { showStageMsg, showPickup, setBossHud, hideBossHud } from '../../../../c
 import { saveCampaignStage } from '../../../../core/saveGame.js';
 import { updateUI } from '../../../../core/hud.js';
 import { NADE_R } from '../../../../entities/grenades.js';
-import { disposeRobot } from '../../../../entities/robots.js';
+import { disposeRobot, killRobot } from '../../../../entities/robots.js';
 import { updateTank, disposeTank, resolveTankBlock } from '../../../../entities/tank.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { buildFuturisticSUVMesh } from '../../../../entities/futuristicSUV.js';
@@ -457,7 +457,7 @@ export function buildWorld() {
         x: S4_GATE.x, z: S4_GATE.z, hx: 6, hz: ROAD.hz + 4,
         axx: 1, axz: 0, azx: 0, azz: 1, rad: Math.hypot(6, ROAD.hz + 4), top: 13, standable: false
     };
-    blockers.push(gateBlocker);
+    roadGate.visible = false;
 
     // --- Cover: mobil rongsok, bus, kontainer, pembatas jalan ---
     const carGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -1091,6 +1091,50 @@ function openGate() {
     if (gi >= 0) blockers.splice(gi, 1);
 }
 
+function stage4RobotInTownSquare(z) {
+    if (!z || z.stage !== 4 || !z.mesh) return false;
+    const p = z.mesh.position;
+    const r = 4.5 * (z.scl || 1);
+    return p.x >= SQ.x0 - r && p.x <= SQ.x1 + r
+        && p.z >= SQ.z0 - r && p.z <= SQ.z1 + r;
+}
+
+function countStage4RobotsInTownSquare() {
+    let n = 0;
+    for (const z of robots) if (stage4RobotInTownSquare(z)) n++;
+    return n;
+}
+
+function alertStage4Survivors() {
+    for (const z of robots) {
+        if (!z || z.stage !== 4) continue;
+        z.state = 'chasing';
+        z.windT = 0; z.fireCd = Math.min(z.fireCd || 0, 0.2);
+        z.mesh.visible = true;
+    }
+}
+
+function killStage4RobotsOutsideTownSquare() {
+    let killed = 0;
+    for (let i = robots.length - 1; i >= 0; i--) {
+        const z = robots[i];
+        if (!z || z.stage !== 4 || stage4RobotInTownSquare(z)) continue;
+        killRobot(i, { cause: 'explosion' });
+        killed++;
+    }
+    return killed;
+}
+
+export const stage4PursuitDebug = () => ({
+    total: countStageRobots(4),
+    townSquare: countStage4RobotsInTownSquare(),
+    chasing: robots.filter(z => z.stage === 4 && z.state === 'chasing').length,
+    gateBlocking: !!gateBlocker && blockers.includes(gateBlocker),
+    gateVisible: !!roadGate?.visible,
+});
+export const stage4AlertSurvivorsForDebug = () => alertStage4Survivors();
+export const stage4CullOutsideTownSquareForDebug = () => killStage4RobotsOutsideTownSquare();
+
 // Pengontrol CUTSCENE TANK-BOSS (cutscenes/stage4/tankBossIntro.js): mengurus heli
 // penjemput + mesin sinematik; tank yang di-spawn di tengah cutscene diserahkan
 // balik ke stage4 lewat setTank (bossSpawned=true + ref tank utk duel).
@@ -1117,8 +1161,10 @@ const outro = createTankBossOutro({
 
 function onBossDown() {
     bossDefeated = true;
+    const purged = killStage4RobotsOutsideTownSquare();
     arenaLocked = false;   // arena terbuka lagi — player bebas berkeliling
     hideBossHud();
+    if (purged > 0) showStageMsg(`TANK DESTROYED - ${purged} STRAGGLERS CUT OFF`);
     stopMusic();           // boss tumbang -> musik boss-fight berhenti (2026-07-19)
     // Cutscene tidak dimulai di frame ledakan. Countdown baru dipersenjatai
     // setelah animasi tank mencapai bangkai akhir (`deathPhase === 'wreck'`).
@@ -1171,8 +1217,7 @@ export const stage4Scene = {
         outro.reset();
         resetSmashBuilding(smashRuko);   // ruko yang diterobos tank berdiri utuh lagi (restart/cheat)
         // Pasang lagi gerbang alun-alun (mesh + blocker — dicabut openGate saat run sebelumnya)
-        if (roadGate) roadGate.visible = true;
-        if (gateBlocker && !blockers.includes(gateBlocker)) blockers.push(gateBlocker);
+        openGate();
         placeRobots();
         resetBarrels(); placeBarrels();   // barel peledak (bersihkan barel stage lain dulu)
         resetStageOccluders(S4_OCC);      // dekor kembali opak (run sebelumnya bisa berhenti saat memudar)
@@ -1213,7 +1258,15 @@ export const stage4Scene = {
             if (tank.dead && !bossDefeated) onBossDown();
             if (bossDefeated && !outro.isActive() && !outro.isDone() && !winFired
                 && tank.deathPhase === 'wreck') {
-                if (outroDelayT < 0) {
+                const squareRobots = countStage4RobotsInTownSquare();
+                if (squareRobots > 0) {
+                    outroDelayT = -1;
+                    const now = Date.now();
+                    if (now - exitHintT > 2500) {
+                        exitHintT = now;
+                        showPickup(`Clear ${squareRobots} hostiles in the town square!`, '#ffb04a');
+                    }
+                } else if (outroDelayT < 0) {
                     outroDelayT = Math.max(0, CFG.campaign.tankOutro.preCutsceneDelaySec);
                 } else {
                     outroDelayT = Math.max(0, outroDelayT - dt);
@@ -1240,6 +1293,7 @@ export const stage4Scene = {
         if (intro.isHeliSpawned() && !intro.isDone() && !intro.isActive()
             && pos.x > SQ.x0 + 2 && pos.x < SQ.x1 - 2
             && pos.z > SQ.z0 + 2 && pos.z < SQ.z1 - 2) {
+            alertStage4Survivors();
             intro.start();
         }
         // KUNCI ARENA BOSS (2026-07-17): menginjak lapangan ALUN selagi tank
@@ -1269,7 +1323,7 @@ export const stage4Scene = {
             const now = Date.now();
             if (now - exitHintT > 2500) {
                 exitHintT = now;
-                showPickup('Clear all enemies to open the town square gate!', '#ff4757');
+                showPickup('The town square route is open. Push through!', '#ffb04a');
             }
         }
     },
@@ -1315,6 +1369,8 @@ export const stage4Scene = {
         let s = `FINAL — Robots: ${countStageRobots(4)}`;
         if (intro.isActive()) return s;   // HUD tersembunyi selama cutscene (body.cine)
         if (tank && !bossDefeated) s += ' | DESTROY THE WAR TANK';
+        else if (bossDefeated && countStage4RobotsInTownSquare() > 0)
+            s += ` | CLEAR ${countStage4RobotsInTownSquare()} HOSTILES IN THE TOWN SQUARE`;
         else if (bossDefeated) s += ' | EXTRACTION LOST — ROUTE TO BANDUNG REQUIRED';
         else if (intro.isHeliSpawned()) s += ' | Reach the extraction helicopter (east)!';
         else s += ' | Reach the town square (east)';

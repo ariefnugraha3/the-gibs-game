@@ -4744,7 +4744,18 @@ s4mod.ensureWorld();   // (2026-07-16: build lewat guard — enter berikutnya ta
     // selesai = LIFT). TAK ADA lagi tangga TURUN berlubang (stage 3 keluar lewat
     // pintu lobi). -> 3 naik (START stage 1/2/3), 0 turun, lantai satu-bidang.
     T('Stairwell: 3 tangga NAIK (START stage 1/2/3) + 0 tangga TURUN berlubang (stage 1 finish=tangga, stage 2 finish=lift)',
-        sw.ups === 3 && sw.downs === 0 && sw.holes.length === 0 && sw.floorStrips.length === 0);
+        sw.ups === 3 && sw.destroyed === 2 && sw.downs === 0 && sw.holes.length === 0 && sw.floorStrips.length === 0);
+    for (const [mod, layout, stage] of [
+        [s2mod, s2mod.S2, s2mod.stage2Scene],
+        [s3mod, s3mod.S3, s3mod.stage3Scene],
+    ]) {
+        const footprint = swMod.stairwellUpFootprint(layout.x0 + layout.CELL, layout.z0 + layout.CELL);
+        const pos = new THREE.Vector3(footprint.x + footprint.hx - 1, 0, footprint.z);
+        mod.resolve(pos, 4, 10);
+        T('Collapsed stairwell: rubble stays solid even at the former climbable height',
+            stage.groundHeight(footprint.x, footprint.z, 10) === 0
+            && pos.x >= footprint.x + footprint.hx + 4 - 0.01);
+    }
 }
 {   // flood-fill union (stage4Walk): START harus terhubung ke END
     const S = s4mod.S4_START, E = s4mod.S4_END, cell = 14;
@@ -4859,14 +4870,31 @@ T('S4: semua robot di barat gerbang alun-alun (alun steril)',
 // ALUR MENANG: BOSS TANK (entities/tank.js, 2026-07-14) TIDAK muncul selagi
 // masih ada robot. Tank = entitas MANDIRI (bukan anggota `robots`).
 s4mod.stage4Scene.updateMode(0.1);
-T('S4: tank boss BELUM muncul selagi masih ada robot', s4mod.currentTank() == null);
-// GERBANG tertutup selagi robot hidup: playerCollide di posisi gerbang harus
-// MENDORONG player keluar dari panel (blocker pejal di mulut ring).
+T('S4: heli penjemput sudah menunggu meski robot tersisa, tank belum muncul',
+    s4mod.currentHeli() != null && s4mod.currentTank() == null
+    && s4mod.stage4PursuitDebug().gateBlocking === false);
+// Gerbang lama tidak lagi menjadi blocker: resolve di posisi gerbang tidak
+// mendorong player keluar, bahkan selagi robot stage 4 masih hidup.
 {
     stateMod._v3.set(s4mod.S4_GATE.x, 0, s4mod.S4_GATE.z);
-    s4mod.stage4Scene.playerCollide(stateMod._v3, s4mod.S4_GATE.x - 40, s4mod.S4_GATE.z, 0);
-    T('S4: gerbang alun-alun TERTUTUP selagi robot hidup (player terdorong keluar)',
-        Math.abs(stateMod._v3.x - s4mod.S4_GATE.x) > 4);
+    s4mod.resolve(stateMod._v3, 4, 0);
+    T('S4: gerbang alun-alun DIHAPUS sebagai blocker selagi robot hidup',
+        Math.abs(stateMod._v3.x - s4mod.S4_GATE.x) < 1e-6
+        && s4mod.stage4PursuitDebug().gateBlocking === false);
+}
+{
+    s4mod.stage4AlertSurvivorsForDebug();
+    const p4 = s4mod.stage4PursuitDebug();
+    T('S4: robot tersisa bisa langsung dipaksa mengejar player ke alun-alun',
+        p4.total > 0 && p4.chasing === p4.total);
+}
+{
+    const s4Src = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage4/index.js', 'utf8');
+    T('S4: kematian tank membersihkan straggler luar alun-alun dan menahan outro bila musuh sudah masuk',
+        /killStage4RobotsOutsideTownSquare\(\)/.test(s4Src)
+        && /countStage4RobotsInTownSquare\(\)/.test(s4Src)
+        && /outroDelayT = -1/.test(s4Src)
+        && !/blockers\.push\(gateBlocker\)/.test(s4Src));
 }
 // bunuh SEMUA robot normal -> updateMode -> GERBANG terbuka + HELI PENJEMPUT
 // menunggu di PUSAT alun-alun (rotor berputar cepat); TANK BELUM muncul — ia
@@ -5886,8 +5914,8 @@ T('S5 TRANSISI FRAME PERTAMA: tirai outro tetap bersih; dunia tampil sebelum dia
     && dom4.stageRadioDialogueDebug() === null
     && stateMod.cinematicActive);
 stateMod.setPaused(false);   // harness tidak menerima klik blocker setelah loading
-T('S5 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
-    stateMod.score === s5Carry.money && player.hp === s5Carry.hp
+T('S5 TRANSISI: money/armor/medkit/senjata bertahan, HP penuh di stage baru',
+    stateMod.score === s5Carry.money && player.hp === player.maxHp
     && player.armor === s5Carry.armor && player.medkits === s5Carry.medkits
     && player.weapons.join(',') === s5Carry.weapons);
 
@@ -8102,8 +8130,8 @@ stateMod.setPaused(false);
         && cityA.groundY === s6mod.S6_CITY_GROUND_Y && cityH.groundY === s6mod.HQ_CITY_GROUND_Y
         && cityA.groundY < 0 && cityH.groundY < cityA.groundY);
 }
-T('S6 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
-    stateMod.score === s6Carry.money && player.hp === s6Carry.hp
+T('S6 TRANSISI: money/armor/medkit/senjata bertahan, HP penuh di stage baru',
+    stateMod.score === s6Carry.money && player.hp === player.maxHp
     && player.armor === s6Carry.armor && player.medkits === s6Carry.medkits
     && player.weapons.join(',') === s6Carry.weapons);
 
@@ -9098,8 +9126,8 @@ T('S7 TRANSISI FRAME PERTAMA: flyover terlihat sebelum dialog opening dan kontro
     dom4.cineFadeDebug()?.opacity === 0 && s7mod.stage7DialogueDebug().key === null
     && dom4.stageRadioDialogueDebug() === null && stateMod.cinematicActive);
 stateMod.setPaused(false);
-T('S7 TRANSISI: money/HP/armor/medkit/senjata bertahan melewati Field Shop',
-    stateMod.score === s7Carry.money && player.hp === s7Carry.hp
+T('S7 TRANSISI: money/armor/medkit/senjata bertahan, HP penuh di stage baru',
+    stateMod.score === s7Carry.money && player.hp === player.maxHp
     && player.armor === s7Carry.armor && player.medkits === s7Carry.medkits
     && player.weapons.join(',') === s7Carry.weapons);
 
@@ -9970,7 +9998,7 @@ for (let i = 0; i < 500 && smMod.activeScene !== s8mod.stage8Scene; i++) await n
 stateMod.setPaused(false);
 T('S8 TRANSISI: Start Next Stage masuk checkpoint 8 dengan loadout/money tetap',
     smMod.activeScene === s8mod.stage8Scene && save5Mod.loadCampaignStage() === 8
-    && stateMod.score === s8Carry.money && player.hp === s8Carry.hp
+    && stateMod.score === s8Carry.money && player.hp === player.maxHp
     && player.armor === s8Carry.armor && player.medkits === s8Carry.medkits
     && player.weapons.join(',') === s8Carry.weapons);
 
@@ -12136,6 +12164,7 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     const camBefore = { x: rnd.camera.position.x, y: rnd.camera.position.y, z: rnd.camera.position.z };
     const sceneKidsBefore = scene.children.length;
     const proSfx = await import(R('src/utils/sfx.js'));
+    const proDom = await import(R('src/core/dom.js'));
     proSfx.startMenuMusic();
     proMod.beginPrologue(() => proDone++);
     const d1 = proMod.prologueDebug();
@@ -12252,6 +12281,41 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
     const dP4 = proMod.prologueDebug();
     T('SKIP FASE: setelah BODY sudah utuh, klik berikutnya baru maju ke ERA BERIKUTNYA',
         dP4.era === 1 && dP4.text.phase === 'year' && dP4.active === true && proDone === 0);
+
+    // Loading awal campaign kini berjalan DI BALIK prolog. Tombol SKIP baru
+    // di-arm saat loader selesai; kalau prolog habis duluan, overlay prolog
+    // diturunkan sehingga loading bar yang berada di bawahnya terlihat.
+    const mainSrc = fs.readFileSync(ROOT + '/src/main.js', 'utf8');
+    const s1ProgressiveSrc = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage1/index.js', 'utf8');
+    T('PROLOG LOADING: loader campaign dibangun bertahap di balik prolog, bukan satu blok sinkron',
+        mainSrc.includes('startPrologueLoadingTicker')
+        && mainSrc.includes('introScene.enter({ deferCampaignWorlds: true })')
+        && mainSrc.includes('ensureIntroCampaignWorldsProgressive')
+        && s1ProgressiveSrc.includes('export async function ensureWorldProgressive')
+        && s1ProgressiveSrc.includes('await afterStep(`Preparing ${label}`)'));
+    proDone = 0;
+    proMod.beginPrologue(() => proDone++, { showImmediately: true, loadingReady: false });
+    const gateStart = proMod.prologueDebug();
+    T('PROLOG LOADING: overlay bisa tampil langsung di atas loading, tapi SKIP belum di-arm',
+        gateStart.active && gateStart.loadingReady === false
+        && document.getElementById('prologue').style.display === 'flex'
+        && proDom.cutsceneSkipArmed() === false);
+    proMod.skipPrologue();
+    T('PROLOG LOADING: skip sebelum loading ready tidak menyelesaikan prolog',
+        proMod.prologueDebug().active === true && proDone === 0
+        && proDom.cutsceneSkipArmed() === false);
+    for (let n = 0; n < CH.length * 4; n++) proMod.advancePhase();
+    proMod.prologueScene.updateMode(P.fadeOutSec + 0.1);
+    const gateWait = proMod.prologueDebug();
+    T('PROLOG LOADING: jika prolog selesai duluan, ia menunggu loader dan membuka loading bar di bawahnya',
+        gateWait.active === true && gateWait.waitingForLoad === true && proDone === 0
+        && document.getElementById('prologue').style.display === 'none'
+        && String(document.getElementById('prologueArt').innerHTML) === '');
+    proMod.setPrologueLoadingReady(true);
+    T('PROLOG LOADING: setelah loader ready, prolog baru menyerahkan ke cutscene heli',
+        proMod.prologueDebug().active === false && proDone === 1
+        && smMod.activeScene === introMod0.introScene);
+    proDone = 0;
 
     // Mulai ulang mesinnya supaya lari penuh di bawah deterministik dari era 0.
     proMod.beginPrologue(() => proDone++);
@@ -20439,10 +20503,10 @@ if (false) {
         const bossHudSceneSources = [tankHudSrc4, locoHudSrc5, gunshipHudSrc8,
             bomberHudSrc10, rootSrc11, mahHudSrc12];
         const allBossHudSceneSrc = bossHudSceneSources.join('\n');
-        T('BOSS HUD: semua boss campaign aktif memakai health bar tunggal ala Warden',
-            !/bossHudSecondary/.test(hudHtml11 + hudCss11 + domSrc11)
+        T('BOSS HUD: semua boss campaign aktif memakai health bar tunggal tanpa status',
+            !/bossHudState|bossHudSecondary/.test(hudHtml11 + hudCss11 + domSrc11)
             && !/secondaryLabel|secondaryFraction|secondaryPct/.test(domSrc11 + allBossHudSceneSrc)
-            && /setBossHud\(\{ name = '', hp = 0, maxHp = 1, state = '' \}/.test(domSrc11)
+            && /setBossHud\(\{ name = '', hp = 0, maxHp = 1 \}/.test(domSrc11)
             && /setBossHud\(\{\s*name: 'N\.U\.S\.A\. WAR TANK'/.test(tankHudSrc4)
             && /setBossHud\(\{\s*name: 'HOSTILE LOCOMOTIVE'/.test(locoHudSrc5)
             && /setBossHud\(\{\s*name: 'N\.U\.S\.A\. COMBAT GUNSHIP'/.test(gunshipHudSrc8)
@@ -20452,6 +20516,22 @@ if (false) {
             && bossHudSceneSources.every(src => /hideBossHud\(\)/.test(src))
             && !/[█░]/.test(allBossHudSceneSrc)
             && !/return `BOSS \$\{|HOSTILE LOCOMOTIVE — \$\{|GUNSHIP \$\{/.test(allBossHudSceneSrc));
+    }
+
+    {
+        const pauseMenuSrc11 = fs.readFileSync(ROOT + '/src/core/pauseMenu.js', 'utf8');
+        const introSrc11 = fs.readFileSync(ROOT + '/src/scenes/campaign/cutscenes/intro.js', 'utf8');
+        const transitionSrc11 = fs.readFileSync(ROOT + '/src/scenes/campaign/utility/transition.js', 'utf8');
+        const gunshipSrc8 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage8/index.js', 'utf8');
+        const bomberSrc10 = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage10/flight.js', 'utf8');
+        T('HOW TO PLAY: start overlay penuh hanya Stage 1; Stage 8/10 punya tutorial khusus',
+            /activeScene\?\.id === 'campaign-1'/.test(pauseMenuSrc11)
+            && !/activeScene\?\.id === 'survival'/.test(pauseMenuSrc11)
+            && /stage8:\s*\[/.test(pauseMenuSrc11) && /stage10:\s*\[/.test(pauseMenuSrc11)
+            && /tutorialProfile:\s*'stage8'/.test(gunshipSrc8)
+            && /tutorialProfile:\s*'stage10'/.test(bomberSrc10)
+            && /showStartPrompt\(\)/.test(introSrc11)
+            && /showStartPrompt\(\)/.test(transitionSrc11));
     }
 
     T('S11 WARDEN KAMERA: pertarungan tidak mengembalikan sudut kamera global',

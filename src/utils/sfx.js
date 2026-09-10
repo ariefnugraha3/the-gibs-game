@@ -6,7 +6,6 @@ export const sfxShotgun = new Audio('assets/sounds/shotgun-shot.mp3');   // temb
 export const sfxEmpty = new Audio('assets/sounds/empty-gun.mp3');        // klik kosong (peluru & magazen habis)
 export const sfxSwitch = new Audio('assets/sounds/switch-weapon.mp3');   // ganti senjata
 export const sfxExplode = new Audio('assets/sounds/grenade-explode.mp3');
-export const sfxReload = new Audio('assets/sounds/reload.mp3');
 export const sfxHit = new Audio('assets/sounds/jokowi-kaget.mp3');
 export const sfxPistol = new Audio('assets/sounds/pistol-shoot.mp3');
 export const sfxPickup = new Audio('assets/sounds/pick-up-item.mp3');
@@ -307,7 +306,7 @@ export const gaplessLoopDebug = () => ({
 //    semua saat layar loading, bukan di tengah aksi. Node dihentikan sesaat
 //    kemudian; klip panjang tidak sempat terdengar (volume 0).
 export function preloadAllSFX() {
-    const all = [sfxShoot, sfxShotgun, sfxEmpty, sfxSwitch, sfxExplode, sfxReload, sfxHit,
+    const all = [sfxShoot, sfxShotgun, sfxEmpty, sfxSwitch, sfxExplode, sfxHit,
         sfxPistol, sfxPickup, sfxPurchase, sfxMelee, sfxThrow, sfxNadeRoll,
         sfxRobotBite, sfxFootstep, sfxRobotStep, sfxRobotSpawn,
         sfxLauncherShot, sfxRocketShot, sfxRocketExplode, sfxHeal,
