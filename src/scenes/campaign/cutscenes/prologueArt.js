@@ -1,7 +1,7 @@
 // ILUSTRASI ASCII PROLOG — sembilan tableau sinematik di setengah kanan layar.
 //
 // Medium tetap inline SVG karena prolog mematikan render THREE. Namun semua
-// bentuk yang terlihat dibuat HANYA dari glyph monospace dalam elemen <text>:
+// bentuk yang terlihat dibuat HANYA dari glyph teks dalam elemen <text>:
 // tidak ada path/rect/circle yang diam-diam menggantikan ASCII. Setiap tableau
 // disusun sebagai beberapa lapisan karakter (atmosfer, subjek, sorotan) agar
 // punya kedalaman, warna, dan timing tanpa kehilangan identitas terminalnya.

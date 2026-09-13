@@ -27,8 +27,8 @@ function dashboardTexture() {
         g.fillStyle = '#11130f'; g.fillRect(0, 0, w, h);
         g.strokeStyle = '#bd8b42'; g.lineWidth = 7; g.strokeRect(6, 6, w - 12, h - 12);
         g.fillStyle = '#f0dfbc'; g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.font = 'bold 29px monospace'; g.fillText('CISUMDAWU', w / 2, 54);
-        g.fillStyle = '#c89445'; g.font = '22px monospace';
+        g.font = 'bold 29px "Gasalt", sans-serif'; g.fillText('CISUMDAWU', w / 2, 54);
+        g.fillStyle = '#c89445'; g.font = '22px "Gasalt", sans-serif';
         g.fillText('KERTAJATI INTERNATIONAL AIRPORT', w / 2, 112);
     });
 }

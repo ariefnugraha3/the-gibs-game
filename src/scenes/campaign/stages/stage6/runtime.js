@@ -3,21 +3,26 @@
 // Sama seperti Stage 5: chapter adalah SUB-SCENE yang memakai kontrak hook scene
 // biasa tetapi TIDAK pernah melewati `core/sceneManager` — `activeScene` tetap
 // `stage6Scene`, sehingga checkpoint, stageStats, restart dan modal apa pun tak
-// berubah perilaku. Arrival -> HQ berpindah langsung tanpa dialog/cutscene;
-// helper fade tetap tersedia untuk entry/reset lain yang memerlukannya.
+// berubah perilaku. Arrival -> HQ memakai overlay loading internal stage, bukan
+// shop/sceneManager, agar shader/tekstur chapter HQ dipanaskan sebelum kontrol
+// kembali.
 
 import { CFG } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
 import { player, robots, bullets, stats, setCinematicActive } from '../../../../core/state.js';
-import { scene, CAM_OFF_DEFAULT, setCineFocus, addCamShake } from '../../../../core/renderer.js';
+import {
+    scene, viewCam, renderer, composer, postFxOn,
+    CAM_OFF_DEFAULT, setCineFocus,
+} from '../../../../core/renderer.js';
+import { showLoading, loadingStep, hideLoading } from '../../../../core/preload.js';
 import {
     showStageRadioDialogue, hideStageRadioDialogue,
     setCineBars, setCineFade, hideCutsceneSkip,
 } from '../../../../core/dom.js';
 import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 import { disposeRobot, queueBoom } from '../../../../entities/robots.js';
-import { explodeAt, spawnBloodBurst } from '../../../../entities/effects.js';
-import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
+import { spawnBloodBurst } from '../../../../entities/effects.js';
+import { spawnMachineWreckFx } from '../../../../entities/spawnMachine.js';
 import { spawnCampaignRobot, scaleSpawnCounts } from '../../utility/common.js';
 import { rand, segPointDist2 } from '../../../../utils/math.js';
 
@@ -42,17 +47,74 @@ export function cleanupCine(revealSec = 0) {
 
 // --- Manajer CHAPTER (sub-scene) -------------------------------------------
 export let sub = null;
+let subLoading = false;
+let subLoadingRun = 0;
 
-export function enterSub(next, opts = {}) {
+const chapterLoadingMinMs = () => {
+    const v = CFG.campaign.stage6?.chapterLoadingMinMs;
+    return typeof v === 'number' ? Math.max(0, v) : 900;
+};
+
+const renderWarmFrame = () => {
+    if (composer && postFxOn) composer.render();
+    else if (renderer) renderer.render(scene, viewCam);
+};
+
+async function minChapterHold(t0) {
+    const rem = chapterLoadingMinMs() - (Date.now() - t0);
+    if (rem > 0) await new Promise(r => setTimeout(r, rem));
+}
+
+function enterSubNow(next, opts = {}) {
     if (sub && sub.exit) sub.exit();
     sub = next;
     if (next && next.enter) next.enter(opts);
 }
 
-export function updateSubFade() {}
+async function runSubLoading(next, opts = {}) {
+    const t0 = Date.now();
+    const run = ++subLoadingRun;
+    subLoading = true;
+    setCinematicActive(true);
+    showLoading();
+    await loadingStep(12, opts.loadingLabel || 'Loading headquarters...');
+    if (run !== subLoadingRun) return;
+    enterSubNow(next, { ...opts, loading: false, fade: false });
+    setCinematicActive(true);
+    setCineBars(false); setCineFade(1, 0);
+    await loadingStep(58, 'Preparing headquarters...');
+    if (run !== subLoadingRun) return;
+    if (renderer) renderer.compile(scene, viewCam);
+    await loadingStep(76, 'Warming up...');
+    for (let i = 0; i < 3; i++) {
+        renderWarmFrame();
+        await loadingStep(84 + i * 5, 'Warming up...');
+        if (run !== subLoadingRun) return;
+    }
+    await loadingStep(100, 'Ready!');
+    if (run !== subLoadingRun) return;
+    await minChapterHold(t0);
+    if (run !== subLoadingRun) return;
+    hideLoading();
+    setCinematicActive(false);
+    setCineFade(0, CFG.campaign.stage6?.fadeSec ?? 0.5);
+    subLoading = false;
+}
 
-export function resetSub() { sub = null; }
-export const subFadeDebug = () => ({ pending: false, sec: 0 });
+export function enterSub(next, opts = {}) {
+    if (opts.loading) {
+        if (!subLoading) runSubLoading(next, opts);
+        return;
+    }
+    enterSubNow(next, opts);
+}
+
+export function updateSubFade() { return subLoading; }
+
+export function resetSub() { sub = null; subLoading = false; subLoadingRun++; hideLoading(); }
+export const subFadeDebug = () => ({
+    pending: false, sec: 0, loading: subLoading, loadingMinMs: chapterLoadingMinMs(),
+});
 
 // --- Mesin dialog (SATU antrean untuk seluruh stage; tak pernah di-reset
 // antar chapter supaya urutan naskah tetap utuh) ---------------------------
@@ -226,8 +288,5 @@ export function machineBulletHits(list, hitRadius) {
 
 // Ledakan penghancurnya; bangkai gosongnya sendiri milik `wreckSpawnMachine`.
 export function machineWreckFx(x, z) {
-    explodeAt(new THREE.Vector3(x, 12, z), 28, 1, undefined);
-    spawnGibs(x, 14, z, 12, 1, 0, 2.2, 0x3d444c, 0.4, 0x141210);
-    spawnBloodDecal(x, z, 7, 0x141210);
-    addCamShake(8);
+    spawnMachineWreckFx(x, z);
 }

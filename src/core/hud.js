@@ -275,7 +275,7 @@ export function drawRadar() {
     // sejajar-layar (SCREEN_UP unit), rumus (-fx, fz)·(R-9) = arah utara dunia
     // pada radar (serong kiri-atas saat kamera barat daya).
     radarCtx.fillStyle = 'rgba(180, 220, 255, 0.85)';
-    radarCtx.font = 'bold 9px "Courier Prime", "Courier New", monospace';
+    radarCtx.font = 'bold 9px "Gasalt", sans-serif';
     radarCtx.textAlign = 'center';
     radarCtx.textBaseline = 'middle';
     radarCtx.fillText('N', -fx * (R - 9), fz * (R - 9));

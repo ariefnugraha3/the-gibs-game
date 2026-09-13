@@ -6,13 +6,13 @@
 // ROMBAK GAMELOOP 2026-08-08 (permintaan user): tidak ada lagi BEBERAPA konsist
 // musuh yang datang bergantian. Player terkunci DI DALAM SATU GERBONG selebar
 // 4 m sepanjang perjalanan, dan seluruh perlawanan datang dari SATU kereta
-// musuh sepuluh gerbong yang muncul di jalur sebelah beberapa saat setelah
+// musuh dua belas gerbong yang muncul di jalur sebelah beberapa saat setelah
 // perjalanan dimulai, MENDAHULUI kereta player, lalu berhenti relatif tepat
 // ketika gerbong PALING BELAKANG-nya sejajar dengan gerbong player. Ramp
 // gerbong itu terbuka SENDIRIAN; robotnya menembak lintas-rel; kalau habis,
 // gerbong itu meledak, terlepas, dan tertinggal, lalu sisa konsist mundur satu
 // gerbong supaya gerbong berikutnya sejajar dan membuka ramp-nya. Begitu
-// seterusnya sampai kesepuluh gerbong habis dan lokomotifnya ikut hancur.
+// seterusnya sampai semua gerbong habis dan lokomotifnya ikut hancur.
 // Arena kereta tetap statis; hanya pool scenery yang bergulir.
 
 import { CFG } from '../../../../core/config.js';
@@ -31,7 +31,7 @@ import {
     setPhase, enterSub, queueDialogue,
     updateRide, etrain, etCarsKilled, etLaunched,
     etCarTotal, etConsistDone, launchEnemyConsist, countLiveHostiles,
-    updateEnemyTrain, TRAIN_HOOKS,
+    updateEnemyTrain, updateBoardingJumps, TRAIN_HOOKS,
 } from './runtime.js';
 import {
     updateHighway, highwayActive, highwayClear, highwayCarsDestroyed, roadMerged,
@@ -144,7 +144,7 @@ export const journeyScene = {
     },
 
     updateMode(dt) {
-        updateRide(dt); updateEnemyTrain(dt); syncLocoBossHud();
+        updateRide(dt); updateEnemyTrain(dt); updateBoardingJumps(dt); syncLocoBossHud();
         updateHighway(dt, etConsistDone()); updateConsist(dt);
     },
 

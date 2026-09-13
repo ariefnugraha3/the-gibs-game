@@ -45,15 +45,14 @@ import { robots, player, stats } from '../../../../core/state.js';
 import { showStageMsg } from '../../../../core/dom.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine,
-    wreckSpawnMachine, spawnMachineHp, spawnMachineDebug,
+    wreckSpawnMachine, spawnMachineHp, spawnMachineDebug, spawnMachineWreckFx,
 } from '../../../../entities/spawnMachine.js';
 import { disposeRobot, killRobot } from '../../../../entities/robots.js';
 import { spawnCampaignRobot } from '../../utility/common.js';
 import {
     STAGE11_CITY_VEHICLE_GROUP, stage11WeaponVehiclesAliveAt,
 } from './weaponVehicles.js';
-import { explodeAt, spawnGroundPuff, spawnBloodBurst } from '../../../../entities/effects.js';
-import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
+import { spawnGroundPuff, spawnBloodBurst } from '../../../../entities/effects.js';
 import { resolveBlockers } from '../../../../utils/collision.js';
 import { segPointDist2 } from '../../../../utils/math.js';
 import { playSFX, sfxRobotSpawn } from '../../../../utils/sfx.js';
@@ -437,9 +436,7 @@ function destroyMachine(cp, m) {
     if (!m.alive) return;
     m.alive = false; m.active = false; m.hp = 0; m.pending = 0; m.hitT = 0;
     wreckSpawnMachine(m.rig);
-    explodeAt(new THREE.Vector3(m.x, MACHINE_H * 0.8, m.z), 30, 1);
-    spawnGibs(m.x, MACHINE_H, m.z, 14, -1, 0, 2.5, PAL.gunmetal, 0.4, PAL.ink);
-    spawnBloodDecal(m.x, m.z, 7, PAL.ink); addCamShake(8);
+    spawnMachineWreckFx(m.x, m.z);
     const left = cp.machines.filter(x => x.alive).length;
     if (left > 0) { showStageMsg(`FABRICATOR DOWN — ${left} STILL RUNNING`, 2600); return; }
     const cars = vehiclesLeft(cp);

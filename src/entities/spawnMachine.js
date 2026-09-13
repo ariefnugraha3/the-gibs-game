@@ -13,11 +13,24 @@
 // shader. HP-nya juga satu angka bersama untuk semua stage (`spawnMachineHp`).
 
 import { CFG } from '../core/config.js';
+import { addCamShake } from '../core/renderer.js';
+import { explodeAt } from './effects.js';
+import { spawnGibs, spawnBloodDecal } from './gore.js';
 import { PAL } from '../world/palette.js';
 
 // HP tunggal untuk SEMUA mesin di semua stage (config-driven, permintaan user
 // 2026-08-09) — jangan pernah menambah kunci HP per stage lagi.
 export const spawnMachineHp = () => CFG.campaign.spawnMachine.hp;
+
+// Efek hancur bersama untuk semua fabricator campaign. Angka ini berasal dari
+// Stage 6 chapter 1, lalu dijadikan helper agar tiap stage tidak punya versi
+// ledakan/serpihan yang berbeda.
+export function spawnMachineWreckFx(x, z, baseY = 0) {
+    explodeAt(new THREE.Vector3(x, baseY + 12, z), 28, 1, undefined);
+    spawnGibs(x, baseY + 14, z, 12, 1, 0, 2.2, 0x3d444c, baseY + 0.4, 0x141210);
+    spawnBloodDecal(x, z, 7, 0x141210);
+    addCamShake(8);
+}
 
 // Palet bangkai: gosong, bukan hitam murni (aturan #1 palette.js).
 const CHAR = Object.freeze({ body: PAL.rubber, trim: PAL.ink, ember: PAL.amberDim });

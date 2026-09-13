@@ -12,9 +12,8 @@
 //   purge   -> jejaknya terdeteksi: gelombang baru turun DI SELURUH kantor
 //              termasuk safe area, dan DUA mesin pembuat robot BARU DITURUNKAN
 //              di sini (sebelum upload rangkanya tidak ada di layar sama sekali).
-//   escape  -> semua robot habis + kedua mesin hancur, barulah kembali ke `SF`
-//              menutup stage. Mendekati pintu utama lebih awal hanya membuat
-//              Gibran menolak: mesinnya dulu.
+//   escape  -> kedua mesin hancur, barulah kembali ke `SF` menutup stage.
+//              Robot yang tersisa boleh tetap mengejar; objektifnya mesinnya.
 //
 // RUANG SERVER tak pernah dipakai sebagai titik spawn robot, sebelum maupun
 // sesudah upload (permintaan user) — lihat `HQ_SERVER_ROOM` di hqWorld.js.
@@ -281,7 +280,7 @@ function endUploadCine() {
     if (!cine) return;
     beginLockdown();
     cleanupCine(C6().fadeSec); hideDownloadBar();
-    showStageMsg('DESTROY BOTH ROBOT FACTORIES AND CLEAR THE FLOOR', 4600);
+    showStageMsg('DESTROY BOTH ROBOT FACTORIES', 4600);
 }
 
 function updateCine(dt) {
@@ -380,11 +379,9 @@ export const hqScene = {
         if (phase === 'purge') {
             updateMachines(dt);
             if (machinesAlive() > 0) { updateExitWarning(); return; }
-            if (countStageRobots(6) === 0) {
-                setPhase('escape'); setFinishMarker(true);
-                queueDialogue('floorClear');
-                showStageMsg('FLOOR CLEAR — RETURN TO THE ENTRY POINT', 4400);
-            }
+            setPhase('escape'); setFinishMarker(true);
+            queueDialogue('floorClear');
+            showStageMsg('FACTORIES DOWN — RETURN TO THE ENTRY POINT', 4400);
             return;
         }
         if (phase === 'escape' && near(HQ_START, C6().finishRange)) finishStage();
@@ -441,8 +438,8 @@ export const hqScene = {
                 : `SERVER ROOM LOCKED — BREAK THE MEETING ROOM TERMINAL | Robots: ${countStageRobots(6)}`;
         }
         if (phase === 'upload') return `KILL-SWITCH UPLOAD — ${Math.round(uploadProgress * 100)}%`;
-        if (phase === 'purge') return `FACTORIES ${machinesAlive()}/${MACHINE_POINTS.length} — Robots: ${countStageRobots(6)}`;
-        if (phase === 'escape') return 'FLOOR CLEAR — RETURN TO THE ENTRY POINT';
+        if (phase === 'purge') return `DESTROY FACTORIES ${machinesAlive()}/${MACHINE_POINTS.length}`;
+        if (phase === 'escape') return 'FACTORIES DOWN — RETURN TO THE ENTRY POINT';
         return 'UPLOAD FAILED — ROUTE TO IKN REQUIRED';
     },
     radarLandmarks(plot) {

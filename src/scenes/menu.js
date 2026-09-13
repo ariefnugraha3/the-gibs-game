@@ -44,7 +44,7 @@ export const MENU_CREDITS = Object.freeze({
         Object.freeze({ role: 'Engine', name: 'Three.js r128 — MIT License' }),
         Object.freeze({ role: 'Visuals', name: 'Original procedural 3D' }),
         Object.freeze({ role: 'Audio', name: 'Royalty-free sources' }),
-        Object.freeze({ role: 'Typeface', name: 'Courier Prime — SIL Open Font License' }),
+        Object.freeze({ role: 'Typeface', name: 'Gasalt' }),
         Object.freeze({ role: 'Special Thanks', name: 'The Playtesters' }),
     ]),
     footer: 'MADE IN INDONESIA',
@@ -320,7 +320,7 @@ function exitGame() {
     document.body.innerHTML =
         '<div style="position:fixed;inset:0;display:flex;align-items:center;' +
         'justify-content:center;background:#000;color:#ffb84d;' +
-        "font-family:'Courier Prime','Courier New',monospace;" +
+        "font-family:'Gasalt',sans-serif;" +
         'font-size:26px;letter-spacing:2px;text-align:center;padding:20px;">' +
         'Thanks for playing Decommission Day.<br>You may now close this tab.</div>';
 }

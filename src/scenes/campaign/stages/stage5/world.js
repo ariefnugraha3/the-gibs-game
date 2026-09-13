@@ -359,13 +359,13 @@ export function stationDoorClampShot(b) {
 }
 
 // --- Kereta musuh di jalur sebelah ----------------------------------------
-// SATU konsist penyerbu statis-prealokasi: SEPULUH peti baja tertutup + satu
+// SATU konsist penyerbu statis-prealokasi: dua belas peti baja tertutup + satu
 // lokomotif perisai (bentuknya di props.js). Dua peran: (1) satu lintasan
 // atmosfer di stasiun, (2) SELURUH perlawanan perjalanan — ia menyusul lalu
 // MENDAHULUI kereta player sampai gerbong 0 (paling belakang) sejajar dengan
 // gerbong player, membuka ramp SATU PER SATU, dan tiap gerbong yang robotnya
 // habis MELEDAK + TERLEPAS + TERTINGGAL sementara sisanya mundur satu gerbong.
-export const ET_CARGO_CARS = 10;                // permintaan user 2026-08-08
+export const ET_CARGO_CARS = 12;                // permintaan user 2026-09-10
 export const ET_CARS = ET_CARGO_CARS + 1;       // + satu lokomotif perisai
 export const ET_LEN = 84, ET_STEP = 88, ET_HALF = TRAIN_HALF_WIDTH;
 const ET_SPAN = ET_CARGO_CARS * ET_STEP + ET_LEN;
@@ -658,7 +658,7 @@ function buildWorld() {
     journey = buildTrainJourneyScenery(TRAIN_BASE_X, TRAIN_CENTER_Z, JOURNEY_TRACK_DZ);
     scene.add(journey.group);
     // Jalan raya berjalan di sisi KANAN kereta player (+z); ia hidup mulai
-    // gerbong ke-5 dan MERAPAT perlahan (kurva penyatuan ada di highway.js).
+    // gerbong ke-2 dan MERAPAT perlahan (kurva penyatuan ada di highway.js).
     highway = buildJourneyHighway(TRAIN_BASE_X, TRAIN_CENTER_Z);
     scene.add(highway.group);
     for (let i = 0; i < Math.max(2, ((CFG.campaign.stage5.highway || {}).maxActivePickups | 0) + 1); i++) {

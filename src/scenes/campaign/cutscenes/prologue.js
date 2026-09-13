@@ -41,7 +41,7 @@
 // TATA LETAK (2026-07-31, permintaan user): teks menempati SETENGAH KIRI layar
 // (#prologueText, css/style.css); SETENGAH KANAN = `#prologueArt` berisi
 // TABLEAU ASCII PER ERA (prologueArt.js — SVG hanya wadah; seluruh bentuk yang
-// terlihat tersusun dari glyph monospace berlapis sesuai isi tiap chapter).
+// terlihat tersusun dari glyph teks berlapis sesuai isi tiap chapter).
 // SVG-nya ditukar hanya saat
 // GANTI era; opacity-nya = selubung fade SATU ERA PENUH (`artAlphaAt`) — masuk
 // bersama fase tahun, bertahan selama judul+isi, padam bersama fade-out isi.

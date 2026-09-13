@@ -1,35 +1,48 @@
-/* ============ Font utama: Courier Prime (assets/fonts/, lisensi OFL).
-   Menggantikan Arial di SELURUH UI (2026-07-31, permintaan user). Empat face
-   didaftarkan agar font-weight:bold / font-style:italic pakai file aslinya,
-   bukan synthetic bold dari browser. font-display:block supaya teks tidak
-   sempat ter-render dengan fallback lalu melompat (FOUT) — semua teks UI
-   muncul di atas layar loading/menu, jadi jeda swap-nya tidak terlihat. ============ */
+/* ============ Font utama: Gasalt (assets/fonts/gasalt/).
+   Semua teks UI memakai keluarga lokal ini. Face ringan/normal/tebal
+   didaftarkan dari file yang tersedia; italic dipetakan ke keluarga yang sama
+   supaya markup <em> tetap memakai Gasalt. font-display:block supaya teks
+   tidak sempat ter-render dengan fallback lalu melompat (FOUT). ============ */
 @font-face {
-    font-family: 'Courier Prime';
-    src: url('../assets/fonts/CourierPrime-Regular.ttf') format('truetype');
+    font-family: 'Gasalt';
+    src: url('../assets/fonts/gasalt/Gasalt-Thin.ttf') format('truetype');
+    font-weight: 100;
+    font-style: normal;
+    font-display: block;
+}
+@font-face {
+    font-family: 'Gasalt';
+    src: url('../assets/fonts/gasalt/Gasalt-Regular.ttf') format('truetype');
     font-weight: 400;
     font-style: normal;
     font-display: block;
 }
 @font-face {
-    font-family: 'Courier Prime';
-    src: url('../assets/fonts/CourierPrime-Italic.ttf') format('truetype');
+    font-family: 'Gasalt';
+    src: url('../assets/fonts/gasalt/Gasalt-Regular.ttf') format('truetype');
     font-weight: 400;
     font-style: italic;
     font-display: block;
 }
 @font-face {
-    font-family: 'Courier Prime';
-    src: url('../assets/fonts/CourierPrime-Bold.ttf') format('truetype');
+    font-family: 'Gasalt';
+    src: url('../assets/fonts/gasalt/Gasalt-Black.ttf') format('truetype');
     font-weight: 700;
     font-style: normal;
     font-display: block;
 }
 @font-face {
-    font-family: 'Courier Prime';
-    src: url('../assets/fonts/CourierPrime-BoldItalic.ttf') format('truetype');
+    font-family: 'Gasalt';
+    src: url('../assets/fonts/gasalt/Gasalt-Black.ttf') format('truetype');
     font-weight: 700;
     font-style: italic;
+    font-display: block;
+}
+@font-face {
+    font-family: 'Gasalt';
+    src: url('../assets/fonts/gasalt/Gasalt-Black.ttf') format('truetype');
+    font-weight: 800 900;
+    font-style: normal;
     font-display: block;
 }
 
@@ -37,7 +50,7 @@ body {
     margin: 0;
     overflow: hidden;
     background: #000;
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     user-select: none;
 }
 
@@ -360,7 +373,7 @@ body {
 }
 
 #medkitBarLabel {
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     font-size: 12px;
     font-weight: bold;
     letter-spacing: 3px;
@@ -394,7 +407,7 @@ body {
 }
 
 #downloadBarLabel {
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     font-size: 15px;
     font-weight: bold;
     letter-spacing: 4px;
@@ -419,7 +432,7 @@ body {
 }
 
 #downloadBarPct {
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     font-size: 12px;
     font-weight: bold;
     letter-spacing: 2px;
@@ -813,7 +826,7 @@ body {
     max-width: min(560px, 92vw);
     box-shadow: 0 16px 50px rgba(0, 0, 0, 0.65);
     text-align: center;
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
 }
 
 #instructions .startTitle {
@@ -928,7 +941,7 @@ body {
 }
 
 .pauseBtn {
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     font-size: 20px;
     font-weight: bold;
     letter-spacing: 1px;
@@ -977,7 +990,7 @@ body {
 }
 
 #cheatInput {
-    font-family: 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     font-size: 18px;
     color: #eaf2ff;
     background: rgba(0, 0, 0, 0.5);
@@ -991,7 +1004,7 @@ body {
 #cheatInput:focus { border-color: #ffb84d; }
 
 #cheatFeedback {
-    font-family: 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     font-size: 14px;
     color: #7fe0a0;
     min-height: 16px;
@@ -1062,7 +1075,7 @@ body {
     justify-content: center;
     gap: 22px;
     background: #05060a;
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     cursor: wait;
 }
 
@@ -1187,7 +1200,7 @@ body {
     overflow: hidden;
     background: var(--aiInk);
     color: var(--aiText);
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
 }
 
 #mainMenu {
@@ -1423,8 +1436,8 @@ body {
 
 /* Judul = NAMA SAJA di kedua layar (2026-08-10, permintaan user — tagline
    "NUSANTARA 2045" beserta rusuk ambernya dibuang dari menu utama lalu dari
-   layar pilih mode). Lebar 12ch = tepat memotong "DECOMMISSION / DAY"
-   pada font monospace, jadi kedua baris rata kiri tanpa markup tambahan. */
+   layar pilih mode). Lebar 12ch menjaga logotype tetap terkunci dua baris
+   tanpa markup tambahan. */
 #mainMenu h1 .titleMain,
 #modeSelect h1 .titleMain {
     display: block;
@@ -1761,9 +1774,9 @@ body {
 
 /* Kolom label memakai lebar tetap seperti .volRow supaya seluruh nilai rata
    di satu garis — itu yang membuatnya terbaca sebagai konsol, bukan daftar.
-   210px = muat label terpanjang ("Created & Directed by", 21 huruf) pada font
-   monospace 10.5px + tracking 0.28em ≈ 9.2px/huruf; lebih sempit dari itu
-   labelnya membungkus dan barisnya jadi dua tinggi. */
+   210px = muat label terpanjang ("Created & Directed by", 21 huruf) pada
+   ukuran Gasalt + tracking ini; lebih sempit dari itu labelnya membungkus dan
+   barisnya jadi dua tinggi. */
 .credRow {
     display: grid;
     grid-template-columns: 210px 1fr;
@@ -1899,7 +1912,7 @@ body {
     align-items: center;
     justify-content: center;
     background: rgba(6, 7, 9, 0.82);
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
 }
 
 .cpBox {
@@ -2042,7 +2055,7 @@ body {
         radial-gradient(ellipse at 50% 0%, rgba(239, 125, 26, 0.07), transparent 58%),
         linear-gradient(160deg, rgba(31, 35, 42, 0.97), rgba(20, 23, 28, 0.98));
     backdrop-filter: blur(6px) saturate(0.8);
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     color: #e6e9ed;
 }
 /* Campaign = SHOP SCENE terpisah (2026-07-14): latar OPAK, stage tak terlihat. */
@@ -2656,7 +2669,7 @@ body.cine #medkitBar, body.cine #stageMsg {
     background: #000;
     pointer-events: none;
     overflow: hidden;
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
 }
 
 /* SETENGAH KIRI: kolom teks, konten di tengah secara vertikal. Hanya SATU dari
@@ -2705,7 +2718,7 @@ body.cine #medkitBar, body.cine #stageMsg {
    aPulse = denyut node/cahaya; aBlink = kedip peringatan/glitch; aScan =
    garis pemindai lini perakitan; aSpin = roda ekonomi berputar. */
 #prologueArt .asciiLayer {
-    font-family: 'Courier Prime', 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     font-size: 10.4px;
     font-weight: 700;
     letter-spacing: 0.18px;
@@ -2857,7 +2870,7 @@ body.cine #medkitBar, body.cine #stageMsg {
     display: none;                  /* -> flex saat hack dibuka */
     align-items: center;
     justify-content: center;
-    font-family: 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     color: #e6ded0;
     background:
         repeating-linear-gradient(0deg, rgba(47, 184, 166, 0.05) 0 1px, transparent 1px 3px),
@@ -3213,7 +3226,7 @@ body.cine #medkitBar, body.cine #stageMsg {
     display: none;                  /* -> flex saat modal dibuka */
     align-items: center;
     justify-content: center;
-    font-family: 'Courier New', monospace;
+    font-family: 'Gasalt', sans-serif;
     color: #e6ded0;
     background:
         repeating-linear-gradient(0deg, rgba(47, 184, 166, 0.05) 0 1px, transparent 1px 3px),

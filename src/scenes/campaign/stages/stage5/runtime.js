@@ -13,21 +13,25 @@ import {
 import { setAvatarRadioPose } from '../../../../entities/playerAvatar.js';
 import { spawnCampaignRobot, campaignRobotAI, campaignClampRobot } from '../../utility/common.js';
 import { resolveCrateBlock } from '../../../../entities/crates.js';
-import { explodeAt } from '../../../../entities/effects.js';
+import { explodeAt, spawnGroundPuff } from '../../../../entities/effects.js';
 import { spawnGibs, driftGore } from '../../../../entities/gore.js';
 import { PAL } from '../../../../world/palette.js';
 import { slideWalk } from '../../../../utils/collision.js';
+import { rand } from '../../../../utils/math.js';
 import { updateTrainVisual, updateJourneyScenery } from '../../../../entities/train.js';
 import {
     playSFX, playLoopSFX, stopLoopSFX, sfxTrain, sfxTankExplode, sfxExplode,
+    sfxRobotSpawn,
 } from '../../../../utils/sfx.js';
-import { highwayRobotAI, snapHighwayRobot, startHighway } from './highway.js';
+import {
+    highwayRobotAI, snapHighwayRobot, startHighway, armHighwayRaiders,
+} from './highway.js';
 import {
     armLocoBoss, updateLocoBoss, resetLocoBoss, locoBossDead, locoBossActive,
     locoDeathBurst, locoBossDebug,
 } from './loco.js';
 import {
-    TRAIN_BASE_X, TRAIN_X0, TRAIN_X1, TRAIN_Z0, TRAIN_Z1,
+    TRAIN_BASE_X, TRAIN_CENTER_Z, TRAIN_X0, TRAIN_X1, TRAIN_Z0, TRAIN_Z1,
     ENEMY_TRACK_Z, JOURNEY_ENEMY_Z, ET_ENTER_X, ET_EXIT_X, ET_CARGO_CARS,
     ET_LEN, ET_STEP, ET_HALF, etCfg, enemyTrain, parkEnemyTrain,
     resetEnemyCars, enemyCarOffsetX, spinEnemyTrain,
@@ -185,30 +189,35 @@ export const trainLoopDebug = () => ({ on: !!trainLoop, src: trainLoop?.src || n
 //      menembak lintas-rel; begitu robotnya habis, gerbong itu MELEDAK,
 //      TERLEPAS, dan TERTINGGAL, lalu sisa konsist MUNDUR satu gerbong supaya
 //      gerbong berikutnya sejajar dan membuka ramp-nya. Begitu seterusnya
-//      sampai kesepuluh gerbong habis dan lokomotifnya ikut hancur.
+//      sampai dua belas gerbong habis dan lokomotifnya ikut hancur.
 // Mesh + transform gerbong milik world.js; modul ini hanya menggerakkannya.
 //
 // Urutan mode perjalanan:
-//   idle -> overtake -> [ open -> engage -> detach -> advance ]*10
+//   idle -> overtake -> [ open -> engage -> detach -> advance ]*12
 //        -> boss (lokomotif mini-boss, lihat loco.js) -> finale
 // Sejak 2026-08-09 gerbong terakhir TIDAK langsung menyalakan `finale`: konsist
 // maju sekali lagi sampai LOKOMOTIFNYA sejajar dengan gerbong player, lalu
 // lokomotif itu bertempur sebagai mini boss sampai HP-nya habis.
 export let etrain = {
     mode: 'idle', t: 0, passes: 0, car: -1, spawned: 0, ramp: 0, boom: 0,
+    boardersSpawned: false,
 };
 export let etCarsKilled = 0, etLaunched = false;
 // Bangkai gerbong yang sudah terlepas: masih anak konsist, tetapi digeser terus
 // ke belakang sampai jauh di luar layar lalu disembunyikan.
 let etWrecks = [];
+let boardingJumps = [];
 const _mount = new THREE.Vector3();
 
 export const etCarTotal = () => ET_CARGO_CARS;
 export const etConsistDone = () => etCarsKilled >= ET_CARGO_CARS && etrain.mode === 'idle';
 
 export function resetEnemyTrain() {
-    etrain = { mode: 'idle', t: 0, passes: 0, car: -1, spawned: 0, ramp: 0, boom: 0 };
-    etCarsKilled = 0; etLaunched = false; etWrecks = [];
+    etrain = {
+        mode: 'idle', t: 0, passes: 0, car: -1, spawned: 0, ramp: 0, boom: 0,
+        boardersSpawned: false,
+    };
+    etCarsKilled = 0; etLaunched = false; etWrecks = []; boardingJumps = [];
     resetLocoBoss();
     parkEnemyTrain();
 }
@@ -234,6 +243,7 @@ export function enemyCarMix(n) {
 
 const randInt = (lo, hi) => lo + Math.floor(Math.random() * (Math.max(lo, hi) - lo + 1));
 const smoothK = k => k * k * (3 - 2 * k);
+const easeInOut = k => k < 0.5 ? 4 * k * k * k : 1 - ((-2 * k + 2) ** 3) / 2;
 
 // Posisi konsist supaya gerbong ke-i sejajar dengan gerbong player. Gerbong 0
 // paling belakang, jadi makin besar `i` konsist makin MUNDUR — persis seperti
@@ -250,6 +260,16 @@ function slotLocal(carIdx, k, n, out) {
     const spacing = etCfg().slotSpacing ?? 13;
     out.x = enemyCarOffsetX(carIdx) + (k - (n - 1) / 2) * spacing;
     out.z = k % 2 ? ET_HALF - 3.2 : ET_HALF - 7.4;
+    return out;
+}
+
+// Boarder C juga sudah menjadi awak gerbong sejak konsist berangkat. Mereka
+// menunggu beberapa langkah di balik ramp, sehingga saat pintu jatuh mereka
+// benar-benar keluar dari interior gerbong, bukan muncul di bibirnya.
+function boarderSlotLocal(carIdx, k, n, out) {
+    const C = boarderCfg(), spacing = C.slotSpacing ?? 12;
+    out.x = enemyCarOffsetX(carIdx) + (k - (n - 1) / 2) * spacing;
+    out.z = ET_HALF - Math.max(2, C.stagingInset ?? 6);
     return out;
 }
 
@@ -279,10 +299,81 @@ function spawnCarRobots(carIdx) {
     return n;
 }
 
+function boarderCfg() { return etCfg().boarders || {}; }
+
+function spawnStagedCarBoarders(carIdx) {
+    const C = boarderCfg();
+    if (C.enabled === false) return 0;
+    const min = Math.max(0, C.perCarMin ?? 2);
+    const max = Math.max(min, C.perCarMax ?? 3);
+    const n = randInt(min, max);
+    if (n <= 0) return 0;
+    const g = enemyTrain.group.position, slot = { x: 0, z: 0 };
+    const targetSpan = Math.max(6, (TRAIN_X1 - TRAIN_X0) - 22);
+    for (let k = 0; k < n; k++) {
+        const lane = k - (n - 1) / 2;
+        boarderSlotLocal(carIdx, k, n, slot);
+        const tx = Math.max(TRAIN_X0 + 8, Math.min(TRAIN_X1 - 8,
+            TRAIN_BASE_X + lane * Math.min(14, targetSpan / Math.max(1, n)) + rand(-3, 3)));
+        const tz = TRAIN_CENTER_Z + rand(-5.5, 5.5);
+        const r = spawnOne('C', g.x + slot.x, g.z + slot.z, `boarding-${carIdx}`, false);
+        r.mounted = true; r.state = 'mounted'; r.moving = false; r.aiming = false;
+        r.etCar = carIdx; r.etSlot = { x: slot.x, z: slot.z };
+        r.boardingCar = carIdx; r.boardingPending = true; r.boardingJump = false;
+        r.boardingPhase = 'sealed'; r.boardingLaunchFx = false;
+        r.boardingTarget = { x: tx, z: tz, side: (k % 2 ? -1 : 1) * (C.sideArc ?? 7) };
+        r.invuln = true; r.mesh.visible = false;
+    }
+    return n;
+}
+
+// Dipanggil setelah ramp benar-benar datar. C yang sudah dimuat sebelumnya
+// mendapat shot dari interior -> bibir ramp -> dek player, tanpa spawn baru.
+function launchCarBoarders(carIdx) {
+    const C = boarderCfg(), g = enemyTrain.group.position;
+    let n = 0;
+    for (const z of robots) {
+        if (z.stage !== 5 || !z.mounted || z.etCar !== carIdx || !z.boardingPending) continue;
+        const target = z.boardingTarget;
+        if (!target) continue;
+        const inside = {
+            x: g.x + z.etSlot.x,
+            y: 0,
+            z: g.z + z.etSlot.z,
+        };
+        const door = {
+            x: inside.x,
+            y: 0,
+            z: g.z + ET_HALF + (C.launchEdge ?? 4),
+        };
+        const base = z.scl || 1;
+        z.mounted = false; z.etCar = null; z.etSlot = null;
+        z.boardingPending = false; z.boardingJump = true; z.boardingPhase = 'delay';
+        z.boardingLaunchFx = false; z.boardingSideOffset = 0;
+        z.state = 'jumping'; z.moving = false; z.aiming = false; z.invuln = true;
+        z.mesh.visible = true; z.mesh.scale.setScalar(base);
+        z.mesh.rotation.set(0, Math.atan2(door.x - inside.x, door.z - inside.z), 0);
+        boardingJumps.push({
+            z, t: -(C.staggerSec ?? 0.28) * n, base, inside, door,
+            target: { x: target.x, y: 0, z: target.z }, side: target.side,
+            arc: C.arcHeight ?? 24,
+            windup: Math.max(0.05, C.windupSec ?? 0.22),
+            runup: Math.max(0.05, C.runupSec ?? 0.2),
+            sec: Math.max(0.25, C.jumpSec ?? 1.15),
+            pitch: C.bodyPitch ?? 0.42,
+        });
+        n++;
+    }
+    return n;
+}
+
 // Seluruh awak konsist sekaligus, dipanggil sekali saat konsist diluncurkan.
 function spawnConsistRobots() {
     let n = 0;
-    for (let i = 0; i < ET_CARGO_CARS; i++) n += spawnCarRobots(i);
+    for (let i = 0; i < ET_CARGO_CARS; i++) {
+        n += spawnCarRobots(i);
+        n += spawnStagedCarBoarders(i);
+    }
     return n;
 }
 
@@ -294,6 +385,7 @@ export function launchEnemyConsist() {
     enemyTrain.group.position.set(consistEnterX(), 0, JOURNEY_ENEMY_Z);
     etrain = {
         mode: 'overtake', t: 0, passes: etrain.passes, car: -1, spawned: 0, ramp: 0, boom: 0,
+        boardersSpawned: false,
     };
     // Awak SEMUA gerbong dimuat sekarang, bukan satu gerbong per giliran.
     spawnConsistRobots();
@@ -307,6 +399,7 @@ export function launchEnemyConsist() {
 // awak seluruh konsist sudah dimuat sejak `launchEnemyConsist`.
 function armCar(i) {
     etrain.mode = 'open'; etrain.t = 0; etrain.car = i; etrain.ramp = 0; etrain.boom = 0;
+    etrain.boardersSpawned = false;
     etrain.spawned = countEnemyCarRobots(i);
     setEnemyStrobe(i, true);
     addCamShake(1.1);
@@ -314,11 +407,15 @@ function armCar(i) {
     // kanan (permintaan user 2026-08-08). Penyatuannya perlahan dan dimulai
     // jauh di luar layar; lihat highway.js.
     if (i >= ((CFG.campaign.stage5.highway || {}).fromCarIndex ?? 4)) startHighway();
+    if (i >= ((CFG.campaign.stage5.highway || {}).pickupFromCarIndex
+        ?? (CFG.campaign.stage5.highway || {}).fromCarIndex ?? 4)) armHighwayRaiders();
 }
 
 export function countEnemyCarRobots(i = etrain.car) {
     let n = 0;
-    for (const z of robots) if (z.stage === 5 && z.mounted && z.etCar === i) n++;
+    for (const z of robots) {
+        if (z.stage === 5 && z.mounted && z.etCar === i && !z.boardingPending) n++;
+    }
     return n;
 }
 
@@ -374,6 +471,10 @@ export function enemyTrainRobotAI(z, dt) {
         z.mesh.visible = false; z.invuln = true; return { skip: true };
     }
     z.mesh.visible = true;
+    // Tidak ada jalur transisi yang boleh membuat C yang masih di dalam
+    // gerbong menjadi rentan atau mulai menembak. `launchCarBoarders()` adalah
+    // satu-satunya titik yang mencabut flag ini, sesudah ramp terbuka penuh.
+    if (z.boardingPending) { z.invuln = true; z.aiming = false; return {}; }
     // Ramp belum mendarat: sudah kelihatan berdiri siap, tapi menahan tembakan
     // DAN kebal — pintu setengah terbuka bukan sasaran yang sah.
     if (etrain.ramp < 1) { z.invuln = true; z.aiming = false; return {}; }
@@ -423,6 +524,96 @@ function updateWrecks(dt) {
     }
 }
 
+export function updateBoardingJumps(dt) {
+    const C = boarderCfg();
+    for (let i = boardingJumps.length - 1; i >= 0; i--) {
+        const b = boardingJumps[i], z = b.z;
+        if (!robots.includes(z)) { boardingJumps.splice(i, 1); continue; }
+        b.t += dt;
+        if (b.t < 0) {
+            z.boardingPhase = 'delay'; z.boardingSideOffset = 0;
+            z.mesh.position.set(b.inside.x, b.inside.y, b.inside.z);
+            z.groundY = b.inside.y; z.baseY = b.inside.y;
+            z.mesh.rotation.set(0, Math.atan2(b.door.x - b.inside.x, b.door.z - b.inside.z), 0);
+            z.mesh.scale.setScalar(b.base);
+            continue;
+        }
+        const dx = b.target.x - b.door.x, dz = b.target.z - b.door.z;
+        const heading = Math.atan2(dx, dz);
+        const runDx = b.door.x - b.inside.x, runDz = b.door.z - b.inside.z;
+        const runLen = Math.max(0.001, Math.hypot(runDx, runDz));
+        if (b.t < b.windup) {
+            const k = b.t / b.windup, crouch = Math.sin(k * Math.PI * 0.5);
+            z.boardingPhase = 'windup'; z.boardingSideOffset = 0;
+            z.mesh.position.set(b.inside.x - runDx / runLen * crouch * 1.7, b.inside.y,
+                b.inside.z - runDz / runLen * crouch * 1.7);
+            z.groundY = b.inside.y; z.baseY = b.inside.y;
+            z.mesh.rotation.set(-crouch * b.pitch * 0.38, heading, -b.side * crouch * 0.018);
+            z.mesh.scale.set(b.base * (1 + crouch * 0.1), b.base * (1 - crouch * 0.2), b.base * (1 + crouch * 0.1));
+            continue;
+        }
+        const runT = b.t - b.windup;
+        if (runT < b.runup) {
+            const k = smoothK(runT / b.runup), lift = Math.sin(k * Math.PI) * 0.65;
+            z.boardingPhase = 'runup'; z.boardingSideOffset = 0;
+            z.mesh.position.set(
+                b.inside.x + runDx * k,
+                b.inside.y + lift,
+                b.inside.z + runDz * k,
+            );
+            z.groundY = b.inside.y; z.baseY = b.inside.y;
+            z.mesh.rotation.set(-Math.sin(k * Math.PI) * b.pitch * 0.22, heading,
+                -b.side * Math.sin(k * Math.PI) * 0.014);
+            z.mesh.scale.set(b.base * 1.04, b.base * (1 - Math.sin(k * Math.PI) * 0.1), b.base * 1.04);
+            continue;
+        }
+        if (!z.boardingLaunchFx) {
+            z.boardingLaunchFx = true;
+            spawnGroundPuff(b.door.x, b.door.z, PAL.amber, 9, 1.7);
+            playSFX(sfxRobotSpawn, 0.42);
+            addCamShake(C.launchShake ?? 0.8);
+        }
+        const k = Math.min(1, (runT - b.runup) / b.sec);
+        const move = easeInOut(k), loft = Math.sin(k * Math.PI);
+        const side = loft * b.side, perpX = Math.cos(heading), perpZ = -Math.sin(heading);
+        z.boardingPhase = 'flight'; z.boardingSideOffset = side;
+        z.mesh.position.x = b.door.x + dx * move + perpX * side;
+        z.mesh.position.z = b.door.z + dz * move + perpZ * side;
+        z.mesh.position.y = b.door.y + (b.target.y - b.door.y) * move + loft * b.arc;
+        z.groundY = b.door.y + (b.target.y - b.door.y) * move;
+        z.baseY = z.groundY;
+        z.state = 'jumping'; z.moving = false; z.aiming = false; z.invuln = true;
+        z.mesh.visible = true;
+        z.mesh.rotation.set(-loft * b.pitch, heading + Math.sin(k * Math.PI * 2) * (C.yawSwing ?? 0.18),
+            -Math.sin(k * Math.PI * 2) * b.side * 0.025);
+        const squash = k > 0.82 ? 1 - (k - 0.82) / 0.18 * 0.12 : 1;
+        z.mesh.scale.set(b.base * (1 + loft * 0.04),
+            b.base * squash,
+            b.base * (1 + loft * 0.04));
+        if (k < 1) continue;
+        z.mesh.position.set(b.target.x, b.target.y, b.target.z);
+        z.groundY = b.target.y; z.baseY = b.target.y;
+        z.mesh.rotation.set(0, heading, 0); z.mesh.scale.setScalar(b.base);
+        z.boardingJump = false; z.invuln = false;
+        z.boardingPhase = 'landed'; z.boardingSideOffset = 0;
+        z.state = 'chasing'; z.moving = false; z.aiming = false; z.attackCd = 0.45;
+        spawnGroundPuff(b.target.x, b.target.z, PAL.techDim, 9, b.target.y + 0.9);
+        addCamShake(C.landShake ?? 1.1);
+        boardingJumps.splice(i, 1);
+    }
+}
+
+export function boardingRobotAI(z, dt, step) {
+    if (z.boardingJump) {
+        z.state = 'jumping'; z.moving = false; z.aiming = false; z.invuln = true;
+        return {};
+    }
+    // Boarder sudah berada di gerbong player. Jangan gunakan navGrid stasiun:
+    // grid itu tidak mencakup dek perjalanan dan dapat memilih waypoint kembali
+    // ke jalur asal. Gerakkan langsung ke pivot player di dalam trainWalk.
+    return campaignRobotAI(z, dt, step, { walkable: trainWalk, resolve });
+}
+
 export function updateEnemyTrain(dt) {
     if (!enemyTrain || etrain.mode === 'idle') return;
     const C = etCfg(), g = enemyTrain.group.position;
@@ -453,7 +644,16 @@ export function updateEnemyTrain(dt) {
         etrain.ramp = smoothK(k);
         setEnemyRamp(etrain.car, etrain.ramp);
         g.x = carAlignX(etrain.car) + Math.sin(etrain.t * 0.7) * 3.5;
-        if (k >= 1) { etrain.mode = 'engage'; etrain.t = 0; }
+        if (k >= 1) {
+            // Pintu/ramp harus sudah terbuka penuh sebelum ada robot C yang
+            // bergerak keluar. Awak C sudah ada di dalam; transisi ini hanya
+            // melepas koreografi lari dan lompatnya.
+            if (!etrain.boardersSpawned) {
+                launchCarBoarders(etrain.car);
+                etrain.boardersSpawned = true;
+            }
+            etrain.mode = 'engage'; etrain.t = 0;
+        }
         return;
     }
     if (etrain.mode === 'engage') {
@@ -524,6 +724,9 @@ export const enemyTrainDebug = () => ({
     ramp: etrain.ramp, alive: countEnemyCarRobots(),
     launched: etLaunched, killed: etCarsKilled, done: etConsistDone(),
     wrecks: etWrecks.map(w => ({ i: w.i, dx: w.dx })),
+    boarders: boardingJumps.length,
+    boardersSpawned: !!etrain.boardersSpawned,
+    boarderRobots: robots.filter(z => z.stage === 5 && z.boardingCar != null).length,
     boss: locoBossDebug(), bossActive: locoBossActive(),
     x: enemyTrain?.group?.position?.x ?? 0,
     z: enemyTrain?.group?.position?.z ?? 0,
@@ -629,13 +832,15 @@ export const TRAIN_HOOKS = {
         resolve(g.mesh.position, 2, 0);
     },
     robotAI(z, dt, step) {
-        // Dua jenis penumpang: barisan tembak gerbong musuh dan penumpang bak
-        // pickup di jalan raya. Keduanya `mounted` dan tak pernah mengejar.
+		// Boarder C yang masih tersegel tetap mengikuti gerbong seperti awak
+		// lain. Hanya sesudah ramp penuh ia berpindah ke AI boarder di dek player.
+		if (z.boardingCar != null && !z.boardingPending) return boardingRobotAI(z, dt, step);
         if (z.pickup) return highwayRobotAI(z, dt);
         if (z.mounted) return enemyTrainRobotAI(z, dt);
         return campaignRobotAI(z, dt, step, { walkable: trainWalk, resolve, nav: navGrid });
     },
     clampRobot(z, oldX, oldZ) {
+        if (z.boardingJump) return;
         if (z.pickup) { snapHighwayRobot(z); return; }
         if (z.mounted) { snapMountedRobot(z); return; }
         campaignClampRobot(z, oldX, oldZ, { walkable: trainWalk, resolve });

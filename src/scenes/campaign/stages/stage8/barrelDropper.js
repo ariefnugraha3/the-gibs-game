@@ -416,10 +416,9 @@ export function spawnBarrelDropper(rig, ctx, opts = {}) {
     t.active = true; t.wreck = false; t.wreckT = 0; t.phase = 'approach'; t.t = 0;
     t.hp = t.maxHp = C.hp; t.dropped = 0; t.dropT = C.armSec; t.hitT = 0;
     t.lane = ctx.laneIndex;
-    t.entryViewEdgeX = ctx.playerX + ctx.viewMaxX;
-    // `roadMaxX` adalah ujung pool jalan dalam koordinat MUTLAK (terikat pusat
-    // arena), sedangkan tepi pandang ikut player — sejak player bisa maju/mundur
-    // (2026-08-20) keduanya tak lagi sama, dan truk harus di luar KEDUANYA.
+    t.entryViewEdgeX = ctx.viewFocusX + ctx.viewMaxX;
+    // `roadMaxX` dan tepi pandang sama-sama berjangkar di pusat arena, sedangkan
+    // targetnya tetap mengikuti player. Truk harus lahir di luar keduanya.
     t.entryX = Math.max(ctx.roadMaxX,
         t.entryViewEdgeX + (ctx.offscreenMargin || 0));
     t.targetX = ctx.playerX + C.leadOffset;
@@ -594,7 +593,7 @@ export function updateBarrelDroppers(rig, ctx) {
             // Habis muatan: memacu ke depan dan keluar layar. Ia bukan bagian
             // dari gerbang `groundPickupTarget`, jadi tak wajib dihancurkan.
             t.x += (C.departSpeed || 130) * dt;
-            if (t.x > ctx.playerX + ctx.viewMaxX + 120) {
+            if (t.x > ctx.viewFocusX + ctx.viewMaxX + 120) {
                 t.active = false; t.parts.group.visible = false;
             }
         }

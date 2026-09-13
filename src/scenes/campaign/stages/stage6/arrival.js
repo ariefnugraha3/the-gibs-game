@@ -10,8 +10,8 @@
 //               cara membuka ruang generator (permintaan user 2026-08-12 —
 //               terminal `I` yang dulu bisa di-hack di depan pintu `=` DIHAPUS).
 //   powerGrid-> kunci MELEPAS GEMBOK pintu `=` (daunnya tetap tertutup dan baru
-//               bergeser saat player mendekat); tiga generator `G` dipulihkan
-//               dari titik `H`
+//               bergeser saat player mendekat); cukup pulihkan target generator
+//               dari config, default dua dari tiga unit `G`
 //   exfil    -> pintu `@` terbuka; capai titik `F` untuk menutup chapter
 //
 // DUA MESIN PEMBUAT ROBOT (permintaan user 2026-08-09) berdiri di ujung utara
@@ -80,6 +80,8 @@ export function resetArrival() {
 }
 
 const onlineCount = () => generatorOnline.reduce((n, v) => n + (v ? 1 : 0), 0);
+const requiredGenerators = () =>
+    Math.min(GENERATOR_POINTS.length, Math.max(1, (C6().requiredGenerators ?? 2) | 0));
 const machinesAlive = () => stage6Machines().reduce((n, m) => n + (m.alive ? 1 : 0), 0);
 const encounterPoints = name => ENCOUNTER_POINTS[name].map(([c, r]) => cellPos(c, r));
 
@@ -185,7 +187,7 @@ function unlockGridDoor() {
         spawnEncounter(encounterPoints('grid'), 'grid', C6().encounters.grid, true);
     }
     queueDialogue('gridOpen');
-    showStageMsg('SERVICE DOOR UNLOCKED — RESTORE ALL THREE GENERATORS', 4300);
+    showStageMsg(`SERVICE DOOR UNLOCKED — RESTORE ${requiredGenerators()} GENERATORS`, 4300);
     syncMarkers();
 }
 
@@ -195,8 +197,8 @@ function generatorRestored(i) {
     generatorOnline[i] = true;
     setGeneratorOnline(i, true); activateSparks(GENERATOR_POINTS[i], 2.2);
     if (onlineCount() === 1) queueDialogue('generatorFirst');
-    if (onlineCount() < GENERATOR_POINTS.length) {
-        showStageMsg(`GENERATOR ONLINE - ${onlineCount()}/${GENERATOR_POINTS.length}`, 2600);
+    if (onlineCount() < requiredGenerators()) {
+        showStageMsg(`GENERATOR ONLINE - ${onlineCount()}/${requiredGenerators()}`, 2600);
         syncMarkers(); return;
     }
     beginExfil();
@@ -271,7 +273,7 @@ function finishChapter() {
     if (chapterDone) return;
     chapterDone = true; setPhase('complete'); hideInteraction();
     setMarkers({}); clearDialogueQueue(); cleanupCine(0);
-    enterSub(hqScene, { fade: false });
+    enterSub(hqScene, { loading: true, loadingLabel: 'Loading headquarters...' });
 }
 
 function updateChapterEnd() {
@@ -310,6 +312,7 @@ export const arrivalDebug = () => ({
     rackSearched: [...rackSearched], rackProgress: [...rackProgress],
     generatorOnline: [...generatorOnline], generatorStep: [...generatorStep],
     generatorArmed: [...generatorArmed], generatorsOnline: onlineCount(),
+    generatorsRequired: requiredGenerators(),
     interaction: interactionKind,
     hallAwake, hallSpawned, gridSpawned, exfilSpawned,
     machinesAlive: machinesAlive(), machineT, exitWarnArmed,
@@ -429,7 +432,7 @@ export const arrivalScene = {
             const left = rackSearched.filter(v => !v).length;
             return `RECOVER THE SERVICE KEY — ${left} RACKS UNSEARCHED`;
         }
-        if (phase === 'powerGrid') return `RESTORE THE GENERATORS — ${onlineCount()}/${GENERATOR_POINTS.length}`;
+        if (phase === 'powerGrid') return `RESTORE THE GENERATORS — ${onlineCount()}/${requiredGenerators()}`;
         if (phase === 'exfil') {
             return machinesAlive() > 0
                 ? `DESTROY BOTH FABRICATORS — ${machinesAlive()}/${MACHINE_POINTS.length} LEFT`

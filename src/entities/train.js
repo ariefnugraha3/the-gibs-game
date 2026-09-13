@@ -973,7 +973,7 @@ export function updateJourneyScenery(journey, dt, speed, routeK, mountainK = 0.3
 }
 
 // --- JALAN RAYA PENDAMPING (2026-08-08, permintaan user) -------------------
-// Mulai gerbong ke-5 kereta musuh, sebuah jalan raya berjalan di sisi KANAN
+// Mulai gerbong ke-11 kereta musuh, sebuah jalan raya berjalan di sisi KANAN
 // kereta player (+z; arah perjalanan +x, jadi kanan = +z, dan dari kamera
 // oblique itu berada di bawah layar — sisi berlawanan dengan jalur musuh).
 //

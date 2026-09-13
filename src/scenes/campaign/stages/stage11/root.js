@@ -3,7 +3,7 @@
 import { CFG } from '../../../../core/config.js';
 import { player, keys, robots, stats, setCinematicActive } from '../../../../core/state.js';
 import {
-    scene, camera, viewCam, CAM_LOOK_DROP, camFocusPos, addCamShake, setCineFocus,
+    scene, camera, viewCam, CAM_LOOK_DROP, camFocusPos, setCineFocus,
 } from '../../../../core/renderer.js';
 import {
     showStageMsg, hideDownloadBar,
@@ -13,8 +13,7 @@ import {
 import { updateUI } from '../../../../core/hud.js';
 import { releaseInputs } from '../../../../core/input.js';
 import { clearMoveTarget } from '../../../../entities/player.js';
-import { explodeAt, spawnGroundPuff, spawnBloodBurst } from '../../../../entities/effects.js';
-import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
+import { spawnGroundPuff, spawnBloodBurst } from '../../../../entities/effects.js';
 import { resetCrates, resolveCrateBlock } from '../../../../entities/crates.js';
 import { resetBarrels, resolveBarrelBlock } from '../../../../entities/barrels.js';
 import { spawnAmmoDrop, spawnMedkitDrop, spawnLoot } from '../../../../entities/drops.js';
@@ -30,7 +29,7 @@ import { segPointDist2 } from '../../../../utils/math.js';
 import { playSFX, sfxRobotSpawn } from '../../../../utils/sfx.js';
 import { PAL } from '../../../../world/palette.js';
 import {
-    wreckSpawnMachine, spawnMachineHp,
+    wreckSpawnMachine, spawnMachineHp, spawnMachineWreckFx,
 } from '../../../../entities/spawnMachine.js';
 import {
     resetNusantaraWarden, updateNusantaraWarden,
@@ -309,9 +308,7 @@ function destroyRootMachine(m) {
     if (!m.alive) return;
     m.alive = false; m.active = false; m.hp = 0; m.pending = 0; m.hitT = 0;
     wreckSpawnMachine(m.rig);
-    explodeAt(new THREE.Vector3(m.x, 16, m.z), 30, 1);
-    spawnGibs(m.x, 20, m.z, 14, -1, 0, 2.5, PAL.gunmetal, .4, PAL.ink);
-    spawnBloodDecal(m.x, m.z, 7, PAL.ink); addCamShake(8);
+    spawnMachineWreckFx(m.x, m.z);
     const left = stage11RootMachines().filter(q => q.alive).length;
     showStageMsg(left > 0 ? `FABRICATOR DOWN — ${left} STILL RUNNING`
         : 'BOTH FABRICATORS DESTROYED — ROOT HALL TERMINAL UNLOCKED', 3400);

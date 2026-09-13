@@ -473,6 +473,24 @@
                 "fireRangeMeters": 13,
                 "slotSpacing": 13,
                 "medkitEveryCars": 2,
+                "boarders": {
+                    "enabled": true,
+                    "perCarMin": 2,
+                    "perCarMax": 3,
+                    "jumpSec": 1.15,
+                    "staggerSec": 0.28,
+                    "arcHeight": 24,
+                    "slotSpacing": 12,
+                    "stagingInset": 6,
+                    "launchEdge": 4,
+                    "yawSwing": 0.18,
+                    "windupSec": 0.22,
+                    "runupSec": 0.2,
+                    "sideArc": 7,
+                    "bodyPitch": 0.42,
+                    "launchShake": 0.8,
+                    "landShake": 1.1
+                },
                 "boss": {
                     "hp": 2000,
                     "armSec": 3,
@@ -490,11 +508,12 @@
                 }
             },
             "highway": {
-                "fromCarIndex": 4,
+                "fromCarIndex": 1,
+                "pickupFromCarIndex": 3,
                 "approachSec": 20,
                 "farZ": 200,
                 "nearZ": 62,
-                "firstPickupSec": 6,
+                "firstPickupSec": 0,
                 "pickupGapSec": 16,
                 "maxActivePickups": 2,
                 "combatOffset": 16,
@@ -524,6 +543,8 @@
             "serverDoorWarnRange": 34,
             "signalCooldownSec": 18,
             "repairRange": 13,
+            "requiredGenerators": 2,
+            "chapterLoadingMinMs": 900,
             "finishRange": 13,
             "uplinkRange": 13,
             "uploadSec": 5,
@@ -604,11 +625,11 @@
                 "classMix": { "C": 0.5, "B": 0.35, "A": 0.15 }
             },
             "encounters": {
-                "eastSpan": { "C": 28, "B": 12, "A": 4 },
-                "rampRun": { "C": 31, "B": 14, "A": 5 },
-                "cableSpan": { "C": 29, "B": 14, "A": 5 },
-                "westSpan": { "C": 32, "B": 15, "A": 5 },
-                "pasteurApproach": { "C": 34, "B": 16, "A": 6 }
+                "eastSpan": { "C": 23, "B": 11, "A": 4 },
+                "rampRun": { "C": 32, "B": 15, "A": 5 },
+                "cableSpan": { "C": 24, "B": 11, "A": 4 },
+                "westSpan": { "C": 31, "B": 14, "A": 5 },
+                "pasteurApproach": { "C": 13, "B": 6, "A": 2 }
             }
         },
         "stage8": {
@@ -620,11 +641,11 @@
             "laneChangeSec": 0.32,
             "medianChangeSec": 0.44,
             "steerEaseSec": 0.18,
-            "advanceRange": 96,
-            "advanceSec": 2.2,
-            "advanceEaseSec": 0.32,
+            "advanceSpeed": 76,
+            "advanceScreenInset": 42,
             "maxActivePickups": 3,
             "pickupSpeed": 76,
+            "pickupRamDamage": 40,
             "pickupWreckSec": 3.5,
             "pickupEntryInset": 24,
             "pickupOffscreenMargin": 36,
@@ -1505,8 +1526,8 @@
                     "hallFabricators": { "speaker": "Major Gibran", "text": "They built fabricators into the freight hall. Those come down before I leave this terminal." },
                     "keyHunt": { "speaker": "Command", "text": "The service door to the power hall runs on a physical key, Major. Maintenance crews kept their spares in the supply racks." },
                     "keyFound": { "speaker": "Major Gibran", "text": "Got it. Now let us see what they were keeping behind that door." },
-                    "gridOpen": { "speaker": "Command", "text": "That is the emergency power hall. Headquarters cannot release its access door until all three generators are running." },
-                    "generatorFirst": { "speaker": "Major Gibran", "text": "One turbine turning. Two to go." },
+                    "gridOpen": { "speaker": "Command", "text": "That is the emergency power hall. Headquarters cannot release its access door until two generators are running." },
+                    "generatorFirst": { "speaker": "Major Gibran", "text": "One turbine turning. One to go." },
                     "powerRestored": { "speaker": "Station System", "text": "Emergency grid restored. Headquarters access door released." },
                     "exfilCall": { "speaker": "Command", "text": "The grid woke something up and they are converging on you. Get to that door, Major." },
                     "fabricatorsClear": { "speaker": "Major Gibran", "text": "Both fabricators are wrecked. Nothing else is walking out of them." },
@@ -1530,7 +1551,7 @@
                     "gibranResolve": { "speaker": "Major Gibran", "text": "Copy. First I survive Bandung. Then I find a way to IKN." },
                     "machinesDeploy": { "speaker": "HQ System", "text": "FABRICATION UNITS DEPLOYED TO THIS FLOOR. HOSTILE PRODUCTION ONLINE." },
                     "machinesDown": { "speaker": "Major Gibran", "text": "Both fabricators are scrap. Nothing else is coming out of the walls." },
-                    "floorClear": { "speaker": "Command", "text": "The floor is quiet, Major. Get back to your entry point and get out of Bandung." }
+                    "floorClear": { "speaker": "Command", "text": "Factories are down, Major. Get back to your entry point and get out of Bandung." }
 
                 }
             },

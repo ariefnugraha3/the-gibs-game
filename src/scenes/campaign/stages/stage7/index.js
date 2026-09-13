@@ -42,11 +42,10 @@ import { rand, segPointDist2 } from '../../../../utils/math.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { spawnCrate, resetCrates, resolveCrateBlock } from '../../../../entities/crates.js';
 import { spawnBarrel, resetBarrels, resolveBarrelBlock } from '../../../../entities/barrels.js';
-import { explodeAt, spawnGroundPuff, spawnBloodBurst } from '../../../../entities/effects.js';
-import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
+import { spawnGroundPuff, spawnBloodBurst } from '../../../../entities/effects.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
-    wreckSpawnMachine, spawnMachineHp,
+    wreckSpawnMachine, spawnMachineHp, spawnMachineWreckFx,
 } from '../../../../entities/spawnMachine.js';
 import { FuturisticSUV } from '../../../../entities/futuristicSUV.js';
 import { FuturisticSedan } from '../../../../entities/futuristicSedan.js';
@@ -68,15 +67,10 @@ const NAV_CELL = 14;
 const BLOCKER_BIN_METERS = 50;
 const BLOCKER_BIN_WORLD = BLOCKER_BIN_METERS * CAMP_M;
 const VEHICLE_CHUNK_METERS = 125;
-// MALAM PASUPATI (2026-08-10, laporan user "ini masih terlalu terang"). Yang
-// membuat sebuah stage luar-ruang terasa terang BUKAN intensitas lampu,
-// melainkan HAZE-nya: `enterCityEnv` standar memasang langit biru-abu 0x2b3742
-// yang mengisi seluruh layar dan menjadi warna akhir kabut, jadi seterang apa
-// pun setelan lampunya kota tetap terbaca senja. Stage 7 memakai preset
-// `midnight` (ambient sepertiga + cahaya bulan dingin) DITAMBAH haze malam
-// pekat ini; near/far dibaca dari preset yang sama supaya tak ada dua sumber
-// kebenaran. Sisa cahaya hangat = lampu jalan amber, jendela kota, efek tempur.
-const NIGHT_ENV = Object.freeze({ background: 0x090c11, fogColor: 0x06080c });
+// MALAM PASUPATI: user meminta stage ini dicerahkan lagi agar terbaca seperti
+// Stage 4. Preset `night` dipakai kembali, tetapi haze kota tetap sedikit
+// dingin agar skyline Bandung tidak berubah menjadi kubah api global.
+const NIGHT_ENV = Object.freeze({ background: 0x161a24, fogColor: 0x20283a });
 const PLAY_CAM = Object.freeze({ x: 70.7, y: 116, z: 70.7 });
 const LANDMARK_CAM = Object.freeze({ x: 150, y: 230, z: 150 });
 const MORTAR_UP = new THREE.Vector3(0, 1, 0);
@@ -1591,10 +1585,7 @@ function destroyMachine(m) {
     // ia jadi bangkai hitam gosong dengan part yang terlepas, dan karena terlihat
     // ia juga tetap pejal.
     wreckSpawnMachine(m.rig);
-    explodeAt(new THREE.Vector3(m.x, m.y + 13, m.z), 32, 1);
-    spawnGibs(m.x, m.y + 15, m.z, 16, -1, 0, 2.6,
-        PAL.gunmetal, m.y + 0.4, PAL.ink);
-    spawnBloodDecal(m.x, m.z, 8, PAL.ink); addCamShake(9);
+    spawnMachineWreckFx(m.x, m.z, m.y);
     const left = machinesAlive();
     showStageMsg(`ROBOT FACTORY DESTROYED - ${left}/3 REMAINING`, 3200);
     if (left === 0) {
@@ -2330,7 +2321,7 @@ export const stage7CityDebug = () => {
         ...rest, sceneRoot: root?.name || null,
         districts: districts.map(d => ({ ...d })),
         night: {
-            preset: 'midnight', ...LIGHT_PRESETS.midnight, ...NIGHT_ENV,
+            preset: 'night', ...LIGHT_PRESETS.night, ...NIGHT_ENV,
         },
     };
 };
@@ -2470,10 +2461,10 @@ export const stage7Scene = {
         for (const [name, counts] of Object.entries(CFG.campaign.stage7.encounters))
             spawnEncounter(name, counts, false);
         placeCommonItems();
-        applyLightPreset(scene, 'midnight');
+        applyLightPreset(scene, 'night');
         enterCityEnv({ ...NIGHT_ENV,
-            fogNear: LIGHT_PRESETS.midnight.fogNear,
-            fogFar: LIGHT_PRESETS.midnight.fogFar });
+            fogNear: LIGHT_PRESETS.night.fogNear,
+            fogFar: LIGHT_PRESETS.night.fogFar });
         camera.position.set(S7_START.x, S7_START.y + CFG.player.eyeHeight, S7_START.z);
         camera.quaternion.set(0, 0.7071, 0, 0.7071);
         player.vy = 0; player.onGround = true; startOpening(); updateUI();

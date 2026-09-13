@@ -169,9 +169,9 @@ export function setCineFocus(x, z, snap = false) {
 // min/maks (x,z) tapak-pandang RELATIF titik fokus — trigonometri murni dari
 // CAM_OFF + target lookAt (fokus.y − 8) + fov/aspek viewCam (tanpa matriks,
 // aman utk stub test; fallback fov 50 / aspek 1 bila belum ter-set). -----
-export function groundViewExtents(focusY, planeY = 0) {
-    // Basis kamera lookAt: E = fokus + CAM_OFF memandang T = fokus + (0,-8,0)
-    const fx = -CAM_OFF.x, fy = -CAM_OFF.y - 8, fz = -CAM_OFF.z;
+export function groundViewExtents(focusY, planeY = 0, offset = CAM_OFF) {
+    // Basis kamera lookAt: E = fokus + offset memandang T = fokus + (0,-8,0)
+    const fx = -offset.x, fy = -offset.y - 8, fz = -offset.z;
     const fl = Math.hypot(fx, fy, fz) || 1;
     const f = { x: fx / fl, y: fy / fl, z: fz / fl };            // arah pandang
     const rh = Math.hypot(f.x, f.z) || 1;
@@ -182,7 +182,7 @@ export function groundViewExtents(focusY, planeY = 0) {
     const half = ((viewCam && viewCam.fov ? viewCam.fov : 50) * Math.PI / 180) / 2;
     const ty = Math.tan(half);
     const tx = ty * (viewCam && viewCam.aspect ? viewCam.aspect : 1);
-    const eyeH = focusY + CAM_OFF.y - planeY;                     // tinggi mata di atas bidang
+    const eyeH = focusY + offset.y - planeY;                      // tinggi mata di atas bidang
     let minX = 0, maxX = 0, minZ = 0, maxZ = 0, got = false;
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
         const dx = f.x + r.x * tx * sx + u.x * ty * sy;
@@ -190,7 +190,7 @@ export function groundViewExtents(focusY, planeY = 0) {
         const dz = f.z + r.z * tx * sx + u.z * ty * sy;
         if (dy >= -1e-4) continue;                                // sinar nyaris datar/naik: abaikan
         const t = -eyeH / dy;
-        const ox = CAM_OFF.x + dx * t, oz = CAM_OFF.z + dz * t;
+        const ox = offset.x + dx * t, oz = offset.z + dz * t;
         if (!got) { minX = maxX = ox; minZ = maxZ = oz; got = true; }
         else {
             if (ox < minX) minX = ox; else if (ox > maxX) maxX = ox;

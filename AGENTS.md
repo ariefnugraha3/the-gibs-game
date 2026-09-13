@@ -260,7 +260,7 @@ never re-wire it.
   `textures.js` (procedural canvas textures), `sfx.js` (all audio + music), `math.js`.
 - `src/world/` — shared world pieces: lighting sets, sky, decor registry, building
   facades, and **`palette.js` — the art-style single source of truth (PAL tokens)**.
-- `css/style.css` — all styling; `@font-face` Courier Prime (`assets/fonts/`, OFL) is the
+- `css/style.css` — all styling; `@font-face` Gasalt (`assets/fonts/gasalt/`) is the
   ONLY UI font — no CDN webfonts.
 - `config/gameplay.json` — **every tunable gameplay number**, loaded into `CFG` at boot.
 - `assets/sounds/` — SFX + three music tracks. There are **no 3D model assets** — every
@@ -451,7 +451,7 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
   and opens the shop; only Start Next Stage enters the following stage.
 - The campaign prologue is **DOM-only on a pitch-black screen** — typed text on the left,
   a per-era cinematic ASCII tableau on the right (`prologueArt.js`; SVG is only the
-  container and every visible mark is a monospace `<text>` glyph). Its phase-driven
+  container and every visible mark is a text `<text>` glyph). Its phase-driven
   layers reveal silhouette → subject → detail; the script remains the user's
   **word for word** (exact-string smoke assert).
   Left-click during body first reveals all remaining typed text; only a later click
@@ -1091,7 +1091,7 @@ The full annotated list lives in [CLAUDE.md](CLAUDE.md#invariants--deliberate-ch
 - Stage 8 is the coordinate-stable GRD LTV-45 gunner arena at x≈270000. Seven lateral
   corridors span both three-lane carriageways and the traversable median; `A/D` are
   FREE lateral steering (2026-08-19; edge-triggered lane snaps until then) and `W/S` are FREE
-  longitudinal drive inside `advanceRange` of the arena centre (2026-08-20), while walking/RMB/dodge/melee
+  longitudinal drive at constant held-input speed between camera-projected near-edge limits (2026-09-13), while walking/RMB/dodge/melee
   are scene-gated off. `currentZ`/`currentX` are the source of truth and `laneIndex` is just the
   nearest-lane read-out, so telegraphs and the hauler's lane chase are untouched; peak steer speed is
   derived from `laneWidth / laneChangeSec`, the median still slows you by the `laneChangeSec :

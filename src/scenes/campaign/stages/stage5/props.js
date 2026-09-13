@@ -458,7 +458,7 @@ export function buildStationDoor(M, root, kind, x, z, sx, sz) {
 // --- KONSIST PENYERBU BERLAPIS BAJA (rombak total 2026-08-08, permintaan user
 // "kereta musuh ini buat agar bentuknya lebih menyeramkan") -----------------
 //
-// SEPULUH gerbong angkut TERTUTUP + satu lokomotif perisai berhaluan bajak.
+// DUA BELAS gerbong angkut TERTUTUP + satu lokomotif perisai berhaluan bajak.
 // Tiap gerbong adalah PETI BAJA: dinding jauh, sekat ujung, dan tiang sudut
 // setinggi penuh, sementara dinding dekat terdiri atas bagian bawah setinggi
 // dada YANG TETAP plus RAMP berengsel di atasnya. Selama ramp tertutup dinding
@@ -474,7 +474,7 @@ export function buildStationDoor(M, root, kind, x, z, sx, sz) {
 // player di seberang rel.
 //
 // Lambung statis tiap gerbong DILAS `mergeObjectInPlace` — alasannya sama
-// dengan CombatGunship: konsist sepuluh gerbong ini adalah aset hero tunggal,
+// dengan CombatGunship: konsist dua belas gerbong ini adalah aset hero tunggal,
 // jadi kerumitan yang DITULIS boleh tinggi selama yang DIGAMBAR tetap murah.
 // Yang tetap berdiri sendiri hanya bagian yang bergerak/berganti visibilitas:
 // ramp, lampu peringatan, dan roda.

@@ -16,9 +16,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..').sp
 // CELAH HARNESS 2026-07-31: `measureText` dulu selalu mengembalikan width 1, jadi
 // tata letak teks apa pun "muat" dan logika bungkus-baris/auto-kecilkan-font layar
 // prolog tak pernah benar-benar dijalankan. Stub ini kini MENYIMPAN `font` yang
-// sedang di-set dan mengukur lebar ala MONOSPACE (Courier = 0.6 em per karakter) —
-// pendekatan yang cukup untuk menguji pembungkusan baris, bukan untuk render.
-const ctx2d = new Proxy({ font: '10px monospace' }, {
+// sedang di-set dan mengukur lebar pendekatan 0.6em per karakter — cukup untuk
+// menguji pembungkusan baris, bukan untuk render.
+const ctx2d = new Proxy({ font: '10px Gasalt' }, {
     get: (t, k) => {
         if (k === 'font') return t.font;
         if (k === 'createRadialGradient' || k === 'createLinearGradient') return () => ({ addColorStop() { } });
@@ -4096,12 +4096,11 @@ T('S3: nav-grid pathfinder terbangun', s3mod.s3Nav != null);
     T('Menu Credits: tanpa kredit AI (tak ada Anthropic/Claude/OpenAI/Codex/AI Development)',
         !/anthropic|claude|openai|codex|\bAI\b|artificial intelligence/i.test(credTextM)
         && !/anthropic|claude|openai|codex/i.test(menuHtml));
-    // ATRIBUSI LISENSI wajib bertahan walau panel disederhanakan (2026-08-10):
-    // kalimat `detail` dibuang, jadi lisensinya dilipat ke baris nama.
-    T('Menu Credits: atribusi lisensi Three.js + Courier Prime tetap tertulis',
+    // ATRIBUSI engine tetap bertahan walau panel disederhanakan (2026-08-10);
+    // typeface mengikuti font lokal yang aktif dipakai UI.
+    T('Menu Credits: atribusi Three.js + typeface Gasalt tetap tertulis',
         menuCredits.groups.some(c => /three\.js/i.test(c.name) && /MIT/i.test(c.name))
-        && menuCredits.groups.some(c => /courier prime/i.test(c.name)
-            && /open font license/i.test(c.name)));
+        && menuCredits.groups.some(c => /gasalt/i.test(c.name)));
     // Bentuk baris = tata bahasa Settings: satu `role` + satu `name`, TANPA
     // kalimat rincian per kredit (itu yang membuat panel lama padat).
     T('Menu Credits: SEDERHANA — tiap kredit satu baris role→name, tanpa kalimat rincian',
@@ -5887,6 +5886,8 @@ const mixTotal = m => (m.C | 0) + (m.B | 0) + (m.A | 0);
 // 2026-08-09) — tidak ada lagi kunci HP per stage yang boleh dibaca di sini.
 const MACHINE_HP = () => cfgMod.CFG.campaign.spawnMachine.hp;
 const S6C = cfgMod.CFG.campaign.stage6;
+const S6_GEN_REQUIRED = Math.min(s6mod.GENERATOR_POINTS.length,
+    Math.max(1, S6C.requiredGenerators | 0));
 const S7C = cfgMod.CFG.campaign.stage7;
 const S8C = cfgMod.CFG.campaign.stage8;
 // GRD combat gunship = BOS, jadi statistiknya duduk di `campaign.bosses`
@@ -6267,7 +6268,7 @@ T('S5 DUA TRACK: jalur kedua juga ada sepanjang perjalanan, bukan hanya di stasi
         }
         T(`S5 TANAH: perjalanan punya permukaan tanah sungguhan yang menutup tapak pandang [${capsOk}/${pool.near.length} modul]`,
             capsOk === pool.near.length);
-        // Sisi kamera dipakai bersama JALAN RAYA yang menyatu mulai gerbong ke-5
+        // Sisi kamera dipakai bersama JALAN RAYA yang menyatu mulai gerbong ke-2
         // (`highway.nearZ`). Tidak boleh ada prop lineside yang berdiri di badan
         // aspalnya — pool-nya terpisah, jadi hanya tes yang bisa menangkap ini.
         {
@@ -6694,12 +6695,12 @@ T('S5 STATION CONSIST: gerbong TC + lokomotif TL keduanya tampak di peron dan ja
             && Math.abs((tcC - half) - (colX(5) - cell / 2)) < 1e-6
             && Math.abs((tcC + half) - (colX(11) + cell / 2)) < 1e-6;
     })());
-// --- KONSIST PENYERBU 10 GERBONG (ROMBAK 2026-08-08, permintaan user: satu
-// kereta musuh 10 gerbong, gerbongnya terbuka satu per satu, dan bentuknya
+// --- KONSIST PENYERBU 12 GERBONG (ROMBAK 2026-09-10, permintaan user: satu
+// kereta musuh 12 gerbong, gerbongnya terbuka satu per satu, dan bentuknya
 // dibuat lebih menyeramkan). Seluruh gerbong + ramp + lampu peringatan
 // PREALOKASI: tidak ada mesh/material yang lahir saat runtime. ---
-T(`S5 ENEMY CONSIST: 10 peti baja + lokomotif prealokasi, tiap gerbong punya ramp + lampu [${s5World.enemyTrain.meshes} mesh]`,
-    s5World.enemyTrain.cargoCars === 10
+T(`S5 ENEMY CONSIST: 12 peti baja + lokomotif prealokasi, tiap gerbong punya ramp + lampu [${s5World.enemyTrain.meshes} mesh]`,
+    s5World.enemyTrain.cargoCars === 12
     && s5World.enemyTrain.cars === s5World.enemyTrain.cargoCars + 1
     && s5World.enemyTrain.ramps === s5World.enemyTrain.cargoCars
     && s5World.enemyTrain.strobes === s5World.enemyTrain.cargoCars
@@ -6718,7 +6719,8 @@ T(`S5 ENEMY CONSIST: 10 peti baja + lokomotif prealokasi, tiap gerbong punya ram
     const M5 = {};
     for (const k of ['ink', 'body', 'panel', 'steel', 'hazard', 'tech', 'lamp', 'glass']) M5[k] = fakeMat();
     const HALF = s5World.enemyTrain.widthMeters * 7 / 2, LEN = s5World.enemyTrain.len;
-    const rig = s5PropsMod.buildEnemyTrain(M5, new THREE.Group(), 10, LEN, s5World.enemyTrain.step, HALF, 0, 0);
+    const rig = s5PropsMod.buildEnemyTrain(M5, new THREE.Group(),
+        s5World.enemyTrain.cargoCars, LEN, s5World.enemyTrain.step, HALF, 0, 0);
     const SILL = s5PropsMod.ET_CAR_SILL, H = s5PropsMod.ET_CAR_HEIGHT;
     const boxesOf = (root) => {
         const out = [], stack = [{ o: root, y: 0, z: 0 }];
@@ -6751,7 +6753,7 @@ T(`S5 ENEMY CONSIST: 10 peti baja + lokomotif prealokasi, tiap gerbong punya ram
     T('S5 ENEMY CAR: atap hanya menutup separuh JAUH dek — tepi dekatnya tidak memotong kepala robot',
         roof.length > 0 && roof.every(b => b.z1 < HALF * 0.4));
     T(`S5 ENEMY CAR: 4 roda berputar per gerbong (sisi jauh tak pernah terlihat) [${rig.wheels.length}]`,
-        rig.wheels.length === 4 * (10 + 1));
+        rig.wheels.length === 4 * (s5World.enemyTrain.cargoCars + 1));
     T('S5 ENEMY CAR: ramp terbuka <= ET_RAMP_OPEN dan ujungnya tak pernah menyentuh gerbong player',
         s5PropsMod.ET_RAMP_OPEN > 0.6 && s5PropsMod.ET_RAMP_OPEN < 1.0
         && HALF + (H - SILL) * Math.sin(s5PropsMod.ET_RAMP_OPEN)
@@ -7389,8 +7391,15 @@ T('S5 KONSIST: config perjalanan tak lagi punya gelombang/jumlah gerbong acak',
 
 const S5_CAR_TOTAL = s5World.enemyTrain.cargoCars;
 const s5CarShape = [];
+const s5BoarderShape = [];
 let s5EverGroundRobot = false, s5EverClassC = false, s5EmergeSeen = false, s5EverInRange = false;
 let s5MultiOpenSeen = false, s5SealedSeen = false, s5OvertakeMinX = Infinity;
+let s5BoarderLaunchSeen = false, s5BoarderArcSeen = false, s5BoarderLandSeen = false;
+let s5BoarderInvulnOk = true, s5BoarderKindsOk = true;
+let s5BoarderDoorEarlySeen = false, s5BoarderDoorReadySeen = false;
+let s5BoarderDirectChaseSeen = false;
+let s5BoarderStagedSeen = false, s5BoarderStagedOk = true;
+let s5BoarderWindupSeen = false, s5BoarderRunupSeen = false, s5BoarderCurveSeen = false;
 // Robot mounted digerakkan lewat hook scene yang SAMA seperti updateRobots
 // (emerge + hadap + gerbang tembak `chaseDist`), tanpa memanggil loop tempur
 // penuh yang akan menembaki player harness.
@@ -7412,8 +7421,11 @@ function tickS5Wave(total, step = 0.1) {
         }
         for (const z of robots) {
             if (z.stage !== 5) continue;
+            const wasBoarding = z.boardingJump;
             const res = s5mod.stage5Scene.robotAI(z, dt, dt * 60) || {};
             if (res.chaseDist != null && res.chaseDist <= z.range) s5EverInRange = true;
+            if (z.boardingCar != null && !wasBoarding && res.chaseDist != null
+                && res.pathBlocked !== true) s5BoarderDirectChaseSeen = true;
         }
         // SATU PER SATU: tidak boleh ada dua ramp terbuka pada saat yang sama,
         // di luar bangkai yang sudah terlepas (ramp bangkai dipatok terbuka).
@@ -7421,6 +7433,11 @@ function tickS5Wave(total, step = 0.1) {
         const wreckIdx = new Set(d.wrecks.map(w => w.i));
         const open = d.rampAngles.filter((a, i) => a > 0.01 && !wreckIdx.has(i)).length;
         if (open > 1) s5MultiOpenSeen = true;
+        const currentBoarders = robots.filter(z => z.stage === 5 && z.boardingCar === d.car);
+        if (d.mode === 'open' && d.ramp < 1 && currentBoarders.some(z => z.boardingJump))
+            s5BoarderDoorEarlySeen = true;
+        if (d.boardersSpawned && d.ramp < 1) s5BoarderDoorEarlySeen = true;
+        if (d.boardersSpawned && d.ramp >= 1) s5BoarderDoorReadySeen = true;
         if (d.mode === 'overtake') s5OvertakeMinX = Math.min(s5OvertakeMinX, d.x);
         // JALAN RAYA: (1) ia tak boleh pernah LOMPAT ke dalam pandangan —
         // frame pertama yang terlihat harus berasal dari tepi tapak pandang;
@@ -7461,17 +7478,42 @@ function tickS5Wave(total, step = 0.1) {
                 s5RoadSeamMax = Math.max(s5RoadSeamMax, Math.hypot(a.x - b.x, a.z - b.z));
             }
         }
+        // Robot C menjadi awak tersegel dari awal, lalu baru keluar setelah
+        // ramp penuh melalui windup -> runup -> flight melengkung.
+        for (const z of robots) {
+            if (z.stage !== 5 || z.boardingCar == null) continue;
+            if (z.kind !== 'C') s5BoarderKindsOk = false;
+            if (z.boardingPending) {
+                s5BoarderStagedSeen = true;
+                if (!z.mounted || !z.etSlot || !z.invuln || z.boardingPhase !== 'sealed') {
+                    s5BoarderStagedOk = false;
+                }
+            } else if (z.boardingJump) {
+                s5BoarderLaunchSeen = true;
+                if (z.state !== 'jumping' || !z.invuln) s5BoarderInvulnOk = false;
+                if (z.mesh.position.y > (z.groundY || 0) + 10) s5BoarderArcSeen = true;
+                if (z.boardingPhase === 'windup') s5BoarderWindupSeen = true;
+                if (z.boardingPhase === 'runup') s5BoarderRunupSeen = true;
+                if (z.boardingPhase === 'flight' && Math.abs(z.boardingSideOffset || 0) > 1)
+                    s5BoarderCurveSeen = true;
+            } else if (!z.invuln && z.state === 'chasing'
+                && s5mod.stage5TrainWalk(z.mesh.position.x, z.mesh.position.z, 1)) {
+                s5BoarderLandSeen = true;
+            }
+        }
         // Penumpang pickup: selalu di atas jalan (dalam lebar aspal), tak
         // pernah menyeberang ke gerbong player, dan mounted seperti Stage 8.
         for (const z of robots) {
             if (z.stage !== 5 || !z.pickup) continue;
             s5HwRiderChecked = true;
             const lateral = z.mesh.position.z - s5World.map.playerTrackZ;
-            const road = s5mod.roadOffsetAt(z.mesh.position.x);
+            const staged = z.pickup?.preRoadRaider && !h.merged;
+            const road = h.active && !staged ? s5mod.roadOffsetAt(z.mesh.position.x) : h.nearZ;
             if (!(z.mounted && z.state === 'mounted'
                 && Math.abs(lateral - road) <= h.halfWidth + 6
-                && !s5mod.stage5TrainWalk(z.mesh.position.x, z.mesh.position.z, 1)))
+                && !s5mod.stage5TrainWalk(z.mesh.position.x, z.mesh.position.z, 1))) {
                 s5HwRiderOk = false;
+            }
         }
         sampleS5Dialogue(); left -= dt;
     }
@@ -7493,14 +7535,24 @@ T('S5 KONSIST: selama menyusul, seluruh peti masih TERSEGEL — tak ada robot ya
     etDbg2().rampAngles.every(a => a === 0)
     && robots.filter(z => z.stage === 5 && z.mesh.visible).length === 0);
 // AWAK SELURUH KONSIST DIMUAT SEJAK BERANGKAT (2026-08-09, permintaan user:
-// "buat agar sudah ada spawn robot di awal"). Sepuluh gerbong sudah berisi
+// "buat agar sudah ada spawn robot di awal"). Dua belas gerbong sudah berisi
 // sebelum satu pintu pun terbuka — dan semuanya tersegel: kebal, tak terlihat.
 {
     const crew = robots.filter(z => z.stage === 5 && z.mounted);
     const cars = new Set(crew.map(z => z.etCar));
+    const staged = crew.filter(z => z.kind === 'C' && z.boardingPending);
+    const stagedByCar = Array.from({ length: S5_CAR_TOTAL }, (_, i) =>
+        staged.filter(z => z.etCar === i));
+    if (staged.length) s5EverClassC = true;
     T(`S5 KONSIST: awak SELURUH gerbong sudah dimuat sejak konsist berangkat, bukan saat pintunya terbuka [${cars.size}/${S5_CAR_TOTAL} gerbong, ${crew.length} robot]`,
-        cars.size === S5_CAR_TOTAL && crew.length >= S5_CAR_TOTAL * S5E.perCarMin
+        cars.size === S5_CAR_TOTAL
+        && crew.length >= S5_CAR_TOTAL * (S5E.perCarMin + S5E.boarders.perCarMin)
         && crew.every(z => z.invuln === true && !z.mesh.visible));
+    T('S5 KONSIST: setiap gerbong sejak awal benar-benar memuat robot C di interior dekat ramp',
+        staged.length >= S5_CAR_TOTAL * S5E.boarders.perCarMin
+        && stagedByCar.every(row => row.length >= S5E.boarders.perCarMin
+            && row.length <= S5E.boarders.perCarMax
+            && row.every(z => z.mounted && z.etSlot && z.boardingPhase === 'sealed')));
     // Awak yang masih tersegel HARUS kebal terhadap ledakan: `skip` saja tidak
     // menutup jalur ini — explodeAt mengiterasi `robots` sendiri, jadi tanpa
     // penjaga `invuln` satu granat bisa mengosongkan gerbong yang belum dibuka.
@@ -7515,10 +7567,11 @@ T('S5 KONSIST: berhenti relatif tepat ketika gerbong PALING BELAKANG sejajar ger
     etDbg2().car === 0 && Math.abs(etDbg2().x - etDbg2().alignX) < 4.0
     && s5OvertakeMinX < etDbg2().x - s5World.enemyTrain.step * 5);
 
-// 2. Kesepuluh gerbong dimainkan penuh: open -> engage -> detach -> advance.
+    // 2. Dua belas gerbong dimainkan penuh: open -> engage -> detach -> advance.
 // Mulai gerbong `highway.fromCarIndex` jalan raya di sisi kanan MERAPAT dan
 // mengirim pengangkut; jalannya tak boleh pernah muncul mendadak.
-const S5H = S5C.highway, hwDbg = () => s5mod.stage5Debug().highway;
+const S5H = S5C.highway, S5_PICKUP_FROM = S5H.pickupFromCarIndex ?? S5H.fromCarIndex;
+const hwDbg = () => s5mod.stage5Debug().highway;
 // Tepi +z tapak pandang kamera default: dibaca dari renderer, bukan angka mati.
 const s5ViewMaxZ = rendererMod.groundViewExtents(cfgMod.CFG.player.eyeHeight, 0).maxZ;
 const countS5Riders = () => robots.filter(z => z.stage === 5 && z.pickup).length;
@@ -7530,15 +7583,24 @@ let s5RoadYawOk = true, s5RoadArcOk = true, s5RoadSeamMax = 0, s5RoadMaxYaw = 0;
 let s5PrevAlignX = 0;
 const s5Landscape = [];
 for (let ci = 0; ci < S5_CAR_TOTAL; ci++) {
+    if (ci === S5_PICKUP_FROM) {
+        T(`S5 KONVOI: robot raider bermobil mulai dikirim pada gerbong ke-${S5_PICKUP_FROM + 1}`,
+            hwDbg().raidersArmed && hwDbg().spawned > 0 && hwDbg().activePickups > 0);
+        T(`S5 KONVOI: gerbong ke-${S5_PICKUP_FROM + 1} mengaktifkan mobil tanpa menyalakan aspal lebih awal`,
+            S5_PICKUP_FROM < S5H.fromCarIndex ? !hwDbg().active : true);
+    } else if (ci < S5_PICKUP_FROM) {
+        T(`S5 KONVOI: sebelum gerbong ke-${S5_PICKUP_FROM + 1} belum ada mobil raider`,
+            !hwDbg().raidersArmed && hwDbg().spawned === 0 && hwDbg().activePickups === 0);
+    }
     if (ci === S5H.fromCarIndex) {
         T(`S5 JALAN: jalan raya baru hidup pada gerbong ke-${S5H.fromCarIndex + 1}, tidak sebelumnya`,
-            hwDbg().active && hwDbg().spawned === 0);
+            hwDbg().active);
         T(`S5 JALAN: pada detik ia hidup jalannya masih JAUH di luar tapak pandang — tidak muncul mendadak [${hwDbg().offsetAtPlayer.toFixed(1)}]`,
             hwDbg().offsetAtPlayer > s5ViewMaxZ
             && hwDbg().offsetAtPlayer > S5H.farZ - 5 && !hwDbg().merged);
     } else if (ci < S5H.fromCarIndex) {
-        T(`S5 JALAN: sebelum gerbong ke-${S5H.fromCarIndex + 1} tidak ada jalan raya maupun pengangkutnya`,
-            !hwDbg().active && hwDbg().spawned === 0 && hwDbg().activePickups === 0);
+        T(`S5 JALAN: sebelum gerbong ke-${S5H.fromCarIndex + 1} aspal belum muncul`,
+            !hwDbg().active);
     }
     if (ci > 0) {
         T(`S5 GERBONG ${ci + 1}: konsist MUNDUR satu gerbong lalu gerbong berikutnya membuka ramp`,
@@ -7547,7 +7609,8 @@ for (let ci = 0; ci < S5_CAR_TOTAL; ci++) {
     }
     // Selama ramp masih menutup, isi peti belum boleh terlihat sama sekali.
     if (etDbg2().ramp < S5E.revealAtRamp)
-        s5SealedSeen = s5SealedSeen || robots.every(z => z.stage !== 5 || !z.mesh.visible);
+        s5SealedSeen = s5SealedSeen
+            || robots.every(z => z.stage !== 5 || !z.mounted || !z.mesh.visible);
     // GERBONG PERTAMA = kontrak gerbang ramp (2026-08-09, permintaan user):
     // awak sudah BERDIRI SIAP di barisan tembak begitu pintunya mulai turun,
     // tetapi belum menembak dan belum bisa dilukai sampai ramp terbuka PENUH.
@@ -7563,13 +7626,17 @@ for (let ci = 0; ci < S5_CAR_TOTAL; ci++) {
             if (rr.some(z => z.aiming)) aimedEarly = true;
             if (rr.some(z => !z.invuln)) vulnEarly = true;
             const hp0 = rr.map(z => z.hp);
+            const boarderInvuln = robots.filter(z => z.stage === 5 && z.boardingCar === 0)
+                .map(z => [z, z.invuln]);
+            for (const [z] of boarderInvuln) z.invuln = true;
             effectsMod.explodeAt(rr[0].mesh.position, 200, 9999);
+            for (const [z, inv] of boarderInvuln) if (robots.includes(z)) z.invuln = inv;
             for (const e of stateMod.explosions.splice(0)) scene.remove(e.mesh);
             if (rr.some((z, k) => z.hp !== hp0[k])) hurtEarly = true;
         }
         T('S5 GERBONG 1: selama pintu masih TURUN, awaknya sudah berdiri siap tapi belum menembak dan belum bisa dilukai',
             readySeen && !aimedEarly && !vulnEarly && !hurtEarly);
-        const open = robots.filter(z => z.stage === 5 && z.etCar === 0);
+        const open = robots.filter(z => z.stage === 5 && z.etCar === 0 && !z.boardingPending);
         T('S5 GERBONG 1: begitu ramp mendarat, barisan itu langsung membidik DAN mulai bisa dilukai',
             etDbg2().mode === 'engage' && open.length > 0
             && open.every(z => z.aiming === true && z.invuln === false && z.mesh.visible));
@@ -7578,20 +7645,25 @@ for (let ci = 0; ci < S5_CAR_TOTAL; ci++) {
     const mix = { A: 0, B: 0, C: 0 };
     for (const z of carRobots) mix[z.kind]++;
     s5CarShape.push({ n: carRobots.length, A: mix.A, B: mix.B });
-    if (mix.C > 0) s5EverClassC = true;
+    {
+        const boarders = robots.filter(z => z.stage === 5 && z.boardingCar === ci);
+        s5BoarderShape.push({ n: boarders.length, C: boarders.filter(z => z.kind === 'C').length });
+    }
     if (carRobots.some(z => Math.abs(z.mesh.position.z - s5World.map.playerTrackZ) < 20)) s5EverGroundRobot = true;
     // Sudah di barisan tembak (slot dek), bukan tertinggal di dalam peti.
     if (carRobots.length && carRobots.every(z => z.mesh.visible && !z.invuln)) s5EmergeSeen = true;
-    T(`S5 GERBONG ${ci + 1}: ramp terbuka penuh, 3-6 robot kelas A/B saja, B lebih banyak dari A [${carRobots.length} robot]`,
+    T(`S5 GERBONG ${ci + 1}: ramp terbuka penuh, 3-6 penembak A/B siap dan C yang sudah dimuat mulai melompat [${carRobots.length} penembak]`,
         etDbg2().mode === 'engage'
         && Math.abs(etDbg2().rampAngles[ci] - s5World.enemyTrain.rampOpenRad) < 1e-6
         && carRobots.length >= S5E.perCarMin && carRobots.length <= S5E.perCarMax
         && mix.C === 0 && mix.B > mix.A && carRobots.length === etDbg2().spawned
         && etDbg2().strobes[ci] === true);
-    T(`S5 GERBONG ${ci + 1}: HANYA gerbong ini yang terbuka; robot gerbong lain masih tersegel`,
-        etDbg2().rampAngles.every((a, i) => i === ci || a === 0
-            || etDbg2().wrecks.some(w => w.i === i))
-        && robots.every(z => z.stage !== 5 || z.pickup || z.etCar === ci || !z.mesh.visible));
+        T(`S5 GERBONG ${ci + 1}: HANYA gerbong ini yang terbuka; robot gerbong lain masih tersegel`,
+            etDbg2().rampAngles.every((a, i) => i === ci || a === 0
+                || etDbg2().wrecks.some(w => w.i === i))
+            && robots.every(z => z.stage !== 5 || z.pickup || z.boardingJump
+                || (z.boardingCar != null && !z.mounted)
+                || z.etCar === ci || !z.mesh.visible));
     T(`S5 GERBONG ${ci + 1}: penembak tetap di konsist seberang dan tak pernah menyeberang ke gerbong player`,
         carRobots.every(z => z.mounted && z.state === 'mounted'
             && Math.abs(z.mesh.position.z - s5World.map.journeyEnemyZ) < s5World.enemyTrain.widthMeters * 7
@@ -7674,10 +7746,11 @@ for (let ci = 0; ci < S5_CAR_TOTAL; ci++) {
 // Bentuk jalan diperiksa DI SINI: begitu konsist habis, gerbang kedatangan
 // dapat langsung menutup jalan raya, sehingga debug hidupnya kembali idle.
 const s5HwAfterCars = hwDbg();
-T(`S5 JALAN: menyatu perlahan tanpa pernah melompat ke dalam pandangan [${s5HwAfterCars.offsetAtPlayer.toFixed(1)} dari ${S5H.farZ}]`,
+T(`S5 JALAN: mulai menyatu perlahan tanpa pernah melompat ke dalam pandangan [${s5HwAfterCars.offsetAtPlayer.toFixed(1)} dari ${S5H.farZ}]`,
     !s5RoadPopped && s5RoadOffsets.length > 50
-    && Math.abs(s5HwAfterCars.offsetAtPlayer - S5H.nearZ) < 0.5
-    && s5HwAfterCars.merged);
+    && s5RoadOffsets[0] > s5ViewMaxZ && s5RoadOffsets[0] > S5H.farZ - 5
+    && s5HwAfterCars.offsetAtPlayer < Math.min(s5ViewMaxZ, S5H.farZ - 30)
+    && s5HwAfterCars.offsetAtPlayer >= S5H.nearZ - 1);
 T(`S5 JALAN: selama merapat jalannya MIRING — bagian di depan player lebih dekat daripada di belakang [tepi pandang +z = ${s5ViewMaxZ.toFixed(0)}]`,
     s5RoadDiagonalSeen && s5ViewMaxZ > 0 && S5H.farZ > s5ViewMaxZ);
 T('S5 JALAN: offset jalan turun monoton (rel mendekat), tidak pernah menjauh lagi',
@@ -7686,6 +7759,20 @@ T(`S5 KONVOI: pengangkut jalan raya pernah dikirim dan dihancurkan [${s5HwAfterC
     s5HwAfterCars.spawned > 0 && s5HwAfterCars.destroyed > 0 && !s5HwOverActive);
 T('S5 KONVOI: penumpang selalu berada di atas jalan dan tak pernah masuk gerbong player',
     s5HwRiderChecked && s5HwRiderOk);
+T(`S5 BOARDERS: tiap gerbong membawa jumlah C yang tepat dan tidak ada kelas lain [${s5BoarderShape.map(b => b.n).join(',')}]`,
+    s5BoarderShape.length === S5_CAR_TOTAL
+    && s5BoarderShape.every(b => b.n >= S5E.boarders.perCarMin
+        && b.n <= S5E.boarders.perCarMax && b.C === b.n)
+    && s5BoarderKindsOk);
+T('S5 BOARDERS: C tetap mounted, tersegel, dan berada di slot interior sebelum dilepas',
+    s5BoarderStagedSeen && s5BoarderStagedOk);
+T('S5 BOARDERS: tidak ada C yang mulai keluar sebelum ramp benar-benar penuh',
+    s5BoarderDoorReadySeen && !s5BoarderDoorEarlySeen);
+T('S5 BOARDERS: airborne kebal, mendarat di dek player, lalu langsung mengejar',
+    s5BoarderLaunchSeen && s5BoarderArcSeen && s5BoarderLandSeen
+    && s5BoarderInvulnOk && s5BoarderDirectChaseSeen);
+T('S5 BOARDERS: koreografi selalu memuat ancang-ancang, lari ke ramp, dan lintasan menyamping',
+    s5BoarderWindupSeen && s5BoarderRunupSeen && s5BoarderCurveSeen);
 // PERBAIKAN "jalannya patah-patah" (2026-08-08): modul mengikuti garis singgung
 // kurva dan sepanjang BUSUR-nya, jadi sambungannya rapat — bukan lagi deretan
 // batang sejajar sumbu x yang bergeser samping seperti tangga.
@@ -7694,8 +7781,8 @@ T(`S5 JALAN: tiap modul diputar mengikuti garis singgung kurva, bukan batang sej
 T('S5 JALAN: panjang modul mengikuti BUSUR kurva, bukan proyeksi x-nya', s5RoadArcOk);
 T(`S5 JALAN: sambungan antar-modul rapat — jalannya menyambung, tidak patah-patah [celah maks ${s5RoadSeamMax.toFixed(3)}]`,
     s5RoadSeamMax > 0 && s5RoadSeamMax < 1.0);
-T('S5 KONSIST: seluruh gerbong memakai kelas A/B saja; tidak ada robot kelas C atau boss di perjalanan',
-    !s5EverClassC && !robots.some(z => z.stage === 5 && z.kind === 'boss'));
+T('S5 KONSIST: setiap gerbong membawa C dari awal; C keluar dari ramp dan bukan musuh yang di-spawn mendadak',
+    s5EverClassC && !robots.some(z => z.stage === 5 && z.kind === 'boss'));
 T('S5 KONSIST: begitu ramp mendarat awaknya SIAP TEMPUR di dek dan tak pernah turun ke jalur player',
     s5EmergeSeen && !s5EverGroundRobot);
 T('S5 KONSIST: isi peti tak pernah terlihat sebelum ramp gerbongnya cukup terbuka', s5SealedSeen);
@@ -7705,8 +7792,8 @@ T('S5 KONSIST: TIDAK PERNAH ada dua ramp hidup terbuka bersamaan — gerbong dib
 // tidak barisan tembaknya cuma berdiri diam dan gameloop-nya mati.
 T('S5 KONSIST: penembak konsist benar-benar mendapat gerbang tembak ke player lintas-rel',
     s5EverInRange);
-T(`S5 KONSIST: 10 gerbong dimainkan berurutan dan jumlah robot per gerbong dibaca config [${s5CarShape.map(c => c.n).join(',')}]`,
-    s5CarShape.length === S5_CAR_TOTAL && S5_CAR_TOTAL === 10
+T(`S5 KONSIST: 12 gerbong dimainkan berurutan dan jumlah robot per gerbong dibaca config [${s5CarShape.map(c => c.n).join(',')}]`,
+    s5CarShape.length === S5_CAR_TOTAL && S5_CAR_TOTAL === 12
     && s5CarShape.every(c => c.B > c.A && c.n >= S5E.perCarMin && c.n <= S5E.perCarMax));
 // ===== MINI BOS LOKOMOTIF (2026-08-09, permintaan user) =====================
 // Gerbong terakhir habis TIDAK lagi langsung menyalakan babak penutup: konsist
@@ -7876,7 +7963,8 @@ tickS5Wave(S5E.finaleSec + 0.4, 0.1);
 // Konvoi jalan raya yang masih hidup HARUS menahan gerbang kedatangan meski
 // seluruh gerbong musuh sudah hancur.
 let s5ArrivalLockSeen = null;
-if (hwDbg().activePickups > 0 || countS5Riders() > 0) {
+if (hwDbg().activePickups > 0 || countS5Riders() > 0
+    || robots.some(z => z.stage === 5 && z.boardingCar != null)) {
     s5ArrivalLockSeen = s5mod.stage5Debug().phase === 'ride';
     killS5();
     tickS5Wave(S5H.wreckSec + 0.8, 0.1);
@@ -7898,7 +7986,7 @@ T('S5 HUD: status perjalanan tak pernah menyebut kilometer/jarak',
     !/KM|KILOMET/i.test(s5mod.journeyScene.hudStatus()));
 // Sisa pengangkut MENGUNCI kedatangan walau seluruh gerbong sudah hancur.
 if (s5ArrivalLockSeen !== null) {
-    T('S5 ARRIVAL GATE: gerbong habis tetapi konvoi jalan raya masih hidup -> arrival TETAP terkunci',
+    T('S5 ARRIVAL GATE: gerbong habis tetapi konvoi/boarder masih hidup -> arrival TETAP terkunci',
         s5ArrivalLockSeen === true);
 }
 s5mod.stage5Scene.updateMode(0.1);
@@ -8144,8 +8232,8 @@ const expectedS6Dialogue = {
     hallFabricators: { speaker: 'Major Gibran', text: 'They built fabricators into the freight hall. Those come down before I leave this terminal.' },
     keyHunt: { speaker: 'Command', text: 'The service door to the power hall runs on a physical key, Major. Maintenance crews kept their spares in the supply racks.' },
     keyFound: { speaker: 'Major Gibran', text: 'Got it. Now let us see what they were keeping behind that door.' },
-    gridOpen: { speaker: 'Command', text: 'That is the emergency power hall. Headquarters cannot release its access door until all three generators are running.' },
-    generatorFirst: { speaker: 'Major Gibran', text: 'One turbine turning. Two to go.' },
+    gridOpen: { speaker: 'Command', text: 'That is the emergency power hall. Headquarters cannot release its access door until two generators are running.' },
+    generatorFirst: { speaker: 'Major Gibran', text: 'One turbine turning. One to go.' },
     powerRestored: { speaker: 'Station System', text: 'Emergency grid restored. Headquarters access door released.' },
     exfilCall: { speaker: 'Command', text: 'The grid woke something up and they are converging on you. Get to that door, Major.' },
     fabricatorsClear: { speaker: 'Major Gibran', text: 'Both fabricators are wrecked. Nothing else is walking out of them.' },
@@ -8169,7 +8257,7 @@ const expectedS6Dialogue = {
     gibranResolve: { speaker: 'Major Gibran', text: 'Copy. First I survive Bandung. Then I find a way to IKN.' },
     machinesDeploy: { speaker: 'HQ System', text: 'FABRICATION UNITS DEPLOYED TO THIS FLOOR. HOSTILE PRODUCTION ONLINE.' },
     machinesDown: { speaker: 'Major Gibran', text: 'Both fabricators are scrap. Nothing else is coming out of the walls.' },
-    floorClear: { speaker: 'Command', text: 'The floor is quiet, Major. Get back to your entry point and get out of Bandung.' },
+    floorClear: { speaker: 'Command', text: 'Factories are down, Major. Get back to your entry point and get out of Bandung.' },
 };
 // Baris KONTEKSTUAL (urutannya mengikuti rute + kapan player memilih menembak
 // mesin) dikecualikan dari assert urutan ketat; assert urutan hanya mencakup
@@ -8529,7 +8617,7 @@ T('S6 GENERATOR: abort menyimpan papan pertama dan pemicu harus re-arm dengan me
     s6mod.stage6Debug().generatorStep[0] === 1 && !s6mod.stage6Debug().generatorArmed[0]
     && s6mod.stage6Debug().generatorsOnline === 0);
 s6Put(s6mod.S6_FINISH); s6mod.stage6Scene.updateMode(0.1);
-for (let i = 0; i < s6mod.GENERATOR_POINTS.length; i++) {
+for (let i = 0; i < S6_GEN_REQUIRED; i++) {
     s6Put(s6mod.GENERATOR_POINTS[i].stand); s6mod.stage6Scene.updateMode(0.1);
     if (i === 0) {
         T('S6 GENERATOR: kembali ke generator pertama melanjutkan langsung dari ROTOR KICKSTART',
@@ -8548,8 +8636,10 @@ for (let i = 0; i < s6mod.GENERATOR_POINTS.length; i++) {
             && s6mod.stage6Debug().phase === 'powerGrid');
     }
 }
-T('S6 LISTRIK PULIH: tiga generator membuka pintu `@` dan melepas gelombang exfil',
-    s6mod.stage6Debug().generatorsOnline === 3 && s6mod.stage6Debug().phase === 'exfil'
+T('S6 LISTRIK PULIH: target generator config membuka pintu `@` dan melepas gelombang exfil',
+    s6mod.stage6Debug().generatorsOnline === S6_GEN_REQUIRED
+    && s6mod.stage6Debug().generatorsRequired === S6_GEN_REQUIRED
+    && s6mod.stage6Debug().phase === 'exfil'
     && s6Door('chapter').target === 1
     && sameMix(s6Mix('exfil'), scaledMix(S6C.encounters.exfil, 6))
     // Penanda `F` MENUNGGU kedua mesin: selama masih berdiri, objektifnya mesin.
@@ -8603,12 +8693,22 @@ drainS6Dialogue();
 const s6ExfilLeft = s6Alive('exfil');
 s6Put(s6mod.S6_FINISH); s6mod.stage6Scene.updateMode(0.1);
 const s6ChapterIn = dom4.cineFadeDebug();
-T('S6 CHAPTER: arrival -> HQ berpindah langsung tanpa dialog/cutscene/fade',
+T('S6 CHAPTER: arrival -> HQ menampilkan loading sebelum warmup chapter 2',
+    s6mod.stage6Debug().chapter === 'arrival'
+    && smMod.activeScene === s6mod.stage6Scene
+    && stateMod.cinematicActive && s6mod.stage6DialogueDebug().key === null
+    && s6mod.subFadeDebug().loading === true
+    && document.getElementById('loadingScreen').style.display === 'flex'
+    && s6ChapterIn.opacity === 0);
+for (let i = 0; i < 300 && s6mod.subFadeDebug().loading; i++)
+    await new Promise(r => setTimeout(r, 10));
+T('S6 CHAPTER: loading selesai lalu HQ aktif tanpa mengganti activeScene',
     s6mod.stage6Debug().chapter === 'hq' && s6mod.stage6Debug().sub === 'campaign-6-hq'
     && smMod.activeScene === s6mod.stage6Scene
     && !stateMod.cinematicActive && s6mod.stage6DialogueDebug().key === null
-    && !s6mod.subFadeDebug().pending && s6mod.subFadeDebug().sec === 0
-    && s6ChapterIn.opacity === 0);
+    && s6mod.subFadeDebug().loading === false
+    && document.getElementById('loadingScreen').style.display === 'none'
+    && dom4.cineFadeDebug().opacity === 0);
 T('S6 CHAPTER: sisa robot chapter 1 ditinggal, garnisun kantor sesuai CFG',
     s6ExfilLeft > 0 && s6Alive('exfil') === 0
     && s6mod.stage6Debug().phase === 'office'
@@ -9076,10 +9176,9 @@ T('S6 MESIN: kedua mesin hancur jadi bangkai gosong yang TETAP terlihat',
 }
 {
     const before = s6Robots();
-    killS6();
     tickS6(S6C.machineWaveSec * 2 + 1, 0.2);
-    T('S6 PURGE: setelah kedua mesin hancur tak ada robot baru dan fase pindah ke exfil',
-        before > 0 && s6Robots() === 0
+    T('S6 PURGE: setelah kedua mesin hancur tidak ada spawn baru dan fase escape terbuka walau robot tersisa',
+        before > 0 && s6Robots() === before
         && s6mod.stage6Debug().phase === 'escape'
         && s6mod.hqWorldDebug().markers.finish === true);
 }
@@ -9641,21 +9740,19 @@ T('S7 KOTA: penataan deterministik — tanpa RNG global',
             && !FORBIDDEN_HEX.includes(m2.emissive.getHex())
             && (m2.emissive.getHex() === 0 || m2.emissiveIntensity <= EMISSIVE_MAX)));
 }
-// MALAM (2026-08-10, "ini masih terlalu terang"): `night` masih memakai
-// matahari apokaliptik oranye 0.32 dan `enterCityEnv` memasang haze biru-abu
-// terang — gabungan itu terbaca SENJA. Stage 7 memakai `midnight` PLUS haze
-// malam pekat; haze-lah yang paling menentukan terang/gelap karena ia mengisi
-// layar dan menjadi warna akhir kabut. Nilai pembandingnya DIUKUR dari default
-// yang dipakai stage kota lain, bukan angka mati.
+// MALAM: request terbaru menaikkan keterbacaan Stage 7 mendekati Stage 4, jadi
+// stage memakai preset `night`. Haze Bandung tetap lebih gelap dari default kota
+// tetapi jauh lebih terang dari preset `midnight` lama. Nilai pembandingnya
+// DIUKUR dari default yang dipakai stage kota lain, bukan angka mati.
 {
-    const N = s7LightMod.LIGHT_PRESETS.midnight, D = s7LightMod.LIGHT_PRESETS.night;
+    const N = s7LightMod.LIGHT_PRESETS.night, M = s7LightMod.LIGHT_PRESETS.midnight;
     const cityEnvMod = await import(R('src/scenes/campaign/utility/cityscape.js'));
     const nightNow = { bg: scene.background.getHex(), fog: scene.fog.color.getHex(),
         near: scene.fog.near, far: scene.fog.far };
     // Harness tak pernah membangun cahaya dasar (renderer di-stub), padahal
     // yang diuji di sini justru intensitas & WARNA-nya.
     if (!s7LightMod.dirLight) s7LightMod.createBaseLights(scene);
-    s7LightMod.applyLightPreset(scene, 'midnight');
+    s7LightMod.applyLightPreset(scene, 'night');
     // Ukur default stage kota lain, lalu pulihkan malam Stage 7 — TANPA enter()
     // ulang, karena sisa berkas ini menguji state stage yang sudah berjalan.
     s7LightMod.applyLightPreset(scene, 'night');
@@ -9663,23 +9760,24 @@ T('S7 KOTA: penataan deterministik — tanpa RNG global',
     const base = { bg: scene.background.getHex(), fog: scene.fog.color.getHex(),
         far: scene.fog.far, dir: s7LightMod.dirLight.color.getHex(),
         amb: s7LightMod.ambLight.color.getHex(), rim: s7LightMod.rimLight.intensity };
-    s7LightMod.applyLightPreset(scene, 'midnight');
+    s7LightMod.applyLightPreset(scene, 'night');
     cityEnvMod.enterCityEnv({ background: s7City.night.background,
         fogColor: s7City.night.fogColor, fogNear: N.fogNear, fogFar: N.fogFar });
     const lum = h => ((h >> 16 & 255) + (h >> 8 & 255) + (h & 255)) / 3;
-    T(`S7 MALAM: cahaya ambient turun jauh di bawah preset night [amb ${N.amb} vs ${D.amb}]`,
-        N.amb < D.amb * 0.75 && N.hemi < D.hemi * 0.75 && N.dir < D.dir * 0.6
-        && s7City.night.preset === 'midnight'
+    T(`S7 MALAM: memakai preset night agar brightness setara Stage 4 [amb ${N.amb}]`,
+        N.amb > M.amb * 2 && N.hemi > M.hemi * 2 && N.dir > M.dir * 2
+        && s7City.night.preset === 'night'
         && s7LightMod.ambLight.intensity === N.amb
         && s7LightMod.dirLight.intensity === N.dir
-        && s7LightMod.dirLight.color.getHex() === N.dirColor);
-    T(`S7 MALAM: haze + kabut jauh lebih gelap/rapat dari stage kota lain [0x${nightNow.bg.toString(16)} vs 0x${base.bg.toString(16)}]`,
+        && s7LightMod.dirLight.color.getHex() === base.dir);
+    T(`S7 MALAM: haze Bandung tetap lebih gelap dari default kota, tapi jauh lebih terang dari midnight [0x${nightNow.bg.toString(16)}]`,
         nightNow.bg === s7City.night.background
         && nightNow.fog === s7City.night.fogColor
         && nightNow.near === N.fogNear && nightNow.far === N.fogFar
-        && lum(nightNow.bg) < lum(base.bg) * 0.55
-        && lum(nightNow.fog) < lum(base.fog) * 0.55
-        && nightNow.far < base.far
+        && lum(nightNow.bg) > lum(0x090c11) * 1.7
+        && lum(nightNow.fog) > lum(0x06080c) * 2
+        && lum(nightNow.bg) < lum(base.bg)
+        && nightNow.far <= base.far
         && scene.background.getHex() === s7City.night.background);
     // Preset lain WAJIB memulihkan warna dasar, kalau tidak Stage 8 mewarisi
     // cahaya bulan Stage 7.
@@ -9716,13 +9814,16 @@ T('S7 PLACEMENT: objective, supplies, crates, barrels, robot, dan factory berada
     && s7World.barrels.every(p => Math.abs(p.y
         - s7mod.stage7RoadHeight(p.x)) < 1e-8));
 
-T('S7 ENCOUNTER: robot tersebar di lima bentang dan seluruh mix mengikuti CFG',
+const s7EncounterTotals = Object.values(S7C.encounters).map(mixCount);
+T('S7 ENCOUNTER: 200 robot tersebar merata di lima bentang dan seluruh mix mengikuti CFG',
     Object.keys(S7C.encounters).join(',')
         === 'eastSpan,rampRun,cableSpan,westSpan,pasteurApproach'
+    && s7EncounterTotals.join(',') === '38,52,39,50,21'
+    && s7EncounterTotals.reduce((n, total) => n + total, 0) === 200
     && Object.entries(S7C.encounters).every(([name, mix]) => sameMix(s7Mix(name), mix))
     && Object.values(S7C.encounters).every(mix => mixCount(mix) > 0)
     && robots.filter(z => z.stage === 7).length
-        === Object.values(S7C.encounters).reduce((n, mix) => n + mixCount(mix), 0)
+        === s7EncounterTotals.reduce((n, total) => n + total, 0)
     && robots.filter(z => z.stage === 7).every(z =>
         Math.abs(z.groundY - s7mod.stage7RoadHeight(z.mesh.position.x)) < 1e-8
         && z.baseY === z.groundY && z.mesh.position.y === z.groundY)
@@ -10535,9 +10636,8 @@ function steerToLaneS8(target) {
             stateMod.keys[key] = true;
             for (let t = 0; t < sec; t += step) s8mod.stage8Scene.updatePlayerControl(step);
             stateMod.keys[key] = false;
-            // Redaman memanjang (`advanceEaseSec`) jauh lebih malas daripada
-            // kemudi menyamping, jadi perlu jauh lebih banyak frame untuk
-            // benar-benar diam — dan ia BENAR-BENAR mencapai nol (snap 0.4).
+            // Kecepatan memanjang langsung mengikuti W/S seperti pesawat Stage
+            // 10; setelah tombol dilepas, satu frame berikutnya sudah nol.
             for (let i = 0; i < 400 && rd().advanceVel !== 0; i++)
                 s8mod.stage8Scene.updatePlayerControl(step);
         };
@@ -10553,8 +10653,22 @@ function steerToLaneS8(target) {
             return Math.abs(rd().currentX - rd().centerX);
         };
 
-        // (1) W benar-benar MEMAJUKAN mobil, S memundurkannya, dan keduanya
+        // (1) W/S langsung memberi laju maju/mundur seperti pesawat Stage 10,
+        //     lalu W benar-benar MEMAJUKAN mobil dan S memundurkannya, keduanya
         //     diukur terhadap PUSAT arena — bukan terhadap koordinat mutlak.
+        centerS8();
+        stateMod.keys.w = true;
+        s8mod.stage8Scene.updatePlayerControl(0.02);
+        const directAhead = rd();
+        stateMod.keys.w = false;
+        s8mod.stage8Scene.updatePlayerControl(0.02);
+        const directStopped = rd();
+        T(`S8 MAJU/MUNDUR: W/S memakai laju langsung seperti pesawat dan berhenti segera [${directAhead.advanceVel.toFixed(1)} / ${directStopped.advanceVel.toFixed(1)}]`,
+            Math.abs(directAhead.advanceVel - directAhead.advanceMaxV) < 1e-9
+            && Math.abs(directAhead.advanceMaxV
+                - Math.min(S8C.advanceSpeed, S8C.roadSpeed * 0.9)) < 1e-9
+            && directStopped.advanceVel === 0);
+        centerS8();
         const base = rd();
         driveS8('w', 1.2);
         const ahead = rd();
@@ -10601,17 +10715,28 @@ function steerToLaneS8(target) {
             // Dilepas: laju terhadap aspal kembali persis ke laju gulir jalan.
             && Math.abs(rd().groundSpeed - S8C.roadSpeed) < 1e-9);
 
-        // (4) JENDELA TERBATAS: menahan W/S selamanya tak boleh membawa mobil
-        //     keluar arena — kalau bisa, pool jalan/scenery habis di depan mata
-        //     dan `stage8Walk` (batas arena) kehilangan artinya.
+        // (4) Kamera Stage 8 dikunci pada pusat arena seperti pesawat Stage
+        //     10. Menahan W/S harus membawa mobil nyaris ke tepi depan maupun
+        //     belakang layar, tetapi tetap berada di atas road pool.
         driveS8('w', 12);
         const maxX = rd();
         driveS8('s', 24);
         const minX = rd();
-        T(`S8 MAJU/MUNDUR: dijepit di jendela config dan tetap jauh di dalam batas arena [${(minX.currentX - minX.centerX).toFixed(0)} .. ${(maxX.currentX - maxX.centerX).toFixed(0)} vs +-${maxX.advanceRange}]`,
-            Math.abs(maxX.currentX - maxX.centerX - maxX.advanceRange) < 1e-6
-            && Math.abs(minX.currentX - minX.centerX + minX.advanceRange) < 1e-6
+        const rearLimit = Math.max(minX.viewMinX + minX.advanceScreenInset,
+            -minX.roadSpan / 2 + S8C.pickupEntryInset);
+        const frontLimit = Math.min(maxX.viewMaxX - maxX.advanceScreenInset,
+            maxX.roadSpan / 2 - S8C.pickupEntryInset);
+        const s8Anchor = s8mod.stage8Scene.cameraAnchor();
+        T(`S8 MAJU/MUNDUR: W/S mencapai dekat tepi depan/belakang layar [${minX.advanceMinOffset.toFixed(0)} .. ${maxX.advanceMaxOffset.toFixed(0)}]`,
+            Math.abs(maxX.currentX - maxX.centerX - maxX.advanceMaxOffset) < 1e-6
+            && Math.abs(minX.currentX - minX.centerX - minX.advanceMinOffset) < 1e-6
+            && Math.abs(minX.advanceMinOffset - rearLimit) < 1e-6
+            && Math.abs(maxX.advanceMaxOffset - frontLimit) < 1e-6
+            && maxX.advanceMaxOffset > 200 && minX.advanceMinOffset < -80
             && maxX.advanceVel === 0 && minX.advanceVel === 0
+            // Opening cinematic sengaja tidak memasang anchor agar fokus
+            // cutscene menang; setelah gameplay aktif anchor harus tepat pusat.
+            && (!s8Anchor || (s8Anchor.x === maxX.centerX && s8Anchor.z === s8mod.S8_START.z))
             && s8mod.stage8Walk(maxX.currentX, minX.currentZ, 0)
             && s8mod.stage8Walk(minX.currentX, minX.currentZ, 0));
 
@@ -10627,6 +10752,7 @@ function steerToLaneS8(target) {
         T(`S8 MAJU/MUNDUR: pengejar ikut posisi HIDUP player, tapi ujung pool jalan tetap terikat PUSAT arena [player ${(now.currentX - now.centerX).toFixed(0)}, pool ${(ctx.roadMaxX - now.centerX).toFixed(0)}]`,
             Math.abs(ctx.playerX - now.currentX) < 1e-9
             && Math.abs(ctx.playerX - now.centerX) > 10
+            && ctx.viewFocusX === now.centerX
             // Ujung pool TIDAK ikut bergeser bersama player.
             && Math.abs(ctx.roadMaxX - (now.centerX + now.roadSpan / 2 - S8C.pickupEntryInset)) < 1e-9
             // Drop dijepit di sebelah MOBIL, bukan di sebelah pusat arena, atau
@@ -10849,6 +10975,25 @@ T('S8 PICKUP ENTRY: carrier pertama lahir di ujung road pool belakang, bukan ten
         - (s8Road0.roadSpan / 2 - S8C.pickupEntryInset)
     && firstPickupEntry.entryX < firstPickupEntry.entryViewEdgeX - S8C.pickupOffscreenMargin
     && firstPickupEntry.lane <= 2 && Math.abs(firstPickupEntry.yaw) < 1e-9);
+// Tabrakan badan-ke-badan memakai envelope kendaraan nyata, bukan radius
+// longgar. Carrier dan seluruh awaknya harus hancur, sementara damage mentah
+// ke player persis nilai config sebelum pengurangan armor.
+{
+    const ramHp = player.hp, ramArmor = player.armor, ramArmorMax = player.armorMax,
+        ramArmorLvl = player.armorLvl;
+    const ramDestroyed = s8mod.stage8ConvoyDebug().destroyed;
+    const ramRiders = robots.filter(z => z.stage === 8 && z.mounted).length;
+    player.armorLvl = player.armor = player.armorMax = 0;
+    const rammed = s8mod.stage8RamPickupDbg();
+    const ramAfter = s8mod.stage8ConvoyDebug();
+    T(`S8 TABRAKAN: mobil robot meledak saat menabrak LTV-45 dan memberi ${S8C.pickupRamDamage} damage mentah`,
+        rammed && ramHp - player.hp === S8C.pickupRamDamage
+        && ramAfter.destroyed === ramDestroyed + 1
+        && robots.filter(z => z.stage === 8 && z.mounted).length === ramRiders - 3
+        && ramAfter.pickups.some(p => p.wreck && p.shattered));
+    player.hp = ramHp; player.armor = ramArmor; player.armorMax = ramArmorMax;
+    player.armorLvl = ramArmorLvl;
+}
 
 // SERPIHAN DITINGGALKAN DI ASPAL (2026-08-17, permintaan user "ketika robot dan
 // mobilnya hancur, serpihan mereka tertinggal di tempat. tidak ikut bergerak
@@ -10916,7 +11061,8 @@ T('S8 CONVOY: target config tercapai, tiap pickup triple A/B, dan cap aktif tida
     S8C.groundLoads.every(load => load.length === 3 && load.every(k => k === 'A' || k === 'B'))
     && convoyBeforeFinal.spawned === S8C.groundPickupTarget
     && convoyBeforeFinal.destroyed === S8C.groundPickupTarget - 1
-    && auditedS8Entries.size === S8C.groundPickupTarget
+    // Carrier pertama sudah diaudit sebelum dihancurkan oleh tes tabrakan.
+    && auditedS8Entries.size + (firstPickupEntry ? 1 : 0) === S8C.groundPickupTarget
     && allMountedTriples && maxS8Pickups <= S8C.maxActivePickups);
 T('S8 CONVOY ENTRY: kedua ujung jalan dipakai, semua carrier menghadap maju di lajur kiri',
     s8EntrySides.has('rear') && s8EntrySides.has('front') && entryFacingOK);
@@ -14028,34 +14174,43 @@ for (const [name, build] of Object.entries(propBuilders)) {
     T('survival: di atas puncak Monas = tak pernah memblok', mb(0, 200, 0, -200, 999) === false);
 }
 
-// === FONT UI = COURIER PRIME (2026-07-31, permintaan user) — Arial dihapus
-// TOTAL dari CSS maupun JS; font di-host lokal (assets/fonts/, tanpa CDN). ===
+// === FONT UI = GASALT (2026-09-13, permintaan user) — font di-host lokal
+// (assets/fonts/gasalt/, tanpa CDN). ===
 {
     const cssF = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
     const htmlF = fs.readFileSync(ROOT + '/index.html', 'utf8');
     const hudF = fs.readFileSync(ROOT + '/src/core/hud.js', 'utf8');
     const menuF = fs.readFileSync(ROOT + '/src/scenes/menu.js', 'utf8');
+    const rootDisplayF = fs.readFileSync(ROOT + '/src/scenes/campaign/stages/stage11/rootDisplay.js', 'utf8');
+    const vehicleF = fs.readFileSync(ROOT + '/src/entities/tacticalVehicle.js', 'utf8');
+    const stageMapF = fs.readFileSync(ROOT + '/tools/stage11map.mjs', 'utf8');
 
-    // Empat face didaftarkan (400/700 x normal/italic) supaya browser tak
-    // membuat bold/italic sintetis.
+    // Gasalt punya Thin/Regular/Black. Normal, italic dan bobot tebal harus
+    // tetap menunjuk keluarga lokal yang sama.
     const faces = cssF.match(/@font-face\s*\{[^}]*\}/g) || [];
-    T('font: 4 @font-face Courier Prime terdaftar',
-        faces.length === 4 && faces.every(f => f.includes("'Courier Prime'")));
-    for (const file of ['Regular', 'Italic', 'Bold', 'BoldItalic']) {
-        T(`font: face ${file} menunjuk file lokal yang ADA`,
-            cssF.includes(`../assets/fonts/CourierPrime-${file}.ttf`)
-            && fs.existsSync(ROOT + `/assets/fonts/CourierPrime-${file}.ttf`));
+    T('font: @font-face Gasalt terdaftar',
+        faces.length >= 3 && faces.every(f => f.includes("'Gasalt'")));
+    for (const file of ['Thin', 'Regular', 'Black']) {
+        T(`font: Gasalt-${file} menunjuk file lokal yang ADA`,
+            cssF.includes(`../assets/fonts/gasalt/Gasalt-${file}.ttf`)
+            && fs.existsSync(ROOT + `/assets/fonts/gasalt/Gasalt-${file}.ttf`));
     }
-    T('font: body memakai Courier Prime',
-        /body\s*\{[^}]*font-family:\s*'Courier Prime'/.test(cssF));
+    T('font: body memakai Gasalt',
+        /body\s*\{[^}]*font-family:\s*'Gasalt'/.test(cssF));
 
     // Tidak boleh ada sisa Arial di mana pun kecuali komentar penjelas CSS.
     const arialCss = cssF.split('\n').filter(l => l.includes('Arial') && !l.trim().startsWith('Menggantikan'));
     T('font: NOL deklarasi Arial tersisa di CSS', arialCss.length === 0);
     T('font: NOL Arial di index.html / hud.js / menu.js',
         !htmlF.includes('Arial') && !hudF.includes('Arial') && !menuF.includes('Arial'));
-    T('font: penanda N radar (canvas) pakai Courier Prime',
-        /radarCtx\.font\s*=\s*'bold 9px "Courier Prime"/.test(hudF));
+    T('font: penanda N radar (canvas) pakai Gasalt',
+        /radarCtx\.font\s*=\s*'bold 9px "Gasalt"/.test(hudF));
+    T('font: canvas world dan generator SVG memakai Gasalt',
+        rootDisplayF.includes('"Gasalt"') && vehicleF.includes('"Gasalt"')
+        && /font-family="Gasalt/.test(stageMapF));
+    T('font: tidak ada deklarasi Courier/monospace/Inter tersisa di sumber UI',
+        !/Courier Prime|CourierPrime|Courier New|monospace|\bInter\s*,|Segoe UI/.test(
+            cssF + hudF + menuF + rootDisplayF + vehicleF + stageMapF));
 
     // Aturan static-buildless: font ikut repo, bukan dari jaringan.
     T('font: tidak memakai webfont CDN',
@@ -20764,7 +20919,9 @@ if (false) {
         for (const r of w.rails) { r.active = false; r.shot.visible = false; }
         for (const b of w.bursts) { b.active = false; b.mesh.visible = false; }
         for (const q of w.stomps) { q.active = false; q.mesh.visible = false; }
-        w.phase = 'phase2'; w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 3;
+        stand12({ x: w.parts.group.position.x + W11.sector.radius * 0.6,
+            z: w.parts.group.position.z });
+        w.phase = 'phase2'; w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 2;
         wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
         const sectorSeen = w.attackState === 'sectorTelegraph';
         const base = w.sectorBase;
@@ -20780,7 +20937,7 @@ if (false) {
             return robotsMod.pendingBoomsDebug().length;
         };
         const inGap = boomAt(gapCenters[0], W11.sector.radius * 0.6);
-        w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 3;
+        w.attackState = 'cooldown'; w.attackT = 0; w.attackIndex = 2;
         wardenMod.updateNusantaraWarden(w, 0.05, { arena: s11.S11_ARENA, allowAttack: true });
         const inWedge = boomAt(w.sectorBase, W11.sector.radius * 0.6);
         robotsMod.resetRobotsFx();

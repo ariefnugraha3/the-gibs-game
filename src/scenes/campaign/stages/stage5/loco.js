@@ -1,6 +1,6 @@
 // Stage 5 — MINI BOSS: LOKOMOTIF KERETA MUSUH (2026-08-09, permintaan user).
 //
-// Sesudah kesepuluh gerbong hancur, konsist tidak lagi langsung terbakar dan
+// Sesudah seluruh dua belas gerbong hancur, konsist tidak lagi langsung terbakar dan
 // pergi. Lokomotifnya MAJU sampai sejajar dengan gerbong player, MENYALAKAN dua
 // senjata yang sejak awal sudah terpasang di atapnya (larasnya selama ini
 // mengarah lurus ke depan, arah laju kereta), lalu bertempur sampai HP-nya

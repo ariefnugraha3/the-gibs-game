@@ -21,9 +21,8 @@ import {
     spawnBarrel, resolveBarrelBlock, resetBarrels,
 } from '../../../../entities/barrels.js';
 import { queueBoom } from '../../../../entities/robots.js';
-import { explodeAt, spawnBloodBurst, spawnGroundPuff } from '../../../../entities/effects.js';
-import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
-import { spawnMachineHp } from '../../../../entities/spawnMachine.js';
+import { spawnBloodBurst, spawnGroundPuff } from '../../../../entities/effects.js';
+import { spawnMachineHp, spawnMachineWreckFx } from '../../../../entities/spawnMachine.js';
 import { slideWalk } from '../../../../utils/collision.js';
 import { rand, segPointDist2 } from '../../../../utils/math.js';
 import { playSFX, sfxPurchase, sfxRobotSpawn } from '../../../../utils/sfx.js';
@@ -208,11 +207,7 @@ function destroySpawnMachine() {
     if (!machineAlive) return;
     machineAlive = false; machineHp = 0; machineCycle = null;
     killStationSpawnMachine();
-    explodeAt(new THREE.Vector3(S5_SPAWN_MACHINE.x, 13, S5_SPAWN_MACHINE.z), 32, 1);
-    spawnGibs(S5_SPAWN_MACHINE.x, 15, S5_SPAWN_MACHINE.z,
-        16, -1, 0, 2.5, PAL.gunmetal, 0.4, PAL.ink);
-    spawnBloodDecal(S5_SPAWN_MACHINE.x, S5_SPAWN_MACHINE.z, 8, PAL.ink);
-    addCamShake(10);
+    spawnMachineWreckFx(S5_SPAWN_MACHINE.x, S5_SPAWN_MACHINE.z);
     showStageMsg('ROBOT FACTORY DESTROYED — ELIMINATE THE REMAINING UNITS', 4200);
 }
 

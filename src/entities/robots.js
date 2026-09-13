@@ -709,6 +709,17 @@ export function damagePlayerHp(raw) {
     } else player.hp -= raw;
 }
 
+// Contact damage for heavy scenery/vehicle impacts. Unlike an explosion this
+// lands on the collision frame, so the player cannot move out of its radius
+// before receiving the authored raw damage.
+export function damagePlayerImpact(raw, x, z) {
+    if (player.hp <= 0) return false;
+    damagePlayerHp(raw); playSFX(sfxHit); updateUI(); flashDamage();
+    showHitDir(attackerAngle(x, z));
+    if (player.hp <= 0) startPlayerDeath(camera.position.x - x, camera.position.z - z);
+    return true;
+}
+
 // Electric contact keeps armor/dodge/death rules, without explosive blood or
 // splash damage. The attack owner supplies its prebuilt electrical presentation.
 export function damagePlayerElectric(raw, x, z) {

@@ -1355,14 +1355,15 @@ Player dan camera ride with car; station root tidak digeser.
 
 #### Journey combat
 
-- Enemy ten-car assault consist datang pada adjacent track dan dibuka/dihancurkan car-by-car.
+- Enemy 12-car assault consist datang pada adjacent track dan dibuka/dihancurkan car-by-car.
 - Robot di enemy train bersifat invulnerable sampai car mereka masuk encounter window.
 - Setiap car berisi config-driven 3–6 B/A combatants.
-- Highway merge mulai car index 4; Raven-style carriers membawa B/B/A permutations.
+- Setiap car juga mengirim beberapa class-C boarders yang melompat dramatis ke car player sebelum mengejar.
+- Highway visual mulai car index 1 (gerbong 2); Raven-style carriers mulai car index 3 (gerbong 4) dan membawa B/B/A permutations.
 - Destroyed consist/wreck drift ke belakang dan keluar pool.
 - Medkit cadence setiap dua cars/pickups.
 - Locomotive assault memiliki local HP/attack controller, tetapi tidak menjadi universal boss-kind robot dan tidak mengubah rule “no boss entity” untuk stage.
-- Arrival hanya dimulai setelah hostile route selesai dan minimum journey pacing terpenuhi.
+- Arrival hanya dimulai setelah hostile consist, boarders, dan highway convoy selesai.
 
 #### Scenery
 
@@ -1400,7 +1401,7 @@ Active scene tetap `campaign-6`:
 
 `Arrival terminal → HQ office`
 
-Chapter world berjauhan melampaui camera far plane, memiliki root, nav, collider, dan light set sendiri. Handoff Arrival→HQ langsung tanpa cutscene/fade/dialogue baru.
+Chapter world berjauhan melampaui camera far plane, memiliki root, nav, collider, dan light set sendiri. Handoff Arrival→HQ memakai loading internal stage, tanpa mengganti `activeScene`.
 
 #### Chapter 1 — Arrival
 
@@ -1418,7 +1419,7 @@ World 50×50:
 - key-locked auto door `=`;
 - chapter door `@`;
 - three key racks `K`;
-- three 3×3 generators `G` + repair points `H`;
+- three 3×3 generators `G` + repair points `H`, tetapi gate default hanya membutuhkan dua generator aktif;
 - finish `F`.
 
 Flow:
@@ -1428,7 +1429,7 @@ Flow:
 3. Setelah clear, cari random physical key di salah satu tiga rack.
 4. Key hanya unlock door; player tetap harus mendekat untuk membuka.
 5. Enter power hall memunculkan `grid` garrison.
-6. Repair tiga generator memakai advanced repair.
+6. Repair dua generator memakai advanced repair by default (`requiredGenerators` config).
 7. Exfil wave muncul; dua fabricator harus dihancurkan sebelum F aktif.
 8. Exfil robots boleh dilewati.
 
@@ -1471,7 +1472,7 @@ Flow:
 5. Upload berhenti tepat 92%: broadcast authority denied.
 6. Lockdown dimulai; purge wave dapat spawn termasuk old safe area.
 7. Dua machine naik dari `M`; sebelumnya visual/collider/cells benar-benar terbuka.
-8. Hancurkan machine dan seluruh floor robot.
+8. Hancurkan kedua machine; floor robot yang tersisa tidak lagi mengunci escape.
 9. Return ke S/F untuk finish.
 
 Base encounter lalu multiplier 2:
@@ -1518,7 +1519,7 @@ opening → flyover → tollApproach → factorySiege → vehicleReveal → outr
 - Deck height 12 m; descent mulai meter 1200 sepanjang 200 m dan turun 12 m.
 - Feeder ramps visual-only; player tetap di main deck.
 - 14 actual PointLights; lamp lain emissive-only.
-- Midnight lighting dan deep haze.
+- Shared `night` lighting dengan haze Bandung yang lebih terang.
 - Central Bandung procedural city di ground bawah flyover.
 - Landmark cable tower tepat meter 700.
 - World visual berlanjut 150 m melewati toll, tetapi walk/nav berhenti di gate.
@@ -1536,12 +1537,12 @@ opening → flyover → tollApproach → factorySiege → vehicleReveal → outr
 
 | Zone | C/B/A | Total |
 | --- | --- | ---: |
-| eastSpan | 28/12/4 | 44 |
-| rampRun | 31/14/5 | 50 |
-| cableSpan | 29/14/5 | 48 |
-| westSpan | 32/15/5 | 52 |
-| pasteurApproach | 34/16/6 | 56 |
-| **Total** | 154/71/25 | **250** |
+| eastSpan | 23/11/4 | 38 |
+| rampRun | 32/15/5 | 52 |
+| cableSpan | 24/11/4 | 39 |
+| westSpan | 31/14/5 | 50 |
+| pasteurApproach | 13/6/2 | 21 |
+| **Total** | 123/57/20 | **200** |
 
 Robot mengaktif saat masuk frustum, bukan hanya distance.
 
@@ -2267,7 +2268,7 @@ Stage 2 menggunakan satu board per named component. Tiga komponen harus ditemuka
 
 ### 17.5 FIELD RESTART — advanced repair
 
-Stage 5 C2 dan tiga generator Stage 6 menggunakan tepat dua board:
+Stage 5 C2 dan generator Stage 6 yang diaktifkan menggunakan tepat dua board:
 
 1. **PHASE SYNC**
 2. **ROTOR KICKSTART**
@@ -2563,7 +2564,7 @@ Jangan memakai warna ini sebagai dekorasi ambigu.
 - Stage 4: Jakarta roadside lots dan alun-alun.
 - Stage 5: depot, tracks, freight infrastructure, mountains.
 - Stage 6: Bandung city ring, logistics arrival, open-plan HQ.
-- Stage 7: Bandung districts below flyover, deep midnight.
+- Stage 7: Bandung districts below flyover, brighter night flyover haze.
 - Stage 8: city thinning into Priangan rice terraces.
 - Stage 9: airport frontage/terminal/apron melalui massing, bukan signage.
 - Stage 10: container stacks, cranes, pipe racks, coastal water.

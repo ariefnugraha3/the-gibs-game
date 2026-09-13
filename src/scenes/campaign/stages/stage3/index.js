@@ -68,7 +68,7 @@ import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.j
 import { applyLightPreset, registerStageLight } from '../../../../world/lighting.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine,
-    wreckSpawnMachine, spawnMachineHp,
+    wreckSpawnMachine, spawnMachineHp, spawnMachineWreckFx,
 } from '../../../../entities/spawnMachine.js';
 import { PAL } from '../../../../world/palette.js';
 import {
@@ -79,8 +79,7 @@ import { saveCampaignStage } from '../../../../core/saveGame.js';
 import { updateUI } from '../../../../core/hud.js';
 import { NADE_R } from '../../../../entities/grenades.js';
 import { disposeRobot, queueBoom } from '../../../../entities/robots.js';
-import { spawnBloodBurst, explodeAt, spawnGroundPuff } from '../../../../entities/effects.js';
-import { spawnGibs, spawnBloodDecal } from '../../../../entities/gore.js';
+import { spawnBloodBurst, spawnGroundPuff } from '../../../../entities/effects.js';
 import { spawnAmmoDrop, spawnMedkitDrop } from '../../../../entities/drops.js';
 import { buildFuturisticDeskMesh } from '../../../../entities/futuristicDesk.js';
 import { buildFuturisticChairMesh } from '../../../../entities/futuristicChair.js';
@@ -1164,10 +1163,7 @@ function s3DestroyMachine(m) {
     // dari hatch-nya (identitas cell = objek m.spawn yang sama saat di-queue).
     s3Queue = s3Queue.filter(e => e.cell !== m.spawn);
     addScore(CFG.robot.score.specialKill);
-    explodeAt(new THREE.Vector3(m.cx, 12, m.cz), 26, 1, undefined);
-    spawnGibs(m.cx, 14, m.cz, 12, 1, 0, 2.2, 0x3d444c, 0.4, 0x141210);
-    spawnBloodDecal(m.cx, m.cz, 7, 0x141210);
-    addCamShake(8);
+    spawnMachineWreckFx(m.cx, m.cz);
     updateUI();
 }
 

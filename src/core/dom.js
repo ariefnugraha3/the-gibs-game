@@ -345,7 +345,7 @@ export function nextPaint() {
     return new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
 }
 
-// Font UI (Courier Prime lokal). Tanpa ini judul & tombol menu sempat tampil
+// Font UI (Gasalt lokal). Tanpa ini judul & tombol menu sempat tampil
 // dgn font cadangan lalu melompat saat font aslinya tiba. Dibatasi waktu:
 // kegagalan font tak boleh menggantung boot selamanya.
 export function fontsReady(timeoutMs = 2500) {

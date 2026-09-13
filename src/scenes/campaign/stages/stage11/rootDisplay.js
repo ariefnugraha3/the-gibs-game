@@ -29,6 +29,7 @@ import { PAL } from '../../../../world/palette.js';
 const W = 512, H = 470;            // ~ rasio panel layar utama (24 lebar x 22 tinggi)
 const REFRESH_HZ = 8;              // detak kursor/log; batas atas unggahan tekstur
 const LOG_ROWS = 5;
+const FONT = '"Gasalt", sans-serif';
 
 const css = hex => '#' + (hex >>> 0).toString(16).padStart(6, '0');
 const C = {
@@ -103,7 +104,7 @@ function draw() {
     // Kop jendela: judul tugas + indikator sesi (chrome komputer, bukan papan nama).
     ctx.fillStyle = accent; ctx.fillRect(0, 0, W, 34);
     ctx.fillStyle = C.bg;
-    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.font = `bold 20px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.fillText('ROOT BROADCAST CONTROL', 14, 18);
     for (let i = 0; i < 3; i++) {
@@ -115,7 +116,7 @@ function draw() {
     ctx.strokeRect(6, 40, W - 12, H - 48);
 
     // Baris meta.
-    ctx.font = '15px "Courier New", monospace';
+    ctx.font = `15px ${FONT}`;
     ctx.fillStyle = C.dim;
     ctx.fillText('NODE  N-ROOT-01', 20, 62);
     ctx.fillText('AUTH  PHYSICAL MEDIA', 20, 84);
@@ -125,10 +126,10 @@ function draw() {
 
     // ANGKA PERSEN — bagian yang dulu hidup di popup biru.
     const pctText = percent + '%';
-    ctx.font = 'bold 108px "Courier New", monospace';
+    ctx.font = `bold 108px ${FONT}`;
     ctx.fillStyle = accent;
     ctx.fillText(pctText, 26, 190);
-    ctx.font = '15px "Courier New", monospace';
+    ctx.font = `15px ${FONT}`;
     ctx.fillStyle = C.dim;
     ctx.fillText('UPLINK', 26, 240);
 
@@ -147,7 +148,7 @@ function draw() {
     }
 
     // Baris status besar.
-    ctx.font = 'bold 19px "Courier New", monospace';
+    ctx.font = `bold 19px ${FONT}`;
     ctx.fillStyle = accent;
     ctx.fillText(stalled ? 'STATUS  HALTED — EXTERNAL AUTHORITY'
         : jammed ? 'STATUS  JAMMED — CHANNEL SEIZED'
@@ -156,7 +157,7 @@ function draw() {
     line(332, 20, W - 20, C.frame);
 
     // Log berjalan: baris terakhir mengikuti keadaan siaran + kursor kedip.
-    ctx.font = '15px "Courier New", monospace';
+    ctx.font = `15px ${FONT}`;
     for (let i = 0; i < LOG_ROWS; i++) {
         const y = 356 + i * 22;
         const last = i === LOG_ROWS - 1;

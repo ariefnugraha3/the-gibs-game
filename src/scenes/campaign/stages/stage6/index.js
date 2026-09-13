@@ -4,7 +4,8 @@
 // dilihat core/sceneManager (id `campaign-6`, checkpoint 6), sementara isi stage
 // dipecah menjadi DUA CHAPTER sebagai sub-scene —
 //   arrival (stasiun Bandung, denah CSV user) -> hq (Bandung Headquarters).
-// Pergantian Arrival -> HQ langsung pada frame pemicu; tanpa dialog/cutscene/fade.
+// Pergantian Arrival -> HQ memakai overlay loading internal stage agar masuk HQ
+// tidak terasa freeze/teleport.
 
 import { CFG } from '../../../../core/config.js';
 import { player } from '../../../../core/state.js';
@@ -104,8 +105,9 @@ export const stage6Scene = {
     awardKill: campaignAwardKill,
 
     updateMode(dt) {
-        updateSubFade();
+        const loading = updateSubFade();
         updateDialogue(dt);
+        if (loading) { updateUI(); return; }
         activeSub().updateMode(dt);
         updateUI();
     },

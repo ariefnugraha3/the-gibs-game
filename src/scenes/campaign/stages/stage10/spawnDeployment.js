@@ -14,9 +14,9 @@ import { addCamShake } from '../../../../core/renderer.js';
 import { spawnBloodBurst, spawnGroundPuff } from '../../../../entities/effects.js';
 import {
     buildSpawnMachineMesh, resetSpawnMachine, updateSpawnMachine, spawnMachineDebug,
-    spawnMachineHp, wreckSpawnMachine,
+    spawnMachineHp, wreckSpawnMachine, spawnMachineWreckFx,
 } from '../../../../entities/spawnMachine.js';
-import { playSFX, sfxExplode, sfxRobotSpawn } from '../../../../utils/sfx.js';
+import { playSFX, sfxRobotSpawn } from '../../../../utils/sfx.js';
 import { PAL } from '../../../../world/palette.js';
 import { spawnCampaignRobot } from '../../utility/common.js';
 
@@ -289,9 +289,7 @@ function destroyMachine(pool, machine) {
     machine.alive = false; machine.hp = 0; machine.hitT = 0;
     machine.phase = 'destroyed'; machine.mechanicalOpen = 1;
     clearFx(machine); wreckSpawnMachine(machine.rig);
-    spawnGroundPuff(machine.x, machine.z, PAL.amber, 22, 2.5);
-    spawnGroundPuff(machine.x, machine.z, PAL.gunmetal, 16, 1.2);
-    playSFX(sfxExplode, 0.8); addCamShake(9);
+    spawnMachineWreckFx(machine.x, machine.z);
     if (pool.active) pool.active.destroyed = (pool.active.destroyed || 0) + 1;
 }
 

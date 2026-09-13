@@ -6,7 +6,7 @@ import { CFG } from '../../../../core/config.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
 import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
 import {
-    scene, camera, setCineFocus, addCamShake, CAM_OFF_DEFAULT,
+    scene, camera, viewCam, setCineFocus, addCamShake, CAM_OFF_DEFAULT,
     groundViewExtents,
 } from '../../../../core/renderer.js';
 import {
@@ -21,7 +21,7 @@ import {
     avatarGroup, setAvatarVehiclePose, setAvatarRadioPose,
     avatarVehicleDebug, setAvatarCarried, setAvatarVehicleLean, setAvatarVehicleLeanCage,
 } from '../../../../entities/playerAvatar.js';
-import { disposeRobot, killRobot } from '../../../../entities/robots.js';
+import { disposeRobot, killRobot, damagePlayerImpact } from '../../../../entities/robots.js';
 import { spawnCampaignRobot, countStageRobots } from '../../utility/common.js';
 import { beginStageTransition, campaignJumpToStage } from '../../utility/transition.js';
 import { registerCampaignWorldRoot } from '../../utility/campaignWorldRegistry.js';
@@ -65,9 +65,9 @@ import {
     sfxTankExplode, startBossMusic, stopMusic,
 } from '../../../../utils/sfx.js';
 
-// `PLAYER_X` adalah PUSAT arena, bukan lagi posisi player. Sejak 2026-08-20
-// player bisa maju/mundur di dalam jendela `advanceRange` di sekitarnya, jadi
-// posisi hidupnya dibaca lewat `currentX` — pola yang sama persis dengan
+// `PLAYER_X` adalah PUSAT kamera arena, bukan lagi posisi player. Player bisa
+// maju/mundur sampai dekat tepi layar, jadi posisi hidupnya dibaca lewat
+// `currentX` — pola yang sama persis dengan
 // `currentZ` yang jadi sumber kebenaran ketika kemudi bebas menggantikan snap
 // lajur (2026-08-19). Yang masih memakai PUSAT hanyalah batas arena dan titik
 // start; semua yang MENGEJAR player memakai posisi hidupnya.
@@ -108,8 +108,30 @@ let roadWraps = 0, dustCursor = 0;
 // kiri kanan, mobil player bisa bergerak ke depan dan ke belakang").
 // `currentX` adalah sumber kebenaran posisi memanjang; `advanceVel` lajunya.
 let currentX = PLAYER_X, advanceVel = 0;
-// Batas jendela memanjang, dibaca dari config di satu tempat saja.
-const advanceRange = () => Math.max(0, CFG.campaign.stage8.advanceRange ?? 96);
+// Batas maju/mundur mengikuti tepi tampilan, bukan angka arena simetris.
+// Perspektif membuat ruang yang terlihat di depan lebih panjang daripada di
+// belakang, jadi kedua batas memang harus berbeda.
+let advanceMinOffset = -96, advanceMaxOffset = 96;
+let advanceViewMinX = -96, advanceViewMaxX = 96;
+let advanceBoundsFov = NaN, advanceBoundsAspect = NaN;
+function refreshAdvanceBounds() {
+    const fov = viewCam?.fov ?? 50, aspect = viewCam?.aspect ?? 1;
+    if (fov === advanceBoundsFov && aspect === advanceBoundsAspect) return;
+    const C = CFG.campaign.stage8;
+    const view = groundViewExtents(CFG.player.eyeHeight, 0, driveCam);
+    const inset = Math.max(0, C.advanceScreenInset ?? 42);
+    const roadLimit = ROAD_SPAN / 2 - Math.max(0, C.pickupEntryInset ?? 24);
+    advanceViewMinX = view.minX; advanceViewMaxX = view.maxX;
+    advanceMinOffset = Math.max(view.minX + inset, -roadLimit);
+    advanceMaxOffset = Math.min(view.maxX - inset, roadLimit);
+    if (advanceMinOffset > advanceMaxOffset) {
+        const mid = (advanceMinOffset + advanceMaxOffset) * 0.5;
+        advanceMinOffset = mid; advanceMaxOffset = mid;
+    }
+    advanceBoundsFov = fov; advanceBoundsAspect = aspect;
+}
+const advanceMinX = () => { refreshAdvanceBounds(); return PLAYER_X + advanceMinOffset; };
+const advanceMaxX = () => { refreshAdvanceBounds(); return PLAYER_X + advanceMaxOffset; };
 // Laju maju/mundur puncak. DIJEPIT di bawah `roadSpeed` (dikali
 // ADVANCE_SPEED_CAP) karena kalau player boleh mundur lebih cepat daripada
 // aspal bergulir, rodanya harus berputar TERBALIK sementara seluruh
@@ -117,7 +139,7 @@ const advanceRange = () => Math.max(0, CFG.campaign.stage8.advanceRange ?? 96);
 const ADVANCE_SPEED_CAP = 0.9;
 function advancePeakSpeed() {
     const C = CFG.campaign.stage8;
-    const want = advanceRange() / Math.max(0.05, C.advanceSec ?? 2.2);
+    const want = Math.max(0, C.advanceSpeed ?? 76);
     return Math.min(want, roadSpeed() * ADVANCE_SPEED_CAP);
 }
 // Laju kendaraan TERHADAP ASPAL: inilah yang diputar roda dan yang menentukan
@@ -431,16 +453,16 @@ function syncSceneryAct() { setStage8SceneryAct(scenery, sceneryTargetAct()); }
 // persis dengan `spawnPickup`, jadi truk pun tak pernah menyembul di tengah layar.
 function barrelCtx(dt) {
     const C = CFG.campaign.stage8;
-    const view = groundViewExtents(camera.position.y, 0);
+    const view = groundViewExtents(CFG.player.eyeHeight, 0, driveCam);
     const gameplay = !cine && !complete;
     return {
         dt, playerX: currentX, playerZ: currentZ,
         laneIndex, laneZ: laneWorldZ, roadSpeed: roadSpeed(),
-        viewMaxX: view.maxX,
-        // DUA JANGKAR YANG BERBEDA (2026-08-20). `playerX` di atas IKUT player
-        // (truk mengejarnya), tetapi ujung pool jalan adalah benda DUNIA yang
-        // terikat PUSAT arena — kalau ia ikut bergeser, truk lahir di luar
-        // ujung aspal begitu player memacu ke depan.
+        viewFocusX: PLAYER_X, viewMaxX: view.maxX,
+        // DUA JANGKAR YANG BERBEDA. `playerX` di atas IKUT player (truk
+        // mengejarnya), tetapi kamera dan ujung pool jalan terikat PUSAT arena.
+        // Dengan begitu mobil boleh berpindah sampai tepi layar tanpa membuat
+        // truk lahir di tengah tampilan atau di luar aspal.
         roadMaxX: PLAYER_X + ROAD_SPAN / 2 - C.pickupEntryInset,
         offscreenMargin: C.pickupOffscreenMargin,
         // Menjatuhkan barel dan menabrak player hanya saat permainan berjalan;
@@ -466,9 +488,7 @@ function syncVehicle(dt = 0) {
     // Moncong ikut mengarah ke tujuan kemudi. Objek menghadap +x, dan Ry positif
     // memutar hidungnya ke -z, jadi tandanya dibalik. Murni visual, tetapi
     // inilah yang membuat kemudi bebas terbaca sebagai menyetir.
-    const maxV = CFG.campaign.stage8.laneWidth
-        / Math.max(0.05, CFG.campaign.stage8.laneChangeSec);
-    const bodyYaw = -clamp(steerVel / maxV, -1, 1) * 0.16;
+    const bodyYaw = playerVehicleYaw();
     tacticalVehicle.group.rotation.y = bodyYaw;
     // BAN DEPAN IKUT BERBELOK (2026-08-19, permintaan user). Sudutnya bukan
     // angka rasa: kendaraan melaju ke depan pada `roadSpeed` sambil bergeser
@@ -533,19 +553,15 @@ function updateLaneControl(dt) {
     setAvatarVehicleLean(clamp(accel / peakAccel, -1, 1));
     currentZ = next;
     laneIndex = nearestLane(currentZ);
-    // MAJU/MUNDUR (2026-08-20). Bentuknya sengaja sama dengan kemudi menyamping
-    // di atas — ditahan, bukan tepi tombol; berhenti di mana pun dilepas — tapi
-    // `advanceEaseSec` sendiri, karena kendaraan lapis baja mengubah kecepatan
-    // memanjang jauh lebih malas daripada ia menggeser buritannya.
+    // MAJU/MUNDUR (2026-09-13). W/S ditahan seperti kontrol pesawat Stage 10:
+    // input langsung memberi laju, dan lepas input langsung menghentikan laju.
     const fwd = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
     const peakA = advancePeakSpeed();
-    const easeA = Math.min(1, dt / Math.max(0.02, C.advanceEaseSec ?? 0.32));
-    advanceVel += (fwd * peakA - advanceVel) * easeA;
-    if (!fwd && Math.abs(advanceVel) < 0.4) advanceVel = 0;
-    const range = advanceRange();
-    const nx = clamp(currentX + advanceVel * dt, PLAYER_X - range, PLAYER_X + range);
+    advanceVel = fwd * peakA;
+    const advanceLo = advanceMinX(), advanceHi = advanceMaxX();
+    const nx = clamp(currentX + advanceVel * dt, advanceLo, advanceHi);
     // Menekan ujung jendela: hentikan lajunya, supaya arah baliknya tak lengket.
-    if (nx <= PLAYER_X - range || nx >= PLAYER_X + range) advanceVel = 0;
+    if (nx <= advanceLo || nx >= advanceHi) advanceVel = 0;
     currentX = nx;
     const nowMedian = onMedianBand(currentZ);
     if (nowMedian !== wasMedian) { spawnDust(currentX - 8, currentZ, true); addCamShake(0.8); }
@@ -580,13 +596,13 @@ function spawnPickup(classes, eventIndex) {
     const sameSide = pickupPool.filter(q => q.active && !q.wreck
         && q.entrySide === p.entrySide).length - 1;
     p.lane = laneSet[(pickupsSpawned / 2 | 0) % laneSet.length];
-    const view = groundViewExtents(camera.position.y, 0);
+    const view = groundViewExtents(CFG.player.eyeHeight, 0, driveCam);
     // Entry harus memenuhi DUA syarat berjangkar berbeda (2026-08-20): berada
     // di ujung POOL JALAN — benda dunia, terikat PUSAT arena — dan berada di
     // luar TAPAK PANDANG, yang ikut bergerak bersama player. Diambil yang
     // paling jauh ke luar, jadi keduanya selalu terpenuhi sekaligus.
     const roadEnd = PLAYER_X + (fromRear ? -1 : 1) * (ROAD_SPAN / 2 - C.pickupEntryInset);
-    p.entryViewEdgeX = currentX + (fromRear ? view.minX : view.maxX);
+    p.entryViewEdgeX = PLAYER_X + (fromRear ? view.minX : view.maxX);
     const outsideView = p.entryViewEdgeX
         + (fromRear ? -C.pickupOffscreenMargin : C.pickupOffscreenMargin);
     p.entryX = fromRear ? Math.min(roadEnd, outsideView) : Math.max(roadEnd, outsideView);
@@ -630,6 +646,49 @@ function destroyPickup(p) {
     }
 }
 
+// Both vehicles may yaw while changing lanes, so collision uses their drawn
+// length/width envelopes rather than a generous circular proximity test.
+function vehicleBoxesOverlap(ax, az, aLength, aWidth, aYaw, bx, bz, bLength, bWidth, bYaw) {
+    const dx = bx - ax, dz = bz - az;
+    const afx = Math.cos(aYaw), afz = -Math.sin(aYaw);
+    const asx = Math.sin(aYaw), asz = Math.cos(aYaw);
+    const bfx = Math.cos(bYaw), bfz = -Math.sin(bYaw);
+    const bsx = Math.sin(bYaw), bsz = Math.cos(bYaw);
+    const al = aLength * 0.5, aw = aWidth * 0.5;
+    const bl = bLength * 0.5, bw = bWidth * 0.5;
+    const overlaps = (ux, uz) => Math.abs(dx * ux + dz * uz) <=
+        al * Math.abs(afx * ux + afz * uz) + aw * Math.abs(asx * ux + asz * uz)
+        + bl * Math.abs(bfx * ux + bfz * uz) + bw * Math.abs(bsx * ux + bsz * uz);
+    return overlaps(afx, afz) && overlaps(asx, asz) && overlaps(bfx, bfz) && overlaps(bsx, bsz);
+}
+
+function playerVehicleYaw() {
+    const maxV = CFG.campaign.stage8.laneWidth
+        / Math.max(0.05, CFG.campaign.stage8.laneChangeSec);
+    return -clamp(steerVel / maxV, -1, 1) * 0.16;
+}
+
+function pickupHitsPlayerVehicle(p) {
+    if (!p || p.wreck || !tacticalVehicle || !p.dimensionsWorld) return false;
+    const playerDims = tacticalVehicle.dimensionsWorld;
+    const playerX = currentX + 0.62 * tacticalVehicle.scaleX;
+    return vehicleBoxesOverlap(playerX, currentZ, playerDims.length, playerDims.width,
+        playerVehicleYaw(), p.group.position.x, p.group.position.z,
+        p.dimensionsWorld.length, p.dimensionsWorld.width, p.group.rotation.y);
+}
+
+function detonatePickup(p, playerDamage = 0) {
+    if (!p || !p.active || p.wreck) return false;
+    const px = p.group.position.x, pz = p.group.position.z;
+    // A carrier is one target with its mounted crew. Leaving riders alive on
+    // a wreck would make the encounter impossible to finish.
+    for (let i = robots.length - 1; i >= 0; i--)
+        if (robots[i].pickup === p) killRobot(i, { cause: 'explosion' });
+    destroyPickup(p);
+    if (playerDamage > 0) damagePlayerImpact(playerDamage, px, pz);
+    return true;
+}
+
 function updatePickups(dt) {
     const C = CFG.campaign.stage8;
     for (const p of pickupPool) if (p.active) {
@@ -651,6 +710,7 @@ function updatePickups(dt) {
         // Sedikit lane weaving, tanpa memakai median.
         p.group.position.z += (laneWorldZ(p.lane) - p.group.position.z) * Math.min(1, dt * 2.2);
         updateEnemyPickupVisual(p, dt, { active: true, wreck: false, speed: C.pickupSpeed });
+        if (pickupHitsPlayerVehicle(p)) detonatePickup(p, C.pickupRamDamage ?? 40);
     }
 }
 
@@ -990,6 +1050,7 @@ function resetStage() {
     firstPickupShown = false; deathDelayT = 0;
     laneIndex = 1; steerVel = 0;
     currentX = PLAYER_X; advanceVel = 0;
+    advanceBoundsFov = NaN; advanceBoundsAspect = NaN;
     currentZ = laneWorldZ(1); roadWraps = 0; dustCursor = 0;
     resetDialogue(); stopVehicleLoop(); stopRotorLoop(); stopMusic();
     hideBossHud();
@@ -1032,7 +1093,7 @@ function startRotorLoop() {
 function stopRotorLoop() { if (rotorLoop) { stopLoopSFX(rotorLoop); rotorLoop = null; } }
 
 export function stage8Walk(x, z, radius = 0) {
-    return x >= PLAYER_X - 260 + radius && x <= PLAYER_X + 260 - radius
+    return x >= advanceMinX() + radius && x <= advanceMaxX() - radius
         && z >= laneWorldZ(0) - 12 + radius && z <= laneWorldZ(6) + 12 - radius;
 }
 
@@ -1062,7 +1123,11 @@ export const stage8RoadDebug = () => ({
     // MAJU/MUNDUR (2026-08-20). `centerX` sengaja ikut dilaporkan supaya smoke
     // menguji simpangan terhadap PUSAT arena, bukan terhadap angka mutlak.
     currentX, advanceVel, centerX: PLAYER_X,
-    advanceRange: advanceRange(), advanceMaxV: advancePeakSpeed(),
+    advanceMinOffset: advanceMinX() - PLAYER_X,
+    advanceMaxOffset: advanceMaxX() - PLAYER_X,
+    advanceScreenInset: CFG.campaign.stage8.advanceScreenInset ?? 42,
+    viewMinX: advanceViewMinX, viewMaxX: advanceViewMaxX,
+    advanceMaxV: advancePeakSpeed(),
     groundSpeed: groundSpeed(),
     vehicleYaw: tacticalVehicle ? tacticalVehicle.group.rotation.y : 0,
 });
@@ -1106,6 +1171,16 @@ export const stage8ClearHaulersDbg = () => clearBarrelDroppers(barrelRig);
 export const stage8DamageHaulerDbg = dmg => {
     const t = barrelRig?.trucks.find(v => v.active && !v.wreck);
     return t ? damageBarrelDropper(barrelRig, t, dmg, onHaulerKilled) : false;
+};
+// Smoke seam: position one live carrier on the player vehicle, then use the
+// normal update path that detects and resolves the body collision.
+export const stage8RamPickupDbg = () => {
+    const p = pickupPool.find(v => v.active && !v.wreck);
+    if (!p || !tacticalVehicle) return false;
+    p.group.position.set(currentX + 0.62 * tacticalVehicle.scaleX, 0, currentZ);
+    p.group.rotation.y = playerVehicleYaw();
+    updatePickups(0);
+    return p.wreck;
 };
 export const stage8SceneryPoolDbg = () => scenery;
 export const stage8SceneryMatsDbg = () => stage8SceneryMaterials();
@@ -1178,6 +1253,10 @@ export const stage8Scene = {
         updateJourney(dt); updateBoss(dt); syncVehicle(dt); syncSceneryAct(); updateUI();
     },
     updatePlayerControl(dt) { updateLaneControl(dt); return true; },
+    cameraAnchor() {
+        if (cine || phase === 'arrival' || phase === 'complete') return null;
+        return { x: PLAYER_X, y: CFG.player.eyeHeight, z: S8_START.z };
+    },
     onPlayerDeath(dirx, dirz) { wreckPlayerVehicle(dirx, dirz); },
     allowsPlayerAction(action) { return !['moveTarget', 'dodge', 'melee'].includes(action); },
 
@@ -1185,8 +1264,7 @@ export const stage8Scene = {
         // Bukan lagi dipaku ke satu titik: sumbu X sekarang DIJEPIT ke jendela
         // maju/mundur, persis seperti Z dijepit ke lebar carriageway.
         const free = phase === 'arrival' || phase === 'complete';
-        pos.x = free ? pos.x
-            : clamp(currentX, PLAYER_X - advanceRange(), PLAYER_X + advanceRange());
+        pos.x = free ? pos.x : clamp(currentX, advanceMinX(), advanceMaxX());
         pos.z = free ? pos.z : currentZ;
     },
     groundHeight: () => 0,

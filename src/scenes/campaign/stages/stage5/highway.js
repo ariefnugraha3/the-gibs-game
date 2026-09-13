@@ -1,10 +1,10 @@
 // Stage 5 — JALAN RAYA PENDAMPING PERJALANAN (2026-08-08, permintaan user).
 //
-// Mulai gerbong ke-5 kereta musuh, sebuah jalan raya muncul di sisi KANAN
+// Mulai gerbong ke-2 kereta musuh, sebuah jalan raya muncul di sisi KANAN
 // kereta player (+z; arah perjalanan +x, dan dari kamera oblique sisi itu
-// berada di bawah layar — berlawanan dengan jalur kereta musuh). Setiap
-// beberapa saat sebuah pickup bersenjata menyusul di jalan itu membawa tiga
-// robot, dan pickup itu HARUS ikut dihancurkan seperti pengangkut Stage 8.
+// berada di bawah layar — berlawanan dengan jalur kereta musuh). Mulai gerbong
+// ke-4, pickup raider bersenjata menyusul di jalan itu membawa tiga robot, dan
+// pickup itu HARUS ikut dihancurkan seperti pengangkut Stage 8.
 //
 // ATURAN KERAS DARI USER: "JANGAN BUAT JALAN TIBA-TIBA MUNCUL — BUAT SEOLAH-
 // OLAH JALAN REL KERETA MENDEKAT KE JALAN SECARA WAJAR."
@@ -47,11 +47,11 @@ const hwCfg = () => CFG.campaign.stage5.highway || {};
 const smoothK = k => k * k * (3 - 2 * k);
 const _mount = new THREE.Vector3();
 
-let active = false, travel = 0, startTravel = 0;
+let active = false, raidersArmed = false, travel = 0, startTravel = 0;
 let spawnT = 0, spawned = 0, destroyed = 0, announced = false;
 
 export function resetHighway() {
-    active = false; travel = 0; startTravel = 0;
+    active = false; raidersArmed = false; travel = 0; startTravel = 0;
     spawnT = 0; spawned = 0; destroyed = 0; announced = false;
     setJourneyForeground(journey, true);
     resetJourneyHighway(highway);
@@ -60,6 +60,7 @@ export function resetHighway() {
 
 export const highwayActive = () => active;
 export const highwayCarsDestroyed = () => destroyed;
+export const highwayRaidersArmed = () => raidersArmed;
 
 // Jarak penyatuan dalam UNIT TEMPUH, bukan detik: kurva harus sama bentuknya
 // berapa pun `trainSpeed` di-retune.
@@ -86,7 +87,7 @@ export const roadMerged = () => active
 // sub-scene), bukan dihilangkan di depan mata player. Set kedatangan Bandung
 // adalah bangunan statis dan tidak boleh berbagi ruang dengan pool jalan.
 export function stopHighway() {
-    active = false;
+    active = false; raidersArmed = false;
     setJourneyForeground(journey, true);
     resetJourneyHighway(highway);
     for (const p of highwayPickups) resetEnemyPickupVisual(p);
@@ -103,13 +104,23 @@ export function startHighway() {
     return true;
 }
 
+export function armHighwayRaiders() {
+    if (raidersArmed) return false;
+    raidersArmed = true;
+    spawnT = 0;
+    return true;
+}
+
 // --- Pengangkut jalan raya -------------------------------------------------
 const freePickup = () => highwayPickups.find(p => !p.active);
 export const activeHighwayPickups = () =>
     highwayPickups.filter(p => p.active && !p.wreck).length;
 
 function pickupZ(p) {
-    return TRAIN_CENTER_Z + roadOffsetAt(p.group.position.x) + highwayLaneOffset(p.lane);
+    const near = hwCfg().nearZ ?? 72;
+    const staged = !active || (p.preRoadRaider && !roadMerged());
+    const offset = staged ? near : roadOffsetAt(p.group.position.x);
+    return TRAIN_CENTER_Z + offset + highwayLaneOffset(p.lane);
 }
 
 function spawnHighwayPickup() {
@@ -119,6 +130,7 @@ function spawnHighwayPickup() {
     resetEnemyPickupVisual(p);
     p.active = true; p.group.visible = true; p.eventIndex = spawned;
     p.lane = spawned % HIGHWAY_LANES;
+    p.preRoadRaider = !active || !roadMerged();
     // Masuk dari BELAKANG di luar tapak pandang: jalan raya menyusul kereta,
     // tidak pernah lahir di depan mata player.
     const view = groundViewExtents(camera.position.y, 0);
@@ -193,11 +205,15 @@ function updatePickups(dt) {
 export function updateHighway(dt, consistDone) {
     travel += Math.max(0, trainSpeed) * dt;
     updateJourneyHighway(highway, dt, trainSpeed, active, roadOffsetAt);
-    if (!active) return;
+    if (!active && !raidersArmed) return;
     updatePickups(dt);
     if (consistDone) return;
     const C = hwCfg();
-    if (!roadMerged()) return;
+    if (!raidersArmed) return;
+    // Raider timing is a gameplay gate, not a visual-road gate. When the road
+    // is still approaching, its car is held at the near-side staging offset;
+    // this lets the configured car index spawn the raider on time while the
+    // highway continues merging smoothly in the background.
     spawnT += dt;
     const gap = spawned === 0 ? (C.firstPickupSec ?? 6) : (C.pickupGapSec ?? 16);
     if (spawnT < gap) return;
@@ -210,7 +226,7 @@ export function updateHighway(dt, consistDone) {
 }
 
 // Jalan raya sudah bersih? Dipakai gerbang kedatangan Bandung.
-export const highwayClear = () => !active || activeHighwayPickups() === 0;
+export const highwayClear = () => (!active && !raidersArmed) || activeHighwayPickups() === 0;
 
 // AI penumpang pickup: identik kontraknya dengan Stage 8 — menempel di anchor
 // bak, menghadap player, dan `chaseDist` hanya sebagai gerbang tembak.
@@ -232,7 +248,7 @@ export function snapHighwayRobot(z) {
 }
 
 export const highwayDebug = () => ({
-    active, merged: roadMerged(), travel, startTravel,
+    active, raidersArmed, merged: roadMerged(), travel, startTravel,
     offsetAtPlayer: roadOffsetAt(TRAIN_BASE_X),
     offsetAhead: roadOffsetAt(TRAIN_X1 + 260),
     offsetBehind: roadOffsetAt(TRAIN_X0 - 260),

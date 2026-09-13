@@ -45,7 +45,7 @@ const out = [];
 const push = (...l) => out.push(...l);
 
 push(`<svg xmlns="http://www.w3.org/2000/svg" width="${n(WIDTH)}" height="${n(HEIGHT)}"`,
-    ` viewBox="0 0 ${n(WIDTH)} ${n(HEIGHT)}" font-family="Inter, Segoe UI, sans-serif">`);
+    ` viewBox="0 0 ${n(WIDTH)} ${n(HEIGHT)}" font-family="Gasalt, sans-serif">`);
 push(`<rect width="100%" height="100%" fill="#1d2a1c"/>`);
 
 // --- ground texture: the forest the capital was cut into ----------------------
