@@ -7,17 +7,16 @@
 // setelah reload, layar pertama = #mainMenu (Start/Settings/Credits/Exit).
 // Teks UI English (aturan permanen).
 // Selagi menu jeda terbuka, klik latar #blocker TIDAK me-resume (input.js
-// cek isPauseMenuOpen) — resume HANYA lewat tombol RESUME (permintaan user
-// 2026-07-10, hint "click anywhere" dihapus).
+// cek isPauseMenuOpen). Resume tersedia lewat tombol RESUME atau tombol Escape.
 
 import { resetGame } from './game.js';
-import { requestLock } from './input.js';
+import { resumeFromPause } from './input.js';
 import { activeScene } from './sceneManager.js';
 
 let instr = null, menu = null, mainP = null, confP = null, confText = null, tutP = null;
 let startTitle = null, startSub = null, startGrid = null, startCta = null;
 let tutTitle = null, tutGrid = null;
-let onYes = null, wired = false, visible = false;
+let onYes = null, wired = false, visible = false, startPromptVisible = false;
 
 const TUTORIALS = {
     default: [
@@ -82,8 +81,16 @@ function renderPauseTutorial() {
 }
 
 // Apakah menu jeda sedang tampil — input.js memakainya untuk MENGABAIKAN
-// klik latar blocker (resume hanya via tombol RESUME).
+// klik latar blocker (resume lewat tombol RESUME atau Escape).
 export function isPauseMenuOpen() { return visible; }
+
+// Apakah layar instruksi awal sedang tampil — input.js memakainya agar Stage 1
+// dapat dimulai lewat keyboard selain klik pada blocker.
+export function isStartPromptOpen() { return startPromptVisible; }
+
+function restoreOsCursor() {
+    if (document.body?.style) document.body.style.cursor = '';
+}
 
 // Rangkai listener sekali (lazy — dipanggil saat pertama kali menu dibuka).
 function wire() {
@@ -104,9 +111,9 @@ function wire() {
     // Klik di dalam kotak menu jangan merambat ke #blocker
     menu.addEventListener('click', e => e.stopPropagation());
     menu.addEventListener('mousedown', e => e.stopPropagation());
-    // RESUME = satu-satunya jalan melanjutkan (lock ulang pointer; sukses
-    // lock memicu pointerlockchange -> hidePauseMenu + setPaused(false))
-    document.getElementById('pauseResume').addEventListener('click', requestLock);
+    // RESUME = jalur bersama dengan Escape; bila pointer-lock sedang cooldown,
+    // resumeFromPause tetap melanjutkan dengan kursor OS.
+    document.getElementById('pauseResume').addEventListener('click', resumeFromPause);
     // TUTORIAL = tampilkan panel How to Play (key-mapping); Back kembali ke menu.
     document.getElementById('pauseTutorial').addEventListener('click', showTutorial);
     document.getElementById('pauseTutBack').addEventListener('click', showMain);
@@ -145,19 +152,21 @@ function showTutorial() {
 export function showStartPrompt() {
     wire();
     visible = false;
+    startPromptVisible = true;
+    restoreOsCursor();
     if (menu) menu.style.display = 'none';
     if (instr) instr.style.display = '';
     const profile = startTutorialProfile();
     if (profile) {
-        if (startTitle) startTitle.textContent = 'Click to Start the Action';
+        if (startTitle) startTitle.textContent = 'Press Any Key to Start the Action';
         if (startSub) startSub.textContent = "Enters fullscreen - so Ctrl+W etc. won't close the tab";
         if (startGrid) { startGrid.style.display = ''; renderRows(startGrid, TUTORIALS[profile]); }
-        if (startCta) startCta.textContent = 'Click anywhere to begin';
+        if (startCta) startCta.textContent = 'Press any key or click to begin';
     } else {
-        if (startTitle) startTitle.textContent = 'Click to Continue';
+        if (startTitle) startTitle.textContent = 'Press Any Key to Continue';
         if (startSub) startSub.textContent = '';
         if (startGrid) startGrid.style.display = 'none';
-        if (startCta) startCta.textContent = 'Click anywhere to continue';
+        if (startCta) startCta.textContent = 'Press any key or click to continue';
     }
     const blocker = document.getElementById('blocker');
     if (blocker) blocker.style.display = 'flex';
@@ -168,6 +177,8 @@ export function showStartPrompt() {
 export function showPauseMenu() {
     wire();
     visible = true;
+    startPromptVisible = false;
+    restoreOsCursor();
     if (instr) instr.style.display = 'none';
     if (menu) menu.style.display = 'flex';
     showMain();
@@ -176,6 +187,7 @@ export function showPauseMenu() {
 // Sembunyikan menu jeda (saat resume/lock). Pulihkan panel instruksi.
 export function hidePauseMenu() {
     visible = false;
+    startPromptVisible = false;
     if (!wired) return;
     if (menu) menu.style.display = 'none';
     if (instr) instr.style.display = '';

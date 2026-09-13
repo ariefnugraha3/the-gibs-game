@@ -6,7 +6,9 @@ import { camera, viewCam } from './renderer.js';
 import { blocker, triggerCutsceneSkip } from './dom.js';
 import { activeScene } from './sceneManager.js';
 import { resetGame, activateGameOverPrimary } from './game.js';
-import { showPauseMenu, hidePauseMenu, isPauseMenuOpen } from './pauseMenu.js';
+import {
+    showPauseMenu, hidePauseMenu, isPauseMenuOpen, isStartPromptOpen
+} from './pauseMenu.js';
 import { openCheatConsole, closeCheatConsole, forceHideCheatConsole, isCheatConsoleOpen, handleKey } from './cheatConsole.js';
 import {
     tryMelee, trySwitchKey, setAiming, useMedkit
@@ -23,6 +25,9 @@ import { eyeHCur, setMoveTarget, clearMoveTarget, tryDodge } from '../entities/p
 // #blocker = layar mulai (klik untuk lanjut); sesudahnya, unlock via Esc =
 // PAUSE -> tampilkan menu jeda (Restart/Exit).
 let hasStarted = false;
+let escapeDown = false;
+let pauseResumePending = false;
+let pauseResumeTimer = null;
 
 // ===== Bidik top-down (pivot 2026-07-11) =====
 // Pointer Lock DIPERTAHANKAN (infra pause/keyboard-lock utuh) — mouse
@@ -81,8 +86,32 @@ export function requestLock() {
     } catch (e) { /* player cukup klik lagi */ }
 }
 
+// Resume dari menu pause. Pointer-lock tetap dicoba agar jalur normal tidak
+// berubah, tetapi browser boleh menolak request sesaat setelah Escape. Dalam
+// kasus itu game tetap dilanjutkan dengan kursor OS biasa; input mouse di bawah
+// mendukung mode ini dan Escape berikutnya dapat membuka pause lagi.
+export function resumeFromPause() {
+    if (!isPauseMenuOpen()) return;
+    pauseResumePending = true;
+    if (pauseResumeTimer) clearTimeout(pauseResumeTimer);
+    pauseResumeTimer = setTimeout(() => {
+        pauseResumePending = false;
+        pauseResumeTimer = null;
+    }, 1600);
+    requestLock();
+    hidePauseMenu();
+    blocker.style.display = 'none';
+    setPaused(false);
+    showAimCursor(true);
+    // Pointer-lock yang ditolak browser tidak menyembunyikan cursor OS secara
+    // otomatis. Gameplay tetap memakai cursor lingkaran virtual, jadi panah OS
+    // harus disembunyikan secara eksplisit pada fallback ini.
+    if (document.body?.style) document.body.style.cursor = 'none';
+}
+
 // Lepas semua input yang sedang ditekan (dipanggil saat unlock / blur / reset).
 export function releaseInputs() {
+    escapeDown = false;
     mouse.isDown = false;
     setAiming(false);
     clearMoveTarget();  // gerak klik-kanan berhenti saat pause/blur/reset
@@ -96,13 +125,16 @@ export function releaseInputs() {
 export function initInput() {
     // ----- PointerLock -----
     // Klik latar blocker = mulai/lanjut — KECUALI saat menu jeda terbuka:
-    // resume hanya lewat tombol RESUME (klik-di-mana-saja dihapus 2026-07-10).
+    // resume lewat tombol RESUME atau Escape.
     blocker.addEventListener('click', () => { if (!isPauseMenuOpen()) requestLock(); });
     document.addEventListener('pointerlockchange', () => {
         if (document.pointerLockElement === document.body) {
+            pauseResumePending = false;
+            if (pauseResumeTimer) { clearTimeout(pauseResumeTimer); pauseResumeTimer = null; }
             hasStarted = true;         // game berjalan -> unlock (Esc) berikutnya = PAUSE
             hidePauseMenu();           // resume: tutup menu jeda bila sedang terbuka
             blocker.style.display = 'none';
+            if (document.body?.style) document.body.style.cursor = 'none';
             // Pilihan kualitas hanya di layar mulai — sembunyikan permanen
             // begitu game pertama dimulai (blocker pause tak menampilkannya).
             document.getElementById('qualityRow').style.display = 'none';
@@ -113,6 +145,19 @@ export function initInput() {
             showAimCursor(true);
             setPaused(false);
         } else {
+            // Reacquire setelah resume Escape dapat menghasilkan unlock event
+            // terlambat ketika browser masih dalam cooldown. Jangan ubah itu
+            // menjadi pause baru setelah menu sudah ditutup.
+            if (pauseResumePending) {
+                pauseResumePending = false;
+                if (pauseResumeTimer) { clearTimeout(pauseResumeTimer); pauseResumeTimer = null; }
+                if (document.body?.style) document.body.style.cursor = 'none';
+                showAimCursor(true);
+                blocker.style.display = 'none';
+                setPaused(false);
+                return;
+            }
+            if (document.body?.style) document.body.style.cursor = '';
             showAimCursor(false);      // pause/shop/menu: kursor OS yang tampil
             forceHideCheatConsole();   // ESC saat konsol cheat terbuka -> tutup (menu jeda ambil alih)
             setPaused(true);
@@ -134,9 +179,17 @@ export function initInput() {
     // bukan memutar kamera. Arah tembak/lempar/melee mengikuti kursor. -----
     document.addEventListener('mousemove', (e) => {
         if (isPaused || isGameOver || cinematicActive) return;   // cutscene: kursor bidik beku
-        if (document.pointerLockElement !== document.body) return;
-        curX = Math.max(0, Math.min(window.innerWidth, curX + e.movementX));
-        curY = Math.max(0, Math.min(window.innerHeight, curY + e.movementY));
+        if (document.pointerLockElement === document.body) {
+            curX = Math.max(0, Math.min(window.innerWidth, curX + e.movementX));
+            curY = Math.max(0, Math.min(window.innerHeight, curY + e.movementY));
+        } else {
+            // Fallback saat browser masih berada dalam cooldown pointer-lock
+            // setelah Escape: tetap arahkan kursor virtual dari posisi OS.
+            const x = Number.isFinite(e.clientX) ? e.clientX : curX;
+            const y = Number.isFinite(e.clientY) ? e.clientY : curY;
+            curX = Math.max(0, Math.min(window.innerWidth, x));
+            curY = Math.max(0, Math.min(window.innerHeight, y));
+        }
         placeAimCursor();
     });
 
@@ -165,6 +218,45 @@ export function initInput() {
     // ----- Keyboard -----
     window.addEventListener('keydown', (e) => {
         const key = e.key.toLowerCase();
+        const escapeKey = e.key === 'Escape' || e.code === 'Escape';
+        // Jangan biarkan auto-repeat Escape langsung men-toggle pause kembali
+        // setelah fallback resume berjalan tanpa pointer-lock.
+        if (escapeKey && (e.repeat || escapeDown)) {
+            e.preventDefault();
+            return;
+        }
+        if (escapeKey) escapeDown = true;
+        // Escape saat menu jeda terbuka memakai jalur RESUME yang sama seperti
+        // tombolnya: coba pointer-lock, lalu fallback ke kursor OS bila browser
+        // masih menahan request setelah unlock Escape.
+        if (isPauseMenuOpen() && escapeKey) {
+            e.preventDefault();
+            resumeFromPause();
+            return;
+        }
+        // Layar How to Play/Start Stage 1 juga dapat ditutup dengan tombol
+        // keyboard apa pun. Klik tetap didukung oleh listener blocker di atas.
+        if (isStartPromptOpen()) {
+            e.preventDefault();
+            requestLock();
+            return;
+        }
+        // Fallback resume dapat berjalan tanpa pointer-lock. Dalam mode ini
+        // Escape perlu membuka pause secara manual karena browser tidak lagi
+        // memancarkan pointerlockchange saat pointer memang sudah bebas.
+        if (escapeKey && !isPaused && !isGameOver && hasStarted
+            && document.pointerLockElement !== document.body) {
+            e.preventDefault();
+            pauseResumePending = false;
+            if (pauseResumeTimer) { clearTimeout(pauseResumeTimer); pauseResumeTimer = null; }
+            setPaused(true);
+            releaseInputs();
+            showAimCursor(false);
+            if (document.body?.style) document.body.style.cursor = '';
+            blocker.style.display = 'flex';
+            showPauseMenu();
+            return;
+        }
         // MODE SINEMATIK (2026-07-17, cutscene): telan SEMUA tombol — termasuk
         // backtick konsol cheat — KECUALI Escape (pause/unlock tetap bekerja;
         // pointer-unlock menghentikan cutscene sementara lewat isPaused).
@@ -232,6 +324,7 @@ export function initInput() {
     });
     window.addEventListener('keyup', (e) => {
         const key = e.key.toLowerCase();
+        if (e.key === 'Escape' || e.code === 'Escape') escapeDown = false;
         if (activeScene?.keyInput?.(key, false, e.code, false) === true) {
             e.preventDefault();
             return;
