@@ -12376,6 +12376,49 @@ saveMod.clearCampaignSave();   // bersihkan utk test berikutnya
                 return sv.includes('data-medium="ascii"') && textNodes >= 40
                     && !/<(?:path|rect|circle|ellipse|polygon|polyline|line)\b/.test(sv);
             }));
+        // Inspect every drawn character, including spacing after font changes.
+        const artGrid = artMod.ART_GRID;
+        let pinned = true, unique = true, asciiOnly = true, glyphCount = 0;
+        for (let era = 0; era < want.length; era++) {
+            const occupied = new Set();
+            for (const row of artMod.prologueArtSvg(era).matchAll(/<text x="([^"]+)" y="([^"]+)">([^<]*)<\/text>/g)) {
+                const xs = row[1].split(' ').map(Number), y = Number(row[2]);
+                const chars = row[3].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+                pinned &&= xs.length === chars.length && y >= artGrid.y
+                    && y <= artGrid.y + (artGrid.rows - 1) * artGrid.cellHeight + .01;
+                asciiOnly &&= /^[!-~]+$/.test(chars);
+                xs.forEach(x => {
+                    pinned &&= Math.abs((x - artGrid.x) / artGrid.cellWidth
+                        - Math.round((x - artGrid.x) / artGrid.cellWidth)) < .001
+                        && x >= artGrid.x && x < 400 - artGrid.fontSize;
+                    const key = x + ':' + y;
+                    if (occupied.has(key)) unique = false;
+                    occupied.add(key); glyphCount++;
+                });
+            }
+        }
+        T('ASCII GRID: setiap glyph punya koordinat eksplisit, bukan jarak spasi font', pinned && glyphCount > 4000);
+        T('ASCII GRID: satu pemilik per sel, tidak ada lapisan siluet/sorotan bergeser', unique);
+        T('ASCII GRID: seluruh bentuk memakai ASCII portabel, tanpa karakter lebar/aksen', asciiOnly);
+        const artCss = fs.readFileSync(ROOT + '/css/style.css', 'utf8');
+        T('ASCII FONT: font ilustrasi lokal terpisah dari font UI, tanpa kerning/ligature',
+            /font-family: 'Prologue ASCII';[\s\S]*?CourierPrime-Regular\.ttf/.test(artCss)
+            && /#prologueArt \.asciiLayer\s*\{[^}]*font-family: 'Prologue ASCII'/.test(artCss)
+            && /#prologueArt \.asciiLayer\s*\{[^}]*font-variant-ligatures: none/.test(artCss)
+            && /#prologueArt \.asciiLayer\s*\{[^}]*letter-spacing: 0/.test(artCss));
+        artMod.showPrologueArt(0);
+        artMod.setPrologueArtProgress(0);
+        const firstPose = artMod.prologueArtDebug().cameraTransform;
+        artMod.setPrologueArtProgress(.8);
+        const laterPose = artMod.prologueArtDebug().cameraTransform;
+        artMod.setPrologueArtProgress(0);
+        T('ASCII CAMERA: push-in deterministik mengikuti jam cerita dan dapat di-reset',
+            firstPose !== laterPose && firstPose === artMod.prologueArtDebug().cameraTransform
+            && artMod.prologueArtDebug().progress === 0);
+        T('ASCII MOTION: tanpa glitch/pulse berulang dan menghormati reduced motion',
+            !/@keyframes ascii(?:Glitch|Blink|Pulse|Scan)/.test(artCss)
+            && /prefers-reduced-motion: reduce[^}]*#prologueArt \.asciiCamera[^}]*transform: none !important/s.test(artCss));
+        // Leave the already-running prologue at its original year pose.
         // Sapuan palet: tiap hex 6-digit di SVG wajib anggota ART_COLORS.
         let offPal = '';
         for (let i = 0; i < 9; i++)
@@ -14189,7 +14232,8 @@ for (const [name, build] of Object.entries(propBuilders)) {
     // tetap menunjuk keluarga lokal yang sama.
     const faces = cssF.match(/@font-face\s*\{[^}]*\}/g) || [];
     T('font: @font-face Gasalt terdaftar',
-        faces.length >= 3 && faces.every(f => f.includes("'Gasalt'")));
+        faces.filter(f => f.includes("'Gasalt'")).length >= 3
+        && faces.every(f => f.includes("'Gasalt'") || f.includes("'Prologue ASCII'")));
     for (const file of ['Thin', 'Regular', 'Black']) {
         T(`font: Gasalt-${file} menunjuk file lokal yang ADA`,
             cssF.includes(`../assets/fonts/gasalt/Gasalt-${file}.ttf`)
@@ -14208,9 +14252,12 @@ for (const [name, build] of Object.entries(propBuilders)) {
     T('font: canvas world dan generator SVG memakai Gasalt',
         rootDisplayF.includes('"Gasalt"') && vehicleF.includes('"Gasalt"')
         && /font-family="Gasalt/.test(stageMapF));
-    T('font: tidak ada deklarasi Courier/monospace/Inter tersisa di sumber UI',
+    const uiFontCss = cssF
+        .replace(/@font-face\s*\{[^}]*font-family: 'Prologue ASCII';[^}]*\}/g, '')
+        .replace(/#prologueArt \.asciiLayer\s*\{[^}]*\}/g, '');
+    T('font: font monospace hanya untuk ilustrasi ASCII, UI tetap Gasalt',
         !/Courier Prime|CourierPrime|Courier New|monospace|\bInter\s*,|Segoe UI/.test(
-            cssF + hudF + menuF + rootDisplayF + vehicleF + stageMapF));
+            uiFontCss + hudF + menuF + rootDisplayF + vehicleF + stageMapF));
 
     // Aturan static-buildless: font ikut repo, bukan dari jaringan.
     T('font: tidak memakai webfont CDN',

@@ -81,7 +81,7 @@ import { setCineBars, setCineFade, showCutsceneSkip, hideCutsceneSkip } from '..
 import { setCineFocus } from '../../../core/renderer.js';
 import { releaseInputs } from '../../../core/input.js';
 import {
-    showPrologueArt, setPrologueArtAlpha, setPrologueArtPhase,
+    showPrologueArt, setPrologueArtAlpha, setPrologueArtPhase, setPrologueArtProgress,
     resetPrologueArt, prologueArtDebug
 } from './prologueArt.js';
 import { introScene } from './intro.js';
@@ -284,6 +284,7 @@ function syncArt(t, i) {
     // tahun, subjek saat judul, detail penuh ketika isi mulai diketik.
     setPrologueArtPhase(phaseAt(i, t).phase);
     setPrologueArtAlpha(artAlphaAt(i, t));
+    setPrologueArtProgress(t / chapterTotal(i));
 }
 
 // Satu-satunya jalan masuk per frame: gambar ulang bila isi berubah (penjaga

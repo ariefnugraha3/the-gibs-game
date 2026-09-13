@@ -2242,3 +2242,10 @@ pada frame pecah dengan mewarisi pose boss saat itu, kedua paruh benar-benar ter
 berlawanan dengan roll berlawanan tanda, dan reset memasangnya kembali dalam keadaan rapat.
 Ketiganya mutation-tested — menghapus `detachSiege`, membuat paruhnya tidak menggeser, atau
 menghapus `reattachSiege` membuat test gagal.
+
+
+### Prologue ASCII composition and font repair (2026-09-14)
+
+Changing the display font to Gasalt broke the old ASCII art because proportional character widths and inherited letter spacing moved the pieces of each drawing. The art now uses a dedicated local Courier Prime face and an explicit character grid: font substitution cannot move the coordinates, and lighting never draws a misaligned copy of the silhouette. The nine scenes are authored as film stills: Monas before dawn, the national core with researchers, Garuda, a shared workbench, incoming jets, a restrained conversion chassis, the fortress battalion, a machine above the burning city, and Gibran overlooking Bandung. Decorative slogans and continuous glitch effects are removed.
+
+One slow camera push follows each chapter's actual duration, with gentle framing offsets per shot; click advancement also advances this pose deterministically. Silhouette, subject and accent light reveal with the existing year/title/body phases. Reduced-motion users get a stationary image. The narration, typing speed, phase timing, skip/loading gate, music, black background and DOM-only rendering contract are preserved. Smoke checks fixed positions, unique cell ownership, portable ASCII, the isolated font, deterministic motion and reduced-motion rules alongside the existing exact-script and handoff checks.

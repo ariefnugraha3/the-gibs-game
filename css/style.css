@@ -2705,89 +2705,57 @@ body.cine #medkitBar, body.cine #stageMsg {
     opacity: 0;
 }
 
+/* ASCII is illustration, not UI type: its local face and fixed cell positions
+   stay independent of the user's display-font choice. */
+@font-face {
+    font-family: 'Prologue ASCII';
+    src: url('../assets/fonts/CourierPrime-Regular.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
 #prologueArt svg {
-    width: min(47vw, 82vh);
-    max-width: 660px;
+    width: min(48vw, 86vh);
+    max-width: 760px;
     height: auto;
     display: block;
-    overflow: visible;
-    filter: drop-shadow(0 0 9px rgba(47, 184, 166, 0.16));
+    overflow: hidden;
 }
-
-/* Animasi aksen ilustrasi — murah (compositor), tak disentuh JS per frame.
-   aPulse = denyut node/cahaya; aBlink = kedip peringatan/glitch; aScan =
-   garis pemindai lini perakitan; aSpin = roda ekonomi berputar. */
 #prologueArt .asciiLayer {
-    font-family: 'Gasalt', sans-serif;
-    font-size: 10.4px;
-    font-weight: 700;
-    letter-spacing: 0.18px;
-    transition: opacity 0.9s ease, filter 1.2s ease;
+    font-family: 'Prologue ASCII', 'Courier New', monospace;
+    font-size: 8px;
+    font-weight: 400;
+    font-style: normal;
+    font-synthesis: none;
+    font-kerning: none;
+    font-variant-ligatures: none;
+    letter-spacing: 0;
+    word-spacing: 0;
+    text-transform: none;
+    transition: opacity 1.4s ease;
 }
-
 #prologueArt .asciiCamera {
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: asciiDolly 24s cubic-bezier(0.16, 0.72, 0.24, 1) both;
+    transform-box: view-box;
+    transform-origin: 200px 200px;
+    will-change: transform;
 }
-
-#prologueArt .asciiAtmos { opacity: 0.34; }
-#prologueArt .asciiSubject { opacity: 0.2; }
-#prologueArt .asciiThreat { opacity: 0.18; }
-
-#prologueArt[data-phase="title"] .asciiAtmos { opacity: 0.52; }
-#prologueArt[data-phase="title"] .asciiSubject,
-#prologueArt[data-phase="title"] .asciiThreat { opacity: 0.72; }
-#prologueArt[data-phase="body"] .asciiAtmos { opacity: 0.68; }
-#prologueArt[data-phase="body"] .asciiSubject,
-#prologueArt[data-phase="body"] .asciiThreat { opacity: 1; }
-
-#prologueArt .asciiReveal { animation: asciiReveal 1.4s steps(18, end) both; }
-#prologueArt .asciiPulse { animation: asciiPulse 3.2s ease-in-out infinite; }
-#prologueArt .asciiBlink { animation: asciiBlink 1.15s steps(2, end) infinite; }
-#prologueArt .asciiScan { animation: asciiScan 2.8s ease-in-out infinite alternate; }
-#prologueArt .asciiSpin { animation: asciiBreathe 7s ease-in-out infinite; }
-#prologueArt .asciiHope { animation: asciiHope 4.6s ease-in-out infinite; }
-#prologueArt .asciiGlitch { animation: asciiGlitch 2.3s steps(1, end) infinite; }
-
-@keyframes asciiDolly {
-    from { transform: scale(0.94) translate3d(7px, 3px, 0); }
-    to   { transform: scale(1.055) translate3d(-5px, -3px, 0); }
-}
-@keyframes asciiReveal {
-    from { clip-path: inset(0 100% 0 0); }
-    to   { clip-path: inset(0 0 0 0); }
-}
-@keyframes asciiPulse {
-    0%, 100% { filter: brightness(0.72); }
-    50% { filter: brightness(1.35) drop-shadow(0 0 3px currentColor); }
-}
-@keyframes asciiBlink {
-    0%, 70%, 100% { filter: brightness(0.8); }
-    72%, 88% { filter: brightness(1.65) drop-shadow(0 0 4px currentColor); }
-}
-@keyframes asciiScan {
-    from { clip-path: inset(0 0 82% 0); filter: brightness(1.35); }
-    to   { clip-path: inset(82% 0 0 0); filter: brightness(0.78); }
-}
-@keyframes asciiBreathe {
-    0%, 100% { transform: translateY(1px); filter: brightness(0.82); }
-    50% { transform: translateY(-2px); filter: brightness(1.22); }
-}
-@keyframes asciiHope {
-    0%, 100% { filter: brightness(0.75) drop-shadow(0 0 1px currentColor); }
-    50% { filter: brightness(1.4) drop-shadow(0 0 6px currentColor); }
-}
-@keyframes asciiGlitch {
-    0%, 89%, 100% { transform: translate(0); filter: brightness(0.9); }
-    90% { transform: translate(-3px, 1px); filter: brightness(1.7); }
-    93% { transform: translate(4px, -1px); filter: brightness(0.5); }
-    96% { transform: translate(-1px, 0); filter: brightness(1.4); }
-}
-
+/* Restrained light: background architecture recedes; only the narrative
+   focal point receives white, amber or a small red warning light. */
+#prologueArt .asciiAtmos { opacity: .46; }
+#prologueArt .asciiDistant { opacity: .23; }
+#prologueArt .asciiSubject { opacity: .5; }
+#prologueArt .asciiLight { opacity: .52; }
+#prologueArt .asciiAccent { opacity: .16; }
+#prologueArt[data-phase="title"] .asciiSubject { opacity: .78; }
+#prologueArt[data-phase="title"] .asciiLight { opacity: .86; }
+#prologueArt[data-phase="title"] .asciiAccent { opacity: .65; }
+#prologueArt[data-phase="body"] .asciiDistant { opacity: .44; }
+#prologueArt[data-phase="body"] .asciiSubject { opacity: .94; }
+#prologueArt[data-phase="body"] .asciiLight { opacity: 1; }
+#prologueArt[data-phase="body"] .asciiAccent { opacity: .94; }
 @media (prefers-reduced-motion: reduce) {
-    #prologueArt .asciiCamera,
-    #prologueArt .asciiLayer { animation: none !important; }
+    #prologueArt .asciiCamera { transform: none !important; will-change: auto; }
+    #prologueArt .asciiLayer { transition: none; }
 }
 
 #prologueYear {
