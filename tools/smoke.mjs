@@ -263,6 +263,24 @@ class Mat {
     dispose() { }
 }
 global.THREE = {
+    // Atribut/index asli diperlukan untuk menguji celah dan lipatan permukaan.
+    Float32BufferAttribute: class {
+        constructor(array, itemSize) {
+            this.array = new Float32Array(array); this.itemSize = itemSize;
+            this.count = array.length / itemSize;
+        }
+        getX(i) { return this.array[i * this.itemSize]; }
+        getY(i) { return this.array[i * this.itemSize + 1]; }
+        getZ(i) { return this.array[i * this.itemSize + 2]; }
+    },
+    BufferGeometry: class {
+        constructor() { this.attributes = {}; }
+        setAttribute(key, value) { this.attributes[key] = value; return this; }
+        getAttribute(key) { return this.attributes[key]; }
+        setIndex(array) { this.index = { array }; return this; }
+        computeVertexNormals() { return this; }
+        dispose() { }
+    },
     Vector2: class { constructor(x, y) { this.x = x; this.y = y; } set() { } },
     Vector3: V3, Quaternion: Quat, Euler, Color, Matrix4, Box3,
     Object3D: Obj3D, Group, Mesh, Sprite, Scene, PerspectiveCamera: PCam, PointLight: PLight,
@@ -17357,6 +17375,65 @@ if (false) {
     const javaZones10 = new Set(javaLand10.map(x => x.zone));
     const kalZones10 = new Set(kalLand10.map(x => x.zone));
     const landZone10 = (list, zone) => list.find(x => x.zone === zone);
+    // Periksa geometri yang benar-benar dirender, bukan hanya sumbu alurnya.
+    {
+        let ribbons = 0, triangles = 0, folded = 0, unshared = 0, sharp = 0;
+        const riverEnds = [], roadEnds = [];
+        for (const tile of W10.terrainTiles) for (const [biome, group] of Object.entries(tile.biomes)) {
+            group.traverse(o => {
+                if (!o.userData.pathRanges) return;
+                const p = o.geometry.getAttribute('position').array;
+                const ix = o.geometry.index.array;
+                let indexStart = 0;
+                for (const range of o.userData.pathRanges) {
+                    ribbons++;
+                    const row = i => {
+                        const v = (range.start + i * 2) * 3;
+                        return [(p[v] + p[v + 3]) / 2, (p[v + 2] + p[v + 5]) / 2];
+                    };
+                    const rows = range.count / 2;
+                    for (let i = 1; i < rows; i++) {
+                        const v = range.start + i * 2;
+                        const expected = [v - 2, v, v - 1, v - 1, v, v + 1];
+                        if (expected.some((n, k) => ix[indexStart + k] !== n)) unshared++;
+                        indexStart += 6;
+                        if (i < rows - 1) {
+                            const a = row(i - 1), b = row(i), c = row(i + 1);
+                            const dx = b[0] - a[0], dz = b[1] - a[1];
+                            const ex = c[0] - b[0], ez = c[1] - b[1];
+                            const cos = (dx * ex + dz * ez) / (Math.hypot(dx, dz) * Math.hypot(ex, ez));
+                            if (cos < Math.cos(Math.PI / 12)) sharp++;
+                        }
+                    }
+                    if ((range.kind === 'river' && o.material === W10.M.kalimantanRiver)
+                        || (range.kind === 'trunk' && biome === 'java'
+                            && [W10.M.cityAsphaltDark, W10.M.javaDry].includes(o.material)
+                            && Math.abs(row(0)[0]) < 100)) {
+                        const ends = range.kind === 'river' ? riverEnds : roadEnds;
+                        for (const i of [0, rows - 1]) {
+                            const v = (range.start + i * 2) * 3;
+                            ends.push([p[v], p[v + 3], p[v + 1], Math.abs(p[v + 2])]);
+                        }
+                    }
+                }
+                for (let k = 0; k < ix.length; k += 3) {
+                    const a = ix[k] * 3, b = ix[k + 1] * 3, c = ix[k + 2] * 3;
+                    const up = (p[b + 2] - p[a + 2]) * (p[c] - p[a])
+                        - (p[b] - p[a]) * (p[c + 2] - p[a + 2]);
+                    if (!(up > 0) || !Number.isFinite(up)) folded++;
+                    triangles++;
+                }
+            });
+        }
+        const aligned = ends => ends.length >= W10.terrainTiles.length * 2
+            && ends.every(e => e.every((v, i) => Math.abs(v - ends[0][i]) < 1e-4));
+        T('S10 TIKUNGAN: permukaan berbagi vertex, menghadap atas, tanpa lipatan ('
+            + ribbons + ' ribbon, ' + triangles + ' segitiga, ' + folded + ' lipatan)',
+            ribbons > 0 && triangles > ribbons && unshared === 0 && folded === 0);
+        T('S10 KURVA: arah ruas berubah halus di semua tikungan (' + sharp + ' sudut tajam)', sharp === 0);
+        T('S10 BATAS TILE: kedua tepi jalan utama Jawa dan sungai Kalimantan tepat bertemu',
+            aligned(roadEnds) && aligned(riverEnds));
+    }
     T('S10 BACKGROUND JAWA: rute memuat perkotaan, perumahan, persawahan dan perkebunan',
         ['urban', 'housing', 'rice-fields', 'plantation'].every(z => javaZones10.has(z))
         && javaZones10.size === 4
@@ -23633,6 +23710,12 @@ if (false) {
         // kendaraan memang HARUS berada di atas aspal.
         {
             const insideRect = (px, pz, r) => {
+                if (r.triangle) {
+                    const [a, b, c] = r.triangle;
+                    const side = (u, v) => (v[0] - u[0]) * (pz - u[1]) - (v[1] - u[1]) * (px - u[0]);
+                    const s = [side(a, b), side(b, c), side(c, a)];
+                    return s.every(v => v <= 0) || s.every(v => v >= 0);
+                }
                 const dx = px - r.x, dz = pz - r.z;
                 const c = Math.cos(-r.ry), sn = Math.sin(-r.ry);
                 return Math.abs(dx * c + dz * sn) <= r.hx
@@ -23644,6 +23727,13 @@ if (false) {
                     if (!g.userData.landscape) continue;
                     const roads = [], builds = [];
                     g.traverse(o => {
+                        if (o.userData.role === 'road' && o.userData.pathRanges
+                            && [Wo.M.cityAsphaltDark, Wo.M.javaDry].includes(o.material)) {
+                            const p = o.geometry.getAttribute('position').array;
+                            const ix = o.geometry.index.array;
+                            for (let i = 0; i < ix.length; i += 3)
+                                roads.push({ triangle: ix.slice(i, i + 3).map(v => [p[v * 3], p[v * 3 + 2]]) });
+                        }
                         if (o.count === undefined || !o.mats) return;
                         for (const m of o.mats) {
                             if (!m || !m.p || !m.sv) continue;

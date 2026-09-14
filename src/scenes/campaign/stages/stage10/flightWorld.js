@@ -644,39 +644,124 @@ function flushSurface(parent, M, batch, role) {
     let nodes = 0;
     for (const [key, list] of Object.entries(batch)) {
         if (!list.length) continue;
-        const b = instanceBatch(parent, new THREE.BoxGeometry(1, 1, 1), M[key], list);
-        if (b && role) b.userData.role = role;
-        nodes++;
+        const boxes = list.filter(t => !t.ribbon);
+        if (boxes.length) {
+            const b = instanceBatch(parent, new THREE.BoxGeometry(1, 1, 1), M[key], boxes);
+            if (b && role) b.userData.role = role;
+            nodes++;
+        }
+        const ribbons = list.filter(t => t.ribbon);
+        if (ribbons.length) {
+            const positions = [], indices = [], ranges = [];
+            const yaws = new Set(), xs = new Set();
+            for (const r of ribbons) {
+                const start = positions.length / 3;
+                for (let i = 0; i < r.ribbon.length; i++) {
+                    const p = r.ribbon[i];
+                    const a = r.ribbon[Math.max(0, i - 1)];
+                    const b = r.ribbon[Math.min(r.ribbon.length - 1, i + 1)];
+                    const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+                    yaws.add(Math.round(Math.atan2(b.x - a.x, b.z - a.z) * 20));
+                    xs.add(Math.round(p.x / 8));
+                    const nx = p.nx ?? (b.z - a.z) / len;
+                    const nz = p.nz ?? -(b.x - a.x) / len;
+                    for (const side of [-1, 1]) {
+                        const off = r.offset(p, i) + side * r.width(p, i) * 0.5;
+                        positions.push(p.x + nx * off, r.y, p.z + nz * off);
+                    }
+                    if (i) {
+                        const v = start + i * 2;
+                        indices.push(v - 2, v, v - 1, v - 1, v, v + 1);
+                    }
+                }
+                ranges.push({ start, count: r.ribbon.length * 2,
+                    kind: r.ribbon.trunk ? 'trunk' : r.ribbon.river ? 'river' : 'path' });
+            }
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setIndex(indices);
+            geometry.computeVertexNormals();
+            const b = new THREE.Mesh(geometry, M[key]);
+            b.receiveShadow = true;
+            b.userData.role = role;
+            b.userData.pathRanges = ranges;
+            b.userData.localTop = Math.max(...ribbons.map(r => r.y));
+            let halfX = 0;
+            for (let i = 0; i < positions.length; i += 3) halfX = Math.max(halfX, Math.abs(positions[i]));
+            b.userData.localHalfX = halfX;
+            b.userData.distinctYaw = yaws.size;
+            b.userData.distinctX = xs.size;
+            parent.add(b);
+            nodes++;
+        }
     }
     return nodes;
 }
 
-// Jalan sebagai POLILINE, bukan balok lurus: tiap ruas mewarisi yaw-nya sendiri,
-// jadi jalan benar-benar membelok alih-alih patah bertingkat.
+// Satu pasangan vertex per penampang, dipakai kedua ruas tetangga. Tidak ada
+// ujung balok yang membuka celah atau menumpuk di sisi dalam tikungan.
+function queueRibbon(batch, key, pts, width, y, offset = () => 0) {
+    queueSurface(batch, key, { ribbon: pts, width, y, offset });
+}
+
+// Haluskan sumbu sebelum dipakai menggambar DAN mendaftarkan koridor bangunan.
+function smoothPath(pts) {
+    if (pts.smooth) return;
+    const out = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        const prev = pts[i - 1] || a, next = pts[i + 2] || b;
+        const steps = Math.max(4, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 12));
+        for (let j = 0; j < steps; j++) {
+            const t = j / steps, t2 = t * t, t3 = t2 * t;
+            const p = {};
+            for (const axis of ['x', 'z']) {
+                const m0 = i ? (b[axis] - prev[axis]) * 0.5 : b[axis] - a[axis];
+                const m1 = i + 2 < pts.length ? (next[axis] - a[axis]) * 0.5 : b[axis] - a[axis];
+                p[axis] = (2 * t3 - 3 * t2 + 1) * a[axis]
+                    + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * b[axis]
+                    + (t3 - t2) * m1;
+            }
+            out.push(p);
+        }
+    }
+    out.push(pts[pts.length - 1]);
+    pts.splice(0, pts.length, ...out);
+    pts.smooth = true;
+}
+
 function queuePath(batch, pts, width, opts = {}) {
+    smoothPath(pts);
     const surf = opts.surface || 'cityAsphaltDark';
     const kerb = opts.kerb, mark = opts.mark;
-    let marks = 0;
+    const widthAt = p => pts.trunk
+        ? 20 + (width - 20) * Math.sin(Math.PI * (p.z / TILE_LENGTH + 0.5)) ** 2
+        : width;
+    queueRibbon(batch, surf, pts, widthAt, (opts.y ?? 0.76) + 0.11);
+    if (kerb) for (const side of [-1, 1])
+        queueRibbon(batch, kerb, pts, () => 4.2, 1.14,
+            p => side * (widthAt(p) * 0.5 + 2.2));
+    let marks = 0, distance = 0;
     for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i];
         const dx = b.x - a.x, dz = b.z - a.z;
         const len = Math.hypot(dx, dz);
         if (len < 0.001) continue;
         const yaw = Math.atan2(dx, dz);
-        const mx = (a.x + b.x) * 0.5, mz = (a.z + b.z) * 0.5;
-        queueSurface(batch, surf, { x: mx, y: opts.y || 0.76, z: mz,
-            sx: width, sy: 0.22, sz: len + 1.4, ry: yaw });
-        if (kerb) for (const side of [-1, 1]) queueSurface(batch, kerb, {
-            x: mx + Math.cos(yaw) * side * (width * 0.5 + 2.2), y: 0.9,
-            z: mz - Math.sin(yaw) * side * (width * 0.5 + 2.2),
-            sx: 4.2, sy: 0.48, sz: len + 1.4, ry: yaw });
         // Marka tetap di y 1.01 setinggi 0.08: ketinggiannya dipatok test supaya
         // penjepitan tinggi lanskap tak pernah menyeretnya ke dalam aspal.
-        if (mark && i % 2 === 0) {
-            queueSurface(batch, mark, { x: mx, y: 1.01, z: mz,
-                sx: 0.8, sy: 0.08, sz: len * 0.5, ry: yaw });
-            marks++;
+        // Ritme marka berdasarkan jarak, tidak ikut kerapatan sampling kurva.
+        if (mark) {
+            for (let dash = Math.floor(distance / 20) * 20; dash < distance + len; dash += 20) {
+                const start = Math.max(distance, dash), end = Math.min(distance + len, dash + 10);
+                if (end - start < 1e-6) continue;
+                const t = ((start + end) * 0.5 - distance) / len;
+                queueSurface(batch, mark, { x: a.x + dx * t, y: 1.01, z: a.z + dz * t,
+                    sx: 0.8, sy: 0.08, sz: end - start, ry: yaw });
+                marks++;
+            }
         }
+        distance += len;
     }
     return marks;
 }
@@ -699,7 +784,7 @@ function segDistance(px, pz, ax, az, bx, bz) {
 
 // `half` = setengah lebar aspal DITAMBAH trotoar/bahu, jadi bangunan berhenti
 // di tepi perkerasan, bukan menempel ke marka.
-function addRoadCorridor(list, pts, half) { list.push({ pts, half }); }
+function addRoadCorridor(list, pts, half) { list.push({ pts, half: pts.trunk ? Math.max(half, 15) : half }); }
 
 // Jarak ke sumbu jalan TERDEKAT — dipakai untuk menentukan kepadatan, karena
 // kota tumbuh di sepanjang jalan APA PUN, bukan hanya jalan raya utama.
@@ -754,23 +839,14 @@ function clearOfRoads(list, x, z, radius) {
 
 // Sungai berkelok: lebarnya ikut berubah sepanjang alur.
 function queueRiver(batch, pts, width, keys) {
-    for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1], b = pts[i];
-        const dx = b.x - a.x, dz = b.z - a.z;
-        const len = Math.hypot(dx, dz);
-        if (len < 0.001) continue;
-        const yaw = Math.atan2(dx, dz);
-        const mx = (a.x + b.x) * 0.5, mz = (a.z + b.z) * 0.5;
-        const w = width * (a.w !== undefined ? (a.w + b.w) * 0.5 : 1);
-        queueSurface(batch, keys.bank,
-            { x: mx, y: 0.87, z: mz, sx: w + 15, sy: 0.35, sz: len + 3, ry: yaw });
-        queueSurface(batch, keys.water,
-            { x: mx, y: 1.06, z: mz, sx: w, sy: 0.28, sz: len + 3, ry: yaw });
-        queueSurface(batch, keys.shallow, {
-            x: mx - Math.cos(yaw) * w * 0.34, y: 1.2,
-            z: mz + Math.sin(yaw) * w * 0.34,
-            sx: w * 0.2, sy: 0.06, sz: len * 0.92, ry: yaw });
-    }
+    smoothPath(pts);
+    const widthAt = p => (p.w ?? 1) * (pts.river
+        ? 46 + (width - 46) * Math.sin(Math.PI * (p.z / TILE_LENGTH + 0.5)) ** 2
+        : width);
+    queueRibbon(batch, keys.bank, pts, p => widthAt(p) + 15, 1.045);
+    queueRibbon(batch, keys.water, pts, widthAt, 1.2);
+    queueRibbon(batch, keys.shallow, pts, p => widthAt(p) * 0.2, 1.23,
+        p => -widthAt(p) * 0.34);
     return pts.length - 1;
 }
 
@@ -792,6 +868,7 @@ function queueRiver(batch, pts, width, keys) {
 const KAL_RIVER_X = 240;
 
 function riverPath(centerX, seed, amp, segments = 18) {
+    segments = Math.max(96, segments);
     const key = Math.round(seed * 131);
     const sign = (k) => (lhash(k, key, 0x5e1) < 0.5 ? -1 : 1);
     const a1 = amp * 0.5 * (0.75 + lhash(1, key, 0x77) * 0.5) * sign(1);
@@ -800,7 +877,7 @@ function riverPath(centerX, seed, amp, segments = 18) {
     const pts = [];
     for (let i = 0; i <= segments; i++) {
         const t = i / segments;
-        const z = -TILE_LENGTH * 0.5 - 6 + t * (TILE_LENGTH + 12);
+        const z = -TILE_LENGTH * 0.5 + t * TILE_LENGTH;
         const a = 2 * Math.PI * t;
         // Jendela sin^2(PI*t) menahan alur tetap MENEMPEL di `centerX` di dekat
         // kedua ujung, bukan cuma menyentuhnya. Tanpa jendela ini ujungnya memang
@@ -813,9 +890,12 @@ function riverPath(centerX, seed, amp, segments = 18) {
                 + a2 * (1 - Math.cos(2 * a))
                 + a3 * (1 - Math.cos(3 * a))),
             z,
-            w: 0.78 + 0.35 * (0.5 + 0.5 * Math.sin(3 * a)),
+            nx: 1, nz: 0,
+            w: 0.955 + 0.175 * win * Math.sin(3 * a),
         });
     }
+    pts.smooth = true;
+    pts.river = centerX === KAL_RIVER_X;
     return pts;
 }
 
@@ -827,7 +907,7 @@ function riverPath(centerX, seed, amp, segments = 18) {
 // panjang alurnya sendiri.
 function sampleRiverX(pts, z) {
     const n = pts.length - 1;
-    const t = (z + TILE_LENGTH * 0.5 + 6) / (TILE_LENGTH + 12) * n;
+    const t = (z + TILE_LENGTH * 0.5) / TILE_LENGTH * n;
     const k = Math.max(0, Math.min(n - 1, Math.floor(t)));
     return pts[k].x + (pts[k + 1].x - pts[k].x) * (t - k);
 }
@@ -845,11 +925,15 @@ function riverJoin(pts) {
 }
 
 function trunkRoadPath(offsetX, segments = 10) {
+    segments = Math.max(64, segments);
     const pts = [];
     for (let i = 0; i <= segments; i++) {
-        const z = -TILE_LENGTH * 0.5 - 4 + (i / segments) * (TILE_LENGTH + 8);
-        pts.push({ x: offsetX + trunkRoadX(z), z });
+        const z = -TILE_LENGTH * 0.5 + (i / segments) * TILE_LENGTH;
+        // Penampang sejajar batas tile menjaga kedua tepi tepat bertemu.
+        pts.push({ x: offsetX + trunkRoadX(z), z, nx: 1, nz: 0 });
     }
+    pts.smooth = true;
+    pts.trunk = true;
     return pts;
 }
 
@@ -1601,7 +1685,7 @@ function buildKalimantanHousing(parent, M, index) {
         { bank: 'riverBank', water: 'kalimantanRiver', shallow: 'riverShallow' });
     const riverAt = (z) => {
         const n = river.length - 1;
-        const t = (z + TILE_LENGTH * 0.5 + 6) / (TILE_LENGTH + 12) * n;
+        const t = (z + TILE_LENGTH * 0.5) / TILE_LENGTH * n;
         const k = Math.max(0, Math.min(n - 1, Math.floor(t)));
         const x = river[k].x + (river[k + 1].x - river[k].x) * (t - k);
         const yaw = Math.atan2(river[k + 1].x - river[k].x, river[k + 1].z - river[k].z);
@@ -1617,37 +1701,30 @@ function buildKalimantanHousing(parent, M, index) {
             const u = lhash(r, side, index + 3);
             if (u > 0.82) continue;
             const off = side * (52 + u * 26);
-            const hx = rx + off * Math.cos(yaw);
-            const hz = z - off * Math.sin(yaw);
+            const hx = rx + off;
+            const hz = z;
             if (Math.abs(hx) > CONTENT_HALF_X) continue;
             queuePitchedHouse(houseBatch, hx, hz, 13 + u * 5, 10 + u * 4,
                 4.5 + u * 1.6, yaw + (u - 0.5) * 0.5,
                 u > 0.5 ? 'roofDark' : 'roofA', 2.4);
             houses++; roofPanels += 2;
             // Titian dari rumah ke tepi air.
-            const bx = rx + side * 26 * Math.cos(yaw);
-            const bz = z - side * 26 * Math.sin(yaw);
+            const bx = rx + side * 26;
+            const bz = z;
             queueSurface(surf, 'boardwalk', {
                 x: (hx + bx) * 0.5, y: 2.2, z: (hz + bz) * 0.5,
-                sx: 3.4, sy: 0.4, sz: Math.hypot(hx - bx, hz - bz), ry: yaw + Math.PI * 0.5 });
+                sx: 3.4, sy: 0.4, sz: Math.hypot(hx - bx, hz - bz), ry: Math.PI * 0.5 });
             jetties++;
             if (u < 0.42) {
-                queueBoat(surf, rx + side * 18 * Math.cos(yaw),
-                    z - side * 18 * Math.sin(yaw), yaw + (u - 0.5) * 0.4, 0.85 + u * 0.4);
+                queueBoat(surf, rx + side * 18,
+                    z, yaw + (u - 0.5) * 0.4, 0.85 + u * 0.4);
                 boats++;
             }
         }
     }
     // Titian memanjang di kedua tepi menghubungkan rumah.
     for (const side of [-1, 1]) {
-        for (let k = 1; k < river.length; k++) {
-            const a = river[k - 1], b = river[k];
-            const yaw = Math.atan2(b.x - a.x, b.z - a.z);
-            queueSurface(surf, 'boardwalk', {
-                x: (a.x + b.x) * 0.5 + side * 44 * Math.cos(yaw), y: 2.35,
-                z: (a.z + b.z) * 0.5 - side * 44 * Math.sin(yaw),
-                sx: 5, sy: 0.42, sz: Math.hypot(b.x - a.x, b.z - a.z) + 2, ry: yaw });
-        }
+        queueRibbon(surf, 'boardwalk', river, () => 5, 2.56, () => side * 44);
         boardwalks++;
     }
 
