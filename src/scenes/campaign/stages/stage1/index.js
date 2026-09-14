@@ -1381,16 +1381,15 @@ export const stage1Scene = {
     clampDropPos(x, z) { return [x, z]; },
 
     hudStatus() {
-        const n = countStageRobots(1);
         switch (s1Phase) {
-            case 'access': return `FLOOR 2 — Robots: ${n} | Reach the marked security console to unlock the server room`;
+            case 'access': return 'Find the security console and unlock the server room';
             case 'download': return s1HackCd > 0
-                ? `FLOOR 2 — ALARM! Terminal rebooting: ${Math.ceil(s1HackCd)}s | Hostiles: ${n}`
-                : 'FLOOR 2 — Server room unlocked — reach the terminal and download the data';
-            case 'downloading': return 'FLOOR 2 — Breaching the vault firewall…';
-            case 'radio': return 'FLOOR 2 — Data secured | Incoming transmission…';
-            case 'clear2': return `FLOOR 2 — Hostiles inbound! Robots: ${n} | Fight back to the stairs`;
-            default: return 'FLOOR 2 — Area secured — return to the stairs to descend';
+                ? 'Survive the alarm while the terminal reboots'
+                : 'Reach the terminal and download the data';
+            case 'downloading': return 'Hold the terminal while the firewall breaks';
+            case 'radio': return 'Listen to the incoming transmission';
+            case 'clear2': return 'Fight back to the stairs';
+            default: return 'Return to the stairs';
         }
     },
 

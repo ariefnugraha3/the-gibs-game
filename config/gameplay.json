@@ -393,7 +393,6 @@
         },
         "stage2": {
             "robotCountMul": 1.6,
-            "restoreSec": 10,
             "genApproachRange": 46,
             "genRestoreRange": 10,
             "componentRange": 16,
@@ -401,10 +400,8 @@
         },
         "stage3": {
             "robotCountMul": 1.3,
-            "hackSec": 5,
             "hackRange": 13,
             "hackRequired": 3,
-            "doorHp": 1500,
             "gateWaveCount": 6,
             "machineWaveCount": 4,
             "reinforceThreshold": 4,

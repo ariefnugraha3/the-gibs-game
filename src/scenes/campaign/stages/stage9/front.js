@@ -184,12 +184,10 @@ export const frontScene = {
         return [Math.max(S9_FRONT_BOUNDS.x0 + 20, Math.min(306530, x)), 160, 0];
     },
     hudStatus() {
-        if (phase === 'opening') return 'STAGE 9 — KERTAJATI AIRPORT';
-        const hostiles = stage9EncounterCount('frontToll')
-            + stage9EncounterCount('frontForecourt');
+        if (phase === 'opening') return 'Find the airport entrance';
         if (phase === 'frontRoad')
-            return `CHAPTER 1 — CLEAR AIRPORT ACCESS — HOSTILES ${hostiles}`;
-        return 'CHAPTER 1 — ENTER THE TERMINAL';
+            return 'Clear the airport access road';
+        return 'Enter the terminal';
     },
     radarLandmarks(plot) {
         if (phase === 'frontExit') {

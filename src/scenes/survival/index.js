@@ -644,16 +644,14 @@ export const survivalScene = {
     },
 
     hudStatus() {
-        const pct = Math.max(0, Math.ceil(monasHp / monasMaxHp * 100));
         if (wave.phase === 'cleared')
-            return `WAVE ${wave.num} CLEARED — Next wave in ${Math.max(1, Math.ceil(wave.clearTimer))}...`;
+            return 'Regroup before the next attack';
         if (wave.phase === 'shopping') {
             if (wave.queuedNum != null)
-                return `WAVE ${wave.queuedNum} READY — Field Shop open`;
-            return `WAVE ${wave.num} CLEARED — Field Shop open`;
+                return 'Use the Field Shop before the next attack';
+            return 'Use the Field Shop before moving on';
         }
-        const left = wave.toSpawn + robots.length;   // sisa robot wave ini
-        return `Wave ${wave.num} — ${left} left · Monas ${pct}%`;
+        return 'Defend Monas from the robot assault';
     },
 
     // Monas = penanda pusat (dijepit ke tepi saat jauh — kompas); warnanya

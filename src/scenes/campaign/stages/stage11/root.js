@@ -615,26 +615,23 @@ export const rootScene = {
     },
     clampDropPos(x, z) { return stage11RootWalk(x, z, 2) ? [x, z] : [S11_ROOT_START.x, 0]; },
     hudStatus() {
-        if (phase === 'rootCorridor') return 'ROOT HALL DOOR — 100 M';
-        if (phase === 'corridorBattle') {
-            const machines = stage11RootMachines().filter(m => m.alive).length;
-            return `DESTROY FABRICATORS ${machines}/${R().machines} | Robots: ${countStageRobots(11)}`;
-        }
-        if (phase === 'doorHacking') return 'BREACHING ROOT HALL AUTHORITY';
-        if (phase === 'doorLocked') return 'HACK THE LARGE ROOT HALL DOOR';
-        if (phase === 'insertDrive') return 'INSERT THE KILL-SWITCH DRIVE';
-        if (phase === 'wardenReveal') return 'BROADCASTING — ROOT CHAMBER RESPONDING';
-        if (phase === 'wardenDeath') return 'WARDEN CORE FAILURE';
+        if (phase === 'rootCorridor') return 'Reach the root hall door';
+        if (phase === 'corridorBattle') return 'Destroy the fabricators';
+        if (phase === 'doorHacking') return 'Breach root hall authority';
+        if (phase === 'doorLocked') return 'Hack the large root hall door';
+        if (phase === 'insertDrive') return 'Insert the kill-switch drive';
+        if (phase === 'wardenReveal') return 'Hold while the root chamber responds';
+        if (phase === 'wardenDeath') return 'Survive the Warden core failure';
         if (phase === 'wardenBattle' || phase === 'wardenIntro') {
             const wd = nusantaraWardenDebug(W());
-            if (wd.phase === 'jam1') return 'UPLOAD JAMMED — DESTROY THREE CAPACITORS';
-            if (wd.phase === 'jam2') return 'WARDEN SEIZING ROOT — DESTROY THE COUPLINGS';
-            return `DESTROY THE NUSANTARA WARDEN | UPLOAD ${Math.round(uploadProgress * 100)}%`;
+            if (wd.phase === 'jam1') return 'Destroy the exposed capacitors';
+            if (wd.phase === 'jam2') return 'Destroy the exposed couplings';
+            return 'Fight the Nusantara Warden and protect the upload';
         }
-        if (phase === 'broadcast') return `NATIONAL BROADCAST — ${Math.round(uploadProgress * 100)}%`;
-        if (phase === 'anomaly') return 'BROADCAST COMPLETE — SOVEREIGN ANOMALY DETECTED';
-        if (phase === 'complete') return 'STAGE 11 COMPLETE — JAKARTA COORDINATE LOCKED';
-        return `KILL-SWITCH UPLOAD — ${Math.round(uploadProgress * 100)}%`;
+        if (phase === 'broadcast') return 'Protect the national broadcast';
+        if (phase === 'anomaly') return 'Investigate the sovereign anomaly';
+        if (phase === 'complete') return 'Follow the Jakarta coordinate lock';
+        return 'Upload the kill-switch';
     },
     radarLandmarks(plot) {
         const liveMachines = stage11RootMachines().filter(m => m.alive);

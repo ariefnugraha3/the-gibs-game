@@ -20,7 +20,7 @@
 //                    HARNESS / CONTROL BOARD / COOLANT PUMP).
 //   4. 'restore'   : kembali ke generator, INJAK kotak bermarker.
 //   5. 'installing': MINIGAME PERBAIKAN "FIELD REPAIR" (2026-07-29, MENGGANTIKAN
-//                    bar progress 10 dtk — utility/repairMinigame.js): scene
+//                    bar progress lama — utility/repairMinigame.js): scene
 //                    modal berisi TIGA papan berurutan, satu per komponen tadi
 //                    (kabel / chip / katup), TANPA hitung mundur. Batal (ESC) =
 //                    balik ke 'restore' dengan kemajuan TERSIMPAN (s2Installed)
@@ -1087,7 +1087,7 @@ export const stage2Scene = {
             }
         } else if (s2Phase === 'restore') {
             // Injak kotak bermarker → MINIGAME PERBAIKAN (3 papan, satu per
-            // komponen; 2026-07-29, MENGGANTIKAN bar progress restoreSec).
+            // komponen; 2026-07-29, MENGGANTIKAN bar progress restore timer lama).
             // Pemicu harus "terisi" ulang dgn MENJAUH sekali (spt terminal stage
             // 1), supaya ABORT tak langsung membuka modal lagi di tempat.
             const near = s2GenPos && Math.hypot(px - s2GenPos.x, pz - s2GenPos.z) < s2.genRestoreRange;
@@ -1201,14 +1201,13 @@ export const stage2Scene = {
     clampDropPos(x, z) { return [x, z]; },
 
     hudStatus() {
-        const n = countStageRobots(2);
         switch (s2Phase) {
-            case 'clear1': return `FLOOR 2 — Robots: ${n} | Destroy ALL robots to power the generator`;
-            case 'goGen': return 'FLOOR 2 — Find the generator and begin repairs';
-            case 'collect': return `FLOOR 2 — Recover generator components: ${s2CompGot}/3 (storage warehouse)`;
-            case 'restore': return `FLOOR 2 — Step on the marker at the generator to fit the components (${s2Installed}/3 installed)`;
-            case 'installing': return `FLOOR 2 — Fitting components... ${s2Installed}/3`;
-            default: return 'FLOOR 2 — Generator restored! Board the elevator to escape';
+            case 'clear1': return 'Destroy every robot to power the generator';
+            case 'goGen': return 'Find the generator and begin repairs';
+            case 'collect': return 'Recover the generator components in storage';
+            case 'restore': return 'Return to the generator and fit the components';
+            case 'installing': return 'Fit the generator components';
+            default: return 'Board the elevator';
         }
     },
 

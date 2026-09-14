@@ -133,8 +133,8 @@ export const interiorScene = {
     },
     hudStatus() {
         if (phase === 'interiorCheckin')
-            return `CHAPTER 2 — REACH SECURITY — HOSTILES ${stage9EncounterCount('interiorCheckin')}`;
-        return `CHAPTER 2 — CROSS CONCOURSE — HOSTILES ${interiorHostiles()}`;
+            return 'Reach security';
+        return 'Cross the concourse';
     },
     radarLandmarks(plot) {
         const p = phase === 'interiorCheckin' ? S9_INTERIOR_CHECKPOINT : S9_BUILDING_EXIT;

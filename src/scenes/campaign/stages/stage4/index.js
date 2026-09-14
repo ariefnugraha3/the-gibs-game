@@ -1366,15 +1366,13 @@ export const stage4Scene = {
     clampDropPos(x, z) { return [x, z]; },
 
     hudStatus() {
-        let s = `FINAL — Robots: ${countStageRobots(4)}`;
-        if (intro.isActive()) return s;   // HUD tersembunyi selama cutscene (body.cine)
-        if (tank && !bossDefeated) s += ' | DESTROY THE WAR TANK';
+        if (intro.isActive()) return 'Reach the town square';   // HUD tersembunyi selama cutscene (body.cine)
+        if (tank && !bossDefeated) return 'Destroy the war tank';
         else if (bossDefeated && countStage4RobotsInTownSquare() > 0)
-            s += ` | CLEAR ${countStage4RobotsInTownSquare()} HOSTILES IN THE TOWN SQUARE`;
-        else if (bossDefeated) s += ' | EXTRACTION LOST — ROUTE TO BANDUNG REQUIRED';
-        else if (intro.isHeliSpawned()) s += ' | Reach the extraction helicopter (east)!';
-        else s += ' | Reach the town square (east)';
-        return s;
+            return 'Clear the town square';
+        else if (bossDefeated) return 'Find a new route to Bandung';
+        else if (intro.isHeliSpawned()) return 'Reach the extraction helicopter';
+        return 'Reach the town square';
     },
 
     // Landmark: pusat alun-alun (dijepit ke tepi radar saat jauh; hijau saat

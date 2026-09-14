@@ -259,10 +259,6 @@ function aircraftOnScreenCount(frame = aircraftFlightFrame()) {
     }
     return n;
 }
-function formatTime(sec) {
-    const s = Math.max(0, Math.ceil(sec));
-    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-}
 function fighting() { return phase === 'combat' || phase === 'bossIntro' || phase === 'boss'; }
 
 function resetPoolItem(slot) {
@@ -2491,12 +2487,12 @@ export const stage10Scene = {
         return { bombs, maxBombs: C().bomb.max, hint: 'SPACE / RMB' };
     },
     hudStatus() {
-        if (phase === 'playerDestroyed') return 'AIRCRAFT DESTROYED';
+        if (phase === 'playerDestroyed') return 'Aircraft destroyed';
         if (phase === 'bossIntro' || phase === 'boss')
-            return 'HEAVY BOMBER INTERCEPT';
+            return 'Intercept the heavy bomber';
         if (phase === 'victory' || phase === 'complete')
-            return `AIRSPACE CLEAR | FINISH ${Math.max(0, C().clearDelaySec - clearT).toFixed(1)}s`;
-        return formatTime(C().durationSec - elapsed);
+            return 'Return to route';
+        return 'Fight through hostile airspace';
     },
     radarLandmarks() { },
 };

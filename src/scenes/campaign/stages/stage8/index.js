@@ -1290,17 +1290,16 @@ export const stage8Scene = {
             clamp(z, laneWorldZ(0), laneWorldZ(6))];
     },
     hudStatus() {
-        const target = CFG.campaign.stage8.groundPickupTarget;
-        if (phase === 'opening') return 'STAGE 8 — CISUMDAWU KILL ZONE';
+        if (phase === 'opening') return 'Survive the ambush';
         if (phase === 'groundPursuit' || phase === 'highway')
-            return `PURSUIT VEHICLES — DESTROYED ${pickupsDestroyed} / ${target} — ACTIVE ${activePickupCount()} — RIDERS ${activePursuerCount()}`;
+            return 'Destroy the pursuit vehicles';
         if (phase === 'bossApproach')
-            return 'PURSUIT DESTROYED — AIR CONTACT INBOUND';
-        if (phase === 'gunshipIntro') return 'AIRBORNE CONTACT';
-        if (phase === 'gunshipBattle') return 'AIR INTERCEPT — DESTROY THE COMBAT GUNSHIP';
-        if (phase === 'gunshipDeath') return 'AIR INTERCEPT — GUNSHIP DOWN';
-        if (phase === 'arrival') return 'KERTAJATI INTERNATIONAL AIRPORT — FINAL APPROACH';
-        return 'KERTAJATI INTERNATIONAL AIRPORT — ROUTE COMPLETE';
+            return 'Prepare for incoming air contact';
+        if (phase === 'gunshipIntro') return 'Track the airborne contact';
+        if (phase === 'gunshipBattle') return 'Destroy the combat gunship';
+        if (phase === 'gunshipDeath') return 'Confirm the gunship kill';
+        if (phase === 'arrival') return 'Approach the airport';
+        return 'Complete the route';
     },
     radarLandmarks(plot) {
         if (phase === 'gunshipBattle' || phase === 'gunshipDeath') {

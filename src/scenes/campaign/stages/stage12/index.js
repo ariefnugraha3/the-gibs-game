@@ -569,17 +569,19 @@ export const stage12Scene = {
         return stage12Walk(x, z, 2) ? [x, z] : [S12_ARENA_ENTRY.x - 42, 0];
     },
     hudStatus() {
-        if (phase === 'returnCine') return 'STAGE 12 — ZERO HOUR: MONAS';
+        if (phase === 'returnCine') return 'Return to Monas';
         if (phase === 'silentApproach' || phase === 'blackGuard')
-            return `SILENT JAKARTA — HARDWIRED GUARDS ${countStageRobots(12)}`;
-        if (phase === 'gateApproach') return 'ENTER TAMAN MONAS THROUGH THE GATE';
-        if (phase === 'parkSealed') return 'GATE SEALED — APPROACH THE MONUMENT';
+            return 'Clear the hardwired guards';
+        if (phase === 'gateApproach') return 'Find the park gate';
+        if (phase === 'parkSealed') return 'Approach the monument';
         const d = mahapatihDebug(boss);
-        if (phase === 'zeroHour') return `COUNTERMAND CHARGING — HARDLINES ${d?.anchorsRemaining ?? 0}`;
-        if (phase === 'finalCore') return `M-0 CORE — ${d?.hitVolumes?.coreOpen ? 'EXPOSED' : 'SHUTTERS CLOSED'}`;
-        if (phase === 'ending') return 'ZERO HOUR ENDED — DAWN OVER JAKARTA';
-        if (phase === 'complete') return 'CAMPAIGN COMPLETE';
-        return 'M-0 MAHAPATIH — SOVEREIGN WAR BODY';
+        if (phase === 'zeroHour') return 'Disable the hardlines';
+        if (phase === 'finalCore') return d?.hitVolumes?.coreOpen
+            ? 'Attack the exposed core'
+            : 'Wait for the core shutters to open';
+        if (phase === 'ending') return 'Hold until dawn';
+        if (phase === 'complete') return 'Campaign complete';
+        return 'Defeat Mahapatih';
     },
     radarLandmarks(plot) {
         if (phase === 'zeroHour') {

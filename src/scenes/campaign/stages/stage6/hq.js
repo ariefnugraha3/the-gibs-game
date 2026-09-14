@@ -434,13 +434,13 @@ export const hqScene = {
     hudStatus() {
         if (phase === 'office') {
             return serverHacked
-                ? `HEADQUARTERS OFFICE — REACH THE SERVER ROOM | Robots: ${countStageRobots(6)}`
-                : `SERVER ROOM LOCKED — BREAK THE MEETING ROOM TERMINAL | Robots: ${countStageRobots(6)}`;
+                ? 'Reach the server room'
+                : 'Break the meeting room terminal';
         }
-        if (phase === 'upload') return `KILL-SWITCH UPLOAD — ${Math.round(uploadProgress * 100)}%`;
-        if (phase === 'purge') return `DESTROY FACTORIES ${machinesAlive()}/${MACHINE_POINTS.length}`;
-        if (phase === 'escape') return 'FACTORIES DOWN — RETURN TO THE ENTRY POINT';
-        return 'UPLOAD FAILED — ROUTE TO IKN REQUIRED';
+        if (phase === 'upload') return 'Upload the kill-switch';
+        if (phase === 'purge') return 'Destroy the factories';
+        if (phase === 'escape') return 'Return to the entry point';
+        return 'Find the route to IKN';
     },
     radarLandmarks(plot) {
         const marks = [];

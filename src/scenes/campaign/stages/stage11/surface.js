@@ -411,20 +411,16 @@ export const surfaceScene = {
         return [p.x, p.z];
     },
     hudStatus() {
-        if (phase === 'opening') return 'NUSANTARA — IKN ROAD NETWORK';
-        if (phase === 'descend') return 'HEADQUARTERS BREACHED — DESCENDING';
+        if (phase === 'opening') return 'Enter the city road network';
+        if (phase === 'descend') return 'Descend into the breached headquarters';
         const gate = stage11CityBlockadeStatus();
-        if (gate) return `ROAD BLOCKADE — FABRICATORS ${gate.alive}/${gate.total}`
-            + (gate.vehicles ? ` · VEHICLES ${gate.vehicles}` : '')
-            + ` | Hostiles: ${countStageRobots(11)}`;
+        if (gate) return gate.vehicles
+            ? 'Break the road blockade and disable weapon vehicles'
+            : 'Break the road blockade';
         // Deliberately NO "blockades cleared N/13": the objective is reaching
         // the headquarters, and a running count reads as a quota the player has
         // to fill before the chapter will let them finish.
-        const left = Math.round(Math.hypot(
-            S11_CITY_HEADQUARTERS.x - camera.position.x,
-            S11_CITY_HEADQUARTERS.z - camera.position.z) / CAMP_M);
-        return `ENEMY HEADQUARTERS ${left} M`
-            + ` | Hostiles: ${countStageRobots(11)}`;
+        return 'Find the enemy headquarters';
     },
     radarLandmarks(plot) {
         const p = stage11CityBlockadeTarget()

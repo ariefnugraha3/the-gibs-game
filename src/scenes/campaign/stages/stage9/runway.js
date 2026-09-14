@@ -237,21 +237,18 @@ export const runwayScene = {
     },
     hudStatus() {
         if (phase === 'runwayApron')
-            return `CHAPTER 3 — CROSS SERVICE YARD — HOSTILES ${stage9EncounterCount('runwayApron')}`;
+            return 'Cross the service yard';
         if (phase === 'runwayAircraft')
-            return `CHAPTER 3 — SECURE AIRCRAFT STAND — HOSTILES ${stage9EncounterCount('runwayAircraft')}`;
-        if (phase === 'fuelPump') return 'CHAPTER 3 — STAND ON THE MARKER AND TURN ON THE FUEL PUMP';
+            return 'Secure the aircraft stand';
+        if (phase === 'fuelPump') return 'Find the fuel pump marker and start fueling';
         if (phase === 'fueling') {
-            const fuel = pct(fuelT / CFG.campaign.stage9.fuel.durationSec);
-            const warn = stage9StructureDown('pump') || stage9StructureDown('aircraft')
-                ? ' — FUEL LINE DOWN' : '';
-            return `CHAPTER 3 — FUELING ${fuel}%${warn} — PUMP ${pct(stage9StructureFraction('pump'))}%`
-                + ` AIRCRAFT ${pct(stage9StructureFraction('aircraft'))}%`
-                + ` — SABOTEURS ${stage9SaboteurCount()}`;
+            return stage9StructureDown('pump') || stage9StructureDown('aircraft')
+                ? 'Restore the fuel line and protect the aircraft'
+                : 'Protect the pump and aircraft while fueling';
         }
-        if (phase === 'board') return 'AIRCRAFT FUEL FULL — REACH THE TRANSPORT';
-        if (phase === 'takeoff') return 'STAGE 9 — DEPARTURE';
-        return 'STAGE 9 COMPLETE';
+        if (phase === 'board') return 'Reach the transport';
+        if (phase === 'takeoff') return 'Hold through departure';
+        return 'Escape the airport';
     },
     radarLandmarks(plot) {
         const p = phase === 'runwayApron' ? S9_RUNWAY_CHECKPOINT

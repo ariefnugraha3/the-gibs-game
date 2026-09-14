@@ -639,22 +639,22 @@ export const stage10PortScene = {
     },
 
     hudStatus() {
-        if (phase === 'opening') return 'STAGE 10 — CHAPTER 1: THE IRON PORT';
-        if (phase === 'yardEntry') return `ENTER CONTAINER TERMINAL — HOSTILES ${encounterCount('entry')}`;
-        if (phase === 'craneMazeA') return `REACH CRANE SAFE BAY — YARD HOSTILES ${encounterCount('yard')}`;
-        if (phase === 'craneShift') return 'PORT CRANES — RECONFIGURING TO LAYOUT B';
-        if (phase === 'warehouse') return `SECURE RELAY TOKEN — WAREHOUSE HOSTILES ${encounterCount('warehouse')}`;
-        if (phase === 'pipeRack') return `REACH DEFENSE PIER — HOSTILES ${encounterCount('pipeRack')}`;
+        if (phase === 'opening') return 'Prepare for the port assault';
+        if (phase === 'yardEntry') return 'Enter the container terminal';
+        if (phase === 'craneMazeA') return 'Reach the crane safe bay';
+        if (phase === 'craneShift') return 'Wait for the port cranes to reconfigure';
+        if (phase === 'warehouse') return 'Secure the relay token';
+        if (phase === 'pipeRack') return 'Reach the defense pier';
         if (phase === 'defenseArray') {
             const D = stage10DefenseSystem();
             const servo = D.servos[D.destroyedCount];
             return servo
-                ? `${servo.label} — ${Math.ceil(Math.max(0, servo.hp))} HP — HOSTILES ${activeDefenseEnemyCount()}`
-                : 'HARBOR DEFENSE ARRAY OFFLINE';
+                ? 'Destroy the exposed defense servo'
+                : 'Harbor defense array offline';
         }
-        if (phase === 'extract') return 'BOARD ARMORED FREIGHT CARRIER';
-        if (phase === 'departure') return 'NORTHBOUND ROUTE TO IKN';
-        return 'STAGE 10 — CHAPTER 1 COMPLETE';
+        if (phase === 'extract') return 'Board the armored freight carrier';
+        if (phase === 'departure') return 'Follow the route to IKN';
+        return 'Complete the port route';
     },
 
     radarLandmarks(plot) {

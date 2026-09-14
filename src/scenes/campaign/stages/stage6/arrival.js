@@ -425,20 +425,17 @@ export const arrivalScene = {
     },
 
     hudStatus() {
-        if (phase === 'opening') return 'STAGE 6 — FALSE HOMECOMING';
-        if (phase === 'stockUp') return 'SUPPLY ROOM — RESTOCK BEFORE YOU MOVE OUT';
-        if (phase === 'clearHall') return `SECURE THE TERMINAL HALL — Robots: ${countEncounter('hall')}`;
-        if (phase === 'findKey') {
-            const left = rackSearched.filter(v => !v).length;
-            return `RECOVER THE SERVICE KEY — ${left} RACKS UNSEARCHED`;
-        }
-        if (phase === 'powerGrid') return `RESTORE THE GENERATORS — ${onlineCount()}/${requiredGenerators()}`;
+        if (phase === 'opening') return 'Investigate the headquarters entrance';
+        if (phase === 'stockUp') return 'Restock before moving out';
+        if (phase === 'clearHall') return 'Secure the terminal hall';
+        if (phase === 'findKey') return 'Search the racks for the service key';
+        if (phase === 'powerGrid') return 'Restore the generators';
         if (phase === 'exfil') {
             return machinesAlive() > 0
-                ? `DESTROY BOTH FABRICATORS — ${machinesAlive()}/${MACHINE_POINTS.length} LEFT`
-                : 'POWER RESTORED — REACH THE ACCESS DOOR';
+                ? 'Destroy the fabricators'
+                : 'Reach the access door';
         }
-        return 'HEADQUARTERS ACCESS OPEN';
+        return 'Enter headquarters';
     },
 
     radarLandmarks(plot) {

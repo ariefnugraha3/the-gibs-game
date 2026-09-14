@@ -289,18 +289,17 @@ export const forestScene = {
             : [S11_FOREST_LANDING.x, S11_FOREST_LANDING.z];
     },
     hudStatus() {
-        if (phase === 'parachute') return 'PARACHUTE INSERTION — OUTER IKN FOREST';
-        if (phase === 'forestExit') return 'IKN PERIMETER OPEN — ENTER THE CITY';
+        if (phase === 'parachute') return 'Land safely in the forest';
+        if (phase === 'forestExit') return 'Enter the city perimeter';
         const here = stage11ForestMeterAt(camera.position.x, camera.position.z);
-        const meter = Math.round(here);
-        const shelled = stage11ForestMortarInZone(here) ? ' | MORTAR FIRE' : '';
+        const shelled = stage11ForestMortarInZone(here);
         const gate = stage11ForestCheckpointStatus();
-        if (gate) return `CHECKPOINT ${gate.meter} M — FABRICATORS `
-            + `${gate.alive}/${gate.total}`
-            + (gate.vehicles ? ` · VEHICLES ${gate.vehicles}` : '')
-            + `${shelled} | Hostiles: ${countStageRobots(11)}`;
-        return `OUTER IKN ROUTE ${meter} / ${S11_FOREST_ROUTE_METERS} M`
-            + `${shelled} | Hostiles: ${countStageRobots(11)}`;
+        if (gate) return gate.vehicles
+            ? 'Destroy the checkpoint fabricators and weapon vehicles'
+            : 'Destroy the checkpoint fabricators';
+        return shelled
+            ? 'Avoid mortar fire while advancing'
+            : 'Advance through the forest route';
     },
     radarLandmarks(plot) {
         const p = phase === 'forestExit' ? S11_FOREST_GATE

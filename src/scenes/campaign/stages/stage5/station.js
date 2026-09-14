@@ -508,19 +508,19 @@ export const stationScene = {
     },
 
     hudStatus() {
-        if (phase === 'opening') return 'STAGE 5 — THE LAST TRAIN TO BANDUNG';
-        if (phase === 'clearDepot' && !depotAwake) return 'SAFE AREA — MOVE OUT WHEN READY';
+        if (phase === 'opening') return 'Find the train to Bandung';
+        if (phase === 'clearDepot' && !depotAwake) return 'Leave the safe area when ready';
         if (phase === 'clearDepot') return machineAlive
-            ? `DESTROY ROBOT FACTORY — HP ${Math.ceil(machineHp)}/${spawnMachineHp()} | Hostiles: ${countStageRobots(5)}`
-            : `STATION SECURITY — Remaining hostiles: ${countStageRobots(5)}`;
-        if (phase === 'repair' || phase === 'repairing') return `GENERATOR C2 - ${repairInstalled}/${ADVANCED_REPAIR_PARTS.length}`;
+            ? 'Destroy the robot factory'
+            : 'Secure the station';
+        if (phase === 'repair' || phase === 'repairing') return 'Restore the generator';
         if (phase === 'hack') {
-            if (countStageRobots(5) > 0) return `C1 ACCESS COMPUTER — Clear alarm squad: ${countStageRobots(5)}`;
-            if (hackCd > 0) return `C1 ACCESS COMPUTER REBOOT — ${Math.ceil(hackCd)}s`;
-            return 'C1 ACCESS COMPUTER - SIGNAL TRACE READY';
+            if (countStageRobots(5) > 0) return 'Clear the alarm squad';
+            if (hackCd > 0) return 'Wait for the access computer to reboot';
+            return 'Trace the access signal';
         }
-        if (boardCommitted) return 'ALL ABOARD — DEPARTING';
-        return 'BANDUNG ROUTE AUTHORIZED — BOARD THE TRAIN';
+        if (boardCommitted) return 'Stay aboard for departure';
+        return 'Board the train';
     },
 
     radarLandmarks(plot) {

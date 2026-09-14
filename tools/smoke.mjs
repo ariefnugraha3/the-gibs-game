@@ -3456,7 +3456,7 @@ s3mod.stage3Scene.enter = () => { s3entered = true; };
 // komponen (gudang + 20 penjaga) -> restore 10 dtk (gerak beku) -> DONE LANGSUNG
 // + wave2 bala bantuan (25: 10C/10B/5A). ATURAN BARU (permintaan user): setelah
 // generator pulih, player TAK wajib membunuh semua robot — LIFT langsung aktif
-// (boleh lari melewati wave2) = pindah ke SHOP SCENE. Config-driven (restoreSec). ===
+// (boleh lari melewati wave2) = pindah ke SHOP SCENE; timer restore lama sudah dihapus. ===
 const EY2 = cfgMod.CFG.player.eyeHeight;
 const s2GenC = s2mod.s2Cell(s2mod.S2_GEN.c, s2mod.S2_GEN.r);
 const s2LiftC = s2mod.s2Cell((s2mod.S2_LIFT.c0 + s2mod.S2_LIFT.c1) / 2, (s2mod.S2_LIFT.r0 + s2mod.S2_LIFT.r1) / 2);
@@ -3499,7 +3499,7 @@ T('S2 FLOW: tiap komponen = satu benda BERNAMA (papan minigame-nya sendiri)',
 for (const cmp of s2mod.s2ComponentsDbg()) { camera.position.set(cmp.mx, EY2, cmp.mz); s2mod.stage2Scene.updateMode(0.1); }
 T('S2 FLOW: 3 komponen terkumpul (berdiri timur rak) -> restore', s2mod.s2Debug().phase === 'restore' && s2mod.s2Debug().comp === 3);
 killS2();   // "bunuh" 20 penjaga (isolasi supaya cek komposisi wave2 bersih)
-// INJAK MARKER -> MINIGAME "FIELD REPAIR" (2026-07-29, MENGGANTIKAN bar restoreSec
+// INJAK MARKER -> MINIGAME "FIELD REPAIR" (2026-07-29, MENGGANTIKAN bar restore lama
 // 10 dtk): 3 papan berurutan (satu per komponen), TANPA timer. ABORT di tengah
 // menyimpan kemajuan & pemicunya baru terisi lagi setelah player MENJAUH.
 camera.position.set(s2GenC.x, EY2, s2GenC.z); s2mod.stage2Scene.updateMode(0.1);

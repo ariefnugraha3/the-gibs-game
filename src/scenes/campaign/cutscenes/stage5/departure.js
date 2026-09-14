@@ -258,6 +258,6 @@ export const departureScene = {
     // memisahkan file tidak boleh mengubah ground height/collision satu frame pun.
     ...TRAIN_HOOKS,
 
-    hudStatus: () => 'DEPARTING — BANDUNG LOGISTICS TERMINAL',
+    hudStatus: () => 'Stay aboard for departure',
     radarLandmarks() { },
 };

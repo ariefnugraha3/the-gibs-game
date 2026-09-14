@@ -2569,17 +2569,15 @@ export const stage7Scene = {
         return [p.x, p.z, p.y];
     },
     hudStatus() {
-        const L = ensureLayout(), remaining = Math.max(0,
-            Math.ceil(L.lengthMeters - progressMeters()));
-        if (phase === 'opening') return 'STAGE 7 - PASUPATI NIGHT RUN';
+        if (phase === 'opening') return 'Move out along the flyover';
         if (phase === 'flyover')
-            return `CROSS THE FLYOVER TO PASTEUR - ${remaining} M`;
-        if (phase === 'tollApproach') return 'REACH THE PASTEUR TOLL GATE';
+            return 'Cross the flyover to Pasteur';
+        if (phase === 'tollApproach') return 'Reach the toll gate';
         if (phase === 'factorySiege')
-            return `DESTROY ROBOT FACTORIES - ${machinesAlive()}/3 | Robots: ${factoryRobotCount()}`;
-        if (phase === 'vehicleReveal') return 'INSPECT THE GRD LTV-45';
-        if (phase === 'outro') return 'TOLL ROUTE CONFIRMED - KERTAJATI';
-        return 'NEXT DESTINATION - KERTAJATI';
+            return 'Destroy the robot factories';
+        if (phase === 'vehicleReveal') return 'Inspect the armored vehicle';
+        if (phase === 'outro') return 'Confirm the route to Kertajati';
+        return 'Prepare for the route to Kertajati';
     },
     radarLandmarks(plot) {
         const mark = (p, color = '#ffb03b') =>

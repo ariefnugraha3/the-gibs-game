@@ -155,22 +155,19 @@ export const journeyScene = {
     hudStatus() {
         // Awak gerbong yang masih tersegel TIDAK dihitung: mereka ada di dunia
         // sejak konsist berangkat, tetapi belum jadi musuh yang bisa dilawan.
-        const n = countLiveHostiles(), total = etCarTotal();
-        const road = highwayActive()
-            ? ` | ROAD CONVOY DESTROYED ${highwayCarsDestroyed()}` : '';
-        if (!etLaunched) return 'TO BANDUNG — HOSTILE CONTACT ON THE PARALLEL TRACK';
-        if (etrain.mode === 'overtake') return 'HOSTILE CONSIST OVERTAKING';
+        if (!etLaunched) return 'Watch the parallel track for hostile contact';
+        if (etrain.mode === 'overtake') return 'Prepare for the hostile consist';
         // MINI BOS LOKOMOTIF (2026-08-09): HUD-nya menyebut jendela kebal
         // secara eksplisit, kalau tidak "peluru tidak mempan" terbaca sebagai bug.
         if (etrain.mode === 'boss') {
             const b = locoBossDebug();
-            if (!b) return `HOSTILE LOCOMOTIVE${road}`;
-            if (!b.vulnerable) return `HOSTILE LOCOMOTIVE POWERING UP — ARMOR STILL SEALED${road}`;
-            return `HOSTILE LOCOMOTIVE ENGAGED${road}`;
+            if (!b) return 'Engage the hostile locomotive';
+            if (!b.vulnerable) return 'Survive until the locomotive armor opens';
+            return 'Attack the hostile locomotive';
         }
-        if (etConsistDone()) return `ENEMY CARS DESTROYED ${etCarsKilled}/${total}${road}`;
-        if (etrain.mode === 'open') return `ENEMY CAR ${etrain.car + 1}/${total} OPENING${road}`;
-        return `ENEMY CAR ${etrain.car + 1}/${total} — Robots: ${n}${road}`;
+        if (etConsistDone()) return 'Hold the train until the route clears';
+        if (etrain.mode === 'open') return 'Get ready to board the enemy car';
+        return 'Clear the active enemy car';
     },
 
     radarLandmarks(plot) {

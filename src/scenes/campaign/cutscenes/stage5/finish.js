@@ -247,6 +247,6 @@ export const finishScene = {
 
     ...TRAIN_HOOKS,
 
-    hudStatus() { return phase === 'complete' ? 'BANDUNG — ARRIVED' : 'BANDUNG — ARRIVING'; },
+    hudStatus() { return phase === 'complete' ? 'Leave the train' : 'Wait for arrival'; },
     radarLandmarks() { },
 };

@@ -1,8 +1,8 @@
 // SCENE: Campaign STAGE 3 — "Gedung Terbengkalai" indoor, LANTAI PABRIK ROBOT.
 // DIROMBAK TOTAL 2026-07-21 mengikuti PLAN RESMI user (stage3-v2.csv, 40x40).
 // Legenda plan: '#'=dinding, '-'=pintu geser, '+'=PINTU BLAST yang DIBUKA setelah
-// terminal di-hack (2026-07-28 — DULU dihancurkan dgn menembak; CFG.campaign.
-// stage3.doorHp kini DORMAN), 'T'=TANGGA rusak (sumber spawn
+// terminal di-hack (2026-07-28 — DULU dihancurkan dgn menembak; tuning pintu
+// lama sudah dihapus), 'T'=TANGGA rusak (sumber spawn
 // robot), 'L'=LIFT (titik MASUK/spawn player), 'W'=ruang SUPPLY (6 ammo + 3
 // medkit), 'R'=toilet, 'S'=MESIN PEMBUAT ROBOT (2 buah 2x2 sejak 2026-08-13, 1
 // kiri 1 kanan, HP campaign.spawnMachine.hp bersama semua stage — dihancurkan
@@ -25,7 +25,7 @@
 //                   sendiri: MERAH terkunci, HIJAU terbuka.
 //                   MENEMPEL terminal HIJAU membuka MINIGAME "ICE BREACH"
 //                   (utility/hackMinigame.js — 2026-07-28, menggantikan bar
-//                   progress hackSec): puzzle sirkuit 5x5 di scene modal, game
+//                   progress hack timer lama): puzzle sirkuit 5x5 di scene modal, game
 //                   di-PAUSE selama dimainkan. Batal/kehabisan ICE TRACE = terminal tetap belum
 //                   ter-hack; player harus MENJAUH dulu sebelum mencoba lagi.
 //                   Tiap hack SELESAI melepas GELOMBANG robot (6 dari TANGGA + 6
@@ -1462,20 +1462,17 @@ export const stage3Scene = {
     hudStatus() {
         switch (s3Phase) {
             case 'door': {
-                if (s3Hacking) return 'FLOOR 3 — Breaching the terminal…';
-                if (s3HackCd > 0) return `FLOOR 3 — ALARM! Terminal rebooting: ${Math.ceil(s3HackCd)}s | Hostiles: ${countStageRobots(3)}`;
-                const act = s3ActiveTerm();
-                return `FLOOR 3 — Hack the terminals: ${s3HackIdx}/${s3HackOrder.length}`
-                    + (act ? ` | Next: ${act.def.room}` : '')
-                    + ` | Hostiles: ${countStageRobots(3)}`;
+                if (s3Hacking) return 'Breach the terminal';
+                if (s3HackCd > 0) return 'Survive the alarm while the terminal reboots';
+                return 'Find and hack the active terminal';
             }
             case 'toX': return s3DeployReady()
-                ? 'FLOOR 3 — Push on into the robot factory hall'
-                : 'FLOOR 3 — FABRICATION BAYS UNSEALING — push into the factory hall';
+                ? 'Push into the factory hall'
+                : 'Wait for the fabrication bays to unseal';
             case 'machines': return s3DeployReady()
-                ? `FLOOR 3 — Destroy the robot factories: ${s3MachinesAlive()}/${s3Machines.length} left | Hostiles: ${countStageRobots(3)}`
-                : `FLOOR 3 — Factories still rising from the floor — hold! | Hostiles: ${countStageRobots(3)}`;
-            default: return 'FLOOR 3 — EXIT OPEN — escape the building!';
+                ? 'Destroy the robot factories'
+                : 'Hold while the factories rise';
+            default: return 'Find the open exit and escape';
         }
     },
 
