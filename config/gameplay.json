@@ -20,7 +20,8 @@
         "hpUpgrades": [
             150,
             200,
-            250
+            250,
+            300
         ]
     },
     "armor": {
@@ -36,6 +37,10 @@
             {
                 "reduce": 0.7,
                 "durability": 300
+            },
+            {
+                "reduce": 0.8,
+                "durability": 400
             }
         ]
     },
@@ -59,7 +64,7 @@
     "weapons": {
         "maxWeapons": 3,
         "upgradeDamagePct": 0.4,
-        "maxWeaponLevel": 3,
+        "maxWeaponLevel": 4,
         "bulletSpeed": 27,
         "bulletLife": 120,
         "bulletDamage": 20,
@@ -109,6 +114,12 @@
                 "rifle": 1200,
                 "shotgun": 550,
                 "launcher": 55
+            },
+            {
+                "pistol": 700,
+                "rifle": 1400,
+                "shotgun": 600,
+                "launcher": 65
             }
         ],
         "rifle": {
@@ -132,6 +143,8 @@
             "fireDelayByLevel": [
                 900,
                 900,
+                600,
+                450,
                 450
             ],
             "cameraKick": 0.03,
@@ -1357,35 +1370,64 @@
         "upgradeCosts": {
             "pistol": [
                 1000,
-                2000
+                2000,
+                3000,
+                4000
             ],
             "shotgun": [
                 2000,
-                2300
+                2300,
+                2700,
+                3200
             ],
             "rifle": [
                 2400,
-                2700
+                2700,
+                3200,
+                3700
             ],
             "launcher": [
                 3200,
-                3500
+                3500,
+                4000,
+                4500
             ]
         },
         "armorCosts": [
             1000,
             2000,
-            3000
+            3000,
+            4000
         ],
         "healthUpCosts": [
             2000,
             3000,
-            4000
+            4000,
+            5000
         ],
         "ammoUpCosts": [
             1500,
             2000,
-            2500
+            2500,
+            3000
+        ],
+        "upgradeTiers": [
+            {
+                "name": "Alpha",
+                "shopStage": 2
+            },
+            {
+                "name": "Bravo",
+                "shopStage": 5
+            },
+            {
+                "name": "Charlie",
+                "shopStage": 9
+            },
+            {
+                "name": "Delta",
+                "shopStage": 10
+            }
         ]
     },
     "difficulty": {

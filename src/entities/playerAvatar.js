@@ -1350,7 +1350,7 @@ function poseRadio(dt) {
     radioPoseT += dt;
     const base = currentWeapon;
     const key = props && props[base + '3']
-        && ((player.weaponLvl && player.weaponLvl[base]) || 1) >= 3 ? base + '3' : base;
+        && (player.weaponLvl && player.weaponLvl[base] != null ? player.weaponLvl[base] : 0) >= 3 ? base + '3' : base;
     const G = GRIPS[key] || GRIPS.rifle;
     const t = radioPoseT, p = radioPoseProgress;
     const breathe = Math.sin(t * 2.15), slow = Math.sin(t * 1.15);
@@ -1603,7 +1603,7 @@ export function updatePlayerAvatar(dt) {
         if (props) propKey = '__afk';   // paksa evaluasi ulang prop saat keluar AFK
         const base = currentWeapon;     // medkitMode diblok -> selalu senjata
         const key = props && props[base + '3']
-            && ((player.weaponLvl && player.weaponLvl[base]) || 1) >= 3 ? base + '3' : base;
+            && (player.weaponLvl && player.weaponLvl[base] != null ? player.weaponLvl[base] : 0) >= 3 ? base + '3' : base;
         const G = GRIPS[key] || GRIPS.rifle;
         const camYaw = Math.atan2(viewCam.position.x - px, viewCam.position.z - pz);   // yaw menghadap kamera
         const lp = Math.min(1, dt * 6);
@@ -1798,7 +1798,7 @@ export function updatePlayerAvatar(dt) {
     // Selama sabetan melee (meleeT > 0): senjata disembunyikan, DUA PISAU tampil.
     const base = medkitMode ? 'medkit' : currentWeapon;
     const key = !medkitMode && props && props[base + '3']
-        && ((player.weaponLvl && player.weaponLvl[base]) || 1) >= 3 ? base + '3' : base;
+        && (player.weaponLvl && player.weaponLvl[base] != null ? player.weaponLvl[base] : 0) >= 3 ? base + '3' : base;
     const showKey = inMelee ? '__melee' : key;
     if (props && showKey !== propKey) {
         for (const k in props) props[k].visible = !inMelee && k === key;

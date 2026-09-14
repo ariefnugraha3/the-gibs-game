@@ -18,7 +18,7 @@
 import { CFG } from '../../core/config.js';
 import {
     player, score, addScore, setScore, syncOwnedFromWeapons, maxAmmoFor,
-    hasUnlockedWeapon, unlockWeapon,
+    hasUnlockedWeapon, unlockWeapon, upgradeTier,
 } from '../../core/state.js';
 import { updateUI } from '../../core/hud.js';
 import { playSFX, sfxPurchase } from '../../utils/sfx.js';
@@ -130,6 +130,28 @@ function defaultCtx() {
 
 export function isShopOpen() { return open; }
 
+function tierDetails(level) {
+    const tier = upgradeTier(level);
+    return {
+        name: tier && tier.name ? tier.name : `Tier ${level}`,
+        shopStage: Number(tier && tier.shopStage),
+    };
+}
+
+function tierAvailable(it) {
+    if (!it.tierLevel || !shopCtx || shopCtx.mode !== 'campaign') return true;
+    const { shopStage } = tierDetails(it.tierLevel);
+    // Konteks test/legacy tanpa stage mempertahankan seluruh katalog; shop campaign
+    // nyata SELALU membawa nomor stage tujuan dari transition.js.
+    const currentStage = Number(shopCtx.stage);
+    return !Number.isFinite(shopStage) || !Number.isFinite(currentStage) || currentStage >= shopStage;
+}
+
+function tierLockedMessage(it) {
+    const tier = tierDetails(it.tierLevel);
+    return `Available from Shop Stage ${tier.shopStage} (${tier.name})`;
+}
+
 // Debug/uji: klasifikasi item per tab yang saat ini TERLIHAT (mengikuti
 // owned/campaign). { active, tabs:[id..], items:{tab:[itemId..]} }.
 export function shopTabDebug() {
@@ -137,6 +159,8 @@ export function shopTabDebug() {
         active: activeTab,
         tabs: visibleTabs().map(t => t.id),
         items: Object.fromEntries(TABS.map(t => [t.id, tabItems(t.id).map(it => it.id)])),
+        stage: shopCtx && shopCtx.mode === 'campaign' ? Number(shopCtx.stage) || null : null,
+        names: Object.fromEntries(TABS.flatMap(t => tabItems(t.id).map(it => [it.id, it.name]))),
         // Deskripsi kartu yang sedang tampil (uji teks user-facing).
         desc: Object.fromEntries(TABS.flatMap(t => tabItems(t.id).map(it => [it.id, it.desc]))),
     };
@@ -286,14 +310,14 @@ const ICONS = {
 // Mengikuti pola Vitality/Ammo Capacity (permintaan user — tidak lagi kartu
 // beli & kartu upgrade terpisah): belum dimiliki -> kartu menjual SENJATANYA
 // (harga beli, nama polos); sudah dimiliki -> kartu YANG SAMA (id tetap = kunci
-// senjata) menjual upgrade Lv2 lalu Lv3 = maks (nama ber-angka romawi tingkat
-// yang dijual, harga CFG.shop.upgradeCosts[w]); Lv3 -> note 'Maxed'. Tiap level
+// senjata) menjual upgrade Alpha..Delta (nama + tahap buka dari
+// CFG.shop.upgradeTiers, harga CFG.shop.upgradeCosts[w]); level maksimum ->
+// note 'Maxed'. Tiap level
 // menambah +upgradeDamagePct (30% sejak 2026-08-13) dari damage BASE — diterapkan weaponDamage()
 // di weapons.js saat peluru lahir (peluru launcher meneruskannya ke boom AoE).
 // Level tersimpan per-tipe (player.weaponLvl, per-run) sehingga bertahan bila
 // senjatanya diganti. Semua tipe selalu muncul: senjata unlocked di luar slot
 // berubah menjadi aksi EQUIP gratis; senjata di slot tetap menjual upgrade.
-const ROMAN = ['I', 'II', 'III'];
 // Kadens per level (CFG.weapons.<w>.fireDelayByLevel, 2026-08-09): sebuah level
 // boleh mengubah — bahkan MEMPERLAMBAT — laju tembak senjata. Kartu WAJIB
 // menyebutkannya; pemain tak boleh membayar upgrade lalu menemukan senjatanya
@@ -364,21 +388,23 @@ function weaponItem(w) {
         };
     }
     const maxL = CFG.weapons.maxWeaponLevel;
-    const lvl = (player.weaponLvl && player.weaponLvl[w]) || 1;
+    const lvl = player.weaponLvl && player.weaponLvl[w] != null ? player.weaponLvl[w] : 0;
     const pct = Math.round((CFG.weapons.upgradeDamagePct || 0.3) * 100);
     const costs = S.upgradeCosts[w] || [];
-    const tier = Math.min(lvl, maxL - 1);          // tingkat yang DIJUAL kartu ini (lvl+1)
+    const nextLvl = Math.min(lvl + 1, maxL);
+    const tier = tierDetails(nextLvl);
     return {
         id: w, weapon: w, upgrade: w,
         icon: w,
-        name: `${label} ${ROMAN[Math.min(tier, ROMAN.length - 1)]}`,
-        cost: costs[tier - 1] != null ? costs[tier - 1] : 0,
+        tierLevel: nextLvl,
+        name: `${label} ${tier.name}`,
+        cost: costs[nextLvl - 1] != null ? costs[nextLvl - 1] : 0,
         desc: lvl >= maxL
-            ? `Fully upgraded — Level ${maxL}, +${pct * (maxL - 1)}% damage.${cadenceNote(w, maxL)}`
-            : `Level ${lvl} → ${lvl + 1}: +${pct}% of base damage.${cadenceNote(w, lvl, lvl + 1)}`,
+            ? `Fully upgraded — ${tier.name}, +${pct * maxL}% damage.${cadenceNote(w, maxL)}`
+            : `${tier.name} upgrade: +${pct}% of base damage.${cadenceNote(w, lvl, nextLvl)}`,
         maxedMsg: `The ${label} is already fully upgraded`,
         apply() {
-            const cur = (player.weaponLvl && player.weaponLvl[w]) || 1;
+            const cur = player.weaponLvl && player.weaponLvl[w] != null ? player.weaponLvl[w] : 0;
             if (cur >= maxL) return `The ${label} is already fully upgraded`;
             player.weaponLvl[w] = cur + 1;
         }
@@ -399,8 +425,8 @@ function armorTierItem(tier) {
     const costs = CFG.shop.armorCosts || [];
     const wearingThis = (player.armorLvl || 0) === tier;
     return {
-        id: 'armor' + tier, armorTier: tier, icon: 'armor',
-        name: `Armor ${ROMAN[Math.min(tier - 1, ROMAN.length - 1)]}`,
+        id: 'armor' + tier, armorTier: tier, tierLevel: tier, icon: 'armor',
+        name: `Armor ${tierDetails(tier).name}`,
         cost: costs[tier - 1] != null ? costs[tier - 1] : 0,
         desc: `Blocks ${Math.round((t.reduce || 0) * 100)}% of incoming damage. Durability ${t.durability}, shatters at 0.`
             + (wearingThis && player.armor < player.armorMax
@@ -427,8 +453,8 @@ function vitalityItem() {
     const lvl = player.hpLvl || 1;             // 1 = dasar; maks = HP.length + 1
     const idx = Math.min(lvl - 1, HP.length - 1);
     return {
-        id: 'hpup', icon: 'vitality',
-        name: `Vitality ${ROMAN[Math.min(idx, ROMAN.length - 1)]}`,
+        id: 'hpup', tierLevel: idx + 1, icon: 'vitality',
+        name: `Vitality ${tierDetails(idx + 1).name}`,
         cost: costs[idx] != null ? costs[idx] : 0,
         desc: lvl >= HP.length + 1
             ? `Maximum health is at its peak (${player.maxHp}).`
@@ -456,8 +482,8 @@ function ammoCapItem() {
     const idx = Math.min(lvl - 1, T.length - 1);
     const t = T[idx] || {};
     return {
-        id: 'ammoup', icon: 'pouch',
-        name: `Ammo Capacity ${ROMAN[Math.min(idx, ROMAN.length - 1)]}`,
+        id: 'ammoup', tierLevel: idx + 1, icon: 'pouch',
+        name: `Ammo Capacity ${tierDetails(idx + 1).name}`,
         cost: costs[idx] != null ? costs[idx] : 0,
         desc: lvl >= T.length + 1
             ? 'Ammo capacity is fully expanded.'
@@ -476,7 +502,7 @@ function ammoCapItem() {
 // null bila sukses atau string alasan penolakan (penuh/dimiliki); skor TIDAK
 // dipotong saat ditolak. Kartu senjata gabungan (id = kunci senjata) di akhir
 // daftar via weaponItem().
-function catalog() {
+function catalog(includeLocked = false) {
     const S = CFG.shop, o = player.owned || {};
     const items = [
         {
@@ -550,8 +576,10 @@ function catalog() {
     // Campaign: cuma sembunyikan item khusus Survival (Monas). HARGA SAMA dengan
     // Survival — pengali `CFG.shop.campaignPriceMul` DIHAPUS 2026-07-26 (permintaan
     // user: harga campaign = harga survival); satu daftar harga untuk kedua mode.
-    if (shopCtx && shopCtx.mode === 'campaign') return items.filter(it => !SURVIVAL_ONLY.has(it.id));
-    return items;
+    const scoped = shopCtx && shopCtx.mode === 'campaign'
+        ? items.filter(it => !SURVIVAL_ONLY.has(it.id))
+        : items;
+    return includeLocked ? scoped : scoped.filter(tierAvailable);
 }
 
 // Beli senjata ke SLOT kosong (dipanggil apply hanya saat slot < maxWeapons;
@@ -575,7 +603,7 @@ function ownedNote(it) {
     if (it.id === 'radar' && player.hasRadar) return 'Owned';
     if (it.id === 'medkit' && player.medkits >= CFG.player.maxMedkits) return 'Full';
     if (it.id === 'strengthenMonas' && isMonasFullyStrengthened()) return 'Maxed';
-    if (it.upgrade && (player.weaponLvl[it.upgrade] || 1) >= CFG.weapons.maxWeaponLevel) return 'Maxed';
+    if (it.upgrade && (player.weaponLvl[it.upgrade] != null ? player.weaponLvl[it.upgrade] : 0) >= CFG.weapons.maxWeaponLevel) return 'Maxed';
     // Armor per-tier (2026-07-13): tier yang dipakai & masih UTUH -> 'Worn';
     // tier lebih rendah dari yang dipakai -> 'Owned' (pesan khusus ownedMsg).
     // Tier yang dipakai tapi RUSAK tetap bisa dibeli (repair) -> tanpa note.
@@ -593,8 +621,9 @@ function ownedNote(it) {
 // bila senjata baru butuh mengganti salah satu (slot penuh). Menyegarkan HUD.
 export function shopPurchase(id) {
     if (!open) return 'Shop closed';
-    const it = catalog().find(x => x.id === id);
+    const it = catalog(true).find(x => x.id === id);
     if (!it) return 'Unknown item';
+    if (!tierAvailable(it)) return tierLockedMessage(it);
     const note = ownedNote(it);
     if (note === 'Owned') return it.ownedMsg || `${it.name} already owned`;
     if (note === 'Worn') return 'This armor is already worn and intact';

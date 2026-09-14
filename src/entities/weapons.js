@@ -1150,23 +1150,22 @@ export function updateWeaponState(dt) {
     if (muzzleFlash.intensity > 0) muzzleFlash.intensity = Math.max(0, muzzleFlash.intensity - dt * 42);   // kilat SINGKAT (letusan, bukan lampu)
 }
 
-// Damage efektif sebuah senjata = base CFG × level upgrade shop
-// (player.weaponLvl, 1..maxWeaponLevel; tiap level +upgradeDamagePct dari base
-// — 0,3 sejak 2026-08-13 atas permintaan user, jadi Lv2 = 130%, Lv3 = 160%).
+// Damage efektif sebuah senjata = base CFG × level upgrade shop. Level 0 adalah
+// senjata dasar; tiap Alpha..Delta menambah upgradeDamagePct dari base.
 // Dipakai saat stempel b.damage (peluru biasa DAN peluru ledak launcher —
 // boom-nya meneruskan b.damage lewat queueBoom).
 export function weaponDamage(w) {
     const wc = CFG.weapons[w];
     const base = wc && wc.damage != null ? wc.damage : CFG.weapons.bulletDamage;
-    const lvl = (player.weaponLvl && player.weaponLvl[w]) || 1;
-    return base * (1 + (CFG.weapons.upgradeDamagePct || 0.3) * (lvl - 1));
+    const lvl = player.weaponLvl && player.weaponLvl[w] != null ? player.weaponLvl[w] : 0;
+    return base * (1 + (CFG.weapons.upgradeDamagePct || 0.3) * lvl);
 }
 
 // Kadens efektif (ms antar tembakan). Level upgrade TIDAK mengubah kadens
 // kecuali senjata itu punya tabel `fireDelayByLevel` (2026-08-09, permintaan
-// user: shotgun Lv3 = 0.8 tembakan/detik = 1250 ms — Lv3 memukul lebih keras
+// user: shotgun tier tinggi boleh memiliki kadens tersendiri — tier itu memukul lebih keras
 // TAPI lebih lambat, jadi tabel ini memang boleh MENAIKKAN delay). Indeks =
-// level-1; level di luar tabel memakai entri terakhir, senjata tanpa tabel
+// level (dengan indeks 0 = senjata dasar); level di luar tabel memakai entri terakhir, senjata tanpa tabel
 // tetap memakai `fireDelayMs`. SATU-SATUNYA pembaca kadens — jangan baca
 // `fireDelayMs` langsung di tempat lain, nanti Lv3 diam-diam kembali ke base.
 // `lvl` opsional: default = level yang sedang dipakai player. Field Shop
@@ -1176,8 +1175,8 @@ export function weaponFireDelay(w, lvl) {
     const wc = CFG.weapons[w] || {};
     const tbl = wc.fireDelayByLevel;
     if (!Array.isArray(tbl) || !tbl.length) return wc.fireDelayMs;
-    const l = lvl != null ? lvl : (player.weaponLvl && player.weaponLvl[w]) || 1;
-    const v = tbl[Math.min(tbl.length, Math.max(1, l)) - 1];
+    const l = lvl != null ? lvl : (player.weaponLvl && player.weaponLvl[w] != null ? player.weaponLvl[w] : 0);
+    const v = tbl[Math.min(tbl.length - 1, Math.max(0, l))];
     return v != null ? v : wc.fireDelayMs;
 }
 
@@ -1188,9 +1187,10 @@ export function updateShooting() {
     const wpn = player[currentWeapon];
     const wcfg = CFG.weapons[currentWeapon];
     const isLauncher = currentWeapon === 'launcher';   // peluru MELEDAK saat kena (AoE)
-    // Lv3 launcher = ROKET (di-hoist dari loop pelet 2026-07-19 — dipakai juga
+    // Launcher Charlie = ROKET (di-hoist dari loop pelet 2026-07-19 — dipakai juga
     // utk memilih suara tembak/ledakan: grenade vs rocket).
-    const isRocket = isLauncher && ((player.weaponLvl && player.weaponLvl.launcher) || 1) >= 3;
+    const isRocket = isLauncher
+        && (player.weaponLvl && player.weaponLvl.launcher != null ? player.weaponLvl.launcher : 0) >= 3;
     if (mouse.isDown && !player.isReloading && switchAnim < 0 && meleeT <= 0
         && Date.now() - player.lastShot > weaponFireDelay(currentWeapon) && wpn.ammo > 0) {
         muzzlePoint.getWorldPosition(_tip);   // muzzle senjata aktif

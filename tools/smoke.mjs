@@ -1271,12 +1271,12 @@ finishSwitch();
 player.launcher = player.launcher || { ammo: 5 };
 player.launcher.ammo = Math.max(5, player.launcher.ammo | 0);
 player.weaponLvl = player.weaponLvl || {};
-player.weaponLvl.launcher = 1;
+player.weaponLvl.launcher = 0;
 stateMod.bullets.length = 0;
 stateMod.mouse.isDown = true; player.lastShot = 0;
 wMod.updateShooting();
 stateMod.mouse.isDown = false;
-T('ronde launcher Lv1 = granat Mk2 (bukan roket), eksplosif',
+T('ronde launcher dasar = granat Mk2 (bukan roket), eksplosif',
     stateMod.bullets.length === 1 && !stateMod.bullets[0].mesh.userData.rocket && stateMod.bullets[0].explosive === true);
 scene.remove(stateMod.bullets[0].mesh); stateMod.bullets.length = 0;
 player.weaponLvl.launcher = 3;
@@ -1288,7 +1288,7 @@ T('ronde launcher Lv3 = ROKET (userData.rocket), eksplosif + damage Lv3',
     && stateMod.bullets[0].explosive === true
     && Math.abs(stateMod.bullets[0].damage - wMod.weaponDamage('launcher')) < 1e-9);
 scene.remove(stateMod.bullets[0].mesh); stateMod.bullets.length = 0;
-player.weaponLvl.launcher = 1;                                // pulihkan level
+player.weaponLvl.launcher = 0;                                // pulihkan level dasar
 wMod.startSwitch(prevWpn);                                    // kembalikan senjata semula
 finishSwitch();
 
@@ -1430,10 +1430,11 @@ for (let i = 0; i < 5; i++) wMod.updateWeaponState(0.2);      // luruhkan gunRec
     };
     player.weaponLvl = player.weaponLvl || {};
     const delayAt = l => { player.weaponLvl.shotgun = l; return wMod.weaponFireDelay('shotgun'); };
-    const d1 = delayAt(1), d2 = delayAt(2), d3 = delayAt(3);
-    T(`SHOTGUN KADENS: tiap level memakai entri fireDelayByLevel-nya sendiri `
-        + `[Lv1 ${d1}ms, Lv3 ${d3}ms = ${(1000 / d3).toFixed(2)} tembakan/dtk]`,
-        TBL.length >= 3 && d1 === TBL[0] && d2 === TBL[1] && d3 === TBL[2]
+    const d0 = delayAt(0), d1 = delayAt(1), d3 = delayAt(3);
+    T(`SHOTGUN KADENS: dasar dan tier aktif memakai entri fireDelayByLevel-nya sendiri `
+        + `[base ${d0}ms, Charlie ${d3}ms = ${(1000 / d3).toFixed(2)} tembakan/dtk]`,
+        TBL.length >= cfgMod.CFG.weapons.maxWeaponLevel + 1
+        && d0 === TBL[0] && d1 === TBL[1] && d3 === TBL[3]
         // Senjata TANPA tabel tetap memakai fireDelayMs base di level mana pun.
         && wMod.weaponFireDelay('rifle') === cfgMod.CFG.weapons.rifle.fireDelayMs);
 
@@ -1454,20 +1455,20 @@ for (let i = 0; i < 5; i++) wMod.updateWeaponState(0.2);      // luruhkan gunRec
     const late = stateMod.bullets.length;
     // Jeda yang CUKUP untuk Lv1 belum tentu cukup untuk Lv3 — ekspektasinya
     // diturunkan dari tabel, jadi retune apa pun tetap benar.
-    player.weaponLvl.shotgun = 1;
-    player.lastShot = Date.now() - (d1 + 60);
+    player.weaponLvl.shotgun = 0;
+    player.lastShot = Date.now() - (d0 + 60);
     stateMod.bullets.splice(0).forEach(b => scene.remove(b.mesh));
     wMod.updateShooting();
     const lv1Fired = stateMod.bullets.length > 0;
     player.weaponLvl.shotgun = 3;
-    player.lastShot = Date.now() - (d1 + 60);
+    player.lastShot = Date.now() - (d0 + 60);
     stateMod.bullets.splice(0).forEach(b => scene.remove(b.mesh));
     wMod.updateShooting();
     const lv3Fired = stateMod.bullets.length > 0;
     stateMod.mouse.isDown = false;
     T('SHOTGUN KADENS: pelatuk memakai kadens LEVEL AKTIF — jeda yang cukup di Lv1 hanya melepas tembakan di Lv3 bila tabelnya mengizinkan',
         early === 0 && late === (SG.pellets || 1)
-        && lv1Fired && lv3Fired === (d1 + 60 > d3));
+        && lv1Fired && lv3Fired === (d0 + 60 > d3));
     stateMod.bullets.splice(0).forEach(b => scene.remove(b.mesh));
 
     player.weapons = snap.weapons; stateMod.syncOwnedFromWeapons();
@@ -1543,13 +1544,14 @@ T('SCREEN_UP diagonal timur laut (kamera barat daya)',
 stateMod.configurePlayer();
 const pctUp = cfgMod.CFG.weapons.upgradeDamagePct;
 const baseP = cfgMod.CFG.weapons.pistol.damage;
-T('weaponDamage Lv1 = base (' + baseP + ')', wMod.weaponDamage('pistol') === baseP);
-player.weaponLvl.pistol = 2;
-T('weaponDamage Lv2 = +' + pctUp * 100 + '%', Math.abs(wMod.weaponDamage('pistol') - baseP * (1 + pctUp)) < 1e-9);
-player.weaponLvl.pistol = 3;
-T('weaponDamage Lv3 = +' + pctUp * 200 + '%', Math.abs(wMod.weaponDamage('pistol') - baseP * (1 + 2 * pctUp)) < 1e-9);
+T('weaponDamage base = damage awal (' + baseP + ')', wMod.weaponDamage('pistol') === baseP);
+player.weaponLvl.pistol = 1;
+T('weaponDamage Alpha = +' + pctUp * 100 + '%', Math.abs(wMod.weaponDamage('pistol') - baseP * (1 + pctUp)) < 1e-9);
+player.weaponLvl.pistol = cfgMod.CFG.weapons.maxWeaponLevel;
+T('weaponDamage Delta = +' + (pctUp * cfgMod.CFG.weapons.maxWeaponLevel * 100) + '%',
+    Math.abs(wMod.weaponDamage('pistol') - baseP * (1 + cfgMod.CFG.weapons.maxWeaponLevel * pctUp)) < 1e-9);
 stateMod.configurePlayer();
-T('configurePlayer reset level ke 1', player.weaponLvl.pistol === 1);
+T('configurePlayer reset level ke base', player.weaponLvl.pistol === 0);
 
 // --- 8a2. MEDKIT PAKAI SEKETIKA (2026-07-18): tombol 4 -> useMedkit() langsung
 //     sembuh medkitHealPct, kurangi stok; ditolak saat stok 0 / HP penuh. ---
@@ -1613,7 +1615,8 @@ const tabDbg = shopMod.shopTabDebug();
 T('tab shop: 4 tab terlihat, General PERTAMA & default', tabDbg.active === 'general'
     && tabDbg.tabs.join(',') === 'general,weapon,armor,upgrade');
 T('tab weapon berisi kartu senjata gabungan (pistol)', tabDbg.items.weapon.includes('pistol'));
-T('tab armor = armor1/2/3', tabDbg.items.armor.join(',') === 'armor1,armor2,armor3');
+T('tab armor mengikuti semua tier config', tabDbg.items.armor.join(',')
+    === cfgMod.CFG.armor.tiers.map((_, i) => 'armor' + (i + 1)).join(','));
 T('tab upgrade = ammoup + hpup + strengthenMonas', tabDbg.items.upgrade.includes('ammoup')
     && tabDbg.items.upgrade.includes('hpup') && tabDbg.items.upgrade.includes('strengthenMonas'));
 T('tab general = isi ulang/medkit/radar/heal-monas (bukan armor/upgrade)',
@@ -1632,32 +1635,75 @@ T('tab general = isi ulang/medkit/radar/heal-monas (bukan armor/upgrade)',
 // --- Kartu senjata GABUNGAN (2026-07-17): id lama up_<w> hilang; kartu yang
 //     sama menjual SENJATA saat belum dimiliki lalu UPGRADE Lv2/Lv3 saat sudah ---
 T('id lama up_pistol hilang (kartu gabungan)', shopMod.shopPurchase('up_pistol') === 'Unknown item');
-T('kartu pistol (dimiliki) = upgrade Lv1->2', shopMod.shopPurchase('pistol') === null && player.weaponLvl.pistol === 2);
-T('kartu shotgun (belum dimiliki) = BELI senjatanya (level tetap 1)',
+T('kartu pistol (dimiliki) = beli upgrade Alpha', shopMod.shopPurchase('pistol') === null && player.weaponLvl.pistol === 1);
+T('kartu shotgun (belum dimiliki) = BELI senjatanya (level tetap base)',
     shopMod.shopPurchase('shotgun') === null && player.owned.shotgun === true
-    && (player.weaponLvl.shotgun || 1) === 1);
-T('kartu shotgun yang sama kini = upgrade Lv2', shopMod.shopPurchase('shotgun') === null && player.weaponLvl.shotgun === 2);
+    && player.weaponLvl.shotgun === 0);
+T('kartu shotgun yang sama kini = upgrade Alpha', shopMod.shopPurchase('shotgun') === null && player.weaponLvl.shotgun === 1);
 // Kartu upgrade WAJIB menyebut perubahan kadens bila senjata itu punya tabel
 // `fireDelayByLevel` (2026-08-09): shotgun Lv3 memukul lebih keras TAPI menembak
 // lebih jarang — pemain harus tahu sebelum membayar. Angkanya config-driven.
 {
     const d = shopMod.shopTabDebug().desc.shotgun || '';
+    const r1 = 1000 / wMod.weaponFireDelay('shotgun', 1);
     const r2 = 1000 / wMod.weaponFireDelay('shotgun', 2);
-    const r3 = 1000 / wMod.weaponFireDelay('shotgun', 3);
-    T(`kartu shotgun Lv2->Lv3 menyebut perubahan kadens [${r2.toFixed(2)} -> ${r3.toFixed(2)}/dtk]`,
-        d.includes(r3.toFixed(2)) && (Math.abs(r3 - r2) < 1e-9 || d.includes(r2.toFixed(2)))
+    T(`kartu shotgun Alpha->Bravo menyebut perubahan kadens [${r1.toFixed(2)} -> ${r2.toFixed(2)}/dtk]`,
+        d.includes(r2.toFixed(2)) && (Math.abs(r2 - r1) < 1e-9 || d.includes(r1.toFixed(2)))
         && /shots per second/.test(d));
     // Senjata tanpa tabel kadens tak boleh ikut kebagian kalimat itu.
     T('kartu senjata tanpa tabel kadens tidak menyebut rate of fire',
         !/shots per second/.test(shopMod.shopTabDebug().desc.pistol || ''));
 }
-T('kartu pistol lagi (Lv2->3)', shopMod.shopPurchase('pistol') === null && player.weaponLvl.pistol === 3);
+T('kartu pistol terus naik sampai level maksimum config',
+    Array.from({ length: cfgMod.CFG.weapons.maxWeaponLevel - 1 }, () => shopMod.shopPurchase('pistol')).every(x => x === null)
+    && player.weaponLvl.pistol === cfgMod.CFG.weapons.maxWeaponLevel);
 const rejMax = shopMod.shopPurchase('pistol');
-T('Lv3 = maks, pembelian ditolak (' + rejMax + ')', typeof rejMax === 'string' && player.weaponLvl.pistol === 3);
+T('level maksimum = maks, pembelian ditolak (' + rejMax + ')',
+    typeof rejMax === 'string' && player.weaponLvl.pistol === cfgMod.CFG.weapons.maxWeaponLevel);
 const s0 = stateMod.score;
 shopMod.shopPurchase('pistol');
 T('skor tidak terpotong saat ditolak', stateMod.score === s0);
 shopMod.closeShop();
+
+// --- 8c1. Tier upgrade: nama Alpha..Delta + buka di shop stage config -------
+{
+    stateMod.configurePlayer();
+    stateMod.setScore(999999);
+    const tiers = cfgMod.CFG.shop.upgradeTiers;
+    const openCampaignShop = (stage) => {
+        shopMod.closeShop();
+        shopMod.openShop({ mode: 'campaign', stage, head: 'X', nextLabel: 'x', confirmMsg: 'x', onNext() { } });
+        return shopMod.shopTabDebug();
+    };
+    const stage2 = openCampaignShop(tiers[0].shopStage);
+    T('UPGRADE TIER CONFIG: Alpha/Bravo/Charlie/Delta punya stage unlock berurutan',
+        tiers.length === 4 && tiers.map(t => t.name).join(',') === 'Alpha,Bravo,Charlie,Delta'
+        && tiers.map(t => t.shopStage).join(',') === '2,5,9,10');
+    T('SHOP STAGE 2: hanya tier Alpha tampil untuk weapon, armor, vitality, dan ammo capacity',
+        stage2.stage === tiers[0].shopStage && stage2.names.pistol === 'Pistol Alpha'
+        && stage2.names.armor1 === 'Armor Alpha' && stage2.names.hpup === 'Vitality Alpha'
+        && stage2.names.ammoup === 'Ammo Capacity Alpha'
+        && !stage2.items.armor.includes('armor2'));
+    T('SHOP STAGE 2: Bravo tidak bisa dibeli lebih awal',
+        /Shop Stage 5/.test(shopMod.shopPurchase('armor2')) && shopMod.shopPurchase('pistol') === null
+        && player.weaponLvl.pistol === 1);
+
+    const stage5 = openCampaignShop(tiers[1].shopStage);
+    T('SHOP STAGE 5: Bravo tampil dan bisa dibeli',
+        stage5.names.pistol === 'Pistol Bravo' && stage5.names.armor2 === 'Armor Bravo'
+        && shopMod.shopPurchase('pistol') === null && player.weaponLvl.pistol === 2);
+
+    const stage9 = openCampaignShop(tiers[2].shopStage);
+    T('SHOP STAGE 9: Charlie tampil dan bisa dibeli',
+        stage9.names.pistol === 'Pistol Charlie' && stage9.names.armor3 === 'Armor Charlie'
+        && shopMod.shopPurchase('pistol') === null && player.weaponLvl.pistol === 3);
+
+    const stage10 = openCampaignShop(tiers[3].shopStage);
+    T('SHOP STAGE 10: Delta tampil dan bisa dibeli',
+        stage10.names.pistol === 'Pistol Delta' && stage10.names.armor4 === 'Armor Delta'
+        && shopMod.shopPurchase('pistol') === null && player.weaponLvl.pistol === 4);
+    shopMod.closeShop();
+}
 
 // --- 8c2. Arsenal shop: senjata yang pernah dibeli tetap ada setelah diganti
 // dan dapat dipasang kembali tanpa membayar untuk kedua kalinya. ---
@@ -1873,9 +1919,9 @@ for (let i = 0; i < 6; i++) avMod.updatePlayerAvatar(0.05);
 T('prop Lv3 (Gatling) aktif + gunTip TETAP kalibrasi (0,0.15,4.5)',
     avMod.avatarGunTip.position.x === 0 && avMod.avatarGunTip.position.y === 0.15
     && avMod.avatarGunTip.position.z === 4.5);
-player.weaponLvl.rifle = 1;
+player.weaponLvl.rifle = 0;
 for (let i = 0; i < 3; i++) avMod.updatePlayerAvatar(0.05);
-T('kembali Lv1: prop dasar tanpa error', true);
+T('kembali base: prop dasar tanpa error', true);
 
 // --- 12. Sekuens kematian: gore + jeda -> baru GAME OVER ---
 const gameMod = await import(R('src/core/game.js'));
@@ -2018,7 +2064,7 @@ T('maxAmmoFor Lv2 dari config', stateMod.maxAmmoFor('rifle') === cfgMod.CFG.weap
 player.ammoLvl = 3;
 T('maxAmmoFor Lv3 dari config', stateMod.maxAmmoFor('pistol') === cfgMod.CFG.weapons.ammoUpgrades[1].pistol);
 
-// --- 13c. Shop: 3 kartu armor TERPISAH + repair, Vitality, Ammo Capacity ---
+// --- 13c. Shop: kartu armor bertier + repair, Vitality, Ammo Capacity ---
 stateMod.configurePlayer();
 stateMod.setScore(999999);
 shopMod.openShop();
@@ -2032,19 +2078,22 @@ T('beli ulang Armor II RUSAK = repair penuh', shopMod.shopPurchase('armor2') ===
     && player.armor === AT[1].durability);
 T('naik ke Armor III', shopMod.shopPurchase('armor3') === null
     && player.armorLvl === 3 && player.armorMax === AT[2].durability);
+T('naik ke Armor Delta', shopMod.shopPurchase('armor4') === null
+    && player.armorLvl === 4 && player.armorMax === AT[3].durability);
 player.hp = 40;
 const hpT = cfgMod.CFG.player.hpUpgrades;
 T('beli Vitality I: maxHp naik + heal kenaikan', shopMod.shopPurchase('hpup') === null
     && player.maxHp === hpT[0] && player.hp === 40 + (hpT[0] - cfgMod.CFG.player.maxHp));
-T('Vitality bertingkat sampai III (health puncak = hpUpgrades terakhir)',
-    shopMod.shopPurchase('hpup') === null && player.maxHp === hpT[1]
-    && shopMod.shopPurchase('hpup') === null && player.maxHp === hpT[hpT.length - 1]
-    && typeof shopMod.shopPurchase('hpup') === 'string');   // tier ke-4 = Maxed
+const vitalityRest = Array.from({ length: hpT.length - 1 }, () => shopMod.shopPurchase('hpup'));
+T('Vitality bertingkat sampai Delta (health puncak = hpUpgrades terakhir)',
+    vitalityRest.every(x => x === null) && player.maxHp === hpT[hpT.length - 1]
+    && typeof shopMod.shopPurchase('hpup') === 'string');
 const auT = cfgMod.CFG.weapons.ammoUpgrades;
 T('beli Ammo Capacity I: kap rifle ikut naik', shopMod.shopPurchase('ammoup') === null
     && stateMod.maxAmmoFor('rifle') === auT[0].rifle);
-T('Ammo Capacity bertingkat sampai III (rifle & launcher ikut tier terakhir)',
-    shopMod.shopPurchase('ammoup') === null && shopMod.shopPurchase('ammoup') === null
+const ammoRest = Array.from({ length: auT.length - 1 }, () => shopMod.shopPurchase('ammoup'));
+T('Ammo Capacity bertingkat sampai Delta (rifle & launcher ikut tier terakhir)',
+    ammoRest.every(x => x === null)
     && stateMod.maxAmmoFor('rifle') === auT[auT.length - 1].rifle
     && stateMod.maxAmmoFor('launcher') === auT[auT.length - 1].launcher
     && typeof shopMod.shopPurchase('ammoup') === 'string');   // tier ke-4 = Maxed
@@ -11920,7 +11969,7 @@ while (robots.length) { scene.remove(robots[0].mesh); robots.splice(0, 1); }
         ammo: { shotgun: player.shotgun.ammo, rifle: player.rifle.ammo, launcher: player.launcher.ammo },
     };
     player.weapons = ['pistol']; stateMod.syncOwnedFromWeapons();
-    player.weaponLvl = { rifle: 1, pistol: 1, shotgun: 1, launcher: 1 };
+    player.weaponLvl = { rifle: 0, pistol: 0, shotgun: 0, launcher: 0 };
     player.shotgun.ammo = 0; player.rifle.ammo = 0; player.launcher.ammo = 0;
 
     cheatMod.runCheatCommand('give-weapon-2');

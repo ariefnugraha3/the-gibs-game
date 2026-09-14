@@ -131,8 +131,10 @@ async function runEnterShop() {
     await loadingStep(100, 'Ready!');
     await minHold(t0);
     hideLoading();
+    const nextStage = Number(/^campaign-(\d+)$/.exec(pendingNext?.id || '')?.[1]);
     openShop({
         mode: 'campaign', head: 'FIELD SHOP',
+        stage: Number.isInteger(nextStage) ? nextStage : null,
         nextLabel: 'Start Next Stage ▶',
         confirmHead: 'START NEXT STAGE?',
         confirmMsg: 'Finished gearing up? Start the next stage.',

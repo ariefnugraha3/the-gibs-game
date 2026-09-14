@@ -3,7 +3,7 @@
 // aktif lewat hook hudStatus() dan radarLandmarks(plot).
 
 import { CFG } from './config.js';
-import { player, score, robots, drops, _dir, maxAmmoFor } from './state.js';
+import { player, score, robots, drops, _dir, maxAmmoFor, upgradeTier } from './state.js';
 import { camera, SCREEN_UP } from './renderer.js';
 import { activeScene } from './sceneManager.js';
 import {
@@ -51,11 +51,12 @@ export function updateUI() {
     if (medkitMode) {
         itemName = 'Medkit'; count = player.medkits; hint = 'Hold LEFT CLICK to use';
     } else {
-        // Nama senjata + LEVEL upgrade shop (2026-07-13): " II"/" III" hanya
-        // saat sudah di-upgrade (Lv1 = nama polos). Kap peluru = kap efektif
-        // (ikut tier Ammo Capacity via maxAmmoFor).
-        const wl = (player.weaponLvl && player.weaponLvl[currentWeapon]) || 1;
-        itemName = wName + (wl > 1 ? ' ' + ['I', 'II', 'III'][Math.min(wl, 3) - 1] : '');
+        // Nama senjata + tier upgrade shop. Level 0 = senjata dasar; Alpha..Delta
+        // dikutip dari gameplay.json agar HUD sama dengan kartu shop.
+        const wl = player.weaponLvl && player.weaponLvl[currentWeapon] != null
+            ? player.weaponLvl[currentWeapon] : 0;
+        const tier = upgradeTier(wl);
+        itemName = wName + (tier ? ' ' + tier.name : '');
         count = w.ammo; mags = `/ ${maxAmmoFor(currentWeapon)}`;
     }
     ammoWeapon.innerText = itemName;

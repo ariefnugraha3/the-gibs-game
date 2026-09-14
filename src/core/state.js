@@ -110,11 +110,11 @@ export const player = {
     // sedang terpasang di slot), flag ini tidak hilang ketika sebuah senjata
     // diganti di shop sehingga senjata itu dapat dipasang lagi tanpa dibeli.
     unlockedWeapons: { rifle: false, pistol: true, shotgun: false, launcher: false },
-    // Level upgrade per senjata (shop Survival, 2026-07-12): 1..maxWeaponLevel.
-    // Damage efektif = base × (1 + upgradeDamagePct·(lvl−1)) — lihat weaponDamage()
+    // Level upgrade per senjata: 0 = base, lalu Alpha..Delta (1..maxWeaponLevel).
+    // Damage efektif = base × (1 + upgradeDamagePct·lvl) — lihat weaponDamage()
     // di weapons.js. Level bertahan walau senjatanya diganti lalu dibeli lagi
     // (per-run; direset configurePlayer).
-    weaponLvl: { rifle: 1, pistol: 1, shotgun: 1, launcher: 1 },
+    weaponLvl: { rifle: 0, pistol: 0, shotgun: 0, launcher: 0 },
     hasRadar: false,   // radar minimap: SEMUA mode mulai TANPA (dibeli di shop) — di-set configurePlayer
     isReloading: false, lastShot: 0, reloadTimer: 0, speed: 1.5, radius: 5,
     vy: 0, onGround: true,           // vertikal: gravitasi + jatuh dari tepian (lompat dihapus)
@@ -156,6 +156,14 @@ export function maxAmmoFor(w) {
     return CFG.weapons[w].maxAmmo;
 }
 
+// Nama dan syarat tahap untuk level upgrade milik satu-satunya konfigurasi shop.
+// Level 0 adalah perlengkapan dasar, sehingga tidak memiliki tier bernama.
+export function upgradeTier(level) {
+    const n = Number(level);
+    if (!Number.isInteger(n) || n < 1) return null;
+    return ((CFG.shop && CFG.shop.upgradeTiers) || [])[n - 1] || null;
+}
+
 // Stempel nilai CFG ke player (dipanggil saat boot & resetGame)
 export function configurePlayer() {
     player.maxHp = CFG.player.maxHp;
@@ -180,7 +188,7 @@ export function configurePlayer() {
     player.hasRadar = false;
     player.dmgMul = 1; player.reloadMul = 1;
     player.upDmg = 0; player.upReload = 0;
-    player.weaponLvl = { rifle: 1, pistol: 1, shotgun: 1, launcher: 1 };
+    player.weaponLvl = { rifle: 0, pistol: 0, shotgun: 0, launcher: 0 };
 }
 
 export const keys = { w: false, a: false, s: false, d: false };   // Shift kini = dodge (aksi diskret), bukan tombol tahan
