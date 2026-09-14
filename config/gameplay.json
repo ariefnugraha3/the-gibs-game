@@ -505,7 +505,7 @@
                     "landShake": 1.1
                 },
                 "boss": {
-                    "hp": 2000,
+                    "hp": 5000,
                     "armSec": 3,
                     "mgLockSec": 0.5,
                     "mgShots": 10,
@@ -1082,7 +1082,7 @@
                 "grenadeDamage": 300
             },
             "tank": {
-                "hp": 6000,
+                "hp": 7000,
                 "score": 1000,
                 "gapSec": 1.5,
                 "enrageGapSec": 0.8,
@@ -1119,7 +1119,7 @@
                 "shockDps": 20
             },
             "gunship": {
-                "hp": 9000,
+                "hp": 12000,
                 "score": 1650,
                 "hitRadius": 25,
                 "attackGapSec": 1.5,
@@ -1148,7 +1148,7 @@
                 "missileLifeSec": 7
             },
             "warden": {
-                "hp": 12000,
+                "hp": 15000,
                 "score": 2400,
                 "bodyRadius": 22.26,
                 "hitRadius": 25.44,
@@ -1233,9 +1233,9 @@
                 }
             },
             "mahapatih": {
-                "siegeHp": 9000,
-                "combatHp": 7500,
-                "coreHp": 3200,
+                "siegeHp": 15000,
+                "combatHp": 15000,
+                "coreHp": 15000,
                 "score": 5000,
                 "hitRadius": 32,
                 "bodyRadius": 28,

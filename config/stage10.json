@@ -100,7 +100,7 @@
             "leadMargin": 90
         },
         "boss": {
-            "hp": 12000,
+            "hp": 8000,
             "entrySec": 5,
             "holdOffset": -170,
             "sweepSpeed": 60,
