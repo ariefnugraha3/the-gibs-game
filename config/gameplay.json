@@ -1572,7 +1572,7 @@
                     "fabricatorsClear": { "speaker": "Major Gibran", "text": "Both fabricators are wrecked. Nothing else is walking out of them." },
                     "machinesFirst": { "speaker": "Major Gibran", "text": "Not yet. Those fabricators are still printing, and they come down first." },
                     "officeContact": { "speaker": "Major Gibran", "text": "They already own this floor. I will have to clear my way to the servers." },
-                    "blockedRouteSafe": { "speaker": "Major Gibran", "text": "This door is dead — no power, no manual release. I need another way out of here." },
+                    "blockedRouteSafe": { "speaker": "Major Gibran", "text": "This door is dead. No power, no manual release. I need another way out of here." },
                     "blockedRouteVault": { "speaker": "Major Gibran", "text": "Jammed shut as well. Whoever pulled back through here made sure nobody followed." },
                     "blockedRouteHall": { "speaker": "Major Gibran", "text": "Another dead door. They have been sealing this building one corridor at a time." },
                     "serverDoorLocked": { "speaker": "Major Gibran", "text": "The server room door is bolted from the network side. Something on this floor is still holding that lock." },
@@ -1582,7 +1582,7 @@
                     "uploadSystem": { "speaker": "HQ Uplink", "text": "Data package verified. Uploading kill-switch protocol." },
                     "uploadFailed": { "speaker": "HQ Uplink", "text": "UPLOAD FAILED. BROADCAST AUTHORITY DENIED. ROOT TRANSMISSION NODE REQUIRED." },
                     "gibranFailure": { "speaker": "Major Gibran", "text": "What?! The file is valid. Why isn't it uploading?" },
-                    "commandIKN": { "speaker": "Command", "text": "The protocol can only be injected from N.U.S.A.'s central robot transmitter. The network manifest places it in Nusantara—IKN, East Kalimantan." },
+                    "commandIKN": { "speaker": "Command", "text": "The protocol can only be injected from N.U.S.A.'s central robot transmitter. The network manifest places it in Nusantara IKN, East Kalimantan." },
                     "gibranIKN": { "speaker": "Major Gibran", "text": "Kalimantan?! You're telling me the only transmitter that can end this war is on another island?" },
                     "commandKertajati": { "speaker": "Command", "text": "Bandung can decrypt the file, but it cannot broadcast it. Your nearest viable air route is Kertajati." },
                     "lockdownWarning": { "speaker": "HQ System", "text": "WARNING. Unauthorized kill-switch handshake detected. Enemy trace confirmed. Headquarters lockdown initiated." },
@@ -1622,7 +1622,7 @@
                     "bossDown": { "speaker": "Major Gibran", "text": "Gunship’s down. Kertajati, I’m coming in." },
                     "arrivalSystem": { "speaker": "Vehicle System", "text": "KERTAJATI INTERNATIONAL AIRPORT. ROUTE COMPLETE." },
                     "arrivalCommand": { "speaker": "Command", "text": "Major, we have your signal at the airfield. Get inside and secure a route to Kalimantan." },
-                    "arrivalGibran": { "speaker": "Major Gibran", "text": "Copy. Next stop—I.K.N." }
+                    "arrivalGibran": { "speaker": "Major Gibran", "text": "Copy. Next stop is I.K.N." }
                 }
             },
             "stage9": {
