@@ -55,11 +55,11 @@ let cb = null;            // {onSuccess, onFail}
 let prevScene = null;     // scene stage yang harus dipulihkan
 let pendingOpts = null;
 let tickTimer = 0, finishTimer = 0;
-let headText = '', subText = '';
+let headText = '';
 // Referensi DOM (dibangun ulang tiap kali modal dibuka — papan kecil, murah)
 let tileEls = [], gridEl = null, coreEl = null, bannerEl = null;
 let ingressLeadEl = null, coreLeadEl = null;
-let traceFillEl = null, traceNumEl = null;
+let traceFillEl = null, traceStateEl = null, traceMeterEl = null, abortEl = null;
 
 const overlayEl = () => document.getElementById('hackOverlay');
 const idx = (c, r) => r * N + c;
@@ -182,61 +182,97 @@ export function hackGridSize(_step = 0) {
 
 // Trace satu chip di viewBox 100×100: garis dari pusat ke tiap mulut + simpul.
 function tileSVG(mask) {
-    if (!mask) return '<svg viewBox="0 0 100 100"><rect class="dead" x="34" y="34" width="32" height="32" rx="6"/></svg>';
+    if (!mask) return '<svg viewBox="0 0 100 100" aria-hidden="true"><rect class="dead" x="46" y="46" width="8" height="8"/></svg>';
     let d = '';
     if (mask & 1) d += 'M50 50 L50 0 ';
     if (mask & 2) d += 'M50 50 L100 50 ';
     if (mask & 4) d += 'M50 50 L50 100 ';
     if (mask & 8) d += 'M50 50 L0 50 ';
-    return '<svg viewBox="0 0 100 100">'
-        + `<path class="pipe" d="${d}"/><path class="core" d="${d}"/>`
-        + '<circle class="node" cx="50" cy="50" r="11"/></svg>';
+    return '<svg viewBox="0 0 100 100" aria-hidden="true">'
+        + `<path class="core" d="${d}"/>`
+        + '<circle class="node" cx="50" cy="50" r="7"/></svg>';
 }
 
 function render() {
     const root = overlayEl();
     if (!root) return;
     root.innerHTML =
-        '<div class="hackPanel">'
-        + '<div class="hackGlow"></div>'
-        + '<div class="hackHead"><span class="hackTag">ICE BREACH</span>'
-        + `<span class="hackTitle">${headText}</span></div>`
-        + `<div class="hackSub">${subText}</div>`
+        '<section class="hackPanel" role="dialog" aria-modal="true" aria-labelledby="hackHeading" aria-describedby="hackBanner">'
+        + '<header class="hackHead"><h1 id="hackHeading">ICE BREACH</h1>'
+        + '<span class="hackTitle" id="hackTitle"></span></header>'
+        + '<div class="hackBanner" id="hackBanner" role="status" aria-live="polite">Connect the ingress to the data core.</div>'
+        + '<div class="hackCircuit">'
+        + '<div class="hackEndpoints"><span>INGRESS</span><span>DATA CORE</span></div>'
         + '<div class="hackBody">'
-        + '<div class="hackPort on"><div class="hackJack"></div>'
-        + '<div class="hackLead hackLeadIn" id="hackIngressLead"></div><span>INGRESS</span></div>'
-        + '<div class="hackGrid" id="hackGrid"></div>'
-        + '<div class="hackCore" id="hackCore"><div class="hackJack"></div>'
-        + '<div class="hackLead hackLeadOut" id="hackCoreLead"></div><span>DATA CORE</span></div>'
-        + '</div>'
-        + '<div class="hackFoot">'
-        + '<div class="hackTrace"><span class="hackTraceLbl">ICE TRACE</span>'
-        + '<span class="hackTraceShell"><span class="hackTraceFill" id="hackTraceFill"></span></span>'
-        + '<span class="hackTraceNum" id="hackTraceNum"></span></div>'
-        + '<div class="hackHint">Left-click a chip to rotate it · right-click rotates back</div>'
-        + '<button class="hackAbort" id="hackAbort">ABORT ▸ ESC</button>'
-        + '</div>'
-        + '<div class="hackBanner" id="hackBanner"></div>'
-        + '</div>';
+        + '<div class="hackPort on" aria-hidden="true"><div class="hackJack"></div>'
+        + '<div class="hackLead hackLeadIn" id="hackIngressLead"></div></div>'
+        + '<div class="hackGrid" id="hackGrid" role="group" aria-label="Circuit board"></div>'
+        + '<div class="hackCore" id="hackCore" aria-hidden="true"><div class="hackJack"></div>'
+        + '<div class="hackLead hackLeadOut" id="hackCoreLead"></div></div>'
+        + '</div></div>'
+        + '<footer class="hackFoot">'
+        + '<div class="hackTrace"><div class="hackTraceHead"><span>ICE TRACE</span>'
+        + '<span id="hackTraceState">ACTIVE</span></div>'
+        + '<div class="hackTraceShell" id="hackTraceMeter" role="meter" aria-label="Trace protection remaining" aria-valuemin="0" aria-valuemax="100">'
+        + '<span class="hackTraceFill" id="hackTraceFill"></span></div></div>'
+        + '<button type="button" class="hackAbort" id="hackAbort" title="Abort breach (Escape)">ABORT</button>'
+        + '</footer></section>';
+    root.classList.add('iceBreach');
+    document.getElementById('hackTitle').textContent = headText;
     gridEl = document.getElementById('hackGrid');
     coreEl = document.getElementById('hackCore');
     ingressLeadEl = document.getElementById('hackIngressLead');
     coreLeadEl = document.getElementById('hackCoreLead');
     bannerEl = document.getElementById('hackBanner');
     traceFillEl = document.getElementById('hackTraceFill');
-    traceNumEl = document.getElementById('hackTraceNum');
-    const abortBtn = document.getElementById('hackAbort');
-    if (abortBtn) abortBtn.addEventListener('click', () => finish('abort'));
+    traceStateEl = document.getElementById('hackTraceState');
+    traceMeterEl = document.getElementById('hackTraceMeter');
+    abortEl = document.getElementById('hackAbort');
+    if (abortEl) abortEl.addEventListener('click', () => finish('abort'));
+    root.querySelector('.hackPanel').addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        e.stopPropagation();
+        const buttons = [...root.querySelectorAll('button:not(:disabled)')];
+        const next = buttons.indexOf(document.activeElement) + (e.shiftKey ? -1 : 1);
+        if (next < 0 || next >= buttons.length) {
+            e.preventDefault();
+            buttons[e.shiftKey ? buttons.length - 1 : 0]?.focus();
+        }
+    });
     if (gridEl) {
         gridEl.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
         // Klik-kanan di papan = putar balik (dan JANGAN memunculkan menu browser)
         gridEl.addEventListener('contextmenu', (e) => e.preventDefault());
+        gridEl.addEventListener('keydown', (e) => {
+            const i = tileEls.findIndex(t => t.cell === e.target);
+            if (i < 0 || phase !== 'play') return;
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault(); e.stopPropagation();
+                hackRotate(i, e.shiftKey ? -1 : 1);
+                return;
+            }
+            const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -N, ArrowDown: N }[e.key];
+            if (!step) return;
+            e.preventDefault(); e.stopPropagation();
+            for (let j = i + step; j >= 0 && j < tiles.length; j += step) {
+                if (Math.abs(step) === 1 && ((j / N) | 0) !== ((i / N) | 0)) break;
+                if (tiles[j].mask) { tileEls[j].cell.focus(); break; }
+            }
+        });
     }
+    abortEl?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); e.stopPropagation(); finish('abort');
+        }
+    });
     tileEls = [];
     for (let i = 0; i < tiles.length; i++) {
-        const cell = document.createElement('div');
+        const cell = document.createElement('button');
+        cell.type = 'button';
         cell.className = 'hackTile' + (tiles[i].mask ? '' : ' dead');
-        const chip = document.createElement('div');
+        cell.disabled = !tiles[i].mask;
+        cell.title = tiles[i].mask ? 'Rotate clockwise; right-click to rotate back' : 'Inactive chip';
+        const chip = document.createElement('span');
         chip.className = 'hackChip';
         chip.innerHTML = tileSVG(tiles[i].mask);
         cell.appendChild(chip);
@@ -250,6 +286,7 @@ function render() {
     }
     root.style.display = 'flex';
     paint();
+    tileEls[idx(0, (N - 1) >> 1)].cell.focus();
 }
 
 function paint() {
@@ -258,6 +295,9 @@ function paint() {
         if (!t) continue;
         t.chip.style.transform = `rotate(${tiles[i].spin * 90}deg)`;
         if (t.cell.classList) t.cell.classList.toggle('on', !!powerOn[i]);
+        const ports = ['top', 'right', 'bottom', 'left'].filter((_, d) => eff(i) & (1 << d));
+        t.cell.setAttribute('aria-label', `Chip row ${((i / N) | 0) + 1}, column ${i % N + 1}. `
+            + (ports.length ? `Connectors: ${ports.join(', ')}. ${powerOn[i] ? 'Powered' : 'Unpowered'}.` : 'Inactive.'));
     }
     if (coreEl && coreEl.classList) coreEl.classList.toggle('on', solved);
     if (ingressLeadEl) ingressLeadEl.dataset.powered = 'true';
@@ -268,16 +308,21 @@ function paint() {
 function paintTrace() {
     const k = traceMax > 0 ? Math.max(0, traceLeft / traceMax) : 0;
     if (traceFillEl) {
-        traceFillEl.style.width = (k * 100).toFixed(1) + '%';
+        traceFillEl.style.transform = `scaleX(${k.toFixed(4)})`;
         if (traceFillEl.classList) traceFillEl.classList.toggle('warn', k < 0.25);
     }
-    if (traceNumEl) traceNumEl.innerText = Math.ceil(Math.max(0, traceLeft)) + 's';
+    const status = phase === 'won' ? 'DISCONNECTED' : phase === 'lost' ? 'DETECTED' : k < 0.25 ? 'CRITICAL' : 'ACTIVE';
+    if (traceStateEl && traceStateEl.textContent !== status) traceStateEl.textContent = status;
+    if (traceMeterEl) traceMeterEl.setAttribute('aria-valuenow', String(Math.round(k * 100)));
 }
 
 function banner(text, cls) {
     if (!bannerEl) return;
-    bannerEl.innerText = text;
+    bannerEl.textContent = text;
     if (bannerEl.classList) bannerEl.classList.add('on', cls);
+    if (abortEl) abortEl.disabled = true;
+    for (const t of tileEls) t.cell.disabled = true;
+    paintTrace();
 }
 
 // ===================== AKSI =====================
@@ -313,7 +358,7 @@ function lose() {
     stopTick();
     playSFX(sfxEmpty);
     playSFX(sfxRobotSpawn, 0.9);   // dengung alarm = suara robot dilepas (aset yang sudah ada)
-    banner('ALARM TRIGGERED — LOCKED OUT', 'bad');
+    banner('ALARM TRIGGERED / LOCKED OUT', 'bad');
     finishTimer = setTimeout(() => finish('fail'), ALARM_MS);
 }
 
@@ -338,14 +383,14 @@ function stopTick() {
 // Tutup modal, kembalikan scene stage (TANPA enter()), jalankan callback, lalu
 // minta pointer-lock lagi supaya player langsung main.
 function finish(result) {
-    if (!open) return;
+    if (!open || (result === 'abort' && phase !== 'play')) return;
     open = false;
     phase = 'idle';
     stopTick();
     if (finishTimer) { clearTimeout(finishTimer); finishTimer = 0; }
     const root = overlayEl();
-    if (root) { root.style.display = 'none'; root.innerHTML = ''; }
-    tileEls = []; gridEl = coreEl = bannerEl = traceFillEl = traceNumEl = null;
+    if (root) { root.style.display = 'none'; root.innerHTML = ''; root.classList.remove('iceBreach'); }
+    tileEls = []; gridEl = coreEl = bannerEl = traceFillEl = traceStateEl = traceMeterEl = abortEl = null;
     ingressLeadEl = coreLeadEl = null;
     const c = cb; cb = null;
     if (prevScene) resumeScene(prevScene);
@@ -369,7 +414,7 @@ function resumePlay() {
 }
 
 // Dipanggil stage saat player menempel terminal. opts:
-//   head/sub  : judul & instruksi (English)
+//   head      : nama terminal (English); `sub` lama digantikan objective bersama
 //   onSuccess : puzzle terpecahkan
 //   onFail    : 'abort' (player membatalkan) atau 'fail' (ICE TRACE habis)
 export function beginHackMinigame(opts = {}) {
@@ -419,7 +464,6 @@ export const hackScene = {
         prevScene = hackScene.prev || null;   // dititipkan beginHackMinigame
         cb = { onSuccess: o.onSuccess, onFail: o.onFail };
         headText = o.head || 'TERMINAL';
-        subText = o.sub || 'Connect the ingress port to the data core.';
         moves = 0;
         traceMax = traceLeft = CFG.campaign.hack.traceSec;
         // Abaikan `opts.size` dari caller lama: semua terminal wajib 5x5.

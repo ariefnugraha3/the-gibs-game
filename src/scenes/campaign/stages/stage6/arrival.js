@@ -207,7 +207,7 @@ function generatorRestored(i) {
 function beginGeneratorRepair(i) {
     generatorArmed[i] = false;
     beginRepairMinigame({
-        head: `GENERATOR ${i + 1} - FIELD RESTART`,
+        head: `GENERATOR ${i + 1}`,
         parts: ADVANCED_REPAIR_PARTS,
         startIndex: generatorStep[i],
         onProgress: k => { generatorStep[i] = k; },

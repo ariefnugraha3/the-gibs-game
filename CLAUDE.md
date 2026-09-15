@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+**SIGNAL TRACE UI (2026-09-15):** the Stage 5-6 carrier puzzle now matches the flat ICE BREACH / FIELD RESTART workspace. Only the active row is actionable; mouse/touch and keyboard use the same capture model. Prebuilt target windows include circular wrap, animated cursor rails use transforms, and a categorical trace meter replaces countdown/strike text. Results remain visible and cannot be aborted to bypass success/alarm callbacks. Tuning is unchanged. See [campaign reference](docs/campaign.md).
+
+**Repair UI overhaul (2026-09-15):** Power Harness, Control Board, Coolant Pump, Phase Sync and Rotor Kickstart use one flat responsive workspace. Native controls support keyboard and touch; chip tray geometry stays stable as chips are seated, and the oscilloscope reuses its SVG nodes. No puzzle tuning changed. Results lock Abort and retain stage progress/callback behavior. See [campaign reference](docs/campaign.md).
+
+**ICE BREACH flat UI (2026-09-14):** responsive, unframed circuit workspace with Gasalt and the GIBS palette; powered paths remain amber. The trace meter has no numeric countdown. Mouse/touch and keyboard operate the same rotation model, and result delays lock both chips and Abort so completion/alarm callbacks cannot be cancelled. SIGNAL TRACE retains its own overlay styling. See [campaign reference](docs/campaign.md#the-hacking-minigame--ice-breach-2026-07-28).
+
 **Field Shop upgrade tiers (2026-09-14):** all levelled shop items use config-owned names and campaign availability: Alpha / Shop Stage 2, Bravo / 5, Charlie / 9, and Delta / 10. Weapons start at base level 0, then buy all four named tiers; armor, Vitality, and Ammo Capacity each receive the same fourth Delta tier. `transition.js` passes the destination stage to the campaign shop, so locked tiers are neither rendered nor purchasable before their configured shop stage. `shopTabDebug()` exposes the visible names/stage for smoke coverage.
 
 **Stage 10 road/river bend repair (2026-09-14):** continuous sampled ribbons replace segment boxes; shared vertices and matching boundary widths close bends and tile seams. See [campaign reference](docs/campaign.md) and [module contract](docs/MODULES.md).

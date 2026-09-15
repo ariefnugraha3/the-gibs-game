@@ -1099,7 +1099,7 @@ export const stage2Scene = {
                 keys.w = keys.a = keys.s = keys.d = false;
                 if (s2Marker) s2Marker.visible = false;
                 beginRepairMinigame({
-                    head: 'GENERATOR — FIELD REPAIR',
+                    head: 'GENERATOR',
                     startIndex: s2Installed,          // kemajuan bertahan setelah ABORT
                     onProgress: (k) => { s2Installed = k; },
                     onSuccess: () => {

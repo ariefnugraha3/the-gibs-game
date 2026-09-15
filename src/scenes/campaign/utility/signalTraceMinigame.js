@@ -23,7 +23,8 @@ let prevScene = null;
 let pendingOpts = null;
 let tickTimer = 0, finishTimer = 0;
 let headText = '', subText = '';
-let rowEls = [], timerFillEl = null, timerTextEl = null, statusEl = null, bannerEl = null;
+let rowEls = [], timerFillEl = null, timerStateEl = null, bannerEl = null;
+let lockEl = null, abortEl = null;
 
 const overlayEl = () => document.getElementById('hackOverlay');
 const wrap01 = v => ((v % 1) + 1) % 1;
@@ -88,84 +89,122 @@ export function lockSignalGame(g) {
     return 'lock';
 }
 
+// Jendela yang melintasi ujung track tetap tergambar sesuai jarak sirkular model.
+export function signalCaptureWindows(target, tolerance) {
+    if (tolerance >= 0.5) return [{ left: 0, width: 1 }];
+    const left = wrap01(target) - tolerance, right = wrap01(target) + tolerance;
+    if (left < 0) return [{ left: 0, width: right }, { left: 1 + left, width: -left }];
+    if (right > 1) return [{ left, width: 1 - left }, { left: 0, width: right - 1 }];
+    return [{ left, width: right - left }];
+}
+
 function render() {
     const root = overlayEl();
     if (!root || !game) return;
+    root.classList.add('signalTrace');
     root.innerHTML =
-        '<div class="sigPanel">'
-        + '<div class="sigHead"><span class="sigTag">SIGNAL TRACE</span>'
-        + `<span class="sigTitle">${headText}</span></div>`
-        + `<div class="sigSub">${subText}</div>`
-        + '<div class="sigBoard" id="sigBoard"></div>'
-        + '<div class="sigStatus" id="sigStatus"></div>'
-        + '<div class="sigFoot">'
-        + '<div class="sigTimer"><span>TRACE WINDOW</span><span class="sigTimerShell">'
-        + '<span class="sigTimerFill" id="sigTimerFill"></span></span>'
-        + '<span id="sigTimerText"></span></div>'
-        + '<button class="sigLock" id="sigLock">LOCK SIGNAL</button>'
-        + '<button class="sigAbort" id="sigAbort">ABORT / ESC</button>'
-        + '</div><div class="sigBanner" id="sigBanner"></div></div>';
+        '<section class="sigPanel" role="dialog" aria-modal="true" aria-labelledby="sigHeading" aria-describedby="sigBanner">'
+        + '<header class="sigHead"><h1 id="sigHeading">SIGNAL TRACE</h1>'
+        + '<span class="sigTitle" id="sigTitle"></span></header>'
+        + '<div class="sigBanner" id="sigBanner" role="status" aria-live="polite"></div>'
+        + '<div class="sigBoard" id="sigBoard" role="group" aria-label="Signal carriers">'
+        + '<div class="sigColumns" aria-hidden="true"><span>CARRIER</span><span>CAPTURE WINDOW</span><span>STATE</span></div></div>'
+        + '<footer class="sigFoot">'
+        + '<div class="sigTimer"><span class="sigTimerLabel">TRACE INTEGRITY</span>'
+        + '<span class="sigTimerState" id="sigTimerState"></span>'
+        + '<span class="sigTimerShell" aria-hidden="true"><span class="sigTimerFill" id="sigTimerFill"></span></span></div>'
+        + '<button type="button" class="sigLock" id="sigLock" title="Lock active carrier (Space or Enter)">LOCK SIGNAL</button>'
+        + '<button type="button" class="sigAbort" id="sigAbort" title="Abort trace (Escape)">ABORT</button>'
+        + '</footer></section>';
+    document.getElementById('sigTitle').textContent = headText;
     const board = document.getElementById('sigBoard');
     timerFillEl = document.getElementById('sigTimerFill');
-    timerTextEl = document.getElementById('sigTimerText');
-    statusEl = document.getElementById('sigStatus');
+    timerStateEl = document.getElementById('sigTimerState');
     bannerEl = document.getElementById('sigBanner');
+    bannerEl.textContent = subText;
     rowEls = [];
     for (let i = 0; i < game.channels.length; i++) {
-        const row = document.createElement('div');
+        const row = document.createElement('button');
+        row.type = 'button';
         row.className = 'sigRow';
-        row.innerHTML = `<span class="sigLabel">CH ${i + 1}</span>`
-            + '<span class="sigTrack"><span class="sigTarget"></span><span class="sigCursor"></span></span>'
-            + '<span class="sigState">WAIT</span>';
+        row.dataset.channel = i;
+        row.title = 'Lock carrier ' + (i + 1);
+        const windows = signalCaptureWindows(game.channels[i].target, game.tolerance);
+        row.innerHTML = `<span class="sigLabel">CH ${String(i + 1).padStart(2, '0')}</span>`
+            + '<span class="sigTrack" aria-hidden="true">'
+            + windows.map(w => `<span class="sigTarget" style="left:${w.left * 100}%;width:${w.width * 100}%"></span>`).join('')
+            + '<span class="sigCursorRail"><span class="sigCursor"></span></span></span>'
+            + '<span class="sigState"></span>';
         if (board) board.appendChild(row);
-        row.addEventListener('click', signalLock);
+        row.addEventListener('click', () => { if (game?.active === i) signalLock(); });
         rowEls.push({
-            row,
-            target: row.children[1]?.children[0],
-            cursor: row.children[1]?.children[1],
-            state: row.children[2],
+            row, cursor: row.querySelector('.sigCursorRail'), state: row.querySelector('.sigState'), mode: '',
         });
     }
-    const lock = document.getElementById('sigLock');
-    const abort = document.getElementById('sigAbort');
-    if (lock) lock.addEventListener('click', signalLock);
-    if (abort) abort.addEventListener('click', () => finish('abort'));
+    lockEl = document.getElementById('sigLock');
+    abortEl = document.getElementById('sigAbort');
+    lockEl.addEventListener('click', signalLock);
+    abortEl.addEventListener('click', () => finish('abort'));
+    const panel = root.querySelector('.sigPanel');
+    panel.addEventListener('keydown', e => {
+        if (e.key === 'Tab') {
+            e.stopPropagation();
+            const controls = [...panel.querySelectorAll('button:not(:disabled)')];
+            const next = controls.indexOf(document.activeElement) + (e.shiftKey ? -1 : 1);
+            if (next < 0 || next >= controls.length) {
+                e.preventDefault(); controls[e.shiftKey ? controls.length - 1 : 0]?.focus();
+            }
+        } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); e.stopPropagation();
+            if (!e.repeat) e.target.closest('button')?.click();
+        }
+    });
     root.style.display = 'flex';
     paint();
+    lockEl.focus({ preventScroll: true });
 }
 
 function paint() {
     if (!game) return;
+    const playable = phase === 'play' && !game.solved && !game.failed;
     for (let i = 0; i < rowEls.length; i++) {
         const e = rowEls[i], c = game.channels[i];
         if (!e || !c) continue;
-        if (e.target) {
-            e.target.style.left = (c.target * 100).toFixed(2) + '%';
-            e.target.style.width = (game.tolerance * 200).toFixed(2) + '%';
+        const active = playable && i === game.active;
+        const mode = c.locked ? 'locked' : !playable ? 'offline' : active ? 'active' : 'queued';
+        // Tick hanya memindahkan rail; label, kelas, dan target tidak ditulis 20x/detik.
+        if (e.cursor && (!c.locked || e.mode !== mode)) {
+            e.cursor.style.transform = `translateX(${c.phase * 100}%)`;
         }
-        if (e.cursor) e.cursor.style.left = (c.phase * 100).toFixed(2) + '%';
-        if (e.row.classList) {
-            e.row.classList.toggle('active', i === game.active);
-            e.row.classList.toggle('locked', c.locked);
+        if (e.mode !== mode) {
+            e.mode = mode;
+            e.row.className = 'sigRow ' + mode;
+            e.row.disabled = !active;
+            e.row.setAttribute('aria-label', `Carrier ${i + 1}, ${mode}`);
+            if (active) e.row.setAttribute('aria-current', 'step');
+            else e.row.removeAttribute('aria-current');
+            if (e.state) e.state.textContent = c.locked ? 'LOCKED' : active ? 'ACTIVE' : playable ? 'QUEUED' : 'OFFLINE';
         }
-        if (e.state) e.state.innerText = c.locked ? 'LOCKED' : i === game.active ? 'ARMED' : 'WAIT';
     }
     const k = game.max > 0 ? game.left / game.max : 0;
     if (timerFillEl) {
-        timerFillEl.style.width = (Math.max(0, k) * 100).toFixed(1) + '%';
+        timerFillEl.style.transform = `scaleX(${Math.max(0, Math.min(1, k))})`;
         if (timerFillEl.classList) timerFillEl.classList.toggle('warn', k < 0.25);
     }
-    if (timerTextEl) timerTextEl.innerText = Math.ceil(game.left) + 's';
-    if (statusEl) statusEl.innerText = `CHANNEL ${Math.min(game.active + 1, game.channels.length)} / ${game.channels.length} | MISSED LOCKS ${game.strikes}`;
+    const traceState = game.solved ? 'SECURED' : game.failed ? 'DETECTED' : k < 0.25 ? 'CRITICAL' : 'TRACING';
+    if (timerStateEl && timerStateEl.textContent !== traceState) timerStateEl.textContent = traceState;
+    if (lockEl) lockEl.disabled = !playable;
+    if (abortEl) abortEl.disabled = !playable;
 }
 
 function showBanner(text, cls) {
     if (!bannerEl) return;
-    bannerEl.innerText = text;
-    if (bannerEl.classList) bannerEl.classList.add('on', cls);
+    bannerEl.textContent = text;
+    bannerEl.className = 'sigBanner' + (cls ? ' ' + cls : '');
 }
 
 function win() {
+    if (phase !== 'play') return;
     phase = 'won';
     stopTick();
     playSFX(sfxPurchase);
@@ -187,9 +226,18 @@ export function signalLock() {
     if (!open || phase !== 'play' || !game) return false;
     const result = lockSignalGame(game);
     if (result === 'none') return false;
-    if (result === 'miss') playSFX(sfxEmpty, 0.65);
-    else playSFX(sfxSwitch, 0.7);
+    if (result === 'miss') {
+        playSFX(sfxEmpty, 0.65);
+        showBanner('CAPTURE MISSED - CARRIER REVERSED', 'bad');
+    } else {
+        playSFX(sfxSwitch, 0.7);
+        showBanner(subText, '');
+    }
+    const focused = document.activeElement;
     paint();
+    if (focused?.classList.contains('sigRow') && focused.disabled) {
+        rowEls[game.active]?.row.focus({ preventScroll: true });
+    }
     if (result === 'won') win();
     else if (result === 'lost') lose();
     return true;
@@ -213,21 +261,21 @@ function stopTick() {
 }
 
 function finish(result) {
-    if (!open) return;
+    if (!open || (result === 'abort' && phase !== 'play')) return;
     open = false;
     phase = 'idle';
     stopTick();
     if (finishTimer) { clearTimeout(finishTimer); finishTimer = 0; }
     const root = overlayEl();
-    if (root) { root.style.display = 'none'; root.innerHTML = ''; }
-    rowEls = []; timerFillEl = timerTextEl = statusEl = bannerEl = null;
+    if (root) { root.style.display = 'none'; root.innerHTML = ''; root.classList.remove('signalTrace'); }
+    rowEls = []; timerFillEl = timerStateEl = bannerEl = lockEl = abortEl = null;
     game = null;
     const c = cb; cb = null;
     if (prevScene) resumeScene(prevScene);
     prevScene = null;
     if (result === 'ok') { if (c?.onSuccess) c.onSuccess(); }
     else if (c?.onFail) c.onFail(result);
-    resumePlay();
+    if (!open) resumePlay();
 }
 
 function resumePlay() {
@@ -272,7 +320,7 @@ export const signalTraceScene = {
         prevScene = signalTraceScene.prev || null;
         cb = { onSuccess: o.onSuccess, onFail: o.onFail };
         headText = o.head || 'SECURE TERMINAL';
-        subText = o.sub || 'Lock each carrier while its cursor crosses the capture window.';
+        subText = o.sub || 'Capture the encrypted carriers to override security.';
         game = buildSignalGame();
         open = true;
         phase = 'play';

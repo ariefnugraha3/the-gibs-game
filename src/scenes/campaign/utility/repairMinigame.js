@@ -30,10 +30,10 @@
 //             jadi solusinya TUNGGAL dan selalu ada — diselesaikan dari KIRI ke
 //             KANAN tanpa pernah merusak katup yang sudah benar.
 //
-// AKSESIBILITAS: tombol COLOR MODE (kabel) menukar palet warna biasa dengan
+// AKSESIBILITAS: checkbox warna (kabel) menukar palet warna biasa dengan
 // palet AMAN BUTA WARNA (Okabe-Ito) + LAMBANG bentuk di tiap ujung kabel,
 // sehingga warna tak lagi jadi satu-satunya pembeda. Pilihan disimpan di
-// localStorage ('gibsRepairColorblind').
+// localStorage ('gibsRepairColorblind'); lambang selalu ditampilkan.
 //
 // POLA ARSITEKTUR = sama persis dengan hackMinigame.js: game DI-PAUSE, pointer
 // lock dilepas supaya kursor OS bisa mengklik, `shopActive()` = true agar
@@ -62,23 +62,15 @@ const LOCK_FALLBACK_MS = 900;
 export const REPAIR_PARTS = [
     {
         id: 'harness', label: 'POWER HARNESS', type: 'wires',
-        sub: 'Splice every feed line to the bus terminal of the SAME colour. '
-            + 'DRAG one end onto the other, or click one end then the other. '
-            + 'Click a spliced line again to pull it.',
-        hint: 'Drag or click — a mismatched splice is rejected, colours must run end to end',
+        sub: 'Restore each feed to its matching bus terminal.',
     },
     {
         id: 'board', label: 'CONTROL BOARD', type: 'chips',
-        sub: 'Seat every logic chip in the socket it FITS. DRAG a chip into its socket, '
-            + 'or click the chip then the socket. Drag a seated chip back to the tray '
-            + '(or click it) to lift it out.',
-        hint: 'Drag or click — a chip only drops into a socket of exactly its size',
+        sub: 'Restore the control board with matching chips.',
     },
     {
         id: 'pump', label: 'COOLANT PUMP', type: 'valves',
-        sub: 'Turn every valve to its marked notch. The valves are GEARED: turning one '
-            + 'also turns every valve to its RIGHT. Left-click turns up, right-click turns down.',
-        hint: 'Geared to the right — so set them one at a time, left to right',
+        sub: 'Align the coolant valves with their marks.',
     },
 ];
 
@@ -91,16 +83,11 @@ export const REPAIR_PARTS = [
 export const ADVANCED_REPAIR_PARTS = [
     {
         id: 'sync', label: 'PHASE SYNC', type: 'sync',
-        sub: 'The generator cannot couple to the grid until every phase runs with the bus. '
-            + 'Slide each phase trim until its wave lies on the bus reference and the whole '
-            + 'scope collapses into one steady line. The phases load each other, so moving '
-            + 'one nudges the rest - come back and trim again.',
-        hint: 'Drag a slider (or click its track) - every lamp green and the turbine spins up',
+        sub: 'Synchronise the generator phases with the bus.',
     },
     {
         id: 'kickstart', label: 'ROTOR KICKSTART', type: 'kickstart',
-        sub: 'Crank the flywheel clockwise, fire ignition inside the green RPM band, then close the master breaker.',
-        hint: 'The flywheel bleeds speed - reach the green band, then hit ignition promptly',
+        sub: 'Bring the generator online.',
     },
 ];
 
@@ -108,7 +95,7 @@ export const ADVANCED_REPAIR_PARTS = [
 // buta warna) dan dipasangkan dengan LAMBANG bentuk supaya tetap terbaca
 // walaupun warnanya tak terbedakan sama sekali.
 const WIRE_COL = {
-    std: ['#e04a3a', '#3f80e0', '#3fb95e', '#e8c33c', '#a45fd0'],
+    std: ['#b3402e', '#7c848c', '#2fb8a6', '#ffb03b', '#d8d2c4'],
     cb: ['#e69f00', '#56b4e9', '#009e73', '#f0e442', '#cc79a7'],
 };
 const WIRE_GLYPH = ['●', '▲', '■', '◆', '★'];   // ● ▲ ■ ◆ ★
@@ -132,7 +119,7 @@ let stepTimer = 0, badTimer = 0;
 let headText = '';
 let cbMode = false;       // mode warna aman buta warna
 // Referensi DOM (dibangun ulang tiap papan — papan kecil, murah)
-let boardEl = null, bannerEl = null, subEl = null, stepEl = null, cbBtn = null, hintEl = null;
+let boardEl = null, bannerEl = null, subEl = null, stepEl = null, cbBtn = null, cbLabelEl = null, abortEl = null;
 let wireLinesEl = null;   // kotak SVG kabel (dilukis ulang tiap gerak seret)
 // SERET (drag & drop). `drag` = {kind:'wire'|'chip', side, i, x, y, cx, cy, moved, done};
 // listener mousemove/mouseup dipasang SEKALI di document (tak perlu dicabut —
@@ -146,9 +133,9 @@ let rotorRpmEl = null, rotorStateEl = null, rotorIgnEl = null, rotorCrankEl = nu
 const ROTOR_TICK_MS = 50;
 // Papan PHASE SYNC: gelombang bergulir sendiri, jadi ia punya tick sendiri
 // dengan alasan yang sama seperti roda gila — loop game di-pause selagi modal
-// terbuka. `syncDrag` = tuas yang sedang diseret (dipegang terpisah dari
-// `drag`, yang milik kabel/chip).
-let syncTimer = 0, syncScopeEl = null, syncNoteEl = null, syncRowEls = [], syncDrag = null;
+// terbuka. Input range native menangani seret mouse/sentuh dan keyboard.
+let syncTimer = 0, syncScopeEl = null, syncNoteEl = null, syncRowEls = [], syncTraceEls = [];
+let touchPointer = null;
 const SYNC_TICK_MS = 50;
 const DRAG_SLOP = 5;      // px sebelum gerakan dianggap seret (di bawah ini = klik biasa)
 
@@ -484,36 +471,56 @@ export function applyMasterBreaker(g) {
 // ===================== TAMPILAN =====================
 
 const wireCol = (i) => (cbMode ? WIRE_COL.cb : WIRE_COL.std)[i % 5];
-const wireGlyph = (i) => (cbMode ? WIRE_GLYPH[i % 5] : '');
+const wireGlyph = (i) => WIRE_GLYPH[i % 5];
 
 function shell() {
     const root = overlayEl();
     if (!root) return;
-    const p = parts[gi] || {};
     root.innerHTML =
-        '<div class="repPanel">'
-        + '<div class="repGlow"></div>'
-        + '<div class="repHead"><span class="repTag">FIELD REPAIR</span>'
-        + `<span class="repTitle">${headText}</span>`
-        + '<span class="repStep" id="repStep"></span></div>'
-        + `<div class="repSub" id="repSub">${p.sub || ''}</div>`
+        '<section class="repPanel" role="dialog" aria-modal="true" aria-labelledby="repHeading" aria-describedby="repSub">'
+        + '<header class="repHead"><h1 id="repHeading">FIELD REPAIR</h1>'
+        + '<span class="repTitle" id="repTitle"></span></header>'
+        + '<ol class="repSteps" id="repStep" aria-label="Repair sequence"></ol>'
+        + '<div class="repStatus"><div class="repSub" id="repSub"></div>'
+        + '<div class="repBanner" id="repBanner" role="status" aria-live="polite"></div></div>'
         + '<div class="repBoard" id="repBoard"></div>'
-        + '<div class="repFoot">'
-        + '<button class="repCb" id="repCb"></button>'
-        + '<div class="repHint" id="repHint"></div>'
-        + '<button class="repAbort" id="repAbort">ABORT ▸ ESC</button>'
-        + '</div>'
-        + '<div class="repBanner" id="repBanner"></div>'
-        + '</div>';
+        + '<footer class="repFoot">'
+        + '<label class="repCb" id="repColorLabel"><input type="checkbox" id="repCb">Accessible colors</label>'
+        + '<button type="button" class="repAbort" id="repAbort" title="Abort repair (Escape)">ABORT</button>'
+        + '</footer></section>';
+    document.getElementById('repTitle').textContent = headText;
+    if (parts.every(p => p.type === 'sync' || p.type === 'kickstart')) {
+        document.getElementById('repHeading').textContent = 'FIELD RESTART';
+    }
     boardEl = document.getElementById('repBoard');
     bannerEl = document.getElementById('repBanner');
     subEl = document.getElementById('repSub');
     stepEl = document.getElementById('repStep');
-    hintEl = document.getElementById('repHint');
     cbBtn = document.getElementById('repCb');
-    const abortBtn = document.getElementById('repAbort');
-    if (abortBtn) abortBtn.addEventListener('click', () => finish('abort'));
-    if (cbBtn) cbBtn.addEventListener('click', () => repairToggleColorblind());
+    cbLabelEl = document.getElementById('repColorLabel');
+    abortEl = document.getElementById('repAbort');
+    if (abortEl) abortEl.addEventListener('click', () => finish('abort'));
+    if (cbBtn) cbBtn.addEventListener('change', () => repairToggleColorblind());
+    if (abortEl) bindTouchGesture(abortEl);
+    if (cbLabelEl) bindTouchGesture(cbLabelEl);
+    const panel = root.querySelector('.repPanel');
+    panel?.addEventListener('keydown', e => {
+        const target = e.target;
+        if (e.key === 'Tab') {
+            e.stopPropagation();
+            const controls = [...panel.querySelectorAll('button:not(:disabled),input:not(:disabled)')]
+                .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+            const next = controls.indexOf(document.activeElement) + (e.shiftKey ? -1 : 1);
+            if (next < 0 || next >= controls.length) {
+                e.preventDefault(); controls[e.shiftKey ? controls.length - 1 : 0]?.focus();
+            }
+        } else if (target.matches('input[type="range"]') && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+            e.stopPropagation();
+        } else if ((e.key === 'Enter' || e.key === ' ') && target.matches('button,input[type="checkbox"]')) {
+            e.preventDefault(); e.stopPropagation();
+            if (!target.disabled) target.click();
+        }
+    });
     if (boardEl) boardEl.addEventListener('contextmenu', (e) => e.preventDefault());
     wireDocDrag();
     root.style.display = 'flex';
@@ -521,11 +528,19 @@ function shell() {
 
 function paintChrome() {
     const p = parts[gi] || {};
-    if (subEl) subEl.innerHTML = p.sub || '';
-    if (hintEl) hintEl.innerText = p.hint || '';
-    if (stepEl) stepEl.innerText = `COMPONENT ${gi + 1} / ${parts.length} — ${p.label || ''}`;
-    if (cbBtn) cbBtn.innerText = 'COLOR MODE: ' + (cbMode ? 'COLOURBLIND-SAFE' : 'STANDARD');
-    if (cbBtn) cbBtn.style.display = G && G.type === 'wires' ? '' : 'none';
+    if (subEl) subEl.textContent = p.sub || '';
+    if (stepEl) {
+        stepEl.innerHTML = '';
+        parts.forEach((part, i) => {
+            const item = document.createElement('li');
+            item.className = i < done ? 'done' : i === gi ? 'current' : '';
+            item.textContent = part.label;
+            if (i === gi) item.setAttribute('aria-current', 'step');
+            stepEl.appendChild(item);
+        });
+    }
+    if (cbBtn) cbBtn.checked = cbMode;
+    if (cbLabelEl) cbLabelEl.style.display = G && G.type === 'wires' ? '' : 'none';
 }
 
 // Bangun ulang papan setiap aksi (≤5 elemen — jauh lebih murah daripada
@@ -533,13 +548,20 @@ function paintChrome() {
 function renderBoard() {
     paintChrome();
     if (!boardEl) return;
+    const focused = document.activeElement?.dataset?.repControl;
     boardEl.innerHTML = '';
     if (!G) return;
+    boardEl.dataset.type = G.type;
     if (G.type === 'wires') renderWires();
     else if (G.type === 'chips') renderChips();
     else if (G.type === 'valves') renderValves();
     else if (G.type === 'sync') renderSync();
     else renderKickstart();
+    if (focused) {
+        const previous = boardEl.querySelector(`[data-rep-control="${focused}"]`);
+        const next = previous && !previous.disabled ? previous : boardEl.querySelector('button:not(:disabled),input:not(:disabled)');
+        next?.focus({ preventScroll: true });
+    }
 }
 
 function mkEl(cls, parent, html) {
@@ -548,6 +570,33 @@ function mkEl(cls, parent, html) {
     if (html != null) e.innerHTML = html;
     if (parent) parent.appendChild(e);
     return e;
+}
+
+function mkButton(cls, parent, html, label, control) {
+    const e = document.createElement('button');
+    e.type = 'button'; e.className = cls;
+    if (html != null) e.innerHTML = html;
+    e.setAttribute('aria-label', label);
+    e.title = label;
+    e.dataset.repControl = control;
+    parent.appendChild(e);
+    return e;
+}
+
+// Pointer sentuh memakai model drag yang sama; mouse mempertahankan jalur lama.
+function bindTouchGesture(el, begin = () => {}) {
+    // Tap sudah diproses pada pointerup; klik kompatibilitas browser jangan
+    // menjalankannya lagi (kabel yang baru tersambung bisa langsung tercabut).
+    el.addEventListener('click', e => {
+        if (e.pointerType === 'touch' || e.pointerType === 'pen' || e.sourceCapabilities?.firesTouchEvents) {
+            e.preventDefault(); e.stopImmediatePropagation();
+        }
+    }, true);
+    el.addEventListener('pointerdown', e => {
+        if (e.pointerType === 'mouse' || touchPointer !== null || !open || phase !== 'play') return;
+        touchPointer = { id: e.pointerId, el, x: e.clientX, y: e.clientY };
+        begin(e);
+    });
 }
 
 function renderWires() {
@@ -564,13 +613,17 @@ function renderWires() {
         const badp = G.bad && G.bad.side === side && G.bad.i === i;
         const dragp = drag && drag.kind === 'wire' && drag.moved && drag.side === side && drag.i === i;
         const c = wireCol(colIdx);
-        const e = mkEl('repPin' + (linked ? ' linked' : '') + (selp ? ' sel' : '')
+        const e = mkButton('repPin' + (linked ? ' linked' : '') + (selp ? ' sel' : '')
             + (badp ? ' bad' : '') + (dragp ? ' dragging' : ''),
             parent,
-            `<span class="repJack" style="background:${c};border-color:${c}">${wireGlyph(colIdx)}</span>`
-            + `<span class="repPinLbl">${label}</span>`);
+            `<span class="repPinLbl">${label}</span><span class="repJack">${wireGlyph(colIdx)}</span>`,
+            `${label}, circuit ${colIdx + 1}${linked ? ', connected' : ''}`, `wire-${side}-${i}`);
+        e.style.setProperty('--wire', c);
+        e.dataset.dropKind = 'wire'; e.dataset.side = side; e.dataset.index = i;
+        e.setAttribute('aria-pressed', String(!!selp));
         e.addEventListener('click', () => repairWirePick(side, i));
         e.addEventListener('mousedown', (ev) => beginDrag(ev, { kind: 'wire', side, i }, e));
+        bindTouchGesture(e, ev => beginDrag(ev, { kind: 'wire', side, i }, e));
         e.addEventListener('mouseup', () => dropOn({ kind: 'wire', side, i }));
         return e;
     };
@@ -612,13 +665,18 @@ function renderChips() {
         mkEl('repChipLbl', s, title);
         return mkEl(cls, s);
     };
-    const board = sect('CONTROL BOARD — SOCKETS', 'repSockets');
+    const board = sect('SOCKETS', 'repSockets');
     const tray = sect('CHIP TRAY', 'repTray');
     const dragging = (ci) => drag && drag.kind === 'chip' && drag.moved && drag.i === ci;
     for (let i = 0; i < G.sockets.length; i++) {
         const s = G.sockets[i];
         const badp = G.bad && G.bad.zone === 'socket' && G.bad.i === i;
-        const e = mkEl('repSocket' + (s.fill >= 0 ? ' filled' : '') + (badp ? ' bad' : ''), board);
+        const e = mkButton('repSocket' + (s.fill >= 0 ? ' filled' : '') + (badp ? ' bad' : ''), board, '',
+            `Socket ${i + 1}, ${s.w} by ${s.h}${s.fill >= 0 ? ', occupied' : ''}`, `socket-${i}`);
+        e.dataset.dropKind = 'socket'; e.dataset.index = i;
+        bindTouchGesture(e, ev => {
+            if (s.fill >= 0) beginDrag(ev, { kind: 'chip', i: s.fill }, e);
+        });
         e.style.width = `calc(var(--u) * ${s.w})`;
         e.style.height = `calc(var(--u) * ${s.h})`;
         if (s.fill >= 0) {
@@ -626,21 +684,27 @@ function renderChips() {
             const chip = mkEl('repChip seated' + (dragging(ci) ? ' dragging' : ''), e, chipFace(ci));
             // Chip yang sudah duduk boleh diseret KELUAR (ke baki / soket lain).
             chip.addEventListener('mousedown', (ev) => beginDrag(ev, { kind: 'chip', i: ci }, chip));
+            bindTouchGesture(chip, ev => beginDrag(ev, { kind: 'chip', i: ci }, chip));
         }
         e.addEventListener('click', () => repairChipPick('socket', i));
         e.addEventListener('mouseup', () => dropOn({ kind: 'socket', i }));
     }
     // Menjatuhkan chip ke area baki = mencabutnya dari soket.
     tray.addEventListener('mouseup', () => dropOn({ kind: 'tray' }));
+    tray.dataset.dropKind = 'tray';
     for (let i = 0; i < G.chips.length; i++) {
         const c = G.chips[i];
-        if (c.at >= 0) continue;   // sudah terpasang di soket
-        const e = mkEl('repChip' + (G.sel === i ? ' sel' : '') + (dragging(i) ? ' dragging' : ''),
-            tray, chipFace(i));
+        const e = mkButton('repChip' + (G.sel === i ? ' sel' : '') + (dragging(i) ? ' dragging' : ''),
+            tray, chipFace(i), `Chip ${i + 1}, ${c.w} by ${c.h}`, `chip-${i}`);
+        // Ruang chip tetap dicadangkan agar baki tidak bergeser saat terpasang.
+        e.style.visibility = c.at >= 0 ? 'hidden' : '';
+        e.disabled = c.at >= 0;
+        e.setAttribute('aria-pressed', String(G.sel === i));
         e.style.width = `calc(var(--u) * ${c.w})`;
         e.style.height = `calc(var(--u) * ${c.h})`;
         e.addEventListener('click', () => repairChipPick('chip', i));
         e.addEventListener('mousedown', (ev) => beginDrag(ev, { kind: 'chip', i }, e));
+        bindTouchGesture(e, ev => beginDrag(ev, { kind: 'chip', i }, e));
     }
 }
 
@@ -655,12 +719,33 @@ function wireDocDrag() {
     docWired = true;
     document.addEventListener('mousemove', onDragMove);
     document.addEventListener('mouseup', endDrag);
+    document.addEventListener('pointermove', e => {
+        if (e.pointerId !== touchPointer?.id) return;
+        e.preventDefault(); onDragMove(e);
+    }, { passive: false });
+    document.addEventListener('pointerup', e => {
+        if (e.pointerId !== touchPointer?.id) return;
+        const gesture = touchPointer;
+        touchPointer = null;
+        if (drag?.moved) {
+            const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-drop-kind]');
+            if (target) dropOn({ kind: target.dataset.dropKind, side: target.dataset.side, i: Number(target.dataset.index) });
+        } else if (Math.hypot(e.clientX - gesture.x, e.clientY - gesture.y) < DRAG_SLOP) {
+            gesture.el.click();
+        }
+        endDrag();
+    });
+    document.addEventListener('pointercancel', e => {
+        if (e.pointerId !== touchPointer?.id) return;
+        touchPointer = null; endDrag();
+    });
 }
 
 function beginDrag(ev, src, el) {
     if (!open || phase !== 'play' || !G) return;
+    if (ev?.sourceCapabilities?.firesTouchEvents && !ev.pointerType) return;
     if (ev && ev.button != null && ev.button !== 0) return;   // klik kanan tetap milik katup/menu
-    if (ev && ev.preventDefault) ev.preventDefault();          // jangan seret-pilih teks
+    if (ev && !ev.pointerType && ev.preventDefault) ev.preventDefault(); // mouse: jangan seret-pilih teks
     const x = ev ? ev.clientX : 0, y = ev ? ev.clientY : 0;
     drag = { ...src, x, y, cx: x, cy: y, moved: false, done: false };
     dragEl = el || null;
@@ -668,11 +753,6 @@ function beginDrag(ev, src, el) {
 
 function onDragMove(ev) {
     if (!open || phase !== 'play') return;
-    if (syncDrag) {
-        const v = syncValueAt(syncDrag.track, ev.clientX);
-        if (v != null) repairSyncSet(syncDrag.i, v);
-        return;
-    }
     if (rotorDrag) {
         const angle = Math.atan2(ev.clientY - rotorDrag.cy, ev.clientX - rotorDrag.cx);
         let delta = angle - rotorDrag.angle;
@@ -688,7 +768,7 @@ function onDragMove(ev) {
         if (Math.hypot(drag.cx - drag.x, drag.cy - drag.y) < DRAG_SLOP) return;
         drag.moved = true;
         if (drag.kind === 'chip') makeGhost();
-        renderBoard();   // sekali saja: tandai sumber sedang diseret
+        dragEl?.classList.add('dragging'); // sumber tetap hidup sampai pointer dilepas
     }
     if (drag.kind === 'wire') paintWireLines();
     else moveGhost();
@@ -700,16 +780,17 @@ function dropOn(target) {
     if (!open || phase !== 'play' || !drag || !drag.moved || drag.done) return;
     drag.done = true;
     const d = drag;
+    endDrag(); // bersihkan pose sumber sebelum aksi menggambar papan baru
     if (d.kind === 'wire' && target.kind === 'wire') repairWireDrop(d.side, d.i, target.side, target.i);
     else if (d.kind === 'chip' && target.kind === 'socket') repairChipDrop(d.i, 'socket', target.i);
     else if (d.kind === 'chip' && target.kind === 'tray') repairChipDrop(d.i, 'tray', -1);
-    endDrag();
 }
 
 function endDrag() {
-    rotorDrag = null; syncDrag = null;
+    rotorDrag = null;
     if (!drag) { killGhost(); return; }
     const stale = drag.moved && !drag.done;   // dilepas di ruang kosong -> batal
+    dragEl?.classList.remove('dragging');
     drag = null; dragEl = null;
     killGhost();
     if (stale) renderBoard();
@@ -752,9 +833,9 @@ function chipFace(i) {
 function renderValves() {
     const wrap = mkEl('repValves', boardEl);
     for (let i = 0; i < G.n; i++) {
-        if (i) mkEl('repGear', wrap, '›');
         const okv = G.pos[i] === G.target[i];
         const card = mkEl('repValve' + (okv ? ' ok' : ''), wrap);
+        mkEl('repValveLbl', card, 'V' + (i + 1));
         const a = (G.pos[i] / G.steps) * 360, t = (G.target[i] / G.steps) * 360;
         let ticks = '';
         for (let k = 0; k < G.steps; k++) {
@@ -762,26 +843,25 @@ function renderValves() {
             ticks += `<line class="repTick" x1="50" y1="9" x2="50" y2="17"`
                 + ` transform="rotate(${ang} 50 50)"/>`;
         }
-        const dial = mkEl('repDial', card,
-            '<svg viewBox="0 0 100 100">'
+        const dial = mkButton('repDial', card,
+            '<svg viewBox="0 0 100 100" aria-hidden="true">'
             + '<circle class="repDialBg" cx="50" cy="50" r="43"/>'
             + ticks
             + `<path class="repTarget" d="M50 4 L45 16 L55 16 Z" transform="rotate(${t} 50 50)"/>`
             + `<g transform="rotate(${a} 50 50)"><line class="repNeedle" x1="50" y1="50" x2="50" y2="20"/></g>`
             + '<circle class="repHub" cx="50" cy="50" r="7"/>'
-            + '</svg>');
+            + '</svg>', `Valve ${i + 1}: notch ${G.pos[i] + 1}, target ${G.target[i] + 1}. Rotate clockwise`, `valve-${i}`);
         dial.addEventListener('click', () => repairValveTurn(i, 1));
+        bindTouchGesture(dial);
         dial.addEventListener('contextmenu', (e) => { e.preventDefault(); repairValveTurn(i, -1); });
         const row = mkEl('repValveBtns', card);
         const btn = (txt, dir) => {
-            const b = document.createElement('button');
-            b.className = 'repValveBtn';
-            b.innerText = txt;
+            const b = mkButton('repValveBtn', row, txt,
+                `Valve ${i + 1}: rotate ${dir > 0 ? 'clockwise' : 'counterclockwise'}`, `valve-${i}-${dir > 0 ? 'plus' : 'minus'}`);
             b.addEventListener('click', () => repairValveTurn(i, dir));
-            row.appendChild(b);
+            bindTouchGesture(b);
         };
         btn('−', -1);
-        mkEl('repValveLbl', row, 'V' + (i + 1));
         btn('+', 1);
     }
 }
@@ -813,13 +893,10 @@ function syncTracePoints(i) {
 function syncTraceClass(i) {
     return 'repSyncTrace' + (syncLocked(G, i) ? ' lock' : '') + (G.last === i ? ' active' : '');
 }
-const syncReadout = i =>
-    `<span class="repSyncHz">${syncHz(G, i).toFixed(1)} Hz</span>`
-    + `<span class="repSyncAmp">${Math.round(syncAmp(G, i) * 100)}%</span>`;
 
 function syncScopeHtml() {
     const A = CFG.campaign.repair.advanced;
-    return `<svg class="repSyncSvg" viewBox="0 0 ${SYNC_W} ${SYNC_H}" preserveAspectRatio="none">`
+    return `<svg class="repSyncSvg" viewBox="0 0 ${SYNC_W} ${SYNC_H}" preserveAspectRatio="none" aria-label="Generator waveforms">`
         + `<line class="repSyncMid" x1="0" y1="${SYNC_H / 2}" x2="${SYNC_W}" y2="${SYNC_H / 2}"/>`
         + `<polyline class="repSyncBus" points="${syncTracePoints(-1)}"/>`
         + G.v.map((_, i) => `<polyline class="${syncTraceClass(i)}" points="${syncTracePoints(i)}"/>`).join('')
@@ -827,16 +904,12 @@ function syncScopeHtml() {
         + `<div class="repSyncBusLbl">BUS REFERENCE ${(A.syncBusHz || 50).toFixed(1)} Hz</div>`;
 }
 const syncNoteText = () => syncAligned(G) ? 'ALL PHASES SYNCHRONISED'
-    : `${G.v.filter((_, i) => syncLocked(G, i)).length} / ${G.n} PHASES IN SYNC`;
+    : 'PHASES UNALIGNED';
 
 function renderSync() {
     const wrap = mkEl('repSyncWrap', boardEl);
-    // Osiloskop dicat ulang lewat innerHTML-nya SENDIRI, bukan lewat
-    // `renderBoard()`: membangun ulang seluruh papan 20x per detik akan
-    // mencabut tuas yang sedang diseret dari bawah kursor (pelajaran yang sama
-    // dengan `paintRotor`). Elemen tuas dipegang sebagai referensi, jadi
-    // pengecatan tak pernah bergantung pada penelusuran DOM.
     syncScopeEl = mkEl('repSyncScope', wrap, syncScopeHtml());
+    syncTraceEls = [syncScopeEl.querySelector('.repSyncBus'), ...syncScopeEl.querySelectorAll('.repSyncTrace')];
 
     const rows = mkEl('repSyncRows', wrap);
     syncRowEls = [];
@@ -844,35 +917,43 @@ function renderSync() {
         const row = mkEl('repSyncRow' + (syncLocked(G, i) ? ' lock' : ''), rows);
         mkEl('repSyncPip', row);
         mkEl('repSyncName', row, G.names[i]);
-        const read = mkEl('repSyncRead', row, syncReadout(i));
-        const track = mkEl('repSyncTrack', row);
-        const fill = mkEl('repSyncFill', track);
-        const knob = mkEl('repSyncKnob', track);
-        fill.style.width = (G.v[i] * 100) + '%';
-        knob.style.left = (G.v[i] * 100) + '%';
-        // Seret DAN klik-di-track: keduanya jalur resmi, pola yang sama dengan
-        // papan kabel/chip sejak 2026-07-29.
-        track.addEventListener('mousedown', e => beginSyncDrag(e, i, track));
-        syncRowEls.push({ row, track, fill, knob, read });
+        const read = mkEl('repSyncRead', row);
+        const hz = mkEl('repSyncHz', read), amp = mkEl('repSyncAmp', read);
+        const track = document.createElement('input');
+        track.type = 'range'; track.min = '0'; track.max = '1'; track.step = '0.001';
+        track.className = 'repSyncTrack'; track.value = G.v[i];
+        track.setAttribute('aria-label', G.names[i] + ' trim');
+        track.dataset.repControl = 'sync-' + i;
+        track.addEventListener('input', () => repairSyncSet(i, Number(track.value)));
+        row.appendChild(track);
+        syncRowEls.push({ row, track, hz, amp });
     }
     syncNoteEl = mkEl('repSyncNote' + (syncAligned(G) ? ' ok' : ''), wrap, syncNoteText());
+    paintSync();
 }
 
 // Cat ulang RINGAN: dipanggil tiap tick gelombang dan tiap gerak tuas.
-function paintSync() {
+function paintSync(waveOnly = false) {
     if (!G || G.type !== 'sync') return;
-    if (syncScopeEl) syncScopeEl.innerHTML = syncScopeHtml();
+    for (let i = 0; i < syncTraceEls.length; i++) {
+        const line = syncTraceEls[i];
+        if (!line) continue;
+        line.setAttribute('points', syncTracePoints(i - 1));
+        if (i > 0 && !waveOnly) line.setAttribute('class', syncTraceClass(i - 1));
+    }
+    if (waveOnly) return;
     for (let i = 0; i < syncRowEls.length; i++) {
         const r = syncRowEls[i];
         if (!r) continue;
         r.row.className = 'repSyncRow' + (syncLocked(G, i) ? ' lock' : '');
-        r.fill.style.width = (G.v[i] * 100) + '%';
-        r.knob.style.left = (G.v[i] * 100) + '%';
-        r.read.innerHTML = syncReadout(i);
+        r.track.value = G.v[i];
+        r.hz.textContent = syncHz(G, i).toFixed(1) + ' Hz';
+        r.amp.textContent = Math.round(syncAmp(G, i) * 100) + '%';
+        r.track.setAttribute('aria-valuetext', r.hz.textContent + (syncLocked(G, i) ? ', aligned' : ', unaligned'));
     }
     if (syncNoteEl) {
         syncNoteEl.className = 'repSyncNote' + (syncAligned(G) ? ' ok' : '');
-        syncNoteEl.innerText = syncNoteText();
+        syncNoteEl.textContent = syncNoteText();
     }
 }
 
@@ -885,32 +966,15 @@ function stopSyncTick() {
     syncTimer = 0;
 }
 
-// Nilai tuas dari posisi kursor pada track-nya.
-function syncValueAt(track, clientX) {
-    const r = track.getBoundingClientRect ? track.getBoundingClientRect() : null;
-    if (!r || !r.width) return null;
-    return Math.max(0, Math.min(1, (clientX - r.left) / r.width));
-}
-
-function beginSyncDrag(ev, i, track) {
-    if (!open || phase !== 'play' || !G || G.type !== 'sync') return;
-    if (ev && ev.button != null && ev.button !== 0) return;
-    if (ev && ev.preventDefault) ev.preventDefault();
-    syncDrag = { i, track };
-    const v = syncValueAt(track, ev ? ev.clientX : 0);
-    if (v != null) repairSyncSet(i, v);
-}
-
 const rotorInBand = () => {
     const A = CFG.campaign.repair.advanced;
     return !!G && G.type === 'kickstart' && G.rpm >= A.rotorGreenMin && G.rpm <= A.rotorGreenMax;
 };
-const rotorRpmHtml = () => `<span>ROTOR SPEED</span><strong>${Math.round(G.rpm * 100)}%</strong>`;
 function rotorStateText() {
-    if (G.bad) return `ENGINE STALLED - ${G.stalls}`;
+    if (G.bad) return 'ENGINE STALLED';
     if (G.phase === 'ignited') return 'COMBUSTION STABLE';
     if (G.phase === 'online') return 'GENERATOR COUPLED';
-    return rotorInBand() ? 'GREEN BAND - FIRE IGNITION' : 'CRANKING';
+    return rotorInBand() ? 'IGNITION READY' : 'CRANKING';
 }
 
 function renderKickstart() {
@@ -924,15 +988,20 @@ function renderKickstart() {
     wheel.innerHTML = `<div class="repRotorFace" style="transform:rotate(${G.angle}rad)">${spokes}<b></b></div>`;
     rotorFaceEl = wheel.children && wheel.children[0] ? wheel.children[0] : null;
     wheel.addEventListener('mousedown', (ev) => beginRotorDrag(ev, wheel));
+    bindTouchGesture(wheel, ev => beginRotorDrag(ev, wheel));
     const crank = document.createElement('button');
-    crank.className = 'repCrank'; crank.innerText = 'CRANK CLOCKWISE';
+    crank.type = 'button'; crank.dataset.repControl = 'crank';
+    crank.className = 'repCrank'; crank.innerText = 'CRANK';
+    crank.title = 'Crank clockwise';
     crank.disabled = G.phase !== 'spin';
     crank.addEventListener('click', () => repairRotorTurn(A.rotorCrankStepRad));
+    bindTouchGesture(crank);
     machine.appendChild(crank);
     rotorCrankEl = crank;
 
     const controls = mkEl('repRotorControls', wrap);
-    rotorRpmEl = mkEl('repRpmLabel', controls, rotorRpmHtml());
+    const rpmLabel = mkEl('repRpmLabel', controls, '<span>ROTOR SPEED</span>');
+    rotorRpmEl = document.createElement('strong'); rpmLabel.appendChild(rotorRpmEl);
     const meter = mkEl('repRpmMeter', controls);
     const green = mkEl('repRpmGreen', meter);
     green.style.left = `${A.rotorGreenMin * 100}%`;
@@ -940,16 +1009,20 @@ function renderKickstart() {
     rotorNeedleEl = mkEl('repRpmNeedle', meter);
     const ignition = document.createElement('button');
     ignition.className = 'repIgnition' + (G.ignited ? ' on' : '');
+    ignition.type = 'button'; ignition.dataset.repControl = 'ignition';
     ignition.innerText = G.ignited ? 'IGNITION LIT' : 'IGNITION';
     ignition.disabled = G.phase !== 'spin';
     ignition.addEventListener('click', repairRotorIgnition);
+    bindTouchGesture(ignition);
     controls.appendChild(ignition);
     rotorIgnEl = ignition;
     const breaker = document.createElement('button');
     breaker.className = 'repMaster' + (G.breaker ? ' on' : '');
-    breaker.innerText = G.breaker ? 'MASTER CLOSED' : 'CLOSE MASTER BREAKER';
+    breaker.type = 'button'; breaker.dataset.repControl = 'breaker';
+    breaker.innerText = G.breaker ? 'BREAKER CLOSED' : 'CLOSE BREAKER';
     breaker.disabled = G.phase !== 'ignited';
     breaker.addEventListener('click', repairMasterBreaker);
+    bindTouchGesture(breaker);
     controls.appendChild(breaker);
     rotorStateEl = mkEl('repRotorState', controls, rotorStateText());
     paintRotor();
@@ -963,8 +1036,10 @@ function paintRotor() {
     const armed = rotorInBand() && G.phase === 'spin';
     if (rotorFaceEl) rotorFaceEl.style.transform = `rotate(${G.angle}rad)`;
     if (rotorNeedleEl) rotorNeedleEl.style.left = `${Math.max(0, Math.min(1, G.rpm)) * 100}%`;
-    if (rotorRpmEl) rotorRpmEl.innerHTML = rotorRpmHtml();
-    if (rotorStateEl) rotorStateEl.innerText = rotorStateText();
+    const rpmText = Math.round(G.rpm * 100) + '%';
+    if (rotorRpmEl && rotorRpmEl.textContent !== rpmText) rotorRpmEl.textContent = rpmText;
+    const stateText = rotorStateText();
+    if (rotorStateEl && rotorStateEl.textContent !== stateText) rotorStateEl.textContent = stateText;
     if (rotorWrapEl && rotorWrapEl.classList) {
         rotorWrapEl.classList.toggle('live', armed);
         rotorWrapEl.classList.toggle('bad', !!G.bad);
@@ -994,7 +1069,8 @@ function stopRotorTick() {
 
 function beginRotorDrag(ev, wheel) {
     if (!open || phase !== 'play' || !G || G.type !== 'kickstart' || G.phase !== 'spin' || ev.button !== 0) return;
-    if (ev.preventDefault) ev.preventDefault();
+    if (ev.sourceCapabilities?.firesTouchEvents && !ev.pointerType) return;
+    if (!ev.pointerType && ev.preventDefault) ev.preventDefault();
     const r = wheel.getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     rotorDrag = { cx, cy, angle: Math.atan2(ev.clientY - cy, ev.clientX - cx) };
@@ -1002,12 +1078,14 @@ function beginRotorDrag(ev, wheel) {
 
 function banner(text, cls) {
     if (!bannerEl) return;
-    bannerEl.innerText = text;
+    bannerEl.textContent = text;
+    if (subEl) subEl.style.visibility = 'hidden';
     if (bannerEl.classList) { bannerEl.classList.remove('ok'); bannerEl.classList.add('on', cls); }
 }
 function clearBanner() {
     if (!bannerEl) return;
-    bannerEl.innerText = '';
+    bannerEl.textContent = '';
+    if (subEl) subEl.style.visibility = '';
     if (bannerEl.classList) bannerEl.classList.remove('on', 'ok');
 }
 
@@ -1074,7 +1152,7 @@ export function repairSyncSet(i, value) {
     const ev = applySyncSet(G, i, value);
     if (ev === 'none') return false;
     paintSync();
-    if (repairIsSolved(G)) { syncDrag = null; afterAction(ev); }
+    if (repairIsSolved(G)) afterAction(ev);
     else if (ev === 'link') playSFX(sfxPickup, 0.45);
     return true;
 }
@@ -1082,7 +1160,7 @@ export function repairSyncSet(i, value) {
 export function repairSyncTick(dt) {
     if (!open || phase !== 'play' || !G || G.type !== 'sync') return false;
     applySyncTick(G, dt);
-    paintSync();
+    paintSync(true);
     return true;
 }
 
@@ -1112,6 +1190,7 @@ export function repairMasterBreaker() {
 
 // Tukar palet kabel biasa <-> palet AMAN BUTA WARNA (+ lambang bentuk).
 export function repairToggleColorblind() {
+    if (open && phase !== 'play') return cbMode;
     cbMode = !cbMode;
     try { localStorage.setItem(CB_KEY, cbMode ? '1' : '0'); } catch (e) { /* mode privat */ }
     playSFX(sfxSwitch, 0.5);
@@ -1123,7 +1202,10 @@ export const repairColorblind = () => cbMode;
 // Papan selesai: catat kemajuan lalu lanjut ke komponen berikutnya (papan baru
 // di modal YANG SAMA) atau tutup modal bila ini yang terakhir.
 function stepSolved() {
+    if (phase !== 'play') return;
     phase = 'step';
+    stopSyncTick(); stopRotorTick();
+    if (badTimer) { clearTimeout(badTimer); badTimer = 0; }
     done = Math.min(parts.length, done + 1);
     playSFX(sfxPurchase);
     // DERU TURBIN (2026-08-19, permintaan user: "diikuti suara putaran turbin
@@ -1134,7 +1216,11 @@ function stepSolved() {
     if (parts[gi] && parts[gi].type === 'sync') playSFX(sfxHeli, 0.55);
     if (cb && cb.onProgress) cb.onProgress(done);
     const last = gi + 1 >= parts.length;
-    banner(last ? 'GENERATOR ONLINE' : `${parts[gi].label} INSTALLED — ${done}/${parts.length}`, 'ok');
+    banner(last ? 'GENERATOR ONLINE' : `${parts[gi].label} RESTORED`, 'ok');
+    paintChrome();
+    for (const control of boardEl?.querySelectorAll('button,input') || []) control.disabled = true;
+    if (abortEl) abortEl.disabled = true;
+    if (cbBtn) cbBtn.disabled = true;
     if (stepTimer) clearTimeout(stepTimer);
     stepTimer = setTimeout(() => {
         stepTimer = 0;
@@ -1147,7 +1233,8 @@ function loadGame(k) {
     gi = k;
     drag = null; dragEl = null; killGhost();   // papan baru: seret yang tertinggal dibuang
     rotorDrag = null; stopRotorTick();
-    syncDrag = null; stopSyncTick(); syncScopeEl = null; syncNoteEl = null; syncRowEls = [];
+    stopSyncTick(); syncScopeEl = null; syncNoteEl = null; syncRowEls = []; syncTraceEls = [];
+    touchPointer = null;
     wireLinesEl = null;
     const type = parts[k].type;
     const A = CFG.campaign.repair.advanced;
@@ -1157,7 +1244,10 @@ function loadGame(k) {
         : type === 'sync' ? syncCount() : repairCount();
     G = buildRepairGame(type, count);
     phase = 'play';
+    if (abortEl) abortEl.disabled = false;
+    if (cbBtn) cbBtn.disabled = false;
     renderBoard();
+    boardEl?.querySelector('button:not(:disabled),input')?.focus({ preventScroll: true });
     if (type === 'kickstart') startRotorTick();
     if (type === 'sync') startSyncTick();
 }
@@ -1165,17 +1255,18 @@ function loadGame(k) {
 // Tutup modal, kembalikan scene stage (TANPA enter()), jalankan callback, lalu
 // minta pointer-lock lagi supaya player langsung main.
 function finish(result) {
-    if (!open) return;
+    if (!open || (result === 'abort' && phase !== 'play')) return;
     open = false;
     phase = 'idle';
     if (stepTimer) { clearTimeout(stepTimer); stepTimer = 0; }
     if (badTimer) { clearTimeout(badTimer); badTimer = 0; }
     stopRotorTick(); stopSyncTick();
     killGhost();
-    drag = null; dragEl = null; rotorDrag = null; syncDrag = null;
+    drag = null; dragEl = null; rotorDrag = null; touchPointer = null;
     const root = overlayEl();
     if (root) { root.style.display = 'none'; root.innerHTML = ''; }
-    boardEl = bannerEl = subEl = stepEl = cbBtn = hintEl = wireLinesEl = null;
+    boardEl = bannerEl = subEl = stepEl = cbBtn = cbLabelEl = abortEl = wireLinesEl = null;
+    syncScopeEl = syncNoteEl = null; syncTraceEls = []; syncRowEls = [];
     rotorWrapEl = rotorFaceEl = rotorNeedleEl = rotorRpmEl = rotorStateEl = null;
     rotorIgnEl = rotorCrankEl = null;
     G = null;

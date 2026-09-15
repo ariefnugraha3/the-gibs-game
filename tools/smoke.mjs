@@ -36,9 +36,9 @@ const ctx2d = new Proxy({ font: '10px Gasalt' }, {
 });
 function fakeEl() {
     return {
-        style: {}, classList: { add() { }, remove() { }, toggle() { }, contains: () => false },
+        style: { setProperty(k, v) { this[k] = v; } }, classList: { add() { }, remove() { }, toggle() { }, contains: () => false },
         children: [], firstChild: null,
-        addEventListener() { }, appendChild() { }, removeChild() { }, setAttribute() { },
+        addEventListener() { }, appendChild() { }, removeChild() { }, setAttribute() { }, removeAttribute() { }, focus() { },
         getContext: () => ctx2d, querySelectorAll: () => [], querySelector: () => fakeEl(),
         textContent: '', innerText: '', innerHTML: '', value: '', dataset: {}, width: 64, height: 64,
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 })
@@ -2514,6 +2514,10 @@ async function waitHackClosed() {
 {
     const HK = cfgMod.CFG.campaign.hack;
     let lastResult = null, wins = 0;
+    const abortButton = document.getElementById('hackAbort');
+    const savedAbortListener = abortButton.addEventListener;
+    let abortClick = null;
+    abortButton.addEventListener = (type, listener) => { if (type === 'click') abortClick = listener; };
     const openBoard = (size) => hackMod.beginHackMinigame({
         head: 'TEST TERMINAL', sub: 'test', size,
         onSuccess: () => { lastResult = 'ok'; wins++; },
@@ -2522,7 +2526,7 @@ async function waitHackClosed() {
     // (a) GENERATOR selalu menghasilkan papan yang BISA dipecahkan pada ukuran
     //     tetap gridSize; jalur solusi digambar sebelum chip pengecoh/rotasi.
     let genOk = true, startsUnsolved = true, startsWrong = true, boards = 0;
-    let linksOk = true, poweredCoreOk = true;
+    let linksOk = true, poweredCoreOk = true, resultLocked = true;
     for (let n = 0; n < 12; n++) {
         // Caller lama sengaja meminta ukuran berbeda; modal wajib mengabaikannya.
         openBoard(n % 2 ? HK.gridSize - 1 : HK.gridSize + 2);
@@ -2536,6 +2540,9 @@ async function waitHackClosed() {
         const done = solveHack();
         if (d0.size !== HK.gridSize || !done.solved) genOk = false;
         if (!done.externalLinks || !done.externalLinks.corePowered) poweredCoreOk = false;
+        abortClick();
+        hackMod.hackScene.shopKey('escape');
+        if (!abortButton.disabled || hackMod.hackDebug().phase !== 'won') resultLocked = false;
         await waitHackClosed();
         boards++;
     }
@@ -2543,6 +2550,7 @@ async function waitHackClosed() {
     T('HACK: papan dibuka BELUM terpecahkan & tiap chip jalur mulai salah orientasi',
         startsUnsolved && startsWrong);
     T('HACK: papan terpecahkan -> onSuccess dipanggil sekali per papan', wins === boards && lastResult === 'ok');
+    T('HACK UI: Abort/ESC saat ACCESS GRANTED tidak membatalkan keberhasilan', resultLocked);
     T('HACK: SEMUA terminal memakai satu ukuran gridSize (caller tak bisa override)',
         hackMod.hackGridSize(0) === HK.gridSize && hackMod.hackGridSize(99) === HK.gridSize);
     T('HACK: kabel luar menghubungkan INGRESS/CORE ke tile baris tengah dan mengikuti daya',
@@ -2586,9 +2594,13 @@ async function waitHackClosed() {
     hackMod.hackTick(HK.traceSec);
     T('HACK: ICE TRACE habis -> LOCKED OUT (rotasi tak lagi diterima)',
         hackMod.hackDebug().phase === 'lost' && hackMod.hackRotate(pi) === false);
+    abortClick();
+    T('HACK UI: Abort saat LOCKED OUT tidak melewati callback alarm',
+        abortButton.disabled && hackMod.hackDebug().phase === 'lost');
     await waitHackClosed();
     T('HACK: LOCKED OUT -> onFail("fail") & modal menutup sendiri',
         lastResult === 'fail' && hackMod.hackDebug().open === false);
+    abortButton.addEventListener = savedAbortListener;
 }
 
 // === MINIGAME HACK "SIGNAL TRACE" khusus Stage 5-6. Kanal bergerak dikunci
@@ -2625,17 +2637,68 @@ async function waitSignalClosed() {
         startsMoving && moved && g.solved && g.active === S.channels);
     T('SIGNAL TRACE: salah kunci memberi penalti waktu config-driven',
         miss === 'miss' && Math.abs((beforeMiss - g.left) - S.missPenaltySec) < 1e-6);
+    let naturalWins = true;
+    for (let run = 0; run < 120; run++) {
+        const timed = signalMod.buildSignalGame();
+        for (let i = 0; i < timed.channels.length && !timed.failed; i++) {
+            const c = timed.channels[timed.active];
+            const distance = ((c.dir > 0 ? c.target - c.phase : c.phase - c.target) + 1) % 1;
+            signalMod.advanceSignalGame(timed, distance / c.speed);
+            signalMod.lockSignalGame(timed);
+        }
+        if (!timed.solved || timed.failed || timed.left <= 0) naturalWins = false;
+    }
+    T('SIGNAL TRACE: 120 papan selesai dengan menunggu gerak kanal asli, tanpa memindahkan cursor ke target', naturalWins);
+    let windowsMatch = true;
+    for (const target of [0, 0.02, 0.5, 0.98, ...g.channels.map(c => c.target)]) {
+        for (const tolerance of [S.lockTolerance, Math.min(0.49, S.lockTolerance * 3), 0.5]) {
+            const windows = signalMod.signalCaptureWindows(target, tolerance);
+            if (windows.some(w => w.left < 0 || w.width < 0 || w.left + w.width > 1 + 1e-9)) windowsMatch = false;
+            for (let sample = 0; sample < 200; sample++) {
+                const p = (sample + 0.37) / 200;
+                const distance = Math.min(Math.abs(p - target), 1 - Math.abs(p - target));
+                const drawn = windows.some(w => p >= w.left && p <= w.left + w.width);
+                if (drawn !== (distance <= tolerance)) windowsMatch = false;
+            }
+        }
+    }
+    T('SIGNAL TRACE UI: jendela tangkapan termasuk wrap di kedua ujung track selalu sesuai model', windowsMatch);
     let result = null;
+    let callbacks = 0, abortClick = null;
+    const abortButton = document.getElementById('sigAbort');
+    const oldListener = abortButton.addEventListener;
+    abortButton.addEventListener = (type, f) => { if (type === 'click') abortClick = f; };
     const previous = smMod.activeScene;
-    signalMod.beginSignalTraceMinigame({
-        head: 'TEST SIGNAL', onSuccess: () => { result = 'ok'; }, onFail: why => { result = why; },
+    const openSignal = () => signalMod.beginSignalTraceMinigame({
+        head: 'TEST SIGNAL', onSuccess: () => { result = 'ok'; callbacks++; },
+        onFail: why => { result = why; callbacks++; },
     });
+    openSignal();
     T('SIGNAL TRACE MODAL: scene terpisah, pause, dan tombol gameplay ditelan',
         smMod.activeScene.id === 'campaign-signal-trace' && stateMod.isPaused
         && smMod.activeScene.shopActive() && smMod.activeScene.shopKey('w'));
-    solveSignalTrace(); await waitSignalClosed();
+    solveSignalTrace();
+    abortClick(); signalMod.signalTraceScene.shopKey('escape');
+    T('SIGNAL TRACE UI: hasil sukses menolak Abort dan input tambahan',
+        signalMod.signalTraceDebug().phase === 'won' && abortButton.disabled && signalMod.signalLock() === false);
+    await waitSignalClosed();
     T('SIGNAL TRACE MODAL: solve memanggil sukses dan memulihkan scene tanpa enter ulang',
-        result === 'ok' && smMod.activeScene === previous && !signalMod.isSignalTraceOpen());
+        result === 'ok' && callbacks === 1 && smMod.activeScene === previous && !signalMod.isSignalTraceOpen());
+    openSignal();
+    signalMod.signalTick(S.traceSec);
+    abortClick(); signalMod.signalTraceScene.shopKey('escape');
+    T('SIGNAL TRACE UI: hasil kalah tidak bisa dibatalkan untuk melewati alarm',
+        signalMod.signalTraceDebug().phase === 'lost' && abortButton.disabled && signalMod.signalLock() === false);
+    await waitSignalClosed();
+    T('SIGNAL TRACE UI: timeout memanggil alarm sekali dan mengembalikan stage',
+        result === 'fail' && callbacks === 2 && smMod.activeScene === previous);
+    openSignal();
+    const fresh = signalMod.signalTraceDebug();
+    abortClick();
+    T('SIGNAL TRACE UI: retry membuka papan baru dan Abort saat play tetap bekerja',
+        fresh.left === S.traceSec && fresh.active === 0 && fresh.strikes === 0
+        && result === 'abort' && callbacks === 3 && !signalMod.isSignalTraceOpen() && smMod.activeScene === previous);
+    abortButton.addEventListener = oldListener;
 }
 
 // === MINIGAME PERBAIKAN GENERATOR "FIELD REPAIR" (2026-07-29, permintaan user:
@@ -2978,10 +3041,11 @@ async function waitRepairClosed() {
         const docLs = {};
         const rEl = (cls = '') => {
             const e = {
-                className: cls, style: {}, children: [], parentNode: null, _ls: {}, _html: '',
+                className: cls, style: { setProperty(k, v) { this[k] = v; } }, children: [], parentNode: null, _ls: {}, _html: '',
                 classList: { add() { }, remove() { }, toggle() { }, contains: () => false },
                 innerText: '', value: '', dataset: {},
                 addEventListener(t, f) { (e._ls[t] = e._ls[t] || []).push(f); },
+                click() { for (const f of e._ls.click || []) f({}); },
                 removeEventListener() { },
                 appendChild(c) { e.children.push(c); c.parentNode = e; return c; },
                 removeChild(c) { const i = e.children.indexOf(c); if (i >= 0) e.children.splice(i, 1); return c; },
@@ -3027,8 +3091,10 @@ async function waitRepairClosed() {
         fireDoc('mouseup', ev(10, 10));
         const noDrag = repMod.repairDebug().game.links[li] === -1;
         // (2) seret sungguhan: tekan di pin kiri, geser jauh, lepas di pin kanan
+        const dragSource = pinsL()[li];
         fire(pinsL()[li], 'mousedown', ev(10, 10));
         fireDoc('mousemove', ev(60, 30));                      // > DRAG_SLOP -> mulai menyeret
+        T('REPAIR UI: elemen sumber tetap hidup selama drag', pinsL()[li] === dragSource);
         const dragging = repMod.repairDebug().dragging === true;
         fire(pinsR()[rj], 'mouseup', ev(60, 30));              // papan dibangun ulang di sini
         fireDoc('mouseup', ev(60, 30));
@@ -3036,7 +3102,17 @@ async function waitRepairClosed() {
         const cleared = repMod.repairDebug().dragging === false;
         T('REPAIR DRAG DOM: mousedown->mousemove->mouseup benar-benar menyambung kabel; klik tanpa gerak bukan seret',
             noDrag && dragging && linked && cleared);
-        smMod.activeScene.shopKey('escape');
+        const touch = (x, y, id = 7) => ({ ...ev(x, y), pointerType: 'touch', pointerId: id });
+        fire(pinsL()[li], 'pointerdown', touch(10, 10));
+        fireDoc('pointermove', touch(60, 30));
+        fireDoc('pointercancel', touch(60, 30, 8));
+        const otherPointerIgnored = repMod.repairDebug().dragging;
+        fireDoc('pointercancel', touch(60, 30));
+        T('REPAIR UI: pointercancel membersihkan drag miliknya tanpa mengubah sambungan',
+            otherPointerIgnored && !repMod.repairDebug().dragging && g0.links[li] === rj);
+        fire(global.document.getElementById('repAbort'), 'pointerdown', touch(10, 10));
+        fireDoc('pointerup', touch(10, 10));
+        T('REPAIR UI: tap Abort setelah drag membatalkan modal dengan bersih', !repMod.isRepairOpen() && dragResult === 'abort');
         stateMod.setPaused(false);
         // Papan CHIP: seret dari baki ke soket, lalu seret balik ke baki.
         repMod.beginRepairMinigame({
@@ -3053,6 +3129,10 @@ async function waitRepairClosed() {
         fire(find(boardOf(), 'repSocket')[si], 'mouseup', ev(90, 70));
         fireDoc('mouseup', ev(90, 70));
         const seated = repMod.repairDebug().game.chips[ci].at === si;
+        const trayAfterSeat = find(boardOf(), 'repTray')[0].children;
+        T('REPAIR UI: baki tetap menyimpan ruang setiap chip sesudah dipasang',
+            trayAfterSeat.length === gc2.n && trayAfterSeat[ci].disabled
+            && trayAfterSeat[ci].style.visibility === 'hidden');
         // ...dan menyeretnya balik ke area baki = mencabut chip dari soket.
         fire(find(find(boardOf(), 'repSocket')[si], 'repChip')[0], 'mousedown', ev(90, 70));
         fireDoc('mousemove', ev(20, 20));
@@ -3064,34 +3144,39 @@ async function waitRepairClosed() {
         smMod.activeScene.shopKey('escape');
         stateMod.setPaused(false);
 
-        // Papan advanced 1: Phase Sync digerakkan lewat event mouse SUNGGUHAN
-        // pada track tuasnya (mousedown -> mousemove -> mouseup). Yang diuji di
-        // sini adalah kontrak DOM-nya: track bisa diklik langsung (bukan cuma
-        // knob-nya), seret benar-benar menggeser nilai, dan tuas LAIN ikut
-        // bergeser karena kopling.
+        // Range native menyampaikan perubahan lewat input, dan kopling tetap
+        // memperbarui tuas lain tanpa mengganti elemen yang sedang dipegang.
         dragResult = null;
         repMod.beginRepairMinigame({
             head: 'SYNC TEST', parts: [repMod.ADVANCED_REPAIR_PARTS[0]],
             onSuccess: () => { dragResult = 'ok'; }, onFail: (w) => { dragResult = w; },
         });
         const syncG = repMod.repairDebug().game;
-        // Track selebar 100 px di mini-DOM, jadi clientX = persen nilai tuas.
         const syncTracks = () => find(boardOf(), 'repSyncTrack');
+        const trackBefore = syncTracks()[0];
         const beforeSync = syncG.v.slice();
-        fire(syncTracks()[0], 'mousedown', ev(80, 5));
+        syncTracks()[0].value = '0.8';
+        fire(syncTracks()[0], 'input', {});
         const syncClicked = Math.abs(syncG.v[0] - 0.8) < 1e-6;
         const syncCoupled = syncG.v.every((v, i) => i === 0 || Math.abs(v - beforeSync[i]) > 1e-6);
-        fireDoc('mousemove', ev(20, 5));
+        syncTracks()[0].value = '0.2';
+        fire(syncTracks()[0], 'input', {});
         const syncDragged = Math.abs(syncG.v[0] - 0.2) < 1e-6;
         fireDoc('mouseup', ev(20, 5));
         // Dilepas: gerak kursor berikutnya tak boleh menggeser apa pun lagi.
         const afterUp = syncG.v[0];
         fireDoc('mousemove', ev(90, 5));
         const syncReleased = syncG.v[0] === afterUp;
+        repMod.repairSyncTick(0.2);
+        const rangeStable = syncTracks()[0] === trackBefore && trackBefore.type === 'range';
         solveOpenRepairBoard();
+        fire(global.document.getElementById('repAbort'), 'click', ev(0, 0));
+        T('REPAIR UI: Abort pada hasil sukses tidak mengganti callback menjadi pembatalan',
+            repMod.isRepairOpen() && repMod.repairDebug().phase === 'step'
+            && global.document.getElementById('repAbort').disabled);
         await waitRepairClosed();
-        T('PHASE SYNC DOM: klik track menggeser tuas, seret mengikutinya, tuas lain ikut terkopling, dan lepas benar-benar melepas',
-            syncClicked && syncCoupled && syncDragged && syncReleased && dragResult === 'ok');
+        T('PHASE SYNC DOM: input range menggeser fasa beserta kopling, elemen tetap stabil saat tick, dan papan selesai',
+            syncClicked && syncCoupled && syncDragged && syncReleased && rangeStable && dragResult === 'ok');
         stateMod.setPaused(false);
 
         // Papan advanced 2: satu putaran drag clockwise dibaca sebagai RPM,

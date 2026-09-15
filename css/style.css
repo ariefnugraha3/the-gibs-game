@@ -2845,728 +2845,554 @@ body.cine #medkitBar, body.cine #stageMsg {
         radial-gradient(circle at 50% 42%, #17201f, #0b0e10 72%);
     cursor: default;
 }
+/* Khusus ICE BREACH; overlay juga dipakai SIGNAL TRACE. */
+#hackOverlay.iceBreach {
+    --hack-ink: #23262b;
+    --hack-metal: #3a4046;
+    --hack-steel: #7c848c;
+    --hack-paper: #d8d2c4;
+    --hack-amber: #ffb03b;
+    --hack-tech: #2fb8a6;
+    --hack-hazard: #b3402e;
+    --hack-rail: 40px;
+    --hack-board: min(440px, max(160px, calc(100dvh - 284px)));
+    position: fixed;
+    padding: 24px;
+    box-sizing: border-box;
+    overflow: auto;
+    background: #161618;
+    color: var(--hack-paper);
+    letter-spacing: 0;
+}
 .hackPanel {
-    position: relative;
-    width: min(760px, 94vw);
-    max-height: 94vh;
-    padding: 20px 26px 18px;
-    background: rgba(16, 20, 22, 0.92);
-    border: 1px solid rgba(47, 184, 166, 0.45);
-    border-radius: 10px;
-    box-shadow: 0 0 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 176, 59, 0.08) inset;
-    overflow: hidden;
+    width: min(800px, 100%);
+    margin: auto;
+    flex: 0 0 auto;
 }
-/* Sapuan cahaya halus di kepala panel (murni dekor) */
-.hackGlow {
-    position: absolute;
-    left: 0; right: 0; top: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #2fb8a6, transparent);
-    opacity: 0.75;
-}
+.hackPanel *, .hackPanel *::before, .hackPanel *::after { box-sizing: border-box; }
 .hackHead {
     display: flex;
-    align-items: baseline;
-    gap: 12px;
-    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--hack-metal);
 }
-.hackTag {
-    font-size: 12px;
-    font-weight: bold;
-    letter-spacing: 0.32em;
-    color: #0b0e10;
-    background: #2fb8a6;
-    padding: 3px 9px;
-    border-radius: 3px;
-}
+.hackHead h1 { margin: 0; flex-shrink: 0; font-size: 32px; line-height: 1; font-weight: 700; }
 .hackTitle {
-    font-size: 17px;
-    font-weight: bold;
-    letter-spacing: 0.18em;
-    color: #ffb03b;
+    max-width: 55%;
+    font-size: 16px;
+    line-height: 1.4;
+    color: var(--hack-paper);
+    text-align: right;
     text-transform: uppercase;
+    overflow-wrap: anywhere;
 }
-.hackSub {
-    margin: 8px 0 16px;
-    font-size: 13px;
-    line-height: 1.5;
-    letter-spacing: 0.03em;
-    color: #9fb0ad;
+.hackBanner {
+    min-height: 24px;
+    margin-top: 16px;
+    font-size: 18px;
+    line-height: 24px;
+    overflow-wrap: anywhere;
 }
+.hackBanner.ok { color: var(--hack-tech); }
+.hackBanner.bad { color: var(--hack-paper); border-left: 3px solid var(--hack-hazard); padding-left: 12px; }
+.hackCircuit { width: min(100%, calc(var(--hack-board) + 2 * var(--hack-rail))); margin: 24px auto; }
+.hackEndpoints { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 12px; font-size: 14px; line-height: 16px; }
+.hackEndpoints span:first-child { color: var(--hack-amber); }
 /* Baris utama: PORT — papan chip — CORE */
 .hackBody {
-    display: flex;
+    display: grid;
+    grid-template-columns: var(--hack-rail) minmax(0, 1fr) var(--hack-rail);
     align-items: center;
-    justify-content: center;
-    gap: 14px;
 }
 .hackPort, .hackCore {
     position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 74px;
-    height: 20px;
-    font-size: 10px;
-    letter-spacing: 0.16em;
-    color: #6f807d;
-    text-align: center;
-}
-.hackPort span, .hackCore span {
-    position: absolute;
-    top: 29px;
-    left: 50%;
-    width: 92px;
-    transform: translateX(-50%);
+    height: 16px;
+    color: var(--hack-steel);
+    pointer-events: none;
 }
 .hackJack {
-    position: relative;
-    z-index: 3;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    border: 2px solid #2a4b47;
-    background: #16211f;
+    position: absolute;
+    top: 0;
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    background: #161618;
 }
+.hackPort .hackJack { left: 0; }
+.hackCore .hackJack { right: 0; }
 /* Kabel eksternal memperjelas titik masuk/keluar jalur pada baris tengah. */
 .hackLead {
     position: absolute;
-    z-index: 2;
     top: 50%;
-    width: 50px;
-    height: 18px;
+    width: calc(100% - 16px);
+    height: 6px;
     transform: translateY(-50%);
-    background: #1d3d39;
-    pointer-events: none;
+    background: currentColor;
 }
 .hackLead::after {
     content: '';
     position: absolute;
-    left: 0;
-    right: 0;
-    top: 6px;
-    height: 6px;
-    background: #2fb8a6;
-    box-shadow: 0 0 9px rgba(47, 184, 166, 0.35);
+    left: 50%;
+    top: -2px;
+    width: 10px;
+    height: 10px;
+    border-top: 2px solid currentColor;
+    border-right: 2px solid currentColor;
+    transform: translateX(-50%) rotate(45deg);
 }
-.hackLeadIn { left: calc(50% + 8px); }
-.hackLeadOut { right: calc(50% + 8px); }
-.hackPort.on .hackLead::after, .hackCore.on .hackLead::after {
-    background: #ffb03b;
-    box-shadow: 0 0 12px rgba(255, 176, 59, 0.72);
-}
-.hackPort.on .hackJack, .hackCore.on .hackJack {
-    border-color: #ffb03b;
-    background: #ffb03b;
-    box-shadow: 0 0 16px rgba(255, 176, 59, 0.75);
-}
-.hackPort.on, .hackCore.on { color: #ffb03b; }
-.hackCore.on { animation: hackPulse 0.9s ease-in-out infinite; }
-@keyframes hackPulse { 50% { opacity: 0.6; } }
+.hackLeadIn { right: 0; }
+.hackLeadOut { left: 0; }
+.hackPort.on, .hackCore.on { color: var(--hack-amber); }
+.hackPort.on .hackJack, .hackCore.on .hackJack { background: currentColor; }
 .hackGrid {
-    position: relative;
-    z-index: 1;
     display: grid;
-    gap: 5px;
-    flex: 0 0 auto;
-    padding: 7px;
-    background: rgba(6, 10, 10, 0.7);
-    border: 1px solid rgba(47, 184, 166, 0.22);
-    border-radius: 8px;
+    gap: 2px;
+    width: 100%;
+    aspect-ratio: 1;
+    background: var(--hack-metal);
+    outline: 1px solid var(--hack-metal);
 }
 .hackTile {
-    width: min(9.2vh, 10.2vw, 62px);
-    height: min(9.2vh, 10.2vw, 62px);
-    background: rgba(47, 184, 166, 0.05);
-    border: 1px solid rgba(47, 184, 166, 0.16);
-    border-radius: 5px;
+    position: relative;
+    display: block;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    aspect-ratio: 1;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    appearance: none;
+    background: var(--hack-ink);
+    color: var(--hack-paper);
     cursor: pointer;
-    transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.12s;
 }
-.hackTile:hover { background: rgba(255, 176, 59, 0.1); border-color: rgba(255, 176, 59, 0.45); }
-.hackTile.dead { cursor: default; background: rgba(255, 255, 255, 0.02); }
-.hackTile.dead:hover { background: rgba(255, 255, 255, 0.02); border-color: rgba(47, 184, 166, 0.16); }
+.hackTile:disabled { cursor: default; }
+.hackTile.dead { background: #1c1c1f; }
+.hackTile:focus-visible { outline: 2px solid var(--hack-paper); outline-offset: -4px; z-index: 1; }
+.hackTile:not(:disabled):active { background: var(--hack-metal); }
+@media (hover: hover) {
+    .hackTile:not(:disabled):hover { background: #303339; }
+    .hackAbort:not(:disabled):hover { border-color: var(--hack-paper); color: var(--hack-paper); }
+}
 /* Chip = pembungkus yang DIPUTAR (transisi halus tiap klik) */
 .hackChip {
+    display: block;
     width: 100%;
     height: 100%;
-    transition: transform 0.16s ease-out;
+    pointer-events: none;
+    transition: transform 0.12s ease-out;
 }
 .hackChip svg { width: 100%; height: 100%; display: block; }
-.hackChip .pipe {
-    fill: none;
-    stroke: #1d3d39;
-    stroke-width: 20;
-    stroke-linecap: round;
-}
 .hackChip .core {
     fill: none;
-    stroke: #2fb8a6;
-    stroke-width: 8;
-    stroke-linecap: round;
+    stroke: var(--hack-steel);
+    stroke-width: 6;
+    stroke-linecap: butt;
 }
-.hackChip .node { fill: #2fb8a6; }
-.hackChip .dead { fill: rgba(255, 255, 255, 0.06); }
-/* Chip yang SUDAH teraliri daya dari port: amber + berpendar */
-.hackTile.on { background: rgba(255, 176, 59, 0.12); border-color: rgba(255, 176, 59, 0.5); }
-.hackTile.on .hackChip .core { stroke: #ffb03b; }
-.hackTile.on .hackChip .node { fill: #ffe0a8; }
-.hackTile.on .hackChip svg { filter: drop-shadow(0 0 5px rgba(255, 176, 59, 0.65)); }
-/* Kaki panel: hitung mundur ICE TRACE, petunjuk, tombol batal */
+.hackChip .node { fill: var(--hack-ink); stroke: var(--hack-steel); stroke-width: 3; }
+.hackChip .dead { fill: var(--hack-metal); }
+/* Daya dibedakan juga oleh simpul penuh, bukan warna saja. */
+.hackTile.on .hackChip .core { stroke: var(--hack-amber); }
+.hackTile.on .hackChip .node { fill: var(--hack-amber); stroke: var(--hack-amber); }
 .hackFoot {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 280px) auto;
     align-items: center;
-    gap: 14px;
-    margin-top: 18px;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 32px;
+    border-top: 1px solid var(--hack-metal);
+    padding-top: 16px;
 }
-.hackTrace { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.18em; color: #6f807d; }
+.hackTrace { min-width: 0; font-size: 14px; line-height: 16px; }
+.hackTraceHead { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+#hackTraceState { color: var(--hack-paper); }
 .hackTraceShell {
-    display: inline-block;
-    width: 132px;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 3px;
+    width: 100%;
+    height: 4px;
+    background: var(--hack-metal);
     overflow: hidden;
 }
 .hackTraceFill {
     display: block;
     height: 100%;
     width: 100%;
-    background: #2fb8a6;
-    transition: width 0.1s linear;
+    background: var(--hack-tech);
+    transform-origin: left;
+    transition: transform 0.1s linear;
 }
-.hackTraceFill.warn { background: #d9552f; }
-.hackTraceNum { color: #e6ded0; min-width: 34px; }
-.hackHint { flex: 1; text-align: center; font-size: 11px; letter-spacing: 0.06em; color: #6f807d; }
+.hackTraceFill.warn { background: var(--hack-hazard); }
 .hackAbort {
     font-family: inherit;
-    font-size: 12px;
-    font-weight: bold;
-    letter-spacing: 0.14em;
-    color: #ffb03b;
-    background: rgba(255, 176, 59, 0.08);
-    border: 1px solid rgba(255, 176, 59, 0.45);
-    border-radius: 4px;
-    padding: 8px 14px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--hack-paper);
+    background: transparent;
+    border: 1px solid var(--hack-steel);
+    border-radius: 0;
+    min-width: 88px;
+    min-height: 44px;
+    padding: 8px 16px;
     cursor: pointer;
 }
-.hackAbort:hover { background: rgba(255, 176, 59, 0.2); }
-/* Banner hasil (ACCESS GRANTED / LOCKED OUT) menutupi panel sesaat */
-.hackBanner {
-    position: absolute;
-    inset: 0;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    font-size: clamp(20px, 3.4vw, 40px);
-    font-weight: bold;
-    letter-spacing: 0.28em;
-    background: rgba(8, 11, 12, 0.88);
+.hackAbort:focus-visible { outline: 2px solid var(--hack-amber); outline-offset: 3px; }
+.hackAbort:disabled { color: var(--hack-steel); border-color: var(--hack-metal); cursor: default; }
+@media (max-width: 540px) {
+    #hackOverlay.iceBreach { padding: 16px; --hack-rail: 24px; }
+    .hackHead { align-items: flex-start; gap: 8px; flex-direction: column; padding-bottom: 12px; }
+    .hackHead h1 { font-size: 26px; }
+    .hackTitle { max-width: 100%; text-align: left; font-size: 14px; }
+    .hackBanner { margin-top: 12px; font-size: 16px; }
+    .hackCircuit { margin: 20px auto; }
+    .hackFoot { gap: 20px; padding-top: 12px; }
+    .hackEndpoints, .hackTraceHead { font-size: 12px; gap: 8px; }
 }
-.hackBanner.on { display: flex; }
-.hackBanner.ok { color: #2eff6a; text-shadow: 0 0 26px rgba(46, 255, 106, 0.5); }
-.hackBanner.bad { color: #ff6b52; text-shadow: 0 0 26px rgba(255, 107, 82, 0.5); }
-/* Banner GAGAL = ALARM (2026-07-28): merah berdenyut, bukan teks diam. */
-.hackBanner.bad { animation: hackAlarm 0.42s steps(1, end) infinite; }
-@keyframes hackAlarm {
-    50% { color: #ffd0c4; background: rgba(60, 12, 8, 0.9); }
+@media (max-height: 520px) and (min-width: 541px) {
+    #hackOverlay.iceBreach { padding: 12px 24px; --hack-board: max(150px, calc(100dvh - 204px)); }
+    .hackHead { padding-bottom: 10px; }
+    .hackHead h1 { font-size: 24px; }
+    .hackBanner { margin-top: 8px; font-size: 16px; }
+    .hackCircuit { margin: 12px auto; }
+    .hackEndpoints { margin-bottom: 6px; }
+    .hackFoot { padding-top: 10px; }
 }
-
+@media (max-height: 520px) and (min-width: 740px) {
+    #hackOverlay.iceBreach { --hack-board: min(340px, calc(100dvh - 72px)); --hack-rail: 24px; }
+    .hackPanel { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; gap: 0 32px; }
+    .hackHead { grid-column: 1; flex-direction: column; align-items: flex-start; gap: 12px; }
+    .hackTitle { max-width: 100%; text-align: left; }
+    .hackBanner { grid-column: 1; }
+    .hackCircuit { grid-column: 2; grid-row: 1 / 4; width: calc(var(--hack-board) + 2 * var(--hack-rail)); margin: 0; }
+    .hackFoot { grid-column: 1; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+    .hackAbort { justify-self: start; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .hackChip, .hackTile, .hackTraceFill { transition: none; }
+}
 /* ---------- SIGNAL TRACE (Stage 5-6) ---------- */
-.sigPanel {
-    position: relative;
-    width: min(820px, 94vw);
-    max-height: 94vh;
-    padding: 20px 26px 18px;
-    overflow: hidden;
-    background: rgba(14, 18, 19, 0.96);
-    border: 1px solid rgba(255, 176, 59, 0.55);
-    border-radius: 8px;
-    box-shadow: 0 0 60px rgba(0, 0, 0, 0.85);
+#hackOverlay.signalTrace {
+    --sig-ink: #23262b;
+    --sig-metal: #3a4046;
+    --sig-steel: #7c848c;
+    --sig-paper: #d8d2c4;
+    --sig-amber: #ffb03b;
+    --sig-tech: #2fb8a6;
+    --sig-hazard: #b3402e;
+    position: fixed;
+    padding: 24px;
+    box-sizing: border-box;
+    overflow: auto;
+    background: #161618;
+    color: var(--sig-paper);
+    letter-spacing: 0;
 }
-.sigHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.sigTag {
-    padding: 3px 9px;
-    color: #0b0e10;
-    background: #ffb03b;
-    border-radius: 3px;
-    font-size: 12px;
-    font-weight: bold;
-    letter-spacing: 0.24em;
+.sigPanel { width: min(880px, 100%); flex: 0 0 auto; margin: auto; }
+.sigPanel *, .sigPanel *::before, .sigPanel *::after { box-sizing: border-box; }
+.sigPanel button { appearance: none; font: inherit; letter-spacing: 0; border-radius: 0; cursor: pointer; touch-action: manipulation; }
+.sigPanel button:disabled { cursor: default; }
+.sigPanel button:focus-visible { outline: 2px solid var(--sig-paper); outline-offset: 3px; }
+.sigHead { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--sig-metal); }
+.sigHead h1 { margin: 0; flex-shrink: 0; font-size: 32px; line-height: 1; font-weight: 700; }
+.sigTitle { max-width: 50%; font-size: 16px; line-height: 1.4; text-align: right; overflow-wrap: anywhere; }
+.sigBanner { min-height: 48px; margin: 16px 0; font-size: 18px; line-height: 24px; overflow-wrap: anywhere; }
+.sigBanner.ok { color: var(--sig-tech); }
+.sigBanner.bad { border-left: 3px solid var(--sig-hazard); padding-left: 12px; }
+.sigBoard { width: 100%; margin: 0 0 28px; }
+.sigColumns, .sigRow { display: grid; grid-template-columns: 72px minmax(0, 1fr) 80px; align-items: center; gap: 20px; }
+.sigColumns { padding: 0 16px 12px; font-size: 12px; line-height: 16px; color: var(--sig-steel); }
+.sigColumns span:last-child { text-align: right; }
+.sigPanel .sigRow { width: 100%; min-height: 76px; padding: 14px 16px; border: 0; border-left: 3px solid transparent; border-bottom: 1px solid var(--sig-metal); background: transparent; color: var(--sig-steel); text-align: left; }
+.sigPanel .sigRow.active { border-left-color: var(--sig-amber); background: var(--sig-ink); color: var(--sig-paper); }
+.sigRow.locked .sigLabel, .sigRow.locked .sigState { color: var(--sig-tech); }
+.sigLabel { font-size: 18px; line-height: 24px; }
+.sigState { font-size: 14px; line-height: 20px; text-align: right; }
+.sigRow.active .sigState { color: var(--sig-amber); }
+.sigTrack { position: relative; display: block; width: 100%; height: 36px; overflow: hidden; isolation: isolate; }
+.sigTrack::before { content: ''; position: absolute; inset: 17px 0 auto; height: 2px; background: var(--sig-metal); }
+.sigTarget { position: absolute; inset-block: 4px; border-inline: 2px solid var(--sig-steel); background: var(--sig-metal); }
+.sigRow.active .sigTarget { border-color: var(--sig-amber); }
+.sigRow.locked .sigTarget { border-color: var(--sig-tech); }
+.sigCursorRail { position: absolute; inset: 0; will-change: transform; }
+.sigCursor { position: absolute; top: 1px; bottom: 1px; left: 0; width: 4px; transform: translateX(-50%); background: var(--sig-steel); }
+.sigRow.active .sigCursor { background: var(--sig-paper); }
+.sigRow.locked .sigCursor { background: var(--sig-tech); }
+.sigRow.locked .sigCursorRail, .sigRow.offline .sigCursorRail { will-change: auto; }
+.sigFoot { display: grid; grid-template-columns: minmax(160px, 1fr) 172px 96px; align-items: center; gap: 16px; padding-top: 20px; border-top: 1px solid var(--sig-metal); }
+.sigTimer { display: grid; grid-template-columns: 1fr auto; gap: 10px 16px; margin-right: 24px; font-size: 12px; line-height: 16px; }
+.sigTimerLabel, .sigTimerState { color: var(--sig-steel); }
+.sigTimerShell { grid-column: 1 / -1; display: block; width: 100%; height: 6px; overflow: hidden; background: var(--sig-metal); }
+.sigTimerFill { display: block; width: 100%; height: 100%; transform-origin: left; background: var(--sig-tech); }
+.sigTimerFill.warn { background: var(--sig-hazard); }
+.sigPanel .sigLock, .sigPanel .sigAbort { min-height: 48px; padding: 10px 16px; font-size: 16px; font-weight: 700; line-height: 24px; }
+.sigPanel .sigLock { color: #161618; background: var(--sig-amber); border: 1px solid var(--sig-amber); }
+.sigPanel .sigAbort { color: var(--sig-paper); background: transparent; border: 1px solid var(--sig-steel); }
+.sigPanel .sigLock:disabled { color: var(--sig-steel); background: var(--sig-metal); border-color: var(--sig-metal); }
+.sigPanel .sigAbort:disabled { color: var(--sig-steel); border-color: var(--sig-metal); }
+@media (hover: hover) {
+    .sigPanel .sigLock:not(:disabled):hover { background: var(--sig-paper); border-color: var(--sig-paper); }
+    .sigPanel .sigAbort:not(:disabled):hover { background: var(--sig-ink); }
 }
-.sigTitle { color: #e6ded0; font-size: 17px; font-weight: bold; text-transform: uppercase; }
-.sigSub { margin: 8px 0 16px; color: #9fb0ad; font-size: 13px; line-height: 1.5; }
-.sigBoard {
-    display: grid;
-    gap: 10px;
-    min-height: 260px;
-    padding: 18px;
-    background: #090d0e;
-    border: 1px solid rgba(47, 184, 166, 0.24);
-    border-radius: 6px;
+@media (max-width: 600px) {
+    #hackOverlay.signalTrace { padding: 16px; }
+    .sigHead { flex-direction: column; align-items: flex-start; gap: 12px; }
+    .sigHead h1 { font-size: 28px; }
+    .sigTitle { max-width: 100%; text-align: left; font-size: 14px; }
+    .sigBanner { min-height: 48px; font-size: 16px; }
+    .sigColumns { display: none; }
+    .sigPanel .sigRow { grid-template-columns: 1fr 1fr; gap: 4px 12px; min-height: 86px; padding: 10px 12px; }
+    .sigLabel { font-size: 16px; line-height: 20px; }
+    .sigState { font-size: 12px; line-height: 20px; }
+    .sigTrack { grid-row: 2; grid-column: 1 / -1; }
+    .sigBoard { margin-bottom: 20px; }
+    .sigFoot { grid-template-columns: 1fr 96px; gap: 16px 12px; padding-top: 16px; }
+    .sigTimer { grid-column: 1 / -1; margin-right: 0; }
 }
-.sigRow {
-    display: grid;
-    grid-template-columns: 62px minmax(160px, 1fr) 62px;
-    align-items: center;
-    gap: 12px;
-    min-height: 48px;
-    padding: 0 10px;
-    border: 1px solid rgba(47, 184, 166, 0.18);
-    border-radius: 4px;
-    cursor: pointer;
+@media (min-width: 740px) and (max-height: 520px) {
+    #hackOverlay.signalTrace { padding: 16px 24px; }
+    .sigPanel { display: grid; grid-template-columns: minmax(190px, 0.65fr) minmax(0, 1.35fr); gap: 16px 28px; }
+    .sigHead { grid-column: 1; flex-direction: column; align-items: flex-start; gap: 12px; }
+    .sigHead h1 { font-size: 28px; }
+    .sigTitle { max-width: 100%; text-align: left; font-size: 14px; }
+    .sigBanner { grid-column: 1; font-size: 16px; margin: 0; }
+    .sigBoard { grid-column: 2; grid-row: 1 / 4; align-self: center; margin: 0; }
+    .sigColumns, .sigRow { grid-template-columns: 48px minmax(0, 1fr) 64px; gap: 12px; }
+    .sigColumns { padding: 0 10px 8px; font-size: 10px; }
+    .sigPanel .sigRow { min-height: 64px; padding: 8px 10px; }
+    .sigLabel { font-size: 16px; }
+    .sigState { font-size: 12px; }
+    .sigFoot { grid-column: 1; grid-template-columns: 1fr 80px; gap: 12px 8px; align-self: end; padding-top: 16px; }
+    .sigTimer { grid-column: 1 / -1; margin-right: 0; font-size: 10px; }
+    .sigPanel .sigLock, .sigPanel .sigAbort { font-size: 14px; padding: 8px; }
 }
-.sigRow.active { border-color: #ffb03b; background: rgba(255, 176, 59, 0.07); }
-.sigRow.locked { border-color: rgba(46, 255, 106, 0.55); background: rgba(46, 255, 106, 0.06); }
-.sigLabel, .sigState { color: #6f807d; font-size: 10px; letter-spacing: 0.12em; }
-.sigState { text-align: right; }
-.sigRow.active .sigState { color: #ffb03b; }
-.sigRow.locked .sigState { color: #2eff6a; }
-.sigTrack { position: relative; height: 18px; background: #172421; border: 1px solid #2a4b47; }
-.sigTrack::after { content: ''; position: absolute; left: 0; right: 0; top: 8px; height: 1px; background: #2fb8a6; }
-.sigTarget {
-    position: absolute;
-    z-index: 2;
-    top: -5px;
-    height: 26px;
-    transform: translateX(-50%);
-    border-left: 2px solid #ffb03b;
-    border-right: 2px solid #ffb03b;
-    background: rgba(255, 176, 59, 0.12);
-}
-.sigCursor {
-    position: absolute;
-    z-index: 3;
-    top: -7px;
-    width: 4px;
-    height: 30px;
-    transform: translateX(-50%);
-    background: #e6ded0;
-    box-shadow: 0 0 10px rgba(230, 222, 208, 0.6);
-}
-.sigRow.locked .sigCursor { background: #2eff6a; box-shadow: 0 0 12px rgba(46, 255, 106, 0.55); }
-.sigStatus { margin-top: 12px; min-height: 16px; color: #6f807d; font-size: 11px; letter-spacing: 0.1em; text-align: center; }
-.sigFoot { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
-.sigTimer { display: flex; align-items: center; gap: 8px; color: #6f807d; font-size: 10px; letter-spacing: 0.12em; }
-.sigTimerShell { width: 120px; height: 6px; overflow: hidden; background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
-.sigTimerFill { display: block; width: 100%; height: 100%; background: #2fb8a6; }
-.sigTimerFill.warn { background: #d9552f; }
-.sigLock, .sigAbort {
-    min-height: 34px;
-    padding: 7px 13px;
-    font-family: inherit;
-    font-size: 11px;
-    font-weight: bold;
-    letter-spacing: 0.1em;
-    border-radius: 4px;
-    cursor: pointer;
-}
-.sigLock { margin-left: auto; color: #0b0e10; background: #ffb03b; border: 1px solid #ffb03b; }
-.sigAbort { color: #ffb03b; background: transparent; border: 1px solid rgba(255, 176, 59, 0.45); }
-.sigBanner {
-    position: absolute;
-    inset: 0;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    background: rgba(8, 11, 12, 0.92);
-    font-size: clamp(18px, 3vw, 36px);
-    font-weight: bold;
-    letter-spacing: 0.18em;
-    text-align: center;
-}
-.sigBanner.on { display: flex; }
-.sigBanner.ok { color: #2eff6a; }
-.sigBanner.bad { color: #ff6b52; animation: hackAlarm 0.42s steps(1, end) infinite; }
 
 /* ---------- MINIGAME PERBAIKAN GENERATOR "FIELD REPAIR" (2026-07-29) — scene
    MODAL yang menggantikan bar "RESTORING GENERATOR" 10 dtk di Stage 2. TIGA
    papan berurutan, satu per komponen yang dikumpulkan player; TANPA hitung
    mundur. Palet mengikuti GIBS 2045 (dasar hangat gelap + teal #2fb8a6 + amber
    #ffb03b); warna KABEL adalah sinyal gameplay dan punya mode AMAN BUTA WARNA
-   (Okabe-Ito + lambang bentuk) lewat tombol COLOR MODE. ---------- */
+   (Okabe-Ito + lambang bentuk) lewat checkbox warna. ---------- */
 #repairOverlay {
-    position: absolute;
-    inset: 0;
-    z-index: 13;                    /* setara #hackOverlay: di atas shop, di bawah loading & blocker */
-    display: none;                  /* -> flex saat modal dibuka */
-    align-items: center;
-    justify-content: center;
-    font-family: 'Gasalt', sans-serif;
-    color: #e6ded0;
-    background:
-        repeating-linear-gradient(0deg, rgba(47, 184, 166, 0.05) 0 1px, transparent 1px 3px),
-        radial-gradient(circle at 50% 42%, #17201f, #0b0e10 72%);
-    cursor: default;
-}
-.repPanel {
-    position: relative;
-    width: min(880px, 95vw);
-    max-height: 94vh;
-    padding: 20px 26px 18px;
-    background: rgba(16, 20, 22, 0.92);
-    border: 1px solid rgba(47, 184, 166, 0.45);
-    border-radius: 10px;
-    box-shadow: 0 0 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 176, 59, 0.08) inset;
-    overflow: hidden;
-}
-.repGlow {
-    position: absolute;
-    left: 0; right: 0; top: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #ffb03b, transparent);
-    opacity: 0.75;
-}
-.repHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.repTag {
-    font-size: 12px;
-    font-weight: bold;
-    letter-spacing: 0.32em;
-    color: #0b0e10;
-    background: #ffb03b;
-    padding: 3px 9px;
-    border-radius: 3px;
-}
-.repTitle {
-    font-size: 17px;
-    font-weight: bold;
-    letter-spacing: 0.18em;
-    color: #ffb03b;
-    text-transform: uppercase;
-}
-.repStep { margin-left: auto; font-size: 11px; letter-spacing: 0.2em; color: #2fb8a6; }
-.repSub {
-    margin: 8px 0 14px;
-    font-size: 13px;
-    line-height: 1.5;
-    letter-spacing: 0.03em;
-    color: #9fb0ad;
-}
-.repBoard {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: min(46vh, 330px);
-    padding: 10px;
-    background: rgba(6, 10, 10, 0.7);
-    border: 1px solid rgba(47, 184, 166, 0.22);
-    border-radius: 8px;
-}
-/* ----- Papan 1: KABEL (POWER HARNESS) ----- */
-.repWires {
-    display: flex;
-    align-items: stretch;
-    gap: 10px;
-    width: 100%;
-    height: min(42vh, 300px);
-}
-/* gap 0 DISENGAJA: pusat tiap baris grid harus tepat di (i+0.5)/n tinggi kolom,
-   karena kabel SVG (viewBox 0..100, preserveAspectRatio none) memakai rumus itu.
-   Jarak antar-pin dibuat dgn margin pin, yang tidak menggeser pusat barisnya. */
-.repCol { display: grid; gap: 0; flex: 0 0 auto; }
-.repLines { flex: 1 1 auto; min-width: 90px; }
-/* overflow visible: kabel HIDUP (yang sedang diseret) boleh keluar kotak SVG
-   sampai ke kursor yang berada di atas kolom pin. */
-.repLines svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.repWire { fill: none; stroke-width: 4; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.repWire.live { stroke-dasharray: 6 5; opacity: 0.85; }
-.repPin {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
-    margin: 3px 0;
-    padding: 4px 8px;
-    background: rgba(47, 184, 166, 0.05);
-    border: 1px solid rgba(47, 184, 166, 0.18);
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background 0.12s, border-color 0.12s;
-}
-.repColR .repPin { flex-direction: row-reverse; }
-.repPin:hover { background: rgba(255, 176, 59, 0.1); border-color: rgba(255, 176, 59, 0.45); }
-.repPin.sel { border-color: #ffb03b; box-shadow: 0 0 12px rgba(255, 176, 59, 0.4) inset; }
-.repPin.linked { background: rgba(255, 176, 59, 0.08); }
-.repPin.bad { border-color: #ff6b52; background: rgba(255, 107, 82, 0.16); }
-.repPin.dragging { border-color: #ffb03b; opacity: 0.7; }
-.repJack {
-    flex: 0 0 auto;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    border: 2px solid;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    line-height: 1;
-    color: #0b0e10;
-}
-.repPin.linked .repJack { box-shadow: 0 0 12px currentColor; }
-.repPinLbl { font-size: 10px; letter-spacing: 0.14em; color: #9fb0ad; min-width: 52px; }
-.repColR .repPinLbl { text-align: right; }
-/* ----- Papan 2: CHIP (CONTROL BOARD) ----- */
-.repChipWrap {
-    --u: min(3.1vh, 24px);
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    width: 100%;
-}
-.repChipSect { display: flex; flex-direction: column; gap: 7px; align-items: center; }
-.repChipLbl { font-size: 10px; letter-spacing: 0.22em; color: #6f807d; }
-.repSockets, .repTray {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    min-height: calc(var(--u) * 4);
-    padding: 8px;
-    border-radius: 6px;
-}
-.repSockets {
-    background:
-        repeating-linear-gradient(0deg, rgba(47, 184, 166, 0.09) 0 1px, transparent 1px var(--u)),
-        repeating-linear-gradient(90deg, rgba(47, 184, 166, 0.09) 0 1px, transparent 1px var(--u)),
-        rgba(47, 184, 166, 0.04);
-    border: 1px solid rgba(47, 184, 166, 0.25);
-}
-.repTray { background: rgba(255, 255, 255, 0.03); border: 1px dashed rgba(255, 176, 59, 0.25); }
-.repSocket {
-    box-sizing: border-box;
-    border: 1px dashed rgba(47, 184, 166, 0.6);
-    border-radius: 3px;
-    background: rgba(47, 184, 166, 0.06);
-    cursor: pointer;
-    transition: border-color 0.12s, background 0.12s;
-}
-.repSocket:hover { border-color: #ffb03b; background: rgba(255, 176, 59, 0.1); }
-.repSocket.filled { border-style: solid; border-color: rgba(255, 176, 59, 0.7); }
-.repSocket.bad { border-color: #ff6b52; background: rgba(255, 107, 82, 0.18); }
-.repChip {
-    position: relative;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(160deg, #3a3a34, #23231f);
-    border: 1px solid #55524a;
-    border-radius: 3px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
-    cursor: pointer;
-    overflow: hidden;
-}
-.repChip.seated { width: 100%; height: 100%; border-color: rgba(255, 176, 59, 0.8); }
-.repChip.sel { border-color: #ffb03b; box-shadow: 0 0 14px rgba(255, 176, 59, 0.5); }
-.repChip:hover { border-color: #ffb03b; }
-/* ----- Seret & lepas (2026-07-29): berdampingan dgn jalur klik ----- */
-.repPin, .repChip { cursor: grab; }
-.repPin:active, .repChip:active { cursor: grabbing; }
-.repChip.dragging { opacity: 0.28; }        /* sumber diredupkan selagi diseret */
-.repGhost {                                  /* chip bayangan yang ikut kursor */
+    --rep-ink: #23262b;
+    --rep-metal: #3a4046;
+    --rep-steel: #7c848c;
+    --rep-paper: #d8d2c4;
+    --rep-amber: #ffb03b;
+    --rep-tech: #2fb8a6;
+    --rep-hazard: #b3402e;
     position: fixed;
-    z-index: 5;
-    transform: translate(-50%, -50%);
-    opacity: 0.9;
-    pointer-events: none;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7);
-    border-color: #ffb03b;
-}
-.repChipDot {
-    position: absolute;
-    left: 4px; top: 4px;
-    width: 5px; height: 5px;
-    border-radius: 50%;
-    background: #ffb03b;
-}
-.repChipId { font-size: 9px; letter-spacing: 0.1em; color: #8d8a80; }
-/* ----- Papan 3: KATUP (COOLANT PUMP) ----- */
-.repValves { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
-.repGear { color: #4b5b58; font-size: 20px; }
-.repValve {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 6px;
-    background: rgba(47, 184, 166, 0.05);
-    border: 1px solid rgba(47, 184, 166, 0.2);
-    border-radius: 7px;
-}
-.repValve.ok { border-color: rgba(46, 255, 106, 0.55); background: rgba(46, 255, 106, 0.08); }
-.repDial { width: min(11vh, 84px); height: min(11vh, 84px); cursor: pointer; }
-.repDial svg { width: 100%; height: 100%; display: block; }
-.repDialBg { fill: rgba(6, 10, 10, 0.85); stroke: #2a4b47; stroke-width: 2; }
-.repTick { stroke: #4b5b58; stroke-width: 3; }
-.repTarget { fill: #2eff6a; }
-.repNeedle { stroke: #ffb03b; stroke-width: 6; stroke-linecap: round; }
-.repValve.ok .repNeedle { stroke: #2eff6a; }
-.repHub { fill: #ffb03b; }
-.repValve.ok .repHub { fill: #2eff6a; }
-.repValveBtns { display: flex; align-items: center; gap: 5px; }
-.repValveLbl { font-size: 10px; letter-spacing: 0.14em; color: #6f807d; min-width: 20px; text-align: center; }
-.repValveBtn {
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: bold;
-    color: #ffb03b;
-    background: rgba(255, 176, 59, 0.08);
-    border: 1px solid rgba(255, 176, 59, 0.4);
-    border-radius: 4px;
-    width: 24px;
-    height: 22px;
-    cursor: pointer;
-}
-.repValveBtn:hover { background: rgba(255, 176, 59, 0.2); }
-/* ----- Stage 5-6 board 1: PHASE SYNC ----- */
-.repSyncWrap { display: flex; flex-direction: column; gap: 12px; width: 100%; }
-.repSyncScope {
-    position: relative; padding: 10px 12px 18px;
-    border: 1px solid #4b514d; background: #0b1210;
-    /* Kisi osiloskop: dua gradien halus, bukan aset gambar. */
-    background-image:
-        linear-gradient(rgba(110, 190, 150, 0.07) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(110, 190, 150, 0.07) 1px, transparent 1px);
-    background-size: 100% 21px, 26px 100%;
-}
-.repSyncSvg { display: block; width: 100%; height: min(26vh, 170px); }
-.repSyncMid { stroke: #2c4137; stroke-width: 1; }
-/* Acuan bus: garis terang yang harus diikuti semua fasa. */
-.repSyncBus { fill: none; stroke: #dfe6c9; stroke-width: 2.2; opacity: 0.85; }
-.repSyncTrace { fill: none; stroke: #6d8f7d; stroke-width: 1.7; opacity: 0.75; }
-.repSyncTrace.active { stroke: #d8b478; opacity: 0.95; }
-.repSyncTrace.lock {
-    stroke: #9de68d; stroke-width: 2.4; opacity: 1;
-    filter: drop-shadow(0 0 5px rgba(157, 230, 141, 0.55));
-}
-.repSyncBusLbl {
-    position: absolute; right: 12px; bottom: 5px;
-    color: #87918d; font-size: 9px; letter-spacing: 0.16em;
-}
-.repSyncRows { display: flex; flex-direction: column; gap: 7px; }
-.repSyncRow {
-    display: grid; grid-template-columns: 12px 92px 132px 1fr; align-items: center; gap: 12px;
-    padding: 7px 12px; border: 1px solid #3d443e; background: #171d16;
-}
-.repSyncRow.lock { border-color: #56865f; background: #122018; }
-.repSyncPip {
-    width: 9px; height: 9px; border-radius: 50%;
-    border: 1px solid #6c7568; background: #0b0f0a;
-}
-.repSyncRow.lock .repSyncPip {
-    background: #9de68d; border-color: #9de68d; box-shadow: 0 0 8px rgba(157, 230, 141, 0.6);
-}
-.repSyncName { color: #d9d2c6; font-size: 12px; letter-spacing: 0.1em; }
-.repSyncRow.lock .repSyncName { color: #9de68d; }
-.repSyncRead { display: flex; gap: 10px; font-size: 10px; letter-spacing: 0.08em; }
-.repSyncHz { color: #c8bda6; }
-.repSyncAmp { color: #87918d; }
-.repSyncRow.lock .repSyncHz, .repSyncRow.lock .repSyncAmp { color: #9de68d; }
-/* Tuas geser: track penuh bisa diklik, bukan hanya knob-nya. */
-.repSyncTrack {
-    position: relative; height: 22px; cursor: ew-resize;
-    border: 1px solid #4b514d; background: #10160f;
-}
-.repSyncTrack:hover { border-color: #7d8a72; }
-.repSyncFill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(216, 180, 120, 0.16); }
-.repSyncRow.lock .repSyncFill { background: rgba(157, 230, 141, 0.18); }
-.repSyncKnob {
-    position: absolute; top: -3px; width: 12px; height: 26px; margin-left: -6px;
-    border: 1px solid #8b937f; background: #2b332a; box-shadow: 0 0 0 1px #0d110c;
-}
-.repSyncRow.lock .repSyncKnob { border-color: #9de68d; background: #1c3021; }
-.repSyncNote {
-    padding: 7px 10px; border: 1px solid #3d443e; background: #10140f;
-    color: #87918d; font-size: 10px; letter-spacing: 0.1em; text-align: center;
-}
-.repSyncNote.ok { border-color: #56865f; background: #101a12; color: #9de68d; }
-/* ----- Stage 5-6 board 2: ROTOR KICKSTART ----- */
-.repRotorWrap { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(250px, 1fr); gap: 24px; align-items: center; width: 100%; }
-.repRotorMachine { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.repRotor {
-    position: relative; width: min(31vh, 248px); aspect-ratio: 1; border-radius: 50%;
-    background: #161a18; border: 10px solid #444944; box-shadow: 0 0 0 4px #171a18, 0 9px 20px rgba(0, 0, 0, 0.65);
-    cursor: grab; user-select: none;
-}
-.repRotor:active { cursor: grabbing; }
-.repRotorFace { position: absolute; inset: 0; border-radius: 50%; }
-.repRotorFace::before { content: ''; position: absolute; inset: 18%; border: 4px solid #6a6b61; border-radius: 50%; background: #252a27; }
-.repRotorFace i { position: absolute; left: calc(50% - 2px); top: 7%; width: 4px; height: 43%; background: #74756b; transform-origin: 50% 100%; }
-.repRotorFace b { position: absolute; left: 39%; top: 39%; width: 22%; height: 22%; border-radius: 50%; background: #b66e2f; border: 5px solid #262a27; }
-.repCrank, .repIgnition, .repMaster {
-    min-height: 40px; padding: 8px 12px; font-family: inherit; font-weight: bold; letter-spacing: 0.08em;
-    color: #e6ded0; background: #171c1a; border: 1px solid #59615c; border-radius: 4px; cursor: pointer;
-}
-.repCrank { width: min(248px, 100%); color: #ffb03b; border-color: #8c642f; }
-.repCrank:hover, .repIgnition:hover, .repMaster:hover { background: #262d29; }
-.repCrank:disabled, .repIgnition:disabled, .repMaster:disabled { opacity: 0.35; cursor: default; }
-.repRotorControls { display: flex; flex-direction: column; gap: 11px; }
-.repRpmLabel { display: flex; align-items: center; justify-content: space-between; color: #87918d; font-size: 10px; letter-spacing: 0.1em; }
-.repRpmLabel strong { color: #ffb03b; font-size: 18px; }
-.repRpmMeter { position: relative; height: 28px; background: #0b0e0d; border: 1px solid #4c534f; }
-.repRpmGreen { position: absolute; top: 0; bottom: 0; background: #3f7545; }
-.repRpmNeedle { position: absolute; top: -5px; bottom: -5px; width: 3px; transform: translateX(-1px); background: #ffe5a3; }
-.repIgnition { color: #ffb03b; border-color: #8c642f; }
-.repIgnition.on { color: #d8f0d8; background: #34553a; border-color: #608a64; }
-.repMaster.on { color: #d8f0d8; background: #34553a; border-color: #608a64; }
-.repRotorState { min-height: 17px; color: #84908a; font-size: 10px; letter-spacing: 0.13em; text-align: center; }
-.repRotorWrap.bad .repRotorState { color: #ef755a; }
-/* RPM meluruh terus, jadi berada DI DALAM green band adalah keadaan sesaat:
-   jarum, tombol ignition dan teks status semuanya menyala bersama supaya
-   jendelanya tak bisa terlewat. */
-.repRotorWrap.live .repRpmNeedle { background: #9de68d; box-shadow: 0 0 10px rgba(157, 230, 141, 0.7); }
-.repRotorWrap.live .repRotorState { color: #9de68d; }
-.repIgnition.armed { color: #d8f0d8; border-color: #74a978; box-shadow: 0 0 0 2px rgba(157, 230, 141, 0.22); }
-/* ----- Kaki panel ----- */
-.repFoot { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
-.repHint { flex: 1; text-align: center; font-size: 11px; letter-spacing: 0.06em; color: #6f807d; }
-.repCb, .repAbort {
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: bold;
-    letter-spacing: 0.12em;
-    border-radius: 4px;
-    padding: 8px 14px;
-    cursor: pointer;
-}
-.repCb { color: #2fb8a6; background: rgba(47, 184, 166, 0.08); border: 1px solid rgba(47, 184, 166, 0.45); }
-.repCb:hover { background: rgba(47, 184, 166, 0.2); }
-.repAbort { color: #ffb03b; background: rgba(255, 176, 59, 0.08); border: 1px solid rgba(255, 176, 59, 0.45); }
-.repAbort:hover { background: rgba(255, 176, 59, 0.2); }
-/* Banner antar-komponen / selesai (menutupi panel sesaat) */
-.repBanner {
-    position: absolute;
     inset: 0;
+    z-index: 13;
     display: none;
     align-items: center;
     justify-content: center;
-    text-align: center;
-    padding: 0 20px;
-    font-size: clamp(18px, 2.8vw, 34px);
-    font-weight: bold;
-    letter-spacing: 0.22em;
-    background: rgba(8, 11, 12, 0.88);
+    padding: 24px;
+    box-sizing: border-box;
+    overflow: auto;
+    background: #161618;
+    color: var(--rep-paper);
+    font-family: 'Gasalt', sans-serif;
+    letter-spacing: 0;
+    cursor: default;
 }
-.repBanner.on { display: flex; }
-.repBanner.ok { color: #2eff6a; text-shadow: 0 0 26px rgba(46, 255, 106, 0.5); }
+.repPanel { width: min(880px, 100%); margin: auto; flex: 0 0 auto; }
+.repPanel *, .repPanel *::before, .repPanel *::after { box-sizing: border-box; }
+.repPanel button, .repPanel input { font: inherit; letter-spacing: 0; }
+.repPanel button { appearance: none; cursor: pointer; color: inherit; padding: 0; border-radius: 0; touch-action: manipulation; }
+.repPanel button:disabled { cursor: default; }
+.repPanel button:focus-visible, .repPanel input:focus-visible { outline: 2px solid var(--rep-paper); outline-offset: 3px; }
+.repHead { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--rep-metal); }
+.repHead h1 { margin: 0; font-size: 32px; font-weight: 700; line-height: 1; flex-shrink: 0; }
+.repTitle { max-width: 50%; text-align: right; font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+.repSteps { display: flex; margin: 20px 0 0; padding: 0; list-style: none; gap: 24px; border-bottom: 1px solid var(--rep-metal); }
+.repSteps li { flex: 1; min-width: 0; padding: 0 0 12px; border-bottom: 2px solid transparent; color: var(--rep-steel); font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
+.repSteps .current { color: var(--rep-amber); border-color: var(--rep-amber); }
+.repSteps .done { color: var(--rep-tech); border-color: var(--rep-tech); }
+.repStatus { display: grid; margin-top: 16px; min-height: 24px; font-size: 18px; line-height: 24px; }
+.repSub, .repBanner { grid-area: 1 / 1; overflow-wrap: anywhere; }
+.repBanner { visibility: hidden; color: var(--rep-tech); }
+.repBanner.on { visibility: visible; }
+.repBoard { display: flex; justify-content: center; align-items: center; min-width: 0; margin: 28px 0; }
+.repFoot { display: flex; align-items: center; justify-content: space-between; min-height: 61px; gap: 16px; padding-top: 16px; border-top: 1px solid var(--rep-metal); }
+.repPanel .repAbort { margin-left: auto; border: 1px solid var(--rep-steel); background: transparent; min-width: 88px; min-height: 44px; padding: 8px 16px; font-size: 14px; font-weight: 700; }
+.repPanel .repAbort:disabled { border-color: var(--rep-metal); color: var(--rep-steel); }
+.repCb { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; line-height: 1.3; cursor: pointer; touch-action: manipulation; }
+.repCb input { width: 18px; height: 18px; flex-shrink: 0; margin: 0; accent-color: var(--rep-tech); }
 
-@media (max-width: 620px), (max-height: 620px) {
-    .sigPanel, .repPanel { padding: 14px 12px 12px; }
-    .sigBoard { min-height: 210px; padding: 10px; gap: 7px; }
-    .sigRow { grid-template-columns: 42px minmax(110px, 1fr) 48px; gap: 7px; min-height: 40px; padding: 0 6px; }
-    .sigTimer { width: 100%; }
-    .sigLock { margin-left: 0; flex: 1; }
-    .repSyncRow { grid-template-columns: 12px 74px 112px 1fr; gap: 8px; padding: 6px 9px; }
-    .repSyncName { font-size: 11px; letter-spacing: 0.06em; }
-    .repRotorWrap { grid-template-columns: 1fr 1fr; gap: 12px; }
-    .repRotor { width: min(26vh, 190px); }
+/* Kabel dan kedua kolom berbagi tinggi yang sama, tanpa gap antarbaris. */
+.repWires { display: flex; align-items: stretch; width: min(680px, 100%); height: min(360px, max(260px, calc(100dvh - 310px))); }
+.repCol { display: grid; flex: 0 0 112px; gap: 0; }
+.repLines { flex: 1 1 auto; min-width: 48px; pointer-events: none; }
+.repLines svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.repWire { fill: none; stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.repWire.live { stroke-dasharray: 6 5; }
+.repPanel .repPin { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; border: 0; border-bottom: 1px solid var(--rep-metal); background: transparent; touch-action: none; cursor: grab; }
+.repColR .repPin { flex-direction: row-reverse; }
+.repPin::after { content: ''; position: absolute; right: 0; top: calc(50% - 1px); width: 12px; height: 3px; background: var(--wire); }
+.repColR .repPin::after { right: auto; left: 0; }
+.repPanel .repPin.sel { border-bottom-color: var(--rep-amber); background: var(--rep-ink); }
+.repPanel .repPin.bad { border-bottom-color: var(--rep-hazard); background: #34221f; }
+.repPin.dragging { opacity: 0.65; }
+.repJack { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex-shrink: 0; margin: 0 12px; border: 2px solid var(--wire); color: var(--wire); font-size: 13px; background: #161618; }
+.repPin.linked .repJack { background: var(--wire); color: #161618; }
+.repPinLbl { font-size: 14px; line-height: 1.2; }
+.repColR .repPinLbl { text-align: right; }
+
+/* Baki menyimpan ruang setiap chip, termasuk chip yang sudah terpasang. */
+.repChipWrap { --u: 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; width: 100%; }
+.repChipSect { min-width: 0; }
+.repChipLbl { margin-bottom: 16px; font-size: 14px; line-height: 18px; }
+.repSockets, .repTray { display: flex; align-items: center; align-content: center; justify-content: center; flex-wrap: wrap; gap: 16px; min-height: calc(var(--u) * 9 + 16px); padding: 16px; }
+.repTray { background: #1c1c1f; }
+.repPanel .repSocket { flex: 0 0 auto; background: transparent; border: 1px dashed var(--rep-steel); }
+.repPanel .repSocket.filled { border-style: solid; border-color: var(--rep-amber); }
+.repPanel .repSocket.bad { border-color: var(--rep-hazard); background: #34221f; }
+.repChip, .repPanel .repChip { position: relative; box-sizing: border-box; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; padding: 0; border: 1px solid var(--rep-steel); border-radius: 0; color: var(--rep-paper); background: var(--rep-metal); cursor: grab; touch-action: none; }
+.repChip.seated { width: 100%; height: 100%; border: 0; }
+.repPanel .repChip.sel { outline: 2px solid var(--rep-amber); outline-offset: 3px; }
+.repChip.dragging { opacity: 0.28; }
+.repGhost { position: fixed; z-index: 5; transform: translate(-50%, -50%); opacity: 0.9; pointer-events: none; }
+.repChipDot { position: absolute; left: 4px; top: 4px; width: 5px; height: 5px; background: var(--rep-amber); }
+.repChipId { font-size: 12px; line-height: 1; }
+
+/* Katup tetap satu urutan meski barisnya membungkus di layar kecil. */
+.repValves { display: flex; justify-content: center; flex-wrap: wrap; gap: 24px; width: 100%; }
+.repValve { display: flex; flex-direction: column; align-items: center; gap: 12px; flex: 0 0 136px; }
+.repValveLbl { font-size: 14px; line-height: 18px; }
+.repPanel .repDial { width: 124px; aspect-ratio: 1; border: 0; background: transparent; touch-action: manipulation; }
+.repDial svg { display: block; width: 100%; height: 100%; }
+.repDialBg { fill: var(--rep-ink); stroke: var(--rep-steel); stroke-width: 1; }
+.repTick { stroke: var(--rep-steel); stroke-width: 2; }
+.repTarget { fill: var(--rep-tech); }
+.repNeedle { stroke: var(--rep-amber); stroke-width: 4; stroke-linecap: square; }
+.repHub { fill: var(--rep-amber); }
+.repValve.ok .repNeedle { stroke: var(--rep-tech); }
+.repValve.ok .repHub { fill: var(--rep-tech); }
+.repValve.ok .repValveLbl { color: var(--rep-tech); }
+.repValveBtns { display: flex; gap: 8px; }
+.repPanel .repValveBtn { width: 44px; height: 44px; border: 1px solid var(--rep-metal); background: transparent; font-size: 24px; line-height: 1; touch-action: manipulation; }
+
+/* Sejumlah polyline tetap; tick hanya memperbarui atribut points. */
+.repSyncWrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 28px; align-items: center; width: 100%; }
+.repSyncScope { grid-row: 1 / 3; position: relative; padding: 20px 12px 32px; background: var(--rep-ink); }
+.repSyncSvg { display: block; width: 100%; height: 208px; overflow: visible; }
+.repSyncMid { stroke: var(--rep-metal); stroke-width: 1; }
+.repSyncBus { fill: none; stroke: var(--rep-paper); stroke-width: 2; stroke-dasharray: 5 5; }
+.repSyncTrace { fill: none; stroke: var(--rep-steel); stroke-width: 1.7; opacity: 0.8; }
+.repSyncTrace.active { stroke: var(--rep-amber); opacity: 1; }
+.repSyncTrace.lock { stroke: var(--rep-tech); stroke-width: 2.4; opacity: 1; }
+.repSyncBusLbl { position: absolute; right: 12px; bottom: 10px; font-size: 12px; }
+.repSyncRows { display: flex; flex-direction: column; min-width: 0; }
+.repSyncRow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 0 10px; align-items: center; border-bottom: 1px solid var(--rep-metal); padding-top: 8px; }
+.repSyncPip { width: 8px; height: 8px; border: 1px solid var(--rep-steel); }
+.repSyncRow.lock .repSyncPip { background: var(--rep-tech); border-color: var(--rep-tech); }
+.repSyncName { font-size: 14px; line-height: 18px; }
+.repSyncRead { display: flex; gap: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.repSyncHz { min-width: 52px; text-align: right; }
+.repSyncAmp { min-width: 28px; text-align: right; color: var(--rep-steel); }
+.repSyncRow.lock .repSyncName, .repSyncRow.lock .repSyncAmp { color: var(--rep-tech); }
+.repSyncTrack { grid-column: 1 / -1; appearance: none; display: block; width: 100%; min-width: 0; height: 44px; padding: 0; margin: 0; background: transparent; cursor: ew-resize; touch-action: pan-y; accent-color: var(--rep-amber); }
+.repSyncTrack::-webkit-slider-runnable-track { height: 4px; background: var(--rep-metal); }
+.repSyncTrack::-moz-range-track { height: 4px; background: var(--rep-metal); }
+.repSyncTrack::-webkit-slider-thumb { appearance: none; width: 18px; height: 28px; margin-top: -12px; background: var(--rep-amber); border: 3px solid #161618; border-radius: 0; }
+.repSyncTrack::-moz-range-thumb { width: 12px; height: 22px; background: var(--rep-amber); border: 3px solid #161618; border-radius: 0; }
+.repSyncRow.lock .repSyncTrack::-webkit-slider-thumb { background: var(--rep-tech); }
+.repSyncRow.lock .repSyncTrack::-moz-range-thumb { background: var(--rep-tech); }
+.repSyncNote { font-size: 14px; line-height: 18px; color: var(--rep-steel); }
+.repSyncNote.ok { color: var(--rep-tech); }
+
+/* Rotor, rentang RPM, dan kontrol mesin tanpa panel dekoratif. */
+.repRotorWrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 40px; width: min(700px, 100%); }
+.repRotorMachine { display: flex; flex-direction: column; align-items: center; gap: 20px; min-width: 0; }
+.repRotor { position: relative; width: min(264px, 100%); aspect-ratio: 1; border: 8px solid var(--rep-metal); border-radius: 50%; background: var(--rep-ink); cursor: grab; touch-action: none; }
+.repRotorFace { position: absolute; inset: 0; border-radius: 50%; }
+.repRotorFace::before { content: ''; position: absolute; inset: 18%; border: 3px solid var(--rep-steel); border-radius: 50%; background: var(--rep-ink); }
+.repRotorFace i { position: absolute; left: calc(50% - 2px); top: 7%; width: 4px; height: 43%; background: var(--rep-steel); transform-origin: 50% 100%; }
+.repRotorFace b { position: absolute; inset: 39%; border: 4px solid var(--rep-ink); border-radius: 50%; background: var(--rep-amber); }
+.repPanel .repCrank, .repPanel .repIgnition, .repPanel .repMaster { min-height: 44px; padding: 10px 16px; background: transparent; border: 1px solid var(--rep-steel); font-size: 16px; line-height: 20px; touch-action: manipulation; }
+.repPanel .repCrank { width: min(180px, 100%); }
+.repPanel .repCrank:disabled, .repPanel .repIgnition:disabled, .repPanel .repMaster:disabled { color: var(--rep-steel); border-color: var(--rep-metal); }
+.repRotorControls { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.repRpmLabel { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: 14px; }
+.repRpmLabel strong { min-width: 50px; text-align: right; font-size: 24px; font-variant-numeric: tabular-nums; color: var(--rep-amber); }
+.repRpmMeter { position: relative; height: 20px; margin: 0 0 8px; background: var(--rep-ink); border: 1px solid var(--rep-metal); }
+.repRpmGreen { position: absolute; top: 0; bottom: 0; background: var(--rep-tech); }
+.repRpmNeedle { position: absolute; top: -5px; bottom: -5px; width: 3px; background: var(--rep-paper); transform: translateX(-50%); }
+.repPanel .repIgnition.armed { background: var(--rep-tech); border-color: var(--rep-tech); color: #161618; }
+.repPanel .repIgnition.on, .repPanel .repMaster.on { color: var(--rep-tech); border-color: var(--rep-tech); }
+.repRotorState { min-height: 20px; font-size: 14px; line-height: 20px; color: var(--rep-steel); }
+.repRotorWrap.live .repRotorState { color: var(--rep-tech); }
+.repRotorWrap.bad .repRotorState { color: var(--rep-paper); border-left: 3px solid var(--rep-hazard); padding-left: 10px; }
+
+@media (hover: hover) {
+    .repPanel button:not(:disabled):hover { border-color: var(--rep-paper); }
+    .repPanel .repPin:hover { background: var(--rep-ink); }
+    .repPanel .repChip:hover { border-color: var(--rep-amber); }
 }
-@media (max-width: 500px) {
-    .repSyncRow { grid-template-columns: 12px 1fr auto; row-gap: 6px; }
-    .repSyncTrack { grid-area: 2 / 1 / 3 / 4; }
-    .repRotorWrap { grid-template-columns: 1fr; }
-    .repRotor { width: min(25vh, 176px); }
+@media (max-width: 620px) {
+    #repairOverlay { padding: 16px; }
+    .repHead { flex-direction: column; align-items: flex-start; gap: 8px; padding-bottom: 12px; }
+    .repHead h1 { font-size: 26px; }
+    .repTitle { max-width: 100%; font-size: 14px; text-align: left; }
+    .repSteps { gap: 12px; margin-top: 16px; }
+    .repSteps li { font-size: 14px; padding-bottom: 8px; }
+    .repStatus { margin-top: 12px; font-size: 16px; }
+    .repBoard { margin: 20px 0; }
+    .repFoot { padding-top: 12px; min-height: 57px; }
+    .repCol { flex-basis: 84px; }
+    .repJack { width: 22px; height: 22px; margin: 0 8px; }
+    .repPin::after { width: 8px; }
+    .repPinLbl { font-size: 12px; }
+    .repWires { height: 260px; }
+    .repChipWrap { --u: 22px; grid-template-columns: 1fr; gap: 20px; }
+    .repChipLbl { margin-bottom: 8px; font-size: 12px; }
+    .repSockets, .repTray { min-height: 112px; padding: 12px; gap: 12px; }
+    .repValves { gap: 20px 16px; }
+    .repValve { flex-basis: 120px; gap: 8px; }
+    .repPanel .repDial { width: 96px; }
+    .repSyncWrap { grid-template-columns: 1fr; gap: 12px; }
+    .repSyncScope { grid-row: auto; padding: 12px 8px 28px; }
+    .repSyncSvg { height: 120px; }
+    .repSyncRow { padding-top: 4px; }
+    .repRotorWrap { grid-template-columns: 1fr; gap: 20px; }
+    .repRotorMachine { gap: 12px; }
+    .repRotor { width: 176px; }
+    .repRotorControls { gap: 12px; }
+}
+@media (max-height: 520px) and (min-width: 740px) {
+    #repairOverlay { padding: 16px 24px; }
+    .repPanel { display: grid; grid-template-columns: minmax(180px, 0.65fr) minmax(0, 1.35fr); gap: 0 28px; align-items: start; }
+    .repHead { grid-column: 1; flex-direction: column; align-items: flex-start; gap: 8px; padding-bottom: 12px; }
+    .repHead h1 { font-size: 26px; }
+    .repTitle { max-width: 100%; text-align: left; font-size: 14px; }
+    .repSteps { grid-column: 1; flex-direction: column; gap: 8px; border: 0; margin-top: 12px; }
+    .repSteps li { padding-bottom: 5px; font-size: 14px; flex: 0; }
+    .repStatus { grid-column: 1; font-size: 16px; margin: 12px 0; }
+    .repFoot { grid-column: 1; align-self: end; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+    .repCb { font-size: 12px; }
+    .repPanel .repAbort { margin-left: 0; }
+    .repBoard { grid-column: 2; grid-row: 1 / 5; margin: 0; align-self: center; }
+    .repWires { height: max(260px, calc(100dvh - 64px)); }
+    .repCol { flex-basis: 88px; }
+    .repPinLbl { font-size: 12px; }
+    .repChipWrap { --u: 20px; gap: 16px; }
+    .repSockets, .repTray { min-height: 236px; padding: 8px; gap: 12px; }
+    .repValves { gap: 16px; }
+    .repValve { flex-basis: 100px; gap: 6px; }
+    .repPanel .repDial { width: 80px; }
+    .repSyncWrap { grid-template-columns: 1fr; gap: 8px; }
+    .repSyncScope { grid-row: auto; padding: 8px 8px 24px; }
+    .repSyncSvg { height: 70px; }
+    .repSyncRow { padding-top: 0; }
+    .repSyncTrack { height: 36px; }
+    .repSyncNote { font-size: 12px; }
+    .repRotorWrap { gap: 20px; }
+    .repRotor { width: 176px; }
+    .repRotorControls { gap: 12px; }
+    .repPanel .repCrank, .repPanel .repIgnition, .repPanel .repMaster { font-size: 14px; padding: 8px; }
 }

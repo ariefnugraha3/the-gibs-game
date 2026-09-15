@@ -305,7 +305,7 @@ function beginRepair() {
     setPhase('repairing'); repairMarker.visible = false;
     clearMoveTarget(); keys.w = keys.a = keys.s = keys.d = false;
     beginRepairMinigame({
-        head: 'AUXILIARY GENERATOR - FIELD RESTART',
+        head: 'AUXILIARY GENERATOR',
         parts: ADVANCED_REPAIR_PARTS,
         startIndex: repairInstalled,
         onProgress: k => { repairInstalled = k; },
