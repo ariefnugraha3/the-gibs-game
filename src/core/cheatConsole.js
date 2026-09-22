@@ -14,6 +14,7 @@ import {
     maxAmmoFor, unlockWeapon,
 } from './state.js';
 import { CFG } from './config.js';
+import { invalidateAchievementRun } from './achievements.js';
 import { updateUI } from './hud.js';
 import { activeScene } from './sceneManager.js';
 import { WEAPON_DEF, refreshOwnedWeapon, startSwitch } from '../entities/weapons.js';
@@ -132,6 +133,8 @@ export function runCheatCommand(cmd) { runCommand(cmd); }
 
 function runCommand(cmd) {
     const c = cmd.toLowerCase();
+    if (/^(god-mode|more-money|give-weapon-\d+|give-armor-\d+|skip-to-wave-\d+|skip-to-stage-\d+(-ch-\d+)?)$/.test(c))
+        invalidateAchievementRun();
     if (c === 'god-mode') {
         setGodMode(!godMode);   // TOGGLE
         setFeedback(godMode ? 'God mode: ON - player & Monas are invincible' : 'God mode: OFF');

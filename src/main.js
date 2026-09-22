@@ -4,6 +4,8 @@
 // dipenggal dgn await loadingStep() agar overlay & bar sempat dilukis browser.
 
 import { loadConfig, CFG } from './core/config.js';
+import { startAchievementSession, invalidateAchievementRun } from './core/achievements.js';
+import { godMode } from './core/state.js';
 import { setMode, configurePlayer, isPaused, isGameOver, highScore, cinematicActive } from './core/state.js';
 import {
     initRenderer, initQualityUI, scene, camera, viewCam, renderer, composer, postFxOn,
@@ -118,6 +120,10 @@ export async function startGame(mode, opts = {}) {
     try {
         setMode(mode);
         configurePlayer();
+        if (mode !== 'campaign' || !(opts.stage > 1)) {
+            startAchievementSession(mode);
+            if (godMode) invalidateAchievementRun();
+        }
 
         const playIntro = mode === 'campaign' && !(opts.stage > 1);
         const playSurvIntro = mode !== 'campaign';
@@ -207,7 +213,13 @@ export async function startGame(mode, opts = {}) {
         // (resetGame memakai activeScene = survivalScene).
         if (mode !== 'campaign') setScene(survivalIntroScene);
         else if (playIntro) setScene(introScene);
-        else { setScene(stage1Scene); if (opts.stage > 1) campaignJumpToStage(opts.stage); }
+        else {
+            // Bootstrap builds the worlds before attaching the saved attempt.
+            setScene(stage1Scene);
+            startAchievementSession(mode, opts.stage);
+            if (godMode) invalidateAchievementRun();
+            campaignJumpToStage(opts.stage);
+        }
         await loadingStep(60, 'Preparing weapons…');
 
         initPlayerAvatar(scene);   // avatar top-down player (SEBELUM initWeapons:

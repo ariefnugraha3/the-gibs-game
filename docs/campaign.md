@@ -1,5 +1,61 @@
 # Campaign mode — reference
 
+## Achievements (2026-09-22)
+
+The main menu's Achievements panel shows 16 awards: loot boxes at 1/10/100/200,
+robot kills at 1/100/1000/2000, separate victories over the Tank, hostile locomotive
+miniboss, Combat Gunship, Heavy Siege Bomber, Nusantara Warden and M-0 Mahapatih,
+and two secret full-campaign awards. Milestone totals accumulate across Campaign and
+Survival, independent of score or stage statistics. Vehicle kills do not count as
+ordinary robot kills. World cleanup does not award kills or destroyed boxes.
+
+Locked secret entries show only “Hidden Achievement” and generic discovery text.
+After unlocking, **Still Standing** reveals the Stage-1-to-finish deathless condition;
+**Untouchable** reveals the same entire-campaign condition without a single hit.
+Armor-absorbed hits, tank electric damage and aircraft damage all count. Successful
+dodges do not. Death immediately marks the attempt failed, including aircraft
+destruction, before the delayed game-over screen. Stage retries and Continue keep
+failed conditions; restarting the whole campaign creates a new attempt. Cheat commands
+and skipped/out-of-order stages disqualify perfect-run awards. Skipping cinematics is
+allowed. Both secret awards wait for the final epilogue callback, including its Skip
+path, rather than unlocking at the boss's first death frame.
+
+Progress is local to this browser, stored separately from the campaign checkpoint.
+New Game and final checkpoint clearing never delete lifetime achievements. Existing
+checkpoints without the new full-run history can earn milestones/boss awards but not
+the secret perfect-run awards; begin a fresh campaign for those. A storage failure
+keeps the game playable and the panel reports that saving is unavailable. No past
+run totals are guessed or retroactively credited. Unit coverage is in
+`tools/achievements.test.mjs`; smoke exercises actual crate/robot deaths, all six boss
+death handlers, armor hits, dodge and cheat invalidation.
+
+## Stage 12 ending: The Last Signal (2026-09-21)
+
+The approved outro begins only after Mahapatih's destruction reaches its settled wreck.
+Battle music stops; quiet wind accompanies a held wreck shot. Civilian channels report
+that the machines have stopped and the shelters are open. Control returns for a peaceful
+walk to the amber marker beside the vault's archive terminal; HUD stays faded, and the
+terminal waits for all radio lines before taking control for the final broadcast.
+
+The archive contains operation orders, missing-person records and mandate signatories.
+Gibran orders transmission on every civilian channel. A prebuilt physical screen shows
+actual broadcast progress, then confirms public copies. The player delivers “We cannot
+bring back what we lost. We start with what remains.” The camera rises and pulls away
+as existing base lights and the horizon reach dawn. Reduced motion holds the dawn shot.
+
+“THE SIGNAL IS OURS.” leads into three static credit pages sourced from the same
+`MENU_CREDITS` as the main menu. A brief civilian receiver acknowledges an archive copy
+from outside Java, with one restrained carrier tone. This user-approved hook supersedes
+the old no-sequel-tease rule; it does not undo IKN's shutdown or resurrect Mahapatih.
+After the last fade, `CAMPAIGN COMPLETE` opens and the checkpoint is cleared once.
+
+Skip works during both the walk and cinematic beats, settles transmission/dawn and
+invokes the same completion callback once. Reset/exit clean the marker, radio pose,
+cards, objective, sound, camera and skip binding. Interrupted endings retain checkpoint
+12. All durations and the interaction radius live in `campaign.stage12.ending`; dialogue
+is in `dialogue.campaign.stage12.lines`. The terminal's materials, geometry, canvas
+texture and floor marker are built before play and included in campaign shader warm-up.
+
 ## Stage 2/3 Collapsed Stairs (2026-09-10)
 
 The stairwells in Stages 2 and 3 are visibly destroyed: the middle flight is missing, the landing and stair slabs have fallen into a fractured concrete heap, and railings are snapped with exposed reinforcement. The wreck remains inside the existing solid footprint and cannot be stood on. Stage 2 still requires the powered lift to leave the floor; its start-room exit and lift approach remain clear. Stage 3 retains its lift arrival and lobby exit. Stage 1's usable staircase remains intact.

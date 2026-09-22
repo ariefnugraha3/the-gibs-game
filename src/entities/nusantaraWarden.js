@@ -4,6 +4,7 @@
 // warnings and wreck are one persistent preallocated object graph.
 
 import { CFG, CAMP_M } from '../core/config.js';
+import { recordBossAchievement } from '../core/achievements.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { bullets, player, stats } from '../core/state.js';
 import { queueBoom } from './robots.js';
@@ -1310,6 +1311,7 @@ function updateWeakTargetFx(w, dt) {
 function killNusantaraWarden(w) {
     if (w.dead) return;
     w.hp = 0; w.dead = true; w.phase = 'death'; w.phaseT = 0;
+    recordBossAchievement('warden');
     w.attackState = 'dead'; clearHazards(w); stats.kills++; addCamShake(8);
     w.parts.attackCharge.visible = false;
     beginNusantaraWardenDeath(w);

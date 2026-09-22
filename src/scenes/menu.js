@@ -24,6 +24,7 @@ import { setDifficulty } from '../core/state.js';
 import { loadCampaignStage, clearCampaignSave } from '../core/saveGame.js';
 import { startMenuMusic, stopMusic, getMusicVolume, setMusicVolume, getSFXVolume, setSFXVolume } from '../utils/sfx.js';
 import { paintMenuArt } from './menuArt.js';
+import { initAchievementUI, renderAchievements } from '../core/achievementUI.js';
 
 // Satu sumber konten Credits. Markup dibangun saat menu diinisialisasi agar
 // kredit proyek tidak tercecer sebagai salinan statis di index.html.
@@ -74,6 +75,7 @@ export function difficultyNote(name) {
 }
 
 export function initMenu(onPick) {
+    initAchievementUI();
     initMainMenu();
     paintMenuArt(document.getElementById('modeSelect'));
     initParallax();
@@ -169,16 +171,26 @@ function initMainMenu() {
     const menu = document.getElementById('mainMenu');
     const settings = document.getElementById('settingsPanel');
     const credits = document.getElementById('creditsPanel');
+    const achievements = document.getElementById('achievementsPanel');
+    let panelOpener = null;
 
     const showList = () => {
         menu.classList.remove('subview');
         settings.classList.remove('open');
         credits.classList.remove('open');
+        achievements.classList.remove('open');
+        panelOpener?.focus();
     };
     const openPanel = (p) => {
+        panelOpener = document.activeElement;
         menu.classList.add('subview');
         settings.classList.toggle('open', p === settings);
         credits.classList.toggle('open', p === credits);
+        achievements.classList.toggle('open', p === achievements);
+        if (p === achievements) {
+            renderAchievements();
+            document.getElementById('achievementsBody').focus();
+        }
     };
 
     document.getElementById('mmStart').addEventListener('click', () => {
@@ -187,6 +199,7 @@ function initMainMenu() {
     });
     document.getElementById('mmSettings').addEventListener('click', () => openPanel(settings));
     document.getElementById('mmCredits').addEventListener('click', () => openPanel(credits));
+    document.getElementById('mmAchievements').addEventListener('click', () => openPanel(achievements));
     document.getElementById('mmExit').addEventListener('click', exitGame);
     document.querySelectorAll('#mainMenu .menuBack').forEach(b =>
         b.addEventListener('click', showList));

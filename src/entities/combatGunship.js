@@ -27,6 +27,7 @@
 // player, dan shot masuk intro (x mengecil) menjadi terbang maju, bukan mundur.
 
 import { CFG } from '../core/config.js';
+import { recordBossAchievement } from '../core/achievements.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { bullets, enemyBullets, GEO, MAT, player, stats, makeEnemyBulletMesh, EB_BOLT } from '../core/state.js';
 import { queueBoom } from './robots.js';
@@ -681,6 +682,7 @@ export function damageCombatGunship(g, dmg) {
 }
 
 function killCombatGunship(g) {
+    recordBossAchievement('gunship');
     g.hp = 0; g.dead = true; g.deathT = 0; g.attackState = 'dead';
     g.telegraph.visible = false; clearGunshipBullets();
     for (const s of g.shells) { s.active = false; s.mesh.visible = false; }

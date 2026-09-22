@@ -3,6 +3,8 @@
 // entities/*; logika khas mode hidup di scene aktif.
 
 import { CFG } from './config.js';
+import { recordAchievementDeath, startAchievementSession, invalidateAchievementRun } from './achievements.js';
+import { godMode } from './state.js';
 import {
     isPaused, isGameOver, setGameOver, setScore, score, highScore, setHighScore, player,
     robots, bullets, enemyBullets, grenades, explosions, drops, clearArray, configurePlayer,
@@ -49,6 +51,7 @@ export function isPlayerDying() { return playerDeathT >= 0; }
 
 export function startPlayerDeath(dirx = 0, dirz = 1) {
     if (playerDeathT >= 0 || isGameOver) return;   // sekali saja
+    recordAchievementDeath();
     playerDeathT = CFG.player.deathDelaySec != null ? CFG.player.deathDelaySec : 2;
     player.hp = 0;
     releaseInputs();        // lepaskan WASD/klik yang tertahan (pointer tetap terkunci)
@@ -149,6 +152,7 @@ export function formatStageTime(seconds) {
 }
 
 export function gameOver(won, title, opts = {}) {
+    if (!won) recordAchievementDeath();
     setGameOver(true);
     hideBossHud();
     endDeathCine();   // lepas slow motion + letterbox; framing jasad dibekukan (no-op bila menang)
@@ -218,6 +222,10 @@ export function activateGameOverPrimary() {
 // (checkpoint tersimpan) alih-alih stage 1 — dipakai prompt/SPACE game-over.
 // Default false = kebijakan restartScene (pause "RESTART GAME" = dari awal).
 export function resetGame(atCurrentStage = false) {
+    if (!atCurrentStage) {
+        startAchievementSession(mode);
+        if (godMode) invalidateAchievementRun();
+    }
     goPrimaryAction = null;
     setScore(0);
     stopMusic();           // run baru: musik battle mati sampai tembakan kena pertama (2026-07-19)

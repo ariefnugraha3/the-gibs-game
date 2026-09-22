@@ -11,6 +11,7 @@ import { showLoading, loadingStep, hideLoading } from '../../../core/preload.js'
 import { scene, viewCam, renderer, composer, postFxOn } from '../../../core/renderer.js';
 import { activeScene, setScene } from '../../../core/sceneManager.js';
 import { gameOver } from '../../../core/game.js';
+import { completeAchievementStage } from '../../../core/achievements.js';
 import { openShop, closeShop, isShopOpen, requestNextWave } from '../../survival/shop.js';
 import { setPaused, robots, bullets, enemyBullets, grenades, explosions, drops, clearArray } from '../../../core/state.js';
 import { disposeRobot, resetRobotsFx } from '../../../entities/robots.js';
@@ -50,6 +51,7 @@ export function beginStageTransition(nextScene) {
     const stageNo = match
         ? Number(match[1])
         : Math.max(1, Number(nextScene?.id?.split('-')[1] || 2) - 1);
+    completeAchievementStage(stageNo);
     gameOver(true, `STAGE ${stageNo} COMPLETE`, {
         preserveCampaignSave: true,
         continueLabel: 'CONTINUE',

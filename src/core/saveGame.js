@@ -5,6 +5,8 @@
 // Ditulis tiap kali sebuah stage campaign di-enter (= checkpoint), dibersihkan
 // saat MISSION COMPLETE atau saat player memilih "No, New Game" di prompt menu.
 
+import { visitAchievementStage, clearAchievementRun } from './achievements.js';
+
 const KEY = 'gibsCampaignStage';
 const VERSION_KEY = 'gibsCampaignStageVersion';
 const SAVE_VERSION = 2;
@@ -13,6 +15,7 @@ const SAVE_VERSION = 2;
 // privat / storage penuh melempar — abaikan (save opsional, tak boleh crash).
 export function saveCampaignStage(n) {
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 12) return false;
+    visitAchievementStage(n);
     try {
         localStorage.setItem(KEY, String(n));
         localStorage.setItem(VERSION_KEY, String(SAVE_VERSION));
@@ -37,6 +40,7 @@ export function loadCampaignStage() {
 
 // Hapus save (New Game / mission complete).
 export function clearCampaignSave() {
+    clearAchievementRun();
     try {
         localStorage.removeItem(KEY);
         localStorage.removeItem(VERSION_KEY);

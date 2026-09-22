@@ -1,5 +1,7 @@
 # Campaign Expansion Blueprint — Stages 9–13
 
+> **Ending override approved 2026-09-21:** the shipped finale is Stage 12 at Monas. “The Last Signal” replaces the short sunrise epilogue with civilian radio, an archive disclosure, dawn, credits and an outside-Java receiver. This explicitly supersedes the older prohibition on a sequel tease below. The receiver acknowledges a civilian archive copy; it does not reactivate a hostile root or revoke either campaign victory. Checkpoint clearing remains at final epilogue completion. See [campaign.md](campaign.md).
+
 > Status: **implemented campaign contract (2026-08-13)** — §14 acceptance matrix executed 2026-08-13 in `tools/smoke.mjs` sections `25` and `25a`–`25e`; see §22 for the deviations that pass recorded.
 > Created: 2026-08-12
 > Scope: continuation from the current Stage 8 endpoint at Kertajati through the final battle at Monas

@@ -122,6 +122,12 @@
          cutscene (dom.setCineFade) — supaya perpindahan ke/dari gameplay tidak
          terasa "terpotong tiba-tiba". -->
     <div id="cineFade"></div>
+    <section id="endingCard" aria-live="polite" aria-hidden="true">
+        <div id="endingKicker"></div>
+        <h1 id="endingTitle"></h1>
+        <p id="endingCopy"></p>
+    </section>
+    <div id="endingObjective" aria-live="polite"></div>
     <!-- Kotak dialog briefing INTRO campaign: teks misi diketik huruf demi
          huruf oleh cutscenes/intro.js. Diletakkan di atas letterbox bawah dan
          di bawah tirai fade agar ikut lenyap saat transisi ke Stage 1. -->
@@ -225,6 +231,7 @@
             <nav class="menuBtns">
                 <button id="mmStart" class="navRow"><span class="nrLabel">Start Game</span></button>
                 <button id="mmSettings" class="navRow"><span class="nrLabel">Settings</span></button>
+                <button id="mmAchievements" class="navRow"><span class="nrLabel">Achievements</span></button>
                 <button id="mmCredits" class="navRow"><span class="nrLabel">Credits</span></button>
                 <button id="mmExit" class="navRow"><span class="nrLabel">Exit</span></button>
             </nav>
@@ -278,6 +285,15 @@
              settings") — kartu film [eyebrow, kalimat pembuka miring, peran
              rata-kanan + nama + satu kalimat rincian, blok bergaris] diganti
              baris label→nilai yang sama persis tata bahasanya dgn Settings. -->
+        <section id="achievementsPanel" class="menuPanel" aria-labelledby="achievementsHeading">
+            <div class="panelHead">
+                <h2 id="achievementsHeading">Achievements</h2>
+                <span id="achievementsSummary"></span>
+            </div>
+            <p id="achievementsStorage"></p>
+            <div id="achievementsBody" tabindex="0" role="region" aria-label="Achievement list"></div>
+            <button class="menuBtn menuBack" data-back="achievements">Back</button>
+        </section>
         <div id="creditsPanel" class="menuPanel">
             <div class="panelHead">
                 <h2>Credits</h2>
@@ -291,6 +307,11 @@
         <div class="mStamp">BUILD DEV.01</div>
     </div>
 
+    <aside id="achievementToast" role="status" aria-live="polite" aria-atomic="true">
+        <span class="achievementToastLabel">ACHIEVEMENT UNLOCKED</span>
+        <strong id="achievementToastName"></strong>
+        <span id="achievementToastDescription"></span>
+    </aside>
     <div id="modeSelect" class="menuScreen" style="display:none">
         <div class="mScene" aria-hidden="true">
             <div class="mSky"></div>

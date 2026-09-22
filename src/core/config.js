@@ -14,7 +14,7 @@ export const CAMP_M = 7;
 
 const SECTIONS = ['player', 'stamina', 'movement', 'weapons', 'melee',
     'grenade', 'robot', 'survival', 'campaign', 'drops', 'shop', 'difficulty',
-    'dialogue'];
+    'dialogue', 'achievements'];
 
 // BERKAS TUNING TERPISAH (permintaan user 2026-08-28: "pisahkan data khusus
 // untuk stage ini biar saya bisa edit sesuka hati"). `path` = letaknya di dalam

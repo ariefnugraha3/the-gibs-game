@@ -3,6 +3,7 @@
 // terbaru; reassignment hanya lewat fungsi setter di modul pemilik ini.
 
 import { CFG } from './config.js';
+import { invalidateAchievementRun, recordAchievementLootBox } from './achievements.js';
 
 // ----------- Status inti game ----------- //
 export let isPaused = true;
@@ -25,7 +26,7 @@ export const setMode = (m) => { mode = m; };
 // Cheat: god mode (player & Monas KEBAL — HP tak berkurang). Di-toggle lewat
 // konsol cheat (tombol `). Dibaca di robots.js (damage player) & survival damageMonas.
 export let godMode = false;
-export const setGodMode = (v) => { godMode = v; };
+export const setGodMode = (v) => { godMode = v; if (v) invalidateAchievementRun(); };
 // MODE SINEMATIK (2026-07-17, cutscene heli stage 4): true = semua kendali
 // player dibekukan (blok kontrol updateGame dilewati + input.js menelan semua
 // input kecuali Escape) sementara DUNIA & updateMode tetap berjalan (cutscene
@@ -75,6 +76,7 @@ export function updateStageStats(dtReal) {
 }
 export function recordLootBoxDestroyed() {
     if (stageStats.active) stageStats.lootBoxesDestroyed++;
+    recordAchievementLootBox();
 }
 export const stageStatsDebug = () => ({ ...stageStats });
 

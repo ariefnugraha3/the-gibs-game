@@ -76,6 +76,7 @@
 // menjauhi tank).
 
 import { CFG, CAMP_M } from '../core/config.js';
+import { recordBossAchievement, recordAchievementHit } from '../core/achievements.js';
 import { player, bullets, enemyBullets, GEO, MAT, stats, godMode, dodgeInvuln, makeEnemyBulletMesh } from '../core/state.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { segPointDist2, clamp, rand } from '../utils/math.js';
@@ -833,6 +834,7 @@ function updateShock(tank, dt) {
     const d = Math.hypot(dx, dz);
     if (R > 0 && d < R && player.hp > 0 && !dodgeInvuln) {
         if (!godMode) {
+            if (dt > 0) recordAchievementHit();
             player.hp -= (T.shockDps || 10) * dt;   // MENEMBUS armor: HP langsung
             if (player.hp <= 0) {
                 player.hp = 0;
@@ -1213,6 +1215,7 @@ const CHAR_HEX = 0x20211c;      // cat bangkai hangus (tujuan tint applyChar)
 const WRECK_TILT = 0.06;        // kemiringan akhir lambung (suspensi ambruk)
 
 function killTank(tank) {
+    recordBossAchievement('tank');
     tank.dead = true; tank.hp = 0; tank.deathT = 0;
     hideZap();   // listrik padam bersama tank
     stopTankAudio(tank);          // loop gerak/turret mati seketika (2026-07-19)

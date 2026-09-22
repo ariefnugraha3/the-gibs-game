@@ -33,6 +33,7 @@
 // membuat keduanya diam-diam berbeda begitu mortar tank di-retune.
 
 import { CFG } from '../../../../core/config.js';
+import { recordBossAchievement } from '../../../../core/achievements.js';
 import { bullets, player, stats } from '../../../../core/state.js';
 import { scene, camera, addCamShake } from '../../../../core/renderer.js';
 import { spawnBloodBurst, explodeAt } from '../../../../entities/effects.js';
@@ -223,6 +224,7 @@ function damageLoco(d) {
     boss.hp -= d; boss.hitT = 1;
     if (boss.hp > 0) return;
     boss.hp = 0; boss.phase = 'dead';
+    recordBossAchievement('locomotive');
     for (const g of enemyTrain.grenades) { g.live = false; g.mesh.visible = false; }
     if (enemyTrain.weapons) enemyTrain.weapons.warn.visible = false;
 }

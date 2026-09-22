@@ -1,4 +1,9 @@
 {
+    "achievements": {
+        "lootBoxes": [1, 10, 100, 200],
+        "robots": [1, 100, 1000, 2000],
+        "toastSec": 4
+    },
     "player": {
         "maxHp": 100,
         "speed": 1.5,
@@ -1064,7 +1069,12 @@
             "ending": {
                 "settleSec": 3,
                 "dialogueDelaySec": 1,
-                "sunriseSec": 8,
+                "interactionRange": 12,
+                "transmitSec": 8,
+                "sunriseSec": 12,
+                "titleSec": 6,
+                "creditPageSec": 7,
+                "relaySec": 5,
                 "fadeSec": 1.2
             }
         },
@@ -1708,7 +1718,13 @@
                     "finalCore": { "speaker": "Command", "text": "Shield collapsed. The core is exposed." },
                     "mahapatihDeath": { "speaker": "M-0 MAHAPATIH", "text": "Authority... cannot... be returned..." },
                     "networkSafe": { "speaker": "Command", "text": "Countermand aborted. No hostile root authority remains." },
-                    "finalGibran": { "speaker": "Major Gibran", "text": "Stand down. Indonesia belongs to its people." }
+                    "civilianNorth": { "speaker": "North Jakarta / Civilian channel", "text": "The machines have stopped. If anyone can hear this... we are still here." },
+                    "civilianShelter": { "speaker": "Central Jakarta / Shelter relay", "text": "The shelter doors are open. Bring the wounded. We have room." },
+                    "archiveBeacon": { "speaker": "Command", "text": "The vault's archive terminal is still powered. One last transmission, Major." },
+                    "archiveFound": { "speaker": "Command", "text": "Operation orders. Names of the missing. The people who signed the mandate. The archive survived." },
+                    "archiveChoice": { "speaker": "Major Gibran", "text": "Open every channel. Let everyone see what was done in their name." },
+                    "archiveSent": { "speaker": "Command", "text": "Copies received across the civilian relays. The record belongs to everyone now." },
+                    "finalGibran": { "speaker": "Major Gibran", "text": "We cannot bring back what we lost. We start with what remains." }
                 }
             }
         },

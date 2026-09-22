@@ -7,6 +7,7 @@
 // (8 -> 6 menit), jadi menyebut angkanya di komentar hanya bikin basi.
 
 import { CFG } from '../../../../core/config.js';
+import { recordBossAchievement, recordAchievementHit, recordAchievementDeath } from '../../../../core/achievements.js';
 import {
     player, keys, stats, addScore, godMode, setCinematicActive,
 } from '../../../../core/state.js';
@@ -1232,6 +1233,7 @@ function updatePlayerImpact(dt) {
 
 function damagePlayer(damage, kind = 'bullet', sourceX = null, sourceZ = null) {
     if (!fighting() || godMode) return;
+    if (damage > 0 && flightHp > 0) recordAchievementHit();
     flightHp = Math.max(0, flightHp - damage); player.hp = flightHp;
     beginPlayerImpact(kind, sourceX, sourceZ);
     playSFX(kind === 'missile' ? sfxRocketExplode : sfxHit,
@@ -1241,6 +1243,7 @@ function damagePlayer(damage, kind = 'bullet', sourceX = null, sourceZ = null) {
 
 function startPlayerDestruction() {
     if (phase === 'playerDestroyed') return;
+    recordAchievementDeath();
     phase = 'playerDestroyed'; playerDestroyedT = 0; playerExplosionPulse = 0;
     playerImpact.active = false;
     stage10FlightWorld().playerImpactFx.group.visible = false;
@@ -1901,6 +1904,7 @@ function startBoss() {
 }
 
 function startBossDeath() {
+    recordBossAchievement('bomber');
     boss.dying = true; boss.deathT = 0;
     hideBossHud();
     const p = bossPosition();

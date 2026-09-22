@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+**Achievements (2026-09-22):** the main menu now exposes persistent loot-box/robot milestones, six boss/miniboss awards and two masked secret campaign awards. Ordered Stage-1-to-epilogue run history survives Continue and retry, including armor hits, aircraft damage and death; cheats disqualify perfect-run awards. New games/checkpoint clearing preserve lifetime unlocks. See [campaign.md](docs/campaign.md), `core/achievements.js` and `tools/achievements.test.mjs`.
+
+**The Last Signal ending (2026-09-21):** Stage 12 now ends with civilian radio, a playable archive-terminal approach, public disclosure, dawn, shared project credits and an outside-Java receiver. The epilogue begins at the settled-wreck callback, supports Skip and preserves checkpoint 12 until final completion. See [campaign.md](docs/campaign.md) and `stage12/epilogue.js`.
+
 **SIGNAL TRACE UI (2026-09-15):** the Stage 5-6 carrier puzzle now matches the flat ICE BREACH / FIELD RESTART workspace. Only the active row is actionable; mouse/touch and keyboard use the same capture model. Prebuilt target windows include circular wrap, animated cursor rails use transforms, and a categorical trace meter replaces countdown/strike text. Results remain visible and cannot be aborted to bypass success/alarm callbacks. Tuning is unchanged. See [campaign reference](docs/campaign.md).
 
 **Repair UI overhaul (2026-09-15):** Power Harness, Control Board, Coolant Pump, Phase Sync and Rotor Kickstart use one flat responsive workspace. Native controls support keyboard and touch; chip tray geometry stays stable as chips are seated, and the oscilloscope reuses its SVG nodes. No puzzle tuning changed. Results lock Abort and retain stage progress/callback behavior. See [campaign reference](docs/campaign.md).

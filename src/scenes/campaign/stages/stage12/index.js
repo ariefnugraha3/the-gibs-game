@@ -4,8 +4,9 @@
 // epilogue beat has resolved, so checkpoint 12 survives an interrupted ending.
 
 import { CFG, CAMP_M } from '../../../../core/config.js';
+import { completeAchievementCampaign } from '../../../../core/achievements.js';
 import { dialogueMap } from '../../../../core/dialogue.js';
-import { player, robots, keys, setCinematicActive } from '../../../../core/state.js';
+import { player, robots, keys, mouse, enemyBullets, setCinematicActive } from '../../../../core/state.js';
 import { scene, camera, viewCam, CAM_OFF_DEFAULT, CAM_LOOK_DROP, camOffsetActive, camFocusPos, setCineFocus } from '../../../../core/renderer.js';
 import {
     showStageMsg, showStageRadioDialogue, hideStageRadioDialogue,
@@ -32,6 +33,11 @@ import { slideWalk } from '../../../../utils/collision.js';
 import { startBossMusic, stopMusic } from '../../../../utils/sfx.js';
 import { stage1Scene } from '../stage1/index.js';
 import {
+    ensureStage12Epilogue, beginStage12Epilogue, updateStage12Epilogue,
+    resetStage12Epilogue, finishStage12Epilogue, stage12EpilogueDebug,
+    stage12EpilogueCamera, stage12EpilogueLookY, resolveStage12Archive,
+} from './epilogue.js';
+import {
     createMahapatih, resetMahapatih, setMahapatihWarmupVisible,
     updateMahapatih, mahapatihBulletHit, damageMahapatih, damageMahapatihHardline,
     resolveMahapatihBlock, clearMahapatihHazards, mahapatihDebug,
@@ -44,7 +50,7 @@ import {
     stage12Walk, resolveStage12World, stage12GroundHeight, clampStage12Boss,
     stage12BulletBlocked, stage12BlastBlocked,
     resetStage12World, updateStage12World, updateStage12Transport,
-    hideStage12Transport, setStage12Sunrise,
+    hideStage12Transport,
     updateStage12Gate, sealStage12Gate, stage12GateState,
     stage12InsidePark, stage12MonasDistance,
 } from './world.js';
@@ -55,7 +61,6 @@ export const STAGE12_DIALOGUE = dialogueMap('campaign.stage12.lines');
 
 const PLAY_CAM = Object.freeze({ x: -82, y: 132, z: 82 });
 const BOSS_CAM = Object.freeze({ x: -112, y: 165, z: 112 });
-const END_CAM = Object.freeze({ x: -135, y: 116, z: 102 });
 const cineCam = { ...CAM_OFF_DEFAULT };
 const bossContext = {
     center: S12_BOSS_CENTER,
@@ -71,7 +76,7 @@ const bossContext = {
 
 let worldRoot = null, boss = null;
 let phase = 'returnCine', complete = false, elapsed = 0;
-let cine = null, bossRevealT = 0, endingT = 0;
+let cine = null, bossRevealT = 0;
 let gateArmed = false, parkSealed = false;
 let completionCommitted = false, finalScreenShown = false;
 let guardSpawned = new Set(), guardCensus = [], guardSuppliesPlaced = false;
@@ -86,6 +91,7 @@ function bossCfg() { return CFG.campaign.bosses.mahapatih; }
 // child programs temporarily while the world root itself remains inactive.
 export function ensureStage12World(parent = scene) {
     worldRoot = ensureWorldRoot(parent);
+    ensureStage12Epilogue(worldRoot);
     if (!boss) {
         boss = createMahapatih({ parent: worldRoot, active: false,
             x: S12_BOSS_CENTER.x, z: S12_BOSS_CENTER.z });
@@ -378,18 +384,19 @@ function updateBossHud() {
 
 function startEnding() {
     if (phase === 'ending' || phase === 'complete') return;
-    clearMahapatihHazards(boss); hideBossHud(); phase = 'ending'; endingT = 0;
-    hideCutsceneSkip();
-    releaseInputs(); clearMoveTarget(); setCinematicActive(true);
-    setCineBars(true); setCineFade(0, 0); hideStage12Transport();
-    cineCam.x = END_CAM.x; cineCam.y = END_CAM.y; cineCam.z = END_CAM.z;
-    setCineFocus(S12_MONAS.x - 72, S12_MONAS.z, true);
+    clearMahapatihHazards(boss); hideBossHud(); phase = 'ending';
+    resetDialogue(); hideStage12Transport(); cine = null;
     // Any presentation-only guards still alive shut down without loot/score.
     clearStage12Robots();
+    for (const b of enemyBullets) scene.remove(b.mesh);
+    enemyBullets.length = 0;
+    beginStage12Epilogue({ say: queueDialogue, idle: dialogueIdle, done: finishCampaign },
+        boss.parts.group.position);
 }
 
 function finishCampaign() {
     if (completionCommitted) return;
+    completeAchievementCampaign();
     completionCommitted = true; phase = 'complete'; complete = true;
     resetDialogue(); hideBossHud(); cleanupCine(stageCfg().ending.fadeSec);
     // gameOver performs clearCampaignSave here — never at enter() or during the
@@ -399,17 +406,6 @@ function finishCampaign() {
         continueLabel: 'RETURN TO MAIN MENU',
         onContinue: () => location.reload(),
     });
-}
-
-function updateEnding(dt) {
-    const E = stageCfg().ending; endingT += dt;
-    const sunriseStart = E.settleSec;
-    setStage12Sunrise((endingT - sunriseStart) / Math.max(0.1, E.sunriseSec));
-    if (endingT >= E.settleSec + E.dialogueDelaySec && !dialogueSeen.has('networkSafe')) {
-        queueDialogue('networkSafe'); queueDialogue('finalGibran');
-    }
-    if (endingT >= E.settleSec + E.dialogueDelaySec + E.sunriseSec && dialogueIdle())
-        finishCampaign();
 }
 
 // Gerbang taman: TIDAK dibuka lewat timer. Ia merespons kedatangan player hanya
@@ -452,7 +448,7 @@ function updateSealedPark() {
 
 function resetStage() {
     phase = 'returnCine'; complete = false; elapsed = 0; cine = null;
-    bossRevealT = 0; endingT = 0;
+    bossRevealT = 0; resetStage12Epilogue();
     gateArmed = false; parkSealed = false;
     completionCommitted = false; finalScreenShown = false;
     guardSpawned = new Set(); guardCensus = []; guardSuppliesPlaced = false;
@@ -487,12 +483,16 @@ export const stage12Scene = {
         startReturnCine(); updateUI();
     },
     exit() {
+        resetStage12Epilogue();
         clearMahapatihHazards(boss); resetMahapatih(boss, { active: false });
         resetDialogue(); hideBossHud(); stopMusic(); cleanupCine(0);
     },
     restartScene: () => stage1Scene,
     cheatSkipToStage: n => campaignJumpToStage(n),
     awardKill: campaignAwardKill,
+    allowsPlayerAction(action) {
+        return phase !== 'ending' || action === 'moveTarget';
+    },
     updateMode(dt) {
         elapsed += dt; updateDialogue(dt);
         updateStage12World(dt); updateStage12Gate(dt, gateTarget());
@@ -512,12 +512,16 @@ export const stage12Scene = {
             if (phase === 'bossDeath') updateDeathCamera();
             if (phase === 'bossTransition') updatePhaseCamera();
             updateBossHud();
-        } else if (phase === 'ending') updateEnding(dt);
+        } else if (phase === 'ending') {
+            mouse.isDown = false;
+            updateStage12Epilogue(dt);
+        }
         updateUI();
     },
     playerCollide(pos, oldX, oldZ, feetY) {
         slideWalk(stage12Walk, pos, oldX, oldZ, player.radius);
         resolveStage12World(pos, player.radius, feetY, oldX, oldZ);
+        resolveStage12Archive(pos, player.radius, feetY);
         if (boss?.active) resolveMahapatihBlock(boss, pos, player.radius);
         slideWalk(stage12Walk, pos, oldX, oldZ, player.radius);
     },
@@ -579,7 +583,8 @@ export const stage12Scene = {
         if (phase === 'finalCore') return d?.hitVolumes?.coreOpen
             ? 'Attack the exposed core'
             : 'Wait for the core shutters to open';
-        if (phase === 'ending') return 'Hold until dawn';
+        if (phase === 'ending') return stage12EpilogueDebug().state === 'walk'
+            ? 'Reach the archive terminal' : 'The last signal';
         if (phase === 'complete') return 'Campaign complete';
         return 'Defeat Mahapatih';
     },
@@ -610,11 +615,12 @@ export const stage12Scene = {
     // pandangan. Stage 4 adalah satu-satunya stage yang menjepit kamera, karena
     // di sana tank sengaja bisa menghilang dari jangkauan pandang.
     camBounds: () => null,
-    get camLookY() { return phase === 'bossDeath' || phase === 'bossTransition' ? 28 : null; },
+    get camLookY() { return phase === 'ending' ? stage12EpilogueLookY()
+        : phase === 'bossDeath' || phase === 'bossTransition' ? 28 : null; },
     get camOffset() {
         if (cine || phase === 'vaultReveal' || phase === 'bossDeath' || phase === 'bossTransition') return cineCam;
         if (bossAllowed()) return BOSS_CAM;
-        if (phase === 'ending') return END_CAM;
+        if (phase === 'ending') return stage12EpilogueCamera() || PLAY_CAM;
         return PLAY_CAM;
     },
 };
@@ -629,7 +635,7 @@ export const stage12DamageHardlineForDebug = (index, damage) =>
         ...bossContext, onPhase: bossPhaseCallback, onAnchor: anchorCallback,
     });
 export const stage12BeginEndingForDebug = () => startEnding();
-export const stage12CompleteEndingForDebug = () => finishCampaign();
+export const stage12CompleteEndingForDebug = () => finishStage12Epilogue();
 
 export const stage12Debug = () => {
     const world = stage12WorldDebug(), bossState = mahapatihDebug(boss);
@@ -637,6 +643,7 @@ export const stage12Debug = () => {
         phase, complete, elapsed, cinematic: !!cine || phase === 'vaultReveal'
             || phase === 'bossDeath' || phase === 'bossTransition' || phase === 'ending', cameraLocked: false, completionCommitted,
         finalScreenShown, checkpointClearTiming: finalScreenShown ? 'complete' : 'preserved',
+        epilogue: stage12EpilogueDebug(),
         gate: { ...stage12GateState(), armed: gateArmed, parkSealed },
         bossTrigger: { meters: stageCfg().bossTriggerMeters, units: bossTriggerRange(),
             monasDistance: stage12MonasDistance(camera.position.x, camera.position.z) },

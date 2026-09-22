@@ -4,6 +4,7 @@
 // Semua pool dibuat saat createMahapatih(), bukan pada serangan pertama.
 
 import { CFG } from '../core/config.js';
+import { recordBossAchievement } from '../core/achievements.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { stats, player, addScore } from '../core/state.js';
 import { queueBoom, damagePlayerElectric } from './robots.js';
@@ -1462,6 +1463,7 @@ function updatePhaseTransition(b, dt, ctx) {
 }
 
 function killMahapatih(b, ctx) {
+    recordBossAchievement('mahapatih');
     const B = bossCfg(); clearMahapatihHazards(b);
     b.hp = 0; b.dead = true; b.deathDone = false; b.deathT = 0;
     b.attackState = 'dead';

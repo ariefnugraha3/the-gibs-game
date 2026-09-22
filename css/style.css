@@ -1562,6 +1562,35 @@ body {
 
 .menuPanel.open { display: flex; }
 
+#achievementsPanel { width: min(800px, 92vw); gap: 14px; }
+#achievementsSummary { color: #ce963c; font-size: 15px; white-space: nowrap; }
+#achievementsStorage { color: #adb3b4; font-size: 14px; line-height: 1.45; margin: 0; }
+#achievementsBody { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; scrollbar-width: thin; scrollbar-color: #777f80 #222a2f; }
+#achievementsBody:focus-visible { outline: 1px solid #ce963c; outline-offset: 3px; }
+.achievementRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; padding: 16px 0; }
+.achievementRow h4 { color: #c4c8c7; font-size: 19px; font-weight: 400; margin: 0; }
+.achievementRow.unlocked h4 { color: #efe9d9; }
+.achievementRow p { grid-column: 1 / -1; color: #adb3b4; font-size: 15px; line-height: 1.45; margin: 0; }
+.achievementStatus, .achievementCount { font-size: 12px; color: #adb3b4; align-self: center; }
+.achievementRow.unlocked .achievementStatus { color: #5db5a9; }
+.achievementRow progress { width: 100%; height: 5px; align-self: center; accent-color: #ce963c; border: 0; background: #333b40; }
+.achievementRow progress::-webkit-progress-bar { background: #333b40; }
+.achievementRow progress::-webkit-progress-value { background: #ce963c; }
+.achievementRow progress::-moz-progress-bar { background: #ce963c; }
+#achievementToast { position: fixed; top: 22px; right: 22px; z-index: 70; display: none;
+    width: min(340px, calc(100vw - 44px)); box-sizing: border-box; padding: 18px 20px;
+    background: #171d21; border-left: 3px solid #ce963c; color: #efe9d9; pointer-events: none; }
+#achievementToast.visible { display: grid; gap: 8px; }
+.achievementToastLabel { font-size: 11px; letter-spacing: .12em; color: #ce963c; }
+#achievementToastName { font-size: 21px; font-weight: 400; }
+#achievementToastDescription { font-size: 14px; line-height: 1.4; color: #adb3b4; }
+@media (max-width: 520px) {
+    #achievementsPanel { padding: 20px; max-height: 90vh; }
+    #achievementsPanel .panelHead { flex-wrap: wrap; gap: 8px; }
+    .achievementRow { column-gap: 10px; }
+    .achievementRow h4 { font-size: 17px; }
+}
+
 @keyframes mmPanelIn {
     from { opacity: 0; transform: translateY(12px); }
 }
@@ -2507,6 +2536,36 @@ body {
 
 /* Tirai FADE sinematik (2026-07-27): layar-penuh, DI ATAS letterbox, di BAWAH
    layar loading & blocker. Opasitas + durasinya di-set dom.setCineFade. */
+#endingCard {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 28;
+    box-sizing: border-box;
+    padding: 16vh max(24px, 9vw) 23vh;
+    background: #111518;
+    color: #dfded6;
+    text-align: center;
+    align-content: center;
+    pointer-events: none;
+}
+#endingKicker { color: #ce963c; font-size: clamp(12px, 2vw, 19px); letter-spacing: .2em; }
+#endingTitle { margin: 24px 0; font-size: clamp(27px, 5vw, 66px); line-height: 1.08; font-weight: 400; }
+#endingCopy { margin: 0 auto; max-width: 760px; white-space: pre-line; font-size: clamp(16px, 2.5vw, 26px); line-height: 1.55; }
+#endingObjective {
+    display: none; position: fixed; top: 16vh; left: 8vw; right: 8vw;
+    z-index: 26; text-align: center; color: #dfded6; font-size: clamp(15px, 2vw, 22px);
+    text-shadow: 0 2px 4px #111518; pointer-events: none;
+}
+body.epilogue #barsHud, body.epilogue #statsHud, body.epilogue #radar,
+body.epilogue #waveText, body.epilogue #pickupFeed, body.epilogue #aimCursor,
+body.epilogue #hitDir, body.epilogue #medkitBar, body.epilogue #stageMsg { opacity: 0 !important; pointer-events: none; }
+@media (max-height: 500px) {
+    #endingCard { padding-top: 9vh; }
+    #endingTitle { margin: 12px 0; font-size: 27px; }
+    #endingCopy { font-size: 16px; line-height: 1.3; }
+}
+
 #cineFade {
     position: fixed;
     inset: 0;

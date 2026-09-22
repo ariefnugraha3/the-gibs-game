@@ -53,7 +53,7 @@ global.document = {
     getElementById: (id) => { if (!elCache.has(id)) elCache.set(id, fakeEl()); return elCache.get(id); },
     createElement: () => fakeEl(),
     addEventListener() { }, exitPointerLock() { },
-    body: { appendChild() { }, requestPointerLock: () => ({ catch() { } }) },
+    body: { ...fakeEl(), appendChild() { }, requestPointerLock: () => ({ catch() { } }) },
     fullscreenElement: null, documentElement: fakeEl(), pointerLockElement: null
 };
 Object.defineProperty(global, 'navigator', { value: { keyboard: null }, configurable: true });
@@ -123,6 +123,12 @@ class Color {
     constructor(h = 0) { this._h = typeof h === 'object' ? h._h : h; }
     clone() { return new Color(this._h); }
     copy(c) { this._h = c.getHex(); return this; }
+    lerp(c, k) {
+        const a = this._h, b = c.getHex();
+        return this.setRGB((((a >> 16) & 255) * (1 - k) + ((b >> 16) & 255) * k) / 255,
+            (((a >> 8) & 255) * (1 - k) + ((b >> 8) & 255) * k) / 255,
+            ((a & 255) * (1 - k) + (b & 255) * k) / 255);
+    }
     multiplyScalar(s) {
         return this.setRGB(((this._h >> 16) & 255) * s / 255,
             ((this._h >> 8) & 255) * s / 255, (this._h & 255) * s / 255);
@@ -353,6 +359,8 @@ const occBehind = (o, d = 12) => ({
     z: o.z + rendererMod.SCREEN_UP.z * d,
 });
 const stateMod = await import(R('src/core/state.js'));
+const achievementsMod = await import(R('src/core/achievements.js'));
+achievementsMod.startAchievementSession('survival');
 const { player, robots, enemyBullets, setMode } = stateMod;
 setMode('survival'); stateMod.configurePlayer();
 const smMod = await import(R('src/core/sceneManager.js'));
@@ -625,7 +633,10 @@ camera.position.set(0, 11.4, 0);
 
 // --- 4c. killRobot cause 'melee' -> bangkai TERBELAH DUA (bisectCorpse) ---
 const nB4 = robots.length;
+const achievementKillsBefore = achievementsMod.achievementsDebug().totals.robots;
 robotsMod.killRobot(robots.indexOf(zC2), { cause: 'melee', dirx: 0, dirz: -1 });
+T('ACHIEVEMENTS: a real robot death increments the lifetime count exactly once',
+    achievementsMod.achievementsDebug().totals.robots === achievementKillsBefore + 1);
 T('kill pedang splice', robots.length === nB4 - 1);
 T('kepala+lengan pindah ke paruh ATAS', zC2.rig.head.parent !== zC2.rig.inner
     && zC2.rig.armL.parent !== zC2.rig.inner && zC2.rig.armR.parent !== zC2.rig.inner);
@@ -13772,6 +13783,7 @@ for (const [name, build] of Object.entries(propBuilders)) {
     crateMod.resetCrates();
     crateMod.spawnCrate(300, 300, 0);
     const shotCrate = crateMod.crates[0];
+    const achievementCratesBefore = achievementsMod.achievementsDebug().totals.lootBoxes;
     T('peti: spawn tercatat', crateMod.crateDebug().count === 1);
     stateMod.bullets.length = 0;
     stateMod.drops.length = 0;
@@ -13780,6 +13792,8 @@ for (const [name, build] of Object.entries(propBuilders)) {
     T('peti: hancur oleh peluru player + peluru terserap',
         crateMod.crateDebug().count === 0 && stateMod.bullets.length === 0);
     crateMod.breakCrate(shotCrate);   // sudah di-splice: tak boleh terhitung dua kali
+    T('ACHIEVEMENTS: real crate destruction counts once, including repeated break calls',
+        achievementsMod.achievementsDebug().totals.lootBoxes === achievementCratesBefore + 1);
     T('peti: statistik loot box bertambah tepat sekali per breakCrate sukses',
         stateMod.stageStatsDebug().lootBoxesDestroyed === 1);
 
@@ -14820,7 +14834,8 @@ for (const [name, build] of Object.entries(propBuilders)) {
         [0, 1, 2, 3, 4].every(q => htmlM.includes('class="qbtn" data-q="' + q + '"'))
         && ['easy', 'normal', 'hard'].every(d => htmlM.includes('data-d="' + d + '"'))
         && ['survival', 'campaign'].every(m => htmlM.includes('class="modeCard" data-mode="' + m + '"'))
-        && (htmlM.match(/class="menuBtn menuBack" data-back=/g) || []).length === 2);
+        && (htmlM.match(/class="menuBtn menuBack" data-back=/g) || []).length === 3
+        && htmlM.includes('id="mmAchievements"') && htmlM.includes('id="achievementsPanel"'));
     // Urutan tampil kualitas grafis: paling RENDAH di kiri -> paling TINGGI di
     // kanan (2026-08-10, permintaan user). `data-q` sengaja tidak ikut dibalik —
     // yang dibaca menu.js/renderer.js adalah dataset.q, bukan posisi tombol.
@@ -14882,8 +14897,8 @@ for (const [name, build] of Object.entries(propBuilders)) {
     T('MENU: NOL rel telemetri palsu dan NOL baris petunjuk per entri menu',
         !/mRail|railKey|railDim|railLive|liveDot|class="eyebrow"/.test(htmlM)
         && !/nrHint|nrIdx|nrArrow/.test(htmlM)
-        && (htmlM.match(/class="navRow"/g) || []).length === 4
-        && (htmlM.match(/class="nrLabel"/g) || []).length === 4);
+        && (htmlM.match(/class="navRow"/g) || []).length === 5
+        && (htmlM.match(/class="nrLabel"/g) || []).length === 5);
     // 2026-08-10 (user): rusuk kiri tiap entri menu dibuang — penanda entri
     // aktif tinggal sapuan amber + geseran; cap build diganti manual.
     const navRowCss = (cssM.match(/\n\.navRow \{[^}]*\}/) || [''])[0];
@@ -22940,17 +22955,101 @@ if (false) {
     T('S12 DEATH SKIP: menyelesaikan kehancuran lalu masuk epilog dengan kamera dan tombol bersih',
         stage12.stage12Debug().phase === 'ending' && stage12.stage12Debug().boss.deathDone
         && stage12.stage12Debug().boss.destruction.stage === 'settled'
-        && stage12.stage12Scene.camLookY === null && !dom12.cutsceneSkipArmed());
+        && stage12.stage12Scene.camLookY !== null && dom12.cutsceneSkipArmed()
+        && stage12.stage12Debug().epilogue.state === 'settle');
     sd12 = stage12.stage12Debug();
     T('S12 ENDING: interrupted sunrise has no hazards/guards and still preserves checkpoint 12',
         sd12.phase === 'ending' && sd12.endingCleanup
         && save12.loadCampaignStage() === 12 && !sd12.finalScreenShown);
-    stage12.stage12CompleteEndingForDebug();
+    const E12 = C12.ending;
+    const ending12 = await import(R('src/scenes/campaign/stages/stage12/epilogue.js'));
+    const credits12 = (await import(R('src/scenes/menu.js'))).MENU_CREDITS;
+    stage12.stage12Scene.updateMode(E12.settleSec + E12.dialogueDelaySec);
+    T('S12 EPILOGUE: radio opens a safe playable walk to the prebuilt archive',
+        stage12.stage12Debug().epilogue.state === 'walk' && !stateMod.cinematicActive
+        && stage12.stage12Debug().epilogue.markerVisible && stage12.stage12Scene.camLookY === null
+        && !stage12.stage12Scene.allowsPlayerAction('melee')
+        && stage12.stage12Scene.allowsPlayerAction('moveTarget'));
+    const stand12 = ending12.S12_ARCHIVE_STAND;
+    const approach12 = { x: stand12.x, y: cfgMod.CFG.player.eyeHeight, z: stand12.z - E12.interactionRange * 2 };
+    let reachable12 = true;
+    for (let i = 0; i < 30; i++) {
+        const oldX = approach12.x, oldZ = approach12.z;
+        approach12.z += E12.interactionRange / 30;
+        stage12.stage12Scene.playerCollide(approach12, oldX, oldZ, 0);
+        reachable12 &&= world12.stage12Walk(approach12.x, approach12.z, stateMod.player.radius);
+    }
+    T('S12 EPILOGUE: terminal stand is reachable through real collision, outside the machine',
+        reachable12 && Math.hypot(approach12.x - stand12.x, approach12.z - stand12.z) <= E12.interactionRange + .001);
+    rendererMod.camera.position.set(stand12.x, cfgMod.CFG.player.eyeHeight, stand12.z);
+    const lineSecs12 = key => {
+        const D = cfgMod.CFG.campaign.dialogue;
+        return cfgMod.CFG.dialogue.campaign.stage12.lines[key].text.length / D.cps + D.holdSec + .1;
+    };
+    for (const key of ['networkSafe', 'civilianNorth', 'civilianShelter', 'archiveBeacon'])
+        stage12.stage12Scene.updateMode(lineSecs12(key));
+    T('S12 EPILOGUE: civilians finish before archive reveal; checkpoint retained',
+        stage12.stage12Debug().epilogue.state === 'archive' && stateMod.cinematicActive
+        && !stage12.stage12Debug().epilogue.markerVisible && save12.loadCampaignStage() === 12);
+    for (const key of ['archiveFound', 'archiveChoice']) stage12.stage12Scene.updateMode(lineSecs12(key));
+    stage12.stage12Scene.updateMode(E12.transmitSec * .5);
+    T('S12 EPILOGUE: broadcast progress advances without completing the campaign',
+        stage12.stage12Debug().epilogue.state === 'transmit'
+        && Math.abs(stage12.stage12Debug().epilogue.progress - .5) < .001
+        && !stage12.stage12Debug().epilogue.sent && save12.loadCampaignStage() === 12);
+    stage12.stage12Scene.updateMode(E12.transmitSec * .5);
+    for (const key of ['archiveSent', 'finalGibran']) stage12.stage12Scene.updateMode(lineSecs12(key));
+    stage12.stage12Scene.updateMode(E12.sunriseSec);
+    T('S12 EPILOGUE: public archive and final line lead into the dawn title',
+        stage12.stage12Debug().epilogue.state === 'title'
+        && world12.stage12WorldDebug().sunrise === 1 && stage12.stage12Debug().epilogue.sent
+        && document.getElementById('endingTitle').textContent === 'THE SIGNAL IS OURS.');
+    stage12.stage12Scene.updateMode(E12.titleSec);
+    const pageCount12 = Math.ceil(credits12.groups.length / 2);
+    for (let i = 0; i < pageCount12; i++) {
+        T(`S12 CREDITS: page ${i} uses the existing attribution source`,
+            stage12.stage12Debug().epilogue.state === 'credits'
+            && document.getElementById('endingCopy').textContent.includes(credits12.groups[i * 2].name));
+        stage12.stage12Scene.updateMode(E12.creditPageSec);
+    }
+    T('S12 EPILOGUE: post-credit relay preserves the completed victory and checkpoint until fade',
+        stage12.stage12Debug().epilogue.state === 'relay'
+        && document.getElementById('endingCopy').textContent.includes('OUTSIDE JAVA')
+        && save12.loadCampaignStage() === 12 && !stage12.stage12Debug().finalScreenShown);
+    stage12.stage12Scene.updateMode(E12.relaySec);
+    stage12.stage12Scene.updateMode(E12.fadeSec);
     sd12 = stage12.stage12Debug();
     T('S12 COMPLETE: final callback clears save, opens CAMPAIGN COMPLETE, and schedules no shop',
         save12.loadCampaignStage() === 0 && sd12.phase === 'complete'
         && sd12.finalScreenShown && dom12.gameOverTitle.innerText === 'CAMPAIGN COMPLETE'
         && smMod.activeScene === stage12.stage12Scene);
+    T('S12 EPILOGUE: completion releases camera, input, skip and all ending overlays',
+        !stateMod.cinematicActive && !dom12.cutsceneSkipArmed()
+        && stage12.stage12Scene.camLookY === null
+        && document.getElementById('endingCard').style.display === 'none'
+        && document.getElementById('endingObjective').style.display === 'none');
+    stage12.stage12CompleteEndingForDebug();
+    T('S12 EPILOGUE: repeated completion is inert', stage12.stage12Debug().epilogue.completed);
+    for (const skipState of ['settle', 'walk', 'credits']) {
+        save12.saveCampaignStage(12);
+        let calls = 0;
+        ending12.beginStage12Epilogue({ say() {}, idle: () => true, done: () => calls++ }, { x: 220, z: 0 });
+        if (skipState !== 'settle') ending12.updateStage12Epilogue(E12.settleSec + E12.dialogueDelaySec);
+        if (skipState === 'credits') {
+            rendererMod.camera.position.set(stand12.x, cfgMod.CFG.player.eyeHeight, stand12.z);
+            for (const dt of [0, 0, E12.transmitSec, E12.sunriseSec, E12.titleSec]) ending12.updateStage12Epilogue(dt);
+        }
+        dom12.triggerCutsceneSkip(); dom12.triggerCutsceneSkip(); ending12.updateStage12Epilogue(999);
+        T(`S12 EPILOGUE SKIP: ${skipState} settles once with the same archive/sunrise`,
+            calls === 1 && ending12.stage12EpilogueDebug().sent
+            && ending12.stage12EpilogueDebug().progress === 1 && world12.stage12WorldDebug().sunrise === 1
+            && !stateMod.cinematicActive && !dom12.cutsceneSkipArmed());
+        ending12.resetStage12Epilogue();
+        T(`S12 EPILOGUE RESET: ${skipState} clears presentation and retains interrupted checkpoint`,
+            ending12.stage12EpilogueDebug().state === 'idle' && !ending12.stage12EpilogueDebug().sent
+            && save12.loadCampaignStage() === 12);
+    }
+    save12.clearCampaignSave();
 }
 
 // --- 26. OPTIMASI STAGE 1 & 2 (2026-08-13, laporan user "terasa agak berat") --
@@ -24062,6 +24161,30 @@ if (false) {
         && !Object.prototype.hasOwnProperty.call(root10, 'updateMatrixWorld'));
 
     regMod.setActiveCampaignWorldRoots([]);
+}
+
+// Achievement integration: the tests above drove real encounter death handlers.
+for (const achievement of achievementsMod.achievementCatalog().filter(a => a.group === 'Bosses'))
+    T(`ACHIEVEMENTS: real encounter death awards ${achievement.id}`,
+        !!achievementsMod.achievementsDebug().unlocked[achievement.id]);
+{
+    achievementsMod.startAchievementSession('campaign');
+    stateMod.setGodMode(false); stateMod.setDodgeInvuln(false);
+    player.hp = player.maxHp; player.armorLvl = 1; player.armor = 100;
+    robotsMod.damagePlayerHp(1);
+    T('ACHIEVEMENTS: a hit absorbed partly by armor disqualifies the untouched run',
+        achievementsMod.achievementsDebug().run.hit && !achievementsMod.achievementsDebug().run.dead);
+    achievementsMod.startAchievementSession('campaign');
+    stateMod.setDodgeInvuln(true);
+    robotsMod.damagePlayerElectric(1, 0, 0);
+    T('ACHIEVEMENTS: dodging a real electric attack preserves untouched status',
+        !achievementsMod.achievementsDebug().run.hit);
+    stateMod.setDodgeInvuln(false);
+    const cheat = await import(R('src/core/cheatConsole.js'));
+    cheat.runCheatCommand('god-mode');
+    T('ACHIEVEMENTS: god mode makes the campaign ineligible for perfect-run awards',
+        !achievementsMod.achievementsDebug().run.valid);
+    stateMod.setGodMode(false);
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

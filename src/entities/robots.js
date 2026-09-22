@@ -5,6 +5,7 @@
 // semua scene: cakaran, animasi rig, dan hit test peluru.
 
 import { CFG, CAMP_M } from '../core/config.js';
+import { recordAchievementRobotKill, recordAchievementHit } from '../core/achievements.js';
 import { player, robots, bullets, enemyBullets, addScore, stats, _dir, godMode, dodgeInvuln, GEO, MAT, makeEnemyBulletMesh } from '../core/state.js';
 import { scene, camera, addCamShake } from '../core/renderer.js';
 import { activeScene } from '../core/sceneManager.js';
@@ -701,6 +702,7 @@ export function disposeRobot(z) {
 // godMode: tak tersentuh sama sekali (HP maupun armor).
 export function damagePlayerHp(raw) {
     if (godMode) return;
+    if (raw > 0 && player.hp > 0) recordAchievementHit();
     if (player.armorLvl > 0 && player.armor > 0) {
         const tier = (CFG.armor && CFG.armor.tiers[player.armorLvl - 1]) || {};
         player.hp -= raw * (1 - (tier.reduce || 0));
@@ -921,8 +923,10 @@ function robotScore(z) {
 // (peluru/melee/keluar-ledakan) → arah semburan & lemparan gib.
 export function killRobot(i, opts = {}) {
     const z = robots[i];
+    if (!z) return;
     robots.splice(i, 1);          // keluar dari daftar HIDUP DULU (mayat jadi inert: tak ber-AI/pejal/kena tembak)
     stats.kills++;
+    recordAchievementRobotKill();
     // GANJARAN KEMATIAN (2026-07-22): scene aktif menentukan. Survival = SKOR
     // langsung (robotScore, tak punya hook awardKill). Campaign = TAK ada skor
     // langsung — scene menjatuhkan LOOT/uang (awardKill -> campaignAwardKill) yang
