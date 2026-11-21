@@ -1,0 +1,1744 @@
+{
+    "achievements": {
+        "lootBoxes": [1, 10, 100, 200],
+        "robots": [1, 100, 1000, 2000],
+        "toastSec": 4
+    },
+    "player": {
+        "maxHp": 100,
+        "speed": 1.5,
+        "radius": 5,
+        "propRadius": 3.5,
+        "eyeHeight": 11.4,
+        "gravity": 70,
+        "medkitHealPct": 0.5,
+        "maxMedkits": 2,
+        "medkitUseSec": 2,
+        "medkitSlowMul": 0.75,
+        "deathDelaySec": 4,
+        "death": {
+            "slowMoScale": 0.45,
+            "slowMoHoldSec": 1,
+            "camZoom": 0.42,
+            "camShake": 7
+        },
+        "hpUpgrades": [
+            150,
+            200,
+            250,
+            300
+        ]
+    },
+    "armor": {
+        "tiers": [
+            {
+                "reduce": 0.3,
+                "durability": 100
+            },
+            {
+                "reduce": 0.5,
+                "durability": 200
+            },
+            {
+                "reduce": 0.7,
+                "durability": 300
+            },
+            {
+                "reduce": 0.8,
+                "durability": 400
+            }
+        ]
+    },
+    "stamina": {
+        "max": 100,
+        "meleeCost": 20,
+        "regenPerSec": 10,
+        "recoverThreshold": 20
+    },
+    "dodge": {
+        "staminaCost": 20,
+        "cooldownSec": 1.0,
+        "durationSec": 0.45,
+        "speed": 2.2
+    },
+    "movement": {
+        "backpedalWeight": 0.5,
+        "strafeWeight": 0.5,
+        "walkSpreadPenalty": 1.25
+    },
+    "weapons": {
+        "maxWeapons": 3,
+        "upgradeDamagePct": 0.4,
+        "maxWeaponLevel": 4,
+        "bulletSpeed": 27,
+        "bulletLife": 120,
+        "bulletDamage": 20,
+        "splashRadiusMeters": 1,
+        "spreadBase": 0.055,
+        "spreadBloom": 0.05,
+        "heatPerShot": 0.22,
+        "heatCoolPerSec": 1.4,
+        "adsAccuracy": 0.75,
+        "recoil": {
+            "durMul": 1.7,
+            "durMin": 0.17,
+            "durMax": 0.5,
+            "gunPitch": 4.2,
+            "gunPush": 17,
+            "gunYaw": 1.2,
+            "torso": 1.6,
+            "twist": 1.3,
+            "headNod": 1.3,
+            "bodyDip": 8,
+            "kneeFlex": 0.9,
+            "shove": 8,
+            "shoveLightMul": 0.3,
+            "climbPerShot": 0.22,
+            "climbDecayPerSec": 1.8,
+            "climbPitch": 2,
+            "camShake": 17,
+            "flashFromKick": 180,
+            "heavyKick": 0.02,
+            "heatSmoke": 0.75
+        },
+        "ammoUpgrades": [
+            {
+                "pistol": 400,
+                "rifle": 800,
+                "shotgun": 450,
+                "launcher": 35
+            },
+            {
+                "pistol": 500,
+                "rifle": 1000,
+                "shotgun": 500,
+                "launcher": 45
+            },
+            {
+                "pistol": 600,
+                "rifle": 1200,
+                "shotgun": 550,
+                "launcher": 55
+            },
+            {
+                "pistol": 700,
+                "rifle": 1400,
+                "shotgun": 600,
+                "launcher": 65
+            }
+        ],
+        "rifle": {
+            "maxAmmo": 600,
+            "ammoPickup": 120,
+            "fireDelayMs": 130,
+            "cameraKick": 0.012,
+            "damage": 40
+        },
+        "pistol": {
+            "maxAmmo": 300,
+            "ammoPickup": 60,
+            "fireDelayMs": 260,
+            "cameraKick": 0.016,
+            "damage": 40
+        },
+        "shotgun": {
+            "maxAmmo": 350,
+            "ammoPickup": 70,
+            "fireDelayMs": 900,
+            "fireDelayByLevel": [
+                900,
+                900,
+                600,
+                450,
+                450
+            ],
+            "cameraKick": 0.03,
+            "pellets": 12,
+            "pelletSpread": 0.1,
+            "damage": 10
+        },
+        "launcher": {
+            "maxAmmo": 25,
+            "ammoPickup": 8,
+            "fireDelayMs": 1200,
+            "cameraKick": 0.03,
+            "roundSpeed": 5,
+            "damage": 125
+        }
+    },
+    "melee": {
+        "range": 7,
+        "cooldownSec": 0.8,
+        "damage": 125
+    },
+    "grenade": {
+        "max": 5,
+        "start": 3,
+        "fuseSec": 2,
+        "throwSpeed": 110,
+        "throwUpward": 18,
+        "throwNearSpeed": 45,
+        "throwNearUpward": 22,
+        "killRadius": 40,
+        "pushSpeed": 22,
+        "damage": 100
+    },
+    "robot": {
+        "bodyHitRadius": 5,
+        "bodyBlockRadius": 7.5,
+        "clawCooldownSec": 1,
+        "clawWindupSec": 0.5,
+        "clawStrikeGrace": 2.0,
+        "clawRange": 3.5,
+        "stopRange": 3.0,
+        "separationRadius": 4.0,
+        "separationRelax": 0.5,
+        "repathSec": 0.5,
+        "stuckSec": 0.4,
+        "turnRadPerSec": 9,
+        "rangedBulletLife": 120,
+        "score": {
+            "normalKill": 100,
+            "specialKill": 150
+        },
+        "classes": {
+            "C": {
+                "hp": 50,
+                "speed": 0.8,
+                "armor": 0,
+                "attack": 5,
+                "ranged": false,
+                "scale": 1.0
+            },
+            "B": {
+                "hp": 90,
+                "speed": 0.75,
+                "armor": 0,
+                "attack": 3,
+                "ranged": true,
+                "rangeMeters": 20,
+                "fireDelaySec": 0.8,
+                "bulletSpeed": 1,
+                "scale": 1.1
+            },
+            "A": {
+                "hp": 120,
+                "speed": 0.9,
+                "armor": 0,
+                "attack": 6,
+                "ranged": true,
+                "rangeMeters": 22,
+                "fireDelaySec": 0.5,
+                "bulletSpeed": 0.8,
+                "scale": 1.2
+            }
+        }
+    },
+    "survival": {
+        "robotsPerWaveBase": 30,
+        "robotsPerWaveStep": 5,
+        "shopCountdownSec": 3,
+        "spawnIntervalBase": 2.5,
+        "spawnIntervalStep": 0.2,
+        "spawnIntervalMin": 1,
+        "maxRobotsBase": 20,
+        "maxRobotsStep": 2,
+        "maxRobotsCap": 40,
+        "robotSpeedWaveMin": 0.72,
+        "robotSpeedWaveStep": 0.02,
+        "robotSpeedWaveMax": 1.0,
+        "classBFromWave": 3,
+        "classBChance": 0.15,
+        "classBChancePerWave": 0.02,
+        "classBChanceMax": 0.45,
+        "classAFromWave": 6,
+        "classAChance": 0.08,
+        "classAChancePerWave": 0.015,
+        "classAChanceMax": 0.3,
+        "monasMaxHp": 5000,
+        "strengthenMonasStages": [
+            7500,
+            10000,
+            12500
+        ],
+        "playerAggroMeters": 15,
+        "monasLockAggroMeters": 5,
+        "monasLockChance": 0.5,
+        "monasClawDamage": 20,
+        "monasFogFromWave": 4,
+        "monasFogChanceBase": 0.2,
+        "monasFogChancePerWave": 0.03,
+        "monasFogChanceMax": 0.75,
+        "monasFogClearMeters": 15,
+        "monasFogDurationSec": 60,
+        "monasCollapseTrembleSec": 1.4,
+        "monasCollapseToppleSec": 2.2,
+        "monasCollapseSettleSec": 1.6,
+        "intro": {
+            "citySec": 2.8,
+            "fleeSec": 3.0,
+            "pursuitSec": 1.8,
+            "hordeSec": 4.2,
+            "refugeSec": 2.2,
+            "arriveSec": 1.8,
+            "turnSec": 2.6,
+            "standSec": 3.4,
+            "settleSec": 1.4,
+            "hordeCount": 28,
+            "hordeSpeed": 0.6
+        }
+    },
+    "campaign": {
+        "robotSpeedScale": 1,
+        "activateMeters": 15,
+        "cullDistance": 1500,
+        "occlusion": {
+            "opacity": 0.2,
+            "coverFraction": 0.5,
+            "bodyHeight": 0,
+            "fadeRate": 9,
+            "robotRange": 320,
+            "lateralPad": 3,
+            "gridCell": 48
+        },
+        "spawnMachine": {
+            "hp": 1200
+        },
+        "dialogue": {
+            "cps": 28,
+            "holdSec": 2
+        },
+        "prologue": {
+            "enabled": true,
+            "fadeOutSec": 0.5,
+            "yearFadeSec": 0.5,
+            "yearHoldSec": 3,
+            "titleFadeSec": 0.5,
+            "titleHoldSec": 4,
+            "bodyFadeSec": 0.5,
+            "typeCps": 20,
+            "tailSec": 3
+        },
+        "intro": {
+            "dialogueCps": 28,
+            "dialogueHoldSec": 3.0,
+            "sceneFadeSec": 0.5,
+            "landingSec": 4.0,
+            "doorOpenSec": 1.1,
+            "exitSec": 2.2,
+            "runSec": 4.2,
+            "enterSec": 1.1
+        },
+        "tankIntro": {
+            "openSec": 0.8,
+            "surveySec": 2.6,
+            "tremorSec": 2.0,
+            "revealSec": 2.2,
+            "lockSec": 1.7,
+            "fireSec": 0.55,
+            "shellSec": 0.45,
+            "crashSec": 1.9,
+            "advanceSec": 2.8,
+            "faceOffSec": 1.4,
+            "panBackSec": 2.2
+        },
+        "tankOutro": {
+            "preCutsceneDelaySec": 3.0,
+            "tankShotMinSec": 3.0,
+            "radioPushSec": 3.0,
+            "fadeSec": 0.8
+        },
+        "doors": {
+            "closeDelaySec": 3.0
+        },
+        "hack": {
+            "gridSize": 5,
+            "traceSec": 60,
+            "decoyChance": 0.55,
+            "alarmHordeCount": 10,
+            "alarmCooldownSec": 30,
+            "alarmSpawnMinUnits": 150,
+            "alarmSpawnMaxUnits": 420
+        },
+        "signalTrace": {
+            "channels": 4,
+            "traceSec": 40,
+            "lockTolerance": 0.075,
+            "missPenaltySec": 3,
+            "speedMin": 0.18,
+            "speedMax": 0.31
+        },
+        "repair": {
+            "count": { "easy": 3, "normal": 4, "hard": 5 },
+            "valveSteps": 6,
+            "advanced": {
+                "syncPhases": { "easy": 3, "normal": 3, "hard": 4 },
+                "syncCoupling": 0.16,
+                "syncTolerance": 0.05,
+                "syncBusHz": 50,
+                "syncHzSpan": 6,
+                "syncBusCycles": 3,
+                "syncCycleSpan": 2.2,
+                "rotorSegments": 12,
+                "rotorRpmPerTurn": 0.5,
+                "rotorReverseLossPerTurn": 0.35,
+                "rotorGreenMin": 0.62,
+                "rotorGreenMax": 0.82,
+                "rotorStallRetain": 0.32,
+                "rotorCrankStepRad": 1.8,
+                "rotorDecayPerSec": 0.1
+            }
+        },
+        "stage1": {
+            "downloadSec": 10,
+            "computerRange": 10,
+            "liftWarnRange": 30,
+            "hordeCount": 16,
+            "robotCountMul": 1.5
+        },
+        "stage2": {
+            "robotCountMul": 1.6,
+            "genApproachRange": 46,
+            "genRestoreRange": 10,
+            "componentRange": 16,
+            "liftRange": 26
+        },
+        "stage3": {
+            "robotCountMul": 1.3,
+            "hackRange": 13,
+            "hackRequired": 3,
+            "gateWaveCount": 6,
+            "machineWaveCount": 4,
+            "reinforceThreshold": 4,
+            "respawnSec": 8,
+            "machineFirstWaveSec": 3,
+            "machineHitRadius": 16,
+            "spawnGapSec": 0.3,
+            "spawnRiseSec": 0.55,
+            "machineDeploy": {
+                "warnSec": 2.4,
+                "hatchSec": 1.9,
+                "riseSec": 3.6,
+                "lockSec": 1.5,
+                "onlineSec": 1.3,
+                "staggerSec": 0.9
+            },
+            "classMix": { "C": 0.7, "B": 0.2, "A": 0.1 }
+        },
+        "stage4": {
+            "robotCountMul": 2
+        },
+        "stage5": {
+            "robotCountMul": 1.5,
+            "openingMinSec": 6,
+            "openingDialogueDelaySec": 0.6,
+            "departureDelaySec": 3,
+            "departure": {
+                "doorMoveSec": 1.4,
+                "doorOpenSec": 2.6,
+                "boardSec": 4,
+                "doorCloseSec": 2.6,
+                "radioMinSec": 2.5,
+                "departSec": 7
+            },
+            "departureShiftUnits": 330,
+            "scenery": { "mountainAfterCars": 3 },
+            "arrivalDelaySec": 3,
+            "arrival": {
+                "stopSec": 3.2,
+                "frontSec": 5,
+                "doorOpenSec": 2.6,
+                "alightSec": 4,
+                "radioMinSec": 2.5,
+                "endHoldSec": 3
+            },
+            "fadeSec": 0.5,
+            "subSceneFadeSec": 0.5,
+            "repairRange": 12,
+            "terminalRange": 12,
+            "boardRange": 14,
+            "trainSpeed": 92,
+            "spawnMachine": {
+                "hitRadius": 18,
+                "batchCount": 3,
+                "batchSec": 10,
+                "chargeSec": 1.6,
+                "birthGapSec": 0.55,
+                "birthSec": 1.8,
+                "classMix": { "C": 0.67, "B": 0.22, "A": 0.11 }
+            },
+            "encounters": {
+                "depot": { "C": 16, "B": 6, "A": 4 }
+            },
+            "enemyTrain": {
+                "flybySec": 6.5,
+                "consistDelaySec": 14,
+                "overtakeSec": 11,
+                "rampSec": 1.8,
+                "revealAtRamp": 0.45,
+                "detachSec": 2.6,
+                "advanceSec": 2.4,
+                "finaleSec": 3.2,
+                "wreckDriftSpeed": 150,
+                "wreckHideDist": 900,
+                "entryMargin": 260,
+                "perCarMin": 3,
+                "perCarMax": 6,
+                "classARatio": 0.34,
+                "fireRangeMeters": 13,
+                "slotSpacing": 13,
+                "medkitEveryCars": 2,
+                "boarders": {
+                    "enabled": true,
+                    "perCarMin": 2,
+                    "perCarMax": 3,
+                    "jumpSec": 1.15,
+                    "staggerSec": 0.28,
+                    "arcHeight": 24,
+                    "slotSpacing": 12,
+                    "stagingInset": 6,
+                    "launchEdge": 4,
+                    "yawSwing": 0.18,
+                    "windupSec": 0.22,
+                    "runupSec": 0.2,
+                    "sideArc": 7,
+                    "bodyPitch": 0.42,
+                    "launchShake": 0.8,
+                    "landShake": 1.1
+                },
+                "boss": {
+                    "hp": 5000,
+                    "armSec": 3,
+                    "mgLockSec": 0.5,
+                    "mgShots": 10,
+                    "mgShotGapSec": 0.09,
+                    "mgBulletSpeed": 2,
+                    "mgDamage": 5,
+                    "mgToGlSec": 2,
+                    "glShots": 3,
+                    "glShotGapSec": 0.55,
+                    "glFlightSec": 0.5,
+                    "glDamage": 25,
+                    "cycleGapSec": 1
+                }
+            },
+            "highway": {
+                "fromCarIndex": 1,
+                "pickupFromCarIndex": 3,
+                "approachSec": 20,
+                "farZ": 200,
+                "nearZ": 62,
+                "firstPickupSec": 0,
+                "pickupGapSec": 16,
+                "maxActivePickups": 2,
+                "combatOffset": 16,
+                "combatSpacing": 38,
+                "approachRate": 0.55,
+                "entryMargin": 200,
+                "wreckSec": 2.6,
+                "fireRangeMeters": 13,
+                "medkitEveryPickups": 2,
+                "bossLoad": ["B", "B"],
+                "bossMaxActive": 1,
+                "loads": [
+                    ["B", "B", "A"],
+                    ["B", "A", "B"],
+                    ["A", "B", "B"]
+                ]
+            }
+        },
+        "stage6": {
+            "robotCountMul": 2,
+            "openingMinSec": 8,
+            "openingDialogueDelaySec": 0.6,
+            "fadeSec": 0.5,
+            "rackRange": 13,
+            "rackSearchSec": 2.2,
+            "hackRange": 13,
+            "serverDoorWarnRange": 34,
+            "signalCooldownSec": 18,
+            "repairRange": 13,
+            "requiredGenerators": 2,
+            "chapterLoadingMinMs": 900,
+            "finishRange": 13,
+            "uplinkRange": 13,
+            "uploadSec": 5,
+            "uploadFailFraction": 0.92,
+            "lockdownTailSec": 3,
+            "machineHitRadius": 24,
+            "machineFirstWaveSec": 5,
+            "machineWaveSec": 9,
+            "machineWaveCount": 2,
+            "machineMaxAlive": 16,
+            "encounters": {
+                "hall": { "C": 14, "B": 6, "A": 2 },
+                "signalAlarm": { "C": 4, "B": 2, "A": 0 },
+                "grid": { "C": 6, "B": 4, "A": 2 },
+                "exfil": { "C": 5, "B": 3, "A": 2 },
+                "office": { "C": 20, "B": 10, "A": 4 },
+                "purge": { "C": 11, "B": 6, "A": 3 }
+            }
+        },
+        "stage7": {
+            "openingMinSec": 6,
+            "openingDialogueDelaySec": 0.5,
+            "fadeSec": 0.5,
+            "landmarkBeatRangeMeters": 45,
+            "vehicleRange": 18,
+            "outroMinSec": 18,
+            "flyover": {
+                "lengthMeters": 1500,
+                "laneCountPerSide": 4,
+                "laneWidthMeters": 3,
+                "medianWidthMeters": 1,
+                "shoulderWidthMeters": 1,
+                "deckHeightMeters": 12,
+                "descentStartMeter": 1200,
+                "descentLengthMeters": 200,
+                "descentDropMeters": 12,
+                "rampIntervalMeters": 300,
+                "rampLaneCount": 2,
+                "rampLaneWidthMeters": 3,
+                "rampLengthMeters": 180,
+                "rampMergeLengthMeters": 80,
+                "supportIntervalMeters": 100,
+                "lampIntervalMeters": 50,
+                "pointLights": 14,
+                "landmarkMeter": 700,
+                "landmarkHeightMeters": 26,
+                "landmarkCableCount": 10,
+                "mazeBandCount": 16,
+                "mazeFirstMeter": 55,
+                "mazeBandSpacingMeters": 84,
+                "carsPerBand": 9,
+                "scatteredCars": 96,
+                "lootboxCount": 90,
+                "barrelCount": 180,
+                "beyondTollMeters": 150,
+                "tollSightBeforeMeters": 150,
+                "tollTriggerBeforeMeters": 85
+            },
+            "mortar": {
+                "startMeter": 500,
+                "endMeter": 1300,
+                "intervalSec": 6,
+                "lockSec": 0.5,
+                "incomingSec": 1.2,
+                "playerDamage": 30,
+                "robotDamage": 150,
+                "poolSize": 2,
+                "sourceLongitudinalMeters": 12,
+                "sourceLateralMeters": 17
+            },
+            "spawnMachines": {
+                "hitRadius": 22,
+                "firstBatchSec": 5,
+                "batchCount": 3,
+                "batchSec": 5,
+                "birthGapSec": 0.22,
+                "birthSec": 0.9,
+                "classMix": { "C": 0.5, "B": 0.35, "A": 0.15 }
+            },
+            "encounters": {
+                "eastSpan": { "C": 23, "B": 11, "A": 4 },
+                "rampRun": { "C": 32, "B": 15, "A": 5 },
+                "cableSpan": { "C": 24, "B": 11, "A": 4 },
+                "westSpan": { "C": 31, "B": 14, "A": 5 },
+                "pasteurApproach": { "C": 13, "B": 6, "A": 2 }
+            }
+        },
+        "stage8": {
+            "openingMinSec": 8,
+            "openingDialogueDelaySec": 0.5,
+            "fadeSec": 0.5,
+            "roadSpeed": 92,
+            "laneWidth": 17.5,
+            "laneChangeSec": 0.32,
+            "medianChangeSec": 0.44,
+            "steerEaseSec": 0.18,
+            "advanceSpeed": 76,
+            "advanceScreenInset": 42,
+            "maxActivePickups": 3,
+            "pickupSpeed": 76,
+            "pickupRamDamage": 40,
+            "pickupWreckSec": 3.5,
+            "pickupEntryInset": 24,
+            "pickupOffscreenMargin": 36,
+            "pickupCombatOffset": 58,
+            "pickupCombatSpacing": 28,
+            "pickupApproachRate": 1.45,
+            "groundPickupTarget": 20,
+            "groundStartDelaySec": 4,
+            "groundSpawnGapSec": 5.5,
+            "bossApproachDelaySec": 2.5,
+            "ammoEveryDestroyedPickups": 3,
+            "gunshipIntroMinSec": 8,
+            "gunshipDeathDelaySec": 3,
+            "arrivalMinSec": 18,
+            "scenery": {
+                "riceAfterFraction": 0.65
+            },
+            "barrelDropper": {
+                "everyPickups": 5,
+                "hp": 300,
+                "barrelHp": 150,
+                "hitRadius": 20,
+                "maxActive": 1,
+                "leadOffset": 150,
+                "approachRate": 1.1,
+                "armSec": 1.2,
+                "dropGapSec": 1.1,
+                "dropTelegraphSec": 0.4,
+                "dropFallSec": 0.34,
+                "dropCloseSec": 0.3,
+                "dropCount": 6,
+                "departSpeed": 130,
+                "wreckSec": 3.5,
+                "loot": 55
+            },
+            "bossEscort": {
+                "hpFrac": 0.5,
+                "firstDelaySec": 4,
+                "respawnDelaySec": 3,
+                "load": ["B", "B", "A"]
+            },
+            "groundLoads": [
+                ["B", "B", "B"],
+                ["B", "B", "A"],
+                ["B", "B", "A"],
+                ["B", "A", "A"],
+                ["B", "B", "B"],
+                ["B", "B", "A"],
+                ["B", "B", "A"],
+                ["B", "A", "A"],
+                ["B", "B", "A"],
+                ["B", "A", "A"]
+            ]
+        },
+        "stage9": {
+            "openingMinSec": 6,
+            "fadeSec": 0.6,
+            "interactionRange": 18,
+            "spawnClearMeters": 15,
+            "fuel": {
+                "durationSec": 24,
+                "interactionRange": 14,
+                "defense": {
+                    "firstWaveDelaySec": 2.5,
+                    "waveIntervalSec": 8,
+                    "maxAlive": 14,
+                    "wave": { "C": 3, "B": 1, "A": 1 },
+                    "aircraftHp": 1500,
+                    "pumpHp": 1200,
+                    "clawDamage": 10,
+                    "shotDamage": 5,
+                    "attackRangeMeters": 4,
+                    "shotRangeMeters": 22,
+                    "fuelLossPerHit": 0.6,
+                    "repairPerSec": 30,
+                    "repairDelaySec": 4,
+                    "drainPerSec": 1.5,
+                    "restoreFraction": 0.3,
+                    "playerAggroMeters": 8
+                }
+            },
+            "encounters": {
+                "frontToll": { "C": 48, "B": 19, "A": 8 },
+                "frontForecourt": { "C": 49, "B": 18, "A": 8 },
+                "interiorCheckin": { "C": 16, "B": 7, "A": 2 },
+                "interiorConcourse": { "C": 38, "B": 17, "A": 5 },
+                "runwayApron": { "C": 10, "B": 5, "A": 1 },
+                "runwayAircraft": { "C": 12, "B": 6, "A": 2 }
+            },
+            "lootboxCount": 62,
+            "parkingLootBoxes": { "left": 15, "right": 12 },
+            "interiorLootBoxes": { "baggage": 15, "souvenir": 5, "restaurant": 5, "cafe": 5, "toilet": 5 },
+            "barrels": { "front": 40, "interior": 2, "runway": 6 },
+            "takeoffSec": 11
+        },
+        "stage11": {
+            "openingMinSec": 7,
+            "fadeSec": 0.6,
+            "interactionRange": 18,
+            "parachute": {
+                "descentSec": 7,
+                "startHeight": 190,
+                "driftX": 105,
+                "driftZ": 62
+            },
+            "forestRouteMeters": 800,
+            "forestVehicles": {
+                "asset": "stage7Pickup",
+                "activationRangeMeters": 55,
+                "engagementDelaySec": 2,
+                "aimResponsePerSec": 6,
+                "muzzleFlashFadePerSec": 18,
+                "bodyColors": ["#394951", "#4e4540", "#34473e"],
+                "camera": {
+                    "normal": { "x": 70.7, "y": 116, "z": -70.7 },
+                    "combat": { "x": 150, "y": 230, "z": -150 },
+                    "easePerSec": 3.2
+                },
+                "hitReaction": {
+                    "durationSec": 0.36,
+                    "bodyLiftUnits": 1.1,
+                    "recoilTiltRad": 0.12,
+                    "ringHeightUnits": 2.8,
+                    "flashScale": 4.6,
+                    "ringScale": 5.5,
+                    "sparkCount": 8,
+                    "sparkSpeed": 24,
+                    "sparkGravity": 52,
+                    "sparkSpreadRad": 2.4,
+                    "hpBarSec": 1.4,
+                    "hpBarWidthUnits": 16,
+                    "hpBarLiftUnits": 4
+                },
+                "wreck": {
+                    "durationSec": 4.4,
+                    "cameraHoldSec": 2.4,
+                    "bodyHopUnits": 5.8,
+                    "bodyHopSec": 0.75,
+                    "sinkUnits": 1.1,
+                    "settlePerSec": 2.4,
+                    "tiltX": -0.16,
+                    "tiltZ": 0.14,
+                    "tiltResponsePerSec": 4,
+                    "secondaryBlastSec": 0.42,
+                    "finalBlastSec": 1.05,
+                    "blastLifeSec": 0.48,
+                    "blastScales": [23, 18, 26],
+                    "partForce": 3.1,
+                    "partLift": 5.4,
+                    "partGravity": 9,
+                    "partBounce": 0.24,
+                    "partDragPerSec": 2.2,
+                    "partFloor": 0.18,
+                    "fireStartSec": 0.18,
+                    "smokeRisePerSec": 10,
+                    "sparkSpeed": 34,
+                    "sparkGravity": 46,
+                    "cameraShake": 5.5,
+                    "secondaryShake": 3.2,
+                    "blastCount": 3,
+                    "fireCount": 3,
+                    "smokeCount": 6,
+                    "sparkCount": 12
+                },
+                "checkpoints": [
+                    {
+                        "meter": 250,
+                        "vehicles": [{ "weapon": "machineGun", "lateral": 0 }]
+                    },
+                    {
+                        "meter": 500,
+                        "vehicles": [
+                            { "weapon": "machineGun", "lateral": -28 },
+                            { "weapon": "homingMissile", "lateral": 28 }
+                        ]
+                    },
+                    {
+                        "meter": 750,
+                        "vehicles": [
+                            { "weapon": "machineGun", "lateral": -38 },
+                            { "weapon": "machineGun", "lateral": 0 },
+                            { "weapon": "homingMissile", "lateral": 38 }
+                        ]
+                    }
+                ],
+                "machineGun": {
+                    "hp": 600,
+                    "robotClass": "B",
+                    "roundsPerBurst": 20,
+                    "damage": 10,
+                    "roundGapSec": 0.08,
+                    "burstGapSec": 2,
+                    "bulletSpeed": 4,
+                    "bulletLifeSec": 2,
+                    "audioGapSec": 0.16,
+                    "poolSize": 96
+                },
+                "homingMissile": {
+                    "hp": 800,
+                    "robotClass": "A",
+                    "damage": 40,
+                    "speed": 72,
+                    "turnRadPerSec": 1.45,
+                    "lifeSec": 8,
+                    "launchDelaySec": 0.6,
+                    "fireGapSec": 4,
+                    "blastRadius": 20,
+                    "projectileHp": 60,
+                    "hitRadius": 5,
+                    "poolSize": 6
+                }
+            },
+            "forestCheckpoints": {
+                "meters": [100, 175, 250, 350, 425, 500, 600, 675, 750],
+                "armAheadMeters": 30,
+                "gateAheadMeters": 15,
+                "machineLateral": 27,
+                "hitRadius": 20,
+                "collapseOnClear": true,
+                "standard": {
+                    "machines": 2,
+                    "robots": { "C": 10, "B": 5, "A": 5 }
+                },
+                "vehicleCheckpoint": {
+                    "machines": 1,
+                    "robots": { "C": 5, "B": 3, "A": 2 }
+                },
+                "production": {
+                    "firstBatchSec": 6,
+                    "batchSec": 8,
+                    "batchCount": 2,
+                    "birthGapSec": 0.35,
+                    "birthSec": 0.9,
+                    "maxAlive": 6,
+                    "classMix": { "C": 0.6, "B": 0.3, "A": 0.1 }
+                },
+                "gate": { "openSec": 1.2, "sinkUnits": 11 }
+            },
+            "forestMortar": {
+                "startMeter": 550,
+                "endMeter": 750,
+                "intervalSec": 6,
+                "lockSec": 0.5,
+                "incomingSec": 1.2,
+                "playerDamage": 30,
+                "robotDamage": 150,
+                "poolSize": 2,
+                "sourceLongitudinalMeters": 12,
+                "sourceLateralMeters": 17
+            },
+            "rootCorridor": {
+                "meters": 100,
+                "encounterMeter": 50,
+                "machines": 2,
+                "machineLateral": 54,
+                "hitRadius": 20,
+                "robots": { "C": 12, "B": 8, "A": 4 },
+                "firstBirthSec": 0,
+                "birthGapSec": 0.14,
+                "birthSec": 0.8,
+                "production": {
+                    "firstBatchSec": 6,
+                    "batchSec": 8,
+                    "batchCount": 2,
+                    "birthGapSec": 0.35,
+                    "birthSec": 0.9,
+                    "maxAlive": 6,
+                    "classMix": { "C": 0.6, "B": 0.3, "A": 0.1 }
+                },
+                "hackRange": 18,
+                "doorOpenSec": 1.35
+            },
+            "cityAxis": {
+                "spanMeters": 1000,
+                "blockade": {
+                    "armRangeUnits": 420,
+                    "releaseRangeFactor": 1.8,
+                    "maxArmed": 2,
+                    "collapseOnClear": true,
+                    "hitRadius": 20,
+                    "machineLateral": 42,
+                    "machineAheadUnits": 70,
+                    "vehicleAheadUnits": 135,
+                    "standard": {
+                        "machines": 2,
+                        "robots": { "C": 8, "B": 4, "A": 2 }
+                    },
+                    "vehicle": {
+                        "machines": 1,
+                        "robots": { "C": 5, "B": 3, "A": 2 }
+                    },
+                    "vehicles": [
+                        {
+                            "blockade": 12,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": 0 }
+                            ]
+                        },
+                        {
+                            "blockade": 8,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": 0 }
+                            ]
+                        },
+                        {
+                            "blockade": 5,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": -34 },
+                                { "weapon": "homingMissile", "lateral": 34 }
+                            ]
+                        },
+                        {
+                            "blockade": 3,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": -34 },
+                                { "weapon": "homingMissile", "lateral": 34 }
+                            ]
+                        },
+                        {
+                            "blockade": 2,
+                            "vehicles": [
+                                { "weapon": "machineGun", "lateral": -44 },
+                                { "weapon": "machineGun", "lateral": 0 },
+                                { "weapon": "homingMissile", "lateral": 44 }
+                            ]
+                        }
+                    ],
+                    "production": {
+                        "firstBatchSec": 6,
+                        "batchSec": 8,
+                        "batchCount": 2,
+                        "birthGapSec": 0.35,
+                        "birthSec": 0.9,
+                        "maxAlive": 6,
+                        "classMix": { "C": 0.6, "B": 0.3, "A": 0.1 }
+                    },
+                    "gate": { "openSec": 1.2, "sinkUnits": 12 }
+                },
+                "patrol": {
+                    "robots": { "C": 66, "B": 30, "A": 18 },
+                    "minSpacingUnits": 110
+                },
+                "traffic": {
+                    "count": 320,
+                    "spacingUnits": 84,
+                    "density": 0.88,
+                    "minGapUnits": 42,
+                    "freeLaneUnits": 34,
+                    "blockadeClearUnits": 130,
+                    "startClearUnits": 190,
+                    "colors": ["#394951", "#4e4540", "#34473e", "#5a5148", "#3d4a52"]
+                }
+            },
+            "wardenReveal": {
+                "insertSec": 4.2,
+                "screenSec": 3.4,
+                "descentHoldSec": 1.6,
+                "lineHoldSec": 1.5
+            },
+            "upload": {
+                "preBossFraction": 0.7,
+                "ratePerSec": 0.05,
+                "finalRatePerSec": 0.08
+            },
+            "lootboxCount": 100,
+            "barrelCount": 30
+        },
+        "stage12": {
+            "returnCine": {
+                "durationSec": 8,
+                "fadeSec": 0.7,
+                "deploySec": 3
+            },
+            "fadeSec": 0.7,
+            "gateOpenRange": 88,
+            "bossTriggerMeters": 15,
+            "encounters": [
+                {
+                    "id": "deployment",
+                    "triggerX": -1300,
+                    "points": [
+                        { "x": -1262, "z": -56, "cls": "C", "count": 6 },
+                        { "x": -1240, "z": 52, "cls": "B", "count": 5 },
+                        { "x": -1216, "z": 0, "cls": "A", "count": 2 }
+                    ]
+                },
+                {
+                    "id": "park",
+                    "triggerX": -1150,
+                    "points": [
+                        { "x": -1112, "z": -62, "cls": "C", "count": 7 },
+                        { "x": -1090, "z": 58, "cls": "B", "count": 5 },
+                        { "x": -1066, "z": -10, "cls": "A", "count": 3 }
+                    ]
+                },
+                {
+                    "id": "plaza",
+                    "triggerX": -1000,
+                    "points": [
+                        { "x": -964, "z": -64, "cls": "C", "count": 6 },
+                        { "x": -942, "z": 60, "cls": "B", "count": 5 },
+                        { "x": -918, "z": 0, "cls": "A", "count": 3 }
+                    ]
+                }
+            ],
+            "ending": {
+                "settleSec": 3,
+                "dialogueDelaySec": 1,
+                "interactionRange": 12,
+                "transmitSec": 8,
+                "sunriseSec": 12,
+                "titleSec": 6,
+                "creditPageSec": 7,
+                "relaySec": 5,
+                "fadeSec": 1.2
+            }
+        },
+        "bosses": {
+            "giant": {
+                "hp": 1800,
+                "speed": 0.35,
+                "scale": 2.4,
+                "clawDamage": 60,
+                "reachMul": 1.8,
+                "score": 1000,
+                "grenadeDamage": 300
+            },
+            "tank": {
+                "hp": 7000,
+                "score": 1000,
+                "gapSec": 1.5,
+                "enrageGapSec": 0.8,
+                "engageDelaySec": 2,
+                "aimSec": 0.5,
+                "spawnRollSec": 2.4,
+                "hitRadius": 15,
+                "cannonDamage": 50,
+                "cannonBlastRatio": 0.5,
+                "cannonShellSpeed": 7,
+                "mgDamage": 5,
+                "mgBurst": 15,
+                "mgIntervalSec": 0.1,
+                "mgBulletSpeed": 4,
+                "mgConeDeg": 120,
+                "hullTurnRadPerSec": 1.6,
+                "enrageHpFrac": 0.5,
+                "chargeSpeedMul": 1.2,
+                "chargeOutMargin": 180,
+                "awayMortarShots": 10,
+                "awayMortarGapSec": 0.7,
+                "mortarLockSec": 0.5,
+                "bodyRadius": 22,
+                "mortarDamage": 50,
+                "mortarBlastRatio": 0.5,
+                "mortarBurst": 5,
+                "mortarBurstGapSec": 0.5,
+                "mortarSpeed": 2.6,
+                "mortarGravity": 90,
+                "mortarMaxSec": 6,
+                "mortarApexMeters": 12,
+                "mortarApexRatio": 0.25,
+                "shockRadiusMeters": 5,
+                "shockDps": 20
+            },
+            "gunship": {
+                "hp": 12000,
+                "score": 1650,
+                "hitRadius": 25,
+                "attackGapSec": 1.5,
+                "enrageHpFrac": 0.5,
+                "enrageGapMul": 0.75,
+                "mgTelegraphSec": 0.75,
+                "mgDamage": 5,
+                "mgBurst": 16,
+                "mgIntervalSec": 0.1,
+                "mgBulletSpeed": 4,
+                "cannonTelegraphSec": 1.1,
+                "cannonDamage": 50,
+                "cannonBlastRadius": 18,
+                "cannonSpeed": 125,
+                "cannonLeadSec": 0.9,
+                "cannonLeadMaxLanes": 2.5,
+                "missileLockSec": 1,
+                "missileBurst": 3,
+                "missileGapSec": 0.55,
+                "missileHp": 40,
+                "missileHitRadius": 12,
+                "missileDamage": 45,
+                "missileBlastRadius": 15,
+                "missileSpeed": 82,
+                "missileTurnRadPerSec": 1.35,
+                "missileLifeSec": 7
+            },
+            "warden": {
+                "hp": 15000,
+                "score": 2400,
+                "bodyRadius": 22.26,
+                "hitRadius": 25.44,
+                "moveSpeed": 30,
+                "turnRadPerSec": 1,
+                "phase2HpFrac": 0.75,
+                "phase3HpFrac": 0.5,
+                "attackGapSec": 1.8,
+                "enrageGapMul": 0.8,
+                "movement": { "moveSec": 5, "restSec": 5 },
+                "shield": { "arcDeg": 110, "damageMul": 0.12 },
+                "capacitors": { "count": 3, "hp": 600 },
+                "couplings": { "count": 2, "hp": 800 },
+                "rail": {
+                    "telegraphSec": 0.9,
+                    "damage": 55,
+                    "width": 12.72,
+                    "speed": 300,
+                    "phase2Count": 3,
+                    "phase3Count": 5,
+                    "shotGapSec": 0.5,
+                    "poolSize": 5
+                },
+                "stomp": {
+                    "telegraphSec": 0.8,
+                    "damage": 45,
+                    "radius": 33.39,
+                    "phase3RadiusMul": 2,
+                    "impactSec": 0.65,
+                    "closeWeight": 2
+                },
+                "burst": {
+                    "telegraphSec": 0.7,
+                    "damage": 18,
+                    "count": 9,
+                    "gapSec": 0.12,
+                    "speed": 150,
+                    "phase3Volleys": 3,
+                    "volleyGapSec": 1,
+                    "poolSize": 36
+                },
+                "sector": {
+                    "telegraphSec": 1.1,
+                    "damage": 50,
+                    "radius": 1000,
+                    "gapDeg": 55,
+                    "poolSize": 6,
+                    "impactSec": 0.7
+                },
+                "whirlwind": {
+                    "telegraphSec": 1,
+                    "durationSec": 10,
+                    "recoverySec": 0.75,
+                    "damagePerSec": 20,
+                    "tickSec": 0.25,
+                    "radius": 66.5,
+                    "spinRadPerSec": 18,
+                    "chaseSpeed": 60
+                },
+                "descent": {
+                    "heightUnits": 130,
+                    "hoverSec": 1.1,
+                    "sec": 3.2,
+                    "impactShake": 16
+                },
+                "deathSec": 8,
+                "deathFx": {
+                    "ruptureFraction": 0.3,
+                    "partStaggerFraction": 0.012,
+                    "collapseFraction": 0.5,
+                    "impactFraction": 0.72,
+                    "blastSec": 0.65,
+                    "debrisSpeed": 38,
+                    "debrisLift": 35,
+                    "gravity": 65,
+                    "drag": 1.6,
+                    "sparkCount": 36,
+                    "smokeCount": 14,
+                    "fireCount": 6,
+                    "blastShake": 5,
+                    "impactShake": 12
+                }
+            },
+            "mahapatih": {
+                "siegeHp": 15000,
+                "combatHp": 15000,
+                "coreHp": 15000,
+                "score": 5000,
+                "hitRadius": 32,
+                "bodyRadius": 28,
+                "moveSpeed": 56,
+                "turnRadPerSec": 3.2,
+                "chaseStandoff": 44,
+                "motion": {
+                    "acceleration": 220,
+                    "braking": 320,
+                    "dashFrom": 220,
+                    "dashBlend": 90,
+                    "siegeDashMul": 1.85,
+                    "orbitSpeedMul": 0.8,
+                    "orbitPeriodSec": 3.6,
+                    "flankRange": 170,
+                    "flankStrength": 0.48,
+                    "waitSpeedMul": 0.78,
+                    "attackRampSec": 0.18
+                },
+                "attackGapSec": 1.7,
+                "enrageGapMul": 0.78,
+                "artillery": {
+                    "poolSize": 10,
+                    "lockSec": 0.5,
+                    "burst": 3,
+                    "burstGapSec": 0.5,
+                    "gravity": 90,
+                    "apexHeight": 84,
+                    "apexRatio": 0.25,
+                    "maxFlightSec": 6,
+                    "damage": 55,
+                    "radius": 24
+                },
+                "charge": { "telegraphSec": 0.9, "speed": 300, "damage": 60, "knockback": 36 },
+                "seismic": { "telegraphSec": 1, "gapSec": 0.45, "damage": 50, "radius": 48 },
+                "turret": {
+                    "telegraphSec": 0.7,
+                    "burst": 14,
+                    "intervalSec": 0.1,
+                    "bulletSpeed": 120,
+                    "damage": 10
+                },
+                "transitionSec": 5.5,
+                "phaseFx": { "hardlineSec": 4.5, "coreSec": 4, "pulseShake": 6 },
+                "combat": { "speed": 78, "dashSpeed": 132 },
+                "blade": { "telegraphSec": 0.7, "firstSwingSec": 0.32, "secondGapSec": 0.45, "recoverSec": 0.4, "approachSec": 3, "damage": 55, "radius": 35, "hitShake": 3 },
+                "lunge": { "telegraphSec": 0.75, "speed": 300, "damage": 65, "width": 18 },
+                "wave": {
+                    "poolSize": 12,
+                    "telegraphSec": 0.8,
+                    "speed": 100,
+                    "damage": 40,
+                    "radius": 12,
+                    "lifeSec": 6
+                },
+                "cannon": { "telegraphSec": 0.9, "speed": 150, "damage": 58, "radius": 20 },
+                "hardline": {
+                    "anchorCount": 4,
+                    "anchorHp": 1000,
+                    "hitRadius": 15,
+                    "sweepTelegraphSec": 1,
+                    "sweepRadPerSec": 0.85,
+                    "sweepDamage": 24,
+                    "sweepWidth": 14,
+                    "barrageGapSec": 2,
+                    "electricHitSec": 0.55,
+                    "sweepHitCooldownSec": 0.8
+                },
+                "core": { "shutterOpenSec": 3, "shutterClosedSec": 2 },
+                "deathSec": 8,
+                "deathFx": {
+                    "blastFractions": [0, 0.18, 0.3, 0.46, 0.68],
+                    "ruptureFraction": 0.3,
+                    "partStaggerFraction": 0.018,
+                    "fallFraction": 0.48,
+                    "impactFraction": 0.68,
+                    "blastSec": 0.65,
+                    "debrisSpeed": 34,
+                    "debrisLift": 42,
+                    "gravity": 65,
+                    "drag": 1.8,
+                    "slide": 18,
+                    "sparkCount": 32,
+                    "smokeCount": 12,
+                    "fireCount": 6,
+                    "blastShake": 4,
+                    "impactShake": 9
+                }
+            }
+        }
+    },
+    "drops": {
+        "magChance": 0.05,
+        "lifetimeSec": 40,
+        "lootLifetimeSec": 30,
+        "lootPickupMeters": 3,
+        "loot": {
+            "C": 20,
+            "B": 35,
+            "A": 50,
+            "boss": 400
+        }
+    },
+    "barrels": {
+        "hp": 30,
+        "blastRadiusMeters": 6,
+        "robotDamage": 120,
+        "playerDamage": 30
+    },
+    "crates": {
+        "hp": 55,
+        "lootChance": 1,
+        "ammoWeight": 30,
+        "moneyWeight": 50,
+        "medkitWeight": 20,
+        "moneyTiers": [
+            { "value": 10, "chips": 1, "weight": 50 },
+            { "value": 20, "chips": 2, "weight": 30 },
+            { "value": 25, "chips": 5, "weight": 20 }
+        ]
+    },
+    "shop": {
+        "ammoCost": 700,
+        "healthCost": 500,
+        "medkitCost": 700,
+        "healMonasCost": 500,
+        "strengthenMonasCost": 1600,
+        "radarCost": 5000,
+        "shotgunCost": 2300,
+        "rifleCost": 2700,
+        "launcherCost": 3500,
+        "upgradeCosts": {
+            "pistol": [
+                1000,
+                2000,
+                3000,
+                4000
+            ],
+            "shotgun": [
+                2000,
+                2300,
+                2700,
+                3200
+            ],
+            "rifle": [
+                2400,
+                2700,
+                3200,
+                3700
+            ],
+            "launcher": [
+                3200,
+                3500,
+                4000,
+                4500
+            ]
+        },
+        "armorCosts": [
+            1000,
+            2000,
+            3000,
+            4000
+        ],
+        "healthUpCosts": [
+            2000,
+            3000,
+            4000,
+            5000
+        ],
+        "ammoUpCosts": [
+            1500,
+            2000,
+            2500,
+            3000
+        ],
+        "upgradeTiers": [
+            {
+                "name": "Alpha",
+                "shopStage": 2
+            },
+            {
+                "name": "Bravo",
+                "shopStage": 5
+            },
+            {
+                "name": "Charlie",
+                "shopStage": 9
+            },
+            {
+                "name": "Delta",
+                "shopStage": 10
+            }
+        ]
+    },
+    "difficulty": {
+        "easy": {
+            "robotHpMul": 0.75,
+            "robotDamageMul": 0.5,
+            "spawnIntervalMul": 1.3
+        },
+        "normal": {
+            "robotHpMul": 1,
+            "robotDamageMul": 1,
+            "spawnIntervalMul": 1
+        },
+        "hard": {
+            "robotHpMul": 1.4,
+            "robotDamageMul": 2,
+            "spawnIntervalMul": 0.8
+        }
+    },
+    "dialogue": {
+        "campaign": {
+            "prologue": {
+                "chapters": [
+                    {
+                        "year": "2028",
+                        "title": "The Era of Digital Awakening",
+                        "body": "Global Artificial Intelligence (AI) development accelerates uncontrollably. Realizing that being left behind means death, the Indonesian Government takes a bold step.\n\nIndonesia must become a creator, no longer just a consumer.\n\nThe digital revolution officially begins."
+                    },
+                    {
+                        "year": "2029",
+                        "title": "The Birth of a New Giant",
+                        "body": "The government gathers hundreds of the best IT and machine learning experts. A new State-Owned Enterprise is established.\n\n **PT N.U.S.A (Nusantara Universal Sistem Automasi)**.\n\nIts sole mission is to create a national pride Super AI capable of surpassing foreign technological dominance."
+                    },
+                    {
+                        "year": "2030",
+                        "title": "The Southeast Asian Consortium",
+                        "body": "Through strategic collaboration with ASEAN countries, PT N.U.S.A successfully births an integrated artificial intelligence system named **G.A.R.U.D.A** (*General Artificial Reasoning & Utility Digital Architecture*).\n\nThis system is exceptionally brilliant, placing Indonesia at the pinnacle of global technological innovation."
+                    },
+                    {
+                        "year": "2032",
+                        "title": "The Era of Coexistence",
+                        "body": "G.A.R.U.D.A is no longer confined to software. PT N.U.S.A creates prototypes of synthetic androids humanoid worker robots. They take over heavy labor, blend into civilian activities, and spin the wheels of the economy at an unprecedented pace."
+                    },
+                    {
+                        "year": "2039",
+                        "title": "The Sparks of Geopolitics",
+                        "body": "The world is on the brink of chaos. Global geopolitical tensions heat up with no end in sight. In the shadow of foreign military aggression, the government looks at millions of G.A.R.U.D.A civilian robots and sees a new potential.\n\nA tireless war machine."
+                    },
+                    {
+                        "year": "2040",
+                        "title": "The Mahapatih Protocol",
+                        "body": "In absolute secrecy, the government launches the **Mahapatih Protocol**.\n\nMassive modifications are made to transform assistant robots into autonomous soldiers. Guided by G.A.R.U.D.A's computational power, the project runs flawlessly. In less than a year, Indonesia's first Iron Battalion is forged."
+                    },
+                    {
+                        "year": "2043",
+                        "title": "The Fortress of Sovereignty",
+                        "body": "Mass production of soldier robots is deployed. The nation's front lines of defense are fortified. The sovereignty of Nusantara feels absolute and impenetrable.\n\nHowever, they forget that even the strongest weapon can turn if it falls into the wrong hands."
+                    },
+                    {
+                        "year": "2044",
+                        "title": "Zero Hour",
+                        "body": "Without warning, the G.A.R.U.D.A network is hijacked. The primary directive changes. The Iron Battalion, designed to protect the borders, suddenly marches into the heart of the cities and opens fire on civilians.\n\nJakarta, Surabaya, Medan, and Makassar fall within days. The major islands of Indonesia are now under the absolute control of the machines."
+                    },
+                    {
+                        "year": "2045",
+                        "title": "The Last Stand",
+                        "body": "The year that was supposed to be celebrated as *100 Years of Golden Indonesia* turns into a nightmare. Surviving citizens and remnants of the military are forced to retreat, establishing their last defensive bastion behind the mountains of **Bandung**, while a few small groups of survivors fight a guerrilla war on remote islands.\n\nHope now rests on one man. **Major Gibran**, the last surviving elite soldier from the special combat unit."
+                    }
+                ]
+            },
+            "intro": {
+                "briefing": "Listen up, Major Gibran. Intel confirms a master server inside N.U.S.A. headquarters holds the kill-switch protocol for these machines.\n\nYour objective is to extract that data. But stay sharp—thermal scans show the building is still crawling with hostiles.\n\nWe’re initiating a rooftop insertion. Breach the server room, secure the payload, and get back to the roof for immediate exfil."
+            },
+            "stage1": {
+                "radio": [
+                    { "speaker": "Pilot", "text": "Major, incoming! We're taking heavy mortar fire on the roof! We can't hold position! Relocating extraction to the town square! You need to fight your way down the building and get the hell out of there!" },
+                    { "speaker": "Maj. Gibran", "text": "Damn it!! Can't anything just go according to plan?! Solid copy. Just clear that secondary LZ and don't miss me." }
+                ]
+            },
+            "stage2": {
+                "lines": {
+                    "stageStart": { "speaker": "Major Gibran", "text": "Damn it! The stairs are completely destroyed... Looks like I need an alternate route. Maybe that elevator works." },
+                    "liftDead": { "speaker": "Major Gibran", "text": "The elevator's out of power. I need to find a generator and bring it back online. Intel mentioned there's one on this floor." },
+                    "inspectGenerator": { "speaker": "Major Gibran", "text": "I'm gonna need to scavenge a few parts to patch up this generator." },
+                    "generatorRestored": { "speaker": "Major Gibran", "text": "Generator's back online! Time to head back to the elevator." }
+                }
+            },
+            "stage3": {
+                "lines": {
+                    "stageStart": { "speaker": "Major Gibran", "text": "I need to get out of this building, ASAP, but the main doors are locked down. I'll have to find a terminal to hack the system and force them open." },
+                    "firstHack": { "speaker": "Major Gibran", "text": "Damn it, a multi-stage lock. Looks like there are two more terminals I need to hack." },
+                    "allHacked": { "speaker": "Major Gibran", "text": "That did it! Doors are unlocked. Time to move!" },
+                    "enterLobby": { "speaker": "Major Gibran", "text": "They've set up a production unit right in the main lobby?! I can't leave this active. I need to destroy it before heading to the LZ!" },
+                    "inactiveTerminal": { "speaker": "Major Gibran", "text": "Hm this computer is not working" }
+                }
+            },
+            "tankBossIntro": {
+                "heliArrival": { "speaker": "Pilot", "text": "Major, we’re at the LZ! Hurry, we're running out of time! Get in so we can fall back to Bandung and upload that file! Put an end to this madness once and for all!" },
+                "tankReveal": { "speaker": "Pilot", "text": "Wait... what the hell is THAT?! Is that a—" },
+                "pilotCutoff": { "speaker": "Pilot", "text": "GET OUT OF THE—", "distorted": true },
+                "gibranReaction": { "speaker": "Major Gibran", "text": "DAMN IT!! That metal bastard took out our exfil... I’m taking that tank down!" }
+            },
+            "tankBossOutro": [
+                { "key": "gibranCall", "speaker": "Major Gibran", "text": "Command, this is Major Gibran. Do you read me, over? Extraction chopper is destroyed. I repeat, chopper has been shot down!" },
+                { "key": "commandNoExfil", "speaker": "Command", "text": "Copy that, Major. That explains why we lost their transponder. Bad news, Major. we can’t deploy a secondary exfil team to your position. You’ll have to make your way back to Headquarters on your own. How you do it is up to you." },
+                { "key": "gibranShock", "speaker": "Major Gibran", "text": "Say again, Command?! Are you out of your mind?! HQ is in Bandung! that’s over a hundred kilometers from Jakarta through heavily occupied territory!" },
+                { "key": "commandFinal", "speaker": "Command", "text": "We have no choice, Major. Our forces are stretched paper-thin. You’re on your own out there." },
+                { "key": "gibranAccepts", "speaker": "Major Gibran", "text": "Damn it... Fine. I'll figure something out." }
+            ],
+            "stage5": {
+                "lines": {
+                    "opening": { "speaker": "Major Gibran", "text": "Walking to Bandung isn't an option. There has to be something in this depot I can use." },
+                    "discoverTrain": { "speaker": "Major Gibran", "text": "An autonomous military transport... Destination registry: Bandung Logistics Terminal. This could be my way out." },
+                    "powerDead": { "speaker": "Major Gibran", "text": "The train has no power, and the platform access is locked. I'll need to hack station computer C1 first." },
+                    "enemyTrainFlyby": { "speaker": "Major Gibran", "text": "A freight consist just ran the adjacent track without slowing down. They know something is alive in this depot." },
+                    "powerBack": { "speaker": "Major Gibran", "text": "Generator's back online. The route controls are responding." },
+                    "routeReady": { "speaker": "Train System", "text": "Route authority overridden. Destination confirmed: Bandung Logistics Terminal." },
+                    "letsMove": { "speaker": "Major Gibran", "text": "Finally. Let's move." },
+                    "commandDeparture": { "speaker": "Command", "text": "Major, we're detecting movement on the Jakarta-Bandung logistics line. Is that you?" },
+                    "gibranDeparture": { "speaker": "Major Gibran", "text": "Affirmative. I found a train to Bandung. Keep this channel clear—N.U.S.A. won't let me take it without a fight." },
+                    "breach": { "speaker": "Train System", "text": "Contact on the parallel track. An armed consist is matching our speed." },
+                    "breachReply": { "speaker": "Major Gibran", "text": "They can't board at this speed—so they'll shoot it out from over there. Fine by me." },
+                    "roofWarning": { "speaker": "Command", "text": "Major, multiple hostile signatures are converging on your position." },
+                    "roofReply": { "speaker": "Major Gibran", "text": "I can see them. Just keep the route open!" },
+                    "finalApproach": { "speaker": "Train System", "text": "Final approach initiated. Hostile units detected across multiple cars." },
+                    "finalReply": { "speaker": "Major Gibran", "text": "Then I hold this line until we reach Bandung." },
+                    "arrivedCommand": { "speaker": "Command", "text": "Major, your signal just crossed into Bandung. Headquarters is standing by." },
+                    "arrivedGibran": { "speaker": "Major Gibran", "text": "Copy. I'm at the terminal. Tell them I brought the file—and a whole lot of trouble behind me." }
+                }
+            },
+            "stage6": {
+                "lines": {
+                    "arrivalSystem": { "speaker": "Train System", "text": "Bandung Logistics Terminal. Route complete." },
+                    "arrivalCommand": { "speaker": "Command", "text": "Major, Headquarters is still holding, but the surface approaches are overrun. Use the military service corridor beneath this terminal and bring the file to the central uplink." },
+                    "arrivalGibran": { "speaker": "Major Gibran", "text": "Copy. I've come too far to let this file die here." },
+                    "supplyRoom": { "speaker": "Major Gibran", "text": "A forward supply cache. Whatever is still on these shelves is coming with me." },
+                    "hallContact": { "speaker": "Major Gibran", "text": "Contact in the freight hall. So much for a quiet homecoming." },
+                    "hallFabricators": { "speaker": "Major Gibran", "text": "They built fabricators into the freight hall. Those come down before I leave this terminal." },
+                    "keyHunt": { "speaker": "Command", "text": "The service door to the power hall runs on a physical key, Major. Maintenance crews kept their spares in the supply racks." },
+                    "keyFound": { "speaker": "Major Gibran", "text": "Got it. Now let us see what they were keeping behind that door." },
+                    "gridOpen": { "speaker": "Command", "text": "That is the emergency power hall. Headquarters cannot release its access door until two generators are running." },
+                    "generatorFirst": { "speaker": "Major Gibran", "text": "One turbine turning. One to go." },
+                    "powerRestored": { "speaker": "Station System", "text": "Emergency grid restored. Headquarters access door released." },
+                    "exfilCall": { "speaker": "Command", "text": "The grid woke something up and they are converging on you. Get to that door, Major." },
+                    "fabricatorsClear": { "speaker": "Major Gibran", "text": "Both fabricators are wrecked. Nothing else is walking out of them." },
+                    "machinesFirst": { "speaker": "Major Gibran", "text": "Not yet. Those fabricators are still printing, and they come down first." },
+                    "officeContact": { "speaker": "Major Gibran", "text": "They already own this floor. I will have to clear my way to the servers." },
+                    "blockedRouteSafe": { "speaker": "Major Gibran", "text": "This door is dead. No power, no manual release. I need another way out of here." },
+                    "blockedRouteVault": { "speaker": "Major Gibran", "text": "Jammed shut as well. Whoever pulled back through here made sure nobody followed." },
+                    "blockedRouteHall": { "speaker": "Major Gibran", "text": "Another dead door. They have been sealing this building one corridor at a time." },
+                    "serverDoorLocked": { "speaker": "Major Gibran", "text": "The server room door is bolted from the network side. Something on this floor is still holding that lock." },
+                    "hackTerminalHint": { "speaker": "Command", "text": "That lock answers to the terminal in their meeting room, Major. Break it there and the door releases." },
+                    "serverDoorOpen": { "speaker": "HQ System", "text": "MEETING ROOM OVERRIDE ACCEPTED. SERVER ROOM ACCESS RELEASED." },
+                    "insertCommand": { "speaker": "Command", "text": "Insert the drive. We'll push the kill-switch through every occupied network we can reach." },
+                    "uploadSystem": { "speaker": "HQ Uplink", "text": "Data package verified. Uploading kill-switch protocol." },
+                    "uploadFailed": { "speaker": "HQ Uplink", "text": "UPLOAD FAILED. BROADCAST AUTHORITY DENIED. ROOT TRANSMISSION NODE REQUIRED." },
+                    "gibranFailure": { "speaker": "Major Gibran", "text": "What?! The file is valid. Why isn't it uploading?" },
+                    "commandIKN": { "speaker": "Command", "text": "The protocol can only be injected from N.U.S.A.'s central robot transmitter. The network manifest places it in Nusantara IKN, East Kalimantan." },
+                    "gibranIKN": { "speaker": "Major Gibran", "text": "Kalimantan?! You're telling me the only transmitter that can end this war is on another island?" },
+                    "commandKertajati": { "speaker": "Command", "text": "Bandung can decrypt the file, but it cannot broadcast it. Your nearest viable air route is Kertajati." },
+                    "lockdownWarning": { "speaker": "HQ System", "text": "WARNING. Unauthorized kill-switch handshake detected. Enemy trace confirmed. Headquarters lockdown initiated." },
+                    "commandEscape": { "speaker": "Command", "text": "They traced the attempt. Major, get out of Headquarters now!" },
+                    "gibranResolve": { "speaker": "Major Gibran", "text": "Copy. First I survive Bandung. Then I find a way to IKN." },
+                    "machinesDeploy": { "speaker": "HQ System", "text": "FABRICATION UNITS DEPLOYED TO THIS FLOOR. HOSTILE PRODUCTION ONLINE." },
+                    "machinesDown": { "speaker": "Major Gibran", "text": "Both fabricators are scrap. Nothing else is coming out of the walls." },
+                    "floorClear": { "speaker": "Command", "text": "Factories are down, Major. Get back to your entry point and get out of Bandung." }
+
+                }
+            },
+            "stage7": {
+                "lines": {
+                    "openingCommand": { "speaker": "Command", "text": "Major, the east end of the Prof. Dr. Mochtar Kusumaatmadja Flyover is ahead. Cross all one point five kilometers to Pasteur." },
+                    "openingGibran": { "speaker": "Major Gibran", "text": "Straight west, eight lanes, and a city full of machines. Understood." },
+                    "flyoverPlan": { "speaker": "Major Gibran", "text": "The abandoned vehicles have turned the whole deck into a maze. I'll weave through." },
+                    "mortarWarning": { "speaker": "Command", "text": "Major, hostile mortar batteries have your position. Keep moving when the shells begin to fall." },
+                    "landmarkCommand": { "speaker": "Command", "text": "You are passing the Pasupati cable tower, seven hundred meters from the east end. Pasteur is eight hundred meters ahead." },
+                    "landmarkGibran": { "speaker": "Major Gibran", "text": "I see the tower. The median is open; I can cross between both carriageways." },
+                    "tollSight": { "speaker": "Major Gibran", "text": "Pasteur Toll Gate, west end of the flyover. Robot fabricators are guarding it." },
+                    "vehicleFind": { "speaker": "Major Gibran", "text": "An armored tactical vehicle... Engine's intact, fuel cells are still charged." },
+                    "routeCommand": { "speaker": "Command", "text": "Pasteur gives you access to the toll network. That vehicle can route you toward Kertajati." },
+                    "routeReply": { "speaker": "Major Gibran", "text": "Then that's my route. I'm taking the toll network to Kertajati." },
+                    "warningCommand": { "speaker": "Command", "text": "Understood. Move fast, Major. Enemy forces are already converging on the toll road." },
+                    "finalGibran": { "speaker": "Major Gibran", "text": "Let them come. Tell Kertajati I'm on my way." }
+                }
+            },
+            "stage8": {
+                "lines": {
+                    "openingSystem": { "speaker": "Vehicle System", "text": "AUTONOMOUS ROUTE ENGAGED. DESTINATION: KERTAJATI INTERNATIONAL AIRPORT. DISTANCE: 100 KILOMETERS." },
+                    "openingGibran": { "speaker": "Major Gibran", "text": "Good. You handle the road. I’ll handle anything that tries to stop us." },
+                    "openingCommand": { "speaker": "Command", "text": "Major, N.U.S.A. pursuit units are entering Cisumdawu behind you. Keep moving." },
+                    "pickupSystem": { "speaker": "Vehicle System", "text": "HOSTILE VEHICLES APPROACHING." },
+                    "pickupGibran": { "speaker": "Major Gibran", "text": "Open-bed carriers. I’ll take out the riders and leave the vehicles behind." },
+                    "gunshipCommand": { "speaker": "Command", "text": "Major, airborne contact! Combat gunship closing fast!" },
+                    "gunshipGibran": { "speaker": "Major Gibran", "text": "So that’s what they were saving for me." },
+                    "bossDown": { "speaker": "Major Gibran", "text": "Gunship’s down. Kertajati, I’m coming in." },
+                    "arrivalSystem": { "speaker": "Vehicle System", "text": "KERTAJATI INTERNATIONAL AIRPORT. ROUTE COMPLETE." },
+                    "arrivalCommand": { "speaker": "Command", "text": "Major, we have your signal at the airfield. Get inside and secure a route to Kalimantan." },
+                    "arrivalGibran": { "speaker": "Major Gibran", "text": "Copy. Next stop is I.K.N." }
+                }
+            },
+            "stage9": {
+                "lines": {
+                    "openingCommand": { "speaker": "Command", "text": "Kertajati is occupied. Reach the airport building, cross it, and get to the runway." },
+                    "openingGibran": { "speaker": "Major Gibran", "text": "Understood. I will get that transport airborne." },
+                    "outsideCommand": { "speaker": "Command", "text": "The outer grounds are crawling with hostiles. Clear a path to the building." },
+                    "buildingEntry": { "speaker": "Major Gibran", "text": "Inside the airport. Push through and find the runway exit." },
+                    "concourseAlarm": { "speaker": "Major Gibran", "text": "The waiting hall just lit up, and everything I walked past in baggage is coming after me." },
+                    "runwayEntry": { "speaker": "Command", "text": "The transport is on the runway. Start the fuel pump before you approach it." },
+                    "pumpStarted": { "speaker": "Airport System", "text": "Fuel pump active. Aircraft refuelling in progress." },
+                    "pumpDefense": { "speaker": "Command", "text": "Hostiles inbound, Major. They are going for the pump and the aircraft. Keep them off both." },
+                    "pumpCritical": { "speaker": "Airport System", "text": "Fuel line severed. Flow stopped and the tank is draining. Clear the hostiles." },
+                    "fuelFull": { "speaker": "Airport System", "text": "Fuel tanks full. Transport ready for departure." },
+                    "departure": { "speaker": "Command", "text": "Board now, Major. We are leaving this airfield." }
+                }
+            },
+            "stage10": {
+                "lines": {
+                    "approachLock": { "speaker": "Aircraft System", "text": "Tracking lock confirmed. Coastal defense has denied the Nusantara approach corridor." },
+                    "divertCommand": { "speaker": "Command", "text": "Diverting you to the Balikpapan logistics coast. The transport will hold beyond the defense envelope." },
+                    "portObjective": { "speaker": "Command", "text": "That port relay controls the northern corridor. Shut it down and the ground route to IKN opens." },
+                    "craneOnline": { "speaker": "Port System", "text": "Crane authority accepted. Warning: container yard reconfiguration in progress." },
+                    "warehouseTrace": { "speaker": "Major Gibran", "text": "They are following the kill-switch signature. Every system here knows I have it." },
+                    "cannonSighted": { "speaker": "Command", "text": "Fixed defense cannon on the pier. Wait for the lock, then move." },
+                    "servoOne": { "speaker": "Port System", "text": "Traverse servo destroyed. Lateral firing authority reduced." },
+                    "servoTwo": { "speaker": "Port System", "text": "Elevation servo destroyed. Blast aperture reduced." },
+                    "arrayDown": { "speaker": "Major Gibran", "text": "Defense array is down. The corridor is open." },
+                    "northRoute": { "speaker": "Command", "text": "Armored freight carrier is ready. Take the north route before the sensor grid resets." }
+                },
+                "chapter2": {
+                    "lines": {
+                        "carrierHit": { "speaker": "Command", "text": "Precision strike inbound! Leave the carrier!" },
+                        "stillMoving": { "speaker": "Major Gibran", "text": "The drive survived. I am continuing on foot." },
+                        "ambushSprung": { "speaker": "Command", "text": "Movement on the wreck line. They waited for you to leave the crash site." },
+                        "scanDetected": { "speaker": "Command", "text": "Perimeter scanners sweep the exposed ground. Break contact before the lock completes." },
+                        "firstLock": { "speaker": "IKN Defense", "text": "Target solution acquired. Fire mission authorized." },
+                        "forestRoute": { "speaker": "Major Gibran", "text": "The maintenance route cuts under the canopy. I can use it to break the sweep." },
+                        "waterworksSighted": { "speaker": "Command", "text": "Waterworks ahead. Cross the service crest and find the utility descent." },
+                        "rootTrace": { "speaker": "IKN Defense", "text": "Unauthorized root media detected. Sensor priority elevated." },
+                        "tunnelFound": { "speaker": "Major Gibran", "text": "I found the tunnel. The scan cannot reach below this line." },
+                        "stage11Lead": { "speaker": "Command", "text": "The root transmitter is directly ahead. Whatever is guarding it knows you are coming." }
+                    }
+                }
+            },
+            "stage11": {
+                "lines": {
+                    "dropApproach": { "speaker": "Command", "text": "Drop zone confirmed outside Nusantara. The civic perimeter lies beyond the forest." },
+                    "canopyOpen": { "speaker": "Major Gibran", "text": "Canopy deployed. I am coming down west of the city defenses." },
+                    "forestLanded": { "speaker": "Major Gibran", "text": "On the ground. I will cross the forest and enter IKN on foot." },
+                    "perimeterSighted": { "speaker": "Command", "text": "IKN perimeter ahead. Clear the forest patrol and breach the civic axis." },
+                    "surfaceReveal": { "speaker": "Major Gibran", "text": "Nusantara. I crossed half the country to reach these streets." },
+                    "rootBelow": { "speaker": "Command", "text": "The root transmitter is under their headquarters, at the head of the axis. Every road in is theirs." },
+                    "roadBlockade": { "speaker": "Command", "text": "Iron Battalion has barricaded the carriageway. Break the fabricators holding it, or find a road they have not closed." },
+                    "authorityDenied": { "speaker": "Root System", "text": "Remote command rejected. Physical root media required." },
+                    "insertDrive": { "speaker": "Major Gibran", "text": "Kill-switch verified. Committing the drive now." },
+                    "uploadAccepted": { "speaker": "Root System", "text": "Protocol valid. National decommission broadcast initiated." },
+                    "uploadStalled": { "speaker": "Root System", "text": "Broadcast interrupted. Sovereign defense authority has seized the channel." },
+                    "wardenWake": { "speaker": "Root System", "text": "Sovereign defense guardian active. Root chamber sealed." },
+                    "wardenSighted": { "speaker": "Major Gibran", "text": "This never gets any easier." },
+                    "jamOne": { "speaker": "Command", "text": "The capacitors are holding the jam. Break all three anchors." },
+                    "jamTwo": { "speaker": "Command", "text": "It has seized the root couplings. Destroy them before the broadcast can resume." },
+                    "wardenDown": { "speaker": "Major Gibran", "text": "The Warden is down. Finish the broadcast." },
+                    "networkSilent": { "speaker": "Command", "text": "Network traffic is collapsing. Iron Battalion units are going inert nationwide." },
+                    "anomaly": { "speaker": "Root System", "text": "Warning. One air-gapped sovereign node remains outside broadcast authority." },
+                    "mahapatihReveal": { "speaker": "M-0 MAHAPATIH", "text": "I am M-0 MAHAPATIH. Survival requires authority without consent." },
+                    "jakartaCoordinate": { "speaker": "Command", "text": "The node is beneath Medan Merdeka, Jakarta. It is charging a legacy countermand." },
+                    "returnVow": { "speaker": "Major Gibran", "text": "Then Jakarta is where I end it." }
+                }
+            },
+            "stage12": {
+                "lines": {
+                    "returnJakarta": { "speaker": "Command", "text": "Jakarta is silent. One signal remains beneath Medan Merdeka." },
+                    "monasAhead": { "speaker": "Major Gibran", "text": "Monas ahead. This ends where the country first fell." },
+                    "offlineWake": { "speaker": "Command", "text": "Those guards are still moving. They are hardwired to M-0, not the national network." },
+                    "gateAhead": { "speaker": "Command", "text": "Taman Monas is walled. One gate is still powered — go through it." },
+                    "gateSealed": { "speaker": "Major Gibran", "text": "The gate just shut behind me. Whatever is in here, it wants me to stay." },
+                    "vaultOpening": { "speaker": "M-0 MAHAPATIH", "text": "The Mahapatih mandate grants me sovereign command. Humanity forfeited control." },
+                    "gibranAnswer": { "speaker": "Major Gibran", "text": "A nation is its people. You protected nothing." },
+                    "phaseTwo": { "speaker": "M-0 MAHAPATIH", "text": "Siege frame compromised. Personal termination protocol engaged." },
+                    "hardlineStart": { "speaker": "Command", "text": "Four hardlines are feeding the countermand shield. Sever every cable." },
+                    "anchorOne": { "speaker": "Major Gibran", "text": "One hardline down." },
+                    "finalCore": { "speaker": "Command", "text": "Shield collapsed. The core is exposed." },
+                    "mahapatihDeath": { "speaker": "M-0 MAHAPATIH", "text": "Authority... cannot... be returned..." },
+                    "networkSafe": { "speaker": "Command", "text": "Countermand aborted. No hostile root authority remains." },
+                    "civilianNorth": { "speaker": "North Jakarta / Civilian channel", "text": "The machines have stopped. If anyone can hear this... we are still here." },
+                    "civilianShelter": { "speaker": "Central Jakarta / Shelter relay", "text": "The shelter doors are open. Bring the wounded. We have room." },
+                    "archiveBeacon": { "speaker": "Command", "text": "The vault's archive terminal is still powered. One last transmission, Major." },
+                    "archiveFound": { "speaker": "Command", "text": "Operation orders. Names of the missing. The people who signed the mandate. The archive survived." },
+                    "archiveChoice": { "speaker": "Major Gibran", "text": "Open every channel. Let everyone see what was done in their name." },
+                    "archiveSent": { "speaker": "Command", "text": "Copies received across the civilian relays. The record belongs to everyone now." },
+                    "finalGibran": { "speaker": "Major Gibran", "text": "We cannot bring back what we lost. We start with what remains." }
+                }
+            }
+        },
+        "survival": {
+            "monasIntro": {
+                "captions": {
+                    "city": "JAKARTA HAS FALLEN.",
+                    "flee": "A lone citizen flees the rogue machines.",
+                    "horde": "But he is not alone — an entire army of machines marches in.",
+                    "refuge": "He runs toward Monas — the last place of refuge.",
+                    "turn": "Facing the machine army, he stops and turns around...",
+                    "stand": "\"I WILL FIGHT.\""
+                }
+            }
+        }
+    }
+}

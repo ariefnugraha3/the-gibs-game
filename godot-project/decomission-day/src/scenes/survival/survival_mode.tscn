@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/scenes/survival/survival_mode.gd" id="1"]
+
+[node name="SurvivalMode" type="Node3D"]
+script = ExtResource("1")
